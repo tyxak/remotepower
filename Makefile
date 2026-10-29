@@ -29,6 +29,7 @@ LINT_SRC := server/cgi-bin/safe_opener.py \
             server/cgi-bin/notify.py \
             server/cgi-bin/checks.py \
             server/cgi-bin/posture_signals.py \
+            server/cgi-bin/drive_temp.py \
             server/cgi-bin/threat_evidence.py \
             server/cgi-bin/edge_evidence.py \
             server/cgi-bin/edge_blocklist.py \
@@ -54,6 +55,7 @@ TYPECHECK_SRC := server/cgi-bin/safe_opener.py \
                  server/cgi-bin/notify.py \
                  server/cgi-bin/checks.py \
                  server/cgi-bin/posture_signals.py \
+                 server/cgi-bin/drive_temp.py \
                  server/cgi-bin/logsig.py \
                  server/cgi-bin/threat_evidence.py \
                  server/cgi-bin/edge_evidence.py \

@@ -927,6 +927,7 @@ import notify as notify_mod    # notification-channel payload builders (pure)
 from textfmt import agree, plural  # noqa: E402, F401 — '3 hosts', never 'host(s)'; handler modules reach both as A.plural / A.agree
 import filebackup as filebackup_mod   # noqa: F401  v6.3.0: structured file-backup command gen (pure); A.filebackup_mod in backups_handlers
 import checks as checks_mod    # per-host Checks engine (pure)
+import drive_temp as drive_temp_mod   # v7.4.4 (#54): temperature lines for drives (pure)
 import query_engine   # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
 # Helpdesk tickets (bound-module pilot): exec'd as a PRIVATE module instance
 # rather than a cached `import`, because the test suite execs many api
@@ -10300,6 +10301,9 @@ def _alert_title(event, payload):
         lvl = (p.get('level') or ('critical' if event == 'metric_critical' else 'warning')).upper()
         if p.get('metric') == 'diskio' and p.get('target'):       # v7.4.3 (#49)
             return f'Disk {p["target"]} busy {lvl} on {name}: {notify_mod._num(p.get("value", "?"))}%'
+        if p.get('metric') == 'drivetemp' and p.get('target'):    # v7.4.4 (#54)
+            return (f'Drive {notify_mod.drive_phrase(p)} {lvl} on {name}: '
+                    f'{notify_mod._num(p.get("value", "?"))}°C')
         return f'{p.get("metric", "metric")} {lvl} on {name}: {p.get("value", "?")}'
     if event == 'snmp_unreachable':
         return f'SNMP unreachable: {name} ({p.get("host", "?")})'
@@ -15685,6 +15689,13 @@ def handle_device_metric_thresholds(dev_id):
                       for k in ('diskio_warn_percent', 'diskio_crit_percent')}
         for k, v in _fleet_dio.items():
             effective[k] = overrides.get(k, v)
+        # v7.4.4 (#54): the temperature lines for drives. Same shape: `defaults` carries the FLEET's lines
+        # (0 = none), and the host's own win. A drive's own lines are in `overrides`, under
+        # drivetemp_per_serial.
+        _fleet_dt = {k: (_gc[k] if drive_temp_mod.as_line(_gc.get(k)) is not None else 0)
+                     for k in drive_temp_mod.ALL_LINE_KEYS}
+        for k, v in _fleet_dt.items():
+            effective[k] = overrides.get(k, v)
         # v7.4.1 (#37): the NIC floors. `defaults` carries the FLEET's values (Settings →
         # Alert parameters), which is what a host with none of its own falls back to;
         # a drops floor of None means errors and drops are added, shown as null.
@@ -15695,7 +15706,7 @@ def handle_device_metric_thresholds(dev_id):
             'overrides': overrides,
             'effective': effective,
             'defaults':  dict(DEFAULT_METRIC_THRESHOLDS, nic_err_alert_min=_fleet_err,
-                              nic_drop_alert_min=_fleet_drop, **_fleet_dio),
+                              nic_drop_alert_min=_fleet_drop, **_fleet_dio, **_fleet_dt),
             # v6.4.2: sensors this device's operator has taken out of the
             # temperature picture (a dead/unconnected board pin). Kept OUT of
             # `overrides` so a DELETE — "reset my thresholds" — does not also
@@ -15726,7 +15737,8 @@ def handle_device_metric_thresholds(dev_id):
               'swap_warn_percent', 'swap_crit_percent', 'cpu_warn_load_ratio',
               'cpu_crit_load_ratio', 'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent',
               'temp_warn_celsius', 'temp_crit_celsius', 'mailq_warn_count', 'mailq_crit_count',
-              'nic_err_alert_min', 'nic_drop_alert_min', 'diskio_warn_percent', 'diskio_crit_percent'):
+              'nic_err_alert_min', 'nic_drop_alert_min', 'diskio_warn_percent', 'diskio_crit_percent'
+              ) + drive_temp_mod.ALL_LINE_KEYS:
         if k in body and body[k] is None:
             overrides.pop(k, None)
             del body[k]
@@ -15765,6 +15777,65 @@ def handle_device_metric_thresholds(dev_id):
                 # A fixed sentence, so the dashboard can translate it (see the server-messages gate).
                 respond(400, {'error': 'The disk busy lines must be a number from 1 to 99', 'field': k})
             overrides[k] = float(v)
+
+    # v7.4.4 (#54): temperature lines for drives on this host, a number of degrees from 1 to 150 (a bool
+    # is not one), for any drive or for one type. A warning line has to sit below the critical line of
+    # its pair once both are set.
+    for k in drive_temp_mod.ALL_LINE_KEYS:
+        if k in body:
+            v = drive_temp_mod.as_line(body[k])
+            if v is None:
+                # Fixed sentences, so the dashboard can translate them (see the server-messages gate).
+                respond(400, {'error': 'The drive temperature lines must be a number from 1 to 150', 'field': k})
+            overrides[k] = v
+    for m in ('',) + drive_temp_mod.MEDIA:
+        wk, ck = drive_temp_mod.line_keys(m)
+        if drive_temp_mod.inverted(overrides.get(wk), overrides.get(ck)):
+            respond(400, {'error': 'A drive temperature warning line must be below its critical line', 'field': wk})
+
+    # v7.4.4 (#54): lines for single drives, kept against the serial number. The body names the drives it
+    # changes: a drive with a null (or no number left in it) loses its lines, a number sets one, and a
+    # drive the body does not name keeps what it has, so setting one drive's lines never forgets another's.
+    if 'drivetemp_per_serial' in body:
+        raw = body['drivetemp_per_serial']
+        if not isinstance(raw, dict):
+            respond(400, {'error': 'drivetemp_per_serial must be an object of serial number to lines'})
+        kept = overrides.get('drivetemp_per_serial')
+        mine = dict(kept) if isinstance(kept, dict) else {}
+        for serial, entry in list(raw.items())[:drive_temp_mod.MAX_PER_HOST]:
+            serial = _sanitize_str(str(serial), 64).strip()
+            if not serial:
+                continue
+            if entry is None:
+                mine.pop(serial, None)
+                continue
+            if not isinstance(entry, dict):
+                respond(400, {'error': 'The lines of a drive must be an object with a warn and a crit line'})
+            cur = dict(mine[serial]) if isinstance(mine.get(serial), dict) else {}
+            for part in ('warn', 'crit'):
+                if part not in entry:
+                    continue
+                if entry[part] is None:
+                    cur.pop(part, None)
+                    continue
+                v = drive_temp_mod.as_line(entry[part])
+                if v is None:
+                    respond(400, {'error': 'The drive temperature lines must be a number from 1 to 150',
+                                  'field': 'drivetemp_per_serial'})
+                cur[part] = v
+            if drive_temp_mod.inverted(cur.get('warn'), cur.get('crit')):
+                respond(400, {'error': 'A drive temperature warning line must be below its critical line',
+                              'field': 'drivetemp_per_serial'})
+            if cur:
+                mine[serial] = cur
+            else:
+                mine.pop(serial, None)
+        if len(mine) > drive_temp_mod.MAX_PER_HOST:
+            respond(400, {'error': 'Too many drive lines for one host', 'limit': drive_temp_mod.MAX_PER_HOST})
+        if mine:
+            overrides['drivetemp_per_serial'] = mine
+        else:
+            overrides.pop('drivetemp_per_serial', None)
 
     # Load ratios (0.1 to 100 — 0.1 is "alert when even partially loaded")
     for k in ('cpu_warn_load_ratio', 'cpu_crit_load_ratio'):
@@ -21102,6 +21173,14 @@ _HEARTBEAT_PASSTHROUGH_FIELDS = {
     # OS, _device_os_family defaulted every host to Linux, and a Windows agent was
     # handed a setting it cannot honour.
     'os':               str,
+    # v7.4.4 (#54): the host's own lines, and a drive's own, are read AFTER the lock by
+    # _ingest_hardware(dev=saved_dev) -> _drive_temp_events. The read is indirect (through the helper),
+    # so the contract guard could not see it; without a row here every report was judged by the fleet's
+    # lines alone and a host's own and a drive's own lines did nothing.
+    'metric_thresholds': dict,
+    # v6.4.2: the sensors an operator ignored, read the same indirect way by _sensor_ignores(dev) in
+    # _ingest_hardware. It was missing from this table, so an ignored sensor still fired temp_high.
+    'sensor_ignores':   list,
 }
 
 
@@ -29027,6 +29106,8 @@ def handle_config_get():
     safe.setdefault('diskio_warn_percent', 0)          # v7.4.3: disk busy share → metric_warning (0 = off)
     safe.setdefault('diskio_crit_percent', 0)          # disk busy share → metric_critical (0 = off)
     safe.setdefault('diskio_sustain', 5)               # reports in a row over the line before it alerts
+    for _dt_key in drive_temp_mod.ALL_LINE_KEYS:       # v7.4.4 (#54): drive temperature lines (0 = none)
+        safe.setdefault(_dt_key, 0)
     safe.setdefault('offline_missed_polls', OFFLINE_MISSED_POLLS)             # offline after N missed polls
     safe.setdefault('laptop_offline_grace_hours', 0)  # v6.3.0: extra hours before a laptop-chassis host is offline-flagged (0 = same as servers)
     safe.setdefault('resolver_failures_before_alert', RESOLVER_HEALTH_CONFIRM)  # resolver_unhealthy confirm
@@ -30618,6 +30699,16 @@ def handle_config_save():
         ('diskio_warn_percent',       0,   100,    True),
         ('diskio_crit_percent',       0,   100,    True),
         ('diskio_sustain',            1,   60,     True),
+        # v7.4.4 (#54): temperature lines for drives, in degrees: for any drive and for each type. 0 keeps a
+        # line off, and nothing alerts until one is set.
+        ('drivetemp_warn_c',            0,   150,    True),
+        ('drivetemp_crit_c',            0,   150,    True),
+        ('drivetemp_hdd_warn_c',        0,   150,    True),
+        ('drivetemp_hdd_crit_c',        0,   150,    True),
+        ('drivetemp_ssd_warn_c',        0,   150,    True),
+        ('drivetemp_ssd_crit_c',        0,   150,    True),
+        ('drivetemp_nvme_warn_c',       0,   150,    True),
+        ('drivetemp_nvme_crit_c',       0,   150,    True),
         # Reachability — offline / resolver / IP-reputation confirm counts.
         ('offline_missed_polls',      1,   100,    True),
         ('laptop_offline_grace_hours', 0,  168,    True),   # v6.3.0 chassis-aware
@@ -30711,6 +30802,14 @@ def handle_config_save():
             if _iv < _lo or _iv > _hi:
                 respond(400, {'error': f'{_tk} must be {_lo}..{_hi}'})
             cfg[_tk] = _iv
+
+    # v7.4.4 (#54): a drive's warning line has to sit below the critical line of its pair.
+    if any(_k in body for _k in drive_temp_mod.ALL_LINE_KEYS):
+        for _m in ('',) + drive_temp_mod.MEDIA:
+            _wk, _ck = drive_temp_mod.line_keys(_m)
+            if drive_temp_mod.inverted(cfg.get(_wk), cfg.get(_ck)):
+                respond(400, {'error': 'A drive temperature warning line must be below its critical line',
+                              'field': _wk})
 
     # v6.2.2 batch 6: FLOAT thresholds. The int loop above coerces with int(),
     # which would truncate 0.5→0 — these need a SEPARATE float() path. Blank/None
@@ -45626,6 +45725,14 @@ def handle_device_hardware(dev_id):
     # held to (null when none is set; the critical line is null when only a warning line is). A disk the
     # operator named (#47) carries its name, found through the SMART entry of the same device.
     _dev_rec = device_get(dev_id) or {}
+    # v7.4.4 (#54): the temperature lines each drive is held to, the ones its own boxes inherit and the
+    # ones it has of its own, so the page can colour the reading and show what an empty box means.
+    _dt_host = _dev_rec.get('metric_thresholds')
+    _dt_host = _dt_host if isinstance(_dt_host, dict) else {}
+    _dt_cfg = _config_ro()
+    for _d in _smart:
+        if isinstance(_d, dict):
+            _d['lines'] = drive_temp_mod.view(_d, _dt_host.get('drivetemp_per_serial'), _dt_host, _dt_cfg)
     _io_hist = _entity_read_one(DISKIO_HIST_FILE, dev_id, {}) or {}
     _smart_of = {str(d.get('device') or ''): d for d in _smart if isinstance(d, dict)}
     _diskio = []
@@ -47758,6 +47865,12 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
                 v = d.get(k)
                 if isinstance(v, (int, float)) and -1 < v < 1e12:
                     entry[k] = int(v)
+            # v7.4.4 (#54): the kind of drive, for the temperature lines of a drive type. Only the three
+            # values the lines know; anything else is not kept, and the server tells an NVMe drive by
+            # its device name when an older agent says nothing.
+            _media = str(d.get('media') or '').strip().lower()
+            if _media in drive_temp_mod.MEDIA:
+                entry['media'] = _media
             # v3.14.0: SSD/NVMe wear (used %, 0–100).
             w = d.get('wear_pct')
             if isinstance(w, (int, float)) and 0 <= w <= 100:
@@ -47816,6 +47929,15 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
             }))
         rec['_smart_failed_devs'] = cur_failed
         rec['_smart_failed'] = bool(cur_failed)   # kept for back-compat
+        # v7.4.4 (#54): every drive against its own temperature lines. Only a report that carries a SMART
+        # list is judged, so a beat without one leaves every open alert as it was. Kept apart, so that a
+        # fault here cannot cost the report its SMART record.
+        try:
+            _dt_events, rec['_drive_temp'] = _drive_temp_events(
+                dev_id, dev_name, dev, disks, rec.get('_drive_temp'))
+            events.extend(_dt_events)
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] drive temperature check failed dev={dev_id}: {e}\n")
 
     # ── kernel / livepatch ───────────────────────────────────────
     if isinstance(body.get('kernel'), dict):
@@ -48398,6 +48520,80 @@ def _disk_label(names, d):
         return dev
     serial = str(d.get('serial') or '').strip()
     return f'{name} ({dev}, sn {serial})' if serial else f'{name} ({dev})'
+
+
+def _drive_temp_events(dev_id, dev_name, dev, disks, prev):
+    """Hold each drive of a hardware report to its temperature lines. v7.4.4 (#54).
+
+    Returns ([(event, payload), ...], state): the alerts to fire and what to keep for the next report.
+    The lines are the drive's own (in the host's metric thresholds, against its serial number), the
+    host's and the fleet's; drive_temp.py says which one wins. The alert is a metric_warning,
+    metric_critical or metric_recovered of kind 'drivetemp' with the serial as its target, so it follows
+    the drive when its letter changes, and mutes, maintenance windows and Needs attention treat it like
+    the other disk problems. The drive's name goes in `disk_name` and not in `label`: label is part of
+    an alert's identity, and renaming the drive would strand the alert that is open."""
+    cfg = _config_ro()
+    host = dev.get('metric_thresholds') if isinstance(dev, dict) else None
+    host = host if isinstance(host, dict) else {}
+    own = host.get('drivetemp_per_serial')
+    try:
+        buffer = float(cfg.get('metric_recovery_buffer', METRIC_RECOVERY_BUFFER))
+    except (TypeError, ValueError, OverflowError):
+        buffer = float(METRIC_RECOVERY_BUFFER)
+
+    def lines_of(d):
+        return drive_temp_mod.resolve(str(d.get('serial') or '').strip(), drive_temp_mod.media_of(d),
+                                      own, host, cfg)
+
+    raw, state = drive_temp_mod.step(prev, disks, lines_of, buffer)
+    names = _disk_names_for(dev_id)
+    holder = {'name': dev_name, 'group': dev.get('group', '') if isinstance(dev, dict) else ''}
+    out = []
+    for ev in raw:
+        d = ev['drive'] if isinstance(ev['drive'], dict) else {}
+        extra = {}
+        if d.get('device'):
+            extra['disk'] = d['device']
+        if d.get('serial'):
+            extra['serial'] = d['serial']
+        nm = _disk_name_of(names, d)
+        if nm:
+            extra['disk_name'] = nm
+        out.append(_metric_webhook_payload(ev['event'], dev_id, holder, 'drivetemp', ev['key'],
+                                           round(ev['value'], 1), ev['threshold'], extra))
+    return out, state
+
+
+def _drive_temp_items(dev_id, dev, rec, state):
+    """Needs-attention items for the drives that are over a temperature line. v7.4.4 (#54).
+
+    One item for each drive, of kind 'disk' so a mute or a maintenance window that holds the disk
+    problems (metric_warning, metric_critical) holds these too. The reading and the line come from the
+    latest SMART list and the lines as they are now; a drive that is no longer in the list, or has no
+    reading or line any more, is left out until the next report settles its state."""
+    smart = [d for d in (rec.get('smart') or []) if isinstance(d, dict)]
+    counts = drive_temp_mod.serial_counts(smart)
+    by_key = {drive_temp_mod.drive_key(d, counts): d for d in smart}
+    host = dev.get('metric_thresholds') if isinstance(dev, dict) else None
+    host = host if isinstance(host, dict) else {}
+    cfg = _config_ro()
+    names = _disk_names_for(dev_id)
+    items = []
+    for key, st in sorted(state.items()):
+        level = st.get('l') if isinstance(st, dict) else None
+        d = by_key.get(key)
+        if level not in ('warning', 'critical') or d is None:
+            continue
+        value = drive_temp_mod.reading(d)
+        lines = drive_temp_mod.view(d, host.get('drivetemp_per_serial'), host, cfg)
+        line = lines['crit'] if level == 'critical' else lines['warn']
+        if value is None or line is None:
+            continue
+        items.append({
+            'severity': level, 'kind': 'disk',
+            'device': dev.get('name', dev_id),
+            'summary': f'drive {_disk_label(names, d)} at {value:.0f}°C ({level} ≥ {line:.0f}°C)'})
+    return items
 
 
 MAX_GPU_SAMPLES = 288   # ~24h at the ~5-min hardware cadence
@@ -51220,6 +51416,10 @@ def _compute_attention():
                     'summary':  'SMART failure on '
                                 + ', '.join(_disk_label(_dn, d) for d in bad[:3]),
                 })
+            # v7.4.4 (#54): a drive over one of its temperature lines.
+            _dts = rec.get('_drive_temp')
+            if isinstance(_dts, dict) and _dts:
+                items.extend(_drive_temp_items(dev_id, dev, rec, _dts))
             kern = rec.get('kernel') or {}
             if kern.get('reboot_for_kernel'):
                 items.append({

@@ -41,6 +41,10 @@ _CONSUMED_INDIRECTLY: set[str] = {
     # _service_baseline_units_for(saved_dev) → _device_in_scope reads these to
     # match group/tag/site-scoped service baselines into services_watched.
     'group', 'tags', 'site',
+    # _ingest_hardware(dev=saved_dev): _drive_temp_events reads metric_thresholds (the host's temperature
+    # lines and a drive's own, v7.4.4), and _sensor_ignores reads sensor_ignores (the sensors left out
+    # of temp_high, v6.4.2).
+    'metric_thresholds', 'sensor_ignores',
 }
 
 

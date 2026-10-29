@@ -6790,6 +6790,19 @@ def get_smart_status():
         si = re.search(r'Serial Number:\s*(.+)', out)
         if si:
             entry['serial'] = si.group(1).strip()
+        # v7.4.4 (#54): the kind of drive, so the server can hold a hard disk, a SATA SSD and an NVMe
+        # drive to their own temperature lines. ATA and SAS drives say it in the information block
+        # ("Solid State Device", or the spindle speed in rpm); an NVMe drive is known by its name. A
+        # drive behind a bridge that does not pass the line on is left untyped.
+        mr = re.search(r'Rotation Rate:\s*(.+)', out)
+        if mr:
+            rate = mr.group(1).strip().lower()
+            if 'solid state' in rate:
+                entry['media'] = 'ssd'
+            elif re.match(r'\d+\s*rpm', rate):
+                entry['media'] = 'hdd'
+        if dev.rsplit('/', 1)[-1].startswith('nvme'):
+            entry['media'] = 'nvme'
         # ATA attribute table: ID# ATTRIBUTE_NAME FLAG VALUE WORST THRESH ... RAW_VALUE
         for ln in out.splitlines():
             parts = ln.split()

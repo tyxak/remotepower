@@ -626,6 +626,17 @@ def _num(v):
     return f"{f:,.0f}" if f == int(f) else f"{f:,.1f}"
 
 
+def drive_phrase(payload):
+    """Which drive an alert is about, for v7.4.4 (#54): 'Pool disk 2 (/dev/sdd, sn WD-1234)' when the
+    drive has a name, the device when it has not, and the alert's target (the serial) as a last resort."""
+    disk = payload.get("disk") or payload.get("target") or "?"
+    name = payload.get("disk_name")
+    if not name:
+        return str(disk)
+    serial = payload.get("serial")
+    return f"{name} ({disk}, sn {serial})" if serial else f"{name} ({disk})"
+
+
 def container_resource_phrase(payload):
     """What a container is doing over its line, for container_resource_high (v7.4.3, #50):
     'CPU 412.5% (alert at 100%)', 'memory 94% of its limit (alert at 90%)',
@@ -785,6 +796,12 @@ def _webhook_message(event, payload):
                 f"{name}: {sev} — disk {target} busy {_num(payload.get('value', '?'))}% of the time "
                 f"(threshold: {_num(payload.get('threshold', '?'))}%)"
             )
+        # v7.4.4 (#54): a drive over one of its temperature lines.
+        if kind == "drivetemp" and target:
+            return (
+                f"{name}: {sev} — drive {drive_phrase(payload)} at {_num(payload.get('value', '?'))}°C "
+                f"(threshold: {_num(payload.get('threshold', '?'))}°C)"
+            )
         # Disk has a target (mount path); other kinds don't.
         if kind == "disk" and target:
             return (
@@ -807,6 +824,8 @@ def _webhook_message(event, payload):
         target = payload.get("target", "")
         if kind == "diskio" and target:
             return f"{name}: disk {target} busy share back to {_num(payload.get('value', '?'))}%"
+        if kind == "drivetemp" and target:
+            return f"{name}: drive {drive_phrase(payload)} back to {_num(payload.get('value', '?'))}°C"
         if kind == "disk" and target:
             return f"{name}: disk {target} recovered to " f'{payload.get("value", "?")}%'
         if kind == "cpu":
