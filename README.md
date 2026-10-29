@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.4.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.4.4-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,10 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.4.4 "Spec1ficMatters"** — one request from the same Docker install: temperature
+  lines for each drive. A hard disk, a SATA SSD and an NVMe drive run at different
+  temperatures, so each can have its own warning and critical line, set for one
+  drive, for one host or for every drive of a type.
 - **v7.4.3 "M3asureMatters"** — the next batch of requests from the same Docker
   install. Linux hosts report how busy each disk is, with an alert for a disk that
   stays busy, and a drive can have a name that follows its serial number.
@@ -228,20 +232,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   behind what it finds. Long pages show one group of cards under a tab bar, and
   there are two public guides to building the honeypot Worker that RemotePower
   reads.
-- **v7.3.0 "Edg3Matters"** — threat intel reads the edge. RemotePower can read
-  Cloudflare's firewall events and your honeypot Worker's log with a read-only
-  token and report what they show, with the evidence: only refusals that mean an
-  attack count, and an address your honeypot banned is reported at once. Linux
-  agents can also read UFW's log. Reading blocks nothing, so banning stays with
-  what you already use. RemotePower can also keep a Cloudflare IP list up to date
-  from AbuseIPDB, SniffCat and what it found itself, with a token of its own, for
-  your rules to use. Off until you turn it on. An address the WAF on a host
-  refused is reported at once, with a setting to ask for more, and a feed that
-  stops reading or a list sync that waits for you raises an alert. You can tell it
-  which addresses and kinds of attack not to report, and clear what it has
-  recorded. The release is also a security pass over the whole product with the
-  scanners listed below:
-  twenty-three issues, all fixed before release, and the review is public.
 
 ## Security
 

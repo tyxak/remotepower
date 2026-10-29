@@ -37,7 +37,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '7.4.3'
+VERSION      = '7.4.4'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # ── Containerized-agent support (v4.7.0) ─────────────────────────────────────

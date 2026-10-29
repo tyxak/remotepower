@@ -75,6 +75,9 @@ holds long-form docs that don't fit there.
   scoped to what changed: the firewall-syslog reader, the agents' new reads, who sees
   what in the ignore list and the new alert, and the status codes that decide whether
   the dashboard signs you out. Nine issues, all caught before release.
+- **[v7.4.4.md](v7.4.4.md)** — "Spec1ficMatters": temperature lines for each drive, set
+  for one drive, one host or every drive of a type, for one request from the same
+  Docker install.
 - **[v7.4.3.md](v7.4.3.md)** — "M3asureMatters": the next batch of requests from
   the same Docker install: more to measure and alert on, and a few rough edges of
   the HTTP monitors.
@@ -83,13 +86,6 @@ holds long-form docs that don't fit there.
   again, container excludes match an image, SNMP memory leaves out the cache,
   and a host's card lists the integrations bound to it. A maintenance window
   holds recovery notices with their alerts.
-- **[v7.4.1.md](v7.4.1.md)** — "Al1gnMatters": fixes for what a Docker
-  install of 7.4.0 ran into: enrolling against a self-signed server on any port,
-  a restart when a host is enrolled again, the browser terminal in the image, a
-  10-second poll interval per host, a sidebar that stays open on touch, NIC drop
-  floors, folders and patterns in the drift watch, a reasoning-effort setting for
-  thinking models, and a recurring maintenance window that can be made from the
-  form again.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.
