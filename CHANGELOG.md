@@ -5,7 +5,7 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v7.4.4 — "Spec1ficMatters" — unreleased (test)
+## v7.4.4 — "Spec1ficMatters" — 2026-10-29
 
 The next request from the same Docker install, filed on tyxak/remotepower as #54:
 temperature lines for each drive, because a hard disk and an NVMe drive should not be
