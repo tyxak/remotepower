@@ -60,11 +60,11 @@ NEW = (
      INDEX),
     ("Any other drive",
      INDEX),
-    ("Warn and Crit are the temperature in °C at which this drive raises a warning or a critical alert. An empty box uses the host's line, or the fleet's, shown in grey. Nothing alerts until a line is set.",
+    ("Warn and Crit are the temperature, in degrees Celsius, at which this drive raises a warning or a critical alert. An empty box uses the host's line, or the fleet's, shown in grey. Nothing alerts until a line is set.",
      APP),
-    ("Warn °C",
+    ("Warn",
      APP),
-    ("Crit °C",
+    ("Crit",
      APP),
     ("Save names and lines",
      APP),
@@ -75,7 +75,7 @@ NEW = (
 # Text that must come through a translation as it is written: the unit, and the names of the drive types.
 LITERALS = (
     ("°C", ("How warm", "Hard disk warn", "Hard disk crit", "SATA SSD warn", "SATA SSD crit", "NVMe warn",
-            "NVMe crit", "Any other drive warn", "Any other drive crit", "Warn", "Crit")),
+            "NVMe crit", "Any other drive warn", "Any other drive crit")),
     ("NVMe", ("NVMe", "How warm")),
     ("SATA", ("SATA SSD", "How warm")),
 )

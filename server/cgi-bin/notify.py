@@ -628,7 +628,8 @@ def _num(v):
 
 def drive_phrase(payload):
     """Which drive an alert is about, for v7.4.4 (#54): 'Pool disk 2 (/dev/sdd, sn WD-1234)' when the
-    drive has a name, the device when it has not, and the alert's target (the serial) as a last resort."""
+    drive has a name, the device when it has not, and the alert's target (the serial) as a last resort.
+    """
     disk = payload.get("disk") or payload.get("target") or "?"
     name = payload.get("disk_name")
     if not name:
@@ -825,7 +826,9 @@ def _webhook_message(event, payload):
         if kind == "diskio" and target:
             return f"{name}: disk {target} busy share back to {_num(payload.get('value', '?'))}%"
         if kind == "drivetemp" and target:
-            return f"{name}: drive {drive_phrase(payload)} back to {_num(payload.get('value', '?'))}°C"
+            return (
+                f"{name}: drive {drive_phrase(payload)} back to {_num(payload.get('value', '?'))}°C"
+            )
         if kind == "disk" and target:
             return f"{name}: disk {target} recovered to " f'{payload.get("value", "?")}%'
         if kind == "cpu":

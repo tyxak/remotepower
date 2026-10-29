@@ -25,6 +25,7 @@ PROTECT = re.compile(
     r"|\b[Ss]torage [Dd]evices?\b"
     r"|\b[Mm]obile [Dd]evices?\b"
     r"|\bRAID [Dd]evices?\b"
+    r"|\bSolid State Device\b"                       # what smartctl prints for a SATA SSD (docs/disk-health.md)
     r"|\b[Rr]aw devices?\b"
     r"|\b[Ww]hole-disk [Dd]evices?\b"
     r"|\b[Dd]evices? \((?:one per line, )?whole-disk[^)]*\)"

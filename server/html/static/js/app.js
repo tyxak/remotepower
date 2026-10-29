@@ -26554,7 +26554,7 @@ function _driveTempCls(d) {
 function _driveTempTitle(d) {
   const L = d.lines || {};
   if (L.warn == null) return '';
-  return ` title="${escAttr(L.crit != null ? `≥ ${L.warn} °C / ≥ ${L.crit} °C` : `≥ ${L.warn} °C`)}"`;
+  return ` title="${escAttr(L.crit != null ? `≥ ${fmtTemp(L.warn, 0)} / ≥ ${fmtTemp(L.crit, 0)}` : `≥ ${fmtTemp(L.warn, 0)}`)}"`;
 }
 
 function _renderHardwareSection(id, hw, fc, ch) {
@@ -26637,12 +26637,12 @@ function _renderHardwareSection(id, hw, fc, ch) {
       const _typeTag = d => { const m = (d.lines || {}).media; return m ? ` <span class="c-muted">${m === 'nvme' ? 'NVMe' : m.toUpperCase()}</span>` : ''; };
       const _lineBox = (d, which) => {
         const L = d.lines || {}, own = (L.own || {})[which], inh = (L.inherit || {})[which];
-        return `<span class="fs-11 c-muted">${which === 'warn' ? 'Warn °C' : 'Crit °C'}</span><input type="number" class="form-input mw-100" min="1" max="150" step="any" data-line-serial="${escAttr(d.serial)}" data-line="${which}" data-orig="${own == null ? '' : own}" value="${own == null ? '' : own}" placeholder="${inh == null ? '' : inh}" aria-label="${which === 'warn' ? 'Warning' : 'Critical'} temperature line for ${escAttr(d.device)}">`;
+        return `<span class="fs-11 c-muted">${which === 'warn' ? 'Warn' : 'Crit'}</span><input type="number" class="form-input mw-100" min="1" max="150" step="any" data-line-serial="${escAttr(d.serial)}" data-line="${which}" data-orig="${own == null ? '' : own}" value="${own == null ? '' : own}" placeholder="${inh == null ? '' : inh}" aria-label="${which === 'warn' ? 'Warning' : 'Critical'} temperature line for ${escAttr(d.device)}">`;
       };
       h += `<div class="mt-8" id="hw-diskname-form" data-dev="${escAttr(id)}">
         <div class="hw-h">Disk names</div>
         <div class="hint mb-6">A name follows the drive by its serial number, whatever letter it is given, and shows here, on the disk health page and in alerts.</div>`
-        + (_isAdmin ? `<div class="hint mb-6">Warn and Crit are the temperature in °C at which this drive raises a warning or a critical alert. An empty box uses the host's line, or the fleet's, shown in grey. Nothing alerts until a line is set.</div>` : '')
+        + (_isAdmin ? `<div class="hint mb-6">Warn and Crit are the temperature, in degrees Celsius, at which this drive raises a warning or a critical alert. An empty box uses the host's line, or the fleet's, shown in grey. Nothing alerts until a line is set.</div>` : '')
         + nameable.map(d => `<div class="settings-row"><label class="form-label"><code>${escHtml(d.device)}</code> ${escHtml(d.model || '')} <span class="c-muted">sn ${escHtml(d.serial)}</span>${_typeTag(d)}</label><input type="text" class="form-input" maxlength="64" data-serial="${escAttr(d.serial)}" value="${escAttr(d.name || '')}" aria-label="Name for ${escAttr(d.device)}">${_isAdmin ? _lineBox(d, 'warn') + _lineBox(d, 'crit') : ''}</div>`).join('')
         + (unnamable.length ? `<div class="hint mt-4"><span>No serial number reported, so these cannot be named:</span> <code>${unnamable.map(d => escHtml(d.device)).join(', ')}</code></div>` : '')
         + (nameable.length ? `<button class="btn-primary mt-6" data-action="saveDiskNames">${_isAdmin ? 'Save names and lines' : 'Save names'}</button>` : '')

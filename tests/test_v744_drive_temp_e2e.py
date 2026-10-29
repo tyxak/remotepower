@@ -186,12 +186,12 @@ class TestTheHardwareTab(_Page):
         self.open_hardware()
         cls, title, text = self.temp_cell("/dev/sdb")
         self.assertIn("c-amber", cls.split(), (cls, text))
-        self.assertEqual(title, "≥ 45 °C / ≥ 50 °C")
+        self.assertEqual(title, "≥ 45°C / ≥ 50°C")
         for quiet in ("/dev/sda", "/dev/sdc"):
             cls, title, _ = self.temp_cell(quiet)
             self.assertNotIn("c-amber", cls.split(), quiet)
             self.assertNotIn("c-red", cls.split(), quiet)
-            self.assertEqual(title, "≥ 45 °C / ≥ 50 °C", "a quiet drive still says what it is held to")
+            self.assertEqual(title, "≥ 45°C / ≥ 50°C", "a quiet drive still says what it is held to")
 
     def test_a_drive_over_its_critical_line_is_red_and_one_between_the_lines_is_amber(self):
         """The demo's drives are calm or over a warning line, so the other two colours are made here: /dev/sda
@@ -203,16 +203,34 @@ class TestTheHardwareTab(_Page):
         cls, title, _ = self.temp_cell("/dev/sda")
         self.assertIn("c-red", cls.split(), cls)
         self.assertNotIn("c-amber", cls.split(), "red replaces amber, it does not join it")
-        self.assertEqual(title, "≥ 20 °C / ≥ 30 °C")
+        self.assertEqual(title, "≥ 20°C / ≥ 30°C")
         cls, _title, _ = self.temp_cell("/dev/sdc")
         self.assertIn("c-amber", cls.split(), cls)
         self.assertNotIn("c-red", cls.split())
+
+    def test_the_tooltip_follows_the_temperature_unit_the_reader_chose(self):
+        """The lines are kept in degrees Celsius, and the page shows a reading in the reader's unit. The
+        tooltip says the lines the way the reading is said, so 45 and 50 read 113 and 122 in Fahrenheit;
+        the colour is unchanged, because it compares the numbers the server keeps."""
+        self.open_hardware()
+        self.page.evaluate("() => { window.__unit = _uiPrefs.temp_unit; _uiPrefs.temp_unit = 'f'; }")
+        try:
+            self.page.evaluate("_loadAuditSectionForce('hardware')")
+            self.page.wait_for_function(
+                "() => { const t = document.getElementById('hw-smart-thead'); return !!t && t.closest('table').innerHTML.includes('113'); }",
+                timeout=30000)
+            cls, title, text = self.temp_cell("/dev/sdb")
+            self.assertEqual(title, "≥ 113°F / ≥ 122°F")
+            self.assertIn("°F", text)
+            self.assertIn("c-amber", cls.split(), "47 degrees Celsius is over the 45 line whatever the unit")
+        finally:
+            self.page.evaluate("() => { _uiPrefs.temp_unit = window.__unit; }")
 
     def test_a_drive_with_lines_of_its_own_is_held_to_them(self):
         """/dev/sdd has 50 and 55 from the demo; at its reading that is calm, and the tooltip says so."""
         self.open_hardware()
         _cls, title, _ = self.temp_cell("/dev/sdd")
-        self.assertEqual(title, "≥ 50 °C / ≥ 55 °C")
+        self.assertEqual(title, "≥ 50°C / ≥ 55°C")
 
     def test_each_drive_has_two_boxes_and_the_empty_ones_show_the_line_they_would_use(self):
         self.open_hardware()
@@ -246,7 +264,7 @@ class TestTheHardwareTab(_Page):
             "&& tr.innerHTML.includes('c-amber')); }", timeout=15000)
         cls, title, text = self.temp_cell("/dev/sda")
         self.assertIn("c-amber", cls.split(), (cls, text))
-        self.assertEqual(title, "≥ 30 °C / ≥ 60 °C")
+        self.assertEqual(title, "≥ 30°C / ≥ 60°C")
         self.assertEqual(self.page.input_value(self.box(self.sda, "warn")), "30", "and the box reads back")
 
     def test_emptying_a_box_takes_that_line_away_and_leaves_the_other(self):
@@ -289,7 +307,7 @@ class TestTheHardwareTab(_Page):
             self.assertEqual(viewer.query_selector("input[data-line]"), None)
             cls, title, _ = self.temp_cell("/dev/sdb", viewer)
             self.assertIn("c-amber", cls.split())
-            self.assertEqual(title, "≥ 45 °C / ≥ 50 °C")
+            self.assertEqual(title, "≥ 45°C / ≥ 50°C")
             self.assertEqual(errors, [])
         finally:
             context.close()
