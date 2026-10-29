@@ -12,6 +12,30 @@ behind a NAT firewall can be marked internal, so a service that listens on every
 graded as reachable from the local network instead of from the world. Each change adds its
 own entry here when it lands.
 
+### Exposure
+
+- **A host can count as internal.** A service that listens on every address (`0.0.0.0` or `::`)
+  was always graded as reachable from the world, and Docker makes that the case for every
+  published port, even on a host behind a NAT firewall with no port forwards. So the host carried
+  a warning that was not an exposure. An administrator can now mark a host internal with **Treat
+  as internal**, beside its world sockets on the Exposure page or on the host's Ports card. Its
+  services that listen on every address are then graded **assumed internal**, which counts as LAN:
+  no world-exposed-ports warning on the Checks page, no *World-exposed service* alert and no
+  risk-score points. The mark holds only while every address the host has is private (10/8,
+  172.16/12, 192.168/16, 169.254/16, 100.64/10 and, for IPv6, fc00::/7 and fe80::/10). A public
+  IPv4 address, or any IPv6 address that is not local, which a NAT does not protect, puts the
+  services back to world, and the page names the address. The Linux agent now sends the addresses
+  it holds with its system information. A Windows or macOS agent, or a Linux agent from before
+  this release, does not, and a host marked internal that does not report its addresses keeps the
+  grade the agent gave, with a note on the page that says why. A new listener is still reported as
+  before. The Exposure page's answer carries `assumed` on each socket and a `hosts` map of the
+  marked hosts; the switch is `PUT /api/devices/{id}/exposure-internal`. (#55)
+
+### Translations
+
+- **The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and
+  French.** A native speaker has not read it yet; if a line reads wrong, tell us.
+
 ## v7.4.4 — "Spec1ficMatters" — 2026-10-29
 
 The next request from the same Docker install, filed on tyxak/remotepower as #54:

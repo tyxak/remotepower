@@ -146,5 +146,27 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn("v7.4.2 and earlier", label)
 
 
+class TestTheReleaseContainsItsGuards(unittest.TestCase):
+    """A release pin, not a behavioural one: each file carries its own proof,
+    watched failing before it was committed. This pins that they ship."""
+
+    FILES = (
+        "tests/test_v745_exposure_scope.py",    # #55: which addresses are private, what a report can say, what the switch does to the rows
+        "tests/test_v745_exposure_ingest.py",   # #55: the grade through the real heartbeat and the real port audit
+        "tests/test_v745_exposure_route.py",    # #55: the switch's route, the Exposure answer, the Checks row
+        "tests/test_v745_host_addresses.py",    # #55: the Linux agent's addresses
+        "tests/test_v745_exposure_e2e.py",      # #55: the Exposure page and the host's Ports card
+        "tests/test_v745_seeder.py",            # #55: the demo hosts that carry the switch
+        "tests/test_v745_translations.py",      # the text the release added, in six languages
+    )
+
+    def test_the_list_is_not_empty(self):
+        self.assertGreater(len(self.FILES), 0)
+
+    def test_every_guard_file_exists(self):
+        for rel in self.FILES:
+            self.assertTrue((_ROOT / rel).exists(), rel)
+
+
 if __name__ == "__main__":
     unittest.main()

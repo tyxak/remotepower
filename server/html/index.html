@@ -4862,7 +4862,8 @@
           <details class="doc-card" open data-keywords="release notes changelog v7.4.5 int3rnalmatters exposure internal host assumed internal world lan listening ports nat firewall docker published ports public address ipv6">
             <summary><strong>What's new — v7.4.5 &ldquo;Int3rnalMatters&rdquo;</strong> &mdash; one more request from the same Docker install.</summary>
             <div class="doc-body">
-              <p>A host behind a NAT firewall can be marked internal, so a service that listens on every address is not graded as reachable from the world. Each change is listed in the CHANGELOG as it lands.</p>
+              <p><strong>A host can count as internal.</strong> A service that listens on every address, which Docker does for each published port, is graded <em>world</em>, even on a host behind a NAT firewall with no port forwards. Click <strong>Treat as internal</strong> beside one of the host&rsquo;s world sockets on <strong>Security &rarr; Exposure</strong>, or on the Ports card of the host, and those services are graded <em>assumed internal</em> instead. That holds only while every address the host has is private: a public IPv4 address, an IPv6 address that is not local, or an agent that does not report its addresses puts them back, and the page says why. A new listener is still reported. Update the Linux agents so they report their addresses. See <a href="docs/exposure.md" class="c-accent">Exposure</a>.</p>
+              <p><strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
               <p class="hint">See <code>docs/v7.4.5.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
