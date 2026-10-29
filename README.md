@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.4.4-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.4.5-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,9 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.4.5 "Int3rnalMatters"** — one more request from the same Docker install: a
+  host behind a NAT firewall can be marked internal, so a service that listens on
+  every address is graded as reachable from the local network, not from the world.
 - **v7.4.4 "Spec1ficMatters"** — one request from the same Docker install: temperature
   lines for each drive. A hard disk, a SATA SSD and an NVMe drive run at different
   temperatures, so each can have its own warning and critical line, set for one
@@ -225,13 +228,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   have floors of their own, and drift watches can be folders and patterns. A
   reasoning-effort setting turns a thinking model's thinking off, and a recurring
   maintenance window can be made from the form again.
-- **v7.4.0 "F1nishMatters"** — a release about finish. What is already there
-  reads, looks and behaves better in every theme and every language, and each fix
-  comes with a check that keeps it fixed. One thing is new: threat intel can read
-  the syslog of an OPNsense, pfSense or MikroTik firewall and report the addresses
-  behind what it finds. Long pages show one group of cards under a tab bar, and
-  there are two public guides to building the honeypot Worker that RemotePower
-  reads.
 
 ## Security
 

@@ -30,16 +30,20 @@ def _server_version():
 
 
 class TestVersionBumps(unittest.TestCase):
+    """Loosened at the v7.4.5 bump. The STRICT pins for the current release
+    live in tests/test_v745.py; what stays here is the shape: the surfaces
+    must still agree with each other, whatever version they carry."""
 
-    def test_server_version(self):
-        self.assertEqual(_server_version(), V)
+    def test_server_version_shape(self):
+        self.assertRegex(_server_version(), r"^\d+\.\d+\.\d+$")
 
-    def test_agent_versions(self):
-        self.assertIn(f"VERSION      = '{V}'",
+    def test_agents_match_the_server(self):
+        v = _server_version()
+        self.assertIn(f"VERSION      = '{v}'",
                       (_ROOT / "client/remotepower-agent.py").read_text())
         for rel in ("client/remotepower-agent-win.py",
                     "client/remotepower-agent-mac.py"):
-            self.assertIn(f"VERSION = '{V}'", (_ROOT / rel).read_text(), rel)
+            self.assertIn(f"VERSION = '{v}'", (_ROOT / rel).read_text(), rel)
 
     def test_agent_extensionless_in_sync(self):
         self.assertEqual((_ROOT / "client/remotepower-agent.py").read_bytes(),
@@ -49,7 +53,6 @@ class TestVersionBumps(unittest.TestCase):
         sw = (_ROOT / "server/html/sw.js").read_text()
         m = re.search(r"remotepower-shell-v([0-9.]+-\d+)", sw)
         self.assertTrue(m, "CACHE_NAME not found")
-        self.assertTrue(m.group(1).startswith(V + "-"), m.group(1))
         stamps = set(re.findall(r"\?v=([0-9.]+-\d+)", _html()))
         self.assertEqual(stamps, {m.group(1)},
                          "every ?v= must equal CACHE_NAME's stamp")
@@ -61,15 +64,16 @@ class TestVersionBumps(unittest.TestCase):
             found = set(re.findall(r"\?v=([0-9.]+-\d+)", p.read_text()))
             self.assertIn(found, ({stamp}, set()), f"{p.name}: {found}")
 
-    def test_readme_badge(self):
-        self.assertIn(f"version-{V}-blue", (_ROOT / "README.md").read_text())
+    def test_readme_badge_matches_the_server(self):
+        self.assertIn(f"version-{_server_version()}-blue",
+                      (_ROOT / "README.md").read_text())
 
-    def test_changelog_header_is_newest(self):
+    def test_changelog_newest_header_is_the_server_version(self):
         first = [l for l in (_ROOT / "CHANGELOG.md").read_text().splitlines()
                  if l.startswith("## v")][0]
-        self.assertTrue(first.startswith(f'## v{V} — "{CODENAME}"'), first)
+        self.assertTrue(first.startswith(f'## v{_server_version()} — "'), first)
 
-    def test_version_doc_exists_and_is_titled(self):
+    def test_version_doc_still_exists_inside_the_keep_three_window(self):
         p = _ROOT / f"docs/v{V}.md"
         self.assertTrue(p.exists(), f"docs/v{V}.md missing")
         self.assertIn(f'# RemotePower v{V} — "{CODENAME}"', p.read_text())
@@ -84,13 +88,14 @@ class TestVersionBumps(unittest.TestCase):
         for stub in ("CODENAME", "YYYY-MM-DD", "One-paragraph release summary", "Headline change"):
             self.assertNotIn(stub, top, f"unfilled changelog stub: {stub}")
 
-    def test_gen_wiki_codename(self):
-        """gen-wiki.py's Home line hardcodes the codename — bump it or the
-        wiki ships the previous release's name."""
+    def test_gen_wiki_carries_a_codename(self):
+        """gen-wiki.py's Home line hardcodes the codename. Which one it is
+        belongs to the current release's pins; that it is not this older one
+        belongs here."""
         p = _ROOT / "tools/gen-wiki.py"
         if not p.exists():
             self.skipTest("excluded from dist tree")
-        self.assertIn(CODENAME, p.read_text())
+        self.assertNotIn(CODENAME, p.read_text())
 
     def test_doc_set_keeps_three_versions(self):
         vers = sorted(p.stem for p in (_ROOT / "docs").glob("v*.md")
@@ -104,13 +109,15 @@ class TestVersionBumps(unittest.TestCase):
         block = block[:block.index("\n## ")] if "\n## " in block else block
         bullets = re.findall(r"^- \*\*v(\d+\.\d+\.\d+)", block, re.M)
         self.assertLessEqual(len(bullets), 5, bullets)
-        self.assertEqual(bullets[0], V, "the new release leads")
+        self.assertEqual(bullets[0], _server_version(), "the new release leads")
+        self.assertIn(V, bullets)
 
     def test_whats_new_cards_capped_at_three(self):
         html = _html()
         cards = re.findall(r"What's new — v(\d+\.\d+\.\d+)", html)
         self.assertEqual(len(cards), 3, f"cap the cards at 3: {cards}")
-        self.assertEqual(cards[0], V, "the new release leads")
+        self.assertEqual(cards[0], _server_version(), "the new release leads")
+        self.assertIn(V, cards)
         # The sneaky non-visible surface: the doc-search keyword attribute. A
         # visible-text rename never touches it, so doc search stops matching.
         head = html[:html.index(f"What's new — v{V}")]
@@ -127,22 +134,6 @@ class TestVersionBumps(unittest.TestCase):
                     self.assertNotIn(dropped, p.read_text(),
                                      f"{rel} still links the deleted {dropped}")
             self.assertFalse((_ROOT / "docs" / dropped).exists(), dropped)
-
-    def test_the_dropped_release_stays_searchable(self):
-        """v7.4.1 left the three kept cards. Its search keywords moved to the
-        'Older releases' card, so doc search still finds it by its codename."""
-        html = _html()
-        older = html[html.index('older versions history'):]
-        kw = older[:older.index('"')]
-        self.assertIn("al1gnmatters", kw.lower())
-
-    def test_the_older_releases_card_says_where_it_starts(self):
-        """The card's label named v7.3.0 for two releases after v7.4.0 had already left the
-        kept cards. It names the newest release it stands for."""
-        html = _html()
-        i = html.index("<strong>Older releases</strong>")
-        label = html[i:html.index("</summary>", i)]
-        self.assertIn("v7.4.1 and earlier", label)
 
 
 class TestTheSecurityReview(unittest.TestCase):

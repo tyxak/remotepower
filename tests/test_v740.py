@@ -106,7 +106,7 @@ class TestVersionBumps(unittest.TestCase):
         bullets = re.findall(r"^- \*\*v(\d+\.\d+\.\d+)", block, re.M)
         self.assertLessEqual(len(bullets), 5, bullets)
         self.assertEqual(bullets[0], _server_version(), "the new release leads")
-        self.assertIn(V, bullets)
+        self.assertNotIn(V, bullets, "v7.4.0 left the README's five at v7.4.5")
 
     def test_whats_new_cards_capped_at_three(self):
         html = _html()

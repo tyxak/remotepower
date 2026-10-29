@@ -101,7 +101,9 @@ class TestVersionBumps(unittest.TestCase):
         # Anchor on the CARD, not the phrase — "Older releases → CHANGELOG.md"
         # is the closing hint of every per-release card too.
         i = html.index("<summary><strong>Older releases</strong>")
-        card = html[max(0, i - 3000):i]
+        # From the start of the card's own <details> tag: its data-keywords grow by one release at every
+        # bump, so a fixed number of characters before the summary stopped reaching the codename.
+        card = html[html.rindex("<details", 0, i):i]
         self.assertIn(CODENAME.lower(), card.lower())
 
     def test_changelog_header(self):

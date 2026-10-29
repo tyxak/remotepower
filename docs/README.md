@@ -76,17 +76,15 @@ holds long-form docs that don't fit there.
   stop or steer, and an installer that trusted a CA address nothing authenticated.
   Three issues, all caught before release, with the scans and the hostile-input run
   behind them.
+- **[v7.4.5.md](v7.4.5.md)** — "Int3rnalMatters": a host can be marked internal, so a
+  service that listens on every address is not graded as exposed to the world, for
+  one request from the same Docker install.
 - **[v7.4.4.md](v7.4.4.md)** — "Spec1ficMatters": temperature lines for each drive, set
   for one drive, one host or every drive of a type, for one request from the same
   Docker install.
 - **[v7.4.3.md](v7.4.3.md)** — "M3asureMatters": the next batch of requests from
   the same Docker install: more to measure and alert on, and a few rough edges of
   the HTTP monitors.
-- **[v7.4.2.md](v7.4.2.md)** — "Re4lMatters": fixes for four reports from a
-  Docker install of 7.4.1. A stopped container's alert closes when it runs
-  again, container excludes match an image, SNMP memory leaves out the cache,
-  and a host's card lists the integrations bound to it. A maintenance window
-  holds recovery notices with their alerts.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.
