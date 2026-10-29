@@ -440,6 +440,10 @@ def _demo_disk_io(dev_id):
     return rows
 
 
+# v7.4.5 (#55): the hosts of the demo that carry the "treat as internal" switch.
+_DEMO_INTERNAL_HOSTS = ('jf01', 'nc01')
+
+
 def _demo_enrich_sysinfo(dev, rng, si):
     """v3.11–v3.13 device-drawer / Exposure / Storage demo data, added in place.
 
@@ -634,6 +638,25 @@ def _demo_enrich_sysinfo(dev, rng, si):
                               'addr': addr, 'scope': scope}
                              for p, port, proc, addr, scope in
                              rng.sample(_catalog, k=rng.randint(4, len(_catalog)))]
+    # v7.4.5 (#55): two hosts an operator marked internal, stored as the heartbeat stores them (the test of
+    # the seeder's shapes holds them to server/cgi-bin/exposure_scope.py). jf01 has private addresses only,
+    # so its wildcard sockets are graded lan and marked assumed. nc01 also has a public address: the mark
+    # does not hold, its sockets stay world, and the Exposure page says why. Every other host leaves the
+    # switch off and reports no addresses, like an agent from before 7.4.5.
+    if dev['id'] in _DEMO_INTERNAL_HOSTS:
+        _have = {(r['proto'], r['port']) for r in si['listening_ports']}
+        for _pr, _po, _proc in (('tcp', 443, 'nginx'), ('tcp', 8080, 'docker-proxy')):
+            if (_pr, _po) not in _have:
+                si['listening_ports'].append({'proto': _pr, 'port': _po, 'process': _proc,
+                                              'addr': '0.0.0.0', 'scope': 'world'})
+        if dev['id'] == 'jf01':
+            si['host_addresses'] = [dev['ip'], '172.17.0.1']
+            for _row in si['listening_ports']:
+                if _row['scope'] == 'world':
+                    _row['scope'] = 'lan'
+                    _row['assumed'] = True
+        else:
+            si['host_addresses'] = [dev['ip'], '203.0.113.40']
     # ── per-host storage / RAID health (storage / nas / backup hosts) ──
     if any(t in tags for t in ('storage', 'nas', 'backup')):
         si['storage_health'] = [
@@ -1435,6 +1458,8 @@ def build_devices() -> dict:
             # systemd timers, listening ports w/ scope (Exposure), per-host
             # storage/RAID health, and the firewall posture + fingerprint.
             _demo_enrich_sysinfo(dev, rng, rec['sysinfo'])
+            if dev['id'] in _DEMO_INTERNAL_HOSTS:
+                rec['exposure_internal'] = True
             # v3.8.0: failed systemd units (drives the failed_units attention
             # item + AI-investigate playbook) and logged-in users (drawer
             # System Info). A couple of hosts have failures to demo the signal.

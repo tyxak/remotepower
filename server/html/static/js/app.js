@@ -17274,7 +17274,8 @@ async function loadExposure() {
     _exposureResp = data;
     if (summary) {
       const c = data.counts || {};
-      summary.textContent = `${data.count} sockets · world ${c.world||0} · lan ${c.lan||0} · local ${c.local||0}`;
+      summary.textContent = `${data.count} sockets · world ${c.world||0} · lan ${c.lan||0} · local ${c.local||0}`
+        + (c.assumed ? ` · assumed internal ${c.assumed}` : '');
     }
     _renderExposure();
   } catch (e) {
@@ -17415,10 +17416,16 @@ function _renderExposure() {
     tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No listening sockets reported yet. Agents must be on v3.11.0+.</td></tr>';
     return;
   }
-  const badge = (s) => {
+  // v7.4.5 (#55): a socket on a host marked internal is graded lan and carries `assumed`, which reads
+  // "assumed internal" so it cannot be mistaken for a socket the agent saw bound to a private address.
+  const badge = (s, assumed) => {
     const color = s === 'world' ? 'var(--red)' : s === 'lan' ? 'var(--amber)' : 'var(--muted)';
-    return `<span class="pill" data-color="${color}">${escHtml(s || '—')}</span>`;
+    return `<span class="pill" data-color="${color}">${escHtml(assumed ? 'assumed internal' : (s || '—'))}</span>`;
   };
+  // The hosts an operator marked internal, and for each whether that holds. Say why on the first row of a
+  // host whose switch does not hold, so it is never silently ignored.
+  const internalHosts = _exposureResp.hosts || {};
+  const reasonShown = new Set();
   // Which hosts are entirely muted (a device_id-only rule)? Drives the
   // host-level Mute/Unmute toggle and avoids redundant per-process buttons.
   const hostMuted = new Set((_exposureResp.mutes || [])
@@ -17433,13 +17440,26 @@ function _renderExposure() {
     const hostBtn = isHostMuted
       ? `<button class="btn-icon cell-sm" data-action="unmuteExposureHost" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}" title="Stop muting all exposure from ${escAttr(r.device)}">Unmute host</button>`
       : `<button class="btn-icon cell-sm" data-action="muteExposureHost" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}" title="Mute ALL exposure alerts from ${escAttr(r.device)}">Mute host</button>`;
+    const hs = internalHosts[r.device_id];
+    let reason = '';
+    if (hs && !hs.assumed && !reasonShown.has(r.device_id)) {
+      reasonShown.add(r.device_id);
+      reason = hs.blocked === 'public_address'
+        ? `<div class="hint"><span>Marked internal, but it has a public address:</span> <code>${escHtml((hs.public || []).join(', '))}</code></div>`
+        : '<div class="hint"><span>Marked internal, but its agent does not report its addresses. Update the agent.</span></div>';
+    }
+    const internalBtn = (r.scope === 'world' || r.assumed)
+      ? ((hs && hs.internal)
+        ? `<button class="btn-icon cell-sm" data-action="setHostInternal" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}" data-arg3="0">Not internal</button>`
+        : `<button class="btn-icon cell-sm" data-action="setHostInternal" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}" data-arg3="1">Treat as internal</button>`)
+      : '';
     return `<tr${(r.muted || isHostMuted) ? ' class="muted-row"' : ''}>
-    <td class="fw-500"><span data-dev-hover="${escAttr(r.device_id)}">${escHtml(r.device)}</span></td>
+    <td class="fw-500"><span data-dev-hover="${escAttr(r.device_id)}">${escHtml(r.device)}</span>${reason}</td>
     <td class="hint">${escHtml(r.proto)}/${r.port}</td>
     <td>${escHtml(proc || '—')}${(r.muted || isHostMuted) ? ' <span class="pill" data-color="var(--muted)">muted</span>' : ''}</td>
     <td class="hint">${escHtml(r.addr || '—')}</td>
-    <td>${badge(r.scope)}</td>
-    <td class="exposure-actions">${r.scope === 'world' ? `<button class="btn-icon cell-sm" data-action="aiExposureAdvice" data-arg="${escAttr(r.device)}" data-arg2="${escAttr(r.proto + '/' + r.port)}" data-arg3="${escAttr(proc)}" title="AI: should this be exposed? how to lock it down">${_icon('sparkles', 12)}</button> ` : ''}${isHostMuted ? hostBtn : procBtn + ' ' + hostBtn}</td>
+    <td>${badge(r.scope, r.assumed)}</td>
+    <td class="exposure-actions">${r.scope === 'world' ? `<button class="btn-icon cell-sm" data-action="aiExposureAdvice" data-arg="${escAttr(r.device)}" data-arg2="${escAttr(r.proto + '/' + r.port)}" data-arg3="${escAttr(proc)}" title="AI: should this be exposed? how to lock it down">${_icon('sparkles', 12)}</button> ` : ''}${isHostMuted ? hostBtn : procBtn + ' ' + hostBtn}${internalBtn ? ' ' + internalBtn : ''}</td>
   </tr>`;
   }), {colspan: 6});
 }
@@ -17469,6 +17489,19 @@ async function unmuteExposureHost(deviceId, deviceName) {
   const r = await api('POST', '/exposure/mute', { action: 'remove', device_id: deviceId });
   if (r && r.ok) { toast(`Unmuted ${deviceName || deviceId}`, 'success'); loadExposure(); }
   else { toast('Unmute failed', 'error'); }
+}
+// v7.4.5 (#55): mark a host internal, or take the mark off, from the Exposure page or a host's Ports card.
+async function setHostInternal(deviceId, deviceName, on) {
+  if (!deviceId) return;
+  const nm = deviceName || deviceId;
+  if (on && !await uiConfirm(`Treat "${nm}" as internal?\n\nServices on it that listen on every address are graded "assumed internal" instead of world-reachable, for as long as every address the host has is private. A public address on the host, or an agent that does not report its addresses, puts them back. New listeners are still reported.`)) return;
+  const r = await api('PUT', `/devices/${encodeURIComponent(deviceId)}/exposure-internal`, { internal: !!on });
+  if (!r || !r.ok) { failToast(r); return; }
+  if (!on) toast('No longer treated as internal', 'success');
+  else if (r.assumed) toast('Treated as internal', 'success');
+  else toast('Marked internal. It does not hold yet: see the note beside the host.', 'info');
+  if (document.getElementById('exposure-tbody')) loadExposure();
+  if (document.getElementById('audit-body-ports') && _drawerDeviceId === deviceId) _loadAuditSection('ports');
 }
 async function unmuteExposureProcess(process) {
   const r = await api('POST', '/exposure/mute', { action: 'remove', process });
@@ -25516,11 +25549,31 @@ async function _loadAuditSection(key) {
         // v3.13.0: surface bind address + world/lan/local scope per socket
         // (already on the fleet Exposure page) so single-host inspection shows
         // that e.g. :22 is bound 0.0.0.0/world right here.
-        const scopeBadge = (s) => {
+        const scopeBadge = (p) => {
+          const s = p.scope;
           const color = s === 'world' ? 'var(--red)' : s === 'lan' ? 'var(--amber)' : 'var(--muted)';
-          return `<span class="pill" data-color="${color}">${escHtml(s || '—')}</span>`;
+          return `<span class="pill" data-color="${color}">${escHtml(p.assumed ? 'assumed internal' : (s || '—'))}</span>`;
         };
+        // v7.4.5 (#55): whether this host is marked internal, and what that does for it, with the button.
+        let internalLine = '';
+        const st = await api('GET', `/devices/${id}/exposure-internal`).catch(() => null);
+        if (st && st.internal != null) {
+          const nm = _drawerDeviceName || id;
+          const btn = (on, label) => `<button class="btn-secondary" data-action="setHostInternal" data-arg="${escAttr(id)}" data-arg2="${escAttr(nm)}" data-arg3="${on}">${label}</button>`;
+          if (!st.internal) {
+            if (ports.some(p => p.scope === 'world')) {
+              internalLine = `<div class="hint-mb"><span>Services that listen on every address are graded world-reachable.</span> ${btn(1, 'Treat as internal')}</div>`;
+            }
+          } else if (st.assumed) {
+            internalLine = `<div class="hint-mb"><span>This host is treated as internal: services that listen on every address are graded assumed internal.</span> ${btn(0, 'Not internal')}</div>`;
+          } else if (st.blocked === 'public_address') {
+            internalLine = `<div class="hint-mb"><span>Marked internal, but it has a public address:</span> <code>${escHtml((st.public || []).join(', '))}</code> ${btn(0, 'Not internal')}</div>`;
+          } else {
+            internalLine = `<div class="hint-mb"><span>Marked internal, but its agent does not report its addresses. Update the agent.</span> ${btn(0, 'Not internal')}</div>`;
+          }
+        }
         body.innerHTML = `
+          ${internalLine}
           <input class="audit-filter" placeholder="Filter ports…" data-input="_filterPorts" data-input-el="1" data-input-arg="${id}">
           <div class="scrollable-table-wrap audit-scroll">
           <table class="ports-table isl-633" id="ports-tbl-${id}">
@@ -25529,11 +25582,11 @@ async function _loadAuditSection(key) {
             </tr></thead>
             <tbody id="ports-body-${id}">
               ${ports.sort((a,b)=>a.port-b.port).map(p=>
-                `<tr data-q="${escAttr(`${p.proto} ${p.port} ${p.process||''} ${p.addr||''} ${p.scope||''}`)}">
+                `<tr data-q="${escAttr(`${p.proto} ${p.port} ${p.process||''} ${p.addr||''} ${p.scope||''}${p.assumed ? ' assumed internal' : ''}`)}">
                   <td><code>${escHtml(p.proto)}</code></td>
                   <td><strong>${p.port}</strong></td>
                   <td class="fs-11 c-muted"><code>${escHtml(p.addr||'—')}</code></td>
-                  <td>${scopeBadge(p.scope)}</td>
+                  <td>${scopeBadge(p)}</td>
                   <td class="c-muted">${escHtml(p.process||'—')}</td>
                 </tr>`
               ).join('')}
