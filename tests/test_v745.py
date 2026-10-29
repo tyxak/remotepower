@@ -157,6 +157,8 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v745_host_addresses.py",    # #55: the Linux agent's addresses
         "tests/test_v745_exposure_e2e.py",      # #55: the Exposure page and the host's Ports card
         "tests/test_v745_seeder.py",            # #55: the demo hosts that carry the switch
+        "tests/test_v745_security.py",          # the review: tenants, roles, hostile reports, stored values, redaction
+        "tests/test_v745_security_e2e.py",      # the review: the real stack (tenants, origin, a race) and planted text in a browser
         "tests/test_v745_translations.py",      # the text the release added, in six languages
     )
 
