@@ -18,6 +18,7 @@ import copy
 import json
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -178,18 +179,20 @@ class TestOnlyAnAdministratorSetsLinesAndATenantStaysInItsOwn(_Hosts):
         self.assertEqual(box["status"], 200, box)
         self.assertEqual(self.stored()["drivetemp_hdd_warn_c"], 40.0)
 
-    def test_the_dispatcher_refuses_a_host_of_another_tenant_before_the_handler_runs(self):
-        """_enforce_device_scope covers every /api/devices/<id>/... route, the new fields included."""
+    def dispatcher_status(self, user, path):
+        """What main()'s pre-dispatch device check answers for this caller and this path, before any handler runs."""
         saved = api.verify_token
-        api.verify_token = lambda t: ("tadmin", "admin")
+        role = api.load(api.USERS_FILE)[user]["role"]
+        api.verify_token = lambda t: (user, role)
         old = os.environ.get("PATH_INFO")
-        os.environ["PATH_INFO"] = "/api/devices/hostB/metric-thresholds"
+        os.environ["PATH_INFO"] = path
         box = {}
 
         def _resp(status, data=None):
             box["status"] = status
             raise api.HTTPError(status, data)
-        real_respond, api.respond = api.respond, _resp
+        real_respond, real_token = api.respond, api.get_token_from_request
+        api.respond = _resp
         api.get_token_from_request = lambda: "t"
         try:
             try:
@@ -197,13 +200,70 @@ class TestOnlyAnAdministratorSetsLinesAndATenantStaysInItsOwn(_Hosts):
             except api.HTTPError:
                 pass
         finally:
-            api.respond = real_respond
+            api.respond, api.get_token_from_request = real_respond, real_token
             api.verify_token = saved
             if old is None:
                 os.environ.pop("PATH_INFO", None)
             else:
                 os.environ["PATH_INFO"] = old
-        self.assertEqual(box.get("status"), 403, box)
+        return box.get("status")
+
+    def test_the_dispatcher_refuses_a_host_of_another_tenant_before_the_handler_runs(self):
+        """_enforce_device_scope covers every /api/devices/<id>/... route: the three 7.4.4 changed, for both
+        a tenant administrator and a viewer, and it lets the same callers through to their own host."""
+        for path in ("metric-thresholds", "hardware", "disk-names"):
+            for user in ("tadmin", "tviewer"):
+                with self.subTest(route=path, caller=user):
+                    self.assertEqual(self.dispatcher_status(user, f"/api/devices/hostB/{path}"), 403)
+                    self.assertIsNone(self.dispatcher_status(user, f"/api/devices/hostA/{path}"))
+
+
+class TestADrivesRowsStayInTheirTenant(_Hosts):
+    """A drive over its line is a row in Needs attention for its host. The digest keeps an item that carries no
+    host id (a fleet-level one), so a drive item is only as private as the id it is stamped with."""
+
+    def setUp(self):
+        super().setUp()
+        now = int(time.time())
+        api.save(api.CONFIG_FILE, {"tenancy_enforced": True, "drivetemp_hdd_warn_c": 45, "drivetemp_hdd_crit_c": 50})
+        for f in (api.DISK_NAMES_FILE, api.FLEET_EVENTS_FILE, api.SMART_HIST_FILE):
+            api.save(f, {"events": []} if f == api.FLEET_EVENTS_FILE else {})
+        api.save(api.HARDWARE_FILE, {
+            h: {"smart": [{"device": f"/dev/sd-{h}", "serial": f"SN-{h}", "model": "M", "health": "PASSED",
+                           "temperature_c": 52, "media": "hdd"}],
+                "ts": now, "_drive_temp": {f"SN-{h}": {"l": "critical", "m": 0}}} for h in ("hostA", "hostB")})
+        api._LOAD_CACHE.clear()
+
+    def tearDown(self):
+        for f, empty in ((api.HARDWARE_FILE, {}), (api.DISK_NAMES_FILE, {}), (api.SMART_HIST_FILE, {}),
+                         (api.FLEET_EVENTS_FILE, {"events": []}), (api.CONFIG_FILE, {}), (api.DEVICES_FILE, {})):
+            api.save(f, empty)
+        api._LOAD_CACHE.clear()
+        super().tearDown()
+
+    def rows(self, user):
+        box = self.as_user(user, api.handle_attention, verb="GET")
+        self.assertEqual(box["status"], 200, box)
+        return [i["summary"] for i in box["body"]["items"] if i.get("kind") == "disk"]
+
+    def test_the_platform_operator_sees_the_drives_of_both_tenants(self):
+        rows = self.rows("alice")
+        self.assertTrue(any("sd-hostA" in r for r in rows) and any("sd-hostB" in r for r in rows), rows)
+
+    def test_a_tenant_sees_its_own_drive_and_not_the_other_tenants(self):
+        for user in ("tadmin", "tviewer"):
+            with self.subTest(caller=user):
+                rows = self.rows(user)
+                self.assertTrue(any("sd-hostA" in r for r in rows), rows)
+                self.assertFalse(any("sd-hostB" in r for r in rows), rows)
+
+    def test_the_hardware_answer_of_a_host_is_the_tenants_own(self):
+        for user in ("tadmin", "tviewer"):
+            box = self.as_user(user, lambda: api.handle_device_hardware("hostA"), verb="GET")
+            self.assertEqual(box["status"], 200, box)
+            self.assertEqual([d["serial"] for d in box["body"]["smart"]], ["SN-hostA"])
+            lines = box["body"]["smart"][0]["lines"]
+            self.assertEqual((lines["warn"], lines["crit"], lines["media"]), (45.0, 50.0, "hdd"))
 
 
 # ── held: what a host can make the server do by what it reports ─────────────────────────────────────
