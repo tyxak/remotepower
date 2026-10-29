@@ -61,6 +61,11 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.4.4.md](security-review-7.4.4.md)** — the v7.4.4 review: the new
+  temperature lines for drives (who may set them, what a host can make the server do by
+  what it reports about its drives, and what the pages and messages print from it) and one
+  issue, a change to a host's thresholds that was not on the audit trail. Caught before
+  release, with the scans and the run over every route behind them.
 - **[security-review-7.4.3.md](security-review-7.4.3.md)** — the v7.4.3 review: the Test
   buttons that let a tenant administrator make the server call an address or send mail,
   an integration list that showed a tenant administrator more than a viewer sees, and a
@@ -71,10 +76,6 @@ holds long-form docs that don't fit there.
   stop or steer, and an installer that trusted a CA address nothing authenticated.
   Three issues, all caught before release, with the scans and the hostile-input run
   behind them.
-- **[security-review-7.4.0.md](security-review-7.4.0.md)** — the v7.4.0 review,
-  scoped to what changed: the firewall-syslog reader, the agents' new reads, who sees
-  what in the ignore list and the new alert, and the status codes that decide whether
-  the dashboard signs you out. Nine issues, all caught before release.
 - **[v7.4.4.md](v7.4.4.md)** — "Spec1ficMatters": temperature lines for each drive, set
   for one drive, one host or every drive of a type, for one request from the same
   Docker install.

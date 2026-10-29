@@ -33,6 +33,11 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
+- [security-review-7.4.4.md](security-review-7.4.4.md) — a feature release: one issue, a
+  change to a host's thresholds that was not on the audit trail, and a check that a tenant
+  stays inside its own hosts, that a host cannot make its own report fail, and that a drive
+  name stays text, with the scans, the run over every route and the mutation checks behind
+  them.
 - [security-review-7.4.3.md](security-review-7.4.3.md) — a feature release: four issues,
   the Test buttons that let a tenant administrator make the server call an address or
   send mail, an integration list that showed more than a viewer should see, a host
@@ -45,10 +50,6 @@ are kept:
   a FIFO in a file it reads, and an installer that trusted a CA address nothing
   authenticated, all caught before release, with the scans and the hostile-input
   run behind them.
-- [security-review-7.4.0.md](security-review-7.4.0.md) — the changes in a polish
-  release plus a whole-project sweep: eleven issues, among them an ignore list shared by every tenant, a
-  syslog line that took the server 165 ms to read, and a new alert that would have
-  named one tenant's attackers to another, all caught before release.
 
 Each review found real defects, and every one of them was fixed before the
 release went out.
@@ -170,7 +171,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; the latest is
-[security-review-7.4.3.md](security-review-7.4.3.md). The codebase is also
+[security-review-7.4.4.md](security-review-7.4.4.md). The codebase is also
 scanned with a combined **SAST + DAST** pipeline (see *Security testing* below):
 CodeQL reports zero in both languages under the configuration production runs,
 Bandit reports nothing new against its baseline and no high-severity finding,
@@ -357,7 +358,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-7.4.3.md](security-review-7.4.3.md)).
+  [security-review-7.4.4.md](security-review-7.4.4.md)).
 - **SAST** — **CodeQL** with GitHub's query suites (also run on every push),
   [Bandit](https://bandit.readthedocs.io/), [semgrep](https://semgrep.dev/),
   [gitleaks](https://github.com/gitleaks/gitleaks) and an undefined-name check.

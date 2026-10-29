@@ -40,6 +40,21 @@ held to one pair of numbers. The release page is [docs/v7.4.4.md](docs/v7.4.4.md
   operator had switched off, such as a dead pin, went on raising *High temperature*. The copy
   carries it now, and the host's own temperature lines with it.
 
+### Security
+
+The review of this release found one issue. It was caught before release and is fixed. See
+`docs/security-review-7.4.4.md`.
+
+- **A change to a host's thresholds is on the audit trail.** Saving or resetting a host's metric
+  thresholds recorded nothing, except a change to its ignored sensors, while the fleet's save, the
+  container lines and the disk names were all recorded. A critical line of 150 never fires, so a
+  save that raises a line quietly stops one kind of alert for that host, and nothing showed who
+  did it. The drive temperature lines of this release are one more way to do that. Both the save
+  and the reset now write one `device_metric_thresholds` entry with the lines that were set and
+  their numbers, the ones that were taken away, and how many drives and mounts have lines of
+  their own (a count, not their serial numbers or paths). A save that changes nothing writes
+  nothing.
+
 ### Translations
 
 - **The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and

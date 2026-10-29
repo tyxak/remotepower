@@ -145,6 +145,81 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn("v7.4.1 and earlier", label)
 
 
+class TestTheSecurityReview(unittest.TestCase):
+    """The review is part of the release: it exists, it is indexed where a reader looks, it names
+    what it found, it says what it did not run, and the three kept reviews are the last three."""
+
+    DOC = "docs/security-review-7.4.4.md"
+
+    def raw(self):
+        return (_ROOT / self.DOC).read_text()
+
+    def text(self):
+        return re.sub(r"\s+", " ", self.raw())
+
+    def test_it_exists_and_is_indexed(self):
+        self.assertTrue((_ROOT / self.DOC).exists())
+        for rel in ("docs/README.md", "docs/security.md"):
+            self.assertIn("security-review-7.4.4.md", (_ROOT / rel).read_text(), rel)
+
+    def test_security_md_points_at_it_as_the_latest(self):
+        text = (_ROOT / "docs/security.md").read_text()
+        self.assertGreaterEqual(text.count("latest is\n[security-review-7.4.4.md]") +
+                                text.count("latest:\n  [security-review-7.4.4.md]"), 2)
+
+    def test_it_says_what_it_covers_and_what_it_did_not_run(self):
+        text = self.text()
+        self.assertIn("everything that changed since 7.4.3, the last reviewed release", text)
+        self.assertIn("were not run this time", text)           # the nginx scanners
+        self.assertIn("## Known and unchanged", text)
+        self.assertIn("a live probe of the maintainer's own instance", text)
+
+    def test_it_names_the_finding_and_the_summary_has_one_row(self):
+        text = self.text()
+        self.assertIn("**one** issue", text)
+        self.assertIn("Saving or resetting a host's thresholds left nothing on the audit trail", text)
+        rows = re.findall(r"^\| ([1-9]) \|", self.raw(), re.M)
+        self.assertEqual(rows, ["1"])
+
+    def test_it_ran_the_scans_and_the_sweeps_it_says_it_did(self):
+        text = self.text()
+        for needle in ("bandit", "semgrep", "gitleaks", "pip-audit", "CodeQL", "nuclei",
+                       "Who may do what", "Hostile input to every route", "Hostile heartbeats",
+                       "Planted text in a real browser", "Mutation checks"):
+            self.assertIn(needle, text, needle)
+
+    def test_no_placeholder_is_left(self):
+        self.assertNotIn("@@", self.raw())
+
+    def test_it_reveals_no_command_for_the_attack(self):
+        text = self.raw()
+        for needle in ("curl", "X-Token", "wget", "nc -"):
+            self.assertNotIn(needle, text, needle)
+
+    def test_the_changelog_and_the_notes_agree_on_the_count(self):
+        for rel, heading in (("CHANGELOG.md", "### Security"), ("docs/v7.4.4.md", "## Security review")):
+            body = (_ROOT / rel).read_text()
+            if rel == "CHANGELOG.md":
+                body = body[body.index("## v7.4.4 \u2014 "):]
+            section = body[body.index(heading):][:900]
+            self.assertIn("one issue", re.sub(r"\s+", " ", section), rel)
+
+    def test_the_card_links_the_review(self):
+        html = _html()
+        card = html[html.index("What's new \u2014 v" + V):]
+        card = card[:card.index("</details>")]
+        self.assertIn("docs/security-review-7.4.4.md", card)
+
+    def test_three_reviews_are_kept_and_this_is_one_of_them(self):
+        reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
+        self.assertEqual(reviews, ["security-review-7.4.2.md", "security-review-7.4.3.md", "security-review-7.4.4.md"])
+
+    def test_the_review_that_left_the_window_is_gone_everywhere(self):
+        self.assertFalse((_ROOT / "docs/security-review-7.4.0.md").exists())
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html"):
+            self.assertNotIn("security-review-7.4.0.md", (_ROOT / rel).read_text(), rel)
+
+
 class TestTheReleaseContainsItsGuards(unittest.TestCase):
     """A release pin, not a behavioural one: each file carries its own proof,
     watched failing before it was committed. This pins that they ship."""
@@ -153,6 +228,8 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v744_drive_temp.py",     # #54: the lines, the alert and its close, the handlers, the agent's drive type
         "tests/test_v744_drive_temp_e2e.py", # #54: the Hardware tab's colour and boxes, the host's block, the fleet's pane
         "tests/test_v744_translations.py",   # the text the release added, in six languages
+        "tests/test_v744_security.py",       # the review: the audit trail, the tenant and role checks, hostile reports, header injection, stored junk
+        "tests/test_v744_security_e2e.py",   # the review: markup in a drive's strings stays text on the pages that print them
     )
 
     def test_the_list_is_not_empty(self):
