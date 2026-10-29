@@ -507,10 +507,15 @@ def _host_checks(
         )
     # v4.1.0: respect exposure mutes (set on the Exposed page) — a world port the
     # operator has muted there must not re-appear as a warning check here.
+    ports = si.get("listening_ports")
+    ports = (
+        ports if isinstance(ports, list) else []
+    )  # a store the ingest did not write may hold anything
     wp = [
         p
-        for p in (si.get("listening_ports") or [])
-        if (p or {}).get("scope") == "world"
+        for p in ports
+        if isinstance(p, dict)
+        and p.get("scope") == "world"
         and not _exposure_muted(
             p.get("process"), p.get("proto"), p.get("port"), exposure_mutes or [], dev_id
         )
@@ -518,8 +523,10 @@ def _host_checks(
     if si.get("listening_ports") is not None:
         # v7.4.5 (#55): on a host marked internal the wildcard listeners are graded lan and carry
         # `assumed`. Say so in the row, or "none" beside a page of 0.0.0.0 sockets reads as a blind spot.
-        n_assumed = sum(1 for p in (si.get("listening_ports") or []) if isinstance(p, dict) and p.get("assumed"))
-        note = f" ({plural(n_assumed, 'service', 'services')} assumed internal)" if n_assumed else ""
+        n_assumed = sum(1 for p in ports if isinstance(p, dict) and p.get("assumed"))
+        note = (
+            f" ({plural(n_assumed, 'service', 'services')} assumed internal)" if n_assumed else ""
+        )
         add(
             "exposure",
             "World-exposed ports",

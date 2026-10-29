@@ -31,17 +31,25 @@ MAX_ADDRESSES = 64
 # Only these count as private. The standard library's own is_private is not used: for IPv6 it also
 # covers 6to4 (2002::/16) and Teredo (2001::/32), which are tunnels to a public IPv4 address and are
 # reachable from the internet, and for IPv4 it covers ranges nobody means by "my LAN".
-_PRIVATE_V4 = tuple(ipaddress.ip_network(n) for n in (
-    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",    # RFC 1918
-    "169.254.0.0/16",                                    # link-local
-    "127.0.0.0/8",                                       # loopback
-    "100.64.0.0/10",                                     # shared address space: carrier NAT, Tailscale
-))
-_PRIVATE_V6 = tuple(ipaddress.ip_network(n) for n in (
-    "::1/128",                                           # loopback
-    "fe80::/10",                                         # link-local
-    "fc00::/7",                                          # unique local
-))
+_PRIVATE_V4 = tuple(
+    ipaddress.ip_network(n)
+    for n in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",  # RFC 1918
+        "169.254.0.0/16",  # link-local
+        "127.0.0.0/8",  # loopback
+        "100.64.0.0/10",  # shared address space: carrier NAT, Tailscale
+    )
+)
+_PRIVATE_V6 = tuple(
+    ipaddress.ip_network(n)
+    for n in (
+        "::1/128",  # loopback
+        "fe80::/10",  # link-local
+        "fc00::/7",  # unique local
+    )
+)
 
 REASONS = ("public_address", "no_address_data")
 
@@ -58,7 +66,7 @@ def _parse(addr: Any) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     except ValueError:
         return None
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        return ip.ipv4_mapped                       # ::ffff:10.0.0.1 is the IPv4 address it carries
+        return ip.ipv4_mapped  # ::ffff:10.0.0.1 is the IPv4 address it carries
     return ip
 
 
@@ -92,7 +100,8 @@ def clean_addresses(raw: Any) -> list[str] | None:
 def assess(addresses: Any) -> tuple[str, list[str]]:
     """('private', []) when there is at least one address and every one is private, ('public', the ones
     that are not) when any is not, and ('unknown', []) when there is no list or it is empty. An empty
-    list is not "nothing to worry about": a probe that found no address at all has not seen the host."""
+    list is not "nothing to worry about": a probe that found no address at all has not seen the host.
+    """
     if not isinstance(addresses, list) or not addresses:
         return "unknown", []
     bad = [a for a in addresses if not is_private(a)]

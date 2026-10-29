@@ -66306,8 +66306,11 @@ def handle_exposure_overview():
             hosts[dev_id] = _st
         # Telemetry/inventory view — unmonitored hosts still SHOW their data
         # (only alerting is suppressed for them), flagged so the UI can badge it.
-        for p in ((d.get('sysinfo') or {}).get('listening_ports') or []):
-            scope = p.get('scope') or 'unknown'
+        _ports = (d.get('sysinfo') or {}).get('listening_ports')
+        for p in (_ports if isinstance(_ports, list) else []):
+            if not isinstance(p, dict):     # what the ingest never writes: a hand-edited or imported store
+                continue
+            scope = p.get('scope') if isinstance(p.get('scope'), str) and p.get('scope') else 'unknown'
             counts[scope] = counts.get(scope, 0) + 1
             if p.get('assumed'):
                 counts['assumed'] += 1
