@@ -154,9 +154,12 @@ goes red the moment the header carries a date and stays red until the AUR packag
 and that bump needs the checksum of a published tarball, so for a release that is not
 published it is red by design. The JSON run has one more error, in the browser test of the
 Prometheus card from 7.4.3 (`test_saving_what_the_form_was_given_changes_nothing`). It fails the
-same way on the 7.4.3 commit on this machine: the test points an integration at an address in
-the range reserved for documentation, and this network now lets the connection hang for the
-whole timeout where it used to refuse it at once. It says nothing about 7.4.4. The PostgreSQL
+same way on the 7.4.3 commit on this machine, and it says nothing about 7.4.4. Saving the
+integrations sets their poll due again, so the next request polls every enabled integration, the
+demo data's among them, and this machine drops the packets to their private addresses instead of
+refusing them. That request takes about half a minute. The page keeps the Save button disabled
+until it is done, and the test's second click landed on the disabled button and did nothing. The
+test was changed after this release to poll nothing, and passes here. The PostgreSQL
 suite (`tests.test_pg`, 28 tests) ran against a real server and passes; it was PostgreSQL 18.6
 here, and CI runs 16. `make lint` (isort, black, mypy and ruff) and `make bandit` are clean, and
 `tools/release-prep.py verify` reports 0 failures.
