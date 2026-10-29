@@ -81,6 +81,8 @@ Thanks to everyone who has contributed fixes, features, and reports.
     monitor's target left its open alert stranded
   - #52 — asked for a certificate-check switch and a choice of request method on an
     HTTP monitor
+  - #54 — asked for a warning and a critical temperature line for each drive, since a hard
+    disk and an NVMe drive should not be held to one pair of numbers
 
 ---
 
