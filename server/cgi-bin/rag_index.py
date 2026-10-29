@@ -533,6 +533,14 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
                 summary.append(f"{k}: {si[k]}")
         if dev.get('tags'):
             summary.append("tags: " + ', '.join(map(str, dev['tags'])))
+        # v7.4.5 (#55): every address the host holds, so "which hosts have a public address" can be answered,
+        # and whether an operator marked the host internal for the exposure grade.
+        _addrs = si.get('host_addresses')
+        if isinstance(_addrs, list) and _addrs:
+            summary.append("addresses: " + ', '.join(map(str, _addrs[:64])))
+        if dev.get('exposure_internal') is True:
+            summary.append("exposure: marked internal (services on every address are graded assumed internal "
+                           "while every address of the host is private)")
         if str(dev.get('notes') or '').strip():
             summary.append("notes: " + dev['notes'].strip())
         docs.append(make_doc(

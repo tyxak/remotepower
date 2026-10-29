@@ -214,5 +214,37 @@ class TestRegradingTheRows(unittest.TestCase):
             self.assertEqual(ex.apply(True, junk), 0)
 
 
+class TestTheFleetKnowledgeKnowsIt(unittest.TestCase):
+    """tests/test_v643_rag_signal_coverage.py wants every persisted sysinfo signal indexed or declared. The
+    addresses are indexed, so a question such as "which hosts have a public address" is answered from what
+    the agents reported, and a host marked internal says so. Driven through the real corpus builder."""
+
+    def text(self, dev_extra=None, **si):
+        import time
+        import rag_index
+        now = int(time.time())
+        dev = {"id": "d1", "name": "web01", "os": "linux", "last_seen": now, "monitored": True, "sysinfo": si}
+        dev.update(dev_extra or {})
+        docs = rag_index.build_live_state_corpus([dev], now=now)
+        return "\n".join(d.get("text", "") for d in docs)
+
+    def test_the_corpus_emits_something_at_all(self):
+        """The control: an empty corpus would make every absence below true for nothing."""
+        self.assertIn("web01", self.text(uptime="up 3 days"))
+
+    def test_the_addresses_are_in_the_hosts_summary(self):
+        t = self.text(host_addresses=["192.168.1.20", "203.0.113.9"])
+        self.assertIn("addresses: 192.168.1.20, 203.0.113.9", t)
+
+    def test_a_host_without_addresses_has_no_line_for_them(self):
+        self.assertNotIn("addresses:", self.text(uptime="up 3 days"))
+        self.assertNotIn("addresses:", self.text(host_addresses=[]))
+
+    def test_a_host_marked_internal_says_so_and_only_then(self):
+        self.assertIn("exposure: marked internal", self.text({"exposure_internal": True}, uptime="up"))
+        for off in (False, None, "true", 1):
+            self.assertNotIn("exposure: marked internal", self.text({"exposure_internal": off}, uptime="up"), repr(off))
+
+
 if __name__ == "__main__":
     unittest.main()
