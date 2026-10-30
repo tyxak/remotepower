@@ -173,6 +173,85 @@ class TestTheFoldedVersion(unittest.TestCase):
         self.assertIn("int3rnalmatters", kw.lower())
 
 
+class TestTheSecurityReview(unittest.TestCase):
+    """The review is part of the release: it exists, it is indexed where a reader looks, it names what it
+    found, it says what it did not run, and the three kept reviews are the last three."""
+
+    DOC = "docs/security-review-7.4.6.md"
+
+    def raw(self):
+        return (_ROOT / self.DOC).read_text()
+
+    def text(self):
+        return re.sub(r"\s+", " ", self.raw())
+
+    def test_it_exists_and_is_indexed_and_is_the_latest(self):
+        self.assertTrue((_ROOT / self.DOC).exists())
+        for rel in ("docs/README.md", "docs/security.md"):
+            self.assertIn("security-review-7.4.6.md", (_ROOT / rel).read_text(), rel)
+        sec = (_ROOT / "docs/security.md").read_text()
+        self.assertGreaterEqual(sec.count("latest is\n[security-review-7.4.6.md]") +
+                                sec.count("latest:\n  [security-review-7.4.6.md]"), 2)
+
+    def test_it_says_what_it_covers_and_what_it_did_not_run(self):
+        text = self.text()
+        self.assertIn("The first, a switch that marks a host as internal, was reviewed on its own", text)
+        self.assertIn("were not run this time", text)           # the nginx scanners and nuclei
+        self.assertIn("## Known and unchanged", text)
+        self.assertIn("a live probe of the maintainer's own instance", text)
+        self.assertIn("(`make ci-parity`)", text)
+
+    def test_it_names_its_two_findings_and_the_summary_has_two_rows(self):
+        text = self.text()
+        self.assertIn("**two** issues", text)
+        self.assertIn("turned on for the string \"false\"", text)
+        self.assertIn("Five readers raised on a stored row that is not a whole map", text)
+        rows = re.findall(r"^\| ([1-9]) \|", self.raw(), re.M)
+        self.assertEqual(rows, ["1", "2"])
+
+    def test_it_ran_the_scans_and_the_checks_it_says_it_did(self):
+        text = self.text()
+        for needle in ("bandit", "semgrep", "gitleaks", "pip-audit", "CodeQL", "A scan against the live OSV",
+                       "The agent's sockets", "Hostile input to what is new", "Mutation checks", "PostgreSQL"):
+            self.assertIn(needle, text, needle)
+
+    def test_no_placeholder_is_left(self):
+        self.assertNotIn("@@", self.raw())
+        self.assertNotIn("TBD-", self.raw())
+
+    def test_it_reveals_no_command_for_the_attack(self):
+        text = self.raw()
+        for needle in ("curl", "X-Token", "wget", "nc -"):
+            self.assertNotIn(needle, text, needle)
+
+    def test_the_changelog_and_the_notes_agree_on_the_count(self):
+        body = (_ROOT / "CHANGELOG.md").read_text()
+        body = body[body.index("## v7.4.6 \u2014 "):body.index("## v7.4.5 \u2014 ")]
+        section = body[body.index("### Security"):][:700]
+        self.assertIn("two issues", re.sub(r"\s+", " ", section))
+        notes = re.sub(r"\s+", " ", (_ROOT / "docs/v7.4.6.md").read_text())
+        self.assertIn("It found two more issues, both low", notes)
+
+    def test_the_card_links_both_reviews(self):
+        html = _html()
+        card = html[html.index("What's new \u2014 v" + V):]
+        card = card[:card.index("</details>")]
+        self.assertIn("docs/security-review-7.4.6.md", card)
+        self.assertIn("docs/security-review-7.4.5.md", card)
+
+    def test_three_reviews_are_kept(self):
+        reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
+        self.assertEqual(reviews, ["security-review-7.4.4.md", "security-review-7.4.5.md", "security-review-7.4.6.md"])
+
+    def test_the_review_that_left_the_window_is_gone_everywhere(self):
+        self.assertFalse((_ROOT / "docs/security-review-7.4.3.md").exists())
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "docs/v7.4.3.md", "server/html/index.html"):
+            self.assertNotIn("security-review-7.4.3.md", (_ROOT / rel).read_text(), rel)
+
+    def test_the_kept_reviews_do_not_send_a_reader_to_the_one_that_left(self):
+        self.assertNotIn("7.4.3 review", self.text())
+
+
 class TestTheReleaseContainsItsGuards(unittest.TestCase):
     """A release pin, not a behavioural one: each file carries its own proof, watched failing before it
     was committed. This pins that they ship. The proofs of #55 are listed in tests/test_v745.py."""

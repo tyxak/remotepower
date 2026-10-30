@@ -24,6 +24,19 @@ stays below under that number. Each change adds its own entry here when it lands
   network-map notes read the same report, so for a host with an older agent they keep listing the clients as
   connections until its agent is updated. (#58)
 
+### Security
+
+The review of the rest of this release found two issues, both low. Both are fixed. See
+`docs/security-review-7.4.6.md`. The internal-host switch has its own review, under the 7.4.5 entry.
+
+- **The setting that keeps CVE alerts quiet turned on for the string "false".** `cve_alert_fixable_only` took the
+  truthiness of whatever arrived, so a client that sent `"false"` or `"0"` switched it on and `cve_found` stopped
+  for every finding no update can clear. It takes a real true or false now and answers 400 otherwise. The
+  other settings of the save handler are unchanged.
+- **Five readers raised on a stored row that is not a whole map.** The suggested dependencies, the CVE report's
+  counts and host view, the scan's alert path and the Thermal page failed the whole page or scan for one bad
+  row. Only a hand-edited or imported store holds one. Each skips what it cannot read now.
+
 ### Thermal
 
 - **The Thermal page and the risk score follow the drive temperature lines.** A host whose hottest sensor was a

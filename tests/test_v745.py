@@ -37,10 +37,9 @@ class TestTheSecurityReview(unittest.TestCase):
         for rel in ("docs/README.md", "docs/security.md"):
             self.assertIn("security-review-7.4.5.md", (_ROOT / rel).read_text(), rel)
 
-    def test_security_md_points_at_it_as_the_latest(self):
+    def test_security_md_lists_it_among_the_kept_reviews(self):
         text = (_ROOT / "docs/security.md").read_text()
-        self.assertGreaterEqual(text.count("latest is\n[security-review-7.4.5.md]") +
-                                text.count("latest:\n  [security-review-7.4.5.md]"), 2)
+        self.assertIn("- [security-review-7.4.5.md](security-review-7.4.5.md)", text)
 
     def test_it_says_what_it_covers_and_what_it_did_not_run(self):
         text = self.text()
@@ -89,10 +88,10 @@ class TestTheSecurityReview(unittest.TestCase):
 
     def test_three_reviews_are_kept_and_this_is_one_of_them(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
-        self.assertEqual(reviews, ["security-review-7.4.3.md", "security-review-7.4.4.md", "security-review-7.4.5.md"])
+        self.assertEqual(reviews, ["security-review-7.4.4.md", "security-review-7.4.5.md", "security-review-7.4.6.md"])
 
     def test_the_review_that_left_the_window_is_gone_everywhere(self):
-        for gone in ("7.4.0", "7.4.2"):
+        for gone in ("7.4.0", "7.4.2", "7.4.3"):
             self.assertFalse((_ROOT / f"docs/security-review-{gone}.md").exists(), gone)
             for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html"):
                 self.assertNotIn(f"security-review-{gone}.md", (_ROOT / rel).read_text(), (gone, rel))

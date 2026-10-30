@@ -61,6 +61,13 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.4.6.md](security-review-7.4.6.md)** — the v7.4.6 review: what a host can ask of
+  another host and of the server through the alerts it is the subject of, the connections and ports it
+  reports and the temperatures it sends, what an OSV record may put into the cache and onto the page,
+  the setting that keeps CVE alerts quiet, and two low issues, a switch that turned on for the string
+  "false" and five readers that raised on a stored row that is not a map. Caught before release, with
+  the scans, a scan against the live feed, the run over every route and the mutation checks behind
+  them.
 - **[security-review-7.4.5.md](security-review-7.4.5.md)** — the review of v7.4.5, which ships inside 7.4.6: the new
   switch that marks a host internal (who may set it and on which host, what a host can make the
   server do by what it reports about its addresses and ports, and what the pages and the
@@ -72,11 +79,6 @@ holds long-form docs that don't fit there.
   temperature lines for drives (who may set them, what a host can make the server do by
   what it reports about its drives, and what the pages and messages print from it) and one
   issue, a change to a host's thresholds that was not on the audit trail. Caught before
-  release, with the scans and the run over every route behind them.
-- **[security-review-7.4.3.md](security-review-7.4.3.md)** — the v7.4.3 review: the Test
-  buttons that let a tenant administrator make the server call an address or send mail,
-  an integration list that showed a tenant administrator more than a viewer sees, and a
-  host report that could make its own heartbeat fail. Four issues, all caught before
   release, with the scans and the run over every route behind them.
 - **[v7.4.6.md](v7.4.6.md)** — "F1xableMatters": a host can be marked internal, so a
   service that listens on every address is not graded as exposed to the world, a
