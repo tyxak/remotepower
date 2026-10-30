@@ -22711,6 +22711,11 @@ def handle_heartbeat():
         # force_secrets_scan but the server never set it (dead escape hatch);
         # same delivery contract as force_image_scan.
         if dev.get('force_secrets_scan'):
+        # v7.4.6 (#56): one-shot "send your system information now", left by an alert resolved by hand.
+        # Same delivery contract as force_package_scan, and every agent reads it.
+        if dev.get('force_sysinfo'):
+            saved_dev['force_sysinfo'] = True
+            dev.pop('force_sysinfo', None)
             saved_dev['force_secrets_scan'] = True
             dev.pop('force_secrets_scan', None)
         # Integrity Guard: one-shot restore/delete directives for quarantined
@@ -23879,6 +23884,8 @@ def handle_heartbeat():
     # the agent's now time-based cadence) is what makes the feature reachable.
     if saved_dev.get('force_image_scan'):
         common_resp['force_image_scan'] = True
+    if saved_dev.get('force_sysinfo'):
+        common_resp['force_sysinfo'] = True
     # v6.1.2: one-shot secrets-on-disk scan. Same dead-flag fix as force_image_scan
     # just above — the agent honoured it, the server never set it.
     if saved_dev.get('force_secrets_scan'):
@@ -60802,6 +60809,35 @@ def _alert_mutable_by_caller(alert):
         return True
     did = alert.get('device_id')
     if not did:
+# v7.4.6 (#56): a person who resolves an alert by hand has just put something right, or decided it is, and
+# Needs attention and Checks read the last report of the host, whose system information an agent sends every
+# ~10 polls. So the host is asked to report on its next beat. One-shot, like force_package_scan, and rate
+# limited: any signed-in user may resolve an alert unless the install says otherwise, and resolving then
+# reopening must not make a host collect on every beat.
+REFRESH_COOLDOWN_S = 120
+
+
+def _request_host_refresh(dev_ids):
+    """Leave a one-shot "report your system information now" on each of these hosts that has an agent and was
+    not asked in the last REFRESH_COOLDOWN_S seconds. Returns how many were asked. Never raises: resolving an
+    alert must not fail because a host could not be asked. Call it after the alert lock is released."""
+    now = int(time.time())
+    asked = 0
+    for dev_id in {str(d) for d in dev_ids if d}:
+        try:
+            with _DeviceUpdate(dev_id) as devs:
+                dev = devs.get(dev_id)
+                if (not isinstance(dev, dict) or dev.get('agentless') or dev.get('force_sysinfo')
+                        or now - int(dev.get('sysinfo_forced_at') or 0) < REFRESH_COOLDOWN_S):
+                    continue
+                dev['force_sysinfo'] = True
+                dev['sysinfo_forced_at'] = now
+                asked += 1
+        except Exception:
+            continue
+    return asked
+
+
         return True
     dev = device_get(did) or {}
     return _device_in_scope(scope, dev)
@@ -61505,6 +61541,7 @@ def handle_alert_resolve(alert_id):
                     now = int(time.time())
                     a['resolved_by'] = user
                     a['resolved_at'] = now
+    _refresh = None
                     if not a.get('acknowledged_at'):
                         # Resolve implies ack
                         a['acknowledged_by'] = user
@@ -61527,6 +61564,7 @@ def handle_alert_resolve(alert_id):
         _close_external_tickets([_snap])
     audit_log(user, 'alert_resolve', f'id={alert_id}' + (f' note={note[:80]}' if note else ''))
     respond(200, {'ok': True})
+                    _refresh = a.get('device_id')
 
 
 def handle_alert_unresolve(alert_id):
@@ -61536,6 +61574,7 @@ def handle_alert_unresolve(alert_id):
     returns to the open inbox."""
     user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    _request_host_refresh([_refresh])   # v7.4.6 (#56): Needs attention and Checks follow the resolve
     found = False
     denied = None   # v6.4.0: hoist the guard status out of the try — respond()
                     # raises HTTPError (an Exception), so a 404/409 raised INSIDE
@@ -61880,6 +61919,7 @@ def handle_alerts_bulk_resolve():
     except Exception as e:
         respond(500, {'error': str(e)})
     audit_log(user, 'alert_bulk_resolve', f'count={resolved}')
+    refresh = set()
     respond(200, {'ok': True, 'resolved': resolved})
 
 
@@ -61892,8 +61932,10 @@ def handle_alerts_bulk_ack():
     Same permission gate as single ack (`viewers_can_ack_alerts`), unlike
     bulk-resolve which is admin-only — acking is the lower-privilege action.
     Each newly-acked alert fires the on_ack webhook (so #54's `alertid` and
+                    refresh.add(a.get('device_id'))
     the #56 note flow through identically to a single ack)."""
     user = _check_alert_mutation_perm()
+    _request_host_refresh(refresh)   # v7.4.6 (#56): Needs attention and Checks follow the resolve
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.AlertsBulkAckRequest)
     ids = body.get('ids') or []

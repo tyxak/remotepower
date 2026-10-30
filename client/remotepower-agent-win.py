@@ -3849,6 +3849,8 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         global _force_sysinfo, _backup_monitors
         if resp.get('force_package_scan'):
             _force_sysinfo = True   # refresh sysinfo (Windows Update pending) next beat
+        if resp.get('force_sysinfo'):
+            _force_sysinfo = True   # v7.4.6 (#56): an alert was resolved by hand: report now
         _bm = resp.get('backup_monitors')
         if isinstance(_bm, list):
             _backup_monitors = _bm

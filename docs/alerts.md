@@ -24,7 +24,12 @@ looking.
 - **Acknowledge** — takes ownership; optionally prompts for a comment
   (Settings → Notifications → Alerts inbox) that is stored on the alert and included in the
   acknowledgement webhook.
-- **Resolve / Clear resolved / Clear all** — housekeeping; history is kept.
+- **Resolve / Clear resolved / Clear all** — housekeeping; history is kept. Resolving an alert
+  by hand, one at a time or in bulk, also asks its host to send a fresh report on its next poll
+  *(v7.4.6)*, so Needs attention and Checks stop listing what you have already put right instead
+  of waiting for the agent's next full report (about ten polls). A host with no agent is not asked,
+  a host is asked at most once in two minutes, and an alert that closes on its own does not ask,
+  because the host has just reported. Update the agents so they read the request.
 - **Resolve with a note** *(v6.4.2)* — the pencil button next to Resolve asks
   what actually fixed it and stores the answer on the alert (`resolve_note`,
   max 256 characters). The note shows on the resolved row and in the

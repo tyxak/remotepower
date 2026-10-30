@@ -14319,6 +14319,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_package_scan'):
                 force_pkg_scan = True
                 log.info('Server requested a package scan')
+            # v7.4.6 (#56): an alert was resolved by hand, so report now. Needs attention and Checks read the
+            # last report, and the system information goes out only every SYSINFO_EVERY polls.
+            if resp.get('force_sysinfo'):
+                _FORCE_CHECK_EVAL = True
             # v3.0.2: one-shot ACME rescan request
             if resp.get('force_acme_rescan'):
                 force_acme_rescan = True

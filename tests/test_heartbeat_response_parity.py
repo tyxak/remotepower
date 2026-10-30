@@ -54,6 +54,7 @@ DECLARED = {
     'force_log_sweep':      _ALL,
     'force_package_scan':   _ALL,
     'force_pii_scan':       _ALL,
+    'force_sysinfo':        _ALL,
     'force_secrets_scan':   _ALL,
     'live_until':           _ALL,
     'pii_scan_enabled':     _ALL,

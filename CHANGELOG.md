@@ -24,6 +24,18 @@ stays below under that number. Each change adds its own entry here when it lands
   network-map notes read the same report, so for a host with an older agent they keep listing the clients as
   connections until its agent is updated. (#58)
 
+### Alerts
+
+- **Resolving an alert by hand makes its host report at once.** Needs attention and Checks read the last report
+  of a host, and an agent sends its system information only every ten polls, so an alert you resolved could sit
+  beside a Needs attention entry for what the host had already put right, such as a failed unit that was reset,
+  for several minutes. Resolving an alert, one at a time or in bulk, now leaves a one-shot request on its host
+  (`force_sysinfo`), the next heartbeat answer carries it, and the agent sends its system information on its
+  next beat. A host with no agent is not asked, a host is asked at most once in two minutes, and the recovery
+  that closes an alert on its own does not ask, because the host has just reported. The Linux, Windows and
+  macOS agents all read it. This is the first step of #56; the single list that shows each problem once across
+  Alerts, Needs attention and Checks is not built. (#56)
+
 ## v7.4.5 — "Int3rnalMatters" — folded into v7.4.6 (no standalone release)
 
 One request from the same Docker install, filed on tyxak/remotepower as #55: a host behind a
