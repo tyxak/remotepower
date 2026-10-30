@@ -52,7 +52,8 @@ every tenth poll: about every 10 minutes at the default poll interval. So each f
 average over the gap between two reports, and the table says so under its heading
 ("average over the last 10 min, reported 4 min ago"). A burst of I/O that is over in a
 minute barely shows, and a disk that is busy now does not move the table until the next
-report. The trend holds 60 reports, about 10 hours at that rate.
+report. The trend holds 60 reports, about 10 hours at that rate. Monitor → Host metrics
+says the same about its own figures, with "Reported 7m ago" under each host's name.
 
 ### An alert for a disk that stays busy
 

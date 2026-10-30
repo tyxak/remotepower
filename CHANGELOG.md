@@ -41,6 +41,11 @@ On the test trunk only. It joins the next release.
   mount points. A mount of size 0 is left out, a long path is cut to its end in the legend, and the eight lines of
   the chart are now eight different filesystems. Searching by any mount point still finds the host. Alerts,
   forecasts and per-mount thresholds are unchanged and still work on each mount point.
+- **Host metrics says when its figures were reported.** The agent sends the cpu, memory and disk figures with its
+  system information, every tenth poll (about every 10 minutes at the default poll interval), so a figure that had
+  not moved for nine minutes read as stuck. The host record now carries `metrics_ts`, the time the figures were last
+  reported (a partial report that merges over the stored record does not move it, because the figures in it are
+  old), the full `GET /api/devices` list carries it, and the table prints "Reported 7m ago" under the host's name.
 - **The Disk I/O table says what its figures cover.** The agent sends disk I/O with its system information, every
   tenth poll, so a figure is an average over about 10 minutes and a burst that is over in a minute barely shows. A
   line under the heading now says so ("average over the last 10 min, reported 4 min ago"). The guide said "a trend of

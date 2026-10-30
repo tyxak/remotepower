@@ -15176,6 +15176,7 @@ def handle_devices_list():
             row['sysinfo'] = ({k: v for k, v in _si.items()
                                if k not in _ROSTER_SYSINFO_OMIT}
                               if isinstance(_si, dict) else {})
+            row['metrics_ts'] = dev.get('metrics_ts', 0)   # when the figures in `sysinfo` were last reported
             row['brute_force_active'] = _bf_active(bf_data.get(dev_id, {}), bf_cutoff, _bf_thresh)
             row['listening_ports']    = pb_data.get(dev_id) or dev.get('sysinfo', {}).get('listening_ports') or []
             # v3.4.0: hardware-health badge flags (best-effort; absent for
@@ -22608,6 +22609,11 @@ def handle_heartbeat():
             # page, the Checks row, the risk score, the audit's new-world-port event) sees the same one.
             exposure_scope_mod.apply(dev.get('exposure_internal'), safe_si)
             dev['sysinfo'] = safe_si
+            # When the cpu, memory and disk figures were last REPORTED, so Monitor -> Host metrics can say how old
+            # the figures it shows are (the agent sends them with its system information, about every 10 polls).
+            # A partial beat merges over the stored record and carries none of them, so it must not move this.
+            if any(k in _fresh_si for k in ('cpu_percent', 'mem_percent', 'disk_percent', 'mounts')):
+                dev['metrics_ts'] = now
             # v6.4.3: keep the stored hostname current. It was captured once at
             # enrolment and never again, so a renamed host kept its old name
             # everywhere the device record is read. Only ever refreshed from a

@@ -69,6 +69,7 @@ def patch_the_demo(data_dir):
     si = devs[HOST].setdefault("sysinfo", {})
     si.update(mounts=REAL, disk_percent=49.7, disk_io=DISK_IO)
     devs[HOST]["metric_state"] = {"disk:/home": "warning"}
+    devs[HOST]["metrics_ts"] = int(time.time()) - 7 * 60      # the figures were reported seven minutes ago
     dev_file.write_text(json.dumps(devs))
 
     now = int(time.time())
@@ -190,6 +191,16 @@ class TestEachViewShowsEachFilesystemOnce(unittest.TestCase):
         self.assertEqual(root["color"], "var(--amber)")
         quiet = next(c for c in cells if "/boot" in c["text"])
         self.assertNotEqual(quiet["color"], "var(--amber)")
+
+    def test_a_host_says_when_its_figures_were_reported(self):
+        self.disks_cell()
+        first_cells = self.page.evaluate("""() => [...document.querySelectorAll('#device-metrics-tbody tr')].map(tr => {
+            const td = tr.querySelector('td'); return td ? td.innerText.replace(/\\s+/g, ' ').trim() : ''; })""")
+        mine = next(c for c in first_cells if NAME in c)
+        self.assertRegex(mine, r"Reported 7m ago", mine)   # the page's own way of writing a time
+        others = [c for c in first_cells if c and NAME not in c]
+        self.assertTrue(others)
+        self.assertFalse([c for c in others if "Reported" in c], "a host that never reported figures has no such line")
 
     def test_a_search_by_any_mount_point_still_finds_the_host(self):
         self.disks_cell()

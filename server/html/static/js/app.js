@@ -8648,7 +8648,7 @@ function _registerDeviceMetricsTable() {
       }
 
       return `<tr>
-        <td class="fw-500"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-350">${escHtml(d.name)}</a>${d.group ? ` <span class="group-badge fs-10">${escHtml(d.group)}</span>` : ''}</td>
+        <td class="fw-500"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-350">${escHtml(d.name)}</a>${d.group ? ` <span class="group-badge fs-10">${escHtml(d.group)}</span>` : ''}${d.metrics_ts ? `<div class="hint fs-10"><span>Reported</span> ${timeAgoHtml(d.metrics_ts, { clamp: true })}</div>` : ''}</td>
         <td>${levelBadge}</td>
         <td class="ta-right">${memCell}</td>
         <td class="ta-right">${swapCell}</td>
