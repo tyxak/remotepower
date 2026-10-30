@@ -123,12 +123,17 @@ take the truthiness of their value, as they always did; only the one that quiets
 ## Left for the release gate
 
 The full suite and the checks that belong to a release are listed with the release, once it is cut.
-Run so far: the suite on JSON (17,124 tests) and on SQLite (16,863) on a copy of the tree at 66220e27,
-both red only in `test_v643_aur_tracks_release` (two subtests, which compare the AUR packages with the
-newest dated release and are red by design until a release is published) and in the eager JavaScript
-budget, which the next commit moved with its reason. The commits after that copy are the Thermal and
-risk-score follow-up, the bounds on an OSV record and this pass; they were run through the targeted
-sets and not through the full suite.
+Run so far, each on a copy of the tree. At 66220e27, JSON 17,124 tests and SQLite 16,863, red only in
+`test_v643_aur_tracks_release` (two subtests, which compare the AUR packages with the newest dated
+release and are red by design until a release is published) and in the eager JavaScript budget, which
+the next commit moved with its reason. At 5c9a746b, which holds all the code of this review, JSON
+17,176 tests and SQLite 16,912: the same two AUR subtests, and six tests of this release that were wrong
+and not the code (an older test module left a stand-in for the role lookup in place, so a viewer passed
+the administrator check in the new test, and a fixture held an integer key that the SQLite store cannot
+sort). Two test-only commits fixed them, and the SQLite suite ran again on the final tree at 74786743:
+16,912 tests, red only in the two AUR subtests. The JSON suite was not run again after those two
+test-only commits; the three modules involved were run under their top-level names, the way discover
+loads them, on both backends.
 
 Not run for this review: a live probe of the maintainer's own instance (it needs a one-time token),
 the nginx scanners and nuclei (above), the SAML routes (the library is not installed here, so all
