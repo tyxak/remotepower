@@ -64,7 +64,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '7.4.5'
+VERSION = '7.4.6'
 
 # v6.4.3: the docstring's " does NOT read" list, machine-readable.
 # tests/test_heartbeat_key_parity.py enforces BOTH directions against it: a

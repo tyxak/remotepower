@@ -642,7 +642,7 @@ def _demo_enrich_sysinfo(dev, rng, si):
     # the seeder's shapes holds them to server/cgi-bin/exposure_scope.py). jf01 has private addresses only,
     # so its wildcard sockets are graded lan and marked assumed. nc01 also has a public address: the mark
     # does not hold, its sockets stay world, and the Exposure page says why. Every other host leaves the
-    # switch off and reports no addresses, like an agent from before 7.4.5.
+    # switch off and reports no addresses, like an agent from before 7.4.6.
     if dev['id'] in _DEMO_INTERNAL_HOSTS:
         _have = {(r['proto'], r['port']) for r in si['listening_ports']}
         for _pr, _po, _proc in (('tcp', 443, 'nginx'), ('tcp', 8080, 'docker-proxy')):

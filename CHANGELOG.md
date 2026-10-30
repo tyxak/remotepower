@@ -5,12 +5,17 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v7.4.5 — "Int3rnalMatters" — 2026-10-29
+## v7.4.6 — "F1xableMatters" — unreleased (test)
 
-One more request from the same Docker install, filed on tyxak/remotepower as #55: a host
-behind a NAT firewall can be marked internal, so a service that listens on every address is
-graded as reachable from the local network instead of from the world. Each change adds its
-own entry here when it lands.
+Four reports from the same Docker install, filed on tyxak/remotepower as #55, #56, #57 and #58.
+The first was built as v7.4.5 and folded into this release before it was released, so its entry
+stays below under that number. Each change adds its own entry here when it lands.
+
+## v7.4.5 — "Int3rnalMatters" — folded into v7.4.6 (no standalone release)
+
+One request from the same Docker install, filed on tyxak/remotepower as #55: a host behind a
+NAT firewall can be marked internal, so a service that listens on every address is graded as
+reachable from the local network instead of from the world.
 
 ### Exposure
 

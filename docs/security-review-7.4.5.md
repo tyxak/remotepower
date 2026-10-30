@@ -1,5 +1,7 @@
 # Security review — v7.4.5
 
+7.4.5 was folded into 7.4.6 before it was released. This review covers the part of 7.4.6 that came from it.
+
 7.4.5 answers one request (#55): an administrator can mark a host as internal, so a service that
 listens on every address is graded as reachable from the local network instead of from the world.
 That is a new way to quiet an alert for one host, so the review looked at who may set the switch,

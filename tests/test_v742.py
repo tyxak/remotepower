@@ -75,10 +75,10 @@ class TestVersionBumps(unittest.TestCase):
         self.assertTrue(first.startswith(f'## v{_server_version()} — "'), first)
 
     def test_version_doc_left_the_keep_three_window(self):
-        """v7.4.5 pushed v7.4.2 out of the three kept version docs. Its history
+        """v7.4.6 pushed v7.4.2 out of the three kept version docs. Its history
         stays in CHANGELOG.md."""
         self.assertFalse((_ROOT / f"docs/v{V}.md").exists(),
-                         f"docs/v{V}.md should have been removed at the v7.4.5 bump")
+                         f"docs/v{V}.md should have been removed at the v7.4.6 bump")
 
     def test_changelog_entry_has_no_template_left(self):
         changelog = (_ROOT / "CHANGELOG.md").read_text()
@@ -114,7 +114,7 @@ class TestVersionBumps(unittest.TestCase):
         cards = re.findall(r"What's new — v(\d+\.\d+\.\d+)", html)
         self.assertEqual(len(cards), 3, f"cap the cards at 3: {cards}")
         self.assertEqual(cards[0], _server_version(), "the new release leads")
-        self.assertNotIn(V, cards, "v7.4.2 left the three kept cards at v7.4.5")
+        self.assertNotIn(V, cards, "v7.4.2 left the three kept cards at v7.4.6")
         # Its search keywords moved to the "Older releases" card, so doc search
         # still finds the release by its codename.
         older = html[html.index('older versions history'):]
@@ -134,7 +134,7 @@ class TestVersionBumps(unittest.TestCase):
 
 
 class TestTheReviewLeftTheWindow(unittest.TestCase):
-    """The review of 7.4.2 (which also covered 7.4.1) left the three kept reviews at the v7.4.5 bump. Its history
+    """The review of 7.4.2 (which also covered 7.4.1) left the three kept reviews at the v7.4.6 bump. Its history
     stays in CHANGELOG.md, and the later reviews write out what they carry forward."""
 
     def test_it_is_gone_everywhere(self):

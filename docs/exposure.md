@@ -35,7 +35,7 @@ The mark holds only while every address the host has is private: 10.0.0.0/8, 172
 and fe80::/10. A public IPv4 address, or any IPv6 address that is not local, puts the services back
 to **world**, because a NAT does not protect IPv6. The page then names the address. An agent that
 does not report its addresses keeps the grade at world too, and the page says so: the Linux agent
-reports them from 7.4.5 with its system information, about every ten minutes, and the Windows and
+reports them from 7.4.6 with its system information, about every ten minutes, and the Windows and
 macOS agents do not yet.
 
 A new listener is still reported, because *New listening port* does not depend on the grade. When

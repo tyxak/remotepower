@@ -30,8 +30,8 @@ def _server_version():
 
 
 class TestVersionBumps(unittest.TestCase):
-    """Loosened at the v7.4.5 bump. The STRICT pins for the current release
-    live in tests/test_v745.py; what stays here is the shape: the surfaces
+    """Loosened at the v7.4.6 bump. The STRICT pins for the current release
+    live in tests/test_v746.py; what stays here is the shape: the surfaces
     must still agree with each other, whatever version they carry."""
 
     def test_server_version_shape(self):

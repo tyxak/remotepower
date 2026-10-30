@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.4.5-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.4.6-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,7 +199,7 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
-- **v7.4.5 "Int3rnalMatters"** — one more request from the same Docker install: a
+- **v7.4.6 "F1xableMatters"** — more requests from the same Docker install: a
   host behind a NAT firewall can be marked internal, so a service that listens on
   every address is graded as reachable from the local network, not from the world.
 - **v7.4.4 "Spec1ficMatters"** — one request from the same Docker install: temperature

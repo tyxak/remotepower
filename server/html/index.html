@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.5-1">
+<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.6-1">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.4.5-1">
+<link rel="stylesheet" href="static/css/styles.css?v=7.4.6-1">
 
 </head>
 <body>
@@ -4859,13 +4859,13 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v7.4.5 int3rnalmatters exposure internal host assumed internal world lan listening ports nat firewall docker published ports public address ipv6">
-            <summary><strong>What's new — v7.4.5 &ldquo;Int3rnalMatters&rdquo;</strong> &mdash; one more request from the same Docker install.</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v7.4.6 f1xablematters v7.4.5 int3rnalmatters exposure internal host assumed internal world lan listening ports nat firewall docker published ports public address ipv6">
+            <summary><strong>What's new — v7.4.6 &ldquo;F1xableMatters&rdquo;</strong> &mdash; more requests from the same Docker install.</summary>
             <div class="doc-body">
               <p><strong>A host can count as internal.</strong> A service that listens on every address, which Docker does for each published port, is graded <em>world</em>, even on a host behind a NAT firewall with no port forwards. Click <strong>Treat as internal</strong> beside one of the host&rsquo;s world sockets on <strong>Security &rarr; Exposure</strong>, or on the Ports card of the host, and those services are graded <em>assumed internal</em> instead. That holds only while every address the host has is private: a public IPv4 address, an IPv6 address that is not local, or an agent that does not report its addresses puts them back, and the page says why. A new listener is still reported. Update the Linux agents so they report their addresses. See <a href="docs/exposure.md" class="c-accent">Exposure</a>.</p>
               <p><strong>Security review.</strong> Two low issues were fixed before release: a request to the new route that did not say true or false turned a host&rsquo;s switch off, and the Exposure page and the Checks row raised on a stored port list that is not a list of maps. The switch held up against a tenant administrator, a role with every action permission, a hostile report of addresses and ports, a race with reports, and text planted in a host&rsquo;s strings. See <a href="docs/security-review-7.4.5.md" class="c-accent">the review</a>.</p>
               <p><strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
-              <p class="hint">See <code>docs/v7.4.5.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
+              <p class="hint">See <code>docs/v7.4.6.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog v7.4.4 spec1ficmatters drive temperature temperatures hard disk hdd ssd sata nvme smart serial lines warn critical hot cool per drive per host most specific disk names thermal alert">
@@ -12553,39 +12553,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.4.5-1"></script>
+<script defer src="static/js/app.js?v=7.4.6-1"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-cmdb.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-containers.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-network.js?v=7.4.5-1"></script>
+<script defer src="static/js/app-calendar.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-cmdb.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-containers.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-network.js?v=7.4.6-1"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-compliance.js?v=7.4.5-1"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-compliance.js?v=7.4.6-1"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-dns.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-drift.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-cve.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-firewall.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-backups.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-iac.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-proxmox.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-virt.js?v=7.4.5-1"></script>
+<script defer src="static/js/app-ai.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-dns.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-drift.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-cve.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-firewall.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-backups.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-iac.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-proxmox.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-virt.js?v=7.4.6-1"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-remote.js?v=7.4.5-1"></script>
-<script defer src="static/js/app-tickets.js?v=7.4.5-1"></script>
+<script defer src="static/js/app-logs.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-remote.js?v=7.4.6-1"></script>
+<script defer src="static/js/app-tickets.js?v=7.4.6-1"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.4.5-1"></script>
+<script defer src="static/js/app-self.js?v=7.4.6-1"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=7.4.5-1"></script>
+<script defer src="static/js/app-tooltip.js?v=7.4.6-1"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -12595,6 +12595,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.4.5-1"></script>
+<script defer src="static/js/sw-register.js?v=7.4.6-1"></script>
 </body>
 </html>
