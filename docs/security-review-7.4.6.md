@@ -50,7 +50,7 @@ was run against the code with its fix taken out.
 | Lint (`make lint`: isort, black, mypy, ruff `F` and `E9`) | The type-checked modules, the agents, the sidecars, the tools, the tests and the packaging | Clean |
 | bandit | 135,345 lines of server and agent Python, against the committed baseline | 0 High, 24 Medium and 923 Low. Nothing is new against the baseline |
 | semgrep | The Python, JavaScript and security-audit rule sets over the 16 server, agent, page and packaging files that changed, with the per-rule timeout raised to 120 seconds | 21 results (10 on file permissions, 4 on SHA-1, 2 on an XML parser and 5 others), none on a line changed since the 7.4.5 candidate. Three rules timed out on `api.py` and did not finish: two taint rules for subprocess and system calls, and a hard-coded-token rule |
-| gitleaks | Every commit (2,480) | No leaks. No tarball was built for this review |
+| gitleaks | Every commit up to the release commit (2,484) and the unpacked release tarball | No leaks |
 | Dependency audit (`pip-audit`) | The 18 pinned requirements of the server and agents, with their dependencies | No known vulnerabilities |
 | CodeQL | The repository's own configuration, as the production workflow runs it, for Python and JavaScript | 0 results in Python and 0 in JavaScript |
 | Hostile input to what is new | 19 tests through the real functions: a viewer resolving and reopening 20 times, a scoped caller and a tenant caller asking for a host they cannot see, a host's own heartbeat carrying the request, 14 values for the switch, a stored finding of 11 shapes, a Thermal page and a score over 8 shapes of a host's lines and drive entries, and peer rows of 6 shapes | The two findings below. Everything else held |
