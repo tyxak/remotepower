@@ -26,10 +26,6 @@ from test_v746_drive_lines_thermal import api as api_fleet  # noqa: E402
 from test_v746_resolve_refresh import _Resolve, alert  # noqa: E402
 from test_v746_resolve_refresh import api as api_resolve  # noqa: E402
 
-# The real checks, taken when the modules are imported and before any test has run: a base class records what it
-# finds when a test starts, and an earlier test that left a stand-in in place would hand that stand-in back.
-_REAL_REQUIRE_AUTH, _REAL_REQUIRE_ADMIN = api_cve.require_auth, api_cve.require_admin_auth
-
 ROOT = Path(__file__).resolve().parent.parent
 APP_JS = ROOT / "server/html/static/js/app.js"
 CVE_JS = ROOT / "server/html/static/js/app-cve.js"
@@ -158,8 +154,8 @@ class TestTheOptionTakesOnlyTrueOrFalse(_Alerts):
         self.assertIs(api_cve.get_cve_alert_fixable_only(), False)
 
     def test_a_viewer_cannot_change_it(self):
-        api_cve.require_auth = _REAL_REQUIRE_AUTH
-        api_cve.require_admin_auth = _REAL_REQUIRE_ADMIN
+        api_cve.require_auth = self._orig["require_auth"]
+        api_cve.require_admin_auth = self._orig["require_admin_auth"]
         api_cve.verify_token = lambda t: ("viewer1", "viewer")
         self.option(False)
         self.assertEqual(self.save(True), 403)

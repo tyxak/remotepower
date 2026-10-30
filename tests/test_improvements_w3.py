@@ -44,7 +44,10 @@ class _HandlerBase(unittest.TestCase):
         self._orig = {n: getattr(api, n) for n in
                       ('require_auth', 'require_admin_auth', 'verify_token',
                        'get_token_from_request', 'audit_log', 'fire_webhook',
-                       'respond', 'method', 'get_json_body')}
+                       'respond', 'method', 'get_json_body',
+                       # a test below stands in for it and never put it back, so the next module to
+                       # use this api instance read every caller as an administrator
+                       '_resolve_role')}
         api.require_auth = lambda require_admin=False: 'jakob'
         api.require_admin_auth = lambda: 'jakob'
         api.verify_token = lambda t: ('jakob', 'admin')
