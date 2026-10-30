@@ -92,8 +92,10 @@ class TestStaleCacheRefetch(unittest.TestCase):
         self.assertEqual(finding['severity_source'], 'cvss_v3')
 
     def test_current_entry_with_source_is_kept(self):
-        # A 2.3.4+ entry (HAS severity_source) that is fresh must NOT
-        # be re-fetched — the fix must not defeat the cache entirely.
+        # A current entry (HAS severity_source, and since 7.4.6 the per-release
+        # fixes in eco_fix) that is fresh must NOT be re-fetched — the fix must
+        # not defeat the cache entirely. One without eco_fix is the 7.4.6 case,
+        # held by test_v746_cve_fix_status.
         cache = {'DEBIAN-CVE-2024-36357': {
             'summary': 'current', 'details': '',
             'severity': 'medium',
@@ -101,6 +103,7 @@ class TestStaleCacheRefetch(unittest.TestCase):
             'aliases': [], 'published': '', 'modified': '', 'refs': [],
             'cached_at': int(time.time()),
             'fixed_versions': {},
+            'eco_fix': {},
         }}
         (self._tmp / 'cve_details_cache.json').write_text(json.dumps(cache))
 
