@@ -204,7 +204,8 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   every address is graded as reachable from the local network, not from the world,
   a server no longer shows up as the client of its own clients in the suggested
   dependencies, a CVE finding says whether a fix exists for the host's own release, and
-  an alert resolved by hand makes its host report at once.
+  an alert resolved by hand makes its host report at once, and the Thermal page and the
+  risk score hold a drive to its own temperature lines.
 - **v7.4.4 "Spec1ficMatters"** — one request from the same Docker install: temperature
   lines for each drive. A hard disk, a SATA SSD and an NVMe drive run at different
   temperatures, so each can have its own warning and critical line, set for one

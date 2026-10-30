@@ -130,6 +130,7 @@ function _renderThermal() {
       // un-ignore it. `suspect` is the server's advisory "this reads past its
       // own critical limit while the host is plainly fine" flag.
       const sc = s.ignored ? 'c-muted'
+        : s.level === 'critical' ? 'c-red fw-600' : s.level === 'hot' ? 'c-amber fw-600'   // a drive held to lines of its own (#54)
         : (typeof s.crit === 'number' && typeof s.temp === 'number')
           ? (s.temp >= s.crit ? 'c-red fw-600' : (s.crit - s.temp) <= 10 ? 'c-amber' : '')
           : '';

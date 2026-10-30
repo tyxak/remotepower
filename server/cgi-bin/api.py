@@ -52224,25 +52224,40 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     elif eol and eol.get('status') == 'soon':
         _add('os_eol_soon', w['os_eol_soon'],
              f"{eol.get('label', 'OS')} reaches end-of-life in {eol.get('days', 0)}d")
-    # Overheating — hottest board/disk/GPU sensor vs the thermal thresholds.
-    hottest_c = None
-    for _src, _key in ((_hw_temps_live(dev, hw_rec), 'current_c'),
-                       (hw_rec.get('smart') or [], 'temperature_c'),
-                       (hw_rec.get('gpus') or [], 'temp_c')):
-        for _e in _src:
-            _c = _e.get(_key) if isinstance(_e, dict) else None
-            if isinstance(_c, (int, float)) and (hottest_c is None or _c > hottest_c):
-                hottest_c = float(_c)
+    # Overheating — board/disk/GPU sensors vs the thermal thresholds.
     # v6.2.2 batch 3: operator-configurable thermal thresholds (defaults mirror
     # the code constants). One _config_ro() read; never mutate the result.
     _gc = _config_ro()
     _hot_c = float(_gc.get('thermal_hot_c', THERMAL_HOT_C) or THERMAL_HOT_C)
     _crit_c = float(_gc.get('thermal_crit_c', THERMAL_CRIT_C) or THERMAL_CRIT_C)
-    if hottest_c is not None and hottest_c >= _hot_c:
-        _crit_t = hottest_c >= _crit_c
+    # v7.4.6 (#54): a drive with temperature lines is held to them, every other sensor and a drive with none
+    # to the fleet's, the same rule the Thermal page uses. The score follows the sensor that is furthest
+    # over its line; with no drive line that is the hottest one, as before.
+    _host_mt = dev.get('metric_thresholds') if isinstance(dev, dict) else None
+    _host_mt = _host_mt if isinstance(_host_mt, dict) else {}
+    hottest_c = None
+    worst = (0, float('-inf'))      # (rank of the level, temperature) of the sensor to report
+    for _src, _key in ((_hw_temps_live(dev, hw_rec), 'current_c'),
+                       (hw_rec.get('smart') or [], 'temperature_c'),
+                       (hw_rec.get('gpus') or [], 'temp_c')):
+        for _e in _src:
+            _c = _e.get(_key) if isinstance(_e, dict) else None
+            if not isinstance(_c, (int, float)):
+                continue
+            if hottest_c is None or _c > hottest_c:
+                hottest_c = float(_c)
+            if _key == 'temperature_c':
+                _ln = drive_temp_mod.view(_e, _host_mt.get('drivetemp_per_serial'), _host_mt, _gc)
+                _lv = drive_temp_mod.level(float(_c), _ln['warn'], _ln['crit'], _hot_c, _crit_c)
+            else:
+                _lv = drive_temp_mod.level(float(_c), None, None, _hot_c, _crit_c)
+            worst = max(worst, (drive_temp_mod.LEVELS.index(_lv), float(_c)))
+    if worst[0] > 0:
+        _crit_t = worst[0] == 2
+        _what = 'hottest sensor' if worst[1] == hottest_c else 'a drive over its own line'
         _add('overheating',
              w['overheating'] if _crit_t else w['overheating'] // 2,
-             f"hottest sensor at {round(hottest_c, 1)} °C ({'critical' if _crit_t else 'hot'})")
+             f"{_what} at {round(worst[1], 1)} °C ({'critical' if _crit_t else 'hot'})")
     # Config drift from the tracked baseline. `drift_rec` is this device's
     # DRIFT_STATE_FILE record, threaded in by the caller the same way hw_rec is
     # — the device record has never carried drift state, so the config_drift
@@ -66523,6 +66538,7 @@ def handle_fleet_thermal():
     require_auth()
     _bands = _hw_bands()
     _hot_c, _crit_c = _bands['thermal_hot'], _bands['thermal_crit']
+    _gc = _config_ro()
     # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
     # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
     # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
@@ -66535,7 +66551,12 @@ def handle_fleet_thermal():
         # Telemetry view — unmonitored hosts still appear (alerting only is
         # suppressed for them); the row carries a `monitored` flag for the UI.
         hw = hw_all.get(dev_id) or {}
-        hottest = None  # (temp_c, label, kind, crit_c)
+        hottest = None  # (temp_c, label, kind, crit_c, warn_c)
+        # v7.4.6 (#54): the host is hot or critical when ANY sensor that counts is over the line it is held
+        # to. A drive with temperature lines is held to them; every other sensor, and a drive with none, to
+        # the fleet's hot and critical lines, so a host with no drive line reads exactly as it did.
+        any_hot = any_crit = False
+        _host_mt = d.get('metric_thresholds') if isinstance(d.get('metric_thresholds'), dict) else {}
         sensors = 0
         detail = []      # per-sensor breakdown (hover); capped below
         gpu_extra = None  # fan/util/power, carried when a GPU is the hottest sensor
@@ -66561,17 +66582,27 @@ def handle_fleet_thermal():
             detail.append(row)
             if lbl in _ign:
                 continue
+            _lv = drive_temp_mod.level(float(c), None, None, _hot_c, _crit_c)
+            any_hot, any_crit = any_hot or _lv != 'ok', any_crit or _lv == 'critical'
             if hottest is None or c > hottest[0]:
-                hottest = (float(c), lbl, 'sensor', cr)
+                hottest = (float(c), lbl, 'sensor', cr, None)
         for s in (hw.get('smart') or []):
             c = s.get('temperature_c')
             if not isinstance(c, (int, float)):
                 continue
             sensors += 1
             lbl = str(s.get('device') or 'disk')
-            detail.append({'label': lbl, 'temp': round(float(c), 1), 'type': 'disk', 'crit': None})
+            _ln = drive_temp_mod.view(s, _host_mt.get('drivetemp_per_serial'), _host_mt, _gc)
+            _dw, _dc = _ln['warn'], _ln['crit']
+            _lv = drive_temp_mod.level(float(c), _dw, _dc, _hot_c, _crit_c)
+            any_hot, any_crit = any_hot or _lv != 'ok', any_crit or _lv == 'critical'
+            drow = {'label': lbl, 'temp': round(float(c), 1), 'type': 'disk', 'crit': _dc}
+            if _dw is not None or _dc is not None:
+                drow['warn'] = _dw          # the drive is held to lines of its own: say which, and where it stands
+                drow['level'] = _lv
+            detail.append(drow)
             if hottest is None or c > hottest[0]:
-                hottest = (float(c), lbl, 'disk', None)
+                hottest = (float(c), lbl, 'disk', _dc, _dw)
         for g in (hw.get('gpus') or []):    # v3.14.0: GPUs are sensors too
             c = g.get('temp_c')
             if not isinstance(c, (int, float)):
@@ -66579,8 +66610,10 @@ def handle_fleet_thermal():
             sensors += 1
             lbl = str(g.get('name') or 'GPU')
             detail.append({'label': lbl, 'temp': round(float(c), 1), 'type': 'gpu', 'crit': None})
+            _lv = drive_temp_mod.level(float(c), None, None, _hot_c, _crit_c)
+            any_hot, any_crit = any_hot or _lv != 'ok', any_crit or _lv == 'critical'
             if hottest is None or c > hottest[0]:
-                hottest = (float(c), lbl, 'gpu', None)
+                hottest = (float(c), lbl, 'gpu', None, None)
                 gpu_extra = {k: g.get(j) for k, j in
                              (('fan_pct', 'fan_pct'), ('util_pct', 'util_pct'), ('power_w', 'power_w'))
                              if isinstance(g.get(j), (int, float))} or None
@@ -66588,8 +66621,9 @@ def handle_fleet_thermal():
             continue  # host reports no temperatures — omit rather than show 0 °C
         max_c = round(hottest[0], 1)
         crit_c = hottest[3]
+        warn_c = hottest[4]
         headroom = round(crit_c - max_c, 1) if isinstance(crit_c, (int, float)) else None
-        is_hot = max_c >= _hot_c
+        is_hot = any_hot
         if is_hot:
             hot += 1
         detail.sort(key=lambda x: -x['temp'])
@@ -66601,9 +66635,9 @@ def handle_fleet_thermal():
             'device_id': dev_id, 'device': d.get('name', dev_id),
             'monitored': d.get('monitored') is not False,
             'max_temp': max_c, 'sensor_label': hottest[1], 'sensor_type': hottest[2],
-            'sensors': sensors, 'crit_c': crit_c, 'headroom': headroom,
+            'sensors': sensors, 'crit_c': crit_c, 'warn_c': warn_c, 'headroom': headroom,
             'detail': detail[:16], 'gpu': gpu_extra, 'trend': trend,
-            'hot': is_hot, 'critical': max_c >= _crit_c,
+            'hot': is_hot, 'critical': any_crit,
             'reported_at': hw.get('ts', 0),
         })
     rows.sort(key=lambda r: -r['max_temp'])

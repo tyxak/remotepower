@@ -184,6 +184,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v746_cve_fix_e2e.py",       # #57: the tiles, the filter, the host view and the Settings option, in a browser
         "tests/test_v746_translations.py",      # #57: the text the release added, in six languages
         "tests/test_v746_resolve_refresh.py",   # #56: resolving an alert by hand makes its host report; the three agents read it
+        "tests/test_v746_drive_lines_thermal.py",  # #54: the Thermal page and the risk score hold a drive to its own lines
     )
 
     def test_the_list_is_not_empty(self):

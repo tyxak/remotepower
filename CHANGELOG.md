@@ -24,6 +24,19 @@ stays below under that number. Each change adds its own entry here when it lands
   network-map notes read the same report, so for a host with an older agent they keep listing the clients as
   connections until its agent is updated. (#58)
 
+### Thermal
+
+- **The Thermal page and the risk score follow the drive temperature lines.** A host whose hottest sensor was a
+  drive showed no threshold or headroom on the Thermal page, and its hot flag came from the fleet's 75 °C and
+  not from the lines set for that drive. A drive with temperature lines (its own, its host's or the fleet's, by
+  type) is now held to them on the page and in the risk score: the row shows the drive's critical line as the
+  threshold with the headroom under it and its warning line as `warn_c`, and the host is flagged hot or critical
+  when any sensor is over the line it is held to, so a drive over its own line flags the host even if the CPU is
+  hotter. A warning line on its own is never critical. Every other sensor, and a drive with no line at any
+  level, is judged by the fleet's hot and critical lines as before, so an install that sets no drive line reads
+  the same. The overheating entry of the risk score names the sensor that is furthest over its line. The
+  reliability grade still reads the board sensors only. (#54)
+
 ### Alerts
 
 - **Resolving an alert by hand makes its host report at once.** Needs attention and Checks read the last report

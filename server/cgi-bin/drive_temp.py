@@ -293,3 +293,25 @@ def view(entry: Any, own: Any, host: Any, fleet: Any) -> dict:
             "crit": as_line(mine.get("crit")),
         }
     return out
+
+
+# The states a reading can be in, mildest first.
+LEVELS = ("ok", "hot", "critical")
+
+
+def level(value: float, warn: Any, crit: Any, fleet_hot: float, fleet_crit: float) -> str:
+    """'ok', 'hot' or 'critical' for one temperature reading of a drive (v7.4.6, issue #54).
+
+    `warn` and `crit` are the lines `view` returned for the drive. A drive held to lines of its own is
+    judged by them, and a warning line on its own is never 'critical', as for the alerts. A drive with no
+    line at any level is judged by the fleet's hot and critical lines, which is how the Thermal page and
+    the risk score have always judged every sensor, so an install that sets no drive line sees no change.
+    Pass None for both lines to judge a sensor that is not a drive."""
+    w, c = as_line(warn), as_line(crit)
+    if w is None and c is None:
+        w, c = fleet_hot, fleet_crit
+    if c is not None and value >= c:
+        return "critical"
+    if w is not None and value >= w:
+        return "hot"
+    return "ok"
