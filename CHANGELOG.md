@@ -5,6 +5,36 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
+## Unreleased (test)
+
+On the test trunk only. It joins the next release.
+
+### Thermal
+
+- **Chart any sensor.** The Thermal page drew one series for a host, its hottest reading. Every row of the sensor
+  table now has a **Chart** button that draws that sensor instead: a board sensor, a drive or a GPU. The chart is
+  headed with the sensor's name, **Hottest reading** goes back, and so does pressing **Chart** on the sensor that is
+  already charted. The ranges are 24 hours (a point about every 15 minutes), 8 days and 30 days (hourly, with the
+  min / avg / max band). A sensor has no 2-year range, so a 2-year range chosen for the hottest reading becomes 30
+  days when you switch to a sensor. History starts when the server starts collecting it: after an update the 24-hour
+  view fills first and the longer views follow within the hour, and the chart says so while it is empty. A host keeps
+  at most 24 series, and a new one takes a free slot when another has had no reading for a day. The points live in
+  the rows the hottest reading already uses, so there is no new file. `GET /api/devices/<id>/thermal/rollup` takes
+  `sensor=<type>|<label>` and `tier=raw|hourly`. See `docs/thermal.md`.
+
+### Host metrics
+
+- **The Disk chart says what it plots, and fits its axis.** The Disk series of a host's Metrics window is one
+  volume: the root filesystem on a Linux host, the fullest volume on Windows and macOS. On a fixed 0 to 100 % axis a
+  volume that moves a few points reads as a flat line, so the Disk chart now fits its axis to the values in view
+  (never narrower than 4 points, always inside 0 to 100 %), and a line under its heading says which volume it is.
+  The other charts keep their axis.
+
+### Fixes
+
+- The thermal roll-up sweep stopped for every host when one host's row held a `last_ts` that was not a number. It
+  now treats that row as having nothing folded yet.
+
 ## v7.4.6 — "F1xableMatters" — 2026-10-30
 
 Four reports from the same Docker install, filed on tyxak/remotepower as #55, #56, #57 and #58, and a

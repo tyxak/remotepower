@@ -309,11 +309,25 @@ class TestChartTimePinpointing(unittest.TestCase):
 class TestThermalRangePicker(unittest.TestCase):
 
     def test_the_ranges_map_onto_real_server_tiers(self):
+        """The hottest reading is served in three tiers. A single sensor is served in two, `raw` (the ring)
+        and `hourly`, so its picker has a list of its own."""
         src = (_JS / "app-power.js").read_text()
         m = re.search(r"tier:\s*'(fivemin|hourly|daily)'", src)
         self.assertIsNotNone(m, "the picker offers no server tier")
-        for tier in re.findall(r"tier:\s*'([a-z]+)'", src):
+        hottest = re.search(r"const _THERMAL_RANGES = \[(.*?)\n\];", src, re.S)
+        sensor = re.search(r"const _THERMAL_SENSOR_RANGES = \[(.*?)\n\];", src, re.S)
+        self.assertIsNotNone(hottest)
+        self.assertIsNotNone(sensor)
+        for tier in re.findall(r"tier:\s*'([a-z]+)'", hottest.group(1)):
             self.assertIn(tier, ("fivemin", "hourly", "daily"),
+                          f"'{tier}' is not a tier the server serves")
+        sensor_tiers = re.findall(r"tier:\s*'([a-z]+)'", sensor.group(1))
+        self.assertTrue(sensor_tiers)
+        for tier in sensor_tiers:
+            self.assertIn(tier, ("raw", "hourly"), f"'{tier}' is not a tier the server serves for a sensor")
+        rest = src.replace(hottest.group(1), "").replace(sensor.group(1), "")
+        for tier in re.findall(r"tier:\s*'([a-z]+)'", rest):
+            self.assertIn(tier, ("fivemin", "hourly", "daily", "raw"),
                           f"'{tier}' is not a tier the server serves")
 
     def test_it_requests_the_endpoint_that_exists(self):

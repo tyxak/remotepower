@@ -9,6 +9,9 @@ const _THERMAL_ICON = {
   restore: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
 };
 
+// The Chart button on a sensor row (Lucide chart-line, same strokes as the buttons beside it).
+const _THERMAL_CHART_ICON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>';
+
 // Ignore / restore a single board sensor. A dead or unconnected pin (the
 // classic nct67xx AUXTIN case) otherwise becomes the host's hottest sensor and
 // from there drives the page headline, temp_high, and the overheating risk
@@ -142,13 +145,18 @@ function _renderThermal() {
       const act = s.ignored
         ? `<button class="btn-icon btn-xs" data-action="thermalUnignoreSensor" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(s.label || '')}" title="Count this sensor again">${_THERMAL_ICON.restore} Restore</button>`
         : `<button class="btn-icon btn-xs" data-action="thermalIgnoreSensor" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(s.label || '')}" title="Stop counting this sensor — it will not set the host temperature, fire temp_high, or affect the risk score">${_THERMAL_ICON.ignore} Ignore</button>`;
-      return `<tr>
+      const skey = `${s.type}|${s.label || 'sensor'}`;
+      const charted = _thermalSensor.get(r.device_id) === skey;
+      const chartBtn = `<button class="btn-icon btn-xs${charted ? ' thermal-chart-on' : ''}" data-action="thermalPickSensor"`
+        + ` data-arg="th-${escAttr(r.device_id)}" data-arg2="${escAttr(skey)}" aria-pressed="${charted ? 'true' : 'false'}"`
+        + ` title="Chart this sensor’s temperature history">${_THERMAL_CHART_ICON} Chart</button>`;
+      return `<tr${charted ? ' class="thermal-sensor-on"' : ''}>
         <td class="${s.ignored ? 'c-muted' : ''}">${escHtml(s.label || 'sensor')}</td>
         <td class="${sc}">${(typeof s.temp === 'number') ? fmtTemp(s.temp) : '—'}</td>
         <td class="hint">${escHtml(s.type || '—')}</td>
         <td class="hint">${(typeof s.crit === 'number') ? fmtTemp(s.crit, 0) : '—'}</td>
         <td>${state}</td>
-        <td class="nowrap">${(canIgnore && s.type === 'sensor') ? act : ''}</td>
+        <td class="nowrap">${chartBtn}${(canIgnore && s.type === 'sensor') ? ' ' + act : ''}</td>
       </tr>`;
     }).join('');
     const detail = `<tr class="thermal-detail-row"><td colspan="9">
@@ -186,6 +194,16 @@ const _THERMAL_RANGES = [
   { key: '2y',  label: '2 years',  tier: 'daily',   span: 730 * 86400 },
 ];
 const _thermalRange = new Map();     // device_id -> range key (default '24h')
+// device_id -> the sensor whose history the chart shows, as "<type>|<label>" (a row of the sensor table: type
+// sensor, disk or gpu). Absent means the hottest reading, which is what the chart always showed.
+const _thermalSensor = new Map();
+// A sensor keeps the last day as one point about every quarter hour (`raw`) and 30 days of hourly buckets. The
+// 2-year tier belongs to the hottest reading, so a sensor has no such range.
+const _THERMAL_SENSOR_RANGES = [
+  { key: '24h', label: '24 hours', tier: 'raw',    span: 86400 },
+  { key: '8d',  label: '8 days',   tier: 'hourly', span: 8 * 86400 },
+  { key: '30d', label: '30 days',  tier: 'hourly', span: 30 * 86400 },
+];
 const _thermalRollups = new Map();   // 'device_id|tier' -> points[] (cache)
 const _thermalRollupBusy = new Set();  // 'device_id|tier' currently in flight
 // A full 8-day 5-minute tier is ~2300 buckets; drawn as three series that is
@@ -197,7 +215,13 @@ function _thermalRangeDef(key) {
   return _THERMAL_RANGES.find(r => r.key === key) || _THERMAL_RANGES[0];
 }
 function _thermalRangeFor(devId) {
-  return _thermalRangeDef(_thermalRange.get(devId));
+  if (!_thermalSensor.has(devId)) return _thermalRangeDef(_thermalRange.get(devId));
+  // A range picked for the hottest reading that a sensor does not have (2 years) becomes the longest it has.
+  const want = _thermalRange.get(devId) || '24h';
+  return _THERMAL_SENSOR_RANGES.find(r => r.key === want) || _THERMAL_SENSOR_RANGES[_THERMAL_SENSOR_RANGES.length - 1];
+}
+function _thermalCacheKey(devId, def) {
+  return devId + '|' + def.tier + '|' + (_thermalSensor.get(devId) || '');
 }
 function _thermalHostName(devId) {
   const h = ((_thermalResp && _thermalResp.hosts) || []).find(x => x.device_id === devId);
@@ -210,18 +234,40 @@ function _thermalHostName(devId) {
 function _thermalTimelineBlock(devId) {
   return `<div id="thermal-tl-${escAttr(devId)}" class="mb-8">${_thermalTimelineInner(devId)}</div>`;
 }
+// What the chart shows, and the way back to the hottest reading.
+function _thermalChartHead(devId) {
+  const key = _thermalSensor.get(devId);
+  if (!key) {
+    return '<div class="hint mb-6">Charting the hottest reading. Select a sensor below to chart it instead.</div>';
+  }
+  return `<div class="row-8-center mb-6"><span class="hint">Charting</span> <strong>${escHtml(key.slice(key.indexOf('|') + 1))}</strong>`
+    + ` <button class="btn-icon btn-xs" data-action="thermalPickSensor" data-arg="th-${escAttr(devId)}" data-arg2=""`
+    + ` title="Chart the hottest reading of this host">Hottest reading</button></div>`;
+}
+
 function _thermalTimelineInner(devId) {
   const cur = _thermalRangeFor(devId).key;
   // data-arg carries a 'th-' prefix so the dispatcher's numeric coercion
   // (`!isNaN(v) ? Number(v) : v`) can never mangle a device id into a number.
-  const picker = '<div class="metric-range-picker">' + _THERMAL_RANGES.map(r =>
+  const ranges = _thermalSensor.has(devId) ? _THERMAL_SENSOR_RANGES : _THERMAL_RANGES;
+  const picker = '<div class="metric-range-picker">' + ranges.map(r =>
     `<button class="metric-range-btn${r.key === cur ? ' sel' : ''}" data-action="thermalSetRange"`
     + ` data-arg="th-${escAttr(devId)}" data-arg2="${r.key}"`
     + ` aria-pressed="${r.key === cur ? 'true' : 'false'}">${escHtml(r.label)}</button>`).join('')
     + '</div>';
-  return picker
+  return _thermalChartHead(devId) + picker
     + `<div id="thermal-ts-${escAttr(devId)}" class="trend-chart"></div>`
     + `<div id="thermal-tsnote-${escAttr(devId)}" class="hint mt-8"></div>`;
+}
+
+// A Chart button of the sensor table. The key is "<type>|<label>" and always holds a bar, so the dispatcher's
+// numeric coercion cannot turn it into a number; the empty string it passes back is coerced to 0, which is
+// read the same way. Choosing the sensor that is already charted goes back to the hottest reading.
+function thermalPickSensor(devArg, key) {
+  const devId = String(devArg).replace(/^th-/, '');
+  const k = (typeof key === 'string' && key.indexOf('|') > 0) ? key : '';
+  if (!k || _thermalSensor.get(devId) === k) _thermalSensor.delete(devId); else _thermalSensor.set(devId, k);
+  _renderThermal();
 }
 
 function thermalSetRange(devArg, key) {
@@ -246,7 +292,8 @@ async function _thermalLoadChart(devId) {
   const el = document.getElementById('thermal-ts-' + devId);
   if (!el) return;   // row collapsed / past the fleet row cap — nothing to paint
   const def = _thermalRangeFor(devId);
-  const ck = devId + '|' + def.tier;
+  const sensor = _thermalSensor.get(devId) || '';
+  const ck = _thermalCacheKey(devId, def);
   if (_thermalRollups.has(ck)) { _thermalDrawChart(devId); return; }
   el.innerHTML = '<div class="c-muted">Loading temperature history…</div>';
   if (_thermalRollupBusy.has(ck)) return;   // a re-render mid-fetch: let it land
@@ -257,7 +304,8 @@ async function _thermalLoadChart(devId) {
     // body (or null on a non-JSON 502). Treating "no points key" as "no data
     // yet" would render the pre-history empty state on a 500, i.e. a UI that
     // lies about a failure. Only an actual points array counts as data.
-    const r = await api('GET', `/devices/${encodeURIComponent(devId)}/thermal/rollup?tier=${def.tier}`);
+    const r = await api('GET', `/devices/${encodeURIComponent(devId)}/thermal/rollup?tier=${def.tier}`
+                                 + (sensor ? `&sensor=${encodeURIComponent(sensor)}` : ''));
     if (r && Array.isArray(r.points)) points = r.points;
     else err = (r && r.error) ? String(r.error) : 'the server returned no roll-up points';
   } catch (e) {
@@ -272,9 +320,9 @@ async function _thermalLoadChart(devId) {
     return;
   }
   _thermalRollups.set(ck, points);
-  // The operator can switch range mid-flight; the newer request owns the chart.
-  // Without this the slower response repaints with the OTHER tier selected.
-  if (_thermalRangeFor(devId).tier !== def.tier) return;
+  // The operator can switch range or sensor mid-flight; the newer request owns the chart.
+  // Without this the slower response repaints with the OTHER tier or sensor selected.
+  if (_thermalRangeFor(devId).tier !== def.tier || (_thermalSensor.get(devId) || '') !== sensor) return;
   _thermalDrawChart(devId);
 }
 
@@ -330,7 +378,7 @@ function _thermalStats(pts, from, to) {
 // Floor the format span just past a day so a short window keeps its date.
 function _thermalFmtTs(ts, span) { return _fmtTs(ts, Math.max(span, 86401)); }
 
-function _thermalNoteText(def, pts, folded, from, to) {
+function _thermalNoteText(def, pts, folded, from, to, sensor) {
   const st = _thermalStats(pts, from, to);
   if (!st.n) return '<span class="c-muted">No samples in the pinpointed window.</span>';
   const span = Math.max(1, st.last - st.first);
@@ -343,8 +391,11 @@ function _thermalNoteText(def, pts, folded, from, to) {
   // Pre-history: the tier is retained far longer than this host has been
   // rolled up. Say so rather than let a short line read as "that's all there is".
   if (from == null && to == null && span < def.span * 0.6) {
-    extra += `<div>Roll-up history starts ${escHtml(_thermalFmtTs(st.first, span))} — the`
-           + ` ${escHtml(def.label)} view fills in as more roll-ups accumulate.</div>`;
+    extra += sensor
+      ? `<div>History for this sensor starts ${escHtml(_thermalFmtTs(st.first, span))} — the`
+        + ` ${escHtml(def.label)} view fills in as the host keeps reporting.</div>`
+      : `<div>Roll-up history starts ${escHtml(_thermalFmtTs(st.first, span))} — the`
+        + ` ${escHtml(def.label)} view fills in as more roll-ups accumulate.</div>`;
   }
   if (folded > 1) {
     extra += `<div>Averaged ${folded} buckets per point to keep the chart readable;`
@@ -374,7 +425,8 @@ function _thermalDrawChart(devId) {
   const el = document.getElementById(elId);
   if (!el) return;
   const def = _thermalRangeFor(devId);
-  const ck = devId + '|' + def.tier;
+  const sensor = _thermalSensor.get(devId) || '';
+  const ck = _thermalCacheKey(devId, def);
   if (!_thermalRollups.has(ck)) return;   // still loading — keep the placeholder
   const raw = _thermalRollups.get(ck) || [];
   let pts = raw.filter(p => p && typeof p.ts === 'number'
@@ -383,20 +435,26 @@ function _thermalDrawChart(devId) {
   if (!pts.length) {
     // Honest empty state: nothing has been folded yet, and the operator is told
     // what fills it and what the row's sparkline is showing in the meantime.
-    el.innerHTML = '<div class="empty-state">No roll-up data yet for this host —'
-      + ' the timeline folds once an hour of temperature samples exists.'
-      + ' The sparkline in the row above comes from the live ~24h sample window'
-      + ' and fills in first.</div>';
+    el.innerHTML = sensor
+      ? '<div class="empty-state">No history for this sensor yet. A point is added about every 15 minutes,'
+        + ' so the 24-hour view fills first and the longer views follow once an hour.</div>'
+      : '<div class="empty-state">No roll-up data yet for this host —'
+        + ' the timeline folds once an hour of temperature samples exists.'
+        + ' The sparkline in the row above comes from the live ~24h sample window'
+        + ' and fills in first.</div>';
     _thermalNote(devId, '');
     return;
   }
-  if (def.key === '24h') {
-    // "24 hours" is the 5-minute tier clipped to the last day (see _THERMAL_RANGES).
+  if (def.key === '24h' || sensor) {
+    // "24 hours" is the 5-minute tier clipped to the last day (see _THERMAL_RANGES). A sensor's hourly tier
+    // serves both of its longer ranges, so it is clipped to the range that was asked for.
     const cut = Math.floor(Date.now() / 1000) - def.span;
     const recent = pts.filter(p => p.ts >= cut);
     if (!recent.length) {
       const lastTs = pts[pts.length - 1].ts;
-      el.innerHTML = '<div class="empty-state">No temperature samples in the last 24 hours'
+      el.innerHTML = (def.key === '24h'
+        ? '<div class="empty-state">No temperature samples in the last 24 hours'
+        : `<div class="empty-state">No temperature samples in the last ${escHtml(def.label)}`)
         + ` — this host last rolled up ${escHtml(_thermalFmtTs(lastTs, def.span))}.`
         + ' Pick a longer range to see the history it does have.</div>';
       _thermalNote(devId, '');
@@ -406,20 +464,24 @@ function _thermalDrawChart(devId) {
   }
   const { pts: shown, folded } = _thermalFold(pts, _THERMAL_MAX_POINTS);
   const axis = _thermalTempAxis();
-  const series = [['Min', 'min'], ['Avg', 'avg'], ['Max', 'max']].map(([name, key]) => ({
+  // A point of the raw tier is one reading, so min, avg and max are the same number: draw it once.
+  const seriesDefs = def.tier === 'raw' ? [['Temperature', 'avg']] : [['Min', 'min'], ['Avg', 'avg'], ['Max', 'max']];
+  const series = seriesDefs.map(([name, key]) => ({
     name,
     points: shown.filter(p => typeof p.temp[key] === 'number')
                  .map(p => ({ x: p.ts, y: axis.conv(p.temp[key]) })),
   })).filter(s => s.points.length);
   renderTimeSeries(elId, series, {
     yUnit: axis.unit,
-    label: `${_thermalHostName(devId)} temperature — ${def.label}`,
+    label: sensor
+      ? `${_thermalHostName(devId)} ${sensor.slice(sensor.indexOf('|') + 1)} temperature — ${def.label}`
+      : `${_thermalHostName(devId)} temperature — ${def.label}`,
     // Shared-chart contract: opt in to time-pinpointing, and mirror the picked
     // window into the caption below (null,null on reset).
     zoom: true,
-    onZoom: (from, to) => _thermalNote(devId, _thermalNoteText(def, shown, folded, from, to)),
+    onZoom: (from, to) => _thermalNote(devId, _thermalNoteText(def, shown, folded, from, to, sensor)),
   });
-  _thermalNote(devId, _thermalNoteText(def, shown, folded, null, null));
+  _thermalNote(devId, _thermalNoteText(def, shown, folded, null, null, sensor));
 }
 
 async function loadPower() {

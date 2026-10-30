@@ -9657,9 +9657,15 @@ function _metricChartShell(id, label, samples, key) {
   const vals = pts.map(p => p.v);
   const cur = vals[vals.length - 1], mn = Math.min(...vals), mx = Math.max(...vals);
   const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  // The Disk series is ONE volume, and which one depends on the agent: Linux reports the root filesystem,
+  // Windows and macOS the fullest volume. Say so under the heading, where the flat line is being read.
+  const diskNote = key === 'disk'
+    ? '<div class="hint metric-note">Linux reports the root filesystem (/), Windows and macOS the fullest volume. The axis is fitted to the data.</div>'
+    : '';
   return `<div class="isl-355">
     <div class="metric-chart-head"><span class="isl-356">${escHtml(label)}</span>
       <span class="metric-stats">now <b>${cur.toFixed(1)}%</b> · min ${mn.toFixed(0)} · avg ${avg.toFixed(0)} · max ${mx.toFixed(0)}</span></div>
+    ${diskNote}
     <div id="${escAttr(id)}"></div></div>`;
 }
 
@@ -9688,9 +9694,11 @@ function _paintMetricCharts(samples) {
   for (const s of _METRIC_SERIES) {
     const id = 'mc-' + s.key;
     if (!document.getElementById(id)) continue;
+    // Disk usage moves slowly, so on a 0-100 axis it is a flat line; its own chart fits the axis to the data.
+    const own = s.key === 'disk' ? { ...opts, yMin: null, yMax: null, yFit: 4 } : opts;
     renderTimeSeries(id, [{ name: s.label, color: s.color,
                             points: _tsPoints(samples, s.key) }],
-                     { ...opts, label: s.label + ' over time' });
+                     { ...own, label: s.label + ' over time' });
   }
 }
 const _METRIC_RANGES = [
@@ -13134,8 +13142,12 @@ function _tsZoomBar(fromTs, toTs, zoomed, note, apply, reset) {
 
 // Render a multi-series line chart as inline SVG (presentation via SVG
 // attributes, not CSS — CSP-safe). `series` = [{name, points:[{x,y}]}], where x
-// is an epoch second and y a number. opts: {yMin, yMax, yUnit, label,
-// crosshair, zoom, onZoom}. opts.zoom turns on time-pinpointing (drag-select /
+// is an epoch second and y a number. opts: {yMin, yMax, yFit, yUnit, label,
+// crosshair, zoom, onZoom}. opts.yFit (a number of points) fits the y-axis to
+// the values in view, padded and never narrower than that many points, kept
+// inside 0-100: a series that barely moves (disk usage) is otherwise a flat
+// line on a 0-100 axis. Without it the axis is exactly what it was.
+// opts.zoom turns on time-pinpointing (drag-select /
 // double-click reset / exact from-to entry); opts.onZoom(fromTs, toTs) then
 // fires on every window change — (null, null) on reset — so a consumer can
 // refetch a finer tier for the window instead of just rescaling what it holds.
@@ -13146,6 +13158,19 @@ const _TS_ANNO_COLOR = {
   drift:   'var(--c-amber, #d29922)',
   oom:     'var(--c-red, #f85149)',
 };
+
+// The y-axis bounds of a chart that fits its values (opts.yFit): the values with a fifth of their range as
+// padding, never narrower than `minSpan` points, inside 0-100. The span is a multiple of 4 and the bottom is a
+// whole number, so the five gridlines are labelled with whole numbers, and the window always holds every value:
+// it is the whole-number window of that span nearest the middle of the values among those that hold them all.
+function _tsFitAxis(ys, minSpan) {
+  const lo = Math.min(...ys), hi = Math.max(...ys);
+  const need = Math.max(Math.max(hi - lo, minSpan) * 1.2, Math.ceil(hi) - Math.floor(lo));
+  const span = Math.min(100, Math.ceil(need / 4) * 4);
+  const first = Math.max(0, Math.ceil(hi) - span), last = Math.min(Math.floor(lo), 100 - span);
+  const yMin = Math.max(first, Math.min(last, Math.round((lo + hi) / 2 - span / 2)));
+  return { yMin, yMax: yMin + span };
+}
 
 function renderTimeSeries(elId, series, opts) {
   const el = document.getElementById(elId);
@@ -13189,8 +13214,9 @@ function renderTimeSeries(elId, series, opts) {
   const inWin = p => p.x >= minX && p.x <= maxX;
   const visible = win ? all.filter(inWin) : all;
   const ys = (visible.length ? visible : all).map(p => p.y);
-  const yMin = opts.yMin != null ? opts.yMin : Math.min(...ys);
-  const yMax = opts.yMax != null ? opts.yMax : Math.max(...ys) || 1;
+  let yMin = opts.yMin != null ? opts.yMin : Math.min(...ys);
+  let yMax = opts.yMax != null ? opts.yMax : Math.max(...ys) || 1;
+  if (opts.yFit > 0 && opts.yMin == null && opts.yMax == null) ({ yMin, yMax } = _tsFitAxis(ys, opts.yFit));
   const spanX = (maxX - minX) || 1, spanY = (yMax - yMin) || 1;
   const sx = x => padL + (x - minX) / spanX * plotW;
   const sy = y => padT + plotH - (y - yMin) / spanY * plotH;

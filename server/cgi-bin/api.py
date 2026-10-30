@@ -931,7 +931,8 @@ import checks as checks_mod    # per-host Checks engine (pure)
 import drive_temp as drive_temp_mod   # v7.4.4 (#54): temperature lines for drives (pure)
 import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host and the grade of its listeners (pure)
 import peer_direction as peer_direction_mod   # v7.4.6 (#58): which way an observed TCP connection runs (pure)
-import query_engine   # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
+import thermal_sensors as thermal_sensors_mod   # a temperature history for every sensor, not only the hottest (pure)
+import query_engine  # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
 # Helpdesk tickets (bound-module pilot): exec'd as a PRIVATE module instance
 # rather than a cached `import`, because the test suite execs many api
 # instances per process — a process-cached tickets_handlers would stay bound
@@ -47930,6 +47931,7 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
     # nests BEGIN IMMEDIATE and the write is lost (previously swallowed by a
     # try/except). Stash the data, write once the HARDWARE_FILE lock exits.
     temp_sample = None
+    fresh_temps = None      # the board sensors this report carried, for the per-sensor history
     smart_sample = None
     gpu_sample = None
     # v5.6.x perf: O(1) per-device read+write via the entity helpers —
@@ -48110,6 +48112,7 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
                 for t in temps[:MAX_TEMPS]
                 if isinstance(t, dict) and _temp_is_measurement(t.get('current_c'))
             ]
+            fresh_temps = safe['temps']
         raid = hw.get('raid')
         if isinstance(raid, list):
             safe['raid'] = [
@@ -48403,8 +48406,11 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
         _maybe_sample_smart(dev_id, smart_sample, now)
     if gpu_sample is not None:
         _maybe_sample_gpu(dev_id, gpu_sample, now)
-    if temp_sample is not None:
-        _maybe_sample_temp(dev_id, temp_sample, now)
+    # A point for every sensor this report carried, so the Thermal page can chart any row of its table. A list
+    # the report did not carry is None, so a reading left over from an older report is not sampled again.
+    sensor_sample = thermal_sensors_mod.readings(fresh_temps, smart_sample, gpu_sample)
+    if temp_sample is not None or sensor_sample:
+        _maybe_sample_temp(dev_id, temp_sample, now, sensor_sample)
 
     # Fire events outside the lock (fire_webhook does its own I/O).
     for event, payload in events:
@@ -48740,20 +48746,27 @@ def _maybe_sample_gpu(dev_id, gpus, now):
 MAX_TEMP_SAMPLES = 288   # ~24h at the ~5-min hardware cadence
 
 
-def _maybe_sample_temp(dev_id, max_c, now):
+def _maybe_sample_temp(dev_id, max_c, now, sensor_readings=None):
     """Append the host's hottest temperature reading for the Thermal-page trend
     sparkline. One sample per hardware-cycle ingest (~5 min), bounded to
     MAX_TEMP_SAMPLES. Mirrors `_maybe_sample_gpu`; a no-op when the host
-    reported no usable temperature this cycle."""
-    if not isinstance(max_c, (int, float)):
+    reported no usable temperature this cycle.
+
+    `sensor_readings` is the report's per-sensor list (thermal_sensors.readings). It goes into the same row
+    so the report costs one write, and the ring keeps a point about every 14 minutes for each series."""
+    hottest = isinstance(max_c, (int, float))
+    if not hottest and not sensor_readings:
         return
     # v6.4.3 (perf): per-row — 116.7 ms/sample at 400 devices as a whole-store
     # write, 15.6 % duty, and on SQLite it blocked every other writer.
     entry = _entity_read_one(THERMAL_HIST_FILE, dev_id, None)
     if not isinstance(entry, dict):
         entry = {'samples': []}
-    entry.setdefault('samples', []).append({'ts': now, 'temp': round(float(max_c), 1)})
-    entry['samples'] = entry['samples'][-MAX_TEMP_SAMPLES:]
+    if hottest:
+        entry.setdefault('samples', []).append({'ts': now, 'temp': round(float(max_c), 1)})
+        entry['samples'] = entry['samples'][-MAX_TEMP_SAMPLES:]
+    if sensor_readings:
+        entry['sensors'] = thermal_sensors_mod.ring_add(entry.get('sensors'), sensor_readings, now)
     _entity_write_one(THERMAL_HIST_FILE, dev_id, entry)
 
 

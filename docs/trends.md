@@ -23,6 +23,12 @@ fleet health score, compliance score, and per-host resource history
   points already on screen, so zooming in gains resolution. The pinned
   window survives a data refresh. The same control is on the temperature
   timeline — see [Thermal](thermal.md).
+- **What the Disk line is.** It is one volume, not every volume: the root
+  filesystem (`/`) on a Linux host, the fullest volume on Windows and macOS. A
+  volume that moves a few points reads as a flat line on a fixed 0 to 100 %
+  axis, so the Disk chart in a host's Metrics window fits its axis to the values
+  it shows and says which volume it plots. Every mount has a line on the
+  per-host chart above (up to eight), but only as one sample a day.
 
 ## Metric explorer (v6.4.2)
 

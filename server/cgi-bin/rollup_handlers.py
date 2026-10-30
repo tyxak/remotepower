@@ -294,22 +294,35 @@ def run_thermal_rollup_if_due():
         state['_meta'] = {'last_run': now}
         for dev_id in list(devices.keys()):
             rec = state.get(dev_id) if isinstance(state.get(dev_id), dict) else {}
-            last_ts = int(rec.get('last_ts', 0) or 0)
-            new = A._raw_temp_samples(hist.get(dev_id), last_ts)
-            if not new:
+            try:
+                last_ts = int(rec.get('last_ts', 0) or 0)
+            except (TypeError, ValueError, OverflowError):
+                last_ts = 0     # a row edited by hand must not stop the fold for every other host
+            ring = hist.get(dev_id)
+            new = A._raw_temp_samples(ring, last_ts)
+            # The per-sensor series ride in the same row. They fold whether or not the hottest reading has
+            # anything new: a host whose sensors are all ignored has no hottest reading, and still has series.
+            sensors, sensors_changed = A.thermal_sensors_mod.fold_hourly(
+                rec.get('sensors'), ring.get('sensors') if isinstance(ring, dict) else None, now, _hold)
+            if not new and not sensors_changed:
                 continue
-            fivemin = A._rollup_merge(rec.get('fivemin') or [], new,
-                                      A.ROLLUP_5MIN_SEC, A._THERMAL_ROLLUP_KEYS)
-            hourly = A._rollup_merge(rec.get('hourly') or [], new,
-                                     A.ROLLUP_HOURLY_SEC, A._THERMAL_ROLLUP_KEYS)
-            daily = A._rollup_merge(rec.get('daily') or [], new,
-                                    A.ROLLUP_DAILY_SEC, A._THERMAL_ROLLUP_KEYS)
-            state[dev_id] = {
-                'last_ts': max([last_ts] + [int(s['ts']) for s in new]),
-                'fivemin': fivemin if _hold else A._rollup_prune(fivemin, A.ROLLUP_5MIN_KEEP, now),
-                'hourly':  hourly if _hold else A._rollup_prune(hourly, A.ROLLUP_HOURLY_KEEP, now),
-                'daily':   daily if _hold else A._rollup_prune(daily, A.ROLLUP_DAILY_KEEP, now),
-            }
+            out = dict(rec)
+            if sensors['hourly'] or 'sensors' in out:
+                out['sensors'] = sensors
+            if new:
+                fivemin = A._rollup_merge(rec.get('fivemin') or [], new,
+                                          A.ROLLUP_5MIN_SEC, A._THERMAL_ROLLUP_KEYS)
+                hourly = A._rollup_merge(rec.get('hourly') or [], new,
+                                         A.ROLLUP_HOURLY_SEC, A._THERMAL_ROLLUP_KEYS)
+                daily = A._rollup_merge(rec.get('daily') or [], new,
+                                        A.ROLLUP_DAILY_SEC, A._THERMAL_ROLLUP_KEYS)
+                out.update({
+                    'last_ts': max([last_ts] + [int(s['ts']) for s in new]),
+                    'fivemin': fivemin if _hold else A._rollup_prune(fivemin, A.ROLLUP_5MIN_KEEP, now),
+                    'hourly':  hourly if _hold else A._rollup_prune(hourly, A.ROLLUP_HOURLY_KEEP, now),
+                    'daily':   daily if _hold else A._rollup_prune(daily, A.ROLLUP_DAILY_KEEP, now),
+                })
+            state[dev_id] = out
         # prune roll-ups for deleted devices
         for k in [k for k in state.keys() if k != '_meta' and k not in devices]:
             del state[k]
@@ -320,7 +333,11 @@ def handle_device_thermal_rollup(dev_id):
     aggregated hottest-temperature series (min/avg/max per bucket), in the SAME
     shape as /metrics/rollup so one chart renderer serves both. Auth:
     require_auth, scoped. Complements the raw ~24h thermal ring: fivemin (~8d)
-    is the incident-zoom band, hourly keeps 30d, daily ~2y."""
+    is the incident-zoom band, hourly keeps 30d, daily ~2y.
+
+    With `sensor=<kind>|<label>` (a row of the Thermal page's sensor table: kind is sensor, disk or gpu) the
+    answer is that one sensor's series instead, in the same shape. A sensor has two tiers: `raw` is the ring
+    (a point about every 14 minutes for a day) and `hourly` is 30 days; any other tier answers `hourly`."""
     A.require_auth()
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'Host not found'})
@@ -331,6 +348,18 @@ def handle_device_thermal_rollup(dev_id):
             A.respond(403, {'error': 'Host outside your role scope'})
     qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
     tier = (qs.get('tier') or ['daily'])[0]
+    sensor = (qs.get('sensor') or [''])[0]
+    if sensor:
+        parts = A.thermal_sensors_mod.split_key(sensor)
+        if parts is None:
+            A.respond(400, {'error': 'sensor must be <kind>|<label>, with kind sensor, disk or gpu'})
+        key = A.thermal_sensors_mod.key_for(*parts)
+        tier = 'raw' if tier == 'raw' else 'hourly'
+        store = A.THERMAL_HIST_FILE if tier == 'raw' else A.THERMAL_ROLLUP_FILE
+        row = A._entity_read_one(store, dev_id, {})
+        sensors = row.get('sensors') if isinstance(row, dict) else None
+        read = A.thermal_sensors_mod.raw_points if tier == 'raw' else A.thermal_sensors_mod.hourly_points
+        A.respond(200, {'device_id': dev_id, 'tier': tier, 'sensor': key, 'points': read(sensors, key)})
     if tier not in ('fivemin', 'hourly', 'daily'):
         tier = 'daily'
     # ENTITY store → answering for one device is one row read, not a parse of the

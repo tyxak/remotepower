@@ -8,6 +8,8 @@ the global hot/critical °C defaults are tunable in **Settings → Alert
 parameters**.
 
 - Sensor sources: hwmon/lm-sensors, NVMe/SMART temperatures, GPU sensors.
+- Expand a host and press **Chart** on any row of its sensor table to see that sensor's
+  history instead of the hottest reading. See [Charting one sensor](#charting-one-sensor).
 - The **Trend (~24h)** sparkline in each row comes from the live sample ring —
   one reading per hardware cycle, roughly the last day.
 - Sustained over-threshold temperatures raise a thermal alert; thresholds
@@ -95,6 +97,40 @@ Two things the caption under the chart tells you:
   applies to the Avg line only — the Min and Max lines still carry the true
   extremes of every bucket that went into a point.
 
+## Charting one sensor
+
+The timeline starts on the hottest reading. Every row of the sensor table also has a **Chart** button
+(for every reader; **Ignore** stays for administrators). Press it and the chart shows that one sensor,
+a board sensor, a drive or a GPU. The heading above the chart names it, **Hottest reading** takes you back,
+and pressing **Chart** on the sensor that is already charted does the same. An ignored sensor can be
+charted too: ignoring only keeps it out of the host's temperature.
+
+A sensor has its own history, kept apart from the hottest reading's:
+
+| Range | Reads | Resolution |
+|---|---|---|
+| 24 hours | the last day, as reported | a point about every 15 minutes |
+| 8 days | hourly roll-up, clipped to 8 days | 1 hour, with min / avg / max |
+| 30 days | hourly roll-up | 1 hour, with min / avg / max |
+
+There is no 2-year range for a sensor, so a 2-year range chosen for the hottest reading becomes 30 days
+when you switch to a sensor. A point of the 24-hour view is a single reading, so it is drawn as one line.
+
+How it is kept:
+
+- A hardware report adds a point to every sensor it carried, at most one every 14 minutes, so a host that
+  reports every 5 minutes gets a point about every 15. Only what that report carried is sampled; a reading
+  left over from an older report is never sampled again under a new time.
+- The roll-up folds the points once an hour, the same sweep that folds the hottest reading.
+- A series is named after its row: the type (`sensor`, `disk` or `gpu`) and the label the row prints. Two rows
+  with the same label and type share one series, the way they share one **Ignore** entry.
+- A host keeps at most 24 series. A new sensor waits for a free slot, which comes when another has had no
+  reading for a day (a day's points, a week's roll-up). A drive or a GPU that is replaced starts a new series.
+- Old buckets are pruned after 30 days, except while a litigation hold is active.
+
+Nothing is charted for a sensor before the server starts collecting it. After an update the 24-hour view
+fills first and the longer views follow within the hour; the chart says so while it is empty.
+
 ## Pinpointing a window
 
 Both this chart and the per-host metrics chart on
@@ -123,6 +159,11 @@ re-fetches a finer tier rather than stretching the points already on screen.
   hottest-sensor series for one host, `{ts, temp:{min,avg,max}}` per point. The
   metrics equivalent is `GET /api/devices/<id>/metrics/rollup`, in the same
   shape.
+- `GET /api/devices/<id>/thermal/rollup?sensor=<type>|<label>&tier=raw|hourly` — one sensor's series in
+  the same shape. `type` is `sensor`, `disk` or `gpu` and `label` is the row's label (for example
+  `sensor|coretemp Core 0`). `raw` is the last day as reported and `hourly` is 30 days; any other tier
+  answers `hourly`. A sensor with no history answers an empty list, and a `sensor` that is not
+  `<type>|<label>` answers 400.
 - `GET /api/fleet/thermal` — the fleet table, including the raw ~24h sparkline
   samples. Each per-sensor row carries `ignored` / `suspect` flags.
 - `GET|PATCH /api/devices/<id>/metric-thresholds` — `sensor_ignores` is a list

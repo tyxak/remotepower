@@ -5015,13 +5015,94 @@ def build_gpu_history() -> dict:
     return out
 
 
+# ─── per-sensor temperature history (the Thermal page charts any row of its sensor table) ─────────────────
+# thermal_sensors.py names a series "<kind>|<label>" after the row it belongs to; an empty label reads as the
+# page prints it. test_thermal_sensor_history holds this seeder to the module's own reader.
+_SENSOR_DEFAULT_LABEL = {'sensor': 'sensor', 'disk': 'disk', 'gpu': 'GPU'}
+_SENSOR_MAX_SERIES = 24
+
+
+def _seed_sensor_readings(rec):
+    """[(series name, current °C)] for a seeded hardware record: board sensors, SMART disks and GPUs."""
+    out, seen = [], set()
+
+    def add(kind, label, value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return
+        if not -40.0 <= value <= 150.0 or value in (127, -128):
+            return
+        key = f"{kind}|{label or _SENSOR_DEFAULT_LABEL[kind]}"
+        if key not in seen:
+            seen.add(key)
+            out.append((key, float(value)))
+
+    for t in ((rec.get('hardware') or {}).get('temps') or []):
+        add('sensor', t.get('label'), t.get('current_c'))
+    for d in (rec.get('smart') or []):
+        add('disk', d.get('device'), d.get('temperature_c'))
+    for g in (rec.get('gpus') or []):
+        add('gpu', g.get('name'), g.get('temp_c'))
+    return out[:_SENSOR_MAX_SERIES]
+
+
+def _thermal_span(dev_id, devices, t_now):
+    """How far back a seeded host's temperatures reach: its own tenure, 3 days to 2 years."""
+    enrolled = (devices.get(dev_id) or {}).get('enrolled_at') or (t_now - 120 * 86400)
+    return max(3 * 86400, min(730 * 86400, t_now - int(enrolled)))
+
+
+def _seed_sensor_series(dev_id, rec, hottest_c, devices, want_ring=True, want_hourly=True):
+    """(ring, hourly) for one host: {key: [[ts, °C], ...]} for the last day at the 15-minute spacing the ring
+    keeps, and {key: [[hour, min, max, sum, n], ...]} for the last 30 days, the way fold_hourly leaves them.
+
+    Every sensor follows the host's own hottest-reading curve, held apart by the gap it has to the hottest
+    sensor now plus a small wobble of its own. So the hottest sensor's chart is the chart of the hottest
+    reading, and the others run below it the way sensors on one board do."""
+    readings = _seed_sensor_readings(rec)
+    if not readings:
+        return {}, {}
+    t_now = now()
+    hot = _thermal_curve(dev_id, hottest_c, t_now, _thermal_span(dev_id, devices, t_now))
+    ring, hourly = {}, {}
+    for key, cur in readings:
+        phase = _seeded_random('sensorphase', dev_id + key).uniform(0, 6.283)
+        gap = cur - hottest_c
+
+        def wobble(ts, phase=phase):
+            return 0.8 * math.sin(ts / 2400.0 + phase)
+
+        def at(ts, gap=gap, wobble=wobble):
+            return round(max(18.0, min(105.0, hot(ts) + gap + wobble(ts) - wobble(t_now))), 1)
+
+        if want_ring:
+            ring[key] = [[t_now - k * 900, at(t_now - k * 900)] for k in range(95, -1, -1)]
+        if not want_hourly:
+            continue
+        buckets = {}
+        for k in range(30 * 96 + 1):
+            ts = t_now - k * 900
+            value = at(ts)
+            hour = ts - ts % 3600
+            row = buckets.get(hour)
+            if row is None:
+                buckets[hour] = [hour, value, value, value, 1]
+            else:
+                row[1], row[2] = min(row[1], value), max(row[2], value)
+                row[3], row[4] = round(row[3] + value, 2), row[4] + 1
+        cutoff = t_now - 30 * 86400
+        hourly[key] = [buckets[h] for h in sorted(buckets) if h >= cutoff]
+    return ring, hourly
+
+
 def build_thermal_history() -> dict:
     """Per-host hottest-temperature trend → thermal_history.json (v5.0.0 Thermal
     page sparkline). Mirrors _maybe_sample_temp: {dev_id: {samples:[{ts, temp}]}}.
     The hottest reading is max(board sensors, SMART disks, GPUs) from
     build_hardware, so the trend ends exactly on what the Thermal table shows.
-    ~48 samples (~4h at the 5-min hardware cadence)."""
+    ~48 samples (~4h at the 5-min hardware cadence). Each host also carries `sensors`,
+    the per-sensor ring of _maybe_sample_temp: a point every 15 minutes for a day."""
     hw = build_hardware()
+    devices = build_devices()
     n, step = 48, 300
     out = {}
     for dev_id, rec in hw.items():
@@ -5041,6 +5122,9 @@ def build_thermal_history() -> dict:
             temp = cur if i == n - 1 else round(max(20.0, cur + rng.uniform(-6, 3)), 1)
             samples.append({'ts': ts, 'temp': temp})
         out[dev_id] = {'samples': samples}
+        ring, _hourly = _seed_sensor_series(dev_id, rec, cur, devices, want_hourly=False)
+        if ring:
+            out[dev_id]['sensors'] = ring
     return out
 
 
@@ -5149,14 +5233,14 @@ def build_thermal_rollup() -> dict:
     """
     t_now = now()
     devices = build_devices()
+    hardware = build_hardware()
     out = {'_meta': {'last_run': t_now}}
     for dev_id, rec in build_thermal_history().items():
         samples = rec.get('samples') or []
         if not samples:
             continue
         base_c = samples[-1]['temp']
-        enrolled = (devices.get(dev_id) or {}).get('enrolled_at') or (t_now - 120 * 86400)
-        span = max(3 * 86400, min(730 * 86400, t_now - int(enrolled)))
+        span = _thermal_span(dev_id, devices, t_now)
         curve = _thermal_curve(dev_id, base_c, t_now, span)
         # Real collection cadences drift; jitter keeps every host's buckets from
         # landing on identical boundaries and gives the hourly tier a realistic
@@ -5192,6 +5276,10 @@ def build_thermal_rollup() -> dict:
             # leave behind, so nothing changes shape an hour after seeding.
             cutoff = t_now - keep
             row[name] = [tiers[name][k] for k in sorted(tiers[name]) if k >= cutoff]
+        # The per-sensor series: hourly buckets only, 30 days (thermal_sensors.fold_hourly's store).
+        _ring, hourly = _seed_sensor_series(dev_id, hardware.get(dev_id) or {}, base_c, devices, want_ring=False)
+        if hourly:
+            row['sensors'] = {'last_ts': t_now, 'hourly': hourly}
         out[dev_id] = row
     return out
 
