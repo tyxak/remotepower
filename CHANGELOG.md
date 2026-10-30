@@ -11,6 +11,19 @@ Four reports from the same Docker install, filed on tyxak/remotepower as #55, #5
 The first was built as v7.4.5 and folded into this release before it was released, so its entry
 stays below under that number. Each change adds its own entry here when it lands.
 
+### Dependencies
+
+- **A server is no longer the client of its own clients.** The suggested dependencies came from the established
+  TCP connections each host reported, and a connection the host had accepted was read as one it had opened: the
+  database "depended on" the app that queries it, on a port that was the app's own. The Linux agent now leaves out
+  a connection whose local port is one the host listens on, and sends an empty list when nothing is left, so a host
+  that only has clients stops holding the ones an older agent reported. For a host that still runs an older agent,
+  the server drops a suggestion when the far end is a port from 32768 up that the other host does not listen on, as
+  long as that host reports its whole list of listening ports. A suggestion the server cannot judge (an agentless
+  host, a host that sent no list, a list cut at 80 ports) stays, so the operator is still asked. The assistant's
+  network-map notes read the same report, so for a host with an older agent they keep listing the clients as
+  connections until its agent is updated. (#58)
+
 ## v7.4.5 — "Int3rnalMatters" — folded into v7.4.6 (no standalone release)
 
 One request from the same Docker install, filed on tyxak/remotepower as #55: a host behind a

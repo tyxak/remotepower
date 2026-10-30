@@ -929,6 +929,7 @@ import filebackup as filebackup_mod   # noqa: F401  v6.3.0: structured file-back
 import checks as checks_mod    # per-host Checks engine (pure)
 import drive_temp as drive_temp_mod   # v7.4.4 (#54): temperature lines for drives (pure)
 import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host and the grade of its listeners (pure)
+import peer_direction as peer_direction_mod   # v7.4.6 (#58): which way an observed TCP connection runs (pure)
 import query_engine   # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
 # Helpdesk tickets (bound-module pilot): exec'd as a PRIVATE module instance
 # rather than a cached `import`, because the test suite execs many api
@@ -42439,6 +42440,11 @@ def _dependency_suggestions():
             if not up or up == did or up in declared:
                 continue
             if f'{did}:{up}' in dismissed:
+                continue
+            # v7.4.6 (#58): a far port in the ephemeral range that the far host does not listen on is ITS source
+            # port. The connection ran from that host to this one, so it is a client, not an upstream. Agents from
+            # before 7.4.6 reported the connections their host accepted along with the ones it opened.
+            if peer_direction_mod.is_client_source_port(devices[up], p.get('port')):
                 continue
             e = by_up.setdefault(up, {'count': 0, 'ports': set()})
             e['count'] += int(p.get('count') or 1)

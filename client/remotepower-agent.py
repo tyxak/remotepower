@@ -2169,21 +2169,44 @@ def _is_private_ip(ip):
             or (a == 169 and b == 254) or (a == 100 and 64 <= b <= 127))
 
 
+def _ss_port(addr):
+    """The port in an `ss` address column ("10.0.0.1:22", "[::]:22", "*:22"), or None."""
+    port = addr.rpartition(':')[2]
+    return int(port) if port.isdigit() else None
+
+
 def collect_peer_connections(limit=50):
     """W3-8: sample established outbound TCP peers (private IPs only) so the
     server can suggest fleet dependency edges. Best-effort + bounded; returns
-    [{ip, port, count}] sorted by connection count."""
-    peers = {}
+    [{ip, port, count}] sorted by connection count.
+
+    v7.4.6 (#58): a connection the host ACCEPTED is not an outbound one. Its local
+    port is one the host listens on and its far end is the client's source port, so
+    reported as a peer it made a server the client of its own clients. Those are
+    left out. Returns None when the sockets could not be read, so the caller sends
+    nothing and the server keeps its last sample; an empty list is an answer, and
+    it replaces a sample that listed clients."""
+    listening = set()
+    established = []                        # (local port, remote ip, remote port)
     try:
         if _PSUTIL:
             for c in _psutil.net_connections(kind='tcp'):
-                if c.status != 'ESTABLISHED' or not c.raddr:
+                if not c.laddr:
                     continue
-                ip = getattr(c.raddr, 'ip', '')
-                port = getattr(c.raddr, 'port', 0)
-                if _is_private_ip(ip):
-                    peers[(ip, port)] = peers.get((ip, port), 0) + 1
+                if c.status == 'LISTEN':
+                    listening.add(getattr(c.laddr, 'port', 0))
+                elif c.status == 'ESTABLISHED' and c.raddr:
+                    established.append((getattr(c.laddr, 'port', 0),
+                                        getattr(c.raddr, 'ip', ''),
+                                        getattr(c.raddr, 'port', 0)))
         else:
+            out = subprocess.check_output(
+                ['ss', '-tln'],
+                text=True, stderr=subprocess.DEVNULL, timeout=8)
+            for line in out.splitlines()[1:]:
+                cols = line.split()
+                if len(cols) >= 4 and _ss_port(cols[-2]) is not None:
+                    listening.add(_ss_port(cols[-2]))
             out = subprocess.check_output(
                 ['ss', '-tn', 'state', 'established'],
                 text=True, stderr=subprocess.DEVNULL, timeout=8)
@@ -2191,17 +2214,18 @@ def collect_peer_connections(limit=50):
                 cols = line.split()
                 if len(cols) < 4:
                     continue
-                peer = cols[-1]
-                ip, _, port = peer.rpartition(':')
-                ip = ip.strip('[]')
-                if _is_private_ip(ip):
-                    try:
-                        p = int(port)
-                    except ValueError:
-                        continue
-                    peers[(ip, p)] = peers.get((ip, p), 0) + 1
+                local = _ss_port(cols[-2])
+                ip, _, port = cols[-1].rpartition(':')
+                if local is None or not port.isdigit():
+                    continue
+                established.append((local, ip.strip('[]'), int(port)))
     except Exception:
-        return []
+        return None
+    peers = {}
+    for local, ip, port in established:
+        if local in listening or not _is_private_ip(ip):
+            continue
+        peers[(ip, port)] = peers.get((ip, port), 0) + 1
     rows = [{'ip': ip, 'port': port, 'count': n} for (ip, port), n in peers.items()]
     rows.sort(key=lambda r: r['count'], reverse=True)
     return rows[:limit]
@@ -14085,7 +14109,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if poll_count == 2 or poll_count % 15 == 0:
                 try:
                     _peers = collect_peer_connections(50)
-                    if _peers:
+                    # v7.4.6 (#58): None = the sockets could not be read, so say nothing. An empty list is
+                    # an answer and goes too: without it a host whose only connections are inbound would
+                    # leave the server holding the clients it reported before it was updated.
+                    if _peers is not None:
                         payload['peer_conns'] = _peers
                 except Exception as e:
                     log.debug(f'peer conns error: {e}')

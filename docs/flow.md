@@ -140,7 +140,8 @@ labelling it a misconfiguration would point you at the wrong end of the wire.
 The flow receiver does more than show traffic — it **verifies service
 dependencies**. RemotePower already *suggests* `depends_on` edges from observed
 traffic (Network → *Suggested dependencies* → **Accept** promotes one to a real
-dependency link). Once an edge is declared, this feature watches it:
+dependency link; a suggestion points from the host that opened the connection to
+the host that accepted it). Once an edge is declared, this feature watches it:
 
 - an edge is **healthy** while traffic between the two hosts is observed (by an
   agent's peer-connection report **or** any exporter's NetFlow/IPFIX flows);

@@ -173,5 +173,21 @@ class TestTheFoldedVersion(unittest.TestCase):
         self.assertIn("int3rnalmatters", kw.lower())
 
 
+class TestTheReleaseContainsItsGuards(unittest.TestCase):
+    """A release pin, not a behavioural one: each file carries its own proof, watched failing before it
+    was committed. This pins that they ship. The proofs of #55 are listed in tests/test_v745.py."""
+
+    FILES = (
+        "tests/test_v746_peer_direction.py",    # #58: the agent leaves out what the host accepted, the server's rule, the heartbeat contract
+    )
+
+    def test_the_list_is_not_empty(self):
+        self.assertGreater(len(self.FILES), 0)
+
+    def test_every_guard_file_exists(self):
+        for rel in self.FILES:
+            self.assertTrue((_ROOT / rel).exists(), rel)
+
+
 if __name__ == "__main__":
     unittest.main()

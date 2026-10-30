@@ -79,8 +79,9 @@ holds long-form docs that don't fit there.
   host report that could make its own heartbeat fail. Four issues, all caught before
   release, with the scans and the run over every route behind them.
 - **[v7.4.6.md](v7.4.6.md)** — "F1xableMatters": a host can be marked internal, so a
-  service that listens on every address is not graded as exposed to the world, and
-  more requests from the same Docker install.
+  service that listens on every address is not graded as exposed to the world, a
+  suggested dependency points from the client to the server, and more requests from
+  the same Docker install.
 - **[v7.4.4.md](v7.4.4.md)** — "Spec1ficMatters": temperature lines for each drive, set
   for one drive, one host or every drive of a type, for one request from the same
   Docker install.
