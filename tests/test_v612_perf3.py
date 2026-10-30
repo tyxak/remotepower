@@ -243,7 +243,12 @@ class TestEagerJsPayload(unittest.TestCase):
         # and the Disk names box under the SMART table add about 8 KB to app.js. All three sit in
         # surfaces the page draws from the eager core (the monitor modal, the window modal and the
         # host drawer's Hardware section), and the translations are in i18n.js, which is not eager.
-        self.assertLess(total, 2_620_000,
+        # 7.4.6: 2_630_000. The CVE page's fix tiles, its filter and the fix text of a finding add about 3 KB
+        # to app-cve.js, and the Settings option about 0.6 KB to app.js. app-cve.js is eager because the
+        # Settings page (the severity row) and the command palette reach into it, so the code that draws
+        # the page cannot be split off without a lazy-load path for those two callers, which is a release
+        # of its own. The translations are in i18n.js, which is not eager.
+        self.assertLess(total, 2_630_000,
                         'the eager JS payload regressed past its budget')
 
 
