@@ -36,6 +36,28 @@ stays below under that number. Each change adds its own entry here when it lands
   macOS agents all read it. This is the first step of #56; the single list that shows each problem once across
   Alerts, Needs attention and Checks is not built. (#56)
 
+### CVE findings
+
+- **A finding says whether a fix exists for the host's own release.** OSV keeps one entry per release of
+  Debian and Alpine, and the scanner folded them into one fixed version, so a host on Debian 12 was shown
+  "fixed in 8.7.1-1", a version only Debian 13 has, and counted as fixable. Each finding now carries a
+  `fix_status`: `fixed` (an update for the host's release clears it, and `fixed_version` is that release's own),
+  `newer_release` (no fix here, a newer release has one, named in `fixed_elsewhere`), `none`, or `unknown` for
+  Ubuntu, Rocky Linux, AlmaLinux and Red Hat, whose scan name does not carry the release and which keep the
+  folded version as before. The CVE page counts the statuses in four tiles that filter the host table and the
+  host view, `GET /api/cve/findings` returns the counts, and Needs attention, the Patches link, the exposure
+  ranking, the ticket text, the SBOM and the exports read the corrected fixed version. A package past a newer
+  release's fix still counts as patched, and a fix in an older release no longer hides a finding: a Debian 12
+  package is normally past a Debian 11 fix without holding the fix Debian 12 lacks. The first scan after the
+  update fetches each vulnerability's record again to read its releases, and a finding keeps its old fixed
+  version until its host is scanned. (#57)
+- **An alert option for what can be acted on.** Settings → Notifications has **Only CVEs an update can fix, or
+  that are known to be exploited** beside the severities of `cve_found` (`cve_alert_fixable_only`, off by
+  default). With it on, a finding fixed only in a newer release or with no fix yet raises no alert, one on the
+  known-exploited list always does, and a finding that waited for a fix alerts when the fix arrives.
+  **Re-alert backlog** follows the same rule. Needs attention and the risk score still count every finding.
+  (#57)
+
 ## v7.4.5 — "Int3rnalMatters" — folded into v7.4.6 (no standalone release)
 
 One request from the same Docker install, filed on tyxak/remotepower as #55: a host behind a

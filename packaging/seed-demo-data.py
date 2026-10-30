@@ -1825,6 +1825,17 @@ def build_cve_findings() -> dict:
         ('CVE-2024-45678', 'low',      'curl',           '7.81.0-1ubuntu1.16','7.81.0-1ubuntu1.20','Information leak in cookie handling.',       '2024-04-18'),
         ('CVE-2023-99999', 'high',     'nginx',          '1.18.0-6ubuntu14.4','1.18.0-6ubuntu14.5','Off-by-one in HTTP/2 frame parsing.',        '2023-11-09'),
     ]
+    # v7.4.6 (#57): the fix status a scan now writes for each finding. Two have a fix for the host's own
+    # release, one is fixed only in a newer release, one has no fix yet, and one is on a distribution the
+    # scanner cannot tell apart, which keeps the folded fixed version. A finding that is not "fixed" or
+    # "unknown" names no version to install; tests/test_v746_cve_fix_page.py holds the seeder to that.
+    fix_status = {
+        'CVE-2024-12345': ('fixed', None),
+        'CVE-2024-23456': ('fixed', None),
+        'CVE-2024-34567': ('newer_release', {'Debian:13': '1.9.16-1'}),
+        'CVE-2024-45678': ('none', None),
+        'CVE-2023-99999': ('unknown', None),
+    }
     rng = random.Random(42)
     # Canonical on-disk shape is {dev_id: {findings: [...], scanned_at: ts}} —
     # the same shape a real scan writes, so /api/cve/findings + the device drawer
@@ -1840,7 +1851,11 @@ def build_cve_findings() -> dict:
             'scanned_at': now() - 3600 * 6,
             'findings': [
                 {'vuln_id': c[0], 'severity': c[1], 'package': c[2],
-                 'version': c[3], 'fixed_version': c[4], 'summary': c[5],
+                 'version': c[3],
+                 'fixed_version': c[4] if fix_status[c[0]][0] in ('fixed', 'unknown') else '',
+                 'fix_status': fix_status[c[0]][0],
+                 **({'fixed_elsewhere': fix_status[c[0]][1]} if fix_status[c[0]][1] else {}),
+                 'summary': c[5],
                  'published': c[6], 'aliases': [],
                  'references': [f'https://nvd.nist.gov/vuln/detail/{c[0]}']}
                 for c in chosen

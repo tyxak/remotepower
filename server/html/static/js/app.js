@@ -4996,7 +4996,7 @@ function renderEventToggleTable(events, descriptions, emailEvents) {
     // v6.2.2: the patch_alert threshold input moved to Settings → Alert
     // parameters (kept id cfg-patch-threshold; its loader/saver find it there).
     if (ev === 'cve_found') {
-      extra = `<div class="event-extra"><div class="isl-337">Severities to alert on:</div><div id="cfg-cve-severity-row" class="isl-338"></div></div>`;
+      extra = `<div class="event-extra"><div class="isl-337">Severities to alert on:</div><div id="cfg-cve-severity-row" class="isl-338"></div><label class="isl-339 mt-8"><input type="checkbox" id="cfg-cve-fixable-only" class="isl-340">Only CVEs an update can fix, or that are known to be exploited</label><div class="hint">A finding that no update for this host's release clears stays on the CVE page and raises no alert. One on the known-exploited list always alerts.</div></div>`;
     }
     return `<tr>
       <td><code>${escHtml(ev)}</code></td>
@@ -5510,6 +5510,8 @@ async function loadSettings() {
   if (meta.cve_severities) {
     renderCveSeverityRow(meta.cve_severities, data.cve_severity_filter || ['critical', 'high']);
   }
+  const _fixOnly = document.getElementById('cfg-cve-fixable-only');
+  if (_fixOnly) _fixOnly.checked = data.cve_alert_fixable_only === true;
 
   // v1.8.6: SMTP
   document.getElementById('cfg-smtp-enabled').checked = !!data.smtp_enabled;
@@ -5723,6 +5725,7 @@ async function saveSettings(btn) {
     webhook_events,
     email_events,
     cve_severity_filter,
+    cve_alert_fixable_only: (document.getElementById('cfg-cve-fixable-only') || {}).checked === true,
     patch_alert_threshold: (() => { const el = document.getElementById('cfg-patch-threshold'); return el ? (parseInt(el.value) || 0) : 0; })(),
     session_ttl_short:     sessShortHours * 3600,
     session_ttl_long:      sessLongDays * 86400,

@@ -7,7 +7,8 @@ first using real exploit signals — not just CVSS.
 ## The CVE page
 
 The page opens with a severity summary (Critical / High / Medium / Low +
-hosts-scanned) and a KEV-feed status bar, then a per-host findings table:
+hosts-scanned), four tiles that count the findings by [fix status](#fix-status), and a
+KEV-feed status bar, then a per-host findings table:
 
 | Column | Meaning |
 | --- | --- |
@@ -20,6 +21,33 @@ hosts-scanned) and a KEV-feed status bar, then a per-host findings table:
 Rows sort **KEV first, then severity, then EPSS** so the dangerous
 items rise to the top. Toolbar: **Refresh**, **AI prioritise**, **Scan all
 hosts**, **Re-alert backlog**, and **Fleet SBOM** (CycloneDX / SPDX).
+
+## Fix status
+
+A finding records a fixed version, but a fix only helps a host if it reached the release
+that host runs. Debian and Alpine publish a fix per release (Debian 12, Debian 13,
+Alpine 3.19), and RemotePower reads the entry for the host's own release. Each finding
+is one of:
+
+| Status | Meaning |
+| --- | --- |
+| **Fixed** | An update for this host's release clears it. The finding names the version to install. |
+| **Fixed in a newer release** | The host's release has no fix, a newer release does. The finding names that release and version (for example `Debian:13 8.7.1-1`) and offers nothing to install. |
+| **No fix yet** | No release has a fix. |
+| **Not checked** | The scan name of the distribution does not say which release the host runs: Ubuntu, Rocky Linux, AlmaLinux and Red Hat. Such a finding keeps the fixed version OSV lists and counts as fixable when it has one. |
+
+The four tiles under the severity counts count the findings that are not ignored
+(**Fixable now**, **Newer release only**, **No fix yet**, **Not checked**). Click a tile to
+keep only the hosts that have such a finding, and the host view then lists only those
+findings. Click the tile again, or **Show all** in the host view, to undo it.
+
+A fixed version used to be folded together from every release, so a host on Debian 12 was
+told "fixed in 8.7.1-1" for a fix only Debian 13 has. Run **Scan all hosts** once after
+updating: findings keep the old fixed version until their host is scanned again, and the
+first scan fetches the record of each vulnerability again to read its releases.
+
+A package that is already at or past the fix of a newer release (a backport, say) counts as
+patched. A fix in an older release never does.
 
 ## Scanning
 
@@ -63,6 +91,14 @@ Generate a Software Bill of Materials per host or for the whole fleet:
   (`POST /api/cve/realert`) re-raises it for the current findings.
 - The `cve_severity_filter` config controls which severities page you; `cve_found`
   webhooks can be turned off with `cve_webhook_enabled`.
+- **Only CVEs an update can fix, or that are known to be exploited** (Settings →
+  Notifications, beside the severities of `cve_found`; `cve_alert_fixable_only`, off by
+  default) keeps `cve_found` for the findings someone can act on. A finding fixed only in a
+  newer release, or with no fix yet, stays on the CVE page and raises no alert; one on the
+  known-exploited (KEV) list always alerts, whatever its fix status. A finding that waited
+  for a fix alerts when the fix arrives. **Re-alert backlog** follows the same rule. The
+  severity filter and the ignore list still apply, **Needs attention** and the risk score
+  still count every finding, and a `cve_cleared` recovery is sent as before.
 - **Ignore** a CVE globally or per host with a reason (`POST /api/cve/ignore`);
   ignored CVEs are excluded from alerts and the re-alert backlog.
 

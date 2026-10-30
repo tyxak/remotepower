@@ -873,6 +873,7 @@ IPINTEL_SCAN_FILE   = DATA_DIR / 'ip_intel_scan.json'
 # Sibling modules — must live in the same cgi-bin directory
 sys.path.insert(0, str(Path(__file__).parent))
 import cve_scanner
+import cve_fixes   # v7.4.6 (#57): fix status per release, the fixable-only alert rule, the KEV match (pure)
 import importers
 import geoip as geoip_mod   # W6-41: offline MMDB reader (GeoIP enrichment)
 import prometheus_export
@@ -3589,6 +3590,12 @@ def get_cve_severity_filter():
         if clean:
             return clean
     return CVE_SEVERITY_FILTER_DEFAULT
+
+
+def get_cve_alert_fixable_only():
+    """v7.4.6 (#57): with this on, cve_found is raised only for a finding an update can clear or one on the
+    known-exploited list. Off by default, so an install keeps alerting as it did."""
+    return _config_ro().get('cve_alert_fixable_only') is True
 
 
 def get_server_name():
@@ -10736,7 +10743,7 @@ def _alert_ticket_detail(al, device=None):
         findings = [f for f in (rec.get('findings') or [])
                     if isinstance(f, dict) and not f.get('ignored')]
         crit = [f for f in findings if f.get('severity') == 'critical']
-        fixable = [f for f in findings if str(f.get('fixed_version') or '').strip()]
+        fixable = [f for f in findings if cve_fixes.is_fixable(f)]
         out.append(f'Open CVEs on this host: {len(findings)} total · '
                    f'{len(crit)} critical · {len(fixable)} fixable')
         if findings:
@@ -10745,7 +10752,9 @@ def _alert_ticket_detail(al, device=None):
             shown = sorted(findings, key=lambda f: _rank.get(f.get('severity'), 9))[:100]
             for f in shown:
                 fx = ('  → fix in ' + str(f.get('fixed_version'))
-                      if str(f.get('fixed_version') or '').strip() else '  (no fix yet)')
+                      if str(f.get('fixed_version') or '').strip()
+                      else '  (fixed only in a newer release)' if f.get('fix_status') == 'newer_release'
+                      else '  (no fix yet)')
                 out.append(f"  - [{f.get('severity', '?')}] "
                            f"{f.get('vuln_id') or f.get('cve_id') or '?'} · "
                            f"{f.get('package', '?')}{fx}")
@@ -22702,6 +22711,11 @@ def handle_heartbeat():
         if dev.get('force_package_scan'):
             saved_dev['force_package_scan'] = True
             dev.pop('force_package_scan', None)
+        # v7.4.6 (#56): one-shot "send your system information now", left by an alert resolved by hand.
+        # Same delivery contract as force_package_scan, and every agent reads it.
+        if dev.get('force_sysinfo'):
+            saved_dev['force_sysinfo'] = True
+            dev.pop('force_sysinfo', None)
         # v6.1.2: one-shot "scan container images now" flag (trivy). Same
         # one-shot contract as force_package_scan above.
         if dev.get('force_image_scan'):
@@ -22711,11 +22725,6 @@ def handle_heartbeat():
         # force_secrets_scan but the server never set it (dead escape hatch);
         # same delivery contract as force_image_scan.
         if dev.get('force_secrets_scan'):
-        # v7.4.6 (#56): one-shot "send your system information now", left by an alert resolved by hand.
-        # Same delivery contract as force_package_scan, and every agent reads it.
-        if dev.get('force_sysinfo'):
-            saved_dev['force_sysinfo'] = True
-            dev.pop('force_sysinfo', None)
             saved_dev['force_secrets_scan'] = True
             dev.pop('force_secrets_scan', None)
         # Integrity Guard: one-shot restore/delete directives for quarantined
@@ -23875,6 +23884,8 @@ def handle_heartbeat():
     # on the single heartbeat after the operator clicked "scan now".
     if saved_dev.get('force_package_scan'):
         common_resp['force_package_scan'] = True
+    if saved_dev.get('force_sysinfo'):
+        common_resp['force_sysinfo'] = True
     # v6.1.2: one-shot container-image CVE scan (trivy). The agent has always
     # honoured `force_image_scan` in the heartbeat response, but NOTHING on the
     # server ever set it — so the only way the scan could ever run was the
@@ -23884,8 +23895,6 @@ def handle_heartbeat():
     # the agent's now time-based cadence) is what makes the feature reachable.
     if saved_dev.get('force_image_scan'):
         common_resp['force_image_scan'] = True
-    if saved_dev.get('force_sysinfo'):
-        common_resp['force_sysinfo'] = True
     # v6.1.2: one-shot secrets-on-disk scan. Same dead-flag fix as force_image_scan
     # just above — the agent honoured it, the server never set it.
     if saved_dev.get('force_secrets_scan'):
@@ -29016,6 +29025,7 @@ def handle_config_get():
     safe.setdefault('offline_webhook_enabled', True)
     safe.setdefault('monitor_webhook_enabled', True)
     safe.setdefault('cve_webhook_enabled', True)
+    safe.setdefault('cve_alert_fixable_only', False)
     safe.setdefault('service_webhook_enabled', True)
     safe.setdefault('monitor_interval', 300)
     safe.setdefault('slo_objects', [])   # v6.4.0: SLA/SLO objects
@@ -29852,6 +29862,9 @@ def handle_config_save():
 
     if 'cve_webhook_enabled' in body:
         cfg['cve_webhook_enabled'] = bool(body['cve_webhook_enabled'])
+
+    if 'cve_alert_fixable_only' in body:
+        cfg['cve_alert_fixable_only'] = bool(body['cve_alert_fixable_only'])
 
     if 'service_webhook_enabled' in body:
         cfg['service_webhook_enabled'] = bool(body['service_webhook_enabled'])
@@ -32403,13 +32416,14 @@ def _qe_cve_rows():
                 'device_id': dev_id, 'device_name': dname,
                 'cve_id': f.get('vuln_id', ''), 'severity': f.get('severity', ''),
                 'package': f.get('package', ''), 'fixed_version': f.get('fixed_version', ''),
+                'fix_status': f.get('fix_status', ''),
                 'ignored': bool(f.get('ignored')),
             })
     return out
 
 
 _QE_CVE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
-    'device_id', 'device_name', 'cve_id', 'severity', 'package', 'fixed_version', 'ignored')}
+    'device_id', 'device_name', 'cve_id', 'severity', 'package', 'fixed_version', 'fix_status', 'ignored')}
 
 
 def _qe_drift_rows():
@@ -46936,6 +46950,7 @@ def _build_runbook_snapshot(dev_id, devices):
         'severity': f.get('severity'),
         'pkg':      f.get('package'),
         'fixed':    f.get('fixed_version'),
+        'fix_status': f.get('fix_status'),
         'summary':  str(f.get('summary') or '')[:100],
     } for f in cve_findings if not f.get('ignored')]
 
@@ -50634,7 +50649,7 @@ def _compute_attention():
         # Patches↔CVE cross-link) so the two numbers agree.
         fixable = sum(1 for f in findings
                       if str(f.get('severity', '')).lower() in ('critical', 'high')
-                      and f.get('fixed_version'))
+                      and cve_fixes.is_fixable(f))
         name = monitored[dev_id].get('name', dev_id)
         if crit:
             summary = f'{crit} critical CVE{"s" if crit != 1 else ""}'
@@ -57557,7 +57572,7 @@ def _cve_fixable_by_device():
         for f in (entry or {}).get('findings') or []:
             if str(f.get('severity', '')).lower() not in ('critical', 'high'):
                 continue
-            if not f.get('fixed_version'):
+            if not cve_fixes.is_fixable(f):
                 continue
             vid = f.get('vuln_id')
             ig = ignore_data.get(vid) if vid else None
@@ -60794,21 +60809,6 @@ def _filter_alerts_for_caller(all_alerts):
     return out
 
 
-def _alert_mutable_by_caller(alert):
-    """SEC (v6.4.0): the mutation-path visibility check — tenant gate AND RBAC
-    device scope, mirroring the per-alert filter in _filter_alerts_for_caller.
-    The read path (list/summary) already filters on both, but the ack/unack/
-    resolve/unresolve/bulk handlers only checked the tenant gate — so a scoped
-    operator (scope = group A) could ack/resolve an alert for a device in group
-    B (same tenant) that it cannot even see in its own inbox. Fleet-level
-    (device-less) alerts stay mutable; superadmin / unscoped callers unaffected."""
-    if not _alert_tenant_visible(alert):
-        return False
-    scope = _caller_scope()
-    if scope is None:
-        return True
-    did = alert.get('device_id')
-    if not did:
 # v7.4.6 (#56): a person who resolves an alert by hand has just put something right, or decided it is, and
 # Needs attention and Checks read the last report of the host, whose system information an agent sends every
 # ~10 polls. So the host is asked to report on its next beat. One-shot, like force_package_scan, and rate
@@ -60838,6 +60838,21 @@ def _request_host_refresh(dev_ids):
     return asked
 
 
+def _alert_mutable_by_caller(alert):
+    """SEC (v6.4.0): the mutation-path visibility check — tenant gate AND RBAC
+    device scope, mirroring the per-alert filter in _filter_alerts_for_caller.
+    The read path (list/summary) already filters on both, but the ack/unack/
+    resolve/unresolve/bulk handlers only checked the tenant gate — so a scoped
+    operator (scope = group A) could ack/resolve an alert for a device in group
+    B (same tenant) that it cannot even see in its own inbox. Fleet-level
+    (device-less) alerts stay mutable; superadmin / unscoped callers unaffected."""
+    if not _alert_tenant_visible(alert):
+        return False
+    scope = _caller_scope()
+    if scope is None:
+        return True
+    did = alert.get('device_id')
+    if not did:
         return True
     dev = device_get(did) or {}
     return _device_in_scope(scope, dev)
@@ -61526,6 +61541,7 @@ def handle_alert_resolve(alert_id):
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
     _snap = None
+    _refresh = None
     denied = None   # v7.0.2: respond() raises HTTPError, an Exception — so the
                     # 404/409 guards below, raised INSIDE the try, were caught by
                     # the `except Exception` arm and rewritten to a 500. Same
@@ -61541,7 +61557,6 @@ def handle_alert_resolve(alert_id):
                     now = int(time.time())
                     a['resolved_by'] = user
                     a['resolved_at'] = now
-    _refresh = None
                     if not a.get('acknowledged_at'):
                         # Resolve implies ack
                         a['acknowledged_by'] = user
@@ -61549,6 +61564,7 @@ def handle_alert_resolve(alert_id):
                     if note:
                         a['resolve_note'] = note
                     found = True
+                    _refresh = a.get('device_id')
                     if a.get('ticket_ref'):
                         _snap = dict(a)
                     break
@@ -61558,13 +61574,13 @@ def handle_alert_resolve(alert_id):
         respond(denied[0], {'error': denied[1]})
     if not found:
         respond(404, {'error': 'alert not found'})
+    _request_host_refresh([_refresh])   # v7.4.6 (#56): Needs attention and Checks follow the resolve
     # v6.4.2: tell the external ticket. AFTER the lock — this makes an outbound
     # HTTP call and _log_webhook takes its own lock.
     if _snap:
         _close_external_tickets([_snap])
     audit_log(user, 'alert_resolve', f'id={alert_id}' + (f' note={note[:80]}' if note else ''))
     respond(200, {'ok': True})
-                    _refresh = a.get('device_id')
 
 
 def handle_alert_unresolve(alert_id):
@@ -61574,7 +61590,6 @@ def handle_alert_unresolve(alert_id):
     returns to the open inbox."""
     user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    _request_host_refresh([_refresh])   # v7.4.6 (#56): Needs attention and Checks follow the resolve
     found = False
     denied = None   # v6.4.0: hoist the guard status out of the try — respond()
                     # raises HTTPError (an Exception), so a 404/409 raised INSIDE
@@ -61904,6 +61919,7 @@ def handle_alerts_bulk_resolve():
         respond(400, {'error': 'ids list required'})
     ids_set = {str(i) for i in ids}
     resolved = 0
+    refresh = set()
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             now = int(time.time())
@@ -61916,10 +61932,11 @@ def handle_alerts_bulk_resolve():
                         a['acknowledged_by'] = user
                         a['acknowledged_at'] = now
                     resolved += 1
+                    refresh.add(a.get('device_id'))
     except Exception as e:
         respond(500, {'error': str(e)})
+    _request_host_refresh(refresh)   # v7.4.6 (#56): Needs attention and Checks follow the resolve
     audit_log(user, 'alert_bulk_resolve', f'count={resolved}')
-    refresh = set()
     respond(200, {'ok': True, 'resolved': resolved})
 
 
@@ -61932,10 +61949,8 @@ def handle_alerts_bulk_ack():
     Same permission gate as single ack (`viewers_can_ack_alerts`), unlike
     bulk-resolve which is admin-only — acking is the lower-privilege action.
     Each newly-acked alert fires the on_ack webhook (so #54's `alertid` and
-                    refresh.add(a.get('device_id'))
     the #56 note flow through identically to a single ack)."""
     user = _check_alert_mutation_perm()
-    _request_host_refresh(refresh)   # v7.4.6 (#56): Needs attention and Checks follow the resolve
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.AlertsBulkAckRequest)
     ids = body.get('ids') or []
@@ -67021,11 +67036,19 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
         return
 
     ignore_data = load(CVE_IGNORE_FILE)
+    severity_filter = set(get_cve_severity_filter())
+    # v7.4.6 (#57): with "only fixable or known-exploited" on, a finding is NEW to the alert when it became
+    # alert-worthy, not only when it first appeared: one that waited for a fix and then got one is the case
+    # the option exists for. So `prev_ids` is the findings that WOULD have alerted last scan. With the option
+    # off it is every finding, as before.
+    fixable_only = get_cve_alert_fixable_only()
+    kev = _kev_epss()[0] if fixable_only else set()
     # v3.4.2: `previous` comes off disk (CVE_FINDINGS_FILE) and may be
     # hand-edited / malformed, so a finding missing vuln_id must not 500 the
     # whole /api/cve/scan. Use .get and drop falsy ids.
-    prev_ids = {f.get('vuln_id') for f in previous if f.get('vuln_id')}
-    severity_filter = set(get_cve_severity_filter())
+    prev_ids = {f.get('vuln_id') for f in previous if isinstance(f, dict) and f.get('vuln_id')
+                and (not fixable_only
+                     or (f.get('severity') in severity_filter and cve_fixes.alert_candidate(f, True, kev)))}
 
     new_alerted = []
     for f in current:
@@ -67033,6 +67056,8 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
         if not vid or vid in prev_ids:
             continue
         if f.get('severity') not in severity_filter:
+            continue
+        if not cve_fixes.alert_candidate(f, fixable_only, kev):
             continue
         ig = ignore_data.get(vid)
         if cve_ignore_applies(ig, dev_id):
@@ -67412,9 +67437,8 @@ def _enrich_cve_findings(findings, kev, epss):
     for f in findings:
         if not isinstance(f, dict):
             continue
-        ids = [str(f.get('vuln_id') or '').upper()]
-        ids += [str(a).upper() for a in (f.get('aliases') or []) if isinstance(a, str)]
-        is_kev = any(i in kev for i in ids)
+        ids = cve_fixes.finding_ids(f)
+        is_kev = cve_fixes.finding_is_kev(f, kev)
         score = 0.0
         for i in ids:
             if i in epss and epss[i] > score:

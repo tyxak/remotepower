@@ -69,6 +69,9 @@ def handle_cve_realert():
     devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
     ignore_data = A.load(A.CVE_IGNORE_FILE) or {}
     sev_filter = set(A.get_cve_severity_filter())
+    # v7.4.6 (#57): the same rule the scan applies when it raises cve_found.
+    fixable_only = A.get_cve_alert_fixable_only()
+    kev = A._kev_epss()[0] if fixable_only else set()
     fired = 0
     for dev_id, rec in findings_all.items():
         if dev_id not in devices:
@@ -77,6 +80,8 @@ def handle_cve_realert():
         for f in (rec or {}).get('findings') or []:
             vid = f.get('vuln_id')
             if not vid or f.get('severity') not in sev_filter:
+                continue
+            if not A.cve_fixes.alert_candidate(f, fixable_only, kev):
                 continue
             ig = ignore_data.get(vid)
             if A.cve_ignore_applies(ig, dev_id, devices.get(dev_id)):
@@ -289,7 +294,7 @@ def handle_cve_exposure_ranked():
             continue
         crit = sum(1 for f in findings if f.get('severity') == 'critical')
         high = sum(1 for f in findings if f.get('severity') == 'high')
-        fixable = sum(1 for f in findings if str(f.get('fixed_version') or '').strip())
+        fixable = sum(1 for f in findings if A.cve_fixes.is_fixable(f))
         exposed = A._host_world_exposed_ports(dev)
         wx = bool(exposed)
         criticality = str((cmdb.get(dev_id) or {}).get('criticality') or '')
@@ -330,6 +335,9 @@ def handle_cve_findings():
         'devices':      [],
         'summary':      {'critical': 0, 'high': 0, 'medium': 0, 'low': 0,
                          'unknown':  0, 'ignored':  0, 'kev': 0,
+                         # v7.4.6 (#57): the findings an update can clear, the ones fixed only in a newer
+                         # release, the ones with no fix yet and the ones the distribution cannot tell
+                         'fix':      {'fixable': 0, 'newer_release': 0, 'none': 0, 'unchecked': 0},
                          'devices_scanned': 0,
                          'devices_with_findings': 0,
                          'devices_unsupported': 0},
@@ -341,11 +349,9 @@ def handle_cve_findings():
         f_entry = findings_all.get(dev_id) or {}
         findings = f_entry.get('findings') or []
         kev_count, epss_max = A._enrich_cve_findings(findings, kev, epss)
-        summary = A.cve_scanner.summarize_findings(
-            findings,
-            {k for k, v in ignore_data.items()
-             if A.cve_ignore_applies(v, dev_id, dev)}
-        )
+        ignore_ids = {k for k, v in ignore_data.items() if A.cve_ignore_applies(v, dev_id, dev)}
+        summary = A.cve_scanner.summarize_findings(findings, ignore_ids)
+        fix = A.cve_fixes.summarize(findings, ignore_ids)
         status = 'scanned'
         if not pkg_entry:
             status = 'no_packages'
@@ -361,6 +367,8 @@ def handle_cve_findings():
                 report['summary']['devices_with_findings'] += 1
             for k in ('critical', 'high', 'medium', 'low', 'unknown', 'ignored'):
                 report['summary'][k] += summary[k]
+            for k in fix:
+                report['summary']['fix'][k] += fix[k]
             report['summary']['kev'] += kev_count
 
         report['devices'].append({
@@ -373,6 +381,7 @@ def handle_cve_findings():
             'scanned_at':  f_entry.get('scanned_at', 0),
             'package_count': pkg_entry.get('count', 0),
             'counts':      summary,
+            'fix':         fix,          # v7.4.6 (#57)
             'kev':         kev_count,    # v3.14.0
             'epss_max':    epss_max,     # v3.14.0 (0–1)
         })

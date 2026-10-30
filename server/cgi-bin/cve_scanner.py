@@ -11,6 +11,7 @@ import shutil
 import urllib.request
 
 import checks        # v7.0.3: the shared accepted-risk predicate
+import cve_fixes     # v7.4.6 (#57): which release of the host a fix is in (pure)
 import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
 import urllib.error
 import urllib.parse
@@ -646,8 +647,11 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
                 #     of `severity_source` forces a one-time re-fetch
                 #     and re-classification with the current code.
                 #     Self-healing: no manual cache wipe needed.
-                stale_version = cached is not None and \
-                    'severity_source' not in cached
+                #   - v7.4.6 (#57): the entry predates the per-release fixes
+                #     (`eco_fix`), so a host cannot be told whether the fix
+                #     reached its own release. Same self-healing refetch.
+                stale_version = cached is not None and (
+                    'severity_source' not in cached or 'eco_fix' not in cached)
                 if cached is None \
                    or stale_version \
                    or (int(time.time()) - cached.get('cached_at', 0)) > effective_ttl:
@@ -670,6 +674,9 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             'refs': [r.get('url', '') for r in (vuln.get('references') or [])[:10]],
             'cached_at': int(time.time()),
             'fixed_versions': _extract_fixed_versions(vuln),
+            # v7.4.6 (#57): the fixes of every release the record names, apart
+            # (_extract_fixed_versions folds them into one string per package).
+            'eco_fix': cve_fixes.extract(vuln),
         }
 
     _save_json(cache_dir / 'cve_details_cache.json', details_cache)
@@ -689,14 +696,30 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     # — suppress the finding. If `fixed` is empty (OSV gave no fix), or
     # the comparison can't be made reliably, KEEP the finding (fail
     # safe — better a false positive than a missed CVE).
+    #
+    # v7.4.6 (#57): for a distribution whose OSV name carries the release
+    # (Debian:12, Alpine:v3.19) the record keeps one fix per release, so the
+    # finding says whether the fix reached THIS host's release and
+    # `fixed_version` is that release's own. "Already patched" then looks at
+    # the host's release and the newer ones, never an older one: a package of
+    # a newer release is normally past an older release's fix without holding
+    # the fix its own release lacks. Other distributions keep the folded
+    # string and the old rule, with the status "unknown".
     suppressed = 0
     for pkg_name, pkg_version, vid in hits:
         det = details_cache.get(vid, {})
-        fixed = det.get('fixed_versions', {}).get(pkg_name) or ''
-        if fixed and _already_patched(pkg_version, fixed, ecosystem):
+        eco_fix = det.get('eco_fix')
+        fix = cve_fixes.classify(eco_fix, ecosystem, pkg_name)
+        if fix['status'] == cve_fixes.UNKNOWN:
+            fixed = det.get('fixed_versions', {}).get(pkg_name) or ''
+            patched_spec = fixed
+        else:
+            fixed = ', '.join(fix['fixed'])
+            patched_spec = ', '.join(cve_fixes.patched_by(eco_fix, ecosystem, pkg_name))
+        if patched_spec and _already_patched(pkg_version, patched_spec, ecosystem):
             suppressed += 1
             continue
-        findings.append({
+        finding = {
             'package': pkg_name,
             'version': pkg_version,
             'vuln_id': vid,
@@ -704,10 +727,14 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             'severity_source': det.get('severity_source', 'unknown'),
             'summary': det.get('summary', ''),
             'fixed_version': fixed,
+            'fix_status': fix['status'],
             'aliases': det.get('aliases', []),
             'refs': det.get('refs', []),
             'published': det.get('published', ''),
-        })
+        }
+        if fix['elsewhere']:
+            finding['fixed_elsewhere'] = {eco: ', '.join(vs) for eco, vs in fix['elsewhere'].items()}
+        findings.append(finding)
 
     # Sort: critical > high > medium > low > unknown
     findings.sort(key=lambda f: (

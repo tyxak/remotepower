@@ -80,8 +80,9 @@ holds long-form docs that don't fit there.
   release, with the scans and the run over every route behind them.
 - **[v7.4.6.md](v7.4.6.md)** — "F1xableMatters": a host can be marked internal, so a
   service that listens on every address is not graded as exposed to the world, a
-  suggested dependency points from the client to the server, and more requests from
-  the same Docker install.
+  suggested dependency points from the client to the server, a CVE finding says
+  whether a fix exists for the host's own release, an alert resolved by hand makes its
+  host report at once, and more requests from the same Docker install.
 - **[v7.4.4.md](v7.4.4.md)** — "Spec1ficMatters": temperature lines for each drive, set
   for one drive, one host or every drive of a type, for one request from the same
   Docker install.

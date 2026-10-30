@@ -7545,6 +7545,8 @@ table { font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
   .stat-card[data-action]:hover, .stat-card[data-nav]:hover { transform: none; }
 }
+/* v7.4.6 (#57): a tile that filters the table below it shows that its filter is on. */
+.stat-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* (v6: the "TemperMatters" chamfer-button block is GONE — action buttons use
    the flat v6 base styles above: hairline border, 7px radius, accent fill for

@@ -179,6 +179,11 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
 
     FILES = (
         "tests/test_v746_peer_direction.py",    # #58: the agent leaves out what the host accepted, the server's rule, the heartbeat contract
+        "tests/test_v746_cve_fix_status.py",    # #57: the scan per release, the alert option and the re-alert, the report and the readers
+        "tests/test_v746_cve_fix_page.py",      # #57: the page counts a finding as the server does, and the demo data keeps the contract
+        "tests/test_v746_cve_fix_e2e.py",       # #57: the tiles, the filter, the host view and the Settings option, in a browser
+        "tests/test_v746_translations.py",      # #57: the text the release added, in six languages
+        "tests/test_v746_resolve_refresh.py",   # #56: resolving an alert by hand makes its host report; the three agents read it
     )
 
     def test_the_list_is_not_empty(self):

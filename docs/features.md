@@ -273,7 +273,7 @@ Version tags such as *(v7.2.0)* mark features added in the last three releases. 
 
 | Feature | Notes |
 |---|---|
-| CVE scanner | Installed packages vs [OSV.dev](https://osv.dev) on a schedule; severity-ranked per host with fixed-version hints; per-CVE ignore list; Ubuntu-derivative mapping |
+| CVE scanner | Installed packages vs [OSV.dev](https://osv.dev) on a schedule; severity-ranked per host with fixed-version hints; per-CVE ignore list; Ubuntu-derivative mapping; **fix status for the host's own release** (fixed / fixed only in a newer release / no fix yet) on Debian and Alpine, four count tiles that filter the page, and an alert option `cve_alert_fixable_only` that raises `cve_found` only for what an update can clear or a known-exploited CVE *(v7.4.6)* |
 | KEV / EPSS prioritization | Re-ranked by CISA KEV (known-exploited) + FIRST EPSS (exploit-probability) |
 | Distro security flag | Counts vendor-flagged security updates (apt `-security`, dnf/yum `--security`, `arch-audit`) as a "N sec" badge |
 | CVE ↔ patch cross-link | Per host, how many critical/high CVEs a pending patch fixes |
