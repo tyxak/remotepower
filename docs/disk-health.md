@@ -44,8 +44,15 @@ optical drives are left out, so a volume is not counted twice with its disk. At 
 disks are listed, the busiest first.
 
 Open the host, go to the **Audit** tab, expand **Health & hardware** and look at **Disk
-I/O**. Each disk has a row with a trend of the last hour, and a disk you named (see above)
-shows its name. The busy figure turns amber or red when the disk is over a line.
+I/O**. Each disk has a row with a trend of its last 60 reports, and a disk you named (see
+above) shows its name. The busy figure turns amber or red when the disk is over a line.
+
+**How often it moves.** The agent sends this with its system information, which goes with
+every tenth poll: about every 10 minutes at the default poll interval. So each figure is an
+average over the gap between two reports, and the table says so under its heading
+("average over the last 10 min, reported 4 min ago"). A burst of I/O that is over in a
+minute barely shows, and a disk that is busy now does not move the table until the next
+report. The trend holds 60 reports, about 10 hours at that rate.
 
 ### An alert for a disk that stays busy
 

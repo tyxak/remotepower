@@ -30,10 +30,32 @@ On the test trunk only. It joins the next release.
   (never narrower than 4 points, always inside 0 to 100 %), and a line under its heading says which volume it is.
   The other charts keep their axis.
 
+- **One entry for each filesystem, not for each mount point.** A btrfs volume reports each subvolume (`/`, `/home`,
+  `/var/log`, ...) as a mount of its own, all with the size and the use of the volume, and a bind mount does the
+  same. Monitor → Host metrics listed every one of them with the same percentage, and the Trends chart drew the same
+  line over itself seven times, so the disk figures looked as if they never moved (the real agent on a btrfs machine
+  reported seven identical mounts, two identical profile overlays and a portal of size 0). Mounts with the same size
+  and use are now one entry, named for the shortest mount point with a count of the others (`/ +6`, `disk / (+6)`)
+  and the rest named on hover; on the chart the lines must also agree at every day they have a sample, so a mount
+  that was once a volume of its own keeps its line. The colour of an entry is the worst alert state of any of its
+  mount points. A mount of size 0 is left out, a long path is cut to its end in the legend, and the eight lines of
+  the chart are now eight different filesystems. Searching by any mount point still finds the host. Alerts,
+  forecasts and per-mount thresholds are unchanged and still work on each mount point.
+- **The Disk I/O table says what its figures cover.** The agent sends disk I/O with its system information, every
+  tenth poll, so a figure is an average over about 10 minutes and a burst that is over in a minute barely shows. A
+  line under the heading now says so ("average over the last 10 min, reported 4 min ago"). The guide said "a trend of
+  the last hour"; the trend holds 60 reports.
+- **The first Trends range is called what it is.** It was labelled "Recent (raw, 24h)" and draws the daily samples,
+  one a day, with a line for each mount. It is now "Daily samples (per mount)". Pinpointing a short recent window
+  used to switch to that option as if it were the finer tier and drew a few daily points; it now fetches the
+  5-minute tier.
+
 ### Fixes
 
 - The thermal roll-up sweep stopped for every host when one host's row held a `last_ts` that was not a number. It
   now treats that row as having nothing folded yet.
+- The Trends history of a host failed as a whole when one stored mount was not a map or held a percentage that was
+  not a number. Such a mount is now left out.
 
 ## v7.4.6 — "F1xableMatters" — 2026-10-30
 

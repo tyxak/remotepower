@@ -27,8 +27,23 @@ fleet health score, compliance score, and per-host resource history
   filesystem (`/`) on a Linux host, the fullest volume on Windows and macOS. A
   volume that moves a few points reads as a flat line on a fixed 0 to 100 %
   axis, so the Disk chart in a host's Metrics window fits its axis to the values
-  it shows and says which volume it plots. Every mount has a line on the
-  per-host chart above (up to eight), but only as one sample a day.
+  it shows and says which volume it plots.
+- **One line for each filesystem.** The first range of the per-host chart,
+  **Daily samples (per mount)**, draws a line for each mount, one sample a day.
+  A btrfs volume reports each subvolume (`/`, `/home`, `/var/log`, ...) as a
+  mount of its own, all with the size and the use of the volume, and a bind mount
+  does the same. Those are one filesystem and one line: it is named for the
+  shortest mount point and says how many more share it (`disk / (+6)`). Two
+  mounts count as one when they have the same size and the same use, and their
+  lines agree at every day both have a sample, so a mount that was once a volume
+  of its own keeps its line. A mount with no size (a portal, an empty overlay) has
+  no line, a long path is cut to its end in the legend, and at most eight
+  different filesystems are drawn. Alerts, forecasts and the per-mount thresholds
+  still work on each mount point.
+- **The ranges.** After the daily samples come 7 days (5-minute averages),
+  30 days (hourly) and 2 years (daily). Zooming into a short recent window on a
+  roll-up chart fetches the 5-minute tier; the daily samples are never the finer
+  answer.
 
 ## Metric explorer (v6.4.2)
 

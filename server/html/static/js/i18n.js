@@ -4520,7 +4520,7 @@
     "7 days": { "fr": "7 jours", "de": "7 Tage", "zh": "7 天", "hi": "7 दिन", "es": "7 días", "ar": "7 أيام" },
     "30 days": { "fr": "30 jours", "de": "30 Tage", "zh": "30 天", "hi": "30 दिन", "es": "30 días", "ar": "30 يوماً" },
     "90 days": { "fr": "90 jours", "de": "90 Tage", "zh": "90 天", "hi": "90 दिन", "es": "90 días", "ar": "90 يوماً" },
-    "Recent (raw, 24h)": { "fr": "Récent (brut, 24 h)", "de": "Aktuell (roh, 24 h)", "zh": "最近（原始，24 小时）", "hi": "हाल का (कच्चा, 24 घंटे)", "es": "Reciente (sin procesar, 24 h)", "ar": "الأحدث (خام، 24 ساعة)" },
+    "Daily samples (per mount)": { "fr": "Échantillons quotidiens (par montage)", "de": "Tageswerte (je Einhängepunkt)", "zh": "每日采样（每个挂载点）", "hi": "दैनिक सैंपल (प्रत्येक माउंट)", "es": "Muestras diarias (por montaje)", "ar": "عيّنات يومية (لكل نقطة تركيب)" },
     "7 days (5-min avg)": { "fr": "7 jours (moy. 5 min)", "de": "7 Tage (5-Min-Mittel)", "zh": "7 天（5 分钟均值）", "hi": "7 दिन (5-मिनट औसत)", "es": "7 días (media de 5 min)", "ar": "7 أيام (متوسط 5 دقائق)" },
     "30 days (hourly avg)": { "fr": "30 jours (moy. horaire)", "de": "30 Tage (Stundenmittel)", "zh": "30 天（小时均值）", "hi": "30 दिन (प्रति घंटा औसत)", "es": "30 días (media horaria)", "ar": "30 يوماً (متوسط بالساعة)" },
     "2 years (daily avg)": { "fr": "2 ans (moy. quotidienne)", "de": "2 Jahre (Tagesmittel)", "zh": "2 年（每日均值）", "hi": "2 वर्ष (दैनिक औसत)", "es": "2 años (media diaria)", "ar": "سنتان (متوسط يومي)" },

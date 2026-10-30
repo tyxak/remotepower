@@ -932,6 +932,7 @@ import drive_temp as drive_temp_mod   # v7.4.4 (#54): temperature lines for driv
 import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host and the grade of its listeners (pure)
 import peer_direction as peer_direction_mod   # v7.4.6 (#58): which way an observed TCP connection runs (pure)
 import thermal_sensors as thermal_sensors_mod   # a temperature history for every sensor, not only the hottest (pure)
+import disk_mounts as disk_mounts_mod   # which mounts of a host are one filesystem (pure)
 import query_engine  # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
 # Helpdesk tickets (bound-module pilot): exec'd as a PRIVATE module instance
 # rather than a cached `import`, because the test suite execs many api
@@ -53250,13 +53251,19 @@ def handle_device_metrics_history(dev_id):
             mem.append({'ts': ts, 'v': s['mem_percent']})
         if isinstance(s.get('swap_percent'), (int, float)):
             swap.append({'ts': ts, 'v': s['swap_percent']})
-        sm = s.get('mounts') or []
-        busiest = max((m.get('percent', 0) for m in sm), default=None)
+        # A stored sample is read as it is, so a mount that is not a map (an imported or hand-edited row) is
+        # left out and the chart still draws.
+        sm = [m for m in (s.get('mounts') or []) if isinstance(m, dict)] if isinstance(s.get('mounts'), list) else []
+        busiest = max((m.get('percent', 0) for m in sm if isinstance(m.get('percent', 0), (int, float))), default=None)
         if isinstance(busiest, (int, float)):
             disk.append({'ts': ts, 'v': busiest})
         for m in sm:
             p, v = m.get('path'), m.get('percent')
             if not p or not isinstance(v, (int, float)):
+                continue
+            # A mount with no size at all is a pseudo filesystem (a portal, an empty overlay) and has no line
+            # worth drawing. Every agent reports sizes, so a stored 0 is not "unknown".
+            if isinstance(m.get('total_gb'), (int, float)) and m['total_gb'] <= 0:
                 continue
             mount_pts.setdefault(p, []).append({'ts': ts, 'v': v})
             if m.get('network'):
@@ -53273,13 +53280,15 @@ def handle_device_metrics_history(dev_id):
         series.append({'name': 'cpu load %', 'points': load_sat})
     # Per-mount series, ordered by the most recent sample, capped so the chart
     # stays readable. Network shares are labelled so the SMB/NFS line stands out.
-    recent_paths, seen_p = [], set()
-    for m in ((samples[-1].get('mounts') if samples else []) or []):
-        p = m.get('path')
-        if p and p in mount_pts and p not in seen_p:
-            seen_p.add(p); recent_paths.append(p)
-    for p in recent_paths[:8]:
-        label = f'disk {p}' + (' (net)' if p in mount_net else '')
+    # The subvolumes of one btrfs volume, a bind mount and the like are one filesystem and one line: drawing
+    # each of them put the same line on the chart seven times, over the mounts that were different. The line
+    # is named for the shortest mount point and says how many more share it.
+    latest = [m for m in ((samples[-1].get('mounts') if samples else []) or [])
+              if isinstance(m, dict) and m.get('path') in mount_pts]
+    for g in disk_mounts_mod.groups(latest, points=mount_pts)[:8]:
+        p = g['path']
+        label = (f'disk {disk_mounts_mod.short_path(p)}' + (f' (+{len(g["also"])})' if g['also'] else '')
+                 + (' (net)' if p in mount_net else ''))
         series.append({'name': label, 'points': mount_pts[p]})
     respond(200, {'device_id': dev_id, 'series': series})
 

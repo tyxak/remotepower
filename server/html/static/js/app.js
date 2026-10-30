@@ -8514,6 +8514,36 @@ async function resetMetricThresholds() {
 
 let _deviceMetricsRegistered = false;
 
+// The mounts a host reports, grouped into the filesystems they are. The subvolumes of one btrfs volume
+// (/, /home, /var/log ...), a bind mount and the like report the same size and the same use, so listing each
+// said the same figure over and over. Two mounts are one filesystem when they have the same size and use
+// (server/cgi-bin/disk_mounts.py has the rule, and tests/test_disk_mounts.py holds the two to each other); a mount with no
+// use to speak of says nothing about which volume it is, so it is never merged. A mount of size 0 is a pseudo
+// filesystem (a portal, an empty overlay) and is left out. Returns [{m, also}]: the entry of the shortest mount
+// point, and the other mount points, shortest first, at most 20.
+function _groupMounts(mounts) {
+  const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
+  const same = (a, b) => {
+    const ta = num(a.total_gb), tb = num(b.total_gb), ua = num(a.used_gb), ub = num(b.used_gb);
+    if (ta === null || tb === null || ua === null || ub === null) return false;
+    if (ta <= 0 || tb <= 0 || ua < 0.1 || ub < 0.1) return false;
+    if (!!a.network !== !!b.network) return false;
+    return Math.abs(ta - tb) <= 0.02 && Math.abs(ua - ub) <= 0.05;
+  };
+  const groups = [];
+  for (const m of (Array.isArray(mounts) ? mounts : [])) {
+    if (!m || typeof m !== 'object' || typeof m.path !== 'string' || !m.path) continue;
+    if (num(m.percent) !== null && num(m.total_gb) !== null && m.total_gb <= 0) continue;
+    const g = groups.find(x => same(x[0], m));
+    if (g) g.push(m); else groups.push([m]);
+  }
+  const order = (a, b) => (a.length - b.length) || (a < b ? -1 : a > b ? 1 : 0);
+  return groups.map(g => {
+    const paths = [...new Set(g.map(x => x.path))].sort(order);
+    return { m: g.find(x => x.path === paths[0]), also: paths.slice(1, 21) };
+  });
+}
+
 function _registerDeviceMetricsTable() {
   if (_deviceMetricsRegistered) return;
   _deviceMetricsRegistered = true;
@@ -8587,17 +8617,27 @@ function _registerDeviceMetricsTable() {
       // Disks: list each mount with its percent + alert state
       let diskCell = '<span class="c-muted">—</span>';
       const mounts = Array.isArray(si.mounts) ? si.mounts : [];
-      if (mounts.length > 0) {
-        const items = mounts.map(m => {
-          const lv = state[`disk:${m.path}`] || 'ok';
+      // One entry for each filesystem, not for each mount point: see _groupMounts.
+      const filesystems = _groupMounts(mounts);
+      if (filesystems.length > 0) {
+        const items = filesystems.map(({ m, also }) => {
+          // The worst alert state of any mount point of the filesystem colours its entry.
+          const rank = { critical: 2, warning: 1 };
+          let lv = 'ok';
+          for (const mp of [m.path, ...also]) {
+            const st = state[`disk:${mp}`] || 'ok';
+            if ((rank[st] || 0) > (rank[lv] || 0)) lv = st;
+          }
           const net = m.network ? '⇄ ' : '';   // network share marker
-          const label = escHtml((m.path.length > 14 ? '…' + m.path.slice(-13) : m.path));
+          const label = escHtml((m.path.length > 14 ? '…' + m.path.slice(-13) : m.path))
+            + (also.length ? ` <span class="c-muted">+${also.length}</span>` : '');
+          const others = also.length ? ` — also mounted at ${escHtml(also.join(', '))}` : '';
           // v3.13.0: stalled / unknown-usage net share — show state, not "0%".
           if (m.stalled || m.percent == null) {
-            return `<span title="${escHtml(m.path)}${m.server ? ' — ' + escHtml(m.server) : ''}" class="isl-349" data-color="var(--red)">${net}${label}: ${m.stalled ? 'stalled' : '—'}</span>`;
+            return `<span title="${escHtml(m.path)}${m.server ? ' — ' + escHtml(m.server) : ''}${others}" class="isl-349" data-color="var(--red)">${net}${label}: ${m.stalled ? 'stalled' : '—'}</span>`;
           }
           const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--muted)';
-          return `<span title="${escHtml(m.path)} — ${m.used_gb}/${m.total_gb} GB${m.server ? ' @ ' + escHtml(m.server) : ''}" class="isl-349" data-color="${color}">${net}${label}: ${Number(m.percent).toFixed(0)}%</span>`;
+          return `<span title="${escHtml(m.path)} — ${m.used_gb}/${m.total_gb} GB${m.server ? ' @ ' + escHtml(m.server) : ''}${others}" class="isl-349" data-color="${color}">${net}${label}: ${Number(m.percent).toFixed(0)}%</span>`;
         });
         diskCell = items.join('');
       } else if (si.disk_percent !== undefined) {
@@ -13435,12 +13475,13 @@ async function loadTrends() {
 }
 
 // v6.4.2: which roll-up tier actually HAS the resolution + the retention for a
-// pinpointed window. Retention per tier is raw ≈24h, 5-min ≈7d, hourly ≈30d,
-// daily ≈2y (the `trend-range` option labels), so a window that is both narrow
-// and recent can be re-served from a finer tier than the one on screen.
+// pinpointed window. Retention per tier is 5-min ≈7d, hourly ≈30d, daily ≈2y (the
+// `trend-range` option labels), so a window that is both narrow and recent can be
+// re-served from a finer tier than the one on screen. The first option, 'raw', is
+// the daily samples (one a day, with a line for each mount), which is coarser than
+// the 5-minute tier, so it is never the answer to a narrow window.
 function _trendTierFor(fromTs, toTs) {
   const now = Date.now() / 1000, age = now - fromTs, span = toTs - fromTs;
-  if (span <= 6 * 3600 && age <= 22 * 3600) return 'raw';
   if (span <= 3 * 86400 && age <= 6 * 86400) return 'fivemin';
   if (span <= 30 * 86400 && age <= 28 * 86400) return 'hourly';
   return 'daily';
@@ -26639,6 +26680,21 @@ function _driveTempTitle(d) {
   return ` title="${escAttr(L.crit != null ? `≥ ${fmtTemp(L.warn, 0)} / ≥ ${fmtTemp(L.crit, 0)}` : `≥ ${fmtTemp(L.warn, 0)}`)}"`;
 }
 
+// How long a Disk I/O figure covers and when it was reported, or null when that is not known. The agent works a
+// figure out from the counters of two reports, and it sends them with its system information (about every ten
+// polls), so a figure is an average over the gap between the two and a short burst does not show in it. The gap is
+// the spacing of the last two samples the server keeps for a disk, [ts, busy, read, write, iops, wait] each.
+function _diskIoWindow(rows) {
+  let best = null;
+  for (const r of (Array.isArray(rows) ? rows : [])) {
+    const h = Array.isArray(r && r.hist) ? r.hist.filter(p => Array.isArray(p) && typeof p[0] === 'number') : [];
+    if (h.length < 2) continue;
+    const ts = h[h.length - 1][0], secs = ts - h[h.length - 2][0];
+    if (secs > 0 && (!best || ts > best.ts)) best = { ts, secs };
+  }
+  return best;
+}
+
 function _renderHardwareSection(id, hw, fc, ch) {
   let h = '';
   const k = hw.kernel || {};
@@ -26746,8 +26802,10 @@ function _renderHardwareSection(id, hw, fc, ch) {
       disk: r.name || r.dev, busy: r.busy_pct ?? -1, read: r.read_mbs ?? -1, write: r.write_mbs ?? -1,
       iops: (r.riops || 0) + (r.wiops || 0), wait: r.await_ms ?? -1,
     }));
+    const ioWindow = _diskIoWindow(dio);
     h += `<div class="hw-block"><div class="hw-h">Disk I/O</div>
       <div class="hint mb-6">Busy is the share of the last interval the disk had a request in flight, and Wait is the average time a request takes. Whole disks and RAID arrays are listed, not partitions.</div>
+      ${ioWindow ? `<div class="hint mb-6">Each figure is an average over the last ${Math.max(1, Math.round(ioWindow.secs / 60))} min, reported ${timeAgoHtml(ioWindow.ts, { clamp: true })}: a short burst of I/O does not show in it.</div>` : ''}
       <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead id="hw-diskio-thead"><tr>
         <th data-col="disk">Disk</th><th data-col="busy">Busy</th><th data-col="read">Read</th>
         <th data-col="write">Write</th><th data-col="iops">IOPS</th><th data-col="wait">Wait</th>
