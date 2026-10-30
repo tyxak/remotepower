@@ -186,6 +186,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v746_resolve_refresh.py",   # #56: resolving an alert by hand makes its host report; the three agents read it
         "tests/test_v746_drive_lines_thermal.py",  # #54: the Thermal page and the risk score hold a drive to its own lines
         "tests/test_v746_thermal_e2e.py",       # #54: the sensor table paints a drive by its own state, in a browser
+        "tests/test_v746_security.py",          # the review: who may ask a host to report, a strict switch, hostile records and stores
     )
 
     def test_the_list_is_not_empty(self):

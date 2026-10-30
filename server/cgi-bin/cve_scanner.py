@@ -896,6 +896,8 @@ def packages_hash(packages: list) -> str:
 def summarize_findings(findings: list, ignore_ids: set) -> dict:
     out = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'unknown': 0, 'ignored': 0}
     for f in findings:
+        if not isinstance(f, dict):      # v7.4.6: a hand-edited store; one bad row must not fail the report
+            continue
         if f.get('vuln_id') in ignore_ids:
             out['ignored'] += 1
             continue
@@ -912,6 +914,8 @@ def apply_ignore_list(findings: list, ignore_data: dict, dev_id: str,
     this release."""
     out = []
     for f in findings:
+        if not isinstance(f, dict):      # v7.4.6: a hand-edited store; the row is not a finding
+            continue
         # .get() — a malformed finding without a vuln_id simply can't
         # be on the ignore list (the list is keyed by vuln_id), and
         # must not raise.

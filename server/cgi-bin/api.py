@@ -29864,7 +29864,12 @@ def handle_config_save():
         cfg['cve_webhook_enabled'] = bool(body['cve_webhook_enabled'])
 
     if 'cve_alert_fixable_only' in body:
-        cfg['cve_alert_fixable_only'] = bool(body['cve_alert_fixable_only'])
+        # A switch that keeps alerts quiet takes a real true or false and nothing else: bool("false") is
+        # True, and a client that meant "off" must not turn it on. Fixed sentence, so it can be translated.
+        _fo = body['cve_alert_fixable_only']
+        if _fo is not True and _fo is not False:
+            respond(400, {'error': 'cve_alert_fixable_only must be true or false'})
+        cfg['cve_alert_fixable_only'] = _fo
 
     if 'service_webhook_enabled' in body:
         cfg['service_webhook_enabled'] = bool(body['service_webhook_enabled'])
@@ -42449,14 +42454,22 @@ def _dependency_suggestions():
                 ip_to_dev.setdefault(str(nic['ip']), did)
     out = []
     for did, rec in peers.items():
-        if did not in devices:
+        if did not in devices or not isinstance(rec, dict):
             continue
         dev = devices[did]
         declared = set(dev.get('depends_on') or [])
         if dev.get('connected_to'):
             declared.add(dev['connected_to'])
         by_up = {}
-        for p in (rec.get('peers') or []):
+        for p in (rec.get('peers') if isinstance(rec.get('peers'), list) else []):
+            # v7.4.6: the ingest keeps only maps with a whole port and count, but a hand-edited or imported
+            # store need not, and one bad row used to fail the page for every host.
+            if not isinstance(p, dict):
+                continue
+            try:
+                port, conns = int(p.get('port') or 0), int(p.get('count') or 1)
+            except (TypeError, ValueError, OverflowError):
+                continue
             up = ip_to_dev.get(p.get('ip'))
             if not up or up == did or up in declared:
                 continue
@@ -42465,11 +42478,11 @@ def _dependency_suggestions():
             # v7.4.6 (#58): a far port in the ephemeral range that the far host does not listen on is ITS source
             # port. The connection ran from that host to this one, so it is a client, not an upstream. Agents from
             # before 7.4.6 reported the connections their host accepted along with the ones it opened.
-            if peer_direction_mod.is_client_source_port(devices[up], p.get('port')):
+            if peer_direction_mod.is_client_source_port(devices[up], port):
                 continue
             e = by_up.setdefault(up, {'count': 0, 'ports': set()})
-            e['count'] += int(p.get('count') or 1)
-            e['ports'].add(int(p.get('port') or 0))
+            e['count'] += conns
+            e['ports'].add(port)
         for up, e in by_up.items():
             out.append({
                 'device_id': did, 'device_name': dev.get('name', did),
@@ -66587,6 +66600,8 @@ def handle_fleet_thermal():
             if hottest is None or c > hottest[0]:
                 hottest = (float(c), lbl, 'sensor', cr, None)
         for s in (hw.get('smart') or []):
+            if not isinstance(s, dict):
+                continue
             c = s.get('temperature_c')
             if not isinstance(c, (int, float)):
                 continue
@@ -66604,6 +66619,8 @@ def handle_fleet_thermal():
             if hottest is None or c > hottest[0]:
                 hottest = (float(c), lbl, 'disk', _dc, _dw)
         for g in (hw.get('gpus') or []):    # v3.14.0: GPUs are sensors too
+            if not isinstance(g, dict):
+                continue
             c = g.get('temp_c')
             if not isinstance(c, (int, float)):
                 continue
@@ -67086,6 +67103,8 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
 
     new_alerted = []
     for f in current:
+        if not isinstance(f, dict):
+            continue
         vid = f.get('vuln_id')
         if not vid or vid in prev_ids:
             continue
