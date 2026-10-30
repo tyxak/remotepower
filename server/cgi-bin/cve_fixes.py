@@ -32,6 +32,14 @@ STATUSES = (FIXED, NEWER_RELEASE, NONE, UNKNOWN)
 MAX_FIXED_PER_ENTRY = 3
 MAX_ELSEWHERE = 3
 
+# What one OSV record may add to the details cache. A record names a few packages in a few releases; a
+# kernel update names a few hundred packages. Past these bounds a string or an entry is left out and the
+# finding falls back to the status "unknown", which is the older behaviour, so a record that is hostile or
+# merely enormous cannot grow the cache or the findings without limit.
+MAX_ENTRIES = 1024
+MAX_VERSION_LEN = 128
+MAX_NAME_LEN = 200
+
 _DEBIAN = re.compile(r"^Debian:(\d{1,4})$")
 _ALPINE = re.compile(r"^Alpine:v(\d{1,4})\.(\d{1,4})$")
 
@@ -67,9 +75,16 @@ def extract(vuln: Any) -> dict[str, dict[str, list[str]]]:
         if not isinstance(package, dict):
             continue
         ecosystem, name = package.get("ecosystem"), package.get("name")
-        if not isinstance(ecosystem, str) or not isinstance(name, str) or not name:
+        if (
+            not isinstance(ecosystem, str)
+            or not isinstance(name, str)
+            or not name
+            or len(name) > MAX_NAME_LEN
+        ):
             continue
         if release_of(ecosystem) is None:
+            continue
+        if name not in out.get(ecosystem, {}) and sum(len(p) for p in out.values()) >= MAX_ENTRIES:
             continue
         fixed = out.setdefault(ecosystem, {}).setdefault(name, [])
         for rng in _as_list(entry.get("ranges")):
@@ -78,6 +93,7 @@ def extract(vuln: Any) -> dict[str, dict[str, list[str]]]:
                 if (
                     isinstance(version, str)
                     and version
+                    and len(version) <= MAX_VERSION_LEN
                     and version not in fixed
                     and len(fixed) < MAX_FIXED_PER_ENTRY
                 ):

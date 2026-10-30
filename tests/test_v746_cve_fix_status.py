@@ -148,6 +148,21 @@ class TestTheRulesAsATable(unittest.TestCase):
         rec["affected"][0]["ranges"] = [{"events": [{"fixed": f"1.{i}"} for i in range(500)]}]
         self.assertEqual(len(cve_fixes.extract(rec)["Debian:12"]["curl"]), cve_fixes.MAX_FIXED_PER_ENTRY)
 
+    def test_a_version_or_a_name_past_its_bound_is_left_out(self):
+        """An enormous string from a record would otherwise be copied into the cache and into every finding."""
+        rec = {"affected": [entry("Debian:12", None)]}
+        rec["affected"][0]["ranges"] = [{"events": [{"fixed": "9" * (cve_fixes.MAX_VERSION_LEN + 1)}, {"fixed": "1.2-3"}]}]
+        self.assertEqual(cve_fixes.extract(rec), {"Debian:12": {"curl": ["1.2-3"]}})
+        long_name = {"affected": [entry("Debian:12", "1", "p" * (cve_fixes.MAX_NAME_LEN + 1))]}
+        self.assertEqual(cve_fixes.extract(long_name), {})
+
+    def test_a_record_cannot_name_more_entries_than_the_bound(self):
+        rec = {"affected": [entry("Debian:12", "1", f"pkg{i}") for i in range(cve_fixes.MAX_ENTRIES + 50)]}
+        out = cve_fixes.extract(rec)
+        self.assertEqual(sum(len(p) for p in out.values()), cve_fixes.MAX_ENTRIES)
+        # a package left out reads "unknown", the older behaviour, and never "no fix exists"
+        self.assertEqual(cve_fixes.classify(out, "Debian:12", f"pkg{cve_fixes.MAX_ENTRIES + 10}")["status"], "unknown")
+
     def test_what_counts_as_fixable(self):
         self.assertTrue(cve_fixes.is_fixable({"fix_status": "fixed", "fixed_version": "1"}))
         self.assertFalse(cve_fixes.is_fixable({"fix_status": "newer_release", "fixed_version": "8.7.1-1"}))
