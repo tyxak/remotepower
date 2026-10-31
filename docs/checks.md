@@ -15,6 +15,11 @@ sortable, filterable table.
   check set pushed to the agent, so the agent stops evaluating it (and, for
   guard checks, stops quarantining), and any open alert it raised is resolved.
 - *Hide muted* and *hide unmonitored* default ON.
+- **Alerts for the same problem** — a failing check whose host has alerts for the same kind of problem says so beside
+  its output: **Alert open**, **Alert resolved, still failing** (someone closed the alert and the host still
+  reports it) or **Alert resolved, waiting for the host**. A bar above the table links to
+  [Problems](problems.md), which lists each problem once across Alerts, Needs Attention and Checks. The API adds
+  `problem` to those checks on `GET /api/checks?problems=1`.
 - **Remediate** *(v6.3.0)* — every failing (non-OK) row has a wrench button
   that generates a host-scoped remediation runbook through the AI advisor:
   step-by-step fix instructions with verification steps, built from the

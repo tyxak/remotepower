@@ -61,27 +61,46 @@ On the test trunk only. It joins the next release.
   trouble on a host, and closing it in one did not close it in the others: an alert you resolved by hand could sit
   beside a Needs attention item for what the host still reported (#56). The new endpoint joins the three. A row is one
   kind of problem on one host, with every alert, Needs attention item and failing check that belongs to it listed under
-  it, and a `state` that says where it stands: `failing`; `host_clear` (an alert is open and the host no longer
-  reports it); `resolved_but_failing` (you resolved it and the host still reports it); `waiting_for_report` (you
-  resolved it and the host has not reported since); `resolved`; `recovered`. The kind is the Needs attention kind.
-  An alert is placed by the map that decides which item a mute silences, a metric alert by its metric, and a check by
-  a short table in `problems_handlers.py` (the Systemd units check is failed units, the CVE check is cve, and so
-  on). Anything the maps do not reach still gets a row of its own, so a gap in a map hides nothing. The join is by
-  host and kind because Needs attention and Checks name their resources only in prose, so a host with two failed
-  units is one row. "By hand" means a person closed it: a recovery event, a mute and the removal of the host do not
-  count. Filtered to the hosts the caller may see. (#56)
-- **Monitoring → Problems.** The page over that endpoint: four tiles count the states that need you (failing,
-  resolved but still failing, waiting for the host, host reports it clear) and filter the list, selects filter by state
-  and by where a problem shows, and each row lists its alerts, its Needs Attention items and its failing checks, with
-  buttons to the pages they live on. **Resolve** (administrators) closes every open alert of a problem at once through
-  the existing bulk resolve; the Needs Attention item stays until the host reports, so a problem you resolved while
-  the host still reports it reads **Resolved, still failing**. The demo data carries one: a failed unit on
-  nextcloud.lab whose alert alice resolved. See `docs/problems.md`. (#56)
+  it, and a `state` that says where it stands: `failing`; `host_clear` (an alert is open and Needs attention and Checks
+  no longer list the problem); `resolved_but_failing` (you resolved it and the host still reports it);
+  `waiting_for_report` (you resolved it and the host has not reported since); `resolved`; `recovered`. The kind is the
+  Needs attention kind. An alert is placed by the map that decides which item a mute silences, a metric alert by its
+  metric, and a check by a short table in `problems_handlers.py` (the Systemd units check is failed units, the CVE check
+  is cve, and so on). Anything the maps do not reach still gets a row of its own, so a gap in a map hides nothing. The
+  join is by host and kind because Needs attention and Checks name their resources only in prose, so a host with two
+  failed units is one row. "By hand" means a person closed it: a recovery event, a mute and the removal of the host do
+  not count. Filtered to the hosts the caller may see. (#56)
+- **A row says what can be done to it.** It lists the ids of the open alerts a resolve closes, the events a mute covers
+  on its host, the key an ignore or snooze needs on each Needs attention item, the key a switch-off needs on each
+  check, and the playbook a fix opens, so the page guesses nothing. `counts.active_sources` holds the active problems
+  each view lists. (#56)
+- **`GET /api/problems/history`.** Everything that happened to one problem, newest first: each alert of it raised (and
+  how many times it came again), acknowledged and resolved, by whom and how, with the resolve note. Up to 200 alerts and
+  600 events over the last 90 days (365 at most), and only the alerts the caller may see. (#56)
+- **Monitoring → Problems.** The page over those endpoints. Four views under the title (**All problems**, **Alerts**,
+  **Needs Attention** and **Checks**) are filters of the one list, each with its count. Four tiles count the states
+  that need you and filter the list; a select filters by state and a box by text. Each row lists its alerts, its Needs
+  Attention items and its failing checks, with buttons to the pages they live on, and offers what can be done to the
+  problem from the row: **Resolve** (closes every open alert of the problem at once through the bulk resolve),
+  **History**, **Mute**, **Snooze 24 h**, **Ignore**, **Disable check** and **Fix**. Each action sends the request the
+  page it comes from sends, and the endpoint asks for the permission it always asked for. Mute, Snooze, Ignore and
+  Disable check show an Undo that puts back what they changed. The Needs attention item stays until the host reports,
+  so a problem you resolved while the host still reports it reads **Resolved, still failing**. The demo data carries
+  one: a failed unit on nextcloud.lab whose alert alice resolved. See `docs/problems.md`. (#56)
 - **The Alerts page says when the host disagrees.** In the resolved view, an alert a person resolved gets **Still
   failing** beside "resolved by ..." when the host's last report still shows its problem, or **Waiting for the host**
-  when the host has not reported since. `GET /api/alerts` carries `still_failing` (`resolved_but_failing` or
-  `waiting_for_report`) on those rows. Nothing is built unless the page holds an alert resolved by hand, so the open
-  inbox costs nothing extra, and a failure of the read model never fails the list. (#56)
+  when the host has not reported since. An open alert that Needs attention and Checks no longer list gets **No longer
+  listed**. `GET /api/alerts` carries `problem_state` (`host_clear`, `resolved_but_failing` or `waiting_for_report`)
+  on those rows, and a failure of the read model never fails the list. (#56)
+- **Needs Attention and Checks say it too.** An item or a failing check whose host has alerts for the same kind of
+  problem shows **Alert resolved, still failing** or **Alert resolved, waiting for the host** beside it when a person
+  resolved the alert and the host has not caught up, so resolving an alert changes what all four pages say.
+  `GET /api/attention?problems=1` and `GET /api/checks?problems=1` add `problem` (`state`, `alerts_open`,
+  `resolved_by`, `resolved_at`) to those rows. Without the parameter nothing is built, so the dashboard card and the
+  Checks widget cost what they did. (#56)
+- **A bar links the four pages.** Alerts, Needs Attention and Checks open with **All problems | Alerts | Needs
+  Attention | Checks** under the title, with the page you are on marked. The views on the Problems page filter the one
+  list in place, and arriving at Problems from the sidebar or from another page's bar starts at every problem. (#56)
 
 ### CVE findings
 

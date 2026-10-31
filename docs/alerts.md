@@ -61,8 +61,11 @@ looking.
 
 An alert you resolve closes the alert. Needs Attention and Checks read the host's own report, so a problem the host still
 reports stays there. In the resolved view an alert you closed shows **Still failing** beside "resolved by" when
-the host's last report still shows its problem, and **Waiting for the host** when it has not reported since.
-[Problems](problems.md) lists each problem once across the three.
+the host's last report still shows its problem, and **Waiting for the host** when it has not reported since. An
+open alert that Needs Attention and Checks no longer list shows **No longer listed**: the host may have recovered,
+or you may have ignored or snoozed the item or switched the check off. The bar above the inbox links the four pages,
+and [Problems](problems.md) lists each problem once across the three. The API carries the same word as
+`problem_state` on `GET /api/alerts`.
 
 ## Putting it on a wall *(v7.0.2)*
 

@@ -67,6 +67,12 @@ per-severity tally, `total` the number of items after scoping.
 The same trouble can also sit in Alerts and Checks. [Problems](problems.md) joins the three into one list, each
 problem once, and says whether the host still reports a problem you resolved.
 
+An item whose host has alerts for the same kind of problem says so beside its summary: **Alert open**, **Alert
+resolved, still failing** when someone closed the alert and the host still reports the problem, or **Alert resolved,
+waiting for the host** until the host has reported since. A bar above the table links the four pages. The API adds
+this as `problem` on each item of `GET /api/attention?problems=1`; without the parameter nothing is built, so the
+dashboard card costs what it did.
+
 An item is `{severity, kind, device, device_id, summary}` plus a stable
 `_ignore_key`, and `mitigation_kind` / `mitigation_target` when a mitigation
 playbook exists for that kind.

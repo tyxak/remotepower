@@ -76,7 +76,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 ### Checks (CheckMK-style per-host health) — v4.1.0
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/checks` | | Fleet check matrix (OK/WARN/CRIT/UNKNOWN per host; `?status=critical\|warning`) |
+| `GET` | `/api/checks` | | Fleet check matrix (OK/WARN/CRIT/UNKNOWN per host; `?status=critical\|warning`). `?problems=1` adds `problem` (`state`, `alerts_open`, `resolved_by`, `resolved_at`) to each failing check whose host and kind have alerts |
 | `GET` | `/api/devices/:id/checks` | | Check list + summary for one host |
 | `POST` | `/api/checks/toggle` | admin | Mute/unmute a check on a host (`{device_id, check, enabled}`) |
 | `GET` | `/api/checks/custom` | | List custom-check definitions |
@@ -87,7 +87,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 ### Problems (Alerts, Needs attention and Checks, joined)
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/problems` | | One row per host and kind of problem, with the alerts, Needs attention items and failing checks under it and a `state`: `failing`, `host_clear`, `waiting_for_report`, `resolved_but_failing`, `resolved` or `recovered`. `?state=active\|all\|<state>` (default `active`), `source=alert\|attention\|check`, `device_id=`, `q=`, `days=` (how far back a resolved alert counts; default 7, at most 30), `limit=`, `offset=`. `counts` covers everything the caller may see, before the filters |
+| `GET` | `/api/problems` | | One row per host and kind of problem, with the alerts, Needs attention items and failing checks under it and a `state`: `failing`, `host_clear`, `waiting_for_report`, `resolved_but_failing`, `resolved` or `recovered`. `?state=active\|all\|<state>` (default `active`), `source=alert\|attention\|check`, `device_id=`, `q=`, `days=` (how far back a resolved alert counts; default 7, at most 30), `limit=`, `offset=`. `counts` covers everything the caller may see, before the filters, and carries `active_sources` (the active problems each of `alert`, `attention` and `check` holds). A row names what can be done to it: `open_ids` (the open alerts a resolve closes), `mute_events` (the events a mute covers), `attention[].ignore_key` (what an ignore or snooze needs), `checks[].key` (what a switch-off needs) and `fix` (the playbook a fix opens) |
 | `GET` | `/api/problems/history` | | Everything that happened to one problem, newest first: each alert of it raised (and how often it came again), acknowledged and resolved, by whom and how, with the resolve note. `?device_id=&family=` (a row's `device_id` and `family`), `detail=` for a problem with no host, `days=` (default 90, at most 365). Only the alerts the caller may see |
 
 ### Users & Auth
