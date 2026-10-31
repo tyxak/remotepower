@@ -122,9 +122,22 @@ On the test trunk only. It joins the next release.
   Five readers of the findings store still count accepted risks (the assistant's context, the Fleet query's CVE
   filter, the compliance check, the scheduled digest and the scanner itself); `tests/test_cve_store_readers.py`
   lists them and lets the list only shrink. (#57)
+- **The digest and the Fleet query follow the same rule.** They were two of those five readers. The scheduled
+  posture digest now says the numbers the badge and the dashboard say: accepted risks left out, the count option
+  applied, and monitored hosts only, as its own host line already counted. The Fleet query's **CVE (crit+high)**
+  filter and column take their count from the helper that Checks uses. Three readers still count accepted risks:
+  compliance evidence, the assistant's corpus and the scanner. (#57)
+- **The badge counts monitored hosts only.** Its description said so and Needs attention does the same, but it
+  counted every host in scope, so a host you chose not to monitor still raised the number. The CVE page and the
+  dashboard tile still list those hosts' findings. (#57)
 
 ### Fixes
 
+- **The page makes room for the sidebar while alerts are open.** With open alerts the sidebar pins itself open at
+  248 px as an overlay, and the content and the top bar kept the margin of the closed rail, so the left 192 px of
+  every page (its title, first filter and first columns) sat under it. They now take the rail's width while it is
+  pinned, mirrored for Arabic and not on the phone layout. A hover over the closed rail is still an overlay, and
+  the My Account setting **Keep hiding while alerts are open** and a manual collapse are unchanged.
 - The thermal roll-up sweep stopped for every host when one host's row held a `last_ts` that was not a number. It
   now treats that row as having nothing folded yet.
 - The Trends history of a host failed as a whole when one stored mount was not a map or held a percentage that was

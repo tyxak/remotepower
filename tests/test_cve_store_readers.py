@@ -6,7 +6,7 @@ for years, and none of the six counters looked at a fix status. A rule that is a
 enforced, so this file enumerates the population instead of spot-checking it.
 
 The census is derived from the source: every top-level function in server/cgi-bin that names CVE_FINDINGS_FILE
-(32 on 2026-10-31). Each is classified below as a reader that produces a NUMBER an operator reads (it must follow the
+(31 on 2026-10-31). Each is classified below as a reader that produces a NUMBER an operator reads (it must follow the
 count option and leave out accepted risks) or as one that counts or lists every finding on purpose (reports,
 compliance evidence, the assistant's context, the scanner itself). A new reader fails the census until it is placed,
 so the decision cannot be skipped by accident.
@@ -28,13 +28,14 @@ NUMBERS = "a number an operator reads: follows the count option and leaves out a
 EVERYTHING = "counts or lists every finding on purpose"
 
 READERS = {
-    # the six counters
+    # the six counters, and the scheduled digest that quotes them
     "api.py:handle_nav_counts": (NUMBERS, "sidebar badge"),
     "api.py:handle_home": (NUMBERS, "dashboard tile"),
     "api.py:_compute_attention": (NUMBERS, "Needs attention"),
     "api.py:_compute_fleet_risk": (NUMBERS, "risk score; hands the option to _device_risk"),
     "api.py:_cve_high_counts": (NUMBERS, "Checks, and the Needs attention preview"),
     "cve_handlers.py:handle_cve_findings": (NUMBERS, "CVE page totals and host rows"),
+    "api.py:_build_posture_digest": (NUMBERS, "the scheduled digest says the numbers the badge and the dashboard say"),
     # everything else
     "advisory_handlers.py:_build_advisory": (EVERYTHING, "the Security Advisory ranks problems from the decorated list"),
     "ai_triage_handlers.py:_triage_tools": (EVERYTHING, "the assistant's context"),
@@ -46,11 +47,9 @@ READERS = {
     "api.py:_compliance_facts": (EVERYTHING, "compliance evidence"),
     "api.py:_build_runbook_snapshot": (EVERYTHING, "runbook text"),
     "api.py:_cve_fixable_by_device": (EVERYTHING, "the Patches link counts the findings a pending patch fixes"),
-    "api.py:handle_fleet_query": (EVERYTHING, "an ad-hoc query over the stored findings"),
     "api.py:_compute_compliance": (EVERYTHING, "compliance evidence"),
     "api.py:_timeline_collect": (EVERYTHING, "timeline events"),
     "api.py:_timeline_etag_source": (EVERYTHING, "the timeline's cache key"),
-    "api.py:_build_posture_digest": (EVERYTHING, "the scheduled posture digest is a report"),
     "api.py:_cve_scan_worker": (EVERYTHING, "the scanner writes the store"),
     "api.py:_collect_finding_cve_ids": (EVERYTHING, "the ids whose details are cached"),
     "api.py:run_cve_campaign_sample_if_due": (EVERYTHING, "campaign progress"),
@@ -65,14 +64,14 @@ READERS = {
 }
 
 # Readers that mention a severity and never mention the accepted-risk list: they count accepted risks too. They
-# are reports, compliance evidence, the assistant's context, an ad-hoc query and the scanner itself, so it was left
-# alone when the six counters were fixed. The list can only shrink: a reader that starts applying the list must
-# come off it, and a new reader that counts by severity must apply the list or be added here with a reason.
+# are compliance evidence, the assistant's context and the scanner itself, so they were left alone when the six
+# counters were fixed. The scheduled digest and the Fleet query filter came off the list on 2026-10-31: both are
+# numbers an operator reads, and the Fleet query now takes its count from _cve_high_counts. The list can only
+# shrink: a reader that starts applying the list must come off it, and a new reader that counts by severity must
+# apply the list or be added here with a reason.
 COUNTS_ACCEPTED_RISKS = {
     "api.py:_rag_build_corpus": "the assistant's corpus",
-    "api.py:handle_fleet_query": "an ad-hoc query: hosts with at least N critical or high findings",
     "api.py:_compute_compliance": "compliance evidence",
-    "api.py:_build_posture_digest": "the scheduled digest",
     "api.py:_cve_scan_worker": "the scanner; the alert path applies the list",
 }
 
@@ -104,7 +103,7 @@ class TestTheCensusIsAccountedFor(unittest.TestCase):
         cls.found = census()
 
     def test_the_census_is_not_empty_and_sees_known_readers(self):
-        """A gate can inspect nothing and pass. 32 readers today; the known-good ones must be in it."""
+        """A gate can inspect nothing and pass. 31 readers today; the known-good ones must be in it."""
         self.assertGreaterEqual(len(self.found), 30)
         for known in ("api.py:handle_nav_counts", "cve_handlers.py:handle_cve_findings", "api.py:_compute_attention"):
             self.assertIn(known, self.found)
@@ -118,14 +117,15 @@ class TestTheCensusIsAccountedFor(unittest.TestCase):
                          "READERS lists a function that no longer reads the CVE findings store")
 
 
-class TestTheSixCountersFollowTheRule(unittest.TestCase):
+class TestTheCountersFollowTheRule(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.found = census()
         cls.numbers = sorted(k for k, (kind, _) in READERS.items() if kind == NUMBERS)
 
-    def test_there_are_six_and_the_population_is_not_empty(self):
-        self.assertEqual(len(self.numbers), 6)
+    def test_there_are_seven_and_the_population_is_not_empty(self):
+        """The six counters, and the digest that quotes them."""
+        self.assertEqual(len(self.numbers), 7)
 
     def test_each_one_follows_the_count_option(self):
         for key in self.numbers:

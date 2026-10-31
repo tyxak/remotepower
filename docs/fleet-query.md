@@ -8,6 +8,9 @@ table you can act on.
 - **Saved queries** — save the ones you run often; they re-run on demand.
 - Results include unmonitored hosts (flagged), so inventory questions get
   complete answers.
+- **CVE (crit+high)** counts the way the dashboard does: a finding you accepted
+  as a risk is left out, and with the [CVE count option](cve.md#counting-only-what-an-update-can-fix)
+  on, so is every finding no update can clear.
 - Typical uses: "which hosts still run agent < X", "everything in group Y
   without package Z", "offline hosts tagged production".
 

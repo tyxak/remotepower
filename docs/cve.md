@@ -53,11 +53,12 @@ patched. A fix in an older release never does.
 
 By default the numbers you read count every finding that is not accepted as a risk: the badge
 on the Security menu, the severity tiles on the dashboard and the CVE page, **Needs
-attention**, the risk score and **Checks**. On a host with hundreds of findings that no
-update for its release can clear, that is a number nobody can act on.
+attention**, the risk score, **Checks**, the scheduled posture digest and the CVE count of the
+Fleet query. On a host with hundreds of findings that no update for its release can clear,
+that is a number nobody can act on.
 
 Settings → Security → **CVE counts** has **Count only CVEs an update can fix, or that are known
-to be exploited** (`cve_count_fixable_only`, off by default). With it on, those six places
+to be exploited** (`cve_count_fixable_only`, off by default). With it on, those places
 leave out a finding that is fixed only in a newer release or has no fix yet. A finding on the
 known-exploited (KEV) list always counts, and so does a **Not checked** finding that lists a
 fixed version.
@@ -68,7 +69,9 @@ fixed version.
 - Alerts have their own switch (see [Alerts & ignores](#alerts--ignores)). Reports, the
   printable fleet report, compliance checks and the assistant's context keep counting every
   finding.
-- A finding you accepted as a risk never counts, with the option on or off.
+- A finding you accepted as a risk never counts in those numbers, with the option on or off.
+- The badge, **Needs attention** and the digest count monitored hosts only: a host you do not
+  monitor is silent by choice. The CVE page and the dashboard tile still list its findings.
 
 ## Scanning
 

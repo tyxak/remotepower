@@ -57935,10 +57935,9 @@ def handle_fleet_query():
     pkg_store = (load(PACKAGES_FILE) or {}) if has_pkg else {}
     cve = None
     if cve_min is not None:
-        cve = {}
-        for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
-            cve[did] = sum(1 for f in (rec or {}).get('findings') or []
-                           if str(f.get('severity', '')).lower() in ('critical', 'high'))
+        # The count an operator reads on the other pages: accepted risks are left out and, with the count option on,
+        # so is every finding that no update can clear.
+        cve = _cve_high_counts()
     # v4.1.0: hardware posture (SMART/UPS flags) + active brute-force set.
     hw_store = (load(HARDWARE_FILE) or {}) if (smart_q or ups_q or temp_q) else {}
     brute_active = set()
@@ -62432,7 +62431,9 @@ def handle_nav_counts():
         pass
     crit = 0
     try:
-        ids = set(devices)
+        # Monitored hosts, as the docstring says and Needs attention does: an unmonitored host is silent by choice, so
+        # its findings are not a number that asks for attention. The CVE page and the dashboard tile still list it.
+        ids = {did for did, d in devices.items() if isinstance(d, dict) and d.get('monitored') is not False}
         # The same findings the CVE page counts: accepted risks are left out, and with the count option on
         # so is every finding that no update can clear (_counted_cve_findings).
         _nc_ignore = _load_ro(CVE_IGNORE_FILE) or {}
@@ -67086,13 +67087,19 @@ def _build_posture_digest():
             pending += up
         if si.get('reboot_required'):
             reboots.append(d.get('name', did))
-    # CVE crit/high
+    # CVE crit/high: what the sidebar badge and the dashboard count, so the email agrees with them. Accepted risks are
+    # left out, with the count option on so is every finding no update can clear, and only monitored hosts count, as
+    # in the host line above.
     crit = high = 0
     try:
         cve = load(CVE_FINDINGS_FILE) or {} if backend_exists(CVE_FINDINGS_FILE) else {}
-        for _did, rec in cve.items():
+        ignore_data = load(CVE_IGNORE_FILE) or {} if backend_exists(CVE_IGNORE_FILE) else {}
+        fixable_only, kev = _cve_count_rule()
+        for did, rec in cve.items():
+            if did not in monitored:
+                continue
             findings = rec.get('findings') if isinstance(rec, dict) else rec
-            for f in (findings or []):
+            for f in _counted_cve_findings(did, devices.get(did), findings, ignore_data, fixable_only, kev):
                 sev = str(f.get('severity') or '').lower()
                 if sev == 'critical':
                     crit += 1

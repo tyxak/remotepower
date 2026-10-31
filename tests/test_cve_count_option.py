@@ -10,10 +10,12 @@ Every counter is driven for real, on a seeded two-host fleet, with the option of
 import importlib.util
 import json
 import os
+import re
 import sys
 import tempfile
 import time
 import unittest
+import urllib.parse
 from pathlib import Path
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-cve-count-"))
@@ -194,6 +196,113 @@ class TestOptionOn(_Fleet):
         self.assertEqual((r["cve_critical"], r["cve_high"]), ("2 critical CVEs", "1 high CVE"))
         self.assertIn("2 CVEs on CISA KEV", r["cve_kev"])
         self.assertEqual(self.risk("h2"), {})
+
+
+class _FleetWithMoreHosts(_Fleet):
+    """web01 and db01 as above, plus lab01, a host nobody monitors that carries two critical findings an update clears,
+    and kiosk01, whose record has no `monitored` key (a host is monitored until it is switched off) and one more."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        api = cls.api
+        devs = api.load(api.DEVICES_FILE)
+        base = {"last_seen": NOW, "sysinfo": {}}
+        devs["h3"] = dict(base, name="lab01", monitored=False)
+        devs["h4"] = dict(base, name="kiosk01")
+        api.save(api.DEVICES_FILE, devs)
+        found = api.load(api.CVE_FINDINGS_FILE)
+        found["h3"] = {"scanned_at": NOW, "findings": [finding("CVE-2026-0201", "critical", "fixed", "1.0-2"),
+                                                       finding("CVE-2026-0202", "critical", "fixed", "1.0-3")]}
+        found["h4"] = {"scanned_at": NOW, "findings": [finding("CVE-2026-0301", "critical", "fixed", "3.0-1")]}
+        api.save(api.CVE_FINDINGS_FILE, found)
+        api._LOAD_CACHE.clear()
+
+
+class TestTheBadgeLeavesOutUnmonitoredHosts(_FleetWithMoreHosts):
+    """The badge says "critical CVE findings on monitored hosts", and Needs attention skips an unmonitored host: a host
+    nobody watches is silent by choice. The CVE page and the dashboard tile still list it, so it can be found."""
+
+    OPTION = False
+
+    def test_the_badge_counts_monitored_hosts_and_a_host_with_no_flag(self):
+        # web01 4 + db01 1 + kiosk01 1. lab01's two do not count. It said 8 before.
+        self.assertEqual(self.badge(), 6)
+
+    def test_the_cve_page_still_lists_the_unmonitored_host(self):
+        s = self.page()["summary"]
+        self.assertEqual((s["critical"], s["devices_with_findings"]), (8, 4))
+
+    def test_the_dashboard_tile_still_lists_it(self):
+        self.assertEqual(self.tile()["h3"]["critical"], 2)
+
+    def test_needs_attention_and_the_badge_agree_about_who_counts(self):
+        self.assertNotIn("lab01", self.attention())
+        self.assertIn("kiosk01", self.attention())
+
+
+class TestTheDigestAndTheFleetQuerySayWhatTheDashboardSays(_Fleet):
+    """The scheduled digest and the Fleet query's CVE filter and column were two of the five readers that counted
+    accepted risks. They are numbers an operator reads, so they follow the same rule as the six counters."""
+
+    OPTION = False
+
+    def digest(self):
+        subject, body = self.api._build_posture_digest()
+        m = re.search(r"CVEs critical/high: (\d+) / (\d+)", body)
+        return int(m.group(1)), int(m.group(2)), subject
+
+    def query(self, **params):
+        self.api._env = lambda k, d="": urllib.parse.urlencode(params) if k == "QUERY_STRING" else ""
+        return _call(self.api, self.api.handle_fleet_query)["devices"]
+
+    def test_the_digest_leaves_out_the_accepted_risk(self):
+        crit, high, subject = self.digest()
+        # web01 4 + db01 1 critical, web01 2 + db01 1 high. It said 6 critical before.
+        self.assertEqual((crit, high), (5, 3))
+        self.assertIn("5 critical CVEs", subject)
+
+    def test_the_fleet_query_counts_the_same_findings_as_checks(self):
+        got = {r["name"]: r["cve_high"] for r in self.query(cve_min="1")}
+        self.assertEqual(got, {"web01": 6, "db01": 2})          # web01 said 7 before
+        self.assertEqual(got["web01"], self.checks()["h1"])
+
+    def test_the_filter_uses_that_count(self):
+        self.assertEqual([r["name"] for r in self.query(cve_min="6")], ["web01"])
+
+    def test_a_query_that_asks_for_no_cve_count_pays_for_none(self):
+        self.assertEqual({r["cve_high"] for r in self.query()}, {None})
+
+
+class TestTheDigestAndTheFleetQueryFollowTheOption(TestTheDigestAndTheFleetQuerySayWhatTheDashboardSays):
+    OPTION = True
+
+    def test_the_digest_leaves_out_the_accepted_risk(self):
+        crit, high, subject = self.digest()
+        self.assertEqual((crit, high), (2, 1))
+        self.assertIn("2 critical CVEs", subject)
+
+    def test_the_fleet_query_counts_the_same_findings_as_checks(self):
+        got = {r["name"]: r["cve_high"] for r in self.query(cve_min="1")}
+        self.assertEqual(got, {"web01": 3})                   # db01 has nothing an update clears
+        self.assertEqual(got["web01"], self.checks()["h1"])
+
+    def test_the_filter_uses_that_count(self):
+        self.assertEqual([r["name"] for r in self.query(cve_min="3")], ["web01"])
+        self.assertEqual(self.query(cve_min="4"), [])
+
+
+class TestTheDigestCountsMonitoredHostsOnly(_FleetWithMoreHosts):
+    """Its own host line says "Hosts monitored", and the badge counts those hosts."""
+
+    OPTION = False
+
+    def test_an_unmonitored_host_is_not_in_the_digest(self):
+        subject, body = self.api._build_posture_digest()
+        m = re.search(r"CVEs critical/high: (\d+) / (\d+)", body)
+        # web01 4 + db01 1 + kiosk01 1 critical. lab01's two are not in it. It said 8 before.
+        self.assertEqual((int(m.group(1)), int(m.group(2))), (6, 3))
+        self.assertEqual(int(m.group(1)), self.badge())
 
 
 class TestTheRule(unittest.TestCase):
