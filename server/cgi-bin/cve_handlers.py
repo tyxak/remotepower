@@ -330,8 +330,12 @@ def handle_cve_findings():
     now = int(A.time.time())
 
     kev, epss = A._kev_epss()   # v3.14.0: KEV/EPSS prioritization overlay
+    # The count option: with it on, the severity totals and each host's counts leave out a finding that no
+    # update can clear (the fix tiles still count every finding that is not accepted as risk).
+    fixable_only = A.get_cve_count_fixable_only()
     report = {
         'generated_at': now,
+        'counting':     'fixable_only' if fixable_only else 'all',
         'devices':      [],
         'summary':      {'critical': 0, 'high': 0, 'medium': 0, 'low': 0,
                          'unknown':  0, 'ignored':  0, 'kev': 0,
@@ -352,6 +356,11 @@ def handle_cve_findings():
         ignore_ids = {k for k, v in ignore_data.items() if A.cve_ignore_applies(v, dev_id, dev)}
         summary = A.cve_scanner.summarize_findings(findings, ignore_ids)
         fix = A.cve_fixes.summarize(findings, ignore_ids)
+        if fixable_only:
+            ignored = summary['ignored']
+            summary = A.cve_scanner.summarize_findings(
+                [f for f in findings if A.cve_fixes.counted(f, True, kev)], ignore_ids)
+            summary['ignored'] = ignored
         status = 'scanned'
         if not pkg_entry:
             status = 'no_packages'

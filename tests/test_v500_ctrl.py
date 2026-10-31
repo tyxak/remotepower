@@ -908,7 +908,14 @@ class TestT5Polish(unittest.TestCase):
         # any live fleet. The pending-commands count is now bounded by the 15s
         # TTL (and the content-based ETag keeps the browser exact), while the
         # gate busts early only on operator stores + the device-set fingerprint.
-        self.assertIn("CVE_FINDINGS_FILE, ALERTS_FILE", block)
+        # The gate is the tuple after `for _src in`. It busts on the operator stores (a scan, an accepted
+        # risk, an alert) and never on the per-heartbeat ones.
+        gate = block[block.index("for _src in ("):]
+        gate = gate[:gate.index("):")]
+        for store in ("CVE_FINDINGS_FILE", "CVE_IGNORE_FILE", "ALERTS_FILE"):
+            self.assertIn(store, gate)
+        for store in ("DEVICES_FILE", "CMDS_FILE", "MON_HIST_FILE"):
+            self.assertNotIn(store, gate)
         self.assertIn("_device_set_fingerprint()", block)
         # frontend badge element + painter
         self.assertIn('id="cmdqueue-badge"', HTML)

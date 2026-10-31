@@ -121,6 +121,8 @@ async function loadCVEReport() {
   animateStat('cve-stat-devices', data.summary.devices_scanned);
   _renderKevFeedStatus(data.kev_feed);
   _renderCveFixTiles(data.summary.fix);
+  const countNote = document.getElementById('cve-count-note');
+  if (countNote) countNote.hidden = data.counting !== 'fixable_only';
   _renderCveHostTable();
   loadCveCampaigns();
 }

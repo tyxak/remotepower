@@ -55,6 +55,27 @@ On the test trunk only. It joins the next release.
   used to switch to that option as if it were the finer tier and drew a few daily points; it now fetches the
   5-minute tier.
 
+### CVE findings
+
+- **Count only what an update can fix.** The numbers you read counted every CVE finding: the badge on the
+  Security menu, the severity tiles of the dashboard and the CVE page, Needs attention, the risk score and Checks.
+  On a Debian host most of them can be findings that no update for its release clears. Settings → Security → **CVE
+  counts** has a new switch, **Count only CVEs an update can fix, or that are known to be exploited**
+  (`cve_count_fixable_only`, off by default, so an update changes nothing). With it on, those six places leave out
+  a finding that is fixed only in a newer release or has no fix yet. A finding on the known-exploited list always
+  counts, and so does a **Not checked** finding that lists a fixed version. Every finding stays on the CVE page and
+  in the host view, the four fix tiles keep counting all of them, and the CVE page says when the switch is on
+  (`GET /api/cve/findings` carries `counting`, `all` or `fixable_only`). Alerts keep their own switch, and reports,
+  compliance checks and the assistant's context keep counting every finding. The alert option and the count option
+  share one rule, `cve_fixes.counted`, so they never disagree about a finding. (#57)
+- **The Security badge and Checks counted accepted risks.** The badge on the Security menu and the CVE count in
+  Checks included a finding you had accepted as a risk, so they disagreed with the CVE page, the dashboard tile,
+  Needs attention and the risk score, which left it out. They leave it out now. Accepting a risk moves the badge at
+  once instead of after its 15-second cache, and the Checks cache notices the switch and the accepted-risk list.
+  Five readers of the findings store still count accepted risks (the assistant's context, the Fleet query's CVE
+  filter, the compliance check, the scheduled digest and the scanner itself); `tests/test_cve_store_readers.py`
+  lists them and lets the list only shrink. (#57)
+
 ### Fixes
 
 - The thermal roll-up sweep stopped for every host when one host's row held a `last_ts` that was not a number. It

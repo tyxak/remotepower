@@ -49,6 +49,27 @@ first scan fetches the record of each vulnerability again to read its releases.
 A package that is already at or past the fix of a newer release (a backport, say) counts as
 patched. A fix in an older release never does.
 
+## Counting only what an update can fix
+
+By default the numbers you read count every finding that is not accepted as a risk: the badge
+on the Security menu, the severity tiles on the dashboard and the CVE page, **Needs
+attention**, the risk score and **Checks**. On a host with hundreds of findings that no
+update for its release can clear, that is a number nobody can act on.
+
+Settings → Security → **CVE counts** has **Count only CVEs an update can fix, or that are known
+to be exploited** (`cve_count_fixable_only`, off by default). With it on, those six places
+leave out a finding that is fixed only in a newer release or has no fix yet. A finding on the
+known-exploited (KEV) list always counts, and so does a **Not checked** finding that lists a
+fixed version.
+
+- Every finding stays on the CVE page and in the host view, and the four fix tiles keep
+  counting all of them, so you can see what the option leaves out. The CVE page says when the
+  option is on.
+- Alerts have their own switch (see [Alerts & ignores](#alerts--ignores)). Reports, the
+  printable fleet report, compliance checks and the assistant's context keep counting every
+  finding.
+- A finding you accepted as a risk never counts, with the option on or off.
+
 ## Scanning
 
 - **Scan all hosts** (or a single host from its drawer) runs in a **detached
@@ -98,7 +119,9 @@ Generate a Software Bill of Materials per host or for the whole fleet:
   known-exploited (KEV) list always alerts, whatever its fix status. A finding that waited
   for a fix alerts when the fix arrives. **Re-alert backlog** follows the same rule. The
   severity filter and the ignore list still apply, **Needs attention** and the risk score
-  still count every finding, and a `cve_cleared` recovery is sent as before.
+  still count every finding unless you also turn on
+  [counting only what an update can fix](#counting-only-what-an-update-can-fix), and a
+  `cve_cleared` recovery is sent as before.
 - **Ignore** a CVE globally or per host with a reason (`POST /api/cve/ignore`);
   ignored CVEs are excluded from alerts and the re-alert backlog.
 

@@ -3600,6 +3600,13 @@ def get_cve_alert_fixable_only():
     return _config_ro().get('cve_alert_fixable_only') is True
 
 
+def get_cve_count_fixable_only():
+    """With this on, the numbers an operator reads (sidebar badge, severity tiles, Needs attention, the risk
+    score, Checks) count only a CVE finding an update can clear or one on the known-exploited list. Off by
+    default: leaving findings out of a score is a choice, and an upgrade must not make it."""
+    return _config_ro().get('cve_count_fixable_only') is True
+
+
 def get_server_name():
     """Display name for this server — webhook payloads, page title, etc."""
     name = str(_config_ro().get('server_name', '')).strip()
@@ -29034,6 +29041,7 @@ def handle_config_get():
     safe.setdefault('monitor_webhook_enabled', True)
     safe.setdefault('cve_webhook_enabled', True)
     safe.setdefault('cve_alert_fixable_only', False)
+    safe.setdefault('cve_count_fixable_only', False)
     safe.setdefault('service_webhook_enabled', True)
     safe.setdefault('monitor_interval', 300)
     safe.setdefault('slo_objects', [])   # v6.4.0: SLA/SLO objects
@@ -29878,6 +29886,14 @@ def handle_config_save():
         if _fo is not True and _fo is not False:
             respond(400, {'error': 'cve_alert_fixable_only must be true or false'})
         cfg['cve_alert_fixable_only'] = _fo
+
+    if 'cve_count_fixable_only' in body:
+        # Same rule as the alert option above: a switch that leaves findings out of a score takes a real true
+        # or false, never the truthiness of a string.
+        _fc = body['cve_count_fixable_only']
+        if _fc is not True and _fc is not False:
+            respond(400, {'error': 'cve_count_fixable_only must be true or false'})
+        cfg['cve_count_fixable_only'] = _fc
 
     if 'service_webhook_enabled' in body:
         cfg['service_webhook_enabled'] = bool(body['service_webhook_enabled'])
@@ -49949,12 +49965,54 @@ def _host_check_summary(checks):
     return {'counts': counts, 'worst': worst, 'total': len(checks)}
 
 
+def _cve_kev_ids():
+    """The known-exploited ids (upper-case), without the copy of the EPSS map that shares the file. Empty
+    when the feed was never fetched."""
+    s = _load_ro(KEV_EPSS_FILE)
+    ids = s.get('kev') if isinstance(s, dict) else None
+    return frozenset(i for i in ids if isinstance(i, str)) if isinstance(ids, (list, tuple, set)) else frozenset()
+
+
+def _cve_count_rule():
+    """(fixable_only, kev) for the numbers an operator reads. The known-exploited list is read only when the
+    option is on, so an install that leaves it off pays nothing."""
+    if not get_cve_count_fixable_only():
+        return False, None
+    return True, _cve_kev_ids()
+
+
+def _counted_cve_findings(dev_id, dev, findings, ignore_data, fixable_only, kev):
+    """The findings of one host that count toward a number an operator reads (sidebar badge, severity tiles,
+    Checks): not accepted as risk and, with the count option on, only those an update can clear or that are
+    known to be exploited. The stored dicts, not copies, so the caller must not write to them."""
+    if not isinstance(findings, list):
+        return []
+    if not isinstance(ignore_data, dict):
+        ignore_data = {}
+    out = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        vid = f.get('vuln_id')
+        if isinstance(vid, str) and cve_ignore_applies(ignore_data.get(vid), dev_id, dev):
+            continue
+        if cve_fixes.counted(f, fixable_only, kev):
+            out.append(f)
+    return out
+
+
 def _cve_high_counts():
-    """Per-device count of critical+high CVE findings (for the checks view)."""
+    """Per-device count of critical+high CVE findings (for the checks view). Accepted risks are left out, and
+    with the count option on so is every finding that no update can clear (see _counted_cve_findings)."""
     out = {}
     try:
+        devices = _load_ro(DEVICES_FILE) or {}
+        ignore_data = _load_ro(CVE_IGNORE_FILE) or {}
+        fixable_only, kev = _cve_count_rule()
         for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
-            out[did] = sum(1 for f in (rec or {}).get('findings') or []
+            finds = _counted_cve_findings(did, devices.get(did), (rec or {}).get('findings'),
+                                          ignore_data, fixable_only, kev)
+            out[did] = sum(1 for f in finds
                            if str(f.get('severity', '')).lower() in ('critical', 'high'))
     except Exception:
         pass
@@ -50105,6 +50163,24 @@ def _fleet_checks_cache_file():
     return DATA_DIR / 'fleet_checks_cache.json'
 
 
+def _fleet_checks_fp(cfg, scripts):
+    """Cache key of _fleet_checks_rows: the operator inputs that change a check row and are expected to show
+    at once. The CVE count option is one (the CVE row counts what the option lets through), and so is the
+    accepted-risk list. The Checks page and the dashboard's checks roll-up share one key, so they share
+    one cache."""
+    try:
+        ignore_stamp = str(backend_mtime(CVE_IGNORE_FILE))
+    except Exception:
+        ignore_stamp = '-'
+    # Non-security cache-key fingerprint (checks-config change detection), not a credential digest -
+    # usedforsecurity=False silences CodeQL's weak-hash query (see docs/security-review-4.4.1.md).
+    return hashlib.md5(json.dumps(
+        [cfg.get('host_checks_disabled') or {}, cfg.get('custom_checks') or [],
+         cfg.get('exposure_mutes') or [], scripts,
+         cfg.get('cve_count_fixable_only') is True, ignore_stamp],
+        sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()
+
+
 def _fleet_checks_rows(devices_all, cfg, scripts, fp):
     """Return the full (unscoped) computed host rows, from cache if fresh."""
     cache_file = _fleet_checks_cache_file()
@@ -50174,13 +50250,7 @@ def handle_fleet_checks():
     allowed = set(_scope_filter_devices(devices_all).keys())
     cfg = load(CONFIG_FILE) or {}
     scripts = _load_custom_scripts()
-    # Non-security cache-key fingerprint (checks-config change detection),
-    # not a credential digest — usedforsecurity=False silences CodeQL's
-    # weak-hash query (see docs/security-review-4.4.1.md).
-    fp = hashlib.md5(json.dumps(
-        [cfg.get('host_checks_disabled') or {}, cfg.get('custom_checks') or [],
-         cfg.get('exposure_mutes') or [], scripts],
-        sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()
+    fp = _fleet_checks_fp(cfg, scripts)
     rows = _fleet_checks_rows(devices_all, cfg, scripts, fp)
     hosts = [h for h in rows if h.get('device_id') in allowed]
     if want in ('critical', 'warning'):
@@ -50660,6 +50730,7 @@ def _compute_attention():
     # device) does not want it back on the Needs Attention list.
     cve_all = load(CVE_FINDINGS_FILE) or {}
     cve_ignore = load(CVE_IGNORE_FILE) or {}
+    _cve_fixable_only, _cve_kev = _cve_count_rule()
     for dev_id, rec in cve_all.items():
         if dev_id not in monitored:
             continue
@@ -50667,10 +50738,12 @@ def _compute_attention():
         if not findings:
             continue
         # apply_ignore_list marks each finding with an `ignored` flag
-        # (scope 'global' or this device); drop the ignored ones.
+        # (scope 'global' or this device); drop the ignored ones. With the count option on, a finding
+        # that no update can clear (and that is not known to be exploited) is left out too.
         findings = [f for f in cve_scanner.apply_ignore_list(
                         findings, cve_ignore, dev_id)
-                    if not f.get('ignored')]
+                    if not f.get('ignored')
+                    and cve_fixes.counted(f, _cve_fixable_only, _cve_kev)]
         if not findings:
             continue
         crit = sum(1 for f in findings if f.get('severity') == 'critical')
@@ -52051,7 +52124,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                  cve_ignore=None, exposure_mutes=None, pkg_entry=None, weights=None,
                  av_rec=None, img_rec=None, backup_stale=None, secrets_rec=None,
                  patch_sla_breach=None, drift_rec=None, custom_defs=None,
-                 checks_disabled=None, bf_rows=None, intel_rec=None):
+                 checks_disabled=None, bf_rows=None, intel_rec=None, cve_fixable_only=None):
     si = dev.get('sysinfo') or {}
     hw_rec = hw_rec or {}
     # v6.2.2 batch 4: operator-configurable per-factor weights. Hoisted by the
@@ -52077,6 +52150,12 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                      if not f.get('ignored')]
         except Exception:
             pass
+    # With the count option on, a finding that no update can clear and that is not known to be exploited does
+    # not drive the score. The caller stamps `kev` on each finding (_enrich_cve_findings), which counted() reads.
+    if cve_fixable_only is None:
+        cve_fixable_only = get_cve_count_fixable_only()
+    if finds and cve_fixable_only:
+        finds = [f for f in finds if cve_fixes.counted(f, True)]
     # v6.4.1: KEV membership means exploitation has been OBSERVED, not
     # forecast, so it outranks severity — a KEV-listed medium is more urgent
     # than a critical nobody has weaponised. Scored on top of the severity
@@ -52961,6 +53040,7 @@ def _compute_fleet_risk():
     except Exception:
         ttl = 180
     weights = _risk_weights()   # hoist the config read out of the per-device loop
+    _cve_count_only = get_cve_count_fixable_only()   # ditto
     # v7.0.3: the operator's own checks, hoisted the same way -- both reads are
     # per-FLEET, and doing them inside the loop would re-read the config once
     # per host for a value that cannot change mid-sweep.
@@ -53024,7 +53104,8 @@ def _compute_fleet_risk():
                                 bf_rows=(_bf_active(_bf_store.get(dev_id) or {},
                                                     now - _bf_window, _bf_thresh)
                                          if _bf_store else None),
-                                intel_rec=_intel.get(dev_id)))
+                                intel_rec=_intel.get(dev_id),
+                                cve_fixable_only=_cve_count_only))
     out.sort(key=lambda r: -r['score'])
     return out
 
@@ -53698,12 +53779,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             # Checks page instead of re-running the O(fleet) _host_checks
             # loop inside every /api/home poll that shows this widget.
             scripts_all = _load_custom_scripts()
-            # Non-security cache-key fingerprint (see docs/security-review-4.4.1.md).
-            fp = hashlib.md5(json.dumps(
-                [cfg.get('host_checks_disabled') or {},
-                 cfg.get('custom_checks') or [],
-                 cfg.get('exposure_mutes') or [], scripts_all],
-                sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()
+            fp = _fleet_checks_fp(cfg, scripts_all)
             rows = _fleet_checks_rows(devices_raw, cfg, scripts_all, fp)
             roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0}
             for h in rows:
@@ -53886,17 +53962,14 @@ def handle_home():
     try:
         findings_all = _load_ro(CVE_FINDINGS_FILE) or {}
         ignore_data  = _load_ro(CVE_IGNORE_FILE) or {}
+        _cve_fixable_only, _cve_kev = _cve_count_rule()
         for cdev_id in devices_raw:
             if cdev_id not in _visible_ids:
                 continue
             entry = findings_all.get(cdev_id) or {}
-            findings = entry.get('findings') or []
             counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
-            for f in findings:
-                vid = f.get('vuln_id')
-                ig = ignore_data.get(vid) if vid else None
-                if cve_ignore_applies(ig, cdev_id):
-                    continue
+            for f in _counted_cve_findings(cdev_id, devices_raw.get(cdev_id), entry.get('findings'),
+                                           ignore_data, _cve_fixable_only, _cve_kev):
                 sev = str(f.get('severity') or '').lower()
                 if sev in counts:
                     counts[sev] += 1
@@ -62281,7 +62354,7 @@ def handle_nav_counts():
                 # fingerprint below (immediate); the wall-clock-derived offline /
                 # pending-command counts are bounded by the 15s TTL, which is
                 # exactly this cache's staleness contract.
-                for _src in (CVE_FINDINGS_FILE, ALERTS_FILE,
+                for _src in (CVE_FINDINGS_FILE, CVE_IGNORE_FILE, ALERTS_FILE,
                              CONFIRMATIONS_FILE, TICKETS_FILE):
                     try:
                         if backend_mtime(_src) > _cmt:
@@ -62338,10 +62411,16 @@ def handle_nav_counts():
     crit = 0
     try:
         ids = set(devices)
+        # The same findings the CVE page counts: accepted risks are left out, and with the count option on
+        # so is every finding that no update can clear (_counted_cve_findings).
+        _nc_ignore = _load_ro(CVE_IGNORE_FILE) or {}
+        _nc_fixable_only, _nc_kev = _cve_count_rule()
         for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
             if did not in ids:
                 continue
-            crit += sum(1 for f in (rec or {}).get('findings') or []
+            crit += sum(1 for f in _counted_cve_findings(did, devices.get(did),
+                                                         (rec or {}).get('findings'),
+                                                         _nc_ignore, _nc_fixable_only, _nc_kev)
                         if str(f.get('severity', '')).lower() == 'critical')
     except Exception:
         pass

@@ -5512,6 +5512,8 @@ async function loadSettings() {
   }
   const _fixOnly = document.getElementById('cfg-cve-fixable-only');
   if (_fixOnly) _fixOnly.checked = data.cve_alert_fixable_only === true;
+  const _cntOnly = document.getElementById('cfg-cve-count-fixable-only');
+  if (_cntOnly) _cntOnly.checked = data.cve_count_fixable_only === true;
 
   // v1.8.6: SMTP
   document.getElementById('cfg-smtp-enabled').checked = !!data.smtp_enabled;
@@ -5726,6 +5728,7 @@ async function saveSettings(btn) {
     email_events,
     cve_severity_filter,
     cve_alert_fixable_only: (document.getElementById('cfg-cve-fixable-only') || {}).checked === true,
+    cve_count_fixable_only: (document.getElementById('cfg-cve-count-fixable-only') || {}).checked === true,
     patch_alert_threshold: (() => { const el = document.getElementById('cfg-patch-threshold'); return el ? (parseInt(el.value) || 0) : 0; })(),
     session_ttl_short:     sessShortHours * 3600,
     session_ttl_long:      sessLongDays * 86400,

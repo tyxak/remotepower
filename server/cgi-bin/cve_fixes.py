@@ -202,13 +202,24 @@ def finding_is_kev(finding: Any, kev: Any) -> bool:
     return any(i in kev for i in finding_ids(finding))
 
 
+def counted(finding: Any, fixable_only: bool, kev: Any = None) -> bool:
+    """Does this finding count toward a number an operator reads: the sidebar badge, the severity tiles,
+    Needs attention, the risk score and Checks? With the option off every finding counts, as before. With it
+    on, only one an update can clear counts, and one on the known-exploited list, whatever its fix status.
+    A finding that was already stamped `kev` counts without a lookup; `kev` is the set of upper-case ids
+    for a finding that was not."""
+    if not fixable_only:
+        return True
+    stamped = isinstance(finding, dict) and bool(finding.get("kev"))
+    return is_fixable(finding) or stamped or finding_is_kev(finding, kev)
+
+
 def alert_candidate(finding: Any, fixable_only: bool, kev: Any) -> bool:
     """Should this finding be able to raise cve_found? With the option off every finding is a candidate and
     the severity filter and the accepted-risk list decide, as before. With it on, only one an update can
-    clear, or one on the known-exploited list, which alerts whatever its fix status."""
-    if not fixable_only:
-        return True
-    return is_fixable(finding) or finding_is_kev(finding, kev)
+    clear, or one on the known-exploited list, which alerts whatever its fix status. The same rule as
+    `counted`: the alert option and the count option leave out the same findings."""
+    return counted(finding, fixable_only, kev)
 
 
 def summarize(findings: Any, ignore_ids: Any) -> dict[str, int]:
