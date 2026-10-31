@@ -6860,6 +6860,9 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
     padding: 4px 6px !important;   /* a table of ten columns needs more than a portrait sheet at screen padding */
     font-size: 11px !important;
   }
+  /* The Problems table has seven columns and a title that can hold a unit or a path with no break in it. With
+     break-word that one token sets the width of its column and the table runs past the sheet; here it may break. */
+  #page-problems td { overflow-wrap: anywhere; }
   /* A row's action group reserves 352px on screen so the buttons line up; on paper it only widens the table. */
   #main-content .alert-actions { min-width: 0 !important; max-width: none !important; }
   /* A cell cut to one line with an ellipsis prints cut: the rest of the text is on screen only in the tooltip. */
