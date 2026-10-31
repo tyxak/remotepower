@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -116,6 +117,24 @@ class _Base(unittest.TestCase):
             const r = await api('GET', '/ai/params');
             return (r.params || []).find(p => p.key === k) || null; }""", key)
 
+    def until_stored(self, key, what, ok, timeout=15.0):
+        """Poll the stored row of a prompt until `ok(row)` is true, and fail with the row if it never is.
+
+        These three waits used to be page.wait_for_function with a predicate that returned api(...).then(...). A
+        Promise counts as true there, so the wait returned at once and the very next line read the stored row while
+        the Save or the Reset the page had just sent was still on its way. Run on a loaded machine it read the old
+        value: "a prompt's level reads 'low' right after Reset", the one failure of this module that never
+        reproduced.
+        """
+        end = time.time() + timeout
+        row = None
+        while time.time() < end:
+            row = self.stored_params(key)
+            if row is not None and ok(row):
+                return row
+            self.page.wait_for_timeout(250)
+        self.fail('%s never happened; the stored row is %r' % (what, row))
+
 
 class TestTheSettingsRow(_Base):
 
@@ -186,10 +205,7 @@ class TestFineTuningPerPrompt(_Base):
         self.assertEqual(select.locator('option').first.inner_text().strip(), 'Use the global setting')
         select.select_option('low')
         card.locator('button[data-action-btn="_saveAiParamsBtn"]').click()
-        self.page.wait_for_function(
-            "k => api('GET', '/ai/params').then(r => (r.params || []).some(p => p.key === k && p.reasoning_effort === 'low'))",
-            arg=key, timeout=8000)
-        self.assertEqual(self.stored_params(key)['reasoning_effort'], 'low')
+        self.until_stored(key, 'saving the level', lambda r: r.get('reasoning_effort') == 'low')
         # the list reloads after a save; the card is marked as tuned and the value is shown
         self.page.wait_for_timeout(2200)
         card = self.page.locator('#ai-prompts-list .prompt-card[data-key="%s"]' % key)
@@ -197,9 +213,7 @@ class TestFineTuningPerPrompt(_Base):
         self.assertEqual(card.locator('[data-field="reasoning-effort"]').input_value(), 'low')
         # Reset tuning clears it
         card.locator('button[data-action-btn="_resetAiParamsBtn"]').click()
-        self.page.wait_for_function(
-            "k => api('GET', '/ai/params').then(r => (r.params || []).some(p => p.key === k && !p.reasoning_effort))",
-            arg=key, timeout=8000)
+        self.until_stored(key, 'resetting the tuning', lambda r: not r.get('reasoning_effort'))
         self.assertIsNone(self.stored_params(key)['reasoning_effort'])
 
     def test_blank_saves_as_no_override(self):
@@ -208,10 +222,7 @@ class TestFineTuningPerPrompt(_Base):
         card.locator('summary').click()
         card.locator('input.prompt-temp').fill('0.4')
         card.locator('button[data-action-btn="_saveAiParamsBtn"]').click()
-        self.page.wait_for_function(
-            "k => api('GET', '/ai/params').then(r => (r.params || []).some(p => p.key === k && p.temperature === 0.4))",
-            arg=key, timeout=8000)
-        row = self.stored_params(key)
+        row = self.until_stored(key, 'saving the temperature', lambda r: r.get('temperature') == 0.4)
         self.assertEqual((row['temperature'], row['reasoning_effort']), (0.4, None))
         self.page.evaluate("k => api('POST', '/ai/params', {key: k})", key)
 
