@@ -44,7 +44,7 @@ By the numbers (v7.1.0):
 |---|---|
 | Server Python (`server/cgi-bin/`) | ~145,000 lines |
 | The main API module (`api.py`) | ~75,000 lines |
-| Focused sibling modules | ~108 |
+| Focused sibling modules | ~115 |
 | HTTP routes (exact + templated) | ~515 exact, ~430 pattern |
 | Request handlers (`handle_*`) | ~870 |
 | Typed request-body models | ~268 |

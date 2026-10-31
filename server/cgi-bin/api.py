@@ -1110,6 +1110,19 @@ for _ri_name in (
     globals()[_ri_name] = getattr(rack_ipam_handlers_mod, _ri_name)
 del _ri_name
 
+# (#56) one list of problems, joined from Alerts, Needs attention and Checks. A new route, so a bound
+# module; the join itself is the pure problems.py.
+_pr_spec = _tk_ilu.spec_from_file_location(
+    'problems_handlers', Path(__file__).parent / 'problems_handlers.py')
+problems_handlers_mod = _tk_ilu.module_from_spec(_pr_spec)
+_pr_spec.loader.exec_module(problems_handlers_mod)
+problems_handlers_mod.bind(globals())
+for _pr_name in (
+        'handle_problems',
+):
+    globals()[_pr_name] = getattr(problems_handlers_mod, _pr_name)
+del _pr_name
+
 # v7.4.2 (#44): the integrations bound to a host, for the host drawer. A new route, so a
 # bound module rather than another inline handler.
 _di_spec = _tk_ilu.spec_from_file_location(
@@ -6866,6 +6879,7 @@ _GZIP_SAFE_GET_PATHS = (
     '/api/attention',
     '/api/alerts',
     '/api/checks',
+    '/api/problems',
 )
 _GZIP_MIN_BYTES = 1400        # below ~one MTU compression only adds latency
 
@@ -73375,6 +73389,7 @@ def _build_exact_routes():
         ('POST', '/api/alerts/bulk-resolve'): handle_alerts_bulk_resolve,
         ('POST', '/api/alerts/bulk-ack'): handle_alerts_bulk_ack,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
+        ('GET', '/api/problems'): handle_problems,                   # #56 one list of problems
         ('GET', '/api/nav-counts'): handle_nav_counts,
         ('GET', '/api/board'): handle_board,                         # v5.0.0 T6 NOC board
         ('GET', '/api/network-metrics'): handle_network_metrics,     # v5.0.0 net metrics

@@ -55,6 +55,22 @@ On the test trunk only. It joins the next release.
   used to switch to that option as if it were the finer tier and drew a few daily points; it now fetches the
   5-minute tier.
 
+### One list of problems
+
+- **`GET /api/problems`: each problem once.** An alert, a Needs attention item and a check can all describe the same
+  trouble on a host, and closing it in one did not close it in the others: an alert you resolved by hand could sit
+  beside a Needs attention item for what the host still reported (#56). The new endpoint joins the three. A row is one
+  kind of problem on one host, with every alert, Needs attention item and failing check that belongs to it listed under
+  it, and a `state` that says where it stands: `failing`; `host_clear` (an alert is open and the host no longer
+  reports it); `resolved_but_failing` (you resolved it and the host still reports it); `waiting_for_report` (you
+  resolved it and the host has not reported since); `resolved`; `recovered`. The kind is the Needs attention kind.
+  An alert is placed by the map that decides which item a mute silences, a metric alert by its metric, and a check by
+  a short table in `problems_handlers.py` (the Systemd units check is failed units, the CVE check is cve, and so
+  on). Anything the maps do not reach still gets a row of its own, so a gap in a map hides nothing. The join is by
+  host and kind because Needs attention and Checks name their resources only in prose, so a host with two failed
+  units is one row. "By hand" means a person closed it: a recovery event, a mute and the removal of the host do not
+  count. Filtered to the hosts the caller may see. (#56)
+
 ### CVE findings
 
 - **Count only what an update can fix.** The numbers you read counted every CVE finding: the badge on the
