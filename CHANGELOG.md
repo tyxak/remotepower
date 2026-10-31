@@ -70,6 +70,13 @@ On the test trunk only. It joins the next release.
   host and kind because Needs attention and Checks name their resources only in prose, so a host with two failed
   units is one row. "By hand" means a person closed it: a recovery event, a mute and the removal of the host do not
   count. Filtered to the hosts the caller may see. (#56)
+- **Monitoring → Problems.** The page over that endpoint: four tiles count the states that need you (failing,
+  resolved but still failing, waiting for the host, host reports it clear) and filter the list, selects filter by state
+  and by where a problem shows, and each row lists its alerts, its Needs Attention items and its failing checks, with
+  buttons to the pages they live on. **Resolve** (administrators) closes every open alert of a problem at once through
+  the existing bulk resolve; the Needs Attention item stays until the host reports, so a problem you resolved while
+  the host still reports it reads **Resolved, still failing**. The demo data carries one: a failed unit on
+  nextcloud.lab whose alert alice resolved. See `docs/problems.md`. (#56)
 
 ### CVE findings
 

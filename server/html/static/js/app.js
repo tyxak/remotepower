@@ -2692,6 +2692,7 @@ const _LAZY_PAGE_MODULES = {
   // a comment.
   alerts: ['app-alerts.js'],
   checks: ['app-checks.js'],
+  problems: ['app-problems.js'],   // #56 one list of problems (lazy)
   protect: ['app-checks.js'],   // Integrity Guard vault renderer
   advisory: ['app-checks.js'],  // Security Advisory renderer + host-list filter
   autonomy: ['app-autonomy.js'],  // v7.0.0 receipts + safety envelope (lazy)
@@ -2967,6 +2968,7 @@ function showPage(name, btn, opts) {
   if (name === 'audit')    loadAuditLog();
   if (name === 'alerts')   loadAlerts();
   if (name === 'checks')   loadChecks();
+  if (name === 'problems') loadProblems();
   if (name === 'confirmations') loadConfirmations();
   if (name === 'self')     loadSelfStatus();
   if (name === 'forecast') loadForecast();
@@ -6390,6 +6392,7 @@ function _refreshShouldPause() {
 const PAGE_REFRESHERS = {
   alerts:    { fn: 'loadAlerts',        every: 60 },
   checks:    { fn: 'loadChecks',        every: 60 },
+  problems:  { fn: 'loadProblems',      every: 60 },
   attention: { fn: 'loadAttentionPage', every: 60 },
   board:     { fn: 'loadBoard',         every: 60 },
   // The CVE and exposure reports read a stored scan result rather than

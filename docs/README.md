@@ -315,6 +315,8 @@ index — a doc nobody can find is a doc nobody reads.)
  as OK / WARN / CRIT, custom checks, and muting.
 - **[alerts.md](alerts.md)** — The Alerts inbox: severities, acknowledge/resolve,
  correlation (root cause vs symptom), mutes.
+- **[problems.md](problems.md)** — The Problems page: alerts, Needs Attention and checks
+ joined into one list, each problem once, with whether the host still reports it.
 - **[trends.md](trends.md)** — Metric history and trend charts.
 - **[thermal.md](thermal.md)** — Temperatures and thermal health, plus the
  per-host temperature timeline (24 hours to 2 years) and time-pinpointing.

@@ -57,6 +57,12 @@ looking.
   for new alerts (off by default, with a severity floor and a daily cap). See
   [ai.md](ai.md).
 
+## Alerts, Needs Attention and Checks together
+
+An alert you resolve closes the alert. Needs Attention and Checks read the host's own report, so a problem the host still
+reports stays there. [Problems](problems.md) lists each problem once across the three and says whether the host
+still reports one you resolved.
+
 ## Putting it on a wall *(v7.0.2)*
 
 **Full screen** on the Alert inbox card gives the inbox the whole display and

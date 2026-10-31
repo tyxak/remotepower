@@ -7313,7 +7313,7 @@ svg { stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .thermal-sensor-table th { font-size: 11px; }
 /* The sensor whose history the chart above shows: the row and its Chart button carry the accent. */
 .thermal-sensor-table tr.thermal-sensor-on > td { background: var(--accent-soft); }
-.thermal-sensor-table .thermal-chart-on { color: var(--accent); border-color: var(--accent-edge); }
+.thermal-sensor-table .thermal-chart-on { color: var(--accent-ink); border-color: var(--accent-edge); }
 /* v6.4.3: give Thermal health real room.
    Both of its surfaces sat at the shared 360px cap: the fleet table (one row
    per host) and the expanded drill-down (one row per SENSOR — a NAS with a

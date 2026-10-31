@@ -3593,6 +3593,11 @@ def build_alerts() -> dict:
          {'device_id': 'pi1', 'device_name': 'pihole.lab'}, 'alice', 'auto'),
         ('service_down',       'high',     'ng01',  'nginx.service was down on nginx.lab',
          {'device_id': 'ng01', 'device_name': 'nginx.lab', 'unit': 'nginx.service'}, 'bob', 'bob'),
+        # #56: a failed unit whose alert was resolved by hand while the host still reports it (nc01 lists it in
+        # its sysinfo), so the Problems page shows "Resolved, still failing" next to the open and the cleared ones.
+        ('failed_unit',        'medium',   'nc01',  'backup-nightly.service failed on nextcloud.lab',
+         {'device_id': 'nc01', 'device_name': 'nextcloud.lab', 'unit': 'backup-nightly.service',
+          'units': ['backup-nightly.service'], 'new_count': 1}, 'alice', 'alice'),
         # v7.3.0: Threat Intel's own health, closed again, so the inbox shows what
         # an edge-feed alert looks like and the recover that clears it.
         ('edge_feed_down',     'medium',   None,

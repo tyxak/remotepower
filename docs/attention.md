@@ -64,6 +64,9 @@ per-severity tally, `total` the number of items after scoping.
 
 ## How an item relates to alerts, mutes and health
 
+The same trouble can also sit in Alerts and Checks. [Problems](problems.md) joins the three into one list, each
+problem once, and says whether the host still reports a problem you resolved.
+
 An item is `{severity, kind, device, device_id, summary}` plus a stable
 `_ignore_key`, and `mitigation_kind` / `mitigation_target` when a mitigation
 playbook exists for that kind.
