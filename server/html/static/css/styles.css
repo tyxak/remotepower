@@ -4546,6 +4546,12 @@ td .kev-badge { margin-left: 0; }
   }
   body.sidebar-collapsed .app-content { margin-left: 56px; }
   body.sidebar-collapsed header { margin-left: 56px; }
+  /* v7.4.7: open alerts hold the rail open as an overlay (below), and the content kept the 56px margin of the closed
+     rail, so the left 192px of every page sat under it: the title, the first controls and the first columns. While the
+     rail is pinned the content and the top bar take its width. The hover reveal stays an overlay, because it lasts
+     only as long as the pointer is on the rail. Keep 248px in step with the pinned .sidebar width. */
+  body.sidebar-collapsed.sidebar-alert-pinned .app-content,
+  body.sidebar-collapsed.sidebar-alert-pinned header { margin-left: 248px; }
   body.sidebar-collapsed .sidebar-label,
   body.sidebar-collapsed .nav-btn span:not(.nav-icon),
   body.sidebar-collapsed .sidebar-group-toggle span:not(.nav-icon),
@@ -7607,6 +7613,16 @@ body.sidebar-collapsed[dir="rtl"] header {
 body.sidebar-collapsed[dir="rtl"] .app-content {
   margin-left: 0;
   margin-right: 56px;
+}
+/* The pinned rail takes its width on the right (v7.4.7, see the LTR rule). */
+@media (min-width: 721px) {
+  [dir="rtl"] body.sidebar-collapsed.sidebar-alert-pinned .app-content,
+  [dir="rtl"] body.sidebar-collapsed.sidebar-alert-pinned header,
+  body.sidebar-collapsed.sidebar-alert-pinned[dir="rtl"] .app-content,
+  body.sidebar-collapsed.sidebar-alert-pinned[dir="rtl"] header {
+    margin-left: 0;
+    margin-right: 248px;
+  }
 }
 
 /* 2. Sidebar nav + search: text reads right-aligned; the group tree rail and

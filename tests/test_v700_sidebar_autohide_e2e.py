@@ -8,7 +8,7 @@ at 248px while `.app-content` kept its 56px rail margin, so the sidebar sat on
 top of the content — "it just moves the other div".
 
 Four states, one page load:
-  alerts + auto-hide                      → pinned open (248px)
+  alerts + auto-hide                      → pinned open (248px), the content makes room (v7.4.7)
   alerts + auto-hide + keep-hiding opt-in → stays a rail (56px)   [the new option]
   alerts + manual collapse (auto-hide off)→ stays a rail (56px)   [the bug]
   no alerts + auto-hide                   → stays a rail (56px)
@@ -112,8 +112,9 @@ class TestSidebarAutohideRendered(unittest.TestCase):
         width, margin = self._widths()
         self.assertAlmostEqual(width, OPEN, delta=1,
                                msg='auto-hide + open alerts must reveal the sidebar')
-        # It reveals as an overlay — the content must NOT be pushed across.
-        self.assertAlmostEqual(margin, RAIL, delta=1)
+        # v7.4.7: the pin holds the rail open for as long as alerts are open, so the content makes room for it. Until
+        # then it kept the margin of the closed rail and the left 192px of every page sat under the pinned rail.
+        self.assertAlmostEqual(margin, OPEN, delta=1)
 
     def test_open_alerts_do_not_block_a_manual_collapse(self):
         """The reported bug. Auto-hide off + Collapse + an open alert."""
@@ -159,6 +160,69 @@ class TestSidebarAutohideRendered(unittest.TestCase):
                     margin, RAIL, delta=1,
                     msg=f'at {width}px the content keeps the full-width margin '
                         'beside a collapsed sidebar')
+
+    def _edges(self):
+        """Where the pinned rail ends and where the page begins, in px from the left edge: the rail's right edge, the
+        page title's left edge and the top bar's left margin."""
+        return tuple(self.page.evaluate(
+            "() => { const r = document.querySelector('.sidebar').getBoundingClientRect();"
+            "  const t = document.querySelector('.page.active .page-title').getBoundingClientRect();"
+            "  return [r.right, t.left, parseFloat(getComputedStyle(document.querySelector('header')).marginLeft)]; }"))
+
+    def test_the_pinned_rail_does_not_cover_the_page(self):
+        """What the user saw: with alerts open the page title, the first filter and the first columns were under the
+        rail. Measured on the page title and on the top bar, with the rail pinned open."""
+        self._set(autohide=True, alerts=3)
+        rail_right, title_left, header_margin = self._edges()
+        self.assertGreaterEqual(title_left, rail_right - 1,
+                                msg='the page starts under the pinned rail')
+        self.assertAlmostEqual(header_margin, OPEN, delta=1,
+                               msg='the top bar starts under the pinned rail')
+
+    def test_the_hover_reveal_stays_an_overlay(self):
+        """The room is made for the pin only: a hover lasts as long as the pointer is on the rail, and moving the page
+        over and back for every pass of the mouse would be worse than the overlap it cures."""
+        self._set(autohide=True, alerts=0)
+        self.page.mouse.move(20, 300)
+        self.page.wait_for_timeout(400)
+        width, margin = self._widths()
+        self.assertAlmostEqual(width, OPEN, delta=1, msg='hovering the rail did not open it')
+        self.assertAlmostEqual(margin, RAIL, delta=1, msg='a hover pushed the page across')
+
+    def test_the_page_follows_the_rail_in_and_out(self):
+        self._set(autohide=True, alerts=3)
+        self.assertAlmostEqual(self._widths()[1], OPEN, delta=1)
+        self.page.evaluate("_paintAlertsBadge(0)")
+        self.page.wait_for_timeout(400)
+        self.assertAlmostEqual(self._widths()[1], RAIL, delta=1,
+                               msg='the page kept the pinned rail margin after the alerts were gone')
+
+    def test_the_opt_out_and_a_manual_collapse_keep_the_rail_margin(self):
+        for kwargs in ({'autohide': True, 'alerts': 3, 'keep_hiding': True}, {'autohide': False, 'alerts': 3}):
+            with self.subTest(**kwargs):
+                self._set(**kwargs)
+                self.assertAlmostEqual(self._widths()[1], RAIL, delta=1)
+
+    def test_right_to_left_makes_room_on_the_right(self):
+        self.page.evaluate("document.documentElement.setAttribute('dir', 'rtl')")
+        self._set(autohide=True, alerts=3)
+        margins = self.page.evaluate(
+            "() => { const c = getComputedStyle(document.querySelector('.app-content'));"
+            "  const h = getComputedStyle(document.querySelector('header'));"
+            "  return [parseFloat(c.marginLeft), parseFloat(c.marginRight), parseFloat(h.marginLeft), parseFloat(h.marginRight)]; }")
+        self.assertEqual(margins[0], 0, msg='the page kept a left margin in Arabic')
+        self.assertAlmostEqual(margins[1], OPEN, delta=1)
+        self.assertEqual(margins[2], 0)
+        self.assertAlmostEqual(margins[3], OPEN, delta=1)
+
+    def test_the_phone_layout_is_untouched(self):
+        """Below 721px the rail is a drawer and the page takes the full width, pinned or not."""
+        self.page.set_viewport_size({'width': 700, 'height': 800})
+        self.page.wait_for_timeout(150)
+        self._set(autohide=True, alerts=3)
+        self.assertEqual(self._widths()[1], 0, msg='the pin pushed the phone layout across')
+        header = self.page.evaluate("() => parseFloat(getComputedStyle(document.querySelector('header')).marginLeft)")
+        self.assertEqual(header, 0)
 
     def test_clearing_the_alerts_releases_the_pin(self):
         self._set(autohide=True, alerts=3)

@@ -157,6 +157,44 @@ class TestCollapseBreakpointMatchesTheButton(unittest.TestCase):
             "the one copy instead of adding a display-mode-scoped twin")
 
 
+class TestPinnedRailMakesRoom(unittest.TestCase):
+    """v7.4.7: the pinned rail is an overlay, and the content kept the margin of the closed rail, so the left 192px of
+    every page sat under it while alerts were open. The content and the top bar take the rail's width while it is
+    pinned, and a hover stays an overlay. The measured half is in test_v700_sidebar_autohide_e2e.py."""
+
+    LTR = re.compile(r"body\.sidebar-collapsed\.sidebar-alert-pinned \.app-content,\s*"
+                     r"body\.sidebar-collapsed\.sidebar-alert-pinned header\s*\{\s*margin-left:\s*(\d+)px;\s*\}")
+    WIDTH = re.compile(r"body\.sidebar-collapsed\.sidebar-alert-pinned \.sidebar\s*\{\s*width:\s*(\d+)px")
+
+    def test_the_content_and_the_top_bar_take_the_pinned_width_and_only_at_desktop_widths(self):
+        css = _css_no_comments()
+        rule = self.LTR.search(css)
+        self.assertIsNotNone(rule, "the pinned rail no longer makes room for the page")
+        width = self.WIDTH.search(css)
+        self.assertIsNotNone(width, "the pinned rail rule moved or changed shape")
+        self.assertEqual(rule.group(1), width.group(1), "the margin and the pinned rail width drifted apart")
+        media = css.rfind("@media", 0, rule.start())
+        self.assertTrue(css[media:].startswith("@media (min-width: 721px)"),
+                        "the room is made outside the desktop block, where the drawer layout would meet it")
+
+    def test_a_hover_does_not_move_the_page(self):
+        css = _css_no_comments()
+        self.assertNotRegex(css, r"\.sidebar:hover[^{]*\.app-content|\.sidebar:hover[^{]*header\s*\{",
+                            "a hover reveal must stay an overlay")
+        self.assertNotRegex(css, r"pointer-hover[^{]*\.app-content\s*\{[^}]*margin-left")
+
+    def test_right_to_left_mirrors_it(self):
+        css = _css_no_comments()
+        rule = re.search(r"\[dir=\"rtl\"\] body\.sidebar-collapsed\.sidebar-alert-pinned \.app-content,.*?"
+                         r"\{\s*margin-left:\s*0;\s*margin-right:\s*(\d+)px;\s*\}", css, re.S)
+        self.assertIsNotNone(rule, "no right-to-left mirror of the pinned room")
+        self.assertEqual(rule.group(1), self.LTR.search(css).group(1))
+        for selector in ('[dir="rtl"] body.sidebar-collapsed.sidebar-alert-pinned header',
+                         'body.sidebar-collapsed.sidebar-alert-pinned[dir="rtl"] .app-content',
+                         'body.sidebar-collapsed.sidebar-alert-pinned[dir="rtl"] header'):
+            self.assertIn(selector, css)
+
+
 class TestKeepHidingOptOut(unittest.TestCase):
     LABEL = "Keep hiding while alerts are open"
 
