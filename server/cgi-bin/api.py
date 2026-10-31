@@ -1119,6 +1119,7 @@ _pr_spec.loader.exec_module(problems_handlers_mod)
 problems_handlers_mod.bind(globals())
 for _pr_name in (
         'handle_problems', 'handle_problems_history', 'annotate_alerts_with_problem_state',
+        'annotate_attention_with_problems', 'annotate_checks_with_problems',
 ):
     globals()[_pr_name] = getattr(problems_handlers_mod, _pr_name)
 del _pr_name
@@ -50270,6 +50271,8 @@ def handle_fleet_checks():
     if want in ('critical', 'warning'):
         hosts = [h for h in hosts if h['summary']['counts'].get(want)]
     hosts.sort(key=lambda h: h['name'].lower())
+    if qs.get('problems') == ['1']:   # the Checks page: what became of the alerts of a failing check (#56)
+        hosts = annotate_checks_with_problems(hosts)
     return respond(200, {'hosts': hosts, 'total': len(hosts)})
 
 
@@ -51974,9 +51977,13 @@ def _attention_for_caller(payload=None):
 
 
 def handle_attention():
-    """GET /api/attention — the unified Needs Attention digest."""
+    """GET /api/attention — the unified Needs Attention digest. `?problems=1` (the Needs Attention page) adds
+    `problem` to each item whose host and kind have alerts: what became of them (#56)."""
     require_auth()
-    respond(200, _attention_for_caller())
+    payload = _attention_for_caller()
+    if urllib.parse.parse_qs(_env('QUERY_STRING', '') or '').get('problems') == ['1']:
+        payload = annotate_attention_with_problems(payload)
+    respond(200, payload)
 
 
 # v3.4.1: fleet health score. A single 0-100 rollup per device (and fleet-wide)

@@ -103,15 +103,25 @@ class TestTheAlertsPageBadge(_Sources):
 
     def test_a_resolved_alert_the_host_disagrees_with_gets_a_pill_beside_resolved_by(self):
         row = between(self.alerts, "const byWho = a.resolved_by", "copyAlertLink")
-        self.assertIn("a.still_failing === 'resolved_but_failing'", row)
-        self.assertIn("a.still_failing === 'waiting_for_report'", row)
+        self.assertIn("a.problem_state === 'resolved_but_failing'", row)
+        self.assertIn("a.problem_state === 'waiting_for_report'", row)
         self.assertIn("Still failing", row)
         self.assertIn("Waiting for the host", row)
         self.assertLess(row.index("resolved by"), row.index("${stillFailing}"))
 
-    def test_both_pills_are_translated(self):
+    def test_an_open_alert_nothing_lists_any_more_is_tagged_beside_its_title(self):
+        self.assertIn("a.problem_state === 'host_clear'", self.alerts)
+        self.assertIn(">No longer listed</span>", self.alerts)
+        title = between(self.alerts, "_escapeHtml(a.title || a.event || '')", "${_alertEscalationBadge(a)}")
+        self.assertIn("${unlistedTag}", title)
+
+    def test_the_old_field_name_is_gone(self):
+        self.assertNotIn("still_failing", self.alerts)
+
+    def test_every_pill_and_its_tooltip_is_translated(self):
         for key in ("Still failing", "Waiting for the host", "The last report from the host still shows this problem",
-                    "The host has not reported since this was resolved"):
+                    "The host has not reported since this was resolved", "No longer listed",
+                    "Needs attention and Checks no longer list this problem. It may have cleared on the host, or an item may have been hidden or switched off."):
             i = self.i18n.index(json.dumps(key) + ":")
             line = self.i18n[i:self.i18n.index("\n", i)]
             for lang in LANGS:

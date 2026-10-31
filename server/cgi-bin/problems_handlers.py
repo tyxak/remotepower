@@ -157,13 +157,18 @@ def _rows(days):
     return rows, now
 
 
+# The states the Alerts page marks an alert with, because the other views do not agree with it. A plain open alert
+# that the host still reports is the normal case and gets nothing.
+MARKED_STATES = frozenset((problems.HOST_CLEAR, problems.RESOLVED_BUT_FAILING, problems.WAITING))
+
+
 def annotate_alerts_with_problem_state(page):
-    """The Alerts page, resolved view: an alert a person resolved gets `still_failing` when the host still reports
-    its problem (`resolved_but_failing`) or has not reported since (`waiting_for_report`), so "resolved by alice"
-    does not read as "fixed". Nothing is built unless the page holds an alert resolved by hand, and a failure here
-    never fails the list: this is a decoration."""
-    wanted = [a for a in page if isinstance(a, dict) and problems.resolved_by_hand(a)]
-    if not wanted:
+    """The Alerts page: an alert gets `problem_state` when the other views do not agree with it. An open alert that
+    Needs attention and Checks no longer list is `host_clear`; an alert a person resolved is `resolved_but_failing`
+    while the host still reports the problem and `waiting_for_report` until it has reported since. Only the alerts
+    the problem's state is about are marked (`state_alert_ids`), not an older alert of the same host and kind. A
+    failure here never fails the list: this is a decoration."""
+    if not any(isinstance(a, dict) for a in page):
         return
     try:
         rows, _now = _rows(DEFAULT_WINDOW_DAYS)
@@ -171,13 +176,72 @@ def annotate_alerts_with_problem_state(page):
         return
     state_of = {}
     for r in rows:
-        if r['state'] in (problems.RESOLVED_BUT_FAILING, problems.WAITING):
-            for aid in r['alert_ids']:
+        if r['state'] in MARKED_STATES:
+            for aid in r['state_alert_ids']:
                 state_of[aid] = r['state']
-    for a in wanted:
-        state = state_of.get(a.get('id'))
-        if state:
-            a['still_failing'] = state
+    for a in page:
+        if isinstance(a, dict) and a.get('id') in state_of:
+            a['problem_state'] = state_of[a['id']]
+
+
+def _problem_index():
+    """{(host, kind): row} for the problems that have a host, to tell the other pages what became of the alerts of
+    the item or check they list."""
+    rows, _now = _rows(DEFAULT_WINDOW_DAYS)
+    return {(r['device_id'], r['family']): r for r in rows if r['device_id']}
+
+
+def _problem_tag(row):
+    """What the other pages say about a problem that has alerts: its state, how many are open and, when a person
+    closed the alert it is about, who and when. None for a problem no alert ever raised."""
+    if not row or not row['alert_total']:
+        return None
+    about = [e for e in row['alerts'] if e['id'] in set(row['state_alert_ids'])]
+    hand = next((e for e in about if e['how'] == 'hand'), None)
+    return {
+        'state': row['state'],
+        'alerts_open': len(row['open_ids']),
+        'resolved_by': hand['resolved_by'] if hand else '',
+        'resolved_at': hand['resolved_at'] if hand else 0,
+    }
+
+
+def annotate_attention_with_problems(payload):
+    """GET /api/attention?problems=1: each item whose host and kind have alerts carries `problem` (see
+    _problem_tag). A new payload, not an edit of the cached one."""
+    if not isinstance(payload, dict) or not isinstance(payload.get('items'), list):
+        return payload
+    try:
+        index = _problem_index()
+    except Exception:
+        return payload
+    items = []
+    for i in payload['items']:
+        tag = _problem_tag(index.get((i.get('device_id') or '', i.get('kind') or ''))) if isinstance(i, dict) else None
+        items.append(dict(i, problem=tag) if tag else i)
+    return dict(payload, items=items)
+
+
+def annotate_checks_with_problems(hosts):
+    """GET /api/checks?problems=1: each failing check whose host and kind have alerts carries `problem`. The rows
+    it is given are the shared cache of the Checks page, so it builds new ones and writes to none."""
+    try:
+        index = _problem_index()
+    except Exception:
+        return hosts
+    out = []
+    for h in hosts:
+        did = h.get('device_id') if isinstance(h, dict) else None
+        checks, changed = [], False
+        for c in (h.get('checks') or []) if isinstance(h, dict) else []:
+            tag = None
+            if isinstance(c, dict) and c.get('status') in ('warning', 'critical') and c.get('enabled') is not False:
+                cid = str(c.get('key') or '').split(':', 1)[0]
+                tag = _problem_tag(index.get((did, CHECK_FAMILY.get(cid) or 'check:' + cid)))
+            checks.append(dict(c, problem=tag) if tag else c)
+            changed = changed or bool(tag)
+        out.append(dict(h, checks=checks) if changed else h)
+    return out
 
 
 def handle_problems():

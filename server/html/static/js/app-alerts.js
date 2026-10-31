@@ -611,9 +611,9 @@ function _alertRowHtml(a, role) {
   } else {
     const byWho = a.resolved_by === 'auto' ? 'auto' : _escapeHtml(a.resolved_by || '');
     // #56: resolved by hand, and the host's own report says otherwise (or has not caught up yet)
-    const stillFailing = a.still_failing === 'resolved_but_failing'
+    const stillFailing = a.problem_state === 'resolved_but_failing'
       ? ' <span class="chk-pill chk-critical" title="The last report from the host still shows this problem">Still failing</span>'
-      : (a.still_failing === 'waiting_for_report'
+      : (a.problem_state === 'waiting_for_report'
         ? ' <span class="chk-pill chk-warning" title="The host has not reported since this was resolved">Waiting for the host</span>' : '');
     actions = `<span class="c-muted">resolved by ${byWho}</span>${stillFailing} `
       + `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
@@ -621,6 +621,11 @@ function _alertRowHtml(a, role) {
   // A point-in-time alert records something that HAPPENED — nothing will ever
   // observe it clearing, so say so rather than letting the operator wait for a
   // self-heal that cannot come.
+  // #56: Needs attention and Checks no longer list the problem this alert is about. It may have cleared on the host, or
+  // an item may have been hidden, so the tag only says what is true: nothing else lists it.
+  const unlistedTag = (!isResolved && a.problem_state === 'host_clear')
+    ? ' <span class="chk-pill chk-warning" title="Needs attention and Checks no longer list this problem. It may have cleared on the host, or an item may have been hidden or switched off.">No longer listed</span>'
+    : '';
   const confirmTag = (!isResolved && a.autoheals === false)
     ? ' <span class="patch-badge fs-10" title="This records an event, not an ongoing condition — it will not clear on its own. Resolve it once you have looked.">confirm</span>'
     : '';
@@ -659,7 +664,7 @@ function _alertRowHtml(a, role) {
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}${_alertAgeHtml(a)}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${_alertEscalationBadge(a)}${badge}${incBadge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${_priorIncidentBadge(a)}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}${_alertResolveNoteHtml(a)}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${unlistedTag}${_alertEscalationBadge(a)}${badge}${incBadge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${_priorIncidentBadge(a)}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}${_alertResolveNoteHtml(a)}</td>
     <td>${a.device_id ? `<span data-dev-hover="${_escapeHtml(a.device_id)}">${_escapeHtml(dev)}</span>` : _escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td><div class="alert-actions">${actions}</div></td>

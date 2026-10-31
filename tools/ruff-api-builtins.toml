@@ -298,6 +298,8 @@ builtins = [
     "_wg_run",
     "_wg_unavailable_reason",
     "annotate_alerts_with_problem_state",
+    "annotate_attention_with_problems",
+    "annotate_checks_with_problems",
     "appliance_sensor_ingest",
     "capture_fix_outcome",
     "command_is_stale",

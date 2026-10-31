@@ -147,6 +147,19 @@ def _alert_entry(alert: dict[str, Any], identity_fields: tuple[str, ...]) -> dic
     }
 
 
+def state_alerts(
+    open_alerts: list[dict[str, Any]], resolved: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The alerts a problem's state is about: the open ones, else the one closed last. An older alert of the same
+    host and kind that was resolved by hand last week is not what "resolved by alice, still failing" is about.
+    """
+    if open_alerts:
+        return open_alerts
+    if resolved:
+        return [max(resolved, key=lambda e: e["resolved_at"])]
+    return []
+
+
 def _state(
     open_alerts: list[dict[str, Any]],
     resolved: list[dict[str, Any]],
@@ -163,7 +176,7 @@ def _state(
         return FAILING if (has_evidence or not mapped) else HOST_CLEAR
     if not resolved:
         return FAILING
-    newest = max(resolved, key=lambda e: e["resolved_at"])
+    newest = state_alerts(open_alerts, resolved)[0]
     if newest["how"] == "hand":
         if not has_evidence:
             return RESOLVED
@@ -473,6 +486,9 @@ def build(
                 "can_resolve": bool(open_alerts),
                 "open_ids": [e["id"] for e in open_alerts if e["id"]][:OPEN_IDS_PER_PROBLEM],
                 "alert_ids": [e["id"] for e in entries if e["id"]][:ALERT_IDS_PER_PROBLEM],
+                "state_alert_ids": [
+                    e["id"] for e in state_alerts(open_alerts, resolved) if e["id"]
+                ][:OPEN_IDS_PER_PROBLEM],
                 "mute_events": mute_events,
                 "fix": fix,
             }

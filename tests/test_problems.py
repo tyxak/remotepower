@@ -632,8 +632,8 @@ class TestTheIssueStory(_Endpoint):
 
 
 class TestTheAlertsListSaysWhenTheHostDisagrees(_Endpoint):
-    """The Alerts page, resolved view: "resolved by alice" must not read as "fixed" while the host still reports
-    the problem. The inbox the operators open first (status=open) must not pay for this."""
+    """The Alerts page: "resolved by alice" must not read as "fixed" while the host still reports the problem, and an
+    open alert that nothing lists any more says so. A plain open alert the host still reports gets nothing."""
 
     UNIT = dict(device_id="h1", name="web01", unit="nginx.service", units=["nginx.service"], new_count=1)
 
@@ -647,65 +647,79 @@ class TestTheAlertsListSaysWhenTheHostDisagrees(_Endpoint):
             return e.body["alerts"]
         raise AssertionError("handle_alerts_list did not respond")
 
-    def watch_rows(self):
-        """Count the times the read model is built, and let it answer nothing."""
-        calls = []
+    def state(self, status="all"):
+        return [a.get("problem_state") for a in self.listing(status)]
+
+    def break_the_read_model(self):
         mod = self.api.problems_handlers_mod
         original = mod._rows
-        mod._rows = lambda days: (calls.append(days) or ([], 0))
+
+        def boom(days):
+            raise RuntimeError("the read model broke")
+        mod._rows = boom
         self.addCleanup(setattr, mod, "_rows", original)
-        return calls
 
     def test_resolved_by_hand_while_the_host_still_reports_it(self):
         self.fire("failed_unit", **self.UNIT)
         self.resolve_by_hand("failed_unit", at=self.now - 60)
         self.set_host("h1", metrics_ts=self.now - 5)
-        self.assertEqual(self.listing("resolved")[0]["still_failing"], "resolved_but_failing")
-        self.assertEqual(self.listing("all")[0]["still_failing"], "resolved_but_failing")
+        self.assertEqual(self.state("resolved"), ["resolved_but_failing"])
+        self.assertEqual(self.state("all"), ["resolved_but_failing"])
 
     def test_resolved_by_hand_before_the_host_reported_again(self):
         self.fire("failed_unit", **self.UNIT)
         self.resolve_by_hand("failed_unit", at=self.now - 60)
-        self.assertEqual(self.listing("resolved")[0]["still_failing"], "waiting_for_report")
+        self.assertEqual(self.state("resolved"), ["waiting_for_report"])
 
     def test_nothing_is_said_when_the_host_has_cleared_it(self):
         self.fire("failed_unit", **self.UNIT)
         self.resolve_by_hand("failed_unit", at=self.now - 60)
         self.set_host("h1", metrics_ts=self.now - 5, sysinfo={"failed_units": []})
-        self.assertNotIn("still_failing", self.listing("resolved")[0])
+        self.assertEqual(self.state("resolved"), [None])
 
     def test_an_alert_a_recovery_event_closed_is_not_called_still_failing(self):
         self.fire("failed_unit", **self.UNIT)
         self.resolve_by_hand("failed_unit", who="auto", at=self.now - 60)
         self.set_host("h1", metrics_ts=self.now - 5)
-        self.assertNotIn("still_failing", self.listing("resolved")[0])
+        self.assertEqual(self.state("resolved"), [None])
 
-    def test_the_open_view_never_builds_the_read_model(self):
+    def test_an_open_alert_the_host_still_reports_gets_nothing(self):
         self.fire("failed_unit", **self.UNIT)
-        calls = self.watch_rows()
-        self.assertEqual(len(self.listing("open")), 1)
-        self.assertEqual(calls, [])
+        self.assertEqual(self.state("open"), [None])
 
-    def test_a_resolved_view_with_nothing_resolved_by_hand_does_not_build_it_either(self):
+    def test_an_open_alert_nothing_lists_any_more_says_so(self):
         self.fire("failed_unit", **self.UNIT)
-        self.resolve_by_hand("failed_unit", who="auto", at=self.now - 60)
-        calls = self.watch_rows()
-        self.assertEqual(len(self.listing("resolved")), 1)
-        self.assertEqual(calls, [])
+        self.set_host("h1", sysinfo={"failed_units": []})
+        self.assertEqual(self.state("open"), ["host_clear"])
+
+    def test_only_the_alert_the_state_is_about_is_marked(self):
+        """An older alert of the same host and kind, resolved by hand last week, is not what the state says."""
+        self.fire("failed_unit", device_id="h1", name="web01", unit="old.service", units=["old.service"], new_count=1)
+        self.resolve_by_hand("failed_unit", who="bob", at=self.now - 3 * 86400)
+        self.fire("failed_unit", device_id="h1", name="web01", unit="nginx.service", units=["nginx.service"], new_count=1)
+        with self.api._LockedUpdate(self.api.ALERTS_FILE) as store:
+            newest = [a for a in store["alerts"] if a.get("payload", {}).get("unit") == "nginx.service"][0]
+            newest["resolved_by"], newest["resolved_at"] = "alice", self.now - 60
+        self.set_host("h1", metrics_ts=self.now - 5)
+        marked = {a["payload"].get("unit"): a.get("problem_state") for a in self.listing("resolved")}
+        self.assertEqual(marked, {"nginx.service": "resolved_but_failing", "old.service": None})
 
     def test_a_failure_of_the_read_model_does_not_fail_the_list(self):
         self.fire("failed_unit", **self.UNIT)
         self.resolve_by_hand("failed_unit", at=self.now - 60)
-
-        def boom(days):
-            raise RuntimeError("the read model broke")
-        mod = self.api.problems_handlers_mod
-        original = mod._rows
-        mod._rows = boom
-        self.addCleanup(setattr, mod, "_rows", original)
+        self.break_the_read_model()
         alerts = self.listing("resolved")
         self.assertEqual(len(alerts), 1)
-        self.assertNotIn("still_failing", alerts[0])
+        self.assertNotIn("problem_state", alerts[0])
+
+    def test_an_empty_list_builds_nothing(self):
+        calls = []
+        mod = self.api.problems_handlers_mod
+        original = mod._rows
+        mod._rows = lambda days: (calls.append(days) or ([], 0))
+        self.addCleanup(setattr, mod, "_rows", original)
+        self.assertEqual(self.listing("open"), [])
+        self.assertEqual(calls, [])
 
     def test_every_alert_of_a_problem_is_named_on_its_row(self):
         self.fire("failed_unit", **self.UNIT)
@@ -714,6 +728,116 @@ class TestTheAlertsListSaysWhenTheHostDisagrees(_Endpoint):
         r = self.row(body, "h1", "failed_units")
         self.assertEqual(len(r["alert_ids"]), 2)
         self.assertEqual(set(r["open_ids"]), set(r["alert_ids"]))
+        self.assertEqual(set(r["state_alert_ids"]), set(r["open_ids"]))
+
+
+class TestTheOtherPagesSayWhatBecameOfTheAlerts(_Endpoint):
+    """GET /api/attention?problems=1 and GET /api/checks?problems=1: an item or a failing check whose host and kind
+    have alerts says what became of them. Without the parameter the payloads are what they always were."""
+
+    UNIT = dict(device_id="h1", name="web01", unit="nginx.service", units=["nginx.service"], new_count=1)
+
+    def attention(self, query=""):
+        self.query = query
+        self.bust()
+        try:
+            self.api.handle_attention()
+        except self.api.HTTPError as e:
+            return e.body
+        raise AssertionError("no answer")
+
+    def checks(self, query=""):
+        self.query = query
+        self.bust()
+        try:
+            self.api.handle_fleet_checks()
+        except self.api.HTTPError as e:
+            return e.body
+        raise AssertionError("no answer")
+
+    def item(self, body, kind="failed_units", dev="h1"):
+        return next(i for i in body["items"] if i["kind"] == kind and i["device_id"] == dev)
+
+    def check(self, body, key="services", dev="h1"):
+        host = next(h for h in body["hosts"] if h["device_id"] == dev)
+        return next(c for c in host["checks"] if c["key"] == key)
+
+    def test_a_resolved_alert_is_told_to_the_item_and_the_check_that_still_list_the_problem(self):
+        self.fire("failed_unit", **self.UNIT)
+        self.resolve_by_hand("failed_unit", who="alice", at=self.now - 60)
+        self.set_host("h1", metrics_ts=self.now - 5)
+        for tag in (self.item(self.attention("problems=1"))["problem"], self.check(self.checks("problems=1"))["problem"]):
+            self.assertEqual((tag["state"], tag["resolved_by"], tag["alerts_open"]), ("resolved_but_failing", "alice", 0))
+            self.assertGreater(tag["resolved_at"], 0)
+
+    def test_an_open_alert_is_told_too(self):
+        self.fire("failed_unit", **self.UNIT)
+        tag = self.item(self.attention("problems=1"))["problem"]
+        self.assertEqual((tag["state"], tag["alerts_open"], tag["resolved_by"]), ("failing", 1, ""))
+
+    def test_a_problem_no_alert_raised_carries_no_tag(self):
+        self.assertNotIn("problem", self.item(self.attention("problems=1"), "reboot", "h2"))
+        self.assertNotIn("problem", self.check(self.checks("problems=1"), "reboot", "h2"))
+
+    def test_without_the_parameter_nothing_changes_and_nothing_is_built(self):
+        self.fire("failed_unit", **self.UNIT)
+        calls = []
+        mod = self.api.problems_handlers_mod
+        original = mod._rows
+        mod._rows = lambda days: (calls.append(days) or ([], 0))
+        self.addCleanup(setattr, mod, "_rows", original)
+        self.assertNotIn("problem", self.item(self.attention()))
+        self.assertNotIn("problem", self.check(self.checks()))
+        self.assertEqual(calls, [])
+
+    def ask_again(self, query):
+        """The same request without clearing the caches first, so the Checks page answers from its cache."""
+        self.query = query
+        try:
+            self.api.handle_fleet_checks()
+        except self.api.HTTPError as e:
+            return e.body
+        raise AssertionError("no answer")
+
+    def test_the_cache_of_the_checks_page_is_never_written_through(self):
+        """On a cache hit the rows it hands the annotator are the shared cache, so a tag must never end up in them."""
+        self.fire("failed_unit", **self.UNIT)
+        self.checks("problems=1")                          # computes and stores the rows
+        self.assertEqual(self.check(self.ask_again("problems=1"), "services")["problem"]["alerts_open"], 1)  # a hit
+        cached = self.api._load_ro(self.api._fleet_checks_cache_file())
+        self.assertTrue(cached.get("hosts"), "the second request was not answered from the cache")
+        for h in cached["hosts"]:
+            for c in h["checks"]:
+                self.assertNotIn("problem", c)
+        self.assertNotIn("problem", self.check(self.ask_again(""), "services"))
+
+    def test_a_check_with_a_path_in_its_key_finds_its_alerts_by_the_part_before_the_colon(self):
+        """`disk:/` is the disk check of the root mount; the table names `disk`."""
+        self.set_host("h1", sysinfo={"mounts": [{"path": "/", "percent": 97.0, "used_gb": 97, "total_gb": 100}]},
+                      metric_state={"disk:/": "critical"})
+        self.fire("metric_critical", device_id="h1", name="web01", metric="disk", target="/", value=97, level="critical")
+        tag = self.check(self.checks("problems=1"), "disk:/")["problem"]
+        self.assertEqual((tag["state"], tag["alerts_open"]), ("failing", 1))
+
+    def test_a_check_switched_off_on_a_host_is_not_tagged(self):
+        self.fire("failed_unit", **self.UNIT)
+        with self.api._LockedUpdate(self.api.CONFIG_FILE) as cfg:
+            cfg["host_checks_disabled"] = {"h1": ["services"]}
+        c = self.check(self.checks("problems=1"), "services")
+        self.assertIs(c["enabled"], False)
+        self.assertNotIn("problem", c)
+        self.assertIn("problem", self.item(self.attention("problems=1")), "the item is still tagged")
+
+    def test_a_failure_of_the_read_model_leaves_both_payloads_as_they_were(self):
+        mod = self.api.problems_handlers_mod
+        original = mod._rows
+        self.addCleanup(setattr, mod, "_rows", original)
+
+        def boom(days):
+            raise RuntimeError("the read model broke")
+        mod._rows = boom
+        self.assertNotIn("problem", self.item(self.attention("problems=1")))
+        self.assertNotIn("problem", self.check(self.checks("problems=1")))
 
 
 class TestTheEndpointOffersTheActions(_Endpoint):
