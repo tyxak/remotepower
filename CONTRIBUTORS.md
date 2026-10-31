@@ -83,6 +83,13 @@ Thanks to everyone who has contributed fixes, features, and reports.
     HTTP monitor
   - #54 — asked for a warning and a critical temperature line for each drive, since a hard
     disk and an NVMe drive should not be held to one pair of numbers
+  - #55 — asked for a host behind a NAT firewall to count as internal, so a service that
+    listens on every address is graded as reachable from the local network and not from the world
+  - #56 — asked for each problem to appear once across Alerts, Needs attention and Checks,
+    with its state, its history and the actions that apply
+  - #57 — asked for each CVE finding to say whether a fix exists for the host's own release,
+    and for alerts only on findings that are fixable or known to be exploited
+  - #58 — reported that Suggested dependencies showed a server depending on its own client
 
 ---
 
