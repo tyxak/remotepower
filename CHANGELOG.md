@@ -77,6 +77,11 @@ On the test trunk only. It joins the next release.
   the existing bulk resolve; the Needs Attention item stays until the host reports, so a problem you resolved while
   the host still reports it reads **Resolved, still failing**. The demo data carries one: a failed unit on
   nextcloud.lab whose alert alice resolved. See `docs/problems.md`. (#56)
+- **The Alerts page says when the host disagrees.** In the resolved view, an alert a person resolved gets **Still
+  failing** beside "resolved by ..." when the host's last report still shows its problem, or **Waiting for the host**
+  when the host has not reported since. `GET /api/alerts` carries `still_failing` (`resolved_but_failing` or
+  `waiting_for_report`) on those rows. Nothing is built unless the page holds an alert resolved by hand, so the open
+  inbox costs nothing extra, and a failure of the read model never fails the list. (#56)
 
 ### CVE findings
 

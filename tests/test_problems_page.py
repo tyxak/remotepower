@@ -95,6 +95,29 @@ class TestRegistered(_Sources):
             self.assertRegex(self.mod, rf"\br\.{field}\b", f"the page never reads row.{field}")
 
 
+class TestTheAlertsPageBadge(_Sources):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.alerts = (JS / "app-alerts.js").read_text()
+
+    def test_a_resolved_alert_the_host_disagrees_with_gets_a_pill_beside_resolved_by(self):
+        row = between(self.alerts, "const byWho = a.resolved_by", "copyAlertLink")
+        self.assertIn("a.still_failing === 'resolved_but_failing'", row)
+        self.assertIn("a.still_failing === 'waiting_for_report'", row)
+        self.assertIn("Still failing", row)
+        self.assertIn("Waiting for the host", row)
+        self.assertLess(row.index("resolved by"), row.index("${stillFailing}"))
+
+    def test_both_pills_are_translated(self):
+        for key in ("Still failing", "Waiting for the host", "The last report from the host still shows this problem",
+                    "The host has not reported since this was resolved"):
+            i = self.i18n.index(json.dumps(key) + ":")
+            line = self.i18n[i:self.i18n.index("\n", i)]
+            for lang in LANGS:
+                self.assertIn(f'"{lang}": "', line, f"{key!r} has no {lang}")
+
+
 class TestTranslated(_Sources):
     def entry(self, key):
         needle = json.dumps(key, ensure_ascii=False) + ":"

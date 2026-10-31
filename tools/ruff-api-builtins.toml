@@ -297,6 +297,7 @@ builtins = [
     "_wg_helper_available",
     "_wg_run",
     "_wg_unavailable_reason",
+    "annotate_alerts_with_problem_state",
     "appliance_sensor_ingest",
     "capture_fix_outcome",
     "command_is_stale",

@@ -127,6 +127,48 @@ def _int_param(qs, name, default, lo, hi):
         return default
 
 
+def _rows(days):
+    """Every problem the caller may see, newest trouble first, and the time they were read at. The Alerts, Needs
+    attention and Checks it joins are filtered to the caller's scope and tenant before they are joined."""
+    devices_all = A._load_ro(A.DEVICES_FILE) or {}
+    allowed = set(A._scope_filter_devices(devices_all).keys())
+    now = int(time.time())
+    alerts = A._filter_alerts_for_caller((A._load_ro(A.ALERTS_FILE) or {}).get('alerts') or [])
+    attention = (A._attention_for_caller() or {}).get('items') or []
+    reports = {did: int(d.get('metrics_ts') or 0) for did, d in devices_all.items()
+               if isinstance(d, dict) and did in allowed}
+    kind_of_event = _kind_of_event()
+    rows = problems.build(
+        alerts=alerts, attention=attention, checks=_failing_checks(allowed),
+        kind_of_event=kind_of_event, check_family=CHECK_FAMILY,
+        shown_kinds=frozenset(kind_of_event.values()) | frozenset(CHECK_FAMILY.values()) | METRIC_KINDS,
+        identity_fields=tuple(A._ALERT_IDENTITY_FIELDS), reports=reports, now=now, window_s=days * 86400)
+    return rows, now
+
+
+def annotate_alerts_with_problem_state(page):
+    """The Alerts page, resolved view: an alert a person resolved gets `still_failing` when the host still reports
+    its problem (`resolved_but_failing`) or has not reported since (`waiting_for_report`), so "resolved by alice"
+    does not read as "fixed". Nothing is built unless the page holds an alert resolved by hand, and a failure here
+    never fails the list: this is a decoration."""
+    wanted = [a for a in page if isinstance(a, dict) and problems.resolved_by_hand(a)]
+    if not wanted:
+        return
+    try:
+        rows, _now = _rows(DEFAULT_WINDOW_DAYS)
+    except Exception:
+        return
+    state_of = {}
+    for r in rows:
+        if r['state'] in (problems.RESOLVED_BUT_FAILING, problems.WAITING):
+            for aid in r['alert_ids']:
+                state_of[aid] = r['state']
+    for a in wanted:
+        state = state_of.get(a.get('id'))
+        if state:
+            a['still_failing'] = state
+
+
 def handle_problems():
     """GET /api/problems?state=active|all|<state>&source=alert|attention|check&device_id=&q=&days=&limit=&offset=
 
@@ -149,22 +191,7 @@ def handle_problems():
     limit = _int_param(qs, 'limit', 200, 1, 1000)
     offset = _int_param(qs, 'offset', 0, 0, 10 ** 9)
 
-    devices_all = A._load_ro(A.DEVICES_FILE) or {}
-    allowed = set(A._scope_filter_devices(devices_all).keys())
-    now = int(time.time())
-
-    alerts = A._filter_alerts_for_caller((A._load_ro(A.ALERTS_FILE) or {}).get('alerts') or [])
-    attention = (A._attention_for_caller() or {}).get('items') or []
-    reports = {did: int(d.get('metrics_ts') or 0) for did, d in devices_all.items()
-               if isinstance(d, dict) and did in allowed}
-    kind_of_event = _kind_of_event()
-
-    rows = problems.build(
-        alerts=alerts, attention=attention, checks=_failing_checks(allowed),
-        kind_of_event=kind_of_event, check_family=CHECK_FAMILY,
-        shown_kinds=frozenset(kind_of_event.values()) | frozenset(CHECK_FAMILY.values()) | METRIC_KINDS,
-        identity_fields=tuple(A._ALERT_IDENTITY_FIELDS), reports=reports, now=now, window_s=days * 86400)
-
+    rows, now = _rows(days)
     shown = rows
     if state == 'active':
         shown = [r for r in shown if r['active']]

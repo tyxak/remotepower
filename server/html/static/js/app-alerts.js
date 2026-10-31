@@ -610,7 +610,12 @@ function _alertRowHtml(a, role) {
       + `<template class="row-more-items">${more}</template>`;
   } else {
     const byWho = a.resolved_by === 'auto' ? 'auto' : _escapeHtml(a.resolved_by || '');
-    actions = `<span class="c-muted">resolved by ${byWho}</span> `
+    // #56: resolved by hand, and the host's own report says otherwise (or has not caught up yet)
+    const stillFailing = a.still_failing === 'resolved_but_failing'
+      ? ' <span class="chk-pill chk-critical" title="The last report from the host still shows this problem">Still failing</span>'
+      : (a.still_failing === 'waiting_for_report'
+        ? ' <span class="chk-pill chk-warning" title="The host has not reported since this was resolved">Waiting for the host</span>' : '');
+    actions = `<span class="c-muted">resolved by ${byWho}</span>${stillFailing} `
       + `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
   }
   // A point-in-time alert records something that HAPPENED — nothing will ever

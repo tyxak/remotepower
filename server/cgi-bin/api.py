@@ -1118,7 +1118,7 @@ problems_handlers_mod = _tk_ilu.module_from_spec(_pr_spec)
 _pr_spec.loader.exec_module(problems_handlers_mod)
 problems_handlers_mod.bind(globals())
 for _pr_name in (
-        'handle_problems',
+        'handle_problems', 'annotate_alerts_with_problem_state',
 ):
     globals()[_pr_name] = getattr(problems_handlers_mod, _pr_name)
 del _pr_name
@@ -60865,6 +60865,7 @@ def handle_alerts_list():
     _annotate_alert_mitigation(page)    # v5.8.0 (B1.2): Fix-button tagging
     _annotate_alert_kb(page)            # W1-23: KB-runbook link tagging
     _annotate_alert_lifecycle(page)     # v6.3.1: does this one clear by itself?
+    annotate_alerts_with_problem_state(page)   # #56: "resolved by you" is not "fixed" while the host still reports it
     respond(200, {
         'alerts': page,
         'total':  len(filtered),   # after filtering, BEFORE paging

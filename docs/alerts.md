@@ -60,8 +60,9 @@ looking.
 ## Alerts, Needs Attention and Checks together
 
 An alert you resolve closes the alert. Needs Attention and Checks read the host's own report, so a problem the host still
-reports stays there. [Problems](problems.md) lists each problem once across the three and says whether the host
-still reports one you resolved.
+reports stays there. In the resolved view an alert you closed shows **Still failing** beside "resolved by" when
+the host's last report still shows its problem, and **Waiting for the host** when it has not reported since.
+[Problems](problems.md) lists each problem once across the three.
 
 ## Putting it on a wall *(v7.0.2)*
 

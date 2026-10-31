@@ -57,6 +57,8 @@ METRIC_KIND = {"diskio": "disk"}
 HISTORY_PER_PROBLEM = 5
 # Every open alert of a problem can be closed from its row, however many are listed under it.
 OPEN_IDS_PER_PROBLEM = 200
+# Every alert of a problem, so a list of alerts can be told which problem each belongs to.
+ALERT_IDS_PER_PROBLEM = 500
 
 
 def _num(value: Any) -> int:
@@ -314,6 +316,7 @@ def build(
                 "last_report": _num(reports.get(dev)) if dev else 0,
                 "can_resolve": bool(open_alerts),
                 "open_ids": [e["id"] for e in open_alerts if e["id"]][:OPEN_IDS_PER_PROBLEM],
+                "alert_ids": [e["id"] for e in entries if e["id"]][:ALERT_IDS_PER_PROBLEM],
             }
         )
 

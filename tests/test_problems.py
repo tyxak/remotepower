@@ -501,6 +501,91 @@ class TestTheIssueStory(_Endpoint):
         self.assertEqual(r["alerts"][0]["resolved_by"], "alice")
 
 
+class TestTheAlertsListSaysWhenTheHostDisagrees(_Endpoint):
+    """The Alerts page, resolved view: "resolved by alice" must not read as "fixed" while the host still reports
+    the problem. The inbox the operators open first (status=open) must not pay for this."""
+
+    UNIT = dict(device_id="h1", name="web01", unit="nginx.service", units=["nginx.service"], new_count=1)
+
+    def listing(self, status):
+        self.query = f"status={status}"
+        self.bust()
+        try:
+            self.api.handle_alerts_list()
+        except self.api.HTTPError as e:
+            self.assertEqual(e.status, 200)
+            return e.body["alerts"]
+        raise AssertionError("handle_alerts_list did not respond")
+
+    def watch_rows(self):
+        """Count the times the read model is built, and let it answer nothing."""
+        calls = []
+        mod = self.api.problems_handlers_mod
+        original = mod._rows
+        mod._rows = lambda days: (calls.append(days) or ([], 0))
+        self.addCleanup(setattr, mod, "_rows", original)
+        return calls
+
+    def test_resolved_by_hand_while_the_host_still_reports_it(self):
+        self.fire("failed_unit", **self.UNIT)
+        self.resolve_by_hand("failed_unit", at=self.now - 60)
+        self.set_host("h1", metrics_ts=self.now - 5)
+        self.assertEqual(self.listing("resolved")[0]["still_failing"], "resolved_but_failing")
+        self.assertEqual(self.listing("all")[0]["still_failing"], "resolved_but_failing")
+
+    def test_resolved_by_hand_before_the_host_reported_again(self):
+        self.fire("failed_unit", **self.UNIT)
+        self.resolve_by_hand("failed_unit", at=self.now - 60)
+        self.assertEqual(self.listing("resolved")[0]["still_failing"], "waiting_for_report")
+
+    def test_nothing_is_said_when_the_host_has_cleared_it(self):
+        self.fire("failed_unit", **self.UNIT)
+        self.resolve_by_hand("failed_unit", at=self.now - 60)
+        self.set_host("h1", metrics_ts=self.now - 5, sysinfo={"failed_units": []})
+        self.assertNotIn("still_failing", self.listing("resolved")[0])
+
+    def test_an_alert_a_recovery_event_closed_is_not_called_still_failing(self):
+        self.fire("failed_unit", **self.UNIT)
+        self.resolve_by_hand("failed_unit", who="auto", at=self.now - 60)
+        self.set_host("h1", metrics_ts=self.now - 5)
+        self.assertNotIn("still_failing", self.listing("resolved")[0])
+
+    def test_the_open_view_never_builds_the_read_model(self):
+        self.fire("failed_unit", **self.UNIT)
+        calls = self.watch_rows()
+        self.assertEqual(len(self.listing("open")), 1)
+        self.assertEqual(calls, [])
+
+    def test_a_resolved_view_with_nothing_resolved_by_hand_does_not_build_it_either(self):
+        self.fire("failed_unit", **self.UNIT)
+        self.resolve_by_hand("failed_unit", who="auto", at=self.now - 60)
+        calls = self.watch_rows()
+        self.assertEqual(len(self.listing("resolved")), 1)
+        self.assertEqual(calls, [])
+
+    def test_a_failure_of_the_read_model_does_not_fail_the_list(self):
+        self.fire("failed_unit", **self.UNIT)
+        self.resolve_by_hand("failed_unit", at=self.now - 60)
+
+        def boom(days):
+            raise RuntimeError("the read model broke")
+        mod = self.api.problems_handlers_mod
+        original = mod._rows
+        mod._rows = boom
+        self.addCleanup(setattr, mod, "_rows", original)
+        alerts = self.listing("resolved")
+        self.assertEqual(len(alerts), 1)
+        self.assertNotIn("still_failing", alerts[0])
+
+    def test_every_alert_of_a_problem_is_named_on_its_row(self):
+        self.fire("failed_unit", **self.UNIT)
+        self.fire("failed_unit", device_id="h1", name="web01", unit="b.service", units=["b.service"], new_count=1)
+        body = self.get()
+        r = self.row(body, "h1", "failed_units")
+        self.assertEqual(len(r["alert_ids"]), 2)
+        self.assertEqual(set(r["open_ids"]), set(r["alert_ids"]))
+
+
 class TestTheEndpoint(_Endpoint):
     def test_a_problem_only_the_host_reports_is_one_row_without_an_alert(self):
         """Needs attention and the reboot check both show it: one row, with both, and nothing to resolve."""
