@@ -2968,7 +2968,7 @@ function showPage(name, btn, opts) {
   if (name === 'audit')    loadAuditLog();
   if (name === 'alerts')   loadAlerts();
   if (name === 'checks')   loadChecks();
-  if (name === 'problems') loadProblems();
+  if (name === 'problems') enterProblems();
   if (name === 'confirmations') loadConfirmations();
   if (name === 'self')     loadSelfStatus();
   if (name === 'forecast') loadForecast();
@@ -20401,7 +20401,7 @@ function _registerAttentionTable() {
         + `<td><span class="status-pill ${pill}">${escHtml(i.severity || 'info')}</span></td>`
         + `<td class="mono-12">${escHtml(i.kind || '')}</td>`
         + `<td class="fw-600">${escHtml(i.device || '—')}</td>`
-        + `<td>${escHtml(i.summary || '')}</td>`
+        + `<td>${escHtml(i.summary || '')}${problemTagHtml(i.problem)}</td>`
         + `<td><div class="user-actions">`
         + `<button class="btn-icon" title="Open the page this item is about"`
         + ` data-action-btn="_showPageBtn" data-page="${page}">${_icon('eye', 14)}</button>`
@@ -20413,10 +20413,24 @@ function _registerAttentionTable() {
   });
 }
 
+// What the Alerts page says about a problem, for the pages that list the same trouble as an item or a check: a person
+// resolved its alert and the host has not caught up. A plain open alert is the normal case and gets nothing.
+// `p` is the `problem` that /api/attention?problems=1 and /api/checks?problems=1 put on a row.
+function problemTagHtml(p) {
+  if (!p) return '';
+  if (p.state === 'resolved_but_failing') {
+    return ' <span class="chk-pill chk-critical" title="The alert for this problem was resolved, and the last report from the host still shows the problem.">Alert resolved, still failing</span>';
+  }
+  if (p.state === 'waiting_for_report') {
+    return ' <span class="chk-pill chk-warning" title="The alert for this problem was resolved. The host has not reported since, so this may clear on its next report.">Alert resolved, waiting for the host</span>';
+  }
+  return '';
+}
+
 async function loadAttentionPage() {
   _registerAttentionTable();
   if (!document.getElementById('attention-tbody')) return;
-  const data = await api('GET', '/attention');
+  const data = await api('GET', '/attention?problems=1');
   if (data && Array.isArray(data.items)) {
     _attentionRows = data.items;
     _attentionTotal = (typeof data.total === 'number') ? data.total : data.items.length;

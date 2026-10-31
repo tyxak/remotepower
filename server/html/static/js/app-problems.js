@@ -79,6 +79,14 @@ function _markProblemViews() {
   document.querySelectorAll('#problems-views button').forEach(b => b.classList.toggle('active', b.dataset.arg === _problemsView));
 }
 
+// Coming to the page from the sidebar or from another page's bar starts at every problem. The view a person chose
+// earlier belongs to that visit.
+function enterProblems() {
+  _problemsView = '';
+  _markProblemViews();
+  loadProblems();
+}
+
 function setProblemsState(key) {
   const sel = document.getElementById('problems-filter-state');
   if (!sel) return;

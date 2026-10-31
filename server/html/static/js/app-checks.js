@@ -10,7 +10,7 @@ async function loadChecks() {
   tableCtl.wireSortOnly('checks-thead', 'checks', renderChecks);
   tbody.innerHTML = _skeletonRows(6);
   try {
-    const data = await api('GET', '/checks');
+    const data = await api('GET', '/checks?problems=1');
     // v7.0.2: api() RESOLVES on a 4xx/5xx, so the catch below never sees a
     // refusal or a server error. Without this the error body has no `hosts`,
     // the flatten yields [], and the page paints 0 Critical / 0 Warning /
@@ -31,7 +31,7 @@ async function loadChecks() {
           monitored: h.monitored !== false,
           key: c.key, check: c.name, cgroup: c.group || '', status: c.status,
           ctype: c.ctype || '', kind: c.kind || '',
-          output: c.output || '', enabled: c.enabled !== false });
+          output: c.output || '', enabled: c.enabled !== false, problem: c.problem || null });
       }
     }
     renderChecks();
@@ -110,7 +110,7 @@ function renderChecks() {
       <td><button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${escAttr(r.device_id)}" data-dev-hover="${escAttr(r.device_id)}">${escHtml(r.host)}</button></td>
       <td class="hint">${escHtml(r.group || '—')}</td>
       <td>${escHtml(r.check)}${kindBadge}<div class="hint">${escHtml(r.cgroup)}</div></td>
-      <td><span class="chk-pill chk-${r.status}">${r.status}</span></td>
+      <td><span class="chk-pill chk-${r.status}">${r.status}</span>${problemTagHtml(r.problem)}</td>
       <td class="fs-12">${escHtml(r.output)}</td>
       <td class="nowrap">${fix}${rebase}${toggle}</td></tr>`;
   }), {colspan: 6});

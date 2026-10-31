@@ -47,7 +47,9 @@ def patch_the_demo(data_dir):
 def _sign_in(browser, base, user, password):
     context = browser.new_context(viewport={"width": 1440, "height": 1000}, service_workers="block")
     page = context.new_page()
-    page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); } catch (e) {}")
+    # With alerts open the sidebar pins itself open over the left 248 px of every page, and a click on the left of the
+    # page lands on it. The account setting that keeps it auto-hiding makes the pointer tests independent of the data.
+    page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_thru_alerts', '1'); } catch (e) {}")
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(base + "/index.html")
@@ -233,7 +235,10 @@ class TestTheViewsAndTheActions(unittest.TestCase):
         self.page.wait_for_timeout(300)
         row.locator('[data-action="rowMoreMenu"]').click()
         self.page.wait_for_selector("#row-more-pop", timeout=10000)
-        self.page.locator("#row-more-pop button", has_text=label).click()
+        try:
+            self.page.locator("#row-more-pop button", has_text=label).click(timeout=10000)
+        except Exception:
+            self.fail(f"no {label!r} in the menu of {host} / {family}; the menu holds {self.page.inner_text('#row-more-pop')!r}")
 
     def answer_dialog(self, text=None):
         self.page.wait_for_selector("#ui-prompt-modal.active", timeout=15000)
@@ -389,6 +394,166 @@ class TestTheViewsAndTheActions(unittest.TestCase):
         self.assertGreater(report["checked"], 20, "the check looked at too few rows to mean anything")
         self.assertGreater(report["withMenu"], 5, "the demo has too few rows with a menu to mean anything")
         self.assertEqual(report["wrong"], [])
+
+TAG = {"resolved_but_failing": "Alert resolved, still failing", "waiting_for_report": "Alert resolved, waiting for the host"}
+
+
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestTheStateIsTheSameOnEveryPage(unittest.TestCase):
+    """Alerts, Needs Attention and Checks say what Problems says about a problem, and a bar links the four pages.
+
+    Named so that it runs after TestTheProblemsPage and before TestTheViewsAndTheActions: the last test here
+    resolves a problem, which the first class has done already and the second does not depend on."""
+
+    @property
+    def page(self):
+        return _STACK["page"]
+
+    def tearDown(self):
+        self.assertEqual(_STACK["errors"], [], "the page threw")
+
+    def api(self, method, path, body=None):
+        return self.page.evaluate("([m, p, b]) => api(m, p, b || undefined)", [method, path, body])
+
+    def until(self, what, ask, timeout=45.0):
+        end = time.time() + timeout
+        while time.time() < end:
+            got = ask()
+            if got:
+                return got
+            time.sleep(0.4)
+        self.fail(f"never happened: {what}")
+
+    def show(self, name):
+        self.page.evaluate("n => showPage(n)", name)
+        self.page.wait_for_selector(f"#page-{name}.active", timeout=60000)
+
+    def press_bar(self, src, dest):
+        """Click a button of the bar. The sidebar opens over the left 248 px of the page while the pointer is on it,
+        and the bar starts at 80, so the pointer is parked on the page first, as a person's would be."""
+        self.page.mouse.move(900, 600)
+        self.page.wait_for_timeout(500)
+        self.page.click(f'#page-{src} .problem-views [data-arg="{dest}"]', timeout=15000)
+
+    def cells(self, tbody):
+        """The text of every cell of every row of a table body."""
+        return self.page.evaluate("""id => [...document.querySelectorAll('#' + id + ' tr')]
+            .map(tr => [...tr.querySelectorAll('td')].map(td => td.textContent.replace(/\\s+/g, ' ').trim()))""", tbody)
+
+    # ── the state beside the item and the check ──────────────────────────────────────────────────────────────
+
+    def test_needs_attention_says_the_alert_was_resolved_and_the_host_still_reports_it(self):
+        self.show("attention")
+        self.page.fill("#attention-filter", "backup-nightly")      # the table shows 15 rows a page
+        try:
+            rows = self.until("the failed-units item carries the tag", lambda: [
+                c for c in self.cells("attention-tbody")
+                if len(c) > 3 and HOST in c[2] and c[1] == "failed_units" and TAG["resolved_but_failing"] in c[3]])
+        finally:
+            self.page.fill("#attention-filter", "")
+        self.assertEqual(len(rows), 1, rows)
+
+    def test_checks_says_it_beside_the_failing_check(self):
+        self.show("checks")
+        name = self.until("the page holds the check", lambda: self.page.evaluate(
+            "([h]) => { const r = (typeof _checksRows !== 'undefined' ? _checksRows : []).find(x => x.device_id === h && x.key === 'services'); return r ? r.check : ''; }", [HOST_ID]))
+        self.page.fill("#checks-filter-text", "nextcloud")
+        try:
+            rows = self.until("the check carries the tag", lambda: [
+                c for c in self.cells("checks-tbody") if len(c) > 4 and HOST in c[0] and name in c[2] and TAG["resolved_but_failing"] in c[3]])
+        finally:
+            self.page.fill("#checks-filter-text", "")
+        self.assertEqual(len(rows), 1, rows)
+
+    def test_the_state_is_only_built_when_it_is_asked_for(self):
+        plain = self.api("GET", "/attention")
+        self.assertFalse([i for i in plain["items"] if "problem" in i], "the dashboard card would pay for the state")
+        asked = self.api("GET", "/attention?problems=1")
+        mine = [i for i in asked["items"] if i.get("device_id") == HOST_ID and i.get("kind") == "failed_units"]
+        self.assertEqual([i["problem"]["state"] for i in mine], ["resolved_but_failing"])
+        self.assertEqual(mine[0]["problem"]["resolved_by"], "alice")
+
+        def checks(path):
+            hosts = self.api("GET", path)["hosts"]
+            return [c for h in hosts if h["device_id"] == HOST_ID for c in h["checks"] if c["key"] == "services"]
+        self.assertFalse([c for c in checks("/checks") if "problem" in c])
+        self.assertEqual([c["problem"]["state"] for c in checks("/checks?problems=1")], ["resolved_but_failing"])
+
+    # ── the bar ────────────────────────────────────────────────────────────────────────────────────────────
+
+    def test_the_bar_links_the_four_pages_and_marks_the_one_you_are_on(self):
+        for name in ("alerts", "attention", "checks"):
+            self.show(name)
+            shown = self.page.evaluate("""n => ({
+                marked: [...document.querySelectorAll('#page-' + n + ' .problem-views [aria-current=page]')].map(b => b.dataset.arg),
+                labels: [...document.querySelectorAll('#page-' + n + ' .problem-views button')].map(b => b.textContent.trim()) })""", name)
+            self.assertEqual(shown["marked"], [name])
+            self.assertEqual(shown["labels"], ["All problems", "Alerts", "Needs Attention", "Checks"])
+        for src in ("alerts", "attention", "checks"):
+            for dest in ("problems", "alerts", "attention", "checks"):
+                self.show(src)
+                self.press_bar(src, dest)
+                self.page.wait_for_selector(f"#page-{dest}.active", timeout=60000)
+
+    def test_arriving_from_a_bar_starts_at_every_problem(self):
+        self.show("problems")
+        self.page.evaluate("setProblemsView('alert')")
+        self.page.wait_for_function("() => _problemsView === 'alert' && _problemsSeq > 0 && _problemsDrawn === _problemsSeq", timeout=60000)
+        before = self.page.evaluate("() => _problemsSeq")
+        self.show("alerts")
+        self.press_bar("alerts", "problems")
+        self.page.wait_for_selector("#page-problems.active", timeout=60000)
+        # arriving asks again (a counter that has not moved would also read as "drawn"), and the answer is the whole list
+        self.page.wait_for_function("(n) => _problemsView === '' && _problemsSeq > n && _problemsDrawn === _problemsSeq", arg=before, timeout=20000)
+        self.assertEqual(self.page.evaluate("() => document.querySelector('#problems-views .active').dataset.arg"), "")
+        shown = len(self.page.evaluate(ROWS))
+        self.assertEqual(shown, int(self.page.inner_text("#problems-view-n-all")), "arriving drew a filtered list")
+
+    # ── one click, four pages ──────────────────────────────────────────────────────────────────────────────
+
+    def test_resolving_a_problem_changes_what_every_page_says_about_it(self):
+        self.show("problems")
+        self.page.evaluate("loadProblems()")
+        self.page.wait_for_function("() => _problemsSeq > 0 && _problemsDrawn === _problemsSeq", timeout=60000)
+        # a problem with an open alert and something the host reports: an item or a check. Not the two the other tests use.
+        victims = self.page.evaluate("""() => _problemsRows.filter(r => r.device_id && (r.open_ids || []).length
+                && ((r.attention || []).length || (r.checks || []).length) && !['jellyfin.lab', HOSTNAME].includes(r.device))
+            .map(r => ({device_id: r.device_id, device: r.device, family: r.family, ids: r.open_ids,
+                        items: (r.attention || []).length, checks: (r.checks || []).length}))""".replace("HOSTNAME", repr(HOST)))
+        self.assertTrue(victims, "the demo has no problem with an open alert and an item or a check to resolve")
+        v = victims[0]
+        row = (self.page.locator("#problems-tbody tr", has=self.page.locator(".tl-devchip", has_text=v["device"]))
+               .filter(has_text=v["family"]).first)
+        row.scroll_into_view_if_needed()
+        row.locator('[data-action="resolveProblem"]').click()
+
+        def settled():
+            rows = self.api("GET", f"/problems?state=all&device_id={v['device_id']}")["problems"]
+            return next((r["state"] for r in rows if r["family"] == v["family"] and r["state"] in TAG), None)
+        state = self.until("the problem reads as resolved while the host still reports it", settled)
+
+        # the Alerts page's own data: the alerts that were resolved carry the same word
+        listing = self.api("GET", f"/alerts?status=resolved&limit=200&device_id={v['device_id']}")["alerts"]
+        marked = {a["id"]: a.get("problem_state") for a in listing if a["id"] in v["ids"]}
+        self.assertEqual(marked, {i: state for i in v["ids"]})
+        # the Needs attention data and the page
+        if v["items"]:
+            items = [i for i in self.api("GET", "/attention?problems=1")["items"]
+                     if i.get("device_id") == v["device_id"] and i.get("kind") == v["family"]]
+            self.assertEqual({i["problem"]["state"] for i in items}, {state})
+            self.show("attention")
+            self.page.fill("#attention-filter", v["device"])      # the table shows 15 rows a page
+            try:
+                self.until("the page prints the tag", lambda: [c for c in self.cells("attention-tbody")
+                           if len(c) > 3 and v["device"] in c[2] and c[1] == v["family"] and TAG[state] in c[3]])
+            finally:
+                self.page.fill("#attention-filter", "")
+        # the Checks data
+        if v["checks"]:
+            hosts = self.api("GET", "/checks?problems=1")["hosts"]
+            tagged = [c["problem"]["state"] for h in hosts if h["device_id"] == v["device_id"] for c in h["checks"] if c.get("problem")]
+            self.assertTrue(tagged and set(tagged) == {state}, tagged)
+
 
 if __name__ == "__main__":
     unittest.main()

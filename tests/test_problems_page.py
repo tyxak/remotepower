@@ -6,10 +6,15 @@ browser test in test_problems_e2e.py.
 """
 import json
 import re
+import shutil
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import srcpin  # noqa: E402
 HTML = ROOT / "server" / "html"
 JS = HTML / "static" / "js"
 
@@ -50,7 +55,7 @@ class TestRegistered(_Sources):
 
     def test_the_module_is_lazy_loaded_and_dispatched_and_refreshed(self):
         self.assertIn("problems: ['app-problems.js']", self.app)
-        self.assertIn("if (name === 'problems') loadProblems();", self.app)
+        self.assertIn("if (name === 'problems') enterProblems();", self.app)
         self.assertRegex(self.app, r"problems:\s*\{ fn: 'loadProblems',\s*every: 60 \}")
 
     def test_the_module_is_not_also_loaded_at_boot(self):
@@ -196,6 +201,9 @@ class TestTranslated(_Sources):
                 "Filter by host, problem or kind…", "Filter by host, problem or kind", "Could not resolve the alerts",
                 "Could not load problems.",
                 "More problems match than are listed. Narrow the filters to see the rest.",
+                "Alert resolved, still failing", "Alert resolved, waiting for the host",
+                "The alert for this problem was resolved, and the last report from the host still shows the problem.",
+                "The alert for this problem was resolved. The host has not reported since, so this may clear on its next report.",
                 "One list of what is wrong, each problem once: alerts, Needs Attention and checks joined, with whether the host still reports it"]
         for k in keys:
             line = self.entry(k)
@@ -220,6 +228,82 @@ class TestTranslated(_Sources):
         self.assertNotRegex(self.shell, r'\sstyle="')
         self.assertNotRegex(self.mod, r'\son(click|change|input)="')
         self.assertNotRegex(self.mod, r'style="')
+
+
+class TestTheOtherPagesSayTheSameThing(_Sources):
+    """Alerts, Needs Attention and Checks are three views of the one list (#56). Each carries a bar that links the four
+    pages, and Needs Attention and Checks put the state of the problem beside the item or the check."""
+
+    PAGES = (("alerts", 'id="page-alerts"', 'id="alerts-inbox-card"'),
+             ("attention", 'id="page-attention"', 'data-action="loadAttentionPage"'),
+             ("checks", 'id="page-checks"', 'id="checks-filter-status"'))
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.checks = (JS / "app-checks.js").read_text()
+
+    def test_each_page_has_the_bar_before_its_controls_and_marks_its_own_button(self):
+        for page, start, stop in self.PAGES:
+            group = between(between(self.index, start, stop), 'class="segmented problem-views', "</div>")
+            buttons = re.findall(r'<button data-action="showPage" data-arg="(\w+)"( class="active" aria-current="page")?>([^<]+)</button>', group)
+            self.assertEqual([b[0] for b in buttons], ["problems", "alerts", "attention", "checks"], page)
+            self.assertEqual([b[2] for b in buttons], ["All problems", "Alerts", "Needs Attention", "Checks"], page)
+            self.assertEqual([b[0] for b in buttons if b[1]], [page], f"{page} must mark its own button and no other")
+
+    def test_every_button_of_the_bar_opens_a_page_the_sidebar_has(self):
+        pages = set(re.findall(r'data-page="(\w+)"', self.index))
+        self.assertLessEqual({"problems", "alerts", "attention", "checks"}, pages)
+
+    def test_the_bar_says_what_it_is_to_a_screen_reader_in_a_string_that_is_translated(self):
+        self.assertEqual(self.index.count('aria-label="Views of the problems list"'), 4)   # the page itself and the three
+        self.assertIn('"Views of the problems list":', self.i18n)
+
+    def test_needs_attention_and_checks_ask_for_the_state_and_nothing_else_does(self):
+        page = between(self.app, "async function loadAttentionPage()", "_fillAttentionFilterOptions();")
+        self.assertIn("api('GET', '/attention?problems=1')", page)
+        self.assertIn("api('GET', '/checks?problems=1')", between(self.checks, "async function loadChecks()", "if (!data || data.error)"))
+        everything = "\n".join(f.read_text() for f in sorted(JS.glob("app*.js")))
+        asked = re.findall(r"api\('GET', '(/\w+\?problems=1)'", everything)
+        self.assertEqual(sorted(asked), ["/attention?problems=1", "/checks?problems=1"],
+                         "the dashboard card or another reader would pay for a state it does not show")
+
+    def test_the_tag_sits_beside_the_summary_and_beside_the_status(self):
+        na = between(self.app, "function _registerAttentionTable()", "emptyMsg: 'Nothing needs attention right now.'")
+        self.assertIn("${escHtml(i.summary || '')}${problemTagHtml(i.problem)}", na)
+        self.assertIn("${r.status}</span>${problemTagHtml(r.problem)}", self.checks)
+        self.assertIn("problem: c.problem || null", self.checks)
+
+    def test_arriving_at_the_page_starts_at_every_problem(self):
+        self.assertIn("if (name === 'problems') enterProblems();", self.app)
+        enter = between(self.mod, "function enterProblems()", "function setProblemsState")
+        self.assertIn("_problemsView = ''", enter)
+        self.assertIn("loadProblems()", enter)
+        self.assertRegex(self.app, r"problems:\s*\{ fn: 'loadProblems',\s*every: 60 \}")   # the refresh keeps the view
+
+
+@unittest.skipUnless(shutil.which("node"), "node not installed")
+class TestTheTag(_Sources):
+    def tags(self, problems):
+        body = srcpin.js_function(self.app, "problemTagHtml")
+        script = body + "\nconsole.log(JSON.stringify(" + json.dumps(problems) + ".map(p => problemTagHtml(p))));"
+        out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return json.loads(out.stdout)
+
+    def test_only_a_problem_someone_resolved_and_the_host_has_not_cleared_gets_a_tag(self):
+        states = list(STATES) + [None]
+        got = dict(zip(states, self.tags([({"state": s} if s else None) for s in states])))
+        self.assertEqual({s for s, tag in got.items() if tag}, {"resolved_but_failing", "waiting_for_report"})
+        self.assertIn("Alert resolved, still failing", got["resolved_but_failing"])
+        self.assertIn("chk-critical", got["resolved_but_failing"])
+        self.assertIn("Alert resolved, waiting for the host", got["waiting_for_report"])
+        self.assertIn("chk-warning", got["waiting_for_report"])
+
+    def test_the_tag_carries_a_tooltip_and_no_inline_style_or_handler(self):
+        for tag in self.tags([{"state": "resolved_but_failing"}, {"state": "waiting_for_report"}]):
+            self.assertIn(' title="', tag)
+            self.assertNotRegex(tag, r'\sstyle="|\son\w+="')
 
 
 if __name__ == "__main__":

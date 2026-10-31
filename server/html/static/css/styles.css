@@ -7403,6 +7403,8 @@ body.density-compact .section-title { margin-bottom: 6px; }
 .segmented button:last-child { border-right: 0; }
 .segmented button:hover { color: var(--text); }
 .segmented button.active { background: var(--accent-soft); color: var(--accent2-ink); }
+/* The bar under the title of Alerts, Needs Attention and Checks (#56): the four views of the one problems list. */
+.problem-views { margin-bottom: 8px; }
 
 /* #8 Header vitals strip — a thin instrument readout of fleet vitals. */
 .vitals { display: inline-flex; align-items: center; gap: 14px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
