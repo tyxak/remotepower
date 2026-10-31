@@ -136,72 +136,22 @@ class TestVersionBumps(unittest.TestCase):
             self.assertFalse((_ROOT / "docs" / dropped).exists(), dropped)
 
 
-class TestTheSecurityReview(unittest.TestCase):
-    """The review is part of the release: it exists, it is indexed where a reader looks, it names
-    what it found, it says what it did not run, and the three kept reviews are the last three."""
+class TestTheReviewLeftTheWindow(unittest.TestCase):
+    """The review of 7.4.4 left the three kept reviews at the v7.4.7 bump. Its history stays in CHANGELOG.md, and the
+    later reviews write out what they carry forward."""
 
-    DOC = "docs/security-review-7.4.4.md"
+    def test_it_is_gone_everywhere(self):
+        self.assertFalse((_ROOT / "docs/security-review-7.4.4.md").exists())
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "docs/v7.4.4.md", "server/html/index.html"):
+            self.assertNotIn("security-review-7.4.4.md", (_ROOT / rel).read_text(), rel)
 
-    def raw(self):
-        return (_ROOT / self.DOC).read_text()
+    def test_the_changelog_still_counts_its_issue(self):
+        body = (_ROOT / "CHANGELOG.md").read_text()
+        body = body[body.index("## v7.4.4 \u2014 "):]
+        section = body[body.index("### Security"):][:900]
+        self.assertIn("one issue", re.sub(r"\s+", " ", section))
 
-    def text(self):
-        return re.sub(r"\s+", " ", self.raw())
-
-    def test_it_exists_and_is_indexed(self):
-        self.assertTrue((_ROOT / self.DOC).exists())
-        for rel in ("docs/README.md", "docs/security.md"):
-            self.assertIn("security-review-7.4.4.md", (_ROOT / rel).read_text(), rel)
-
-    def test_it_says_what_it_covers_and_what_it_did_not_run(self):
-        text = self.text()
-        self.assertIn("everything that changed since 7.4.3, the last reviewed release", text)
-        self.assertIn("were not run this time", text)           # the nginx scanners
-        self.assertIn("## Known and unchanged", text)
-        self.assertIn("a live probe of the maintainer's own instance", text)
-
-    def test_it_names_the_finding_and_the_summary_has_one_row(self):
-        text = self.text()
-        self.assertIn("**one** issue", text)
-        self.assertIn("Saving or resetting a host's thresholds left nothing on the audit trail", text)
-        rows = re.findall(r"^\| ([1-9]) \|", self.raw(), re.M)
-        self.assertEqual(rows, ["1"])
-
-    def test_it_ran_the_scans_and_the_sweeps_it_says_it_did(self):
-        text = self.text()
-        for needle in ("bandit", "semgrep", "gitleaks", "pip-audit", "CodeQL", "nuclei",
-                       "Who may do what", "Hostile input to every route", "Hostile heartbeats",
-                       "Planted text in a real browser", "Mutation checks"):
-            self.assertIn(needle, text, needle)
-
-    def test_no_placeholder_is_left(self):
-        self.assertNotIn("@@", self.raw())
-
-    def test_it_reveals_no_command_for_the_attack(self):
-        text = self.raw()
-        for needle in ("curl", "X-Token", "wget", "nc -"):
-            self.assertNotIn(needle, text, needle)
-
-    def test_the_changelog_and_the_notes_agree_on_the_count(self):
-        for rel, heading in (("CHANGELOG.md", "### Security"), ("docs/v7.4.4.md", "## Security review")):
-            body = (_ROOT / rel).read_text()
-            if rel == "CHANGELOG.md":
-                body = body[body.index("## v7.4.4 \u2014 "):]
-            section = body[body.index(heading):][:900]
-            self.assertIn("one issue", re.sub(r"\s+", " ", section), rel)
-
-    def test_the_card_links_the_review(self):
-        html = _html()
-        card = html[html.index("What's new \u2014 v" + V):]
-        card = card[:card.index("</details>")]
-        self.assertIn("docs/security-review-7.4.4.md", card)
-
-    def test_three_reviews_are_kept_and_this_is_one_of_them(self):
-        reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
-        self.assertEqual(len(reviews), 3, reviews)
-        self.assertIn("security-review-7.4.4.md", reviews)
-
-    def test_the_review_that_left_the_window_is_gone_everywhere(self):
+    def test_the_review_that_left_the_window_before_it_is_still_gone(self):
         self.assertFalse((_ROOT / "docs/security-review-7.4.0.md").exists())
         for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html"):
             self.assertNotIn("security-review-7.4.0.md", (_ROOT / rel).read_text(), rel)

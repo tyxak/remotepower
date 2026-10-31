@@ -5,9 +5,10 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## Unreleased (test)
+## v7.4.7 — "0nceMatters" — unreleased (test)
 
-On the test trunk only. It joins the next release.
+Two reports from the same Docker install, filed on tyxak/remotepower as #56 and #57, and the Thermal, Disk and Host
+metrics work that followed 7.4.6. The release page is [docs/v7.4.7.md](docs/v7.4.7.md).
 
 ### Thermal
 
@@ -142,6 +143,23 @@ On the test trunk only. It joins the next release.
   now treats that row as having nothing folded yet.
 - The Trends history of a host failed as a whole when one stored mount was not a map or held a percentage that was
   not a number. Such a mount is now left out.
+
+### Security
+
+The review of this release found one issue, low. It is fixed. See `docs/security-review-7.4.7.md`.
+
+- **A stored alert of the wrong shape answered 500 to every caller, in five readers.** A payload that is a string, an
+  event or a host id that is a list, a `ts` or a `resolved_at` that is not a number: the Problems list (new in this
+  release), the Alerts inbox, the dashboard and the resolution stats failed for everyone while the row stayed in the
+  store, and the autonomy sweep raised on every pass and took no action. Only a hand edit or an import can store such a
+  row. The Problems list and the inbox skip a row they cannot read, the dashboard and the stats read a bad time as 0,
+  and the autonomy filter skips an event that is not a string. Clear all and the bulk operations still see every row,
+  so a bad one can be removed.
+
+### Translations
+
+- **The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French.** A native
+  speaker has not read it yet; if a line reads wrong, tell us.
 
 ## v7.4.6 — "F1xableMatters" — 2026-10-30
 

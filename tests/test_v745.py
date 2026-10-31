@@ -88,10 +88,10 @@ class TestTheSecurityReview(unittest.TestCase):
 
     def test_three_reviews_are_kept_and_this_is_one_of_them(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
-        self.assertEqual(reviews, ["security-review-7.4.4.md", "security-review-7.4.5.md", "security-review-7.4.6.md"])
+        self.assertEqual(reviews, ["security-review-7.4.5.md", "security-review-7.4.6.md", "security-review-7.4.7.md"])
 
     def test_the_review_that_left_the_window_is_gone_everywhere(self):
-        for gone in ("7.4.0", "7.4.2", "7.4.3"):
+        for gone in ("7.4.0", "7.4.2", "7.4.3", "7.4.4"):
             self.assertFalse((_ROOT / f"docs/security-review-{gone}.md").exists(), gone)
             for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html"):
                 self.assertNotIn(f"security-review-{gone}.md", (_ROOT / rel).read_text(), (gone, rel))

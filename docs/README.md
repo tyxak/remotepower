@@ -61,6 +61,12 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.4.7.md](security-review-7.4.7.md)** — the v7.4.7 review: who sees which host through
+  the new list of problems and the pages that show its state (a viewer scoped to a group or a tag, a tenant
+  administrator and a tenant viewer), hostile parameters, markup planted in everything the new pages print,
+  and 17 hostile heartbeats from a host with a valid token, and one low issue, a stored alert of the wrong
+  shape that answered 500 to everyone on five readers. Caught before release, with the scans, the run over
+  every route and the mutation checks behind them.
 - **[security-review-7.4.6.md](security-review-7.4.6.md)** — the v7.4.6 review: what a host can ask of
   another host and of the server through the alerts it is the subject of, the connections and ports it
   reports and the temperatures it sends, what an OSV record may put into the cache and onto the page,
@@ -75,11 +81,10 @@ holds long-form docs that don't fit there.
   turned the switch off, and two readers that raised on a stored port list the agent never
   sends. Caught before release, with the scans, the run over every route and the race behind
   them.
-- **[security-review-7.4.4.md](security-review-7.4.4.md)** — the v7.4.4 review: the new
-  temperature lines for drives (who may set them, what a host can make the server do by
-  what it reports about its drives, and what the pages and messages print from it) and one
-  issue, a change to a host's thresholds that was not on the audit trail. Caught before
-  release, with the scans and the run over every route behind them.
+- **[v7.4.7.md](v7.4.7.md)** — "0nceMatters": one list of problems, each once, with its state, its
+  history and the actions that apply, a switch that counts only the CVE findings an update can fix, a
+  chart for any Thermal sensor, one disk for a btrfs volume, and a page that no longer sits under the
+  sidebar while alerts are open.
 - **[v7.4.6.md](v7.4.6.md)** — "F1xableMatters": a host can be marked internal, so a
   service that listens on every address is not graded as exposed to the world, a
   suggested dependency points from the client to the server, a CVE finding says
@@ -89,9 +94,6 @@ holds long-form docs that don't fit there.
 - **[v7.4.4.md](v7.4.4.md)** — "Spec1ficMatters": temperature lines for each drive, set
   for one drive, one host or every drive of a type, for one request from the same
   Docker install.
-- **[v7.4.3.md](v7.4.3.md)** — "M3asureMatters": the next batch of requests from
-  the same Docker install: more to measure and alert on, and a few rough edges of
-  the HTTP monitors.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.

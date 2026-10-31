@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.4.6-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.4.7-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,13 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.4.7 "0nceMatters"** — each problem once: Monitoring → Problems joins an alert, a Needs
+  attention item and a failing check for the same trouble on a host into one row, with its state
+  (an alert you resolved while the host still reports the problem reads "resolved, still failing"),
+  its history and the actions that apply, and Alerts, Needs attention and Checks show the same
+  state. A switch counts only the CVE findings an update can fix, the Thermal page charts any
+  sensor, a btrfs volume is one disk and not seven, and the page no longer sits under the
+  sidebar while alerts are open.
 - **v7.4.6 "F1xableMatters"** — more requests from the same Docker install: a
   host behind a NAT firewall can be marked internal, so a service that listens on
   every address is graded as reachable from the local network, not from the world,
@@ -224,14 +231,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   SNMP memory leaves out the cache and buffers the host counts as used. A host's
   card lists the integrations bound to it, with seven days of hourly averages.
   Recovery notices are held with their alert in a maintenance window.
-- **v7.4.1 "Al1gnMatters"** — fixes for what a Docker install of 7.4.0 ran into.
-  Agents enrol against a self-signed server with the fingerprint alone, on any
-  port, and enrolling a host again restarts its agent. The browser terminal and
-  the file manager work in the Docker image. A host's poll interval goes down to
-  10 seconds, and the sidebar stays open on a touch screen. NIC errors and drops
-  have floors of their own, and drift watches can be folders and patterns. A
-  reasoning-effort setting turns a thinking model's thinking off, and a recurring
-  maintenance window can be made from the form again.
 
 ## Security
 
