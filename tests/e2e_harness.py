@@ -98,18 +98,24 @@ def start_stack(data_dir=None):
     # scheduler that normally owns them is not running here). Measured on this
     # box: 60s for the first request, which the 30s default turned into a killed
     # worker and a connection-refused cascade rather than a slow success.
+    # gunicorn's stderr goes to a file. It used to go to a pipe that nothing read while the stack ran, and a pipe holds
+    # 64 KB: past that every worker thread blocks in write(2) the next time it logs (a traceback from a sweep, a
+    # warning for an oversized request line), the logging lock is held by the blocked one, and the stack stops
+    # answering. A security probe that made the server log a few hundred lines found it; a test that logs a little never
+    # does, which is how it stayed.
+    errlog = tempfile.TemporaryFile()
     worker = subprocess.Popen(
         [sys.executable, '-m', 'gunicorn', '--workers', '2', '--threads', '8',
          '--timeout', '120',
          '--bind', f'127.0.0.1:{gunicorn_port}', 'wsgi:application'],
         cwd=str(_CGI),
         env=dict(os.environ, RP_DATA_DIR=data_dir),
-        stderr=subprocess.PIPE)
+        stderr=errlog)
     deadline = time.time() + 60
     while True:
         if worker.poll() is not None:
-            raise RuntimeError('gunicorn died: '
-                               + worker.stderr.read().decode(errors='replace'))
+            errlog.seek(0)
+            raise RuntimeError('gunicorn died: ' + errlog.read().decode(errors='replace'))
         try:
             socket.create_connection(('127.0.0.1', gunicorn_port), timeout=0.5).close()
             break
@@ -228,5 +234,6 @@ def start_stack(data_dir=None):
             worker.wait(timeout=10)
         except subprocess.TimeoutExpired:
             worker.kill()
+        errlog.close()
 
     return base, shutdown

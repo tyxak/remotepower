@@ -1463,9 +1463,9 @@ def _dashboard_tickets(open_limit=5, acked_limit=5):
                    if not a.get('acknowledged_at') and not a.get('resolved_at')]
     open_alerts.sort(key=lambda a: ({'critical': 0, 'high': 1, 'medium': 2,
                                      'low': 3}.get(a.get('severity'), 9),
-                                    -(a.get('ts') or 0)))
+                                    -A._epoch_or_zero(a.get('ts'))))
     acked = [a for a in alerts if a.get('acknowledged_at')]
-    acked.sort(key=lambda a: a.get('acknowledged_at') or 0, reverse=True)
+    acked.sort(key=lambda a: A._epoch_or_zero(a.get('acknowledged_at')), reverse=True)
     return {'open': [slim(a) for a in open_alerts[:open_limit]],
             'open_total': len(open_alerts),
             'acked': [slim(a) for a in acked[:acked_limit]]}

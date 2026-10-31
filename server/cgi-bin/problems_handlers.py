@@ -132,7 +132,10 @@ def _fix_of_alert(a):
     given, so it gets a probe holding the four fields it reads and never the stored alert."""
     probe = {'resolved_at': a.get('resolved_at'), 'device_id': a.get('device_id'),
              'event': a.get('event'), 'payload': a.get('payload')}
-    A._annotate_alert_mitigation([probe])
+    try:
+        A._annotate_alert_mitigation([probe])
+    except Exception:   # a stored row of a shape the rule does not read: a hint for a button never fails the list
+        return None
     kind = probe.get('mitigation_kind')
     return (kind, probe.get('mitigation_target') or '') if kind else None
 
@@ -143,7 +146,7 @@ def _rows(days):
     devices_all = A._load_ro(A.DEVICES_FILE) or {}
     allowed = set(A._scope_filter_devices(devices_all).keys())
     now = int(time.time())
-    alerts = A._filter_alerts_for_caller((A._load_ro(A.ALERTS_FILE) or {}).get('alerts') or [])
+    alerts = A._filter_alerts_for_caller(A._readable_alerts((A._load_ro(A.ALERTS_FILE) or {}).get('alerts') or []))
     attention = (A._attention_for_caller() or {}).get('items') or []
     reports = {did: int(d.get('metrics_ts') or 0) for did, d in devices_all.items()
                if isinstance(d, dict) and did in allowed}
@@ -306,7 +309,7 @@ def handle_problems_history():
     family = A._sanitize_str(qs.get('family', [''])[0] or '', 64)
     detail = A._sanitize_str(qs.get('detail', [''])[0] or '', 200)
     days = _int_param(qs, 'days', 90, 1, 365)
-    alerts = A._filter_alerts_for_caller((A._load_ro(A.ALERTS_FILE) or {}).get('alerts') or [])
+    alerts = A._filter_alerts_for_caller(A._readable_alerts((A._load_ro(A.ALERTS_FILE) or {}).get('alerts') or []))
     A.respond(200, problems.history(
         alerts=alerts, device_id=device_id, family=family, detail=detail, kind_of_event=_kind_of_event(),
         identity_fields=tuple(A._ALERT_IDENTITY_FIELDS), now=int(time.time()), window_s=days * 86400))

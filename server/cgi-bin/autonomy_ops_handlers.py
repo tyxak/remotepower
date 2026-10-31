@@ -729,6 +729,8 @@ _EVENT_ACTIONS_BY = {
 def _ladder_for(alert):
     """The action ladder this alert maps to, or ()."""
     event = alert.get('event')
+    if not isinstance(event, str):   # a stored row of a shape _record_alert cannot write: a list is not a dict key
+        return ()
     disc = _EVENT_ACTIONS_BY.get(event)
     if disc:
         field, table = disc

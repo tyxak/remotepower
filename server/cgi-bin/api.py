@@ -11927,6 +11927,17 @@ def _alert_muted(event, payload):
     return bool(ctr) and (dev_id, str(ctr)) in _container_mute_set()
 
 
+def _epoch_or_zero(value):
+    """A stored timestamp as an int, or 0 for anything that is not one (a hand edit, an import): the dashboard and the
+    resolution stats read these fields from a store the code did not always write."""
+    if isinstance(value, bool):
+        return 0
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def _alert_first_seen(alert):
     """When this alert's condition was FIRST observed (epoch seconds).
 
@@ -60836,7 +60847,7 @@ def handle_alerts_list():
     # be readable by a tenant-scoped admin (the confirmations sibling was gated
     # in the v6.1.1 sweep; alerts were missed). Fleet-level (device-less) alerts
     # stay visible, matching the scope convention above.
-    all_alerts = _filter_alerts_for_caller(all_alerts)
+    all_alerts = _filter_alerts_for_caller(_readable_alerts(all_alerts))
     if status == 'all':
         filtered = list(all_alerts)
     elif status in ('ack', 'acknowledged'):
@@ -60933,6 +60944,17 @@ def _alert_tenant_visible(alert):
         return True
     dev = device_get(did) or {}
     return _device_tenant(dev) == gate
+
+
+def _readable_alerts(alerts):
+    """The stored alerts that the inbox and the Problems list can handle: maps whose event and host id are strings (or
+    absent) and whose payload is a map (or absent). `_record_alert` writes nothing else, so a row of another shape is a
+    hand edit or an import, and one such row must not answer every caller with a 500. Only the two read paths use
+    this. Clear all and the bulk operations still see every row, so a bad one can be removed."""
+    return [a for a in alerts if isinstance(a, dict)
+            and isinstance(a.get('event'), (str, type(None)))
+            and isinstance(a.get('device_id'), (str, type(None)))
+            and isinstance(a.get('payload'), (dict, type(None)))]
 
 
 def _filter_alerts_for_caller(all_alerts):
@@ -61571,17 +61593,17 @@ def _alert_resolution_stats(alerts, days=30):
     days = max(1, min(365, int(days or 30)))
     cutoff = int(time.time()) - days * 86400
     resolved = [a for a in alerts if isinstance(a, dict) and a.get('resolved_at')
-                and int(a.get('resolved_at') or 0) >= cutoff]
+                and _epoch_or_zero(a.get('resolved_at')) >= cutoff]
     mttrs, mttas, per_host, timeline = [], [], {}, []
     for a in resolved:
-        ts = int(a.get('ts') or 0)
+        ts = _epoch_or_zero(a.get('ts'))
         # v6.4.2: measure from the FIRST occurrence. `ts` is rewritten on every
         # coalesced re-fire, so a condition that kept firing while nobody looked
         # reported a flatteringly short MTTR — the noisier the incident, the
         # better the number looked.
         first = _alert_first_seen(a)
-        rat = int(a.get('resolved_at') or 0)
-        aat = int(a.get('acknowledged_at') or 0)
+        rat = _epoch_or_zero(a.get('resolved_at'))
+        aat = _epoch_or_zero(a.get('acknowledged_at'))
         mttr = max(0, rat - first) if first else None
         mtta = max(0, aat - first) if (first and aat) else None
         if mttr is not None:
