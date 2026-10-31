@@ -30,6 +30,7 @@ class _Sources(unittest.TestCase):
         cls.mod = (JS / "app-problems.js").read_text()
         cls.i18n = (JS / "i18n.js").read_text()
         cls.shell = between(cls.index, 'id="page-problems"', "<!-- ── Needs Attention page")
+        cls.modal = between(cls.index, 'id="problem-history-modal"', 'id="slo-edit-modal"')
 
 
 class TestRegistered(_Sources):
@@ -56,8 +57,11 @@ class TestRegistered(_Sources):
         self.assertNotIn("app-problems.js", self.index, "a lazy module that is also a <script> loads twice")
 
     def test_every_action_the_page_uses_is_defined(self):
-        actions = set(re.findall(r'data-action="(\w+)"', self.shell)) | set(re.findall(r'data-action="(\w+)"', self.mod))
-        self.assertTrue({"setProblemsState", "loadProblems", "resolveProblem", "showPage"} <= actions, actions)
+        actions = (set(re.findall(r'data-action="(\w+)"', self.shell)) | set(re.findall(r'data-action="(\w+)"', self.modal))
+                   | set(re.findall(r'data-action="(\w+)"', self.mod)) | set(re.findall(r"item\('(\w+)'", self.mod)))
+        self.assertTrue({"setProblemsState", "setProblemsView", "loadProblems", "resolveProblem", "showPage", "openProblemHistory",
+                         "muteProblem", "snoozeProblem", "ignoreProblem", "fixProblem", "disableProblemChecks",
+                         "rowMoreMenu", "closeModal"} <= actions, actions)
         for name in actions:
             self.assertTrue(re.search(rf"function {name}\b", self.mod + self.app), f"data-action {name} has no function")
 
@@ -128,6 +132,54 @@ class TestTheAlertsPageBadge(_Sources):
                 self.assertIn(f'"{lang}": "', line, f"{key!r} has no {lang}")
 
 
+class TestTheViewsAndTheActions(_Sources):
+    def test_the_four_views_are_a_segmented_control_over_one_list(self):
+        seg = between(self.shell, 'id="problems-views"', "</div>")
+        self.assertEqual(re.findall(r'data-action="setProblemsView" data-arg="(\w*)"', seg), ["", "alert", "attention", "check"])
+        for n in ("all", "alert", "attention", "check"):
+            self.assertIn(f'id="problems-view-n-{n}"', seg)
+
+    def test_the_old_source_select_is_gone_and_the_view_reaches_the_query(self):
+        self.assertNotIn("problems-filter-source", self.index + self.mod)
+        query = between(self.mod, "function _problemsQuery()", "return p.toString();")
+        self.assertIn("p.set('source', _problemsView)", query)
+
+    def test_the_counts_of_the_views_are_filled_from_the_active_problems(self):
+        tiles = between(self.mod, "function _renderProblemTiles", "function _markProblemViews")
+        self.assertIn("counts.active_sources", tiles)
+        self.assertIn("'problems-view-n-all', counts && counts.active", tiles)
+
+    def test_the_history_modal_is_at_body_level_and_has_the_ids_the_page_fills(self):
+        self.assertEqual(self.index.count('id="problem-history-modal"'), 1)
+        self.assertNotIn('id="problem-history-modal"', self.shell, "an overlay inside .container is sealed under the sidebar")
+        for i in ("problem-history-sub", "problem-history-body"):
+            self.assertIn(f'id="{i}"', self.modal)
+            self.assertIn(f"'{i}'", self.mod)
+
+    def test_the_write_actions_are_offered_to_administrators_only_and_fix_is_not(self):
+        menu = between(self.mod, "function _problemActionsHtml", "function renderProblems")
+        admin = between(menu, "if (isAdmin) {", "if (r.fix")
+        for name in ("muteProblem", "snoozeProblem", "ignoreProblem", "disableProblemChecks"):
+            self.assertIn(name, admin)
+        self.assertNotIn("fixProblem", admin)
+        self.assertIn("if (isAdmin && (r.open_ids || []).length)", menu)       # Resolve
+
+    def test_the_page_calls_only_endpoints_the_other_pages_already_call(self):
+        """The actions are the other pages' actions with the other pages' permissions: no route of its own writes."""
+        calls = set(re.findall(r"api\('(GET|POST|DELETE)', '(/[a-z/-]+)", self.mod))
+        self.assertEqual(calls, {
+            ("GET", "/problems"), ("GET", "/problems/history"), ("POST", "/alerts/bulk-resolve"),
+            ("POST", "/alert-mutes"), ("DELETE", "/alert-mutes/"), ("POST", "/ignored"),
+            ("POST", "/ignored/remove"), ("POST", "/checks/toggle")})
+        elsewhere = "\n".join((JS / f).read_text() for f in ("app.js", "app-alerts.js", "app-checks.js"))
+        for method, path in calls - {("GET", "/problems"), ("GET", "/problems/history")}:
+            self.assertIn(f"api('{method}', '{path}", elsewhere, f"{method} {path} is not an endpoint another page calls")
+
+    def test_a_state_reads_the_same_everywhere(self):
+        self.assertIn("'Alert open, no longer listed'", self.mod)
+        self.assertNotIn("Host reports it clear", self.index + self.mod + self.i18n)
+
+
 class TestTranslated(_Sources):
     def entry(self, key):
         needle = json.dumps(key, ensure_ascii=False) + ":"
@@ -136,7 +188,10 @@ class TestTranslated(_Sources):
 
     def test_every_label_of_the_page_has_all_six_languages(self):
         keys = ["Problems", "Problem", "Where", "Needs you", "All states", "Recovered", "Resolved, still failing",
-                "Resolved, waiting for the host", "Host reports it clear", "Alerts, Needs Attention and Checks",
+                "Resolved, waiting for the host", "Alert open, no longer listed", "All problems",
+                "Views of the problems list", "Snooze 24 h", "Disable check", "Raised",
+                "Nothing is recorded for this problem.", "Mute these alerts on this host",
+                "Switch off these checks on this host?", "Switch off", "Checks switched off", "Everything that happened to this problem", "More actions for this problem",
                 "No problems match.", "Filter problems by state", "Filter problems by where they show",
                 "Filter by host, problem or kind…", "Filter by host, problem or kind", "Could not resolve the alerts",
                 "Could not load problems.",

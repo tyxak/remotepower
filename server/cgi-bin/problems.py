@@ -442,6 +442,7 @@ def build(
         rows.append(
             {
                 "key": f"{dev}|{family}|{sub}",
+                "sub": sub,
                 "device_id": dev,
                 "device": g["device"],
                 "family": family,
