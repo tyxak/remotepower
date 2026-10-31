@@ -208,14 +208,14 @@ async function openProblemHistory(key) {
     if (e.kind === 'resolved' && e.how === 'auto') by = 'recovered';
     else if (e.kind === 'resolved' && e.how === 'system') by = 'closed';
     const again = (e.kind === 'raised' && e.count > 1) ? ` ×${e.count}` : '';
-    const when = e.at ? new Date(e.at * 1000).toLocaleString() : '';
+    const when = e.at ? _fmtAbsTs(e.at) : '';
     return `<tr><td class="nowrap" title="${escAttr(when)}">${timeAgoHtml(e.at, {clamp: true})}</td>`
       + `<td><span>${_PROBLEM_EVENT[e.kind] || escHtml(e.kind)}</span>${escHtml(again)}`
       + `<div class="hint fs-12">${escHtml(e.detail || e.title)}</div></td>`
       + `<td>${by}</td><td class="fs-12">${escHtml(e.note)}</td></tr>`;
   }).join('');
-  body.innerHTML = '<table><thead><tr><th scope="col">When</th><th scope="col">What</th><th scope="col">By</th><th scope="col">Note</th></tr></thead>'
-    + `<tbody>${rows}</tbody></table>`;
+  body.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th scope="col">When</th><th scope="col">What</th><th scope="col">By</th><th scope="col">Note</th></tr></thead>'
+    + `<tbody>${rows}</tbody></table></div>`;
 }
 
 // ── actions ────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -51,6 +51,11 @@ NAMES = {
 }
 
 
+def label_of(text):
+    """A button that shows a count after its label ("Needs Attention 0") is named by the label alone."""
+    return re.sub(r'\s+\d+$', '', text)
+
+
 def is_title_case(text):
     """Two or more significant words, every one capitalised (acronyms and small words do not count)."""
     words = re.findall(r"[A-Za-z][A-Za-z'’\-]*", text)
@@ -116,17 +121,23 @@ def findings():
     for p in sorted(HTML.glob('*.html')):
         for line, kind, text in html_headings(p.read_text(encoding='utf-8')):
             seen += 1
-            if is_title_case(text) and text not in NAMES:
+            if is_title_case(label_of(text)) and label_of(text) not in NAMES:
                 found.append(f'{p.name}:{line}: {kind} {text!r}')
     for p in sorted(JS.glob('app*.js')):
         for line, kind, text in js_headings(p.read_text(encoding='utf-8')):
             seen += 1
-            if is_title_case(text) and text not in NAMES:
+            if is_title_case(label_of(text)) and label_of(text) not in NAMES:
                 found.append(f'{p.name}:{line}: {kind} {text!r}')
     return found, seen
 
 
 class TestSentenceCase(unittest.TestCase):
+    def test_a_count_after_a_label_is_not_part_of_the_label(self):
+        self.assertEqual(label_of('Needs Attention 0'), 'Needs Attention')
+        self.assertTrue(is_title_case(label_of('Open Ports 12')), 'a Title Case label with a count must still fail')
+        self.assertEqual(label_of('Resolve 3 alerts'), 'Resolve 3 alerts', 'only a trailing count is dropped')
+
+
     def test_no_heading_or_button_is_in_title_case(self):
         found, _seen = findings()
         self.assertEqual(found, [], 'these are in Title Case; write them in sentence case (and re-key the dictionary '

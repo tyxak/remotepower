@@ -222,7 +222,7 @@ class TestAttentionPageFilters(_V8):
 
     NAMES = ["_naItemButtons", "_naItemTitle", "renderAttentionPage",
              "_renderAttentionCounts", "attentionFilterSeverity",
-             "_fillAttentionFilterOptions", "_registerAttentionTable"]
+             "_fillAttentionFilterOptions", "_registerAttentionTable", "problemTagHtml"]
     BLOCKS = (("const PAGE_FOR = ", "{", "}"), ("const NA_PILL = ", "{", "}"))
 
     ROWS = [
@@ -331,6 +331,20 @@ class TestAttentionPageFilters(_V8):
         self.assertNotIn('onclick=', html)
         self.assertNotIn('style="', html)
         self.assertIn('data-action-btn="_showPageBtn"', html)
+
+    def test_row_says_so_when_someone_resolved_the_alert_and_the_host_has_not_caught_up(self):
+        # #56: the same trouble can sit in Alerts. A plain open alert is the normal case and gets no tag.
+        c = self._ready()
+        c.eval("_registerAttentionTable(); renderAttentionPage()")
+
+        def row(problem):
+            return c.eval("__calls.register.row({severity:'critical', kind:'failed_units', device:'web1',"
+                          " summary:'x', _ignore_key:'k', device_id:'d', problem: " + json.dumps(problem) + "})")
+        self.assertIn("Alert resolved, still failing", row({"state": "resolved_but_failing"}))
+        self.assertIn("Alert resolved, waiting for the host", row({"state": "waiting_for_report"}))
+        for problem in (None, {"state": "failing"}, {"state": "recovered"}):
+            self.assertNotIn("Alert resolved", row(problem), problem)
+        self.assertNotIn('style="', row({"state": "resolved_but_failing"}))
 
     def test_loader_noops_without_the_page_shell(self):
         # Another agent owns index.html; a missing shell must not throw and
