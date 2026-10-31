@@ -62,20 +62,29 @@ def alert(event, dev="h1", *, ts=NOW - 600, resolved_at=None, by=None, ack=None,
     }
 
 
-def item(kind, dev="h1", summary="something", severity="warning"):
-    return {"kind": kind, "device_id": dev, "device": "web01" if dev == "h1" else dev, "summary": summary,
-            "severity": severity}
+def item(kind, dev="h1", summary="something", severity="warning", **extra):
+    return dict({"kind": kind, "device_id": dev, "device": "web01" if dev == "h1" else dev, "summary": summary,
+                 "severity": severity}, **extra)
 
 
-def check(cid, dev="h1", status="warning"):
-    return {"device_id": dev, "device": "web01", "id": cid, "name": cid.title(), "status": status, "output": "x"}
+def check(cid, dev="h1", status="warning", key=None):
+    return {"device_id": dev, "device": "web01", "id": cid, "key": key or cid, "name": cid.title(), "status": status,
+            "output": "x"}
 
 
-def build(alerts=(), attention=(), checks=(), reports=None, window_days=7):
+MUTE_MAP = {("failed_units", "warning"): ("failed_unit",), ("disk", "critical"): ("metric_critical", "disk_predict_fail")}
+
+
+def build(alerts=(), attention=(), checks=(), reports=None, window_days=7, **extra):
     return problems.build(
         alerts=list(alerts), attention=list(attention), checks=list(checks), kind_of_event=KIND_OF_EVENT,
         check_family=CHECK_FAMILY, shown_kinds=SHOWN, identity_fields=IDENT, reports=reports or {}, now=NOW,
-        window_s=window_days * DAY)
+        window_s=window_days * DAY, **extra)
+
+
+def history(alerts, dev="h1", family="failed_units", detail="", window_days=90):
+    return problems.history(alerts=list(alerts), device_id=dev, family=family, detail=detail,
+                            kind_of_event=KIND_OF_EVENT, identity_fields=IDENT, now=NOW, window_s=window_days * DAY)
 
 
 def one(rows):
@@ -311,6 +320,127 @@ class TestTheOrderAndTheCounts(unittest.TestCase):
         self.assertEqual(c["states"][problems.RECOVERED], 1)
         self.assertEqual((c["active"], c["total"]), (2, 3))
         self.assertEqual(c["sources"], {"alert": 1, "attention": 2, "check": 0})
+
+
+class TestWhatARowOffers(unittest.TestCase):
+    """The page acts on a problem by calling the endpoints the other pages call, so a row says which: the ignore
+    key and the Fix of its Needs attention items, the key of its checks, and the events a mute would silence."""
+
+    def test_a_needs_attention_item_keeps_what_ignore_snooze_and_fix_need(self):
+        it = item("failed_units", **{"_ignore_key": "failed_units|web01|2 failed", "mitigation_kind": "failed_units",
+                                     "mitigation_target": "nginx.service"})
+        e = one(build(attention=[it]))["attention"][0]
+        self.assertEqual((e["kind"], e["ignore_key"], e["mitigation_kind"], e["mitigation_target"]),
+                         ("failed_units", "failed_units|web01|2 failed", "failed_units", "nginx.service"))
+
+    def test_a_check_keeps_the_key_the_toggle_needs_not_only_its_family_id(self):
+        r = one(build(checks=[check("disk", key="disk:/var")]))
+        self.assertEqual((r["checks"][0]["id"], r["checks"][0]["key"]), ("disk", "disk:/var"))
+
+    def test_muting_silences_the_events_of_its_alerts_and_the_events_its_items_stand_for(self):
+        r = one(build(alerts=[alert("failed_unit", unit="a")], attention=[item("failed_units")], mute_map=MUTE_MAP))
+        self.assertEqual(r["mute_events"], ["failed_unit"])
+        r = one(build(attention=[item("disk", severity="critical")], mute_map=MUTE_MAP))
+        self.assertEqual(r["mute_events"], ["metric_critical", "disk_predict_fail"])
+
+    def test_the_events_are_listed_once_whatever_raised_them(self):
+        a1, a2 = alert("failed_unit", unit="a", ts=NOW - 50), alert("failed_unit", unit="b", ts=NOW - 60)
+        r = one(build(alerts=[a1, a2], attention=[item("failed_units")], mute_map=MUTE_MAP))
+        self.assertEqual(r["mute_events"], ["failed_unit"])
+
+    def test_a_problem_with_no_host_offers_no_mute_by_event_and_no_fix(self):
+        a = alert("tls_expiry", dev="", host="a.example", port=443)
+        r = one(build(alerts=[a], attention=[item("tls", dev="", mitigation_kind="tls")], mute_map=MUTE_MAP,
+                      fix_of_alert=lambda al: ("tls", "")))
+        self.assertEqual((r["mute_events"], r["fix"]), ([], None))
+
+    def test_the_fix_is_the_one_a_needs_attention_item_names(self):
+        it = item("failed_units", mitigation_kind="failed_units", mitigation_target="nginx.service")
+        self.assertEqual(one(build(attention=[it]))["fix"],
+                         {"kind": "failed_units", "target": "nginx.service", "source": "attention"})
+
+    def test_failing_that_it_is_the_one_the_newest_open_alert_offers(self):
+        seen = []
+
+        def fix_of_alert(a):
+            seen.append(a["ts"])
+            return ("service_down", a["payload"].get("unit", ""))
+        old, new = alert("failed_unit", unit="old.service", ts=NOW - 900), alert("failed_unit", unit="new.service", ts=NOW - 10)
+        r = one(build(alerts=[old, new], fix_of_alert=fix_of_alert))
+        self.assertEqual(r["fix"], {"kind": "service_down", "target": "new.service", "source": "alert"})
+        self.assertEqual(seen, [NOW - 10], "the newest open alert is asked first, and the answer is taken")
+
+    def test_a_resolved_alert_offers_no_fix(self):
+        a = alert("failed_unit", unit="u", resolved_at=NOW - 10, by="alice")
+        self.assertIsNone(one(build(alerts=[a], fix_of_alert=lambda al: ("service_down", "u")))["fix"])
+
+    def test_no_fix_is_offered_when_nothing_names_one(self):
+        self.assertIsNone(one(build(alerts=[alert("failed_unit", unit="u")], attention=[item("failed_units")]))["fix"])
+
+    def test_counts_say_how_many_active_problems_each_source_has(self):
+        rows = build(alerts=[alert("failed_unit", unit="u", resolved_at=NOW - 10, by="auto")],
+                     attention=[item("patches", dev="h2"), item("cve", dev="h3")], checks=[check("cve", dev="h3")])
+        c = problems.counts(rows)
+        self.assertEqual(c["sources"], {"alert": 1, "attention": 2, "check": 1})
+        self.assertEqual(c["active_sources"], {"alert": 0, "attention": 2, "check": 1})
+
+
+class TestTheHistoryOfAProblem(unittest.TestCase):
+    A1 = dict(alert("failed_unit", unit="nginx.service", ts=NOW - 5000, ack="bob", resolved_at=NOW - 3000, by="alice"),
+              count=4, first_seen=NOW - 9000, resolve_note="restarted it")
+
+    def test_each_alert_reads_back_as_raised_acknowledged_and_resolved_newest_first(self):
+        h = history([self.A1])
+        self.assertEqual([e["kind"] for e in h["events"]], ["resolved", "acknowledged", "raised"])
+        resolved, acked, raised = h["events"]
+        self.assertEqual((resolved["by"], resolved["how"], resolved["note"], resolved["at"]),
+                         ("alice", "hand", "restarted it", NOW - 3000))
+        self.assertEqual((acked["by"], acked["at"]), ("bob", NOW - 5000 + 5))
+        self.assertEqual((raised["at"], raised["count"], raised["last"], raised["detail"]),
+                         (NOW - 9000, 4, NOW - 5000, "unit=nginx.service"))
+
+    def test_resolving_an_alert_nobody_acknowledged_reads_back_resolved_then_acknowledged(self):
+        """The server records both at the same second; the later step comes first in a newest-first list."""
+        a = dict(alert("failed_unit", unit="u", ts=NOW - 900, resolved_at=NOW - 60, by="alice"),
+                 acknowledged_by="alice", acknowledged_at=NOW - 60)
+        self.assertEqual([e["kind"] for e in history([a])["events"]], ["resolved", "acknowledged", "raised"])
+
+    def test_a_recovery_event_and_a_mute_are_told_apart_from_a_person(self):
+        auto = alert("failed_unit", unit="a", ts=NOW - 400, resolved_at=NOW - 300, by="auto")
+        muted = alert("failed_unit", unit="b", ts=NOW - 200, resolved_at=NOW - 100, by="muted")
+        hows = [e["how"] for e in history([auto, muted])["events"] if e["kind"] == "resolved"]
+        self.assertEqual(hows, ["system", "auto"])
+
+    def test_an_open_alert_has_only_been_raised(self):
+        h = history([alert("failed_unit", unit="u")])
+        self.assertEqual([e["kind"] for e in h["events"]], ["raised"])
+
+    def test_only_this_host_and_this_kind(self):
+        mine, other_host, other_kind = alert("failed_unit", unit="u"), alert("failed_unit", dev="h2", unit="u"), alert("mount_issue", path="/")
+        self.assertEqual(history([mine, other_host, other_kind])["alerts"], 1)
+        self.assertEqual(history([other_kind], family="mount")["alerts"], 1)
+
+    def test_a_problem_with_no_host_is_told_by_its_detail(self):
+        a = alert("tls_expiry", dev="", host="a.example", port=443)
+        b = alert("tls_expiry", dev="", host="b.example", port=443)
+        self.assertEqual(history([a, b], dev="", family="tls", detail="host=a.example;port=443")["alerts"], 1)
+        self.assertEqual(history([a, b], dev="", family="tls", detail="")["alerts"], 0)
+
+    def test_the_window_and_the_limits(self):
+        old = alert("failed_unit", unit="u", ts=NOW - 100 * DAY, resolved_at=NOW - 99 * DAY, by="alice")
+        self.assertEqual(history([old])["alerts"], 0)
+        self.assertEqual(history([old], window_days=365)["alerts"], 1)
+        many = [alert("failed_unit", unit=f"u{i}", ts=NOW - i) for i in range(problems.HISTORY_ALERT_LIMIT + 30)]
+        self.assertEqual(history(many)["alerts"], problems.HISTORY_ALERT_LIMIT)
+
+    def test_a_hand_edited_store_does_not_fail_it(self):
+        junk = [None, "x", 7, [], {"event": ["l"], "device_id": "h1", "ts": "soon", "payload": "text"}]
+        h = history(junk + [self.A1])
+        self.assertEqual(h["alerts"], 1)
+
+    def test_an_unknown_family_or_host_has_an_empty_history(self):
+        self.assertEqual(history([self.A1], family="nothing")["events"], [])
+        self.assertEqual(history([self.A1], dev="nobody")["events"], [])
 
 
 class TestTheJoinTablesNameRealThings(unittest.TestCase):
@@ -584,6 +714,82 @@ class TestTheAlertsListSaysWhenTheHostDisagrees(_Endpoint):
         r = self.row(body, "h1", "failed_units")
         self.assertEqual(len(r["alert_ids"]), 2)
         self.assertEqual(set(r["open_ids"]), set(r["alert_ids"]))
+
+
+class TestTheEndpointOffersTheActions(_Endpoint):
+    def test_a_failed_unit_offers_mute_ignore_and_fix_from_the_real_stores(self):
+        self.fire("failed_unit", device_id="h1", name="web01", unit="nginx.service", units=["nginx.service"], new_count=1)
+        r = self.row(self.get(), "h1", "failed_units")
+        self.assertEqual(r["mute_events"], ["failed_unit"])
+        self.assertTrue(r["attention"][0]["ignore_key"], "Needs attention gave the item no ignore key")
+        self.assertEqual(r["fix"]["kind"], "failed_units")
+        self.assertIn(r["fix"]["source"], ("attention", "alert"))
+        self.assertEqual(r["checks"][0]["key"], "services")
+        self.assertEqual(r["open_ids"], [r["alerts"][0]["id"]])
+
+    def test_a_problem_only_the_host_reports_still_offers_the_mute_its_item_stands_for(self):
+        """No alert exists for it, so the only source of the event is the map from Needs attention kinds."""
+        r = self.row(self.get(), "h2", "reboot")
+        self.assertEqual(r["sources"], ["attention", "check"])
+        self.assertEqual(r["mute_events"], ["reboot_required"])
+
+    def test_an_alert_with_a_playbook_offers_the_fix_though_no_item_does(self):
+        """No Needs attention item names a mitigation here, so only the alert's own rule can supply it."""
+        self.fire("service_down", device_id="h2", name="db01", unit="postgres.service", active="failed")
+        r = self.row(self.get(), "h2", "service_down")
+        self.assertEqual(r["sources"], ["alert"])
+        self.assertEqual((r["fix"] or {}).get("source"), "alert")
+        self.assertEqual(r["fix"]["target"], "postgres.service")
+
+    def test_the_fix_of_an_alert_is_asked_of_a_probe_and_never_written_onto_the_stored_alert(self):
+        self.fire("service_down", device_id="h2", name="db01", unit="postgres.service", active="failed")
+        self.get()
+        stored = [a for a in self.api.load(self.api.ALERTS_FILE)["alerts"] if a["event"] == "service_down"]
+        self.assertTrue(stored)
+        for a in stored:
+            self.assertNotIn("mitigation_kind", a)
+
+
+class TestTheHistoryEndpoint(_Endpoint):
+    UNIT = dict(device_id="h1", name="web01", unit="nginx.service", units=["nginx.service"], new_count=1)
+
+    def history(self, query):
+        self.query = query
+        try:
+            self.api.handle_problems_history()
+        except self.api.HTTPError as e:
+            self.status = e.status
+            return e.body
+        raise AssertionError("handle_problems_history did not respond")
+
+    def test_it_reads_back_what_happened_to_the_issues_own_story(self):
+        self.fire("failed_unit", **self.UNIT)
+        self.resolve_by_hand("failed_unit", who="alice", at=int(time.time()) + 30)   # after it was raised
+        h = self.history("device_id=h1&family=failed_units")
+        self.assertEqual(self.status, 200)
+        self.assertEqual([e["kind"] for e in h["events"]], ["resolved", "acknowledged", "raised"])
+        self.assertEqual((h["events"][0]["by"], h["events"][0]["how"]), ("alice", "hand"))
+
+    def test_a_host_outside_the_callers_scope_has_an_empty_history(self):
+        self.fire("failed_unit", **self.UNIT)
+        self.api._caller_scope = lambda: {"type": "groups", "values": ["prod"]}
+        self.assertEqual(self.history("device_id=h1&family=failed_units")["events"], [])
+
+    def test_bad_parameters_fall_back_and_an_unknown_family_is_empty(self):
+        for q in ("", "family=", "device_id=h1&family=failed_units&days=zzz", "family=failed_units&days=99999&device_id=%00"):
+            body = self.history(q)
+            self.assertEqual(self.status, 200, q)
+            self.assertEqual(body["events"], [])
+
+    def test_it_needs_a_signed_in_caller(self):
+        api = _fresh_api(auth=False)
+        api._env = lambda k, d="": d
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_problems_history()
+        self.assertEqual(cm.exception.status, 401)
+
+    def test_the_route_is_registered(self):
+        self.assertEqual(self.api._build_exact_routes()[("GET", "/api/problems/history")].__name__, "handle_problems_history")
 
 
 class TestTheEndpoint(_Endpoint):

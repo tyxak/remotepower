@@ -1118,7 +1118,7 @@ problems_handlers_mod = _tk_ilu.module_from_spec(_pr_spec)
 _pr_spec.loader.exec_module(problems_handlers_mod)
 problems_handlers_mod.bind(globals())
 for _pr_name in (
-        'handle_problems', 'annotate_alerts_with_problem_state',
+        'handle_problems', 'handle_problems_history', 'annotate_alerts_with_problem_state',
 ):
     globals()[_pr_name] = getattr(problems_handlers_mod, _pr_name)
 del _pr_name
@@ -73391,6 +73391,7 @@ def _build_exact_routes():
         ('POST', '/api/alerts/bulk-ack'): handle_alerts_bulk_ack,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
         ('GET', '/api/problems'): handle_problems,                   # #56 one list of problems
+        ('GET', '/api/problems/history'): handle_problems_history,   # #56 what happened to one problem
         ('GET', '/api/nav-counts'): handle_nav_counts,
         ('GET', '/api/board'): handle_board,                         # v5.0.0 T6 NOC board
         ('GET', '/api/network-metrics'): handle_network_metrics,     # v5.0.0 net metrics

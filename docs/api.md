@@ -88,6 +88,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | `GET` | `/api/problems` | | One row per host and kind of problem, with the alerts, Needs attention items and failing checks under it and a `state`: `failing`, `host_clear`, `waiting_for_report`, `resolved_but_failing`, `resolved` or `recovered`. `?state=active\|all\|<state>` (default `active`), `source=alert\|attention\|check`, `device_id=`, `q=`, `days=` (how far back a resolved alert counts; default 7, at most 30), `limit=`, `offset=`. `counts` covers everything the caller may see, before the filters |
+| `GET` | `/api/problems/history` | | Everything that happened to one problem, newest first: each alert of it raised (and how often it came again), acknowledged and resolved, by whom and how, with the resolve note. `?device_id=&family=` (a row's `device_id` and `family`), `detail=` for a problem with no host, `days=` (default 90, at most 365). Only the alerts the caller may see |
 
 ### Users & Auth
 | Method | Endpoint | Auth | Description |

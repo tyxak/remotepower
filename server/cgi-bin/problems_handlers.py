@@ -115,7 +115,7 @@ def _failing_checks(allowed):
             if not isinstance(c, dict) or c.get('enabled') is False or c.get('status') not in ('warning', 'critical'):
                 continue
             key = str(c.get('key') or '')
-            out.append({'device_id': did, 'device': host.get('name') or did, 'id': key.split(':', 1)[0],
+            out.append({'device_id': did, 'device': host.get('name') or did, 'id': key.split(':', 1)[0], 'key': key,
                         'name': c.get('name') or key, 'status': c['status'], 'output': c.get('output')})
     return out
 
@@ -125,6 +125,16 @@ def _int_param(qs, name, default, lo, hi):
         return max(lo, min(hi, int(qs.get(name, [default])[0])))
     except (TypeError, ValueError, OverflowError):
         return default
+
+
+def _fix_of_alert(a):
+    """The Fix an alert offers, by the rule that tags the Alerts page's rows. That rule writes onto the alert it is
+    given, so it gets a probe holding the four fields it reads and never the stored alert."""
+    probe = {'resolved_at': a.get('resolved_at'), 'device_id': a.get('device_id'),
+             'event': a.get('event'), 'payload': a.get('payload')}
+    A._annotate_alert_mitigation([probe])
+    kind = probe.get('mitigation_kind')
+    return (kind, probe.get('mitigation_target') or '') if kind else None
 
 
 def _rows(days):
@@ -142,7 +152,8 @@ def _rows(days):
         alerts=alerts, attention=attention, checks=_failing_checks(allowed),
         kind_of_event=kind_of_event, check_family=CHECK_FAMILY,
         shown_kinds=frozenset(kind_of_event.values()) | frozenset(CHECK_FAMILY.values()) | METRIC_KINDS,
-        identity_fields=tuple(A._ALERT_IDENTITY_FIELDS), reports=reports, now=now, window_s=days * 86400)
+        identity_fields=tuple(A._ALERT_IDENTITY_FIELDS), reports=reports, now=now, window_s=days * 86400,
+        mute_map=A._NA_MUTE_EVENTS, fix_of_alert=_fix_of_alert)
     return rows, now
 
 
@@ -213,3 +224,25 @@ def handle_problems():
         'counts': problems.counts(rows),
         'generated_at': now,
     })
+
+
+def handle_problems_history():
+    """GET /api/problems/history?device_id=&family=[&detail=][&days=]
+
+    Everything that happened to one problem, newest first: each alert of it was raised (with how often it came
+    again), acknowledged and resolved, by whom and how, with the resolve note. A problem is a host and a kind (the
+    `device_id` and `family` of a row of /api/problems); for a problem with no host, `detail` is the row's
+    discriminator. `days` is how far back to read (default 90, at most 365).
+
+    Read-only, and only the alerts the caller may see: a host outside the caller's scope or tenant answers with an
+    empty history, the same as a host that has none, so the answer does not say whether it exists."""
+    A.require_auth()
+    qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+    device_id = A._sanitize_str(qs.get('device_id', [''])[0] or '', 64)
+    family = A._sanitize_str(qs.get('family', [''])[0] or '', 64)
+    detail = A._sanitize_str(qs.get('detail', [''])[0] or '', 200)
+    days = _int_param(qs, 'days', 90, 1, 365)
+    alerts = A._filter_alerts_for_caller((A._load_ro(A.ALERTS_FILE) or {}).get('alerts') or [])
+    A.respond(200, problems.history(
+        alerts=alerts, device_id=device_id, family=family, detail=detail, kind_of_event=_kind_of_event(),
+        identity_fields=tuple(A._ALERT_IDENTITY_FIELDS), now=int(time.time()), window_s=days * 86400))

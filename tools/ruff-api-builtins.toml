@@ -497,6 +497,7 @@ builtins = [
     "handle_privacy_erase",
     "handle_privacy_subject",
     "handle_problems",
+    "handle_problems_history",
     "handle_prometheus_sd",
     "handle_proxmox_action",
     "handle_proxmox_backup_threshold",
