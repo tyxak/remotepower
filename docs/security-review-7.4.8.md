@@ -34,7 +34,7 @@ Each fix has tests, and each test was run against the code with its fix taken ou
 | Lint (`make lint`: isort, black, mypy, ruff `F` and `E9`) | The type-checked modules, the agents, the sidecars, the tools, the tests and the packaging | Clean |
 | bandit | 136,650 lines of server and agent Python, against the committed baseline | 0 High, 24 Medium and 928 Low. Nothing is new against the baseline. Five Low are new since 7.4.7 (923), all in the agent: two for running `apt-mark` and `apt-get` as a list of arguments with no shell, two for naming them without a full path, and one for a `try` that passes in a function that must never raise |
 | semgrep | The Python, JavaScript and security-audit rule sets over the five files of code that changed, with the per-rule timeout raised to 120 seconds. `api.py` has 77,821 lines, so it was scanned as the seven functions that hold a changed line (1,071 lines) | Four results, all in the agent and none on a line changed since 7.4.7: file permissions the agent sets on its own directories and update files (3) and the agent starting itself again with its own arguments (1). Nothing in the other files. A control, the same seven functions with an `eval` and a `shell=True` added, was flagged for both |
-| gitleaks | All 2,514 commits on every ref, and the 1,650 tracked files as `git archive` writes them | No leaks |
+| gitleaks | All 2,517 commits on every ref, the 1,651 tracked files as `git archive` writes them, and the unpacked release tarball | No leaks |
 | Dependency audit (`pip-audit`) | The 11 pinned requirements of the server | No known vulnerabilities. No requirement changed since 7.4.7 |
 | Hostile values through the real functions | 20 sensor limits (NaN, infinity, 1e308, 0, 0.5, 150.0001, integers of 400 digits, strings, booleans, lists, maps), 14 labels (not a string, empty, 100,000 characters, a chip name in capitals or with a space in front, a NUL, a right-to-left mark, a path, markup) and 10 readings, through the ingest, then the Thermal page and the risk score; and the same values written as stored rows, with the readings also in a drive's and a GPU's | Finding 1. After the fix every case answers, the page is strict JSON, and nothing outside 1 to 150 °C is stored or shown as a limit |
 | Hostile text from apt | Output of 5 MB on one line, one of 200,000 names, the heading 10,000 times, Windows line endings, a NUL, and 10 names that are shell words or options (`$(…)`, `;id`, a backtick, `--force-yes`, `-o`, a path, a NUL, a right-to-left mark, 4,000 characters) | Read in well under a second. No name was part of a command, no call used a shell, every `apt-get` call had `--simulate`, and the list of names stopped at 300 while the count stayed whole |
@@ -85,11 +85,12 @@ the score. A page that raised was measured by calling the handler: the server tu
 
 ## Left for the release gate
 
-The full suite and the checks that belong to a release are listed with the release, once it is cut. Run so far, each on a copy
-of the tree. At 903d1bd4, which holds the code of the Problems, Thermal and Patching changes: JSON 17,660 tests and SQLite
-17,352, both red only in the two AUR subtests of `test_v643_aur_tracks_release`, which compare the AUR packages with the newest
-dated release and are red by design until a release is published. The release commit carries the two fixes of this review, and
-its numbers are written here when its run finishes.
+The full suite and the checks that belong to a release are listed with the release, once it is cut. Run on copies of the tree at
+45812a33, which holds all the code of this release: JSON 17,681 tests, SQLite 17,373, `make ci-parity` 17,444 (Python 3.14 with the CI
+dependency list) and PostgreSQL 18.6 (28 tests, none skipped). `make lint` and `make bandit` were clean. Every run was red only in the
+two AUR subtests of `test_v643_aur_tracks_release`, which compare the AUR packages with the newest dated release and are red by design
+until a release is published. The release commit changes the date in the changelog, this section, the gitleaks row of the table and one
+sentence of the release notes and of its card in the dashboard, and nothing else, so the suites were not run again on it.
 
 ## Not run for this review
 

@@ -5,7 +5,7 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v7.4.8 — "Hon3stMatters" — unreleased (test)
+## v7.4.8 — "Hon3stMatters" — 2026-11-01
 
 Three screens said something that was not true: a Problems row that read "never" under Updated, a sensor limit of 65261.8 °C,
 and a host that read "Fully Patched" with a kernel update waiting. They came from the replies to #54 and #56 and from a
