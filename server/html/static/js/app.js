@@ -24508,7 +24508,7 @@ function _renderDrawerSettings() {
     <div class="drawer-setting-row">
       <label class="drawer-setting-label" for="ds-ssh-user">SSH user / port</label>
       <input class="form-input isl-619" id="ds-ssh-user" value="${escAttr(d.ssh_user||'')}" placeholder="root">
-      <input class="form-input isl-621" id="ds-ssh-port" type="number" value="${d.ssh_port||22}" min="1" max="65535">
+      <input class="form-input isl-621" id="ds-ssh-port" type="number" value="${d.ssh_port||22}" min="1" max="65535" aria-label="SSH port">
       <button class="btn-icon" data-action="sshPollDevice" data-arg="${escAttr(d.id)}">Poll over SSH</button>
       <span class="hint">Uses the global SSH key (Settings → Security → Agentless SSH). Save first, then Poll.</span>
     </div>` : ''}
@@ -24570,9 +24570,9 @@ function _renderDrawerSettings() {
       <div id="ds-snmp-ports" class="mt-8"></div>
     </div>
     <div class="drawer-setting-row isl-622">
-      <span class="drawer-setting-label isl-623">Version / port</span>
+      <span class="drawer-setting-label isl-623" id="ds-snmp-ver-lbl">Version / port</span>
       <div class="row-8-center">
-        <select class="form-input isl-620" id="ds-snmp-version">
+        <select class="form-input isl-620" id="ds-snmp-version" aria-labelledby="ds-snmp-ver-lbl">
           <option value="2c">SNMPv2c (community)</option>
           <option value="3">SNMPv3 (user, auth/priv)</option>
         </select>
@@ -24594,9 +24594,9 @@ function _renderDrawerSettings() {
         </div>
       </div>
       <div class="drawer-setting-row isl-622">
-        <span class="drawer-setting-label isl-623">Authentication</span>
+        <span class="drawer-setting-label isl-623" id="ds-snmp-auth-lbl">Authentication</span>
         <div class="row-8-center">
-          <select class="form-input isl-621" id="ds-snmp-v3-auth-proto">
+          <select class="form-input isl-621" id="ds-snmp-v3-auth-proto" aria-labelledby="ds-snmp-auth-lbl">
             <option value="none">none</option>
             <option value="md5">MD5</option>
             <option value="sha">SHA-1</option>
@@ -24609,9 +24609,9 @@ function _renderDrawerSettings() {
         </div>
       </div>
       <div class="drawer-setting-row isl-622">
-        <span class="drawer-setting-label isl-623">Privacy</span>
+        <span class="drawer-setting-label isl-623" id="ds-snmp-priv-lbl">Privacy</span>
         <div class="row-8-center">
-          <select class="form-input isl-621" id="ds-snmp-v3-priv-proto">
+          <select class="form-input isl-621" id="ds-snmp-v3-priv-proto" aria-labelledby="ds-snmp-priv-lbl">
             <option value="none">none</option>
             <option value="aes">AES-128</option>
           </select>

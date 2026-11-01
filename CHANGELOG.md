@@ -139,6 +139,12 @@ metrics work that followed 7.4.6. The release page is [docs/v7.4.7.md](docs/v7.4
   every page (its title, first filter and first columns) sat under it. They now take the rail's width while it is
   pinned, mirrored for Arabic and not on the phone layout. A hover over the closed rail is still an overlay, and
   the My Account setting **Keep hiding while alerts are open** and a manual collapse are unchanged.
+- **The drawer of a switch or an access point names its fields.** The SSH port box and the SNMP version,
+  authentication and privacy lists had no name, so a screen reader announced them as an unlabelled edit box and
+  unlabelled lists. The SSH port is named "SSH port" and each list takes the label printed beside it. The browser
+  test of the drawer opened whichever host the Home page listed first, which is not always the same host, and only
+  the drawer of a switch or an access point holds these fields, so the test failed in some runs and passed in
+  others. It now always opens one agentless host as well, and shows its SNMPv3 rows too.
 - The thermal roll-up sweep stopped for every host when one host's row held a `last_ts` that was not a number. It
   now treats that row as having nothing folded yet.
 - The Trends history of a host failed as a whole when one stored mount was not a map or held a percentage that was

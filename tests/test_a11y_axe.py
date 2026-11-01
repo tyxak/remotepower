@@ -583,6 +583,12 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
             for _i, _k in enumerate(sorted(_devices)):
                 if _i % 2 == 0 and isinstance(_devices[_k], dict):
                     _devices[_k]['last_seen'] = _old
+            # The drawer of an agentless host has rows an agent host's does not
+            # (SSH and SNMP), so the drawer test names one rather than hoping
+            # the first row on the page happens to be one.
+            cls._agentless = sorted(
+                _k for _k, _v in _devices.items()
+                if isinstance(_v, dict) and _v.get('agentless'))
             with open(_dev, 'w') as fh:
                 _json.dump(_devices, fh)
         except (OSError, ValueError) as exc:
@@ -697,19 +703,24 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
                 "  return el ? el.getAttribute('data-arg') : null; }")
             if not dev_id:
                 self.skipTest('no rendered device row to open the drawer from')
-            page.evaluate(
-                "id => { try { openDeviceDrawer(id, 'x', 'actions') } catch (e) {} }",
-                dev_id)
-            page.wait_for_timeout(1500)
-            # A walk where nothing opened measures nothing and reports success —
-            # the same guard the modal walk carries.
+            # The first row is not a fixed host. It is whichever one the Home
+            # roster lists first (offline hosts, then the most down days, then
+            # by name), and an agentless host is online or not by the server's
+            # ping sweep, so which host that is can change with how long the
+            # stack has been up and with the network the test runs on. Only an
+            # agentless host's drawer holds the SSH and SNMP rows, so a run that
+            # opened an agent host never looked at them, and two unnamed
+            # controls in them failed this test in some runs and not in others.
+            # The first row stays, because it is what a user clicks, and one
+            # agentless host is always audited as well.
             self.assertTrue(
-                page.evaluate("() => !!document.querySelector('#device-drawer.open')"),
-                'the drawer did not open, so this audited an invisible subtree')
+                self._agentless,
+                'the seeded fleet has no agentless host, so the SSH and SNMP '
+                'rows of the drawer would not be audited')
+            targets = [('first row', dev_id), ('agentless', self._agentless[0])]
             found = {}
-            for tab in ('actions', 'audit'):
-                page.evaluate("t => { try { switchDrawerTab(t) } catch (e) {} }", tab)
-                page.wait_for_timeout(900)
+
+            def audit(what, tab):
                 res = page.evaluate(
                     "axe.run('#device-drawer', %s).then(r => r)"
                     % json.dumps(_AXE_OPTIONS))
@@ -719,9 +730,49 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
                     found[v['id']] = found.get(v['id'], 0) + len(v.get('nodes') or [])
                     for node in (v.get('nodes') or []):
                         self.detail.append(
-                            f"drawer/{tab}: [{v['id']}] "
+                            f"drawer/{what}/{tab}: [{v['id']}] "
                             f"{(node.get('target') or ['?'])[0]} :: "
                             f"{node.get('html', '')[:90]}")
+
+            for what, target_id in targets:
+                page.evaluate(
+                    "id => { try { openDeviceDrawer(id, 'x', 'actions') } catch (e) {} }",
+                    target_id)
+                page.wait_for_timeout(1500)
+                # A walk where nothing opened measures nothing and reports success —
+                # the same guard the modal walk carries.
+                self.assertTrue(
+                    page.evaluate("() => !!document.querySelector('#device-drawer.open')"),
+                    'the drawer did not open, so this audited an invisible subtree')
+                if what == 'agentless':
+                    self.assertTrue(
+                        page.evaluate(
+                            "() => !!document.getElementById('ds-ssh-port')"
+                            " && !!document.getElementById('ds-snmp-version')"),
+                        f'the drawer of {target_id} has no SSH or SNMP rows, so '
+                        f'the agentless half of this audit looked at the wrong body')
+                for tab in ('actions', 'audit'):
+                    page.evaluate("t => { try { switchDrawerTab(t) } catch (e) {} }", tab)
+                    page.wait_for_timeout(900)
+                    audit(what, tab)
+                    if what == 'agentless' and tab == 'actions':
+                        # The SNMPv3 rows stay hidden until v3 is chosen, and axe
+                        # does not scan a hidden subtree. The page fills in the
+                        # saved SNMP settings after a request, and that would put
+                        # the version back, so wait for it before choosing v3.
+                        page.wait_for_function(
+                            "() => { const s = document.getElementById('ds-snmp-status');"
+                            " return !!s && !/Loading/.test(s.textContent); }",
+                            timeout=20000)
+                        page.evaluate(
+                            "() => { const s = document.getElementById('ds-snmp-version');"
+                            " s.value = '3'; _drawerSnmpVersionSync(); }")
+                        self.assertTrue(
+                            page.evaluate(
+                                "() => !document.getElementById('ds-snmp-v3-rows')"
+                                ".classList.contains('hidden')"),
+                            'choosing SNMPv3 did not show its rows, so they went unaudited')
+                        audit('agentless-snmpv3', tab)
             self.assertEqual(found, {}, 'critical/serious a11y violations in the '
                              'device drawer — the product\'s primary device '
                              'surface, unaudited until v6.4.3:\n'
