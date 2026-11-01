@@ -229,6 +229,7 @@ def start_stack(data_dir=None):
 
     def shutdown():
         httpd.shutdown()
+        httpd.server_close()
         worker.terminate()
         try:
             worker.wait(timeout=10)
