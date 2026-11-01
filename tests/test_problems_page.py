@@ -98,8 +98,8 @@ class TestRegistered(_Sources):
     def test_what_the_server_returns_is_what_the_page_reads(self):
         """The row fields the page reads must be fields problems.py puts on a row."""
         src = (ROOT / "server" / "cgi-bin" / "problems.py").read_text()
-        for field in ("key", "device_id", "device", "family", "title", "severity", "state", "updated", "sources", "alerts",
-                      "attention", "checks", "open_ids"):
+        for field in ("key", "device_id", "device", "family", "title", "severity", "state", "updated", "last_report",
+                      "sources", "alerts", "attention", "checks", "open_ids"):
             self.assertIn(f'"{field}"', src, f"problems.py has no {field!r} on a row")
             self.assertRegex(self.mod, rf"\br\.{field}\b", f"the page never reads row.{field}")
 
@@ -183,6 +183,29 @@ class TestTheViewsAndTheActions(_Sources):
     def test_a_state_reads_the_same_everywhere(self):
         self.assertIn("'Alert open, no longer listed'", self.mod)
         self.assertNotIn("Host reports it clear", self.index + self.mod + self.i18n)
+
+
+class TestTheUpdatedColumn(_Sources):
+    """The reporter's second report on #56: a problem that only Needs attention or Checks list read "never" under Updated,
+    current ones included. The server's `updated` is the newest alert time and such a problem has no alert, so the column
+    falls back to when its host last reported it, and to a dash when that is not known either. The sort uses the same value,
+    so the order of the column is the order of what it shows."""
+
+    def test_the_cell_and_the_sort_read_one_time(self):
+        table = between(self.mod, "function renderProblems()", "// ── history")
+        self.assertRegex(table, r"updated:\s*_problemUpdated\(r\)")
+        self.assertRegex(table, r"timeAgoHtml\(_problemUpdated\(r\),\s*\{clamp: true, empty: '—'\}\)")
+        self.assertNotIn("timeAgoHtml(r.updated", table)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_the_time_is_the_alert_time_then_the_host_report_then_nothing(self):
+        body = srcpin.js_function(self.mod, "_problemUpdated")
+        cases = [{"updated": 50, "last_report": 90}, {"updated": 0, "last_report": 90}, {"updated": 0, "last_report": 0},
+                 {}, {"updated": None, "last_report": None}, {"last_report": 90}, {"updated": 50}]
+        script = body + f"\nconsole.log(JSON.stringify({json.dumps(cases)}.map(_problemUpdated)));"
+        run = subprocess.run([shutil.which("node"), "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads(run.stdout), [50, 90, 0, 0, 0, 90, 50])
 
 
 class TestTranslated(_Sources):

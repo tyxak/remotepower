@@ -5,6 +5,16 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
+## Unreleased (test)
+
+What the reporter of #54 and #56 found on 7.4.6 and 7.4.7, and an open question in Discussions (#30).
+
+### Problems
+
+- **A problem that only Needs Attention or Checks list shows a time.** The Updated column is the newest alert time, so a
+  row with no alert read "never", current ones included (pending updates, agent version). Such a row now shows when its
+  host last reported it, and a dash when the host has not said when. Sorting by the column uses the same time.
+
 ## v7.4.7 — "0nceMatters" — 2026-11-01
 
 Two reports from the same Docker install, filed on tyxak/remotepower as #56 and #57, and the Thermal, Disk and Host

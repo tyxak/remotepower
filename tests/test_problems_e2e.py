@@ -181,6 +181,34 @@ class TestTheProblemsPage(unittest.TestCase):
         self.assertLess(len([r for r in after if r["resolve"]]), len(open_rows))
         self.assertTrue(target["host"])
 
+    def test_a_problem_only_needs_attention_or_checks_list_shows_when_its_host_reported_it(self):
+        """The reporter's second report on #56: such a row read "never" under Updated, current ones included (pending
+        updates, agent version). It has no alert, so the time is when its host last reported; a host that never said when
+        shows a dash. No cell says never. Both groups are checked for being non-empty: a population of zero proves nothing
+        (the demo's hosts carry no report time but the one patched in setUpModule)."""
+        self.open("all")
+        rows = self.page.evaluate("""() => {
+            const cell = {};
+            for (const tr of document.querySelectorAll('#problems-tbody tr')) {
+                const b = tr.querySelector('[data-action="openProblemHistory"]');
+                if (b) cell[b.dataset.arg] = tr.querySelectorAll('td')[5].textContent.trim();
+            }
+            return _problemsRows.map(r => ({host: r.device, family: r.family, updated: r.updated || 0,
+                                            report: r.last_report || 0, cell: cell[r.key]}));
+        }""")
+        by_report = [r for r in rows if not r["updated"] and r["report"]]
+        no_time = [r for r in rows if not r["updated"] and not r["report"]]
+        by_alert = [r for r in rows if r["updated"]]
+        self.assertGreater(len(by_report), 3, rows)
+        self.assertGreater(len(no_time), 3, rows)
+        self.assertGreater(len(by_alert), 3, rows)
+        for r in rows:
+            self.assertNotIn(r["cell"], (None, "", "never"), r)
+        for r in by_report + by_alert:
+            self.assertNotEqual(r["cell"], "—", r)
+        for r in no_time:
+            self.assertEqual(r["cell"], "—", r)
+
 
 
 @unittest.skipUnless(_GATE, SKIP_REASON)

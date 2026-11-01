@@ -51,6 +51,9 @@ seven days and show under **All states**.
 - Four tiles count the states that need you. Click a tile to filter by it, and click it again to undo.
 - Filter by state and by text. A view and a state filter work together.
 - The **Where** buttons open the page a source lives on, for the actions that page has.
+- **Updated** is the last thing that happened to one of the problem's alerts: raised, acknowledged or resolved. A
+  problem that only Needs Attention or Checks list has no alert, so it shows when its host last reported it, and a
+  dash when the host has not said when. Sorting by the column uses the same time.
 - Checks you have switched off on a host, and hosts you do not monitor, are left out, as on the Checks page.
 
 ## What you can do to a problem

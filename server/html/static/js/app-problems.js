@@ -145,6 +145,10 @@ function _problemActionsHtml(r, isAdmin) {
   return parts.join(' ');
 }
 
+// The time a row shows under Updated: the newest thing that happened to one of its alerts. A problem that only Needs
+// attention or Checks list has no alert, so it shows when its host last reported it. 0 when neither is known.
+function _problemUpdated(r) { return r.updated || r.last_report || 0; }
+
 function renderProblems() {
   const tbody = document.getElementById('problems-tbody');
   if (!tbody) return;
@@ -153,7 +157,7 @@ function renderProblems() {
     host: (r.device || '').toLowerCase(),
     problem: (r.title || '').toLowerCase(),
     state: _PROBLEM_STATE_RANK[r.state] ?? 9,
-    updated: r.updated || 0,
+    updated: _problemUpdated(r),
   }));
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No problems match.</td></tr>';
@@ -176,7 +180,7 @@ function renderProblems() {
       <td>${escHtml(r.title)}<div class="hint">${escHtml(r.family)}</div>${_problemDetailHtml(r)}</td>
       <td><span class="chk-pill chk-${st.cls}">${escHtml(st.label)}</span></td>
       <td class="nowrap">${where}</td>
-      <td class="hint">${timeAgoHtml(r.updated, {clamp: true})}</td>
+      <td class="hint">${timeAgoHtml(_problemUpdated(r), {clamp: true, empty: '—'})}</td>
       <td class="nowrap">${_problemActionsHtml(r, isAdmin)}</td></tr>`;
   }), {colspan: 7});
 }
