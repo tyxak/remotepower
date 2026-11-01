@@ -5,7 +5,7 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v7.4.7 — "0nceMatters" — unreleased (test)
+## v7.4.7 — "0nceMatters" — 2026-11-01
 
 Two reports from the same Docker install, filed on tyxak/remotepower as #56 and #57, and the Thermal, Disk and Host
 metrics work that followed 7.4.6. The release page is [docs/v7.4.7.md](docs/v7.4.7.md).
