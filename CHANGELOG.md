@@ -36,8 +36,9 @@ What the reporter of #54 and #56 found on 7.4.6 and 7.4.7, and an open question 
   needs a package that is not installed yet, such as a new kernel image or the split `linux-firmware`. It prints no
   `Inst` line and exits 0, so the agent counted nothing and the host read "Fully Patched, Pending: 0" while a
   security update was waiting. The agent counts what apt keeps back as pending now, and as a security update when
-  apt flags the new package as one (it asks apt what an upgrade that may install new packages would do, as a
-  simulation). A package held with `apt-mark hold` stays out, and when the holds cannot be read none is counted.
+  apt lists the update as coming from a security archive, as it does for every other package (it asks apt what an
+  upgrade that may install new packages would do, as a simulation, and reads the line of each kept-back package).
+  A package held with `apt-mark hold` stays out, and when the holds cannot be read none is counted.
   The patch run itself is unchanged: it still does not install them, so they stay pending until installed on the
   host. Debian and Ubuntu hosts only, and the agent has to be updated. The agent also reads `apt-get`'s messages in
   the C locale now, so the heading is the same on a host in another language.
