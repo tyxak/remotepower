@@ -90,6 +90,10 @@ Thanks to everyone who has contributed fixes, features, and reports.
   - #57 — asked for each CVE finding to say whether a fix exists for the host's own release,
     and for alerts only on findings that are fixable or known to be exploited
   - #58 — reported that Suggested dependencies showed a server depending on its own client
+- **@KILLERPsix** — first contributed in v7.4.8:
+  - Discussion #30 — reported that a Debian host whose kernel update `apt-get upgrade` keeps back
+    read as Fully Patched, and, in a follow-up, that the same happens with the split
+    `linux-firmware` packages on Ubuntu 24.04
 
 ---
 
