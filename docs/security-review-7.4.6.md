@@ -2,7 +2,7 @@
 
 7.4.6 answers four requests (#55, #56, #57 and #58) and a follow-up on a fifth (#54). The first, a
 switch that marks a host as internal, was reviewed on its own while it was still going to be released
-as 7.4.5; that review is [security-review-7.4.5.md](security-review-7.4.5.md) and is not repeated here.
+as 7.4.5; that review has left the three that are kept (see [security.md](security.md)) and is not repeated here.
 This review covers everything that changed after that candidate: 24 server, agent, page and packaging
 files with about 800 lines added, and 55 files with the tests and documents that go with them. The
 scans ran over the whole project, and the reading went to what changed: who may ask a host to report,

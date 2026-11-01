@@ -157,19 +157,20 @@ class TestTheSecurityReview(unittest.TestCase):
         notes = re.sub(r"\s+", " ", (_ROOT / "docs/v7.4.6.md").read_text())
         self.assertIn("It found two more issues, both low", notes)
 
-    def test_the_card_links_both_reviews(self):
+    def test_the_card_links_its_review_and_the_index_of_the_others(self):
         html = _html()
         card = html[html.index("What's new \u2014 v" + V):]
         card = card[:card.index("</details>")]
         self.assertIn("docs/security-review-7.4.6.md", card)
-        self.assertIn("docs/security-review-7.4.5.md", card)
+        self.assertIn("docs/security.md", card)         # the review of the internal-host switch left the window at v7.4.8
+        self.assertNotIn("docs/security-review-7.4.5.md", card)
 
     def test_three_reviews_are_kept(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
-        self.assertEqual(reviews, ["security-review-7.4.5.md", "security-review-7.4.6.md", "security-review-7.4.7.md"])
+        self.assertEqual(reviews, ["security-review-7.4.6.md", "security-review-7.4.7.md", "security-review-7.4.8.md"])
 
     def test_the_review_that_left_the_window_is_gone_everywhere(self):
-        for gone in ("7.4.3", "7.4.4"):
+        for gone in ("7.4.3", "7.4.4", "7.4.5"):
             self.assertFalse((_ROOT / f"docs/security-review-{gone}.md").exists(), gone)
             for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html"):
                 self.assertNotIn(f"security-review-{gone}.md", (_ROOT / rel).read_text(), (gone, rel))

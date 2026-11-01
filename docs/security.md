@@ -33,6 +33,10 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
+- [security-review-7.4.8.md](security-review-7.4.8.md) — a patch release: one low issue, a stored sensor, drive or
+  GPU reading, or a sensor limit, too big for a float that answered 500 to everyone on the Thermal page, and a check
+  that nothing a host sends or apt prints reaches a command, that a limit or a time of the wrong kind never reaches a
+  page, and that no route, permission or dependency changed, with the scans and the mutation checks behind them.
 - [security-review-7.4.7.md](security-review-7.4.7.md) — a feature release: one low issue, a stored
   alert of the wrong shape that answered 500 to everyone on five readers, and a check that a caller
   cannot see a host outside their role or tenant through the new list of problems, that hostile
@@ -43,12 +47,6 @@ are kept:
   row that is not a map, and a check that a caller cannot ask a host they cannot see, that a host cannot
   ask for itself, that an OSV record is bounded and that its text stays text, with the scans, a scan
   against the live feed, the run over every route and the mutation checks behind them.
-- [security-review-7.4.5.md](security-review-7.4.5.md) — a feature release: two low issues, a
-  request that did not say true or false that turned a host's exposure switch off and two
-  readers that raised on a stored port list the agent never sends, and a check that a tenant
-  stays inside its own hosts, that a host cannot set its own grade and that a host's text
-  stays text, with the scans, the run over every route, the race and the mutation checks
-  behind them.
 Each review found real defects, and every one of them was fixed before the
 release went out.
 
@@ -169,7 +167,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; the latest is
-[security-review-7.4.7.md](security-review-7.4.7.md). The codebase is also
+[security-review-7.4.8.md](security-review-7.4.8.md). The codebase is also
 scanned with a combined **SAST + DAST** pipeline (see *Security testing* below):
 CodeQL reports zero in both languages under the configuration production runs,
 Bandit reports nothing new against its baseline and no high-severity finding,
@@ -356,7 +354,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-7.4.7.md](security-review-7.4.7.md)).
+  [security-review-7.4.8.md](security-review-7.4.8.md)).
 - **SAST** — **CodeQL** with GitHub's query suites (also run on every push),
   [Bandit](https://bandit.readthedocs.io/), [semgrep](https://semgrep.dev/),
   [gitleaks](https://github.com/gitleaks/gitleaks) and an undefined-name check.

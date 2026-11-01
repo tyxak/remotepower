@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.4.7-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.4.8-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,11 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.4.8 "Hon3stMatters"** — three screens that said something untrue. A Problems row
+  that read "never" under Updated shows when its host last reported. A sensor limit that is
+  not a temperature (an NVMe drive with no threshold reported 65,261.8 °C) is no limit. A
+  Debian or Ubuntu host with a package apt keeps back, a new kernel image for one, reads as
+  having updates pending and not as fully patched.
 - **v7.4.7 "0nceMatters"** — each problem once: Monitoring → Problems joins an alert, a Needs
   attention item and a failing check for the same trouble on a host into one row, with its state
   (an alert you resolved while the host still reports the problem reads "resolved, still failing"),
@@ -224,13 +229,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   all. HTTP monitors can expect a 401, choose HEAD or GET and skip the certificate
   check. Two new integrations read Prometheus, by PromQL query or by scraping an
   exporter.
-- **v7.4.2 "Re4lMatters"** — fixes for four reports from a Docker install of
-  7.4.1. In each, the dashboard says one thing and the host is doing another.
-  An alert for a stopped container closes when the container runs again, and
-  container excludes can match an image, and have a box on Monitoring → Tuning.
-  SNMP memory leaves out the cache and buffers the host counts as used. A host's
-  card lists the integrations bound to it, with seven days of hourly averages.
-  Recovery notices are held with their alert in a maintenance window.
 
 ## Security
 

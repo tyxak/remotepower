@@ -61,6 +61,10 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.4.8.md](security-review-7.4.8.md)** — the v7.4.8 review: what a host can make the server and
+  its own agent do through the sensor limits and labels it reports and the text `apt-get` prints, what a stored row
+  of the wrong kind does to the Thermal page and the risk score, and one low issue, a stored reading or limit too big
+  for a float that answered 500 to everyone. Caught before release, with the scans and the mutation checks behind it.
 - **[security-review-7.4.7.md](security-review-7.4.7.md)** — the v7.4.7 review: who sees which host through
   the new list of problems and the pages that show its state (a viewer scoped to a group or a tag, a tenant
   administrator and a tenant viewer), hostile parameters, markup planted in everything the new pages print,
@@ -74,13 +78,8 @@ holds long-form docs that don't fit there.
   "false" and five readers that raised on a stored row that is not a map. Caught before release, with
   the scans, a scan against the live feed, the run over every route and the mutation checks behind
   them.
-- **[security-review-7.4.5.md](security-review-7.4.5.md)** — the review of v7.4.5, which ships inside 7.4.6: the new
-  switch that marks a host internal (who may set it and on which host, what a host can make the
-  server do by what it reports about its addresses and ports, and what the pages and the
-  assistant print from it) and two low issues, a request that did not say true or false that
-  turned the switch off, and two readers that raised on a stored port list the agent never
-  sends. Caught before release, with the scans, the run over every route and the race behind
-  them.
+- **[v7.4.8.md](v7.4.8.md)** — "Hon3stMatters": a Problems row that shows when its host last reported, a sensor
+  limit that is not a temperature is no limit, and a package apt keeps back is pending.
 - **[v7.4.7.md](v7.4.7.md)** — "0nceMatters": one list of problems, each once, with its state, its
   history and the actions that apply, a switch that counts only the CVE findings an update can fix, a
   chart for any Thermal sensor, one disk for a btrfs volume, and a page that no longer sits under the
@@ -91,9 +90,6 @@ holds long-form docs that don't fit there.
   whether a fix exists for the host's own release, an alert resolved by hand makes its
   host report at once, the Thermal page follows the drive temperature lines, and more
   requests from the same Docker install.
-- **[v7.4.4.md](v7.4.4.md)** — "Spec1ficMatters": temperature lines for each drive, set
-  for one drive, one host or every drive of a type, for one request from the same
-  Docker install.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.

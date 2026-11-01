@@ -5,9 +5,11 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## Unreleased (test)
+## v7.4.8 — "Hon3stMatters" — unreleased (test)
 
-What the reporter of #54 and #56 found on 7.4.6 and 7.4.7, and an open question in Discussions (#30).
+Three screens said something that was not true: a Problems row that read "never" under Updated, a sensor limit of 65261.8 °C,
+and a host that read "Fully Patched" with a kernel update waiting. They came from the replies to #54 and #56 and from a
+question in Discussions (#30). The release page is [docs/v7.4.8.md](docs/v7.4.8.md).
 
 ### Problems
 
@@ -42,6 +44,22 @@ What the reporter of #54 and #56 found on 7.4.6 and 7.4.7, and an open question 
   The patch run itself is unchanged: it still does not install them, so they stay pending until installed on the
   host. Debian and Ubuntu hosts only, and the agent has to be updated. The agent also reads `apt-get`'s messages in
   the C locale now, so the heading is the same on a host in another language.
+
+### Security
+
+The review of this release found one issue, low. It is fixed. See `docs/security-review-7.4.8.md`.
+
+- **A stored reading or limit too big for a float made the Thermal page and the Prometheus export fail.** A sensor, drive or
+  GPU reading, or a sensor limit, that is an integer of more than 308 digits cannot be converted by `float()`. The Thermal
+  page and the risk score converted what they read, so the page answered 500 to every host for as long as the row stayed,
+  and the export's check for a usable number did not catch the error, so the export raised. The server never writes such a
+  row, since the ingest keeps only measurements and, from this release, limits from 1 to 150 °C. Only a hand edit or an
+  import can store one. The Thermal page and the risk score skip what is not a number a float holds now, and the export
+  drops it as it drops a NaN.
+
+### Translations
+
+This release adds no text to translate.
 
 ## v7.4.7 — "0nceMatters" — 2026-11-01
 

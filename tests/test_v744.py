@@ -73,16 +73,11 @@ class TestVersionBumps(unittest.TestCase):
                  if l.startswith("## v")][0]
         self.assertTrue(first.startswith(f'## v{_server_version()} — "'), first)
 
-    def test_version_doc_still_exists_inside_the_keep_three_window(self):
-        p = _ROOT / f"docs/v{V}.md"
-        self.assertTrue(p.exists(), f"docs/v{V}.md missing")
-        self.assertIn(f'# RemotePower v{V} — "{CODENAME}"', p.read_text())
+    def test_version_doc_has_left_the_keep_three_window(self):
+        """docs/v7.4.4.md went at the v7.4.8 bump. The CHANGELOG entry is the record now."""
+        self.assertFalse((_ROOT / f"docs/v{V}.md").exists(), f"docs/v{V}.md should be gone")
 
-    def test_version_doc_has_no_template_left(self):
-        body = (_ROOT / f"docs/v{V}.md").read_text()
-        for stub in ("CODENAME", "One-paragraph release summary",
-                     "## Section", "- **Change.**"):
-            self.assertNotIn(stub, body, f"unfilled template stub: {stub}")
+    def test_changelog_entry_has_no_template_left(self):
         changelog = (_ROOT / "CHANGELOG.md").read_text()
         top = changelog[changelog.index(f"## v{V}"):changelog.index(f"\n## v{PREVIOUS}")]
         for stub in ("CODENAME", "YYYY-MM-DD", "One-paragraph release summary", "Headline change"):
@@ -101,7 +96,7 @@ class TestVersionBumps(unittest.TestCase):
         vers = sorted(p.stem for p in (_ROOT / "docs").glob("v*.md")
                       if re.fullmatch(r"v\d+\.\d+\.\d+", p.stem))
         self.assertEqual(len(vers), 3, f"keep exactly 3 version docs: {vers}")
-        self.assertIn(f"v{V}", vers)
+        self.assertNotIn(f"v{V}", vers)
 
     def test_readme_recent_releases_capped_at_five(self):
         readme = (_ROOT / "README.md").read_text()
@@ -117,13 +112,11 @@ class TestVersionBumps(unittest.TestCase):
         cards = re.findall(r"What's new — v(\d+\.\d+\.\d+)", html)
         self.assertEqual(len(cards), 3, f"cap the cards at 3: {cards}")
         self.assertEqual(cards[0], _server_version(), "the new release leads")
-        self.assertIn(V, cards)
-        # The sneaky non-visible surface: the doc-search keyword attribute. A
-        # visible-text rename never touches it, so doc search stops matching.
-        head = html[:html.index(f"What's new — v{V}")]
-        kw = head[head.rindex('data-keywords="'):]
-        self.assertIn(CODENAME.lower(), kw.lower(),
-                      "data-keywords must carry the codename for doc search")
+        self.assertNotIn(V, cards)
+        # The card left at the v7.4.8 bump. Its search keywords moved to the 'Older releases' card, so doc search
+        # still finds it by its codename.
+        older = html[html.index('older versions history'):]
+        self.assertIn(CODENAME.lower(), older[:older.index('"')].lower())
 
     def test_no_dangling_links_to_the_dropped_docs(self):
         for dropped in ("v7.3.0.md", "v7.4.0.md", "v7.4.1.md"):
@@ -142,7 +135,7 @@ class TestTheReviewLeftTheWindow(unittest.TestCase):
 
     def test_it_is_gone_everywhere(self):
         self.assertFalse((_ROOT / "docs/security-review-7.4.4.md").exists())
-        for rel in ("README.md", "docs/README.md", "docs/security.md", "docs/v7.4.4.md", "server/html/index.html"):
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html"):
             self.assertNotIn("security-review-7.4.4.md", (_ROOT / rel).read_text(), rel)
 
     def test_the_changelog_still_counts_its_issue(self):
