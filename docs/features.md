@@ -263,7 +263,7 @@ Version tags such as *(v7.2.0)* mark features added in the last three releases. 
 | Post-deploy verification | Confirm the pending count actually dropped (ok/stalled/pending) |
 | Auto-patch | Cron-scheduled updates across a single host / group / tag / site / whole fleet, respecting maintenance windows; optional staged rings |
 | Package snapshots | Freeze the fleet's current package versions into a named snapshot; diff two snapshots; promote one as a tag's **reference state** and report which hosts have drifted from it; admin-only **enforce** to queue a return to the reference. Read-only reporting — it does not change what auto-patch installs. `GET/POST /api/patch-snapshots`, `…/diff`, `…/{id}/promote`, `…/{id}/drift`, `…/{id}/enforce` |
-| Patch report | Fleet-wide per-host pending-update detail, filterable by group/host, with a per-host drill-down and re-check; export the filtered report as CSV / XML / browser-PDF. `GET /api/patch-report`, `…/csv`, `…/xml`, `…/device/{id}` |
+| Patch report | Fleet-wide per-host pending-update detail, filterable by group/host, with a per-host drill-down and re-check; export the filtered report as CSV / XML / browser-PDF. On Debian and Ubuntu a package apt keeps back (it needs a new package, such as a kernel image) counts as pending, and one held with `apt-mark hold` does not. `GET /api/patch-report`, `…/csv`, `…/xml`, `…/device/{id}` |
 | On-demand package scan | One-shot **Scan packages** now — fresh inventory + patch count |
 | Software metering | Named-software install counts vs allowance, over-deployment flagged; aliases + reclamation |
 | Fleet software policy | `banned` / `required` / `min_version` rules (tag-scoped) → `software_policy_violation` |

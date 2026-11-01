@@ -30,6 +30,18 @@ What the reporter of #54 and #56 found on 7.4.6 and 7.4.7, and an open question 
   the drive's SMART reading, since a sensor has none. `docs/disk-health.md` still said the Thermal page and the risk
   score judge every sensor by the fleet's pair, which stopped being true in 7.4.6; it is corrected.
 
+### Patching
+
+- **A package apt keeps back is pending (Discussion #30).** `apt-get upgrade` keeps a package back when upgrading it
+  needs a package that is not installed yet, such as a new kernel image or the split `linux-firmware`. It prints no
+  `Inst` line and exits 0, so the agent counted nothing and the host read "Fully Patched, Pending: 0" while a
+  security update was waiting. The agent counts what apt keeps back as pending now, and as a security update when
+  apt flags the new package as one (it asks apt what an upgrade that may install new packages would do, as a
+  simulation). A package held with `apt-mark hold` stays out, and when the holds cannot be read none is counted.
+  The patch run itself is unchanged: it still does not install them, so they stay pending until installed on the
+  host. Debian and Ubuntu hosts only, and the agent has to be updated. The agent also reads `apt-get`'s messages in
+  the C locale now, so the heading is the same on a host in another language.
+
 ## v7.4.7 — "0nceMatters" — 2026-11-01
 
 Two reports from the same Docker install, filed on tyxak/remotepower as #56 and #57, and the Thermal, Disk and Host

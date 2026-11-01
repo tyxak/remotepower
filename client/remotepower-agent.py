@@ -2845,6 +2845,65 @@ def _count_apt_security(simulate_out):
     return n
 
 
+def _c_locale_env():
+    """The environment with the C locale, for a command whose messages are read as English text."""
+    return dict(os.environ, LC_ALL='C')
+
+
+def _apt_kept_back(simulate_out):
+    """The packages apt-get says it keeps back, from the block that starts "The following packages have been kept
+    back:" (names indented by two spaces, wrapped over several lines). The heading is English only in the C locale."""
+    names, inside = [], False
+    for line in (simulate_out or '').splitlines():
+        if line.startswith('The following packages have been kept back'):
+            inside = True
+        elif inside and line.startswith(' ') and line.strip():
+            names.extend(line.split())
+        else:
+            inside = False
+    return names
+
+
+def _apt_holds(apt_opts):
+    """The packages held with apt-mark, or None when they cannot be read."""
+    try:
+        out = subprocess.check_output(['apt-mark', *apt_opts, 'showhold'], text=True, timeout=15,
+                                      stderr=subprocess.DEVNULL, env=_c_locale_env())
+    except Exception:
+        return None
+    return {l.strip() for l in out.splitlines() if l.strip()}
+
+
+def _add_apt_kept_back(result, simulate_out, apt_opts=()):
+    """Count what apt keeps back as pending. `apt-get upgrade` keeps a package back when upgrading it needs a package
+    that is not installed yet (a new kernel image, the split linux-firmware). It prints no Inst line and exits 0, so
+    such a host read as fully patched while an update waited. A package held with apt-mark stays out, since somebody
+    chose that, and when the holds cannot be read nothing is added, because a held package would then count for ever.
+    The security flag is on the Inst line of what would be installed, so apt is asked what the upgrade would do with
+    new packages allowed (a simulation) and the lines of the kept-back names are counted. Never raises."""
+    try:
+        kept = _apt_kept_back(simulate_out)
+        if not kept or not isinstance(result.get('upgradable'), int):
+            return
+        held = _apt_holds(apt_opts)
+        if held is None:
+            return
+        kept = sorted(set(kept) - held)
+        if not kept:
+            return
+        result['upgradable'] += len(kept)
+        result['upgradable_names'] = sorted(set(result.get('upgradable_names') or []) | set(kept))[:_MAX_UPGRADABLE_NAMES]
+        try:
+            full = subprocess.check_output(['apt-get', *apt_opts, '--simulate', '--quiet', '--with-new-pkgs', 'upgrade'],
+                                           text=True, timeout=45, stderr=subprocess.DEVNULL, env=_c_locale_env())
+        except Exception:
+            return
+        lines = [l for l in full.splitlines() if l.startswith('Inst ') and len(l.split()) > 1 and l.split()[1] in kept]
+        result['security_updates'] = (result.get('security_updates') or 0) + _count_apt_security('\n'.join(lines))
+    except Exception:
+        pass
+
+
 def _count_dnf_security(cmd):
     """v5.0.0: count SECURITY updates via `<cmd> check-update --security`.
 
@@ -2902,15 +2961,15 @@ def get_patch_info():
         if mgr:
             result['manager'] = mgr
         if mgr == 'apt' and shutil.which('apt-get'):
+            apt_opts = ('-o', f'Dir={HOST_ROOT}', '-o', f'Dir::State::status={HOST_ROOT}/var/lib/dpkg/status')
             try:
                 out = subprocess.check_output(
-                    ['apt-get', '-o', f'Dir={HOST_ROOT}',
-                     '-o', f'Dir::State::status={HOST_ROOT}/var/lib/dpkg/status',
-                     '--simulate', '--quiet', 'upgrade'],
-                    text=True, timeout=45, stderr=subprocess.DEVNULL)
+                    ['apt-get', *apt_opts, '--simulate', '--quiet', 'upgrade'],
+                    text=True, timeout=45, stderr=subprocess.DEVNULL, env=_c_locale_env())
                 result['upgradable'] = sum(1 for l in out.splitlines() if l.startswith('Inst '))
                 result['upgradable_names'] = _parse_upgradable_names('apt', out)
                 result['security_updates'] = _count_apt_security(out)
+                _add_apt_kept_back(result, out, apt_opts)
             except Exception:
                 pass
         return result
@@ -2918,7 +2977,7 @@ def get_patch_info():
         result['manager'] = 'apt'
         try:
             out = subprocess.check_output(['apt-get', '--simulate', '--quiet', 'upgrade'],
-                text=True, timeout=30, stderr=subprocess.DEVNULL)
+                text=True, timeout=30, stderr=subprocess.DEVNULL, env=_c_locale_env())
             result['upgradable'] = sum(1 for l in out.splitlines() if l.startswith('Inst '))
             result['upgradable_names'] = _parse_upgradable_names('apt', out)
             # v5.0.0: how many of those are SECURITY updates. apt --simulate
@@ -2927,6 +2986,7 @@ def get_patch_info():
             # `<codename>-security` suite — so we count them straight from the
             # output the vendor itself flags (no extra subprocess).
             result['security_updates'] = _count_apt_security(out)
+            _add_apt_kept_back(result, out)   # what apt keeps back is pending too (Discussion #30)
         except Exception:
             # check failed (locked dpkg, repo error): report "unknown" rather
             # than 0, so the host doesn't look fully patched when it isn't.
