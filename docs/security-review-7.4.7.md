@@ -3,9 +3,10 @@
 7.4.7 answers two reports (#56 and #57) and carries the Thermal, Disk and Host metrics work that was built after 7.4.6. The
 new part is one list of problems that joins Alerts, Needs Attention and Checks, with a history and the actions that apply
 to each problem; a switch that decides which CVE findings the numbers count; and the pages that show them. This review
-covers everything that changed since 7.4.6: 29 server, page and packaging files with about 2,400 lines added, and 35
-files of tests and documents. The agents, the web server configuration, the container and package files and the installers
-did not change.
+covers everything that changed since 7.4.6: 26 files under `server` (the API, its handlers, the page, its scripts and
+styles) with about 2,300 lines added, the demo data seeder, and 53 files of tests, documents and tools. The four agents
+changed in their version number only. The web server configuration, the container and package files and the installers did
+not change.
 
 It found **one** issue worth reporting. It is low, it is fixed in 7.4.7, and it sits in five readers: one in the new code and
 four older. Each fix has tests, and each test was run against the code with its fix taken out.
@@ -25,8 +26,9 @@ four older. Each fix has tests, and each test was run against the code with its 
   filesystem into one entry.
 - **The pages.** A new Problems page, a bar that links Alerts, Needs Attention, Checks and Problems, a tag beside an item or a
   check whose alert someone resolved, and a sidebar that no longer covers the left edge of a page while alerts are open.
-- **Not changed.** No file under `client`, `server/conf`, `docker` or `.github`, no installer and no package recipe differs
-  from 7.4.6. The Makefile gained two module names in its lint lists.
+- **Not changed.** The four agents differ from 7.4.6 in their version number and nothing else. No file under
+  `server/conf`, `docker` or `.github`, no installer and no package recipe differs. The Makefile gained three module names
+  in each of its two lint lists, and the demo data seeder gained data for the new pages.
 
 ## How it was done
 
@@ -36,17 +38,18 @@ four older. Each fix has tests, and each test was run against the code with its 
 | Lint (`make lint`: isort, black, mypy, ruff `F` and `E9`) | The type-checked modules, the agents, the sidecars, the tools, the tests and the packaging | Clean |
 | bandit | 136,519 lines of server and agent Python, against the committed baseline | 0 High, 24 Medium and 923 Low, the same counts as 7.4.6. Nothing is new against the baseline |
 | semgrep | The Python, JavaScript and security-audit rule sets over the 21 server, page and packaging files that changed, with the per-rule timeout raised to 120 seconds | 13 results in 3 files: SHA-1 where `usedforsecurity=False` is set or the protocol needs it (4), `chmod` on directories the service owns (4), the import of an XML writer (2), a fixed HTTPS host (1), `shell=True` on a fixed command (1) and the table renderer's `insertAdjacentHTML` (1). Each was annotated or reviewed in an earlier release, and none is on a line changed since 7.4.6 |
-| gitleaks | All 2,479 commits and the tree | No leaks |
+| gitleaks | All 2,507 commits on every branch and tag at 6ab0bae1, and the 1,647 files of its tree | No leaks |
 | Dependency audit (`pip-audit`) | The 11 pinned requirements of the server, with their dependencies | No known vulnerabilities |
 | CodeQL | The repository's own configuration, as the production workflow runs it, for Python and JavaScript | 0 results in Python and 0 in JavaScript |
 | Who sees what, over HTTP | A seeded instance with 18 hosts. With tenancy off: an administrator, a viewer, a user whose role is scoped to one group and one scoped to one tag. With tenancy on: the platform administrator, a tenant administrator, a tenant viewer and a viewer of the default tenant, with three hosts in the tenant. For each user, `/api/problems`, the history of each of the 117 problems, the inbox, Needs Attention, Checks and the Fleet query, and a call of the badge | Every user got their own hosts and no others. The history of a host outside a user's reach was empty. Six interleaved rounds of the plain and the `?problems=1` calls, as administrator and as the narrowest user, never gave one caller another's rows, and the plain calls never carried the new field |
 | Hostile parameters to the new routes | 9 parameters (`state`, `source`, `device_id`, `q`, `days`, `limit`, `offset`, `family`, `detail`) with 29 values each (NUL, a path, markup, SQL, a template, a log lookup, 5,000 characters, a negative number, `1e999`, `NaN`, 40 digits, full-width digits, a right-to-left mark, a bad percent escape) and 8 repeated or array forms, on both routes, as the administrator and as the narrowest user | 520 answers of 200 and 18 of 400 on each route in each of two runs. No server error. Nothing is reflected into the page: the history route repeats `device_id` and `family` in its JSON body, which is not markup |
 | Methods and sessions | Every verb on both routes, no session, a wrong token, an empty token and a token with a NUL | 401 without a valid session, 404, 405 or 501 for a verb that is not GET, and the NUL refused before the application |
+| Hostile bodies to the routes the page's actions call | The five write routes the Problems page uses (bulk resolve, mute, ignore and its removal, switch a check off, and the settings save that carries the new switch), with 20 hostile values in each field (null, a number, a negative one, `1e999`, a list of 2,000, markup, 6,000 characters, a path, a NUL) and 8 malformed bodies for each route, as the administrator | 340 requests: 188 answered 200, 114 answered 400 and 37 answered 404, and one never left the client (its path held a space, which the HTTP client refuses). No server error |
 | Markup in a browser | A seeded instance whose alerts, host names, groups, tags, failed units, mount paths, sensor labels, SMART model and serial, and CVE package, version and fix hold markup that would run a script or add an element. Chromium, signed in as an administrator, opened the Problems page in every state and every view, the history dialog and the row menu of the problems, and Needs Attention, Checks, Alerts, Thermal, Host metrics and CVE | No script ran, no element was added, no element had a handler, no dialog opened and no page error was thrown. The markup showed as text, on the pages that list it |
 | Stored rows the code did not write | 25 alerts of shapes `_record_alert` cannot write, through the Problems list and its history, the inbox, the dashboard, the resolution stats, the summary, the badge counts and the autonomy sweep; then rows of the thermal, roll-up, host-metrics and disk stores | Finding 1. After the fix every route answers 200 on all 25 |
 | Hostile input to every GET route | The OpenAPI operations on a seeded server, on the 7.4.6 tree and on this one, with and without a session, each with the 25 alerts stored | 381 operations here and 379 there. Two server errors here (the two SAML routes answering 503 because the library is not installed here) and five there (the same two, the inbox, the dashboard and the resolution stats) |
-| What a host can make the server do | A host with a valid token sent 17 heartbeats (11 of system information, 4 of hardware and the whole set together three times) with mounts, failed units, ports, packages, processes, sensors, SMART rows and GPUs of the wrong shape, huge numbers, markup and 300 sensors. After each, 19 read routes were asked for as the administrator | Every heartbeat answered 200 and no read route changed its answer. No store grew by more than a few hundred bytes (the host's row by 30 bytes against the 7.4.6 tree, the thermal history by 149). So a host cannot store a row that stops a page for everyone; only a hand edit or an import can |
-| Mutation checks | Each new test run against the code with its guard taken out: 14 changes in this pass (the three readers' skip of a bad row, each of its three conditions, the fix hint, the autonomy filter and five reads of a stored time) | All caught. One was not at first: the sort of acknowledged alerts, because one bad row passes a sort and two of different kinds do not. A test with two now holds it |
+| What a host can make the server do | A host with a valid token sent 18 heartbeats (11 of system information, 4 of hardware and the whole set together three times) with mounts, failed units, ports, packages, processes, sensors, SMART rows and GPUs of the wrong shape, huge numbers, markup and 300 sensors. After each, 19 read routes were asked for as the administrator | Every heartbeat answered 200 and no read route changed its answer. No store grew by more than a few hundred bytes (the host's row by 30 bytes against the 7.4.6 tree, the thermal history by 149). So a host cannot store a row that stops a page for everyone; only a hand edit or an import can |
+| Mutation checks | Each new test run against the code with its guard taken out: 14 changes in this pass (the skip of a bad row in each of the three readers, each of its three conditions, a skip that drops good rows too, the fix hint, the autonomy filter and five reads of a stored time) | All caught. One was not at first: the sort of acknowledged alerts, because one bad row passes a sort and two of different kinds do not. A test with two now holds it |
 
 The nginx scanners (nmap, nikto and wapiti against the shipped configuration) and nuclei were not run this time. 7.4.7 did not
 change the web server configuration: no file under `server/conf` or `docker` differs from 7.4.6.
@@ -96,7 +99,7 @@ output to a file, and a test logs 117 KB and then asks for a page.
 - Some readers of the stores that hold a host's record and its metrics still raise on a stored row that is not shaped like what the code writes
   (Needs Attention, Checks, the forecast pages, the fleet anomalies and thermal views, the host's change list, the reports).
   They did the same on the 7.4.6 tree, and the Problems list reads Needs Attention and Checks, so it fails with them. A host's
-  report cannot produce such a row, as the 17 heartbeats above show, so only a hand-edited or imported store reaches them.
+  report cannot produce such a row, as the 18 heartbeats above show, so only a hand-edited or imported store reaches them.
 - An alert for a host that no longer exists is visible to a caller who is not scoped, as it was.
 - `GET /api/alerts/act`, `GET /api/tickets/csat`, the agent install and version routes and the SAML login answer without a
   session. They are the links and public downloads they were in 7.4.6, and none was changed.
@@ -106,8 +109,34 @@ output to a file, and a test logs 117 KB and then asks for a page.
 - A signed-in user may resolve an alert unless the install says otherwise, as before. That request still makes the host report
   once in 120 seconds at most.
 
+## Left for the release gate
+
+The full suite and the checks that belong to a release are listed with the release, once it is cut. Run so far, each
+on a copy of the tree. At 9e36415f, which holds all the code of this review except the last item below: JSON 17,616
+tests, SQLite 17,309, `make ci-parity` 17,380 (Python 3.14 with the CI dependency list) and PostgreSQL 18.6 (28 tests,
+none skipped). `make lint` and `make bandit` were clean. Every run was red in the two AUR subtests of
+`test_v643_aur_tracks_release`, which compare the AUR packages with the newest dated release and are red by design
+until a release is published, and in two tests of this release's own that were wrong and not the code (a new browser
+test file lacked the guard every one of them must carry, and the test that checks for it). The `ci-parity` run had a
+fifth, `test_v702_rollup_linear`, a timing test that failed with four suites running at once and passed alone and on
+the second run. The JSON run had one more, below. At 638eff6c, which fixes the two test-only failures: SQLite 17,309
+and `make ci-parity` 17,380, red only in the two AUR subtests.
+
+The JSON suite was not run again after 9e36415f. The commits since are test-only or documentation, apart from the one
+below, which was checked with both accessibility modules, the translation, wiring and no-undefined-name gates, the
+eager-JavaScript budget, the SNMP and drawer browser tests and the 7.4.7 release tests.
+
+The one failure that was not a known one was the accessibility test of the host drawer. It failed in the JSON run and
+passed when run again on its own, which looked like load. It was not. The drawer of a switch or an access point has an
+SSH port box and an SNMP version list with no accessible name, and two more lists in the SNMPv3 rows, which stay hidden
+until v3 is chosen. The test opened whichever host the Home page listed first, so it saw them only when that host was one
+of those. The four fields are named now, and the test opens an agentless host and its SNMPv3 rows in every run. Each of
+the four names, taken out, fails the test. Not reproduced: the gate run in which an agentless host came first. In a probe
+of 225 seconds the first row stayed an agent host, so that part is inferred from the two violations, which exist only in
+an agentless host's drawer.
+
 ## Not run for this review
 
-A live probe of the maintainer's own instance (it needs a one-time token), the nginx scanners and nuclei (above), the SAML routes
-(the library is not installed here, so both answer 503) and the check of the version comparison with the real `dpkg` (this
-machine has none).
+A live probe of the maintainer's own instance (it needs a one-time token), the nginx scanners and nuclei (above), the SAML
+routes (the library is not installed here, so both answer 503) and the check of the version comparison with the real `dpkg`
+(this machine has none).

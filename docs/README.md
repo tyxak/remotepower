@@ -64,7 +64,7 @@ holds long-form docs that don't fit there.
 - **[security-review-7.4.7.md](security-review-7.4.7.md)** — the v7.4.7 review: who sees which host through
   the new list of problems and the pages that show its state (a viewer scoped to a group or a tag, a tenant
   administrator and a tenant viewer), hostile parameters, markup planted in everything the new pages print,
-  and 17 hostile heartbeats from a host with a valid token, and one low issue, a stored alert of the wrong
+  and 18 hostile heartbeats from a host with a valid token, and one low issue, a stored alert of the wrong
   shape that answered 500 to everyone on five readers. Caught before release, with the scans, the run over
   every route and the mutation checks behind them.
 - **[security-review-7.4.6.md](security-review-7.4.6.md)** — the v7.4.6 review: what a host can ask of
