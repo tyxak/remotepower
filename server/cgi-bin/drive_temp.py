@@ -87,6 +87,32 @@ def media_of(entry: Any) -> str:
     return "nvme" if device.rsplit("/", 1)[-1].startswith("nvme") else ""
 
 
+def sensor_media(label: Any) -> str | None:
+    """Which kind of drive a temperature sensor belongs to, from the chip name the agent puts before its label
+    ("nvme-pci-0100/Sensor 1", "drivetemp-scsi-0-0/temp1"), or None when the sensor is not a drive's own.
+    'nvme' is an NVMe drive's. '' is a drivetemp sensor: that chip reads hard disks and SATA SSDs alike, so its
+    name does not say which, and the lines for any drive apply to it."""
+    if not isinstance(label, str):
+        return None
+    chip = label.split("/", 1)[0].strip().lower()
+    if chip == "nvme" or chip.startswith("nvme-"):
+        return "nvme"
+    if chip == "drivetemp" or chip.startswith("drivetemp-"):
+        return ""
+    return None
+
+
+def sensor_lines(label: Any, host: Any, fleet: Any) -> tuple[float | None, float | None]:
+    """The (warn, crit) lines a sensor of a drive's own chip is held to, or (None, None) for a sensor that is not a
+    drive's, or a drive with no line at any level. The critical line is None when only a warning line is set. A sensor
+    has no serial number, so a line kept against one never applies to it."""
+    media = sensor_media(label)
+    if media is None:
+        return None, None
+    lines = view({"media": media}, None, host, fleet)
+    return lines["warn"], lines["crit"]
+
+
 def _pair(warn: float | None, crit: float | None) -> tuple[float | None, float | None]:
     """A warning and a critical line as the checks use them. Neither set: (None, None). Warning only:
     the critical line is out of reach (infinity). Critical only: it is also the warning. A warning line

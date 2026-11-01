@@ -8680,6 +8680,15 @@ def get_ups_status():
     return out[:MAX_UPS]
 
 
+def _sensor_limit(value):
+    """A sensor's own limit in degrees C, or None when what it reports is not one (#54). An NVMe drive that sets no
+    threshold reports 65535 K (65261.85 C) and a drivetemp sensor that has none reports 0. The server shows a limit as
+    the sensor's critical value, so a false one would read as a real threshold."""
+    if value is None or not 1.0 <= value <= 150.0:
+        return None
+    return round(value, 1)
+
+
 def get_hardware_inventory():
     """v3.4.0: passive hardware inventory — DIMMs, system serial, temps,
     RAID arrays, disk models. Best-effort; each section omitted on failure.
@@ -8774,9 +8783,12 @@ def get_hardware_inventory():
                                 high = fv
                         if cur is not None:
                             entry = {'label': f'{chip}/{label}', 'current_c': round(cur, 1)}
-                            thr = crit if crit is not None else high
+                            # A limit that is not one (0, or an unset threshold) falls through to the next.
+                            thr = _sensor_limit(crit)
+                            if thr is None:
+                                thr = _sensor_limit(high)
                             if thr is not None:
-                                entry['crit_c'] = round(thr, 1)
+                                entry['crit_c'] = thr
                             temps.append(entry)
             if temps:
                 hw['temps'] = temps[:64]

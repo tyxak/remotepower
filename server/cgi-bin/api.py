@@ -47940,6 +47940,24 @@ def _temp_suspect(t):
             and float(c) >= float(cr))
 
 
+def _sensor_limit(value):
+    """A sensor's own limit in °C, or None when what it reports is not one (#54). An NVMe drive that sets no threshold
+    reports 65535 K, which is 65261.85 °C, and a drivetemp sensor that has none reports 0. Either would show as the
+    sensor's critical value, and as the threshold and headroom of a host. The range is the one a drive line may have."""
+    lim = drive_temp_mod.as_line(value)
+    return None if lim is None else round(lim, 1)
+
+
+def _stored_sensor(t):
+    """One sensor of a hardware report as it is stored: its label, its reading and its limit, if that is one."""
+    row = {'label': _sanitize_str(str(t.get('label', '')), 64),
+           'current_c': round(float(t['current_c']), 1)}
+    lim = _sensor_limit(t.get('crit_c'))
+    if lim is not None:
+        row['crit_c'] = lim
+    return row
+
+
 def _sensor_ignores(dev):
     """The operator's per-device set of ignored sensor labels."""
     if not isinstance(dev, dict):
@@ -48154,10 +48172,7 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
             # (alert, risk, roll-up, UI) is then correct without each having to
             # re-derive "is this a real measurement?". See _temp_is_measurement.
             safe['temps'] = [
-                {'label': _sanitize_str(str(t.get('label', '')), 64),
-                 'current_c': round(float(t['current_c']), 1),
-                 **({'crit_c': round(float(t['crit_c']), 1)}
-                    if isinstance(t.get('crit_c'), (int, float)) else {})}
+                _stored_sensor(t)
                 for t in temps[:MAX_TEMPS]
                 if isinstance(t, dict) and _temp_is_measurement(t.get('current_c'))
             ]
@@ -52393,6 +52408,9 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
             if _key == 'temperature_c':
                 _ln = drive_temp_mod.view(_e, _host_mt.get('drivetemp_per_serial'), _host_mt, _gc)
                 _lv = drive_temp_mod.level(float(_c), _ln['warn'], _ln['crit'], _hot_c, _crit_c)
+            elif _key == 'current_c':     # #54: a drive's own sensors (nvme-*, drivetemp-*) follow its lines too
+                _dw, _dc = drive_temp_mod.sensor_lines(_e.get('label'), _host_mt, _gc)
+                _lv = drive_temp_mod.level(float(_c), _dw, _dc, _hot_c, _crit_c)
             else:
                 _lv = drive_temp_mod.level(float(_c), None, None, _hot_c, _crit_c)
             worst = max(worst, (drive_temp_mod.LEVELS.index(_lv), float(_c)))
@@ -66737,7 +66755,7 @@ def handle_fleet_thermal():
             if not isinstance(c, (int, float)):
                 continue
             sensors += 1
-            cr = t.get('crit_c') if isinstance(t.get('crit_c'), (int, float)) else None
+            cr = _sensor_limit(t.get('crit_c'))     # a stored limit that is not a temperature (an older agent's) is none
             lbl = str(t.get('label') or 'sensor')
             row = {'label': lbl, 'temp': round(float(c), 1), 'type': 'sensor', 'crit': cr}
             if lbl in _ign:
@@ -66747,10 +66765,16 @@ def handle_fleet_thermal():
             detail.append(row)
             if lbl in _ign:
                 continue
-            _lv = drive_temp_mod.level(float(c), None, None, _hot_c, _crit_c)
+            # #54: the sensors of a drive's own chip (nvme-*, drivetemp-*) are held to the drive lines like its SMART
+            # reading. Any other sensor, and a drive with no line at any level, is held to the fleet's pair as before.
+            _dw, _dc = drive_temp_mod.sensor_lines(lbl, _host_mt, _gc)
+            _lv = drive_temp_mod.level(float(c), _dw, _dc, _hot_c, _crit_c)
             any_hot, any_crit = any_hot or _lv != 'ok', any_crit or _lv == 'critical'
+            if _dw is not None or _dc is not None:
+                row['crit'], row['warn'], row['level'] = _dc, _dw, _lv
+                cr = _dc
             if hottest is None or c > hottest[0]:
-                hottest = (float(c), lbl, 'sensor', cr, None)
+                hottest = (float(c), lbl, 'sensor', cr, _dw)
         for s in (hw.get('smart') or []):
             if not isinstance(s, dict):
                 continue

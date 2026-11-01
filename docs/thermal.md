@@ -56,6 +56,28 @@ It stays in the per-sensor table, greyed, with **Restore** to count it again.
 The list is per host and is stored alongside that host's metric thresholds,
 so resetting your thresholds does not un-ignore a pin you muted.
 
+## A drive's own sensors, and limits that are not limits
+
+An NVMe drive, or a drive read by the `drivetemp` driver, appears on this page twice: as a SMART
+reading and as hardware sensors (`nvme-pci-0100/Composite`, `nvme-pci-0100/Sensor 1`,
+`drivetemp-scsi-0-0/temp1`).
+
+- **The drive lines apply to those sensors too.** An `nvme-*` sensor is held to the NVMe lines
+  and a `drivetemp-*` sensor to the lines for any other drive, because that driver reads hard
+  disks and SATA SSDs alike and its name does not say which. They are the lines of
+  [Drive temperature](alert-parameters.md#drive-temperature), and a host's own lines under
+  **Metric thresholds** win over the fleet's. A line kept against a serial number is for the
+  drive's SMART reading only, because a sensor has no serial number. The page then shows the
+  critical line as the sensor's threshold, with the headroom under it. The Thermal page and the
+  risk score follow these lines; the `temp_high` alert and the reliability grade still judge the
+  sensors by the fleet's temperature settings.
+- **A limit that is not a temperature is ignored.** An NVMe drive that sets no threshold for
+  a sensor reports 65535 K, which is 65261.85 °C, and a drivetemp sensor with no limit reports 0.
+  Both were shown as the sensor's critical value, so a host's row could read a threshold of
+  65261.8 °C and a headroom of 65215.9. A limit outside 1 to 150 °C is dropped now: the agent
+  does not send it, the server drops it on the way in, and the page ignores one an older agent
+  stored. The sensor then has no threshold of its own, like any sensor that reports none.
+
 ## The temperature timeline
 
 Expand a row (the caret in the **Sensors** column) and you get two things: the

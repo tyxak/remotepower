@@ -15,6 +15,21 @@ What the reporter of #54 and #56 found on 7.4.6 and 7.4.7, and an open question 
   row with no alert read "never", current ones included (pending updates, agent version). Such a row now shows when its
   host last reported it, and a dash when the host has not said when. Sorting by the column uses the same time.
 
+### Thermal
+
+- **A limit that is not a temperature is no limit (#54).** An NVMe drive that sets no threshold reports 65535 K, which
+  is 65261.85 °C, and a drivetemp sensor with no limit reports 0. The agent took a sensor's critical value, or its
+  maximum when it had none, so both reached the Thermal page as the sensor's critical value: a host whose hottest
+  sensor was one read a threshold of 65261.8 °C and a headroom of 65215.9. A limit outside 1 to 150 °C is dropped now,
+  by the agent, by the server on the way in and by the page for one an older agent already stored. The hot and
+  critical flags were never affected. Update the agents to stop sending them.
+- **A drive's own sensors follow the drive lines (#54).** The `nvme-*` sensors of a host are held to the NVMe lines
+  and the `drivetemp-*` sensors to the lines for any other drive (that driver reads hard disks and SATA SSDs alike,
+  so its name does not say which), on the Thermal page and in the risk score. The `temp_high` alert and the
+  reliability grade still judge them by the fleet's temperature settings. A line kept against a serial number is for
+  the drive's SMART reading, since a sensor has none. `docs/disk-health.md` still said the Thermal page and the risk
+  score judge every sensor by the fleet's pair, which stopped being true in 7.4.6; it is corrected.
+
 ## v7.4.7 — "0nceMatters" — 2026-11-01
 
 Two reports from the same Docker install, filed on tyxak/remotepower as #56 and #57, and the Thermal, Disk and Host

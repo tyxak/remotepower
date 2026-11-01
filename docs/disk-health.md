@@ -85,11 +85,13 @@ A hard disk, a SATA SSD and an NVMe drive run at different temperatures, so one 
 numbers cannot suit all three. Set a warning line and a critical line, in °C, and a drive
 that reaches one raises an alert.
 
-Before this release a drive's temperature was judged only by the fleet's hot and critical
-pair (75 and 85 °C unless you changed them), in the risk score and on the Thermal page, and
-no alert came from it. That has not changed: the risk score and the Thermal page still judge
-every sensor, drives included, against that pair. The lines on this page add the alert, the
-colour of the *Temp* column in the SMART table and a line in Needs attention.
+Before 7.4.4 a drive's temperature was judged only by the fleet's hot and critical pair (75
+and 85 °C unless you changed them), in the risk score and on the Thermal page, and no alert
+came from it. The lines on this page add the alert, the colour of the *Temp* column in the
+SMART table and a line in Needs attention. Since 7.4.6 the Thermal page and the risk score
+hold a drive to its lines as well, and a drive with no line at any level is still judged by
+the fleet's pair. The sensors of a drive's own chip follow the same lines: see
+[Thermal health](thermal.md#a-drives-own-sensors-and-limits-that-are-not-limits).
 
 ### Which line applies
 
