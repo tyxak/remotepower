@@ -47924,6 +47924,14 @@ def _temp_is_measurement(c):
     return _TEMP_PLAUSIBLE_MIN <= fc <= _TEMP_PLAUSIBLE_MAX
 
 
+def _temp_number(c):
+    """True for a stored temperature that float() can take: an int or a float of a size a float holds. The ingest keeps
+    only measurements, but a stored row can hold anything after a hand edit or an import, and float() of an integer too
+    big for a float raises, which made the Thermal page answer 500 for every host. NaN and infinity fail both
+    comparisons. Used by the readers that float() what they accept (the Thermal page, the risk score)."""
+    return isinstance(c, (int, float)) and -1e308 < c < 1e308
+
+
 def _temp_suspect(t):
     """True when a sensor reads at or above the CHIP'S OWN critical limit.
 
@@ -47935,9 +47943,11 @@ def _temp_suspect(t):
     if not isinstance(t, dict):
         return False
     c, cr = t.get('current_c'), t.get('crit_c')
+    # Compared as they are: float() of an integer too big for a float raises, and a stored row can hold one (a hand edit
+    # or an import), which made the Thermal page answer 500 for every host.
     return (isinstance(c, (int, float)) and isinstance(cr, (int, float))
-            and not isinstance(c, bool) and float(cr) > 0
-            and float(c) >= float(cr))
+            and not isinstance(c, bool) and cr > 0
+            and c >= cr)
 
 
 def _sensor_limit(value):
@@ -52401,7 +52411,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                        (hw_rec.get('gpus') or [], 'temp_c')):
         for _e in _src:
             _c = _e.get(_key) if isinstance(_e, dict) else None
-            if not isinstance(_c, (int, float)):
+            if not _temp_number(_c):
                 continue
             if hottest_c is None or _c > hottest_c:
                 hottest_c = float(_c)
@@ -66752,7 +66762,7 @@ def handle_fleet_thermal():
             if not isinstance(t, dict):
                 continue
             c = t.get('current_c')
-            if not isinstance(c, (int, float)):
+            if not _temp_number(c):
                 continue
             sensors += 1
             cr = _sensor_limit(t.get('crit_c'))     # a stored limit that is not a temperature (an older agent's) is none
@@ -66779,7 +66789,7 @@ def handle_fleet_thermal():
             if not isinstance(s, dict):
                 continue
             c = s.get('temperature_c')
-            if not isinstance(c, (int, float)):
+            if not _temp_number(c):
                 continue
             sensors += 1
             lbl = str(s.get('device') or 'disk')
@@ -66798,7 +66808,7 @@ def handle_fleet_thermal():
             if not isinstance(g, dict):
                 continue
             c = g.get('temp_c')
-            if not isinstance(c, (int, float)):
+            if not _temp_number(c):
                 continue
             sensors += 1
             lbl = str(g.get('name') or 'GPU')
