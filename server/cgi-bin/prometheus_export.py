@@ -703,13 +703,14 @@ def _num(value):
     A NaN/inf sample, or a value Prometheus cannot parse, makes the WHOLE
     scrape invalid — not just that line — so a junk field has to vanish rather
     than be emitted. Numeric strings are accepted because these stores are
-    hand-editable JSON as well as agent-written.
+    hand-editable JSON as well as agent-written. An integer too big for a float is junk of the same kind: float() of
+    it raises OverflowError, which failed the whole scrape.
     """
     if isinstance(value, bool) or value is None:
         return None
     try:
         f = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return f if math.isfinite(f) else None
 

@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT / "server" / "cgi-bin"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import api  # noqa: E402
+import prometheus_export  # noqa: E402
 import srcpin  # noqa: E402
 
 NOW = int(time.time())
@@ -179,6 +180,27 @@ class TestAStoredRowOfTheWrongShape(_Fleet):
                             smart=[{"device": "/dev/sda", "serial": "S1", "media": "hdd", "temperature_c": reading}],
                             gpus=[{"name": "g0", "temp_c": reading}])
                 self.assertIsNotNone(self.read())
+
+
+class TestThePrometheusExportOnAStoredRowOfTheWrongKind(unittest.TestCase):
+    """The exporter reads the same stores, which are hand-editable JSON. A value float() cannot take is junk like a NaN, and
+    junk has to vanish, since one bad sample makes the whole scrape invalid."""
+
+    def test_a_number_too_big_for_a_float_is_no_sample(self):
+        for value in (10 ** 400, -(10 ** 400)):
+            self.assertIsNone(prometheus_export._num(value))
+        self.assertEqual(prometheus_export._num(40.5), 40.5, "the control: a reading is still a sample")
+        self.assertEqual(prometheus_export._num("41"), 41.0)
+
+    def test_the_temperature_family_is_written_whatever_one_stored_reading_holds(self):
+        rec = {"hardware": {"temps": [{"label": "bad", "current_c": 10 ** 400}, {"label": "good", "current_c": 40.5}]},
+               "smart": [{"device": "/dev/sda", "temperature_c": 10 ** 400}], "gpus": [{"name": "g", "temp_c": 10 ** 400}]}
+        lines = []
+        prometheus_export._emit_temperatures(lines, {"h": {"name": "h"}}, {"h": rec})
+        samples = [ln for ln in lines if not ln.startswith("#")]
+        self.assertTrue(any('sensor="good"' in ln and ln.rstrip().endswith("40.5") for ln in samples), samples)
+        for gone in ('sensor="bad"', "disk:/dev/sda", "gpu:g"):
+            self.assertFalse(any(gone in ln for ln in samples), (gone, samples))
 
 
 def _load_agent():
