@@ -162,7 +162,9 @@ class TestWiring(unittest.TestCase):
         # v6.2.0: dispatch is OS-aware — the reboot command is chosen per device.
         src = (_CGI / 'provisioning_handlers.py').read_text()
         self.assertIn("_device_os_family(dev)", src)          # OS branch present
-        self.assertIn("_SCHED_UPGRADE_REBOOT_CMD}' if reboot", src)  # linux reboot path
+        # linux reboot path: the script comes from the helper that reads the host's upgrade mode (Discussion #30), and
+        # tests/test_upgrade_mode.py drives it for a ring with and without a reboot, in both modes
+        self.assertIn("_linux_upgrade_cmd(dev, 'scheduled_reboot' if reboot else 'manual')", src)
 
 
 if __name__ == '__main__':

@@ -2907,6 +2907,7 @@ def _add_apt_kept_back(result, simulate_out, apt_opts=()):
             return
         result['upgradable'] += len(kept)
         result['upgradable_names'] = sorted(set(result.get('upgradable_names') or []) | set(kept))[:_MAX_UPGRADABLE_NAMES]
+        result['kept_back'] = kept[:50]     # which of them apt keeps back, for the Patch Report to name
         try:
             full = subprocess.check_output(['apt-get', *apt_opts, '--simulate', '--quiet', '--with-new-pkgs', 'upgrade'],
                                            text=True, timeout=45, stderr=subprocess.DEVNULL, env=_c_locale_env())

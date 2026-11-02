@@ -2342,6 +2342,11 @@ if _AVAILABLE:
         internal: bool = False
         _v0 = field_validator('internal', mode='before')(_coerce_bool_loose)
 
+    class UpgradeModeRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        mode: str = ''
+        _v0 = field_validator('mode', mode='before')(_coerce_str_loose)
+
     class DiskNamesRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         names: Any = None

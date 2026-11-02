@@ -774,8 +774,9 @@ def _pick_action(ladder, policy):
     return next((a for a in ladder if a in allowed), ladder[0])
 
 
-def _command_for(action, family):
-    """The command template for this action on this OS family, or ''."""
+def _command_for(action, family, dev=None):
+    """The command template for this action on this OS family, or ''. `dev` is the host, whose upgrade mode picks the
+    script behind `@upgrade`."""
     tmpl = _ACTION_COMMANDS.get(action)
     if isinstance(tmpl, dict):
         tmpl = tmpl.get(family) or ''
@@ -784,7 +785,7 @@ def _command_for(action, family):
         # The vetted upgrade script — the same one auto-patch runs, carrying the
         # initramfs safety analysis. Resolved here rather than copied so a fix
         # to that script reaches autonomy too.
-        return 'exec:' + A._UPGRADE_CMD
+        return 'exec:' + A._linux_upgrade_cmd(dev)
     return tmpl
 
 
@@ -861,7 +862,7 @@ def _build_plan(alert, action, dev, dev_id, radius, precedent_action):
     # does name the resource always wins over the default.
     payload = {**_EVENT_PARAM_DEFAULTS.get(alert.get('event'), {}), **payload}
     family = A._device_os_family(dev)
-    cmd, problem = _resolve_params(_command_for(action, family), payload, dev_id)
+    cmd, problem = _resolve_params(_command_for(action, family, dev), payload, dev_id)
     return {
         # A unique id. `ts` is a whole second and a sweep builds every
         # candidate's plan in the same pass, so several receipts routinely

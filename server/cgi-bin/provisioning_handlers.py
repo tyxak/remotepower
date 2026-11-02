@@ -198,8 +198,7 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
                 if reboot and 'reboot-if-required' not in cmds[dev_id]:
                     cmds[dev_id].append('reboot-if-required')
             else:
-                lin = (f'exec:{A._SCHED_UPGRADE_REBOOT_CMD}' if reboot
-                       else f'exec:{A._UPGRADE_CMD}')
+                lin = f"exec:{A._linux_upgrade_cmd(dev, 'scheduled_reboot' if reboot else 'manual')}"
                 if lin not in cmds[dev_id]:
                     cmds[dev_id].append(lin)
         elif queued not in cmds[dev_id]:

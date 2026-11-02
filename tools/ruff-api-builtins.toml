@@ -414,6 +414,7 @@ builtins = [
     "handle_device_synology_upgrade",
     "handle_device_thermal_rollup",
     "handle_device_tickets",
+    "handle_device_upgrade_mode",
     "handle_devices_bulk_attrs",
     "handle_devices_bulk_delete",
     "handle_devices_bulk_tags",

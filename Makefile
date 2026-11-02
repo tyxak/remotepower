@@ -31,6 +31,7 @@ LINT_SRC := server/cgi-bin/safe_opener.py \
             server/cgi-bin/posture_signals.py \
             server/cgi-bin/drive_temp.py \
             server/cgi-bin/exposure_scope.py \
+            server/cgi-bin/upgrade_mode.py \
             server/cgi-bin/peer_direction.py \
             server/cgi-bin/thermal_sensors.py \
             server/cgi-bin/disk_mounts.py \
@@ -63,6 +64,7 @@ TYPECHECK_SRC := server/cgi-bin/safe_opener.py \
                  server/cgi-bin/posture_signals.py \
                  server/cgi-bin/drive_temp.py \
                  server/cgi-bin/exposure_scope.py \
+                 server/cgi-bin/upgrade_mode.py \
                  server/cgi-bin/peer_direction.py \
                  server/cgi-bin/thermal_sensors.py \
                  server/cgi-bin/disk_mounts.py \

@@ -930,6 +930,7 @@ import filebackup as filebackup_mod   # noqa: F401  v6.3.0: structured file-back
 import checks as checks_mod    # per-host Checks engine (pure)
 import drive_temp as drive_temp_mod   # v7.4.4 (#54): temperature lines for drives (pure)
 import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host and the grade of its listeners (pure)
+import upgrade_mode as upgrade_mode_mod   # a host's apt upgrade mode, Standard or Extended (Discussion #30; pure)
 import peer_direction as peer_direction_mod   # v7.4.6 (#58): which way an observed TCP connection runs (pure)
 import thermal_sensors as thermal_sensors_mod   # a temperature history for every sensor, not only the hottest (pure)
 import disk_mounts as disk_mounts_mod   # which mounts of a host are one filesystem (pure)
@@ -1173,6 +1174,18 @@ for _es_name in (
 ):
     globals()[_es_name] = getattr(exposure_scope_handlers_mod, _es_name)
 del _es_name
+
+# A host's apt upgrade mode, Standard or Extended (Discussion #30). A new route, so a bound module.
+_um_spec = _tk_ilu.spec_from_file_location(
+    'upgrade_mode_handlers', Path(__file__).parent / 'upgrade_mode_handlers.py')
+upgrade_mode_handlers_mod = _tk_ilu.module_from_spec(_um_spec)
+_um_spec.loader.exec_module(upgrade_mode_handlers_mod)
+upgrade_mode_handlers_mod.bind(globals())
+for _um_name in (
+        'handle_device_upgrade_mode',
+):
+    globals()[_um_name] = getattr(upgrade_mode_handlers_mod, _um_name)
+del _um_name
 
 # v7.0.3: web-terminal ticket issue, session audit and host-key lookup. Carved
 # out when adding the host-key endpoint pushed api.py past the inline-handler
@@ -20101,8 +20114,14 @@ def _autopatch_queue(pol, actor):
         # "feature that can never fire" class. '' when no approvals exist, so
         # an install that doesn't use them queues the identical command string.
         _pin = _autopatch_pin_prefix()
-        _up = _SCHED_UPGRADE_REBOOT_CMD if reboot else _SCHED_UPGRADE_CMD
-        _queue_command_batch(linux, f'exec:{_pin}{_up}', actor)
+        # Discussion #30: a host's upgrade mode picks its script, so the Linux targets go in one batch per script
+        # (Standard and Extended: at most two). A fleet that uses no mode queues the one batch it always did.
+        _by_script = {}
+        for d in linux:
+            _by_script.setdefault(_linux_upgrade_cmd(devices.get(d), 'scheduled_reboot' if reboot else 'scheduled'),
+                                  []).append(d)
+        for _up, _ids in _by_script.items():
+            _queue_command_batch(_ids, f'exec:{_pin}{_up}', actor)
     if native:
         # The Windows and macOS agents never auto-reboot on `upgrade` (Windows
         # passes -IgnoreReboot; brew has no such concept), so a reboot-on-patch
@@ -21781,6 +21800,11 @@ def handle_heartbeat():
                 if isinstance(names, list):
                     safe_pkg['upgradable_names'] = [_sanitize_str(n, 128) for n in names[:300]
                                                     if isinstance(n, str) and n][:300]
+                # Discussion #30: the packages apt keeps back (counted in `upgradable` already), so the Patch Report can
+                # name them and say which upgrade mode installs them.
+                kb = pkg.get('kept_back')
+                if isinstance(kb, list):
+                    safe_pkg['kept_back'] = [_sanitize_str(n, 128) for n in kb[:50] if isinstance(n, str) and n][:50]
                 # v3.4.2: third-party (flatpak/snap/pip/npm) available updates.
                 tp = pkg.get('third_party')
                 if isinstance(tp, dict):
@@ -25583,7 +25607,7 @@ def _upgrade_command_for(dev, package=''):
     if fam in ('windows', 'darwin'):
         pkg = _sanitize_str(str(package or ''), 200).strip()
         return f'upgrade:{pkg}' if pkg else 'upgrade'
-    return f'exec:{_UPGRADE_CMD}'
+    return f'exec:{_linux_upgrade_cmd(dev)}'
 
 
 _UPGRADE_CMD = (
@@ -25744,6 +25768,27 @@ _SCHED_UPGRADE_REBOOT_CMD = (
     # gives upgrade commands a 30-min exec timeout so this line is reached.
     'systemctl reboot || /sbin/reboot || reboot'
 )
+
+# Discussion #30: the same three commands with new packages allowed, for a host whose upgrade mode is Extended. Each is
+# the standard command with its apt line swapped (upgrade_mode.extended raises when that line has moved, so an edit to the
+# command cannot leave Extended quietly the same as Standard). EVERY place that queues an upgrade on a Linux host takes
+# its command from _linux_upgrade_cmd, so the mode is honoured by the patch button, auto-patch, scheduled upgrades,
+# rollout rings and the autonomy loop alike; tests/test_upgrade_mode.py holds that for each of them.
+_UPGRADE_CMDS = {                      # kind -> (standard, extended)
+    'manual':           (_UPGRADE_CMD, upgrade_mode_mod.extended(_UPGRADE_CMD)),
+    'scheduled':        (_SCHED_UPGRADE_CMD, upgrade_mode_mod.extended(_SCHED_UPGRADE_CMD)),
+    'scheduled_reboot': (_SCHED_UPGRADE_REBOOT_CMD, upgrade_mode_mod.extended(_SCHED_UPGRADE_REBOOT_CMD)),
+}
+
+
+def _linux_upgrade_cmd(dev, kind='manual'):
+    """The upgrade script for this Linux host (the shell string, without the `exec:` prefix), by its upgrade mode.
+
+    `kind` is `manual` (the patch button, a rollout ring, the autonomy loop), `scheduled` (output to the log file) or
+    `scheduled_reboot` (the same, then a reboot if one is required). A host with no mode, or one that is not a dict,
+    gets the standard script, which is what every host got before the mode existed."""
+    standard, extended = _UPGRADE_CMDS[kind]
+    return extended if upgrade_mode_mod.mode_of(dev) == 'extended' else standard
 
 
 def handle_upgrade_device():
@@ -38102,7 +38147,7 @@ def process_schedule():
                             queued = 'upgrade'
                             _queue_after = 'reboot-if-required'
                         else:
-                            queued = f'exec:{_SCHED_UPGRADE_REBOOT_CMD}'
+                            queued = f"exec:{_linux_upgrade_cmd(devices.get(dev_id), 'scheduled_reboot')}"
                     elif is_script:
                         sid = command[7:]
                         scripts_data = _load_ro(SCRIPTS_FILE)
@@ -58477,7 +58522,9 @@ def _cis_disabled():
 def _cis_remediation(check_id, dev):
     """Return {label, command} for a failed check, or None if not remediable."""
     mgr = ((dev.get('sysinfo') or {}).get('packages') or {}).get('manager')
-    upgrade = {'apt': 'apt-get -y upgrade', 'dnf': 'dnf upgrade --refresh -y',
+    # Discussion #30: on an Extended host the upgrade also installs the new packages an update needs, as everywhere else.
+    apt_upgrade = 'apt-get -y upgrade' + (' --with-new-pkgs' if upgrade_mode_mod.mode_of(dev) == 'extended' else '')
+    upgrade = {'apt': apt_upgrade, 'dnf': 'dnf upgrade --refresh -y',
                'zypper': 'zypper --non-interactive update'}.get(mgr)
     pkg = {'label': 'Install pending updates',
            'command': f'exec:{upgrade}'} if upgrade else None
@@ -58904,6 +58951,8 @@ def handle_patch_report():
             'cve_fixable': cve_fixable.get(dev_id, 0),
             # v3.4.2: post-deploy verification status (ok/stalled/pending/None).
             'upgrade_verify': _upgrade_verify_status(dev, now),
+            # Discussion #30: how the upgrade runs on this host (standard or extended); only apt hosts read it.
+            'upgrade_mode': upgrade_mode_mod.mode_of(dev),
         }
 
         if upgradable is None or not is_online:
@@ -58981,6 +59030,11 @@ def handle_patch_report_device(dev_id):
         'platform': si.get('platform', ''),
         'patch_history': patch_cmds[-20:],
         'latest_metrics': metrics[-10:] if metrics else [],
+        # Discussion #30: the upgrade mode, whether it does anything for this host, and the packages apt keeps back
+        # (which the standard upgrade leaves and the extended one installs).
+        'upgrade_mode': upgrade_mode_mod.mode_of(dev),
+        'upgrade_mode_applies': upgrade_mode_mod.not_applicable(_device_os_family(dev), pkg.get('manager')) is None,
+        'kept_back': [n for n in (pkg.get('kept_back') or []) if isinstance(n, str)][:50],
     }
     respond(200, report)
 
@@ -73990,7 +74044,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/live-sample', 'handle_device_live_sample', "pi.startswith('/api/devices/') and pi.endswith('/live-sample') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/live-samples', 'handle_device_live_samples', "pi.startswith('/api/devices/') and pi.endswith('/live-samples') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
-    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations',\n                                     # v7.4.3 (#47)\n                                     '/disk-names',\n                                     # v7.4.3 (#50)\n                                     '/container-thresholds',\n                                     # v7.4.5 (#55)\n                                     '/exposure-internal'))"),
+    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations',\n                                     # v7.4.3 (#47)\n                                     '/disk-names',\n                                     # v7.4.3 (#50)\n                                     '/container-thresholds',\n                                     # v7.4.5 (#55)\n                                     '/exposure-internal',\n                                     # Discussion #30\n                                     '/upgrade-mode'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),
     ('pat', ('PATCH',), '/api/devices/', '/tags', 'handle_device_tags', "pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH'"),
     ('pat', ('PATCH',), '/api/devices/', '/notes', 'handle_device_notes', "pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH'"),
@@ -74051,6 +74105,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('PUT',), '/api/devices/', '/disk-names', 'handle_device_disk_names', "pi.startswith('/api/devices/') and pi.endswith('/disk-names') and m == 'PUT'"),
     ('pat', ('GET', 'PUT'), '/api/devices/', '/container-thresholds', 'handle_device_container_thresholds', "pi.startswith('/api/devices/') and pi.endswith('/container-thresholds') and m in ('GET', 'PUT')"),
     ('pat', ('GET', 'PUT'), '/api/devices/', '/exposure-internal', 'handle_device_exposure_internal', "pi.startswith('/api/devices/') and pi.endswith('/exposure-internal') and m in ('GET', 'PUT')"),
+    ('pat', ('GET', 'PUT'), '/api/devices/', '/upgrade-mode', 'handle_device_upgrade_mode', "pi.startswith('/api/devices/') and pi.endswith('/upgrade-mode') and m in ('GET', 'PUT')"),
     ('pat', ('POST',), '/api/devices/', '/snmp/walk', 'handle_device_snmp_walk', "pi.startswith('/api/devices/') and pi.endswith('/snmp/walk') and m == 'POST'"),
     # v6.4.2: per-port bandwidth / error / link history for SNMP gear.
     ('pat', ('GET',), '/api/devices/', '/snmp/interfaces', 'handle_device_snmp_interfaces', "pi.startswith('/api/devices/') and pi.endswith('/snmp/interfaces') and m == 'GET'"),
@@ -74438,7 +74493,9 @@ def _route_code_5(pi, m):
                                      # v7.4.3 (#50)
                                      '/container-thresholds',
                                      # v7.4.5 (#55)
-                                     '/exposure-internal'))):
+                                     '/exposure-internal',
+                                     # Discussion #30
+                                     '/upgrade-mode'))):
         handle_device_delete(pi[len('/api/devices/'):])
         return True
     return False
@@ -77151,6 +77208,13 @@ _MITIGATE_PLAYBOOKS = {
             'echo; echo "== PENDING SECURITY UPDATES =="; '
             'if command -v apt-get >/dev/null 2>&1; then '
             '  apt-get -s upgrade 2>/dev/null | grep -iE "^Inst .*security" | head -40 || true; '
+            # Discussion #30: `apt-get upgrade` keeps back an update that needs a package that is not installed yet (a new
+            # kernel image) and prints no Inst line for it, so the list above misses it while the total below counts it.
+            # Read-only: what is kept back, and the security updates an upgrade that may install new packages would add.
+            '  echo; echo "== KEPT BACK by apt-get upgrade (an Extended upgrade installs these) =="; '
+            '  LC_ALL=C apt-get -s upgrade 2>/dev/null | awk \'/^The following packages have been kept back/{f=1;next} f&&/^ /{print;next} {f=0}\' | head -20 || true; '
+            '  echo; echo "== SECURITY UPDATES an Extended upgrade would also install =="; '
+            '  LC_ALL=C apt-get -s --with-new-pkgs upgrade 2>/dev/null | grep -iE "^Inst .*security" | head -40 || true; '
             '  echo; echo "(total upgradable:)"; apt list --upgradable 2>/dev/null | grep -c "/" || true; '
             'elif command -v dnf >/dev/null 2>&1; then dnf updateinfo list security 2>/dev/null | head -40 || true; '
             'elif command -v yum >/dev/null 2>&1; then yum updateinfo list security 2>/dev/null | head -40 || true; '
