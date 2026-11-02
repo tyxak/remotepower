@@ -52,6 +52,8 @@ TWINNED = {
     # guard was ported to both; a one-sided fix means one platform can still
     # walk itself backwards on hash drift.
     '_vtuple',
+    # 7.4.9: the signed-release downgrade check, ported to both agents. `_t` is the version parser nested inside `_is_downgrade`.
+    '_embedded_version', '_is_downgrade', '_t',
     # file-log tailing state
     '_file_log_state_path', '_load_file_log_state', '_save_file_log_state',
     '_submit_file_logs',

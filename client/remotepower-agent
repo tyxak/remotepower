@@ -211,7 +211,33 @@ def _audit_mode():
 # server-side release signing.) Fail-closed by design: flag set + no pinned
 # key / no gpg / bad sig / stale ts → the command is refused and reported.
 REQUIRE_SIGNED_CMDS_FILE = CONF_DIR / 'require-signed-commands'
+# 7.4.9: with a release key pinned, an update older than the running agent is refused unless this file exists on the host. The
+# comparison below it reads the version out of the signed bytes themselves, not out of what the server advertises.
+ALLOW_DOWNGRADE_FILE = CONF_DIR / 'allow-downgrade'
 CMD_SIG_MAX_AGE_S = 900     # freshness window (covers modest clock skew)
+
+
+def _embedded_version(data):
+    """The `VERSION = '...'` line inside agent source bytes, or ''. This is what the signature covers, so it cannot be changed
+    without the release key, unlike the version the server advertises beside the download."""
+    try:
+        m = re.search(rb"(?m)^VERSION\s*=\s*['\"]([0-9][0-9A-Za-z.+-]*)['\"]", bytes(data)[:200000])
+    except Exception:
+        return ''
+    return m.group(1).decode('ascii', 'replace') if m else ''
+
+
+def _version_tuple(v):
+    try:
+        return tuple(int(x) for x in str(v).split('.')[:3])
+    except (TypeError, ValueError):
+        return ()
+
+
+def _is_downgrade(running, offered):
+    """True when `offered` is a lower release than `running`. An unreadable version is not a downgrade (the signature stands)."""
+    a, b = _version_tuple(running), _version_tuple(offered)
+    return bool(a and b and b < a)
 
 
 def _require_signed_commands():
@@ -219,6 +245,25 @@ def _require_signed_commands():
         return REQUIRE_SIGNED_CMDS_FILE.exists()
     except Exception:
         return False
+
+
+_REFUSED_UNSIGNED = set()
+
+
+def _refuse_unsigned_channel(channel, why):
+    """True when `require-signed-commands` is set and this config-driven channel must therefore not run.
+
+    7.4.9: the signature covers one command string, and these channels ride the heartbeat response as settings (a canary list, a
+    backup monitor), so there is nothing to verify. They were the three that ran regardless: a canary writes a root-owned file with
+    server-chosen content, and backup verification and the restore drill start restic, borg or tar as root against a repository the
+    server names. An operator who sets this flag has said the server's word is not enough; honouring these three is the same hole
+    the custom-script channel had before 6.4.3. Refused loudly, once, like that one."""
+    if not _require_signed_commands():
+        return False
+    if channel not in _REFUSED_UNSIGNED:
+        _REFUSED_UNSIGNED.add(channel)
+        log.error('REFUSED %s: require-signed-commands is set and %s', channel, why)
+    return True
 
 
 # v7.0.2: replay memory for signed commands.
@@ -2000,6 +2045,13 @@ def _plant_canaries(canary_cfg):
             if _p:
                 _canary_failed[str(_p)[:256]] = 'audit mode (read-only)'
         return
+    if (canary_cfg or []) and _refuse_unsigned_channel(
+            'canary files', 'a canary list is a setting, not a signed command, and planting one writes a root-owned file'):
+        for c in (canary_cfg or [])[:50]:
+            _p = c.get('path') if isinstance(c, dict) else c
+            if _p:
+                _canary_failed[str(_p)[:256]] = 'refused (require-signed-commands)'
+        return
     for c in (canary_cfg or [])[:50]:
         p = c.get('path') if isinstance(c, dict) else c
         if not p:
@@ -2014,6 +2066,16 @@ def _plant_canaries(canary_cfg):
         hp = host_path(p)
         if p in _canary_planted:
             continue
+        # 7.4.9: the rule above reads the path as written. A decoy in a directory a user owns (`~/.aws/credentials`) could be
+        # redirected: the user makes `.aws` a link to `/etc/sudoers.d`, and root then creates a 0600 file there that sudo refuses
+        # to start on. The directory is resolved first and the rule is applied to where the file would really land.
+        _real_parent = os.path.realpath(os.path.dirname(hp) or '/')
+        _landing = unhost_path(os.path.join(_real_parent, os.path.basename(hp)))
+        if _landing != p:
+            _ok, _why = _canary_path_safe(_landing)
+            if not _ok:
+                _canary_failed[p] = 'the directory resolves into ' + _landing.rsplit('/', 1)[0] + ': ' + _why
+                continue
         try:
             if os.path.exists(hp):
                 # pre-existing file — track its baseline but never clobber it
@@ -2030,7 +2092,9 @@ def _plant_canaries(canary_cfg):
             if not os.path.isdir(os.path.dirname(hp) or '/'):
                 _canary_failed[p] = 'directory does not exist'
                 continue
-            fd = os.open(hp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            # created inside the directory that was resolved above, never through a link at the leaf
+            _land = os.path.join(_real_parent, os.path.basename(hp))
+            fd = os.open(_land, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             try:
                 os.write(fd, content.encode())
             finally:
@@ -5748,6 +5812,8 @@ def collect_backup_verify(backup_monitors):
             if isinstance(m, dict) and m.get('verify_enabled')]
     if not mons:
         return out
+    if _refuse_unsigned_channel('backup verification', 'it starts restic, borg or tar as root against a repository the server names'):
+        return out
     try:
         # Read from the SAME place the verify-state is written
         # (_safe_state_write → STATE_DIR). The old read went through
@@ -5883,6 +5949,8 @@ def run_restore_drills(backup_monitors, now=None):
     mons = [m for m in (backup_monitors or [])
             if isinstance(m, dict) and m.get('restore_drill_enabled')]
     if not mons:
+        return []
+    if _refuse_unsigned_channel('restore drills', 'it starts restic, borg or tar as root against a repository the server names'):
         return []
     try:
         state = json.loads(_safe_state_read(_RESTORE_DRILL_STATE) or '{}')
@@ -8307,8 +8375,14 @@ def _eval_one_agent_check(c):
         skip = {'cache', 'tmp', 'temp', 'log', 'logs', '.git', '.cache',
                 'node_modules', 'vendor'}
         cur, n = {}, 0
+        # 7.4.9: the cap below counts files that match. A tree of millions of empty directories, or of names that never match, kept
+        # the poll loop here for as long as the walk took. Every entry counts, and the walk has a wall-clock budget.
+        _deadline, _seen = time.monotonic() + 20.0, 0
         try:
             for root, dirs, files in os.walk(base):
+                _seen += 1 + len(dirs) + len(files)
+                if _seen > 400000 or time.monotonic() > _deadline:
+                    return 'unknown', 'scan stopped: the tree is too large or too slow to walk'
                 dirs[:] = [d for d in dirs if d not in skip]
                 for fn in files:
                     if glob and not fnmatch.fnmatch(fn, glob):
@@ -9524,6 +9598,15 @@ def check_for_update(server_url, force=False):
             log.error(f"Release signature verification FAILED ({detail}). Refusing to install.")
             _safe_state_write('update-rejected', f'signature invalid: {detail}')
             return False
+        # 7.4.9: the version check further up trusts what the server advertises, and a forced upgrade skips it. A signed release is
+        # signed for ever, so a server an attacker holds could hand back an older one that is still validly signed. The version
+        # inside the verified bytes is what counts, forced or not, unless this host's own file allows a rollback.
+        _offered = _embedded_version(data)
+        if _is_downgrade(VERSION, _offered) and not ALLOW_DOWNGRADE_FILE.exists():
+            log.error(f"The signed release is v{_offered}, OLDER than the running v{VERSION}. Refusing to install it "
+                      f"(touch {ALLOW_DOWNGRADE_FILE} on this host to allow a rollback).")
+            _safe_state_write('update-rejected', f'v{_offered} is older than the running v{VERSION}')
+            return False
         log.info("Release signature verified — installing.")
         _safe_state_unlink('update-rejected')
 
@@ -10164,6 +10247,22 @@ def _handle_file_archive(cmd):
             pass
 
 
+def _keep_owner_and_mode(fd, target):
+    """A file written through the file manager keeps the owner and the mode it had. The temporary file is created 0600 as root, and
+    the rename put that on the target: a config file the service ran as its own user became root's, unreadable to the service."""
+    try:
+        st = os.lstat(target)
+    except OSError:
+        return                                  # a new file: 0600 root is the right answer
+    if not stat.S_ISREG(st.st_mode):
+        return
+    try:
+        os.fchmod(fd, stat.S_IMODE(st.st_mode))
+        os.fchown(fd, st.st_uid, st.st_gid)
+    except OSError:
+        pass                                    # not root (a container, a test): the mode is the part that matters most
+
+
 def _handle_file_op(cmd):
     """Execute a `files:` op → standard cmd_output dict with a JSON `output`.
     Never raises; the danger is path-traversal, blocked by a symlink-resolved
@@ -10229,8 +10328,12 @@ def _handle_file_op(cmd):
         elif op == 'read':
             # O_NOFOLLOW on the resolved leaf (see the TOCTOU note above); read +
             # stat come from the SAME fd so the reported size matches the bytes.
-            _rfd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW)
+            # 7.4.9: O_NONBLOCK, and only a regular file is read. A FIFO planted at the path made this open (and the agent) wait for
+            # a writer that never comes; a device would have been read as root.
+            _rfd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             with os.fdopen(_rfd, 'rb') as _fh:
+                if not stat.S_ISREG(os.fstat(_fh.fileno()).st_mode):
+                    raise OSError('not a regular file')
                 data = _fh.read(FILE_MGR_MAX_READ + 1)
                 _rsize = os.fstat(_fh.fileno()).st_size
             truncated = len(data) > FILE_MGR_MAX_READ
@@ -10259,9 +10362,10 @@ def _handle_file_op(cmd):
             # (symlink-TOCTOU guard). O_TRUNC (not O_EXCL) so a stale .rp-tmp left
             # by an earlier crashed write is overwritten rather than wedging every
             # future write — matches the server's _write_json_atomic.
-            _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+            _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
             try:
                 os.write(_fd, content.encode('utf-8', 'replace'))
+                _keep_owner_and_mode(_fd, real)
             finally:
                 os.close(_fd)
             os.replace(str(tmp), real)      # atomic same-dir replace
@@ -10276,9 +10380,10 @@ def _handle_file_op(cmd):
                 rc, res = 1, {'error': 'file exists (overwrite not permitted)'}
             else:
                 tmp = real_fs.with_name(real_fs.name + '.rp-tmp')
-                _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+                _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
                 try:
                     os.write(_fd, raw)
+                    _keep_owner_and_mode(_fd, real)
                 finally:
                     os.close(_fd)
                 os.replace(str(tmp), real)

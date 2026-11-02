@@ -531,6 +531,27 @@ def _http_get_bytes_win(url, timeout=60):
         return resp.read(MAX_DOWNLOAD)
 
 
+def _embedded_version(data):
+    """The `VERSION = '...'` line inside agent source bytes, or ''. This is what the signature covers, so it cannot be changed
+    without the release key, unlike the version the server advertises beside the download."""
+    try:
+        m = re.search(rb"(?m)^VERSION\s*=\s*['\"]([0-9][0-9A-Za-z.+-]*)['\"]", bytes(data)[:200000])
+    except Exception:
+        return ''
+    return m.group(1).decode('ascii', 'replace') if m else ''
+
+
+def _is_downgrade(running, offered):
+    """True when `offered` is a lower release than `running`. An unreadable version is not a downgrade (the signature stands)."""
+    def _t(v):
+        try:
+            return tuple(int(x) for x in str(v).split('.')[:3])
+        except (TypeError, ValueError):
+            return ()
+    a, b = _t(running), _t(offered)
+    return bool(a and b and b < a)
+
+
 def _self_update():
     """Download + verify + install a fresh Windows agent, then relaunch the task.
 
@@ -605,6 +626,13 @@ def _self_update():
                                               (info.get('key_fingerprint') or ''))
         if not ok:
             return {'cmd': 'update', 'output': f'signature verification FAILED ({detail}) — refusing', 'rc': 1}
+        # 7.4.9: the release is signed for ever, so a server an attacker holds could hand back an older one that still verifies.
+        # The version inside the verified bytes counts, not the one the server advertises; a host's own file allows a rollback.
+        _offered = _embedded_version(data)
+        if _is_downgrade(VERSION, _offered) and not os.path.exists(os.path.join(_data_dir(), 'allow-downgrade')):
+            return {'cmd': 'update',
+                    'output': f'the signed release is v{_offered}, older than the running v{VERSION} — refusing '
+                              '(create allow-downgrade in the RemotePower data folder on this host to allow a rollback)', 'rc': 1}
 
     # Atomic swap: write beside the target, os.replace (atomic on NTFS), harden ACL.
     try:
@@ -1027,6 +1055,8 @@ def windows_update_pending():
 
 
 # A winget package Id: reverse-DNS-ish, e.g. "Google.Chrome", "7zip.7zip".
+# A group with a repetition inside it, repeated again: (a+)+  (.*a){9,}  (x*)*
+_NESTED_REPETITION = re.compile(r'\((?:[^()\\]|\\.)*(?:[+*]|\{\d*,\d*\})(?:[^()\\]|\\.)*\)(?:[+*]|\{\d*,\d*\})')
 _WINGET_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}$')
 
 
@@ -3249,11 +3279,16 @@ def _eval_one_agent_check_win(c):
                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         except Exception:
             return 'unknown', 'query failed'
+        # 7.4.9: Python's `re` has no timeout, and Windows has no SIGALRM to interrupt it with (the Linux and macOS agents use one). A
+        # pattern that repeats a group that itself repeats ((a+)+) can take longer than the age of the host on a short line and
+        # stops the agent's one poll loop. That shape is refused, and no line is matched past 4,000 characters.
+        if _NESTED_REPETITION.search(param):
+            return 'unknown', 'pattern refused: a repeated group inside a repeated group can run for ever'
         try:
             rx = re.compile(param)
         except re.error:
             return 'unknown', 'bad pattern'
-        n = sum(1 for ln in (r.stdout or '').splitlines() if ln.strip() and rx.search(ln))
+        n = sum(1 for ln in (r.stdout or '').splitlines() if ln.strip() and rx.search(ln[:4000]))
         status = 'critical' if n >= crit else 'warning' if n >= warn else 'ok'
         return status, f'{n} match(es) in {window}min'
     # systemd_unit and anything else is not applicable on Windows.
@@ -3622,10 +3657,16 @@ def _winshell_which(name):
         r = subprocess.run([_system_bin('where'), name],
                            capture_output=True, text=True, timeout=10,
                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        # 7.4.9: this runs as SYSTEM, so the first hit on PATH is not enough: a user-writable folder early on the machine PATH would
+        # put its own docker.exe here. Only a program under Program Files or the Windows folder is used.
+        _roots = [os.path.normcase(os.path.normpath(os.environ.get(k, ''))) for k in
+                  ('ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'SystemRoot') if os.environ.get(k)]
         for line in (r.stdout or '').splitlines():
             cand = line.strip()
             if cand and os.path.exists(cand):
-                return cand
+                _norm = os.path.normcase(os.path.normpath(os.path.realpath(cand)))
+                if any(_norm == root or _norm.startswith(root + os.sep) for root in _roots):
+                    return cand
     except Exception:
         pass
     return None

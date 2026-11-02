@@ -87,6 +87,12 @@ function Install-PythonIfMissing {
   $exe = Join-Path $env:TEMP "python-$ver-amd64.exe"
   Write-Host "Downloading Python $ver ..."
   Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$ver/python-$ver-amd64.exe" -OutFile $exe -UseBasicParsing
+  # 7.4.9: the installer is run elevated, so it is checked first: it must carry a valid signature from the Python Software Foundation.
+  $sig = Get-AuthenticodeSignature -FilePath $exe
+  if ($sig.Status -ne 'Valid' -or $null -eq $sig.SignerCertificate -or $sig.SignerCertificate.Subject -notmatch 'Python Software Foundation') {
+    Remove-Item $exe -Force -ErrorAction SilentlyContinue
+    throw "The downloaded Python installer is not signed by the Python Software Foundation (signature: $($sig.Status)) - refusing to run it. Install Python from https://www.python.org/downloads/ and re-run."
+  }
   Start-Process -FilePath $exe -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1','Include_pip=1' -Wait
   Remove-Item $exe -Force -ErrorAction SilentlyContinue
   & $refresh
@@ -139,15 +145,16 @@ if (Test-Path $src) {
   Write-Host "Downloading the agent from $Server ..."
   $want = ''
   try { $want = (Invoke-RestMethod -Uri "$Server/api/agent/win/version" -UseBasicParsing).sha256 } catch {}
+  # 7.4.9: no checksum to compare with is a stop, not a pass. This step used to be skipped without a word when the request failed,
+  # so the one case where the agent could not be checked was the one that installed it unchecked.
+  if (-not $want) { throw "Could not read the agent's checksum from $Server - refusing to install an agent that cannot be verified." }
   Invoke-WebRequest -Uri "$Server/api/agent/win/download" -OutFile $agent -UseBasicParsing
-  if ($want) {
-    $got = (Get-FileHash -Path $agent -Algorithm SHA256).Hash.ToLower()
-    if ($got -ne $want.ToLower()) {
-      Remove-Item $agent -Force -ErrorAction SilentlyContinue
-      throw "Agent checksum mismatch - refusing to install (expected $want, got $got)."
-    }
-    Write-Host 'Agent checksum verified.' -ForegroundColor Green
+  $got = (Get-FileHash -Path $agent -Algorithm SHA256).Hash.ToLower()
+  if ($got -ne $want.ToLower()) {
+    Remove-Item $agent -Force -ErrorAction SilentlyContinue
+    throw "Agent checksum mismatch - refusing to install (expected $want, got $got)."
   }
+  Write-Host 'Agent checksum verified.' -ForegroundColor Green
 }
 
 # psutil (richer metrics) + pywin32 (real Windows service). Best-effort.

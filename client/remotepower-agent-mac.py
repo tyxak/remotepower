@@ -1363,6 +1363,43 @@ def _check_canaries(canary_cfg):
 MAX_DRIFT_FILES = 200
 # launchd labels are reverse-DNS. Validated before it reaches argv so a label can
 # never be anything but a single token (defence in depth — there is no shell).
+# 7.4.9: wall-clock ceiling for one operator regex. Python's `re` has no timeout, and a nested-quantifier pattern against a few
+# thousand characters is a single call that does not return in any useful time, so the agent's one poll loop stopped reporting.
+# CPython's matching engine checks for pending signals while it works, so SIGALRM reaches it (the Linux agent measured that).
+LOG_ERRORS_BUDGET_S = 10
+
+
+class _RegexBudgetExceeded(Exception):
+    """A regex ran past its wall-clock budget and was interrupted."""
+
+
+import contextlib as _contextlib     # noqa: E402  (local to this guard)
+
+
+def _raise_regex_budget(_sig, _frm):
+    raise _RegexBudgetExceeded()
+
+
+@_contextlib.contextmanager
+def _regex_budget(seconds):
+    """Interrupt a runaway regex after `seconds`. Main thread on POSIX only; anywhere else it does nothing."""
+    try:
+        import signal as _signal
+        _prev = _signal.signal(_signal.SIGALRM, _raise_regex_budget)
+    except (ImportError, ValueError, AttributeError, OSError):
+        yield
+        return
+    try:
+        _signal.setitimer(_signal.ITIMER_REAL, max(0.1, float(seconds)))
+        yield
+    finally:
+        try:
+            _signal.setitimer(_signal.ITIMER_REAL, 0)
+            _signal.signal(_signal.SIGALRM, _prev)
+        except Exception:
+            pass
+
+
 _LAUNCHD_LABEL_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 
 
@@ -1622,8 +1659,12 @@ def _eval_one_agent_check_mac(c):
                                capture_output=True, text=True, timeout=60)
         except Exception:
             return 'unknown', 'query failed'
-        n = sum(1 for ln in (r.stdout or '')[:_LOG_ERRORS_MAX_BYTES].splitlines()
-                if ln.strip() and rx.search(ln))
+        try:
+            with _regex_budget(LOG_ERRORS_BUDGET_S):
+                n = sum(1 for ln in (r.stdout or '')[:_LOG_ERRORS_MAX_BYTES].splitlines()
+                        if ln.strip() and rx.search(ln))
+        except _RegexBudgetExceeded:
+            return 'unknown', 'pattern too slow: stopped after %ds' % LOG_ERRORS_BUDGET_S
         status = 'critical' if n >= crit else 'warning' if n >= warn else 'ok'
         return status, f'{n} match(es) in {window}min'
     # systemd_unit, windows_service and the Linux-only integrity/egress guard
@@ -2359,6 +2400,27 @@ def _http_get_bytes(url, timeout=90):
 _RESTART_AFTER_REPORT = [False]
 
 
+def _embedded_version(data):
+    """The `VERSION = '...'` line inside agent source bytes, or ''. This is what the signature covers, so it cannot be changed
+    without the release key, unlike the version the server advertises beside the download."""
+    try:
+        m = re.search(rb"(?m)^VERSION\s*=\s*['\"]([0-9][0-9A-Za-z.+-]*)['\"]", bytes(data)[:200000])
+    except Exception:
+        return ''
+    return m.group(1).decode('ascii', 'replace') if m else ''
+
+
+def _is_downgrade(running, offered):
+    """True when `offered` is a lower release than `running`. An unreadable version is not a downgrade (the signature stands)."""
+    def _t(v):
+        try:
+            return tuple(int(x) for x in str(v).split('.')[:3])
+        except (TypeError, ValueError):
+            return ()
+    a, b = _t(running), _t(offered)
+    return bool(a and b and b < a)
+
+
 def _self_update():
     """v6.3.0: download + sha256-verify + atomically install a fresh mac agent.
 
@@ -2432,6 +2494,13 @@ def _self_update():
         if not ok:
             return {'cmd': 'update',
                     'output': f'signature verification FAILED ({detail}) — refusing', 'rc': 1}
+        # 7.4.9: the release is signed for ever, so a server an attacker holds could hand back an older one that still verifies.
+        # The version inside the verified bytes counts, not the one the server advertises; a host's own file allows a rollback.
+        _offered = _embedded_version(data)
+        if _is_downgrade(VERSION, _offered) and not os.path.exists('/etc/remotepower/allow-downgrade'):
+            return {'cmd': 'update',
+                    'output': f'the signed release is v{_offered}, older than the running v{VERSION} — refusing '
+                              '(touch /etc/remotepower/allow-downgrade on this host to allow a rollback)', 'rc': 1}
 
     self_path = os.path.abspath(__file__)
     try:

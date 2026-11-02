@@ -68,6 +68,9 @@ def _load_canary_ns(agent_file):
         # other four channels. Off by default here; the test that cares turns
         # it on.
         "_audit_mode": lambda: False,
+        # 7.4.9: planting also asks require-signed-commands and resolves the directory of the decoy before creating it.
+        "_refuse_unsigned_channel": lambda *a, **k: False,
+        "unhost_path": lambda p: p,
     }
     # `_canary_path_safe` and its three tuples are lifted for real rather than
     # stubbed — a stub would let the deny list rot while these tests stayed

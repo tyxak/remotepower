@@ -30,6 +30,7 @@ only — no dependencies.
 import os
 import selectors
 import socket
+import re
 import ssl
 import sys
 import urllib.error
@@ -87,6 +88,30 @@ _OPENER = urllib.request.build_opener(
 MAX_BODY = 50 * 1024 * 1024
 
 
+# 7.4.9: the paths an agent calls, and nothing else. The relay used to forward every /api/* request, so any machine on the segment
+# could reach the sign-in and the whole administration API from the relay's address, which an IP allowlist on the server treats as
+# trusted. An agent needs heartbeats, enrolment, the package and log submissions, the scan and threat reports, the compose fetch,
+# the push and SSH-gateway channels, the update check and the two per-host uploads. tests/test_v749_agent_satellite_paths.py reads
+# every /api/ path out of the three agents and the installers and fails if one is not listed here.
+_AGENT_PATHS = frozenset((
+    '/api/heartbeat', '/api/enroll/register', '/api/packages', '/api/logs', '/api/threat-events', '/api/scap/report',
+    '/api/compose/fetch', '/api/push/connect', '/api/sshgw/tunnel',
+    '/api/agent/version', '/api/agent/signature',
+    '/api/agent/mac/version', '/api/agent/mac/signature', '/api/agent/mac/download',
+    '/api/agent/win/version', '/api/agent/win/signature', '/api/agent/win/download',
+))
+_AGENT_HOST_PATH = re.compile(r'^/api/devices/[A-Za-z0-9_-]{1,64}/(?:live-sample|files/archive-chunk)$')
+
+
+def relayed(path):
+    """True when `path` (with its query string) is one an agent calls. A path that is not in its plain form (`..`, a doubled slash, an
+    escape) is not relayed, since the server may read it differently from a table of literal names."""
+    bare = path.split('?', 1)[0]
+    if '%' in bare or '//' in bare or '/./' in bare or '..' in bare:
+        return False
+    return bare in _AGENT_PATHS or bool(_AGENT_HOST_PATH.match(bare))
+
+
 class Relay(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     # A client that opens a connection and says nothing is dropped after a minute instead of holding a thread for ever.
@@ -97,8 +122,8 @@ class Relay(BaseHTTPRequestHandler):
         if path == '/satellite/health':
             self._send(200, b'{"ok":true}', {'Content-Type': 'application/json'})
             return
-        if not path.startswith('/api/'):
-            self._send(404, b'not found (satellite only relays /api/*)',
+        if not path.startswith('/api/') or not relayed(path):
+            self._send(404, b'not found (the satellite relays the paths an agent calls)',
                        {'Content-Type': 'text/plain'})
             return
         # v6.1.2: the agent push channel through a satellite. An agent's push
