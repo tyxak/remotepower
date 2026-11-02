@@ -220,7 +220,7 @@ class TestTheAppAcceptsTheSecretFromTheEnvironment(unittest.TestCase):
 
     def test_one_helper_serves_both_handlers(self):
         src = (ROOT / "server/cgi-bin/webterm_handlers.py").read_text()
-        self.assertEqual(src.count("hmac.compare_digest"), 1, "the secret check is copied again")
+        self.assertEqual(src.count("A._secure_eq("), 1, "the secret check is copied again")      # 7.4.9: secure_eq.py never raises
         self.assertEqual(src.count("if not _daemon_secret_ok():"), 2)
 
 
