@@ -19,8 +19,9 @@ This module is intentionally tiny — all the routing/auth/audit logic
 lives in api.py. Keep it that way.
 """
 
-import secure_eq
 import secrets
+
+import secure_eq
 
 # Constants — bumping these is a breaking change. The vault file records
 # whichever values were used at setup time so we can rotate later without
