@@ -248,7 +248,11 @@ class TestEagerJsPayload(unittest.TestCase):
         # Settings page (the severity row) and the command palette reach into it, so the code that draws
         # the page cannot be split off without a lazy-load path for those two callers, which is a release
         # of its own. The translations are in i18n.js, which is not eager.
-        self.assertLess(total, 2_630_000,
+        # After 7.4.8: 2_640_000. The upgrade mode block of the Patch Report dialog, its save, the bulk action and the
+        # host drawer's temperature verdict add about 4.6 KB to app.js, and 7.4.8 had left 721 bytes of headroom. The
+        # dialog is opened from the Patches page only, but the Patches page itself is drawn from app.js (its table, its
+        # filters and the dialog share state), so the block sits with it; the translations are in i18n.js, which is not eager.
+        self.assertLess(total, 2_640_000,
                         'the eager JS payload regressed past its budget')
 
 

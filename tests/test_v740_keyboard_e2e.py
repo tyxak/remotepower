@@ -408,6 +408,11 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
             inside, redrawn = tab_through()
         self.assertTrue(inside, 'Tab left the host drawer' + (' (and it was redrawn during both passes)' if redrawn else '')
                         + ' ' + state())
+        # Where focus is just before the key: it was lost to <body> by something that landed after the Tab loop (a late
+        # fill-in), or it was inside the drawer and the close did not give it back. The JSON gate of the post-7.4.8 work
+        # failed here once with focus on <body>, the opener connected and no list redraw, and 15 reruns did not repeat it.
+        before_escape = p.evaluate("""() => { const a = document.activeElement, d = document.getElementById('device-drawer');
+            return a ? a.tagName + '#' + a.id + (d.contains(a) ? ' in the drawer' : ' outside it') : null; }""")
         p.keyboard.press('Escape')
         p.wait_for_timeout(500)
         self.assertFalse(p.evaluate("() => document.getElementById('device-drawer').classList.contains('open')"))
@@ -417,7 +422,7 @@ class TestTheOverlaysThatAreNotDialogs(_Base):
         self.assertTrue(p.evaluate("""() => { const a = document.activeElement;
             return a === window.__opener || (!!a && a.isConnected && !!a.getAttribute
               && a.getAttribute('data-action') + '|' + a.getAttribute('data-arg') === window.__openerKey); }"""),
-                        'the drawer did not give focus back ' + state())
+                        'the drawer did not give focus back ' + state() + ' | just before Escape: ' + str(before_escape))
         # command palette
         p.evaluate("() => document.getElementById('toast-history-btn').focus()")
         p.keyboard.press('Control+k')
