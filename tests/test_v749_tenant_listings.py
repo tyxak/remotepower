@@ -317,10 +317,19 @@ class TestOtherListingsNameOnlyTheCallersHosts(_Tenants):
         self.assertEqual([r['device_id'] for r in d['results']], ['devB'])
         self.assertEqual({s['id']: s['assigned_devices'] for s in d['scripts']}, {'cs1': ['devB'], 'cs2': []})
 
-    def test_a_script_results_listing_hides_a_host_the_script_is_assigned_to_but_the_caller_cannot_see(self):
-        api.save(api.CUSTOM_SCRIPTS_FILE, {'cs1': {'id': 'cs1', 'name': 's', 'body': 'true', 'assigned_devices': ['devB', 'devC']}})
+    def test_a_script_results_listing_hides_a_script_that_also_runs_on_a_host_the_caller_cannot_see(self):
+        """The list endpoint hides such a script (_custom_script_reachable); the `scripts` key of the results listing named every
+        script, so another tenant's script, its name and its description, reached everyone. The matrix found it as a marker of the
+        other tenants' scripts in the answer for a default-tenant viewer and for tenant A's administrator."""
+        api.save(api.CUSTOM_SCRIPTS_FILE, {
+            'cs1': {'id': 'cs1', 'name': 'spans two tenants', 'body': 'true', 'assigned_devices': ['devB', 'devC']},
+            'cs2': {'id': 'cs2', 'name': 'only here', 'body': 'true', 'assigned_devices': ['devB']},
+            'cs3': {'id': 'cs3', 'name': 'only elsewhere', 'body': 'true', 'assigned_devices': ['devC']},
+            'cs4': {'id': 'cs4', 'name': 'unassigned', 'body': 'true', 'assigned_devices': []}})
         st, d = self.call(api.handle_custom_scripts_results, m='GET')
-        self.assertEqual(d['scripts'][0]['assigned_devices'], ['devB'])
+        self.assertEqual(sorted(s['id'] for s in d['scripts']), ['cs2', 'cs4'])
+        st, d = self.call(api.handle_custom_scripts_list, m='GET')
+        self.assertEqual(sorted(s['id'] for s in d['scripts']), ['cs2', 'cs4'], 'the two listings agree')
 
     def test_a_maintenance_window_that_names_a_host_out_of_sight_is_not_listed(self):
         def win(wid, target, by):

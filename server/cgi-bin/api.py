@@ -50265,12 +50265,14 @@ def handle_custom_scripts_results():
 
     # Build index: script_id → script meta (name, assigned_devices)
     # 7.4.9: `assigned_devices` is a list of host ids, so it holds the ones the caller can see (the list endpoint does the same).
+    # The list endpoint hides a script that also runs on a host the caller cannot see (_custom_script_reachable); the `scripts` key
+    # here listed every script's name and description, so it hands a tenant the other tenants' scripts. The same rule applies.
     script_meta = {sid: {
         'id':               sid,
         'name':             s['name'],
         'description':      s.get('description', ''),
         'assigned_devices': [d for d in (s.get('assigned_devices') or []) if d in devices],
-    } for sid, s in scripts.items()}
+    } for sid, s in scripts.items() if _custom_script_reachable(s, set(devices))}
 
     rows = []
     for dev_id, dev in devices.items():
