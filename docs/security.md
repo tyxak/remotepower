@@ -34,7 +34,7 @@ test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
 - [security-review-7.4.9.md](security-review-7.4.9.md) — the release in which the whole project was reviewed, not only
-  what changed: three high issues, sixteen medium ones and ten low ones, all of them fixed. Among them are a host's
+  what changed: five high issues, sixteen medium ones and ten low ones, all of them fixed. Among them are a host's
   watched services that any signed-in role could rewrite, three flaws in the Linux agent, the app server running as root
   in the Docker image, tenant administrators reaching instance-wide operations, and a tenant's users reading the
   operator's tickets and invoices. It has the scans, the run over every route, the mutation checks, and what is left

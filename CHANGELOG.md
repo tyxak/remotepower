@@ -61,7 +61,7 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 - **A security review of the whole project, not only of what changed.** Seven reviews ran side by side: who can reach what
   on every route (1,073 operations as 26 kinds of caller), hostile input on every route, the three agents and their
   installers, the web client and the web server headers, the interface, the documents, and a map of what the agents send
-  against where it is used. Scanners ran beside them. They found three High issues, sixteen Medium ones and ten Low or hardening
+  against where it is used. Scanners ran beside them. They found five High issues, sixteen Medium ones and ten Low or hardening
   items. Every one of them is fixed, and the entries below describe them. What is left, which is nothing that attacks an
   installation, is in [docs/security-review-7.4.9.md](docs/security-review-7.4.9.md), with the scans and the numbers behind
   each check.
@@ -86,6 +86,35 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
     caller can see. The dashboard's "upcoming" card never showed a scheduled job at all (it read the schedule as a list, and the
     store is a map holding the list); it does now, and shows a tenant its own.
   Every listing was measured by scanning each answer for the other tenant's host names and ids, as 26 kinds of caller.
+- **A tenant administrator could run operations on the installation and use the operator's accounts (High).** Found by asking the
+  code instead of the data: every routed handler outside the two tenant tables whose own body names no tenant or scope helper
+  (171 of 546 handlers before the pass, 95 of 459 after; each of the 95 gates in a helper, takes a machine token or the caller's own
+  session, or serves a library every tenant may read). Each asked for an administrator and nothing more. The platform table gained
+  these: the restart of the service and the update script, the migration of the data store to another backend, the server's
+  certificate and key, power and snapshots of the operator's hypervisors, its DNS zones and records, its DNS blockers, the import from
+  its cloud accounts, GitOps, the test messages to its AI provider, audit forwarder, OTLP, SIEM and posture digest, the replay of a
+  past event of any tenant through its channels, the fleet-wide image scan, the one software policy every tenant's hosts are judged
+  against, and the debug log. The final matrix run had already moved the full backup and its restore, the restore drill, the webhook
+  test and the push check. The operator organisation's table gained: the integrations and hypervisor platforms,
+  the WAN address, the on-call roster, the customer portal's queue, report definitions and schedule, the security posture, diagnostics,
+  self-test and setup pages, metrics push, client errors, DMARC and IP reputation, resolver health, the TLS monitors, the helpdesk
+  mailbox, DNS, the audit trail's archive (every tenant's entries) and its chain check, the global log rules, the litigation hold,
+  the AI parameters and prompts, the saved DNS credential list, dead-man jobs and the needs-attention suppression rules. A tenant's
+  users lose those pages; that was the leak.
+- **The operator's DNS credentials went to a tenant's host (High).** `POST /api/acme/{host}/issue` puts the credentials of the central
+  DNS-provider store in front of the acme.sh command it queues. For a tenant's own host that handed the operator's token to the
+  tenant's root account, where acme.sh keeps it, and with it the right to edit the operator's zones. They go into commands for the
+  operator's own hosts only now; a tenant's host uses what acme.sh finds on it. **If you saved central DNS credentials and have
+  tenants, rotate that token.**
+- **What names no host belongs to the installation (Medium).** An alert, an activity item or a needs-attention item that names no
+  host (a monitor, a certificate watch, an integration), the monitor families of the metrics scrape, the lists and addresses of the
+  settings document, the audit trail, custom checks, drift profiles and policies, SLA targets, patch decisions, the suppression
+  trail, gateway sessions that name no host, the compliance evidence (it printed `<host id>:<path>` for every failing backup), alert
+  mutes, a batch job's status, network-map tunnels, automation rules, accepted-risk records and the CMDB's function hints came back to
+  a tenant whole. A tenant now gets what names one of its hosts, a tenant's administrator or auditor reads what the accounts of its own
+  tenant did in the audit trail, and the evidence pack and timeline follow. A rule or an accepted risk with no tenant stamp belongs to
+  the tenant of the account that wrote it, which also stops a rule written before 7.0.2 by a tenant account from firing on other
+  tenants' hosts. The dead-man job list no longer shows a read-only role the address that reports a job alive (Medium).
 - **A row of the wrong shape in a store no longer fails a page for everybody (Medium).** The sweep replaced one row, one list or the
   children of one node in each of 193 store files, one at a time, with null, a number, a string, a list, a map, a 400-digit integer,
   NaN and Infinity, and requested every page that reads the file: 3,809 mutations in 110 stores gave a 500 for every user, and 1,810

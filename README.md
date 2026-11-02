@@ -204,7 +204,7 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   update needs, such as a new kernel image that apt keeps back. A hard disk and a SATA SSD behind
   the same controllers keep their own temperature lines, and an update Ubuntu is still phasing in
   is no longer counted as pending. The review covered everything, not only the new code. It found
-  three High, sixteen Medium and ten Low or hardening issues and fixed every one of them:
+  five High, sixteen Medium and ten Low or hardening issues and fixed every one of them:
   a viewer could rewrite a host's watched services, Sign out did not end the session on the
   server, a tenant's users could read the operator's tickets and invoices, and the Docker image
   ran its app as root. Update the agents.

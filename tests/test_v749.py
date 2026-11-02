@@ -150,7 +150,7 @@ class TestTheSecurityReview(unittest.TestCase):
     its counts agree with its own table and with every other place that quotes them, and the kept reviews are the last three."""
 
     DOC = "docs/security-review-7.4.9.md"
-    HEADLINE = "three High issues, sixteen Medium ones and ten Low or hardening items"
+    HEADLINE = "five High issues, sixteen Medium ones and ten Low or hardening items"
 
     def raw(self):
         return (_ROOT / self.DOC).read_text()
@@ -172,7 +172,7 @@ class TestTheSecurityReview(unittest.TestCase):
     def test_the_table_agrees_with_the_headline(self):
         self.assertIn(self.HEADLINE, self.text())
         rows = re.findall(r"^\| (S\d+) \| ([^|]+) \|", self.raw(), re.M)
-        self.assertEqual([r[0] for r in rows], [f"S{i}" for i in range(1, 30)])
+        self.assertEqual([r[0] for r in rows], [f"S{i}" for i in range(1, 32)])
 
         def kind(severity):
             severity = severity.strip()
@@ -182,7 +182,7 @@ class TestTheSecurityReview(unittest.TestCase):
                 return "medium"
             return "low"
         kinds = [kind(r[1]) for r in rows]
-        self.assertEqual(kinds.count("high"), 3)
+        self.assertEqual(kinds.count("high"), 5)
         self.assertEqual(kinds.count("medium"), 16, "sixteen Medium rows, all fixed")
         self.assertEqual(kinds.count("low"), 10)
         raw = self.raw()
@@ -194,15 +194,29 @@ class TestTheSecurityReview(unittest.TestCase):
     def test_the_other_places_quote_the_same_counts(self):
         for rel in ("docs/v7.4.9.md", "README.md", "server/html/index.html"):
             body = re.sub(r"\s+", " ", (_ROOT / rel).read_text())
-            for needle in ("three High", "sixteen Medium", "ten Low"):
+            for needle in ("five High", "sixteen Medium", "ten Low"):
                 self.assertIn(needle, body, (rel, needle))
         for rel in ("docs/security.md", "docs/README.md"):
             body = re.sub(r"\s+", " ", (_ROOT / rel).read_text()).lower()
-            for needle in ("three high", "sixteen medium", "ten low"):
+            for needle in ("five high", "sixteen medium", "ten low"):
                 self.assertIn(needle, body, (rel, needle))
         changelog = (_ROOT / "CHANGELOG.md").read_text()
         section = changelog[changelog.index("## v7.4.9 \u2014 "):changelog.index("## v7.4.8 \u2014 ")]
         self.assertIn(self.HEADLINE, re.sub(r"\s+", " ", section))
+
+    def test_the_review_quotes_the_size_of_both_tenant_tables(self):
+        """The two route tables are counted from the source, not remembered."""
+        src = (_ROOT / "server/cgi-bin/api.py").read_text()
+        platform = src.split("_PLATFORM_ROUTES = (", 1)[1].split("\n)\n", 1)[0]
+        operator = src.split("_OPERATOR_ORG_ROUTES = (", 1)[1].split("\n)\n", 1)[0]
+        n_platform = len(re.findall(r"^\s*\(\s*'/api/", platform, re.M))
+        n_operator = len(re.findall(r"^\s*'/api/", operator, re.M))
+        self.assertGreater(n_platform, 40)
+        self.assertGreater(n_operator, 40)
+        text = self.text()
+        self.assertIn(f"holds {n_platform} entries", text)
+        self.assertIn(f"holds the {n_operator} route prefixes", text)
+        self.assertIn(f"{n_operator} route prefixes whose stores", text)
 
     def test_no_placeholder_is_left(self):
         self.assertNotIn("@@", self.raw())

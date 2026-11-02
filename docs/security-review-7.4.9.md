@@ -6,7 +6,7 @@ installers, a review of the web client and the web server headers, a rendered au
 and a map of what the agents send against where it is used. Scanners ran beside them. Everything below was found, reproduced and
 fixed on a seeded copy of the product, not on anyone's installation.
 
-It found **three High issues, sixteen Medium ones and ten Low or hardening items. Every one of them is fixed.** Nothing rated
+It found **five High issues, sixteen Medium ones and ten Low or hardening items. Every one of them is fixed.** Nothing rated
 Medium or higher is open. "Open" lists what is left, and none of it is a way to attack an installation. Each fix has tests, and
 each test was run against the code with its fix taken out.
 
@@ -17,10 +17,11 @@ below says so.
 
 - **Routes.** One route is new: `POST /api/logout`. Two others are new for one feature: `POST /api/scap/{id}/report-ticket`, and
   the SCAP report route now also accepts a one-minute link. No permission was loosened. A permission check was added to one
-  endpoint (`services/config`), a tenant check to the ticket handlers and to twelve others, twelve instance-wide operations (and
-  the webhook log's reads) moved to the platform operator, and 17 route prefixes that belong to the organisation running the
-  installation (monitors, links, calendar, billing, time tracking, sites, contacts and others) answer only users of the default
-  tenant when tenant isolation is on.
+  endpoint (`services/config`) and a tenant check to the ticket handlers and to many others. The table of what only the platform
+  operator (an administrator of the default tenant) may do holds 56 entries, 30 more than in 7.4.8. A second table, new in this
+  release, holds the 55 route prefixes that belong to the organisation running the installation (monitors, links, calendar,
+  billing, integrations, DNS, the audit trail's archive and others): with tenant isolation on they answer only users of the
+  default tenant.
 - **Credentials.** Every comparison of a secret in the server goes through one helper (`secure_eq.py`) that never raises. A DNS
   provider token is removed from command output before it is stored.
 - **Stored data.** The shape of 134 stores and of the settings document is stated once, in `store_shapes.py`, and checked where
@@ -64,6 +65,12 @@ scanner and the agent that the agent review read.
   check refused 104 operations that worked on the caller's own objects; the scope check refused 86 of 86 host-path operations
   outside the role's scope; a leak scanner found a planted foreign marker where one existed and none where it did not. The matrix
   was run a second time on the final tree (1,075 operations: the logout and the report-link routes are new) {PENDING-AUTHZ}
+- *Handler enumeration.* The matrix can only find what the seeded data holds, so a second instrument asks the code. A syntax tree
+  over the server lists every routed handler outside the two tenant tables whose own body names no tenant or scope helper. Before
+  the last pass that was 171 of 546 handlers (82 writes and 89 reads). On the final tree it is 95 of 459 (49 writes and 46 reads).
+  The 76 that left the list joined one of the two tables or were fixed in the handler. Each of the 95 that remain was read or called as a tenant administrator on the seeded stack: the test sits in
+  a helper the handler calls, the route takes a machine token or the caller's own session, or it serves a library every tenant
+  may read. It found S30 and S31, the audit trail's archive, the restart and update of the service, and the migration of the data store.
 - *Hostile input.* About 41,650 requests over 975 routes, 4,252 body keys and 239 query keys, with 19 wrong types for each key
   (including NaN, Infinity, 400-digit integers, a lone surrogate, a 1 MiB string), 931 sparse hostile heartbeats, 19 hosts made of
   nothing but wrong-typed leaves, 139 stores mutated one row at a time, and the 76 periodic sweeps run on those rows. Every round
@@ -101,7 +108,7 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
 | S6 | Medium | server | a DNS provider token was readable in the command history by every signed-in role |
 | S7 | Medium | server | a maintenance window written with a day name (the dialog's own example) never opened and could hold commands for ever |
 | S8 | Medium | server | four AI features sent logs and command output to the provider unredacted |
-| S9 | Medium | server, tenancy | instance-wide operations reachable by a tenant administrator (audit key rotation, a full backup, TLS generation and others) |
+| S9 | **High** | server, tenancy | instance-wide operations reachable by a tenant administrator: a full backup of every tenant's data and its restore, the audit chain's key, a restart of the service, a migration of the data store, the server's certificate, the operator's hypervisors and DNS zones, and others |
 | S10 | Medium | server, tenancy | session revocation, schedules, rollouts, host links, the command history, image updates and the webhook log crossed tenants |
 | S11 | Info (hardening) | web server | any `Upgrade` value was forwarded to the WebSocket daemons |
 | S12 | Medium | server | hostile input answered 500 on routes a stranger or a host can reach: a non-ASCII token, a lone surrogate, Infinity, an unhashable value |
@@ -122,6 +129,8 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
 | S27 | Hardening | web server | the two configurations disagreed on headers, three responses carried a header twice and `/ca.crt` carried none |
 | S28 | Low | agents, relay, installers | a link redirected a canary file; a pipe blocked the file manager; a directory walk had no budget; the downgrade guard trusted the server; three channels that run as root ignored `require-signed-commands`; the Windows installers skipped the checksum and the signature check; `docker` was found through `PATH` on Windows; an operator's regex had no time limit; the relay forwarded the whole API; the macOS update mode |
 | S29 | Low (defense in depth) | web client, stored data | a number stored as text would be printed as markup by 731 template operands; no agent or API call can store one, and the loader now reads 34 kinds of field that way |
+| S30 | **High** | server, tenancy | an ACME issue request handed the operator's central DNS credentials to a tenant's own host |
+| S31 | Medium | server | a read-only role was shown the address that reports a dead-man job alive |
 
 ## Fixed in 7.4.9
 
@@ -135,10 +144,16 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
 - **S8.** The helper behind the mitigate step, alert triage, the log-sweep analysis and the AI exec proposal now calls the same
   dispatcher as every other AI request, which redacts bearer tokens, access keys, long hex strings and (unless you allow them)
   addresses and host names. A test fails on a direct call of a provider adapter anywhere in the server.
-- **S9, S10.** Twelve operations joined the platform table. Session revocation is confined to the caller's tenant and takes the
-  store's lock. A schedule job belongs to the tenant of its host, a rollout to the tenant that created it. A link between hosts
-  may name only a host the caller can see, and the guard test that watches host ids in request bodies watches `depends_on` and
-  `connected_to` too.
+- **S9, S10.** A tenant administrator passed each of these because the handler asks for an administrator and nothing more. They moved
+  to the platform table: the audit chain's key and the export key, a full backup and its restore, the restore drill, the server's
+  TLS material and the replacement of its certificate, the restart of the service and the update script, the migration of the data
+  store to another backend, power and snapshots of the operator's hypervisors, the operator's DNS providers (reads too) and DNS
+  blockers, the import from the operator's cloud accounts, GitOps, the test messages to the operator's AI provider, audit forwarder,
+  OTLP, SIEM and posture digest, the replay of a past event of any tenant through the operator's channels, the fleet-wide image scan,
+  the single software policy that is judged against every tenant's hosts, the debug log and the other instance-wide trackers. Session
+  revocation is confined to the caller's tenant and takes the store's lock. A schedule job belongs to the tenant of its host, a rollout
+  to the tenant that created it. A link between hosts may name only a host the caller can see, and the guard test that watches host
+  ids in request bodies watches `depends_on` and `connected_to` too. A node on the network map is moved by someone who can see it.
 - **S12.** One helper (`secure_eq.py`) replaced all 20 comparisons of a secret, and a test fails on a bare `compare_digest`. The
   request body is cleaned of lone surrogates where it is read. NaN, Infinity and 400-digit numbers are refused where a host sends
   them. A test feeds every request model every non-finite value for every field.
@@ -150,11 +165,24 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
 - **S23.** A ticket has no tenant field, so it takes one from what it names: the tenant of its host while the host exists,
   otherwise the tenant of the account that opened it (a customer's reply by mail and an automation rule belong to the default
   tenant). The ticket list, a single ticket, update, delete, attachments, the e-mail thread, the open count and the hosts marked
-  with a ticket show a tenant its own; a ticket cannot be moved onto another tenant's host. Seventeen route prefixes whose stores
-  have no tenant column belong to the organisation running the installation (the monitors and the SLO figures, the links, the
-  calendar and its feed, the mail round trip, Proxmox, the diagnostics bundle, configuration as code, billing, invoices, quotes,
-  time entries and timesheets, sites, contacts): with isolation on they answer only users of the default tenant, for reads and
-  writes, so the operator's own viewers and operators keep their pages. The knowledge base is one library: only the platform
+  with a ticket show a tenant its own; a ticket cannot be moved onto another tenant's host. 55 route prefixes whose stores
+  have no tenant column, or whose pages are the operator's, belong to the organisation running the installation (the monitors
+  and the SLO figures, the links, the calendar and its feed, the mail round trip, Proxmox, the diagnostics bundle, configuration as
+  code, billing, invoices, quotes, time entries and timesheets, sites, contacts, IPAM, racks, incidents, patch snapshots, the site
+  report, the integrations and hypervisor platforms, the WAN address, the on-call roster, the customer portal's queue, report
+  definitions and schedule, the security posture, diagnostics, self-test and setup pages, metrics push, client errors, DMARC, IP
+  reputation, resolver health, the TLS monitors, the helpdesk mailbox, DNS, the audit trail's archive and chain check, the global
+  log rules, the litigation hold, the AI parameters and prompts, the saved DNS credential list, dead-man jobs and the
+  needs-attention suppression rules): with isolation on they answer only users of the default tenant, for reads and writes, so the
+  operator's own viewers and operators keep their pages. What names no host (an alert about a monitor, a certificate watch or an
+  integration, an activity item, a needs-attention item, the monitor families of the metrics scrape) is the installation's, and a
+  tenant sees what names one of its hosts. The settings document comes back with its lists and addresses empty for a tenant, and the
+  audit trail shows a tenant's administrator or auditor what the accounts of its own tenant did. Custom checks, drift profiles and
+  policies, SLA targets, patch decisions, the suppression trail, gateway sessions, compliance evidence, alert mutes, batch jobs,
+  tunnels, automation rules, accepted-risk records and the CMDB's function hints show or change only what reaches the caller's own
+  hosts: a rule or an accepted risk with no tenant stamp belongs to the tenant of the account that wrote it, so a rule written before
+  7.4.9 by a tenant account no longer fires on other tenants' hosts. The operator's own non-administrators read the operator's
+  data, as before. The knowledge base is one library: only the platform
   operator writes it, and an article lists only the hosts the reader can see. The digest, discovery, a script's list and the script list of the results endpoint, the LLDP
   suggestions, the maintenance windows and automation rules, and the home page's links, calendar and on-call roster no longer
   name a host out of sight. The dashboard's "upcoming" card never showed a scheduled job (it read the schedule as a list, and the
@@ -210,6 +238,13 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
   holds text, and the same crawl on the changed tree finds none of the 262. The other 731 unescaped operands rely on the ingest
   and the policy, and are not escaped one by one. The 57 controls without an accessible name that the interface audit found
   (integration cards, the DNS pause, the webhook format) are named, and the same script finds no control without a name in 241 views.
+- **S30.** `POST /api/acme/{host}/issue` builds an acme.sh command and puts the credentials of the operator's central DNS-provider
+  store (Settings, ACME) in front of it, so nobody has to edit `account.conf` on each host. For a tenant's own host that handed the
+  operator's token to the tenant's root account, where acme.sh keeps it, and with it the right to edit the operator's zones. The
+  credentials go into commands for the operator's own hosts only. A tenant's host uses what acme.sh finds on it. **If you saved
+  central DNS credentials and have tenants, rotate that token.**
+- **S31.** The dead-man job list gave every signed-in role the address that reports a job alive, and whoever has it can report a
+  missed job as on time. A read-only role is shown the job and not the address; an administrator gets both.
 - **S1, S11, S22.** Described in the CHANGELOG.
 
 ## Open
