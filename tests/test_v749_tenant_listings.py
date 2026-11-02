@@ -875,10 +875,11 @@ class TestThingsAnAdministratorOfOneTenantDidToTheOthers(_Tenants):
     def test_a_tenants_administrator_reads_whether_the_assistant_is_on_and_not_the_operators_provider(self):
         cfg = api.load(api.CONFIG_FILE)
         cfg['ai'] = {'enabled': True, 'provider': 'openai', 'base_url': 'https://operator-gateway.example/v1',
-                     'api_key': 'sk-operator-secret-1234', 'model': 'm1'}
+                     'api_key': 'KEYKEYKEYKEYKEY1234', 'model': 'm1'}
         api.save(api.CONFIG_FILE, cfg)
         st, d = self.call(api.handle_ai_config_get, m='GET')
         self.assertEqual((st, d), (200, {'enabled': True, 'restricted': True}))
+        self.assertNotIn('KEYKEY', str(d))
         st, d = self.call(api.handle_ai_config_get, m='GET', who='platform')
         self.assertEqual(d['provider'], 'openai')
         self.assertTrue(d['api_key'].endswith('1234'))

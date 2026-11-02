@@ -78,4 +78,8 @@ regexes = [
   # secret (commit 9e913a02): a counting hex string that matched generic-api-key.
   # The daemon runs on loopback inside the test; the historical commit is permanent.
   '''^0123456789abcdef$''',
+  # test_v749_tenant_listings.py gave the AI settings read a made-up provider key (commit 5b33f79e) to prove a tenant's
+  # administrator does not see it. It looked like a key to generic-api-key; the working-tree value was changed and
+  # the historical commit is permanent.
+  '''sk-operator-secret-1234''',
 ]
