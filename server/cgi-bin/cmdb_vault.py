@@ -19,7 +19,7 @@ This module is intentionally tiny — all the routing/auth/audit logic
 lives in api.py. Keep it that way.
 """
 
-import hmac
+import secure_eq
 import secrets
 
 # Constants — bumping these is a breaking change. The vault file records
@@ -179,7 +179,7 @@ def verify_key(key: bytes, vault_meta: dict) -> bool:
         raise
     except Exception:
         return False
-    return hmac.compare_digest(plaintext, CANARY_PLAINTEXT)
+    return secure_eq.secure_eq(plaintext, CANARY_PLAINTEXT)
 
 
 def encrypt(key: bytes, plaintext: str) -> dict:

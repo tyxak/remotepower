@@ -47,6 +47,7 @@ API:
 from __future__ import annotations
 
 import hashlib
+import secure_eq
 import hmac as _hmac
 import os
 import socket
@@ -874,7 +875,7 @@ def _v3_request(host, creds, pdu_tag, oids, port=161, timeout=2.0, retries=1,
         a = parts['auth_params_abs']
         zeroed = buf[:a] + b'\x00' * len(got_mac) + buf[a + len(got_mac):]
         want = _hmac.new(auth_kul, zeroed, hash_fn).digest()[:trunc]
-        if len(got_mac) != trunc or not _hmac.compare_digest(got_mac, want):
+        if len(got_mac) != trunc or not secure_eq.secure_eq(got_mac, want):
             raise SnmpError('SNMPv3: response authentication failed')
 
     if parts['data_tag'] == TAG_OCTET_STRING:        # encrypted scopedPDU

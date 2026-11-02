@@ -52,7 +52,6 @@ def bind(api_globals):
 # api globals are reached as `A.<name>` (a dynamic lookup, so the suite's
 # monkeypatching of A.respond / A.load / … keeps working). Constants stay in
 # api.py.
-import hmac
 import os
 import secrets
 import time
@@ -201,7 +200,7 @@ def _daemon_secret_ok():
     cfg = A._config_ro() or {}
     expected = str(cfg.get('webterm_daemon_secret') or os.environ.get('RP_WEBTERM_SECRET', '') or '')
     provided = A._env('HTTP_X_WEBTERM_SECRET', '')
-    return bool(expected and provided and hmac.compare_digest(expected, provided))
+    return bool(expected and provided and A._secure_eq(expected, provided))
 
 
 def handle_webterm_session_audit():

@@ -930,6 +930,7 @@ import filebackup as filebackup_mod   # noqa: F401  v6.3.0: structured file-back
 import checks as checks_mod    # per-host Checks engine (pure)
 import drive_temp as drive_temp_mod   # v7.4.4 (#54): temperature lines for drives (pure)
 import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host and the grade of its listeners (pure)
+from secure_eq import secure_eq as _secure_eq   # constant-time comparison of secrets that never raises (7.4.9)
 import upgrade_mode as upgrade_mode_mod   # a host's apt upgrade mode, Standard or Extended (Discussion #30; pure)
 import peer_direction as peer_direction_mod   # v7.4.6 (#58): which way an observed TCP connection runs (pure)
 import thermal_sensors as thermal_sensors_mod   # a temperature history for every sensor, not only the hottest (pure)
@@ -3795,7 +3796,7 @@ def verify_password(plain, stored):
             _, iters, salt_hex, digest_hex = stored.split('$', 3)
             candidate = hashlib.pbkdf2_hmac(
                 'sha256', plain.encode(), bytes.fromhex(salt_hex), int(iters))
-            return hmac.compare_digest(candidate.hex(), digest_hex)
+            return _secure_eq(candidate.hex(), digest_hex)
         except Exception:
             return False
     # Anything else — including legacy pre-2.3.2 bare unsalted SHA-256 hashes —
@@ -6072,10 +6073,10 @@ def _device_token_ok(dev, presented):
         return False
     th = dev.get('token_hash')
     if th:
-        return hmac.compare_digest(str(th), _hash_device_token(presented))
+        return _secure_eq(str(th), _hash_device_token(presented))
     legacy = dev.get('token', '')
     if legacy:
-        return hmac.compare_digest(legacy, presented)
+        return _secure_eq(legacy, presented)
     return False
 
 
@@ -6179,9 +6180,9 @@ def verify_token(token):
         legacy_key  = kdata.get('key', '')   # pre-v5.4.1 plaintext (migrated on match)
         hit = False
         if stored_hash:
-            hit = hmac.compare_digest(str(stored_hash), token_hash)
+            hit = _secure_eq(str(stored_hash), token_hash)
         elif legacy_key and len(legacy_key) == len(token):
-            hit = hmac.compare_digest(legacy_key, token)
+            hit = _secure_eq(legacy_key, token)
         if hit:
             if kdata.get('active', True):
                 exp = kdata.get('expires_at')
@@ -6738,9 +6739,26 @@ def get_json_body():
         # ~hundreds of `body = get_json_body(); body.get(...)` callers. Coerce it
         # to {} — distinct from a top-level ARRAY, which we still return as-is so
         # the isinstance-checking handlers can reject it with 400.
-        return {} if data is None else data
+        return {} if data is None else _scrub_surrogates(data)
     except Exception:
         return {}
+
+
+_LONE_SURROGATE_RE = re.compile('[\ud800-\udfff]')
+
+
+def _scrub_surrogates(v):
+    """7.4.9: `json.loads('"\\ud83d"')` gives a str holding a lone surrogate. Python accepts it and nothing can encode it, so
+    the first `.encode('utf-8')`, hash, header or subprocess pipe it reached raised UnicodeEncodeError and answered 500 (twelve
+    routes, two of them public portal routes). One pass here at the boundary replaces it with U+FFFD in every string and every
+    dict key, instead of a guard at each place a string is encoded."""
+    if isinstance(v, str):
+        return _LONE_SURROGATE_RE.sub('\ufffd', v) if _LONE_SURROGATE_RE.search(v) else v
+    if isinstance(v, list):
+        return [_scrub_surrogates(x) for x in v]
+    if isinstance(v, dict):
+        return {(_scrub_surrogates(k) if isinstance(k, str) else k): _scrub_surrogates(x) for k, x in v.items()}
+    return v
 
 
 def get_json_obj():
@@ -19579,7 +19597,7 @@ def handle_device_storage_provision(dev_id):
         respond(200, {'ok': True, 'dry_run': True, 'command': cmd, 'confirm_target': confirm_target})
         return
     confirm = str(body.get('confirm', '')).strip()
-    if not confirm or not hmac.compare_digest(confirm, confirm_target):
+    if not confirm or not _secure_eq(confirm, confirm_target):
         respond(400, {'error': f'confirm must exactly match "{confirm_target}"'})
         return
     audit_log(actor, 'storage_provision', detail=f'device={dev_id} {detail}'[:200])
@@ -21352,7 +21370,7 @@ def _agent_mtls_ok(dev_id):
     if pin:
         if not fp:
             return (False, 'mutual TLS: client certificate fingerprint missing')
-        if not hmac.compare_digest(pin, fp):
+        if not _secure_eq(pin, fp):
             return (False, 'mutual TLS: client certificate does not match the host pin')
     return (True, '')
 
@@ -22181,7 +22199,7 @@ def handle_heartbeat():
             # v4.1.0: OOM-killer events. The agent reports the epoch of the most
             # recent kernel OOM kill; fire once when it advances (point event).
             lo = si.get('last_oom_ts')
-            if isinstance(lo, (int, float)) and lo > 0:
+            if _finite_number(lo) and lo > 0:      # 7.4.9: Infinity made int() raise and the whole heartbeat answer 500
                 safe_si['last_oom_ts'] = int(lo)
                 # v4.1.0: keep the killed-process name too, so the UI can show
                 # *what* was OOM-killed (was only carried in the event payload).
@@ -33742,7 +33760,7 @@ def _clean_role_body(body):
         return None, 'name must be 2-32 chars (lowercase letters, digits, _ or -)'
     if name in ('admin', 'viewer', 'mcp'):
         return None, "name collides with a built-in role"
-    perms = [p for p in as_list(body.get('permissions')) if p in _VALID_ROLE_PERMS]
+    perms = [p for p in as_list(body.get('permissions')) if isinstance(p, str) and p in _VALID_ROLE_PERMS]   # 7.4.9: {} is unhashable
     sc = body.get('scope') or {'type': 'all'}
     if not isinstance(sc, dict):
         return None, "scope must be an object with a type"
@@ -42067,7 +42085,7 @@ def handle_deadman_ping(token_str):
         # rule.
         job = next((j for j in jobs
                     if isinstance(j, dict)
-                    and hmac.compare_digest(str(j.get('token') or ''), tok)), None)
+                    and _secure_eq(str(j.get('token') or ''), tok)), None)
         if not job:
             # 404 with no detail — don't confirm which tokens exist.
             respond(404, {'error': 'Not found'})
@@ -42534,7 +42552,9 @@ def handle_device_live_sample(dev_id):
     now = int(time.time())
 
     def _n(v):
-        return round(float(v), 2) if isinstance(v, (int, float)) else None
+        # 7.4.9: NaN, Infinity and an integer too large for a float (all legal JSON to a Python parser) are not a reading; they
+        # raised ValueError at the save layer or OverflowError here and answered 500 to a host's own token.
+        return round(float(v), 2) if _finite_number(v) else None
     sample = {'ts': now, 'cpu': _n(body.get('cpu')), 'mem': _n(body.get('mem')),
               'disk': _n(body.get('disk')), 'swap': _n(body.get('swap'))}
     with _LockedUpdate(LIVE_SAMPLES_FILE) as store:
@@ -54401,20 +54421,8 @@ def handle_dashboard_kinds_set():
 
 
 def _ct_token_eq(given, expected):
-    """Constant-time token comparison that never raises. hmac.compare_digest
-    raises TypeError on a non-ASCII str (Python requires an ASCII-only str or
-    bytes), and query-string tokens decode to arbitrary Unicode — so a token
-    like `%E2%80%A6` used to 500 the public status/calendar endpoints. Compare
-    on UTF-8 bytes instead: a non-ASCII or malformed token simply fails the
-    check (its bytes can't equal an ASCII token's) rather than crashing."""
-    if not given or not expected:
-        return False
-    try:
-        gb = given.encode('utf-8', 'strict') if isinstance(given, str) else bytes(given)
-        eb = expected.encode('utf-8', 'strict') if isinstance(expected, str) else bytes(expected)
-        return hmac.compare_digest(gb, eb)
-    except (UnicodeError, TypeError, ValueError):
-        return False
+    """Constant-time token comparison that never raises (see secure_eq.py). Kept under this name for the callers that had it."""
+    return _secure_eq(given, expected)
 
 
 def _status_page_component_state(comp, devices, now, ttl, mon_last, maint_ids=None):
@@ -54688,6 +54696,8 @@ def handle_incidents():
         _visible = {a.get('id'): a for a in _filter_alerts_for_caller(
             _astore.get('alerts') or [])}
         for _aid in _want[:200]:
+            if not isinstance(_aid, str):      # 7.4.9: a list or dict is unhashable
+                continue
             _a = _visible.get(_aid)
             if not _a:
                 continue
@@ -56176,7 +56186,7 @@ def _record_satellite():
     matched = None
     for sid, s in (load(SATELLITES_FILE) or {}).items():
         if isinstance(s, dict) and s.get('token_hash') and \
-                hmac.compare_digest(s.get('token_hash', ''), h):
+                _secure_eq(s.get('token_hash', ''), h):
             matched = sid
             break
     if not matched:
@@ -56319,7 +56329,7 @@ def require_satellite_scanner():
     h = _satellite_token_hash(tok)
     for sid, s in (load(SATELLITES_FILE) or {}).items():
         if isinstance(s, dict) and s.get('token_hash') and \
-                hmac.compare_digest(s.get('token_hash', ''), h):
+                _secure_eq(s.get('token_hash', ''), h):
             if not s.get('scanner'):
                 respond(403, {'error': 'satellite is not scanner-enabled'})
             _note_scanner_version(sid)
@@ -56336,7 +56346,7 @@ def require_satellite():
     h = _satellite_token_hash(tok)
     for sid, s in (load(SATELLITES_FILE) or {}).items():
         if isinstance(s, dict) and s.get('token_hash') and \
-                hmac.compare_digest(s.get('token_hash', ''), h):
+                _secure_eq(s.get('token_hash', ''), h):
             return sid
     respond(401, {'error': 'invalid satellite token'})
 
@@ -57638,7 +57648,7 @@ def handle_apikeys_update(kid):
         rec['name'] = name
     if 'role' in body:
         role = body.get('role', 'admin')
-        if role not in APIKEY_ROLES:
+        if not isinstance(role, str) or role not in APIKEY_ROLES:      # 7.4.9: a list or dict is unhashable
             respond(400, {'error': "role must be 'admin', 'viewer', or 'mcp'"})
         rec['role'] = role
     if 'rate_limit' in body:
@@ -59866,7 +59876,7 @@ def _audit_chain_walk(entries):
         seen_chained = True
         if prev is not None:
             checked += 1
-            if not hmac.compare_digest(_audit_entry_hash(prev, e), h):
+            if not _secure_eq(_audit_entry_hash(prev, e), h):
                 broken_at = i
                 break
         prev = h

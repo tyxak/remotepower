@@ -145,7 +145,7 @@ def parse_target(spec: Any) -> dict | None:
         return None
     try:
         port = int(spec.get("port", 443))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if port < 1 or port > 65535:
         return None

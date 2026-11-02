@@ -116,7 +116,7 @@ def handle_scap_report():
         rec['available_profiles'] = [A._sanitize_str(str(p), 80) for p in aprofs[:40] if p]
     if rec['available']:
         sc = body.get('score')
-        rec['score'] = round(float(sc), 1) if isinstance(sc, (int, float)) else None
+        rec['score'] = round(float(sc), 1) if A._finite_number(sc) else None     # 7.4.9: NaN, Infinity and 10**400 are not a score
         counts = body.get('counts') if isinstance(body.get('counts'), dict) else {}
         rec['counts'] = {k: int(v) for k, v in counts.items()
                          if isinstance(v, int) and 0 <= v <= 100000}

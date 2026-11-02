@@ -28,7 +28,6 @@ Proxmox was the cleanest remaining candidate: 13 functions referencing only 20
 distinct api globals, none of them the notify/event core the ratchet exists to
 protect.
 """
-import hmac
 import re
 import time
 import urllib.parse
@@ -527,7 +526,7 @@ def handle_proxmox_snapshot_action() -> None:
         if action == 'rollback':
             confirm = str(body.get('confirm') or '').strip()
             real_name = A.proxmox_client.guest_name(_pc, guest_type, vmid)
-            if not confirm or not hmac.compare_digest(confirm, real_name):
+            if not confirm or not A._secure_eq(confirm, real_name):
                 A.respond(400, {'error': 'confirm must exactly match the guest name'})
                 return
         if action == 'create':

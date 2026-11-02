@@ -58,7 +58,6 @@ def bind(api_globals):
 
 
 
-import hmac
 import os
 import secrets
 import time
@@ -84,7 +83,7 @@ def _require_daemon():
     """403 unless the request carries the gateway daemon's shared secret."""
     expected = _daemon_secret()
     provided = A._env('HTTP_X_SSHGW_SECRET', '')
-    if not expected or not provided or not hmac.compare_digest(expected, provided):
+    if not expected or not provided or not A._secure_eq(expected, provided):
         A.respond(403, {'error': 'Daemon secret mismatch'})
 
 

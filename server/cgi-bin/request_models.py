@@ -95,7 +95,7 @@ if _AVAILABLE:
         handler's own except today; here it becomes a ValidationError)."""
         try:
             return int(v or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             raise ValueError('must be an integer')
 
     def _coerce_optional_int(v):
@@ -105,7 +105,7 @@ if _AVAILABLE:
             return None
         try:
             return int(v)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             raise ValueError('must be an integer or null')
 
     def _coerce_int_strict(v):
@@ -117,7 +117,7 @@ if _AVAILABLE:
         default -- this validator never runs for a missing key)."""
         try:
             return int(v)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             raise ValueError('must be an integer')
 
     def _coerce_bool_loose(v):
@@ -160,7 +160,7 @@ if _AVAILABLE:
         def _coerce(v):
             try:
                 return int(v or default)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 raise ValueError('must be a number')
         return _coerce
 

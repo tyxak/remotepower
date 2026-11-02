@@ -58,6 +58,21 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 
 ### Security
 
+- **Hostile input no longer answers 500 on the routes a stranger or a host can reach (Medium).** A fuzz sweep sent 31,982
+  hostile requests to every route of a seeded stack. Five classes of 500 came out of it, each a rule applied in a few places
+  and missed in the rest:
+  - a token, secret or fingerprint with a non-ASCII character made `hmac.compare_digest` raise, so `"token": "é"` was a 500
+    before authentication on `/api/heartbeat` and seven more agent routes. All 20 comparisons now go through one helper that
+    compares the UTF-8 bytes and never raises, and a test fails on a bare `compare_digest` anywhere else;
+  - a lone surrogate in any JSON string (`"\ud83d"`) could not be encoded and raised on 12 routes, two of them public portal
+    routes. The request body is cleaned once, where it is read;
+  - `Infinity` and 400-digit numbers reached `int()` in four shared coercers and in the live-sample and SCAP report routes
+    (a host's own token could make them answer 500), and `last_oom_ts: Infinity` made the whole heartbeat fail. They are
+    refused as "not a reading" or answered 400;
+  - a list or dict where a string is expected was unhashable in three admin routes (API key role, role permissions,
+    incident alert ids).
+  What the sweep found beyond this (wrong-shaped rows in the stores making fleet pages fail, periodic sweeps stopping on
+  them) is listed in the security review.
 - **A tenant administrator could reach operations on the whole installation, and other tenants' sessions, schedules,
   rollouts and host links (Medium).** These matter on an installation with tenancy on; with it off nothing changed. The
   authorization matrix found a tenant administrator getting a 200 for each of these:

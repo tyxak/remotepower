@@ -39,7 +39,6 @@ Security model (documented in docs/kmip.md):
 
 import base64
 import hashlib
-import hmac
 import json
 import os
 import secrets
@@ -150,7 +149,7 @@ def _kmip_require_daemon():
     """Gate the /api/kmip/daemon/* endpoints on the shared secret."""
     secret = _kmip_daemon_secret()
     got = (A._env('HTTP_X_KMIP_SECRET') or '').strip()
-    if not secret or not got or not hmac.compare_digest(secret, got):
+    if not secret or not got or not A._secure_eq(secret, got):
         A.respond(403, {'error': 'KMIP daemon secret missing or wrong'})
 
 
@@ -1214,7 +1213,7 @@ def handle_kmip_daemon_op():
     # Defense in depth: the daemon already verified the mTLS fingerprint,
     # but the control plane re-checks identity + revocation on every op.
     if not client or client.get('revoked') \
-            or not hmac.compare_digest(str(client.get('fingerprint') or ''), fp):
+            or not A._secure_eq(str(client.get('fingerprint') or ''), fp):
         A._kmip_log('auth_fail', client_id=cid or None, op=op or None,
                     detail='op with unknown/revoked/mismatched client identity')
         A._kmip_op_fail('denied', 'client identity rejected')
