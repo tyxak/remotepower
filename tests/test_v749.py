@@ -150,7 +150,7 @@ class TestTheSecurityReview(unittest.TestCase):
     its counts agree with its own table and with every other place that quotes them, and the kept reviews are the last three."""
 
     DOC = "docs/security-review-7.4.9.md"
-    HEADLINE = "three High issues, sixteen Medium ones and five Low or hardening items"
+    HEADLINE = "three High issues, sixteen Medium ones and ten Low or hardening items"
 
     def raw(self):
         return (_ROOT / self.DOC).read_text()
@@ -172,7 +172,7 @@ class TestTheSecurityReview(unittest.TestCase):
     def test_the_table_agrees_with_the_headline(self):
         self.assertIn(self.HEADLINE, self.text())
         rows = re.findall(r"^\| (S\d+) \| ([^|]+) \|", self.raw(), re.M)
-        self.assertEqual([r[0] for r in rows], [f"S{i}" for i in range(1, 23)])
+        self.assertEqual([r[0] for r in rows], [f"S{i}" for i in range(1, 30)])
 
         def kind(severity):
             severity = severity.strip()
@@ -183,20 +183,22 @@ class TestTheSecurityReview(unittest.TestCase):
             return "low"
         kinds = [kind(r[1]) for r in rows]
         self.assertEqual(kinds.count("high"), 3)
-        self.assertEqual(kinds.count("medium"), 14, "fourteen fixed Medium rows; the two open groups make sixteen")
-        self.assertEqual(kinds.count("low"), 5)
+        self.assertEqual(kinds.count("medium"), 16, "sixteen Medium rows, all fixed")
+        self.assertEqual(kinds.count("low"), 10)
         raw = self.raw()
         open_part = raw[raw.index("\n## Open"):raw.index("\n## Not found")]
-        self.assertEqual(len(re.findall(r"^- \*\*[^*]+\(Medium", open_part, re.M)), 2)
+        self.assertIn("Nothing rated Medium or higher is open", open_part)
+        self.assertEqual(re.findall(r"(?i)\b(medium|high|critical)\b", open_part.replace("Nothing rated Medium or higher is open", "")), [],
+                         "the Open section lists something rated Medium or higher")
 
     def test_the_other_places_quote_the_same_counts(self):
         for rel in ("docs/v7.4.9.md", "README.md", "server/html/index.html"):
             body = re.sub(r"\s+", " ", (_ROOT / rel).read_text())
-            for needle in ("three High", "sixteen Medium", "fourteen of the Medium"):
+            for needle in ("three High", "sixteen Medium", "ten Low"):
                 self.assertIn(needle, body, (rel, needle))
         for rel in ("docs/security.md", "docs/README.md"):
             body = re.sub(r"\s+", " ", (_ROOT / rel).read_text()).lower()
-            for needle in ("three high", "sixteen medium", "fourteen of the medium"):
+            for needle in ("three high", "sixteen medium", "ten low"):
                 self.assertIn(needle, body, (rel, needle))
         changelog = (_ROOT / "CHANGELOG.md").read_text()
         section = changelog[changelog.index("## v7.4.9 \u2014 "):changelog.index("## v7.4.8 \u2014 ")]

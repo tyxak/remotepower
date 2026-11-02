@@ -6,9 +6,8 @@ installers, a review of the web client and the web server headers, a rendered au
 and a map of what the agents send against where it is used. Scanners ran beside them. Everything below was found, reproduced and
 fixed on a seeded copy of the product, not on anyone's installation.
 
-It found **three High issues, sixteen Medium ones and five Low or hardening items. All of the High and Low ones and fourteen of
-the Medium ones are fixed.** Two groups of Medium findings are not fixed in 7.4.9. "Open" describes them first, with their size,
-and then lists smaller items that were found along the way and are not counted in the figures above. Each fix has tests, and
+It found **three High issues, sixteen Medium ones and ten Low or hardening items. Every one of them is fixed.** Nothing rated
+Medium or higher is open. "Open" lists what is left, and none of it is a way to attack an installation. Each fix has tests, and
 each test was run against the code with its fix taken out.
 
 The agents have to be updated for the agent fixes (the agent version is 7.4.9). The server fixes need no action except where a note
@@ -18,15 +17,18 @@ below says so.
 
 - **Routes.** One route is new: `POST /api/logout`. Two others are new for one feature: `POST /api/scap/{id}/report-ticket`, and
   the SCAP report route now also accepts a one-minute link. No permission was loosened. A permission check was added to one
-  endpoint (`services/config`), a tenant check to twelve handlers, and twelve instance-wide operations (and the webhook log's
-  reads) moved to the platform operator.
+  endpoint (`services/config`), a tenant check to the ticket handlers and to twelve others, twelve instance-wide operations (and
+  the webhook log's reads) moved to the platform operator, and 17 route prefixes that belong to the organisation running the
+  installation (monitors, links, calendar, billing, time tracking, sites, contacts and others) answer only users of the default
+  tenant when tenant isolation is on.
 - **Credentials.** Every comparison of a secret in the server goes through one helper (`secure_eq.py`) that never raises. A DNS
   provider token is removed from command output before it is stored.
+- **Stored data.** The shape of 134 stores and of the settings document is stated once, in `store_shapes.py`, and checked where
+  a store is read. A row of the wrong kind is left out of what a page reads; the file is kept as it was in `quarantine/`.
 - **Containers.** The Docker image starts its app server and daemons as `www-data`, not root.
 - **Supply chain.** The GitHub Actions in the three workflows are pinned to commits, and Dependabot waits seven days before it
   proposes a release.
-- **Size.** 203 files changed since 7.4.8, 12,378 lines added and 4,818 removed: 569 and 191 of them in the server and the web
-  client, 645 and 107 in the agents and installers, the rest tests, documents and workflows. There are 22 new test files.
+- **Size.** {PENDING-SIZE}
 - **Not changed.** No dependency was added or removed in the server (Swagger UI moved from 5.34.0 to 5.34.1, a bug-fix release with
   no advisory). The agent version is 7.4.9 in all three agents.
 
@@ -36,13 +38,13 @@ below says so.
 
 | Scanner | What it covered | Result |
 |---|---|---|
-| CodeQL 2.27.3 (the version the pinned workflow action uses), Python and JavaScript, the repository's own configuration | the whole tree | see "Left for the release gate" |
-| bandit (against its baseline), ruff (undefined names, errors), mypy (31 modules), the JavaScript correctness gate, vulture | server, agents, tools, tests | no new finding; vulture's two reports are unused parameters |
+| CodeQL 2.27.3 (the version the pinned workflow action uses), Python and JavaScript, the repository's own configuration | the whole tree | no result, on the tree before the last fixes and again on the final tree (see the release page for the run) |
+| bandit (against its baseline), ruff (undefined names, errors), mypy (32 modules), the JavaScript correctness gate, vulture | server, agents, tools, tests | no new finding; vulture's two reports are unused parameters |
 | semgrep (registry rule sets, with a known-bad file as a control) | the whole tree | 92 results; all triaged, see below |
 | gitleaks (tree and the commits of this release, with planted keys as a control) | the whole tree | no leak found; the control found both planted keys |
 | shellcheck | every shell script | five warnings in four scripts, fixed |
 | nuclei 3.3.7 with 10,575 templates (a stub exposing a git configuration was found, as a control) | a seeded stack behind the shipped web server configuration | 12 findings, all informational (missing HSTS and Cross-Origin-Embedder-Policy headers, technology fingerprints, security.txt present) |
-| wapiti, signed in, 15 modules | the same stack | see "Left for the release gate" |
+| wapiti 3.3.0, signed in, 15 modules (a page with a known reflected XSS was found, as a control) | the same stack, 148 pages | no finding |
 | pip-audit | the server's Python dependencies | no known vulnerability |
 
 The 92 semgrep results: 21 were mutable GitHub Action tags (fixed by pinning), 27 and 4 were notes on the web server's use of the
@@ -60,16 +62,20 @@ scanner and the agent that the agent review read.
   roles scoped to a group or a tag, administrators, viewers and an operator of two tenants, eight API keys and three host tokens.
   Controls: the administrator was answered 2xx by 502 to 555 operations in each run and the anonymous caller by 16; the tenant
   check refused 104 operations that worked on the caller's own objects; the scope check refused 86 of 86 host-path operations
-  outside the role's scope; a leak scanner found a planted foreign marker where one existed and none where it did not.
+  outside the role's scope; a leak scanner found a planted foreign marker where one existed and none where it did not. The matrix
+  was run a second time on the final tree (1,075 operations: the logout and the report-link routes are new) {PENDING-AUTHZ}
 - *Hostile input.* About 41,650 requests over 975 routes, 4,252 body keys and 239 query keys, with 19 wrong types for each key
   (including NaN, Infinity, 400-digit integers, a lone surrogate, a 1 MiB string), 931 sparse hostile heartbeats, 19 hosts made of
   nothing but wrong-typed leaves, 139 stores mutated one row at a time, and the 76 periodic sweeps run on those rows. Every round
-  had a non-zero count of successful answers.
+  had a non-zero count of successful answers. After the fixes, the 3,809 stored rows that had answered 500 all answer below 500 when replayed one at a time, and the 76 periodic
+  sweeps, which had raised on 1,810 mutations when the first run had reached 72 of the 96 stores they read, raise on none of the
+  4,032 mutations of all 96.
 - *Agents.* The three agents, the six installers and the agent container, with real GNU tar and real PowerShell where the finding
   needed them. Nothing was run as root, on real Windows or macOS, or against real package managers.
 - *Web client and headers.* 1,320 places where the page writes to the document and 7,070 operands of the HTML it builds were parsed
   with a real JavaScript parser; 11,522 hostile strings were planted in the stores and 130 host strings sent through the real
-  heartbeat; every response of both shipped web server configurations was measured for its headers.
+  heartbeat; every response of both shipped web server configurations was measured for its headers. The test the review had
+  generated and not run, every number of every store replaced by markup (143,010 of them), was run at the end: see S29.
 - *Interface.* 85 pages, 14 settings panes, 141 dialogs and the host drawer at desktop and phone width, 255 views in the six
   languages, with a known-good and a known-bad fixture for each check.
 - *Documents and signals.* 139 of the 140 guides were read against the code; 98 signals the agents send were followed to 11 places
@@ -109,6 +115,13 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
 | S20 | Low | server | a Proxmox credential outside ASCII answered 500; Infinity reached `int()` in four coercers; a list where a string was expected |
 | S21 | Low | Linux agent | the quarantine changed a file's mode through a planted link |
 | S22 | Hardening | CI | the GitHub Actions followed mutable tags |
+| S23 | Medium | server, tenancy | about twenty listings, and the operator's own data, showed a tenant user another tenant's host names or the operator's settings: tickets, hours, invoices, quotes, sites, contacts, monitors, links, calendar, the knowledge base's linked hosts and more |
+| S24 | Medium | server | one stored row of the wrong shape answered 500 on the home, problems, alert and risk pages for everyone, stopped periodic sweeps, or dropped a host's report |
+| S25 | Low | server | sessions and the CSP-report throttle recorded the proxy's address; two delete routes could not be reached; the public status page named every monitor |
+| S26 | Low | web client | the click handlers called a function by a name from the page; a link signed a browser into someone else's session; the debug log opened a tab that cannot sign; Sign out left more per-person data; external links kept a handle to the page; the service worker cached token URLs; the portal escaped a name twice |
+| S27 | Hardening | web server | the two configurations disagreed on headers, three responses carried a header twice and `/ca.crt` carried none |
+| S28 | Low | agents, relay, installers | a link redirected a canary file; a pipe blocked the file manager; a directory walk had no budget; the downgrade guard trusted the server; three channels that run as root ignored `require-signed-commands`; the Windows installers skipped the checksum and the signature check; `docker` was found through `PATH` on Windows; an operator's regex had no time limit; the relay forwarded the whole API; the macOS update mode |
+| S29 | Low (defense in depth) | web client, stored data | a number stored as text would be printed as markup by 731 template operands; no agent or API call can store one, and the loader now reads 34 kinds of field that way |
 
 ## Fixed in 7.4.9
 
@@ -130,41 +143,88 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
   request body is cleaned of lone surrogates where it is read. NaN, Infinity and 400-digit numbers are refused where a host sends
   them. A test feeds every request model every non-finite value for every field.
 - **S13.** `POST /api/logout` removes the session. The page calls it after saving your preferences, and drops the hosts you opened
-  recently, your favourites, your stats history and your drafts from the browser.
+  recently, your favourites, your stats history, your drafts, the AI conversation and the infrastructure-as-code page's host and
+  instructions from the browser.
 - **S14.** The report opens from a link the server serves with its own sandbox policy. The page asks for the link first (signed in,
-  host scope checked), and it works for one minute.
+  host scope checked), and it works for one minute. A bad or expired link answers 403 with its own message.
+- **S23.** A ticket has no tenant field, so it takes one from what it names: the tenant of its host while the host exists,
+  otherwise the tenant of the account that opened it (a customer's reply by mail and an automation rule belong to the default
+  tenant). The ticket list, a single ticket, update, delete, attachments, the e-mail thread, the open count and the hosts marked
+  with a ticket show a tenant its own; a ticket cannot be moved onto another tenant's host. Seventeen route prefixes whose stores
+  have no tenant column belong to the organisation running the installation (the monitors and the SLO figures, the links, the
+  calendar and its feed, the mail round trip, Proxmox, the diagnostics bundle, configuration as code, billing, invoices, quotes,
+  time entries and timesheets, sites, contacts): with isolation on they answer only users of the default tenant, for reads and
+  writes, so the operator's own viewers and operators keep their pages. The knowledge base is one library: only the platform
+  operator writes it, and an article lists only the hosts the reader can see. The digest, discovery, a script's list and the script list of the results endpoint, the LLDP
+  suggestions, the maintenance windows and automation rules, and the home page's links, calendar and on-call roster no longer
+  name a host out of sight. The dashboard's "upcoming" card never showed a scheduled job (it read the schedule as a list, and the
+  store is a map holding the list); it does now, and shows a tenant its own. Of the 32 handlers that read a host id from a request
+  body under a key the guard test did not know, re-derived with a syntax tree and a seeded two-tenant run, two exposed anything (the
+  LLDP and dependency listings); the others gate on a helper or never read the id back. `GET /api/tenancy/readiness` and the
+  tenancy guide say what is isolated now. {PENDING-F6}
+- **S24.** The shapes are stated once and checked where a store is read (134 stores, 150 numeric settings and 6 text settings): a
+  container of the wrong kind becomes an empty one, a row or list element that is not what the store holds is left out, a field
+  of the wrong kind is read as the right one where that loses nothing (a number stored as text) and is otherwise removed, so the
+  reader's own default applies, and a needed key of the wrong kind makes the row unusable. Two stores are repaired the other way
+  because an empty value there would grant something: a damaged tenant stays a tenant (its users would otherwise move to the
+  operator's tenant), and a smart group with damaged rules is dropped (an empty rule set matches every host). NaN, Infinity,
+  an integer of 21 digits or more and a float that overflows are read as null. The repair is applied in memory; the next write
+  saves the repaired copy, the file as it was is kept in `quarantine/` (the last 20), and one line on stderr says how many entries
+  were left out. Replayed one at a time against the new code, the 3,809 stored rows that had answered 500 now all answer below 500.
+  The 76 periodic sweeps, called with one wrong node at a time in each of the 96 stores they read, had raised on 1,810 mutations
+  when the first run had reached 72 of them, and raise on none of the 4,032 now. Running the whole test suite with a report of every repair found two registry entries that disagreed with
+  what the product itself writes (the remediation store and the webhook log), and two more after the second run (a saved query
+  without a filter stores null, and one test fixture wrote a map where the CMDB writes a list); all four are corrected.
+- **S25.** Sessions and the CSP-report throttle used `REMOTE_ADDR`, which is the proxy's own address behind nginx; five places use
+  the client address now. `DELETE /api/devices/{id}/runbook` and `/drift` were matched by the host-delete row first; they are
+  excluded from it. The public status answer counts the monitors and calls them `Monitor 1`, `Monitor 2` (name one by putting it
+  in a component).
+- **S26.** The delegated click handlers resolve a name through one function that accepts only what the application declares. The
+  SSO buttons mark the tab, and `/#oidc_token=...` is taken only by a tab that started the sign-in (one use, fifteen minutes; the
+  exception is IdP-initiated SAML, see "Known and unchanged"). The debug log is fetched through the API client. Sign out drops the
+  AI conversation, the infrastructure-as-code page's host and instructions, the metric explorer's view and the activity feed's
+  mark. `target="_blank"` links and the external sidebar links carry `rel="noopener noreferrer"`. The service worker does not
+  cache a URL with a token in its query string. The portal no longer shows `&` as `&amp;`.
+- **S27.** A location that sets its own `add_header` makes nginx drop the server-level headers, so each location now states the whole
+  set, including the two cross-origin headers that were missing on the static files, the service worker and the manifest (and
+  everywhere on Docker). `/sw.js`, `/manifest.json` and the Docker `/agent/` send each of `Cache-Control` and `Content-Type` once,
+  and `/ca.crt` carries `nosniff`. Both configurations were measured through a real nginx.
+- **S28.** The Linux agent resolves the directory of a canary decoy before it creates the file, reads the file manager's path
+  without waiting on a FIFO, keeps the owner and mode of a file it writes, gives the directory baseline a time and entry budget,
+  and refuses a signed release older than the running agent unless the host's own `allow-downgrade` file allows it; the macOS and
+  Windows agents have the same downgrade check. Canary files, backup verification and the restore drill are refused when
+  `require-signed-commands` is set. The Windows agent uses a `docker` only from Program Files or the Windows folder and refuses a
+  log pattern that repeats a group inside a repeated group, and the macOS agent stops a log pattern that runs longer than ten
+  seconds. The relay forwards only the paths an agent calls; a test reads every path out of the agents and installers and fails if
+  one is not on its list. The Windows installers stop when they cannot read the agent's checksum and check that the Python
+  installer they run elevated is signed by the Python Software Foundation. The macOS update mode is 0o755, like the Linux one.
+- **S29.** The review had generated a test it did not run: every number of every store replaced by markup, 143,010 of them. It was
+  run, and 262 planted values reached a page unescaped across 15 stores (host sysinfo and hardware, drift, secret findings, SCAP,
+  package counts, speed tests, Compose, automation rules, webhooks, KMIP objects, schedules and snapshots). Two things bound the
+  risk. First, the real Linux agent's own heartbeat (273 numbers and 6,332 strings from one poll, including SMART, GPU, kernel,
+  antivirus, accounts and 43 sysinfo keys) was sent through the real handler with every number replaced by markup: none of the
+  numbers was stored as text, because the ingest functions keep only numbers in these fields. A restore, an import or a hand edit
+  can store one, an agent or an API call cannot. Second, the shipped Content-Security-Policy stops a planted handler from running,
+  an external image from loading and a form from leaving the origin; what is left is an injected link or text. It is closed where
+  it is measurable: the loader reads a field of the 34 kinds the crawl reached, and the numbers beside them, as absent when it
+  holds text, and the same crawl on the changed tree finds none of the 262. The other 731 unescaped operands rely on the ingest
+  and the policy, and are not escaped one by one. The 57 controls without an accessible name that the interface audit found
+  (integration cards, the DNS pause, the webhook format) are named, and the same script finds no control without a name in 241 views.
 - **S1, S11, S22.** Described in the CHANGELOG.
 
 ## Open
 
-These are not fixed in 7.4.9. Each is listed with what it is and how big it is, so you can decide what to do.
+Nothing rated Medium or higher is open. These are smaller, and none of them is a way to attack an installation.
 
-- **Tenant isolation of about ten more listings (Medium, tenancy only).** Time entries, a knowledge-base article's linked hosts,
-  the home aggregate's ticket hosts, tickets (documented as not isolated), and the platform operator's instance data behind the
-  SLO, links, calendar, monitor export, mail flow, Proxmox, diagnostics and declarative configuration routes can show another
-  tenant's host names or the operator's settings to a tenant user. Medium, about ten handlers, each with a reproduction in the
-  authorization review. Also open: 32 handlers read a host id from a request body under a key the guard test does not know
-  (`members`, `upstream_id`, `peer_id`, `scope_value`, `reach_scope_value`) and call no tenant helper.
-- **Stored rows of the wrong shape (Medium, robustness).** One wrong-shaped row in `alerts.json`, `alert_mutes.json`,
-  `hardware.json`, `fleet_events.json`, `apikeys.json` or the antivirus store makes the home page, the problems page, the alert
-  summary or the risk page answer 500 for everyone. 109 stores had at least one such failure. Rows come from validated ingest and
-  imports, so this is a corruption and import problem and not a remote one. The fix is a pair of row-reading helpers next to the
-  existing list helper and a test that derives the population from the stores the pages load; it is large (202 endpoints) and
-  mechanical. Periodic sweeps that raise on such a row stop silently, and one non-finite number inside a host's hardware or
-  antivirus report drops that report.
-- **Low items of the web client.** The page's delegated click handlers resolve a name from an attribute on `window`; the OIDC
-  sign-in accepts a token and a user name from the address fragment with no state check; the debug log link opens in a tab that
-  cannot send the token; sign-out leaves a few more browser keys. The two web server configurations disagree on a few headers and
-  `/ca.crt` has none. Each has a proposed change in the web client review.
-- **Agents, lower severity.** A canary path that a symlinked parent in a user-owned directory can redirect, a pipe at a file-manager
-  path that blocks the agent, an unbounded walk in a directory baseline, a downgrade guard that trusts the advertised version, three
-  code-running channels (canary, backup verify, restore drill) that are not behind signed commands, a Windows installer that runs
-  the Python installer with no hash check, and `docker` found through `PATH` on Windows.
-- **Interface.** Chart text sized by the drawing's view box, four strings with no translation entry, table action buttons that wrap
-  at phone width, a split of helper text between 11 and 12 pixels.
-- **Signals.** Seven places that could use a signal the agents already send and do not (Fleet Query and the Data Explorer for
+- **Interface.** Chart text sized by the drawing's view box (14 to 16 px on a desktop, 4 to 5 px at phone width), table action buttons
+  that wrap at phone width, the Provisioning name column at phone width, and a split of helper text between 11 and 12 pixels.
+- **Signals.** Ten places that could use a signal the agents already send and do not: Fleet Query and the Data Explorer for
   encryption and security updates, alert events for the posture trio on Linux and macOS, a time-synchronisation compliance control,
-  hardware and exposure sections in the fleet report, container crash loops in the risk score, and `docker_df` sent on its own).
+  hardware and exposure sections in the fleet report, the macOS and Windows protections in the risk score, security updates, ECC
+  errors and container crash loops in the risk score, `docker_df` sent on its own on a first poll, and DMI and memory-module data
+  for the AI index.
+  Three more (the Advisory's disk-encryption finding, the AI digest and the GPU line) are done.
+- **Translations.** The strings added in 7.4.9 are owed a read by a native speaker in each of the six languages.
 
 ## Not found
 
@@ -181,7 +241,14 @@ These are not fixed in 7.4.9. Each is listed with what it is and how big it is, 
 ## Known and unchanged
 
 - A fully compromised server is root on its agents, by design (see the threat model).
-- Responses of a few administrator test endpoints carry the data directory's path.
+- **A role scoped to groups, tags or sites limits what a user can change, not what they can see.** The host list is filtered, and
+  every operation on a single host outside the scope is refused (86 of 86 in the matrix), but about 60 lists that cover the whole
+  fleet (alerts, problems, activity, checks, exposure, metrics and others) still name hosts outside the scope. The boundary for
+  confidentiality is the tenant: give a person who must not see other hosts a tenant.
+- **IdP-initiated SAML sign-in** (`saml_allow_unsolicited`, off by default) has no start in the browser tab, so the check of S26
+  cannot apply to it. Leave it off unless you need it.
+- Responses of a few administrator test endpoints carry the data directory's path, and the AI settings page shows the last four
+  characters of a provider key to administrators (see the AI guide).
 - The two nginx configurations send HSTS only when you turn it on, and no `Cross-Origin-Embedder-Policy` (the origin is already
   isolated by `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy` and a CSP with no external source).
 
@@ -190,12 +257,12 @@ These are not fixed in 7.4.9. Each is listed with what it is and how big it is, 
 - The full test suite on the JSON and SQLite backends, the PostgreSQL tests, `make ci-parity` (the dependencies resolved fresh, as
   CI does), `make dist`, the local CodeQL run on the final tree, bandit, gitleaks and the release preparation check. The numbers
   of that run are in the release page.
-- wapiti's result for the signed-in crawl.
 
 ## Not run for this review
 
 - A live probe of a running installation: none was available for this release, so every probe ran against a seeded copy.
 - SQLite and PostgreSQL under the hostile-input sweep, and browsers other than Chromium (Safari and Firefox treat a `blob:`
   address's policy differently, which matters for S14).
-- Real Windows and macOS hosts, real package managers, and a real container runtime for the agent's container update.
+- Real Windows and macOS hosts, real package managers, and a real container runtime for the agent's container update. The
+  PowerShell installers were read, not run.
 - A latency benchmark: the machine was busy with the reviews themselves, so no timing is quoted.

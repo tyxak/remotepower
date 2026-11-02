@@ -248,13 +248,13 @@ class TestTheLastRowsOfTheReplay(unittest.TestCase):
     # set element, a bucket it indexes. (store, a document holding a bad value, the document as it must be read)
     SWEEP_STAMPS = (
         ('alerts.json', {'alerts': [{'id': ['x'], 'resolved_at': 'x'}, {'id': 'a1'}]}, {'alerts': [{}, {'id': 'a1'}]}),
-        ('ct_watch.json', {'a.example': {'last_check': 'x'}, 'b.example': 7}, {'a.example': {}}),
+        ('ct_watch.json', {'a.example': {'last_check': 'x', 'fail_streak': [1]}, 'b.example': 7}, {'a.example': {}}),
         ('cve_campaigns.json', {'campaigns': [], '_last_sample': [1]}, {'campaigns': []}),
         ('flow_deps.json', {'edges': {}, 'last_run': 'x'}, {'edges': {}}),
-        ('incident_memory.json', {'outcomes': [], 'last_run': {'a': 1}}, {'outcomes': []}),
+        ('incident_memory.json', {'outcomes': [], 'last_run': {'a': 1}, 'seen': ['a1', {'x': 1}, None]}, {'outcomes': [], 'seen': ['a1']}),
         ('integrations_state.json', {'latest': {'i1': {'checked': 'x', 'metrics': {}}}}, {'latest': {'i1': {'metrics': {}}}}),
         ('ip_intel.json', {'last_sweep': 'x'}, {}),
-        ('ipam_state.json', {'last_run': 'x', 'conflicts': ['10.0.0.1', {'a': 1}, None]}, {'conflicts': ['10.0.0.1']}),
+        ('ipam_state.json', {'last_run': 'x', 'conflicts': ['10.0.0.1', {'a': 1}, None], 'mac_conflicts': 5}, {'conflicts': ['10.0.0.1'], 'mac_conflicts': []}),
         ('mailflow_state.json', {'last_tick': [1]}, {}),
         ('netscan_schedules.json', {'ns1': {'interval_minutes': 'x', 'last_run': ['1']}}, {'ns1': {}}),
         ('proxmox_snapshot_cache.json', 7, {}),
@@ -263,7 +263,7 @@ class TestTheLastRowsOfTheReplay(unittest.TestCase):
         ('thermal_rollup.json', {'_meta': {'last_run': 'x'}, 'h1': {'hourly': [{'ts': 1}, {'ts': 'x'}, 5], 'last_ts': [1]}},
          {'_meta': {}, 'h1': {'hourly': [{'ts': 1}]}}),
         ('metrics_rollup.json', {'h1': {'daily': [{'ts': 1}, {'cpu': 5}], 'fivemin': 'x'}}, {'h1': {'daily': [{'ts': 1}], 'fivemin': []}}),
-        ('vpn.json', {'tunnels': [{'expires_at': 'x', 'clients': [{'expires_at': [1]}, {'id': 'c'}]}]},
+        ('vpn.json', {'tunnels': [{'id': ['t'], 'expires_at': 'x', 'clients': [{'expires_at': [1], 'pubkey': {'a': 1}}, {'id': 'c'}]}]},
          {'tunnels': [{'clients': [{}, {'id': 'c'}]}]}),
     )
 

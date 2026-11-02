@@ -61,12 +61,76 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 - **A security review of the whole project, not only of what changed.** Seven reviews ran side by side: who can reach what
   on every route (1,073 operations as 26 kinds of caller), hostile input on every route, the three agents and their
   installers, the web client and the web server headers, the interface, the documents, and a map of what the agents send
-  against where it is used. Scanners ran beside them. They found three High issues, sixteen Medium ones and five Low or
-  hardening items. All of the High and Low ones and fourteen of the Medium ones are fixed, and the entries below describe
-  them. Two groups of Medium findings are not fixed and are described, with their size, in
-  [docs/security-review-7.4.9.md](docs/security-review-7.4.9.md): about ten more listings that can show a tenant user
-  another tenant's host names (tenancy only), and stored rows of the wrong shape that make a page answer 500 (a hand edit
-  or an import can store one). The review has the scans, the numbers behind each check and what was not run.
+  against where it is used. Scanners ran beside them. They found three High issues, sixteen Medium ones and ten Low or hardening
+  items. Every one of them is fixed, and the entries below describe them. What is left, which is nothing that attacks an
+  installation, is in [docs/security-review-7.4.9.md](docs/security-review-7.4.9.md), with the scans and the numbers behind
+  each check.
+- **A tenant's users no longer see the operator's data or another tenant's hosts in the listings that had no filter (Medium).**
+  This is the rest of the listings the authorization matrix found; the history, the schedule and the image view are in the entry
+  further down. They matter on an installation with tenancy on.
+  - *Tickets* belong to a tenant now. A ticket has no tenant column and is made in six places, so its tenant is read from what it
+    names: the tenant of its host while the host exists, otherwise the tenant of the account that opened it. A ticket nobody can
+    attribute (a customer's reply by mail, an automation rule) belongs to the default tenant, the operator's. The list, a single
+    ticket, update, delete, attachments, e-mail, the open-ticket count and the hosts marked with a ticket show a tenant its own;
+    a ticket about another tenant's host cannot be opened, and a ticket cannot be moved onto one.
+  - *The operator's own data* is closed to the users of every other tenant, for reads and writes: the monitors and their state and
+    history, the SLO figures, the links, the calendar and its feed, the mail round trip, Proxmox, the diagnostics bundle,
+    configuration as code, and the business side (time tracking and the hours on a ticket, invoices, quotes, customer sites and
+    contacts). None of these stores has a tenant column. The operator's own viewers and operators, who belong to the default
+    tenant, keep their pages. The home page no longer carries the links, the calendar events or the on-call roster for a tenant.
+  - *The knowledge base* is one library for every tenant. An article lists only the hosts the caller can see, and only the platform
+    operator writes it.
+  - *Named hosts.* The digest listed the last ten commands of every tenant, discovery listed what another tenant's agents found,
+    a script's list named the hosts it is assigned to, the LLDP suggestions linked hosts of two tenants, and a maintenance window
+    or an automation rule that named a host out of sight was listed to everyone who could see the window. Each shows only hosts the
+    caller can see. The dashboard's "upcoming" card never showed a scheduled job at all (it read the schedule as a list, and the
+    store is a map holding the list); it does now, and shows a tenant its own.
+  Every listing was measured by scanning each answer for the other tenant's host names and ids, as 26 kinds of caller.
+- **A row of the wrong shape in a store no longer fails a page for everybody (Medium).** The sweep replaced one row, one list or the
+  children of one node in each of 193 store files, one at a time, with null, a number, a string, a list, a map, a 400-digit integer,
+  NaN and Infinity, and requested every page that reads the file: 3,809 mutations in 110 stores gave a 500 for every user, and 1,810
+  periodic sweeps stopped. One null in `alerts.json` took down the home page, the problems page and the alert summary. 202 readers
+  could not be fixed one at a time, so the shapes are stated once, in `store_shapes.py`, and checked where a store is read. A row
+  or list element of the wrong kind is left out, a container of the wrong kind becomes an empty one, and a listed field of the wrong
+  kind is read as the right one where that loses nothing (a number stored as text) and is otherwise removed, so the reader's own
+  default applies. 134 stores are covered, with the numeric and text settings of the settings document. Two stores are repaired the other way
+  because an empty value there would grant something: a damaged tenant stays a tenant (its users would otherwise move to the
+  operator's tenant), and a smart group with damaged rules is dropped (an empty rule set matches every host). NaN, Infinity, an integer
+  of 21 digits or more and a float that overflows are read as null, in the stores and in request bodies. A store is repaired in memory;
+  the next write saves the repaired copy, the file as it was is kept in `quarantine/` (the last 20), and one line on stderr says
+  how many entries were left out. Replayed against the new code, all 3,809 mutations answer below 500, and the 76 periodic sweeps,
+  which raised on 1,810 of them, now run through the same mutations without raising.
+- **A number stored as text is read as absent, not printed as markup (Low).** The web client review generated a test it did not run:
+  every number of every store replaced by markup (143,010 of them). Run against the tree, 262 values reached a page unescaped, in 15
+  stores. The real Linux agent's own heartbeat (273 numbers, 6,332 strings) sent through the real handler stored none of the
+  numbers as text, so an agent or an API call cannot do it, and the Content-Security-Policy stops a planted handler, an image
+  from another site and a form to another site. A restore, an import or a hand edit still could. The loader now reads a field of the
+  34 kinds the crawl reached, and the numbers beside them, as absent when it holds text (a number written as text is read as that
+  number), and the same crawl on the changed tree finds none.
+- **Smaller findings of the same reviews.** Sessions and the CSP-report throttle recorded nginx's own address for every client;
+  `DELETE /api/devices/{id}/runbook` and `/drift` were answered by the host-delete route first and could not be reached; the
+  delegated click handlers called `window[<attribute>]`, so a name such as `alert` or `open` ran with chosen arguments, and now call
+  only a function the application declares; `/#oidc_token=<anyone's token>` signed a browser into that session, and the token is now
+  taken only by the tab that pressed the sign-in button; the debug log button opened a tab, which cannot send the token, and fetches
+  the file now; Sign out also drops the AI conversation, the infrastructure-as-code page's host and instructions, the metric
+  explorer's view and the activity feed's mark; the public status answer named every monitor (it counts them and calls them
+  `Monitor 1`, `Monitor 2` now; name one by putting it in a component); `target="_blank"` links and the external sidebar links get no
+  handle to the page; the service worker no longer caches a URL with a token in its query string, and the portal no longer shows `&`
+  as `&amp;`. The nginx configurations send the same security headers from every location, including the two cross-origin headers
+  that were missing on the static files, the service worker and the manifest (and everywhere on Docker), and send no header twice
+  (`/sw.js`, `/manifest.json` and the Docker `/agent/` had two of one).
+- **The agents, the second half.** The Linux agent resolves the directory of a canary decoy before it creates the file (a link from
+  `~/.aws` to `/etc/sudoers.d` made root write a file that sudo refuses to start on), reads the file manager's path without waiting on
+  a FIFO, keeps the owner and mode of a file it writes, gives the directory baseline a time and entry budget, and refuses a signed
+  release older than the running agent unless the host's own `allow-downgrade` file allows it (it read the version from the server's
+  advertisement, and a forced upgrade skipped it); the macOS and Windows agents have the same downgrade check. Canary files, backup
+  verification and the restore drill are refused when `require-signed-commands` is set, like the custom-script channel since 6.4.3: they
+  start a process or write a file as root from a setting the server sends, and no signature covers a setting. The Windows agent uses a
+  `docker` only from Program Files or the Windows folder, refuses a log pattern that repeats a group inside a repeated group, and
+  the macOS agent stops a log pattern that runs longer than ten seconds. The relay satellite forwards only the paths an agent calls
+  (it forwarded the sign-in and the whole administration API from its own address); a test reads every path out of the agents and
+  installers and fails if one is not on its list. The Windows installers stop when they cannot read the agent's checksum (they went on
+  without it) and check that the Python installer they run elevated is signed by the Python Software Foundation.
 - **A host's SCAP report can no longer run in the dashboard's origin (Medium).** The report is HTML written by the host's agent.
   The server serves it with a sandboxed Content-Security-Policy, but the page fetched it and opened it as a `blob:` address,
   which takes the dashboard's origin and drops that policy. A compromised host could put a reference to the dashboard's own
@@ -201,6 +265,15 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 - **Names for 332 checkboxes.** The notification routing matrix's checkboxes had no accessible name; each now says the kind and
   the channel. Five drawer fields (Icon, the SNMP community and the SNMPv3 user and secrets) were squeezed to 70 px at 16 px
   and showed "e.g. mo"; they take the width of the other fields.
+- **Names for the integration cards, the DNS pause and the webhook format.** 57 more controls had no accessible name: every field
+  of an integration card on Settings → Integrations and Virtualization (Name, URL, the connector's own fields, Runs on host,
+  Site), the pause duration of a DNS blocker card, and the format select of a webhook destination. A label is tied to its control
+  now. A browser test opens every Settings pane on the seeded instance, because a pane is hidden until its tab is clicked and an
+  empty install has no cards.
+- **The host drawer no longer logs an error for a host without SNMP.** It asked for the deep read, which answers 400 when polling
+  is off (14 of 18 demo hosts); it asks the host's SNMP settings first and says "SNMP polling not configured".
+- **Four texts had no translation.** "Alert on a metric", the "Type to filter…" placeholder, "resolved by" on the Alerts page and
+  "promoted →" on Patch snapshots; the name or tag after them is its own element, so the sentence translates.
 - **"≥ undefined" on the Logs page.** A fleet-wide rule saved without a threshold printed that; it prints the threshold the
   server uses, 1, and the demo's rules carry one.
 

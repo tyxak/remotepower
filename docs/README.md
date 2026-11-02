@@ -64,8 +64,7 @@ holds long-form docs that don't fit there.
 - **[security-review-7.4.9.md](security-review-7.4.9.md)** — the v7.4.9 review, of the whole project and not only of what
   changed: an authorization check on every route as 26 kinds of caller, hostile input on every route, the three agents
   and their installers, the web client and the web server headers, the interface, and the documents. Three high, sixteen
-  medium and five low findings, with all of the high and low and fourteen of the medium fixed, the scans and the
-  mutation checks behind them, and what is still open.
+  medium and ten low findings, all fixed, the scans and the mutation checks behind them, and what is still open.
 - **[security-review-7.4.8.md](security-review-7.4.8.md)** — the v7.4.8 review: what a host can make the server and
   its own agent do through the sensor limits and labels it reports and the text `apt-get` prints, what a stored row
   of the wrong kind does to the Thermal page and the risk score, and one low issue, a stored reading or limit too big

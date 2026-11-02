@@ -34,11 +34,11 @@ test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
 - [security-review-7.4.9.md](security-review-7.4.9.md) — the release in which the whole project was reviewed, not only
-  what changed: three high issues, sixteen medium ones and five low ones, with all of the high and low ones and fourteen
-  of the medium ones fixed. Among them are a host's watched services that any signed-in role could rewrite, three flaws
-  in the Linux agent, the app server running as root in the Docker image, and tenant administrators reaching
-  instance-wide operations. It has the scans, the run over every route, the mutation checks, and what is still open and
-  how big it is.
+  what changed: three high issues, sixteen medium ones and ten low ones, all of them fixed. Among them are a host's
+  watched services that any signed-in role could rewrite, three flaws in the Linux agent, the app server running as root
+  in the Docker image, tenant administrators reaching instance-wide operations, and a tenant's users reading the
+  operator's tickets and invoices. It has the scans, the run over every route, the mutation checks, and what is left
+  and how big it is.
 - [security-review-7.4.8.md](security-review-7.4.8.md) — a patch release: one low issue, a stored sensor, drive or
   GPU reading, or a sensor limit, too big for a float that answered 500 to everyone on the Thermal page, and a check
   that nothing a host sends or apt prints reaches a command, that a limit or a time of the wrong kind never reaches a
