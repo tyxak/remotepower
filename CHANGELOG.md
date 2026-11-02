@@ -92,6 +92,13 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   cleaned when the history is read and the next time the host reports a result. **If you used ACME with a saved DNS
   credential before 7.4.9, rotate that token**: a row stored earlier can also sit in a backup. The documentation
   cross-check found this.
+- **Four AI features no longer send logs and command output unredacted.** The mitigate step, alert triage, the log-sweep
+  root-cause analysis and the AI exec proposal called the AI provider directly, so the log lines and command output they send
+  went out as they were, while every other AI request is redacted first. A bearer token or an access key in a log line is
+  exactly what they are likely to carry. They now use the same redaction: bearer tokens, cloud access keys and long hex strings
+  are always removed, and addresses and host names are replaced by `<IP>` and `<HOST>` unless you allowed them under Settings
+  → AI assistant → Privacy. Their answers can now contain those placeholders where the prompt had a name or address. A local
+  model (Ollama or LocalAI) never needed this; with a cloud provider it did. The documentation cross-check found this.
 
 ### Fixes
 

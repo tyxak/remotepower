@@ -77940,7 +77940,6 @@ def _call_ai_with_prompts(system_prompt, user_prompt, prompt_key):
     ai_cfg = cfg.get('ai') or {}
     if not ai_cfg.get('enabled'):
         raise RuntimeError('AI not enabled — configure in Settings → AI Assistant')
-    provider = ai_cfg.get('provider', 'ollama')
 
     # The per-prompt overrides live at the top level of the config, where
     # handle_ai_params_save writes them. This used to read them from cfg['ai'], where
@@ -77950,23 +77949,19 @@ def _call_ai_with_prompts(system_prompt, user_prompt, prompt_key):
     kwargs = {k: v for k, v in _resolve_ai_params(prompt_key).items() if v is not None}
 
     messages = [{'role': 'user', 'content': user_prompt}]
-    if provider == 'anthropic':
-        return ai_provider.chat_anthropic(
-            ai_cfg, messages, system_prompt,
-            kwargs.get('max_tokens') or 4000,
-            temperature=kwargs.get('temperature'),
-            top_p=kwargs.get('top_p'),
-        )
-    # The OpenAI-compatible path also takes num_ctx (local providers) and reasoning_effort
-    return ai_provider.chat_openai_compatible(
+    # 7.4.9: through ai_provider.chat, the one dispatcher that redacts what leaves the server. This helper called the provider
+    # adapters directly, so the mitigate step, alert triage, the log-sweep RCA and the AI exec proposal sent host names,
+    # addresses and secret-shaped strings (bearer tokens, AWS keys, long hex) to the provider as they were, while every
+    # other AI call redacted them. Bearer tokens, AWS keys and long hex are always redacted; addresses and host names are
+    # redacted unless the operator opted in under Settings -> AI Assistant -> privacy.
+    return ai_provider.chat(
         ai_cfg, messages, system_prompt,
-        kwargs.get('max_tokens') or 4000,
+        max_tokens=kwargs.get('max_tokens') or 4000,
         temperature=kwargs.get('temperature'),
         top_p=kwargs.get('top_p'),
         num_ctx=kwargs.get('num_ctx'),
         reasoning_effort=kwargs.get('reasoning_effort'),
     )
-
 
 
 if __name__ == '__main__':
