@@ -4,8 +4,26 @@ set -euo pipefail
 DATA_DIR="/var/lib/remotepower"
 USERS_FILE="$DATA_DIR/users.json"
 
-# Ensure data dir ownership
-chown -R www-data:www-data "$DATA_DIR"
+# ── Who runs what ─────────────────────────────────────────────────────────────
+# This script starts as root because the first boot has root-only work to do: it owns
+# the data volume, writes the nginx settings and generates the CA. Nothing that answers a
+# request needs root, so the app server, the scheduler and every daemon are started through
+# APP_DROP and run as www-data, the same user a bare-metal install uses. The nginx master
+# stays root, as in the Debian package, and runs its workers as www-data (the `user` line
+# of the stock nginx.conf). Without this, a bug in the app server would be root in the
+# container with write access to the whole volume.
+#
+# setpriv comes with util-linux, which every Debian image carries. If it is somehow absent
+# the container stops here: starting the app as root without saying so is the one outcome
+# this block exists to prevent. HOME is set to what www-data has on a normal host, because
+# root's /root is not readable by it.
+command -v setpriv >/dev/null 2>&1 || {
+    echo "[!] setpriv (util-linux) is missing, so the app server cannot be started as www-data." >&2
+    exit 1
+}
+APP_USER=www-data
+APP_DROP=(env HOME=/var/www setpriv --reuid="$APP_USER" --regid="$APP_USER" --init-groups)
+
 chmod 700 "$DATA_DIR"
 
 # Write agent version into config.json
@@ -336,10 +354,17 @@ fi
 # server/cgi-bin/wsgi.py is a real Flask app; nginx's shipped location snippets
 # (docker/nginx-docker-locations.conf, nginx-docker-tls.conf) already proxy_pass
 # to it — no runtime rewrite needed. See docs/wsgi.md.
-echo "[*] Starting gunicorn on 127.0.0.1:8090..."
+# Everything above ran as root and may have left root-owned files in the volume (config.json,
+# the CA, the daemons' secrets, whatever an older root-run image wrote). The app server and the
+# daemons below are not root any more, so hand the volume to them once, here, after the last
+# root write and before the first service starts. `chown -R` does not follow symlinks.
+chown -R "$APP_USER:$APP_USER" "$DATA_DIR"
+chmod 700 "$DATA_DIR"
+
+echo "[*] Starting gunicorn on 127.0.0.1:8090 as $APP_USER..."
 cd /var/www/remotepower/cgi-bin
 RP_DATA_DIR=/var/lib/remotepower \
-  gunicorn --workers 2 --threads 8 --timeout 120 --keep-alive 75 --max-requests 1000 --max-requests-jitter 100 --bind 127.0.0.1:8090 wsgi:application &
+  "${APP_DROP[@]}" gunicorn --workers 2 --threads 8 --timeout 120 --keep-alive 75 --max-requests 1000 --max-requests-jitter 100 --bind 127.0.0.1:8090 wsgi:application &
 cd /
 echo "[+] gunicorn started (pid $!)"
 
@@ -349,7 +374,8 @@ echo "[+] gunicorn started (pid $!)"
 # var). Unset = the cadence piggy-backs on requests instead.
 if [ "${RP_EXTERNAL_SCHEDULER:-}" = "1" ] || [ "${RP_EXTERNAL_SCHEDULER:-}" = "true" ]; then
     echo "[*] RP_EXTERNAL_SCHEDULER set — launching scheduler.py in the background"
-    RP_DATA_DIR=/var/lib/remotepower python3 /var/www/remotepower/cgi-bin/scheduler.py &
+    RP_DATA_DIR=/var/lib/remotepower \
+        "${APP_DROP[@]}" python3 /var/www/remotepower/cgi-bin/scheduler.py &
     echo "[+] scheduler started (pid $!)"
 fi
 
@@ -361,7 +387,7 @@ fi
 if [ "${RP_WITH_PUSH:-1}" = "1" ] || [ "${RP_WITH_PUSH:-1}" = "true" ]; then
     echo "[*] Starting the agent push daemon on 127.0.0.1:8766 (idle until push_enabled)"
     RP_DATA_DIR=/var/lib/remotepower RP_CGI_BIN=/var/www/remotepower/cgi-bin \
-        python3 /usr/local/bin/remotepower-push &
+        "${APP_DROP[@]}" python3 /usr/local/bin/remotepower-push &
     echo "[+] push daemon started (pid $!)"
 fi
 
@@ -374,7 +400,7 @@ if [ "$SSHGW_ON" = "1" ]; then
     RP_CGI_BIN=/var/www/remotepower/cgi-bin \
     SSHGW_SECRET_FILE="$SSHGW_DIR/secret" \
     SSHGW_HOST_KEY="$SSHGW_DIR/ssh_host_ed25519_key" \
-        python3 /usr/local/bin/remotepower-sshgw --verbose &
+        "${APP_DROP[@]}" python3 /usr/local/bin/remotepower-sshgw --verbose &
     echo "[+] SSH gateway started (pid $!); host key fingerprint is in these logs"
 fi
 
@@ -386,7 +412,7 @@ fi
 if [ "$WEBTERM_ON" = "1" ]; then
     echo "[*] Starting the web terminal on 127.0.0.1:8765"
     RP_DATA_DIR=/var/lib/remotepower RP_CGI_BIN=/var/www/remotepower/cgi-bin \
-        python3 /usr/local/bin/remotepower-webterm \
+        "${APP_DROP[@]}" python3 /usr/local/bin/remotepower-webterm \
             --host 127.0.0.1 --port 8765 --data-dir /var/lib/remotepower \
             --api-base http://127.0.0.1:8090/api \
             --secret-file "$WEBTERM_DIR/secret" --verbose &

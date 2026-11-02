@@ -86,6 +86,14 @@ The trust boundary around the agents and the secrets store:
 - **Login banner / security notice.** An optional plain-text notice shown above
   the sign-in form (for example "Authorized use only. Activity is monitored."),
   surfaced before authentication.
+- **No root in the Docker image's app tier.** The container entrypoint starts as
+  root because it has to give the data volume to `www-data`, write the nginx
+  settings and generate the CA. From 7.4.9 it starts the app server, the
+  scheduler and the push, SSH-gateway and web-terminal daemons as `www-data`
+  (the user a bare-metal install uses), with no capabilities and no root group;
+  only the nginx master stays root, as in the Debian package. The entrypoint
+  stops if `setpriv` is missing. If you use `docker exec` to run something that
+  writes to the data volume, add `-u www-data` so it leaves no root-owned files.
 
 Every outbound feature — integrations, DNS providers, AI providers, web-push and
 the monitors — reuses the same connect-time SSRF guard (loopback / link-local /

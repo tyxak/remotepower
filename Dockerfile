@@ -110,4 +110,9 @@ VOLUME ["/var/lib/remotepower"]
 HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
     CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/api/health',timeout=4).status==200 else 1)" || exit 1
 
+# v7.4.9: no USER line on purpose. The entrypoint has to start as root to chown the data volume
+# (an older image left root-owned files in it), write the nginx settings and generate the CA. It then
+# starts the app server and every daemon as www-data through setpriv, and the nginx workers run as
+# www-data too; only the nginx master stays root. See docker/entrypoint.sh, "Who runs what".
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint
 ENTRYPOINT ["/entrypoint.sh"]

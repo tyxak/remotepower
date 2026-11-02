@@ -56,6 +56,20 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   under a heading of its own and was never affected. If the second question fails, the package still counts. Update the
   agents.
 
+### Security
+
+- **The app server and the daemons no longer run as root in the Docker image.** The entrypoint has to start as root,
+  because it hands the data volume to `www-data`, writes the nginx settings and generates the CA. Until now it also
+  started gunicorn, the scheduler and the push, SSH-gateway and web-terminal daemons from that same shell, so all of them
+  ran as root and only the nginx workers did not. A bug in the app would have meant root in the container with write
+  access to the whole volume. They now start as `www-data`, the user a bare-metal install uses, through `setpriv`, and
+  the volume is handed over after the last root write. The container stops with a message if `setpriv` is missing, and
+  does not start the app as root without saying so. An existing volume needs no step: the first boot gives root-owned
+  files to `www-data`. If you run commands with `docker exec`, add `-u www-data` for anything that writes to the data
+  volume, so it does not leave root-owned files behind. Checked by running the real entrypoint, nginx, gunicorn, the
+  daemons and the real agent in a namespace with a real uid 33: every app-tier process runs as 33:33 with no capabilities
+  and no root group, only the nginx master is root, and a settings save still reaches `config.json`.
+
 ## v7.4.8 — "Hon3stMatters" — 2026-11-01
 
 Three screens said something that was not true: a Problems row that read "never" under Updated, a sensor limit of 65261.8 °C,
