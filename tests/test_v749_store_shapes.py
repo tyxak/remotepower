@@ -206,6 +206,72 @@ class TestTheLastRowsOfTheReplay(unittest.TestCase):
         self.assertEqual(out, {'audit_forward_mode': '7', 'siem_format': 'cef', 'ldap_user_filter': '5',
                                'ai': {'base_url': '7', 'embeddings': {}}})
 
+    # (store, a document with a text payload where a number belongs, and a number that must survive)
+    NUMBER_FIELDS = (
+        ('devices.json', lambda t, n: {'h': {'sysinfo': {
+            'mounts': [{'percent': t, 'total_gb': t, 'used_gb': n}], 'disk_io': [{'busy_pct': t, 'read_mbs': t, 'write_mbs': n}],
+            'firewall': {'backends': [{'rules': t}]}, 'firewall_fp': {'rules': t}, 'storage_health': [{'capacity': t}]}}}),
+        ('hardware.json', lambda t, n: {'h': {
+            'smart': [{'pending_sectors': t, 'power_on_hours': t, 'reallocated_sectors': n, 'temperature_c': t, 'wear_pct': t}],
+            'gpus': [{'util_pct': t, 'power_w': n, 'mem_used_mb': t}], 'ups': [{'battery_pct': t, 'load_pct': t, 'power_w': n}]}}),
+        ('drift_state.json', lambda t, n: {'h': {'files': {'/etc/x': {'drift_count': t, 'last_check': n}}}}),
+        ('secret_findings.json', lambda t, n: {'h': {'findings': [{'line': t, 'fingerprint': 'f'}, {'line': n}]}}),
+        ('scap.json', lambda t, n: {'h': {'fail': t, 'score': n}}),
+        ('packages.json', lambda t, n: {'h': {'count': t, 'collected_at': n}}),
+        ('speedtest.json', lambda t, n: {'h': [{'download_mbps': t, 'upload_mbps': t, 'ping_ms': n}]}),
+        ('compose_stacks.json', lambda t, n: {'s-1': {'last_rc': t}}),
+        ('ansible_playbooks.json', lambda t, n: {'playbooks': [{'last_rc': t}]}),
+        ('automation_rules.json', lambda t, n: {'rules': [{'cooldown_seconds': t, 'fire_count': n}]}),
+        ('inbound_webhooks.json', lambda t, n: {'tokens': [{'hit_count': t}]}),
+        ('kmip_objects.json', lambda t, n: {'objects': {'o1': {'length': t}}}),
+        ('netscan_schedules.json', lambda t, n: {'ns1': {'interval_minutes': t}}),
+        ('patch_snapshots.json', lambda t, n: {'ps1': {'entry_count': t, 'created': n}}),
+        ('webhook_dlq.json', lambda t, n: {'entries': [{'attempts': t}]}),
+    )
+
+    def test_a_number_stored_as_text_does_not_reach_a_page(self):
+        """The web client review planted markup in every number of the stores (143,010 of them) and drove the pages: the fields
+        below drew it unescaped. The agent channels keep only numbers there, so no host can store such a value, but a restore,
+        an import or a hand edit can, and a number is not escaped where a page prints it. The loader reads such a field as
+        absent. A number stays, and so does a number written as text."""
+        payload = '" data-xq=1 x=""\'><img src=x onerror="alert(1)">'
+        for store, make in self.NUMBER_FIELDS:
+            with self.subTest(store=store):
+                out = S.normalize(store, make(payload, 7))
+                self.assertNotIn('data-xq', json.dumps(out), 'markup survived in a numeric field')
+                self.assertEqual(S.normalize(store, make(7, 7)), make(7, 7), 'a number is left as it is')
+                self.assertEqual(json.dumps(S.normalize(store, make('5', 7))), json.dumps(S.normalize(store, make(5, 7))),
+                                 'a number written as text is read as that number')
+
+    # The 7.4.9 sweep harness calls all 76 periodic sweeps with one stored node of the wrong shape at a time. These are the places
+    # where a sweep still raised after the first registry: a stamp it converts with int(), a number it subtracts, a sort key, a
+    # set element, a bucket it indexes. (store, a document holding a bad value, the document as it must be read)
+    SWEEP_STAMPS = (
+        ('alerts.json', {'alerts': [{'id': ['x'], 'resolved_at': 'x'}, {'id': 'a1'}]}, {'alerts': [{}, {'id': 'a1'}]}),
+        ('ct_watch.json', {'a.example': {'last_check': 'x'}, 'b.example': 7}, {'a.example': {}}),
+        ('cve_campaigns.json', {'campaigns': [], '_last_sample': [1]}, {'campaigns': []}),
+        ('flow_deps.json', {'edges': {}, 'last_run': 'x'}, {'edges': {}}),
+        ('incident_memory.json', {'outcomes': [], 'last_run': {'a': 1}}, {'outcomes': []}),
+        ('integrations_state.json', {'latest': {'i1': {'checked': 'x', 'metrics': {}}}}, {'latest': {'i1': {'metrics': {}}}}),
+        ('ip_intel.json', {'last_sweep': 'x'}, {}),
+        ('ipam_state.json', {'last_run': 'x', 'conflicts': ['10.0.0.1', {'a': 1}, None]}, {'conflicts': ['10.0.0.1']}),
+        ('mailflow_state.json', {'last_tick': [1]}, {}),
+        ('netscan_schedules.json', {'ns1': {'interval_minutes': 'x', 'last_run': ['1']}}, {'ns1': {}}),
+        ('proxmox_snapshot_cache.json', 7, {}),
+        ('scan_schedules.json', {'s1': {'next_run': 'x', 'last_run': {'a': 1}, 'created': 5}}, {'s1': {'created': 5}}),
+        ('self_backup_state.json', {'last_run': None, 'last_drill_at': 'x'}, {}),
+        ('thermal_rollup.json', {'_meta': {'last_run': 'x'}, 'h1': {'hourly': [{'ts': 1}, {'ts': 'x'}, 5], 'last_ts': [1]}},
+         {'_meta': {}, 'h1': {'hourly': [{'ts': 1}]}}),
+        ('metrics_rollup.json', {'h1': {'daily': [{'ts': 1}, {'cpu': 5}], 'fivemin': 'x'}}, {'h1': {'daily': [{'ts': 1}], 'fivemin': []}}),
+        ('vpn.json', {'tunnels': [{'expires_at': 'x', 'clients': [{'expires_at': [1]}, {'id': 'c'}]}]},
+         {'tunnels': [{'clients': [{}, {'id': 'c'}]}]}),
+    )
+
+    def test_the_stamps_the_periodic_sweeps_subtract_and_sort_by_are_numbers(self):
+        for store, bad, want in self.SWEEP_STAMPS:
+            with self.subTest(store=store):
+                self.assertEqual(S.normalize(store, copy.deepcopy(bad)), want)
+
     def test_a_saved_query_without_a_filter_keeps_its_null(self):
         """The product itself writes `where: null` for a fleet or metric query and for a predicate with no filter; the first
         registry repaired it on every read (23 times in the suite's own run). A filter of the wrong kind is removed."""
