@@ -84,6 +84,13 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   upgraded install gets it too. Run through a real nginx on both shipped location snippets: 32 failures with the old map,
   none with the new one.
 
+### Components
+
+- **Swagger UI 5.34.0 → 5.34.1.** The API reference page uses the new release, a bug-fix release with no advisory. The
+  tarball was checked against the npm registry, the stylesheet is byte-identical to the old one, and the page loads, expands
+  an operation and logs no console error or failed request, the same as with the old bundle. xterm.js, its fit addon,
+  noVNC, qrcode-generator and the two fonts are still the current releases.
+
 ## v7.4.8 — "Hon3stMatters" — 2026-11-01
 
 Three screens said something that was not true: a Problems row that read "never" under Updated, a sensor limit of 65261.8 °C,

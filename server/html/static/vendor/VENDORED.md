@@ -6,6 +6,18 @@ this table in the same commit.** Where the bundled files carry no version
 marker the version is recorded as the best evidence available — pin it
 properly on the next update.
 
+## v7.4.9 — 2026-11-02
+
+- **swagger-ui 5.34.0 → 5.34.1 — DONE.** A bug-fix release (a non-Map value in a response no longer breaks the
+  panel); no advisory. From the npm `swagger-ui-dist@5.34.1` tarball, its sha512 integrity checked against the registry.
+  `swagger-ui-bundle.js` was copied as `swagger-ui-bundle.min.js`; `swagger-ui.css` is byte-identical to 5.34.0's, so only
+  the bundle's SRI pin in `swagger.html` changed. Booted signed in, in Chromium, against the old bundle as a control: the
+  spec loads, an operation expands, no console error and no failed request, the same on both.
+- xterm.js 6.0.0, addon-fit 0.11.0, noVNC 1.7.0, qrcode-generator 2.0.4 and the Inter and JetBrains Mono fonts (5.3.0) are
+  still the current releases on npm.
+- The server's Python dependencies are not pinned, so a new install and the CI run resolve the newest releases; the
+  CI-parity run (`make ci-parity`) is what shows a release that breaks.
+
 ## v7.4.0 — 2026-10-23
 
 - **swagger-ui 5.33.3 → 5.34.0 — DONE.** From the npm `swagger-ui-dist@5.34.0`
