@@ -3841,10 +3841,16 @@ class TestTenancyReadiness(_HandlerBase):
             r = self._get()
         finally:
             api._tenancy_rls_active = orig
-        for key in ('tickets', 'billing', 'audit', 'roles'):
+        for key in ('audit', 'roles'):
             store = next(s for s in r['stores'] if s['key'] == key)
             self.assertFalse(store['isolated'], key)
             self.assertEqual(store['layer'], 'none', key)
+        # 7.4.9: tickets take the tenant of their host or of the account that opened them, and the business side and the
+        # operator's monitors, links and calendar answer only the operator's own organisation. The report says so.
+        for key in ('tickets', 'billing', 'operator_org'):
+            store = next(s for s in r['stores'] if s['key'] == key)
+            self.assertTrue(store['isolated'], key)
+            self.assertEqual(store['layer'], 'app', key)
         cmdb = next(s for s in r['stores'] if s['key'] == 'cmdb')
         self.assertTrue(cmdb['isolated'], 'CMDB records are device-keyed and '
                                           'every handler gates on the device')
@@ -3856,10 +3862,12 @@ class TestTenancyReadiness(_HandlerBase):
 
     def test_audit_and_roles_flagged_deliberate_not_a_gap(self):
         r = self._get()
-        for key in ('audit', 'roles'):
+        # billing and the operator's monitors/links/calendar became a stated rule in 7.4.9 (the operator's organisation only), so
+        # they are by design; tickets and the CMDB are isolated, not shared.
+        for key in ('audit', 'roles', 'billing', 'operator_org'):
             store = next(s for s in r['stores'] if s['key'] == key)
             self.assertTrue(store.get('deliberate'), key)
-        for key in ('tickets', 'cmdb', 'billing'):
+        for key in ('tickets', 'cmdb'):
             store = next(s for s in r['stores'] if s['key'] == key)
             self.assertFalse(store.get('deliberate'), key)
 

@@ -124,7 +124,7 @@ class TestTheMaintenanceEndpointsRefuseIt(unittest.TestCase):
     def test_a_window_that_could_never_open_is_refused_with_a_reason(self):
         status, data = self.respond_of({"scope": "global", "cron": "0 3 * * FOO", "duration": 3600})
         self.assertEqual(status, 400)
-        self.assertIn("FOO", data["error"])
+        self.assertEqual(data["field"], "FOO", "the field that is not understood rides in its own key; the sentence is fixed so it can be translated")
         self.assertIn("MON", data["error"], "the message says what is understood")
 
     def test_the_dialogs_own_placeholder_is_accepted(self):

@@ -201,9 +201,10 @@ class TestGovernanceNotSettableViaDeclarativeImport(unittest.TestCase):
 
     def test_a_non_governance_setting_still_applies(self):
         """The GitOps path must keep working for the keys it is for."""
-        self._apply({"quiet_hours": "22-06"})
+        # a well-formed setting: the settings document holds quiet hours as a map (a text value is read as none set)
+        self._apply({"quiet_hours": {"enabled": True, "start": "22:00", "end": "06:00"}})
         api._invalidate_load_cache(api.CONFIG_FILE)
-        self.assertEqual(api.load(api.CONFIG_FILE).get("quiet_hours"), "22-06")
+        self.assertEqual(api.load(api.CONFIG_FILE).get("quiet_hours"), {"enabled": True, "start": "22:00", "end": "06:00"})
 
     def test_they_are_also_out_of_the_allowlist(self):
         """Belt and braces: the allowlist should not advertise a key that is

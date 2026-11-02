@@ -207,7 +207,8 @@ def handle_tickets():
         A.respond(404, {'error': 'ticket system is disabled'})
     if A.method() == 'GET':
         A.require_auth()
-        tickets = (A.load(A.TICKETS_FILE) or {}).get('tickets') or []
+        # 7.4.9: a tenant user lists their tenant's tickets (see api._ticket_tenant), not the whole store.
+        tickets = A._visible_tickets((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
         qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
         q = (qs.get('q') or [''])[0].lower().strip()
         st = (qs.get('status') or [''])[0]
@@ -223,7 +224,7 @@ def handle_tickets():
             if q and q not in hay:
                 continue
             out.append(A._ticket_public(t))
-        out.sort(key=lambda x: x.get('updated_at', 0), reverse=True)
+        out.sort(key=lambda x: x.get('updated_at') or 0, reverse=True)      # a key that is present and null is not 0
         A.respond(200, {'ok': True, 'tickets': out[:1000]})
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
@@ -243,21 +244,27 @@ def handle_tickets():
     # validated against this set, and the ticket detail view later resolves
     # those ids to HOSTNAMES. Naming a device the caller cannot see turned the
     # ticket into a cross-tenant name oracle.
-    devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
+    _all_devices = A.load(A.DEVICES_FILE) or {}
+    devices = A._scope_filter_devices(_all_devices)
+    # 7.4.9: a ticket belongs to the tenant of its host, so naming a host the caller cannot see would put the ticket in another
+    # tenant's list. An id that matches no host at all (a host that was removed) is kept as it always was.
+    if device_id and device_id in _all_devices and device_id not in devices:
+        A.respond(404, {'error': 'Host not found'})
     dev_name = (devices.get(device_id) or {}).get('name', '') if device_id else ''
     alertid = ''
     number = None
     if alert_internal:
-        # one ticket per alert — return the existing one if present
-        for t in ((A.load(A.TICKETS_FILE) or {}).get('tickets') or []):
-            if t.get('alert_id') == alert_internal:
-                A.respond(200, {'ok': True, 'id': t['id'], 'number': t['number'], 'existing': True})
         al = next((a for a in ((A.load(A.ALERTS_FILE) or {}).get('alerts') or [])
                    if a.get('id') == alert_internal), None)
         # SEC (v6.2.3): don't let a cross-tenant alert_id be linked/auto-acked/
         # stamped — 404 to hide its existence (mirrors the alert mutation handlers).
+        # 7.4.9: this runs before the lookup below, which would otherwise return another tenant's ticket for that alert.
         if al and not A._alert_tenant_visible(al):
             A.respond(404, {'error': 'alert not found'})
+        # one ticket per alert — return the existing one if present
+        for t in A._visible_tickets((A.load(A.TICKETS_FILE) or {}).get('tickets') or []):
+            if t.get('alert_id') == alert_internal:
+                A.respond(200, {'ok': True, 'id': t['id'], 'number': t['number'], 'existing': True})
         if al:
             alertid = al.get('alertid', '')
             number = A._alert_seq_num(alertid)   # alert-derived number = alert seq
@@ -294,7 +301,7 @@ def handle_tickets():
         except (TypeError, ValueError, OverflowError):
             _pnum = None
         if _pnum is not None:
-            _pt = next((x for x in ((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
+            _pt = next((x for x in A._visible_tickets((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
                         if int(x.get('number') or 0) == _pnum), None)
             if _pt:
                 parent_id = _pt['id']
@@ -360,7 +367,9 @@ def handle_ticket_get(tid):
     if not A._tickets_enabled():
         A.respond(404, {'error': 'ticket system is disabled'})
     A.require_auth()
-    all_t = (A.load(A.TICKETS_FILE) or {}).get('tickets') or []
+    # 7.4.9: the parent and the children are looked up among the tickets the caller may see too, so a link never names one that
+    # belongs to another tenant.
+    all_t = A._visible_tickets((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
     t = next((x for x in all_t if x.get('id') == tid), None)
     if not t:
         A.respond(404, {'error': 'ticket not found'})
@@ -663,6 +672,8 @@ def handle_ticket_update(tid):
     csat_target = None          # (to_email, ticket_snapshot) — CSAT sent AFTER the lock
     with A._LockedUpdate(A.TICKETS_FILE) as store:
         t = next((x for x in (store.get('tickets') or []) if x.get('id') == tid), None)
+        if t is not None and not A._ticket_visible(t):
+            t = None              # another tenant's ticket answers like one that does not exist
         if t:
             ok = True
             if 'status' in body and str(body['status']).strip().lower() in A.TICKET_STATUSES:
@@ -700,6 +711,10 @@ def handle_ticket_update(tid):
                 t['type'] = str(body['type']).strip().lower()
             if 'device_id' in body:
                 did = str(body['device_id']).strip()
+                # 7.4.9: only a host the caller can see. The name was read from the whole fleet, so any id gave back that host's
+                # name, and it moves the ticket into that host's tenant.
+                if did and did not in A._scope_filter_devices(A.load(A.DEVICES_FILE) or {}):
+                    did = ''
                 t['device_id'] = did
                 t['device_name'] = (A.load(A.DEVICES_FILE).get(did) or {}).get('name', '') if did else ''
             if 'to_email' in body:
@@ -736,7 +751,7 @@ def handle_ticket_update(tid):
                     except (TypeError, ValueError, OverflowError):
                         _pnum = None
                     if _pnum is not None:
-                        _pt = next((x for x in (store.get('tickets') or [])
+                        _pt = next((x for x in A._visible_tickets(store.get('tickets') or [])
                                     if int(x.get('number') or 0) == _pnum), None)
                         if _pt and _pt.get('id') != tid:
                             t['parent'] = _pt['id']
@@ -792,7 +807,7 @@ def handle_ticket_delete(tid):
     found = False
     with A._LockedUpdate(A.TICKETS_FILE) as store:
         ts = store.get('tickets') or []
-        kept = [x for x in ts if x.get('id') != tid]
+        kept = [x for x in ts if x.get('id') != tid or not A._ticket_visible(x)]
         found = len(kept) != len(ts)
         store['tickets'] = kept
     if not found:
@@ -806,10 +821,14 @@ def handle_ticket_hours(tid):
     A.require_auth()      # before the lookup: a 404 first would say which tickets exist
     if not A._tickets_enabled():
         A.respond(404, {'error': 'ticket system is disabled'})
-    t = next((x for x in ((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
+    t = next((x for x in A._visible_tickets((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
               if x.get('id') == tid), None)
     if not t:
         A.respond(404, {'error': 'ticket not found'})
+    # 7.4.9: time tracking and billing are the operator's business data, and the ledger has no tenant column. A tenant's users do
+    # not read it or add to it (the same rule as /api/time-entries, which the dispatcher closes to them).
+    if not A._caller_in_operator_org():
+        A.respond(403, {'error': 'This belongs to the whole installation and is managed by the platform operator.'})
     if A.method() == 'GET':
         actor = A.require_auth()
         see_all = A._caller_billing_view()
@@ -839,7 +858,7 @@ def handle_device_tickets(dev_id):
     if not A._tickets_enabled():
         A.respond(404, {'error': 'ticket system is disabled'})
     A.require_auth()
-    out = [A._ticket_public(t) for t in ((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
+    out = [A._ticket_public(t) for t in A._visible_tickets((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
            if t.get('device_id') == dev_id or dev_id in (t.get('affected_devices') or [])]
     out.sort(key=lambda x: x.get('updated_at', 0), reverse=True)
     A.respond(200, {'ok': True, 'tickets': out})
@@ -854,7 +873,7 @@ def handle_ticket_attachment(tid, aid):
     if not A._tickets_enabled():
         A.respond(404, {'error': 'ticket system is disabled'})
     actor = A.require_auth()
-    t = next((x for x in ((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
+    t = next((x for x in A._visible_tickets((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
               if x.get('id') == tid), None)
     if not t:
         A.respond(404, {'error': 'ticket not found'})
@@ -1036,7 +1055,7 @@ def handle_ticket_send_email(tid):
     cfg = A.load(A.CONFIG_FILE) or {}
     if not cfg.get('smtp_host'):
         A.respond(400, {'error': 'SMTP is not configured (Settings → Notifications)'})
-    t = next((x for x in ((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
+    t = next((x for x in A._visible_tickets((A.load(A.TICKETS_FILE) or {}).get('tickets') or [])
               if x.get('id') == tid), None)
     if not t:
         A.respond(404, {'error': 'ticket not found'})
@@ -1429,12 +1448,15 @@ def _open_ticket_device_ids():
     """device ids that currently have an OPEN (non-resolved/closed) ticket."""
     open_st = ('ongoing', 'pending_customer', 'pending_internal')
     ids = set()
-    for t in ((A.load(A.TICKETS_FILE) or {}).get('tickets') or []):
+    for t in A._visible_tickets((A.load(A.TICKETS_FILE) or {}).get('tickets') or []):
         if t.get('status') in open_st:
             if t.get('device_id'):
                 ids.add(t['device_id'])
             for d in (t.get('affected_devices') or []):
                 ids.add(d)
+    # 7.4.9: a ticket can name several hosts; the list holds only the ones the caller can see.
+    if A._tenant_gate() is not None or A._caller_scope() is not None:
+        ids &= set(A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {}))
     return sorted(ids)
 
 

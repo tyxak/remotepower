@@ -558,8 +558,8 @@ class TestTenancyIsDocumentedWhereTheUiPoints(unittest.TestCase):
         import inspect
         src = inspect.getsource(api.handle_tenancy_readiness)
         for key in re.findall(r"'key': '([a-z_]+)'", src):
-            label = {'device_derived': 'host id', 'roles': 'roles',
-                     'audit': 'Audit log'}.get(key, key)
+            label = {'device_derived': 'host id', 'roles': 'roles', 'audit': 'Audit log',
+                     'operator_org': "Operator's organisation"}.get(key, key)
             self.assertRegex(
                 self.SCALING, r"(?i)" + re.escape(label),
                 f"the readiness endpoint reports the {key!r} store; the "

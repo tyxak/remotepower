@@ -9,6 +9,7 @@ import contextlib
 import contextvars
 import copy
 import os
+import math
 import re
 import sys
 import json
@@ -931,6 +932,7 @@ import checks as checks_mod    # per-host Checks engine (pure)
 import drive_temp as drive_temp_mod   # v7.4.4 (#54): temperature lines for drives (pure)
 import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host and the grade of its listeners (pure)
 from secure_eq import secure_eq as _secure_eq   # constant-time comparison of secrets that never raises (7.4.9)
+import store_shapes                             # the shape each store file is expected to have, and its repair (7.4.9)
 import upgrade_mode as upgrade_mode_mod   # a host's apt upgrade mode, Standard or Extended (Discussion #30; pure)
 import peer_direction as peer_direction_mod   # v7.4.6 (#58): which way an observed TCP connection runs (pure)
 import thermal_sensors as thermal_sensors_mod   # a temperature history for every sensor, not only the hottest (pure)
@@ -4633,6 +4635,72 @@ def load(path):
     return _copy.deepcopy(_load_uncached(path))
 
 
+def _json_nonfinite(_constant):
+    """json.loads(parse_constant=...): `NaN`, `Infinity` and `-Infinity` are not JSON, but Python's parser reads them. A stored one
+    made every later write of that store raise ("Refusing to save unparseable data"), so the audit log, the hardware report or
+    the antivirus report of a host stopped saving. They are read as null, which every reader already treats as "no value"."""
+    return None
+
+
+# A number the program could not hold: an integer of 21 digits or more (JSON allows any length, and float() raises OverflowError on one of
+# 400 digits, which stopped the fleet health page, the checks and the SCAP page), or a float written with a three-digit exponent (1e999 reads
+# as infinity). They are looked for in the text first, so a file without one is parsed as before with no hook called per number.
+_UNHOLDABLE_NUMBER = re.compile(r'\d{21,}|[eE][+-]?\d{3,}')
+
+
+def _bounded_int(text):
+    return int(text) if len(text.lstrip('-')) <= 20 else None
+
+
+def _bounded_float(text):
+    v = float(text)
+    return v if math.isfinite(v) else None
+
+
+def _json_loads(text):
+    """json.loads for a store or a request body: NaN and Infinity, a too-long integer and a float that overflows are read as null."""
+    if _UNHOLDABLE_NUMBER.search(text):
+        return json.loads(text, parse_constant=_json_nonfinite, parse_int=_bounded_int, parse_float=_bounded_float)
+    return json.loads(text, parse_constant=_json_nonfinite)
+
+
+def _shape_fix(path, data, raw_text=None):
+    """store_shapes.normalize for the store at `path`. A repair is never what makes a read fail.
+
+    When it removed something and the store is a file, the file as it was is copied once into `quarantine/` beside the data (same
+    mode as the store), named by a hash of its content. The next write saves the repaired copy and the rolling backup follows it,
+    so without that copy a registry entry that disagreed with what the product writes would have deleted real data for good."""
+    try:
+        fixed = store_shapes.normalize(Path(path).name, data)
+        if raw_text is not None and store_shapes.drain_dropped():
+            _quarantine_original(Path(path), raw_text)
+        return fixed
+    except Exception:
+        return data
+
+
+_QUARANTINE_KEEP = 20
+
+
+def _quarantine_original(path, raw_text):
+    try:
+        import hashlib
+        qdir = DATA_DIR / 'quarantine'
+        qdir.mkdir(mode=0o700, exist_ok=True)
+        dest = qdir / f'{path.name}.{hashlib.sha256(raw_text.encode("utf-8", "replace")).hexdigest()[:12]}'
+        if not dest.exists():
+            fd = os.open(str(dest), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, raw_text.encode('utf-8', 'replace'))
+            finally:
+                os.close(fd)
+            old = sorted(qdir.iterdir(), key=lambda p: p.stat().st_mtime)
+            for p in old[:-_QUARANTINE_KEEP]:
+                p.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def _load_uncached(path):
     """The CANONICAL, SHARED store object for `path` — no defensive copy.
 
@@ -4659,14 +4727,17 @@ def _load_uncached(path):
         # separate deepcopy so caller mutations don't leak into the cache.
         data = _m.load(path)
         data = _config_secrets_inbound(path, data)   # v5.4.1 (C2)
+        data = _shape_fix(path, data)                # 7.4.9: a wrong row is left out of the read, not raised on
         _LOAD_CACHE[path] = (data, True)
         return data
     if not path.exists():
         _LOAD_CACHE[path] = ({}, True)
         return {}
     try:
-        data = json.loads(path.read_text())
+        _text = path.read_text()
+        data = _json_loads(_text)
         data = _config_secrets_inbound(path, data)   # v5.4.1 (C2)
+        data = _shape_fix(path, data, _text)         # 7.4.9: a wrong row is left out of the read, not raised on
         # Cache one canonical copy + return a separate one. Both originate
         # from the same parse — but caller mutations on the returned dict
         # don't leak into the cache, and vice-versa.
@@ -4676,12 +4747,12 @@ def _load_uncached(path):
         bak = _backup_path(path)
         if bak.exists():
             try:
-                data = json.loads(bak.read_text())
+                data = _json_loads(bak.read_text())
                 sys.stderr.write(
                     f"[remotepower] WARN: {path} corrupted ({exc}); "
                     f"served from {bak.name}\n")
                 # Don't cache the .bak — caller may want to retry primary
-                return _config_secrets_inbound(path, data)   # v5.4.1 (C2)
+                return _shape_fix(path, _config_secrets_inbound(path, data))   # v5.4.1 (C2)
             except json.JSONDecodeError:
                 pass
         sys.stderr.write(
@@ -5547,7 +5618,7 @@ class _DbLockedUpdate:
         # Decrypt on the way in, re-encrypt on the way out (below), so all
         # three backends present the same contract.
         self._doc = data
-        return _config_secrets_inbound(self.path, data)
+        return _shape_fix(self.path, _config_secrets_inbound(self.path, data))
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         failed = exc_type is not None
@@ -6037,7 +6108,7 @@ def _mint_session(username, extra=None, remember_me=False):
         'user':      username,
         'created':   int(time.time()),
         'ttl':       get_session_ttl(remember_me=remember_me),
-        'ip':        _env('REMOTE_ADDR', ''),
+        'ip':        _get_client_ip(),   # 7.4.9: behind the proxy REMOTE_ADDR is nginx's own address, for every session
         'ua':        _sanitize_str(_env('HTTP_USER_AGENT', ''), 256),
         'last_seen': int(time.time()),
     }
@@ -6158,7 +6229,7 @@ def verify_token(token):
             # every request. Backfill ip/ua for sessions created before v3.14.0.
             if now - int(entry.get('last_seen', 0)) > 60:
                 entry['last_seen'] = now
-                entry.setdefault('ip', _env('REMOTE_ADDR', ''))
+                entry.setdefault('ip', _get_client_ip())
                 entry.setdefault('ua', _sanitize_str(_env('HTTP_USER_AGENT', ''), 256))
                 try:
                     save(TOKENS_FILE, tokens)
@@ -6734,7 +6805,9 @@ def get_json_body():
         raw = get_body()
         if not raw:
             return {}
-        data = json.loads(raw)
+        # 7.4.9: NaN and Infinity are not JSON; Python's parser reads them anyway, and a stored one makes every later write
+        # of that store raise. They are read as null, as they are when a store is read.
+        data = _json_loads(raw if isinstance(raw, str) else raw.decode('utf-8', 'replace'))
         # v5.0.0: a top-level JSON `null` parses to None and would crash the
         # ~hundreds of `body = get_json_body(); body.get(...)` callers. Coerce it
         # to {} — distinct from a top-level ARRAY, which we still return as-is so
@@ -6820,7 +6893,7 @@ def _peek_heartbeat_dev_id():
             sys.stdin = _io.TextIOWrapper(_io.BytesIO(raw),
                                           encoding='utf-8', errors='replace')
         try:
-            data = json.loads(raw) if raw else {}
+            data = _json_loads(raw if isinstance(raw, str) else raw.decode('utf-8', 'replace')) if raw else {}
         except Exception:
             return None
         dev_id = str((data or {}).get('device_id', '') or '').strip()
@@ -11242,6 +11315,67 @@ def _enforce_platform_routes(pi, m):
                            'the platform operator.'})
 
 
+# Data that belongs to the organisation running the installation, not to its tenants: the monitors and their SLO figures, the
+# links page, the calendar, the mail round trip, the Proxmox integration, the diagnostics bundle and configuration as code, and
+# the business side (time tracking, invoices, quotes, the customer sites and contacts). None of these stores has a tenant
+# dimension. Under tenancy a tenant's users read them whole (the monitor targets and links the operator keeps, the calendar's
+# host names, every customer's invoices), and a tenant administrator could write into them.
+#
+# This is not _PLATFORM_ROUTES. That table is for what only the platform operator (an administrator of the default tenant) may
+# touch. These routes stay open to everyone who belongs to the default tenant, so the operator's own viewers and operators keep
+# their pages; they are closed to the users of every other tenant, for reads and writes alike.
+#
+# (prefix, ...). A request with no signed-in user is not decided here: the handler's own 401, or a provider's signature check on
+# the payment webhook, answers it.
+_OPERATOR_ORG_ROUTES = (
+    '/api/slo',
+    '/api/monitor',
+    '/api/links',
+    '/api/calendar',
+    '/api/calendar.ics',
+    '/api/export/monitors',
+    '/api/mailflow',
+    '/api/proxmox',
+    '/api/diagnostics',
+    '/api/config/declarative',
+    '/api/billing',
+    '/api/invoices',
+    '/api/quotes',
+    '/api/time-entries',
+    '/api/timesheet',
+    '/api/sites',
+    '/api/contacts',
+)
+
+
+def _operator_org_route(pi):
+    """The _OPERATOR_ORG_ROUTES prefix covering this path, or None."""
+    for prefix in _OPERATOR_ORG_ROUTES:
+        if pi == prefix or pi.startswith(prefix + '/'):
+            return prefix
+    return None
+
+
+def _caller_in_operator_org():
+    """True when the caller may see the operator's own data: tenancy is off, or the caller's tenant is the default tenant.
+    Anyone else is a tenant user."""
+    if not _tenancy_enforced():
+        return True
+    user, _role = verify_token(get_token_from_request())
+    return (not user) or _caller_effective_tenant(user) == DEFAULT_TENANT
+
+
+def _enforce_operator_org_routes(pi):
+    """403 a tenant user on an _OPERATOR_ORG_ROUTES request. Runs once per request from main(), beside the platform gate."""
+    if not pi.startswith('/api/') or not _tenancy_enforced():
+        return
+    if _operator_org_route(pi) is None:
+        return
+    if _caller_in_operator_org():
+        return
+    respond(403, {'error': 'This belongs to the whole installation and is managed by the platform operator.'})
+
+
 def _portal_hash(tok):
     return hashlib.sha256(('rp-portal:' + str(tok)).encode()).hexdigest()
 
@@ -11646,13 +11780,20 @@ def _kb_clean_tags(v):
     return out
 
 
-def _kb_public(a, *, full=True):
-    """Safe shape of an article. Omit the body in list views for payload size."""
+def _kb_public(a, *, full=True, visible=None):
+    """Safe shape of an article. Omit the body in list views for payload size.
+
+    `visible` is the set of host ids the caller may see (`_confined_host_ids()`, or None for a caller who is not confined). The
+    articles are the operator's shared library, but the hosts they point at are not shared: an article linked to another tenant's
+    host would hand that host's id to every tenant, so the list holds only the hosts the caller can see."""
+    linked = a.get('linked_devices') or []
+    if visible is not None:
+        linked = [d for d in linked if d in visible]
     out = {
         'id': a.get('id'), 'title': a.get('title') or '',
         'category': a.get('category') or '', 'tags': a.get('tags') or [],
         'pinned': bool(a.get('pinned')),
-        'linked_devices': a.get('linked_devices') or [],
+        'linked_devices': linked,
         'author': a.get('author') or '',
         'created_at': a.get('created_at'), 'updated_at': a.get('updated_at'),
     }
@@ -11668,6 +11809,7 @@ def handle_kb():
     if method() == 'GET':
         require_auth()
         articles = (load(KB_FILE) or {}).get('articles') or []
+        _vis = _confined_host_ids()
         qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
         q = (qs.get('q') or [''])[0].lower().strip()
         cat = _kb_clean_category((qs.get('category') or [''])[0])
@@ -11680,7 +11822,7 @@ def handle_kb():
                                 ' '.join(a.get('tags') or []), a.get('body', '')]).lower()
                 if q not in hay:
                     continue
-            out.append(_kb_public(a, full=False))
+            out.append(_kb_public(a, full=False, visible=_vis))
         out.sort(key=lambda x: (not x['pinned'], str(x.get('title') or '').lower()))
         cats = sorted({a.get('category') or '' for a in articles if a.get('category')})
         respond(200, {'ok': True, 'articles': out, 'categories': cats,
@@ -11688,6 +11830,7 @@ def handle_kb():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
+    _require_platform_operator('The knowledge base')     # 7.4.9: one library for every tenant, so only the operator writes it
     body = _read_valid(request_models.KbRequest)
     title = _sanitize_str(str(body.get('title', '')), 200).strip()
     if not title:
@@ -11723,9 +11866,10 @@ def handle_kb_article(aid):
                   if x.get('id') == aid), None)
         if not a:
             respond(404, {'error': 'article not found'})
-        respond(200, {'ok': True, 'article': _kb_public(a, full=True)})
+        respond(200, {'ok': True, 'article': _kb_public(a, full=True, visible=_confined_host_ids())})
     if method() == 'DELETE':
         actor = require_admin_auth()
+        _require_platform_operator('The knowledge base')
         found = False
         with _LockedUpdate(KB_FILE) as store:
             arts = store.get('articles') or []
@@ -11739,6 +11883,7 @@ def handle_kb_article(aid):
     if method() not in ('PATCH', 'POST'):
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
+    _require_platform_operator('The knowledge base')
     body = _read_valid(request_models.KbArticleRequest)
     now = int(time.time())
     ok = False
@@ -13191,7 +13336,16 @@ def _rule_visible(rule):
     a tenant would be a guess about who owns them.
     """
     gate = rule.get('tenant_gate') if isinstance(rule, dict) else None
-    return gate is None or gate == _tenant_gate()
+    if not (gate is None or gate == _tenant_gate()):
+        return False
+    # 7.4.9: a rule that matches one host is not shown to a caller who cannot see that host, stamped or not.
+    vis = _confined_host_ids()
+    if vis is not None and isinstance(rule, dict):
+        dm = ((rule.get('match') or {}).get('device_match') or {})
+        did = dm.get('device_id') if isinstance(dm, dict) else None
+        if did and did in (_load_ro(DEVICES_FILE) or {}) and did not in vis:
+            return False
+    return True
 
 
 def handle_automation_rules_list():
@@ -14615,6 +14769,7 @@ def handle_public_info():
         # v4.2.0 (B1): same yes/no hint for the SAML SSO button. The IdP
         # entity-id / SSO URL / cert stay admin-only and never leak pre-login.
         'saml_enabled':        bool(cfg.get('saml_enabled') and cfg.get('saml_idp_sso_url')),
+        'saml_unsolicited':    bool(cfg.get('saml_enabled') and cfg.get('saml_allow_unsolicited')),   # 7.4.9: IdP-initiated sign-in is allowed
         # v4.2.0 sweep: same hint for the "Sign in with a passkey" button —
         # it used to render unconditionally even when the library was absent.
         'webauthn_enabled':    _webauthn_lib_usable(),
@@ -14800,7 +14955,7 @@ def handle_csp_report(source='app'):
         # Throttle: silently drop reports beyond the per-IP per-minute
         # cap. Default 10 is comfortably above what a healthy page
         # generates and well below an abusive flood.
-        ip = _env('REMOTE_ADDR', '?') or '?'
+        ip = _get_client_ip() or '?'     # 7.4.9: one throttle bucket per client, not one for the proxy
         per_min = int(cfg.get('csp_report_throttle_per_minute', 10) or 0)
         if _csp_report_should_throttle(ip, per_min):
             respond(204, '')
@@ -15131,7 +15286,7 @@ def handle_login():
             'created':   _now_login,
             'ttl':       ttl,
             # v3.14.0: session-origin metadata for the My Account → Sessions UI.
-            'ip':        _env('REMOTE_ADDR', ''),
+            'ip':        _get_client_ip(),
             'ua':        _sanitize_str(_env('HTTP_USER_AGENT', ''), 256),
             'last_seen': _now_login,
         }
@@ -16830,7 +16985,7 @@ def handle_time_entries():
             if f_bill in ('0', 'false', 'no') and e.get('billable'):
                 continue
             out.append(_te_public(e))
-        out.sort(key=lambda x: (x.get('date', ''), x.get('created_at', 0)), reverse=True)
+        out.sort(key=lambda x: (x.get('date') or '', x.get('created_at') or 0), reverse=True)
         if fmt == 'csv':
             _csv_time_entries(out)   # exits
         respond(200, {'ok': True, 'entries': out[:5000], 'can_view_all': see_all})
@@ -17182,7 +17337,7 @@ def handle_invoices():
                    'issued_at', 'created_by', 'period', 'notes', 'amount_paid')}
             row['site_name'] = sites.get(inv.get('site_id'), {}).get('name', inv.get('site_id'))
             out.append(row)
-        out.sort(key=lambda x: x.get('issued_at', 0), reverse=True)
+        out.sort(key=lambda x: x.get('issued_at') or 0, reverse=True)
         respond(200, {'ok': True, 'invoices': out[:2000]})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -18322,6 +18477,42 @@ def _tenant_filter_devices(devices):
             if isinstance(v, dict) and _device_tenant(v) == gate}
 
 
+def _ticket_tenant(t, devices=None):
+    """The tenant a ticket belongs to.
+
+    The ticket store has no tenant column, and tickets are made in six places (the operator, the portal, a mail reply, a schedule,
+    an automation rule, an alert), so a stamp written at create time would miss most of them. The owner is read from what the
+    ticket already names: the tenant of its host while that host exists, otherwise the tenant of the account that opened it. A
+    ticket nobody can attribute (a reply from a customer's mail address, an automation rule) belongs to the default tenant, which
+    is the operator's. `devices` is a loaded host set when the caller already has one.
+    """
+    if not isinstance(t, dict):
+        return DEFAULT_TENANT
+    hosts = devices if devices is not None else (_load_ro(DEVICES_FILE) or {})
+    named = [t.get('device_id')] + list(t.get('affected_devices') or [])
+    for did in named:
+        dev = hosts.get(did) if did and isinstance(did, str) else None
+        if isinstance(dev, dict):
+            return _device_tenant(dev)
+    return _user_tenant(str(t.get('created_by') or ''))
+
+
+def _ticket_visible(t, devices=None):
+    """Whether the caller may see this ticket: no isolation applies to them, or it is their tenant's."""
+    gate = _tenant_gate()
+    return gate is None or _ticket_tenant(t, devices) == gate
+
+
+def _visible_tickets(tickets):
+    """The tickets in a list that the caller may see. Resolves the gate and the host set once."""
+    gate = _tenant_gate()
+    rows = [t for t in (tickets or []) if isinstance(t, dict)]
+    if gate is None:
+        return rows
+    devices = _load_ro(DEVICES_FILE) or {}
+    return [t for t in rows if _ticket_tenant(t, devices) == gate]
+
+
 def handle_tenants_list():
     """GET /api/tenants — registry + per-tenant user counts. Superadmin only."""
     require_superadmin_auth('view all tenants')
@@ -18347,9 +18538,11 @@ def handle_tenancy_readiness():
     Static-but-accurate description of current coverage (see
     docs/feature-buildout-scoping-internal.md #1) — devices + everything keyed by a
     device id inherit the tenancy boundary (app layer always when enforced; also the
-    database via RLS when tenancy_rls is on); tickets/CMDB/billing are single shared
-    stores with no tenant partitioning at any layer; audit/roles are
-    left as global control-plane, not an oversight."""
+    database via RLS when tenancy_rls is on); tickets take the tenant of their host or
+    of the account that opened them; the business side (billing, time tracking, the
+    customer sites and contacts) and the monitors, links and calendar are the platform
+    operator's organisation only; audit/roles are left as global control-plane, not an
+    oversight."""
     require_superadmin_auth('view tenancy isolation coverage')
     enforced = _tenancy_enforced()
     rls = _tenancy_rls_active()
@@ -18365,16 +18558,30 @@ def handle_tenancy_readiness():
          'note': 'Keyed by host id; scoped indirectly via the hosts boundary '
                  '(app layer) and directly via RLS on entity/listrow/metric_samples '
                  'when database-level isolation is on.'},
-        {'key': 'tickets', 'label': 'Tickets', 'isolated': False, 'layer': 'none',
-         'note': 'Single shared store — not tenant-partitioned at any layer.'},
+        {'key': 'tickets', 'label': 'Tickets', 'isolated': enforced, 'layer': 'app' if enforced else 'none',
+         'note': "A ticket has no tenant field of its own: it belongs to the tenant of the host "
+                 "it is about, or, with no host, of the account that opened it. Lists, reads, "
+                 "edits, attachments and e-mail threads show a tenant only its own tickets, and "
+                 "a ticket cannot be pointed at another tenant's host. The store is one "
+                 "document (no row-level partition)."},
         {'key': 'cmdb', 'label': 'CMDB assets & credentials', 'isolated': True,
          'layer': 'app',
          'note': 'Records are keyed by host id, so each one inherits its '
                  "host's tenant and every handler gates on it. The store "
                  'itself is one document (no row-level partition), so a '
                  'superadmin restoring a backup restores every tenant.'},
-        {'key': 'billing', 'label': 'Billing, time-tracking & invoices', 'isolated': False,
-         'layer': 'none', 'note': 'Single shared store — not tenant-partitioned at any layer.'},
+        {'key': 'billing', 'label': 'Billing, time-tracking & invoices', 'isolated': enforced,
+         'layer': 'app' if enforced else 'none', 'deliberate': True,
+         'note': "These stores have no tenant dimension, so they belong to the organisation "
+                 "that runs the installation. With tenancy enforced, only users of the "
+                 "default tenant reach billing, invoices, quotes, time entries, the customer "
+                 "sites and contacts; every other tenant is refused."},
+        {'key': 'operator_org', 'label': 'Monitors, links & calendar',
+         'isolated': enforced, 'layer': 'app' if enforced else 'none', 'deliberate': True,
+         'note': "The monitors and SLO figures, the links page, the calendar and on-call "
+                 "schedule, the mail round trip, the Proxmox integration and the diagnostics "
+                 "bundle are the operator's own. With tenancy enforced they answer only "
+                 "users of the default tenant."},
         {'key': 'audit', 'label': 'Audit log', 'isolated': False, 'layer': 'none', 'deliberate': True,
          'note': 'Global control-plane by design — a superadmin needs one complete '
                  'trail across tenants; not a gap to close.'},
@@ -18392,9 +18599,10 @@ def handle_tenancy_readiness():
                  'can change them.'},
         {'key': 'libraries', 'label': 'Shared libraries',
          'isolated': False, 'layer': 'none', 'deliberate': True,
-         'note': 'The command library, playbooks, blueprints and app catalogue are '
-                 'readable by every tenant. With tenancy enforced only the platform '
-                 'operator can change them, because other tenants run them.'},
+         'note': 'The command library, playbooks, blueprints, app catalogue and '
+                 'knowledge base are readable by every tenant (an article lists only '
+                 'the hosts the reader can see). With tenancy enforced only the '
+                 'platform operator can change them, because other tenants run them.'},
         {'key': 'enrolment', 'label': 'Enrolment PINs & tokens', 'isolated': enforced,
          'layer': 'app' if enforced else 'none',
          'note': "A PIN or token records the tenant of the admin who created it, and a "
@@ -30256,7 +30464,7 @@ def handle_config_save():
     # 7.4.9: both go into an Authorization header (printable ASCII only); refuse what would later fail inside http.client
     for _pk in ('proxmox_token_id', 'proxmox_token_secret'):
         if body.get(_pk) and not _header_safe(body[_pk]):
-            respond(400, {'error': f'{_pk} may contain printable ASCII characters only'})
+            respond(400, {'error': 'A Proxmox token id or secret may contain printable ASCII characters only', 'field': _pk})
     if 'proxmox_token_id' in body:
         # e.g. root@pam!remotepower
         cfg['proxmox_token_id'] = _sanitize_str(body['proxmox_token_id'], 255)
@@ -35313,6 +35521,13 @@ function Install-PythonIfMissing {
   $dl  = Join-Path $env:TEMP "python-$ver-amd64.exe"
   Write-Host "Downloading Python $ver ..."
   Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$ver/python-$ver-amd64.exe" -OutFile $dl -UseBasicParsing
+  # 7.4.9: the installer is run elevated, so it is checked first: it must carry a valid signature from the Python Software Foundation.
+  $sig = Get-AuthenticodeSignature -FilePath $dl
+  if ($sig.Status -ne 'Valid' -or $null -eq $sig.SignerCertificate -or $sig.SignerCertificate.Subject -notmatch 'Python Software Foundation') {
+    Remove-Item $dl -Force -ErrorAction SilentlyContinue
+    Write-Host "The downloaded Python installer is not signed by the Python Software Foundation (signature: $($sig.Status)) - refusing to run it. Install Python from https://www.python.org/downloads/ and re-run." -ForegroundColor Red
+    exit 1
+  }
   Start-Process -FilePath $dl -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1','Include_pip=1' -Wait
   Remove-Item $dl -Force -ErrorAction SilentlyContinue
   if (-not (Get-MachinePython)) {
@@ -35338,16 +35553,19 @@ Write-Host "Downloading the RemotePower agent from $Server ..."
 $agent = Join-Path $installDir 'remotepower-agent-win.py'
 $want = ''
 try { $want = (Invoke-RestMethod -Uri "$Server/api/agent/win/version" -UseBasicParsing).sha256 } catch {}
-Invoke-WebRequest -Uri "$Server/api/agent/win/download" -OutFile $agent -UseBasicParsing
-if ($want) {
-  $got = (Get-FileHash -Path $agent -Algorithm SHA256).Hash.ToLower()
-  if ($got -ne $want.ToLower()) {
-    Remove-Item $agent -Force -ErrorAction SilentlyContinue
-    Write-Host "Agent checksum mismatch - refusing to install (expected $want, got $got)." -ForegroundColor Red
-    return
-  }
-  Write-Host 'Agent checksum verified.' -ForegroundColor Green
+# 7.4.9: no checksum to compare with is a stop, not a pass (the step used to be skipped without a word when the request failed).
+if (-not $want) {
+  Write-Host "Could not read the agent's checksum from $Server - refusing to install an agent that cannot be verified." -ForegroundColor Red
+  return
 }
+Invoke-WebRequest -Uri "$Server/api/agent/win/download" -OutFile $agent -UseBasicParsing
+$got = (Get-FileHash -Path $agent -Algorithm SHA256).Hash.ToLower()
+if ($got -ne $want.ToLower()) {
+  Remove-Item $agent -Force -ErrorAction SilentlyContinue
+  Write-Host "Agent checksum mismatch - refusing to install (expected $want, got $got)." -ForegroundColor Red
+  return
+}
+Write-Host 'Agent checksum verified.' -ForegroundColor Green
 
 # psutil (metrics) + pywin32 (so the agent can run as a real Windows service).
 try { & $python -m pip install --quiet --disable-pip-version-check psutil } catch {
@@ -41349,7 +41567,7 @@ def _scan_ip_reputation(targets, results, min_recheck=0, max_ips=None,
     """
     zones = _ip_rep_dnsbls()
     order = sorted(targets.items(),
-                   key=lambda kv: (results.get(kv[0]) or {}).get('checked_at', 0))
+                   key=lambda kv: (results.get(kv[0]) or {}).get('checked_at') or 0)
     pending, scanned = [], 0
     start = time.monotonic()
     # v6.2.2: consecutive-listed confirm count is operator-configurable (Settings →
@@ -41535,7 +41753,7 @@ def _scan_resolver_health(targets, results, min_recheck=0, max_targets=None,
     only a scan that resolves again clears it.
     """
     order = sorted(targets.items(),
-                   key=lambda kv: (results.get(kv[0]) or {}).get('checked_at', 0))
+                   key=lambda kv: (results.get(kv[0]) or {}).get('checked_at') or 0)
     pending, scanned = [], 0
     start = time.monotonic()
     # v6.2.2: consecutive-down confirm count is operator-configurable (Settings →
@@ -42804,8 +43022,11 @@ def handle_dependency_suggestions():
 def _lldp_suggestions():
     """W5-1: correlate each device's LLDP neighbors against known devices (by
     mgmt-ip or hostname/sysname) → suggested physical `connected_to` edges.
-    Skips edges already declared (connected_to) or dismissed. Manual edges win."""
-    devices = load(DEVICES_FILE) or {}
+    Skips edges already declared (connected_to) or dismissed. Manual edges win.
+
+    7.4.9: the host set is filtered by the caller's role scope and tenant first, as _dependency_suggestions does, so both ends of a
+    suggested edge are hosts the caller can see. The unfiltered set named another tenant's hosts to every signed-in user."""
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     neigh = load(LLDP_NEIGHBORS_FILE) or {}
     dismissed = set((load(LLDP_DISMISS_FILE) or {}).get('pairs') or [])
     # index device IPs and hostnames → device id
@@ -46201,7 +46422,12 @@ def handle_discovery():
     store = load(DISCOVERY_FILE) or {}
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})  # SEC: per-tenant/scope
     by_ip = {}
+    _confined = _confined_host_ids() is not None
     for dev_id, rec in store.items():
+        # 7.4.9: a scan result belongs to the host whose agent ran it; the loop read every host's, so a tenant saw the unmanaged
+        # hosts another tenant's agents found, with that agent's id as the name.
+        if _confined and dev_id not in devices:
+            continue
         seen_by = devices.get(dev_id, {}).get('name', dev_id)
         for h in rec.get('hosts', []):
             if h.get('managed'):
@@ -50038,11 +50264,12 @@ def handle_custom_scripts_results():
     now       = int(time.time())
 
     # Build index: script_id → script meta (name, assigned_devices)
+    # 7.4.9: `assigned_devices` is a list of host ids, so it holds the ones the caller can see (the list endpoint does the same).
     script_meta = {sid: {
         'id':               sid,
         'name':             s['name'],
         'description':      s.get('description', ''),
-        'assigned_devices': s.get('assigned_devices', []),
+        'assigned_devices': [d for d in (s.get('assigned_devices') or []) if d in devices],
     } for sid, s in scripts.items()}
 
     rows = []
@@ -53734,8 +53961,10 @@ def _dashboard_upcoming(limit=3, horizon_days=45):
     items = []
     # Calendar events (recurrence-aware via _expand_event). Include those that
     # started recently and are still running (ongoing) plus future ones.
+    # 7.4.9: the calendar belongs to the organisation running the installation (it carries the auto-patch schedule's host
+    # names); a tenant's users do not see it.
     try:
-        for ev in (load(CALENDAR_FILE) or {}).get('events') or []:
+        for ev in ((load(CALENDAR_FILE) or {}).get('events') or [] if _caller_in_operator_org() else []):
             for occ in _expand_event(ev, now - 86400, horizon):
                 try:
                     s = _parse_iso(occ['start'])
@@ -53755,8 +53984,16 @@ def _dashboard_upcoming(limit=3, horizon_days=45):
         pass
     # Scheduled power actions / scripts (one-shot run_at, or recurring cron).
     try:
-        for j in (load(SCHEDULE_FILE) or []):
+        # The store is {'jobs': [...]}. This loop iterated the dict itself, so it saw its keys and no job had ever reached the
+        # card; the test fed it a bare list, which is the shape nothing writes. A caller confined by role or tenant sees the
+        # jobs of the hosts they can see.
+        _sched = load(SCHEDULE_FILE)
+        _jobs = _sched.get('jobs') if isinstance(_sched, dict) else _sched
+        _vis = _confined_host_ids()
+        for j in (_jobs or []):
             if not isinstance(j, dict):
+                continue
+            if _vis is not None and j.get('device_id') not in _vis:
                 continue
             ts = None
             if j.get('run_at'):
@@ -54315,6 +54552,7 @@ def handle_home():
     #
     # Shape matches handle_links_list, because _renderHomeLinks reads title,
     # url, description, category and scope off each row.
+    # 7.4.9: the links belong to the organisation running the installation; a tenant's users get an empty card.
     links = sorted(
         ({'id': _lid,
           'title': _l.get('title', ''),
@@ -54322,7 +54560,7 @@ def handle_home():
           'description': _l.get('description', ''),
           'category': _l.get('category') or LINK_DEFAULT_CATEGORY,
           'scope': _l.get('scope', 'external')}
-         for _lid, _l in _links_load().items() if isinstance(_l, dict)),
+         for _lid, _l in (_links_load().items() if _caller_in_operator_org() else ()) if isinstance(_l, dict)),
         key=lambda x: (x['category'].lower(), x['title'].lower()))
 
     # v4.1.0: which widgets the operator actually has enabled (?w=key1,key2),
@@ -54355,7 +54593,7 @@ def handle_home():
         'tickets_enabled': _module_on('tickets'),
         'billing_enabled': _module_on('billing'),
         'ticket_devices': _open_ticket_device_ids(),
-        'tickets_open': sum(1 for t in ((_load_ro(TICKETS_FILE) or {}).get('tickets') or [])
+        'tickets_open': sum(1 for t in _visible_tickets((_load_ro(TICKETS_FILE) or {}).get('tickets') or [])
                             if t.get('status') in ('ongoing', 'pending_customer', 'pending_internal')),
         'ticket_sla': {str(k): _ticket_sla_policy()[k] for k in (1, 2, 3, 4)},
         # v4.7.0: instance-wide "Show Homelab software" flag → gates the homelab
@@ -54371,8 +54609,10 @@ def handle_home():
         'tickets':      _dashboard_tickets(),
         # v4.1.0: on-call widget (cheap — cfg already loaded). Other add-on
         # widgets render client-side from the devices/drift/cves payload above.
-        'oncall':       {'current': _oncall_now(cfg, now),
-                         'enabled': bool((cfg.get('oncall') or {}).get('enabled'))},
+        # 7.4.9: the on-call roster is the operator's own setting.
+        'oncall':       ({'current': _oncall_now(cfg, now),
+                          'enabled': bool((cfg.get('oncall') or {}).get('enabled'))}
+                         if _caller_in_operator_org() else {'current': None, 'enabled': False}),
         # v4.1.0: server-backed catalog widgets (cheap summaries, best-effort).
         # The heavy ones (checks roll-up, disk-fill ETA) are skipped unless _want
         # lists them — see ?w= above.
@@ -54842,6 +55082,12 @@ def handle_public_status():
             mons.append({'label': str(label)[:64],
                          'up': bool(last.get('up', last.get('ok', True)))})
     mon_up = sum(1 for m in mons if m['up'])
+    # 7.4.9: this answer is for anyone holding the status token, and the docstring promises no host names. A monitor's label is
+    # whatever the operator typed, and in practice it names the host or the address it checks ("Route to DC (truenas.lab)"). The
+    # flat list therefore counts monitors without naming them; the page's own, named view is the components.
+    mons.sort(key=lambda m: (m['up'], m['label']))
+    for _n, _m in enumerate(mons, 1):
+        _m['label'] = f'Monitor {_n}'
     resp = {
         'server_name':  get_server_name(),
         'generated_ts': now,
@@ -54850,7 +55096,7 @@ def handle_public_status():
                          'offline': len(mon_devs) - online},
         'monitors':     {'total': len(mons), 'up': mon_up,
                          'down': len(mons) - mon_up,
-                         'items': sorted(mons, key=lambda m: (m['up'], m['label']))},
+                         'items': mons},
         'status_page_enabled': False,
     }
     # master-improvement-scoping #51: RemotePower's OWN observed availability
@@ -56237,7 +56483,7 @@ def _record_satellite():
         with _locked_update(SATELLITES_FILE, non_blocking=True) as st:
             if matched in st:
                 st[matched]['last_seen'] = int(time.time())
-                ip = _env('REMOTE_ADDR', '')
+                ip = _get_client_ip()
                 if ip:
                     st[matched]['last_ip'] = _sanitize_ip(ip)
     except Exception:
@@ -57984,7 +58230,13 @@ def handle_digest():
         for d in devices.values()
         if isinstance(d.get('sysinfo', {}).get('packages', {}).get('upgradable'), int)
     )
-    recent_cmds = load(HISTORY_FILE).get('entries', [])[-10:]
+    # 7.4.9: the last ten commands that ran on hosts the caller can see. The digest took the last ten of the whole log, which
+    # named another tenant's hosts.
+    _vis = _confined_host_ids()
+    _hist = load(HISTORY_FILE).get('entries', [])
+    if _vis is not None:
+        _hist = [e for e in _hist if isinstance(e, dict) and e.get('device_id') in _vis]
+    recent_cmds = _hist[-10:]
     respond(200, {
         'ts': now, 'total': len(devices), 'online': online,
         'offline': len(devices) - online, 'pending_patches': patches,
@@ -62810,7 +63062,7 @@ def handle_nav_counts():
     try:
         if _tickets_enabled():
             out['tickets_open'] = sum(
-                1 for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+                1 for t in _visible_tickets((load(TICKETS_FILE) or {}).get('tickets') or [])
                 if t.get('status') in ('ongoing', 'pending_customer', 'pending_internal'))
         else:
             out['tickets_open'] = 0
@@ -69330,13 +69582,27 @@ def _window_owner_tenant(w, users=None, memo=None):
 
 def _visible_windows(windows):
     """Maintenance windows this caller may see. A window's reason is free text
-    an operator writes about their own change, and its target names a host."""
+    an operator writes about their own change, and its target names a host.
+
+    7.4.9: a window that targets one host is also hidden from a caller who cannot see that host, whoever wrote it. A window the
+    operator wrote for a tenant's host carries the operator's name, so the author alone put it in front of every default-tenant
+    viewer, with the host's id."""
     gate = _tenant_gate()
+    vis = _confined_host_ids()
+    all_hosts = _load_ro(DEVICES_FILE) or {} if vis is not None else {}
+
+    def names_a_host_out_of_sight(w):
+        if vis is None or w.get('scope') != 'device':
+            return False
+        t = w.get('target')
+        return t in all_hosts and t not in vis
+
     if gate is None:
-        return [w for w in windows if isinstance(w, dict)]
+        return [w for w in windows if isinstance(w, dict) and not names_a_host_out_of_sight(w)]
     users, memo = _load_ro(USERS_FILE) or {}, {}
     return [w for w in windows if isinstance(w, dict)
-            and _window_owner_tenant(w, users, memo) in (None, gate)]
+            and _window_owner_tenant(w, users, memo) in (None, gate)
+            and not names_a_host_out_of_sight(w)]
 
 
 _OWNER_UNKNOWN = object()
@@ -69762,8 +70028,8 @@ def _validate_maintenance_body(body):
         _bad = _cron_unreadable_field(cron)
         if _bad is not None:
             # A window that is saved but can never open holds every gated command for its hosts for ever.
-            respond(400, {'error': f'cron field "{_bad}" is not understood: use numbers, ranges (1-5), lists (1,3), '
-                                   f'steps (*/15), or day and month names (MON, JAN)'})
+            respond(400, {'error': 'The cron field is not understood: use numbers, ranges (1-5), lists (1,3), '
+                                   'steps (*/15), or day and month names (MON, JAN)', 'field': _bad})
         if duration < 60 or duration > 86400 * 7:
             respond(400, {'error': 'duration must be 60..604800 seconds'})
     return {
@@ -72595,7 +72861,7 @@ def handle_tasks_list():
                 t['_device_name'] = devices[did].get('name', did)
 
     # Sort: newest first within each state, so kanban columns are fresh at top
-    tasks.sort(key=lambda t: -t.get('updated_at', t.get('created_at', 0)))
+    tasks.sort(key=lambda t: -(t.get('updated_at') or t.get('created_at') or 0))
 
     counts = {s: 0 for s in TASK_STATES}
     for t in tasks:
@@ -74245,7 +74511,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/devices/', '/live-samples', 'handle_device_live_samples', "pi.startswith('/api/devices/') and pi.endswith('/live-samples') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
     ('pat', ('POST',), '/api/scap/', '/report-ticket', 'handle_scap_report_ticket', "pi.startswith('/api/scap/') and pi.endswith('/report-ticket') and m == 'POST'"),
-    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations',\n                                     # v7.4.3 (#47)\n                                     '/disk-names',\n                                     # v7.4.3 (#50)\n                                     '/container-thresholds',\n                                     # v7.4.5 (#55)\n                                     '/exposure-internal',\n                                     # Discussion #30\n                                     '/upgrade-mode'))"),
+    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations',\n                                     # v7.4.3 (#47)\n                                     '/disk-names',\n                                     # v7.4.3 (#50)\n                                     '/container-thresholds',\n                                     # v7.4.5 (#55)\n                                     '/exposure-internal',\n                                     # Discussion #30\n                                     '/upgrade-mode',\n                                     '/runbook', '/drift'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),
     ('pat', ('PATCH',), '/api/devices/', '/tags', 'handle_device_tags', "pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH'"),
     ('pat', ('PATCH',), '/api/devices/', '/notes', 'handle_device_notes', "pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH'"),
@@ -74696,7 +74962,10 @@ def _route_code_5(pi, m):
                                      # v7.4.5 (#55)
                                      '/exposure-internal',
                                      # Discussion #30
-                                     '/upgrade-mode'))):
+                                     '/upgrade-mode',
+                                     # 7.4.9: these two have their own routes below; this row answered them first
+                                     # with 'Host not found', so they could not be reached
+                                     '/runbook', '/drift'))):
         handle_device_delete(pi[len('/api/devices/'):])
         return True
     return False
@@ -75699,6 +75968,8 @@ def main():
     # Instance-wide infrastructure and libraries: platform operator only under
     # tenancy. After the module gate, so a switched-off module still 404s.
     _enforce_platform_routes(pi, m)
+    # 7.4.9: the operator's own monitors, links, calendar and business data are closed to the users of every other tenant.
+    _enforce_operator_org_routes(pi)
 
     # v4.3.0: time the handler and record it if it ran past the slow threshold.
     # try/finally so the timing fires on every exit path (normal HTTPError

@@ -42,6 +42,10 @@ Every signed-in user can see the links. Adding, editing and deleting is
 | `PUT /api/links/{id}` | Replace a link. Send every field (admin) |
 | `DELETE /api/links/{id}` | Delete a link (admin) |
 
+## With multi-tenancy
+
+The links belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can open or change them. Users of every other tenant are refused, and the dashboard leaves them out of its summaries.
+
 ## See also
 
 - [Knowledge base](knowledge-base.md): longer notes and runbooks.

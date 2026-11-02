@@ -1757,9 +1757,11 @@ class TestDashboardCards(_HandlerBase):
             {'title': 'ongoing', 'start': iso(now - 600), 'end': iso(now + 600)},
             {'title': 'future', 'start': iso(now + 3600), 'end': iso(now + 7200)},
         ]})
-        api.save(api.SCHEDULE_FILE, [
+        # The real shape: handle_schedule_list and the scheduler read {'jobs': [...]}. This fixture was a bare list, which nothing
+        # writes, and it let the card ignore every job for years.
+        api.save(api.SCHEDULE_FILE, {'jobs': [
             {'id': 's1', 'command': 'reboot', 'device_name': 'db', 'run_at': now + 1800},
-        ])
+        ]})
         api.save(api.MAINT_FILE, {'windows': []})
         items = api._dashboard_upcoming(limit=5)
         titles = [i['title'] for i in items]
@@ -1788,7 +1790,7 @@ class TestDashboardCards(_HandlerBase):
         iso = lambda ts: dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).isoformat()
         api.save(api.CALENDAR_FILE, {'events': [
             {'title': f'e{i}', 'start': iso(now + i * 3600)} for i in range(1, 8)]})
-        api.save(api.SCHEDULE_FILE, [])
+        api.save(api.SCHEDULE_FILE, {'jobs': []})
         api.save(api.MAINT_FILE, {'windows': []})
         self.assertEqual(len(api._dashboard_upcoming(limit=3)), 3)
 

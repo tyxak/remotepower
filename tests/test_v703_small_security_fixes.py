@@ -38,7 +38,8 @@ class TestTokenComparisonsAreConstantTime(unittest.TestCase):
 
     def test_the_deadman_ping_uses_compare_digest(self):
         body = _body(_API, 'handle_deadman_ping')
-        self.assertIn('hmac.compare_digest', body)
+        # 7.4.9: every comparison of a secret is the one helper, which compares the UTF-8 bytes in constant time and never raises
+        self.assertIn('_secure_eq(', body)
         self.assertNotIn("j.get('token') == tok", body)
 
     def test_no_handler_authenticates_a_token_with_equals(self):

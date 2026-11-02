@@ -224,7 +224,7 @@ def handle_scap_report_download(dev_id):
     ticket = (qs.get('ticket') or [''])[0]
     if ticket:
         if not scap_ticket_ok(dev_id, ticket):
-            A.respond(403, {'error': 'this link has expired; open the report again'}); return
+            A.respond(403, {'error': 'Invalid or expired report link'}); return
     else:
         A.require_auth()
         A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device read scope

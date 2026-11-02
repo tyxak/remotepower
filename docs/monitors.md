@@ -289,6 +289,10 @@ distinction the product makes everywhere else.
 - All targets/URLs are SSRF-guarded (loopback, link-local and cloud-metadata
   addresses are refused), and inbound endpoints are rate-limited.
 
+## With multi-tenancy
+
+The monitors, their history and the export belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can open or change them. Users of every other tenant are refused, and the dashboard leaves them out of its summaries.
+
 ## See also
 
 - [Logs](log-watch.md): log rules, clearing a noisy line.

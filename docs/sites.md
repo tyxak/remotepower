@@ -91,5 +91,9 @@ allowed to see.
 | GET | `/api/report/site/{id}` | Per-site posture report. |
 | GET, POST | `/api/device-profiles`, `/api/smart-groups` | Host profiles and smart groups. Admin. |
 
+## With multi-tenancy
+
+The sites belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can open or change them. Users of every other tenant are refused, and the dashboard leaves them out of its summaries.
+
 See also: [fleet-management.md](fleet-management.md), [ipam.md](ipam.md),
 [time-billing.md](time-billing.md), [status-board.md](status-board.md).

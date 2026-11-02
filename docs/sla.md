@@ -91,5 +91,9 @@ to the audit log.
   targets (`default`, `groups`, `tags`, `devices`). Send `null` or leave a level
   out to clear it.
 
+## With multi-tenancy
+
+The SLO figures and the monitors behind them belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can open or change them. Users of every other tenant are refused, and the dashboard leaves them out of its summaries.
+
 See also: [reports.md](reports.md), [maintenance.md](maintenance.md),
 [time-billing.md](time-billing.md) for per-customer reporting.

@@ -59,7 +59,7 @@ class _Base(unittest.TestCase):
             {"id": 1, "created_by": "dana",
              "comments": [{"by": "dana"}, {"by": "admin"}]},
             {"id": 2, "assignee": "dana", "comments": []}]})
-        api.save(api.TIME_ENTRIES_FILE, {"entries": [{"user": "dana", "hours": 3}]})
+        api.save(api.TIME_ENTRIES_FILE, {"entries": [{"id": "te_1", "user": "dana", "hours": 3}]})
         api.save(api.AUDIT_LOG_FILE, {"entries": [{"actor": "dana"},
                                                   {"actor": "admin"}]})
         (api.AVATARS_DIR / "dana.img").write_bytes(b"x")

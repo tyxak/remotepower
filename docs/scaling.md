@@ -524,9 +524,10 @@ summary is:
 | Enrolment PINs & tokens | **Yes** — a PIN or token carries the tenant of the admin who made it, and the host it enrols joins that tenant |
 | Inbound webhook & ingest tokens | **Yes** — a token pinned to a host belongs to that host's tenant; unpinned tokens are the platform operator's |
 | Instance settings & infrastructure | **Platform operator only** — settings, config revisions, the AI provider, release signing, metrics push, GitOps, scheduled reports, the KMIP server, relay satellites, WireGuard access, scanner targets and the CMDB vault passphrase |
-| Shared libraries (command library, playbooks, blueprints, app catalogue) | Readable by every tenant; **changed only by the platform operator**, because other tenants run them |
-| Tickets | No — one shared store |
-| Billing, time tracking, invoices | No — one shared store |
+| Shared libraries (command library, playbooks, blueprints, app catalogue, knowledge base) | Readable by every tenant (a knowledge base article lists only the hosts the reader can see); **changed only by the platform operator**, because other tenants run them |
+| Tickets | **Yes** — app layer; a ticket belongs to the tenant of the host it is about, or of the account that opened it when it names no host. Hours logged on a ticket are the operator's |
+| Billing, time tracking, invoices, quotes, customer sites and contacts | **Operator's organisation only** — these stores have no tenant dimension, so every tenant other than the default one is refused |
+| Monitors and SLO figures, links, calendar and on-call, mail round trip, Proxmox, diagnostics | **Operator's organisation only** — the same rule; the operator's own viewers and operators keep their pages |
 | Audit log | No — global on purpose; a superadmin needs one complete trail. Only the platform operator can clear it |
 | Users & roles | Accounts are tenant-scoped; role definitions are a global control-plane, changed only by the platform operator |
 

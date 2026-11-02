@@ -54,7 +54,8 @@ class _Base(unittest.TestCase):
         self.now = int(time.time())
         for f in (api.THERMAL_HIST_FILE, api.SMART_HIST_FILE,
                   api.GPU_HIST_FILE, api.CUSTOM_METRICS_HIST_FILE):
-            api.save(f, {'other': {'untouched': True}})
+            # a row in the shape every one of these stores holds (a map of maps): a row of another shape is repaired when the file is read
+            api.save(f, {'other': {'untouched': {}}})
             api._invalidate_load_cache(f)
 
     def _store(self, f):
@@ -113,7 +114,7 @@ class TestEachWriterTouchesOneDevice(_Base):
         api._ingest_custom_metrics('devA', {'qdepth': 2.0}, 'web', self.now)
         for f in (api.THERMAL_HIST_FILE, api.SMART_HIST_FILE,
                   api.GPU_HIST_FILE, api.CUSTOM_METRICS_HIST_FILE):
-            self.assertEqual(self._store(f).get('other'), {'untouched': True},
+            self.assertEqual(self._store(f).get('other'), {'untouched': {}},
                              f'{f.name}: writing devA modified another device')
 
 

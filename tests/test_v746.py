@@ -144,7 +144,8 @@ class TestTheFoldedVersion(unittest.TestCase):
         self.assertFalse((_ROOT / "docs/v7.4.5.md").exists())
         body = (_ROOT / "CHANGELOG.md").read_text()
         body = body[body.index("## v7.4.5 \u2014 "):]
-        self.assertIn("internal", body[:3000].lower())      # the notes of 7.4.6 carried this too; they left at the v7.4.9 bump
+        body = body[:body.index("\n## v", 1)]               # this entry only, whatever its length
+        self.assertIn("internal", body.lower())             # the notes of 7.4.6 carried this too; they left at the v7.4.9 bump
 
     def test_no_surface_announces_a_release_that_never_shipped(self):
         readme = (_ROOT / "README.md").read_text()

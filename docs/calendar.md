@@ -36,3 +36,7 @@ Everyone signed in can read the calendar and export it. Adding, editing and dele
 events needs a role that can change things, so read-only roles (viewer, auditor,
 finance) cannot. Importing is admin-only. Changes are visible to the whole team and
 are audit-logged.
+
+## With multi-tenancy
+
+The calendar belongs to the organisation that runs the installation: it names your hosts and your on-call schedule. With tenant isolation on, only users of the default tenant can read, export or change it, and the dashboard's upcoming list leaves it out for everyone else.

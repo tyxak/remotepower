@@ -155,6 +155,8 @@ published, never the reason or the host names.
 | GET | `/api/status?token=` | status token | The fleet summary above. |
 | GET | `/api/ha?token=` | status token | Home Assistant shape. |
 | GET | `/api/public/status?token=` | status token | Data for the public page: health score, host and monitor counts, components, incidents. |
+
+The flat monitor list in that answer names its entries `Monitor 1`, `Monitor 2` and so on. A monitor's label is free text and usually holds a host name or an address, and anyone who has the token can read this answer. To show a monitor by name, put it in a component and give the component the name you want visitors to see.
 | POST | `/api/status-token` | admin | `{"enabled": true}` creates or rotates the token. `{"enabled": false}` removes it. |
 | GET, POST | `/api/incidents` | admin | List and post incidents. |
 | PATCH, DELETE | `/api/incidents/{id}` | admin | `{status?, body?}` posts an update or changes the status. |

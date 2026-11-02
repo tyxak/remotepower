@@ -149,5 +149,9 @@ Everything here stays on your server. Ticket contents, email and contacts live i
 your data directory with the rest of RemotePower's state — there is no external
 helpdesk service involved.
 
+## With multi-tenancy
+
+A ticket belongs to the tenant of the host it is about. A ticket that names no host belongs to the tenant of the account that opened it. With tenant isolation on, every list, search, edit, attachment and e-mail thread shows a user only their own tenant's tickets, and a ticket can only name hosts the user can see. Hours logged on a ticket are part of time tracking, which stays with the operator's organisation.
+
 See also: [Internal contact directory](contacts.md) · [Webhooks & ITSM](webhooks.md)
 · [Alerts & notifications](features.md).

@@ -6,7 +6,6 @@ being undone by accident, and holds the two bugs that were plain text: a rule th
 """
 import importlib.util
 import re
-import sys
 import unittest
 from pathlib import Path
 

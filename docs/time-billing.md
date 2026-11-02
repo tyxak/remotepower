@@ -131,3 +131,7 @@ Assign **finance** on the **Users** page (Edit role).
 | `GET /api/invoices/{id}` | admin/finance | One invoice (`format=csv`) |
 | `PATCH /api/invoices/{id}` | admin | Set status (draft/sent/paid/void) |
 | `POST /api/billing/payment-webhook` | shared secret (`X-RP-Billing-Secret`) | Record a payment/refund against an invoice — provider-agnostic, idempotent on `external_ref` |
+
+## With multi-tenancy
+
+Time entries, timesheets, quotes, invoices and the billing settings belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can open or change them. Users of every other tenant are refused, and the dashboard leaves them out of its summaries.

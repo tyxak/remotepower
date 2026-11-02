@@ -45,7 +45,7 @@ By the numbers:
 | Server Python (`server/cgi-bin/`) | ~149,000 lines |
 | The main API module (`api.py`) | ~78,000 lines |
 | Focused sibling modules | ~119 |
-| HTTP routes (exact + templated) | ~526 exact, ~398 pattern |
+| HTTP routes (exact + templated) | ~527 exact, ~439 pattern |
 | Request handlers (`handle_*`) | ~886 |
 | Typed request-body models | ~278 |
 | Homelab integration connectors | 50 (+ a generic HTTP probe) |

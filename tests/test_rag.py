@@ -443,7 +443,10 @@ def _seed_fleet():
         {"name": "app", "image": "nginx:1.25", "state": "running"}]}})
     api.save(api.CMDB_FILE, {"web01": {
         "name": "web01", "role": "prod web",
-        "credentials": {"root_pw": "SECRET-HUNTER2"},
+        # the shape the CMDB writes: a list of encrypted entries (a map here is read as an empty list since 7.4.9, which
+        # would make the leak check below pass without looking)
+        "credentials": [{"id": "cred_1", "label": "root", "username": "root", "note": "SECRET-HUNTER2",
+                         "nonce": "n", "ct": "SECRET-HUNTER2"}],
         "docs": [{"id": "d1", "title": "Failover",
                   "body": "# Failover\nPromote db02 then restart nginx."}]}})
     api.save(api.RUNBOOKS_FILE, {"web01": {

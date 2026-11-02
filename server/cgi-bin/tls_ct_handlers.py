@@ -351,7 +351,7 @@ def run_tls_scan_if_due():
     now = int(time.time())
     order = sorted(
         ((tid, t) for tid, t in targets.items() if isinstance(t, dict) and t.get('host')),
-        key=lambda kv: (results.get(kv[0]) or {}).get('checked_at', 0))
+        key=lambda kv: (results.get(kv[0]) or {}).get('checked_at') or 0)
     pending, scanned = [], 0
     start = time.monotonic()
     for tid, t in order:

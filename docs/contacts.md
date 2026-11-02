@@ -33,4 +33,8 @@ The directory holds up to 2,000 contacts.
 Everything is stored on your own server alongside the rest of RemotePower's state —
 no external address-book service is involved.
 
+## With multi-tenancy
+
+The contacts belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can open or change them. Users of every other tenant are refused, and the dashboard leaves them out of its summaries.
+
 See also: [Built-in ticket system](ticket-system.md) · [CMDB & documentation](cmdb.md).

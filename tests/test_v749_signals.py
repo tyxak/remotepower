@@ -10,7 +10,6 @@ The fixtures have the shapes the agent sends (`disk_encryption` {encrypted, cryp
 `gateway` {reachable}, `gpus[].util_pct`), not the shapes a consumer assumed: a fixture that assumes the consumer's shape is how
 the GPU key was wrong for a release.
 """
-import importlib.util
 import os
 import sys
 import tempfile

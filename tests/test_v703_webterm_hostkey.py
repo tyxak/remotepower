@@ -203,8 +203,8 @@ class TestTheEndpointExists(unittest.TestCase):
         self.assertIn('_daemon_secret_ok()', body,
                       'the host-key lookup must be gated on the daemon secret')
         helper = py_function(src, '_daemon_secret_ok')
-        self.assertIn('hmac.compare_digest', helper,
-                      'the daemon secret must be compared in constant time')
+        self.assertIn('_secure_eq(', helper,
+                      'the daemon secret must be compared in constant time (7.4.9: through the shared helper)')
         self.assertIn('webterm_daemon_secret', helper)
 
 

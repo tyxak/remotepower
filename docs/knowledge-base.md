@@ -66,6 +66,10 @@ Links only appear while the KB is enabled, and only admins see the card.
 Articles are stored in `kb.json`. Empty, `.` and `..` segments are dropped from a
 category path before it is saved.
 
+## With multi-tenancy
+
+The articles are one library for every tenant. Everyone can read them, but an article lists only the hosts the reader can see, and only the platform operator can add, change or delete articles.
+
 ## See also
 
 - [AI assistant](ai.md): how the knowledge index is built and what is sent to a provider.

@@ -90,7 +90,8 @@ def handle_proxmox_test() -> None:
     # raised UnicodeEncodeError inside http.client and answered 500; say so instead.
     for k in ('proxmox_token_id', 'proxmox_token_secret'):
         if body.get(k) and not A._header_safe(body[k]):
-            A.respond(400, {'ok': False, 'error': f'{k} may contain printable ASCII characters only'}); return
+            A.respond(400, {'ok': False, 'error': 'A Proxmox token id or secret may contain printable ASCII characters only',
+                            'field': k}); return
     # Allow testing un-saved values straight from the form.
     for k in ('proxmox_host', 'proxmox_node', 'proxmox_token_id'):
         if body.get(k):

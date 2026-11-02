@@ -6222,7 +6222,8 @@ def build_device_profiles() -> dict:
             'name': 'Critical infra', 'created': now() - 86400 * 60,
             'poll_interval': 30,
             'services_watched': ['nginx', 'postgresql', 'docker'],
-            'log_watch': ['/var/log/syslog'],
+            # a rule is a map, as the profile editor stores it (a bare string crashed the Linux agent in 7.0.2)
+            'log_watch': [{'path': '/var/log/syslog'}],
             'metric_thresholds': {
                 'disk_warn_percent': 75, 'disk_crit_percent': 88,
                 'mem_warn_percent': 80, 'mem_crit_percent': 92,

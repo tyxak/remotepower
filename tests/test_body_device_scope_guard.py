@@ -110,8 +110,8 @@ EXEMPT = {
     # `linked_devices`. Refuted on inspection: the ids are stored and
     # returned verbatim, never resolved to a name and never read back by
     # the frontend, so a caller learns only what they themselves typed.
-    'handle_kb':             'metadata (KB article device links; stored verbatim, never resolved or read back)',
-    'handle_kb_article':     'metadata (KB article device links; stored verbatim, never resolved or read back)',
+    'handle_kb':             'metadata (KB article device links; only the platform operator writes them, and a read lists only the hosts the caller can see)',
+    'handle_kb_article':     'metadata (KB article device links; only the platform operator writes them, and a read lists only the hosts the caller can see)',
     # handle_tickets / handle_ticket_update were listed here for the same
     # affected-host reason. They now route the body ids through a canonical
     # helper, so the exemption was never consulted -- and a dead exemption is
