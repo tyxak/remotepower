@@ -190,11 +190,22 @@ class TestStorageRoundTripAndBackendAgreement(unittest.TestCase):
         self.json_api = _fresh_api()
         self.sqlite_api = _fresh_api('sqlite')
 
+    # The property is about the storage layer, so it runs on a store the shape registry does not know. config.json is a registered
+    # store: a null where a numeric setting belongs is dropped on read (7.4.9, by design), and Hypothesis found exactly that key
+    # (`drivetemp_hdd_warn_c`) because it draws strings from the constants of the modules it tests.
+    PROBE = 'roundtrip_probe.json'
+
+    def test_a_registered_store_drops_a_null_where_a_number_belongs(self):
+        f = self.json_api.CONFIG_FILE
+        self.json_api.save(f, {'drivetemp_hdd_warn_c': None, 'tenancy_enforced': True})
+        self.json_api._invalidate_load_cache(f)
+        self.assertEqual(self.json_api.load(f), {'tenancy_enforced': True})
+
     @settings(max_examples=200, deadline=None,
               suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(_json_values)
     def test_json_backend_round_trips(self, value):
-        f = self.json_api.CONFIG_FILE
+        f = self.json_api.DATA_DIR / self.PROBE
         self.json_api.save(f, value if isinstance(value, dict) else {'v': value})
         self.json_api._invalidate_load_cache(f)
         got = self.json_api.load(f)
@@ -205,8 +216,8 @@ class TestStorageRoundTripAndBackendAgreement(unittest.TestCase):
               suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(st.dictionaries(st.text(min_size=1, max_size=16), _json_values, max_size=6))
     def test_both_backends_agree(self, d):
-        jf = self.json_api.CONFIG_FILE
-        sf = self.sqlite_api.CONFIG_FILE
+        jf = self.json_api.DATA_DIR / self.PROBE
+        sf = self.sqlite_api.DATA_DIR / self.PROBE
         self.json_api.save(jf, d); self.json_api._invalidate_load_cache(jf)
         self.sqlite_api.save(sf, d); self.sqlite_api._invalidate_load_cache(sf)
         self.assertEqual(self.json_api.load(jf), self.sqlite_api.load(sf),

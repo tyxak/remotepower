@@ -257,16 +257,24 @@ class TestTheViewsAndTheActions(unittest.TestCase):
 
     def press(self, host, family, label):
         """Open the row's More menu and choose an item by its text. The menu closes on any scroll, by design, so the
-        row is brought into view first, as a person would, and nothing scrolls between the two clicks."""
-        row = self.row(host, family)
-        row.scroll_into_view_if_needed()
-        self.page.wait_for_timeout(300)
-        row.locator('[data-action="rowMoreMenu"]').click()
-        self.page.wait_for_selector("#row-more-pop", timeout=10000)
-        try:
-            self.page.locator("#row-more-pop button", has_text=label).click(timeout=10000)
-        except Exception:
-            self.fail(f"no {label!r} in the menu of {host} / {family}; the menu holds {self.page.inner_text('#row-more-pop')!r}")
+        row is brought into view first, as a person would, and nothing scrolls between the two clicks. On a busy machine
+        a scroll that is still settling closes the menu between them (it failed in two full gates and passed alone every
+        time), so the menu is opened again, three times at most, and the failure says what the menu held."""
+        seen = ""
+        for _ in range(3):
+            self.page.keyboard.press("Escape")
+            row = self.row(host, family)
+            row.scroll_into_view_if_needed()
+            self.page.wait_for_timeout(300)
+            try:
+                row.locator('[data-action="rowMoreMenu"]').click()
+                self.page.wait_for_selector("#row-more-pop", timeout=5000)
+                self.page.locator("#row-more-pop button", has_text=label).click(timeout=5000)
+                return
+            except Exception:
+                seen = self.page.evaluate("() => { const p = document.getElementById('row-more-pop'); "
+                                          "return p ? p.innerText : '(the menu had closed)'; }")
+        self.fail(f"no {label!r} in the menu of {host} / {family} after three tries; the menu held {seen!r}")
 
     def answer_dialog(self, text=None):
         self.page.wait_for_selector("#ui-prompt-modal.active", timeout=15000)
