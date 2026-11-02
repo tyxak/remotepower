@@ -145,6 +145,84 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn("v7.4.6 and earlier", label)
 
 
+class TestTheSecurityReview(unittest.TestCase):
+    """The review is part of the release: it exists, it is indexed where a reader looks, it says what it did not run,
+    its counts agree with its own table and with every other place that quotes them, and the kept reviews are the last three."""
+
+    DOC = "docs/security-review-7.4.9.md"
+    HEADLINE = "three High issues, sixteen Medium ones and five Low or hardening items"
+
+    def raw(self):
+        return (_ROOT / self.DOC).read_text()
+
+    def text(self):
+        return re.sub(r"\s+", " ", self.raw())
+
+    def test_it_exists_and_is_indexed(self):
+        self.assertTrue((_ROOT / self.DOC).exists())
+        for rel in ("docs/README.md", "docs/security.md"):
+            self.assertIn("security-review-7.4.9.md", (_ROOT / rel).read_text(), rel)
+
+    def test_it_says_what_it_leaves_open_and_what_it_did_not_run(self):
+        text = self.text()
+        for heading in ("## Open", "## Not found", "## Known and unchanged", "## Not run for this review"):
+            self.assertIn(heading, text, heading)
+        self.assertIn("A live probe of a running installation", text)
+
+    def test_the_table_agrees_with_the_headline(self):
+        self.assertIn(self.HEADLINE, self.text())
+        rows = re.findall(r"^\| (S\d+) \| ([^|]+) \|", self.raw(), re.M)
+        self.assertEqual([r[0] for r in rows], [f"S{i}" for i in range(1, 23)])
+
+        def kind(severity):
+            severity = severity.strip()
+            if severity.startswith("**High**"):
+                return "high"
+            if severity == "Medium" or severity.startswith("High with signed commands"):
+                return "medium"
+            return "low"
+        kinds = [kind(r[1]) for r in rows]
+        self.assertEqual(kinds.count("high"), 3)
+        self.assertEqual(kinds.count("medium"), 14, "fourteen fixed Medium rows; the two open groups make sixteen")
+        self.assertEqual(kinds.count("low"), 5)
+        raw = self.raw()
+        open_part = raw[raw.index("\n## Open"):raw.index("\n## Not found")]
+        self.assertEqual(len(re.findall(r"^- \*\*[^*]+\(Medium", open_part, re.M)), 2)
+
+    def test_the_other_places_quote_the_same_counts(self):
+        for rel in ("docs/v7.4.9.md", "README.md", "server/html/index.html"):
+            body = re.sub(r"\s+", " ", (_ROOT / rel).read_text())
+            for needle in ("three High", "sixteen Medium", "fourteen of the Medium"):
+                self.assertIn(needle, body, (rel, needle))
+        for rel in ("docs/security.md", "docs/README.md"):
+            body = re.sub(r"\s+", " ", (_ROOT / rel).read_text()).lower()
+            for needle in ("three high", "sixteen medium", "fourteen of the medium"):
+                self.assertIn(needle, body, (rel, needle))
+        changelog = (_ROOT / "CHANGELOG.md").read_text()
+        section = changelog[changelog.index("## v7.4.9 \u2014 "):changelog.index("## v7.4.8 \u2014 ")]
+        self.assertIn(self.HEADLINE, re.sub(r"\s+", " ", section))
+
+    def test_no_placeholder_is_left(self):
+        self.assertNotIn("@@", self.raw())
+        self.assertNotIn("TBD-", self.raw())
+
+    def test_it_reveals_no_command_for_the_attack_and_no_infrastructure(self):
+        for rel in (self.DOC, "docs/v7.4.9.md"):
+            text = (_ROOT / rel).read_text()
+            for needle in ("curl", "X-Token", "wget", "nc -", "tvipper", "jaove", "/home/", "10.0.0.", "ssh -i"):
+                self.assertNotIn(needle, text, (rel, needle))
+
+    def test_the_card_links_the_review(self):
+        html = _html()
+        card = html[html.index("What's new \u2014 v" + V):]
+        card = card[:card.index("</details>")]
+        self.assertIn("docs/security-review-7.4.9.md", card)
+
+    def test_three_reviews_are_kept(self):
+        reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
+        self.assertEqual(reviews, ["security-review-7.4.7.md", "security-review-7.4.8.md", "security-review-7.4.9.md"])
+
+
 class TestTheReleaseContainsItsGuards(unittest.TestCase):
     """A release pin, not a behavioural one: each file carries its own proof, watched failing before it
     was committed. This pins that they ship. The proofs of 7.4.8 are listed in tests/test_v748.py."""

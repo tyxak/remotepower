@@ -19,12 +19,12 @@ def _html():
 
 class TestTheReviewLeftTheWindow(unittest.TestCase):
     """The review of 7.4.5 left the three kept reviews at the v7.4.8 bump. 7.4.5 never shipped on its own, so its history
-    stays in CHANGELOG.md and in the 7.4.6 notes, and the 7.4.6 review writes out what it carries forward."""
+    stays in CHANGELOG.md."""
 
     def test_it_is_gone_everywhere(self):
         self.assertFalse((_ROOT / "docs/security-review-7.4.5.md").exists())
-        for rel in ("README.md", "docs/README.md", "docs/security.md", "docs/security-review-7.4.6.md",
-                    "server/html/index.html"):
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "docs/security-review-7.4.7.md",
+                    "docs/security-review-7.4.8.md", "server/html/index.html"):
             self.assertNotIn("security-review-7.4.5.md", (_ROOT / rel).read_text(), rel)
 
     def test_the_changelog_still_counts_its_issues(self):

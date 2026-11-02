@@ -136,7 +136,7 @@ class TestTheSecurityReview(unittest.TestCase):
 
     def test_three_reviews_are_kept(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
-        self.assertEqual(reviews, ["security-review-7.4.6.md", "security-review-7.4.7.md", "security-review-7.4.8.md"])
+        self.assertEqual(reviews, ["security-review-7.4.7.md", "security-review-7.4.8.md", "security-review-7.4.9.md"])
 
     def test_the_review_that_left_the_window_is_gone_everywhere(self):
         self.assertFalse((_ROOT / "docs/security-review-7.4.4.md").exists())

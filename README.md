@@ -199,10 +199,14 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
-- **v7.4.9 "Ch0iceMatters"** — choices on a host. A host runs its upgrades in a Standard or an
-  Extended mode, and Extended also installs the new packages an update needs, such as a new kernel
-  image that apt keeps back. A hard disk and a SATA SSD behind the same controllers keep their
-  own temperature lines, and an update Ubuntu is still phasing in is no longer counted as pending.
+- **v7.4.9 "Ch0iceMatters"** — choices on a host, and a review of the whole project. A host runs
+  its upgrades in a Standard or an Extended mode, and Extended also installs the new packages an
+  update needs, such as a new kernel image that apt keeps back. A hard disk and a SATA SSD behind
+  the same controllers keep their own temperature lines, and an update Ubuntu is still phasing in
+  is no longer counted as pending. The review covered everything, not only the new code. It found
+  three High and sixteen Medium issues and fixed all the High ones and fourteen of the Medium ones:
+  a viewer could rewrite a host's watched services, Sign out did not end the session on the
+  server, and the Docker image ran its app as root. Update the agents.
 - **v7.4.8 "Hon3stMatters"** — three screens that said something untrue. A Problems row
   that read "never" under Updated shows when its host last reported. A sensor limit that is
   not a temperature (an NVMe drive with no threshold reported 65,261.8 °C) is no limit. A

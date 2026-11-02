@@ -58,6 +58,15 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 
 ### Security
 
+- **A security review of the whole project, not only of what changed.** Seven reviews ran side by side: who can reach what
+  on every route (1,073 operations as 26 kinds of caller), hostile input on every route, the three agents and their
+  installers, the web client and the web server headers, the interface, the documents, and a map of what the agents send
+  against where it is used. Scanners ran beside them. They found three High issues, sixteen Medium ones and five Low or
+  hardening items. All of the High and Low ones and fourteen of the Medium ones are fixed, and the entries below describe
+  them. Two groups of Medium findings are not fixed and are described, with their size, in
+  [docs/security-review-7.4.9.md](docs/security-review-7.4.9.md): about ten more listings that can show a tenant user
+  another tenant's host names (tenancy only), and stored rows of the wrong shape that make a page answer 500 (a hand edit
+  or an import can store one). The review has the scans, the numbers behind each check and what was not run.
 - **A host's SCAP report can no longer run in the dashboard's origin (Medium).** The report is HTML written by the host's agent.
   The server serves it with a sandboxed Content-Security-Policy, but the page fetched it and opened it as a `blob:` address,
   which takes the dashboard's origin and drops that policy. A compromised host could put a reference to the dashboard's own

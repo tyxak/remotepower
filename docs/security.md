@@ -33,6 +33,12 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
+- [security-review-7.4.9.md](security-review-7.4.9.md) — the release in which the whole project was reviewed, not only
+  what changed: three high issues, sixteen medium ones and five low ones, with all of the high and low ones and fourteen
+  of the medium ones fixed. Among them are a host's watched services that any signed-in role could rewrite, three flaws
+  in the Linux agent, the app server running as root in the Docker image, and tenant administrators reaching
+  instance-wide operations. It has the scans, the run over every route, the mutation checks, and what is still open and
+  how big it is.
 - [security-review-7.4.8.md](security-review-7.4.8.md) — a patch release: one low issue, a stored sensor, drive or
   GPU reading, or a sensor limit, too big for a float that answered 500 to everyone on the Thermal page, and a check
   that nothing a host sends or apt prints reaches a command, that a limit or a time of the wrong kind never reaches a
@@ -42,13 +48,10 @@ are kept:
   cannot see a host outside their role or tenant through the new list of problems, that hostile
   parameters and markup in everything it prints do nothing, and that a host cannot store a row that
   stops a page, with the scans, the run over every route and the mutation checks behind them.
-- [security-review-7.4.6.md](security-review-7.4.6.md) — a feature release: two low issues, a switch
-  that quiets CVE alerts that turned on for the string "false" and five readers that raised on a stored
-  row that is not a map, and a check that a caller cannot ask a host they cannot see, that a host cannot
-  ask for itself, that an OSV record is bounded and that its text stays text, with the scans, a scan
-  against the live feed, the run over every route and the mutation checks behind them.
-Each review found real defects, and every one of them was fixed before the
-release went out.
+
+Each review found real defects. The high and low ones were fixed before the
+release went out; a medium one that was too big for the release is named in the
+review, with its size, under "Open".
 
 The **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by

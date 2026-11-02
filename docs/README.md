@@ -61,6 +61,11 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.4.9.md](security-review-7.4.9.md)** — the v7.4.9 review, of the whole project and not only of what
+  changed: an authorization check on every route as 26 kinds of caller, hostile input on every route, the three agents
+  and their installers, the web client and the web server headers, the interface, and the documents. Three high, sixteen
+  medium and five low findings, with all of the high and low and fourteen of the medium fixed, the scans and the
+  mutation checks behind them, and what is still open.
 - **[security-review-7.4.8.md](security-review-7.4.8.md)** — the v7.4.8 review: what a host can make the server and
   its own agent do through the sensor limits and labels it reports and the text `apt-get` prints, what a stored row
   of the wrong kind does to the Thermal page and the risk score, and one low issue, a stored reading or limit too big
@@ -71,13 +76,6 @@ holds long-form docs that don't fit there.
   and 18 hostile heartbeats from a host with a valid token, and one low issue, a stored alert of the wrong
   shape that answered 500 to everyone on five readers. Caught before release, with the scans, the run over
   every route and the mutation checks behind them.
-- **[security-review-7.4.6.md](security-review-7.4.6.md)** — the v7.4.6 review: what a host can ask of
-  another host and of the server through the alerts it is the subject of, the connections and ports it
-  reports and the temperatures it sends, what an OSV record may put into the cache and onto the page,
-  the setting that keeps CVE alerts quiet, and two low issues, a switch that turned on for the string
-  "false" and five readers that raised on a stored row that is not a map. Caught before release, with
-  the scans, a scan against the live feed, the run over every route and the mutation checks behind
-  them.
 - **[v7.4.9.md](v7.4.9.md)** — "Ch0iceMatters": a host runs its upgrades in a Standard or an Extended mode, a
   hard disk and a SATA SSD behind the same controllers keep their own temperature lines, and an update Ubuntu is
   still phasing in is not counted as pending.
