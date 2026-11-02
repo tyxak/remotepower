@@ -108,6 +108,8 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
     refused as "not a reading" or answered 400;
   - a list or dict where a string is expected was unhashable in three admin routes (API key role, role permissions,
     incident alert ids).
+  - a Proxmox token id or secret with a character outside ASCII went into an `Authorization` header and raised inside the HTTP
+    client; saving and testing answer 400 and say what is allowed.
   What the sweep found beyond this (wrong-shaped rows in the stores making fleet pages fail, periodic sweeps stopping on
   them) is listed in the security review.
 - **A tenant administrator could reach operations on the whole installation, and other tenants' sessions, schedules,

@@ -257,5 +257,33 @@ class TestAListWhereAStringIsExpected(_Handler):
         self.assertIn(status, (200, 201, 400))
 
 
+class TestAProxmoxCredentialOutsideAscii(_Handler):
+    """fuzz F11: a credential with a character outside ASCII went into an Authorization header and raised inside http.client."""
+
+    def test_the_helper(self):
+        self.assertTrue(api._header_safe("root@pam!remotepower"))
+        self.assertTrue(api._header_safe("6f1c2e9a-0b3d-4c55-9a1e-2d7a8b4c9e10"))
+        for bad in ("\u20ac", "na\u00efve", "a\ufffdb", "tab\there", "line\nbreak", "", None, 5):
+            with self.subTest(bad=repr(bad)):
+                self.assertFalse(api._header_safe(bad) and bad != "")
+
+    def test_the_test_route_answers_400_not_500(self):
+        for secret in ("\u20ac-secret", "abc\ufffd", "na\u00efve"):
+            with self.subTest(secret=secret):
+                body = json.dumps({"proxmox_host": "pve.example.org", "proxmox_token_id": "root@pam!x", "proxmox_token_secret": secret})
+                status, data = self.run_handler(api.handle_proxmox_test, "POST", "/api/proxmox/test", body, who=("admin1", "admin"))
+                self.assertEqual(status, 400)
+                self.assertIn("ASCII", data["error"])
+
+    def test_an_ascii_secret_is_not_refused_for_its_characters(self):
+        body = json.dumps({"proxmox_host": "pve.example.org", "proxmox_token_id": "root@pam!x",
+                           "proxmox_token_secret": "6f1c2e9a-0b3d-4c55-9a1e-2d7a8b4c9e10"})
+        try:
+            status, data = self.run_handler(api.handle_proxmox_test, "POST", "/api/proxmox/test", body, who=("admin1", "admin"))
+        except Exception as e:                                  # noqa: BLE001
+            self.fail(f"an ASCII credential raised {type(e).__name__}")
+        self.assertNotIn("ASCII", str((data or {}).get("error", "")))
+
+
 if __name__ == "__main__":
     unittest.main()

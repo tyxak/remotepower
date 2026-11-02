@@ -6747,6 +6747,12 @@ def get_json_body():
 _LONE_SURROGATE_RE = re.compile('[\ud800-\udfff]')
 
 
+def _header_safe(v):
+    """True for a string that can ride in an HTTP header: printable ASCII. A credential placed in a header with anything else
+    (a euro sign, the U+FFFD that replaces a lone surrogate) raises UnicodeEncodeError inside http.client."""
+    return isinstance(v, str) and all(32 <= ord(c) < 127 for c in v)
+
+
 def _scrub_surrogates(v):
     """7.4.9: `json.loads('"\\ud83d"')` gives a str holding a lone surrogate. Python accepts it and nothing can encode it, so
     the first `.encode('utf-8')`, hash, header or subprocess pipe it reached raised UnicodeEncodeError and answered 500 (twelve
@@ -30247,6 +30253,10 @@ def handle_config_save():
         cfg['proxmox_host'] = _ph
     if 'proxmox_node' in body:
         cfg['proxmox_node'] = _sanitize_str(body['proxmox_node'], 64)
+    # 7.4.9: both go into an Authorization header (printable ASCII only); refuse what would later fail inside http.client
+    for _pk in ('proxmox_token_id', 'proxmox_token_secret'):
+        if body.get(_pk) and not _header_safe(body[_pk]):
+            respond(400, {'error': f'{_pk} may contain printable ASCII characters only'})
     if 'proxmox_token_id' in body:
         # e.g. root@pam!remotepower
         cfg['proxmox_token_id'] = _sanitize_str(body['proxmox_token_id'], 255)

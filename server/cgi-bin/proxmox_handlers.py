@@ -86,6 +86,11 @@ def handle_proxmox_test() -> None:
     cfg = A.load(A.CONFIG_FILE)
     pc = A.proxmox_client.config_from(cfg)
     body = A._read_valid(A.request_models.ProxmoxTestRequest)
+    # 7.4.9: the token id and secret go into an Authorization header, which carries printable ASCII only. A character outside it
+    # raised UnicodeEncodeError inside http.client and answered 500; say so instead.
+    for k in ('proxmox_token_id', 'proxmox_token_secret'):
+        if body.get(k) and not A._header_safe(body[k]):
+            A.respond(400, {'ok': False, 'error': f'{k} may contain printable ASCII characters only'}); return
     # Allow testing un-saved values straight from the form.
     for k in ('proxmox_host', 'proxmox_node', 'proxmox_token_id'):
         if body.get(k):
