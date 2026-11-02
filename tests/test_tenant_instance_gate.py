@@ -113,7 +113,7 @@ class TestPopulationIsDecided(unittest.TestCase):
 
 
 class _Base(unittest.TestCase):
-    STORES = ('CONFIG_FILE', 'USERS_FILE', 'TENANTS_FILE', 'AUDIT_LOG_FILE', 'TOKENS_FILE', 'SCHEDULE_FILE', 'ROLLOUTS_FILE',
+    STORES = ('CONFIG_FILE', 'USERS_FILE', 'TENANTS_FILE', 'AUDIT_LOG_FILE', 'TOKENS_FILE', 'SCHEDULE_FILE', 'ROLLOUTS_FILE', 'HISTORY_FILE', 'IMAGE_UPDATES_FILE',
               'CONFIG_REVS_FILE', 'DEVICES_FILE', 'ENROLL_TOKENS_FILE', 'PINS_FILE',
               'INBOUND_WEBHOOKS_FILE')
     FNS = ('respond', 'method', 'get_json_obj', 'get_json_body', 'audit_log',
@@ -524,6 +524,61 @@ class TestSchedulesAndRolloutsStayInTheTenant(_Base):
         self.assertEqual(len(d['rollouts']), 3)
         st, d = self.call(api.handle_schedule_list, m='GET')
         self.assertEqual(len(d), 2)
+
+
+class TestHistoryImagesAndWebhookLogsStayInTheTenant(_Base):
+    """The command history and the image-update view listed every tenant's hosts (7.4.9, authorization matrix F6), and the webhook
+    delivery log and dead letters, whose writes were already the platform operator's, could be read by a tenant administrator."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.HISTORY_FILE, {'entries': [
+            {'ts': 1, 'actor': 'u', 'device_id': 'devB', 'device_name': 'b1', 'command': 'reboot'},
+            {'ts': 2, 'actor': 'u', 'device_id': 'devC', 'device_name': 'c1', 'command': 'reboot'},
+            {'ts': 3, 'actor': 'schedule:ns', 'device_id': '', 'device_name': '', 'command': 'netscan:10.0.9.0/24'}]})
+        api.save(api.IMAGE_UPDATES_FILE, {})
+        api._image_update_view = lambda: [
+            {'device_id': 'devB', 'device_name': 'b1', 'container': 'nginx', 'update_available': True, 'checked': True, 'local': False, 'ignored': False},
+            {'device_id': 'devC', 'device_name': 'c1', 'container': 'redis', 'update_available': False, 'checked': True, 'local': False, 'ignored': False}]
+
+    def test_history_shows_only_the_callers_hosts_and_no_platform_job(self):
+        st, d = self.call(api.handle_history, m='GET')
+        rows = d if isinstance(d, list) else d.get('items') or d.get('entries') or d
+        self.assertEqual(sorted(e['device_id'] for e in rows), ['devB'])
+
+    def test_the_platform_operator_sees_the_whole_history(self):
+        st, d = self.call(api.handle_history, m='GET', who='platform')
+        rows = d if isinstance(d, list) else d.get('items') or d.get('entries') or d
+        self.assertEqual(len(rows), 3)
+
+    def test_image_updates_shows_only_the_callers_hosts(self):
+        st, d = self.call(api.handle_image_updates_get, m='GET')
+        self.assertEqual([r['device_id'] for r in d['images']], ['devB'])
+        self.assertEqual(d['summary']['total'], 1)
+
+    def test_the_platform_operator_and_a_single_tenant_install_see_all_images(self):
+        st, d = self.call(api.handle_image_updates_get, m='GET', who='platform')
+        self.assertEqual(len(d['images']), 2)
+        self.tenancy(False)
+        st, d = self.call(api.handle_image_updates_get, m='GET')
+        self.assertEqual(len(d['images']), 2)
+
+    def test_the_webhook_log_and_dead_letters_are_the_platform_operators_to_read(self):
+        for pi in ('/api/webhook/log', '/api/webhook/dlq'):
+            for m in ('GET', 'DELETE', 'POST'):
+                with self.subTest(pi=pi, m=m):
+                    self.assertEqual(self.gate(pi, m), 403)
+                    self.assertIsNone(self.gate(pi, m, who='platform'))
+
+    def gate(self, pi, m, who='badmin'):
+        self.who = who
+        api._LOAD_CACHE.clear()
+        self.cap.clear()
+        try:
+            api._enforce_platform_routes(pi, m)
+        except api.HTTPError:
+            pass
+        return self.cap.get('status')
 
 
 class TestEnrolmentLandsInTheRightTenant(_Base):

@@ -11177,8 +11177,8 @@ _PLATFORM_ROUTES = (
     ('/api/roles',                   _WRITE_METHODS, ()),
     ('/api/audit-log',               ('DELETE',),    ()),
     ('/api/history',                 ('DELETE',),    ()),
-    ('/api/webhook/log',             ('DELETE',),    ()),
-    ('/api/webhook/dlq',             _WRITE_METHODS, ()),
+    ('/api/webhook/log',             None,           ()),     # 7.4.9: reads too (host names of every tenant)
+    ('/api/webhook/dlq',             None,           ()),
     ('/api/cmdb/vault/setup',        _WRITE_METHODS, ()),
     ('/api/cmdb/vault/change',       _WRITE_METHODS, ()),
     ('/api/scan-targets',            None,           ()),
@@ -33201,7 +33201,13 @@ def handle_query_template_delete(tid):
 def handle_history():
     require_auth()
     history = load(HISTORY_FILE)
-    respond(200, _paginate_list(list(reversed(history.get('entries', [])))))
+    entries = history.get('entries', [])
+    visible = _confined_host_ids()
+    if visible is not None:
+        # 7.4.9: a confined caller (a tenant, or a role scoped to some hosts) sees the commands that ran on its own hosts. A row with
+        # no host is a fleet-level or platform job (a scheduled network scan, say) and is not theirs.
+        entries = [e for e in entries if isinstance(e, dict) and e.get('device_id') in visible]
+    respond(200, _paginate_list(list(reversed(entries))))
 
 
 def handle_history_clear():
@@ -37891,10 +37897,11 @@ def handle_slo():
     respond(200, _compute_slo())
 
 
-def _schedule_visible_ids():
-    """None when the caller is not confined (every job is theirs to see), else the set of host ids whose scheduled jobs the
-    caller may see. 7.4.9: the schedule list and the edit and delete handlers had no tenant or scope test at all, so a tenant
-    administrator listed, edited and deleted the jobs of another tenant's hosts."""
+def _confined_host_ids():
+    """None when the caller is not confined (every row is theirs to see), else the set of host ids whose rows the caller may see
+    (their role's scope and their tenant). 7.4.9: the schedule list, edit and delete, the command history and the image-update view
+    had no tenant or scope test at all, so a tenant administrator listed, edited and deleted the jobs of another tenant's hosts and
+    read their command history and container images."""
     if _caller_scope() is None and _tenant_gate() is None:
         return None
     return set(_scope_filter_devices(_load_ro(DEVICES_FILE) or {}))
@@ -37903,7 +37910,7 @@ def _schedule_visible_ids():
 def handle_schedule_list():
     require_auth()
     schedule = load(SCHEDULE_FILE)
-    visible = _schedule_visible_ids()
+    visible = _confined_host_ids()
     jobs = schedule.get('jobs', [])
     respond(200, jobs if visible is None else [j for j in jobs if isinstance(j, dict) and j.get('device_id') in visible])
 
@@ -38194,7 +38201,7 @@ def handle_schedule_update(job_id):
     with _LockedUpdate(SCHEDULE_FILE) as schedule:
         jobs = schedule.get('jobs', [])
         target = next((j for j in jobs if j.get('id') == job_id), None)
-        _vis = _schedule_visible_ids()
+        _vis = _confined_host_ids()
         if not target or (_vis is not None and target.get('device_id') not in _vis):
             respond(404, {'error': 'job not found'})
         target.update({
@@ -38218,7 +38225,7 @@ def handle_schedule_delete(job_id):
     require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
     if not _validate_id(job_id): respond(404, {'error': 'job not found'})
-    visible = _schedule_visible_ids()
+    visible = _confined_host_ids()
     with _LockedUpdate(SCHEDULE_FILE) as schedule:
         jobs = schedule.get('jobs', [])
         target = next((j for j in jobs if isinstance(j, dict) and j.get('id') == job_id), None)
@@ -65740,6 +65747,9 @@ def handle_image_updates_get():
     """GET /api/image-updates — fleet-wide container-image freshness view."""
     require_auth()
     rows = _image_update_view()
+    _vis = _confined_host_ids()
+    if _vis is not None:
+        rows = [r for r in rows if r.get('device_id') in _vis]       # 7.4.9: only the caller's own hosts' images
     cfg = load(CONFIG_FILE)
     store = load(IMAGE_UPDATES_FILE) or {}
     summary = {

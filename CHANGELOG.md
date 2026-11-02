@@ -126,6 +126,9 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   - `connected-to`, `depends-on` and an agentless host's `connected_to`, which took another tenant's host id and stored the
     link (alert holding and the reboot wave plan follow it) and told the caller which ids exist. A host outside the caller's
     view is now answered like one that does not exist, and the body-device guard test watches both keys.
+  - the command history and the container image view, which listed every tenant's hosts, commands and images (a row with no host,
+    a scheduled network scan for instance, is the platform's), and the webhook delivery log and dead letters, whose writes were
+    already the platform operator's and whose reads named every tenant's hosts. A tenant administrator now sees its own.
 - **A read-only role could rewrite a host's watched services and log-watch rules by changing the HTTP verb (High).** The
   endpoint `/api/devices/{id}/services/config` asked for the `services` permission only for POST. A PUT, PATCH or DELETE went
   to the code that stores the rules with no permission check, so a viewer, an auditor, a finance user, a read-only API key or a
