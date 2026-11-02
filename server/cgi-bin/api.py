@@ -22989,7 +22989,11 @@ def handle_heartbeat():
             outputs[dev_id] = []
         # Enforce per-entry output size cap
         raw_output = str(co.get('output', ''))[:MAX_CMD_OUT_BYTES]
-        cmd_display = _sanitize_str(co.get('cmd', ''), 512)
+        # 7.4.9: the agent echoes the whole queued command, and an ACME run's command starts with the DNS provider's
+        # credentials (`export CF_Token='...' && acme.sh ...`). They are removed BEFORE the 512-character cap: a cap
+        # that cuts inside a value leaves a quote the scrubber's pattern needs, so it would keep that part of the secret.
+        # The stored history is readable by every signed-in role.
+        cmd_display = _sanitize_str(_scrub_acme_credentials(str(co.get('cmd', ''))), 512)
         # v3.0.1: ACME command tagging. The server prefixes acme commands
         # with "#acme:<action_id>#" so we can route output to the log file
         # without polluting the generic cmd_output history with multi-KB
@@ -23032,7 +23036,7 @@ def handle_heartbeat():
                 sys.stderr.write(f"[remotepower] mitigate log capture failed dev={dev_id}: {e}\n")
         if acme_match:
             action_id = acme_match.group(1)
-            cmd_display = _sanitize_str(acme_match.group(2), 512)
+            cmd_display = _sanitize_str(_scrub_acme_credentials(acme_match.group(2)), 512)
             try:
                 ACME_LOGS_DIR.mkdir(parents=True, exist_ok=True)
                 log_path = _acme_log_path(dev_id, action_id)
@@ -23081,6 +23085,11 @@ def handle_heartbeat():
             'rc':     int(co['rc']) if isinstance(co.get('rc'), int) else -1,
         })
         outputs[dev_id] = outputs[dev_id][-MAX_CMD_OUTPUT:]
+        # 7.4.9: rows an earlier release stored with an ACME DNS credential in the command are cleaned the next time this
+        # host reports a result (at most MAX_CMD_OUTPUT short strings, and only rows that contain an `export`).
+        for _row in outputs[dev_id]:
+            if isinstance(_row, dict) and isinstance(_row.get('cmd'), str) and 'export ' in _row['cmd']:
+                _row['cmd'] = _scrub_acme_credentials(_row['cmd'])
         if _cob is not None:
             _cob.entity_set(CMD_OUTPUT_FILE, dev_id, outputs[dev_id])
             _invalidate_load_cache(CMD_OUTPUT_FILE)
@@ -38306,7 +38315,11 @@ def handle_cmd_output(dev_id):
     require_auth()
     if not _validate_id(dev_id): respond(404, {'error': 'Host not found'})
     outputs = load(CMD_OUTPUT_FILE)
-    respond(200, {'outputs': outputs.get(dev_id, [])})
+    # 7.4.9: a row stored by an earlier release can still carry an ACME DNS credential in its command; it is removed on the
+    # way out, whoever reads. New rows are scrubbed when they are written.
+    rows = [dict(r, cmd=_scrub_acme_credentials(r['cmd'])) if isinstance(r, dict) and isinstance(r.get('cmd'), str) else r
+            for r in outputs.get(dev_id, [])]
+    respond(200, {'outputs': rows})
 
 
 def handle_device_update_logs(dev_id: str) -> None:

@@ -83,6 +83,15 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   says `close` for everything else. The installers and the deploy script replace an older copy of the map file, so an
   upgraded install gets it too. Run through a real nginx on both shipped location snippets: 32 failures with the old map,
   none with the new one.
+- **A DNS provider token no longer reaches the command-output history.** When ACME uses the DNS credentials saved in
+  Settings, the command queued for the host starts with them (`export CF_Token='…' && acme.sh …`). The agent echoes the
+  whole command back with its result, and the server stored the echo in the host's command-output history, which every
+  signed-in role can read through `GET /api/devices/{id}/output`. A viewer could read the token. The Command Queue page
+  already hid it; this store did not. The credentials are now removed before the command is stored, and before the
+  512-character cap, because a cap that cuts inside a value would have kept part of it. Rows an earlier release stored are
+  cleaned when the history is read and the next time the host reports a result. **If you used ACME with a saved DNS
+  credential before 7.4.9, rotate that token**: a row stored earlier can also sit in a backup. The documentation
+  cross-check found this.
 
 ### Components
 
