@@ -670,6 +670,44 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
             f'opacity declaration double-dimming text that was already '
             f'muted.\n' + '\n'.join(self.detail))
 
+    def test_populated_settings_panes(self):
+        """7.4.9: the empty-install walk of the Settings panes cannot see a control that only exists once there is something to
+        configure. An integration card has a name, a URL, its connector's own fields, a host and a site; each sat in a
+        `form-group` whose label named nothing, so 57 inputs and selects on Settings > Integrations, Virtualization and Notifications
+        (and the poll interval of the DNS card) were announced without a name. The matrix of alert routes had 332 checkboxes
+        in the same state. A pane is `display:none` until its tab is clicked and axe skips such a subtree, so each is opened."""
+        import re as _re
+        from pathlib import Path as _P
+        html = (_P(__file__).parent.parent / 'server/html/index.html').read_text()
+        panes = []
+        for m in _re.finditer(r'class="settings-tab[^"]*"[^>]*data-tab="([a-z0-9-]+)"', html):
+            if m.group(1) not in panes:
+                panes.append(m.group(1))
+        self.assertGreater(len(panes), 8, 'settings tabs not discovered')
+        page = self.browser.new_page()
+        totals, seen_cards = {}, 0
+        try:
+            page.goto(self.base + '/index.html')
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(6000)
+            page.evaluate("showPage('settings')")
+            page.wait_for_selector('#page-settings.active', timeout=15000)
+            for pane in panes:
+                page.evaluate("p => switchSettingsTab(p)", pane)
+                page.wait_for_timeout(700)
+                seen_cards += page.evaluate("() => document.querySelectorAll('.integration-card').length")
+                for v in (_run_axe(page, self.axe, _AXE_OPTIONS).get('violations') or []):
+                    if v.get('impact') not in _SERIOUS_IMPACTS or v['id'] == 'color-contrast':
+                        continue
+                    totals[v['id']] = totals.get(v['id'], 0) + len(v.get('nodes') or [])
+        finally:
+            page.close()
+        self.assertGreater(seen_cards, 5, 'the seeded instance showed no integration cards: this walk measured nothing')
+        self.assertEqual(totals, {}, f'critical/serious violations in the Settings panes of a populated instance: {totals}')
+
     def test_the_device_drawer(self):
         """v6.4.3: the drawer had NEVER been audited by anything.
 

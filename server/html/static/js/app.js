@@ -14485,15 +14485,15 @@ function _integrationCardHtml(it, idx) {
       // v7.4.3 (#46): a field of several lines (the Prometheus connectors' values) takes the whole row.
       if (f.kind === 'textarea') {
         return `<div class="form-group form-group-wide">
-          <label class="form-label">${escHtml(f.label)}${f.optional ? ' <span class="hint">(optional)</span>' : ''}</label>
+          <label class="form-label" for="integ-${idx}-${escAttr(f.key)}">${escHtml(f.label)}${f.optional ? ' <span class="hint">(optional)</span>' : ''}</label>
           <textarea class="form-input ff-mono fs-12" rows="4" spellcheck="false" autocapitalize="off" autocomplete="off"
-                    data-ifield="${escAttr(f.key)}" placeholder="${ph}">${escHtml(it[f.key] || '')}</textarea>
+                    id="integ-${idx}-${escAttr(f.key)}" data-ifield="${escAttr(f.key)}" placeholder="${ph}">${escHtml(it[f.key] || '')}</textarea>
         </div>`;
       }
       return `<div class="form-group">
-          <label class="form-label">${escHtml(f.label)}${f.optional ? ' <span class="hint">(optional)</span>' : ''}</label>
+          <label class="form-label" for="integ-${idx}-${escAttr(f.key)}">${escHtml(f.label)}${f.optional ? ' <span class="hint">(optional)</span>' : ''}</label>
           <input type="${f.kind === 'password' ? 'password' : 'text'}" class="form-input" autocomplete="off"
-                 data-ifield="${escAttr(f.key)}" value="${val}" placeholder="${ph}">
+                 id="integ-${idx}-${escAttr(f.key)}" data-ifield="${escAttr(f.key)}" value="${val}" placeholder="${ph}">
         </div>`;
     }).join('');
     const st = it.last_status || 'unknown';
@@ -14510,10 +14510,10 @@ function _integrationCardHtml(it, idx) {
       </div>
       ${note}
       <div class="settings-row">
-        <div class="form-group"><label class="form-label">Name</label>
-          <input type="text" class="form-input" data-ifield="label" value="${escAttr(it.label || '')}"></div>
-        <div class="form-group"><label class="form-label">URL</label>
-          <input type="url" class="form-input mw-260" data-ifield="url" value="${escAttr(it.url || '')}" placeholder="https://service.lan:port"></div>
+        <div class="form-group"><label class="form-label" for="integ-${idx}-label">Name</label>
+          <input type="text" class="form-input" id="integ-${idx}-label" data-ifield="label" value="${escAttr(it.label || '')}"></div>
+        <div class="form-group"><label class="form-label" for="integ-${idx}-url">URL</label>
+          <input type="url" class="form-input mw-260" id="integ-${idx}-url" data-ifield="url" value="${escAttr(it.url || '')}" placeholder="https://service.lan:port"></div>
       </div>
       <div class="settings-row">${fields}</div>
       ${_integrationBindHtml(it, idx)}
@@ -14603,10 +14603,10 @@ function _integrationBindHtml(it, idx) {
     .map(d => (d.site || '').trim()).filter(Boolean))).sort();
   const dl = `integ-sites-${idx}`;
   return `<div class="settings-row">
-        <div class="form-group"><label class="form-label">Runs on host <span class="hint">(optional)</span></label>
-          <select class="form-input" data-ifield="device_id">${opts.join('')}</select></div>
-        <div class="form-group"><label class="form-label">Site <span class="hint">(optional)</span></label>
-          <input type="text" class="form-input" data-ifield="site" list="${dl}" autocomplete="off"
+        <div class="form-group"><label class="form-label" for="integ-${idx}-device_id">Runs on host <span class="hint">(optional)</span></label>
+          <select class="form-input" id="integ-${idx}-device_id" data-ifield="device_id">${opts.join('')}</select></div>
+        <div class="form-group"><label class="form-label" for="integ-${idx}-site">Site <span class="hint">(optional)</span></label>
+          <input type="text" class="form-input" id="integ-${idx}-site" data-ifield="site" list="${dl}" autocomplete="off"
                  value="${escAttr(it.site || '')}" placeholder="e.g. hq, dc1">
           <datalist id="${dl}">${sites.map(s => `<option value="${escAttr(s)}"></option>`).join('')}</datalist></div>
       </div>
@@ -14967,6 +14967,7 @@ function _dnsControlRow(item, dnsCtl) {
 
   const sel = document.createElement('select');
   sel.className = 'form-input';
+  sel.setAttribute('aria-label', 'Duration');   // 7.4.9: a select with no name is announced as "combo box"
   _DNS_WINDOWS.filter(([s]) => s <= max).forEach(([s, label]) => {
     sel.appendChild(new Option(label, String(s)));   // new Option — CodeQL-clean
   });
@@ -32424,7 +32425,7 @@ function renderWebhookDests() {
           <button class="btn-icon isl-740 c-danger-outline" title="Remove" data-action="removeWebhookDest" data-arg="${idx}">${_icon('trash',14)}</button>
         </div>
         <div class="isl-741">
-          <select data-field="format" class="form-input isl-742" data-change="updateWebhookDest" data-change-arg="${idx}">${fmtOpts}</select>
+          <select data-field="format" class="form-input isl-742" aria-label="Format" data-change="updateWebhookDest" data-change-arg="${idx}">${fmtOpts}</select>
           <input type="url" data-field="url" class="form-input input-url-dest" placeholder="${escAttr(_WEBHOOK_FORMATS.find(f => f[0]===d.format)?.[2] || 'https://...')}" value="${escAttr(d.url || '')}">
         </div>
         ${isPushover ? `
