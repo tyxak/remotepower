@@ -500,16 +500,17 @@ def generate_metrics(ctx: dict) -> str:
     # dashboards / burn-rate alerts).
     slo = ctx.get('slo')
     if isinstance(slo, dict):
-        lines.append('# HELP remotepower_slo_target_percent Configured availability SLO target.')
-        lines.append('# TYPE remotepower_slo_target_percent gauge')
-        lines.append(f'remotepower_slo_target_percent {float(slo.get("target") or 0)}')
+        _target = _num(slo.get('target') or 0)
+        if _target is not None:
+            lines.append('# HELP remotepower_slo_target_percent Configured availability SLO target.')
+            lines.append('# TYPE remotepower_slo_target_percent gauge')
+            lines.append(f'remotepower_slo_target_percent {_target}')
         mons = slo.get('monitors') or []
         if mons:
             lines.append('# HELP remotepower_monitor_availability_percent Monitor availability over the recent check window.')
             lines.append('# TYPE remotepower_monitor_availability_percent gauge')
             for m in mons:
-                lines.append(_metric('remotepower_monitor_availability_percent',
-                                     {'label': str(m.get('label', ''))}, float(m.get('availability') or 0)))
+                _slo_sample(lines, 'remotepower_monitor_availability_percent', {'label': str(m.get('label', ''))}, m.get('availability'))
         # v6.4.2: monitors whose check window is too coarse to resolve the SLO
         # target are skipped — the budget there is binary (100 or 0), so the
         # gauge would flip a service that was up 99.67% straight to "budget
@@ -519,13 +520,11 @@ def generate_metrics(ctx: dict) -> str:
             lines.append('# HELP remotepower_monitor_slo_budget_remaining_percent Error budget remaining for the monitor (omitted while the check window is too short to resolve the target).')
             lines.append('# TYPE remotepower_monitor_slo_budget_remaining_percent gauge')
             for m in budget_mons:
-                lines.append(_metric('remotepower_monitor_slo_budget_remaining_percent',
-                                     {'label': str(m.get('label', ''))}, float(m.get('budget_remaining_pct') or 0)))
+                _slo_sample(lines, 'remotepower_monitor_slo_budget_remaining_percent', {'label': str(m.get('label', ''))}, m.get('budget_remaining_pct'))
             lines.append('# HELP remotepower_monitor_slo_burn_rate Error-budget burn rate (>1 = over budget).')
             lines.append('# TYPE remotepower_monitor_slo_burn_rate gauge')
             for m in budget_mons:
-                lines.append(_metric('remotepower_monitor_slo_burn_rate',
-                                     {'label': str(m.get('label', ''))}, float(m.get('burn_rate') or 0)))
+                _slo_sample(lines, 'remotepower_monitor_slo_burn_rate', {'label': str(m.get('label', ''))}, m.get('burn_rate'))
         # v6.4.0: named SLA/SLO objects (monitor attachments, per-object window).
         # Objects with no measured checks yet are skipped — a 0 would read as a
         # hard breach on a freshly-created object.
@@ -535,21 +534,18 @@ def generate_metrics(ctx: dict) -> str:
             lines.append('# HELP remotepower_slo_object_target_percent Availability target of the SLA/SLO object.')
             lines.append('# TYPE remotepower_slo_object_target_percent gauge')
             for o in slo_objs:
-                lines.append(_metric('remotepower_slo_object_target_percent',
-                                     {'name': str(o.get('name', ''))}, float(o.get('target') or 0)))
+                _slo_sample(lines, 'remotepower_slo_object_target_percent', {'name': str(o.get('name', ''))}, o.get('target'))
             lines.append('# HELP remotepower_slo_object_availability_percent Check-weighted availability of the attached monitors over the object window.')
             lines.append('# TYPE remotepower_slo_object_availability_percent gauge')
             for o in slo_objs:
-                lines.append(_metric('remotepower_slo_object_availability_percent',
-                                     {'name': str(o.get('name', ''))}, float(o.get('availability') or 0)))
+                _slo_sample(lines, 'remotepower_slo_object_availability_percent', {'name': str(o.get('name', ''))}, o.get('availability'))
             # v6.4.2: same unmeasurable-window skip as the per-monitor budget.
             budget_objs = [o for o in slo_objs if o.get('budget_measurable') is not False]
             if budget_objs:
                 lines.append('# HELP remotepower_slo_object_budget_remaining_percent Error budget remaining for the SLA/SLO object (omitted while the window holds too few checks to resolve the target).')
                 lines.append('# TYPE remotepower_slo_object_budget_remaining_percent gauge')
                 for o in budget_objs:
-                    lines.append(_metric('remotepower_slo_object_budget_remaining_percent',
-                                         {'name': str(o.get('name', ''))}, float(o.get('budget_remaining_pct') or 0)))
+                    _slo_sample(lines, 'remotepower_slo_object_budget_remaining_percent', {'name': str(o.get('name', ''))}, o.get('budget_remaining_pct'))
 
     # v5.4.1 (G3): observed control-plane availability over rolling windows.
     # A gap is downtime OR a quiet hour with zero traffic (see the API note).
@@ -561,8 +557,7 @@ def generate_metrics(ctx: dict) -> str:
             lines.append('# TYPE remotepower_control_plane_uptime_percent gauge')
             for label, w in sorted(wins.items()):
                 if isinstance(w, dict):
-                    lines.append(_metric('remotepower_control_plane_uptime_percent',
-                                         {'window': str(label)}, float(w.get('percent') or 0)))
+                    _slo_sample(lines, 'remotepower_control_plane_uptime_percent', {'window': str(label)}, w.get('percent'))
 
     # ── v6.4.2: hardware telemetry (temperature / SMART / UPS) ─────────────────
     # These have driven the product's own alerts, drawers and risk score since
@@ -713,6 +708,15 @@ def _num(value):
     except (TypeError, ValueError, OverflowError):
         return None
     return f if math.isfinite(f) else None
+
+
+def _slo_sample(lines, name, labels, raw):
+    """One sample of the SLO block. A missing value is 0, as it always was. A value that is not a usable number (a word, a
+    list, NaN, an integer too big for a float) leaves the sample out, as in every other family: the SLO store is hand-editable
+    JSON too, and one bad record must not fail the whole scrape."""
+    value = _num(raw or 0)
+    if value is not None:
+        lines.append(_metric(name, labels, value))
 
 
 def _as_items(store):

@@ -22,6 +22,13 @@ What the reporters of #54 and Discussion #30 asked for after 7.4.8.
   settings said. It now uses the same verdict as the Thermal page: a drive's own lines, the lines of the disk a
   `drivetemp` sensor reads, and the fleet's hot and critical temperatures for every other sensor.
 
+### Prometheus
+
+- **A junk number in the SLO store no longer fails the scrape.** The SLO families converted their stored numbers with a
+  bare `float()`, so a hand-edited or imported SLO store with a word, a list or an integer too big for a float in one field
+  made the whole `/metrics` request raise. Such a sample is left out now, like a junk value in every other family, and a
+  missing value is still a 0. This is the part of the 7.4.8 float() finding that was listed and not fixed.
+
 ### Patching
 
 - **An upgrade mode for each host: Standard or Extended (Discussion #30).** `apt-get upgrade` keeps back an update that
