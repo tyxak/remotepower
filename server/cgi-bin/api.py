@@ -35062,7 +35062,11 @@ if [ -n "$CA_FP" ]; then
   got="$(openssl x509 -in "$_tmp_ca" -noout -fingerprint -sha256 | sed 's/^.*=//;s/://g' | tr 'A-F' 'a-f')"
   want="$(printf '%s' "$CA_FP" | sed 's/^.*=//;s/://g' | tr 'A-F' 'a-f')"
   [ "$got" = "$want" ] || { rm -f "$_tmp_ca"; die "CA fingerprint mismatch, refusing. The server's CA is $got"; }
-  cp "$_tmp_ca" "$CONF/ca.crt"; chmod 644 "$CONF/ca.crt"; rm -f "$_tmp_ca"
+  # Install exactly the certificate that was checked: `openssl x509` reads the first certificate in a file and ignores the
+  # rest, so copying the file would trust a second certificate that nothing verified.
+  openssl x509 -in "$_tmp_ca" -out "$CONF/ca.crt" 2>/dev/null && [ -s "$CONF/ca.crt" ] \
+    || { rm -f "$_tmp_ca" "$CONF/ca.crt"; die "could not extract the verified certificate from $RP_SERVER/ca.crt"; }
+  chmod 644 "$CONF/ca.crt"; rm -f "$_tmp_ca"
   CA_FILE="$CONF/ca.crt"
   echo "RP_CA_BUNDLE=/etc/remotepower/ca.crt" > "$CONF/agent.env"
   echo "[+] CA fingerprint verified"
@@ -71315,16 +71319,25 @@ def handle_services_config(dev_id):
     GET/POST /api/devices/{id}/services/config
     Manages services_watched list on the device record.
     """
-    actor = require_perm('services', [dev_id]) if method() == 'POST' else None  # v3.12.0 RBAC
-    if not actor:
+    # v3.12.0 RBAC for POST. 7.4.9: the permission was asked for POST only, so PUT, PATCH and DELETE reached the write below
+    # with a bare require_auth(), and a viewer, an auditor or a read-only key could replace a host's watched services and its
+    # log-watch rules (which include file-tail rules) and could empty them. Only GET and POST are routes of this endpoint.
+    _m = method()
+    if _m == 'GET':
+        actor = None
         require_auth()
+    elif _m == 'POST':
+        actor = require_perm('services', [dev_id])
+    else:
+        require_auth()
+        respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Host not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Host not found'})
 
-    if method() == 'GET':
+    if _m == 'GET':
         respond(200, {
             'services_watched': devices[dev_id].get('services_watched', []),
             'log_watch':        devices[dev_id].get('log_watch', []),
