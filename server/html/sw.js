@@ -93,6 +93,19 @@ self.addEventListener('activate', (event) => {
 });
 
 // ── Fetch: routing logic ──────────────────────────────────────────────────────
+// 7.4.9: what the shell cache may keep. It holds the page and its scripts, styles and images. A URL that carries a query string
+// (`/install?t=<enrolment token>`, `/status.html?token=<share token>`) puts that secret into Cache Storage, where it stays after the
+// tab is closed, and a response marked `no-store` asked not to be kept. The versioned assets (`app.js?v=<hash>`) carry a version in
+// the query, so those are kept: a query that is only a version is the one exception.
+function _worthCaching(request, response) {
+  if (!response || response.status !== 200 || response.type === 'error') return false;
+  const cc = (response.headers && response.headers.get('Cache-Control')) || '';
+  if (/no-store/i.test(cc)) return false;
+  const url = new URL(request.url);
+  if (url.search && !/^\?v=[A-Za-z0-9._-]+$/.test(url.search)) return false;
+  return true;
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -135,7 +148,7 @@ self.addEventListener('fetch', (event) => {
       Promise.resolve(event.preloadResponse)
         .then((preloaded) => preloaded || fetch(request))
         .then((response) => {
-          if (response && response.status === 200) {
+          if (_worthCaching(request, response)) {
             const toCache = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, toCache));
           }
@@ -158,7 +171,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(request).then((cached) => {
       const network = fetch(request).then((response) => {
-        if (response && response.status === 200 && response.type !== 'error') {
+        if (_worthCaching(request, response)) {
           const toCache = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, toCache));
         }

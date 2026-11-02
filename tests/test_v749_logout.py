@@ -130,7 +130,8 @@ class TestThePageCallsIt(unittest.TestCase):
         self.assertIn(".finally(", self.body)
 
     def test_what_the_browser_kept_of_the_fleet_is_dropped(self):
-        for key in ("rp_stat_hist", "rp_recent_devices", "rp_favorites", "rp_fleet_queries", "rp_draft_"):
+        for key in ("rp_stat_hist", "rp_recent_devices", "rp_favorites", "rp_fleet_queries", "rp_draft_", "rp.ai.conv",
+                    "rp_iac_last_device", "rp_iac_instructions", "rp_metric_explorer_v1", "rp_activity_cleared"):
             with self.subTest(key=key):
                 self.assertIn(key, self.body)
 

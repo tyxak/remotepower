@@ -615,7 +615,7 @@ function _alertRowHtml(a, role) {
       ? ' <span class="chk-pill chk-critical" title="The last report from the host still shows this problem">Still failing</span>'
       : (a.problem_state === 'waiting_for_report'
         ? ' <span class="chk-pill chk-warning" title="The host has not reported since this was resolved">Waiting for the host</span>' : '');
-    actions = `<span class="c-muted">resolved by ${byWho}</span>${stillFailing} `
+    actions = `<span class="c-muted">resolved by <span data-no-i18n>${byWho}</span></span>${stillFailing} `
       + `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
   }
   // A point-in-time alert records something that HAPPENED — nothing will ever

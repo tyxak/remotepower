@@ -93,7 +93,7 @@
   <div id="demo-banner" class="isl-4">
     <strong>Demo mode</strong> — this is a read-only sandbox with fake data.
     Browse anything. Nothing here can be modified.
-    <a href="https://github.com/tyxak/remotepower" target="_blank" class="isl-5">Run your own →</a>
+    <a href="https://github.com/tyxak/remotepower" target="_blank" rel="noopener noreferrer" class="isl-5">Run your own →</a>
   </div>
   <header>
     <div class="header-inner">
@@ -5080,7 +5080,7 @@
           <details class="doc-card" data-keywords="api openapi swagger token rest curl integration">
             <summary><strong>API access</strong> — automation and integrations</summary>
             <div class="doc-body">
-              <p>Every dashboard action has an underlying API endpoint. Browse the full schema at <a href="/swagger.html" target="_blank" class="c-accent">/swagger.html</a> (also linked from the sidebar as "API Reference").</p>
+              <p>Every dashboard action has an underlying API endpoint. Browse the full schema at <a href="/swagger.html" target="_blank" rel="noopener noreferrer" class="c-accent">/swagger.html</a> (also linked from the sidebar as "API Reference").</p>
               <p><strong>Auth:</strong> two methods. Session tokens (login flow, time-limited) for short-lived scripts. Named API keys (Admin → API Keys → "New key") for CI / cron / Ansible — these don't expire. Pass via <code>X-Token: &lt;token&gt;</code> header.</p>
               <p><strong>Common patterns:</strong></p>
               <pre><code># List devices
@@ -5277,7 +5277,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="cve vulnerability osv security findings ignore">
             <summary><strong>CVEs page</strong> — known vulnerabilities in installed packages</summary>
             <div class="doc-body">
-              <p>Cross-references each agent's installed-package list against <a href="https://osv.dev" target="_blank" class="c-accent">OSV.dev</a> on a schedule (default daily). Findings are severity-ranked and grouped by host.</p>
+              <p>Cross-references each agent's installed-package list against <a href="https://osv.dev" target="_blank" rel="noopener noreferrer" class="c-accent">OSV.dev</a> on a schedule (default daily). Findings are severity-ranked and grouped by host.</p>
               <p>Each finding shows: CVE ID, severity (CRITICAL / HIGH / MEDIUM / LOW), affected package + installed version, fixed version (if any), summary, references. Click for the full OSV record.</p>
               <p><strong>Ignore list:</strong> known false positives or accepted risk can be ignored per CVE-ID + per-package combo. Ignored findings disappear from the active view but stay in audit history. The "Show ignored" toggle reveals them.</p>
               <p><strong>cve_found webhook:</strong> fires when new CVEs appear that aren't on the ignore list. Useful for plugging into the team's incident channel.</p>
@@ -5554,7 +5554,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="cve scan packages send list osv vulnerability">
             <summary><strong>CVE Findings</strong> — package vulnerability scanning</summary>
             <div class="doc-body">
-              <p>RemotePower checks installed packages against <a href="https://osv.dev" target="_blank">OSV.dev</a>. The dashboard tile always shows <strong>Critical CVEs</strong> first with the count, and high/med/low counts in the subtitle.</p>
+              <p>RemotePower checks installed packages against <a href="https://osv.dev" target="_blank" rel="noopener noreferrer">OSV.dev</a>. The dashboard tile always shows <strong>Critical CVEs</strong> first with the count, and high/med/low counts in the subtitle.</p>
               <p><strong>Scan all hosts</strong> — runs OSV lookups for every host that has submitted a package list. Can take a minute for large fleets. Button shows progress and result.</p>
               <p><strong>Send list</strong> (per-host) — asks the agent to send its full installed package list on the next heartbeat (~60 seconds). The CVE scanner then runs automatically. Use this after installing new packages before the agent's next scheduled scan.</p>
               <p><strong>Scan</strong> (per-host) — re-runs the OSV lookup using the already-stored package list. No need to wait for the agent.</p>
@@ -6655,7 +6655,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">About</div><div class="page-subtitle">RemotePower — self-hosted host management</div>
         <p class="hint">Every page links to its own guide. The full index lives in <a href="docs/README.md" class="c-accent">Documentation</a>.</p>
         <div class="settings-section isl-124"><div class="isl-125"><img src="static/img/logo-square.png" alt="RemotePower" class="isl-126"><div><div class="isl-127">RemotePower</div><div class="isl-100">Server version: <span id="about-server-version">—</span></div></div></div>
-        <table class="isl-128"><tr><td class="isl-129">Agent version</td><td id="about-agent-version">—</td></tr><tr><td class="isl-130">GitHub</td><td><a href="https://github.com/tyxak/remotepower" target="_blank" class="c-accent">github.com/tyxak/remotepower</a></td></tr><tr><td class="isl-130">License</td><td>MIT</td></tr><tr><td class="isl-130">Latest release</td><td><span id="about-latest-version" class="ff-mono">checking…</span></td></tr><tr><td class="isl-130">Report a bug</td><td><button class="btn-icon" data-action="reportIssue" title="Open a prefilled GitHub issue — auto-fills app version, browser and recent errors. No credentials, no fleet data."><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><use href="#ic-a89f0a79"/></svg> Report an issue</button></td></tr></table>
+        <table class="isl-128"><tr><td class="isl-129">Agent version</td><td id="about-agent-version">—</td></tr><tr><td class="isl-130">GitHub</td><td><a href="https://github.com/tyxak/remotepower" target="_blank" rel="noopener noreferrer" class="c-accent">github.com/tyxak/remotepower</a></td></tr><tr><td class="isl-130">License</td><td>MIT</td></tr><tr><td class="isl-130">Latest release</td><td><span id="about-latest-version" class="ff-mono">checking…</span></td></tr><tr><td class="isl-130">Report a bug</td><td><button class="btn-icon" data-action="reportIssue" title="Open a prefilled GitHub issue — auto-fills app version, browser and recent errors. No credentials, no fleet data."><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><use href="#ic-a89f0a79"/></svg> Report an issue</button></td></tr></table>
         <p class="isl-131">A self-hosted fleet manager for Linux, Windows and macOS — far more than remote control. Real-time monitoring, metrics and forecasting; security posture (CVE/KEV scanning, patch management, config-drift, CIS/compliance, firewall &amp; fail2ban, AV/rootkit, IP-reputation/DMARC); an AI assistant grounded in your own fleet (RAG) with per-subject advisors and a searchable knowledge base; a built-in helpdesk (tickets, SLAs, email threading) plus time-tracking &amp; billing; DNS management, homelab integrations and a WireGuard access VPN; virtualization control across Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift; infrastructure provisioning with server-side Terraform, Ansible and cloud-init; staged rollouts, alerting with escalation and per-host tuning, audit &amp; governance, optional hard multi-tenancy — and of course full remote control: shutdown, reboot, Wake-on-LAN, scheduled commands, custom scripts and agent self-update.<br><br>No inbound firewall rules on clients — agents poll the server over HTTPS. Runs on Nginx + Python (gunicorn + Flask); a single install provisions PostgreSQL, an out-of-band scheduler and a scanner satellite by default, with a lighter flat-JSON/SQLite backend available for constrained or dev installs. Deploy from source or the official multi-arch Docker image. No Node.js, no build step.</p></div>
         <div class="settings-section dyk-card" id="about-tip-card">
           <div class="dyk-header">
@@ -7553,7 +7553,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <div id="page-cve" class="page">
         <div class="page-title">CVE Findings</div>
-        <div class="page-subtitle">Package vulnerabilities per host, via <a href="https://osv.dev" target="_blank" class="c-accent">OSV.dev</a> — scan checks installed packages against known CVEs. <a href="docs/cve.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Package vulnerabilities per host, via <a href="https://osv.dev" target="_blank" rel="noopener noreferrer" class="c-accent">OSV.dev</a> — scan checks installed packages against known CVEs. <a href="docs/cve.md" class="c-accent">Documentation</a></div>
         <div class="toolbar-mb24">
           <button class="btn-icon" data-action="loadCVEReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <button class="btn-icon" data-action="openCveExposure" title="Rank hosts by real exploitability: critical CVEs weighted by whether the host has world-reachable ports"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg> Exposure priority</button>

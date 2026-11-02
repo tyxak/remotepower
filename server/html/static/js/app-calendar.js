@@ -476,6 +476,8 @@ async function loadPublicInfo() {
       const btn = document.getElementById('login-saml-btn');
       if (btn) btn.classList.remove('d-none');
     }
+    // 7.4.9: an IdP-initiated SAML sign-in starts outside this page, so it is accepted only where the server allows it.
+    try { localStorage.setItem('rp_saml_unsolicited', info.saml_unsolicited ? '1' : '0'); } catch (_) { /* private mode */ }
     // v4.2.0 sweep: reveal the passkey button only when the server actually
     // supports it (library installed + feature on) — it used to render
     // unconditionally and clicking just produced a 503/403 toast.
@@ -489,15 +491,49 @@ async function loadPublicInfo() {
 // v3.2.0 (B3): pick up an OIDC redirect carrying a fresh session token in the
 // URL hash. Hash fragments never reach the server (no log exposure), the SPA
 // parses them on load and treats them like a normal post-login state.
+//
+// 7.4.9: the token is taken only when this tab started the sign-in. A link such as
+// `/#oidc_token=<someone else's token>` signed the browser into that session with no
+// check at all (a login CSRF: what the victim then does is done in the attacker's
+// account), and an attacker can also have their own IdP response delivered to a
+// victim's browser. The Sign in with SSO / SAML buttons mark the tab before they leave
+// for the IdP; the mark is single-use and lasts fifteen minutes. An IdP-initiated SAML
+// sign-in has no such start, so the login page remembers when the server allows it.
+(function () {
+  document.addEventListener('click', function (e) {
+    const t = e.target;
+    if (t && t.closest && t.closest('#login-oidc-btn, #login-saml-btn')) {
+      try { sessionStorage.setItem('rp_sso_pending', String(Date.now())); } catch (_) { /* private mode */ }
+    }
+  }, true);
+})();
+
+function _ssoStartedHere() {
+  let started = 0;
+  try {
+    started = parseInt(sessionStorage.getItem('rp_sso_pending') || '0', 10) || 0;
+    sessionStorage.removeItem('rp_sso_pending');
+  } catch (_) { /* private mode */ }
+  return started > 0 && (Date.now() - started) < 15 * 60 * 1000;
+}
+
 function _consumeOidcHashToken() {
   // v4.2.0 (B1): SAML SSO uses the same hash-token delivery (saml_token=…).
   if (!location.hash ||
       (location.hash.indexOf('oidc_token=') < 0 &&
        location.hash.indexOf('saml_token=') < 0)) return;
   const params = new URLSearchParams(location.hash.slice(1));
+  const isSaml = !params.get('oidc_token') && !!params.get('saml_token');
   const token = params.get('oidc_token') || params.get('saml_token');
   const username = params.get('username') || '';
   if (!token) return;
+  let unsolicitedOk = false;
+  try { unsolicitedOk = isSaml && localStorage.getItem('rp_saml_unsolicited') === '1'; } catch (_) { /* private mode */ }
+  if (!_ssoStartedHere() && !unsolicitedOk) {
+    // Not this tab's sign-in: drop the token without using it, and say so on the login page.
+    location.replace(location.pathname + '?oidc_error=' + encodeURIComponent('the sign-in was not started in this browser tab. Use the Sign in with SSO button.'));
+    return;
+  }
   try {
     localStorage.setItem('rp_token', token);
     // v4.2.0 sweep: the app reads `rp_me` everywhere (the "(you)" marker,

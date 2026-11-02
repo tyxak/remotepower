@@ -119,6 +119,9 @@ class TestTheCard(unittest.TestCase):
         page = _STACK["page"]
         page.route("**/api/devices/*/snmp/deep", lambda route: route.fulfill(
             status=200, content_type="application/json", body=json.dumps(answer)))
+        # the drawer asks the host's SNMP settings first and skips the deep read when polling is off (7.4.9)
+        page.route("**/api/devices/*/snmp", lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps({"config": {"enabled": True}, "data": {}, "traps": []})))
         try:
             dev = page.evaluate("async () => { const d = await api('GET', '/devices'); return d[0]; }")
             page.evaluate("([id, name]) => openDeviceDrawer(id, name, 'audit')", [dev["id"], dev["name"]])
@@ -142,6 +145,7 @@ class TestTheCard(unittest.TestCase):
         finally:
             page.evaluate("() => closeDeviceDrawer()")
             page.unroute("**/api/devices/*/snmp/deep")
+            page.unroute("**/api/devices/*/snmp")
 
     def test_the_reporters_firewall(self):
         card = self.card(deep_answer([
@@ -175,6 +179,30 @@ class TestTheCard(unittest.TestCase):
         self.assertNotIn("includes cache and buffers", card["text"])
         self.assertTrue(card["real"])
         self.assertEqual(card["real"]["color"], "var(--red)", "no cache to take off: the old colouring stands")
+
+    def test_a_host_with_polling_off_is_not_asked_for_the_deep_read(self):
+        """The deep read answers 400 for a host with no SNMP polling, and the browser logs that as an error for each such host.
+        The drawer asks the host's settings first and says so in words."""
+        page = _STACK["page"]
+        asked = []
+        page.route("**/api/devices/*/snmp/deep", lambda route: (asked.append(route.request.url), route.fulfill(
+            status=400, content_type="application/json", body=json.dumps({"error": "SNMP not configured/enabled on this host"})))[1])
+        page.route("**/api/devices/*/snmp", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"config": {"enabled": False}, "data": {}, "traps": [], "walk_presets": []})))
+        try:
+            dev = page.evaluate("async () => { const d = await api('GET', '/devices'); return d[0]; }")
+            page.evaluate("([id, name]) => openDeviceDrawer(id, name, 'audit')", [dev["id"], dev["name"]])
+            page.wait_for_selector("#audit-sec-snmp", state="attached", timeout=30000)
+            page.evaluate("() => { _drawerAuditLoaded.snmp = true; _loadAuditSection('snmp'); }")
+            page.wait_for_function(
+                "() => /not configured or unreachable/.test((document.getElementById('audit-body-snmp') || {}).textContent || '')",
+                timeout=30000)
+            self.assertEqual(asked, [], "the deep read was requested for a host whose SNMP polling is off")
+        finally:
+            page.evaluate("() => closeDeviceDrawer()")
+            page.unroute("**/api/devices/*/snmp/deep")
+            page.unroute("**/api/devices/*/snmp")
 
 
 if __name__ == "__main__":

@@ -1120,7 +1120,10 @@ function doLogout() {
   // 7.4.9: and what this browser kept of the fleet for the next person: recently opened hosts, favourites, the stats history,
   // saved fleet queries and unsent drafts.
   try {
-    ['rp_stat_hist', 'rp_recent_devices', 'rp_favorites', 'rp_fleet_queries'].forEach(k => localStorage.removeItem(k));
+    // (the AI page's conversation, the infrastructure-as-code page's last host and instructions, the metric explorer's saved view and
+    // the activity feed's cleared-at mark are per person too)
+    ['rp_stat_hist', 'rp_recent_devices', 'rp_favorites', 'rp_fleet_queries', 'rp.ai.conv', 'rp_iac_last_device',
+     'rp_iac_instructions', 'rp_metric_explorer_v1', 'rp_activity_cleared'].forEach(k => localStorage.removeItem(k));
     Object.keys(localStorage).filter(k => k.indexOf('rp_draft_') === 0).forEach(k => localStorage.removeItem(k));
   } catch (_) {}
   document.getElementById('app').style.display = 'none';
@@ -10530,7 +10533,7 @@ function _psRenderList() {
   if (!wrap) return;
   wrap.innerHTML = _psSnapshots.length ? _psSnapshots.map(s => {
     const tag = s.promoted_tag
-      ? `<span class="patch-badge ok">promoted → ${escHtml(s.promoted_tag)}</span> ` +
+      ? `<span class="patch-badge ok">promoted → <span data-no-i18n>${escHtml(s.promoted_tag)}</span></span> ` +
         `<button class="btn-icon" data-action="psPromote" data-arg="${escAttr(s.id)}">Change tag</button> ` +
         `<button class="btn-icon" data-action="psDemote" data-arg="${escAttr(s.id)}">Demote</button> ` +
         `<button class="btn-icon" data-action="psDrift" data-arg="${escAttr(s.id)}">Drift</button>`
@@ -16691,7 +16694,7 @@ function aiExplainContainerLogsBtn() {
 // v3.13.0: generic Enter-to-action for inputs marked data-enter="<globalFn>".
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target && e.target.matches && e.target.matches('input[data-enter]')) {
-    const fn = window[e.target.getAttribute('data-enter')];
+    const fn = _dispatchFn(e.target.getAttribute('data-enter'));
     if (typeof fn === 'function') { e.preventDefault(); fn(); }
   }
 });
@@ -26192,9 +26195,12 @@ async function _loadAuditSection(key) {
         // when the on-demand deep poll below fails / SNMP polling isn't configured.
         let trapsHtml = '';
         let _walkPresets = [];
+        let _snmpOff = false;
         try {
           const _sd = await api('GET', `/devices/${id}/snmp`);
           if (Array.isArray(_sd?.walk_presets)) _walkPresets = _sd.walk_presets;
+          // 7.4.9: the deep read answers 400 for a host with no SNMP polling, which the browser logs as an error for each such host.
+          _snmpOff = !!(_sd && _sd.config) && !_sd.config.enabled;
           const _traps = (_sd && _sd.traps) || [];
           if (_traps.length) {
             trapsHtml = `<h4 class="mt-0">Recent inbound traps (${_traps.length})</h4>`
@@ -26208,9 +26214,15 @@ async function _loadAuditSection(key) {
         // vendor-specific (Mikrotik). Slower than the standard 5-min poll
         // (multiple round trips), so it's on-demand only.
         let data;
-        try {
-          data = await api('GET', `/devices/${id}/snmp/deep`);
-        } catch (e) {
+        let _deepFailed = _snmpOff;
+        if (!_deepFailed) {
+          try {
+            data = await api('GET', `/devices/${id}/snmp/deep`);
+          } catch (e) {
+            _deepFailed = true;
+          }
+        }
+        if (_deepFailed) {
           body.innerHTML = trapsHtml + `<div class="c-muted ${trapsHtml ? 'mt-12' : ''}">SNMP polling not configured or unreachable.</div>`
             + _snmpWalkPanelHtml();
           _wireSnmpWalkPresets(_walkPresets);
@@ -29686,8 +29698,10 @@ async function saveDebugLogging(enabled) {
   } else failToast(r);
 }
 
+// 7.4.9: a new tab cannot send the X-Token header, so it always showed {"error": "Unauthorized"}. The file is fetched with the
+// token and saved, like the other exports.
 function downloadDebugLog() {
-  window.open('/api/debug-log', '_blank');
+  _downloadAuthed('/api/debug-log', 'remotepower-debug.log', 'Debug log downloaded');
 }
 
 // Load debug logging state when Settings → Advanced is opened
@@ -30773,7 +30787,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (navBtn) { showPage(navBtn.dataset.page, navBtn); return; }
 
       const extBtn = e.target.closest('.nav-btn[data-open-href]');
-      if (extBtn) { window.open(extBtn.dataset.openHref, '_blank'); return; }
+      if (extBtn) { window.open(extBtn.dataset.openHref, '_blank', 'noopener,noreferrer'); return; }   // 7.4.9: an external page gets no handle to this tab
 
       const groupToggle = e.target.closest('.sidebar-group-toggle');
       if (groupToggle) {
@@ -31009,6 +31023,20 @@ function _btnInflight(el, ret) {
 }
 
 // Delegated click handler for page-level buttons using data-action / data-arg
+// 7.4.9: the delegated handlers below turn an attribute value into a call: `data-action="openTicket"` calls window.openTicket.
+// Markup that reaches the page (an injected tag survives the CSP only as inert text, but a future escaping slip would not) could
+// name any property of window, so `data-action="alert"` or `"open"`, `"print"`, `"eval"` would run with chosen arguments. A
+// handler is a function this application declares: a name that is not a plain identifier, or that resolves to native code, is
+// not one. (A bound function reads as native too; it is let through by its name.)
+const _DISPATCH_NAME = /^[A-Za-z_$][\w$]*$/;
+function _dispatchFn(name) {
+  if (typeof name !== 'string' || !_DISPATCH_NAME.test(name)) return undefined;
+  const fn = window[name];
+  if (typeof fn !== 'function') return undefined;
+  if (!/^bound /.test(fn.name) && Function.prototype.toString.call(fn).indexOf('[native code]') >= 0) return undefined;
+  return fn;
+}
+
 document.addEventListener('click', e => {
   // data-remove-parent
   const rpEl = e.target.closest('[data-remove-parent]');
@@ -31037,14 +31065,14 @@ document.addEventListener('click', e => {
   if (btnEl) {
     if (btnEl.dataset.stopProp) e.stopPropagation();
     if (btnEl.dataset.preventDefault !== undefined) e.preventDefault();
-    const fn = window[btnEl.dataset.actionBtn];
+    const fn = _dispatchFn(btnEl.dataset.actionBtn);
     if (!fn) {
       // Parity with the data-action branch below: the handler may live in a
       // lazy module that has not loaded yet, which otherwise makes the whole
       // control silently inert with no signal anywhere.
       if (_ALL_LAZY_MODULES.some(f => !_loadedJsModules.has(f))) {
         _loadAllLazyJs().then(() => {
-          if (window[btnEl.dataset.actionBtn] && document.contains(btnEl)) btnEl.click();
+          if (_dispatchFn(btnEl.dataset.actionBtn) && document.contains(btnEl)) btnEl.click();
         });
       } else {
         console.warn('[rp] no handler for data-action-btn=' + btnEl.dataset.actionBtn);
@@ -31065,7 +31093,7 @@ document.addEventListener('click', e => {
   if (el.dataset.stopProp) e.stopPropagation();
   if (el.dataset.preventDefault !== undefined) e.preventDefault();
 
-  const fn = window[el.dataset.action];
+  const fn = _dispatchFn(el.dataset.action);
   if (!fn) {
     // v6.2.2 lazy JS: the handler may live in a module that hasn't loaded yet
     // (e.g. a cross-page button naming a lazy module's function). Load the
@@ -31073,7 +31101,7 @@ document.addEventListener('click', e => {
     // missing function and stays silent exactly as before.
     if (_ALL_LAZY_MODULES.some(f => !_loadedJsModules.has(f))) {
       _loadAllLazyJs().then(() => {
-        if (window[el.dataset.action] && document.contains(el)) el.click();
+        if (_dispatchFn(el.dataset.action) && document.contains(el)) el.click();
         else console.warn('[rp] no handler for data-action=' + el.dataset.action);
       });
     } else {
@@ -31102,7 +31130,7 @@ document.addEventListener('click', e => {
   _btnInflight(el, _ret);
 
   if (el.dataset.action2) {
-    const fn2 = window[el.dataset.action2];
+    const fn2 = _dispatchFn(el.dataset.action2);
     if (fn2) fn2();
   }
 });
@@ -31139,7 +31167,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('change', e => {
   const el = e.target;
   if (el.dataset.change) {
-    const fn = window[el.dataset.change];
+    const fn = _dispatchFn(el.dataset.change);
     if (!fn) return;
     if (el.dataset.changeArg !== undefined) {
       const a = el.dataset.changeArg;
@@ -31161,7 +31189,7 @@ const _inputDebounceTimers = new WeakMap();
 document.addEventListener('input', e => {
   const el = e.target;
   if (!el.dataset.input) return;
-  const fn = window[el.dataset.input];
+  const fn = _dispatchFn(el.dataset.input);
   if (!fn) return;
   const run = () => {
     if (el.dataset.inputEl !== undefined) fn(el, el.dataset.inputArg);

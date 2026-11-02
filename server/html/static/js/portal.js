@@ -39,7 +39,7 @@
   function adoptSession(token) {
     return api('POST', '/session', { token: token }).then(function (r) {
       if (!r.ok) { return false; }
-      $('portal-who').textContent = 'Signed in as ' + esc(r.data.name || '');
+      $('portal-who').textContent = 'Signed in as ' + (r.data.name || '');   // textContent is already text: esc() showed & as &amp;
       hide('portal-signin'); show('portal-app');
       history.replaceState(null, '', location.pathname);   // strip #token from the URL
       loadTickets();

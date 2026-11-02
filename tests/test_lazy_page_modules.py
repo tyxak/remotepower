@@ -108,7 +108,7 @@ class TestLazyPageModulesAreRegistered(unittest.TestCase):
         something — a silent `return` is what made a whole page look dead."""
         src = _APP.read_text(encoding='utf-8')
         self.assertEqual(src.count("console.warn('[rp] no handler for"), 3)
-        i = src.index("const fn = window[btnEl.dataset.actionBtn];")
+        i = src.index("const fn = _dispatchFn(btnEl.dataset.actionBtn);")      # 7.4.9: the name goes through _dispatchFn
         self.assertIn('_loadAllLazyJs', src[i:i + 600],
                       'data-action-btn must recover like data-action does')
 
