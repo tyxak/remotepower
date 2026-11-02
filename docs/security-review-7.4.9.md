@@ -25,7 +25,7 @@ below says so.
 - **Credentials.** Every comparison of a secret in the server goes through one helper (`secure_eq.py`) that never raises. A DNS
   provider token is removed from command output before it is stored.
 - **Stored data.** The shape of 134 stores and of the settings document is stated once, in `store_shapes.py`, and checked where
-  a store is read. A row of the wrong kind is left out of what a page reads; the file is kept as it was in `quarantine/`.
+  a store is read. A row of the wrong kind is left out of what a page reads; on the JSON storage the file is kept as it was in `quarantine/`.
 - **Containers.** The Docker image starts its app server and daemons as `www-data`, not root.
 - **Supply chain.** The GitHub Actions in the three workflows are pinned to commits, and Dependabot waits seven days before it
   proposes a release.
@@ -197,8 +197,8 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
   because an empty value there would grant something: a damaged tenant stays a tenant (its users would otherwise move to the
   operator's tenant), and a smart group with damaged rules is dropped (an empty rule set matches every host). NaN, Infinity,
   an integer of 21 digits or more and a float that overflows are read as null. The repair is applied in memory; the next write
-  saves the repaired copy, the file as it was is kept in `quarantine/` (the last 20), and one line on stderr says how many entries
-  were left out. Replayed one at a time against the new code, the 3,809 stored rows that had answered 500 now all answer below 500.
+  saves the repaired copy; on the JSON storage the file as it was is kept in `quarantine/` (the last 20), on SQLite and PostgreSQL the
+  row stays in the database until that write; one line on stderr says how many entries were left out. Replayed one at a time against the new code, the 3,809 stored rows that had answered 500 now all answer below 500.
   The 76 periodic sweeps, called with one wrong node at a time in each of the 96 stores they read, had raised on 1,810 mutations
   when the first run had reached 72 of them, and raise on none of the 4,032 now. Running the whole test suite with a report of every repair found two registry entries that disagreed with
   what the product itself writes (the remediation store and the webhook log), and two more after the second run (a saved query
@@ -300,4 +300,5 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
   address's policy differently, which matters for S14).
 - Real Windows and macOS hosts, real package managers, and a real container runtime for the agent's container update. The
   PowerShell installers were read, not run.
-- A latency benchmark: the machine was busy with the reviews themselves, so no timing is quoted.
+- A latency benchmark of the product. One measurement was taken of the shape check, on a busy machine: it takes 10 ms for a
+  1,000-host `devices.json` of 5.0 MB (parsing that file takes 34 ms) and 2 ms for 5,000 alerts. Nothing else is quoted.

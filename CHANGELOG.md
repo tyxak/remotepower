@@ -126,7 +126,7 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   because an empty value there would grant something: a damaged tenant stays a tenant (its users would otherwise move to the
   operator's tenant), and a smart group with damaged rules is dropped (an empty rule set matches every host). NaN, Infinity, an integer
   of 21 digits or more and a float that overflows are read as null, in the stores and in request bodies. A store is repaired in memory;
-  the next write saves the repaired copy, the file as it was is kept in `quarantine/` (the last 20), and one line on stderr says
+  the next write saves the repaired copy, on the JSON storage the file as it was is kept in `quarantine/` (the last 20), and one line on stderr says
   how many entries were left out. Replayed against the new code, all 3,809 mutations answer below 500, and the 76 periodic sweeps,
   which raised on 1,810 of them, now run through the same mutations without raising.
 - **A number stored as text is read as absent, not printed as markup (Low).** The web client review generated a test it did not run:
