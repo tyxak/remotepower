@@ -300,7 +300,16 @@ class TestInstanceWideOperationsFoundIn749(_Base):
         ('/api/cve/refresh-feeds', 'POST'), ('/api/ai/rag/reindex', 'POST'), ('/api/exec/batch', 'DELETE'),
         ('/api/backup/download', 'GET'), ('/api/backup/restore', 'POST'), ('/api/backup/test-restore', 'POST'),
         ('/api/webhook/test', 'POST'), ('/api/push-daemon/test', 'POST'),
-        ('/api/image-updates/ignore', 'DELETE'))
+        ('/api/image-updates/ignore', 'DELETE'),
+        # the sweep of handlers with no tenant test (7.4.9): operations on the installation and uses of the operator's accounts
+        ('/api/server/restart', 'POST'), ('/api/server/self-update', 'POST'), ('/api/storage-backend/migrate', 'POST'),
+        ('/api/tls/import-p12', 'POST'), ('/api/virt/i1/power', 'POST'), ('/api/virt/i1/snapshot', 'POST'),
+        ('/api/dns/records', 'POST'), ('/api/dns/records/delete', 'POST'), ('/api/dns/zones', 'GET'),
+        ('/api/dns-control/i1/blocking', 'POST'), ('/api/cloud/import', 'POST'), ('/api/gitops/sync', 'POST'),
+        ('/api/gitops', 'PUT'), ('/api/ai/test', 'POST'), ('/api/audit/forward-test', 'POST'), ('/api/otlp/test', 'POST'),
+        ('/api/otlp/traces-test', 'POST'), ('/api/siem/test', 'POST'), ('/api/posture-digest/test', 'POST'),
+        ('/api/webhook/replay', 'POST'), ('/api/image-updates/scan', 'POST'), ('/api/software-policy', 'POST'),
+        ('/api/software-policy', 'DELETE'), ('/api/debug-log', 'GET'), ('/api/debug-log', 'POST'))
 
     def test_a_tenant_administrator_is_refused_each_one(self):
         for pi, m in self.OPERATIONS:
@@ -322,7 +331,10 @@ class TestInstanceWideOperationsFoundIn749(_Base):
     def test_the_reads_beside_them_stay_open_to_a_tenant_administrator(self):
         for pi, m in (('/api/self/status', 'GET'), ('/api/self/observability', 'GET'), ('/api/self/backup-state', 'GET'),
                       ('/api/exec/batch', 'GET'), ('/api/exec/batch', 'POST'), ('/api/image-updates/ignore', 'POST'),
-                      ('/api/tls/targets', 'GET'), ('/api/billing/config', 'GET')):
+                      ('/api/tls/targets', 'GET'), ('/api/billing/config', 'GET'),
+                      # a tenant's pages still read the policy their hosts are judged by, the violations and the blockers' list
+                      ('/api/software-policy', 'GET'), ('/api/software-policy/violations', 'GET'),
+                      ('/api/virt/platforms', 'GET'), ('/api/dns-control/blockers', 'GET'), ('/api/gitops', 'GET')):
             with self.subTest(pi=pi, m=m):
                 self.assertIsNone(self.gate(pi, m))
 

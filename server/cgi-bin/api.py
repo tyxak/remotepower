@@ -11287,6 +11287,28 @@ _PLATFORM_ROUTES = (
     ('/api/backup',                  None,           ()),
     ('/api/webhook/test',            _WRITE_METHODS, ()),
     ('/api/push-daemon',             None,           ()),
+    # 7.4.9 (a sweep of every handler that carries no tenant test): operations on the installation itself, and uses of the operator's
+    # own accounts. Each asks for an administrator and nothing more, so a tenant administrator could restart the service, move the
+    # whole data store to another backend, replace the server's certificate, power off the operator's virtual machines, change the
+    # records of the operator's DNS zones, import hosts from its cloud accounts, replace the software policy of every tenant, or
+    # have the operator's DNS token placed in a command for its own host.
+    ('/api/server',                  _WRITE_METHODS, ()),     # restart the service, run the update script
+    ('/api/storage-backend',         _WRITE_METHODS, ()),     # move the data store to another backend
+    ('/api/tls/import-p12',          _WRITE_METHODS, ()),     # replace the server's certificate and key
+    ('/api/virt',                    _WRITE_METHODS, ()),     # power and snapshots of the operator's hypervisors
+    ('/api/dns',                     None,           ()),     # the operator's DNS providers: zones and records
+    ('/api/dns-control',             _WRITE_METHODS, ()),     # the operator's DNS blockers
+    ('/api/cloud',                   _WRITE_METHODS, ()),     # import from the operator's cloud accounts
+    ('/api/gitops',                  _WRITE_METHODS, ()),
+    ('/api/ai/test',                 _WRITE_METHODS, ()),     # a call to the operator's AI provider
+    ('/api/audit/forward-test',      _WRITE_METHODS, ()),
+    ('/api/otlp',                    _WRITE_METHODS, ()),
+    ('/api/siem',                    _WRITE_METHODS, ()),
+    ('/api/posture-digest',          _WRITE_METHODS, ()),
+    ('/api/webhook/replay',          _WRITE_METHODS, ()),     # fires a past event of any tenant through the operator's channels
+    ('/api/image-updates/scan',      _WRITE_METHODS, ()),
+    ('/api/software-policy',         _WRITE_METHODS, ()),     # one ruleset, judged against every tenant's hosts
+    ('/api/debug-log',               None,           ()),
 )
 
 
@@ -11358,6 +11380,43 @@ _OPERATOR_ORG_ROUTES = (
     '/api/incidents',
     '/api/patch-snapshots',
     '/api/report/site',
+    # 7.4.9 (the sweep of handlers with no tenant test): the operator's own integrations, accounts, logs, settings pages and
+    # checklists. A tenant's users read the operator's WAN address and on-call roster, its hypervisors and integrations, its DNS and
+    # mail accounts, its DMARC domains, the audit trail's archive and the server's self-test, and its administrators could write
+    # most of them.
+    '/api/gitops',
+    '/api/integrations',
+    '/api/virt',
+    '/api/wan',
+    '/api/oncall',
+    '/api/portal',
+    '/api/report/definitions',
+    '/api/report/schedule',
+    '/api/security/diag',
+    '/api/security-posture',
+    '/api/self-test',
+    '/api/setup-status',
+    '/api/metrics/push',
+    '/api/client-error',
+    '/api/dmarc',
+    '/api/reputation',
+    '/api/resolver-health',
+    '/api/tls',
+    '/api/tickets/imap',
+    '/api/dns',
+    '/api/dns-control',
+    '/api/storage-backend',
+    '/api/audit-log/archive',
+    '/api/audit-log/verify',
+    '/api/detection-selftest',
+    '/api/logs/rules/global',
+    '/api/litigation-hold',
+    '/api/ai/params',
+    '/api/ai/prompts',
+    '/api/acme/dns-credentials',
+    '/api/deadman',
+    '/api/na-suppress',
+    '/api/debug-log',
 )
 
 
@@ -18377,6 +18436,13 @@ def _caller_is_superadmin():
     return role == 'admin' and _caller_effective_tenant(user) == DEFAULT_TENANT
 
 
+def _caller_is_admin():
+    """True when the caller's role is the administrator role (of any tenant). A custom role is not: it holds action permissions
+    and never the admin flag."""
+    user, role = verify_token(get_token_from_request())
+    return bool(user) and bool(_resolve_role(role).get('admin'))
+
+
 def require_superadmin_auth(what='manage tenants'):
     """v5.7.0 (SECURITY): platform-operator gate for /api/tenants*. A tenant-
     scoped admin (role=='admin' but tenant_id != default) passes the plain
@@ -18638,12 +18704,18 @@ def handle_tenancy_readiness():
         {'key': 'operator_org', 'label': 'Monitors, links & calendar',
          'isolated': enforced, 'layer': 'app' if enforced else 'none', 'deliberate': True,
          'note': "The monitors and SLO figures, the links page, the calendar and on-call "
-                 "schedule, the mail round trip, the Proxmox integration and the diagnostics "
-                 "bundle are the operator's own. With tenancy enforced they answer only "
-                 "users of the default tenant."},
-        {'key': 'audit', 'label': 'Audit log', 'isolated': False, 'layer': 'none', 'deliberate': True,
-         'note': 'Global control-plane by design — a superadmin needs one complete '
-                 'trail across tenants; not a gap to close.'},
+                 "schedule, the mail round trip, the Proxmox integration, the diagnostics "
+                 "bundle, IPAM, racks, incidents, patch snapshots and the site report are the "
+                 "operator's own. With tenancy enforced they answer only users of the "
+                 "default tenant. What names no host is the operator's too (an alert about a "
+                 "monitor, the lists and addresses of the settings document, the monitor "
+                 "families of the metrics scrape): a tenant sees what names one of its hosts."},
+        {'key': 'audit', 'label': 'Audit log', 'isolated': enforced, 'layer': 'app' if enforced else 'none',
+         'deliberate': True,
+         'note': "One trail for the whole installation. The platform operator and the "
+                 "operator's organisation read all of it; a tenant's administrator or "
+                 "auditor reads what the accounts of its own tenant did. Only the "
+                 "platform operator can clear it."},
         {'key': 'roles', 'label': 'Users & roles', 'isolated': False, 'layer': 'none', 'deliberate': True,
          'note': 'Global control-plane by design — user/role management stays a '
                  'superadmin concern; not a gap to close. Tenant admins manage the '
@@ -42473,7 +42545,12 @@ def handle_deadman_jobs():
             # from the token so the list is self-sufficient.
             token = j.get('token')
             url = (f"{_request_base_url()}/api/ping/{token}") if token else None
-            out.append({**j, 'due_in_s': due_in, 'url': url})
+            row = {**j, 'due_in_s': due_in, 'url': url}
+            if not _caller_is_admin():
+                # 7.4.9: whoever has the address can report a job as alive. A read-only role is shown the job and not the address.
+                row.pop('token', None)
+                row['url'] = None
+            out.append(row)
         respond(200, {'ok': True, 'jobs': out})
     if m != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -43432,6 +43509,7 @@ def handle_network_positions() -> None:
         respond(400, {'error': 'positions must be a list'})
     if len(positions) > 1000:
         respond(400, {'error': 'too many positions in one batch'})
+    visible = _confined_host_ids()      # 7.4.9: a tenant moves its own nodes, not another tenant's
     with _LockedUpdate(DEVICES_FILE) as devices:
         changed = 0
         for p in positions:
@@ -43439,6 +43517,8 @@ def handle_network_positions() -> None:
                 continue
             dev_id = p.get('id')
             if not dev_id or dev_id not in devices:
+                continue
+            if visible is not None and dev_id not in visible:
                 continue
             x, y = p.get('x'), p.get('y')
             # Allow null to clear, otherwise must be numeric and in a sane range.
@@ -44683,6 +44763,10 @@ def _ai_cfg_for_display(cfg):
 def handle_ai_config_get():
     require_admin_auth()
     cfg = _ai_cfg()
+    if _tenancy_enforced() and not _caller_in_operator_org():
+        # 7.4.9: the provider, its address, model, limits and the end of the key are the operator's. A tenant's administrator
+        # needs to know whether the assistant is on (the pages that use it ask), and nothing else.
+        respond(200, {'enabled': bool(cfg.get('enabled')), 'restricted': True})
     out = _ai_cfg_for_display(cfg)
     # Surface the provider list + per-provider defaults so the UI doesn't
     # have to hardcode them.

@@ -653,6 +653,11 @@ def handle_acme_issue(dev_id):
     # on every device. Empty prefix when no creds are stored — the agent
     # falls back to acme.sh's normal env/config-file lookup.
     cred_prefix = A._acme_credential_env_prefix(dns_provider)
+    # 7.4.9: the credentials in the central store are the operator's. They go into commands for the operator's own hosts. A
+    # tenant's host keeps using what acme.sh finds on it: the command would otherwise hand the operator's DNS token to the
+    # tenant's root account (acme.sh saves it in account.conf on first use), and the tenant could then edit the operator's zones.
+    if cred_prefix and A._tenancy_enforced() and A._device_tenant(A.device_get(dev_id) or {}) != A.DEFAULT_TENANT:
+        cred_prefix = ''
     acme_bin = shlex.quote(f'{home}/acme.sh')   # v4.4.0: quote agent-reported home
     cmd = (cred_prefix
            + f"{acme_bin} --issue --dns {dns_provider} "

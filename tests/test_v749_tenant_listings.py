@@ -858,6 +858,59 @@ class TestTheCmdbFunctionHintsAreTheCallersOwn(_Tenants):
         self.assertEqual(d, ['billing-db', 'router', 'web'])
 
 
+class TestThingsAnAdministratorOfOneTenantDidToTheOthers(_Tenants):
+    """The sweep of the handlers that carry no tenant test found these, each answering a tenant administrator as it answers the
+    operator's."""
+    STORES = _Tenants.STORES + ('DEADMAN_FILE', 'ACME_STATE_FILE', 'CMDS_FILE')
+
+    def test_a_tenant_moves_its_own_nodes_on_the_network_map_and_not_another_tenants(self):
+        positions = [{'id': 'devB', 'x': 10, 'y': 20}, {'id': 'devC', 'x': 30, 'y': 40}, {'id': 'devD', 'x': 50, 'y': 60}]
+        st, d = self.call(api.handle_network_positions, body={'positions': positions}, m='PUT')
+        self.assertEqual((st, d.get('updated')), (200, 1), d)
+        dv = api.load(api.DEVICES_FILE)
+        self.assertEqual((dv['devB'].get('pos_x'), dv['devC'].get('pos_x'), dv['devD'].get('pos_x')), (10, None, None))
+        st, d = self.call(api.handle_network_positions, body={'positions': positions}, m='PUT', who='platform')
+        self.assertEqual((st, d.get('updated')), (200, 3), d)
+
+    def test_a_tenants_administrator_reads_whether_the_assistant_is_on_and_not_the_operators_provider(self):
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['ai'] = {'enabled': True, 'provider': 'openai', 'base_url': 'https://operator-gateway.example/v1',
+                     'api_key': 'sk-operator-secret-1234', 'model': 'm1'}
+        api.save(api.CONFIG_FILE, cfg)
+        st, d = self.call(api.handle_ai_config_get, m='GET')
+        self.assertEqual((st, d), (200, {'enabled': True, 'restricted': True}))
+        st, d = self.call(api.handle_ai_config_get, m='GET', who='platform')
+        self.assertEqual(d['provider'], 'openai')
+        self.assertTrue(d['api_key'].endswith('1234'))
+
+    def test_a_read_only_role_is_shown_a_dead_man_job_and_not_the_address_that_reports_it_alive(self):
+        api.save(api.DEADMAN_FILE, {'jobs': [{'id': 'j1', 'name': 'nightly backup', 'token': 'tok-secret-77',
+                                              'period_minutes': 60, 'grace_minutes': 10, 'last_ping': int(time.time())}]})
+        st, d = self.call(api.handle_deadman_jobs, m='GET', who='dviewer')
+        self.assertEqual(st, 200)
+        self.assertEqual([j['name'] for j in d['jobs']], ['nightly backup'])
+        self.assertNotIn('tok-secret-77', str(d))
+        st, d = self.call(api.handle_deadman_jobs, m='GET', who='platform')
+        self.assertIn('tok-secret-77', str(d), 'control: an administrator still gets the address')
+
+    def test_the_operators_dns_credentials_go_into_commands_for_its_own_hosts_only(self):
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['acme_dns_credentials'] = {'dns_cf': {'CF_Token': 'OPERATOR-CF-TOKEN'}}
+        api.save(api.CONFIG_FILE, cfg)
+        body = {'domain': 'app.example.com', 'dns_provider': 'dns_cf'}
+
+        def queued(host, who):
+            api.save(api.CMDS_FILE, {})
+            st, d = self.call(api.handle_acme_issue, host, body=body, who=who)
+            self.assertEqual(st, 200, d)
+            return ' '.join(api.load(api.CMDS_FILE).get(host) or [])
+        self.assertNotIn('OPERATOR-CF-TOKEN', queued('devB', 'badmin'), 'the tenant\'s host was handed the operator\'s token')
+        self.assertIn('--issue', queued('devB', 'badmin'))
+        self.assertIn('OPERATOR-CF-TOKEN', queued('devD', 'platform'), 'control: the operator\'s own host gets it')
+        self.tenancy(False)
+        self.assertIn('OPERATOR-CF-TOKEN', queued('devB', 'badmin'), 'with tenancy off nothing changes')
+
+
 class TestLldpSuggestions(_Tenants):
     def test_both_ends_of_a_suggested_link_are_hosts_the_caller_can_see(self):
         dv = api.load(api.DEVICES_FILE)

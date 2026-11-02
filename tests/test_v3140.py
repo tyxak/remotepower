@@ -3841,13 +3841,14 @@ class TestTenancyReadiness(_HandlerBase):
             r = self._get()
         finally:
             api._tenancy_rls_active = orig
-        for key in ('audit', 'roles'):
+        for key in ('roles',):
             store = next(s for s in r['stores'] if s['key'] == key)
             self.assertFalse(store['isolated'], key)
             self.assertEqual(store['layer'], 'none', key)
-        # 7.4.9: tickets take the tenant of their host or of the account that opened them, and the business side and the
-        # operator's monitors, links and calendar answer only the operator's own organisation. The report says so.
-        for key in ('tickets', 'billing', 'operator_org'):
+        # 7.4.9: tickets take the tenant of their host or of the account that opened them, the business side and the
+        # operator's monitors, links and calendar answer only the operator's own organisation, and a tenant reads the part of
+        # the audit trail its own accounts wrote. The report says so.
+        for key in ('tickets', 'billing', 'operator_org', 'audit'):
             store = next(s for s in r['stores'] if s['key'] == key)
             self.assertTrue(store['isolated'], key)
             self.assertEqual(store['layer'], 'app', key)

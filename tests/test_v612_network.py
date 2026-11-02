@@ -219,6 +219,8 @@ class TestDeadmanSwitch(_ApiCase):
         an empty string. The list must rebuild it from the token."""
         self._make_job()
         self.api.method = lambda: 'GET'
+        # 7.4.9: the address is for an administrator (whoever has it can report the job alive). The role comes from the token.
+        self.api.verify_token = lambda _t=None: ('admin', 'admin')
         self.captured.clear()
         try:
             self.api.handle_deadman_jobs()
@@ -228,6 +230,15 @@ class TestDeadmanSwitch(_ApiCase):
         self.assertTrue(jobs)
         self.assertIn('/api/ping/', jobs[0].get('url') or '',
                       'the job list must carry the ping URL, not just the token')
+        self.api.verify_token = lambda _t=None: ('vera', 'viewer')
+        self.captured.clear()
+        try:
+            self.api.handle_deadman_jobs()
+        except self.api.HTTPError:
+            pass
+        jobs = self.captured['data']['jobs']
+        self.assertTrue(jobs, 'a read-only role still sees the job')
+        self.assertFalse(jobs[0].get('url') or jobs[0].get('token'), 'but not the address that reports it alive')
 
     def test_job_id_is_not_numeric_looking(self):
         """The frontend data-arg dispatcher coerces numeric-looking strings to
