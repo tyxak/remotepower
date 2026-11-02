@@ -178,6 +178,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v749_agent_satellite_body.py",
         "tests/test_v749_agent_threat_regex.py",
         "tests/test_v749_agent_win_quoting.py",
+        "tests/test_v749_scap_report_link.py",   # the SCAP report opens from a one-minute link that keeps its own sandbox
         "tests/test_v749_seeder.py",             # the demo hosts carry the upgrade mode, kept-back packages and named drive sensors
     )
 

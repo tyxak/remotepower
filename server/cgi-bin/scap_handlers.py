@@ -18,9 +18,12 @@ unchanged. The _SCAP_PROFILES constant + SCAP_FILE / SCAP_REPORTS_DIR /
 DEVICES_FILE stay in api.py, read here via A. The heartbeat-side force_scap_scan
 flag handling also stays in api.py (it isn't a handler).
 """
+import hashlib
+import hmac
 import re
 import sys
 import time
+import urllib.parse
 
 
 class _ApiNamespace:
@@ -166,14 +169,65 @@ def handle_scap_report():
     A.respond(200, {'ok': True})
 
 
-def handle_scap_report_download(dev_id):
-    """GET /api/scap/<dev_id>/report — download the full OpenSCAP/usg HTML report
-    for one device's latest scan. Auth: require_auth + device scope. Serves the
-    stored gzip, decompressed, as text/html."""
+# 7.4.9: how an operator opens the report. The HTML is supplied by the host's agent, so the response carries its own sandboxed
+# Content-Security-Policy. The page used to fetch it with the X-Token header and open a `blob:` URL, and a blob takes the
+# dashboard's origin and policy, which dropped that sandbox: a compromised host could load the dashboard's own script into the report
+# tab and call the application with the operator's session. A link the browser opens directly keeps the response's headers. It cannot
+# send X-Token, so the page asks for a link first (signed in, host scope checked) and the link is good for one minute.
+SCAP_TICKET_TTL = 60
+
+
+def _ticket_key():
+    """A key of its own for report links, derived from the install's audit key so there is nothing new to store."""
+    return hmac.new(A._audit_hmac_key(1), b'remotepower:scap-report-link', hashlib.sha256).digest()
+
+
+def scap_ticket_make(dev_id, now=None):
+    exp = int(now if now is not None else time.time()) + SCAP_TICKET_TTL
+    sig = hmac.new(_ticket_key(), f'{dev_id}:{exp}'.encode(), hashlib.sha256).hexdigest()
+    return f'{exp}.{sig}'
+
+
+def scap_ticket_ok(dev_id, ticket, now=None):
+    """True for a link made for this host that has not expired. Never raises on a hostile value."""
+    try:
+        exp_s, _, sig = str(ticket or '').partition('.')
+        exp = int(exp_s)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if exp < int(now if now is not None else time.time()) or exp > int(now if now is not None else time.time()) + SCAP_TICKET_TTL + 5:
+        return False
+    want = hmac.new(_ticket_key(), f'{dev_id}:{exp}'.encode(), hashlib.sha256).hexdigest()
+    return A._secure_eq(sig, want)
+
+
+def handle_scap_report_ticket(dev_id):
+    """POST /api/scap/<dev_id>/report-ticket — a link to the host's report that works for one minute.
+    Auth: require_auth + host scope, as for the report itself."""
     A.require_auth()
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'invalid host id'}); return
-    A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device read scope
+    A._scope_block_device(dev_id)
+    if not (A.SCAP_REPORTS_DIR / f'{dev_id}.html.gz').exists():
+        A.respond(404, {'error': 'no report on file for this host'}); return
+    A.respond(200, {'url': f'/api/scap/{dev_id}/report?ticket={scap_ticket_make(dev_id)}', 'expires_in': SCAP_TICKET_TTL})
+
+
+def handle_scap_report_download(dev_id):
+    """GET /api/scap/<dev_id>/report — download the full OpenSCAP/usg HTML report
+    for one device's latest scan. Auth: require_auth + device scope, or a one-minute
+    link from POST /api/scap/<id>/report-ticket (how the page opens it, see above).
+    Serves the stored gzip, decompressed, as text/html."""
+    if not A._validate_id(dev_id):
+        A.respond(400, {'error': 'invalid host id'}); return
+    qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+    ticket = (qs.get('ticket') or [''])[0]
+    if ticket:
+        if not scap_ticket_ok(dev_id, ticket):
+            A.respond(403, {'error': 'this link has expired; open the report again'}); return
+    else:
+        A.require_auth()
+        A._scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device read scope
     path = A.SCAP_REPORTS_DIR / f'{dev_id}.html.gz'
     if not path.exists():
         A.respond(404, {'error': 'no report on file for this host'}); return

@@ -58,6 +58,12 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 
 ### Security
 
+- **A host's SCAP report can no longer run in the dashboard's origin (Medium).** The report is HTML written by the host's agent.
+  The server serves it with a sandboxed Content-Security-Policy, but the page fetched it and opened it as a `blob:` address,
+  which takes the dashboard's origin and drops that policy. A compromised host could put a reference to the dashboard's own
+  script in the report and have a click on a link it supplied call the application with your session. The report opens from a
+  link the server serves, with its own policy. The page asks for the link first (`POST /api/scap/{id}/report-ticket`, signed in,
+  host scope checked), and the link works for one minute. The web client audit found it.
 - **The agents and their installers (two High, five Medium, one Low).** A review of the three agents, the installers and the agent
   container, with each finding reproduced and a test for it. Update the agents to get these:
   - *High:* one web request target of 107 bytes kept the threat sensor busy for 1.3 seconds, and 123 bytes for 17, growing

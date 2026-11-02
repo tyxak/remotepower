@@ -534,6 +534,7 @@ builtins = [
     "handle_scap_overview",
     "handle_scap_report",
     "handle_scap_report_download",
+    "handle_scap_report_ticket",
     "handle_scap_scan",
     "handle_scoped_credentials_add",
     "handle_scoped_credentials_delete",

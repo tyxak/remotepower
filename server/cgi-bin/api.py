@@ -1500,7 +1500,7 @@ scap_handlers_mod = _tk_ilu.module_from_spec(_sc_spec)
 _sc_spec.loader.exec_module(scap_handlers_mod)
 scap_handlers_mod.bind(globals())
 for _sc_name in (
-        'handle_scap_scan', 'handle_scap_report', 'handle_scap_report_download',
+        'handle_scap_scan', 'handle_scap_report', 'handle_scap_report_download', 'handle_scap_report_ticket',
         'handle_scap_overview',
 ):
     globals()[_sc_name] = getattr(scap_handlers_mod, _sc_name)
@@ -74224,6 +74224,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/live-sample', 'handle_device_live_sample', "pi.startswith('/api/devices/') and pi.endswith('/live-sample') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/live-samples', 'handle_device_live_samples', "pi.startswith('/api/devices/') and pi.endswith('/live-samples') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
+    ('pat', ('POST',), '/api/scap/', '/report-ticket', 'handle_scap_report_ticket', "pi.startswith('/api/scap/') and pi.endswith('/report-ticket') and m == 'POST'"),
     ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned',\n                                     # v7.4.2 (#44)\n                                     '/integrations',\n                                     # v7.4.3 (#47)\n                                     '/disk-names',\n                                     # v7.4.3 (#50)\n                                     '/container-thresholds',\n                                     # v7.4.5 (#55)\n                                     '/exposure-internal',\n                                     # Discussion #30\n                                     '/upgrade-mode'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),
     ('pat', ('PATCH',), '/api/devices/', '/tags', 'handle_device_tags', "pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH'"),

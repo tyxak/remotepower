@@ -174,25 +174,22 @@ function _renderScapTable() {
   tableCtl.wireSortOnly('scap-thead', 'scap', _renderScapTable);
 }
 
-// Open the full OpenSCAP/usg HTML report in a new tab. The endpoint needs the
-// X-Token header (a plain link can't send it), so fetch it and stream into the
-// tab via a blob URL — same pattern as the posture report.
+// Open the full OpenSCAP/usg HTML report in a new tab. The report is HTML supplied by the host's agent, so it is opened from a
+// link the server serves with its own sandboxed Content-Security-Policy. It used to be fetched and opened as a blob: URL, which
+// takes this page's origin and drops that sandbox. The link needs no X-Token (a plain navigation cannot send one), so ask for it
+// first (signed in, host scope checked); it is good for one minute.
 async function downloadScapReport(devId, name) {
   const w = window.open('', '_blank');
   if (!w) { toast('Allow pop-ups to open the report', 'error'); return; }
-  let resp;
-  try {
-    resp = await fetch('/api/scap/' + encodeURIComponent(devId) + '/report',
-                       { headers: { 'X-Token': getToken() } });
-  } catch (_) { resp = null; }
-  if (!resp || !resp.ok) {
+  let r = null;
+  try { r = await api('POST', '/scap/' + encodeURIComponent(devId) + '/report-ticket', {}); } catch (_) { r = null; }
+  if (!r || !r.url) {
     try { w.close(); } catch (_) {}
-    toast('No report available' + (resp ? ' (' + resp.status + ')' : ''), 'error');
+    toast((r && r.error) ? r.error : 'No report available', 'error');
     return;
   }
-  const blobUrl = URL.createObjectURL(await resp.blob());
-  w.location.replace(blobUrl);
-  setTimeout(() => { try { URL.revokeObjectURL(blobUrl); } catch (_) {} }, 60000);
+  try { w.opener = null; } catch (_) {}
+  w.location.replace(r.url);
 }
 
 // v3.4.2: shared target resolver for fleet actions (scan, install). Returns the
