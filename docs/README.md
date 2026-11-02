@@ -78,18 +78,15 @@ holds long-form docs that don't fit there.
   "false" and five readers that raised on a stored row that is not a map. Caught before release, with
   the scans, a scan against the live feed, the run over every route and the mutation checks behind
   them.
+- **[v7.4.9.md](v7.4.9.md)** — "Ch0iceMatters": a host runs its upgrades in a Standard or an Extended mode, a
+  hard disk and a SATA SSD behind the same controllers keep their own temperature lines, and an update Ubuntu is
+  still phasing in is not counted as pending.
 - **[v7.4.8.md](v7.4.8.md)** — "Hon3stMatters": a Problems row that shows when its host last reported, a sensor
   limit that is not a temperature is no limit, and a package apt keeps back is pending.
 - **[v7.4.7.md](v7.4.7.md)** — "0nceMatters": one list of problems, each once, with its state, its
   history and the actions that apply, a switch that counts only the CVE findings an update can fix, a
   chart for any Thermal sensor, one disk for a btrfs volume, and a page that no longer sits under the
   sidebar while alerts are open.
-- **[v7.4.6.md](v7.4.6.md)** — "F1xableMatters": a host can be marked internal, so a
-  service that listens on every address is not graded as exposed to the world, a
-  suggested dependency points from the client to the server, a CVE finding says
-  whether a fix exists for the host's own release, an alert resolved by hand makes its
-  host report at once, the Thermal page follows the drive temperature lines, and more
-  requests from the same Docker install.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.

@@ -23,17 +23,16 @@ class TestTheReviewLeftTheWindow(unittest.TestCase):
 
     def test_it_is_gone_everywhere(self):
         self.assertFalse((_ROOT / "docs/security-review-7.4.5.md").exists())
-        for rel in ("README.md", "docs/README.md", "docs/security.md", "docs/v7.4.6.md", "docs/security-review-7.4.6.md",
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "docs/security-review-7.4.6.md",
                     "server/html/index.html"):
             self.assertNotIn("security-review-7.4.5.md", (_ROOT / rel).read_text(), rel)
 
-    def test_the_changelog_and_the_notes_still_count_its_issues(self):
-        for rel, heading in (("CHANGELOG.md", "### Security"), ("docs/v7.4.6.md", "## Security review")):
-            body = (_ROOT / rel).read_text()
-            if rel == "CHANGELOG.md":
-                body = body[body.index("## v7.4.5 \u2014 "):]
-            section = body[body.index(heading):][:900]
-            self.assertIn("two issues", re.sub(r"\s+", " ", section), rel)
+    def test_the_changelog_still_counts_its_issues(self):
+        # The 7.4.6 notes carried this count too; they left the window at the v7.4.9 bump, so the CHANGELOG is the record.
+        body = (_ROOT / "CHANGELOG.md").read_text()
+        body = body[body.index("## v7.4.5 \u2014 "):]
+        section = body[body.index("### Security"):][:900]
+        self.assertIn("two issues", re.sub(r"\s+", " ", section))
 
     def test_the_reviews_that_left_the_window_before_it_are_still_gone(self):
         for gone in ("7.4.0", "7.4.2", "7.4.3", "7.4.4"):

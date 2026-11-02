@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.4.8-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.4.9-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,10 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.4.9 "Ch0iceMatters"** — choices on a host. A host runs its upgrades in a Standard or an
+  Extended mode, and Extended also installs the new packages an update needs, such as a new kernel
+  image that apt keeps back. A hard disk and a SATA SSD behind the same controllers keep their
+  own temperature lines, and an update Ubuntu is still phasing in is no longer counted as pending.
 - **v7.4.8 "Hon3stMatters"** — three screens that said something untrue. A Problems row
   that read "never" under Updated shows when its host last reported. A sensor limit that is
   not a temperature (an NVMe drive with no threshold reported 65,261.8 °C) is no limit. A
@@ -222,7 +226,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   lines for each drive. A hard disk, a SATA SSD and an NVMe drive run at different
   temperatures, so each can have its own warning and critical line, set for one
   drive, for one host or for every drive of a type.
-- **v7.4.3 "M3asureMatters"** — the next batch of requests from the same Docker
   install. Linux hosts report how busy each disk is, with an alert for a disk that
   stays busy, and a drive can have a name that follows its serial number.
   Containers get CPU and memory lines. A maintenance window can raise no alerts at

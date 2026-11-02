@@ -31,46 +31,102 @@ def _server_version():
 
 
 class TestVersionBumps(unittest.TestCase):
-    """The strict pins moved to tests/test_v747.py. What stays true of 7.4.6 while it is inside the windows."""
+    """Loosened at the v7.4.9 bump. The STRICT pins for the current release
+    live in tests/test_v749.py; what stays here is the shape: the surfaces
+    must still agree with each other, whatever version they carry."""
 
-    def test_version_doc_exists_and_is_titled(self):
-        p = _ROOT / f"docs/v{V}.md"
-        self.assertTrue(p.exists(), f"docs/v{V}.md missing")
-        self.assertIn(f'# RemotePower v{V} \u2014 "{CODENAME}"', p.read_text())
+    def test_server_version_shape(self):
+        self.assertRegex(_server_version(), r"^\d+\.\d+\.\d+$")
 
-    def test_version_doc_has_no_template_left(self):
-        body = (_ROOT / f"docs/v{V}.md").read_text()
-        for stub in ("CODENAME", "One-paragraph release summary", "## Section", "- **Change.**"):
-            self.assertNotIn(stub, body, f"unfilled template stub: {stub}")
+    def test_agents_match_the_server(self):
+        v = _server_version()
+        self.assertIn(f"VERSION      = '{v}'",
+                      (_ROOT / "client/remotepower-agent.py").read_text())
+        for rel in ("client/remotepower-agent-win.py",
+                    "client/remotepower-agent-mac.py"):
+            self.assertIn(f"VERSION = '{v}'", (_ROOT / rel).read_text(), rel)
+
+    def test_agent_extensionless_in_sync(self):
+        self.assertEqual((_ROOT / "client/remotepower-agent.py").read_bytes(),
+                         (_ROOT / "client/remotepower-agent").read_bytes())
+
+    def test_sw_and_cachebust_agree(self):
+        sw = (_ROOT / "server/html/sw.js").read_text()
+        m = re.search(r"remotepower-shell-v([0-9.]+-\d+)", sw)
+        self.assertTrue(m, "CACHE_NAME not found")
+        stamps = set(re.findall(r"\?v=([0-9.]+-\d+)", _html()))
+        self.assertEqual(stamps, {m.group(1)},
+                         "every ?v= must equal CACHE_NAME's stamp")
+
+    def test_every_static_page_carries_the_same_stamp(self):
+        sw = (_ROOT / "server/html/sw.js").read_text()
+        stamp = re.search(r"remotepower-shell-v([0-9.]+-\d+)", sw).group(1)
+        for p in sorted((_ROOT / "server/html").glob("*.html")):
+            found = set(re.findall(r"\?v=([0-9.]+-\d+)", p.read_text()))
+            self.assertIn(found, ({stamp}, set()), f"{p.name}: {found}")
+
+    def test_readme_badge_matches_the_server(self):
+        self.assertIn(f"version-{_server_version()}-blue",
+                      (_ROOT / "README.md").read_text())
+
+    def test_changelog_newest_header_is_the_server_version(self):
+        first = [l for l in (_ROOT / "CHANGELOG.md").read_text().splitlines()
+                 if l.startswith("## v")][0]
+        self.assertTrue(first.startswith(f'## v{_server_version()} — "'), first)
+
+    def test_version_doc_has_left_the_keep_three_window(self):
+        """docs/v7.4.6.md went at the v7.4.9 bump. The CHANGELOG entry is the record now."""
+        self.assertFalse((_ROOT / f"docs/v{V}.md").exists(), f"docs/v{V}.md should be gone")
+
+    def test_changelog_entry_has_no_template_left(self):
         changelog = (_ROOT / "CHANGELOG.md").read_text()
         top = changelog[changelog.index(f"## v{V}"):changelog.index(f"\n## v{PREVIOUS}")]
         for stub in ("CODENAME", "YYYY-MM-DD", "One-paragraph release summary", "Headline change"):
             self.assertNotIn(stub, top, f"unfilled changelog stub: {stub}")
 
-    def test_gen_wiki_names_a_newer_codename(self):
+    def test_gen_wiki_carries_a_codename(self):
+        """gen-wiki.py's Home line hardcodes the codename. Which one it is
+        belongs to the current release's pins; that it is not this older one
+        belongs here."""
         p = _ROOT / "tools/gen-wiki.py"
         if not p.exists():
             self.skipTest("excluded from dist tree")
         self.assertNotIn(CODENAME, p.read_text())
 
-    def test_it_is_still_in_the_kept_windows(self):
-        vers = sorted(p.stem for p in (_ROOT / "docs").glob("v*.md") if re.fullmatch(r"v\d+\.\d+\.\d+", p.stem))
-        self.assertIn(f"v{V}", vers)
+    def test_doc_set_keeps_three_versions(self):
+        vers = sorted(p.stem for p in (_ROOT / "docs").glob("v*.md")
+                      if re.fullmatch(r"v\d+\.\d+\.\d+", p.stem))
+        self.assertEqual(len(vers), 3, f"keep exactly 3 version docs: {vers}")
+        self.assertNotIn(f"v{V}", vers)
+
+    def test_readme_recent_releases_capped_at_five(self):
         readme = (_ROOT / "README.md").read_text()
         block = readme[readme.index("### Recent releases"):]
         block = block[:block.index("\n## ")] if "\n## " in block else block
-        self.assertIn(V, re.findall(r"^- \*\*v(\d+\.\d+\.\d+)", block, re.M))
+        bullets = re.findall(r"^- \*\*v(\d+\.\d+\.\d+)", block, re.M)
+        self.assertLessEqual(len(bullets), 5, bullets)
+        self.assertEqual(bullets[0], _server_version(), "the new release leads")
+        self.assertIn(V, bullets)
+
+    def test_whats_new_cards_capped_at_three(self):
         html = _html()
-        self.assertIn(V, re.findall(r"What's new \u2014 v(\d+\.\d+\.\d+)", html))
-        head = html[:html.index(f"What's new \u2014 v{V}")]
-        self.assertIn(CODENAME.lower(), head[head.rindex('data-keywords="'):].lower())
+        cards = re.findall(r"What's new — v(\d+\.\d+\.\d+)", html)
+        self.assertEqual(len(cards), 3, f"cap the cards at 3: {cards}")
+        self.assertEqual(cards[0], _server_version(), "the new release leads")
+        self.assertNotIn(V, cards)
+        # The card left at the v7.4.9 bump. Its search keywords moved to the 'Older releases' card, so doc search
+        # still finds it by its codename.
+        older = html[html.index('older versions history'):]
+        self.assertIn(CODENAME.lower(), older[:older.index('"')].lower())
 
     def test_no_dangling_links_to_the_dropped_docs(self):
         for dropped in ("v7.3.0.md", "v7.4.0.md", "v7.4.1.md", "v7.4.2.md", "v7.4.3.md", "v7.4.5.md"):
-            for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html", "docs/features.md"):
+            for rel in ("README.md", "docs/README.md", "docs/security.md",
+                        "server/html/index.html", "docs/features.md"):
                 p = _ROOT / rel
                 if p.exists():
-                    self.assertNotIn(dropped, p.read_text(), f"{rel} still links the deleted {dropped}")
+                    self.assertNotIn(dropped, p.read_text(),
+                                     f"{rel} still links the deleted {dropped}")
             self.assertFalse((_ROOT / "docs" / dropped).exists(), dropped)
 
 
@@ -84,9 +140,11 @@ class TestTheFoldedVersion(unittest.TestCase):
         self.assertIn("Int3rnalMatters", heads[0])
         self.assertTrue(heads[0].endswith("folded into v7.4.6 (no standalone release)"), heads[0])
 
-    def test_the_notes_carry_what_it_built(self):
+    def test_the_changelog_carries_what_it_built(self):
         self.assertFalse((_ROOT / "docs/v7.4.5.md").exists())
-        self.assertIn("## A host can count as internal", (_ROOT / f"docs/v{V}.md").read_text())
+        body = (_ROOT / "CHANGELOG.md").read_text()
+        body = body[body.index("## v7.4.5 \u2014 "):]
+        self.assertIn("internal", body[:3000].lower())      # the notes of 7.4.6 carried this too; they left at the v7.4.9 bump
 
     def test_no_surface_announces_a_release_that_never_shipped(self):
         readme = (_ROOT / "README.md").read_text()
@@ -96,9 +154,8 @@ class TestTheFoldedVersion(unittest.TestCase):
 
     def test_its_codename_stays_searchable(self):
         html = _html()
-        head = html[:html.index(f"What's new \u2014 v{V}")]
-        kw = head[head.rindex('data-keywords="'):]
-        self.assertIn("int3rnalmatters", kw.lower())
+        older = html[html.index('older versions history'):]
+        self.assertIn("int3rnalmatters", older[:older.index('"')].lower())
 
 
 class TestTheSecurityReview(unittest.TestCase):
@@ -149,21 +206,11 @@ class TestTheSecurityReview(unittest.TestCase):
         for needle in ("curl", "X-Token", "wget", "nc -"):
             self.assertNotIn(needle, text, needle)
 
-    def test_the_changelog_and_the_notes_agree_on_the_count(self):
+    def test_the_changelog_counts_the_issues(self):
         body = (_ROOT / "CHANGELOG.md").read_text()
         body = body[body.index("## v7.4.6 \u2014 "):body.index("## v7.4.5 \u2014 ")]
         section = body[body.index("### Security"):][:700]
-        self.assertIn("two issues", re.sub(r"\s+", " ", section))
-        notes = re.sub(r"\s+", " ", (_ROOT / "docs/v7.4.6.md").read_text())
-        self.assertIn("It found two more issues, both low", notes)
-
-    def test_the_card_links_its_review_and_the_index_of_the_others(self):
-        html = _html()
-        card = html[html.index("What's new \u2014 v" + V):]
-        card = card[:card.index("</details>")]
-        self.assertIn("docs/security-review-7.4.6.md", card)
-        self.assertIn("docs/security.md", card)         # the review of the internal-host switch left the window at v7.4.8
-        self.assertNotIn("docs/security-review-7.4.5.md", card)
+        self.assertIn("two issues", re.sub(r"\s+", " ", section))     # the notes carried this too; they left at the v7.4.9 bump
 
     def test_three_reviews_are_kept(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))

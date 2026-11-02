@@ -5,9 +5,13 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## Unreleased (test)
+## v7.4.9 — "Ch0iceMatters" — unreleased (test)
 
-What the reporters of #54 and Discussion #30 asked for after 7.4.8.
+A release about choices a person makes on a host, and about checking the whole product before it ships. A host can run its
+upgrades in a Standard or an Extended mode, a hard disk and a SATA SSD behind the same controllers keep their own temperature
+lines, and an update that Ubuntu is still phasing in is no longer counted as pending. What the reporters of #54 and
+Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep of the whole project. The release page is
+[docs/v7.4.9.md](docs/v7.4.9.md).
 
 ### Thermal
 
