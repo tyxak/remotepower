@@ -99,7 +99,10 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # proxmox_client.py, so only the request-coupled half moved.
 # 593→591 (v7.4.0): no carve; the ceiling had two of slack from handlers that
 # moved or went since, and slack lets the next inline handler in unnoticed.
-INLINE_HANDLER_CEILING = 591
+# 591→592 (v7.4.9): handle_logout — the session lifecycle beside handle_login (the pair that mints and ends a token in tokens.json,
+# which is the request spine: verify_token, require_auth and the dispatcher read the same store). It is nine lines of that store
+# and carries no subsystem of its own, so it stays with handle_login.
+INLINE_HANDLER_CEILING = 592
 
 
 class TestApiHandlerRatchet(unittest.TestCase):
