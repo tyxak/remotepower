@@ -1,0 +1,98 @@
+# Routes whose handler names no tenant or scope helper and that sit in neither _PLATFORM_ROUTES nor _OPERATOR_ORG_ROUTES.
+# Each was read for 7.4.9 (docs/security-review-7.4.9.md, 'Handler enumeration'). tests/test_v749_handler_tenant_ratchet.py fails
+# when a route appears that is not listed here, and when a listed route is gated now (take it off the list).
+# Format: METHOD path handler. A path's {} stands for one segment.
+
+# the test sits in a helper the handler calls (read in the source; the reads were also driven as a tenant administrator on a seeded stack)
+GET /api/ai/incident-memory handle_ai_incident_memory
+POST /api/alerts/bulk-ack handle_alerts_bulk_ack
+POST /api/alerts/bulk-resolve handle_alerts_bulk_resolve
+POST /api/alerts/{}/ack handle_alert_ack
+POST /api/alerts/{}/resolve handle_alert_resolve
+POST /api/alerts/{}/unack handle_alert_unack
+POST /api/alerts/{}/unresolve handle_alert_unresolve
+GET /api/attention handle_attention
+GET /api/audit-log handle_audit_log
+GET /api/autonomy/receipts handle_autonomy_receipts
+DELETE /api/autopatch/{} handle_autopatch_delete
+POST /api/autopatch/{}/run handle_autopatch_run
+POST /api/compose/fetch handle_compose_fetch
+GET /api/export handle_export
+GET /api/fleet/disk-health handle_disk_health
+GET /api/ignored handle_ignored_list
+GET /api/inbound-webhooks handle_inbound_webhooks_list
+POST /api/install handle_install_packages
+POST /api/ip-intel/block handle_ip_intel_block
+POST /api/ip-intel/edge-list/preview handle_edge_list_preview
+POST /api/ip-intel/edge-list/sync handle_edge_list_sync
+POST /api/ip-intel/edge-test handle_ip_intel_edge_test
+POST /api/ip-intel/settings handle_ip_intel_settings
+POST /api/ip-intel/unblock handle_ip_intel_unblock
+POST /api/mitigate/{}/fix handle_mitigate_fix
+POST /api/mitigate/{}/investigate handle_mitigate_investigate
+POST /api/packages/hold handle_hold_packages
+POST /api/packages/unhold handle_unhold_packages
+GET /api/patch-report/csv handle_patch_report_csv
+GET /api/patch-report/xml handle_patch_report_xml
+GET /api/problems handle_problems
+POST /api/provisioning/blueprints/{}/render handle_blueprint_render
+POST /api/provisioning/blueprints/{}/run handle_blueprint_run
+GET /api/report/archive handle_report_archive
+DELETE /api/report/archive/{} handle_report_archive_entry
+GET /api/report/archive/{} handle_report_archive_entry
+GET /api/report/evidence handle_evidence_pack
+GET /api/report/fleet handle_fleet_report
+GET /api/rollouts handle_rollouts_list
+DELETE /api/rollouts/{} handle_rollout_delete
+GET /api/sbom handle_sbom_fleet
+DELETE /api/scripts/{} handle_scripts_delete
+GET /api/scripts/{} handle_scripts_get
+PUT /api/scripts/{} handle_scripts_update
+POST /api/scripts/{}/dry-run handle_scripts_dry_run
+GET /api/security/advisory handle_security_advisory
+POST /api/security/advisory/brief handle_security_advisory_brief
+POST /api/taxonomy/groups/delete handle_taxonomy_group_delete
+POST /api/taxonomy/groups/merge handle_taxonomy_group_merge
+POST /api/taxonomy/groups/rename handle_taxonomy_group_rename
+DELETE /api/tickets/{} handle_ticket_delete
+POST /api/tickets/{}/email handle_ticket_send_email
+POST /api/uninstall handle_uninstall_packages
+
+# a machine route: the token or the signature of a host or a daemon is the credential
+POST /api/logs handle_log_submit
+POST /api/mcp/force_acme_rescan handle_mcp_force_acme_rescan
+POST /api/mcp/force_package_scan handle_mcp_force_package_scan
+POST /api/mcp/reboot_device handle_mcp_reboot_device
+POST /api/mcp/run_saved_script handle_mcp_run_saved_script
+POST /api/packages handle_packages_submit
+POST /api/scap/report handle_scap_report
+POST /api/sshgw/agent-check handle_sshgw_agent_check
+POST /api/sshgw/audit handle_sshgw_audit
+GET /api/tickets/csat handle_ticket_csat
+
+# a library every tenant may read; only the platform operator changes it
+GET /api/ai-exec/catalog handle_ai_exec_catalog
+GET /api/ansible/playbooks handle_ansible_playbooks_list
+GET /api/ansible/status handle_ansible_status
+GET /api/app-catalog handle_app_catalog
+GET /api/cmd-library handle_cmd_library_list
+GET /api/provisioning/blueprints handle_blueprints_list
+POST /api/query/batch handle_query_batch
+GET /api/query/fields handle_query_fields
+GET /api/roles handle_roles_list
+GET /api/software-policy handle_software_policy
+
+# installation state that holds no other tenant's data
+POST /api/ai/cron handle_ai_cron
+GET /api/ai/models handle_ai_models
+GET /api/cmdb/vault/status handle_cmdb_vault_status
+POST /api/cmdb/vault/unlock handle_cmdb_vault_unlock
+GET /api/cve/scan-status handle_cve_scan_status
+GET /api/dashboard/kinds handle_dashboard_kinds
+GET /api/health handle_health
+GET /api/iac/status/{} handle_iac_status
+GET /api/maintenance-mode handle_maintenance_mode_get
+GET /api/openapi.json handle_openapi_spec
+GET /api/saml/available handle_saml_available
+GET /api/saml/metadata handle_saml_metadata
+GET /api/sshgw/status handle_sshgw_status

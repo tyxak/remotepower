@@ -11280,7 +11280,7 @@ _PLATFORM_ROUTES = (
     ('/api/cve/refresh-feeds',       _WRITE_METHODS, ()),
     ('/api/ai/rag/reindex',          _WRITE_METHODS, ()),
     ('/api/exec/batch',              ('DELETE',),    ()),
-    ('/api/image-updates/ignore',    ('DELETE',),    ()),
+    ('/api/image-updates/ignore',    _WRITE_METHODS, ()),     # one list keyed by image, applied to every tenant's hosts
     # 7.4.9 (the final authorization-matrix run, on the fixed tree): the whole data directory as a tarball, the restore of one, the
     # restore drill, the test message to the operator's webhook destinations and the push daemon's reachability check. Each asks
     # for an administrator, so a tenant administrator downloaded every tenant's data and the installation's secrets.
@@ -62156,6 +62156,9 @@ def handle_user_avatar(target_user):
     """GET /api/users/<user>/avatar — serve any user's avatar (so the alerts
     inbox / audit views can show who acked). Auth required; image is non-secret."""
     require_auth()
+    if not _user_tenant_visible(target_user):
+        # 7.4.9: an account of another tenant answers like one that has no image.
+        respond(404, {'error': 'no avatar'})
     _serve_avatar(target_user)
 
 

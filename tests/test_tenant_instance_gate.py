@@ -300,7 +300,7 @@ class TestInstanceWideOperationsFoundIn749(_Base):
         ('/api/cve/refresh-feeds', 'POST'), ('/api/ai/rag/reindex', 'POST'), ('/api/exec/batch', 'DELETE'),
         ('/api/backup/download', 'GET'), ('/api/backup/restore', 'POST'), ('/api/backup/test-restore', 'POST'),
         ('/api/webhook/test', 'POST'), ('/api/push-daemon/test', 'POST'),
-        ('/api/image-updates/ignore', 'DELETE'),
+        ('/api/image-updates/ignore', 'DELETE'), ('/api/image-updates/ignore', 'POST'),
         # the sweep of handlers with no tenant test (7.4.9): operations on the installation and uses of the operator's accounts
         ('/api/server/restart', 'POST'), ('/api/server/self-update', 'POST'), ('/api/storage-backend/migrate', 'POST'),
         ('/api/tls/import-p12', 'POST'), ('/api/virt/i1/power', 'POST'), ('/api/virt/i1/snapshot', 'POST'),
@@ -330,7 +330,7 @@ class TestInstanceWideOperationsFoundIn749(_Base):
 
     def test_the_reads_beside_them_stay_open_to_a_tenant_administrator(self):
         for pi, m in (('/api/self/status', 'GET'), ('/api/self/observability', 'GET'), ('/api/self/backup-state', 'GET'),
-                      ('/api/exec/batch', 'GET'), ('/api/exec/batch', 'POST'), ('/api/image-updates/ignore', 'POST'),
+                      ('/api/exec/batch', 'GET'), ('/api/exec/batch', 'POST'), ('/api/image-updates', 'GET'),
                       ('/api/tls/targets', 'GET'), ('/api/billing/config', 'GET'),
                       # a tenant's pages still read the policy their hosts are judged by, the violations and the blockers' list
                       ('/api/software-policy', 'GET'), ('/api/software-policy/violations', 'GET'),

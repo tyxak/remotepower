@@ -967,6 +967,25 @@ class TestSmallListingsThatNamedAnotherTenantsHostsOrTheOperatorsSettings(_Tenan
             api._patch_approvals = saved
 
 
+class TestAnAvatarBelongsToTheCallersTenant(_Tenants):
+    def test_an_account_of_another_tenant_answers_like_one_with_no_image(self):
+        users = api.load(api.USERS_FILE)
+        for name in ('platform', 'badmin', 'cadmin'):
+            users[name]['avatar_mime'] = 'image/png'
+        api.save(api.USERS_FILE, users)
+        served = []
+        saved = api._serve_avatar
+        api._serve_avatar = lambda user: (served.append(user), api.respond(200, {'user': user}))
+        try:
+            self.assertEqual(self.call(api.handle_user_avatar, 'badmin', m='GET')[0], 200)
+            self.assertEqual(self.call(api.handle_user_avatar, 'cadmin', m='GET')[0], 404)
+            self.assertEqual(self.call(api.handle_user_avatar, 'platform', m='GET')[0], 404)
+            self.assertEqual(self.call(api.handle_user_avatar, 'cadmin', m='GET', who='platform')[0], 200)
+        finally:
+            api._serve_avatar = saved
+        self.assertEqual(served, ['badmin', 'cadmin'], 'the image helper ran only for what the caller may see')
+
+
 class TestLldpSuggestions(_Tenants):
     def test_both_ends_of_a_suggested_link_are_hosts_the_caller_can_see(self):
         dv = api.load(api.DEVICES_FILE)
