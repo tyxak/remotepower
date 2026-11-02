@@ -29,7 +29,7 @@ below says so.
 - **Containers.** The Docker image starts its app server and daemons as `www-data`, not root.
 - **Supply chain.** The GitHub Actions in the three workflows are pinned to commits, and Dependabot waits seven days before it
   proposes a release.
-- **Size.** {PENDING-SIZE}
+- **Size.** Since 7.4.8, counted by git with the documents left out: 172 files, +13,702 −799 lines. Server 33 files (+2,099 −282), web client 17 (+350 −125), agents and installers 7 (+1,088 −120), tests 96 (+9,891 −237), packaging, Docker and tools 19 (+274 −35).
 - **Not changed.** No dependency was added or removed in the server (Swagger UI moved from 5.34.0 to 5.34.1, a bug-fix release with
   no advisory). The agent version is 7.4.9 in all three agents.
 
@@ -39,7 +39,7 @@ below says so.
 
 | Scanner | What it covered | Result |
 |---|---|---|
-| CodeQL 2.27.3 (the version the pinned workflow action uses), Python and JavaScript, the repository's own configuration | the whole tree | no result, on the tree before the last fixes and again on the final tree (see the release page for the run) |
+| CodeQL 2.27.3 (the version the pinned workflow action uses), Python and JavaScript, the repository's own configuration | the whole tree | no result, on the tree before the last fixes and again on the final tree (see "The release gate") |
 | bandit (against its baseline), ruff (undefined names, errors), mypy (32 modules), the JavaScript correctness gate, vulture | server, agents, tools, tests | no new finding; vulture's two reports are unused parameters |
 | semgrep (registry rule sets, with a known-bad file as a control) | the whole tree | 92 results; all triaged, see below |
 | gitleaks (tree and the commits of this release, with planted keys as a control) | the whole tree | no leak found; the control found both planted keys |
@@ -311,11 +311,24 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 - The two nginx configurations send HSTS only when you turn it on, and no `Cross-Origin-Embedder-Policy` (the origin is already
   isolated by `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy` and a CSP with no external source).
 
-## Left for the release gate
+## The release gate
 
-- The full test suite on the JSON and SQLite backends, the PostgreSQL tests, `make ci-parity` (the dependencies resolved fresh, as
-  CI does), `make dist`, the local CodeQL run on the final tree, bandit, gitleaks and the release preparation check. The numbers
-  of that run are in the release page.
+The suites ran on the commits of this release. Where a line names a commit, the run is of that commit. After `2f0a7a0f` only two
+tests changed (`5ffc3dc6`); they were run on their own and again in the suite of `make dist`, and nothing else in the tree has
+changed since but documents.
+
+| Check | Result |
+|---|---|
+| Test suite, JSON storage (`2f0a7a0f`) | 18,304 tests, 57 skipped. Red: the two subtests of the AUR check, a storage property test that had stopped being true for `config.json` and an interface test that raced a scroll. The last two are fixed in `5ffc3dc6` |
+| Test suite, SQLite (`2f0a7a0f`) | 17,985 tests, 145 skipped. Red: the two AUR subtests only |
+| PostgreSQL tests (`2f0a7a0f`) | 28 tests, none skipped. The server was PostgreSQL 18.6 and CI runs 16 |
+| `make ci-parity` (`5ffc3dc6`): Python 3.14, the workflow's dependency list resolved fresh, the workflow's runner | 18,060 tests, 368 skipped. Red: the two AUR subtests only |
+| `make dist` (`5ffc3dc6`): the tarball, its leak check and the suite on the staged tree | 18,305 tests, 88 skipped. Red: the two AUR subtests only. The tarball was built and passed its leak check |
+| CodeQL 2.27.3, Python and JavaScript, the repository's own configuration (`5ffc3dc6`) | no result |
+| bandit against its baseline, gitleaks over the tree and the 60 commits since 7.4.8, `make lint`, `tools/release-prep.py verify` (`5ffc3dc6`) | no issue, no leak, clean, 0 failures |
+
+The two AUR subtests check that the Arch packages are on the last shipped release. They are on 7.4.0 and the last shipped release is
+7.4.8, so they stay red until the packages are bumped. They were red in the gates of the earlier 7.4 releases too.
 
 ## Not run for this review
 
