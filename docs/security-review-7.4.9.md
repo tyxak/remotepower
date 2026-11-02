@@ -19,7 +19,7 @@ below says so.
   the SCAP report route now also accepts a one-minute link. No permission was loosened. A permission check was added to one
   endpoint (`services/config`) and a tenant check to the ticket handlers and to many others. The table of what only the platform
   operator (an administrator of the default tenant) may do holds 55 entries, 29 more than in 7.4.8. A second table, new in this
-  release, holds the 55 route prefixes that belong to the organisation running the installation (monitors, links, calendar,
+  release, holds the 58 route prefixes that belong to the organisation running the installation (monitors, links, calendar,
   billing, integrations, DNS, the audit trail's archive and others): with tenant isolation on they answer only users of the
   default tenant.
 - **Credentials.** Every comparison of a secret in the server goes through one helper (`secure_eq.py`) that never raises. A DNS
@@ -165,15 +165,15 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
 - **S23.** A ticket has no tenant field, so it takes one from what it names: the tenant of its host while the host exists,
   otherwise the tenant of the account that opened it (a customer's reply by mail and an automation rule belong to the default
   tenant). The ticket list, a single ticket, update, delete, attachments, the e-mail thread, the open count and the hosts marked
-  with a ticket show a tenant its own; a ticket cannot be moved onto another tenant's host. 55 route prefixes whose stores
+  with a ticket show a tenant its own; a ticket cannot be moved onto another tenant's host. 58 route prefixes whose stores
   have no tenant column, or whose pages are the operator's, belong to the organisation running the installation (the monitors
   and the SLO figures, the links, the calendar and its feed, the mail round trip, Proxmox, the diagnostics bundle, configuration as
   code, billing, invoices, quotes, time entries and timesheets, sites, contacts, IPAM, racks, incidents, patch snapshots, the site
   report, the integrations and hypervisor platforms, the WAN address, the on-call roster, the customer portal's queue, report
   definitions and schedule, the security posture, diagnostics, self-test and setup pages, metrics push, client errors, DMARC, IP
   reputation, resolver health, the TLS monitors, the helpdesk mailbox, DNS, the audit trail's archive and chain check, the global
-  log rules, the litigation hold, the AI parameters and prompts, the saved DNS credential list, dead-man jobs and the
-  needs-attention suppression rules): with isolation on they answer only users of the default tenant, for reads and writes, so the
+  log rules, the litigation hold, the AI parameters and prompts, the saved DNS credential list, dead-man jobs, the
+  needs-attention suppression rules, the server's own status pages, the signing status and the AI index's status): with isolation on they answer only users of the default tenant, for reads and writes, so the
   operator's own viewers and operators keep their pages. What names no host (an alert about a monitor, a certificate watch or an
   integration, an activity item, a needs-attention item, the monitor families of the metrics scrape) is the installation's, and a
   tenant sees what names one of its hosts. The settings document comes back with its lists and addresses empty for a tenant, and the

@@ -99,7 +99,8 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   the WAN address, the on-call roster, the customer portal's queue, report definitions and schedule, the security posture, diagnostics,
   self-test and setup pages, metrics push, client errors, DMARC and IP reputation, resolver health, the TLS monitors, the helpdesk
   mailbox, DNS, the audit trail's archive (every tenant's entries) and its chain check, the global log rules, the litigation hold,
-  the AI parameters and prompts, the saved DNS credential list, dead-man jobs and the needs-attention suppression rules. A tenant's
+  the AI parameters and prompts, the saved DNS credential list, dead-man jobs, the needs-attention suppression rules, the server's own status pages (they carry the
+  data directory's path and file sizes), the signing status and the AI index's status. A tenant's
   users lose those pages; that was the leak.
 - **The operator's DNS credentials went to a tenant's host (High).** `POST /api/acme/{host}/issue` puts the credentials of the central
   DNS-provider store in front of the acme.sh command it queues. For a tenant's own host that handed the operator's token to the

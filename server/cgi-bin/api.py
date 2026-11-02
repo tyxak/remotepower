@@ -11269,8 +11269,8 @@ _PLATFORM_ROUTES = (
     ('/api/resolver-health',         _WRITE_METHODS, ()),
     ('/api/calendar/import',         _WRITE_METHODS, ()),
     # 7.4.9 (authorization matrix): operations on the installation itself that a tenant administrator could reach, because the
-    # handlers ask for an administrator and nothing more. Reads stay open: the self-monitoring status and observability pages
-    # are GET, and a tenant's own backup-state view is not an instance operation.
+    # handlers ask for an administrator and nothing more. Their reads are the operator organisation's (_OPERATOR_ORG_ROUTES): the
+    # self-monitoring pages carry the data directory's path, file sizes and the state of the daemons.
     ('/api/audit/rotate-hmac-key',   _WRITE_METHODS, ()),
     ('/api/security/rotate-export-key', _WRITE_METHODS, ()),
     ('/api/self',                    _WRITE_METHODS, ()),     # backup-now, backup-state, backup-encrypt
@@ -11416,6 +11416,9 @@ _OPERATOR_ORG_ROUTES = (
     '/api/deadman',
     '/api/na-suppress',
     '/api/debug-log',
+    '/api/self',                 # the server's own status: its data directory, file sizes, subsystems and sweeps
+    '/api/signing',
+    '/api/ai/rag',               # the index is built from every tenant's hosts; its status counts them
 )
 
 
