@@ -359,8 +359,9 @@ def handle_sshgw_sessions():
     rows = store.get('sessions') if isinstance(store, dict) else None
     rows = rows if isinstance(rows, list) else []
     visible = A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})
+    fleet_ok = A._caller_in_operator_org()        # 7.4.9: a session that names no host (a refused attempt) is the installation's
     out = [dict(r) for r in rows
-           if isinstance(r, dict) and (not r.get('device_id') or r.get('device_id') in visible)]
+           if isinstance(r, dict) and ((not r.get('device_id') and fleet_ok) or r.get('device_id') in visible)]
     out.sort(key=lambda r: int(r.get('started') or 0), reverse=True)
     A.respond(200, {'ok': True, 'sessions': out[:500]})
 
@@ -380,6 +381,7 @@ def handle_sshgw_sessions_clear():
     everything = A._load_ro(A.DEVICES_FILE) or {}
     visible = A._scope_filter_devices(everything)
     unscoped = A._caller_scope() is None and not (A._tenancy_enforced() and not A._caller_is_superadmin())
+    fleet_ok = A._caller_in_operator_org()      # 7.4.9: a row that names no host is the installation's, as in the list
     removed = 0
     with A._LockedUpdate(A.SSHGW_SESSIONS_FILE) as store:
         rows = store.get('sessions') if isinstance(store.get('sessions'), list) else []
@@ -387,7 +389,7 @@ def handle_sshgw_sessions_clear():
         for r in rows:
             did = r.get('device_id') if isinstance(r, dict) else None
             gone = bool(did) and did not in everything
-            if not isinstance(r, dict) or not did or did in visible or (gone and unscoped):
+            if not isinstance(r, dict) or (not did and fleet_ok) or did in visible or (gone and unscoped):
                 removed += 1
             else:
                 keep.append(r)

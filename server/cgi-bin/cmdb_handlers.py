@@ -1051,8 +1051,13 @@ def handle_cmdb_server_functions() -> None:
     """
     A.require_auth()
     cmdb = A._cmdb_load()
+    # 7.4.9: the values of the assets the caller can see. The list is a hint for a field, and it named the functions of every
+    # tenant's assets.
+    visible = A._confined_host_ids()
     seen = set()
-    for rec in cmdb.values():
+    for dev_id, rec in cmdb.items():
+        if visible is not None and dev_id not in visible:
+            continue
         fn = (rec or {}).get('server_function') or ''
         if fn:
             seen.add(fn)

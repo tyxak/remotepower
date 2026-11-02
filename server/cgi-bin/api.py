@@ -11281,6 +11281,12 @@ _PLATFORM_ROUTES = (
     ('/api/ai/rag/reindex',          _WRITE_METHODS, ()),
     ('/api/exec/batch',              ('DELETE',),    ()),
     ('/api/image-updates/ignore',    ('DELETE',),    ()),
+    # 7.4.9 (the final authorization-matrix run, on the fixed tree): the whole data directory as a tarball, the restore of one, the
+    # restore drill, the test message to the operator's webhook destinations and the push daemon's reachability check. Each asks
+    # for an administrator, so a tenant administrator downloaded every tenant's data and the installation's secrets.
+    ('/api/backup',                  None,           ()),
+    ('/api/webhook/test',            _WRITE_METHODS, ()),
+    ('/api/push-daemon',             None,           ()),
 )
 
 
@@ -11345,6 +11351,13 @@ _OPERATOR_ORG_ROUTES = (
     '/api/timesheet',
     '/api/sites',
     '/api/contacts',
+    # 7.4.9 (the final matrix run): stores of the operator's own, with no tenant column, that a tenant administrator could read and
+    # change by id (a subnet, a rack, an incident, a patch snapshot, a site report).
+    '/api/ipam',
+    '/api/racks',
+    '/api/incidents',
+    '/api/patch-snapshots',
+    '/api/report/site',
 )
 
 
@@ -13221,7 +13234,7 @@ def _run_automation_rules(event, payload, cfg):
         # An empty `device_match` matches EVERY device in the instance, and the
         # `run_script` action queues a script body as `exec:` on whatever it
         # matched, which the agent runs as root.
-        _rgate = rule.get('tenant_gate')
+        _rgate = _rule_owner_gate(rule)
         if _rgate is not None:
             if devices_cache is None:
                 devices_cache = {dev_id: device_get(dev_id) or {}} if dev_id else {}
@@ -13326,21 +13339,39 @@ def _validate_rule(body):
     return rule, None
 
 
+def _rule_owner_gate(rule):
+    """The tenant an automation rule belongs to: None for the operator's own, else a tenant id.
+
+    A rule saved from v7.0.2 carries the stamp. An older one does not, so its owner is the tenant of the account that wrote
+    it, which the store already holds. A rule whose author is gone belongs to the operator."""
+    if 'tenant_gate' in rule:
+        return rule.get('tenant_gate') or None
+    if not _tenancy_enforced():
+        return None
+    actor = rule.get('actor')
+    if not isinstance(actor, str) or not actor:
+        return None
+    tid = _user_tenant(actor)
+    return None if tid == DEFAULT_TENANT else tid
+
+
 def _rule_visible(rule):
     """True if this caller may see/edit this automation rule.
 
     A rule names a script id and a device match, and it RUNS CODE AS ROOT on
     whatever it matches — so which rules exist is not neutral information, and
-    editing one is equivalent to creating it. Rules written before v7.0.2 carry
-    no gate; those stay visible to every admin, because retro-assigning them to
-    a tenant would be a guess about who owns them.
+    editing one is equivalent to creating it. 7.4.9: the operator's own rules (no tenant) are the operator's only. They used
+    to be shown, edited and deleted by every tenant administrator, and a rule written before v7.0.2 (no stamp) by whoever
+    wrote it.
     """
-    gate = rule.get('tenant_gate') if isinstance(rule, dict) else None
-    if not (gate is None or gate == _tenant_gate()):
+    if not isinstance(rule, dict):
+        return True
+    # the operator's organisation (its administrators and its other users) reads the operator's rules; a tenant its own
+    if _rule_owner_gate(rule) != (None if _caller_in_operator_org() else _tenant_gate()):
         return False
     # 7.4.9: a rule that matches one host is not shown to a caller who cannot see that host, stamped or not.
     vis = _confined_host_ids()
-    if vis is not None and isinstance(rule, dict):
+    if vis is not None:
         dm = ((rule.get('match') or {}).get('device_match') or {})
         did = dm.get('device_id') if isinstance(dm, dict) else None
         if did and did in (_load_ro(DEVICES_FILE) or {}) and did not in vis:
@@ -18443,6 +18474,34 @@ def cve_ignore_applies(entry, dev_id, dev=None):
     if dev is None:
         dev = (_load_ro(DEVICES_FILE) or {}).get(dev_id) or {}
     return checks_mod.cve_ignore_applies(entry, dev_id, _device_tenant(dev))
+
+def _caller_reach():
+    """{'host'|'device': ids, 'tag': tags, 'group': groups, 'site': sites} of the hosts the caller can see. What the operator
+    configures against a host, a tag, a group or a site (checks, drift profiles) reaches a tenant only through these."""
+    mine = _scope_filter_devices(load(DEVICES_FILE) or {})
+    vals = [d for d in mine.values() if isinstance(d, dict)]
+    ids = set(mine)
+    return {'host': ids, 'device': ids,
+            'tag': {t for d in vals for t in (d.get('tags') or []) if isinstance(t, str)},
+            'group': {d.get('group') for d in vals if d.get('group')},
+            'site': {d.get('site') for d in vals if d.get('site')}}
+
+
+def _audit_entries_for_caller(entries):
+    """7.4.9: the audit entries the caller may read. The trail is the installation's, so the organisation that runs it (and a single-
+    tenant install) reads all of it; a tenant's administrator or auditor reads what the accounts of their own tenant did. The list had
+    been handed whole to anyone who could pass require_admin_or_auditor_auth(): every tenant's actions, the operator's, with the host
+    names and addresses in their detail (the final authorization-matrix run)."""
+    if not _tenancy_enforced() or _caller_in_operator_org():
+        return list(entries)
+    mine = {}
+
+    def _own(actor):
+        if actor not in mine:
+            mine[actor] = isinstance(actor, str) and _user_tenant_visible(actor)
+        return mine[actor]
+    return [e for e in entries if isinstance(e, dict) and _own(e.get('actor'))]
+
 
 def _user_tenant_visible(username):
     """Whether the caller may SEE or MANAGE this account under tenancy.
@@ -29360,6 +29419,15 @@ def handle_config_declarative():
     respond(405, {'error': 'Method not allowed'})
 
 
+# 7.4.9: what a tenant's users still read from the settings document: global limits their pages draw (thresholds), the file
+# manager's switches, and the switches of the security policy. Every other list or map, and the addresses below, are the
+# installation's.
+_TENANT_CONFIG_KEEP = frozenset({'metric_thresholds', 'file_manager', 'cve_severity_filter', 'mfa_required_roles'})
+_OPERATOR_CONFIG_TEXT = re.compile(
+    r'^(proxmox_(host|node|token_id)|backup_path|audit_forward_(host|url)|smtp_(host|user|from)|ldap_[a-z_]*|siem_url|'
+    r'otlp_endpoint|healthchecks_url|status_incident_recipients|portal_base_url)$')
+
+
 def handle_config_get():
     require_auth()
     _cfg_user, _cfg_role = verify_token(get_token_from_request())
@@ -29880,6 +29948,20 @@ def handle_config_get():
         'min_online_ttl':             MIN_ONLINE_TTL,
         'smtp_tls_modes':             ['starttls', 'tls', 'plain'],
     }
+    # 7.4.9: the settings document is the installation's. The secrets were withheld from a tenant (v6.4.3) and the rest was not: the
+    # monitors with their target addresses, the integrations, the backup monitors, the drift profiles that name hosts, the custom
+    # checks, the on-call roster, the SMTP and Proxmox hosts. A tenant's users get the numbers and switches their pages need, and the
+    # collections and addresses of the organisation that runs the installation come back empty.
+    if _tenancy_enforced() and not _caller_in_operator_org():
+        for _k, _v in list(safe.items()):
+            if _k in _TENANT_CONFIG_KEEP or _k == '_meta':
+                continue
+            if isinstance(_v, list):
+                safe[_k] = []
+            elif isinstance(_v, dict):
+                safe[_k] = {}
+            elif isinstance(_v, str) and _OPERATOR_CONFIG_TEXT.match(_k):
+                safe[_k] = ''
     # Defense-in-depth backstop: drop any secret-named key at any depth that the
     # explicit redaction above didn't catch (keeps every *_set / *_from_env
     # indicator and non-secret *_id fields intact). See _scrub_config_secrets.
@@ -43466,12 +43548,16 @@ def handle_tunnel_delete(tunnel_id: str) -> None:
     actor = require_admin_auth()
     if not tunnel_id.startswith('tun_'):
         respond(404, {'error': 'tunnel not found'})
-    raw = _tunnels_load()
-    if tunnel_id not in raw:
-        respond(404, {'error': 'tunnel not found'})
-    ends = raw[tunnel_id].get('endpoints') or ['?', '?']
-    del raw[tunnel_id]
-    save(TUNNELS_FILE, raw)
+    visible = _confined_host_ids()
+    with _LockedUpdate(TUNNELS_FILE) as raw:
+        t = raw.get(tunnel_id)
+        # 7.4.9: a caller confined to a tenant or a scope removes only a tunnel whose two ends it can see, and gets the
+        # answer for a tunnel that does not exist for any other. It used to delete any tunnel by id.
+        if not isinstance(t, dict) or (visible is not None
+                                       and not all(e in visible for e in (t.get('endpoints') or ['?', '?']))):
+            respond(404, {'error': 'tunnel not found'})
+        ends = t.get('endpoints') or ['?', '?']
+        del raw[tunnel_id]
     audit_log(actor, 'tunnel_delete', detail=f'{ends[0]} ↔ {ends[1]}')
     respond(200, {'ok': True})
 
@@ -44247,6 +44333,10 @@ def handle_exec_batch_status(job_id):
                 out['status'] = 'pending'
         enriched[dev_id] = out
 
+    if _restrict and not enriched:
+        # 7.4.9: a job none of whose hosts the caller can see is not theirs to read, as the job list already hides it. The
+        # script's name, the packages and the account that ran it were answered for any job id.
+        respond(404, {'error': 'Batch job not found or expired'})
     respond(200, {
         'job_id':     job_id,
         'kind':       job.get('kind', 'script'),
@@ -47042,8 +47132,16 @@ def _compliance_facts(devices=None):
     # Backups.
     try:
         bak = load(DATA_DIR / 'backup_state.json') if backend_exists(DATA_DIR / 'backup_state.json') else {}
-        facts['failed_backups'] = [k for k, v in bak.items() if not v.get('ok', True)]
-        facts['backup_monitors'] = len((cfg.get('backup_monitors') or []))
+        # The store is keyed `<device_id>:<path>`. Keep the rows of the hosts in this view, so a tenant's
+        # report does not name the hosts of another tenant (or of a host that was removed).
+        mine = {k: v for k, v in bak.items()
+                if isinstance(v, dict) and str(k).split(':', 1)[0] in _visible_ids}
+        facts['failed_backups'] = [k for k, v in mine.items() if not v.get('ok', True)]
+        if _caller_in_operator_org():
+            facts['backup_monitors'] = len((cfg.get('backup_monitors') or []))
+        else:
+            # The operator's monitor list is not a tenant's to count: count the paths its own hosts report.
+            facts['backup_monitors'] = len({str(k).split(':', 1)[1] for k in mine if ':' in str(k)})
     except Exception:
         facts['failed_backups'] = []
         facts['backup_monitors'] = 0
@@ -50826,7 +50924,14 @@ def handle_custom_checks_list():
     """GET /api/checks/custom — list custom-check definitions."""
     require_auth()
     cfg = load(CONFIG_FILE) or {}
-    respond(200, {'checks': cfg.get('custom_checks') or [],
+    checks = cfg.get('custom_checks') or []
+    if _tenancy_enforced() and not _caller_in_operator_org():
+        # 7.4.9: the definitions are the operator's. A tenant reads those that apply to every host and those aimed at a host, tag
+        # or group of its own; one aimed at another tenant's host (its id, or a tag or group only that tenant has) stays out.
+        reach = _caller_reach()
+        checks = [c for c in checks if isinstance(c, dict)
+                  and (c.get('target_kind') in (None, '', 'all') or c.get('target') in reach.get(c.get('target_kind'), ()))]
+    respond(200, {'checks': checks,
                   'types': list(CUSTOM_CHECK_TYPES)})
 
 
@@ -52461,7 +52566,7 @@ def _attention_for_caller(payload=None):
     caller's visible devices. Each NA item carries a `device_id` (None for
     fleet-level / TLS items, which have no device to attribute and are kept);
     per-device items for a device the caller can't see are dropped and the
-    counts/total recomputed. NO-OP for a single-org admin (scope None, tenant
+    counts/total recomputed (and, for a tenant, the items that name no host at all: 7.4.9). NO-OP for a single-org admin (scope None, tenant
     None) — `_scope_filter_devices` returns the whole fleet, so nothing is
     filtered and the digest is byte-identical to before."""
     if payload is None:
@@ -52470,8 +52575,10 @@ def _attention_for_caller(payload=None):
     if scope is None and _tenant_gate() is None:
         return payload
     visible = set(_scope_filter_devices(load(DEVICES_FILE) or {}, scope))
+    # 7.4.9: an item with no host is the installation's (a monitor, a certificate watch, an integration), and a tenant does not see it.
+    _fleet_ok = _caller_in_operator_org()
     items = [i for i in (payload.get('items') or [])
-             if not i.get('device_id') or i.get('device_id') in visible]
+             if (not i.get('device_id') and _fleet_ok) or i.get('device_id') in visible]
     counts = {'critical': 0, 'warning': 0, 'info': 0}
     for i in items:
         counts[i['severity']] = counts.get(i['severity'], 0) + 1
@@ -55788,8 +55895,17 @@ def handle_drift_profiles():
     if m == 'GET':
         require_auth()
         drift_cfg = (load(CONFIG_FILE) or {}).get('drift') or {}
-        respond(200, {'profiles': drift_cfg.get('profiles') or [],
-                      'assignments': drift_cfg.get('assignments') or []})
+        profiles = drift_cfg.get('profiles') or []
+        assignments = drift_cfg.get('assignments') or []
+        if _tenancy_enforced() and not _caller_in_operator_org():
+            # 7.4.9: an assignment names a host, a tag, a group or a site, and the profile its files. A tenant reads those that
+            # reach its own hosts (the profiles of the others, and which hosts they were assigned to, are the operator's).
+            reach = _caller_reach()
+            assignments = [a for a in assignments if isinstance(a, dict)
+                           and a.get('scope_value') in reach.get(a.get('scope_type'), ())]
+            used = {a.get('profile_id') for a in assignments}
+            profiles = [p for p in profiles if isinstance(p, dict) and p.get('id') in used]
+        respond(200, {'profiles': profiles, 'assignments': assignments})
     if m == 'POST':
         actor = require_admin_auth()
         _require_platform_operator('Drift profiles')
@@ -60145,7 +60261,7 @@ register_job_handler('send_report_email', _job_send_report_email)
 def handle_audit_log():
     require_admin_or_auditor_auth()
     al = load(AUDIT_LOG_FILE)
-    respond(200, _paginate_list(list(reversed(al.get('entries', [])))))
+    respond(200, _paginate_list(list(reversed(_audit_entries_for_caller(al.get('entries', []))))))
 
 
 def _audit_chain_walk(entries):
@@ -61479,7 +61595,7 @@ def _alert_tenant_visible(alert):
         return True
     did = alert.get('device_id')
     if not did:
-        return True
+        return _caller_in_operator_org()      # 7.4.9: an alert that names no host is the installation's (a monitor, an integration)
     dev = device_get(did) or {}
     return _device_tenant(dev) == gate
 
@@ -61497,18 +61613,20 @@ def _readable_alerts(alerts):
 
 def _filter_alerts_for_caller(all_alerts):
     """Restrict a raw alert list to what the caller may see: RBAC scope AND the
-    v6.1.1 tenant gate. Device-less (fleet-level) alerts stay visible. Shared by
-    the alerts list + summary so both apply identical visibility."""
+    v6.1.1 tenant gate. Device-less (fleet-level) alerts stay visible to the organisation that runs the installation and to
+    no tenant (7.4.9). Shared by the alerts list + summary so both apply identical visibility."""
     scope = _caller_scope()
     gate = _tenant_gate()
     if scope is None and gate is None:
         return list(all_alerts)
     devs = _load_ro(DEVICES_FILE) or {}
     out = []
+    fleet_level_ok = gate is None or _caller_in_operator_org()      # 7.4.9: see _alert_tenant_visible
     for a in all_alerts:
         did = a.get('device_id')
         if not did:
-            out.append(a)
+            if fleet_level_ok:
+                out.append(a)
             continue
         d = devs.get(did, {})
         if scope is not None and not _device_in_scope(scope, d):
@@ -62495,17 +62613,35 @@ def handle_alert_mutes():
     respond(200, {'ok': True, 'id': mute_id, 'resolved': resolved})
 
 
+def _mute_reachable(mute):
+    """True when the caller may see (and so lift) this mute: it is for a host the caller can see, or it has no host (or the
+    host is gone) and the caller is not confined to a tenant or a scope."""
+    scope = _caller_scope()
+    gate = _tenant_gate()
+    if scope is None and gate is None:
+        return True
+    dev = (_load_ro(DEVICES_FILE) or {}).get(mute.get('device_id') or '')
+    if not isinstance(dev, dict):
+        return False
+    if gate is not None and not _tenant_visible(dev):
+        return False
+    return scope is None or _device_in_scope(scope, dev)
+
+
 def handle_alert_mute_delete(mute_id):
     """DELETE /api/alert-mutes/{id} (admin) — lift a mute."""
     actor = require_admin_auth()
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
-    data = _alert_mutes_load()
-    n = len(data['mutes'])
-    data['mutes'] = [m for m in data['mutes'] if m.get('id') != mute_id]
-    if len(data['mutes']) == n:
-        respond(404, {'error': 'mute not found'})
-    save(ALERT_MUTES_FILE, data)
+    with _LockedUpdate(ALERT_MUTES_FILE) as data:
+        mutes = data.get('mutes')
+        mutes = mutes if isinstance(mutes, list) else []
+        target = next((m for m in mutes if isinstance(m, dict) and m.get('id') == mute_id), None)
+        # 7.4.9: 404 for a mute the caller cannot see, as for one that does not exist. It used to lift any mute by id, so a
+        # tenant administrator could switch the operator's or another tenant's silenced alert back on.
+        if target is None or not _mute_reachable(target):
+            respond(404, {'error': 'mute not found'})
+        data['mutes'] = [m for m in mutes if m is not target]
     audit_log(actor, 'alert_mute_delete', detail=f'mute={mute_id}')
     respond(200, {'ok': True})
 
@@ -66198,12 +66334,13 @@ def handle_fleet_events():
 
     # Tenant isolation: a tenant admin has scope=None but must only see events
     # for devices in its own tenant (fleet-wide events with no device_id stay
-    # visible). Same class as the alerts inbox fix (v6.1.1).
+    # visible to the organisation that runs the installation only, 7.4.9). Same class as the alerts inbox fix (v6.1.1).
     _tgate = _tenant_gate()
     if _tgate is not None:
         _visible = _tenant_filter_devices(devices)
+        _fleet_ok = _caller_in_operator_org()          # 7.4.9: an event that names no host is the installation's, not a tenant's
         events = [e for e in events
-                  if not (e.get('payload') or {}).get('device_id')
+                  if (not (e.get('payload') or {}).get('device_id') and _fleet_ok)
                   or (e.get('payload') or {}).get('device_id') in _visible]
 
     # v3.2.3: routing matrix filter — Recent Activity only shows events
@@ -66328,6 +66465,8 @@ def _timeline_audit_rows(include_ids, name_map, since=None, until=None):
             did = m.group(1)
         elif m:
             continue      # names a device the caller cannot see — drop the row
+        if did is None and not _caller_in_operator_org():
+            continue      # 7.4.9: a row that names no host is the installation's (a config save, a key rotation), not a tenant's
         rows.append({
             'ts':          ts,
             'kind':        'audit',
@@ -68808,6 +68947,12 @@ def _metrics_scope_ctx(ctx, visible):
     is left alone — it is not per-device data.
     """
     vis = set(visible)
+    if not _caller_in_operator_org():
+        # 7.4.9: the monitors (label and target address), their state and SLO figures, the webhook queue and the control plane's own
+        # uptime belong to the organisation running the installation. A tenant's scrape carried them.
+        ctx['monitors'], ctx['monitor_state'], ctx['backup_monitors'] = [], {}, []
+        for key in ('slo', 'control_uptime', 'webhook_log'):
+            ctx[key] = None
 
     def _by_key(d):
         return {k: v for k, v in (d or {}).items() if k in vis}

@@ -467,25 +467,45 @@ def handle_cve_device(dev_id):
     })
 
 
+def _ignore_owner_gate(entry):
+    """The tenant an accepted-risk record belongs to: a tenant id, or None for the operator's own.
+
+    A record written from v7.0.3 by a tenant carries the tenant. An older one, and every record of the operator's, does not,
+    so the owner is the tenant of the account that wrote it. A record whose author is gone belongs to the operator."""
+    owner = entry.get('tenant')
+    if owner:
+        return owner
+    if not A._tenancy_enforced():
+        return None
+    actor = entry.get('actor')
+    if not isinstance(actor, str) or not actor:
+        return None
+    tid = A._user_tenant(actor)
+    return None if tid == A.DEFAULT_TENANT else tid
+
+
 def _ignore_entry_visible(entry):
     """Can the caller see this accepted-risk record?
 
-    A record scoped to a device is visible when that device is; a `global`
-    record is visible to the tenant that wrote it, and — for records written
-    before v7.0.3, which carry no tenant — to everyone, because that is what
-    they have always meant.
+    The platform operator sees all of them. A user of the operator's organisation sees the operator's own. A tenant sees the
+    records its own users wrote, and the ones the operator wrote for one of its hosts. 7.4.9: the operator's `global` records
+    used to be listed to every tenant, with the account that wrote them and its reason, and a tenant administrator could delete
+    them, which lifts the acceptance for the whole installation.
     """
     if not isinstance(entry, dict):
         return True
     gate = A._tenant_gate()
     if gate is None:
         return True
+    owner = _ignore_owner_gate(entry)                  # None: the operator's own
+    mine = None if gate == A.DEFAULT_TENANT else gate  # whose records the caller reads
+    if owner is not None:
+        return owner == mine
     scope = entry.get('scope')
     if scope and scope != 'global':
         dev = A.device_get(scope)
-        return dev is None or A._tenant_visible(dev)
-    owner = entry.get('tenant')
-    return not owner or owner == gate
+        return mine is None if dev is None else A._tenant_visible(dev)
+    return mine is None
 
 
 def handle_cve_ignore_add():

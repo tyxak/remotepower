@@ -198,6 +198,11 @@ class TestTheOrdinaryCasesStillWork(_HandlerCase):
         self.assertTrue(api.cve_ignore_applies(rec, 'devA'))
         self.assertTrue(api.cve_ignore_applies(rec, 'devB'))
         api.method = lambda: 'GET'
+        # 7.4.9: the record still suppresses everywhere, but a tenant no longer reads it in the list. A record with no
+        # tenant and no author is the operator's, and its reason and author are not the tenant's to read (or to delete).
+        _status, body = self.call(api.handle_cve_ignore_list)
+        self.assertEqual(body['ignores'], [])
+        self.gate = None                              # the platform operator
         _status, body = self.call(api.handle_cve_ignore_list)
         self.assertEqual(len(body['ignores']), 1)
 

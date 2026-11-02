@@ -298,6 +298,8 @@ class TestInstanceWideOperationsFoundIn749(_Base):
         ('/api/self/backup-now', 'POST'), ('/api/self/backup-state', 'DELETE'), ('/api/self/backup-encrypt', 'POST'),
         ('/api/tls/gen-self-signed', 'POST'), ('/api/billing/config', 'POST'), ('/api/connectors/reload', 'POST'),
         ('/api/cve/refresh-feeds', 'POST'), ('/api/ai/rag/reindex', 'POST'), ('/api/exec/batch', 'DELETE'),
+        ('/api/backup/download', 'GET'), ('/api/backup/restore', 'POST'), ('/api/backup/test-restore', 'POST'),
+        ('/api/webhook/test', 'POST'), ('/api/push-daemon/test', 'POST'),
         ('/api/image-updates/ignore', 'DELETE'))
 
     def test_a_tenant_administrator_is_refused_each_one(self):
@@ -325,7 +327,8 @@ class TestInstanceWideOperationsFoundIn749(_Base):
                 self.assertIsNone(self.gate(pi, m))
 
     def test_the_old_table_let_each_of_them_through(self):
-        old = tuple(r for r in api._PLATFORM_ROUTES if r[0] not in {p for p, _m in self.OPERATIONS} and r[0] != '/api/self')
+        old = tuple(r for r in api._PLATFORM_ROUTES if r[0] != '/api/self'
+                    and not any(pi == r[0] or pi.startswith(r[0] + '/') for pi, _m in self.OPERATIONS))
         saved = api._PLATFORM_ROUTES
         api._PLATFORM_ROUTES = old
         try:

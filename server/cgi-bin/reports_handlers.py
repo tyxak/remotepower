@@ -706,7 +706,7 @@ def handle_evidence_pack():
     since = now - days * 86400
     comp_hist = [s for s in ((A.load(A.COMPLIANCE_HIST_FILE) or {}).get('fleet') or [])
                  if isinstance(s, dict) and int(s.get('ts', 0) or 0) >= since][-days:]
-    audit = [e for e in ((A.load(A.AUDIT_LOG_FILE) or {}).get('entries') or [])
+    audit = [e for e in A._audit_entries_for_caller((A.load(A.AUDIT_LOG_FILE) or {}).get('entries') or [])
              if isinstance(e, dict) and int(e.get('ts', 0) or 0) >= since]
     pack = {
         'schema':         'remotepower.evidence.v1',

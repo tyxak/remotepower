@@ -155,6 +155,178 @@ class TestTicketsStayInTheTenant(_Tenants):
         self.assertEqual(self.ids('badmin'), ['tkB', 'tkBu', 'tkC', 'tkP'])
 
 
+class TestWhatNamesNoHostBelongsToTheInstallation(_Tenants):
+    """An alert, a fleet event or a Needs-Attention item that names no host is about the installation: a monitor that fails, an
+    integration that is down, a certificate that expires, the webhook queue. They were kept for every caller, so a tenant's users read
+    the operator's monitor labels and target addresses on the home page, in the inbox and in the activity feed (the final run of the
+    authorization matrix, "Public site - nginx.lab" and its URL in a tenant administrator's answers). The organisation that runs the
+    installation still sees them."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.ALERTS_FILE, {'alerts': [
+            {'id': 'aB', 'event': 'device_offline', 'device_id': 'devB', 'status': 'open', 'ts': 1, 'payload': {}},
+            {'id': 'aC', 'event': 'device_offline', 'device_id': 'devC', 'status': 'open', 'ts': 1, 'payload': {}},
+            {'id': 'aM', 'event': 'monitor_down', 'status': 'open', 'ts': 1, 'payload': {'label': 'Public site', 'target': 'https://nginx.lab/'}}]})
+        api.save(api.FLEET_EVENTS_FILE, {'events': [
+            {'event': 'device_offline', 'ts': 1, 'payload': {'device_id': 'devB'}},
+            {'event': 'device_offline', 'ts': 2, 'payload': {'device_id': 'devC'}},
+            {'event': 'monitor_down', 'ts': 3, 'payload': {'label': 'Public site'}}]})
+
+    def alert_ids(self, who):
+        st, d = self.call(api.handle_alerts_list, m='GET', who=who)
+        self.assertEqual(st, 200, d)
+        return sorted(a['id'] for a in d['alerts'])
+
+    def event_names(self, who):
+        # the conditional GET raises the HTTPError itself (it carries headers), so the stubbed respond() never sees the answer
+        self.who, self.m = who, 'GET'
+        api._LOAD_CACHE.clear()
+        try:
+            api.handle_fleet_events()
+        except api.HTTPError as e:
+            self.assertEqual(e.status, 200)
+            return sorted((ev['event'], (ev.get('payload') or {}).get('device_id') or '') for ev in e.body)
+        raise AssertionError('the handler did not answer')
+
+    def test_the_alert_inbox_of_a_tenant_holds_its_own_hosts_only(self):
+        self.assertEqual(self.alert_ids('badmin'), ['aB'])
+        self.assertEqual(self.alert_ids('bviewer'), ['aB'])
+
+    def test_the_operators_organisation_sees_the_monitor_alert_too(self):
+        self.assertEqual(self.alert_ids('platform'), ['aB', 'aC', 'aM'])
+        self.assertEqual(self.alert_ids('dviewer'), ['aM'], 'a default-tenant viewer sees no tenant host, and the installation\'s own alert')
+
+    def test_a_tenant_cannot_act_on_the_installations_alert(self):
+        st, d = self.call(api.handle_alert_ack, 'aM', body={}, who='badmin')
+        self.assertEqual(st, 404, d)
+
+    def test_the_activity_feed(self):
+        self.assertEqual(self.event_names('badmin'), [('device_offline', 'devB')])
+        self.assertEqual(self.event_names('platform'), [('device_offline', 'devB'), ('device_offline', 'devC'), ('monitor_down', '')])
+        self.assertIn(('monitor_down', ''), self.event_names('dviewer'))
+
+    def test_the_needs_attention_digest(self):
+        payload = {'items': [{'kind': 'monitor_down', 'severity': 'critical', 'device': 'Public site', 'device_id': None, 'summary': 'x'},
+                             {'kind': 'offline', 'severity': 'warning', 'device': 'b1', 'device_id': 'devB', 'summary': 'x'},
+                             {'kind': 'offline', 'severity': 'warning', 'device': 'c1', 'device_id': 'devC', 'summary': 'x'}],
+                   'counts': {}, 'total': 3}
+
+        def ids(who):
+            self.who = who
+            api._LOAD_CACHE.clear()
+            return [i['device_id'] for i in api._attention_for_caller(dict(payload))['items']]
+        self.assertEqual(ids('badmin'), ['devB'])
+        self.assertEqual(sorted(i or '' for i in ids('platform')), ['', 'devB', 'devC'])
+        self.assertEqual(ids('dviewer'), [None], 'the operator\'s own viewer keeps the monitor item')
+
+
+class TestTheSettingsAndTheScrapeCarryNoOperatorData(_Tenants):
+    """The settings document and the Prometheus scrape of a tenant's user: the final run of the authorization matrix found the
+    operator's monitors (label and target address), integrations, backup monitors, custom checks, drift profiles and mail hosts in
+    both."""
+    STORES = _Tenants.STORES + ('CONFIG_FILE', 'MON_HIST_FILE', 'MAINT_FILE', 'HARDWARE_FILE')
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.CONFIG_FILE, {
+            'tenancy_enforced': True, 'metric_thresholds': {'cpu': 90}, 'online_ttl': 300, 'proxmox_host': 'proxmox.lab',
+            'smtp_host': 'mail.operator.example', 'backup_path': '/srv/backups',
+            'monitors': [{'label': 'Public site', 'type': 'http', 'target': 'https://nginx.lab/'}],
+            'integrations': [{'type': 'jellyfin', 'url': 'http://jf.lab'}], 'custom_checks': [{'target': 'devD', 'name': 'x'}],
+            'drift': {'assignments': [{'scope_value': 'devD'}]}, 'backup_monitors': [{'device_id': 'devD', 'path': '/x'}]})
+
+    def config(self, who):
+        st, d = self.call(api.handle_config_get, m='GET', who=who)
+        self.assertEqual(st, 200, d)
+        return d
+
+    def test_a_tenant_reads_the_numbers_and_not_the_installations_collections(self):
+        for who in ('badmin', 'bviewer'):
+            with self.subTest(who=who):
+                c = self.config(who)
+                for key in ('monitors', 'integrations', 'custom_checks', 'backup_monitors'):
+                    self.assertEqual(c[key], [], key)
+                self.assertEqual(c['drift'], {})
+                self.assertEqual((c['proxmox_host'], c['smtp_host'], c['backup_path']), ('', '', ''))
+                self.assertEqual(c['metric_thresholds'], {'cpu': 90}, 'the limits their pages draw stay')
+                self.assertEqual(c['online_ttl'], 300)
+
+    def test_the_operators_organisation_reads_all_of_it(self):
+        for who in ('platform', 'dviewer'):
+            with self.subTest(who=who):
+                c = self.config(who)
+                self.assertEqual(len(c['monitors']), 1)
+                self.assertEqual(c['proxmox_host'], 'proxmox.lab')
+                self.assertEqual(len(c['integrations']), 1)
+
+    def test_with_tenancy_off_nothing_changes(self):
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['tenancy_enforced'] = False
+        api.save(api.CONFIG_FILE, cfg)
+        api._LOAD_CACHE.clear()
+        self.assertEqual(len(self.config('badmin')['monitors']), 1)
+
+    def test_a_tenants_scrape_has_no_monitor_families_and_the_operators_has(self):
+        def ctx_for(who):
+            self.who = who
+            api._LOAD_CACHE.clear()
+            return api._build_metrics_ctx(visible={'devB'})
+        c = ctx_for('badmin')
+        self.assertEqual((c['monitors'], c['monitor_state'], c['backup_monitors']), ([], {}, []))
+        self.assertIsNone(c['slo'])
+        c = ctx_for('platform')
+        self.assertEqual(len(c['monitors']), 1)
+        text = api.prometheus_export.generate_metrics(ctx_for('badmin'))
+        self.assertNotIn('nginx.lab', text)
+        self.assertNotIn('Public site', text)
+
+
+class TestTheAuditTrailIsTheInstallationsAndATenantReadsItsOwnPart(_Tenants):
+    """The whole audit log went to anyone who could pass the administrator-or-auditor check: every tenant's actions and the
+    operator's, with host names and addresses in their detail. A tenant's administrator now reads what its own accounts did."""
+    STORES = _Tenants.STORES + ('AUDIT_LOG_FILE',)
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.AUDIT_LOG_FILE, {'entries': [
+            {'ts': 1, 'actor': 'platform', 'action': 'config_save', 'detail': 'proxmox_host=proxmox.lab'},
+            {'ts': 2, 'actor': 'badmin', 'action': 'device_add', 'detail': 'device=devB'},
+            {'ts': 3, 'actor': 'cadmin', 'action': 'device_add', 'detail': 'device=devC'},
+            {'ts': 4, 'actor': 'dviewer', 'action': 'login', 'detail': ''},
+            {'ts': 5, 'actor': 'system', 'action': 'backup', 'detail': 'written'}]})
+        users = api.load(api.USERS_FILE)
+        users['bauditor'] = {'role': 'auditor', 'tenant_id': 'tenantB'}
+        users['dauditor'] = {'role': 'auditor', 'tenant_id': 'default'}
+        api.save(api.USERS_FILE, users)
+
+    def actors(self, who):
+        st, d = self.call(api.handle_audit_log, m='GET', who=who)
+        self.assertEqual(st, 200, d)
+        rows = d['items'] if isinstance(d, dict) and 'items' in d else d
+        return sorted(e['actor'] for e in rows)
+
+    def test_a_tenant_admin_and_auditor_read_their_own_accounts_only(self):
+        self.assertEqual(self.actors('badmin'), ['badmin'])
+        self.assertEqual(self.actors('bauditor'), ['badmin'])
+
+    def test_the_operators_organisation_reads_all_of_it(self):
+        self.assertEqual(self.actors('platform'), ['badmin', 'cadmin', 'dviewer', 'platform', 'system'])
+        self.assertEqual(self.actors('dauditor'), ['badmin', 'cadmin', 'dviewer', 'platform', 'system'])
+
+    def test_with_tenancy_off_everyone_who_may_read_it_reads_all(self):
+        self.tenancy(False)
+        self.assertEqual(len(self.actors('badmin')), 5)
+
+    def test_the_timeline_rows_without_a_host_are_the_installations(self):
+        def titles(who):
+            self.who = who
+            api._LOAD_CACHE.clear()
+            return sorted(r['title'] for r in api._timeline_audit_rows({'devB'}, {'devB': 'b1'}))
+        self.assertEqual(titles('badmin'), ['badmin: device_add'])
+        self.assertEqual(titles('platform'), ['badmin: device_add', 'platform: config_save'])
+
+
 class TestTheOperatorsOwnDataIsClosedToOtherTenants(_Tenants):
 
     def enforce(self, pi, who='badmin'):
@@ -346,14 +518,344 @@ class TestOtherListingsNameOnlyTheCallersHosts(_Tenants):
         self.assertEqual(ids('platform'), ['w1', 'w2', 'w4', 'w5', 'w6'])
 
     def test_a_rule_that_matches_a_host_out_of_sight_is_not_listed(self):
-        def rule(rid, dev):
-            return {'id': rid, 'name': rid, 'enabled': True, 'actions': [],
+        def rule(rid, dev, gate='tenantB'):
+            return {'id': rid, 'name': rid, 'enabled': True, 'actions': [], 'tenant_gate': gate,
                     'match': {'events': ['service_down'], 'device_match': {'device_id': dev}}}
-        api.save(api.RULES_FILE, {'rules': [rule('r1', 'devB'), rule('r2', 'devC'), rule('r3', '')]})
+        api.save(api.RULES_FILE, {'rules': [rule('r1', 'devB'), rule('r2', 'devC'), rule('r3', ''),
+                                            rule('o1', 'devB', None), rule('o2', 'devC', None)]})
         st, d = self.call(api.handle_automation_rules_list, m='GET')
-        self.assertEqual(sorted(r['id'] for r in d['rules']), ['r1', 'r3'])
+        self.assertEqual(sorted(r['id'] for r in d['rules']), ['r1', 'r3'], 'a rule naming a foreign host stays out')
         st, d = self.call(api.handle_automation_rules_list, m='GET', who='platform')
-        self.assertEqual(sorted(r['id'] for r in d['rules']), ['r1', 'r2', 'r3'])
+        self.assertEqual(sorted(r['id'] for r in d['rules']), ['o1', 'o2'], 'the operator reads its own rules')
+
+
+class TestWhatTheOperatorConfiguresReachesATenantThroughItsOwnHostsOnly(_Tenants):
+    """Custom checks and drift profiles are the operator's settings. A tenant reads those that apply to every host and those
+    aimed at a host, tag or group of its own; the targets of the others (another tenant's host id, a tag only it has) stay out."""
+
+    def setUp(self):
+        super().setUp()
+        dv = api.load(api.DEVICES_FILE)
+        dv['devB'].update({'tags': ['blue'], 'group': 'gb'})
+        dv['devC'].update({'tags': ['red'], 'group': 'gc'})
+        api.save(api.DEVICES_FILE, dv)
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['custom_checks'] = [
+            {'id': 'k-all', 'target_kind': 'all'}, {'id': 'k-none'},
+            {'id': 'k-b', 'target_kind': 'host', 'target': 'devB'}, {'id': 'k-c', 'target_kind': 'host', 'target': 'devC'},
+            {'id': 'k-blue', 'target_kind': 'tag', 'target': 'blue'}, {'id': 'k-red', 'target_kind': 'tag', 'target': 'red'},
+            {'id': 'k-gb', 'target_kind': 'group', 'target': 'gb'}, {'id': 'k-gc', 'target_kind': 'group', 'target': 'gc'}]
+        cfg['drift'] = {'profiles': [{'id': 'p1'}, {'id': 'p2'}, {'id': 'p3'}],
+                        'assignments': [
+                            {'scope_type': 'device', 'scope_value': 'devB', 'profile_id': 'p1'},
+                            {'scope_type': 'device', 'scope_value': 'devC', 'profile_id': 'p2'},
+                            {'scope_type': 'tag', 'scope_value': 'blue', 'profile_id': 'p3'}]}
+        api.save(api.CONFIG_FILE, cfg)
+
+    def checks(self, who):
+        st, d = self.call(api.handle_custom_checks_list, m='GET', who=who)
+        self.assertEqual(st, 200, d)
+        return sorted(c['id'] for c in d['checks'])
+
+    def drift(self, who):
+        st, d = self.call(api.handle_drift_profiles, m='GET', who=who)
+        self.assertEqual(st, 200, d)
+        return (sorted(p['id'] for p in d['profiles']),
+                sorted((a['scope_value'], a['profile_id']) for a in d['assignments']))
+
+    def test_a_tenant_reads_the_checks_that_reach_its_own_hosts(self):
+        self.assertEqual(self.checks('badmin'), ['k-all', 'k-b', 'k-blue', 'k-gb', 'k-none'])
+        self.assertEqual(self.checks('cadmin'), ['k-all', 'k-c', 'k-gc', 'k-none', 'k-red'])
+
+    def test_the_operators_organisation_reads_all_of_them(self):
+        every = ['k-all', 'k-b', 'k-blue', 'k-c', 'k-gb', 'k-gc', 'k-none', 'k-red']
+        self.assertEqual(self.checks('platform'), every)
+        self.assertEqual(self.checks('dviewer'), every)
+
+    def test_a_tenant_reads_the_profiles_assigned_to_its_own_hosts(self):
+        self.assertEqual(self.drift('badmin'), (['p1', 'p3'], [('blue', 'p3'), ('devB', 'p1')]))
+        self.assertEqual(self.drift('cadmin'), (['p2'], [('devC', 'p2')]))
+        self.assertEqual(self.drift('platform')[0], ['p1', 'p2', 'p3'])
+
+    def test_with_tenancy_off_nothing_is_filtered(self):
+        self.tenancy(False)
+        self.assertEqual(len(self.checks('badmin')), 8)
+        self.assertEqual(len(self.drift('badmin')[1]), 3)
+
+
+class TestTheGatewaySessionsThatNameNoHostAreTheInstallations(_Tenants):
+    STORES = _Tenants.STORES + ('SSHGW_SESSIONS_FILE',)
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.SSHGW_SESSIONS_FILE, {'sessions': [
+            {'id': 's1', 'device_id': 'devB', 'started': 3}, {'id': 's2', 'device_id': 'devC', 'started': 2},
+            {'id': 's3', 'device_id': '', 'started': 1}]})          # a refused attempt names no host
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['sshgw_enabled'] = True
+        api.save(api.CONFIG_FILE, cfg)
+
+    def listed(self, who):
+        st, d = self.call(api.handle_sshgw_sessions, m='GET', who=who)
+        self.assertEqual(st, 200, d)
+        return sorted(r['id'] for r in d['sessions'])
+
+    def kept(self):
+        return sorted(r['id'] for r in api.load(api.SSHGW_SESSIONS_FILE)['sessions'])
+
+    def test_the_list(self):
+        self.assertEqual(self.listed('badmin'), ['s1'])
+        self.assertEqual(self.listed('platform'), ['s1', 's2', 's3'])
+
+    def test_a_tenant_clears_its_own_rows_and_leaves_the_installations(self):
+        st, d = self.call(api.handle_sshgw_sessions_clear, m='DELETE', who='badmin')
+        self.assertEqual((st, d.get('removed')), (200, 1), d)
+        self.assertEqual(self.kept(), ['s2', 's3'], 'the refused attempt that names no host is not the tenant\'s to clear')
+
+    def test_the_operator_clears_all_of_them(self):
+        st, d = self.call(api.handle_sshgw_sessions_clear, m='DELETE', who='platform')
+        self.assertEqual((st, d.get('removed')), (200, 3), d)
+
+    def test_with_tenancy_off_nothing_is_filtered(self):
+        self.tenancy(False)
+        self.assertEqual(self.listed('badmin'), ['s1', 's2', 's3'])
+
+
+class TestAMuteIsLiftedOnlyByWhoSeesItsHost(_Tenants):
+    """DELETE /api/alert-mutes/{id} lifted any mute by id: the operator's, another tenant's, and one for the whole installation."""
+    STORES = _Tenants.STORES + ('ALERT_MUTES_FILE',)
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.ALERT_MUTES_FILE, {'mutes': [
+            {'id': 'mB', 'device_id': 'devB', 'event': 'service_down'}, {'id': 'mC', 'device_id': 'devC', 'event': 'service_down'},
+            {'id': 'mD', 'device_id': 'devD', 'event': 'service_down'},      # the operator's own host
+            {'id': 'mF', 'device_id': '', 'event': 'new_port'}]})            # a mute that names no host
+
+    def lift(self, mute_id, who):
+        return self.call(api.handle_alert_mute_delete, mute_id, m='DELETE', who=who)[0]
+
+    def left(self):
+        return sorted(m['id'] for m in api.load(api.ALERT_MUTES_FILE)['mutes'])
+
+    def test_a_tenant_lifts_the_mutes_of_its_own_hosts_only(self):
+        self.assertEqual([self.lift(i, 'badmin') for i in ('mC', 'mD', 'mF')], [404, 404, 404])
+        self.assertEqual(self.left(), ['mB', 'mC', 'mD', 'mF'], 'nothing of the others was lifted')
+        self.assertEqual(self.lift('mB', 'badmin'), 200)
+        self.assertEqual(self.left(), ['mC', 'mD', 'mF'])
+
+    def test_the_operator_lifts_any_of_them_including_the_one_for_the_whole_installation(self):
+        self.assertEqual([self.lift(i, 'platform') for i in ('mF', 'mC', 'mD')], [200, 200, 200])
+
+    def test_with_tenancy_off_nothing_is_decided_here(self):
+        self.tenancy(False)
+        self.assertEqual(self.lift('mC', 'badmin'), 200)
+
+    def test_an_id_that_does_not_exist_answers_the_same_as_one_that_is_not_the_callers(self):
+        self.assertEqual(self.lift('nope', 'badmin'), self.lift('mC', 'badmin'))
+
+
+class TestTheOperatorsAcceptedRisksAreItsOwn(_Tenants):
+    """The operator's `global` records were listed to every tenant (with who wrote them and why) and a tenant administrator
+    could delete one, which lifts the acceptance for the whole installation."""
+    STORES = _Tenants.STORES + ('CVE_IGNORE_FILE',)
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.CVE_IGNORE_FILE, {
+            'CVE-1': {'scope': 'global', 'reason': 'ours', 'actor': 'platform', 'ts': 5},
+            'CVE-2': {'scope': 'global', 'reason': 'theirs', 'actor': 'badmin', 'ts': 4, 'tenant': 'tenantB'},
+            'CVE-3': {'scope': 'global', 'reason': 'old', 'actor': 'badmin', 'ts': 3},          # before the tenant was stamped
+            'CVE-4': {'scope': 'devB', 'reason': 'the operator, on their host', 'actor': 'platform', 'ts': 2},
+            'CVE-5': {'scope': 'devC', 'reason': 'the operator, on another tenant\'s host', 'actor': 'platform', 'ts': 1},
+            'CVE-6': {'scope': 'devD', 'reason': 'the operator, on its own host', 'actor': 'platform', 'ts': 0}})
+
+    def listed(self, who):
+        st, d = self.call(api.handle_cve_ignore_list, m='GET', who=who)
+        self.assertEqual(st, 200, d)
+        return sorted(i['vuln_id'] for i in d['ignores'])
+
+    def kept(self):
+        return sorted(api.load(api.CVE_IGNORE_FILE))
+
+    def test_a_tenant_reads_its_own_records_and_the_operators_for_its_hosts(self):
+        self.assertEqual(self.listed('badmin'), ['CVE-2', 'CVE-3', 'CVE-4'])
+        self.assertEqual(self.listed('cadmin'), ['CVE-5'])
+
+    def test_the_operators_organisation_reads_its_own(self):
+        self.assertEqual(self.listed('platform'), ['CVE-1', 'CVE-2', 'CVE-3', 'CVE-4', 'CVE-5', 'CVE-6'])
+        self.assertEqual(self.listed('dviewer'), ['CVE-1', 'CVE-6'], 'the operator\'s global record and the one on its own host')
+
+    def test_a_tenant_cannot_lift_the_operators_record(self):
+        st, d = self.call(api.handle_cve_ignore_delete, 'CVE-1', m='DELETE', who='badmin')
+        self.assertEqual(st, 404, d)
+        self.assertIn('CVE-1', self.kept())
+        st, d = self.call(api.handle_cve_ignore_delete, 'CVE-3', m='DELETE', who='badmin')
+        self.assertEqual(st, 200, d)
+        self.assertNotIn('CVE-3', self.kept())
+
+    def test_with_tenancy_off_everyone_who_may_read_the_list_reads_all(self):
+        self.tenancy(False)
+        self.assertEqual(len(self.listed('badmin')), 6)
+
+
+class TestTheOperatorsAutomationRulesAreItsOwn(_Tenants):
+    """The operator's rules (stamped with no tenant) were shown to, edited and deleted by every tenant administrator."""
+
+    def setUp(self):
+        super().setUp()
+
+        def rule(rid, **kw):
+            r = {'id': rid, 'name': rid, 'enabled': True, 'actions': [{'type': 'run_script', 'script_id': 's1'}],
+                 'match': {'events': ['device_offline'], 'device_match': {}}, 'cooldown_seconds': 0}
+            r.update(kw)
+            return r
+        api.save(api.RULES_FILE, {'rules': [
+            rule('r-op', tenant_gate=None, actor='platform'), rule('r-b', tenant_gate='tenantB', actor='badmin'),
+            rule('r-old-op', actor='platform'),           # written before the stamp, by the operator
+            rule('r-old-b', actor='badmin'),              # written before the stamp, by a tenant B account
+            rule('r-old-gone', actor='nobody')]})         # its author was deleted: it is the operator's
+
+    def listed(self, who):
+        st, d = self.call(api.handle_automation_rules_list, m='GET', who=who)
+        self.assertEqual(st, 200, d)
+        return sorted(r['id'] for r in d['rules'])
+
+    def test_who_reads_which(self):
+        self.assertEqual(self.listed('badmin'), ['r-b', 'r-old-b'])
+        self.assertEqual(self.listed('cadmin'), [])
+        self.assertEqual(self.listed('platform'), ['r-old-gone', 'r-old-op', 'r-op'])
+        self.assertEqual(self.listed('dviewer'), ['r-old-gone', 'r-old-op', 'r-op'], 'the operator\'s other users read its rules')
+
+    def test_a_tenant_cannot_change_or_delete_the_operators_rule(self):
+        body = {'name': 'taken over', 'match': {'events': ['device_offline']}, 'actions': [{'type': 'run_script', 'script_id': 's1'}]}
+        st, d = self.call(api.handle_automation_rule_update, 'r-op', body=body, m='PUT')
+        self.assertEqual(st, 404, d)
+        st, d = self.call(api.handle_automation_rule_delete, 'r-op', m='DELETE')
+        self.assertEqual(st, 404, d)
+        names = {r['id']: r['name'] for r in api.load(api.RULES_FILE)['rules']}
+        self.assertEqual(names['r-op'], 'r-op')
+        st, d = self.call(api.handle_automation_rule_delete, 'r-old-b', m='DELETE')
+        self.assertEqual(st, 200, d)
+
+    def test_a_rule_written_before_the_stamp_by_a_tenant_account_stays_in_that_tenant(self):
+        """It fires from a webhook with no request around it, so the stamp is the only tenancy signal. An unstamped rule of a
+        tenant account matched every host of the installation, and run_script queues its body as root on the match."""
+        api.save(api.SCRIPTS_FILE, {'scripts': [{'id': 's1', 'name': 'x', 'body': 'echo legacy'}]})
+        api.save(api.RULES_FILE, {'rules': [{
+            'id': 'r-old-b', 'enabled': True, 'name': 'legacy', 'actor': 'badmin',
+            'match': {'events': ['device_offline'], 'device_match': {}},
+            'actions': [{'type': 'run_script', 'script_id': 's1'}], 'cooldown_seconds': 0}]})
+        api._LOAD_CACHE.clear()
+        api._run_automation_rules('device_offline', {'device_id': 'devC'}, api.load(api.CONFIG_FILE) or {})
+        self.assertEqual((api.load(api.CMDS_FILE) or {}).get('devC') or [], [], 'it ran on another tenant\'s host')
+        api._run_automation_rules('device_offline', {'device_id': 'devB'}, api.load(api.CONFIG_FILE) or {})
+        self.assertEqual(len((api.load(api.CMDS_FILE) or {}).get('devB') or []), 1, 'control: it runs on its own tenant\'s host')
+
+    def test_with_tenancy_off_a_rule_written_by_a_tenant_account_is_shown(self):
+        self.tenancy(False)
+        self.assertEqual(self.listed('badmin'), ['r-old-b', 'r-old-gone', 'r-old-op', 'r-op'])
+
+
+class TestABatchJobAndATunnelBelongToTheirHosts(_Tenants):
+    STORES = _Tenants.STORES + ('BATCH_JOBS_FILE', 'TUNNELS_FILE', 'CMDS_FILE', 'CMD_OUTPUT_FILE', 'SCRIPTS_FILE')
+
+    def setUp(self):
+        super().setUp()
+        now = int(time.time())
+        job = lambda jid, hosts: {'id': jid, 'script_id': '', 'script_name': 'rotate ' + jid, 'actor': 'platform',   # noqa: E731
+                                  'created': now, 'targets': hosts, 'dangerous': [],
+                                  'per_device': {h: {'queued': True} for h in hosts}}
+        api.save(api.BATCH_JOBS_FILE, {'jobs': {'jB': job('jB', ['devB']), 'jC': job('jC', ['devC']),
+                                                'jBC': job('jBC', ['devB', 'devC'])}})
+        dv = api.load(api.DEVICES_FILE)
+        dv['devB2'] = {'name': 'b2', 'tenant': 'tenantB', 'token_hash': 'x'}
+        dv['devC2'] = {'name': 'c2', 'tenant': 'tenantC', 'token_hash': 'x'}
+        api.save(api.DEVICES_FILE, dv)
+        api.save(api.TUNNELS_FILE, {'tun_b': {'endpoints': ['devB', 'devB2']}, 'tun_bc': {'endpoints': ['devB', 'devC']},
+                                    'tun_c': {'endpoints': ['devC', 'devC2']}, 'tun_gone': {'endpoints': ['devB', 'devX']}})
+
+    def job(self, jid, who):
+        st, d = self.call(api.handle_exec_batch_status, jid, m='GET', who=who)
+        return st, sorted((d.get('per_device') or {}))
+
+    def test_a_job_none_of_whose_hosts_the_caller_sees_is_not_found(self):
+        self.assertEqual(self.job('jC', 'badmin'), (404, []))
+        self.assertEqual(self.job('nope', 'badmin')[0], 404)
+
+    def test_a_job_shows_the_callers_hosts_only(self):
+        self.assertEqual(self.job('jB', 'badmin'), (200, ['devB']))
+        self.assertEqual(self.job('jBC', 'badmin'), (200, ['devB']))
+        self.assertEqual(self.job('jBC', 'platform'), (200, ['devB', 'devC']))
+        self.assertEqual(self.job('jC', 'platform'), (200, ['devC']))
+
+    def test_with_tenancy_off_nothing_is_filtered(self):
+        self.tenancy(False)
+        self.assertEqual(self.job('jC', 'badmin'), (200, ['devC']))
+
+    def delete(self, tid, who):
+        return self.call(api.handle_tunnel_delete, tid, m='DELETE', who=who)[0]
+
+    def test_a_tenant_removes_a_tunnel_whose_two_ends_it_sees_and_no_other(self):
+        self.assertEqual([self.delete(t, 'badmin') for t in ('tun_bc', 'tun_c', 'tun_gone', 'tun_nope')], [404] * 4)
+        self.assertEqual(sorted(api.load(api.TUNNELS_FILE)), ['tun_b', 'tun_bc', 'tun_c', 'tun_gone'])
+        self.assertEqual(self.delete('tun_b', 'badmin'), 200)
+        self.assertEqual(sorted(api.load(api.TUNNELS_FILE)), ['tun_bc', 'tun_c', 'tun_gone'])
+
+    def test_the_operator_removes_any_tunnel_including_one_with_a_dangling_end(self):
+        self.assertEqual([self.delete(t, 'platform') for t in ('tun_bc', 'tun_c', 'tun_gone')], [200] * 3)
+
+
+class TestTheComplianceEvidenceNamesTheCallersHostsOnly(_Tenants):
+    """The backup control printed `<host id>:<path>` for every failing backup of the installation."""
+
+    def setUp(self):
+        super().setUp()
+        self._data_dir = api.DATA_DIR
+        api.DATA_DIR = self.d
+        api.save(self.d / 'backup_state.json', {'devB:/srv/b': {'ok': False, 'age_h': 90}, 'devC:/srv/c': {'ok': False, 'age_h': 99},
+                                                'devD:/srv/d': {'ok': True, 'age_h': 1}, 'devGone:/srv/x': {'ok': False}})
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['backup_monitors'] = [{'path': '/srv/b'}, {'path': '/srv/c'}, {'path': '/srv/d'}]
+        api.save(api.CONFIG_FILE, cfg)
+
+    def tearDown(self):
+        api.DATA_DIR = self._data_dir
+        super().tearDown()
+
+    def facts(self, who):
+        self.who = who
+        api._LOAD_CACHE.clear()
+        return api._compliance_facts(api._scope_filter_devices(api.load(api.DEVICES_FILE)))
+
+    def test_a_tenant_reads_its_own_failing_backups_and_counts_its_own_paths(self):
+        f = self.facts('badmin')
+        self.assertEqual(f['failed_backups'], ['devB:/srv/b'])
+        self.assertEqual(f['backup_monitors'], 1, 'the operator\'s monitor list is not the tenant\'s to count')
+
+    def test_the_operator_reads_all_of_them(self):
+        f = self.facts('platform')
+        self.assertEqual(sorted(f['failed_backups']), ['devB:/srv/b', 'devC:/srv/c'])
+        self.assertEqual(f['backup_monitors'], 3)
+
+    def test_the_system_path_with_no_caller_is_unchanged(self):
+        self.who = None
+        api._LOAD_CACHE.clear()
+        f = api._compliance_facts(None)
+        self.assertEqual(sorted(f['failed_backups']), ['devB:/srv/b', 'devC:/srv/c'])
+        self.assertEqual(f['backup_monitors'], 3)
+
+
+class TestTheCmdbFunctionHintsAreTheCallersOwn(_Tenants):
+    STORES = _Tenants.STORES + ('CMDB_FILE',)
+
+    def test_a_tenant_reads_the_functions_of_its_own_assets(self):
+        api.save(api.CMDB_FILE, {'devB': {'server_function': 'web'}, 'devC': {'server_function': 'billing-db'},
+                                 'devD': {'server_function': 'router'}})
+        st, d = self.call(api.handle_cmdb_server_functions, m='GET')
+        self.assertEqual(d, ['web'])
+        st, d = self.call(api.handle_cmdb_server_functions, m='GET', who='platform')
+        self.assertEqual(d, ['billing-db', 'router', 'web'])
 
 
 class TestLldpSuggestions(_Tenants):
