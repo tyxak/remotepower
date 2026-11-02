@@ -50,6 +50,14 @@ class TestSpacingAndWrapping(unittest.TestCase):
     def test_a_drawer_action_label_may_wrap(self):
         self.assertTrue(css_has(".drawer-action-btn", "white-space: normal"))
 
+    def test_in_print_the_one_line_rules_let_go(self):
+        """The print walk (test_v740_print_e2e, browser) found the Tickets table past the right edge of the sheet once its pills could
+        not wrap. css_has() cannot tell a rule inside @media print from one outside it, so this reads the print blocks."""
+        blocks = re.findall(r"@media print\s*\{(.*?)\n\}", CSS, flags=re.S)
+        self.assertTrue(any(re.search(r"\.sev-pill[^{]*\{[^}]*white-space:\s*normal", b) for b in blocks),
+                        "pills must wrap again in print media")
+        self.assertTrue(any(re.search(r"\.tl-devchip[^{]*\{[^}]*white-space:\s*normal", b) for b in blocks))
+
 
 class TestFocusAndRightToLeft(unittest.TestCase):
 

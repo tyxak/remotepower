@@ -30,6 +30,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'server' / 'cgi-bin'))
 
 import store_shapes as S  # noqa: E402
+sys.path.insert(0, str(ROOT / 'tests'))
+from test_tenant_instance_gate import _Base, api as _api  # noqa: E402
 
 SEEDER = ROOT / 'packaging' / 'seed-demo-data.py'
 
@@ -385,6 +387,9 @@ class TestThePagesSurviveABadRow(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        if os.environ.get('RP_STORAGE_BACKEND', '').lower() not in ('', 'json'):
+            raise unittest.SkipTest('the rows are mutated as JSON files, which only the JSON backend reads; '
+                                    'TestTheRepairIsAppliedOnEveryBackend runs the repair on the read path of the others')
         cls.seed = Path(tempfile.mkdtemp(prefix='rp-shapes-seed-'))
         _seed(cls.seed)
 
@@ -406,6 +411,37 @@ class TestThePagesSurviveABadRow(unittest.TestCase):
         broken = {c: [p for p, st in pages.items() if st >= 500] for c, pages in got.items()}
         self.assertTrue(broken['alerts holds a string'], 'the old behaviour is not visible: this test cannot fail')
         self.assertGreaterEqual(sum(1 for v in broken.values() if v), 6)
+
+
+class TestTheRepairIsAppliedOnEveryBackend(_Base):
+    """The page walk above mutates JSON files, which only the JSON backend reads. This saves a bad document through the storage
+    layer and reads it back, so the SQLite and PostgreSQL gates run the repair on their own read path (`_load_uncached` and the
+    locked read-modify-write of the SQL backends)."""
+    STORES = _Base.STORES + ('ALERTS_FILE', 'SITES_FILE', 'TICKETS_FILE', 'TLS_RESULTS_FILE')
+
+    def roundtrip(self, name, doc):
+        f = getattr(_api, name)
+        _api.save(f, doc)
+        _api._LOAD_CACHE.clear()
+        return _api.load(f)
+
+    def test_a_bad_row_is_left_out_when_the_store_is_read(self):
+        self.assertEqual(self.roundtrip('ALERTS_FILE', {'alerts': ['x', None, {'id': 'a1'}]}), {'alerts': [{'id': 'a1'}]})
+        self.assertEqual(self.roundtrip('SITES_FILE', {'s1': {'name': 'ok'}, 's2': None, 's3': 7}), {'s1': {'name': 'ok'}})
+        self.assertEqual(self.roundtrip('TICKETS_FILE', {'tickets': [{'id': 't1'}, 'x', {'id': ['bad']}]}), {'tickets': [{'id': 't1'}]})
+
+    def test_a_wrong_field_is_read_as_absent(self):
+        self.assertEqual(self.roundtrip('TLS_RESULTS_FILE', {'a': {'checked_at': 'x'}, 'b': 5}), {'a': {}})
+
+    def test_the_locked_read_modify_write_starts_from_the_repaired_copy(self):
+        _api.save(_api.ALERTS_FILE, {'alerts': [None, {'id': 'a1'}, 'x']})
+        _api._LOAD_CACHE.clear()
+        with _api._LockedUpdate(_api.ALERTS_FILE) as store:
+            seen = json.loads(json.dumps(store))
+            store['alerts'].append({'id': 'a2'})
+        self.assertEqual(seen, {'alerts': [{'id': 'a1'}]})
+        _api._LOAD_CACHE.clear()
+        self.assertEqual(_api.load(_api.ALERTS_FILE), {'alerts': [{'id': 'a1'}, {'id': 'a2'}]})
 
 
 class TestANonFiniteNumberIsReadAsNothing(unittest.TestCase):

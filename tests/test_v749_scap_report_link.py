@@ -63,7 +63,9 @@ class TestTheLink(unittest.TestCase):
     def test_a_tampered_or_forged_link_is_refused(self):
         now = int(time.time())
         exp, sig = SC.scap_ticket_make(DEV, now).split(".")
-        for bad in (f"{int(exp) + 30}.{sig}", f"{exp}.{sig[:-1]}0", f"{exp}.", f".{sig}", f"{exp}.{'0' * 64}"):
+        # one character of the signature changed to a DIFFERENT one (a fixed "0" left the link whole one run in sixteen)
+        flipped = sig[:-1] + ("1" if sig[-1] == "0" else "0")
+        for bad in (f"{int(exp) + 30}.{sig}", f"{exp}.{flipped}", f"{exp}.", f".{sig}", f"{exp}.{'0' * 64}"):
             with self.subTest(bad=bad[:30]):
                 self.assertFalse(SC.scap_ticket_ok(DEV, bad, now))
 

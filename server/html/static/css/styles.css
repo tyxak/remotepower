@@ -8564,3 +8564,10 @@ label.form-label:has(> input[type="checkbox"]) > input[type="checkbox"],
 label.form-label:has(> input[type="radio"]) > input[type="radio"] { left: auto; inset-inline-start: 0; }
 td > .btn-icon + .btn-icon { margin-left: 0; margin-inline-start: 6px; }
 .distro-icon { margin-right: 0; margin-inline-end: 6px; }
+
+/* Print: the sheet is narrower than any screen, so the one-line rules above let go. A table with pills in its cells (Tickets) ran
+   past the right edge of the page; the print walk of the pages found it. */
+@media print {
+  .sev-pill, .chk-pill, .tl-devchip, .section-header > .row-8 > button { white-space: normal; }
+  .section-header > .row-8 { flex: 0 1 auto; }
+}
