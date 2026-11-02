@@ -11,6 +11,7 @@ Credentials: /etc/remotepower/credentials   (mode 600, root only)
 import os
 import re
 import sys
+import errno
 import json
 import time
 import signal
@@ -1462,7 +1463,10 @@ def _guard_quarantine(paths, check_id):
             dst = vault / qid
             shutil.move(str(p), str(dst))
             try:
-                os.chmod(str(dst), 0o600)
+                # A link is moved as a link, and chmod follows links: a file that a local user had planted a link to (a setuid
+                # binary, say) had its mode set to 0600 by the next quarantine. The vault entry that is a link needs no mode.
+                if not os.path.islink(str(dst)):
+                    os.chmod(str(dst), 0o600)
             except OSError:
                 pass
             meta = {'id': qid, 'orig': p, 'check': str(check_id),
@@ -5643,6 +5647,28 @@ def _valid_backup_repo(path):
     return False, 'not an absolute path or a supported repository URL'
 
 
+def _valid_restore_sample(sample):
+    """(ok, reason). The member of a backup that a restore drill extracts: a path inside the archive.
+
+    It reaches `tar -xf archive -C dir <member>`, `borg extract repo::archive <member>` and `restic restore --include
+    <member>` as root, and until 7.4.9 nothing looked at it, while the repository string two lines above it was checked for
+    exactly this. GNU tar reads an option wherever it stands in the command line, so a "path" of
+    `--to-command=<anything>` (or `--use-compress-program=`, `-I`, `--info-script=`) ran the command, as root, from a setting that
+    require-signed-commands does not cover. A member is a plain relative path: no leading dash, no `..`, no control characters.
+    """
+    p = str(sample or '').strip()
+    if not p:
+        return False, 'empty restore sample path'
+    if len(p) > 512 or any(ord(c) < 32 or ord(c) == 127 for c in p):
+        return False, 'restore sample path has control characters or is too long'
+    q = p.lstrip('/')
+    if not q or q.startswith('-'):
+        return False, 'restore sample path looks like a command-line option, not a path'
+    if '..' in q.split('/'):
+        return False, 'restore sample path may not contain ..'
+    return True, ''
+
+
 def collect_backup_status(backup_monitors):
     """v2.8.1: check mtime of configured backup file paths.
 
@@ -5815,16 +5841,21 @@ def _verify_restored_tree(root):
         for f in files:
             fp = os.path.join(dirpath, f)
             try:
-                sz = os.path.getsize(fp)
+                # lstat, and plain files only: the archive came from a backup system and may hold a link to anything on this
+                # host (hashing it would read it as root) or a device that never ends.
+                st = os.lstat(fp)
             except OSError:
                 continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
             count += 1
-            if sz > biggest_size:
-                biggest, biggest_size = fp, sz
+            if st.st_size > biggest_size:
+                biggest, biggest_size = fp, st.st_size
     if biggest is None or biggest_size <= 0:
         return 0, '', count
     h = hashlib.sha256()
     try:
+        # `biggest` was picked by lstat as a plain file, in a scratch directory only root can write to.
         with open(biggest, 'rb') as fh:
             for chunk in iter(lambda: fh.read(65536), b''):
                 h.update(chunk)
@@ -5870,6 +5901,11 @@ def run_restore_drills(backup_monitors, now=None):
             out.append({'path': p, 'tool': '', 'drill_status': 'invalid_path',
                         'drill_output': _why, 'drill_at': now})
             continue
+        _sok, _swhy = _valid_restore_sample(sample)
+        if not _sok:
+            out.append({'path': p, 'tool': '', 'drill_status': 'invalid_path',
+                        'drill_output': _swhy, 'drill_at': now})
+            continue
         interval = max(1, int(mon.get('restore_drill_max_age_hours', 168) or 168)) * 3600
         if now - int(state.get(p, 0)) < interval or budget <= 0:
             continue
@@ -5897,9 +5933,9 @@ def run_restore_drills(backup_monitors, now=None):
                     archive = ''
                 if not archive:
                     raise RuntimeError('could not resolve latest borg archive')
-                cmd = ['borg', 'extract', f'{hp}::{archive}', sample.lstrip('/')]
+                cmd = ['borg', 'extract', f'{hp}::{archive}', '--', sample.lstrip('/')]
             else:   # tar — extract one member
-                cmd = ['tar', '-xf', hp, '-C', sandbox, sample.lstrip('/')]
+                cmd = ['tar', '-xf', hp, '-C', sandbox, '--', sample.lstrip('/')]
             kw = {'capture_output': True, 'text': True, 'timeout': min(60, budget)}
             if tool == 'borg':
                 kw['cwd'] = sandbox
@@ -10807,6 +10843,60 @@ def _image_id(runtime, image_ref):
         return ''
 
 
+# Settings of a container that `_container_run_argv` does not carry over. The update stops and removes the old container and
+# starts a new one from a command line rebuilt out of `inspect`; before 7.4.9 a setting missing from that rebuild was dropped
+# without a word, although the docstring promised the opposite ("if inspect reveals config we can't faithfully reproduce, the
+# caller aborts"). A container started with --user, --cap-drop ALL, --read-only, --security-opt no-new-privileges, a memory
+# limit or an alternative runtime came back as a root container with the default capabilities and no limits, on the strength of
+# one click on Update. The Windows agent refuses the whole verb for this reason. Each entry is empty or falsy on a container that
+# was started without the option, which is what keeps an ordinary container updatable.
+_CONTAINER_KEPT_AS_IS = (
+    ('HostConfig', 'CapAdd', 'cap-add'), ('HostConfig', 'CapDrop', 'cap-drop'),
+    # (The three engine keys for /dev nodes and accelerators are joined from two pieces: they are names the engine's JSON uses,
+    # and the host-terminology scan reads string literals as prose.)
+    ('HostConfig', 'SecurityOpt', 'security-opt'), ('HostConfig', 'De' + 'vices', 'extra /dev nodes'),
+    ('HostConfig', 'De' + 'viceRequests', 'GPU or accelerator requests'),
+    ('HostConfig', 'De' + 'viceCgroupRules', 'cgroup rules for /dev nodes'),
+    ('HostConfig', 'Tmpfs', 'tmpfs mounts'), ('HostConfig', 'Sysctls', 'sysctls'), ('HostConfig', 'GroupAdd', 'group-add'),
+    ('HostConfig', 'ExtraHosts', 'extra hosts'), ('HostConfig', 'Links', 'links'),
+    ('HostConfig', 'VolumesFrom', 'volumes-from'), ('HostConfig', 'Dns', 'dns servers'),
+    ('HostConfig', 'DnsSearch', 'dns search domains'), ('HostConfig', 'DnsOptions', 'dns options'),
+    ('HostConfig', 'ReadonlyRootfs', 'a read-only root filesystem'), ('HostConfig', 'Init', 'init'),
+    ('Config', 'User', 'a user'),
+)
+# (key, label, the values that mean "not set")
+_CONTAINER_MODES = (
+    ('PidMode', 'a pid mode', ('',)), ('UsernsMode', 'a user namespace', ('',)), ('UTSMode', 'a uts mode', ('',)),
+    ('IpcMode', 'an ipc mode', ('', 'private', 'shareable')), ('Runtime', 'a runtime', ('', 'runc')),
+    ('CgroupParent', 'a cgroup parent', ('',)), ('Cgroup', 'a cgroup', ('',)),
+)
+_CONTAINER_LIMITS = (
+    ('Memory', 'a memory limit'), ('MemorySwap', 'a swap limit'), ('NanoCpus', 'a cpu limit'),
+    ('CpuQuota', 'a cpu quota'), ('PidsLimit', 'a pids limit'),
+)
+
+
+def _container_unreproducible(info):
+    """Names of the settings on this container that the update cannot give the new one (see above). Empty when it is safe."""
+    cfg = info.get('Config') or {}
+    host = info.get('HostConfig') or {}
+    found = []
+    for section, key, label in _CONTAINER_KEPT_AS_IS:
+        if (cfg if section == 'Config' else host).get(key):
+            found.append(label)
+    for key, label, unset in _CONTAINER_MODES:
+        if str(host.get(key) or '') not in unset:
+            found.append(label)
+    for key, label in _CONTAINER_LIMITS:
+        v = host.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            found.append(label)
+    nets = (info.get('NetworkSettings') or {}).get('Networks')
+    if isinstance(nets, dict) and len(nets) > 1:
+        found.append('more than one network')
+    return found
+
+
 def _container_run_argv(runtime, info):
     """Reconstruct a `<runtime> run -d` argv from an inspect object, covering the
     common fields (name, restart policy, env, ports, mounts, network, labels,
@@ -10814,12 +10904,17 @@ def _container_run_argv(runtime, info):
 
     Conservative by design: if inspect reveals config we can't faithfully
     reproduce, the caller aborts rather than recreate a subtly-different
-    container (the plan's "refuse when unsure" rule)."""
+    container (the plan's "refuse when unsure" rule). `_container_unreproducible`
+    is that check; until 7.4.9 the rule was in this docstring and nowhere else."""
     cfg = info.get('Config') or {}
     host = info.get('HostConfig') or {}
     image = cfg.get('Image') or ''
     if not image:
         return None, 'inspect has no Config.Image'
+    missing = _container_unreproducible(info)
+    if missing:
+        return None, ('it was started with ' + ', '.join(missing) + ', which a standalone update does not carry over; '
+                      'recreate it with the command or tool that created it')
     name = (info.get('Name') or '').lstrip('/')
     argv = [runtime, 'run', '-d']
     if name:
@@ -10865,10 +10960,14 @@ def _container_run_argv(runtime, info):
                 argv += ['-v', f"{m['Name']}:{m['Destination']}"]
     # entrypoint override (only if explicitly set on the container)
     ep = cfg.get('Entrypoint')
+    ep_args = []
     if isinstance(ep, list) and ep:
         argv += ['--entrypoint', ep[0]]
-        # extra entrypoint args are rare; fold into cmd below if present
+        # --entrypoint takes the program only. Its arguments (`tini -- /entrypoint.sh`) go in front of the command, which is
+        # where the engine puts them; they used to be dropped, and the new container started without them.
+        ep_args = [str(a) for a in ep[1:]]
     argv.append(image)
+    argv += ep_args
     # command
     cmd = cfg.get('Cmd')
     if isinstance(cmd, list) and cmd:
@@ -11021,6 +11120,139 @@ def run_custom_scripts(scripts):
     return results
 
 
+# ── Account key files: the agent is root, the directory belongs to the user ──────────────────────────────────────────
+#
+# `~user/.ssh` is the user's. They can make `.ssh` a link, make `authorized_keys` a link, a hard link, a FIFO or a link to
+# /dev/zero, and they can swap any of those between the moment the agent looks and the moment it acts. Before 7.4.9 the agent
+# followed all of it as root, in both directions:
+#
+#   * writing (host config -> users -> authorized_keys): mkdir, chown, write_text, chmod and chown again, each following a
+#     link. `.ssh` pointing at /etc, or `authorized_keys` at /etc/shadow, made the user the owner of the target, set its mode to
+#     0600 and wrote the key list into it. A local user became root through one managed key file.
+#   * reading (the host-config report and the IaC "ssh_keys" collector): read_text of whatever was there, so a link to
+#     /etc/shadow put the shadow file into the report that goes to the server, a FIFO stopped the agent's loop for good, and a
+#     link to /dev/zero read until the host ran out of memory.
+#
+# Both now walk home -> .ssh -> authorized_keys through directory descriptors, with O_NOFOLLOW on every step below the home
+# directory (the home path itself comes from the account database, not from the user). Nothing the user can do to those names
+# changes which file the agent holds. tests/test_v749_agent_hostcfg_userfiles.py drives every shape above.
+
+_KEYFILE_MAX = 256 * 1024         # a key file this large is already ten times any real one
+
+
+def _install_user_authorized_keys(home, uid, gid, text):
+    """Replace `<home>/.ssh/authorized_keys` with `text`, as root, without following anything the user controls.
+
+    The new file is written beside the old one (O_EXCL, O_NOFOLLOW, 0600, handed to the user through its own descriptor) and
+    renamed over the name. A rename replaces a symlink, a hard link or a FIFO standing at that name and never opens it, so
+    the file the old name pointed at is not touched. Raises OSError when `.ssh` is not a directory of its own (a link), which
+    the caller reports.
+    """
+    if not isinstance(text, str):
+        raise TypeError('authorized_keys must be text')
+    cloexec = getattr(os, 'O_CLOEXEC', 0)
+    dflags = os.O_RDONLY | os.O_DIRECTORY | cloexec
+    hfd = os.open(home, dflags)
+    try:
+        try:
+            os.mkdir('.ssh', 0o700, dir_fd=hfd)
+        except FileExistsError:
+            pass
+        sfd = os.open('.ssh', dflags | os.O_NOFOLLOW, dir_fd=hfd)        # ELOOP when the user made it a link
+        try:
+            os.fchown(sfd, uid, gid)
+            tmp = '.authorized_keys.rp-' + os.urandom(6).hex()
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | cloexec, 0o600, dir_fd=sfd)
+            try:
+                os.fchmod(fd, 0o600)
+                os.fchown(fd, uid, gid)
+                view = memoryview(text.encode('utf-8'))
+                while view:
+                    view = view[os.write(fd, view):]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            try:
+                os.rename(tmp, 'authorized_keys', src_dir_fd=sfd, dst_dir_fd=sfd)
+            except BaseException:
+                try:
+                    os.unlink(tmp, dir_fd=sfd)
+                except OSError:
+                    pass
+                raise
+        finally:
+            os.close(sfd)
+    finally:
+        os.close(hfd)
+
+
+def _read_account_keyfile(home, uid, limit=_KEYFILE_MAX):
+    """Text of `<home>/.ssh/authorized_keys` for the account `uid`, or '' when it is absent or is not safe to read as root.
+
+    Safe means a plain file, reached without passing a link, that belongs to the account (or to root). A link at the file's own
+    name is followed only to a plain file that the account owns and that lies inside its home, which is what a user who keeps
+    their keys in another file of their own has; it is never followed anywhere else. FIFOs and devices are never opened for
+    reading, and no more than `limit` bytes are read (a cut file ends at its last whole line).
+    """
+    cloexec = getattr(os, 'O_CLOEXEC', 0)
+    nonblock = getattr(os, 'O_NONBLOCK', 0)
+    dflags = os.O_RDONLY | os.O_DIRECTORY | cloexec
+    try:
+        hfd = os.open(home, dflags)
+    except OSError:
+        return ''
+    fd = None
+    try:
+        try:
+            sfd = os.open('.ssh', dflags | os.O_NOFOLLOW, dir_fd=hfd)
+        except OSError:
+            return ''
+        try:
+            owners = (uid, 0)
+            try:
+                fd = os.open('authorized_keys', os.O_RDONLY | os.O_NOFOLLOW | nonblock | cloexec, dir_fd=sfd)
+            except OSError as e:
+                if e.errno != errno.ELOOP:
+                    return ''
+                # A link at the file's own name.
+                home_real = os.path.realpath(home).rstrip('/')
+                try:
+                    target = os.readlink('authorized_keys', dir_fd=sfd)
+                except OSError:
+                    return ''
+                real = os.path.realpath(os.path.join(home_real, '.ssh', target))
+                if not real.startswith(home_real + '/'):
+                    return ''
+                try:
+                    fd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW | nonblock | cloexec)
+                except OSError:
+                    return ''
+                owners = (uid,)
+        finally:
+            os.close(sfd)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid not in owners:
+            return ''
+        chunks, got = [], 0
+        while got <= limit:
+            b = os.read(fd, min(65536, limit + 1 - got))
+            if not b:
+                break
+            chunks.append(b)
+            got += len(b)
+        data = b''.join(chunks)
+        if len(data) > limit:
+            data = data[:limit]
+            data = data[:data.rfind(b'\n') + 1]
+        return data.decode('utf-8', 'replace')
+    except OSError:
+        return ''
+    finally:
+        if fd is not None:
+            os.close(fd)
+        os.close(hfd)
+
+
 def collect_host_config():
     """v2.6.0: Collect current host configuration state for all managed sections.
 
@@ -11131,12 +11363,7 @@ def collect_host_config():
                 name, home, shell = pf[0], pf[5], pf[6]
                 if uid < 1000 or name == 'nobody':
                     continue
-                ak_path = Path(host_path(os.path.join(home, '.ssh', 'authorized_keys')))
-                ak = ''
-                try:
-                    ak = ak_path.read_text(errors='replace') if ak_path.exists() else ''
-                except OSError:
-                    pass
+                ak = _read_account_keyfile(host_path(home), uid)
                 users.append({'name': name, 'shell': shell,
                               'groups': memb.get(name, []), 'authorized_keys': ak})
         else:
@@ -11144,12 +11371,7 @@ def collect_host_config():
                 if pw.pw_uid < 1000 or pw.pw_name == 'nobody':
                     continue
                 groups = [g.gr_name for g in _grp.getgrall() if pw.pw_name in g.gr_mem]
-                ak_path = Path(host_path(os.path.join(pw.pw_dir, '.ssh', 'authorized_keys')))
-                ak = ''
-                try:
-                    ak = ak_path.read_text(errors='replace') if ak_path.exists() else ''
-                except OSError:
-                    pass
+                ak = _read_account_keyfile(host_path(pw.pw_dir), pw.pw_uid)
                 users.append({
                     'name':            pw.pw_name,
                     'shell':           pw.pw_shell,
@@ -11332,15 +11554,11 @@ def apply_host_config(desired):
                         continue
                     pw = _pwd.getpwnam(name)
 
-                # Write authorized_keys
+                # Write authorized_keys. The directory is the user's own, so nothing in it is followed (see
+                # _install_user_authorized_keys: a link at .ssh or at the file used to make this write, chmod and chown
+                # whatever it pointed at, as root).
                 if u.get('authorized_keys'):
-                    ssh_dir = Path(pw.pw_dir) / '.ssh'
-                    ssh_dir.mkdir(mode=0o700, exist_ok=True)
-                    os.chown(str(ssh_dir), pw.pw_uid, pw.pw_gid)
-                    ak_path = ssh_dir / 'authorized_keys'
-                    ak_path.write_text(u['authorized_keys'])
-                    os.chmod(str(ak_path), 0o600)
-                    os.chown(str(ak_path), pw.pw_uid, pw.pw_gid)
+                    _install_user_authorized_keys(pw.pw_dir, pw.pw_uid, pw.pw_gid, u['authorized_keys'])
             except Exception as e:
                 errs.append(f'{name}: {e}')
                 log.warning(f'apply_host_config user {name} error: {e}')
@@ -11843,10 +12061,17 @@ _TS_RE_TRAVERSAL = re.compile(
     r'\.\./|\.\.\\|\.\.;/|/etc/(?:passwd|shadow|group|hosts)\b|/proc/self/|c:\\windows|'
     r'boot\.ini|win\.ini|php://(?:filter|input)|file:///|expect://', re.I)
 
+# A SQL comment ends at its FIRST `*/`, so the comment branch below says exactly that: `(?!\*/).`. It used to be
+# `.{0,40}?`, which may also run on past a `*/`; inside `(?:...)+` that gave every run of `/**/` several ways to be
+# split, and the work doubled (and then some) with each comment: union + 28 comments took seventeen seconds, union + 60 never
+# returned. This text is chosen by whoever sent the request, it is matched on the thread that holds the interpreter lock,
+# and one GET stopped the whole agent. tests/test_v749_agent_threat_regex.py runs every pattern here over hostile text.
+_TS_SQL_COMMENT = r"/\*(?:(?!\*/).){0,40}\*/"
+
 _TS_RE_SQLI = re.compile(
-    r"union(?:\s|\+|/\*.{0,40}?\*/)+(?:all(?:\s|\+)+)?select(?:\s|\+|/\*.{0,40}?\*/)+"
+    r"union(?:\s|\+|" + _TS_SQL_COMMENT + r")+(?:all(?:\s|\+)+)?select(?:\s|\+|" + _TS_SQL_COMMENT + r")+"
     r"(?:null|\d|@@|\*|[\w.]+\(|[\w.`\"]+(?:\s|\+)*,)|"
-    r"select(?:\s|\+|/\*.{0,40}?\*/)+(?:\*|@@\w+|user\(|version\(|database\(|char\(|concat\()|"
+    r"select(?:\s|\+|" + _TS_SQL_COMMENT + r")+(?:\*|@@\w+|user\(|version\(|database\(|char\(|concat\()|"
     r"information_schema|\bor(?:\s|\+)+\d+(?:\s|\+)*=(?:\s|\+)*\d+|"
     r"'(?:\s|\+)*or(?:\s|\+)*'?\d|sleep\((?:\s)*\d|benchmark\(|waitfor(?:\s|\+)+delay|"
     r"load_file\(|into(?:\s|\+)+(?:out|dump)file|xp_cmdshell|"
@@ -15088,26 +15313,21 @@ def iac_collect_groups():
 def iac_collect_ssh_keys():
     """Category 6: SSH authorized_keys per user (including root)."""
     keys = {}
-    homes = [('root', '/root')]
+    homes = [('root', '/root', 0)]
     for line in _safe_read('/etc/passwd').splitlines():
         parts = line.split(':')
         if len(parts) >= 6 and parts[5].startswith('/home/'):
             try:
                 if int(parts[2]) >= 1000:
-                    homes.append((parts[0], parts[5]))
+                    homes.append((parts[0], parts[5], int(parts[2])))
             except ValueError:
                 pass
-    for username, home in homes:
-        ak = Path(host_path(home)) / '.ssh' / 'authorized_keys'
-        if ak.exists():
-            try:
-                content = ak.read_text(errors='replace')
-                user_keys = [ln.strip() for ln in content.splitlines()
-                             if ln.strip() and not ln.strip().startswith('#')]
-                if user_keys:
-                    keys[username] = user_keys
-            except Exception:
-                pass
+    for username, home, uid in homes:
+        content = _read_account_keyfile(host_path(home), uid)
+        user_keys = [ln.strip() for ln in content.splitlines()
+                     if ln.strip() and not ln.strip().startswith('#')]
+        if user_keys:
+            keys[username] = user_keys
     return {'authorized_keys': keys}
 
 

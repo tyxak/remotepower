@@ -80,8 +80,17 @@ _OPENER = urllib.request.build_opener(
     _NoRedirect, urllib.request.HTTPSHandler(context=_ssl_ctx()))
 
 
+# The largest request body the relay will read. The server refuses anything over 50 MB (MAX_BODY_BYTES), so a larger one could
+# never succeed upstream. Before 7.4.9 the relay read whatever Content-Length said, with no ceiling and no check that it was a
+# number: the port is open to the whole segment and takes no credentials, so a `Content-Length: 99999999999`, or `-1` (read until
+# the client hangs up), held a thread and memory for as long as the client liked.
+MAX_BODY = 50 * 1024 * 1024
+
+
 class Relay(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
+    # A client that opens a connection and says nothing is dropped after a minute instead of holding a thread for ever.
+    timeout = 60
 
     def _forward(self):
         path = self.path
@@ -103,8 +112,26 @@ class Relay(BaseHTTPRequestHandler):
                 and 'websocket' in (self.headers.get('Upgrade') or '').lower()):
             self._tunnel_websocket(path)
             return
-        length = int(self.headers.get('Content-Length') or 0)
-        body = self.rfile.read(length) if length else None
+        try:
+            length = int(self.headers.get('Content-Length') or 0)
+        except ValueError:
+            length = -1
+        if length < 0 or length > MAX_BODY:
+            # The body is not read, so what follows on this connection is not a request: close it after answering.
+            self.close_connection = True
+            self._send(413 if length > MAX_BODY else 400,
+                       b'request body too large' if length > MAX_BODY else b'bad Content-Length',
+                       {'Content-Type': 'text/plain'})
+            return
+        chunks, remaining = [], length
+        while remaining:
+            part = self.rfile.read(min(remaining, 1 << 20))
+            if not part:                     # the client went away before sending what it promised
+                self.close_connection = True
+                return
+            chunks.append(part)
+            remaining -= len(part)
+        body = b''.join(chunks) if length else None
         headers = {k: v for k, v in self.headers.items() if k.lower() not in _HOP}
         headers['X-RP-Satellite'] = TOKEN
         xff = self.headers.get('X-Forwarded-For')
@@ -222,6 +249,8 @@ class Relay(BaseHTTPRequestHandler):
                 continue
             self.send_header(k, v)
         self.send_header('Content-Length', str(len(body)))
+        if self.close_connection:
+            self.send_header('Connection', 'close')
         self.end_headers()
         try:
             self.wfile.write(body)

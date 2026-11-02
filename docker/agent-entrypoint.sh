@@ -37,6 +37,17 @@ install_ca() {
         rm -f "$ca_tmp"
         log "ERROR: could not fetch CA from http://$host/ca.crt"; return 1
     fi
+    # Keep only the first certificate of the file, then check and install that same file. `openssl x509`
+    # reads the first certificate and ignores the rest, so a file that began with the real CA (which anyone can
+    # fetch) and went on with another one used to pass the fingerprint check and be trusted whole.
+    ca_one=$(mktemp) || { rm -f "$ca_tmp"; return 1; }
+    if openssl x509 -in "$ca_tmp" -out "$ca_one" 2>/dev/null && [ -s "$ca_one" ]; then
+        cat "$ca_one" > "$ca_tmp"
+        rm -f "$ca_one"
+    else
+        rm -f "$ca_tmp" "$ca_one"
+        log "ERROR: the file fetched from http://$host/ca.crt is not a certificate"; return 1
+    fi
     got=$(openssl x509 -in "$ca_tmp" -noout -fingerprint -sha256 2>/dev/null \
           | sed 's/^.*=//; s/://g' | tr 'A-F' 'a-f')
     want=$(printf '%s' "$RP_CA_FINGERPRINT" | sed 's/://g' | tr 'A-F' 'a-f')

@@ -2438,10 +2438,10 @@ def _self_update():
         tmp = self_path + '.rp-new'
         with open(tmp, 'wb') as f:
             f.write(data)
-        # v6.4.0: 0o700 (owner-only rwx), matching the Linux agent's self-update
-        # (least privilege — the launchd daemon runs as root, so the replaced
-        # binary never needs to be world-readable/executable).
-        os.chmod(tmp, 0o700)
+        # 7.4.9: 0o755, as the installer sets it and as the Linux agent's self-update does. A comment here said 0o700 matched the
+        # Linux agent, which it did not, so the first self-update changed a 0755 binary to 0700. The binary is public (the server
+        # hands it to anyone) and runs from a directory only root can write; the mode is not what protects it.
+        os.chmod(tmp, 0o755)
         os.replace(tmp, self_path)   # atomic on APFS
     except Exception as e:
         return {'cmd': 'update', 'output': f'install write failed: {e}', 'rc': 1}

@@ -848,9 +848,19 @@ _SVC_PS = (
 )
 
 
+# PowerShell reads four typographic quotes as single quotes as well as the ASCII one: U+2018, U+2019, U+201A and U+201B.
+# A string in '...' ends at any of them unless it is doubled, so escaping only the ASCII apostrophe left a hole: a service
+# name of  x<U+2019>;<any command>;<U+2018>  closed the literal and ran the command as SYSTEM. Every one of them is doubled
+# here. (Measured with PowerShell 7: the doubled forms read back as the original text, the undoubled one ran the command.)
+_PS_SINGLE_QUOTES = "'\u2018\u2019\u201a\u201b"
+
+
 def _ps_single_quote(s):
-    """Escape a string for a PowerShell single-quoted literal ('' escapes ')."""
-    return "'" + str(s).replace("'", "''") + "'"
+    """Escape a string for a PowerShell single-quoted literal: every quote character is doubled, ASCII or typographic."""
+    out = str(s)
+    for q in _PS_SINGLE_QUOTES:
+        out = out.replace(q, q + q)
+    return "'" + out + "'"
 
 
 def get_services(watched_units):

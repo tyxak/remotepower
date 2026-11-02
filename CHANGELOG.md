@@ -58,6 +58,31 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 
 ### Security
 
+- **The agents and their installers (two High, five Medium, one Low).** A review of the three agents, the installers and the agent
+  container, with each finding reproduced and a test for it. Update the agents to get these:
+  - *High:* one web request target of 107 bytes kept the threat sensor busy for 1.3 seconds, and 123 bytes for 17, growing
+    about twelve times for every 4 more bytes while the whole agent stood still (needs the threat sensor switched on). The
+    pattern no longer backtracks.
+  - *High:* applying and collecting host config, and the IaC SSH key collection, wrote and read every account's
+    `authorized_keys` as root through links the account controls. A user could redirect the write, make the agent report
+    another file, or hang it on a pipe or `/dev/zero`. They now walk by descriptor without following links, accept a plain
+    file owned by the account, and cap what they read.
+  - *High with `require-signed-commands`, Medium otherwise:* the restore drill's sample path went into `tar -xf` as root, so
+    `--to-command=…` ran a command. It is validated, follows `--`, and links in the restored tree are skipped.
+  - *Medium:* PowerShell treats U+2018 to U+201B as quotes and the Windows agent's quoting did not, so a watched service named
+    with one ran a command as SYSTEM.
+  - *Medium:* the installers (Linux, macOS, Windows, the agent container and the one the server renders at `/install`) checked
+    the fingerprint of the first certificate of the CA file and then trusted the whole file, so someone between the installer
+    and the server on that first fetch could send the real CA followed by their own. Only the checked certificate is
+    installed now.
+  - *Medium:* a container's Update recreated it without `--user`, `--cap-drop`, `--read-only`, `--security-opt`, limits, the
+    runtime or its entrypoint arguments (22 settings). It refuses, and leaves the container running, when it cannot reproduce
+    one.
+  - *Medium:* the relay satellite read any `Content-Length` a stranger sent, with no timeout. It takes at most 50 MiB and waits
+    at most 60 seconds.
+  - *Low:* the quarantine changed a file's mode through a planted link.
+  - The macOS agent's self-update set the binary to 0700 under a comment that said it matched the Linux agent. It sets 0755, as
+    the installer and the Linux agent do.
 - **Sign out ends the session on the server (Medium).** The Sign out button threw away the browser's copy of the token and
   nothing else. `POST /api/logout` was documented and answered 404, so a session token kept working for 24 hours, or 30 days
   with "remember me", for anyone who had a copy. The route exists now and removes that one session (not the same user's others,

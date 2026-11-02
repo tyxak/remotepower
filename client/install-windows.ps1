@@ -116,7 +116,15 @@ if ($CaFingerprint -or $Ca) {
   } else {
     Write-Warning 'No -CaFingerprint - trusting fetched CA WITHOUT verification (TOFU).'
   }
-  Copy-Item $tmpCa $caPath -Force
+  if ($CaFingerprint) {
+    # Install exactly the certificate that was checked. X509Certificate2 reads the first certificate of a
+    # file, so a file that began with the real CA and went on with another one passed the check above and was
+    # then trusted whole. Write the checked certificate out on its own, as PEM.
+    $b64 = [Convert]::ToBase64String($cert.RawData, [Base64FormattingOptions]::InsertLineBreaks)
+    [IO.File]::WriteAllText($caPath, "-----BEGIN CERTIFICATE-----`n$b64`n-----END CERTIFICATE-----`n")
+  } else {
+    Copy-Item $tmpCa $caPath -Force
+  }
   Remove-Item $tmpCa -Force -ErrorAction SilentlyContinue
   [Environment]::SetEnvironmentVariable('RP_CA_BUNDLE', $caPath, 'Machine')
   $env:RP_CA_BUNDLE = $caPath

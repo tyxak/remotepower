@@ -169,6 +169,15 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v749_hostile_input.py",      # a non-ASCII token, a lone surrogate, Infinity and unhashable elements are refused, not a 500
         "tests/test_v749_logout.py",             # Sign out ends the session on the server
         "tests/test_v749_ui_polish.py",          # the measured spacing, wrapping, focus and mirroring rules and the two text bugs
+        # the agent security pass: each file carries its own fail-demo
+        "tests/test_v749_agent_ca_pin.py",
+        "tests/test_v749_agent_container_update.py",
+        "tests/test_v749_agent_guard_quarantine.py",
+        "tests/test_v749_agent_hostcfg_userfiles.py",
+        "tests/test_v749_agent_restore_drill.py",
+        "tests/test_v749_agent_satellite_body.py",
+        "tests/test_v749_agent_threat_regex.py",
+        "tests/test_v749_agent_win_quoting.py",
         "tests/test_v749_seeder.py",             # the demo hosts carry the upgrade mode, kept-back packages and named drive sensors
     )
 

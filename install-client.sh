@@ -137,6 +137,13 @@ if [ -n "$CA_FP" ] || [ -n "$CA_SRC" ]; then
       die "CA FINGERPRINT MISMATCH — refusing to trust. expected $want, got $got"
     fi
     success "CA fingerprint verified ($got)"
+    # Install exactly the certificate that was checked. `openssl x509` reads the first certificate in a
+    # file and ignores the rest, so a file that began with the real CA and went on with a second one passed
+    # the check above and was then trusted whole, which is the substitution the fingerprint is there to stop.
+    ONECA="$(mktemp)"; trap 'rm -f "$TMPCA" "$ONECA"' EXIT
+    openssl x509 -in "$TMPCA" -out "$ONECA" 2>/dev/null && [ -s "$ONECA" ] \
+      || die "could not extract the verified certificate from the fetched file"
+    cp "$ONECA" "$TMPCA"
   else
     warn "No --ca-fingerprint given — trusting fetched CA WITHOUT verification (TOFU)."
   fi
