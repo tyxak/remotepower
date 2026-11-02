@@ -11171,6 +11171,19 @@ _PLATFORM_ROUTES = (
     ('/api/reputation',              _WRITE_METHODS, ()),
     ('/api/resolver-health',         _WRITE_METHODS, ()),
     ('/api/calendar/import',         _WRITE_METHODS, ()),
+    # 7.4.9 (authorization matrix): operations on the installation itself that a tenant administrator could reach, because the
+    # handlers ask for an administrator and nothing more. Reads stay open: the self-monitoring status and observability pages
+    # are GET, and a tenant's own backup-state view is not an instance operation.
+    ('/api/audit/rotate-hmac-key',   _WRITE_METHODS, ()),
+    ('/api/security/rotate-export-key', _WRITE_METHODS, ()),
+    ('/api/self',                    _WRITE_METHODS, ()),     # backup-now, backup-state, backup-encrypt
+    ('/api/tls/gen-self-signed',     _WRITE_METHODS, ()),
+    ('/api/billing/config',          _WRITE_METHODS, ()),
+    ('/api/connectors/reload',       _WRITE_METHODS, ()),
+    ('/api/cve/refresh-feeds',       _WRITE_METHODS, ()),
+    ('/api/ai/rag/reindex',          _WRITE_METHODS, ()),
+    ('/api/exec/batch',              ('DELETE',),    ()),
+    ('/api/image-updates/ignore',    ('DELETE',),    ()),
 )
 
 
@@ -37825,10 +37838,21 @@ def handle_slo():
     respond(200, _compute_slo())
 
 
+def _schedule_visible_ids():
+    """None when the caller is not confined (every job is theirs to see), else the set of host ids whose scheduled jobs the
+    caller may see. 7.4.9: the schedule list and the edit and delete handlers had no tenant or scope test at all, so a tenant
+    administrator listed, edited and deleted the jobs of another tenant's hosts."""
+    if _caller_scope() is None and _tenant_gate() is None:
+        return None
+    return set(_scope_filter_devices(_load_ro(DEVICES_FILE) or {}))
+
+
 def handle_schedule_list():
     require_auth()
     schedule = load(SCHEDULE_FILE)
-    respond(200, schedule.get('jobs', []))
+    visible = _schedule_visible_ids()
+    jobs = schedule.get('jobs', [])
+    respond(200, jobs if visible is None else [j for j in jobs if isinstance(j, dict) and j.get('device_id') in visible])
 
 
 def _valid_cron(expr):
@@ -38117,7 +38141,9 @@ def handle_schedule_update(job_id):
     with _LockedUpdate(SCHEDULE_FILE) as schedule:
         jobs = schedule.get('jobs', [])
         target = next((j for j in jobs if j.get('id') == job_id), None)
-        if not target: respond(404, {'error': 'job not found'})
+        _vis = _schedule_visible_ids()
+        if not target or (_vis is not None and target.get('device_id') not in _vis):
+            respond(404, {'error': 'job not found'})
         target.update({
             'device_id':   dev_id,
             'device_name': devices[dev_id].get('name', dev_id),
@@ -38139,10 +38165,13 @@ def handle_schedule_delete(job_id):
     require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
     if not _validate_id(job_id): respond(404, {'error': 'job not found'})
-    schedule = load(SCHEDULE_FILE)
-    jobs = [j for j in schedule.get('jobs', []) if j['id'] != job_id]
-    if len(jobs) == len(schedule.get('jobs', [])): respond(404, {'error': 'job not found'})
-    schedule['jobs'] = jobs; save(SCHEDULE_FILE, schedule)
+    visible = _schedule_visible_ids()
+    with _LockedUpdate(SCHEDULE_FILE) as schedule:
+        jobs = schedule.get('jobs', [])
+        target = next((j for j in jobs if isinstance(j, dict) and j.get('id') == job_id), None)
+        if not target or (visible is not None and target.get('device_id') not in visible):
+            respond(404, {'error': 'job not found'})
+        schedule['jobs'] = [j for j in jobs if j is not target]
     respond(200, {'ok': True})
 
 
@@ -42300,7 +42329,8 @@ def handle_agentless_create() -> None:
     tags = [t for t in tags if t]
 
     with _LockedUpdate(DEVICES_FILE) as devices:
-        if connected_to and connected_to not in devices:
+        # 7.4.9: a host the caller may see (another tenant's host, or one outside the role scope, is an unknown id)
+        if connected_to and connected_to not in _scope_filter_devices(devices):
             respond(400, {'error': f'connected_to: host {connected_to} not found'})
 
         new_id = 'al_' + secrets.token_hex(6)
@@ -42350,7 +42380,9 @@ def handle_device_connected_to(dev_id: str) -> None:
         target = _sanitize_str(body.get('connected_to', ''), 64, allow_empty=True) or ''
         if target == dev_id:
             respond(400, {'error': 'a host cannot connect to itself'})
-        if target and target not in devices:
+        # 7.4.9: the target has to be a host the caller may see. Another tenant's host, or one outside the caller's role scope,
+        # is answered as an unknown id, so the link cannot be made and the answer does not say which ids exist.
+        if target and target not in _scope_filter_devices(devices):
             respond(400, {'error': f'device {target} not found'})
         devices[dev_id]['connected_to'] = target
     audit_log(actor, 'device_connected_to', detail=f'{dev_id} → {target or "(cleared)"}')
@@ -42377,11 +42409,12 @@ def handle_device_depends_on(dev_id: str) -> None:
         if not isinstance(raw, list):
             respond(400, {'error': 'depends_on must be a list of host ids'})
         ups = []
+        visible = _scope_filter_devices(devices)       # 7.4.9: only hosts the caller may see can be depended on
         for u in raw[:50]:
             u = _sanitize_str(u, 64)
             if u == dev_id:
                 respond(400, {'error': 'a host cannot depend on itself'})
-            if u and u in devices and u not in ups:
+            if u and u in visible and u not in ups:
                 ups.append(u)
         devices[dev_id]['depends_on'] = ups
     audit_log(actor, 'device_depends_on', detail=f'{dev_id} → {ups or "(cleared)"}')
@@ -56086,22 +56119,41 @@ def handle_export():
 
 
 def handle_revoke_sessions():
-    """Revoke all sessions for a specific user or all users."""
+    """Revoke all sessions for a specific user or all users.
+
+    7.4.9: tenant-scoped like GET /api/sessions. This handler ignored tenants, so a tenant administrator revoked the platform
+    operator's session and every other tenant's. Under tenancy the user must belong to the caller's tenant (another tenant's user is
+    answered "not found") and "all" means all of the caller's tenant. The read-modify-write is under the store's lock."""
     requester = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.RevokeSessionsRequest)
     target_user = _sanitize_str(body.get('username', ''), 32)
-    tokens = load(TOKENS_FILE)
-    if target_user:
-        pruned = {k: v for k, v in tokens.items() if v.get('user') != target_user}
-        count = len(tokens) - len(pruned)
-    else:
-        # Revoke all except requester's current session
-        current_token = get_token_from_request()
-        _cur_keys = {_token_hash(current_token), current_token}
-        pruned = {k: v for k, v in tokens.items() if k in _cur_keys}
-        count = len(tokens) - len(pruned)
-    save(TOKENS_FILE, pruned)
+    gate = _tenant_gate()
+    _tenant_of = {}
+
+    def _mine(entry):
+        if gate is None:
+            return True
+        uname = entry.get('user') if isinstance(entry, dict) else ''
+        if not uname:
+            return False
+        if uname not in _tenant_of:
+            _tenant_of[uname] = _user_tenant(uname)
+        return _tenant_of[uname] == gate
+
+    if target_user and gate is not None and _user_tenant(target_user) != gate:
+        respond(404, {'error': 'User not found'})
+    current_token = get_token_from_request()
+    _cur_keys = {_token_hash(current_token), current_token}
+    with _LockedUpdate(TOKENS_FILE) as tokens:
+        if target_user:
+            doomed = [k for k, v in tokens.items() if isinstance(v, dict) and v.get('user') == target_user]
+        else:
+            # Revoke all except the requester's current session (all of the caller's tenant, under tenancy)
+            doomed = [k for k, v in tokens.items() if k not in _cur_keys and _mine(v)]
+        for k in doomed:
+            del tokens[k]
+        count = len(doomed)
     audit_log(requester, 'revoke_sessions', f'target={target_user or "all"}, revoked={count}')
     respond(200, {'ok': True, 'revoked': count})
 

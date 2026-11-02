@@ -64,6 +64,10 @@ _DEVICE_BODY_KEYS = (
     'source_device_id',
     'target_device_id',     # not currently used; here so it cannot be missed
     'src_device_id',        # not currently used; here so it cannot be missed
+    # 7.4.9 (authorization matrix F4): the dependency and wired-link handlers took another tenant's host id from the body
+    # and stored the edge, which alert holding and the reboot wave plan then follow.
+    'depends_on',
+    'connected_to',
 )
 _READ = re.compile(
     r"""body\s*(\.get\(\s*['"](?:%s)['"]|\[\s*['"](?:%s)['"]\s*\])"""

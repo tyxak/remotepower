@@ -30,6 +30,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -42,6 +43,7 @@ _spec = importlib.util.spec_from_file_location('api_instgate', _CGI / 'api.py')
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
+A_ROLL = api  # the rollout handlers are re-bound onto api
 TENANCY_MARKERS = re.compile(
     r'_require_platform_operator|require_instance_admin_auth|_caller_is_superadmin|'
     r'require_superadmin_auth|_scope_block_device|_tenant_gate|_tenant_visible')
@@ -111,7 +113,7 @@ class TestPopulationIsDecided(unittest.TestCase):
 
 
 class _Base(unittest.TestCase):
-    STORES = ('CONFIG_FILE', 'USERS_FILE', 'TENANTS_FILE', 'AUDIT_LOG_FILE',
+    STORES = ('CONFIG_FILE', 'USERS_FILE', 'TENANTS_FILE', 'AUDIT_LOG_FILE', 'TOKENS_FILE', 'SCHEDULE_FILE', 'ROLLOUTS_FILE',
               'CONFIG_REVS_FILE', 'DEVICES_FILE', 'ENROLL_TOKENS_FILE', 'PINS_FILE',
               'INBOUND_WEBHOOKS_FILE')
     FNS = ('respond', 'method', 'get_json_obj', 'get_json_body', 'audit_log',
@@ -273,6 +275,255 @@ class TestPlatformRoutes(_Base):
                 self.assertIsNone(self.gate(pi, m, who))
         self.tenancy(False)
         self.assertIsNone(self.gate('/api/roles', 'POST'))
+
+
+class TestInstanceWideOperationsFoundIn749(_Base):
+    """The authorization matrix (7.4.9) found a tenant administrator calling these and getting 2xx: the audit chain's HMAC key and
+    the export-signing key rotated, a full backup of every tenant's data written, the server's TLS material generated, and
+    instance-wide trackers wiped. Each handler asks for an administrator and has no tenant check, so they join the platform
+    table."""
+
+    def gate(self, pi, m, who='badmin'):
+        self.who = who
+        api._LOAD_CACHE.clear()
+        self.cap.clear()
+        try:
+            api._enforce_platform_routes(pi, m)
+        except api.HTTPError:
+            pass
+        return self.cap.get('status')
+
+    OPERATIONS = (
+        ('/api/audit/rotate-hmac-key', 'POST'), ('/api/security/rotate-export-key', 'POST'),
+        ('/api/self/backup-now', 'POST'), ('/api/self/backup-state', 'DELETE'), ('/api/self/backup-encrypt', 'POST'),
+        ('/api/tls/gen-self-signed', 'POST'), ('/api/billing/config', 'POST'), ('/api/connectors/reload', 'POST'),
+        ('/api/cve/refresh-feeds', 'POST'), ('/api/ai/rag/reindex', 'POST'), ('/api/exec/batch', 'DELETE'),
+        ('/api/image-updates/ignore', 'DELETE'))
+
+    def test_a_tenant_administrator_is_refused_each_one(self):
+        for pi, m in self.OPERATIONS:
+            with self.subTest(pi=pi, m=m):
+                self.assertEqual(self.gate(pi, m), 403)
+                self.assertEqual(self.gate(pi, m, who='cadmin'), 403, 'another tenant, same answer')
+
+    def test_the_platform_operator_still_may(self):
+        for pi, m in self.OPERATIONS:
+            with self.subTest(pi=pi, m=m):
+                self.assertIsNone(self.gate(pi, m, who='platform'))
+
+    def test_an_installation_with_tenancy_off_is_unchanged(self):
+        self.tenancy(False)
+        for pi, m in self.OPERATIONS:
+            with self.subTest(pi=pi, m=m):
+                self.assertIsNone(self.gate(pi, m))
+
+    def test_the_reads_beside_them_stay_open_to_a_tenant_administrator(self):
+        for pi, m in (('/api/self/status', 'GET'), ('/api/self/observability', 'GET'), ('/api/self/backup-state', 'GET'),
+                      ('/api/exec/batch', 'GET'), ('/api/exec/batch', 'POST'), ('/api/image-updates/ignore', 'POST'),
+                      ('/api/tls/targets', 'GET'), ('/api/billing/config', 'GET')):
+            with self.subTest(pi=pi, m=m):
+                self.assertIsNone(self.gate(pi, m))
+
+    def test_the_old_table_let_each_of_them_through(self):
+        old = tuple(r for r in api._PLATFORM_ROUTES if r[0] not in {p for p, _m in self.OPERATIONS} and r[0] != '/api/self')
+        saved = api._PLATFORM_ROUTES
+        api._PLATFORM_ROUTES = old
+        try:
+            for pi, m in self.OPERATIONS:
+                with self.subTest(pi=pi, m=m):
+                    self.assertIsNone(self.gate(pi, m), 'the control: without the new rows nothing refuses')
+        finally:
+            api._PLATFORM_ROUTES = saved
+
+
+class TestRevokingSessionsStaysInTheTenant(_Base):
+    """POST /api/sessions/revoke ignored tenants (7.4.9, authorization matrix F2): a tenant administrator revoked the platform
+    operator's session and, with no username, every session but its own across all tenants."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.USERS_FILE, {
+            'platform': {'role': 'admin', 'tenant_id': 'default'},
+            'badmin': {'role': 'admin', 'tenant_id': 'tenantB'},
+            'bviewer': {'role': 'viewer', 'tenant_id': 'tenantB'},
+            'cadmin': {'role': 'admin', 'tenant_id': 'tenantC'},
+            'cviewer': {'role': 'viewer', 'tenant_id': 'tenantC'}})
+        now = int(time.time())
+        api.save(api.TOKENS_FILE, {h: {'user': u, 'created': now, 'ttl': 86400} for h, u in (
+            ('hp1', 'platform'), ('hb1', 'badmin'), ('hb2', 'bviewer'), ('hb3', 'bviewer'),
+            ('hc1', 'cadmin'), ('hc2', 'cviewer'))})
+        api.get_token_from_request = lambda: 'raw-token-of-the-caller'
+
+    def left(self):
+        api._LOAD_CACHE.clear()
+        return sorted(api.load(api.TOKENS_FILE))
+
+    def test_a_tenant_administrator_cannot_revoke_the_platform_operator(self):
+        st, d = self.call(api.handle_revoke_sessions, body={'username': 'platform'})
+        self.assertEqual(st, 404)
+        self.assertIn('hp1', self.left())
+
+    def test_a_tenant_administrator_cannot_revoke_another_tenants_user(self):
+        st, _ = self.call(api.handle_revoke_sessions, body={'username': 'cviewer'})
+        self.assertEqual(st, 404)
+        self.assertEqual(self.left(), ['hb1', 'hb2', 'hb3', 'hc1', 'hc2', 'hp1'])
+
+    def test_revoking_one_of_its_own_users_works(self):
+        st, d = self.call(api.handle_revoke_sessions, body={'username': 'bviewer'})
+        self.assertEqual((st, d.get('revoked')), (200, 2))
+        self.assertEqual(self.left(), ['hb1', 'hc1', 'hc2', 'hp1'])
+
+    def test_revoke_all_reaches_only_the_callers_tenant(self):
+        st, d = self.call(api.handle_revoke_sessions, body={})
+        self.assertEqual(st, 200)
+        self.assertEqual(self.left(), ['hc1', 'hc2', 'hp1'], 'tenant B is gone, tenant C and the platform operator stay')
+        self.assertEqual(d.get('revoked'), 3)
+
+    def test_the_platform_operator_still_revokes_across_tenants(self):
+        st, d = self.call(api.handle_revoke_sessions, body={'username': 'cviewer'}, who='platform')
+        self.assertEqual((st, d.get('revoked')), (200, 1))
+        st, d = self.call(api.handle_revoke_sessions, body={}, who='platform')
+        self.assertEqual(st, 200)
+        self.assertEqual(self.left(), [], 'everything but the caller\'s own token, which is not in the store here')
+
+    def test_a_single_tenant_installation_is_unchanged(self):
+        self.tenancy(False)
+        st, d = self.call(api.handle_revoke_sessions, body={'username': 'cviewer'})
+        self.assertEqual((st, d.get('revoked')), (200, 1))
+
+    def test_control_the_old_handler_revoked_across_tenants(self):
+        # what the unfixed handler did: no tenant test at all
+        tokens = api.load(api.TOKENS_FILE)
+        pruned = {k: v for k, v in tokens.items() if v.get('user') != 'platform'}
+        self.assertEqual(len(tokens) - len(pruned), 1, 'the platform operator\'s session was reachable by name')
+
+
+class TestLinksStayInTheTenant(_Base):
+    """connected-to, depends-on and an agentless host's connected_to took any host id from the body (7.4.9, authorization matrix
+    F4). The stored edge makes alerts of the tenant's host wait on another tenant's host, and the answers told the caller which
+    ids exist. A host outside the caller's view is now an unknown id, with the same answer as one that does not exist."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.DEVICES_FILE, {
+            'devB': {'name': 'b1', 'tenant': 'tenantB', 'token_hash': 'x'},
+            'devB2': {'name': 'b2', 'tenant': 'tenantB', 'token_hash': 'x'},
+            'devC': {'name': 'c1', 'tenant': 'tenantC', 'token_hash': 'x'}})
+
+    def stored(self, dev, key):
+        api._LOAD_CACHE.clear()
+        return api.load(api.DEVICES_FILE)[dev].get(key)
+
+    def test_connected_to_refuses_another_tenants_host_like_an_unknown_one(self):
+        foreign = self.call(api.handle_device_connected_to, 'devB', body={'connected_to': 'devC'}, m='PUT')
+        unknown = self.call(api.handle_device_connected_to, 'devB', body={'connected_to': 'nope-xyz'}, m='PUT')
+        self.assertEqual(foreign[0], 400)
+        self.assertEqual(unknown[0], 400)
+        self.assertEqual(foreign[1]['error'].replace('devC', 'X'), unknown[1]['error'].replace('nope-xyz', 'X'),
+                         'the answer does not say which ids exist')
+        self.assertFalse(self.stored('devB', 'connected_to'))
+
+    def test_connected_to_works_inside_the_tenant(self):
+        st, _ = self.call(api.handle_device_connected_to, 'devB', body={'connected_to': 'devB2'}, m='PUT')
+        self.assertEqual(st, 200)
+        self.assertEqual(self.stored('devB', 'connected_to'), 'devB2')
+
+    def test_depends_on_keeps_only_hosts_the_caller_can_see(self):
+        st, d = self.call(api.handle_device_depends_on, 'devB', body={'depends_on': ['devC', 'devB2', 'nope-xyz']}, m='PUT')
+        self.assertEqual(st, 200)
+        self.assertEqual(d['depends_on'], ['devB2'])
+        self.assertEqual(self.stored('devB', 'depends_on'), ['devB2'])
+
+    def test_an_agentless_host_cannot_be_wired_to_another_tenants_host(self):
+        st, d = self.call(api.handle_agentless_create, body={'name': 'sw-b', 'connected_to': 'devC'})
+        self.assertEqual(st, 400)
+        self.assertIn('not found', d['error'])
+
+    def test_the_platform_operator_still_links_across_tenants(self):
+        st, _ = self.call(api.handle_device_connected_to, 'devB', body={'connected_to': 'devC'}, m='PUT', who='platform')
+        self.assertEqual(st, 200)
+        st, d = self.call(api.handle_device_depends_on, 'devB', body={'depends_on': ['devC']}, m='PUT', who='platform')
+        self.assertEqual(d['depends_on'], ['devC'])
+
+    def test_a_single_tenant_installation_is_unchanged(self):
+        self.tenancy(False)
+        st, _ = self.call(api.handle_device_connected_to, 'devB', body={'connected_to': 'devC'}, m='PUT')
+        self.assertEqual(st, 200)
+
+
+class TestSchedulesAndRolloutsStayInTheTenant(_Base):
+    """The schedule list, edit and delete, and the rollout list, action and delete, had no tenant test (7.4.9, authorization matrix
+    F3): a tenant administrator listed another tenant's jobs and host names and deleted or stopped them."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.SCHEDULE_FILE, {'jobs': [
+            {'id': 'jobB', 'device_id': 'devB', 'device_name': 'b1', 'command': 'reboot', 'cron': '0 3 * * 0', 'recurring': True},
+            {'id': 'jobC', 'device_id': 'devC', 'device_name': 'c1', 'command': 'reboot', 'cron': '0 4 * * 0', 'recurring': True}]})
+        api.save(api.ROLLOUTS_FILE, {'rollouts': [
+            {'id': 'rollB', 'name': 'b', 'state': 'draft', 'tenant_gate': 'tenantB', 'created_at': 2, 'rings': []},
+            {'id': 'rollC', 'name': 'c', 'state': 'draft', 'tenant_gate': 'tenantC', 'created_at': 1, 'rings': []},
+            {'id': 'rollP', 'name': 'p', 'state': 'draft', 'tenant_gate': None, 'created_at': 3, 'rings': []}]})
+        api._rollout_tick = lambda *a, **k: None
+
+    def jobs(self):
+        api._LOAD_CACHE.clear()
+        return sorted(j['id'] for j in api.load(api.SCHEDULE_FILE)['jobs'])
+
+    def rolls(self):
+        api._LOAD_CACHE.clear()
+        return sorted(r['id'] for r in api.load(api.ROLLOUTS_FILE)['rollouts'])
+
+    def test_the_schedule_list_shows_only_the_tenants_jobs(self):
+        st, d = self.call(api.handle_schedule_list, m='GET')
+        self.assertEqual(sorted(j['id'] for j in d), ['jobB'])
+
+    def test_deleting_another_tenants_job_is_a_404_and_changes_nothing(self):
+        st, _ = self.call(api.handle_schedule_delete, 'jobC', m='DELETE')
+        self.assertEqual(st, 404)
+        self.assertEqual(self.jobs(), ['jobB', 'jobC'])
+
+    def test_deleting_its_own_job_works(self):
+        st, _ = self.call(api.handle_schedule_delete, 'jobB', m='DELETE')
+        self.assertEqual(st, 200)
+        self.assertEqual(self.jobs(), ['jobC'])
+
+    def test_editing_another_tenants_job_is_a_404(self):
+        st, _ = self.call(api.handle_schedule_update, 'jobC', body={'device_id': 'devB', 'command': 'reboot', 'cron': '0 5 * * 0'}, m='PUT')
+        self.assertEqual(st, 404)
+
+    def test_the_platform_operator_sees_and_deletes_every_job(self):
+        st, d = self.call(api.handle_schedule_list, m='GET', who='platform')
+        self.assertEqual(sorted(j['id'] for j in d), ['jobB', 'jobC'])
+        st, _ = self.call(api.handle_schedule_delete, 'jobC', m='DELETE', who='platform')
+        self.assertEqual(st, 200)
+
+    def test_the_rollout_list_shows_only_the_tenants_rollouts(self):
+        st, d = self.call(A_ROLL.handle_rollouts_list, m='GET')
+        self.assertEqual(sorted(r['id'] for r in d['rollouts']), ['rollB'])
+
+    def test_deleting_or_stopping_another_tenants_rollout_is_a_404(self):
+        for who_roll in ('rollC', 'rollP'):
+            with self.subTest(roll=who_roll):
+                st, _ = self.call(A_ROLL.handle_rollout_delete, who_roll, m='DELETE')
+                self.assertEqual(st, 404)
+                st, _ = self.call(A_ROLL.handle_rollout_action, who_roll, 'cancel')
+                self.assertEqual(st, 404)
+        self.assertEqual(self.rolls(), ['rollB', 'rollC', 'rollP'])
+
+    def test_its_own_rollout_works(self):
+        st, _ = self.call(A_ROLL.handle_rollout_delete, 'rollB', m='DELETE')
+        self.assertEqual(st, 200)
+        self.assertEqual(self.rolls(), ['rollC', 'rollP'])
+
+    def test_the_platform_operator_and_a_single_tenant_install_are_unchanged(self):
+        st, d = self.call(A_ROLL.handle_rollouts_list, m='GET', who='platform')
+        self.assertEqual(sorted(r['id'] for r in d['rollouts']), ['rollB', 'rollC', 'rollP'])
+        self.tenancy(False)
+        st, d = self.call(A_ROLL.handle_rollouts_list, m='GET')
+        self.assertEqual(len(d['rollouts']), 3)
+        st, d = self.call(api.handle_schedule_list, m='GET')
+        self.assertEqual(len(d), 2)
 
 
 class TestEnrolmentLandsInTheRightTenant(_Base):

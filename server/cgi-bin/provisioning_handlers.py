@@ -753,7 +753,7 @@ def handle_rollout_action(roll_id, action):
     with A._LockedUpdate(A.ROLLOUTS_FILE) as store:
         rolls = store.get('rollouts') or []
         roll = next((r for r in rolls if r.get('id') == roll_id), None)
-        if not roll:
+        if not roll or not _rollout_visible(roll):
             A.respond(404, {'error': 'rollout not found'})
         st = roll.get('state')
         if action == 'start':
@@ -845,12 +845,20 @@ def handle_rollout_action(roll_id, action):
                   'rollback_id': err_box[1]})
 
 
+def _rollout_visible(r):
+    """7.4.9: a rollout carries the tenant gate of its creator (None for the platform operator, or with tenancy off). A tenant
+    administrator sees and changes only rollouts of its own tenant; the platform operator, and an install without tenancy,
+    see all of them."""
+    gate = A._tenant_gate()
+    return gate is None or (isinstance(r, dict) and r.get('tenant_gate') == gate)
+
+
 def handle_rollout_delete(roll_id):
     """DELETE /api/rollouts/<id>."""
     actor = A.require_admin_auth()
     with A._LockedUpdate(A.ROLLOUTS_FILE) as store:
         rolls = store.get('rollouts') or []
-        remaining = [r for r in rolls if r.get('id') != roll_id]
+        remaining = [r for r in rolls if r.get('id') != roll_id or not _rollout_visible(r)]
         if len(remaining) == len(rolls):
             A.respond(404, {'error': 'rollout not found'})
         store['rollouts'] = remaining
@@ -974,6 +982,6 @@ def handle_rollouts_list():
     """GET /api/rollouts — list rollouts, advancing running ones first."""
     A.require_auth()
     A._rollout_tick()
-    rolls = (A.load(A.ROLLOUTS_FILE) or {}).get('rollouts') or []
+    rolls = [r for r in ((A.load(A.ROLLOUTS_FILE) or {}).get('rollouts') or []) if _rollout_visible(r)]
     rolls = sorted(rolls, key=lambda r: -(r.get('created_at') or 0))
     A.respond(200, {'rollouts': [A._rollout_public(r) for r in rolls]})

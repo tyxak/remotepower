@@ -58,6 +58,20 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 
 ### Security
 
+- **A tenant administrator could reach operations on the whole installation, and other tenants' sessions, schedules,
+  rollouts and host links (Medium).** These matter on an installation with tenancy on; with it off nothing changed. The
+  authorization matrix found a tenant administrator getting a 200 for each of these:
+  - rotating the audit chain's key and the export-signing key, writing a full backup of every tenant's data, generating the
+    server's TLS material, and wiping instance-wide trackers (batch jobs, backup state, image-update ignores). They are now
+    for the platform operator only, like the roles and the audit-log wipe; the pages that only read stay open;
+  - `POST /api/sessions/revoke`, which revoked the platform operator's session and every other tenant's. It now reaches only
+    the caller's tenant, answers "not found" for another tenant's user, and takes the store's lock;
+  - the schedule list, edit and delete, and the rollout list, action and delete, which showed, changed and deleted other
+    tenants' jobs. A job is the caller's when its host is visible to the caller, and a rollout when its creator's tenant is the
+    caller's, as the rollout dispatcher already enforced;
+  - `connected-to`, `depends-on` and an agentless host's `connected_to`, which took another tenant's host id and stored the
+    link (alert holding and the reboot wave plan follow it) and told the caller which ids exist. A host outside the caller's
+    view is now answered like one that does not exist, and the body-device guard test watches both keys.
 - **A read-only role could rewrite a host's watched services and log-watch rules by changing the HTTP verb (High).** The
   endpoint `/api/devices/{id}/services/config` asked for the `services` permission only for POST. A PUT, PATCH or DELETE went
   to the code that stores the rules with no permission check, so a viewer, an auditor, a finance user, a read-only API key or a
