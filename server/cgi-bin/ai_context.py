@@ -136,11 +136,24 @@ def _device_flags(d):
     _pct('disk_percent', 'disk')
     if si.get('reboot_required') is True:
         out.append('reboot pending')
+    # 7.4.9: updates the distro itself flags as security, which the digest did not carry although the Patch Report, the Advisory and
+    # the alerts do. A count only; the model asks for names through the other context when it needs them.
+    _sec = (si.get('packages') or {}).get('security_updates') if isinstance(si.get('packages'), dict) else None
+    if isinstance(_sec, int) and not isinstance(_sec, bool) and _sec > 0:
+        out.append(f'{_sec} security update' + ('s' if _sec != 1 else '') + ' pending')
     units = si.get('failed_units') or []
     if units:
         out.append(f'{len(units)} failed unit' + ('s' if len(units) != 1 else ''))
     if si.get('mount_issues'):
         out.append('mount issues')
+    # 7.4.9: memory errors the hardware could not correct, and a gateway that does not answer: both raise an alert and a Checks row,
+    # and neither reached the digest. The shapes are the agent's own ({ce, ue} and {reachable}); only an explicit state counts.
+    _ecc = si.get('ecc')
+    if isinstance(_ecc, dict) and isinstance(_ecc.get('ue'), int) and not isinstance(_ecc.get('ue'), bool) and _ecc['ue'] > 0:
+        out.append('ECC uncorrectable errors')
+    _gw = si.get('gateway')
+    if isinstance(_gw, dict) and _gw.get('reachable') is False:
+        out.append('gateway unreachable')
     # v7.3.0: the three platforms and the tri-state, through the shared helper.
     # The old test was "backends exist and none is active", which read a Linux
     # host whose probes all failed as a host with no firewall, and knew nothing

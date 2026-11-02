@@ -609,7 +609,7 @@ def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None,
     return out
 
 
-def _data_findings(dev_id, name, dev, secrets, stale_backups):
+def _data_findings(dev_id, name, dev, secrets, stale_backups, disk_encryption_checks=False):
     """What is on the disk that should not be, and what is not backed up.
 
     The `data` layer was declared in LAYERS from the start but had no builder
@@ -654,7 +654,7 @@ def _data_findings(dev_id, name, dev, secrets, stale_backups):
             source='backup monitor', doc='docs/backups.md'))
 
     # Disk encryption — the one control that makes a stolen or RMA'd disk a
-    # non-event. Reported per platform; Linux has no equivalent signal yet.
+    # non-event. Reported per platform: FileVault and BitLocker below, and dm-crypt / LUKS on Linux.
     mp = si.get('mac_posture')
     if isinstance(mp, dict) and mp.get('filevault') is False:
         out.append(_finding(
@@ -683,6 +683,17 @@ def _data_findings(dev_id, name, dev, secrets, stale_backups):
                 evidence=[f"{v.get('mount') or '?'} — {v.get('status') or 'unprotected'}"
                           for v in unenc[:6]],
                 source='Windows posture', doc='docs/security.md'))
+    # 7.4.9: Linux, which collects the same fact (device-mapper and dm-crypt, read through the shared posture reader) and had no
+    # finding. Behind the opt-in the Checks row has (`disk_encryption_checks`, one switch for both, like Secure Boot): plenty of
+    # servers are not encrypted on purpose, so a finding on every one would tell their operators that a choice is a problem. Only
+    # an explicit False counts; a host whose device-mapper the agent cannot see says nothing.
+    if (disk_encryption_checks and not isinstance(mp, dict) and not isinstance(wp, dict)
+            and checks.posture_flags(si).get('disk_encrypted') is False):
+        out.append(_finding(
+            'data.luks', 'data', 'medium', 'Disk encryption (LUKS / dm-crypt) is not in use',
+            'Everything on the disk is readable by anyone who can boot from external media or pull the drive.',
+            'Encrypt the data volumes with LUKS and keep the recovery passphrase somewhere other than this host.',
+            device_id=dev_id, device=name, source='Linux posture', doc='docs/security.md'))
     return out
 
 
@@ -741,7 +752,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None,
           tls_expiring=None, scap_by_dev=None, agent_tamper_by_dev=None,
           weak_keys_by_dev=None, accounts_by_dev=None, secure_boot_checks=False,
-          drift_by_dev=None, now=None):
+          drift_by_dev=None, now=None, disk_encryption_checks=False):
     """Assemble the advisory for a set of devices.
 
     Everything is passed in, so the caller controls scope (one host, a tag, the
@@ -784,7 +795,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
                                         agent_tamper_by_dev.get(dev_id),
                                         drift_by_dev.get(dev_id))
         findings += _data_findings(dev_id, name, dev, secrets_by_dev.get(dev_id),
-                                   backups_by_dev.get(dev_id))
+                                   backups_by_dev.get(dev_id), disk_encryption_checks=disk_encryption_checks)
         findings += _application_findings(dev_id, name, scans_by_dev.get(dev_id))
     # Fleet-level: the TLS monitor probes targets, not devices.
     findings += _tls_findings(tls_expiring)

@@ -25,7 +25,7 @@ it is cheap to run on demand at any scope and never scans or contacts anything.
 | **OS** | Package CVEs rated critical or high (the ignore list is applied, KEV-listed ones come first), pending updates and whether the host auto-patches, pending reboot, end-of-life releases, failing OpenSCAP benchmark rules, and Secure Boot when the Secure Boot check is switched on |
 | **Identity** | sshd settings (root login, password login, empty passwords), brute-force pressure, authorized SSH keys on deprecated algorithms, local accounts with an empty password or one older than a year, and on Windows Defender tamper protection, UAC and Secure Boot |
 | **Integrity** | Failing protect checks, Integrity Guard quarantine, tracked config files that drifted from their baseline, an agent binary whose hash does not match, and a refused unsigned agent update |
-| **Data** | Credentials found in files by the [secret scan](secret-scan.md) (muted ones are left out), stale or missing backups, FileVault on macOS and BitLocker on Windows |
+| **Data** | Credentials found in files by the [secret scan](secret-scan.md) (muted ones are left out), stale or missing backups, FileVault on macOS, BitLocker on Windows, and LUKS on Linux (only when you turn on the disk encryption check in Settings → Alerting) |
 
 A critical or high CVE that is on CISA's **KEV** list makes its finding
 critical and is listed first in the evidence. KEV membership means someone has

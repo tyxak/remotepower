@@ -332,6 +332,8 @@ def _build_advisory(devs):
         # v7.0.2: same opt-in as the Checks row — one switch for both, so an
         # operator who turned the check off is not told about it here instead.
         secure_boot_checks=bool(A._config_ro().get('secure_boot_checks', False)),
+        # 7.4.9: and the Linux LUKS finding, behind the Checks row's own switch.
+        disk_encryption_checks=bool(A._config_ro().get('disk_encryption_checks', False)),
         # v7.0.2: advisory.build reads drift from this argument, not from the
         # device record. Omitting it left int.drift unable to fire from the
         # product even after the ten readers were bound to DRIFT_STATE_FILE —

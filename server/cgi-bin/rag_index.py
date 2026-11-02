@@ -2650,7 +2650,10 @@ def build_hardware_corpus(store, devices=None, now=0):
                     continue
                 lines.append(f"GPU {g.get('model', g.get('name', 'gpu'))}: "
                              + ', '.join(filter(None, [
-                                 f"util {g['util']}%" if g.get('util') is not None else '',
+                                 # 7.4.9: the agent stores `util_pct` (a fixture wrote `util`, which is why this read the
+                                 # wrong key for a release and the line never carried utilisation)
+                                 f"util {g['util_pct']}%" if g.get('util_pct') is not None
+                                 else (f"util {g['util']}%" if g.get('util') is not None else ''),
                                  f"{g['temp_c']}°C" if g.get('temp_c') is not None else ''])) or f"GPU {g.get('model', 'gpu')}")
         # Temperature flag.
         if rec.get('_temp_high'):

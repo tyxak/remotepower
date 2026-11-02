@@ -192,6 +192,19 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 - **"≥ undefined" on the Logs page.** A fleet-wide rule saved without a threshold printed that; it prints the threshold the
   server uses, 1, and the demo's rules carry one.
 
+### Signals
+
+A matrix of 98 signals the agents send against 11 places that could use them found the product applying a rule in most places
+and missing it in two or three. These are the cheap ones:
+
+- **Linux disk encryption in the Advisory.** macOS (FileVault) and Windows (BitLocker) had a finding for an unencrypted disk and
+  Linux, which sends the same fact, did not. It is a medium finding in the Data layer, and it is off until you turn on the disk
+  encryption check, the same switch the Checks row has, because many servers are unencrypted on purpose.
+- **The AI digest knows about security updates, memory errors and a dead gateway.** The short list of conditions that starts every
+  AI request carried about a dozen and none of these three, although the Patch Report, the alerts and the Checks page do.
+- **The RAG hardware line carries GPU utilisation.** It read a key the agent never sends (`util`, and the agent sends
+  `util_pct`), so the line never said how busy a GPU was; a test fixture had the wrong key, which is how it passed.
+
 ### Fixes
 
 - **A maintenance window written with a day name opens.** The New maintenance window dialog suggested `0 3 * * SUN`, and the
