@@ -45,6 +45,8 @@ paths = [
   '''tests/test_v622_rag_contacts\.py''',  # FAKE inline secrets that assert the scripts-RAG scrubber redacts them
                                          # to test the CMDB->RAG secret-exclusion denylist
   '''tests/test_v710_export_does_not_copy_stores\.py''',  # a FAKE API key and config secrets that assert the export redacts them
+  '''tests/test_v749_ai_redaction\.py''',   # a FAKE access key and bearer token that the AI redactor must remove
+  '''tests/test_v749_hostile_input\.py''',  # a FAKE Proxmox token secret (a made-up UUID) sent to prove ASCII is accepted
 ]
 
 # Example-token regexes used across docs/CLI help (placeholder credentials), the
