@@ -18,7 +18,7 @@ below says so.
 - **Routes.** One route is new: `POST /api/logout`. Two others are new for one feature: `POST /api/scap/{id}/report-ticket`, and
   the SCAP report route now also accepts a one-minute link. No permission was loosened. A permission check was added to one
   endpoint (`services/config`) and a tenant check to the ticket handlers and to many others. The table of what only the platform
-  operator (an administrator of the default tenant) may do holds 56 entries, 30 more than in 7.4.8. A second table, new in this
+  operator (an administrator of the default tenant) may do holds 55 entries, 29 more than in 7.4.8. A second table, new in this
   release, holds the 55 route prefixes that belong to the organisation running the installation (monitors, links, calendar,
   billing, integrations, DNS, the audit trail's archive and others): with tenant isolation on they answer only users of the
   default tenant.
