@@ -59,7 +59,7 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 ### Security
 
 - **A security review of the whole project, not only of what changed.** Seven reviews ran side by side: who can reach what
-  on every route (1,073 operations as 26 kinds of caller), hostile input on every route, the three agents and their
+  on every route (1,075 operations as 26 kinds of caller), hostile input on every route, the three agents and their
   installers, the web client and the web server headers, the interface, the documents, and a map of what the agents send
   against where it is used. Scanners ran beside them. They found five High issues, sixteen Medium ones and ten Low or hardening
   items. Every one of them is fixed, and the entries below describe them. What is left, which is nothing that attacks an
@@ -88,7 +88,7 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   Every listing was measured by scanning each answer for the other tenant's host names and ids, as 26 kinds of caller.
 - **A tenant administrator could run operations on the installation and use the operator's accounts (High).** Found by asking the
   code instead of the data: every routed handler outside the two tenant tables whose own body names no tenant or scope helper
-  (171 of 546 handlers before the pass, 95 of 459 after; each of the 95 gates in a helper, takes a machine token or the caller's own
+  (171 of 546 handlers before the pass, 90 of 453 after; each of the 90 gates in a helper, takes a machine token or the caller's own
   session, or serves a library every tenant may read). Each asked for an administrator and nothing more. The platform table gained
   these: the restart of the service and the update script, the migration of the data store to another backend, the server's
   certificate and key, power and snapshots of the operator's hypervisors, its DNS zones and records, its DNS blockers, the import from

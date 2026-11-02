@@ -58,19 +58,35 @@ scanner and the agent that the agent review read.
 
 **Seven reviews, with their populations.**
 
-- *Authorization matrix.* 1,073 routed operations taken from the real route tables, 84,120 requests, 60 runs as 26 kinds of caller:
+- *Authorization matrix.* 1,075 routed operations taken from the real route tables, 84,240 requests, 60 runs as 26 kinds of caller:
   no credential, a bad token, an administrator, a viewer, a custom role, a role with no permission, an auditor, a finance user,
   roles scoped to a group or a tag, administrators, viewers and an operator of two tenants, eight API keys and three host tokens.
-  Controls: the administrator was answered 2xx by 502 to 555 operations in each run and the anonymous caller by 16; the tenant
-  check refused 104 operations that worked on the caller's own objects; the scope check refused 86 of 86 host-path operations
-  outside the role's scope; a leak scanner found a planted foreign marker where one existed and none where it did not. The matrix
-  was run a second time on the final tree (1,075 operations: the logout and the report-link routes are new) {PENDING-AUTHZ}
+  Controls: the administrator was answered 2xx by 498 to 554 operations in each run and the anonymous caller by 16; on the 391
+  operations that take an id, a tenant administrator's own objects worked in 112 and the same call on another tenant's object was
+  refused (403 or 404) in 107 of them (the rest are the shared knowledge base, a token or a random request id in the path, an
+  idempotent delete of an id that does not exist, and one answer of 409); the scope check refused every host-path operation outside
+  the role's scope (88 of 88 for a group role, 84 of 84 for a tag role, 11 of 11 for a scoped key); a leak scanner found the other
+  tenants' planted markers in the platform operator's answer and none in a tenant administrator's. The matrix ran three times, each
+  time on the tree with the earlier findings fixed. The last run was on the tree at the end of the tenancy work (the later commits
+  add three prefixes to the operator table, move the image ignore list's add to the platform table and give a user's avatar a tenant
+  check; the unit tests of those rows run every prefix of both tables). It found no answer to a tenant user that holds another
+  tenant's id, name or object. 58 operations still answered some caller with a marker it should not hold: 13 of them answered tenant
+  users, and each of the 13 is the caller's own input stored and read back, the content of a cloned host, the shared knowledge
+  base, or a host token's own scripts; 43 answered only roles scoped to groups or tags (see "Known and unchanged"); 2 answered the
+  finance role, which reads the operator's time entries. Compared with the run before, 2,152 requests of tenant users that were
+  answered 2xx are refused, none became 2xx on another tenant's object, and the 21 that went from a refusal to 2xx are on the
+  caller's own objects (an expired confirmation, an alert already resolved). No request answered 2xx where the handler's own declared
+  gate refuses: of 697 answers that were not a refusal, 251 were 400 and 446 were 405.
 - *Handler enumeration.* The matrix can only find what the seeded data holds, so a second instrument asks the code. A syntax tree
   over the server lists every routed handler outside the two tenant tables whose own body names no tenant or scope helper. Before
-  the last pass that was 171 of 546 handlers (82 writes and 89 reads). On the final tree it is 95 of 459 (49 writes and 46 reads).
-  The 76 that left the list joined one of the two tables or were fixed in the handler. Each of the 95 that remain was read or called as a tenant administrator on the seeded stack: the test sits in
-  a helper the handler calls, the route takes a machine token or the caller's own session, or it serves a library every tenant
-  may read. It found S30 and S31, the audit trail's archive, the restart and update of the service, and the migration of the data store.
+  the last pass that was 171 of 546 handlers (82 writes and 89 reads). On the final tree it is 90 of 453 (49 writes and 41 reads).
+  The 81 that left the list joined one of the two tables or were fixed in the handler. Each of the 90 that remain was read or called
+  as a tenant administrator on the seeded stack: the test sits in a helper the handler calls, the route takes a machine token or
+  the caller's own session, or it serves a library every tenant may read. It found S30 and S31, the audit trail's archive, the
+  restart and update of the service, and the migration of the data store. A test (`tests/test_v749_handler_tenant_ratchet.py`)
+  keeps the list from growing: it finds the routes the application registers, takes out the two tables and the handlers that name a
+  tenant helper, and fails when a route is left that is not on a reviewed list of 86 (the tool reads routes that the router matches
+  by hand-written conditions, which the test cannot).
 - *Hostile input.* About 41,650 requests over 975 routes, 4,252 body keys and 239 query keys, with 19 wrong types for each key
   (including NaN, Infinity, 400-digit integers, a lone surrogate, a 1 MiB string), 931 sparse hostile heartbeats, 19 hosts made of
   nothing but wrong-typed leaves, 139 stores mutated one row at a time, and the 76 periodic sweeps run on those rows. Every round
@@ -189,7 +205,7 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
   store is a map holding the list); it does now, and shows a tenant its own. Of the 32 handlers that read a host id from a request
   body under a key the guard test did not know, re-derived with a syntax tree and a seeded two-tenant run, two exposed anything (the
   LLDP and dependency listings); the others gate on a helper or never read the id back. `GET /api/tenancy/readiness` and the
-  tenancy guide say what is isolated now. {PENDING-F6}
+  tenancy guide say what is isolated now.
 - **S24.** The shapes are stated once and checked where a store is read (134 stores, 150 numeric settings and 6 text settings): a
   container of the wrong kind becomes an empty one, a row or list element that is not what the store holds is left out, a field
   of the wrong kind is read as the right one where that loses nothing (a number stored as text) and is otherwise removed, so the
@@ -270,7 +286,10 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 - **Script injection from host or operator text.** None of the 11,522 planted strings and 130 host strings executed, injected an
   element or broke an attribute (79% of the planted strings never reached a screen, listed in the web client review).
 - **Authorization gaps outside the ones above.** The administrator was refused nothing it should have been given, and no request
-  answered 2xx where the handler's own declared gate refuses. No unexplained 5xx came out of the matrix.
+  answered 2xx where the handler's own declared gate refuses. Eight operations answered 5xx or timed out in the last run, and each
+  has a reason that belongs to the harness: the SAML library is not installed (three routes, 503 with that message), the AI provider
+  is off in the seed (two routes that say so in the answer, with 500 and 502 as the status), the two scans that reach out to the
+  network were cut off by the network namespace, and key generation could not run gpg there.
 - **Heartbeat ingest.** 931 sparse hostile heartbeats and 19 all-wrong-type hosts gave no 5xx and broke no page; the Linux agent's
   185 sysinfo keys all reached the server.
 - **Public pages.** Framing of the status page and the dashboard is blocked, the status token is compared in constant time and an
@@ -281,9 +300,10 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 
 - A fully compromised server is root on its agents, by design (see the threat model).
 - **A role scoped to groups, tags or sites limits what a user can change, not what they can see.** The host list is filtered, and
-  every operation on a single host outside the scope is refused (86 of 86 in the matrix), but about 60 lists that cover the whole
-  fleet (alerts, problems, activity, checks, exposure, metrics and others) still name hosts outside the scope. The boundary for
-  confidentiality is the tenant: give a person who must not see other hosts a tenant.
+  every operation on a single host outside the scope is refused (88 of 88 for a group role, 84 of 84 for a tag role and 11 of 11 for
+  a scoped key in the matrix), but in the last run 51 operations answered a scoped caller with a marker of a host outside its scope.
+  Most are lists that cover the whole fleet (alerts, problems, activity, checks, exposure, metrics and others); a few echo the
+  caller's own input. The boundary for confidentiality is the tenant: give a person who must not see other hosts a tenant.
 - **IdP-initiated SAML sign-in** (`saml_allow_unsolicited`, off by default) has no start in the browser tab, so the check of S26
   cannot apply to it. Leave it off unless you need it.
 - Responses of a few administrator test endpoints carry the data directory's path, and the AI settings page shows the last four
