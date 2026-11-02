@@ -317,7 +317,7 @@ async function loadPerDeviceLogRules() {
       <td>${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '<span class="c-muted">—</span>'}</td>
       <td><code class="fs-12">${escHtml(r.unit)}</code></td>
       <td><code class="isl-425">${escHtml(r.pattern)}</code></td>
-      <td class="ta-center">≥ ${r.threshold}</td>
+      <td class="ta-center">≥ ${r.threshold ?? 1}</td>
       <td><div class="user-actions"><button class="btn-icon isl-416" title="Edit" data-action-btn="_editLogRuleBtn" data-store-key="${ruleKey}">${_icon('edit',14)}</button><button class="btn-icon isl-416 c-danger-outline" title="Delete" data-action="deleteLogRule" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.unit)}" data-arg3="${escAttr(r.pattern)}" >${_icon('trash',14)}</button></div></td>
     </tr>`;
   }).join('');
@@ -359,7 +359,7 @@ async function loadGlobalLogRules() {
       <td>${unitDisplay}</td>
       <td><code class="isl-425">${escHtml(r.pattern)}</code></td>
       <td>${excludeCell}</td>
-      <td class="ta-center">≥ ${r.threshold}</td>
+      <td class="ta-center">≥ ${r.threshold ?? 1}</td>
       <td class="meta-sm-nm">${created} <span class="opacity-60">by ${escHtml(r.created_by || '?')}</span></td>
       <td><div class="user-actions"><button class="btn-icon isl-416" title="Edit" data-action-btn="_editLogRuleBtn" data-store-key="${ruleKey}">${_icon('edit',14)}</button><button class="btn-icon isl-416 c-danger-outline" title="Delete" data-action="deleteGlobalLogRule" data-arg="${escAttr(r.id)}" >${_icon('trash',14)}</button></div></td>
     </tr>`;

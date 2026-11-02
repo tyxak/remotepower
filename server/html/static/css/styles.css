@@ -8531,3 +8531,36 @@ body.alertwall .alertwall-exit:focus-within { opacity: 1; }
 
 /* The CSV button row above a sortable table (7.4.0); the pager supplies the layout. */
 .table-export-bar { margin-top: 6px; }
+
+/* ── 7.4.9 polish: each rule below was measured in a browser against the seeded demo before it was written ──────────────────
+   Spacing: a card's hint no longer touches its first row, and a settings row no longer touches the next field. */
+.dash-card > .hint:not(:last-child) { margin-bottom: 12px; }
+.settings-row + .settings-row,
+.settings-row + .form-group,
+.form-group + .settings-row { margin-top: 16px; }
+
+/* Wrapping: the Hosts buttons stay on one line when the sidebar is pinned open, a clipped OS name ends in an ellipsis, a
+   timeline host chip does not break at its hyphen, and short pills stay one line in the languages with wider words. */
+.section-header > .row-8 { flex: 0 0 auto; }
+.section-header > .row-8 > button { white-space: nowrap; }
+.devices-minimal-table .dev-os-cell { text-overflow: ellipsis; }
+.tl-devchip { white-space: nowrap; }
+.sev-pill, .chk-pill { white-space: nowrap; }
+/* A drawer action button may wrap its label instead of overflowing it (German, French, Spanish). */
+.drawer-action-btn { white-space: normal; text-align: start; }
+
+/* Focus: the ring of a header cell, a summary, a segmented button and a clickable row sat 3px outside the box that clips it. */
+thead th:focus-visible,
+.doc-card > summary:focus-visible,
+.segmented > button:focus-visible,
+tr.pointer:focus-visible,
+.table-card td:focus-visible { outline-offset: -2px; }
+
+/* Right-to-left: a checkbox label, the buttons side by side in a cell and the distro icon used a physical left or right offset,
+   so in Arabic the box sat 826px from its text. Logical properties mirror. */
+label.form-label:has(> input[type="checkbox"]),
+label.form-label:has(> input[type="radio"]) { padding-left: 0; padding-inline-start: 26px; }
+label.form-label:has(> input[type="checkbox"]) > input[type="checkbox"],
+label.form-label:has(> input[type="radio"]) > input[type="radio"] { left: auto; inset-inline-start: 0; }
+td > .btn-icon + .btn-icon { margin-left: 0; margin-inline-start: 6px; }
+.distro-icon { margin-right: 0; margin-inline-end: 6px; }

@@ -7362,15 +7362,20 @@ def build_log_rules_global() -> dict:
     """Fleet-wide log alert rules — the Logs page's "No per-device rules"."""
     now = int(time.time())
     return {'rules': [
+        # `threshold` is how many matching lines raise the alert; the Logs page prints it as "≥ N" and printed "≥ undefined"
+        # for rules that had none. created_by / created_at are what the rule form stores.
         {'id': 'lr-oom', 'name': 'Kernel OOM killer',
-         'pattern': 'Out of memory: Killed process', 'severity': 'critical',
-         'unit': 'kernel', 'enabled': True, 'created': now - 86400 * 30},
+         'pattern': 'Out of memory: Killed process', 'severity': 'critical', 'threshold': 1,
+         'unit': 'kernel', 'enabled': True, 'created': now - 86400 * 30,
+         'created_by': 'alice', 'created_at': now - 86400 * 30},
         {'id': 'lr-sshd', 'name': 'SSH root login attempt',
-         'pattern': 'Failed password for root', 'severity': 'warning',
-         'unit': 'sshd', 'enabled': True, 'created': now - 86400 * 21},
+         'pattern': 'Failed password for root', 'severity': 'warning', 'threshold': 5,
+         'unit': 'sshd', 'enabled': True, 'created': now - 86400 * 21,
+         'created_by': 'alice', 'created_at': now - 86400 * 21},
         {'id': 'lr-disk', 'name': 'Filesystem remounted read-only',
-         'pattern': 'Remounting filesystem read-only', 'severity': 'critical',
-         'unit': 'kernel', 'enabled': True, 'created': now - 86400 * 14},
+         'pattern': 'Remounting filesystem read-only', 'severity': 'critical', 'threshold': 1,
+         'unit': 'kernel', 'enabled': True, 'created': now - 86400 * 14,
+         'created_by': 'alice', 'created_at': now - 86400 * 14},
     ]}
 
 

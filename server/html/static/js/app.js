@@ -23512,7 +23512,7 @@ async function loadChannelMatrix() {
     for (const k of groups[g]) {
       body += `<tr>
         <td class="fw-500">${escHtml(k.label)}<div class="meta-sm c-muted">${escHtml((k.events || []).join(', '))}</div></td>
-        ${channels.map(c => `<td class="ta-center"><input type="checkbox" ${k.channels[c] ? 'checked' : ''} data-change="toggleChannelRoute" data-change-arg="${k.kind}|${c}"></td>`).join('')}
+        ${channels.map(c => `<td class="ta-center"><input type="checkbox" aria-label="${escAttr(k.label)}: ${escAttr(CHANNEL_LABELS[c] || c)}" ${k.channels[c] ? 'checked' : ''} data-change="toggleChannelRoute" data-change-arg="${k.kind}|${c}"></td>`).join('')}
       </tr>`;
     }
   }
@@ -24526,7 +24526,7 @@ function _renderDrawerSettings() {
     </div>
     <div class="drawer-setting-row">
       <label class="drawer-setting-label" for="ds-icon">Icon</label>
-      <input class="form-input isl-620" id="ds-icon" value="${escAttr(d.icon||'')}" placeholder="e.g. monitor, server, cloud">
+      <input class="form-input" id="ds-icon" value="${escAttr(d.icon||'')}" placeholder="e.g. monitor, server, cloud">
     </div>
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Monitored</span>
@@ -24634,14 +24634,14 @@ function _renderDrawerSettings() {
     </div>
     <div class="drawer-setting-row isl-622" id="ds-snmp-v2-row">
       <span class="drawer-setting-label isl-623">Community</span>
-      <input type="password" class="form-input isl-620" id="ds-snmp-community" placeholder="(keep current)" maxlength="128" autocomplete="off">
+      <input type="password" class="form-input" id="ds-snmp-community" placeholder="(keep current)" maxlength="128" autocomplete="off">
       <span class="hint">Community is write-only; the GET response shows only a 3-char preview.</span>
     </div>
     <div id="ds-snmp-v3-rows" class="hidden">
       <div class="drawer-setting-row isl-622">
         <span class="drawer-setting-label isl-623">v3 user / context</span>
         <div class="row-8-center">
-          <input type="text" class="form-input isl-620" id="ds-snmp-v3-user" placeholder="monitor" maxlength="64" autocomplete="off">
+          <input type="text" class="form-input" id="ds-snmp-v3-user" placeholder="monitor" maxlength="64" autocomplete="off">
           <input type="text" class="form-input isl-621" id="ds-snmp-v3-context" placeholder="context (optional)" maxlength="64" autocomplete="off">
         </div>
       </div>
@@ -24657,7 +24657,7 @@ function _renderDrawerSettings() {
             <option value="sha384">SHA-384</option>
             <option value="sha512">SHA-512</option>
           </select>
-          <input type="password" class="form-input isl-620" id="ds-snmp-v3-auth-secret" placeholder="auth password (min 8, keep current if blank)" maxlength="128" autocomplete="off">
+          <input type="password" class="form-input" id="ds-snmp-v3-auth-secret" placeholder="auth password (min 8, keep current if blank)" maxlength="128" autocomplete="off">
         </div>
       </div>
       <div class="drawer-setting-row isl-622">
@@ -24667,7 +24667,7 @@ function _renderDrawerSettings() {
             <option value="none">none</option>
             <option value="aes">AES-128</option>
           </select>
-          <input type="password" class="form-input isl-620" id="ds-snmp-v3-priv-secret" placeholder="priv password (min 8, keep current if blank)" maxlength="128" autocomplete="off">
+          <input type="password" class="form-input" id="ds-snmp-v3-priv-secret" placeholder="priv password (min 8, keep current if blank)" maxlength="128" autocomplete="off">
         </div>
         <span class="hint">Passwords are write-only. Privacy needs authentication (authPriv). DES is not supported — use AES on the agent.</span>
       </div>

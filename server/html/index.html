@@ -3397,7 +3397,7 @@
 
             <label class="click-row-mb6"><input type="checkbox" id="ai-rag-enabled" checked> Enable the knowledge index</label>
 
-            <div class="form-group isl-773" id="ai-rag-sources">
+            <div class="form-group isl-773 scroll-cap" id="ai-rag-sources">
               <label for="ai-rag-src-docs" class="form-label">Sources to index</label>
               <input type="text" id="ai-rag-src-filter" class="form-input mb-8" placeholder="Filter sources…"
                      aria-label="Filter RAG sources"
@@ -7123,7 +7123,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="section-title">Connect</div>
           <div id="sshgw-state" class="hint mb-8" role="status"></div>
           <p class="hint">Add this to <code>~/.ssh/config</code>, then connect with <code>ssh root@&lt;name&gt;.rp</code>. Names are a server's RemotePower name, hostname or host id.</p>
-          <pre id="sshgw-config" class="ff-mono"></pre>
+          <pre id="sshgw-config" class="ff-mono scroll-cap"></pre>
           <div class="toolbar">
             <button class="btn-icon" data-action="copySshgwConfig"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button>
           </div>
