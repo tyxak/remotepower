@@ -2510,7 +2510,7 @@ def _self_update():
         # 7.4.9: 0o755, as the installer sets it and as the Linux agent's self-update does. A comment here said 0o700 matched the
         # Linux agent, which it did not, so the first self-update changed a 0755 binary to 0700. The binary is public (the server
         # hands it to anyone) and runs from a directory only root can write; the mode is not what protects it.
-        os.chmod(tmp, 0o755)
+        os.chmod(tmp, 0o755)  # nosec B103: the agent is a public file that has to be executable
         os.replace(tmp, self_path)   # atomic on APFS
     except Exception as e:
         return {'cmd': 'update', 'output': f'install write failed: {e}', 'rc': 1}
