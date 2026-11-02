@@ -2,12 +2,13 @@
 """Discussion #30, the open question of the 7.4.8 reply: an update Ubuntu has not phased in to a host is not pending.
 
 7.4.8 counts every package under "The following packages have been kept back:" except the ones held with `apt-mark
-hold`. It had never run against a real apt. Run against two (Ubuntu 22.04's apt 2.4.13 and 24.04's 2.8.3, the output in
+hold`. It had never run against a real apt. Run against three (Ubuntu 22.04's apt 2.4.13, 24.04's 2.8.3 and Debian 13's 3.0.3, the output in
 tests/data/apt_real), it did two things right and one wrong:
 
   right: the package that needs a new package is kept back and counted, with its security flag from the security
          pocket; the held package stays out;
-  right on 24.04: apt 2.8 gives an update it defers for phasing a heading of its own, so it was never counted;
+  right on 24.04 and Debian 13: apt 2.8 and 3.0 give an update they defer for phasing a heading of their own, so it
+         was never counted;
   wrong on 22.04: apt 2.4 lists the deferred update under "kept back", so it was counted as pending. It arrives on its
          own when Ubuntu reaches the host, and neither upgrade mode installs it before then.
 
@@ -24,7 +25,7 @@ sys.path.insert(0, str(HERE))
 from test_apt_kept_back import agent, patch_info  # noqa: E402
 
 DATA = HERE / "data" / "apt_real"
-RELEASES = ("ubuntu-22.04", "ubuntu-24.04")
+RELEASES = ("ubuntu-22.04", "ubuntu-24.04", "debian-13")
 
 
 def fixture(release, name):
@@ -61,6 +62,7 @@ class TestWhatTheRealOutputLooksLike(unittest.TestCase):
     def test_the_fixtures_are_there_and_are_apt_of_the_versions_named(self):
         self.assertIn("2.4", fixture("ubuntu-22.04", "apt_version"))
         self.assertIn("2.8", fixture("ubuntu-24.04", "apt_version"))
+        self.assertIn("3.0", fixture("debian-13", "apt_version"))
         for release in RELEASES:
             for name in ("deferred_plain", "deferred_ignoring_phasing", "deferred_with_new_pkgs", "included_plain", "showhold"):
                 self.assertGreater(len(fixture(release, name)), 0, (release, name))
@@ -69,10 +71,11 @@ class TestWhatTheRealOutputLooksLike(unittest.TestCase):
         self.assertEqual(agent._apt_kept_back(fixture("ubuntu-22.04", "deferred_plain")),
                          ["lab-held", "lab-kernel-meta", "lab-phased"])
 
-    def test_apt_2_8_gives_it_a_heading_of_its_own(self):
-        out = fixture("ubuntu-24.04", "deferred_plain")
-        self.assertIn("The following upgrades have been deferred due to phasing:\n  lab-phased", out)
-        self.assertEqual(agent._apt_kept_back(out), ["lab-held", "lab-kernel-meta"])
+    def test_apt_2_8_and_3_0_give_it_a_heading_of_its_own(self):
+        for release in ("ubuntu-24.04", "debian-13"):
+            out = fixture(release, "deferred_plain")
+            self.assertIn("The following upgrades have been deferred due to phasing:\n  lab-phased", out, release)
+            self.assertEqual(agent._apt_kept_back(out), ["lab-held", "lab-kernel-meta"], release)
 
     def test_with_phasing_ignored_both_take_it_and_it_leaves_the_kept_back_block(self):
         for release in RELEASES:

@@ -1,0 +1,13 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following upgrades have been deferred due to phasing:
+  lab-phased
+The following packages have been kept back:
+  lab-held lab-kernel-meta
+The following packages will be upgraded:
+  lab-plain
+1 upgraded, 0 newly installed, 0 to remove and 3 not upgraded.
+Inst lab-plain [1.0] (1.1 Lab:noble-updates [all])
+Conf lab-plain (1.1 Lab:noble-updates [all])

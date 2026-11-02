@@ -1,6 +1,6 @@
 # Real apt output, for the kept-back and phased-update tests
 
-Each file is what `apt-get` or `apt-mark` printed, byte for byte, in an Ubuntu userland run without root
+Each file is what `apt-get` or `apt-mark` printed, byte for byte, in an Ubuntu or Debian userland run without root
 (a user namespace, `bwrap`), against two small local flat repositories named like Ubuntu's pockets
 (`noble-updates` and `noble-security`):
 
@@ -8,6 +8,7 @@ Each file is what `apt-get` or `apt-mark` printed, byte for byte, in an Ubuntu u
 |---|---|---|
 | `ubuntu-22.04` | 2.4.13 | ubuntu-base 22.04.5 |
 | `ubuntu-24.04` | 2.8.3 | ubuntu-base 24.04.5 |
+| `debian-13` | 3.0.3 | the official `debian:trixie-slim` image |
 
 The packages are empty `.deb` files built for the test, installed at version 1 and then updated:
 
@@ -31,12 +32,12 @@ Files, per folder: `*_plain` is `apt-get --simulate --quiet upgrade`, the comman
 What they show, and what the tests rely on:
 
 * apt 2.4 (22.04) lists a package it defers for phasing under "The following packages have been kept back:", beside
-  the held package and the one that needs a new package. apt 2.8 (24.04) gives it its own heading, "The following
-  upgrades have been deferred due to phasing:".
-* With phasing ignored, both versions take the phased package, so it drops out of the kept-back block. A name that
+  the held package and the one that needs a new package. apt 2.8 (24.04) and apt 3.0 (Debian 13) give it its own
+  heading, "The following upgrades have been deferred due to phasing:".
+* With phasing ignored, all three versions take the phased package, so it drops out of the kept-back block. A name that
   leaves the block that way was only deferred.
 * `lab-held` is in the kept-back block and in `apt-mark showhold`.
 
 These are the `lab-*` packages above, not captures from a production host. To rebuild them: extract the ubuntu-base
-tarball in a user namespace, point `sources.list` at the two repositories, install version 1, publish version 2, run
+tarball (or the Debian image's layer) in a user namespace, point `sources.list` at the two repositories, install version 1, publish version 2, run
 `apt-mark hold lab-held`, and run the commands above.
