@@ -1266,12 +1266,18 @@ def _drill_one_dir(base):
     same rigour as the local one — see _restore_drill_core.
     """
     p_base = A.Path(base)
-    files = [f for f in (list(p_base.glob('remotepower_data_*.tar.gz'))
-                         + list(p_base.glob('remotepower_data_*.tar.gz.enc'))) if f.exists()]
-    if not files:
+    # 7.4.9: one pass that reads the time and skips what is gone. The scheduled backup rotates old archives away, and a file that
+    # vanished between the listing and the stat raised FileNotFoundError out of the drill (a 500 in the final matrix run).
+    dated = []
+    for f in (list(p_base.glob('remotepower_data_*.tar.gz')) + list(p_base.glob('remotepower_data_*.tar.gz.enc'))):
+        try:
+            dated.append((f.stat().st_mtime, f))
+        except OSError:
+            continue
+    if not dated:
         return {'ok': False, 'no_archives': True, 'http': 404,
                 'error': 'no backup archives found to test'}
-    latest = max(files, key=lambda f: f.stat().st_mtime)
+    latest = max(dated, key=lambda d: d[0])[1]
     import tarfile
     import tempfile as _tf
     scratch = A.Path(_tf.mkdtemp(prefix='rp_restore_test_'))

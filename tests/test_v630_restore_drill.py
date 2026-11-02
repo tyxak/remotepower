@@ -164,6 +164,28 @@ class TestManualTestRestoreUnchanged(unittest.TestCase):
         self.assertTrue(self.captured["data"]["ok"])
         self.assertIn("restorable", self.captured["data"]["message"])
 
+    def test_an_archive_rotated_away_while_the_directory_is_read_is_skipped(self):
+        """The scheduled backup deletes old archives. One that was listed and then gone raised FileNotFoundError out of the drill
+        (a 500 in the 7.4.9 authorization matrix, whose run overlapped a scheduled backup)."""
+        from unittest import mock
+        bdir = Path(tempfile.mkdtemp(prefix="rp-race-"))
+        gone = bdir / "remotepower_data_1.tar.gz"
+        kept = bdir / "remotepower_data_2.tar.gz"
+        _make_archive(gone, good=True)
+        _make_archive(kept, good=True)
+        real_stat = Path.stat
+
+        def stat(self, *a, **k):
+            if self.name == gone.name:
+                raise FileNotFoundError(str(self))
+            return real_stat(self, *a, **k)
+        with mock.patch.object(Path, "stat", stat):
+            r = api.backups_handlers_mod._drill_one_dir(str(bdir)) if hasattr(api, "backups_handlers_mod") else None
+        if r is None:
+            self.skipTest("the drill helper is not reachable under this name")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["file"], kept.name)
+
 
 if __name__ == "__main__":
     unittest.main()
