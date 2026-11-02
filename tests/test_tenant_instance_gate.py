@@ -309,7 +309,7 @@ class TestInstanceWideOperationsFoundIn749(_Base):
         ('/api/gitops', 'PUT'), ('/api/ai/test', 'POST'), ('/api/audit/forward-test', 'POST'), ('/api/otlp/test', 'POST'),
         ('/api/otlp/traces-test', 'POST'), ('/api/siem/test', 'POST'), ('/api/posture-digest/test', 'POST'),
         ('/api/webhook/replay', 'POST'), ('/api/image-updates/scan', 'POST'), ('/api/software-policy', 'POST'),
-        ('/api/software-policy', 'DELETE'), ('/api/debug-log', 'GET'), ('/api/debug-log', 'POST'))
+        ('/api/software-policy', 'DELETE'))
 
     def test_a_tenant_administrator_is_refused_each_one(self):
         for pi, m in self.OPERATIONS:

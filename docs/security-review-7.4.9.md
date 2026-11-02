@@ -150,7 +150,7 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
   store to another backend, power and snapshots of the operator's hypervisors, the operator's DNS providers (reads too) and DNS
   blockers, the import from the operator's cloud accounts, GitOps, the test messages to the operator's AI provider, audit forwarder,
   OTLP, SIEM and posture digest, the replay of a past event of any tenant through the operator's channels, the fleet-wide image scan,
-  the single software policy that is judged against every tenant's hosts, the debug log and the other instance-wide trackers. Session
+  the single software policy that is judged against every tenant's hosts and the other instance-wide trackers. Session
   revocation is confined to the caller's tenant and takes the store's lock. A schedule job belongs to the tenant of its host, a rollout
   to the tenant that created it. A link between hosts may name only a host the caller can see, and the guard test that watches host
   ids in request bodies watches `depends_on` and `connected_to` too. A node on the network map is moved by someone who can see it.

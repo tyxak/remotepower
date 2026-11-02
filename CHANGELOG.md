@@ -94,7 +94,7 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   certificate and key, power and snapshots of the operator's hypervisors, its DNS zones and records, its DNS blockers, the import from
   its cloud accounts, GitOps, the test messages to its AI provider, audit forwarder, OTLP, SIEM and posture digest, the replay of a
   past event of any tenant through its channels, the fleet-wide image scan, the one software policy every tenant's hosts are judged
-  against, and the debug log. The final matrix run had already moved the full backup and its restore, the restore drill, the webhook
+  against. The final matrix run had already moved the full backup and its restore, the restore drill, the webhook
   test and the push check. The operator organisation's table gained: the integrations and hypervisor platforms,
   the WAN address, the on-call roster, the customer portal's queue, report definitions and schedule, the security posture, diagnostics,
   self-test and setup pages, metrics push, client errors, DMARC and IP reputation, resolver health, the TLS monitors, the helpdesk

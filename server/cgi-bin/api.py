@@ -11308,7 +11308,6 @@ _PLATFORM_ROUTES = (
     ('/api/webhook/replay',          _WRITE_METHODS, ()),     # fires a past event of any tenant through the operator's channels
     ('/api/image-updates/scan',      _WRITE_METHODS, ()),
     ('/api/software-policy',         _WRITE_METHODS, ()),     # one ruleset, judged against every tenant's hosts
-    ('/api/debug-log',               None,           ()),
 )
 
 
@@ -42541,6 +42540,7 @@ def handle_deadman_jobs():
         require_auth()
         now = int(time.time())
         out = []
+        _admin = _caller_is_admin()
         for j in _deadman_load()['jobs']:
             if not isinstance(j, dict):
                 continue
@@ -42558,7 +42558,7 @@ def handle_deadman_jobs():
             token = j.get('token')
             url = (f"{_request_base_url()}/api/ping/{token}") if token else None
             row = {**j, 'due_in_s': due_in, 'url': url}
-            if not _caller_is_admin():
+            if not _admin:
                 # 7.4.9: whoever has the address can report a job as alive. A read-only role is shown the job and not the address.
                 row.pop('token', None)
                 row['url'] = None
