@@ -12032,10 +12032,14 @@ function _registerPatchTable() {
       const silentBadge = d.monitored === false
         ? ' <span class="patch-badge fs-10 c-muted" title="Unmonitored — data collected, no alerts">silent</span>'
         : '';
+      // Discussion #30: a host whose upgrades also install the new packages an update needs says so beside its name.
+      const extendedBadge = (d.pkg_manager === 'apt' && d.upgrade_mode === 'extended')
+        ? ' <span class="patch-badge fs-10 c-muted">Extended</span>'
+        : '';
       const recheckBtn = (d.upgrade_verify === 'pending' || d.upgrade_verify === 'stalled')
         ? `<button class="btn-icon cell-sm" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Force a fresh package scan now — re-runs the post-upgrade verification instead of waiting for the periodic scan">Re-check</button>`
         : '';
-      return `<tr><td class="fw-500">${escHtml(d.name)}${silentBadge}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(_pkgMgrLabel(d.pkg_manager))}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}${d.security_updates > 0 ? ` <span class="patch-badge warn" title="${d.security_updates} of these are distro-flagged SECURITY updates">${d.security_updates} sec</span>` : ''}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span>${verifyBadge}</td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}${recheckBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(d.name)}${silentBadge}${extendedBadge}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(_pkgMgrLabel(d.pkg_manager))}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}${d.security_updates > 0 ? ` <span class="patch-badge warn" title="${d.security_updates} of these are distro-flagged SECURITY updates">${d.security_updates} sec</span>` : ''}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span>${verifyBadge}</td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}${recheckBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
     },
     emptyMsg: 'No hosts match the current filter.',
     emptyMsgFiltered: 'No hosts match the current filter.',
@@ -12293,7 +12297,39 @@ function exportPatchPdf() {
     setTimeout(() => { rep.innerHTML = ''; }, 500);
   }));
 }
-async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this host.'}); return; } const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
+// Discussion #30: how the upgrade runs on a host that uses apt, and what apt keeps back. `data` is the host's patch report.
+// The host id goes into the change handler as "host:<id>", so an id that looks like a number is never turned into one.
+function _upgradeModeBlock(id, data) {
+  if (!data || !data.upgrade_mode_applies) return '';
+  const ext = data.upgrade_mode === 'extended';
+  const kept = Array.isArray(data.kept_back) ? data.kept_back : [];
+  const select = `<select class="form-input" id="device-patch-mode" data-change="setHostUpgradeMode" data-change-arg="host:${escAttr(id)}" aria-label="Upgrade mode">`
+    + `<option value="standard"${ext ? '' : ' selected'}>Standard — apt-get upgrade, as before</option>`
+    + `<option value="extended"${ext ? ' selected' : ''}>Extended — also installs the new packages an update needs</option></select>`;
+  const keptLine = kept.length
+    ? `<div class="hint-mb"><span>Packages apt keeps back:</span> <code>${escHtml(kept.slice(0, 12).join(', '))}${kept.length > 12 ? ', …' : ''}</code> `
+      + `<span>${ext ? 'The next upgrade installs them.' : 'The standard upgrade leaves them. Switch to Extended to install them.'}</span></div>`
+    : '';
+  const hint = 'Standard runs apt-get upgrade, which keeps back an update that needs a package that is not installed yet, such as a new kernel image. Extended runs apt-get upgrade --with-new-pkgs, which installs those packages as well and removes nothing. The mode applies to the patch button, auto-patch, scheduled upgrades and rollouts.';
+  return `<div id="upgrade-mode-block" class="mb-16"><div class="section-title">Upgrade mode</div>${select}<div class="hint">${hint}</div>${keptLine}</div>`;
+}
+async function setHostUpgradeMode(arg) {
+  const id = String(arg).replace(/^host:/, '');
+  const sel = document.getElementById('device-patch-mode');
+  if (!sel) return;
+  const r = await api('PUT', `/devices/${encodeURIComponent(id)}/upgrade-mode`, { mode: sel.value });
+  if (!r || r.error || !r.ok) { toast((r && r.error) || 'Could not save the upgrade mode', 'error'); return; }
+  toast('Upgrade mode saved', 'success');
+  // The hint under the select depends on the mode, and the table marks an Extended host: read both again.
+  if (patchReportData && Array.isArray(patchReportData.devices)) {
+    const row = patchReportData.devices.find(d => d.device_id === id);
+    if (row) { row.upgrade_mode = r.mode; renderPatchTable(); }
+  }
+  const data = await api('GET', `/patch-report/device/${encodeURIComponent(id)}`);
+  const block = document.getElementById('upgrade-mode-block');
+  if (data && block) block.outerHTML = _upgradeModeBlock(id, data);
+}
+async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this host.'}); return; } const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += _upgradeModeBlock(devId, data); html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
 let cveReportData = null;
@@ -32164,6 +32200,8 @@ async function openBulkActions() {
         <div class="hint-mb6">ACTION</div>
         <select id="bulk-action" class="form-input isl-732">
           <option value="upgrade">Upgrade packages — apt/dnf/yum/pacman</option>
+          <option value="upgrade_mode_standard">Upgrade mode: Standard (apt hosts)</option>
+          <option value="upgrade_mode_extended">Upgrade mode: Extended (apt hosts)</option>
           <option value="reboot">Reboot</option>
           <option value="shutdown">Shut down</option>
           <option value="force_pkg_scan">Force package scan (for CVE freshness)</option>
@@ -32238,6 +32276,20 @@ async function runBulkAction() {
   } else if (action === 'upgrade') {
     endpoint = '/upgrade';
     payload = { device_ids: ids };
+  } else if (action === 'upgrade_mode_standard' || action === 'upgrade_mode_extended') {
+    // Discussion #30: the upgrade mode is a setting of each host, so it goes to each host's own route. A host the mode
+    // does nothing for (not apt) answers with a reason and is counted as skipped, not as a failure.
+    closeBulkModal();
+    const mode = action === 'upgrade_mode_extended' ? 'extended' : 'standard';
+    let ok = 0, skipped = 0, fail = 0;
+    for (const id of ids) {
+      const r = await api('PUT', `/devices/${encodeURIComponent(id)}/upgrade-mode`, { mode });
+      if (r && r.ok) ok++; else if (r && r.reason) skipped++; else fail++;
+    }
+    toast(`Upgrade mode ${mode} set on ${plural(ok, 'host', 'hosts')}${skipped ? ', ' + skipped + ' skipped (not apt)' : ''}${fail ? ', ' + fail + ' failed' : ''}`,
+          fail ? 'warning' : 'success');
+    if (typeof loadPatchReport === 'function' && document.getElementById('patch-tbody')) loadPatchReport();
+    return;
   } else if (action === 'force_pkg_scan') {
     // Per-device endpoint, fan out
     closeBulkModal();

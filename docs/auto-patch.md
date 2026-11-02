@@ -18,6 +18,10 @@ A policy has:
   it never reboots from a policy. A run that upgraded nothing keeps the host
   up, with "reboot SKIPPED" in the patch log.
 - **Enabled** — toggle a policy without deleting it.
+- **Upgrade mode** is a setting of each host, not of the policy. A host in Extended mode runs
+  `apt-get upgrade --with-new-pkgs` when the policy fires, so it also installs the new packages an
+  update needs; every other host runs `apt-get upgrade`. See
+  [Upgrade mode](patches.md#upgrade-mode).
 
 At each scheduled run, the policy queues an upgrade to every matching host
 through the audited [command pipeline](agent-commands.md).

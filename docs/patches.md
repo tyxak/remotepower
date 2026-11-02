@@ -33,12 +33,35 @@ security flag from that.
   install it, and neither would any upgrade mode. Ubuntu 24.04 lists such a package under a heading of its
   own. Ubuntu 22.04 lists it as kept back, so the agent asks apt the same question with phasing ignored, and a
   package that stops being kept back was only deferred. If that question fails, the package counts.
-- **The patch run does not install them.** Auto-patch and the patch button run `apt-get upgrade`, which
-  keeps the package back again, so it stays pending after a successful run. On the host,
-  `apt-get install <package>` installs it with what it needs, and `apt-get full-upgrade` does everything
-  that is waiting (it can remove packages too).
+- **The patch run installs them only in Extended mode.** In the default Standard mode, auto-patch and the
+  patch button run `apt-get upgrade`, which keeps the package back again, so it stays pending after a
+  successful run. Switch the host to [Extended](#upgrade-mode), or on the host run
+  `apt-get install <package>`, which installs it with what it needs.
 - **Update the agent.** The agent does the counting, so a host shows these packages once its agent has
   this. dnf, yum and pacman hosts are unchanged.
+
+## Upgrade mode
+
+A host that uses apt runs its upgrades in one of two modes:
+
+- **Standard** runs `apt-get upgrade`, as before. It keeps back an update that needs a package that is not
+  installed yet, so that update stays pending.
+- **Extended** runs `apt-get upgrade --with-new-pkgs`. It installs the new packages such an update needs, so
+  a kept-back kernel or `linux-firmware` update is installed by the next upgrade. It removes nothing.
+
+Standard is the default. Choose the mode for a host in its **Patch Report** (the host's row on the Patches
+page), which also lists the packages apt keeps back on that host. To change many hosts at once, use
+**Bulk actions → Upgrade mode: Extended (apt hosts)**. Hosts in Extended mode carry an **Extended** badge on
+the Patches page.
+
+The mode applies to every upgrade RemotePower runs on the host: the patch button (one host or many),
+[auto-patch](auto-patch.md) policies including their staged rings, scheduled upgrades, rollouts, the
+compliance fix for pending updates, and the autonomy loop's patch action. A host that does not use apt
+(Windows, macOS, dnf, pacman) ignores it, and the API refuses to set it there.
+
+Only administrators set the mode, and a change is audited as `upgrade_mode_set`.
+`GET` and `PUT /api/devices/{id}/upgrade-mode` read and set it; `PUT` takes `{"mode": "standard"}` or
+`{"mode": "extended"}` and refuses anything else.
 
 ## Acting on updates
 

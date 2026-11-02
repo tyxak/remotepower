@@ -24,11 +24,33 @@ from i18n_engine import LANGS, text_node_cap, unchanged_by_engine  # noqa: E402
 from test_v742_translations import rendered_in, translations  # noqa: E402
 
 POWER = "server/html/static/js/app-power.js"
+APP = "server/html/static/js/app.js"
+MODE = "server/cgi-bin/upgrade_mode.py"
+MODE_ROUTE = "server/cgi-bin/upgrade_mode_handlers.py"
 
 # (English text as the page shows it, the file that renders it)
 NEW = (
     # #54: a drivetemp sensor whose disk the agent could not name, on the Thermal page
     ("disk not identified", POWER),
+    # Discussion #30: the upgrade mode in the Patch Report dialog, the table and the bulk actions
+    ("Upgrade mode", APP),
+    ("Standard \u2014 apt-get upgrade, as before", APP),
+    ("Extended \u2014 also installs the new packages an update needs", APP),
+    ("Standard runs apt-get upgrade, which keeps back an update that needs a package that is not installed yet, such as a new "
+     "kernel image. Extended runs apt-get upgrade --with-new-pkgs, which installs those packages as well and removes nothing. "
+     "The mode applies to the patch button, auto-patch, scheduled upgrades and rollouts.", APP),
+    ("Packages apt keeps back:", APP),
+    ("The next upgrade installs them.", APP),
+    ("The standard upgrade leaves them. Switch to Extended to install them.", APP),
+    ("Extended", APP),
+    ("Upgrade mode: Standard (apt hosts)", APP),
+    ("Upgrade mode: Extended (apt hosts)", APP),
+    ("Upgrade mode saved", APP),
+    ("Could not save the upgrade mode", APP),
+    # Discussion #30: what the server says when it refuses
+    ('The upgrade mode must be "standard" or "extended"', MODE_ROUTE),
+    ("The upgrade mode applies to Linux hosts that use apt", MODE),
+    ("The upgrade mode applies to hosts that use apt, and this host uses another package manager", MODE),
 )
 
 
@@ -39,7 +61,8 @@ class TestTheNewStringsAreTranslated(unittest.TestCase):
 
     def test_the_list_was_found(self):
         """The control on the population: a list that shrank to nothing would pass every test below."""
-        self.assertGreaterEqual(len(self.strings()), 1)
+        self.assertGreaterEqual(len(self.strings()), 16)
+        self.assertEqual(len({s for s, _ in NEW}), len(NEW), "a string is listed twice")
 
     def test_the_real_engine_translates_each_in_every_language(self):
         out = unchanged_by_engine(self.strings())

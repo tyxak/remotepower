@@ -24,6 +24,18 @@ What the reporters of #54 and Discussion #30 asked for after 7.4.8.
 
 ### Patching
 
+- **An upgrade mode for each host: Standard or Extended (Discussion #30).** `apt-get upgrade` keeps back an update that
+  needs a package that is not installed yet (a new kernel image, the split `linux-firmware`), installs nothing for it
+  and exits 0. A host can now run `apt-get upgrade --with-new-pkgs` instead, which installs those packages too and
+  removes nothing. Standard stays the default. Choose it in the host's Patch Report, which also names the packages apt
+  keeps back, or for many hosts in Bulk actions; `GET` and `PUT /api/devices/{id}/upgrade-mode` (administrators, and a
+  change is audited as `upgrade_mode_set`). The mode applies to every upgrade RemotePower runs on the host: the patch
+  button, flat and staged auto-patch, scheduled upgrades, rollouts, the compliance fix for pending updates and the
+  autonomy loop. A host that does not use apt ignores it, and the API refuses it there. The agents have to be updated
+  for the Patch Report to name the kept-back packages.
+- **The Mitigate CVE diagnostic sees what apt keeps back (Discussion #30).** It listed security updates by their `Inst`
+  lines, which a kept-back kernel never has, while its total counted the kernel. It now lists the kept-back packages and
+  the security updates an Extended upgrade would add. Both are read-only simulations.
 - **An update Ubuntu is still phasing in is not pending (Discussion #30).** 7.4.8 counted every package under apt's
   "kept back" heading, except the ones held with `apt-mark`. Run against a real apt for the first time (Ubuntu 22.04's
   apt 2.4.13 and 24.04's apt 2.8.3), that was right for a package that needs a new package and for a held one, and wrong

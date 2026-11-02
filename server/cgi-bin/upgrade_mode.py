@@ -31,7 +31,8 @@ EXTENDED_LINE = "apt-get $ALT -y upgrade --with-new-pkgs &&"
 
 def extended(cmd: str) -> str:
     """The upgrade command with new packages allowed. Raises ValueError when `cmd` does not hold the apt upgrade line
-    exactly once, so an edit that moves the line cannot leave Extended quietly the same as Standard."""
+    exactly once, so an edit that moves the line cannot leave Extended quietly the same as Standard.
+    """
     if cmd.count(STANDARD_LINE) != 1:
         raise ValueError("the upgrade command has no single apt upgrade line to extend")
     return cmd.replace(STANDARD_LINE, EXTENDED_LINE)
@@ -39,7 +40,8 @@ def extended(cmd: str) -> str:
 
 def mode_of(dev: Any) -> str:
     """'extended' when the host's stored mode is exactly that word, otherwise 'standard'. A host that has none, a stored
-    word that is not a mode and a record that is not a dict all read as Standard, which is what the host did before."""
+    word that is not a mode and a record that is not a dict all read as Standard, which is what the host did before.
+    """
     if isinstance(dev, dict) and dev.get("upgrade_mode") == "extended":
         return "extended"
     return DEFAULT
