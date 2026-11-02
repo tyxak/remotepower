@@ -586,15 +586,17 @@ def handle_patch_approvals_list():
         A.respond(405, {'error': 'Method not allowed'})
     approvals = A._patch_approvals()
     rows = []
+    own_org = A._caller_in_operator_org()
     for name in sorted(approvals):
         ent = approvals[name]
         if not isinstance(ent, dict):
             continue
+        # 7.4.9: the account that decided and its note are the operator's; a tenant reads the decision.
         rows.append({'package': name,
                      'state':   str(ent.get('state') or ''),
-                     'actor':   str(ent.get('actor') or ''),
+                     'actor':   str(ent.get('actor') or '') if own_org else '',
                      'ts':      int(ent.get('ts') or 0),
-                     'note':    str(ent.get('note') or '')})
+                     'note':    str(ent.get('note') or '') if own_org else ''})
     A.respond(200, {
         'approvals': rows,
         'approved':  sum(1 for r in rows if r['state'] == 'approved'),

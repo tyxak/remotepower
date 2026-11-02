@@ -24776,7 +24776,12 @@ def handle_drift_policies_get():
     """GET /api/drift-policies — fleet drift-enforcement policies (by tag/group)."""
     require_auth()
     cfg = load(CONFIG_FILE) or {}
-    respond(200, {'policies': cfg.get('drift_enforce_policies') or []})
+    policies = cfg.get('drift_enforce_policies') or []
+    if _tenancy_enforced() and not _caller_in_operator_org():
+        # 7.4.9: a policy names a tag or a group. A tenant reads those its own hosts carry.
+        reach = _caller_reach()
+        policies = [p for p in policies if isinstance(p, dict) and p.get('value') in reach.get(p.get('scope'), ())]
+    respond(200, {'policies': policies})
 
 
 def handle_drift_policies_set():
@@ -37840,11 +37845,18 @@ def handle_sla_targets_get():
     group / tag / device). Auth: require_auth."""
     require_auth()
     targets = (load(CONFIG_FILE) or {}).get('sla_targets') or {}
+    groups, tags, devs = targets.get('groups') or {}, targets.get('tags') or {}, targets.get('devices') or {}
+    if _tenancy_enforced() and not _caller_in_operator_org():
+        # 7.4.9: the keys are group names, tags and host ids. A tenant reads the targets that reach its own hosts.
+        reach = _caller_reach()
+        groups = {k: v for k, v in groups.items() if k in reach['group']}
+        tags = {k: v for k, v in tags.items() if k in reach['tag']}
+        devs = {k: v for k, v in devs.items() if k in reach['device']}
     respond(200, {
         'default': targets.get('default'),
-        'groups':  targets.get('groups') or {},
-        'tags':    targets.get('tags') or {},
-        'devices': targets.get('devices') or {},
+        'groups':  groups,
+        'tags':    tags,
+        'devices': devs,
     })
 
 
@@ -70334,7 +70346,15 @@ def handle_maintenance_suppressions():
     """GET /api/maintenance/suppressions — recent suppression audit trail."""
     require_auth()
     log = load(MAINT_SUPPRESS_LOG)
-    respond(200, {'entries': (log.get('entries') or [])[-100:][::-1]})
+    entries = log.get('entries') or []
+    visible = _confined_host_ids()
+    if visible is not None:
+        # 7.4.9: each entry names a host and the window that held its alert. A caller reads those of the hosts it can see; an
+        # entry with no host is the installation's.
+        fleet_ok = _caller_in_operator_org()
+        entries = [e for e in entries if isinstance(e, dict)
+                   and ((e.get('device_id') or '') in visible or (not e.get('device_id') and fleet_ok))]
+    respond(200, {'entries': entries[-100:][::-1]})
 
 
 # ─── v1.8.0: Service monitoring (agent-reported systemd units) ────────────────

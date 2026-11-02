@@ -911,6 +911,61 @@ class TestThingsAnAdministratorOfOneTenantDidToTheOthers(_Tenants):
         self.assertIn('OPERATOR-CF-TOKEN', queued('devB', 'badmin'), 'with tenancy off nothing changes')
 
 
+class TestSmallListingsThatNamedAnotherTenantsHostsOrTheOperatorsSettings(_Tenants):
+    STORES = _Tenants.STORES + ('MAINT_SUPPRESS_LOG', 'ALERT_MUTES_FILE')
+
+    def setUp(self):
+        super().setUp()
+        dv = api.load(api.DEVICES_FILE)
+        dv['devB'].update({'tags': ['blue'], 'group': 'gb'})
+        dv['devC'].update({'tags': ['red'], 'group': 'gc'})
+        api.save(api.DEVICES_FILE, dv)
+
+    def test_the_suppression_trail_lists_the_callers_hosts_and_the_entries_that_name_none_to_the_operators_organisation(self):
+        api.save(api.MAINT_SUPPRESS_LOG, {'entries': [
+            {'ts': 1, 'event': 'service_down', 'device_id': 'devB', 'window_id': 'w1'},
+            {'ts': 2, 'event': 'service_down', 'device_id': 'devC', 'window_id': 'w1'},
+            {'ts': 3, 'event': 'monitor_down', 'device_id': '', 'window_id': 'w1'},
+            {'ts': 4, 'event': 'service_down', 'device_id': 'devD', 'window_id': 'w1'}]})
+        ids = lambda who: [e['ts'] for e in self.call(api.handle_maintenance_suppressions, m='GET', who=who)[1]['entries']]  # noqa
+        self.assertEqual(ids('badmin'), [1])
+        self.assertEqual(ids('platform'), [4, 3, 2, 1])
+        self.assertEqual(ids('dviewer'), [4, 3])
+
+    def test_the_sla_targets_a_tenant_reads_reach_its_own_hosts(self):
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['sla_targets'] = {'default': 99.0, 'groups': {'gb': 99.9, 'gc': 95.0}, 'tags': {'blue': 99.5, 'red': 90.0},
+                              'devices': {'devB': 99.99, 'devC': 80.0}}
+        api.save(api.CONFIG_FILE, cfg)
+        st, d = self.call(api.handle_sla_targets_get, m='GET')
+        self.assertEqual((d['default'], d['groups'], d['tags'], d['devices']),
+                         (99.0, {'gb': 99.9}, {'blue': 99.5}, {'devB': 99.99}))
+        st, d = self.call(api.handle_sla_targets_get, m='GET', who='platform')
+        self.assertEqual((len(d['groups']), len(d['tags']), len(d['devices'])), (2, 2, 2))
+
+    def test_the_drift_policies_a_tenant_reads_reach_its_own_hosts(self):
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['drift_enforce_policies'] = [{'scope': 'tag', 'value': 'blue', 'mode': 'apply'},
+                                         {'scope': 'tag', 'value': 'red', 'mode': 'enforce'},
+                                         {'scope': 'group', 'value': 'gc', 'mode': 'apply'}]
+        api.save(api.CONFIG_FILE, cfg)
+        st, d = self.call(api.handle_drift_policies_get, m='GET')
+        self.assertEqual([(p['scope'], p['value']) for p in d['policies']], [('tag', 'blue')])
+        st, d = self.call(api.handle_drift_policies_get, m='GET', who='platform')
+        self.assertEqual(len(d['policies']), 3)
+
+    def test_a_tenant_reads_a_patch_decision_and_not_who_made_it_or_why(self):
+        saved = api._patch_approvals
+        api._patch_approvals = lambda: {'openssl': {'state': 'approved', 'actor': 'platform', 'ts': 5, 'note': 'after the audit'}}
+        try:
+            st, d = self.call(api.handle_patch_approvals_list, m='GET')
+            self.assertEqual((d['approvals'][0]['state'], d['approvals'][0]['actor'], d['approvals'][0]['note']), ('approved', '', ''))
+            st, d = self.call(api.handle_patch_approvals_list, m='GET', who='platform')
+            self.assertEqual((d['approvals'][0]['actor'], d['approvals'][0]['note']), ('platform', 'after the audit'))
+        finally:
+            api._patch_approvals = saved
+
+
 class TestLldpSuggestions(_Tenants):
     def test_both_ends_of_a_suggested_link_are_hosts_the_caller_can_see(self):
         dv = api.load(api.DEVICES_FILE)
