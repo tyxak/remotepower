@@ -162,6 +162,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v749_actions_pinned.py",     # every GitHub Action is pinned to a commit; Dependabot waits a week
         "tests/test_v749_ws_upgrade_map.py",     # the WebSocket proxies upgrade only for WebSocket (real nginx)
         "tests/test_v749_acme_cmd_scrub.py",     # a DNS provider token does not reach the command-output history
+        "tests/test_v749_cron_names.py",         # a maintenance window written with a day name opens; an unreadable field is refused
         "tests/test_v749_seeder.py",             # the demo hosts carry the upgrade mode, kept-back packages and named drive sensors
     )
 

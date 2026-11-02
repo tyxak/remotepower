@@ -93,6 +93,16 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   credential before 7.4.9, rotate that token**: a row stored earlier can also sit in a backup. The documentation
   cross-check found this.
 
+### Fixes
+
+- **A maintenance window written with a day name opens.** The New maintenance window dialog suggested `0 3 * * SUN`, and the
+  matcher read numbers only, so a window saved that way never opened. With "Gate command/upgrade execution" ticked it held
+  every command and upgrade for its hosts until someone edited it. The matcher now reads the three-letter day and month names
+  crontab allows (`SUN`, `mon-fri`, `JAN,JUL`, in any case), and the maintenance validator refuses a field it cannot read,
+  with a message that says what it does read, instead of saving a window that can never open. A window you saved earlier with
+  a name that never opened will open now; one with a word that is not a name still will not, so check windows you edited by
+  hand. The documentation cross-check found this.
+
 ### Components
 
 - **Swagger UI 5.34.0 → 5.34.1.** The API reference page uses the new release, a bug-fix release with no advisory. The

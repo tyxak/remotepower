@@ -37853,11 +37853,72 @@ def _valid_cron(expr):
     return True
 
 
+# 7.4.9: crontab allows three-letter names for the day of the week and the month (`0 3 * * SUN`, `0 9 * * mon-fri`). The matcher
+# read only numbers, so a maintenance window saved with SUN, which the dialog's own placeholder suggested, never opened, and with
+# "Gate command/upgrade execution" ticked it held every command for its hosts until someone edited it.
+_CRON_DOW_NAMES = {'sun': 0, 'mon': 1, 'tue': 2, 'wed': 3, 'thu': 4, 'fri': 5, 'sat': 6}
+_CRON_MONTH_NAMES = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                     'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12}
+
+
+def _cron_names(spec, names):
+    """A cron field with its day or month names (SUN, mon-fri, JAN,JUL) written as numbers. A word that is not a name stays
+    as it is, so the matcher and `_cron_unreadable_field` still cannot read it."""
+    return re.sub(r'[A-Za-z]+', lambda m: str(names.get(m.group(0).lower(), m.group(0))), str(spec or ''))
+
+
+def _cron_field_readable(spec, lo, hi):
+    """True when every part of one cron field is something `_cron_field_match` can evaluate: `*`, a number, a range `a-b`, each
+    with an optional `/step`, in a list. The matcher skips a part it cannot read, which makes a bad schedule save and never run."""
+    spec = str(spec or '').strip()
+    if not spec:
+        return False
+    for part in spec.split(','):
+        part = part.strip()
+        base, slash, raw_step = part.partition('/')
+        base = base.strip()
+        if slash:
+            try:
+                if int(raw_step) <= 0:
+                    return False
+            except (TypeError, ValueError, OverflowError):
+                return False
+        try:
+            if base == '*':
+                continue
+            if '-' in base:
+                a, _, b = base.partition('-')
+                lo_v, hi_v = int(a), int(b)
+                if not (lo <= lo_v <= hi_v <= hi):
+                    return False
+            elif not (lo <= int(base) <= hi):
+                return False
+        except (TypeError, ValueError, OverflowError):
+            return False
+    return True
+
+
+def _cron_unreadable_field(cron):
+    """The first field of a 5-field cron expression the matcher cannot evaluate, as written, or None when all can be read.
+    Names are accepted as in `_cron_matches`. A field count other than five is the caller's own check."""
+    parts = str(cron or '').split()
+    if len(parts) != 5:
+        return None
+    bounds = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))
+    for i, (part, (lo, hi)) in enumerate(zip(parts, bounds)):
+        spec = _cron_names(part, _CRON_MONTH_NAMES) if i == 3 else _cron_names(part, _CRON_DOW_NAMES) if i == 4 else part
+        if not _cron_field_readable(spec, lo, hi):
+            return part
+    return None
+
+
 def _cron_matches(cron, ts):
     import datetime
     parts = cron.split()
     if len(parts) != 5: return False
     minute, hour, dom, month, dow = parts
+    month = _cron_names(month, _CRON_MONTH_NAMES)
+    dow = _cron_names(dow, _CRON_DOW_NAMES)
     dt = datetime.datetime.fromtimestamp(ts)
     # v6.4.2: one shared field matcher (see _cron_field_match) instead of a
     # second, weaker inline one. Each field gets its real bounds so a `*/N`
@@ -69585,8 +69646,13 @@ def _validate_maintenance_body(body):
         except ValueError:
             respond(400, {'error': 'invalid ISO-8601 timestamp'})
     if has_cron:
-        if _cron_match(cron, int(time.time())) is False and len(cron.split()) != 5:
+        if len(cron.split()) != 5:
             respond(400, {'error': 'cron must have 5 space-separated fields'})
+        _bad = _cron_unreadable_field(cron)
+        if _bad is not None:
+            # A window that is saved but can never open holds every gated command for its hosts for ever.
+            respond(400, {'error': f'cron field "{_bad}" is not understood: use numbers, ranges (1-5), lists (1,3), '
+                                   f'steps (*/15), or day and month names (MON, JAN)'})
         if duration < 60 or duration > 86400 * 7:
             respond(400, {'error': 'duration must be 60..604800 seconds'})
     return {
