@@ -164,6 +164,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v749_acme_cmd_scrub.py",     # a DNS provider token does not reach the command-output history
         "tests/test_v749_cron_names.py",         # a maintenance window written with a day name opens; an unreadable field is refused
         "tests/test_v749_ai_redaction.py",       # every AI call is redacted before it leaves the server; no adapter is called directly
+        "tests/test_v749_services_config_verbs.py",  # a read-only role cannot rewrite service and log-watch rules by changing the verb
         "tests/test_v749_seeder.py",             # the demo hosts carry the upgrade mode, kept-back packages and named drive sensors
     )
 

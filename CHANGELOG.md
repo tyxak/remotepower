@@ -58,6 +58,13 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 
 ### Security
 
+- **A read-only role could rewrite a host's watched services and log-watch rules by changing the HTTP verb (High).** The
+  endpoint `/api/devices/{id}/services/config` asked for the `services` permission only for POST. A PUT, PATCH or DELETE went
+  to the code that stores the rules with no permission check, so a viewer, an auditor, a finance user, a read-only API key or a
+  tenant viewer could replace a host's watched services and its log-watch rules, which include rules that tail a file, and could
+  empty the rules an operator had set. The audit entry carried no name. GET stays open to every signed-in role, POST needs the
+  `services` permission, and any other verb is answered with 405. The authorization matrix over every route found it: 1,073
+  operations, 84,120 requests and 26 kinds of caller.
 - **The app server and the daemons no longer run as root in the Docker image.** The entrypoint has to start as root,
   because it hands the data volume to `www-data`, writes the nginx settings and generates the CA. Until now it also
   started gunicorn, the scheduler and the push, SSH-gateway and web-terminal daemons from that same shell, so all of them
