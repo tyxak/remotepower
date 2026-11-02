@@ -76,6 +76,13 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   three watchers (Actions, Python, base images) hold a new release for seven days, because a compromised release is usually
   pulled within days; security updates are not delayed. `tools/pin-actions.py` does the pinning and its `--check` is held
   by a test.
+- **The WebSocket proxies upgrade only for WebSocket.** The `Connection:` header of the push, SSH-gateway and web-terminal
+  proxies came from an nginx map that said `default upgrade;`, so whatever a client put in its `Upgrade:` header (h2c, for
+  one) reached the backend together with `Connection: upgrade`. All three backends speak WebSocket and nothing else, so
+  there was nothing to reach, and this is hardening and not a finding. The map now upgrades for `websocket` in any case and
+  says `close` for everything else. The installers and the deploy script replace an older copy of the map file, so an
+  upgraded install gets it too. Run through a real nginx on both shipped location snippets: 32 failures with the old map,
+  none with the new one.
 
 ## v7.4.8 — "Hon3stMatters" — 2026-11-01
 

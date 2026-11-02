@@ -506,10 +506,13 @@ mkdir -p /etc/nginx/snippets
 cp "$SCRIPT_DIR/server/conf/remotepower-locations.conf" /etc/nginx/snippets/remotepower-locations.conf
 # WebSocket $connection_upgrade map (http{} context) — needed by the
 # /api/push/connect (and /api/webterm/connect) proxy in the locations snippet.
-# Only install it if no such map already exists (defining it twice is an nginx
+# Our own file from an earlier release is replaced, so every install carries the
+# current form (only a WebSocket handshake gets `Connection: upgrade`). Otherwise
+# install it only if no such map already exists (defining it twice is an nginx
 # error), so a host that already set one up for the web terminal is left alone.
 mkdir -p /etc/nginx/conf.d
-if ! nginx -T 2>/dev/null | grep -q 'map \$http_upgrade \$connection_upgrade'; then
+if [[ -f /etc/nginx/conf.d/remotepower-ws-map.conf ]] \
+        || ! nginx -T 2>/dev/null | grep -q 'map \$http_upgrade \$connection_upgrade'; then
     cp "$SCRIPT_DIR/server/conf/remotepower-ws-map.conf" /etc/nginx/conf.d/remotepower-ws-map.conf
 fi
 if [[ -f /etc/nginx/sites-available/remotepower ]]; then

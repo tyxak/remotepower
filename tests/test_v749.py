@@ -160,6 +160,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_post748_translations.py",    # the new strings are translated and still on their pages
         "tests/test_v749_container_user.py",     # the Docker image starts its app server and daemons as www-data, not root
         "tests/test_v749_actions_pinned.py",     # every GitHub Action is pinned to a commit; Dependabot waits a week
+        "tests/test_v749_ws_upgrade_map.py",     # the WebSocket proxies upgrade only for WebSocket (real nginx)
     )
 
     def test_the_list_is_not_empty(self):

@@ -369,8 +369,8 @@ echo "Also ensure your http { ... } block (in /etc/nginx/nginx.conf) has:"
 echo
 cat <<'EOF'
     map $http_upgrade $connection_upgrade {
-        default upgrade;
-        ''      close;
+        default         close;
+        "~*^websocket$" upgrade;
     }
 EOF
 echo

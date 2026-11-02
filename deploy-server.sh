@@ -224,12 +224,14 @@ fi
 
 # Refresh the shipped nginx locations snippet (push/webterm routes) IF this box
 # uses it — a hand-maintained vhost that doesn't include the snippet is left
-# untouched. Add the $connection_upgrade map to conf.d only if none exists.
+# untouched. Add the $connection_upgrade map to conf.d only if none exists; our own
+# file from an earlier release is replaced, so every install carries the current form.
 if [[ -f /etc/nginx/snippets/remotepower-locations.conf ]]; then
     install -m 644 "$SCRIPT_DIR/server/conf/remotepower-locations.conf" \
         /etc/nginx/snippets/remotepower-locations.conf
-    if command -v nginx >/dev/null 2>&1 \
-            && ! nginx -T 2>/dev/null | grep -q 'map \$http_upgrade \$connection_upgrade'; then
+    if [[ -f /etc/nginx/conf.d/remotepower-ws-map.conf ]] \
+            || { command -v nginx >/dev/null 2>&1 \
+                 && ! nginx -T 2>/dev/null | grep -q 'map \$http_upgrade \$connection_upgrade'; }; then
         mkdir -p /etc/nginx/conf.d
         install -m 644 "$SCRIPT_DIR/server/conf/remotepower-ws-map.conf" \
             /etc/nginx/conf.d/remotepower-ws-map.conf
