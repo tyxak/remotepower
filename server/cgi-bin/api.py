@@ -14868,6 +14868,31 @@ def handle_openapi_spec() -> None:
     respond(200, openapi_spec.build_spec(SERVER_VERSION, routes=_routes))
 
 
+def handle_logout():
+    """POST /api/logout — end THIS session on the server (7.4.9).
+
+    Sign out used to throw away the browser's copy of the token and nothing else: there was no route to end the session, so the
+    token (24 hours, 30 days with "remember me") kept working for anyone who had it. The route was documented and allow-listed in
+    the setup and portal gates, and answered 404. It removes the caller's session token from the store and nothing more: an API key
+    sent here is not revoked (it is a credential of its own), and an expired or unknown token is answered 401 like every route.
+    """
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    token = get_token_from_request()
+    username, _role = verify_token(token)
+    if not username:
+        respond(401, {'error': 'Unauthorized'})
+    keys = {_token_hash(token), token}
+    removed = 0
+    with _LockedUpdate(TOKENS_FILE) as tokens:
+        for k in keys:
+            if k in tokens:
+                del tokens[k]
+                removed += 1
+    audit_log(username, 'logout', f'sessions_ended={removed}')
+    respond(200, {'ok': True})
+
+
 def handle_login():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -73665,6 +73690,7 @@ def _build_exact_routes():
         ('POST', '/api/portal/magic-link'): handle_portal_magic_link,
         ('POST', '/api/portal/session'): handle_portal_session,
         ('POST', '/api/portal/logout'): handle_portal_logout,
+        ('POST', '/api/logout'): handle_logout,                    # 7.4.9
         ('GET', '/api/portal/tickets'): handle_portal_tickets,
         ('POST', '/api/portal/tickets'): handle_portal_tickets,
         ('POST', '/api/portal/csp-report'): handle_portal_csp_report,

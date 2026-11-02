@@ -58,6 +58,12 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 
 ### Security
 
+- **Sign out ends the session on the server (Medium).** The Sign out button threw away the browser's copy of the token and
+  nothing else. `POST /api/logout` was documented and answered 404, so a session token kept working for 24 hours, or 30 days
+  with "remember me", for anyone who had a copy. The route exists now and removes that one session (not the same user's others,
+  and it does not revoke an API key); the page calls it after saving your preferences, and also drops the recently opened hosts,
+  favourites, stats history, saved fleet queries and unsent drafts it kept in the browser. The authorization matrix and the web
+  client audit each found it.
 - **Hostile input no longer answers 500 on the routes a stranger or a host can reach (Medium).** A fuzz sweep sent 31,982
   hostile requests to every route of a seeded stack. Five classes of 500 came out of it, each a rule applied in a few places
   and missed in the rest:

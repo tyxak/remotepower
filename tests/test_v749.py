@@ -167,6 +167,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v749_services_config_verbs.py",  # a read-only role cannot rewrite service and log-watch rules by changing the verb
         "tests/test_tenant_instance_gate.py",    # (extended) instance-wide operations, session revoke, links, schedules and rollouts stay in the tenant
         "tests/test_v749_hostile_input.py",      # a non-ASCII token, a lone surrogate, Infinity and unhashable elements are refused, not a 500
+        "tests/test_v749_logout.py",             # Sign out ends the session on the server
         "tests/test_v749_seeder.py",             # the demo hosts carry the upgrade mode, kept-back packages and named drive sensors
     )
 

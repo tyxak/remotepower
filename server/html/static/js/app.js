@@ -1100,13 +1100,29 @@ function doLogout() {
   // should be snappy even on slow networks. If it fails the user keeps the
   // unsaved prefs in their browser session if they log back in within a
   // session lifetime (server still has the previous saved version).
+  // 7.4.9: end the session on the server too. Sign out used to drop only the browser's copy, and the token (24 hours, 30 days with
+  // "remember me") kept working elsewhere. The token is read here, before the stores are cleared, and the request waits for the
+  // preference save above so that save is not refused. keepalive lets it outlive the page; a failure changes nothing for the person.
+  const _tok = getToken();
+  let _flushed = Promise.resolve();
   if (_uiPrefsLoaded) {
-    try { flushUiPrefs(); } catch(e) {}
+    try { _flushed = Promise.resolve(flushUiPrefs()); } catch(e) {}
+  }
+  if (_tok) {
+    _flushed.finally(() => {
+      try { fetch('/api/logout', {method: 'POST', headers: {'X-Token': _tok}, keepalive: true}).catch(() => {}); } catch (_) {}
+    });
   }
   _uiPrefs = {}; _uiPrefsLoaded = false;
   // v1.8.5: clear both stores
   sessionStorage.removeItem('rp_token'); sessionStorage.removeItem('rp_me');
   localStorage.removeItem('rp_token');   localStorage.removeItem('rp_me');
+  // 7.4.9: and what this browser kept of the fleet for the next person: recently opened hosts, favourites, the stats history,
+  // saved fleet queries and unsent drafts.
+  try {
+    ['rp_stat_hist', 'rp_recent_devices', 'rp_favorites', 'rp_fleet_queries'].forEach(k => localStorage.removeItem(k));
+    Object.keys(localStorage).filter(k => k.indexOf('rp_draft_') === 0).forEach(k => localStorage.removeItem(k));
+  } catch (_) {}
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-page').style.display = 'flex';
   clearInterval(refreshTimer);
