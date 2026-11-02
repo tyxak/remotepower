@@ -159,6 +159,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_prometheus_slo_junk.py",     # a junk number in the SLO store does not fail the scrape
         "tests/test_post748_translations.py",    # the new strings are translated and still on their pages
         "tests/test_v749_container_user.py",     # the Docker image starts its app server and daemons as www-data, not root
+        "tests/test_v749_actions_pinned.py",     # every GitHub Action is pinned to a commit; Dependabot waits a week
     )
 
     def test_the_list_is_not_empty(self):

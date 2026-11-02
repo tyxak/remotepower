@@ -2,6 +2,11 @@
 # point is to SEE a drifting dependency (the asyncssh/cryptography deprecation
 # class) before it becomes a hard break, not to drown in PRs. Runs on the prod
 # repo (tyxak/remotepower) where Actions are enabled.
+#
+# Every ecosystem has a 7-day cooldown: a release is not proposed until it has been out a week, because a
+# compromised release is usually pulled within days and an update that old is the safer one to take. Security
+# updates are not delayed by it. The Actions in .github/workflows are pinned to commits (tools/pin-actions.py);
+# Dependabot moves the commit and its version comment together.
 version: 2
 updates:
   # GitHub Actions used by ci.yml / codeql.yml / release.yml
@@ -9,6 +14,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -27,6 +34,8 @@ updates:
     directory: "/packaging"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       python-runtime:
@@ -34,10 +43,12 @@ updates:
     commit-message:
       prefix: "deps"
 
-  # Base images for the server + agent containers (python:3.12-slim)
+  # Base images of the server, agent and scanner containers (python:3.14-slim)
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "docker(deps)"

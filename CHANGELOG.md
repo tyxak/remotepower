@@ -69,6 +69,13 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   volume, so it does not leave root-owned files behind. Checked by running the real entrypoint, nginx, gunicorn, the
   daemons and the real agent in a namespace with a real uid 33: every app-tier process runs as 33:33 with no capabilities
   and no root group, only the nginx master is root, and a settings save still reaches `config.json`.
+- **The GitHub Actions are pinned to commits, and Dependabot waits a week.** Every `uses:` line in the three workflows
+  followed a tag such as `actions/checkout@v7`, which whoever controls that repository can move, so the workflow that signs
+  and publishes the images ran whatever the tag pointed at that hour. All 21 lines are now `owner/repo@<commit> # vX.Y.Z`,
+  each at the latest release of the major it already used, and Dependabot moves the commit and the comment together. Its
+  three watchers (Actions, Python, base images) hold a new release for seven days, because a compromised release is usually
+  pulled within days; security updates are not delayed. `tools/pin-actions.py` does the pinning and its `--check` is held
+  by a test.
 
 ## v7.4.8 — "Hon3stMatters" — 2026-11-01
 
