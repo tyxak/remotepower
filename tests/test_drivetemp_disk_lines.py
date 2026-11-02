@@ -22,6 +22,7 @@ links), not captured from a host with a drivetemp chip: the machine the tests we
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -33,9 +34,11 @@ from unittest import mock
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "server" / "cgi-bin"))
+sys.path.insert(0, str(ROOT / "tests"))
 
 import api  # noqa: E402
 import drive_temp  # noqa: E402
+import srcpin  # noqa: E402
 
 NOW = int(time.time())
 
@@ -514,6 +517,119 @@ class TestFromTheAgentToThePage(_Sysfs, _Fleet):
         hdd, ssd = self.detail(HDD_SENSOR), self.detail(SSD_SENSOR)
         self.assertEqual((hdd["disk"], hdd["warn"], hdd["crit"], hdd["level"]), ("sda", 45.0, 50.0, "ok"))
         self.assertEqual((ssd["disk"], ssd["warn"], ssd["crit"], ssd["level"]), ("sdb", 65.0, 70.0, "hot"))
+
+
+class TestTheDrawerJudgesSensorsTheWayThePageDoes(_Fleet):
+    """The host drawer's temperature list used to colour anything at 75 C or more, whatever the settings said."""
+
+    def drawer(self):
+        real = api.method
+        api.method = lambda: "GET"
+        try:
+            try:
+                api.handle_device_hardware("h1")
+            except api.HTTPError as e:
+                return {t["label"]: t for t in e.body["hardware"]["temps"]}
+        finally:
+            api.method = real
+        self.fail("no answer")
+
+    def test_each_sensor_carries_the_verdict_of_its_own_disks_lines(self):
+        self.config(FLEET)
+        self.stored([sensor(HDD_SENSOR, 51.0, "sda"), sensor(SSD_SENSOR, 66.0, "sdb")], smart=SMART)
+        got = self.drawer()
+        self.assertEqual((got[HDD_SENSOR]["level"], got[HDD_SENSOR]["disk"], got[HDD_SENSOR]["media"]), ("critical", "sda", "hdd"))
+        self.assertEqual((got[SSD_SENSOR]["level"], got[SSD_SENSOR]["disk"], got[SSD_SENSOR]["media"]), ("hot", "sdb", "ssd"))
+
+    def test_a_hard_disk_at_51_is_critical_here_though_the_old_rule_called_only_75_hot(self):
+        self.config(FLEET)
+        self.stored([sensor(HDD_SENSOR, 51.0, "sda")], smart=SMART)
+        self.assertEqual(self.drawer()[HDD_SENSOR]["level"], "critical")
+
+    def test_a_sensor_with_no_disk_is_judged_by_the_lines_for_any_other_drive_and_has_no_disk_field(self):
+        self.config(FLEET)
+        self.stored([sensor(SSD_SENSOR, 56.0)], smart=SMART)
+        t = self.drawer()[SSD_SENSOR]
+        self.assertEqual(t["level"], "hot")
+        self.assertNotIn("disk", t)
+
+    def test_a_board_sensor_follows_the_fleets_hot_and_critical_lines_and_not_a_fixed_75(self):
+        board = "coretemp-isa-0000/Package id 0"
+        self.stored([sensor(board, 70.0)], smart=SMART)
+        self.assertEqual(self.drawer()[board]["level"], "ok")
+        self.stored([sensor(board, 76.0)], smart=SMART)
+        self.assertEqual(self.drawer()[board]["level"], "hot")
+        self.stored([sensor(board, 86.0)], smart=SMART)
+        self.assertEqual(self.drawer()[board]["level"], "critical")
+        self.config({"thermal_hot_c": 60, "thermal_crit_c": 90})
+        self.stored([sensor(board, 65.0)], smart=SMART)
+        self.assertEqual(self.drawer()[board]["level"], "hot", "the fleet's own setting, not 75")
+
+    def test_the_drives_lines_never_reach_a_board_sensor(self):
+        board = "coretemp-isa-0000/Package id 0"
+        self.config(dict(FLEET, drivetemp_warn_c=30, drivetemp_crit_c=40))
+        self.stored([sensor(board, 50.0)], smart=SMART)
+        self.assertEqual(self.drawer()[board]["level"], "ok")
+
+
+_NODE = shutil.which("node")
+
+
+@unittest.skipUnless(_NODE, "node not installed")
+class TestThePageFunctionsRunUnderNode(unittest.TestCase):
+    """The two small functions the pages use, run as they are in the files. The drawer's reading of a sensor and the
+    Thermal page's tag for the disk."""
+
+    @classmethod
+    def setUpClass(cls):
+        js = ROOT / "server" / "html" / "static" / "js"
+        hot = srcpin.js_function((js / "app.js").read_text(), "_hwTempHot")
+        disk = srcpin.js_function((js / "app-power.js").read_text(), "_thermalWhichDisk")
+        esc = 'function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}\n'
+
+        def evaluate(expr):
+            out = subprocess.run([_NODE, "-e", esc + hot + "\n" + disk + "\nconsole.log(JSON.stringify(" + expr + "));"],
+                                 capture_output=True, text=True, timeout=30)
+            if out.returncode:
+                raise AssertionError(out.stderr)
+            return json.loads(out.stdout)
+        cls.js = staticmethod(evaluate)
+
+    def test_the_servers_level_decides_and_75_is_only_the_answer_of_an_older_server(self):
+        got = self.js("""[
+            _hwTempHot({level: 'ok', current_c: 99}), _hwTempHot({level: 'hot', current_c: 10}),
+            _hwTempHot({level: 'critical', current_c: 10}),
+            _hwTempHot({current_c: 74.9}), _hwTempHot({current_c: 75}), _hwTempHot({current_c: 80})]""")
+        self.assertEqual(got, [False, True, True, False, True, True])
+
+    def test_the_disk_a_drivetemp_sensor_reads_is_named_with_its_type(self):
+        got = self.js("""[
+            _thermalWhichDisk({label: 'drivetemp-scsi-0-0/temp1', disk: 'sda', media: 'hdd', level: 'ok'}),
+            _thermalWhichDisk({label: 'drivetemp-scsi-1-0/temp1', disk: 'sdb', media: 'ssd'}),
+            _thermalWhichDisk({label: 'drivetemp-scsi-2-0/temp1', disk: 'sdc', media: ''}),
+            _thermalWhichDisk({label: 'drivetemp-scsi-3-0/temp1', disk: 'nvme0n1', media: 'nvme'})]""")
+        self.assertEqual(got[0], ' <span class="c-muted">sda · HDD</span>')
+        self.assertEqual(got[1], ' <span class="c-muted">sdb · SSD</span>')
+        self.assertEqual(got[2], ' <span class="c-muted">sdc</span>')
+        self.assertEqual(got[3], ' <span class="c-muted">nvme0n1 · NVMe</span>')
+
+    def test_a_drivetemp_sensor_held_to_drive_lines_with_no_disk_says_so(self):
+        got = self.js("""[
+            _thermalWhichDisk({label: 'drivetemp-scsi-9-0/temp1', level: 'ok'}),
+            _thermalWhichDisk({label: 'DRIVETEMP-scsi-9-0/temp1', level: 'hot'})]""")
+        self.assertEqual(got, [' <span class="c-muted">disk not identified</span>'] * 2)
+
+    def test_it_says_nothing_where_no_drive_line_applies_or_the_sensor_is_not_a_drives(self):
+        got = self.js("""[
+            _thermalWhichDisk({label: 'drivetemp-scsi-9-0/temp1'}),
+            _thermalWhichDisk({label: 'coretemp-isa-0000/Package id 0', level: 'hot'}),
+            _thermalWhichDisk({label: 'nvme-pci-0100/Sensor 1', level: 'hot'}), _thermalWhichDisk({})]""")
+        self.assertEqual(got, ["", "", "", ""])
+
+    def test_a_name_is_escaped(self):
+        got = self.js("[_thermalWhichDisk({label: 'drivetemp-x', disk: '<img onerror=x>', media: 'h<b>'})]")
+        self.assertNotIn("<img", got[0])
+        self.assertNotIn("<b>", got[0])
 
 
 class TestTheTwoAgentCopiesAreTheSame(unittest.TestCase):

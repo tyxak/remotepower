@@ -45888,6 +45888,21 @@ def handle_device_hardware(dev_id):
     for _d in _smart:
         if isinstance(_d, dict):
             _d['lines'] = drive_temp_mod.view(_d, _dt_host.get('drivetemp_per_serial'), _dt_host, _dt_cfg)
+    # #54: the drawer's temperature list is judged the way the Thermal page and the risk score judge it: a drive's own
+    # sensors by the drive's lines (a drivetemp sensor by the lines of the disk it reads), every other sensor by the
+    # fleet's hot and critical lines. It used to colour anything at 75 C or more, whatever the settings said.
+    _hw_inv = hw.get('hardware') if isinstance(hw.get('hardware'), dict) else {}
+    if isinstance(_hw_inv.get('temps'), list):
+        _bands = _hw_bands()
+        for _t in _hw_inv['temps']:
+            if not isinstance(_t, dict) or not _temp_number(_t.get('current_c')):
+                continue
+            _tw, _tc = drive_temp_mod.sensor_lines(_t.get('label'), _dt_host, _dt_cfg, _t.get('drive'), _smart)
+            _t['level'] = drive_temp_mod.level(float(_t['current_c']), _tw, _tc,
+                                               _bands['thermal_hot'], _bands['thermal_crit'])
+            _td = drive_temp_mod.sensor_disk(_t.get('label'), _t.get('drive'), _smart)
+            if _td is not None:
+                _t['disk'], _t['media'] = drive_temp_mod.as_drive_name(_t.get('drive')), drive_temp_mod.media_of(_td)
     _io_hist = _entity_read_one(DISKIO_HIST_FILE, dev_id, {}) or {}
     _smart_of = {str(d.get('device') or ''): d for d in _smart if isinstance(d, dict)}
     _diskio = []

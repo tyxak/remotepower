@@ -26689,6 +26689,10 @@ async function saveDiskNames() {
 
 // v7.4.4 (#54): the colour of a drive's temperature against the lines it is held to, and the lines as its
 // tooltip. A drive with no line is not coloured: the fleet's hot and critical pair is on the Thermal page.
+// #54: whether a sensor of the drawer's temperature list is over the line it is held to. The server says so in `level`
+// (a drive's own lines, a drivetemp sensor by the lines of the disk it reads, any other sensor by the fleet's hot and
+// critical lines). An answer from an older server has no level: 75 C, as it was.
+function _hwTempHot(t) { return t.level ? t.level !== 'ok' : t.current_c >= 75; }
 function _driveTempCls(d) {
   const L = d.lines || {}, t = d.temperature_c;
   if (t == null || L.warn == null) return '';
@@ -27005,9 +27009,9 @@ function _renderHardwareSection(id, hw, fc, ch) {
         }).join(' ');
     }
     if ((inv.temps||[]).length) {
-      const hot = inv.temps.filter(t=>t.current_c>=75);
+      const hot = inv.temps.filter(_hwTempHot);
       h += `<div class="fs-11 c-muted mb-4 mt-8">Temperatures${hot.length?` — <span class="c-red">${hot.length} hot</span>`:''}</div>` +
-        inv.temps.slice(0,16).map(t=>`<span class="cmd-badge fs-11 ${t.current_c>=75?'c-red':''}">${escHtml(t.label)}: ${fmtTemp(t.current_c, 0)}</span>`).join(' ');
+        inv.temps.slice(0,16).map(t=>`<span class="cmd-badge fs-11 ${_hwTempHot(t)?'c-red':''}">${escHtml(t.label)}: ${fmtTemp(t.current_c, 0)}</span>`).join(' ');
     }
     h += `</div>`;
   }

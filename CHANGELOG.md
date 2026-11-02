@@ -5,6 +5,23 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
+## Unreleased (test)
+
+What the reporters of #54 and Discussion #30 asked for after 7.4.8.
+
+### Thermal
+
+- **A drivetemp sensor follows the disk it reads (#54).** 7.4.8 held every `drivetemp-*` sensor to the lines for any
+  other drive, because the chip name does not say hard disk or SSD. A host with hard disks and SATA SSDs on the same
+  controllers needs two pairs. The Linux agent now finds the disk behind each sensor from sysfs and puts its name on the
+  sensor, and the sensor is held to that disk's lines: the disk's own line (kept against its serial number), then the
+  host's and the fleet's for its type, then the lines for any other drive. The Thermal page names the disk in the
+  sensor's row (`sda · SSD`) and says *disk not identified* when the agent could not tell, and the risk score follows the
+  same lines. The agent has to be updated; until then the lines for any other drive apply, as before.
+- **The host drawer's temperature list follows the lines too.** It coloured anything at 75 °C or more, whatever the
+  settings said. It now uses the same verdict as the Thermal page: a drive's own lines, the lines of the disk a
+  `drivetemp` sensor reads, and the fleet's hot and critical temperatures for every other sensor.
+
 ## v7.4.8 — "Hon3stMatters" — 2026-11-01
 
 Three screens said something that was not true: a Problems row that read "never" under Updated, a sensor limit of 65261.8 °C,

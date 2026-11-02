@@ -165,8 +165,8 @@ score hold a drive to the same lines *(v7.4.6)*: the page shows the critical lin
 threshold with the headroom under it, and flags the host when a drive is over its line, even
 if another sensor is hotter. A drive with no line is held to the fleet's hot and critical
 temperatures, as every other sensor is. The sensors of a drive's own chip follow the lines
-too: `nvme-*` sensors the NVMe lines, `drivetemp-*` sensors the lines for any other drive
-(see [thermal.md](thermal.md#a-drives-own-sensors-and-limits-that-are-not-limits)). See
+too: `nvme-*` sensors the NVMe lines, `drivetemp-*` sensors the lines of the disk they read
+(the lines for any other drive when the disk is not known; see [thermal.md](thermal.md#a-drives-own-sensors-and-limits-that-are-not-limits)). See
 [disk-health.md](disk-health.md#temperature-lines-for-each-drive-v744).
 
 Fields: Hard disk warn °C, Hard disk crit °C, SATA SSD warn °C, SATA SSD crit °C, NVMe

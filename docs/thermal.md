@@ -62,15 +62,22 @@ An NVMe drive, or a drive read by the `drivetemp` driver, appears on this page t
 reading and as hardware sensors (`nvme-pci-0100/Composite`, `nvme-pci-0100/Sensor 1`,
 `drivetemp-scsi-0-0/temp1`).
 
-- **The drive lines apply to those sensors too.** An `nvme-*` sensor is held to the NVMe lines
-  and a `drivetemp-*` sensor to the lines for any other drive, because that driver reads hard
-  disks and SATA SSDs alike and its name does not say which. They are the lines of
-  [Drive temperature](alert-parameters.md#drive-temperature), and a host's own lines under
-  **Metric thresholds** win over the fleet's. A line kept against a serial number is for the
-  drive's SMART reading only, because a sensor has no serial number. The page then shows the
-  critical line as the sensor's threshold, with the headroom under it. The Thermal page and the
-  risk score follow these lines; the `temp_high` alert and the reliability grade still judge the
-  sensors by the fleet's temperature settings.
+- **The drive lines apply to those sensors too.** An `nvme-*` sensor is held to the NVMe lines.
+  A `drivetemp-*` sensor is held to the lines of the disk it reads, so a host with hard disks
+  and SATA SSDs on the same controllers gives each sensor its own disk's pair. They are the
+  lines of [Drive temperature](alert-parameters.md#drive-temperature): the disk's own line
+  (kept against its serial number) first, then the host's and the fleet's for its type, then the
+  lines for any other drive. The page shows the critical line as the sensor's threshold, with
+  the headroom under it, and the host's drawer colours its temperature list by the same
+  verdict. The `temp_high` alert and the reliability grade still judge the sensors by the
+  fleet's temperature settings.
+- **How a `drivetemp` sensor finds its disk.** The Linux agent reads sysfs. The sensor's chip
+  name (`drivetemp-scsi-0-0`) is built from the disk's SCSI address, and the agent matches it
+  to the disk behind that address, which it then names in the sensor's row (`sda · SSD`). The
+  disk's type and serial number come from the SMART entry of the same report. When the agent
+  cannot tell which disk a sensor reads, the row says *disk not identified* and the lines for
+  any other drive apply. That happens with an agent from before this feature, with a disk that
+  has no SMART entry in the report, and with two sensors whose chip names are the same.
 - **A limit that is not a temperature is ignored.** An NVMe drive that sets no threshold for
   a sensor reports 65535 K, which is 65261.85 °C, and a drivetemp sensor with no limit reports 0.
   Both were shown as the sensor's critical value, so a host's row could read a threshold of

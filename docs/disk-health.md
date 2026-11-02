@@ -118,6 +118,11 @@ is brought down to it.
 A hard disk at 45 and 50, a SATA SSD at 65 and 70 and an NVMe drive at 70 and 80 is four
 numbers in the fleet's section and nothing on the hosts.
 
+The hardware sensor of a disk read by the `drivetemp` driver is held to the same lines as the
+disk's own SMART reading. The agent names the disk behind the sensor, and the sensor takes
+that disk's lines, including a line kept against its serial number. See
+[thermal.md](thermal.md#a-drives-own-sensors-and-limits-that-are-not-limits).
+
 ### How a drive's type is found
 
 The Linux agent reads it from `smartctl`: a spindle speed in `Rotation Rate` is a hard disk,

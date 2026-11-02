@@ -62,6 +62,18 @@ async function loadThermal() {
   }
 }
 
+// #54: a drivetemp sensor is held to the lines of the disk it reads. Say which disk that is, in the words the Hardware tab
+// uses for a drive's type, or say that the agent could not tell (the lines for any other drive apply then). The server
+// sets `level` only when drive lines apply, so a drivetemp sensor with none says nothing.
+function _thermalWhichDisk(s) {
+  if (s.disk) {
+    const m = s.media ? ' · ' + (s.media === 'nvme' ? 'NVMe' : escHtml(String(s.media).toUpperCase())) : '';
+    return ` <span class="c-muted">${escHtml(s.disk)}${m}</span>`;
+  }
+  if (/^drivetemp-/i.test(s.label || '') && s.level) return ' <span class="c-muted">disk not identified</span>';
+  return '';
+}
+
 function toggleThermalDetail(id) {
   if (_thermalExpanded.has(id)) _thermalExpanded.delete(id); else _thermalExpanded.add(id);
   _renderThermal();
@@ -134,6 +146,7 @@ function _renderThermal() {
       // own critical limit while the host is plainly fine" flag.
       const sc = s.ignored ? 'c-muted'
         : s.level === 'critical' ? 'c-red fw-600' : s.level === 'hot' ? 'c-amber fw-600'   // a drive held to lines of its own (#54)
+        : s.level ? ''       // `ok` against its lines is not amber for being near a limit the lines replaced
         : (typeof s.crit === 'number' && typeof s.temp === 'number')
           ? (s.temp >= s.crit ? 'c-red fw-600' : (s.crit - s.temp) <= 10 ? 'c-amber' : '')
           : '';
@@ -151,7 +164,7 @@ function _renderThermal() {
         + ` data-arg="th-${escAttr(r.device_id)}" data-arg2="${escAttr(skey)}" aria-pressed="${charted ? 'true' : 'false'}"`
         + ` title="Chart this sensor’s temperature history">${_THERMAL_CHART_ICON} Chart</button>`;
       return `<tr${charted ? ' class="thermal-sensor-on"' : ''}>
-        <td class="${s.ignored ? 'c-muted' : ''}">${escHtml(s.label || 'sensor')}</td>
+        <td class="${s.ignored ? 'c-muted' : ''}">${escHtml(s.label || 'sensor')}${_thermalWhichDisk(s)}</td>
         <td class="${sc}">${(typeof s.temp === 'number') ? fmtTemp(s.temp) : '—'}</td>
         <td class="hint">${escHtml(s.type || '—')}</td>
         <td class="hint">${(typeof s.crit === 'number') ? fmtTemp(s.crit, 0) : '—'}</td>
