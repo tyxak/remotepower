@@ -91,6 +91,13 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   an operation and logs no console error or failed request, the same as with the old bundle. xterm.js, its fit addon,
   noVNC, qrcode-generator and the two fonts are still the current releases.
 
+### Demo data
+
+- **The demo hosts carry what 7.4.9 added.** One host runs the Extended upgrade mode and two have a package that apt keeps
+  back, so the Patch Report shows both modes. The NAS, the backup host and the Nextcloud host report `drivetemp` sensors
+  that name their disk, one of them not identified. Every demo host now reports the package manager its agent would send;
+  it was left out, so every Patch Report row said *unknown*.
+
 ## v7.4.8 — "Hon3stMatters" — 2026-11-01
 
 Three screens said something that was not true: a Problems row that read "never" under Updated, a sensor limit of 65261.8 °C,

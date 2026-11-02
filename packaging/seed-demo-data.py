@@ -1325,6 +1325,10 @@ def build_devices() -> dict:
         }
         if dev['id'] in boot_reasons:
             rec['last_boot_reason'], rec['last_boot_reason_at'] = boot_reasons[dev['id']]
+        # v7.4.9 (Discussion #30): a host that runs apt upgrades in the Extended mode. Absent means Standard, as the
+        # API stores it; only an apt host can have one, and the demo's apt hosts are the Debian-family ones.
+        if dev['id'] in _DEMO_EXTENDED_UPGRADE:
+            rec['upgrade_mode'] = 'extended'
         if not dev['agentless']:
             # Agented hosts get a believable sysinfo block — different
             # devices stress different resources to exercise the alert
@@ -1909,6 +1913,16 @@ _DEMO_INSTALLED_PACKAGES = [
     ('tcpdump', '4.99.1-3ubuntu0.2'),
 ]
 
+# v7.4.9 (Discussion #30): hosts whose apt keeps a package back, because upgrading it needs a package that is not
+# installed yet (a new kernel image). `apt-get upgrade` leaves it, `upgrade --with-new-pkgs` installs it. The names are
+# part of the host's pending list too, as apt counts them, and tests/test_v749_seeder.py holds that. nc01 runs the
+# Extended mode, jf01 the Standard one, so the Patch Report shows both with the same kind of package waiting.
+_DEMO_KEPT_BACK = {
+    'jf01': ['linux-image-generic'],
+    'nc01': ['linux-image-generic'],
+}
+_DEMO_EXTENDED_UPGRADE = ('nc01',)
+
 # Third-party managers the agent reports alongside the distro list. These feed
 # the patch catalog's third-party rollup, which is manager-agnostic downstream
 # but gated at ingest on this exact set of names.
@@ -1941,7 +1955,24 @@ def _demo_package_inventory(dev_id):
     # More pending than the curated list has room for — top up from the padding.
     while len(upgradable_names) < n_up:
         upgradable_names.append(rng.choice(installed)['name'])
+    # apt counts a kept-back package as pending, so the kept-back names are in the list.
+    upgradable_names += _DEMO_KEPT_BACK.get(dev_id, [])
     return installed, sorted(set(upgradable_names))
+
+
+def _demo_pkg_manager(dev_id):
+    """The package manager the agent of this demo host would report: apt for the Debian family, apk for Alpine, brew
+    for macOS and windows-update for Windows, the names the three agents send. It was left out, so every Patch Report
+    row said "unknown" and the upgrade mode could not show that it applies to apt hosts only. The package INVENTORY
+    below stays Debian-style for every agented host, which is a simplification of the demo and not the manager's story."""
+    os_name = next((d['os'] for d in FAKE_DEVICES if d['id'] == dev_id), '').lower()
+    if 'windows' in os_name:
+        return 'windows-update'
+    if 'macos' in os_name:
+        return 'brew'
+    if 'alpine' in os_name:
+        return 'apk'
+    return 'apt'
 
 
 def _demo_sysinfo_packages(dev_id):
@@ -1958,12 +1989,17 @@ def _demo_sysinfo_packages(dev_id):
         if k:
             picked = rng.sample(pool, k)
             tp[mgr] = {'count': len(picked), 'names': picked}
-    return {
+    out = {
+        'manager':          _demo_pkg_manager(dev_id),
         'upgradable':       len(names),
         'security_updates': rng.randint(0, len(names)) if names else 0,
         'upgradable_names': names,
         'third_party':      tp,
     }
+    # v7.4.9: what apt keeps back, as the agent sends it (names only, a subset of the pending list).
+    if _DEMO_KEPT_BACK.get(dev_id):
+        out['kept_back'] = list(_DEMO_KEPT_BACK[dev_id])
+    return out
 
 
 def build_packages() -> dict:
@@ -3287,6 +3323,17 @@ def build_hardware() -> dict:
             rec['hardware'] = {'temps': [{'label': lbl, 'current_c': c,
                                           'crit_c': crit}
                                          for lbl, c, crit in temps_map[dev_id]]}
+        # v7.4.9 (#54): the disks' own drivetemp sensors, as the Linux agent reports them. Each is named
+        # `drivetemp-scsi-<host>-<address>/temp1`, reads what the disk's SMART row reads, and carries `drive`, the disk's
+        # name, when the agent could tell which disk it is. The last disk of each host that has one is sent without
+        # `drive`, so the Thermal page also shows a sensor whose disk is not identified. No random draw here.
+        if dev_id in ('tnas', 'bk01', 'nc01') and disks:
+            sensors = rec.setdefault('hardware', {}).setdefault('temps', [])
+            for i, d in enumerate(disks):
+                entry = {'label': f'drivetemp-scsi-{i}-0/temp1', 'current_c': float(d['temperature_c'])}
+                if not (i == len(disks) - 1 and dev_id != 'nc01'):
+                    entry['drive'] = d['device'].rsplit('/', 1)[-1]
+                sensors.append(entry)
         if dev_id in gpus_map:
             rec['gpus'] = gpus_map[dev_id]
         if dev_id in ups_map:
