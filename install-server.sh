@@ -390,6 +390,7 @@ done
 # running www-data user can't write the .pyc itself; build it now.
 python3 -m compileall -q /var/www/remotepower/cgi-bin/ || true
 # v1.11.0: extension-less helper scripts (cron runners, etc.)
+# shellcheck disable=SC2043  # a list on purpose: one helper today, and a new one is one more word here
 for helper in remotepower-tls-check; do
     src="$SCRIPT_DIR/server/cgi-bin/$helper"
     if [[ -f "$src" ]]; then

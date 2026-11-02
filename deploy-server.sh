@@ -39,8 +39,8 @@ if [[ "${1:-}" == "--rollback" ]]; then
 fi
 
 if [[ -d "$WEB_ROOT" ]]; then
-    mkdir -p -m 700 "$BACKUP_DIR"
-    chmod 700 "$BACKUP_DIR"   # also tighten a pre-existing dir
+    mkdir -p "$BACKUP_DIR"
+    chmod 700 "$BACKUP_DIR"   # the mode of a new dir, and tighten a pre-existing one
     stamp="$(date +%Y%m%d-%H%M%S)"
     info "Backing up current deployment → $BACKUP_DIR/deploy_$stamp.tar.gz"
     tar -czf "$BACKUP_DIR/deploy_$stamp.tar.gz" \
@@ -72,6 +72,7 @@ python3 -m compileall -q /var/www/remotepower/cgi-bin/ || true
 # runner for the TLS expiry probe). Same directory as api.py because they
 # need to import the sibling modules with the same sys.path layout.
 info "Deploying cgi-bin helper scripts..."
+# shellcheck disable=SC2043  # a list on purpose: one helper today, and a new one is one more word here
 for helper in remotepower-tls-check; do
     src="$SCRIPT_DIR/server/cgi-bin/$helper"
     if [[ -f "$src" ]]; then

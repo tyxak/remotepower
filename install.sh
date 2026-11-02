@@ -39,9 +39,9 @@ SELF="${0##*/}"
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
   B=$'\e[1m'; DIM=$'\e[2m'; RST=$'\e[0m'
   ACC=$'\e[38;5;39m'        # brand blue accent
-  GRN=$'\e[38;5;42m'; YLW=$'\e[38;5;214m'; RED=$'\e[38;5;203m'
+  GRN=$'\e[38;5;42m'; RED=$'\e[38;5;203m'
 else
-  B=""; DIM=""; RST=""; ACC=""; GRN=""; YLW=""; RED=""
+  B=""; DIM=""; RST=""; ACC=""; GRN=""; RED=""
 fi
 CK="${GRN}✓${RST}"; CROSS="${RED}✗${RST}"; DOT="${DIM}·${RST}"
 W=58   # inner width of the boxes

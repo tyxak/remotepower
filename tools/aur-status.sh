@@ -18,7 +18,7 @@
 # Exit:   0 = in sync, 1 = behind (or unreachable), 2 = usage/parse error
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 want="${1:-}"
 if [[ -z "$want" ]]; then
