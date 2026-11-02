@@ -1,7 +1,5 @@
 # Host Configuration
 
-*(v2.6.0)*
-
 Declare the desired state of each enrolled Linux host server-side.
 The agent applies changes on the next heartbeat (~60 s) and reports
 current state every 15 minutes so the server can detect drift.
@@ -10,7 +8,7 @@ current state every 15 minutes so the server can detect drift.
 
 ## How it works
 
-1. An admin opens **Hosts → host dropdown → Host Config**.
+1. An admin opens a host (click it on the **Hosts** page), goes to **Actions & settings** and clicks **Host config**.
 2. The modal loads the current desired config (if any) and shows drift
    from the last agent report.
 3. The admin edits one or more sections and clicks **Save & push to agent**.

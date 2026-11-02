@@ -5,7 +5,7 @@ them.
 
 | You want to | RemotePower uses | Section |
 |---|---|---|
-| See and edit the firewall's rules | the OPNsense API | [Manage rules](#manage-rules-over-the-api) |
+| See the firewall's state, manage its rules and updates | the OPNsense API | [Manage rules](#manage-rules-over-the-api) |
 | Collect the firewall's logs | syslog sent to RemotePower | [Send the logs](#send-the-firewalls-logs) |
 | See what is talking to what | NetFlow sent to RemotePower | [Send traffic records](#send-traffic-records-netflow) |
 
@@ -92,9 +92,9 @@ mirror the logs:
    interfaces to watch, set the version to *IPFIX* (NetFlow v9 also works), and
    add RemotePower as the destination: the server's address and port 2055, in
    the form `192.0.2.10:2055`. Save and apply.
-4. **Check.** Open the firewall in **Hosts** and look for the **Network flows**
-   card. The **Server Status** page lists a *Flow receiver* row that says whether
-   it is running and how many exporters it can receive from.
+4. **Check.** Open the firewall's drawer in **Hosts** and choose **Network
+   flows**. The **Server Status** page lists a *Flow receiver* row that says
+   whether it is running and how many exporters it can receive from.
 
 The firewall sees only the traffic it routes. A conversation between two hosts
 on the same VLAN does not pass through it and does not appear. [flow.md](flow.md)
@@ -102,10 +102,11 @@ explains what the view keeps and for how long.
 
 ## Manage rules over the API
 
-RemotePower can view and manage the firewall's rules over the OPNsense REST API
-— the direct counterpart to the RouterOS/MikroTik integration. With the
-firewall added as above, you get a card that can **view, add, enable/disable,
-and delete** filter rules and outbound (source) NAT rules.
+RemotePower can view and manage the firewall over the OPNsense REST API, the
+direct counterpart to the RouterOS/MikroTik integration. With the firewall added
+as above, you get a card that can **view, add, enable/disable, and delete**
+filter rules and outbound (source) NAT rules, and that shows the firewall's
+firmware state, its DHCP leases and an archive of its configuration.
 
 ### Setup
 
@@ -113,17 +114,34 @@ and delete** filter rules and outbound (source) NAT rules.
    pick (or create) a user scoped to the firewall pages → **API keys** →
    `+` to generate. OPNsense downloads an `apikey.txt` containing the key
    and secret.
-2. In RemotePower, open the agentless host → **Audit → OPNsense**.
+2. In RemotePower, open the firewall's drawer and go to **Audit → OPNsense**.
 3. Tick **Enable OPNsense API**, paste the **API key** and **API secret**,
    set the port (default `443`), and **Save**. The secret is stored
-   write-only — it's never returned to the browser; leave the field blank
+   write-only: it's never returned to the browser; leave the field blank
    on later edits to keep the existing one.
-4. Click **Load firewall** to view and manage rules.
+4. The card now shows the firewall's state. Click **Load / refresh rules** to
+   view and manage rules, or open the full-width OPNsense console from the card,
+   which loads them for you.
 
 TLS verification is **off** by default (OPNsense ships a self-signed cert;
 the trust model is "LAN + API credentials", the same posture as the
 RouterOS integration). Install a trusted cert and the integration still
 works.
+
+### What the card shows
+
+- **System.** The OPNsense version and whether updates are available or a reboot
+  is waiting. **Check for updates** asks the firewall. **Upgrade** runs the
+  firmware upgrade, which can take several minutes and may reboot the firewall,
+  and **Reboot** restarts it. Both ask you to confirm first. A check also feeds
+  the update state shown on the [patch report](patches.md).
+- **DHCP leases.** The leases the Kea plugin reports, up to 100 rows.
+- **Firewall & NAT rules.** The rules you manage below.
+- **Configuration archive.** A daily copy of the running configuration with a
+  diff between revisions. It is described in [firewall.md](firewall.md).
+
+Each section degrades on its own. If one is unavailable the card names it
+(*Sections unavailable*) and shows the rest.
 
 ### What you can do
 

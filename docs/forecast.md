@@ -1,7 +1,7 @@
 # Capacity forecast
 
 The **Monitoring → Forecast** page projects when a host runs out of headroom —
-on disk, and (since v6.4.2) on memory, swap and CPU load — from a compact daily
+on disk, and on memory, swap and CPU load — from a compact daily
 metrics snapshot kept per host (roughly six months of history).
 
 For every mount it fits a least-squares trend of used-GB over time and
@@ -51,6 +51,9 @@ series. A row appears per metric per host, soonest-to-saturate first:
 | Swap | 80% | 5% |
 | CPU load | 100% | 50% |
 
+These are the defaults. Change them under **Settings → Alert parameters → Forecast & CVE tuning**
+(for example *Memory saturation ceiling %* and *Memory forecast floor %*).
+
 The **ceiling** is what counts as saturated; the **floor** is the level below
 which no date is projected at all — extrapolating a machine sitting at 12%
 memory to 90% produces a confident-looking number built on nothing.
@@ -72,8 +75,26 @@ declined:
 - `>6 mo` — it does saturate at the current rate, but beyond the 180-day
   horizon (disk uses a longer, ~2-year horizon).
 
-The noise gate is the same operator-tunable R² floor as the disk projection
-(**Settings → Alert parameters → Disk-fill R² floor**).
+The noise gate is the same R² floor as the disk projection, 0.5 by default
+(**Settings → Alert parameters → Forecast & CVE tuning → Disk-fill R² floor**).
+
+## Where the forecast is used
+
+The disk-fill estimate drives one verdict everywhere: the **Needs attention** list, the disk row on the
+host's **Checks**, and the colour of the disk cell on the [Predictive Health](disk-health.md) page.
+A mount raises a warning or a critical when its days-to-full falls under the **Disk fill ETA warn**
+line (21 days by default) or the **Disk fill ETA crit** line (7 days by default) under
+**Settings → Alert parameters → Capacity & forecast**. The dashboard can also show a *Disk fill ETA*
+widget (see [dashboard.md](dashboard.md)).
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| A mount shows *fluctuating* | The usage goes up and down too much for a date. Look again after a few more days of samples, or lower the R² floor. |
+| A host is missing | The forecast needs a few days of daily samples. |
+| The same disk appears once with "+N" | Mounts that share a filesystem are folded into one row. Hover the "+N" for the others. |
+| A resource row says *below floor* | The host sits too low for a date to mean anything. Lower the floor if you want one anyway. |
 
 ## API
 
@@ -92,3 +113,7 @@ The noise gate is the same operator-tunable R² floor as the disk projection
   Both lists are scoped to the caller's tenant and role.
   `devices` counts hosts with a mount projection; `resource_devices` counts
   hosts with a resource projection — they are separate.
+
+## See also
+
+[disk-health.md](disk-health.md), [storage.md](storage.md), [alert-parameters.md](alert-parameters.md), [trends.md](trends.md).

@@ -77,9 +77,9 @@ Worth separating, because it is far more common and the response is different: a
 storm of alerts usually means a threshold or an upstream dependency, not an
 intrusion. Before declaring an incident:
 
-- **Alerts → Tuning** shows the noisiest alerts and sources. A single rule
+- **Monitoring → Tuning** shows the noisiest alerts and sources. A single rule
   producing most of the volume is a tuning problem.
-- The **self** page (control-plane health) separates "the fleet is broken" from
+- **Admin → Server Status** (control-plane health) separates "the fleet is broken" from
   "this server is broken" — they look identical from the dashboard.
 - Alert **correlation** already tags symptoms under a root cause; a hundred
   service alerts under one `device_offline` is one incident, not a hundred.

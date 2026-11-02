@@ -16,6 +16,12 @@ by where it can be reached from:
   mutes are honoured by the checks engine and alerting.
 - Pairs with [Firewall](firewall.md) (is it *filtered*?) and
   [Pentest](security-scans.md) (is it *actually* reachable from outside?).
+- With the secrets scan switched on (**Settings → Security → Secrets-on-disk scanning**), the page also
+  lists redacted findings for keys, tokens and passwords found in files, where you can mute false
+  positives. See [secret-scan.md](secret-scan.md).
+- The *New listening port*, *World-exposed service* and *Host firewall changed* alerts come from the
+  listening-port and firewall audit under **Settings → Security**. It is off by default, because Docker
+  publishes every container port on every address. The page lists every socket either way.
 
 ## Hosts behind a NAT firewall
 
@@ -42,3 +48,7 @@ A new listener is still reported, because *New listening port* does not depend o
 you turn the mark off, or a marked host gains a public address, the page changes at once. The
 alerts follow at the host's next report, and each service that is world again raises *World-exposed
 service* as if it had just been opened.
+
+## See also
+
+[firewall.md](firewall.md), [security-scans.md](security-scans.md), [risk.md](risk.md), [checks.md](checks.md), [alert-tuning.md](alert-tuning.md).

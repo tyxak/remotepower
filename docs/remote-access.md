@@ -21,7 +21,7 @@ connected to that host over SSH.
 - The daemon URL and shared secret are set with the `webterm_daemon_url` /
   `webterm_daemon_secret` config keys.
 
-### The host's SSH key is checked first *(v7.0.3)*
+### The host's SSH key is checked first
 
 Before your password is sent, RemotePower compares the SSH key the host presents
 against the key fingerprints it already has on file for that host. The agent
@@ -81,7 +81,7 @@ strict public-key pattern before anything is queued.
 - No inbound firewall rule is ever needed on the client — the agent always dials
   out to the server over HTTPS.
 
-## Agent console *(v6.4.2)*
+## Agent console
 
 The web terminal above opens an **SSH** session. On Windows that only works if
 OpenSSH Server was installed and exposed separately — which RemotePower's own

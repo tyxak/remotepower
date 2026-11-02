@@ -1,11 +1,13 @@
 # Configuration drift detection
 
-*(v2.2.0)*
+Per-host file integrity monitoring, on **Security → Drift**. The agent computes SHA-256
+hashes of a list of watched config files and reports them. The server compares them against a
+stored baseline and fires a `drift_detected` event when a hash diverges.
 
-Per-host file integrity monitoring. The agent computes SHA-256
-hashes of a list of watched config files on every few heartbeats
-and reports them. The server compares against a stored baseline
-and fires a `drift_detected` webhook when a hash diverges.
+The Drift page lists every host with its number of **Files watched**, **Drift**, **Missing** files and
+**Last check**. Click a host for the per-file detail. The toolbar has **AI triage** (asks your AI
+provider whether a drift looks benign, a mistake or a compromise), **Collect all host configs** and
+**Export all host configs** (see [host-config.md](host-config.md)).
 
 **Hash-only by design.** The contents of `/etc/sudoers`,
 `/etc/ssh/sshd_config`, etc. never cross the wire on routine
@@ -22,29 +24,32 @@ The default watched list (configurable):
 |---|---|
 | `/etc/ssh/sshd_config` | SSH daemon config — port, auth methods, root login policy |
 | `/etc/sudoers` | Sudo policy — privilege escalation rules |
+| `/etc/passwd` | Account list — additions and removals |
+| `/etc/group` | Group membership changes |
+| `/etc/login.defs` | Password policy and UID range |
+| `/etc/pam.d/sshd` | PAM stack for SSH logins |
+| `/etc/pam.d/common-auth` | PAM authentication stack |
 | `/etc/fstab` | Mount points — drive layout, NFS / CIFS mounts |
 | `/etc/crontab` | System cron — scheduled root-owned jobs |
 | `/etc/hosts` | Local DNS overrides |
 | `/etc/resolv.conf` | DNS resolver config |
 | `/etc/nsswitch.conf` | Name service order (files vs DNS vs LDAP) |
-| `/etc/pam.d/sshd` | PAM stack for SSH logins |
+| `/etc/apt/sources.list` | Package sources. A changed source is a supply-chain warning sign |
 
-Each one is operationally significant — a change here is either a
-considered operator action or something that should make you look
-twice. Files that legitimately change often (`/etc/passwd` on
-distros that update it on login, `/etc/mtab`, runtime-generated
-configs) are *not* in the default list.
+Each one is operationally significant. A change here is either a considered operator action or
+something that should make you look twice. Files that change all the time (`/etc/mtab`,
+runtime-generated configs) are *not* in the default list.
 
 ### Customising
 
 **Global default** — edit `cfg['drift']['default_watched_files']` in
 `config.json` to change the default list for new hosts.
 
-**Per-host override** — set `devices[<id>]['watched_files']` to a
-list to replace the global default for that host. The agent picks
-up the new list on its next heartbeat.
+**Per-host override** — open the host, go to **Actions & settings** and fill in **Drift watch
+files**, one entry per line. The agent picks up the new list on its next heartbeat. A list can hold
+up to 50 entries.
 
-**Drift profiles** *(v3.13.0)* — reusable, named sets of watched
+**Drift profiles** — reusable, named sets of watched
 files, managed from the **Drift** page (the *Drift profiles* panel:
 create, edit, delete). Assign a profile to a **host**, **tag**, or
 **group** and every matching host monitors that set — no need to edit
@@ -57,7 +62,7 @@ Resolution precedence for a host's watched list:
 2. an **assigned profile** — host assignment, then tag, then group;
 3. the **global default** above.
 
-Endpoints: `GET`/`POST /api/drift/profiles`,
+You can create up to 100 profiles, and profile names are unique. Endpoints: `GET`/`POST /api/drift/profiles`,
 `PUT`/`DELETE /api/drift/profiles/<id>`, and `POST /api/drift/assign`
 (`{scope_type: device|tag|group, scope_value, profile_id}`; a null
 `profile_id` clears the assignment). Profiles and assignments live
@@ -69,7 +74,7 @@ resolved — `device-override`, `profile:<device|tag|group>` (with the
 profile name), `default`, or `disabled` — so it's never a mystery
 which rule won.
 
-### What an entry can be *(v7.4.1)*
+### What an entry can be
 
 One entry per line, in the host drawer, in a drift profile or in a host
 profile:
@@ -99,7 +104,7 @@ lists then is its baseline. After that:
 If a folder holds more files than the agent will look at (200 in all), the
 agent says it stopped looking and nothing is read as removed.
 
-### Adding to the default instead of replacing it *(v7.4.1)*
+### Adding to the default instead of replacing it
 
 A list without the markers below replaces the list it would otherwise get, as
 before. Two markers let a host's list, or a profile's list, build on it
@@ -131,13 +136,13 @@ dormant. Only a file that was there and left does.
 
 1. On every poll, the server hands the agent the current
    watched-files list in the heartbeat response.
-2. Every few polls (`DRIFT_EVERY` in the agent), the agent walks
-   the list and computes:
+2. About once an hour (every 60 polls at the default interval), and at once when a watched
+   file's size or modification time has changed, the agent walks the list and computes:
    - SHA-256 of the file content
    - File size
    - mtime
    - existence flag (some watched files are conditional)
-   A folder or pattern entry is expanded first. Each file it finds is
+   A file over 5 MB is not hashed. A folder or pattern entry is expanded first. Each file it finds is
    reported with `via`, the entry it came from, and the entries the agent
    expanded are listed in `drift_patterns`.
 3. Submits this report as the `drift` field in the next heartbeat.
@@ -229,59 +234,34 @@ GET    /api/drift                          — fleet-wide overview
 GET    /api/devices/<id>/drift             — full drift state for one host
 POST   /api/devices/<id>/drift/baseline    — accept current as new baseline
                                               body: {paths: [...]} or {all: true}
+POST   /api/devices/<id>/drift/fetch_content — queue a read of a watched file's current text
+                                              (for Show diff; denied for secret files)
 DELETE /api/devices/<id>/drift             — wipe drift state (re-bootstrap)
 ```
 
 All require authentication. Baseline-acceptance is audit-logged.
 
-## Storage
+## Watching Compose files
 
-`data/drift_state.json`, one entry per host:
+Tick **Settings → Security → Compose drift watch** and every `docker-compose.yml` the agent finds on a
+host is added to that host's watch list, up to 80 files in all. It is off by default, and it adds to
+the list you chose and never replaces it.
 
-```json
-{
-  "WKFB...": {
-    "files": {
-      "/etc/ssh/sshd_config": {
-        "current_hash":    "sha256:...",
-        "current_size":    3024,
-        "current_mtime":   1700000000,
-        "baseline_hash":   "sha256:...",
-        "baseline_size":   3024,
-        "baseline_set_at": 1700000000,
-        "baseline_set_by": "admin",
-        "first_seen":      1700000000,
-        "last_check":      1700000000,
-        "drift_count":     0,
-        "exists":          true,
-        "history": [
-          {"ts": 1700000000, "hash": "sha256:...", "size": 3024, "exists": true}
-        ]
-      }
-    }
-  }
-}
-```
+## What is stored
 
-Per-file history capped at the last 20 changes.
-
-For files found through a folder or pattern, the record also has `via` (the
-entry), and an added file has `"added": true` until you accept it as the
-baseline. Each host has a `patterns` map of the entries the agent has
-expanded. A record also has `ever_present`, which says whether the file has
-ever been seen on the host.
+For each file the server keeps its current and baseline hash, size and modification time, when the
+baseline was set and by whom, the drift count, and the last 20 changes. For a file found through a
+folder or pattern it also keeps the entry it came from, and an added file stays marked *Added* until
+you accept it as the baseline. It keeps whether the file has ever been present on the host, so a file
+that was never there raises no *removed* alert.
 
 ## Agent requirements
 
-Folders and patterns need **agent v7.4.1+** (Linux, Windows and macOS). An
+Folders and patterns need **agent 7.4.1 or later** (Linux, Windows and macOS). An
 older agent would read `/etc/apt/sources.list.d/*` as the name of one file, so
 it is sent the plain entries of the list only and ignores the rest.
 
-Drift reporting needs **agent v2.2.0+**. Older agents simply don't
-send the `drift` field; the host shows up as "no data" on the
-Drift page until the agent is upgraded.
-
-To check your agent versions: Hosts page, the OS column shows
-"agent vX.Y.Z" for each agent-managed host. The standard agent
-update flow (Hosts page → Force-upgrade agent) works for the
-drift upgrade just like any other agent release.
+An agent that does not report drift at all shows "no data" on the Drift page until you update
+it. To find old agents, filter **Fleet → Query** by **Agent version contains**. Update one from
+the host's drawer (**Update agent**, or **Force-upgrade** to push the bundled agent whatever version
+it reports).

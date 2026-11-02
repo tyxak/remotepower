@@ -30,17 +30,24 @@ POST /api/syslog/in/{token}
 ```
 
 The token is an **inbound-webhook token of kind `syslog`**, created under
-**Settings → Integrations → Inbound webhooks** and pinned to one host. The
-token's scope decides which host the lines attach to — the URL carries no
-host id. The body is either `{"lines": ["…", "…"]}` or a bare JSON array of
-lines; up to 200 lines per POST. Each line's RFC 3164 / RFC 5424 `<PRI>`
-prefix is parsed for severity (emerg…debug); a line with no valid `<PRI>` is
-kept whole at severity *info*.
+**Settings → Integrations → Inbound webhooks & syslog → Tokens** and pinned to
+one host. The token's scope decides which host the lines attach to, so the URL
+carries no host id. The body can be:
 
-This path suits anything that can make an authenticated HTTPS request —
-rsyslog `omhttp`, fluent-bit, Vector, or a one-off shipper.
+- JSON: `{"lines": ["…", "…"]}`, or a bare JSON array of lines,
+- plain text (any other content type): one line per row, up to 256 KiB,
+- the JSON that CrowdSec's HTTP notification posts (each alert becomes one line,
+  see [firewall-sources.md](firewall-sources.md)).
 
-### 2. Native UDP listener (`remotepower-syslogd`) *(v6.3.0)*
+You can send up to 200 lines per POST. Each line's RFC 3164 / RFC 5424 `<PRI>`
+prefix is parsed for severity (emerg to debug), and a line with no valid `<PRI>`
+is kept whole at severity *info*. A wrong or disabled token gets 401, and a
+token that is not pinned to a host gets 400.
+
+This path suits anything that can make an authenticated HTTPS request: rsyslog
+`omhttp`, fluent-bit, Vector, or a one-off shipper.
+
+### 2. Native UDP listener (`remotepower-syslogd`)
 
 Most appliances only emit classic UDP syslog and can't add an auth header. The
 optional **`remotepower-syslogd`** sidecar listens for UDP datagrams, maps each
@@ -61,10 +68,18 @@ one request per datagram.
 
 #### Installing the listener
 
-The daemon is **optional and opt-in** — `install-server.sh` does *not* install
-it, so add it only on the server that will receive appliance syslog. It's a
-single self-contained Python script (standard library only, no extra deps) plus
-a systemd unit. From the release tarball or a source checkout:
+The receiver is **optional and off by default**, so a fresh install opens no
+extra port. Add it only on the server that will receive appliance syslog. It is a
+single self-contained Python script (standard library only) plus a systemd unit.
+
+The simplest way is to run the installer with the flag. It is safe to run again on
+an existing install, and it sets the unit's user to match your distribution:
+
+```
+sudo ./install-server.sh --with-syslogd
+```
+
+Or install the two files by hand, from the release tarball or a source checkout:
 
 ```
 # 1. Install the daemon and its unit
@@ -76,21 +91,27 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now remotepower-syslogd
 ```
 
-That's the whole install. The unit runs fully sandboxed under `DynamicUser`
-with read-only access to the data dir and no secrets of its own. *(The AUR
-`remotepower-server` package ships the same unit under `/usr/share/doc/` — copy
-it into `/etc/systemd/system/` the same way.)*
+The unit runs as the same user as the web app (`www-data` in the shipped file), with
+`ProtectSystem=strict` and read-only access to the data directory, because it reads
+the host and token lists through the same storage layer as the server. If your web
+user has another name (`nginx` on Fedora, `http` on Arch), change `User=` and
+`Group=` in the unit to match it before you start the service, or the daemon cannot
+read the data directory and drops every packet. The installer does this for you.
+*(The AUR `remotepower-server` package ships the same unit under `/usr/share/doc/`.
+Copy it into `/etc/systemd/system/` the same way.)*
 
 #### Before logs will be accepted — the two prerequisites
 
 A source is only accepted if **both** are true (this is the auth model — there is
 no header to forge), so set these up first:
 
-1. **A host record carrying the appliance's IP.** Add the appliance under
-   *Hosts → Add* as an [agentless host](agentless-devices.md) whose `ip`
-   field is the exact source address its datagrams come from.
+1. **A host record carrying the appliance's IP.** Add the appliance on
+   the Hosts page (**+ Agentless host**) as an
+   [agentless host](agentless-devices.md) whose `ip` field is the exact source
+   address its datagrams come from.
 2. **A syslog token pinned to that host.** Under *Settings → Integrations →
-   Inbound webhooks*, create a token of **kind `syslog`** scoped to the host.
+   Inbound webhooks & syslog*, create a token of **kind `syslog`** scoped to the
+   host.
    The daemon resolves source IP → host → token itself; the token never touches
    the appliance.
 
@@ -135,15 +156,15 @@ On FreeBSD (OPNsense, pfSense) `logger` takes different flags:
 logger -h <server-ip> -P 5514 -t remotepower-test "hello"
 ```
 
-Within a couple of seconds the line appears in that host's **Logs** tab (the
-log-watch buffer) and drives its log-alert rules. If nothing shows up, the
-journal names the reason — see *Checking it arrived* below, which lists each
-drop message and what to do about it.
+Within a couple of seconds the line appears on **Monitoring → Logs** (filter by that
+host and the `syslog` unit) and drives its log-alert rules. If nothing shows up, the
+journal names the reason. See *Checking it arrived* below, which lists each drop
+message and what to do about it.
 
 ## Pointing a client at it
 
 Below, `<server-ip>` is the host running `remotepower-syslogd` and `5514` is the
-listen port (use `514` if you moved it). Two rules apply to every client:
+listen port (use `514` if you moved it). These rules apply to every client:
 
 - **Send from the IP the host record carries.** The source address *is* the
   authentication, so a box with several interfaces must send from the one in the
@@ -261,8 +282,8 @@ journalctl -u remotepower-syslogd -f
 - `dropping syslog from unknown source <ip>: no enrolled host has this IP` →
   fix the host record's `ip`, or the sender's source address.
 - `dropping syslog from <ip>: the host IS enrolled but has no enabled syslog
-  ingest token` → create one under *Settings → Integrations → Inbound webhooks*
-  (kind `syslog`), scoped to that host.
+  ingest token` → create one under *Settings → Integrations → Inbound webhooks &
+  syslog* (kind `syslog`), scoped to that host.
 - Nothing at all in the journal → the datagrams aren't arriving. Check the
   server's firewall (`sudo ss -lun | grep 5514` should show the listener) and
   that the client is really using UDP.
@@ -274,7 +295,7 @@ archive. For long-term retention, keep shipping to a real log store alongside
 RemotePower (the two aren't mutually exclusive — an appliance can fan out to
 both).
 
-## A source that can never receive (v7.0.0)
+## A source that can never receive
 
 The receiver maps an incoming line to a token by the datagram's **source IP**,
 matched against the enrolled host's `ip` field — the sender is never
@@ -283,14 +304,15 @@ host has been deleted, or that is simply disabled, is dropped from the source
 map: nothing it is pointed at can ever arrive, however correctly the appliance
 is configured.
 
-Server Status used to count such a token as one of N working sources. It
-now names it and *why* — "1 of 2 sources wired to nothing · fw01 (no IP on
-the host, so the receiver cannot map its packets)" — and the receiver no
-longer reports itself healthy while one of its sources is wired to nothing. The
-fix is on the **host**: set its IP to the address the syslog packets come
-from. It also raises `ingest_source_unmappable` (cleared by
-`ingest_source_mapped`), per token. See the same table in [flow.md](flow.md#never-exported-is-usually-not-the-router),
-which shares this behaviour exactly.
+**Admin → Server Status** names such a token and says why, for example "1 of 2
+sources wired to nothing · fw01 (no IP on the host, so the receiver cannot map its
+packets)". The receiver does not report itself healthy while one of its sources is
+wired to nothing. The fix is on the **host**: set its IP to the address the syslog
+packets come from. RemotePower also raises `ingest_source_unmappable` for the token
+(cleared by `ingest_source_mapped`). A token you disabled yourself is not
+reported. The flow receiver behaves the same way, see
+[flow.md](flow.md#never-exported-is-usually-not-the-router).
+See [self-monitoring.md](self-monitoring.md) for the rest of that page.
 
 ## See also
 

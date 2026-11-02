@@ -124,7 +124,7 @@ either); the token travels in a custom `X-RP-Push-Token` header rather than
 the query string specifically so it doesn't land in nginx's default
 access-log line the way a query-string secret would.
 
-## Through a relay satellite *(v6.1.2)*
+## Through a relay satellite
 
 Agents behind a [relay satellite](satellites.md) get the push channel too.
 
@@ -159,7 +159,7 @@ URL, so it will use `ws://` there and `wss://` for an `https://` satellite or
 server. Older agents hard-coded `wss://` and could not connect to a
 plaintext satellite at all — upgrade the agent if you run that setup.
 
-## Deployment (v6.1.1) — backend, nginx, and self-update
+## Deployment: backend, nginx, and self-update
 
 Three things must line up for push to actually connect. All three only bite on
 an *installed* server (not the repo test tree), so verify them on the box:
@@ -191,8 +191,8 @@ an *installed* server (not the repo test tree), so verify them on the box:
 ## Operational notes
 
 - The daemon reads host/command state through the active storage backend
-  (v6.1.1) — flat JSON files under the JSON backend, or the DB under
-  Postgres/SQLite — read-only, sharing only the data directory with the app.
+  (flat JSON files under the JSON backend, or the DB under Postgres or
+  SQLite). It is read-only and shares only the data directory with the app.
 - Token rotation (or a brand-new enrollment) takes effect on the very next
   connection attempt — the daemon's host cache is keyed on the file's
   own mtime, not a time-based TTL, so there's no window where a just-

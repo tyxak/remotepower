@@ -1,31 +1,47 @@
 # Mitigation runners
 
-Diagnostic + AI suggestion + confirmed fix for active alerts. Click the **Investigate** button on a Needs Attention card (or **Fix** on an alert row) to open the guided remediation flow.
+Diagnostic, AI suggestion and a confirmed fix for an active alert. Open the guided
+flow from any of these:
+
+- the **Fix** button on a row in the Alerts inbox;
+- the **Investigate** button (the magnifier) on a Needs Attention card;
+- the **Fix** action on a row of the Problems page.
 
 ## Three-tab flow
 
-1. **Diagnostic** — server queues a hardcoded read-only command on the agent. Output streams back, live-polled every 2s.
-2. **AI Analysis** — when the diagnostic completes, AI runs automatically with a playbook-specific system prompt. Returns root cause (1-2 sentences) + one specific fix command wrapped in `BEGIN_FIX` / `END_FIX` markers.
-3. **Apply Fix** — choose pre-approved playbook fix, AI-suggested fix, or your own command. Safety classifier runs before execution.
+1. **1 · Diagnostic**: the server queues a read-only command on the agent. The
+   output comes back and the page polls it every 2 seconds.
+2. **2 · AI analysis**: when the diagnostic completes, the AI runs automatically
+   with a prompt written for that kind of alert. It returns a root cause (one or
+   two sentences) and one specific fix command wrapped in `BEGIN_FIX` /
+   `END_FIX` markers. **Re-run AI** asks again, and **Use this as fix command**
+   copies the suggestion to the next tab.
+3. **3 · Apply fix**: choose the pre-approved playbook fix, the AI-suggested fix,
+   or your own command. A safety check runs before anything is queued.
 
 ## Supported alert kinds
 
-Playbooks exist for 21 alert kinds: `patches`, `disk`, `drift`, `service_down`,
-`failed_units`, `reboot`, `brute_force`, `memory`, `swap`, `cpu`, `cve`,
-`container`, `av_posture`, `agent_version`, `os_eol`, `hardware`, `backup`,
-`ssh_key`, `new_port`, `agent_integrity`, and `log_alert`. A few examples:
+Playbooks exist for these alert kinds: `patches`, `disk`, `drift`,
+`service_down`, `failed_units`, `reboot`, `brute_force`, `memory`, `swap`, `cpu`,
+`cve`, `container`, `av_posture`, `agent_version`, `os_eol`, `hardware`,
+`backup`, `ssh_key`, `new_port`, `agent_integrity` and `log_alert`. A few
+examples:
 
 | Kind | Diagnostic | Pre-approved fix |
 |---|---|---|
-| `patches` | `apt list --upgradable` / `dnf check-update` / `pacman -Qu` + reboot flag + kernel | (use existing /upgrade endpoint) |
-| `disk` | `df -h`, top 20 dirs (`du --max-depth=2 /`), files >500MB, journal disk usage | (none — AI suggests) |
+| `patches` | `apt list --upgradable` / `dnf check-update` / `pacman -Qu` + reboot flag + kernel | (use the existing upgrade action) |
+| `disk` | `df -h`, top 20 dirs (`du --max-depth=2 /`), files >500MB, journal disk usage | (none, the AI suggests) |
 | `drift` | `/etc` git status, files modified in last 7 days | (none) |
 | `service_down` | `systemctl status` + last 100 journal lines for the unit | `systemctl restart <unit>` |
-| `failed_units` | `systemctl --failed` + recent journal lines for the failed units | (none — AI suggests) |
-| `reboot` | Reboot reason, packages requiring reboot, kernel mismatch | `reboot` (DANGEROUS — requires RUN confirmation) |
-| `brute_force` | Recent auth failures, top offending IPs, fail2ban status, active SSH sessions | (none — manual review) |
+| `failed_units` | `systemctl --failed` + recent journal lines for the failed units | (none, the AI suggests) |
+| `reboot` | Reboot reason, packages requiring reboot, kernel mismatch | `reboot` (sensitive, you must type `RUN`) |
+| `brute_force` | Recent auth failures, top offending IPs, fail2ban status, active SSH sessions | (none, manual review) |
 
-Diagnostics are **server-defined** — user input never flows into the shell. For `service_down`, the unit name comes from the attention item's `target` field but goes through a strict regex (`^[a-zA-Z0-9._@-]+$`) before template substitution. Shell metachars (`;`, backticks, `$()`, pipes, redirects, `..`, newlines) are rejected.
+Diagnostics are **server-defined**: user input never flows into the shell. For
+`service_down`, the unit name comes from the attention item's `target` field but
+goes through a strict regex (`^[a-zA-Z0-9._@-]+$`) before template substitution.
+Shell metacharacters (`;`, backticks, `$()`, pipes, redirects, `..`, newlines)
+are rejected.
 
 ## Safety model
 
@@ -33,9 +49,10 @@ Two tiers of friction between an AI suggestion and the agent's shell.
 
 ### Hard denylist (refused outright)
 
-The server refuses to queue any command matching these patterns. The operator can still copy and paste manually if they really insist, but RemotePower will not run them.
+The server refuses to queue any command matching these patterns. You can still
+copy and paste one by hand if you really insist, but RemotePower will not run it.
 
-- `rm -rf /` (root only — `rm -rf /tmp/foo` passes through)
+- `rm -rf /` (root only: `rm -rf /tmp/foo` passes through)
 - `dd of=/dev/{sd,nvme,xvd,vd,hd}*`
 - `mkfs.*`
 - `shred /dev/...`
@@ -47,7 +64,8 @@ The server refuses to queue any command matching these patterns. The operator ca
 
 ### Sensitive (requires typing `RUN`)
 
-Allowed but the operator must type `RUN` in the confirmation box before exec. This applies to anything not in the playbook's pre-approved fix slot, plus:
+Allowed, but you must type `RUN` in the confirmation box before the command goes
+out. This applies to anything that is not the playbook's pre-approved fix, plus:
 
 - `reboot`, `shutdown`, `halt`, `poweroff`
 - `kill -9`, `pkill -9`
@@ -57,33 +75,82 @@ Allowed but the operator must type `RUN` in the confirmation box before exec. Th
 - `apt-get purge|remove`, `dnf remove`, `pacman -R*`
 - `curl... | bash` / `wget... | sh`
 
-The client mirrors the server's classifier as a UI preview, but the **server is authoritative**. Bypassing the client check just gets you a 400 with `{"error": "confirmation required"}`.
+The page mirrors the server's classifier as a preview, but the **server is
+authoritative**. Bypassing the page check just gets you a 400 with
+`{"error": "confirmation required"}`. A command can be at most 2,000 characters.
+
+## Who can use it, and where the command goes
+
+- Running a diagnostic or a fix needs the **mitigate** permission on the host
+  (admins have it). A viewer, an `mcp` key and a custom role without it are
+  refused.
+- Asking for the AI analysis needs a role that can write. Reading the captured
+  output only needs a sign-in and access to the host.
+- A fix is checked against the host's own command allowlist too, the same as any
+  command you queue by hand.
+- The command goes through the normal command queue. Server maintenance mode,
+  host quarantine, audit mode, the per-host queue limit and change approval
+  (**Settings → Security**) all apply. If a second admin has to approve the fix,
+  the dialog says so and the command waits on the Confirmations page.
+
+## Did the fix work?
+
+When you start a fix from an alert, RemotePower remembers which alert it was for.
+About five minutes later it checks whether that alert has closed and records the
+answer with the run. A fix that worked is kept as precedent, which
+[Autonomy](autonomy.md) can use as evidence when it decides what to do about the
+same problem. Logs and run records older than 30 days are deleted.
 
 ## AI customisation
 
-Per-category prompt keys in **Settings → AI assistant Assistant** — one per playbook
-category (`mitigate_cpu`, `mitigate_memory`, `mitigate_disk`,
+Per-category prompt keys in **Settings → AI assistant → Prompt customization**,
+one per playbook category (`mitigate_cpu`, `mitigate_memory`, `mitigate_disk`,
 `mitigate_service`, `mitigate_patches`, `mitigate_failed_units`,
 `mitigate_cve`, `mitigate_container`, `mitigate_av`, `mitigate_agent_version`,
 `mitigate_os_eol`, `mitigate_hardware`, `mitigate_backup`, `mitigate_ssh_key`,
 `mitigate_new_port`, `mitigate_agent_integrity`, `mitigate_log`).
 
-Each ships with a conservative default prompt that instructs the model to propose exactly one shell command, marked between `BEGIN_FIX` / `END_FIX`, and to never propose destructive operations without flagging them. Edit per-key as needed for your model (e.g. terser for small local models, more cautious for less-tuned ones).
+Each ships with a conservative default prompt that tells the model to propose
+exactly one shell command, marked between `BEGIN_FIX` / `END_FIX`, and to never
+propose destructive operations without flagging them. Edit per key as needed for
+your model (for example terser for small local models, more cautious for
+less-tuned ones). Clearing a field goes back to the default.
 
-Per-key inference parameters (temperature, top_p, max_tokens, num_ctx and reasoning effort) live under the same Settings page, in **Prompt customization**, under each prompt's **Fine-tuning**. They apply to the Mitigate prompts since 7.4.1; before that these prompts ignored them.
+Per-key inference parameters (temperature, top_p, max_tokens, num_ctx and
+reasoning effort) live on the same page, under each prompt's **Fine-tuning**.
+
+### What the AI step sends
+
+The AI analysis sends the captured diagnostic output (up to 32 KB) to your AI provider after the same redaction as every other
+AI request. Bearer tokens, cloud access keys and long hexadecimal strings are always removed. Addresses and host names are
+replaced by `<IP>` and `<HOST>` unless you allowed them under **Settings → AI assistant → Privacy**. The redaction works on
+patterns and is best effort, so a secret that does not look like one of those patterns can still be in the output. If the
+output must not leave your network, use a local model (Ollama or LocalAI) as the provider. See [AI assistant](ai.md).
 
 ## Storage
 
-- Action logs: `/var/lib/remotepower/mitigate_logs/<safe_did>__<action_id>.log` (256 KB cap)
-- Meta sidecars: `<safe_did>__<action_id>.meta.json` with `kind`, `target`, `phase` (`investigate`/`fix`), `destructive`, `queued_at`, `actor`, and on completion `rc` + `done_at`. AI summary persisted as `ai_summary` + `ai_suggested_fix` so re-opening the modal doesn't re-burn tokens.
+- Action logs: `mitigate_logs/<host id>__<action id>.log` in the data directory
+  (256 KB cap).
+- Meta sidecars: `<host id>__<action id>.meta.json` with `kind`, `target`, `phase`
+  (`investigate` or `fix`), `destructive`, `queued_at`, `actor`, the alert it was
+  for, and on completion `rc` and `done_at`. The AI summary is kept as
+  `ai_summary` and `ai_suggested_fix`, so reopening the dialog doesn't spend
+  tokens again.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/mitigate/<dev_id>/investigate` | Queue diagnostic; body `{kind, target}` |
-| POST | `/api/mitigate/<dev_id>/fix` | Queue fix; body `{kind, target, command, confirmation}` |
-| GET | `/api/mitigate/<dev_id>/status/<action_id>` | Poll captured output + meta |
-| POST | `/api/mitigate/<dev_id>/ai/<action_id>` | Trigger AI analysis on captured output |
+| POST | `/api/mitigate/<dev_id>/investigate` | Queue the diagnostic; body `{kind, target, alert_id?}` |
+| POST | `/api/mitigate/<dev_id>/fix` | Queue a fix; body `{kind, target, command, confirmation, alert_id?}` |
+| GET | `/api/mitigate/<dev_id>/status/<action_id>` | Poll the captured output and meta |
+| POST | `/api/mitigate/<dev_id>/ai/<action_id>` | Run the AI analysis on the captured output |
 
-All audit-logged as `mitigate_investigate` / `mitigate_fix` with action_id and target.
+All audit-logged as `mitigate_investigate` / `mitigate_fix` with the action id
+and target.
+
+## See also
+
+- [AI assistant](ai.md): providers, privacy and prompts.
+- [Needs Attention](attention.md) and [Alerts](alerts.md): where the buttons live.
+- [Autonomy](autonomy.md): acting on recurring problems without a click.

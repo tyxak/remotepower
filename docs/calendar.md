@@ -6,10 +6,16 @@ everyone to remember.
 
 ## How it works
 
-- Events are shared across all users of the instance — one team calendar, not a
-  per-user view.
-- Add an event with a title, date/time and optional notes; it shows on the month
-  grid for everyone.
+- Events are shared across all users of the instance: one team calendar, not a
+  per-user view. A calendar holds up to 1,000 events.
+- Add an event with a title (up to 120 characters), a start and optional end, a
+  description (up to 2,000 characters), an **all-day** flag, a colour (blue, green,
+  amber, red, purple, teal or slate) and a repeat (none, daily, weekly, monthly or
+  yearly). It shows on the month grid for everyone, and the next ones appear in the
+  dashboard's **Upcoming** widget.
+- **Export** the calendar as an iCalendar feed (`GET /api/calendar.ics`) to subscribe
+  from a phone or desktop calendar. An admin can **import** events from an `.ics`
+  file (`POST /api/calendar/import`).
 - Use it as a human-readable record alongside the automated systems: note *when*
   a planned change is happening so it lines up with the relevant
   [maintenance window](maintenance.md).
@@ -26,5 +32,7 @@ For things that actually fire:
 
 ## Permissions
 
-Any signed-in operator can add and edit shared calendar events; changes are
-visible to the whole team.
+Everyone signed in can read the calendar and export it. Adding, editing and deleting
+events needs a role that can change things, so read-only roles (viewer, auditor,
+finance) cannot. Importing is admin-only. Changes are visible to the whole team and
+are audit-logged.

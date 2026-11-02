@@ -13,12 +13,14 @@ not the ticket system is enabled.
 
 | Field | Notes |
 | --- | --- |
-| **Name** | Required. |
+| **Name** | Required, up to 120 characters. |
 | **Role** | e.g. *Network admin*, *On-call*, *Vendor support*. |
 | **Company / team** | The organisation or internal team. |
 | **Email** | Click to start a message. |
 | **Phone** | Click to dial on a device that supports `tel:` links. |
-| **Notes** | Anything else worth remembering. |
+| **Notes** | Anything else worth remembering, up to 2,000 characters. |
+
+The directory holds up to 2,000 contacts.
 
 ## Using it
 

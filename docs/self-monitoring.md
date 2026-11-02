@@ -1,165 +1,290 @@
 # Server Status — RemotePower watching itself
 
-> **On the box itself**, the [`rp`](cli.md) command is the terminal counterpart of
-> this page: `rp status` (or the live `rp tui`) shows every stack component, and
-> `rp doctor` runs a full health check with fixes. The page below is the in-browser
-> view of the same picture.
+> **On the machine itself**, the [`rp`](cli.md) command is the terminal
+> counterpart of this page: `rp status` (or the live `rp tui`) shows every stack
+> component, and `rp doctor` checks the whole stack and exits non-zero on a
+> failure. This page is the in-browser view of the same picture.
 
-The Server Status page (`/api/self/status`) closes the "who monitors the monitor" gap. Without it, you only know the fleet is healthy because RemotePower says so — but if the RemotePower server itself starts misbehaving, you find out the slow way.
+**Admin → Server Status** closes the "who monitors the monitor" gap. Without it
+you only know the fleet is healthy because RemotePower says so. If the server
+itself starts misbehaving, you would find out the slow way.
 
-## What's reported
+Any signed-in user can open the page and read the status. Running a backup, the
+diagnostics, the maintenance-sweep list, the browser-error list and the
+detection self-test need an admin.
 
-**Process** — server version, PID, resident memory (RSS).
+## The toolbar
 
-**Hosts** — monitored count, current offline count, freshest and oldest heartbeat ages, configured online TTL.
+| Button | What it does |
+|---|---|
+| **Refresh** | Reloads every card. |
+| **Run backup now** | Takes a snapshot backup of the data directory immediately (see [Backup scheduling](#backup-scheduling)). |
+| **Diagnostics bundle** | Downloads one JSON support file: versions, storage backend, fleet counts, recurring-job staleness, audit chain status and which optional libraries are installed. Secrets are removed. Attach it to a support request. |
+| **Run diagnostics** | A quick green/red check of storage, config, disk headroom, the audit chain, agent reachability, the AI key (informational), the observed uptime and the maintenance scheduler. |
+| **Clear backup archives** | Deletes every backup archive (encrypted or not) and resets the backup state. It cannot be undone. |
 
-**Webhook delivery** — success rate over the last 24h and 7d, total entries logged. Drops below 95% usually mean a destination is rejecting your payloads (rate limit, invalid format, dead URL) and the operator needs to investigate.
+## What the page shows
 
-**Disk** — RemotePower's data dir total bytes, filesystem-level used/free, and the top 20 files >100KB (collapsible). Useful when a runaway log fills disk; the page tells you which file grew. A **disk watchdog** (v5.0.0) also raises a `server_disk_low` alert when the controller's free space crosses a configurable threshold, before flock writes start failing, and clears it with `server_disk_ok`.
+Top to bottom:
 
-**Audit log** — active entry count, configured retention in days, archive size if any entries have been evicted.
+**Control-plane readiness.** One row per part of RemotePower itself that can fail
+without paging anyone: storage, the request tier, the maintenance scheduler, the
+maintenance sweeps, the recurring jobs, backup and disaster recovery, and each
+optional sidecar. Rows with a problem sort first, and the header counts them:
+*"N subsystems · N degraded · N needing a look"*. See [Readiness and muting a
+row](#readiness-and-muting-a-row).
 
-**Backup** — last run timestamp + age, file path, size, retention setting, last-prune count. Empty section until the first backup runs. v5.0.0 adds an **encryption** row (AES-256-GCM armed or plaintext, whether the crypto library is present) and **archive counts** (encrypted vs plaintext), plus an **"Encrypt existing backups"** button that converts the plaintext archives on disk with a passphrase you supply for that run only (it's never stored). For ongoing scheduled backups, set `RP_BACKUP_PASSPHRASE` in the server environment — put it in `/etc/remotepower/api.env` (root-owned `0600`), which the `remotepower-wsgi` app-server unit loads via `EnvironmentFile=`. Don't add it as an inline `Environment=` line in the unit: the deploy/update scripts overwrite the unit file, so an inline edit is wiped on the next redeploy.
+**Serving & runtime.** What is really serving this install: the storage backend
+(PostgreSQL, SQLite or JSON files), the request tier (WSGI with gunicorn), the
+out-of-band scheduler (running, configured but silent, or off) and whether
+maintenance runs inside each request or in the scheduler. See
+[scaling.md](scaling.md) to change any of it.
 
-**Maintenance mode** (v5.0.0) — when on, new command dispatch is paused (heartbeats and browsing keep working). Surfaced as a banner; toggled under Settings → Advanced.
+**Distributed subsystems.** Relay satellites and scan workers (online of total),
+the agent push daemon, the SSH gateway, and the syslog, flow and KMIP sidecars.
+The same rows as in the readiness table.
 
-**Webhook dead-letter queue** (v5.0.0) — permanently-failed webhook deliveries are parked here for retry/replay (Settings → Notifications → Webhook log). See [webhooks.md](webhooks.md).
+**Restart the stack.** The exact `systemctl restart` command for the units that
+are running here, with a copy button. RemotePower runs as an unprivileged
+service, so a restart needs root on the host. Installs that set up the
+privileged helper can also restart from **Settings → Install → Restart server**,
+and the card says why when that is unavailable.
 
-**Fleet events** — current rolling file size, archive size.
+**Site health.** A **healthy** pill, or the number of warnings with a **View N
+reasons** link. It shows the server version and when it last
+changed (with the last few upgrades), load average, memory, the worker's memory
+use, active sessions, the share of hosts online and the process ID. A warning is
+raised for:
 
-**Client-side JS errors** (v6.4.0) — the browser error beacon
-(`window.onerror` / `unhandledrejection`, collected since v5.4.1) is rendered
-as a card on this page: uncaught frontend errors from operators' sessions,
-deduped-by-occurrence in a capped ring, newest first, with source file/line,
-the page they fired on and the reporting IP. Admin-only (`GET
-/api/client-error`), with a **Clear** action (`DELETE /api/client-error`) —
-after a fix ships, the list staying empty is the verification.
+- load: the 5-minute load average above the core count times a ratio (default 2),
+- memory use above 90%,
+- fewer than 80% of hosts online,
+- a webhook success rate under 90% in the last 24 hours.
 
-**Detection self-test** (v6.3.1) — a read-only card verifying the
-detection → routing → delivery chain is intact for every alertable event type
-(muted-everywhere kinds, test mode left on, webhook-routed kinds with no
-destination, recover events that can never close their alert). It fires
-nothing; see [detection-selftest.md](detection-selftest.md).
+You can change the first three under **Settings → Alert parameters →
+RemotePower self-health**.
 
-**Optional sidecars** — rows for the ingest and key-custody daemons, each
-reported **only when that sidecar is enabled** (a receiver you don't run is not
-a fault):
+**Hosts.** Monitored count, hosts offline now, the freshest and oldest
+heartbeat, and the configured online TTL.
+
+**Webhook delivery — outbound.** Success rate over 24 hours and 7 days, and the
+number of log entries kept (up to 500). Skipped events (disabled, suppressed by a
+maintenance window or filtered) do not count as failures. A rate under 95% usually
+means a destination is rejecting your payloads (rate limit, bad format, dead
+URL). The failed deliveries are under **Settings → Notifications**, see
+[webhooks.md](webhooks.md).
+
+**Inbound webhooks & syslog.** The same rates for what arrives, split by kind.
+
+**Disk.** The data directory's size, how full its filesystem is, and the largest
+files over 100 KB (collapsed). When a runaway log fills the disk, this shows which
+file grew. A **disk watchdog** raises `server_disk_low` when the filesystem
+reaches a used-space threshold, before writes start failing. It checks every 30
+minutes and clears with `server_disk_ok` once usage is 3 points below the
+threshold. The threshold is **Settings → Alert parameters → Hardware & power →
+Server disk (used %)**, default 85, and 0 turns it off.
+
+**Audit log.** Active entries, the retention in days and the archive size if
+entries have been moved out.
+
+**Backup.** Whether archives are encrypted, how many are encrypted or plaintext,
+and when the last run was, with the file, size, what the archive carries,
+retention and the last prune. If you set targets under **Settings → Backups**,
+you also see the RPO (maximum time between backups) as met or breached, and the
+RTO (restore-time target) with the result of the last test restore. Buttons:
+**Encrypt existing backups** (appears when plaintext archives exist) and
+**Verify restorability now**. The page shows the setup steps for encryption if it
+is off. See [Backup scheduling](#backup-scheduling) and [backups.md](backups.md).
+
+**Recurring jobs.** KEV and EPSS refresh, monitors and scheduled scans, each
+with its last run. A job is *stale* when it last ran more than three times its
+interval ago, which usually means it is wedged.
+
+**Slow requests.** The newest requests slower than the threshold (default 1500 ms),
+so you can see which endpoint is slow on your real fleet. The card is hidden
+until there is one. Set `slow_handler_ms` through `POST /api/config` to change
+the threshold.
+
+**Fleet events.** Size of the event log and its archive.
+
+**Internal health — maintenance sweeps.** Every background sweep (offline
+detection, monitors, integrations, DMARC and ticket mailboxes, ticket SLA,
+backups, rollouts and more) with its last good run, error count and last error. The
+sweeps run behind a catch-all so one failing sweep cannot stop the rest, which
+used to make a sweep that quietly stopped invisible. A red **FAILING** row means
+its last run ended in an error. Recent internal errors are listed underneath.
+(`GET /api/self/observability`, admin only.)
+
+**Client-side JS errors.** Uncaught errors from operators' browser sessions,
+grouped by message, source file and line, with a count, the page they fired on
+and the reporting address. The list keeps the newest 200. It is admin only, and
+**Clear** empties it. After a fix ships, an empty list is the proof.
+
+**Detection self-test.** A read-only check that every alertable event type
+reaches a person: it flags types muted on every channel, test mode left on,
+webhook-only types with no destination, and recover events that can never close
+their alert. It sends nothing. See [detection-selftest.md](detection-selftest.md).
+
+## Optional sidecars
+
+The ingest and key-custody daemons get a row only when they are in use. A
+receiver you do not run is not a fault.
 
 | Row | What it tells you |
 |---|---|
-| **Agent push** | Whether the channel is on, its port, and whether the daemon actually answers on loopback — see [push.md](push.md) |
-| **Syslog** | Mapped sources, last ingest time, and the `remotepower-syslogd` unit state — see [syslog.md](syslog.md) |
-| **Flow** | Reporting exporters, last ingest time, and the `remotepower-flowd` unit state — see [flow.md](flow.md) |
-| **KMIP** | Live clients, stored keys, last sidecar check-in, the `remotepower-kmipd` unit state, and the **soonest PKI expiry** across the CA and every live client certificate — see [kmip.md](kmip.md) |
+| **Agent push daemon** | Whether the channel is on, its port, and whether it answers on loopback. See [push.md](push.md). |
+| **SSH Gateway** | Whether the module is on, its ports, and how many opted-in hosts are connected. See [sshgw.md](sshgw.md). |
+| **Syslog receiver** | Mapped sources, last intake and the unit state. See [syslog.md](syslog.md). |
+| **Flow receiver** | Exporters, last export and the unit state. See [flow.md](flow.md). |
+| **KMIP key server** | Clients, stored keys, the unit state and the **soonest certificate expiry** across the CA and every live client certificate. See [kmip.md](kmip.md). |
 
-Since v6.4.2 an enabled sidecar that **stops** also raises `sidecar_down` (and
-its `sidecar_recovered` clear). It is conservative: it only speaks
-when systemd is present *and* reports a definite dead state (`inactive` /
-`failed`), so a sidecar legitimately running on a different host and POSTing over
-the network still says nothing — the enablement check is the gate, not the unit
-probe. The reason it is no longer purely informational is KMIP: an informational
-row on a page nobody has open during an outage is not a control, and when the key
-server dies every appliance storing its volume keys there fails to unlock on its
-next reboot.
+A row names what it is talking about. A flow receiver with three exporters where
+one has gone quiet reports that exporter by label and how long it has been silent.
+Both receivers match a packet to its token by the **sender's source IP** against
+the IP of the enrolled host, so a token whose host has no IP, or is gone, can never
+receive anything. The row says so instead of blaming the router. The name list is
+capped, with a `+N more` tail. The receiver rows link to **Settings →
+Integrations → Inbound webhooks & syslog → Tokens**.
 
-The KMIP expiry number is there because an expired client certificate silently
-ends that appliance's key access, and encrypted volumes then fail to mount
-after its next reboot. It also **alerts** — `kmip_cert_expiring` (and its
-`kmip_cert_renewed` recovery) fires from a six-hourly sweep, routed through the
-existing certificate-files channel. These certificates are server-side, with no
-agent to report them, so they needed their own sweep rather than riding the
-agent's cert-file check. Revoked clients are ignored: they cannot fetch keys
-anyway.
+## Alerts about RemotePower itself
 
-## Where the data lives
+Most of this page is information. These conditions also raise alerts:
 
-| Section | Source |
+| Event | When |
 |---|---|
-| Process | `os.getpid()`, `/proc/self/status` for RSS |
-| Hosts | `devices.json` |
-| Webhook delivery | `webhook_log.json` (last `MAX_WEBHOOK_LOG` entries, default 500) |
-| Disk | `DATA_DIR.iterdir()` + `os.statvfs()` |
-| Audit log | `audit_log.json`, `audit_log_archive.jsonl.gz` |
-| Backup | `self_backup_state.json` |
-| Fleet events | `fleet_events.json`, `fleet_events_archive.jsonl.gz` |
+| `server_disk_low`, `server_disk_ok` | The data directory's filesystem is fuller than the watchdog threshold, and the recovery. |
+| `sidecar_down`, `sidecar_recovered` | A sidecar you enabled (syslog, flow, KMIP) has stopped. It is checked every 5 minutes, and only when systemd is present and reports a definite `inactive` or `failed`. A sidecar running on another host stays silent. |
+| `ingest_source_unmappable`, `ingest_source_mapped` | A syslog or flow token is wired to a host that has no IP, or no longer exists. A token you disabled yourself is not reported. |
+| `kmip_cert_expiring`, `kmip_cert_renewed` | The KMIP CA or a live client certificate expires within the window in **Settings → Alert parameters → Certificates → Cert-file expiring** (default 21 days). Checked every 6 hours. Revoked clients are ignored. |
+| `restore_drill_failed`, `restore_drill_ok` | The scheduled restore drill failed, and the next pass. See [backups.md](backups.md). |
 
-All reads. No writes happen from this endpoint.
+A KMIP outage matters more than most. When the key server stops, every
+appliance that stores its volume keys there fails to unlock at its next reboot,
+and an expired client certificate ends that appliance's key access the same way.
+
+## Readiness and muting a row
+
+An amber row you have already decided about, such as an optional receiver you have
+not wired up, can be muted from the row itself. A muted row turns grey, keeps
+showing what it would have said, and stops counting toward *needing a look*. The
+header reports it separately as `N muted`, and **Unmute** puts it back.
+
+Mutes are an admin setting. They are stored in the server config, so they are the
+same for every operator. A mute for a row that no longer exists does nothing, so
+renaming a subsystem un-mutes it instead of silencing the wrong one.
+
+The reason: a tally that permanently reads "1 needing a look" for something nobody
+means to act on teaches people to ignore the number, which is when the row that
+does matter goes unread.
 
 ## External monitoring
 
-`GET /api/self/status` returns JSON. Auth: any logged-in user. Use it from Uptime Kuma / Grafana / Homepage for "is RemotePower healthy" checks. The shape is documented inline — fields are stable across patch releases. Suggested checks:
+`GET /api/self/status` returns JSON for any signed-in session or API key. Use it
+from Uptime Kuma, Grafana or Homepage for "is RemotePower healthy" checks. Useful
+fields:
 
-- `devices.offline` should equal 0 (or your tolerated count)
-- `webhooks.last_24h.rate` should be >0.95
-- `backup.last_run` should be within ~30 hours (allow slack for the 24h schedule + drift)
-- `data_dir.fs_free_bytes` shouldn't fall below a sensible threshold
+- `devices.offline` should be 0 (or the number you tolerate),
+- `webhooks.last_24h.rate` should be above 0.95,
+- `backup.last_run` should be within about 30 hours,
+- `data_dir.fs_free_bytes` should not fall below a threshold you pick,
+- `performance.health` is `ok` or `warn`, with the reasons in `performance.health_flags`.
 
-`/api/self/status` needs a normal session or API key — the **Settings → Advanced status token does not work here**; it authenticates a different, fleet-summary payload. If your monitoring system can't hold a session, point it at `GET /api/status?token=…` instead (a read-only fleet summary, not this self-status payload).
+The **status token** under **Settings → Integrations → Status endpoint** does not
+work here. It opens a different payload, the fleet summary at
+`GET /api/status?token=...`. Use that one if your monitoring tool cannot hold a
+session. See [status-board.md](status-board.md).
 
 ## Backup scheduling
 
-The daily backup runs from the server's maintenance cadence: the `self_backup_state.last_run` timestamp is checked on each tick and the backup runs if >24 h has elapsed. When the out-of-band `remotepower-scheduler` owns the cadence — the single-node default — that tick is the scheduler's; otherwise it is checked on each incoming request. (Before v6.1.2 this hung off the heartbeat handler and ran unconditionally on every beat.) A sentinel file (`.backup_in_progress`) prevents two concurrent runs; if it is >1 h old it's assumed crashed and gets cleared.
+The daily backup runs from the server's maintenance cadence. It checks the time of
+the last run on each tick and runs when more than 24 hours have passed. With the
+out-of-band `remotepower-scheduler` (the single-node default) that tick is the
+scheduler's. Otherwise it is checked on incoming requests. A marker file stops two
+runs from overlapping, and a marker older than one hour is treated as a crashed run
+and cleared.
 
-The "Run backup now" button on the page triggers `POST /api/self/backup-now` manually. Same code path as the scheduled run; bypasses the 24h gate.
+**Run backup now** starts the same job at once and skips the 24-hour wait.
 
-What's in the tarball: a gzipped tar of the entire `DATA_DIR`, excluding:
-- The backups directory itself (`backups/`)
-- In-flight `.tmp.*.<pid>.<nonce>` files from in-progress writes
-- Existing `.gz` archives (already compressed; re-compressing wastes time)
+An archive is a gzipped tar of the whole data directory under a top-level
+`remotepower/` folder. It leaves out:
 
-Owner/group are stripped (`uid=gid=0`, empty names) so restoring on a different host doesn't fail with "missing uid".
+- the backups folder itself,
+- the restore safety snapshots and the KMIP master key (which only travels in the
+  passphrase-protected KMIP recovery bundle),
+- in-flight temporary files and existing `.gz` archives,
+- on SQLite, the live database files. A consistent snapshot of the database goes
+  in instead.
 
-Retention defaults to 14 days. Older tarballs are pruned on each run. Change the path or retention in Settings → Advanced → Scheduled backup.
+On SQLite and PostgreSQL the archive also carries an export of every stored
+document, so one archive restores onto any backend. Owner and group are stripped, so
+restoring on another host does not fail with "missing uid". A file the server cannot
+read is skipped instead of failing the whole backup.
+
+Set the output folder, retention (default 14 days, older archives are pruned on each
+run), an off-host copy and the RPO and RTO targets under **Settings → Backups →
+Scheduled backup**. **Test restore (latest backup)** there, and **Verify
+restorability now** on this page, decrypt and unpack the newest archive and report
+how much state it carries. Nothing is written.
+
+To encrypt archives, set `RP_BACKUP_PASSPHRASE` in the server's environment. Put it
+in `/etc/remotepower/api.env` (owned by root, mode 0600), which the
+`remotepower-wsgi` unit loads. Do not add it as an `Environment=` line in the unit:
+the deploy and update scripts overwrite the unit file. `RP_BACKUP_PASSPHRASE_CMD`
+runs a command that prints the passphrase instead, for use with Vault or a KMS.
+**Encrypt existing backups** converts plaintext archives on disk with a passphrase
+you type for that run. It is never stored.
 
 ## Restoring from a backup
 
-**Settings → Advanced → Backup & restore → Restore** takes a backup file
-directly. It works on a freshly-installed host, which is the point: pick the
-archive off a USB stick and the server unpacks it in place, after taking a
-safety snapshot of whatever data is already there.
+**Settings → Backups → Backup & restore → Restore…** takes a backup file directly.
+It works on a freshly installed host, which is the point: pick the archive off a USB
+stick and the server unpacks it in place, after taking a safety snapshot of whatever
+data is already there. Restore is admin only and overwrites current data. On
+PostgreSQL and SQLite it imports the archive's stored documents instead of just
+unpacking files.
 
-An **encrypted** archive (`*.tar.gz.enc`) is offered by the file picker and
-prompts for its passphrase — the one that was in `RP_BACKUP_PASSPHRASE` on the
-server that *wrote* it. Leave the prompt blank to use the passphrase already
-configured on this server instead. (Before v6.4.2 the picker did not offer
-`.enc` at all and the passphrase never reached the server, so an encrypted
-archive could only be restored by hand.)
+An **encrypted** archive (`*.tar.gz.enc`) is offered by the file picker and asks for
+its passphrase: the one that was in `RP_BACKUP_PASSPHRASE` on the server that
+*wrote* it. Leave the prompt blank to use the passphrase already configured on this
+server.
 
-If you would rather do it by hand — or you cannot log in — the archives are
-ordinary tarballs:
+If you cannot log in, the archives are ordinary tarballs you can unpack yourself:
 
 ```bash
-# Stop the app server + nginx (we don't want writes during restore)
+# Stop the app server and nginx (no writes during the restore)
 systemctl stop remotepower-wsgi nginx
 
-# Back up the existing data dir (paranoid)
+# Keep the existing data directory
 mv /var/lib/remotepower /var/lib/remotepower.before-restore
 
 # Extract the snapshot. An encrypted archive (.enc) is NOT an openssl-format
-# file — it is AES-256-GCM with a PBKDF2 header written by backup_crypto.py.
-# Decrypt it with the module that wrote it (see the note below this block).
+# file: it is AES-256-GCM with a PBKDF2 header written by backup_crypto.py.
+# Decrypt it first with the module that wrote it (see the next section).
 mkdir -p /var/lib/remotepower
 cd /var/lib/remotepower
 tar -xzf /var/lib/remotepower.before-restore/backups/remotepower_data_YYYYMMDD_HHMMSS.tar.gz
-mv remotepower/* .  # tarball has a `remotepower/` top-level dir
+mv remotepower/* .  # the tarball has a `remotepower/` top-level folder
 rmdir remotepower
 
-# Reapply ownership
+# Reapply ownership to the service user (www-data on Debian and Ubuntu)
 chown -R www-data:www-data /var/lib/remotepower
 
-# Start back up
+# Start again
 systemctl start remotepower-wsgi nginx
 ```
 
+On a PostgreSQL install the state lives in the database, so unpacking files is not
+enough. Use the in-app **Restore…** instead.
+
 ### Decrypting a `.enc` archive by hand
 
-`*.tar.gz.enc` is **not** an `openssl enc` file — it is AES-256-GCM in a custom
-container (`RPBKENC1` magic, PBKDF2-SHA256 at 600k iterations, streamed in 64 KiB
+`*.tar.gz.enc` is **not** an `openssl enc` file. It is AES-256-GCM in a custom
+container (`RPBKENC1` magic, PBKDF2-SHA256 at 600,000 iterations, streamed in 64 KiB
 chunks so a multi-GB archive never loads whole). There is no `openssl` one-liner.
 Use the module that wrote it, which ships with the server:
 
 ```bash
-cd /var/www/remotepower/server/cgi-bin
+cd /var/www/remotepower/cgi-bin
 python3 -c "
 import backup_crypto, pathlib
 backup_crypto.decrypt_file(pathlib.Path('/path/to/backup.tar.gz.enc'),
@@ -167,58 +292,33 @@ backup_crypto.decrypt_file(pathlib.Path('/path/to/backup.tar.gz.enc'),
                            'YOUR-PASSPHRASE')"
 ```
 
-A wrong passphrase or a tampered file fails the GCM tag check and raises rather
-than producing garbage. The in-app restore does exactly this for you.
+A wrong passphrase or a tampered file fails the GCM tag check and raises an error
+instead of producing garbage. The in-app restore does exactly this for you.
 
-If the backup was created on a host with a different `RP_PROXMOX_TOKEN_SECRET` environment variable, re-set Settings → Virtualization → token secret. Same for SMTP / LDAP bind passwords if they were redacted (they always are in `config.json` exports).
+If the backup came from a host with a different `RP_PROXMOX_TOKEN_SECRET`
+environment variable, set the token secret again under **Settings →
+Virtualization**. The same goes for SMTP and LDAP bind passwords if they were
+redacted, which they always are in `config.json` exports.
 
-## Internal health — maintenance sweeps
+## Troubleshooting
 
-The Server-status page shows an **Internal health** card: every background
-maintenance sweep (offline detection, monitors, integrations, DMARC/IMAP,
-ticket SLA, backups, rollouts, …) with its **last successful run**, error count,
-and last error. The sweeps run inside a swallow-all wrapper so a single failing
-one can never take down the cadence — but that also meant a sweep that silently
-stopped, or started failing, used to be invisible until someone noticed a stale
-feature. Now a red **FAILING** row (its last outcome was an error) or a sweep
-that hasn't run OK in a long time is visible immediately, with a rolling list of
-recent internal errors underneath. Served by `GET /api/self/observability`
-(admin).
+- **"Configured — no heartbeat" for the scheduler.** The flag is set but no
+  scheduler process is reporting. Start it with `sudo systemctl enable --now
+  remotepower-scheduler`. Until then the maintenance sweeps may not run.
+- **A sweep shows FAILING.** Read its last error in **Internal health**. A failing
+  sweep takes its feature down without an alert, which is why the readiness table
+  counts it.
+- **"Last archive is hollow" on PostgreSQL.** The archive opened but carried no
+  stored documents, so a restore would give an empty install. Check the backup sweep
+  under Internal health for the export error, then run a backup again.
+- **A receiver says "Running — no sources mapped".** The daemon is up but its token
+  map is empty, so every packet is dropped. Enroll the host with a syslog or flow
+  token under **Settings → Integrations → Inbound webhooks & syslog**.
+- **The status token returns 401 on this page.** Use a session or an API key for
+  `/api/self/status`, see [External monitoring](#external-monitoring).
+- **Restart is not offered in the app.** The card says why: a hardened unit that
+  cannot gain privileges, or no helper installed. Use the command it shows, and see
+  [upgrading.md](upgrading.md).
 
-## Subsystem readiness — and muting a row (v7.0.0)
-
-The **readiness** table on the same page is one row per subsystem — storage,
-request tier, scheduler, sweeps, recurring jobs, backup/DR, and each optional
-sidecar (relay satellites, scan workers, push daemon, syslog and flow receivers,
-KMIP). It summarises as *"N subsystems · N degraded · N needing a look"*.
-
-Two things make that tally trustworthy rather than decorative:
-
-- **A row names what it is talking about.** A flow receiver with three enrolled
-  exporters where one has gone quiet reports the exporter *by label* and how
-  long it has been silent — "silent for over 3h: edge-rtr2 (never exported)" —
-  rather than a bare count that leaves you to work out which of three routers
-  it meant. The name list is capped, with a `+N more` tail on a large fleet.
-  Where the server can tell *why* from here it says so rather than guessing:
-  neither receiver is addressed by its token — both sidecars map a datagram to a
-  token by the sender's **source IP**, matched against the enrolled host's
-  `ip` — so a token whose host has no IP, whose host is gone, or that is
-  disabled can never receive anything, and is reported as wired to nothing
-  rather than as a quiet exporter. See [flow.md](flow.md) and
-  [syslog.md](syslog.md).
-- **Rows that raise a question link to the answer.** Both receiver rows link
-  straight to **Settings → Integrations → Inbound tokens**, where the exporters
-  and syslog sources that feed them are enrolled, renamed and revoked.
-
-**Muting a row.** An amber row you have already decided about — an optional
-receiver you have not wired up, say — can be muted from the row
-itself. A muted row turns grey, keeps showing what it would have said, and stops
-counting toward *needing a look*; the summary reports it separately as
-`N muted`. **Unmute** on the row puts it back. Mutes are an admin setting
-(stored as row keys in the server config, so they persist and are the same for
-every operator), and a mute for a row that no longer exists is inert — renaming
-a subsystem un-mutes it rather than silencing the wrong one.
-
-This exists because the alternative is worse: a tally that permanently reads
-"1 needing a look" for a reason nobody intends to act on trains operators to
-ignore the number, which is exactly when the row that *does* matter goes unread.
+See also: [cli.md](cli.md), [scaling.md](scaling.md), [backups.md](backups.md),
+[webhooks.md](webhooks.md), [alert-parameters.md](alert-parameters.md).

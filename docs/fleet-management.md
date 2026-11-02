@@ -11,9 +11,7 @@ Agents poll the server and compare their own binary's SHA-256 against the
 server's canonical hash; a mismatch in either direction triggers a download and
 restart. You don't push updates — you publish a new agent binary on the server
 (`deploy-server.sh`) and agents converge within ~1 hour. This works on **all
-three platforms** — the macOS agent gained real self-update in v6.3.0
-(previously it honestly reported "not implemented"); Windows has had it
-since v6.2.0.
+three platforms** (Linux, Windows and macOS).
 
 - **Force an update now, on the host:** `sudo remotepower-agent update`.
 - **Force from the server:** the upgrade/exec flow can queue an `update` command
@@ -52,7 +50,7 @@ tampered/compromised file server.
 
 ## Command queue (what's waiting for an agent)
 
-**Admin → Command Queue** shows every host with commands still waiting to be
+**Automation → Command Queue** shows every host with commands still waiting to be
 delivered on its next heartbeat — the type (exec / reboot / poll / compose /
 acme / …) and a readable summary. Handy when a host is offline and you want to
 see, or cancel, what's pending. You can cancel an individual queued command or
@@ -108,7 +106,7 @@ them when quarantine lifts.
 
 ## SLA targets
 
-On the **Reports → Uptime (SLA)** card you can set a target uptime % per host,
+On the **Business → Reports** page, in the **Uptime (SLA)** card you can set a target uptime % per host,
 tag, group, or a fleet default (most specific wins); each row shows whether it's
 met or breached. `GET`/`PUT /api/fleet/sla-targets`.
 

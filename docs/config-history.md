@@ -11,14 +11,20 @@ the most recent 10 and are stored with the same `0600` / backing-store
 protection as the live configuration itself, so nothing sensitive is exposed by
 keeping the history.
 
-- `GET /api/config/revisions` lists the saved revisions (who changed it and
-  when), newest last.
+- `GET /api/config/revisions` lists the saved revisions (who changed it, when, and
+  which keys changed, up to 50), newest first.
 - `POST /api/config/revisions/restore` swaps the live configuration for a picked
   revision. The state being replaced is itself saved as a new revision first, so
   a restore is always reversible — you can roll a rollback back.
 
 In the UI the history lives under **Settings → Advanced → Configuration
-history**: pick a revision to see what changed and restore it.
+history**. Each row shows when it was saved, who changed the configuration and which
+keys changed. **Restore** swaps the live configuration for that revision after you
+confirm, and the page reloads the new values.
+
+Reading the history and restoring from it are instance-admin actions. On an install
+with tenants, a tenant admin cannot do either, because the configuration belongs to
+the whole install.
 
 ## What's captured
 

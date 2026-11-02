@@ -1,9 +1,7 @@
 # Update history
 
-*Introduced in v1.10.0.*
-
-The Patches feature has been a one-way street since v1.7 — push an
-upgrade and hope. v1.10.0 captures the output and lets you read it.
+The Patches page used to be a one-way street: push an upgrade and hope. Update
+history captures the output of every upgrade and lets you read it afterwards.
 
 ---
 
@@ -42,12 +40,12 @@ for this release: it's much more code, and the actual use case
 not live tailing. If you need live tailing for a specific run, hit
 **Refresh** in the modal — it polls the same endpoint every time.
 
-**Larger output cap on the agent.** The agent's exec output cap was
-4 KB before v1.10.0 — fine for `systemctl status nginx`, useless for
-`apt -y upgrade` which routinely produces 30-80 KB. v1.10.0 detects
-upgrade commands by string match (`apt-get -y upgrade`, `dnf -y
-upgrade`, `pacman -Syu`) and bumps the cap to 256 KB for those
-specifically. The server independently caps at 256 KB so a
+**Larger output cap on the agent.** The agent keeps up to 32 KB of output for an
+ordinary command. That is plenty for `systemctl status nginx` but not for
+`apt -y upgrade`, which routinely produces 30-80 KB. The agent recognises upgrade
+commands by string match (`apt-get -y upgrade`, `dnf -y upgrade`, `dnf upgrade`,
+`pacman -Syu`) and raises the cap to 256 KB for those. ACME and mitigation runs get
+the same larger cap. The server independently caps at 256 KB so a
 misbehaving agent can't make `update_logs.json` unbounded.
 
 **Dual-routing on the server.** The output lands in both the
@@ -141,9 +139,9 @@ agent died before it could post. Check the agent's systemd journal:
 `journalctl -u remotepower-agent -e` on the host.
 
 **Old agents work?**
-Yes. Pre-v1.10.0 agents will truncate at 4 KB but still post the
-output, and the server will route it correctly. You'll just lose the
-tail of long upgrades until you upgrade the agent. The agent self-
+Yes. An agent that does not know the larger cap truncates long upgrade output
+(at 4 KB on the oldest agents) but still posts it, and the server routes it
+correctly. You lose the tail of long upgrades until you update the agent. The agent self-
 update path (`Agent update` in the dropdown) handles this.
 
 ---
@@ -171,7 +169,7 @@ Keyed by `device_id`. Each host gets a list capped at 10 entries
 (by default; tunable via `MAX_UPDATE_LOGS_PER_DEVICE` in `api.py`).
 Entries within the list are oldest-first. The file is created lazily
 on first heartbeat with upgrade output — there's no migration step
-when upgrading from v1.9.x.
+on upgrade.
 
 Safe to back up. Safe to delete (you'll just lose history; it'll
 repopulate from the next upgrade run).

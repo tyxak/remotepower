@@ -113,7 +113,7 @@ backend that can be shared across multiple app nodes (Step 4).
    online-safe and reversible (keep the JSON/SQLite files until you're happy) —
    the old backend stays active and writable for the whole copy, and up to 3
    automatic catch-up passes re-copy any file a live heartbeat wrote during
-   the migration before the marker flips *(v6.1.1)*.
+   the migration before the marker flips.
 
 > Sizing: the hot tables are `devices`, `entity`, `kv`, `listrow`, `file_meta`,
 > and the metric time-series `metric_samples`. For 1000 agents this is small
@@ -406,7 +406,7 @@ Limit: **200 tenants** per instance.
 
 ### Which tenant a new account lands in
 
-**Every account-creation path now stamps a tenant** *(v7.0.0)*. `POST /api/users`
+**Every account-creation path stamps a tenant**. `POST /api/users`
 and Admin → Users stamp the **creator's** tenant; SSO/SAML/SCIM/LDAP JIT
 provisioning stamps `sso_default_tenant` (see [sso.md](sso.md)).
 

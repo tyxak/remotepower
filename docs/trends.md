@@ -45,7 +45,7 @@ fleet health score, compliance score, and per-host resource history
   roll-up chart fetches the 5-minute tier; the daily samples are never the finer
   answer.
 
-## Metric explorer (v6.4.2)
+## Metric explorer
 
 The rest of this page answers questions about *one* host. The **Metric explorer**
 card at the bottom answers the cross-host ones — "which of these eight boxes ran

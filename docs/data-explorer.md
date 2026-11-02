@@ -1,16 +1,32 @@
 # Data Explorer
 
-Ask arbitrary questions of your fleet. Build a condition tree, run it, save it
-as a template, share it with your organisation.
+Ask arbitrary questions of your fleet. Pick what you want rows of, add conditions, run it, save it
+as a template and share it with your team. You find it under **Automation → Data Explorer**.
 
-It is **read-only**, and it is scoped to what you can already see — a query
+It is **read-only**, and it is scoped to what you can already see: a query
 cannot return a host your role or tenant would hide from you elsewhere.
 
-Not to be confused with **[Fleet Query](fleet-query.md)**, which is the quick
-one-line host filter in the toolbar. Data Explorer is the one with nested
-AND/OR conditions across ten entities.
+Not to be confused with **[Fleet Query](fleet-query.md)** (**Fleet → Query**), which is the quick
+host filter made of ready-made boxes. Data Explorer works on ten kinds of rows, not only hosts,
+and its API accepts nested AND/OR/NOT conditions.
+
+## Using the page
+
+1. Choose the **Entity** (see below).
+2. Click **Add condition**. Each condition is a field, an operator and a value. Use as many as you
+   need. The page joins them with AND. The operator **in** takes a comma-separated list, and **is
+   set** needs no value. A value that looks like a number is sent as a number.
+3. Optionally choose **Sort by** and a direction.
+4. Click **Run query**. The table shows the first rows and says how many matched.
+5. To keep the query, type a template name, tick **Shared with team** if you want that, and click
+   **Save as template**. Saved queries are listed on the page with **Run** and **Delete** buttons.
+
+The page builds a flat AND list because that covers most questions. For OR and NOT, call the API
+(see [API](#api)); the same engine runs both.
 
 ## The ten entities
+
+The page lists them by these names.
 
 | Entity | One row per | Use it for |
 |---|---|---|
@@ -103,6 +119,22 @@ nothing, which is what you want: a list of findings should not be padded with
 hosts that were never asked. To find the silent ones, use `not` + `exists`.
 
 ## The other entities' fields
+
+### `cves`
+
+`device_id`, `device_name`, `cve_id`, `severity`, `package`, `fixed_version`, `fix_status`,
+`ignored`.
+
+`fix_status` is `fixed`, `newer_release`, `none` or `unknown`, as explained in
+[cve.md](cve.md#fix-status). `ignored` is true for a finding you accepted as a risk. These rows
+are the stored scan results, so they are as fresh as the last CVE scan.
+
+### `drift`
+
+`device_id`, `device_name`, `path`, `drifted`, `exists`, `dormant`, `ignored`.
+
+`drifted` is true when the file's current hash differs from its baseline and the file is
+neither dormant nor ignored. `exists` is false when the file is gone. See [drift.md](drift.md).
 
 ### `packages`
 
@@ -197,16 +229,45 @@ the entity returns no rows.
 ## Saved queries
 
 Saved on the server, not in your browser. Private to your account by default,
-tenant-scoped, shareable with your organisation when you choose. Data Explorer,
-Fleet Query and Trends share the same store.
+tenant-scoped, shareable with your team when you choose. Data Explorer,
+Fleet Query and the metric explorer on Trends share one store, and each page lists
+only its own kind of query. You can delete your own saved queries, and an admin can delete any.
+
+## API
+
+`POST /api/query` runs one query:
+
+```json
+{"entity": "ports",
+ "where": {"and": [{"field": "port", "op": "eq", "value": 3306},
+                   {"field": "scope", "op": "eq", "value": "world"}]},
+ "sort": "device_name", "sort_desc": false, "limit": 500, "offset": 0}
+```
+
+The answer has `rows` and a `meta` object with `total` (rows that matched), `limit`, `offset` and
+`truncated`. `limit` defaults to 500 and is capped at 2,000. `truncated` is true when the scan of
+the entity hit its row cap (100,000 rows), so `total` counts what was scanned.
+
+- `GET /api/query/fields` returns the entities and their fields.
+- `POST /api/query/batch` runs up to 10 queries in one call. A bad query returns an `error` entry at
+  its position and does not stop the others.
+- `GET /api/query/templates` and `POST /api/query/templates` list and create saved queries.
+
+An unknown entity, field or operator returns HTTP 400 with the reason. See [api.md](api.md) for
+authentication.
 
 ## Limits
 
 A predicate is capped at 100 nodes and six levels of nesting. Both are cost
-guards — a wide shallow tree with thousands of leaves is as expensive as a deep
+guards: a wide shallow tree with thousands of leaves is as expensive as a deep
 one.
 
 There is no raw SQL. Every entity's rows are fetched through the
 same path every other page uses, so the tenant and role scoping that applies to
 your data elsewhere applies here without a second implementation to keep in
 step. See [scaling.md](scaling.md) for how that scoping works.
+
+## See also
+
+[fleet-query.md](fleet-query.md), [cve.md](cve.md), [drift.md](drift.md),
+[exposure.md](exposure.md), [sshgw.md](sshgw.md), [ip-intel.md](ip-intel.md).

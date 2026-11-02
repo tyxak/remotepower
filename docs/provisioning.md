@@ -1,14 +1,13 @@
 # Provisioning — infrastructure blueprints
 
-*(v5.6.0 "HeapMatters")*
-
-**Provisioning** (Admin → Provisioning) is an opt-in catalog of infrastructure
+**Provisioning** (**Automation → Provisioning**) is a catalog of infrastructure
 **blueprints** organised in a folder tree: Terraform, cloud-init, Ansible and
 iPXE templates. You fill in a blueprint's variables and either **render** it to
 copy/download, or — for Terraform — **run** it on the server.
 
-Enable it under **Settings → Advanced → Optional features → Provisioning**. The
-former standalone **Ansible** page now lives here as an *Ansible playbooks* card.
+The catalog and rendering are always available. Running Terraform on the server is
+a separate switch, described below. Ansible playbooks live here too, in an
+*Ansible playbooks* card.
 
 ## Blueprints
 
@@ -34,9 +33,10 @@ blueprints are returned **unchanged** on Render, because Terraform owns the
 
 ## Run Terraform (plan / apply / destroy)
 
-Terraform blueprints can be executed **server-side** when you also enable
-**Settings → Advanced → Optional modules → "Allow server-side execution"**
-(`iac_execute_enabled`, default off) and `terraform` is installed on the server.
+Terraform blueprints can be executed **server-side** when you tick **Allow
+server-side execution** under **Settings → Advanced → Provisioning — server-side
+execution** (`iac_execute_enabled`, default off) and `terraform` is installed on
+the server.
 
 - Each blueprint runs in its own persistent workdir under the data directory
   (`iac_runs/<id>/`), so **state survives** — Destroy and re-apply work.
@@ -65,7 +65,7 @@ is nothing to execute on the server.
 ## Security notes
 
 Server-side Terraform runs arbitrary infrastructure code with your cloud
-credentials — that is why it sits behind two switches (the page toggle *and*
-`iac_execute_enabled`), is admin-only, audited, and keeps secrets out of files
-and process arguments. Leave execution off to use Provisioning purely as a
-render-only template catalog.
+credentials — that is why it sits behind its own switch (`iac_execute_enabled`),
+is admin-only, audited, and keeps secrets out of files and process arguments.
+Leave execution off to use Provisioning purely as a render-only template
+catalog.

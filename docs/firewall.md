@@ -33,7 +33,7 @@ In the per-host rule view you can **add** or **delete** rules:
 Before anything is queued, the confirm dialog shows the **exact command** that
 will run on the host. Where the backend has a native check mode (**ufw**
 `--dry-run`, **nftables** `nft -c`), you can optionally run an **on-host
-dry-run** first (v6.4.1): the check command is sent through the run-and-wait
+dry-run** first: the check command is sent through the run-and-wait
 exec path and the host's own verdict — pass/fail and its output — is folded
 into the confirm dialog before you commit. iptables and firewalld have no
 native dry-run, so their preview shows the command only.
@@ -74,7 +74,7 @@ As with firewall edits, each action is queued through the audited command pipeli
   that already gate the command queue.
 
 
-## Appliance configuration archive *(v6.4.2)*
+## Appliance configuration archive
 
 RemotePower can keep a versioned copy of each **RouterOS** and **OPNsense**
 host's running configuration — the RANCID/Oxidized job, done from the

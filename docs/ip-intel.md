@@ -14,10 +14,13 @@ All three are off until you turn them on. You'll find everything under
 **Security → Threat Intel**.
 
 The page has four tabs: **Attackers**, **Active blocks**, **Log sources** and
-**Settings**. A strip of counts above them shows how many addresses were seen,
-reported and are waiting, and opens the matching tab when you click it. The
-provider keys, the log sensor, firewalls and routers, edge sources and the edge
-blocklist are all on **Settings**.
+**Settings**. A strip of counts above them shows the attackers, how many were
+reported, how many are waiting for a lookup and the active blocks. An admin who
+has turned on edge sources also sees **Feeds with a problem**. Click a count to
+open the matching tab. The provider keys, the log sensor, firewalls and routers,
+edge sources and the edge blocklist are all cards on **Settings**, and only
+admins see them. **Check an address**, for a manual lookup, sits on the
+**Attackers** tab and is for admins too.
 
 If you also run a web server, a WAF, fail2ban or CrowdSec, the
 [log sensor](#the-log-sensor) lets RemotePower read what those logs say about
@@ -30,11 +33,12 @@ as [firewall sources](#firewalls-and-routers).
 
 1. A host's sshd or web server logs failed logins. The brute-force detector
    counts them per source address. When an address crosses the threshold
-   (Settings → Alert parameters), RemotePower raises an alert and queues the
-   address for threat intel.
-2. Once a minute, RemotePower handles the queue. Private and reserved
-   addresses are skipped. It never calls out while an agent is reporting, so a
-   slow provider can't hold up your fleet.
+   (**Settings → Alerting → Brute-force detection**, 20 attempts in 5 minutes
+   by default), RemotePower raises an alert and queues the address for threat
+   intel. The host's check-in only adds the address to the queue.
+2. Once a minute, RemotePower works through the queue in the background.
+   Private and reserved addresses are skipped. No lookup or report happens
+   during a host's check-in, so a slow provider can't hold up your fleet.
 3. **Lookup.** Both services are asked for the address's confidence score
    (0–100). The higher of the two is used, along with the report count,
    country and network owner. Answers are reused for 24 hours.
@@ -51,8 +55,8 @@ as [firewall sources](#firewalls-and-routers).
 
 Out of the box RemotePower learns about an attacker from failed SSH logins and
 a few web patterns. The log sensor reads more. Switch it on under
-**Security → Threat Intel → Log sensor** and the agent on each Linux host
-reads these, read-only, once a minute:
+**Security → Threat Intel**, on the **Settings** tab in the **Log sensor** card, and the agent on each Linux
+host reads these, read-only, once a minute:
 
 | Log | What it tells RemotePower |
 |---|---|
@@ -186,9 +190,9 @@ host would not match it.
 A firewall or router has no agent, but it can send its syslog to RemotePower, and
 the server can read that for the same evidence a host's sensor sends: addresses
 that scanned it, connected to a decoy port, tripped Suricata or CrowdSec, or
-failed to sign in. Switch it on under **Security → Threat Intel → Firewalls and
-routers**. It reads and reports; it blocks nothing on the firewall or router. Off
-until you turn it on.
+failed to sign in. Switch it on under **Security → Threat Intel**, on the **Settings** tab
+in the **Firewalls and routers** card. It reads and reports; it blocks nothing on the firewall
+or router. Off until you turn it on.
 
 | Source | What counts |
 |---|---|
@@ -210,7 +214,7 @@ way it reports what your hosts' logs show.
 
 Reading does not block anything: banning stays with whatever you already use,
 such as ModSecurity, CrowdSec, fail2ban or Cloudflare's own rules. Off until you
-turn it on, under **Security → Threat Intel → Edge sources**. The
+turn it on, under **Security → Threat Intel**, on the **Settings** tab in the **Edge sources** card. The
 [edge blocklist](#the-edge-blocklist) below is a separate card, with its own
 switch and its own token.
 
@@ -289,8 +293,8 @@ If you do not run a honeypot yet, [Run a honeypot Worker on Cloudflare](honeypot
 and its permissions, the account id, Test connection, what each card shows and
 what to do when Cloudflare refuses a read. In short: create a read-only token
 (Zone: Zone, Analytics and Zone WAF; Account: Workers Observability, for the
-honeypot's log), paste it with your account id under **Security → Threat Intel →
-Edge sources**, press **Test connection**, and tick the switch.
+honeypot's log), paste it with your account id on the **Settings** tab of **Security → Threat Intel**,
+in the **Edge sources** card, press **Test connection**, and tick the switch.
 
 RemotePower reads every ten minutes (every five at the fastest). A read never
 goes back further than six hours, as with the host logs, so a pause longer than
@@ -326,9 +330,11 @@ scripts, so each address is one report with all the evidence. Keep whatever bans
    - SniffCat: sign in, then **API**.
 
    You can use one service or both.
-2. **Security → Threat Intel → Providers**: paste the keys and tick what you
-   want. Keys are write-only. The page shows that a key is saved, never the
-   key itself.
+2. **Security → Threat Intel**, **Settings** tab, **Providers** card: paste the keys and tick
+   what you want (**Look up attacking addresses**, **Report attackers back to
+   both services**, **Block high-scoring attackers on the host they attacked**).
+   Keys are write-only. The page shows that a key is saved, never the key
+   itself.
 3. Save.
 
 ### Limits on API use
@@ -348,6 +354,13 @@ The defaults stay under AbuseIPDB's free plan of 1,000 a day. Days run in UTC.
 When a limit is reached, RemotePower stops until the next day and says so in the
 address's row. Use `0` to switch lookups or reports off for that service. The
 page shows how many have been used today.
+
+### Check an address by hand
+
+Type a public address into **Check an address** on the Attackers tab and press
+**Look up**. RemotePower asks both services at once, ignores the saved answer
+and counts the lookups against today's limit. It needs at least one saved key,
+and it is for admins. The private and reserved ranges are refused.
 
 ### The report message
 
@@ -380,11 +393,6 @@ injection, 41 attempts in 10 minutes`. It needs at least 10 characters, because
 SniffCat refuses anything shorter, and at most 300. There is no placeholder for
 a host name, so one can't end up in a public report by accident. Don't type
 one. Clear the box to go back to the standard text.
-
-Before 7.2.0 the box showed `{what} brute force: {count} failed attempts within
-{minutes} minutes (reported by RemotePower)` as the default, which called every
-report brute force. A Settings page still open from then is read as the standard
-text when you save it, not stored as your own wording.
 
 ## Ignore what you do not want reported
 
@@ -435,9 +443,14 @@ person's command applies here too. Nothing is sent to a host in maintenance
 mode, quarantine or audit mode, and with four-eyes approval on, a block waits
 for a second admin.
 
+The thresholds are on the **Providers** card of the Settings tab: **Block at
+score** (90), **Block for (hours)** (24) and **Blocks per host per hour** (20).
+
 On the host, the block uses whichever firewall is active: `ufw`, then
-`firewalld`, then plain `iptables` / `ip6tables`. Each rule is tagged
-`rp-ipintel`, so you can find it with `ufw status` or `iptables -S`.
+`firewalld`, then plain `iptables` / `ip6tables`. A `ufw` or `iptables` rule
+carries the comment `rp-ipintel`, so you can find it with `ufw status` or
+`iptables -S`. A `firewalld` rule is a rich rule on the address and has no
+comment.
 
 These addresses are **never** blocked:
 
@@ -449,11 +462,20 @@ These addresses are **never** blocked:
   addresses SSH-gateway sessions came from in that time.
 
 Two limits stop a runaway. A host gets at most 20 automatic blocks an hour,
-which you can change. An address one of the services lists as legitimate (its
-whitelist) is never blocked.
+which you can change with **Blocks per host per hour**. An address one of the
+services lists as legitimate (its whitelist) is never blocked.
 
 Blocking needs a Linux agent. You can also block or unblock by hand from the
 page, which needs the **command** permission on that host.
+
+With the [edge blocklist](#the-edge-blocklist) on, an address that automatic
+blocking blocks is also banned at the edge for the same time, so a visitor who
+arrives through Cloudflare is stopped as well (at most 50 automatic edge bans
+an hour). **Also block addresses found at the edge on every Linux agent** goes
+the other way: an address that only Cloudflare or the honeypot saw gets the
+block on every Linux agent, up to 100 hosts a sweep. It needs automatic
+blocking and stays off on a multi-tenant install. The details are in
+[Edge sources: Cloudflare](edge-sources.md#the-attackers-list).
 
 ### Ban by hand
 
@@ -554,3 +576,10 @@ settings or run a manual lookup, which spends the install's daily quota.
 | `not blocked: seen at the edge only, so there is no host to block it on` | The address was seen by Cloudflare or the honeypot and by none of your hosts, so there is no host where a block could go. Whatever bans it (Cloudflare, CrowdSec, fail2ban) does it, and the [edge blocklist](#the-edge-blocklist) can hand it to a Cloudflare rule. An address that a host also saw shows that host's reason instead. |
 | `not blocked: score 40 is below 90` | The address isn't bad enough for your threshold. |
 | `not blocked: on the never-block list` | The address is one of yours, on an allow-list, or someone recently signed in from it. |
+
+## See also
+
+- [Firewall sources: OPNsense and MikroTik](firewall-sources.md): read a firewall's syslog.
+- [Edge sources: Cloudflare](edge-sources.md): the Cloudflare feeds, the edge blocklist and bans by hand.
+- [Run a honeypot Worker on Cloudflare](honeypot-worker.md) and [More traps for your honeypot Worker](honeypot-traps.md).
+- [Security](security.md): brute-force detection and the other hardening settings.

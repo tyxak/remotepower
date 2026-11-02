@@ -42,6 +42,18 @@ for every connector. It is left out on purpose.
 `GET /api/edr/coverage` — per-host coverage, with a summary (covered / uncovered /
 stale) and the vendors protecting each host.
 
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| The card is not on the Risk page | It stays hidden until a Wazuh, CrowdStrike or SentinelOne integration exists and has polled. Check its tile on **Monitoring → Integrations**. |
+| A protected host shows as uncovered | Matching uses the short, lowercased host name. If the console knows the machine under a different name, the two do not match. Rename one of them so the short names agree. |
+| A host is listed apart from the covered ones | Its EDR agent installed but has stopped reporting (*stale*). That is the case the page exists to show. |
+
+## See also
+
+[integrations.md](integrations.md), [risk.md](risk.md), [software-policy.md](software-policy.md).
+
 ---
 
 ← [Back to docs index](README.md)

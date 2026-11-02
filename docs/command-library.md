@@ -1,8 +1,9 @@
 # Command Library
 
-**Fleet → Library** stores saved shell command snippets — the one-liners you
-keep re-typing (service restarts, cache clears, quick greps). Entries are
-name + command + optional description.
+**Fleet → Library** stores saved shell command snippets: the one-liners you
+keep re-typing (service restarts, cache clears, quick greps). Each entry is a
+name (up to 64 characters), a command (up to 512) and an optional description
+(up to 256). The library holds up to 200 snippets.
 
 ## Where they surface
 
@@ -12,6 +13,11 @@ name + command + optional description.
   [Scripts](scripts.md) feature) through the `run_saved_script` tool — the
   one-liner library itself is a UI pick-list only.
 
+Everyone signed in can read the library and pick from it. Adding, editing and
+deleting snippets is admin-only (`GET`, `POST`, `PUT` and `DELETE` on
+`/api/cmd-library`).
+
 Commands still run through the normal permission-gated, audited command
-queue — the library is a convenience layer, not a bypass. For multi-line
+queue. The library is a convenience layer, not a bypass: running a snippet needs the
+`command` permission, and a host's command allowlist still applies. For multi-line
 bash with linting and batch execution, use [Scripts](scripts.md) instead.

@@ -6,7 +6,11 @@ which hosts have updates waiting, and which packages are involved.
 ## The report
 
 - Each online host with inventory data shows its count of pending updates,
-  security-flagged updates, and whether a reboot is required.
+  security-flagged updates, and whether a reboot is required. The columns are
+  Host, Group, OS, Status, Pkg Manager, Pending, Patch Status and Recent Patch
+  Cmds.
+- Filter by text, group or host, and export the table as **CSV**, **XML** or
+  **PDF**.
 - The headline **percentage up-to-date counts only online hosts with data** —
   hosts that haven't reported inventory are excluded rather than skewing it.
 - **Inventory search** finds a package (optionally an exact name/version) across
@@ -19,11 +23,10 @@ On Debian and Ubuntu, `apt-get upgrade` keeps a package back when upgrading it n
 not installed yet: a new kernel image behind `linux-image-amd64`, or the split `linux-firmware`
 packages. It installs nothing for that package, prints no error and exits 0.
 
-Such a package counts as pending. Before, the host read **Fully Patched** while a security update was
-waiting, because the report counted only what `apt-get upgrade` would install. If the update is a
-security update it counts among the security-flagged ones too: the agent asks apt what an upgrade that
-may install new packages would do (a simulation, nothing is installed) and takes the distro's own
-security flag from that.
+Such a package counts as pending, so the host does not read **Fully Patched** while a security update
+is waiting. If the update is a security update it counts among the security-flagged ones too: the agent
+asks apt what an upgrade that may install new packages would do (a simulation, nothing is installed)
+and takes the distro's own security flag from that.
 
 - **A held package does not count.** One held with `apt-mark hold` stays out, because somebody chose to
   keep it (auto-patch holds the packages you declined in the patch catalog the same way). If the agent
@@ -63,11 +66,22 @@ Only administrators set the mode, and a change is audited as `upgrade_mode_set`.
 `GET` and `PUT /api/devices/{id}/upgrade-mode` read and set it; `PUT` takes `{"mode": "standard"}` or
 `{"mode": "extended"}` and refuses anything else.
 
+## Patch SLA
+
+The **Patch SLA** card flags hosts whose pending updates have gone unpatched for
+too long. Add a rule with a scope (the whole fleet, a group or a tag), a
+**Security max days** and an **All max days** (1 to 3650 each, and at least one
+of them). The first rule that matches a host decides. The age of a pending update
+counts from when the host first showed one and starts again when the host is
+clean. A breach raises `patch_sla_violation` and `patch_sla_ok` when it clears.
+The sweep runs hourly. It only reports: nothing is installed for you. You can
+keep up to 100 rules.
+
 ## Acting on updates
 
 - Install, uninstall, or **hold / unhold** (pin) named packages on a target
-  scope (host / group / tag / site) straight from this page — package names
-  only, no shell.
+  scope (all hosts, a group, a tag or one host id) from the **Install software**
+  card on this page — package names only, no shell.
 - To apply updates **automatically** on a schedule, define an
   [Auto-patch](auto-patch.md) policy.
 - To roll an upgrade out **in stages** with verification between rings, use
@@ -77,9 +91,13 @@ Only administrators set the mode, and a change is audited as `upgrade_mode_set`.
 
 - Package **vulnerabilities** (CVEs) are tracked separately on the
   [CVE Findings](cve.md) page.
-- Updates respect [maintenance windows](maintenance.md) and host quarantine.
+- Upgrades and package changes are commands, so server maintenance mode, host
+  quarantine and change approval apply to them. A
+  [maintenance window](maintenance.md) with **Gate command/upgrade execution** ticked
+  holds them in the queue until the window opens.
 
 ## Permissions
 
-Installing / removing / holding packages requires the **upgrade** action
-permission (or admin); every dispatch is audit-logged.
+Starting an upgrade needs the **patch** permission on the target hosts, and
+installing, removing or holding packages needs the **packages** permission (admins
+have both). Every dispatch is audit-logged.

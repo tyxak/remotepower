@@ -151,7 +151,7 @@ why.
 
 ### 3. Turn it on
 
-1. **Settings → Advanced → SSH Gateway**: turn the module on.
+1. **Settings → Advanced → Optional modules → SSH Gateway**: turn the module on.
 2. Open the **SSH Gateway** page (Access section of the sidebar) and set the
    public host name people will connect to, for example `gw.example.com`.
    Change the port only if you changed the service's port.
@@ -261,7 +261,7 @@ admin, clears only the sessions they could see.
 
 | To stop… | Do this |
 |---|---|
-| Everything | Settings → Advanced → turn the SSH gateway module off. The gateway refuses every login. |
+| Everything | **Settings → Advanced → Optional modules**: untick **SSH Gateway**. The gateway refuses every login. |
 | One server | Untick **Allow SSH** for it. Its tunnel closes within minutes. |
 | One person | Remove their key (admins can remove anyone's), or take `ssh` off their role. |
 | From the server itself | `touch /etc/remotepower/sshgw-disabled`. The agent refuses to open a tunnel, whatever RemotePower says. |

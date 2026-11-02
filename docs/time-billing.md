@@ -1,6 +1,6 @@
 # Time-tracking & billing (RackMatters)
 
-*(v5.4.0)* A lightweight PSA layer on top of the helpdesk: log hours, keep a
+A lightweight PSA layer on top of the helpdesk: log hours, keep a
 weekly timesheet, and invoice customers for the time you spent plus recurring
 fees. Built on one shared time-entry ledger so nothing is double-counted.
 
@@ -34,7 +34,7 @@ entry is capped at 24 hours.
 
 ## Billing (admins + the finance role)
 
-Under **Admin → Billing**:
+Under **Business → Billing**:
 
 1. **Rates & fees** — set the **currency**, global **default rate** and **VAT %**,
    an **invoice prefix**, and the **rate card**. Per customer (site), set an
@@ -47,7 +47,7 @@ Under **Admin → Billing**:
    View / **print to PDF**, **export CSV**, or **email** to the customer.
    A payment webhook (below) can also move an invoice through
    **partially_paid → paid** automatically as payments come in.
-4. **Quotes** *(v6.2.0)* — the mirror image of an invoice. An invoice looks
+4. **Quotes** — the mirror image of an invoice. An invoice looks
    *backward* (derived from logged hours); a quote looks *forward* (hand-authored
    line items) and, once the customer **accepts**, becomes an invoice. Lifecycle:
    draft → sent → accepted / declined. The rules all protect the customer, and
@@ -63,7 +63,7 @@ Under **Admin → Billing**:
      expires out from under the customer.
    `GET/POST /api/quotes`, `POST /api/quotes/{id}/convert`.
 
-### Payment webhook *(v6.1.1)*
+### Payment webhook
 
 A generic, **provider-agnostic** reconciliation sink under Rates & fees —
 **not** a Stripe/PayPal integration (no live processor credentials are

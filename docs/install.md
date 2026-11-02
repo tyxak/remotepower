@@ -23,8 +23,8 @@ sudo bash install.sh        # one wizard: nginx + app + TLS + admin — you neve
 HTTPS is automatic: a self-signed CA by default (agents pin it), or a real
 Let's Encrypt cert when you give a public domain. Open the printed URL and log in.
 
-**Add a host — one line, nothing to configure.** In the dashboard,
-*Add host → Quick install command*, then on the target host:
+**Add a host — one line, nothing to configure.** In the dashboard, open
+**Hosts → Enroll host → Quick install command**, then on the target host:
 
 ```bash
 # Linux / macOS (run as root)
@@ -38,14 +38,15 @@ powershell -ExecutionPolicy Bypass -Command "iwr 'https://your-server/install.ps
 
 Either downloads the **signed** agent, verifies its checksum, enrols with the
 baked one-time token, and the host appears **by its hostname** within ~60 seconds.
-The dashboard's *Add host → Quick install command* hands you both lines with a
-fresh token. (Windows details, service control, and the offline
+**Quick install command** hands you both lines with a fresh token that works for 24
+hours. The **Enroll host** window also shows a 6-digit PIN that expires after 10 minutes,
+for installers that ask for one. (Windows details, service control, and the offline
 `install-windows.ps1` script: [windows-client.md](windows-client.md).)
 
 **A server with its own certificate authority** (the Docker default) has a
 certificate no host trusts on its own, and `wget -q` fails without a word. When
-the server has its own CA, *Quick install command* adds a second line for Linux
-and macOS. It fetches the CA, refuses to go on unless the CA matches the
+the server has its own CA, **Quick install command** adds a second line for Linux
+and macOS, labelled *self-signed certificate*. It fetches the CA, refuses to go on unless the CA matches the
 fingerprint the dashboard shows, and only then fetches the installer. If you
 already have the installer on the host, give it the fingerprint yourself:
 
@@ -65,8 +66,9 @@ to enrol:
 sudo bash install.sh agent push --server https://your-server --token <token> user@host1 [user@host2 ...]
 ```
 
-Each invocation enrols exactly the hosts you name (using the `--token` you pass),
-SSHing in to install and start the agent on each.
+Each invocation enrols exactly the hosts you name, signing in to each over SSH to install and
+start the agent. One enrollment token enrols **one** host, so mint a token per host in the
+dashboard and run the command once for each. Add `--no-sudo` if you connect as root.
 
 **Uninstall:** `sudo bash install.sh uninstall` (keeps your data; `--purge` to
 wipe it) · agent: `wget -qO- https://your-server/install | sudo sh -s -- --uninstall`.
@@ -133,9 +135,9 @@ add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; prelo
 Then reload nginx: `sudo nginx -t && sudo systemctl reload nginx`.
 
 **Using acme.sh / DNS-01 instead?** RemotePower has built-in ACME support
-(Settings → Integrations → ACME / Let's Encrypt) that can issue and renew certificates
-for your hosts using Cloudflare, Hetzner, Route 53, and others — no
-certbot needed once the server itself has a cert.
+(**Security → TLS / DNS → ACME certificates**, see [acme.md](acme.md)) that can issue and renew
+certificates for your hosts using Cloudflare, Hetzner, Route 53 and others, with no
+certbot needed once the server itself has a certificate.
 
 **Internal-only / airgapped / no public DNS?** Use the built-in self-signed
 **CA**: `sudo make tls-selfsigned HOST=rp.internal NGINX=1` generates a CA + a
@@ -147,9 +149,8 @@ server-only change. Full guide and decision tree:
 
 For a hardened production nginx config (TLS 1.2+, OCSP, rate-limiting,
 IP allowlist), see [`deploy/nginx/remotepower.conf`](https://github.com/tyxak/remotepower/blob/main/deploy/nginx/remotepower.conf)
-in the repository. (`deploy/` does not part of the release
-tarball, so a relative link here would resolve for someone reading the
-source and dangle for everyone reading the shipped docs or the wiki.)
+in the repository. (`deploy/` is not part of the release tarball, so a relative link here would work for
+someone reading the source and dangle for everyone reading the shipped docs or the wiki.)
 
 ### Client (on the host you want to manage)
 
@@ -183,23 +184,31 @@ Auto-detects your nginx user (`www-data` / `nginx` / `http` / etc.) and wires ev
 
 #### User management
 
+Add, edit and remove users on the **Users** page (Admin group in the sidebar). See
+[admin-guide.md](admin-guide.md) for roles and custom roles.
+
+There is also a command-line tool:
+
 ```bash
 python3 /var/www/remotepower/cgi-bin/remotepower-passwd
 ```
 
-Interactive CLI for adding users, changing passwords, deleting accounts, and listing all users.  Supports bcrypt (preferred) and salted PBKDF2-HMAC-SHA256 (fallback when bcrypt is absent) — the same hash formats the server verifies.
+It adds users, changes passwords, deletes accounts and lists them, with bcrypt hashes (or salted
+PBKDF2-HMAC-SHA256 when bcrypt is missing). **It edits `users.json` directly, so it only works on the
+JSON storage backend.** On SQLite and Postgres the users live in the database, the file does not
+exist, and the tool stops with "users file not found". Use the Users page there, and keep a second
+admin account so you can reset the first.
 
-#### The app server + out-of-band scheduler (default since v6.1.0)
+#### The app server and the out-of-band scheduler
 
-`install-server.sh` defaults to a fully-persistent single-node tier — `api.py`
-served by **gunicorn** through a real Flask app (`server/cgi-bin/wsgi.py`,
-thread-local request isolation, no fork) — paired with a dedicated,
-leader-elected maintenance scheduler that runs the cadence off the request
-path (roughly an order of magnitude lower request latency on a networked Postgres backend — see wsgi.md for what that figure is and is not),
-plus a co-located scanner satellite for Security → Pentest. This is the
-**only** server (the earlier CGI/fcgiwrap and SCGI-worker paths are retired);
-`--no-scheduler`/`--no-postgres`/`--no-scanner` opt back down to a lighter
-single-file/no-scanner install. Tune worker/thread counts in
+`install-server.sh` sets up a persistent single-node tier by default. `api.py` is served by
+**gunicorn** through a Flask app (`server/cgi-bin/wsgi.py`), next to a dedicated, leader-elected
+maintenance scheduler that runs the periodic sweeps off the request path (a large drop in request
+latency on a networked Postgres backend; [wsgi.md](wsgi.md) says what that figure is and is not).
+A scanner satellite for Security → Pentest is installed on the same node. This is the **only**
+app server; the older CGI and SCGI paths are gone. `--no-scheduler`, `--no-postgres` and
+`--no-scanner` opt back down to a lighter single-file install without a scanner. An install that
+predates this setup converts with `sudo bash install.sh update` ([upgrading.md](upgrading.md)). Tune worker/thread counts in
 `server/conf/remotepower-wsgi.service`, then `systemctl daemon-reload &&
 systemctl restart remotepower-wsgi` — see **[wsgi.md](wsgi.md)** and
 **[scaling.md](scaling.md)**.
@@ -213,21 +222,21 @@ sudo bash packaging/install-demo.sh demoremote.example.com
 sudo certbot --nginx -d demoremote.example.com
 ```
 
-This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo/`), its own dedicated `remotepower-wsgi-demo` gunicorn process on a second port (shared app code), `RP_READ_ONLY=1` set per-vhost. Visitors log in as `demo` / `demo`, browse everything, but mutations get a friendly 403 toast. Your production install at `remote.<domain>` is untouched. The vhost auto-seeds 16 fake homelab hosts using the unallocated `.lab` TLD.
+This creates a separate vhost with its own data directory (`/var/lib/remotepower-demo/`) and its own `remotepower-wsgi-demo` gunicorn process on a second port, sharing the app code. `RP_READ_ONLY=1` is set per vhost. Visitors log in as `demo` / `demo` and can browse everything, but changes get a friendly 403 message. Your production install is untouched. The vhost seeds a set of fake homelab hosts that use the unallocated `.lab` TLD, and refreshes them on a timer. Add `--postgres` to give the demo its own PostgreSQL database; without it the demo uses flat JSON.
 
 ### Docker (one-liner alternative)
 
 **Pull the prebuilt image** (published to the GitHub Container Registry on every release; multi-arch — `amd64` and `arm64`, so it runs on x86 servers and ARM SBCs alike):
 
 ```bash
-docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version, e.g. :7.0.2
+docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version: ghcr.io/tyxak/remotepower:<version>
 docker run -d --name remotepower -p 443:8443 -p 80:8080 \
   -e RP_TLS_SELFSIGNED=1 -e RP_TLS_HOST=your.host.example \
   -v remotepower-data:/var/lib/remotepower \
   ghcr.io/tyxak/remotepower:latest
 ```
 
-**Verify it before you run it** *(v7.0.0)* — the images are cosign-signed
+**Verify it before you run it.** The images are cosign-signed
 (keyless, bound to the release workflow's identity):
 
 ```bash
@@ -265,7 +274,17 @@ it is an SSH client that an admin can point at any address the container can rea
 The secret it shares with the app is created in the data volume on first start, or
 taken from `RP_WEBTERM_SECRET`.
 
----
+### Troubleshooting an install
+
+| Problem | What to check |
+| --- | --- |
+| Nothing responds after the install | `sudo rp doctor` checks the app server, scheduler, scanner, push, nginx and the storage backend. `sudo bash install.sh doctor` runs the preflight checks only. |
+| The one-line install fails with a certificate error | The server uses its own CA, so the host does not trust it yet. Use the **self-signed certificate** line from **Quick install command**, or pass `--ca-fingerprint`. |
+| `no enrolment token` | The link has no `?t=` part, or you ran the plain `/install` URL. Copy the line from **Quick install command**, or add `--token`. |
+| The PIN is refused | A PIN works once and expires after 10 minutes. Open **Enroll host** again for a new one. |
+| The host does not appear within a minute or two | Check that the host can reach the server on its HTTPS port, and read the agent log with `journalctl -u remotepower-agent`. |
+| I forgot the admin password | Another admin can reset it on the **Users** page. On the JSON backend you can also use `remotepower-passwd` (see *User management*). It does not work on SQLite or Postgres. |
+| An agent needs to be removed from a host | `wget -qO- https://your-server/install \| sudo sh -s -- --uninstall`, then delete the host in the dashboard. |
 
 ---
 

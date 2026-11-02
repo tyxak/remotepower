@@ -1,9 +1,5 @@
 # Single sign-on & directory integration
 
-*OIDC in v3.2.0; LDAP/LDAPS in v1.8.6; SCIM provisioning in v3.14.0 (Groups in
-v5.8.0); SAML 2.0 in v4.2.0; the shared group→role matrix and SSO-only mode in
-v5.4.1.*
-
 RemotePower can hand authentication to your identity provider four ways, all
 configured on **Settings → Integrations** (the Connections group):
 
@@ -34,7 +30,7 @@ On later logins a `viewer` is **promoted** to whatever role their groups now
 map to — but never auto-demoted (an operator may have changed the role for
 cause).
 
-Role resolution, shared by OIDC, SAML and (since v6.2.3) LDAP:
+Role resolution, shared by OIDC, SAML and LDAP:
 
 1. **Group → role map** (config `sso_group_roles`) — the "Group → role map"
    textarea on the OIDC card, one `group=role` per line. Maps an IdP group to
@@ -224,12 +220,12 @@ default and none of it applies.
 (`sso_default_tenant`). OIDC, SAML, SCIM and LDAP all stamp it.
 
 This matters because a user with `role=admin` in the built-in `default` tenant
-is a **platform superadmin** — the account that sees and manages *every*
-tenant. Until v7.0.0 no SSO path stamped a tenant at all, so an account created
-by an IdP group that mapped to `admin` silently became one, and there was no
-way to express "admin *of* Acme" anywhere in the configuration.
+is a **platform superadmin**, the account that sees and manages *every*
+tenant. An account created by an IdP group that maps to `admin`, with no tenant
+named, would silently become one, and there would be no way to say "admin *of*
+Acme".
 
-RemotePower now refuses to do that by accident. In exactly that situation —
+RemotePower refuses to do that by accident. In exactly that situation —
 multi-tenancy enforced, `sso_default_tenant` unset, mapped role `admin` — the
 account is created as a **viewer** and the audit log records the demotion and
 its reason. Set the field (to `default` if a platform operator really is what

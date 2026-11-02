@@ -5,20 +5,23 @@ timers** directly from RemotePower.
 
 ## How it works
 
-- See the root crontab entries and systemd timers reported by the agent for a
-  host, with their schedules and (for timers) next-run.
-- Add, edit or remove entries; changes run through the **audited,
-  permission-gated [command queue](agent-commands.md)**.
+- Pick a host to see the crontabs, `cron.d` entries and systemd timers its agent
+  reports. Timers show their unit, what they activate, and their state. Without a
+  host selected, the page lists every host with its job and timer counts.
+- **Save crontab** replaces a user's crontab (root by default, up to 64 KB), and
+  **Remove crontab** deletes it. You can also apply an action to a timer unit.
+  Changes run through the **audited, permission-gated
+  [command queue](agent-commands.md)**.
 - **Quarantined / audit-mode hosts are skipped** — edits won't apply to a host
   you've locked down.
 
 ## Safety
 
-- Crontab content is installed via a **temp file** (`crontab -` from a written
-  file) — **never assembled through a shell**, so there's no shell-injection
-  surface.
-- systemd timer changes are applied through the same audited pipeline and
-  validated before activation.
+- Crontab content travels base64-encoded and is installed from a **temp file**
+  (`crontab -` from a written file). It is **never assembled through a shell**, so
+  there is no shell-injection surface. User and unit names are checked against a
+  strict pattern.
+- systemd timer changes are applied through the same audited pipeline.
 
 ## Cron vs. the other schedulers
 
@@ -29,5 +32,6 @@ timers** directly from RemotePower.
 
 ## Permissions
 
-Editing crontabs and timers requires the **command** action permission (or
-admin); every change is audit-logged.
+Anyone signed in can view the page (within their host scope). Editing crontabs and
+timers requires the **command** action permission (or admin); every change is
+audit-logged.

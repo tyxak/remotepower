@@ -26,11 +26,11 @@ Each recipe is self-contained and links to the reference guide for the detail.
    wget -qO- "https://your-server/install?t=<token>" | sudo sh
    ```
    The host appears by hostname within ~60 s.
-2. **Confirm it's reporting.** Open the host drawer → **System info**: CPU,
+2. **Confirm it's reporting.** Open the host drawer → **Audit** → **System info**: CPU,
    memory, disk, kernel, top processes. If it's a container host, the
    **Containers** section lists them.
-3. **Set thresholds (optional).** Host drawer → **Settings** → metric warn/crit
-   percentages. Fleet-wide defaults live in **Settings → Alert parameters**.
+3. **Set thresholds (optional).** Host drawer → **Actions & settings** → **Metric
+   thresholds** (warn and critical percentages). Fleet-wide defaults live in **Settings → Alert parameters**.
 4. **Add it to a group/site.** Host drawer → tags/group/site — this is what
    scopes reports, SLAs and maintenance windows later.
 
@@ -38,10 +38,10 @@ Reference: [agentless-devices.md](agentless-devices.md), [fleet-management.md](f
 
 ## Watch a service and get paged when it dies
 
-1. **Add the unit to the watch list.** Host drawer → **Services** → add the
-   systemd unit (e.g. `nginx.service`). Or set a fleet default under
-   **Monitoring → Service baselines** so every matching host watches it with no
-   per-host editing.
+1. **Add the unit to the watch list.** Host drawer → **Actions & settings** →
+   **Watched services** → add the systemd unit (e.g. `nginx.service`). Or set a
+   fleet default under **Monitoring → Services → Service baselines** so every
+   matching host watches it with no per-host editing.
 2. **A stop fires `service_down`** — it lands in the Alerts inbox and routes to
    your channels. When it comes back, `service_up` auto-resolves it.
 3. **Wire a channel** if you haven't: **Settings → Notifications** → add a webhook
@@ -106,8 +106,9 @@ Reference: [integrations.md](integrations.md), [virtualization.md](virtualizatio
 For switches, APs, printers, IPMI/BMC cards, NAS boxes — anything that can't run
 the agent.
 
-1. **Add the host** with its IP (Hosts → add, or import from a network scan).
-2. **Enable SNMP.** Host drawer → **Settings → SNMP polling** → tick enable.
+1. **Add the host** with its IP (**Hosts → + Agentless host**, or **Add as host** from
+   the network discovery list on the Network page).
+2. **Enable SNMP.** Host drawer → **Actions & settings → SNMP polling** → tick enable.
    - **SNMPv2c:** enter the community string.
    - **SNMPv3:** pick the version, set the user, auth protocol + password
      (MD5/SHA-1/SHA-2) and optional AES privacy. Passwords are write-only.

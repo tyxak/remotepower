@@ -98,7 +98,7 @@ satellite or the server.
 Only run the agent→satellite hop in plaintext on a trusted segment LAN — the
 relay prints a warning when it starts without a cert.
 
-## Agent push channel through a satellite *(v6.1.2)*
+## Agent push channel through a satellite
 
 The opt-in [agent push channel](push.md) — a wake-only "poll now" nudge that cuts
 command-dispatch latency — works through a satellite. The relay byte-tunnels the

@@ -66,7 +66,13 @@ the commands it prints. They write the shared secret to
 `/etc/remotepower/kmipd.env` (mode 0600, root-owned — systemd reads it as root
 to start the daemon, so it needs no wider access), install the daemon and start
 it. The server records the same secret internally, so the app never has to read
-that file.
+that file. (`install-server.sh --with-kmip` writes the same file, readable by
+the web server's group, mode 0640.)
+
+The sidecar listens on every address, tcp/5696. To pin it to one interface, set
+`RP_KMIP_BIND` (for example `RP_KMIP_BIND=192.168.2.10:5696`) in the same env
+file and restart the sidecar. The page shows the address the sidecar actually
+bound.
 
 Then in the UI: **Security → KMIP → Server settings** → tick *KMIP server
 enabled*, set the hostname or IP your appliances will use, and save. That first
@@ -137,9 +143,13 @@ in-process with the `cryptography` library — no `openssl` binary required.
 - **Everything is logged.** Connections, authentication failures, every KMIP
   operation, and every admin action (enable, issue, revoke, re-issue, destroy,
   export, import) land in the activity log on the page, with admin actions also
-  written to the main audit log.
+  written to the main audit log. The page keeps the latest 2,000 rows. **Clear
+  log** empties it, but leaves a marker row and writes an audit-log entry, so
+  the history never looks as if it simply started clean.
 - KMIP administration is restricted to **global administrators**; it is host
-  infrastructure and is not tenant-scoped.
+  infrastructure and is not tenant-scoped. Auditors can read the page but change
+  nothing. A tenant admin gets a not-found answer, so the page does not reveal
+  that KMIP exists.
 
 ## Synology DSM — the complete walkthrough
 
@@ -265,7 +275,7 @@ Three checks, in increasing order of how much they prove:
 3. **Reboot the NAS.** This is the only check that actually proves the thing
    works: encrypted shares must come back on their own. You have just moved the
    unlock path onto a network dependency, and it is far better to discover a
-   problem now,, than during an unplanned power cut.
+   problem now, than during an unplanned power cut.
 
 On the NAS, `sudo journalctl -u kmip.service -ef` is DSM's side of the
 conversation and lines up with this server's activity log.
@@ -280,6 +290,24 @@ conversation and lines up with this server's activity log.
 | *no cipher suite in common* | The appliance offers only legacy suites | Set `RP_KMIP_LEGACY_CIPHERS=1` in `/etc/remotepower/kmipd.env`, restart the sidecar |
 | *operation … not supported* | DSM called something unimplemented | Report it — the log names the operation and its code |
 | Nothing at all in the log | The connection never arrived | Check `tcp/5696` is reachable from the NAS, and that the sidecar shows a recent check-in |
+
+## TrueNAS, vSphere and other clients
+
+The **Add client** wizard prints the steps for each appliance type, with this
+server's address and port filled in. The outline is the same for all of them:
+the appliance trusts `ca.crt` as the certificate authority, and presents
+`client.crt` with `client.key` as its client certificate.
+
+- **TrueNAS**: choose a KMIP key server under Datasets → Encryption (or
+  System → SED), enter this server's address and port, upload the three files,
+  and turn on the SED passwords or ZFS keys option you want to manage here.
+- **VMware vSphere**: in the vSphere Client select the vCenter, then
+  Configure → Key Providers, and add a Standard key provider. Add a KMS with
+  this server's address and port, choose *Make vCenter trust the KMS* and upload
+  `ca.crt`, then upload `client.crt` and `client.key`. Wait for the connection
+  status to turn green before you encrypt a VM.
+- **Any other KMIP 1.0 to 1.4 client**: point it at this server's address and
+  port, with mutual TLS.
 
 ## How Synology DSM differs from plain KMIP
 
@@ -312,10 +340,11 @@ another server:
 
 ## Recovery — do this before you depend on it
 
-**Security → KMIP → Export bundle** produces a single passphrase-encrypted file
-(`.rpkmip`, AES-256-GCM with PBKDF2-SHA256) containing the master key, the CA,
-the issued client certificates and every stored key object. It is everything
-needed to rebuild this key server on new hardware.
+**Security → KMIP → Export bundle** asks for a passphrase of at least 12
+characters and produces a single encrypted file (`.rpkmip`, AES-256-GCM with
+PBKDF2-SHA256) containing the master key, the CA, the issued client
+certificates and every stored key object. It is everything needed to rebuild
+this key server on new hardware.
 
 Export a bundle after setup, and again whenever you add clients or keys. Store
 it **off this machine** — and specifically not on an appliance that unlocks
@@ -346,11 +375,15 @@ everything that expires, rotates, or needs an eye on it.
 | **Client certificate** | 5 years | That one appliance can no longer authenticate; the rest are unaffected. |
 
 Expiry dates are shown on the KMIP page: the CA and server certificate on the
-**Server** card, each client's on its row. Nothing currently *alerts* on an
-approaching expiry — put a calendar reminder against the earliest date, or
-apply the *RemotePower KMIP key server running* check and treat the page as
-something you look at when you touch the fleet. (An expiry alert is a known
-gap; see *Limitations* below.)
+**Server** card, each client's on its row.
+
+RemotePower also raises **A KMIP certificate is expiring soon** (high severity)
+when the CA or any client certificate that is not revoked has less than
+**Cert-file expiring (days)** left. That setting is under **Settings → Alert
+parameters → Certificates** and is 21 days by default. The check runs every six
+hours and only while the KMIP server is enabled. The alert clears itself when
+nothing is expiring any more. It does **not** cover the server certificate, so
+put a calendar reminder against that date (see *Limitations* below).
 
 ### Rotating a client certificate
 
@@ -448,8 +481,9 @@ hypothesis.
 - **The master key cannot be rotated in place.** There is no re-encrypt-all
   operation; the master key changes only when you reset the server or restore a
   bundle. If you need a new one, that is a reset plus re-adding every appliance.
-- **Nothing alerts on certificate expiry.** The dates are shown but not
-  monitored. Diary them.
+- **The server certificate is not monitored for expiry.** The CA and the client
+  certificates raise an alert; the server certificate's date is only shown on
+  the **Server** card. Diary it.
 - **The sidecar caches state for 30 seconds**, so a revocation takes up to that
   long to bite. It is not instant.
 
@@ -497,6 +531,8 @@ previously copied to an appliance must be replaced with the new ones.
 - **Checks catalog** — apply *RemotePower KMIP key server running* to the host
   tagged `rp-server` to alert when the listener stops. Worth doing if any
   appliance depends on it.
+- **Alerts** — *A KMIP certificate is expiring soon* (see *What expires, and
+  when*).
 
 ## Troubleshooting
 
@@ -517,6 +553,8 @@ previously copied to an appliance must be replaced with the new ones.
 
 ## See also
 
-- [security.md](security.md) — the wider security model and review history
-- [backups.md](backups.md) — the scheduled backups that carry KMIP ciphertext
-- [cli.md](cli.md) — `rp status` / `rp tui`, including the INGEST & KEYS block
+- [Security notes](security.md): the wider security model and review history.
+- [Backups and disaster recovery](backups.md): the scheduled backups that carry KMIP ciphertext.
+- [The `rp` command](cli.md): `rp status` / `rp tui`, including the INGEST & KEYS block.
+- [Alerts](alerts.md): where the certificate expiry alert lands.
+- [Checks](checks.md): the *RemotePower KMIP key server running* check.

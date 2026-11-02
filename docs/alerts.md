@@ -10,52 +10,49 @@ its alerts fleet-wide, and **accepting or disabling** a protect/baseline check
 fires `custom_check_recovered` so its alert closes — so nothing lingers pointing
 at something that no longer exists.
 
-**The contract (v6.4.0): every alert that records an ongoing condition
-auto-resolves when the condition clears** — including CVEs (patched →
-`cve_cleared`), pending updates (`patch_ok`), expiring watched certificates
-(`tls_renewed`), ECC error bursts (`ecc_stable` after 24 quiet hours) and
-exposed secrets (`secret_cleared`). Point-in-time alerts (something
-*happened* — a login, a config change) can't self-heal by definition; those
-rows carry a **confirm** badge so you know to resolve them yourself after
-looking.
+**Every alert that records an ongoing condition auto-resolves when the condition
+clears.** That includes CVEs (patched, then `cve_cleared`), pending updates
+(`patch_ok`), expiring watched certificates (`tls_renewed`), ECC error bursts
+(`ecc_stable` after 24 quiet hours) and exposed secrets (`secret_cleared`).
+Point-in-time alerts (something *happened*, such as a login or a config change)
+cannot self-heal by definition. Those rows carry a **confirm** badge so you know to
+resolve them yourself after looking.
 
 ## Working the inbox
 
-- **Acknowledge** — takes ownership; optionally prompts for a comment
-  (Settings → Notifications → Alerts inbox) that is stored on the alert and included in the
-  acknowledgement webhook.
-- **Resolve / Clear resolved / Clear all** — housekeeping; history is kept. Resolving an alert
-  by hand, one at a time or in bulk, also asks its host to send a fresh report on its next poll
-  *(v7.4.6)*, so Needs attention and Checks stop listing what you have already put right instead
-  of waiting for the agent's next full report (about ten polls). A host with no agent is not asked,
-  a host is asked at most once in two minutes, and an alert that closes on its own does not ask,
-  because the host has just reported. Update the agents so they read the request.
-- **Resolve with a note** *(v6.4.2)* — the pencil button next to Resolve asks
-  what actually fixed it and stores the answer on the alert (`resolve_note`,
-  max 256 characters). The note shows on the resolved row and in the
-  **Resolution timeline**, so the next person who hits the same alert can see
-  what worked last time instead of starting from scratch. Plain Resolve still
-  works with no note; reopening an alert (**unresolve**) clears the note along
-  with the resolution.
-- **Age, not last occurrence** *(v6.4.2)* — a repeating alert is one row: each
-  new firing bumps its `count` and its `ts`. Every row therefore also carries
-  **`first_seen`**, the timestamp of the *first* observation, which is never
-  rewritten. The inbox shows "age" from `first_seen` (and "open for" once
-  resolved), so an alert that says "2 minutes ago" can no longer hide the fact
-  that it has been firing for a week. MTTA/MTTR are measured from `first_seen`
-  for the same reason. Rows written before the field existed adopt their
-  current `ts` as their first observation, so ages stay truthful across the
-  upgrade.
-- **Group by host** — folds symptom alerts under their probable root cause
-  (a `device_offline` folds the service/port alerts it likely caused).
-- **Filters** — state dropdown + free-text filter by host, event or title.
-- **Open a ticket** — with the [ticket system](ticket-system.md), an alert
-  row can spawn a linked ticket; opening one auto-acknowledges the alert.
-- **Triage** *(v6.4.0)* — runs a bounded agentic investigation on the alert:
-  the model gathers evidence through read-only, host-scoped tools and stores
-  a root-cause verdict with its evidence trail on the row. Optionally automatic
-  for new alerts (off by default, with a severity floor and a daily cap). See
-  [ai.md](ai.md).
+- **Acknowledge** takes ownership. It can prompt for a comment (**Settings →
+  Notifications → Alerts inbox**), which is stored on the alert and included in the
+  acknowledgement webhook. **Ack selected** acknowledges several rows at once.
+- **Resolve, Resolve selected, Clear resolved, Clear all** are housekeeping, and history
+  is kept. Resolving an alert by hand, one at a time or in bulk, also asks its host to
+  send a fresh report on its next poll, so Needs Attention and Checks stop listing what
+  you have already put right instead of waiting for the agent's next full report (about
+  ten polls). A host with no agent is not asked, a host is asked at most once in two
+  minutes, and an alert that closes on its own does not ask, because the host has just
+  reported. Agents need to be up to date to read the request.
+- **Resolve with a note.** The pencil button next to Resolve asks what actually fixed it
+  and stores the answer on the alert (`resolve_note`, up to 256 characters). The note
+  shows on the resolved row and in the **Resolution timeline**, so the next person who
+  hits the same alert can see what worked last time. Plain Resolve still works with no
+  note. Reopening an alert (**unresolve**) clears the note along with the resolution.
+- **Age, not last occurrence.** A repeating alert is one row: each new firing bumps its
+  `count` and its `ts`. Every row also carries **`first_seen`**, the timestamp of the
+  *first* observation, which is never rewritten. The inbox shows "age" from `first_seen`
+  (and "open for" once resolved), so an alert that says "2 minutes ago" cannot hide that
+  it has been firing for a week. MTTA and MTTR are measured from `first_seen` for the
+  same reason.
+- **Group by host** folds symptom alerts under their probable root cause (a
+  `device_offline` folds the service and port alerts it likely caused).
+- **Filters.** The state tabs (Open, Acknowledged, Resolved, All), a free-text filter by
+  host, event or title, and **Views** for saved filters.
+- **Open a ticket.** With the [ticket system](ticket-system.md), an alert row can spawn a
+  linked ticket, and opening one acknowledges the alert.
+- **Mute** silences one alert from one host. See [alert-tuning.md](alert-tuning.md).
+- **Triage** runs a bounded agentic investigation on the alert: the model gathers
+  evidence through read-only, host-scoped tools and stores a root-cause verdict with its
+  evidence trail on the row. It can also run on its own for new alerts (off by default,
+  with a severity floor and a daily cap). **Quick investigate** is the lighter one-shot
+  version with no stored verdict. See [ai.md](ai.md).
 
 ## Alerts, Needs Attention and Checks together
 
@@ -67,7 +64,7 @@ or you may have ignored or snoozed the item or switched the check off. The bar a
 and [Problems](problems.md) lists each problem once across the three. The API carries the same word as
 `problem_state` on `GET /api/alerts`.
 
-## Putting it on a wall *(v7.0.2)*
+## Putting it on a wall
 
 **Full screen** on the Alert inbox card gives the inbox the whole display and
 nothing else — no sidebar, no page title, larger type, and the list scrolling
@@ -95,15 +92,22 @@ page (per host + alert type), suppressed during
 Settings → Notifications. The **Resolution timeline (MTTR)** card at the
 bottom tracks how quickly alerts get resolved.
 
-## Watching RemotePower itself *(v6.4.2)*
+## What happened last time
 
-RemotePower has always told you when somebody gained sudo on a monitored host
-(`priv_group_added`) and said nothing when somebody became an admin of the
-server that can run root commands across the whole fleet. The
-**`control_plane_security_change`** event closes that: privilege and
-security-control changes to RemotePower itself now fire on the same
-alert/webhook/activity channels as everything else, instead of only landing in
-an audit log nobody watches.
+The **What happened last time** card, under the inbox, lists incidents this fleet has
+already worked through: the cause recorded at the time, how the alert finally cleared,
+and whether the AI triage verdict was rated useful. It is kept after the alert itself
+is pruned. The AI advisors reason over the same record. **Show all** lists everything
+and **Forget all** deletes it (`GET` and `DELETE /api/ai/incident-memory`).
+
+## Watching RemotePower itself
+
+RemotePower tells you when somebody gains sudo on a monitored host
+(`priv_group_added`). The **`control_plane_security_change`** event does the same for
+RemotePower itself, where becoming an admin means being able to run root commands
+across the whole fleet. Privilege and security-control changes fire on the same
+alert, webhook and activity channels as everything else, instead of only landing in an
+audit log nobody watches.
 
 It fires (severity **high**, kind `accounts`) when:
 
@@ -135,10 +139,10 @@ ack_comment_enabled}`. All parameters are optional:
 |---|---|---|
 | `status` | `open` | `open` \| `ack` \| `resolved` \| `all` |
 | `limit` | 200 | clamped to 1–1000 |
-| `offset` | 0 | *(v6.4.2)* clamped ≥ 0 — before this, row 201 was simply unreachable |
-| `q` | — | *(v6.4.2)* case-insensitive substring over host name, event and title |
-| `severity` | — | *(v6.4.2)* `critical`/`high`/`medium`/`low`; repeat the parameter or comma-separate for several |
-| `device_id` | — | *(v6.4.2)* exact match |
+| `offset` | 0 | clamped to 0 or more, so every row past the first page is reachable |
+| `q` | — | case-insensitive substring over host name, event and title |
+| `severity` | — | `critical`/`high`/`medium`/`low`; repeat the parameter or comma-separate for several |
+| `device_id` | — | exact match |
 | `mine` | — | only alerts *you* acknowledged |
 
 Rows come back newest first. Filtering runs **after** the visibility filter, so
@@ -149,7 +153,7 @@ and addressing it by id returns 404 rather than 403.
 
 ## Turning the inbox off
 
-Alerts are an optional module (**Settings → Advanced → Modules**). Switched off,
+Alerts are an optional module (**Settings → Advanced → Optional modules**). Switched off,
 the whole `/api/alerts` surface 404s and the nav entry hides — alerts stop being
 **recorded**.
 
@@ -158,12 +162,12 @@ email are separate delivery channels, and the Recent Activity / fleet-event
 history is a separate store, so both carry on. That makes notification-only a
 supported setup — your phone still pings, there is just no inbox to triage.
 
-## Ignored items — and keeping them from piling up *(v6.4.0)*
+## Ignored items, and keeping them from piling up
 
 Hiding a Needs-Attention card (the × on the card) sends it to **Settings →
 Ignored items**, alongside hidden stale containers, hosts, ignored CVEs and
-cleared log lines. On a large fleet that list used to grow without bound —
-so it now maintains itself:
+cleared log lines. On a large fleet that list could grow without bound, so it
+maintains itself:
 
 - **Self-pruning.** An ignore is garbage-collected once its underlying condition
   has been gone past a short grace window (the drift resolved, the disk
@@ -178,7 +182,7 @@ so it now maintains itself:
   *kind* across the fleet, a group, a tag or a host — one entry instead of
   one ignore per host.
 
-You should also need to ignore *less*, because more alerts now clear themselves:
-open `patch_alert` and `cve_found` alerts are periodically re-checked against
-current state and **auto-resolve** when the condition clears (pending drops under
-threshold; no CVE findings left), so they leave the inbox on their own.
+You should also need to ignore less, because alerts clear themselves: open `patch_alert`
+and `cve_found` alerts are re-checked periodically against current state and
+**auto-resolve** when the condition clears (pending updates drop under the threshold, or
+no CVE findings are left), so they leave the inbox on their own.

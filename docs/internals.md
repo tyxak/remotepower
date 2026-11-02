@@ -38,10 +38,22 @@ The payoff is that the whole thing is *legible*. A single engineer can hold the
 request path in their head, and a new contributor can trace a feature from the URL
 to the byte on disk without learning a framework first.
 
-By the numbers (v7.1.0):
+By the numbers:
 
 | Thing | Count |
 |---|---|
+| Server Python (`server/cgi-bin/`) | ~149,000 lines |
+| The main API module (`api.py`) | ~78,000 lines |
+| Focused sibling modules | ~119 |
+| HTTP routes (exact + templated) | ~526 exact, ~398 pattern |
+| Request handlers (`handle_*`) | ~886 |
+| Typed request-body models | ~278 |
+| Homelab integration connectors | 50 (+ a generic HTTP probe) |
+| Background maintenance sweeps | ~76 |
+| Frontend JS files (no bundler) | 51 |
+| Test methods across ~1,000 files | ~17,800 |
+
+---|---|
 | Server Python (`server/cgi-bin/`) | ~145,000 lines |
 | The main API module (`api.py`) | ~75,000 lines |
 | Focused sibling modules | ~115 |
@@ -57,7 +69,7 @@ By the numbers (v7.1.0):
 
 ## The backend: one process, one router
 
-Since v6.1.0 the server is a real WSGI app. `server/cgi-bin/wsgi.py` is a tiny
+The server is a real WSGI app. `server/cgi-bin/wsgi.py` is a tiny
 Flask shell — `application = Flask(__name__)` with a single catch-all route — and
 gunicorn runs it (`gunicorn wsgi:application`). That's the *entire* transport
 layer. What happens next is the interesting part.
@@ -65,10 +77,10 @@ layer. What happens next is the interesting part.
 The Flask route does almost nothing: it copies the WSGI environ into a
 thread-local request context (`_RCTX`) and calls `api.main()` — the same
 `main()` that has existed since the project's CGI days. The whole dispatch table,
-the auth and CSRF enforcement, the read-only-role gate, the ~64 maintenance
+the auth and CSRF enforcement, the read-only-role gate, the ~76 maintenance
 sweeps: all unchanged. Only the shell around them changed.
 
-That's not an accident. Before v6.1.0 the server ran as CGI behind fcgiwrap (one
+That's not an accident. Earlier releases ran the server as CGI behind fcgiwrap (one
 process per request) and later an SCGI prefork worker. The cutover to gunicorn +
 Flask was designed as *"swap the entry point, keep the handlers,"* which was only
 cheap because the dispatcher had already been refactored from a giant `if/elif`
@@ -134,7 +146,7 @@ Underneath, three backends implement that contract:
 - **SQLite** — WAL mode, stdlib `sqlite3`. Hot entities are stored **row per
   entity**, so a heartbeat updates one host's row instead of rewriting a whole
   file. In-place, reversible migration from the file backend.
-- **PostgreSQL** (the single-node default since v6.1.0) — multi-host DSN failover,
+- **PostgreSQL** (the single-node default) — multi-host DSN failover,
   optional read replicas, a PgBouncer pooler, and — if you turn it on — row-level
   security keyed on a per-request GUC as DB-enforced tenant isolation beneath the
   app layer.
@@ -181,7 +193,7 @@ and so on. There is no cron inside the app and no external job runner. Each swee
 is a `run_<x>_if_due()` function with a cheap "is it time yet?" gate backed by a
 persisted timestamp.
 
-By default (since v6.1.0) a dedicated, leader-elected
+By default a dedicated, leader-elected
 `remotepower-scheduler.service` process runs them out of band — one leader across
 a cluster, chosen by file-lock or `pg_advisory_lock`. With `--no-scheduler` the
 sweeps fall back to their original home: piggy-backing on request traffic, where
@@ -322,7 +334,7 @@ codebase scans clean under CodeQL, Bandit and Gitleaks on every release.
 The test suite is ~11,100 methods across 545 files, and the real gate runs the
 *entire* suite three times — on the JSON backend, on SQLite, and against a real
 PostgreSQL — because the cross-backend bugs are the ones that reach production.
-Postgres is the enterprise default and was, until v7.0.0, run by no gate at
+Postgres is the enterprise default and was once run by no gate at
 all: the tests written for it skipped themselves when no server was present,
 which reads as a pass. `RP_PG_REQUIRE` / `PG_STRICT` now make that skip a
 failure, so the gate cannot go green by declining to test. (Production CI adds

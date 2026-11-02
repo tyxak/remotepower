@@ -6,9 +6,10 @@ logs, and — most usefully — a `doctor` that diagnoses the common misconfigur
 in one shot.
 
 It's installed to `/usr/local/bin/rp` by `install-server.sh` (fresh installs) and
-`deploy-server.sh` (updates), and ships in the Docker image — so it's standard on
-every path. `status`, `doctor`, `version`, and `logs` run as any user;
-`start`/`stop`/`restart`/`reload` need root (they drive `systemctl`).
+`deploy-server.sh` (updates), and ships in the Docker image. `install.sh update` runs
+`deploy-server.sh`, so it gets there that way too. `status`, `doctor`, `version`, and
+`logs` run as any user; `start`/`stop`/`restart`/`reload` need root (they drive
+`systemctl`).
 
 ```text
 rp status              show every stack component + host service
@@ -25,6 +26,11 @@ rp repair              make everything current again (re-deploy, or restart+relo
 rp version             print the installed server version
 rp help                this help
 ```
+
+Running `rp` with no command is the same as `rp status`. Several commands have short
+aliases: `st` (status), `top`, `dash`, `dashboard` and `ui` (tui), `re` (restart), `diag`
+and `dr` (doctor), `log` (logs), `setup` (install), `update` (deploy), `fix` (repair)
+and `-v` or `--version` (version).
 
 > **Run `status`/`doctor` as root for the full picture.** The data directory is
 > `0700` (owned by the web user) and the nginx config/certs are root-only, so a
@@ -55,13 +61,15 @@ rp doctor                 # full health check (see below)
 
 Prints one row per component — `running` / `stopped` / `FAILED`, whether it's
 enabled at boot, and whether its port is actually listening (`:8090` app,
-`:8766` push, `:8765` web terminal). It also shows nginx and, on a Postgres
-install, whether Postgres is `ready`. It leads with the server version, the
-storage backend, and the data directory.
+`:8766` push, `:8765` web terminal, `:5514` syslog receiver, `:2055` flow receiver,
+`:5696` KMIP). A component that is not installed shows as `absent`. It also shows
+nginx and, on a Postgres install, whether Postgres is `ready`. It leads with the
+server version, the storage backend, and the data directory, and ends with the
+**INGEST & KEYS** summary described below.
 
 ## `rp tui` — live dashboard
 
-`rp tui` (aliases `top`, `dashboard`) opens a full-screen, auto-refreshing
+`rp tui` opens a full-screen, auto-refreshing
 control board — think `htop`/`k9s` for the RemotePower stack. No dependencies;
 it's drawn with box characters and ANSI colour, so it works over plain SSH.
 
@@ -69,8 +77,8 @@ it's drawn with box characters and ANSI colour, so it works over plain SSH.
 
 
 ```text
-╭─ RemotePower  ·  tviweb01 ───────────────────────────────────────────────╮
-│  version 6.4.1    backend postgres    uptime 3d 4h    load 0.42           │
+╭─ RemotePower  ·  rp-server ───────────────────────────────────────────────╮
+│  version 7.4.9    backend postgres    uptime 3d 4h    load 0.42           │
 ├───────────────────────────────────────────────────────────────────────────┤
 │  COMPONENT             STATUS        BOOT       PORT                       │
 │ ▸ ● wsgi               running       enabled    :8090 ✓                    │
@@ -89,7 +97,7 @@ it's drawn with box characters and ANSI colour, so it works over plain SSH.
 │  flow    0 mapped · 0 reporting · never                                    │
 │  kmip    on · 2/2 clients · 3/3 keys · op 4m ago                           │
 ╰───────────────────────────────────────────────────────────────────────────╯
-  ↑/↓ select   [r]estart [s]tart [x]stop   [d]octor [l]ogs   [q]uit
+  ↑/↓ select  [r]estart [s]tart [x]stop  [d]octor [l]ogs [P]repair  [?]help [q]uit
 ```
 
 The **INGEST & KEYS** block is the part that answers "is it actually working?"
@@ -117,9 +125,9 @@ The one to reach for when something's off. It checks, and reports `OK` / `WARN` 
 `FAIL`, exiting non-zero if anything failed (so you can wire it into monitoring):
 
 - **Code + data dir** present, data dir mode `700`.
-- **Every unit**: the app server must be running (FAIL if not); optional
-  components (scheduler/scanner/push/webterm) WARN if installed-but-stopped, and
-  each is checked against its port.
+- **Every unit**: the app server must be running (FAIL if not); every other
+  installed component (scheduler, scanner, push, webterm and the optional receivers)
+  WARNs if it is stopped, and each is checked against its port.
 - **Storage backend connectivity** — on Postgres it actually loads the host
   store through the app's driver (using the DSN from the storage marker), so a
   broken DSN is caught here, not at 3am.
@@ -135,7 +143,7 @@ Example:
 
 ```text
 $ rp doctor
-rp doctor — RemotePower 6.4.1, backend=postgres
+rp doctor — RemotePower 7.4.9, backend=postgres
 
   OK   code present (/var/www/remotepower)
   OK   data dir /var/lib/remotepower (mode 700)
@@ -160,11 +168,12 @@ a couple of common locations). All three escalate with `sudo` automatically.
 
 | Command | What it runs | Use it when |
 |---|---|---|
-| `rp install [args…]` | `install-server.sh` | first-time setup, or to add a component later (`rp install --with-scanner`) |
+| `rp install [args…]` | `install-server.sh` | first-time setup, or to add a component later (`rp install --with-sshgw`, or `--with-scanner` after an earlier `--no-scanner`) |
 | `rp deploy [args…]` | `deploy-server.sh` | ship new code — updates cgi-bin, static, the agent copy, `rp`, the push daemon, and restarts the app + scheduler + push |
 | `rp repair` | `deploy-server.sh` if the source is present, else restart-stack + reload-nginx | something's wedged and you want it made current again in one shot |
 
-If `rp` can't find the checkout it tells you to set `RP_SRC=/path/to/checkout`.
+If `rp` can't find the checkout it tells you to set `RP_SRC=/path/to/checkout`. Without
+a checkout, `rp repair` falls back to restarting the stack and reloading nginx.
 
 ## Troubleshooting — reading `rp doctor` and fixing each failure
 

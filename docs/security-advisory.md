@@ -5,102 +5,105 @@ open.
 
 The CVE page tells you which CVEs you have. Exposure tells you which ports are
 open. Checks tells you what is failing. Risk gives you a score. Each is a good
-answer to *"what is the state of X"* — but none of them answers the question an
-operator actually has at 09:00 on a Monday:
+answer to *"what is the state of X"*, but none of them answers the question an
+operator has at 09:00 on a Monday:
 
 > **What should I fix first, and why that rather than the other thing?**
 
-The advisory is one prioritized list, spanning the whole stack from the
-operating system up to the application, at whatever scope you care about.
+The advisory is one prioritized list that spans the stack from the operating
+system up to the application, at the scope you choose.
 
 ## What it is built from
 
-Nothing new is collected. The advisory is a *reading* of data RemotePower
-already holds, which is why it is cheap to run on demand at any scope and never
-scans or contacts anything:
+Nothing new is collected. The advisory reads data RemotePower already holds, so
+it is cheap to run on demand at any scope and never scans or contacts anything.
 
 | Layer | Sources |
 |---|---|
-| **Application** | Scanner findings (nuclei, nikto, wpscan) — a vulnerable CMS plugin, an exposed admin panel |
-| **Exposure** | World-reachable listening ports, host firewall posture, TLS certificate expiry (from the TLS monitor's own probes) |
-| **OS** | Package CVEs (ignore list applied, KEV-listed ones ranked first), pending updates and auto-patch posture, pending reboot, end-of-life releases, failing OpenSCAP benchmark rules |
-| **Identity** | sshd configuration, brute-force pressure, authorized SSH keys on deprecated algorithms, Windows tamper-protection / UAC / Secure Boot |
-| **Integrity** | Failing protect checks, Integrity Guard quarantine, tracked config files drifted from baseline, agent-binary hash mismatch or a refused unsigned update |
-| **Data** | Credentials found in files by the secret scanner, stale or missing backups, FileVault and BitLocker |
+| **Application** | Findings from the pentest scanners (Security → Pentest) with severity critical, high or medium: a vulnerable CMS plugin, an exposed admin panel. Informational findings are left out. |
+| **Exposure** | World-reachable listening ports (ports you muted on the Exposure page are skipped), host firewall posture, and TLS certificates from the TLS monitor that are expired or expire within 14 days |
+| **OS** | Package CVEs rated critical or high (the ignore list is applied, KEV-listed ones come first), pending updates and whether the host auto-patches, pending reboot, end-of-life releases, failing OpenSCAP benchmark rules, and Secure Boot when the Secure Boot check is switched on |
+| **Identity** | sshd settings (root login, password login, empty passwords), brute-force pressure, authorized SSH keys on deprecated algorithms, local accounts with an empty password or one older than a year, and on Windows Defender tamper protection, UAC and Secure Boot |
+| **Integrity** | Failing protect checks, Integrity Guard quarantine, tracked config files that drifted from their baseline, an agent binary whose hash does not match, and a refused unsigned agent update |
+| **Data** | Credentials found in files by the [secret scan](secret-scan.md) (muted ones are left out), stale or missing backups, FileVault on macOS and BitLocker on Windows |
 
-A CVE on CISA's **KEV** list is ranked above a higher-severity one that is not:
-KEV membership means exploitation has been *observed*, not predicted. CVEs you
-have accepted on the ignore list do not appear at all.
+A critical or high CVE that is on CISA's **KEV** list makes its finding
+critical and is listed first in the evidence. KEV membership means someone has
+seen the CVE exploited, not just predicted. CVEs you accepted on the ignore
+list do not appear at all.
 
-The application layer is the one host telemetry cannot see on its own: a
-vulnerable plugin is not a package, does not appear in a distro CVE feed, and
-does not open a new port. That is why scan findings are folded in here rather
-than left on their own page.
+The application layer is the one host telemetry cannot see on its own. A
+vulnerable plugin is not a package, does not show up in a distribution CVE
+feed, and does not open a new port. That is why scan findings are folded in
+here instead of staying on their own page.
 
 ### What it does not include
 
-A finding has to be answerable from stored state. Two candidates were written
-and then removed: "ports opened since the baseline" and "SSH keys added since
-the baseline". Both baselines are refreshed on every heartbeat, so by the time
-the advisory reads one the change is already in it — the delta is always empty
-and the finding could never fire. Those are *events*, and they already alert as
-`new_port_detected` and `ssh_key_added`. What the advisory reads from the same
-stores is the durable part: how many services are world-reachable now, and
-which authorized keys use a deprecated algorithm.
+A finding has to be answerable from stored state. A change such as "a new port
+opened" or "an SSH key was added" is an *event*, and it already alerts as
+`new_port_detected` or `ssh_key_added`. What the advisory reads from the same
+data is the lasting part: how many services are world-reachable now, and which
+authorized keys use a deprecated algorithm.
 
-Config drift is reported as the list of **paths** that changed, never the
-captured diff. The contents of a config file are exactly the kind of thing that
-carries a credential, and the Drift page already shows them behind its own view.
+Config drift is listed as the **paths** that changed, never the captured diff.
+A config file can carry a credential, and the Drift page shows the contents
+behind its own view.
 
 ## Scope
 
-Build it for **the whole fleet**, a **group**, a **tag**, or a **single host**.
-The scope is always filtered to what your role and tenant can see — a
-host-scoped request for a host you cannot see returns "not found", not
+Choose **Whole fleet**, **A specific host**, **A group** or **A tag**, then
+click **Build advisory**. The scope is always cut down to what your role and
+tenant can see. Asking for a host you cannot see returns "not found", not
 "forbidden", so the advisory never reveals that a host exists.
+
+TLS certificate findings do not belong to a host, so they appear at every scope.
 
 ## Reading the list
 
-Each entry carries four things, and the order of the list is itself the answer:
+The page opens with four tiles (Critical, High, Medium, Hosts assessed) and
+then one card per finding. The order of the cards is the answer, so do not
+re-sort it. It goes by severity first and then by how many hosts are affected,
+so a problem on thirty hosts outranks the same problem on one.
 
-- **Rank + severity + layer** — the list is sorted by severity, then by how many
-  hosts are affected. A problem on thirty hosts outranks the same problem on
-  one. Do not re-sort it; the order *is* the recommendation.
-- **Why it matters** — the reason this is worth your morning, in plain terms.
-- **Do this** — the concrete next action. If we can't name one, the finding
-  doesn't appear.
-- **Evidence** — the actual ports, packages, paths or config lines, so you can
-  verify the claim instead of trusting it.
+Each card carries:
 
-Identical findings across hosts are **grouped into one decision**: "23 hosts
-have pending updates" is one thing to schedule, not 23 rows to read. The
-affected hosts are listed underneath (bounded, with a count).
+- **Rank, severity and layer** at the top, with the number of affected hosts.
+- **Why it matters**, in plain terms.
+- **Do this**, the concrete next step. A finding with no concrete step does not
+  appear.
+- **Evidence**: the ports, packages, paths or config lines behind it (up to
+  eight), so you can check the claim instead of trusting it.
+- The affected hosts (the first 25, with the full count), where the data came
+  from, and a link to the related guide.
 
-An empty advisory is a real result. If nothing critical or high comes out of the
-collected data, the page says so rather than padding the list.
+Identical findings on several hosts are **grouped into one card**: "23 hosts
+have pending updates" is one thing to schedule, not 23 rows to read. A group
+takes the worst severity of its members.
+
+An empty advisory is a real result. When nothing critical or high comes out of
+the collected data, the page says so instead of padding the list.
 
 ## The AI option
 
-**Ask AI** sends the advisory to the configured AI advisor and asks it to
-prioritize: what to fix first, why that order, and whether anything looks
-systemic enough to deserve a fleet-wide fix rather than per-host work. It is
-particularly good at spotting *chains* — an exposed service plus a weak identity
-control is worse than either alone, and a severity label alone won't tell you
-that.
+**Ask AI** sends the advisory to your AI provider and asks it to prioritize:
+what to fix first, why that order, and whether anything looks systemic enough
+for a fleet-wide fix instead of per-host work. It is good at spotting *chains*.
+An exposed service plus a weak identity control is worse than either alone, and
+a severity label will not tell you that. AI has to be enabled under **Settings
+→ AI assistant** first.
 
-**What is sent is redacted, on the server, before it leaves.** The model
-receives only finding titles, layers, severities and host counts. It never
-receives the evidence — no hostnames, paths, URLs, package names or matched log
-content — because the configured provider may be off-box. That redaction happens
-server-side: building the brief in the browser from the loaded
-advisory would have shipped all of it.
+**What is sent is redacted on the server before it leaves.** The model gets
+finding titles, layers, severities and host counts. It never gets the evidence:
+no host names, paths, URLs, package names or matched log lines, because the
+configured provider may be outside your network. Titles that would contain a
+host name, a check name or a scanner's own text are replaced by a generic line.
 
-The trade is that the model cannot invent specifics it was not given, which is
-also why its answer is about *ordering and reasoning* rather than about your
-individual hosts. The evidence stays on the page, where you already have it.
+The trade is that the model cannot invent specifics it was not given, so its
+answer is about *ordering and reasoning* rather than about your individual
+hosts. The evidence stays on the page, where you already have it.
 
-The same advisor is available from **AI → Insights** as a card, without a
-preselected scope.
+The same advisor is on the **AI Assistant** page as a **Security advisory**
+card in **AI Insights**, without a preselected scope.
 
 ## Relationship to the other pages
 
@@ -110,14 +113,22 @@ preselected scope.
 | [Risk](risk.md) | How bad is each asset, as a number? |
 | [CVEs](cve.md) | Which known vulnerabilities do I have? |
 | [Exposure](exposure.md) | What can the outside world reach? |
-| [Protect](integrity-guard.md) | Has anything changed that shouldn't have? |
+| [Protect](integrity-guard.md) | Has anything changed that should not have? |
 | [Pentest](security-scans.md) | What does an outsider see when they scan me? |
 
-The advisory does not replace any of them — it reads all of them, and tells you
+The advisory does not replace any of them. It reads all of them and tells you
 where to start.
+
+## API
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/security/advisory?scope=all\|host\|group\|tag&target=...` | Any signed-in user. `target` is required for every scope except `all`. |
+| POST | `/api/security/advisory/brief` | `{scope, target}`. Returns the redacted text that Ask AI sends. |
 
 ## See also
 
-- [integrity-guard.md](integrity-guard.md) — the integrity layer's checks and vault.
-- [security-scans.md](security-scans.md) — running the scans that feed the application layer.
-- [ai.md](ai.md) — configuring the AI provider, and what leaves the box.
+- [integrity-guard.md](integrity-guard.md): the integrity layer's checks and vault.
+- [security-scans.md](security-scans.md): running the scans that feed the application layer.
+- [secret-scan.md](secret-scan.md): the scan behind the data layer's credential findings.
+- [ai.md](ai.md): configuring the AI provider, and what leaves your network.

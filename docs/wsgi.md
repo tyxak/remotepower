@@ -2,7 +2,7 @@
 
 The RemotePower server runs entirely under **gunicorn**, serving the real
 `api.py` request path through a thin Flask app (`server/cgi-bin/wsgi.py`).
-This is the **only** server since v6.1.0 — the earlier CGI entry point
+This is the **only** server. The earlier CGI entry point
 (`api_cgi.py` behind nginx + fcgiwrap) and the SCGI prefork worker
 (`api_worker.py` / `remotepower-api.service`) have both been retired.
 `install-server.sh` installs and enables `remotepower-wsgi.service` by

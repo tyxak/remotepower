@@ -1,7 +1,5 @@
 # Script library
 
-*(v2.1.0)*
-
 Multi-line bash scripts, kept separate from the existing single-line
 Command Library. Lint with `bash -n` and a dangerous-command sweep before
 they leave the dashboard; run on a single host from the host
@@ -242,7 +240,7 @@ One row per target host showing:
 Polling stops automatically once every queued host has returned
 output, or after 1 hour (the job's TTL). Close button stops polling.
 
-## Staged rollouts & one-click rollback (v5.0.0)
+## Staged rollouts & one-click rollback
 
 When you roll a script out in stages, you can attach a **rollback script** to the
 rollout. After it completes, a **Rollback** button appears on the rollout card;
@@ -316,7 +314,7 @@ curl -s -H "Authorization: Bearer $API_KEY" \
  https://rp.example.com/api/exec/batch/$JOB_ID | jq .
 ```
 
-## AI integration *(v2.1.3 / 2.1.5)*
+## AI integration
 
 The script editor has three buttons across the top of the
 textarea when AI is configured (see [ai.md](ai.md)):

@@ -1,7 +1,5 @@
 # Automation rules
 
-*(engine v3.4.2; actions extended in v5.6.0 "HeapMatters")*
-
 The **Automation** page (Automation → Automation) runs **event-driven rules**:
 *when an event fires on a matching host, run one or more actions.* Rules are
 evaluated as part of the event-firing path, so they react as soon as an event
@@ -22,15 +20,15 @@ and every action is audited.
 | --- | --- |
 | **Run script** | Queues a saved custom script on the event's host (honours quarantine / audit-mode at dispatch). |
 | **Notify** | Re-dispatches the event to a named webhook destination. |
-| **Open a ticket** *(v5.6.0)* | Opens a helpdesk ticket for the event's host (requires the ticket system enabled). Priority follows the event severity unless you pick one. Deduped per rule so a flapping event doesn't pile up tickets. |
-| **Add a tag** *(v5.6.0)* | Adds a tag to the event's host — handy for auto-classifying ("seen-flapping", "needs-review"). |
-| **Mute the alert** *(v5.6.0)* | Mutes *this event from this host* — the same `(host, event)` silence the Alerts **X** button creates. Useful to self-suppress a known-noisy source. |
+| **Open a ticket** | Opens a helpdesk ticket for the event's host (requires the ticket system enabled). Priority follows the event severity unless you pick one. Deduped per rule so a flapping event doesn't pile up tickets. |
+| **Add a tag** | Adds a tag to the event's host — handy for auto-classifying ("seen-flapping", "needs-review"). |
+| **Mute the alert** | Mutes *this event from this host* — the same `(host, event)` silence the Alerts **X** button creates. Useful to self-suppress a known-noisy source. |
 
-The three v5.6.0 actions compose subsystems you already have (tickets, host
+The ticket, tag and mute actions compose subsystems you already have (tickets, host
 tags, alert mutes), so they add **no new webhook event** and run on the same
-lock-safe path as the existing script/notify actions.
+lock-safe path as the script and notify actions.
 
-## Guarded, verified remediation *(v6.4.0)*
+## Guarded, verified remediation
 
 The **Run script** action is the auto-*fix* channel, so it carries its own
 safety rig (per rule, editable in the rule editor):
@@ -64,7 +62,7 @@ with two actions plus a cooldown) cover it. With **Verify within** set to
 | `POST /api/automation/rules` | Create a rule (admin) |
 | `PUT /api/automation/rules/{id}` | Replace a rule (admin) |
 | `DELETE /api/automation/rules/{id}` | Delete a rule (admin) |
-| `GET /api/automation/remediations` | The auto-remediation attempt ledger *(v6.4.0)* |
+| `GET /api/automation/remediations` | The auto-remediation attempt ledger |
 
-Rules are stored in `automation_rules.json`; remediation attempts in
-`remediations.json` (last 500).
+The server keeps the last 500 remediation attempts. Rules are visible to admins of
+the tenant that created them.

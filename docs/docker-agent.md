@@ -1,7 +1,7 @@
 # Monitoring a Docker host with the containerized agent
 
 The RemotePower agent can run as a container that monitors **its Docker host** and
-reports to your server — no package install on the host. It's published as a
+reports to your server, with no package install on the host. It is published as a
 separate image from the server:
 
 ```
@@ -15,9 +15,9 @@ shared, so processes, ports, packages, disks and config all reflect the host.
 
 ## Quick start (two values, one command)
 
-1. In the RemotePower UI: **Enroll host → Generate Docker compose**. Copy the
-   generated `docker-compose.yml` (your server URL and a one-time token are
-   already filled in).
+1. In the RemotePower UI, open **Hosts → Enroll host → Generate Docker compose**. Copy the
+   generated `docker-compose.yml`. Your server URL and a one-time token (valid for 24 hours)
+   are already filled in.
 2. On the Docker host, save it and run:
 
 ```bash
@@ -29,23 +29,26 @@ The agent enrolls on first boot — **named after the host**, not the container 
 persists its credentials to the `rp-agent-creds` volume, and reports from then on.
 Restarts reuse the saved credentials. There's no PIN to type.
 
-Prefer not to use the UI? Mint a token via the API (`POST /api/enrollment-tokens`,
+Prefer not to use the UI? Mint a token through the API (`POST /api/enrollment-tokens`,
 admin) and use [`docker/docker-compose.agent.yml`](../docker/docker-compose.agent.yml)
 from the repo, setting `RP_SERVER` and `RP_ENROLL_TOKEN`.
+
+The enrolment window also shows the **Windows and Linux/macOS** one-liners. Use the compose
+file when you want the host watched by a container and the host OS left alone.
 
 ## Configuration (environment variables)
 
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
 | `RP_SERVER` | first boot | — | Server URL, e.g. `https://remote.example.com` |
-| `RP_ENROLL_TOKEN` | first boot | — | One-time enrollment token (also accepts `REMOTEPOWER_ENROLL_TOKEN`) |
+| `RP_ENROLL_TOKEN` | first boot | — | One-time enrollment token, good for 24 hours (also accepts `REMOTEPOWER_ENROLL_TOKEN`) |
 | `RP_DEVICE_NAME` | no | host's hostname | Host display name |
-| `RP_CA_FINGERPRINT` | no | — | Pin a self-signed server's CA (SHA-256); the agent fetches `/ca.crt` and refuses a mismatch |
+| `RP_CA_FINGERPRINT` | no | — | Pin a self-signed server's CA (SHA-256). The agent fetches `/ca.crt` over plain HTTP and refuses it unless the fingerprint matches. Add it when your server uses its own CA. |
 | `RP_INTERVAL` | no | `60` | Heartbeat interval (seconds) |
 | `HOST_ROOT` | no | `/host` | Where the host rootfs is mounted |
 
-After enrollment only the `rp-agent-creds` volume matters; the env vars can be
-removed on later `up`s.
+After enrollment only the `rp-agent-creds` volume matters. You can remove the variables on later
+`up`s.
 
 ## Capability profiles
 
@@ -79,9 +82,9 @@ host` and a read-only host rootfs. This covers the large majority of telemetry:
 **DMI/firmware inventory**. These need raw device access, a much broader grant
 than the standard caps — enable only if you want hardware-health telemetry.
 
-## What the containerized agent does NOT do (v1)
+## What the containerized agent does not do
 
-By design it reports honest "not available" instead of misleading host data for:
+It reports "not available" instead of misleading host data for:
 
 - **Host compliance scans** (lynis hardening score, OpenSCAP/CIS) — these grade
   the *running* system, which inside a container is the container, not the host.
@@ -91,10 +94,10 @@ By design it reports honest "not available" instead of misleading host data for:
   from the container. (Install the native agent on the host if you need these.)
 - **Self-update** — the binary is baked into the image; upgrade by pulling a
   newer image tag, never in place.
-- **`upgradable` count on non-Debian hosts** — installed-package inventory and
-  CVE matching work on Debian/Ubuntu, Arch and RHEL/Fedora hosts; the "updates
-  available" count is computed for apt hosts and left as *unknown* (never a false
-  `0`) for dnf/pacman hosts in this version.
+- **Pending-update count on non-Debian hosts** — the installed-package inventory works on
+  Debian/Ubuntu, Arch and RHEL/Fedora hosts, but the "updates available" count is computed for
+  apt hosts only. For dnf and pacman hosts it stays *unknown*, never a false `0`. CVE scanning
+  needs the package inventory and the OSV ecosystems described in [cve.md](cve.md).
 
 For full host coverage (including systemd and compliance scans), install the
 native agent with `install-client.sh`. The containerized agent is the
@@ -116,3 +119,18 @@ docker compose down
 docker volume rm <project>_rp-agent-creds     # also forget the enrollment
 ```
 Then delete the host in the RemotePower UI.
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| The container exits at start with `RP_SERVER is required` or `RP_ENROLL_TOKEN ... is required` | First boot needs both values. Check the compose file, or the `rp-agent-creds` volume if it should already be enrolled. |
+| `CA fingerprint mismatch` | The server presented a different CA than the one you pinned. Re-copy the fingerprint, and check you are talking to the right server. |
+| The host never appears | The token may have expired (24 hours) or been used. Generate a new compose file. Then read `docker compose logs`. |
+| The host is named after a container id | Set `RP_DEVICE_NAME`, or make sure the host rootfs is mounted at `HOST_ROOT` so the agent can read `/etc/hostname`. |
+| No containers are listed | The Docker socket is not mounted. It is off by default (see the warning above). |
+| SMART and firmware data are missing | They need the **Full** profile. |
+
+## See also
+
+[install.md](install.md), [containers.md](containers.md), [deployment.md](deployment.md).

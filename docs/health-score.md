@@ -22,7 +22,7 @@ severity entirely.
 
 The score floors at 0. The fleet score is the mean of the per-host scores.
 Unmonitored hosts (`monitored: false`) are excluded — scoring a silenced host
-a perfect 100 would inflate the fleet average. **Decommissioned** assets (v5.0.0)
+a perfect 100 would inflate the fleet average. **Decommissioned** assets
 force `monitored: false`, so they're excluded the same way.
 
 Grades default to **good** ≥ 90, **fair** ≥ 70, **poor** ≥ 40 and **critical**

@@ -1,6 +1,6 @@
 # WG Access — WireGuard road-warrior VPN
 
-**Admin → WG Access** is a built-in, light [WireGuard](https://www.wireguard.com/)
+**Access → WG Access** is a built-in, light [WireGuard](https://www.wireguard.com/)
 VPN. It lets people reach the RemotePower dashboard — and, optionally, the fleet
 or the wider internet — over an encrypted tunnel instead of exposing services on
 the public internet. WireGuard is silent to anyone without a valid key, so this
@@ -24,7 +24,7 @@ address pool, public endpoint and optional pushed DNS. The tunnel carries the
 | Setting | What it does |
 | --- | --- |
 | **Listen port** *(optional)* | The UDP port the hub interface listens on. Leave blank to auto-assign the next free port; set it to pin the tunnel to a specific port (e.g. one you've already opened on the firewall). Must be unique across tunnels, and — like the interface and address pool — is fixed once the tunnel exists. |
-| **Allow internet (full tunnel)** | On = the client routes all its **IPv4** traffic out through the hub (road-warrior egress). **IPv6 is not routed** — the hub is IPv4-only, so on a dual-stack client IPv6 keeps using the local connection and does not pass through the tunnel *(stated explicitly since v7.0.0; the setting previously implied `::/0` was included and it never was)*. Off = split tunnel: the client only reaches what the reach scope allows, plus the dashboard. |
+| **Allow internet (full tunnel)** | On = the client routes all its **IPv4** traffic out through the hub (road-warrior egress). **IPv6 is not routed** — the hub is IPv4-only, so on a dual-stack client IPv6 keeps using the local connection and does not pass through the tunnel. Off = split tunnel: the client only reaches what the reach scope allows, plus the dashboard. |
 | **Reach scope** | Which fleet hosts the tunnel's clients can reach — `none` (dashboard only), `all` (the whole fleet), or a `site` / `group` / `tag`. This reuses RemotePower's normal RBAC scope vocabulary and is enforced by per-tunnel firewall rules on the hub. |
 | **DNS** *(optional)* | A resolver IP pushed to the client. |
 | **Expiry (TTL)** *(optional)* | Minutes / hours / days / weeks / years after which the tunnel is automatically torn down and deleted (with all its clients). |

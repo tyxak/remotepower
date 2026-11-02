@@ -1,6 +1,4 @@
-# MCP server — natural-language fleet queries
-
-*(v2.2.0)*
+# MCP server: natural-language fleet queries
 
 RemotePower ships an [MCP](https://modelcontextprotocol.io)
 (Model Context Protocol) server in `mcp/remotepower-mcp.py`. Once
@@ -22,57 +20,62 @@ required.
 ## The architecture
 
 ```
-+---------------+ +----------------------+
-| AI host (this | | RemotePower server |
-| runs on op's |◀───────▶| (HTTPS / API) |
-| laptop) | HTTPS | |
-+---------------+ +----------------------+
- ▲
- │ stdio JSON-RPC 2.0
- ▼
-+-----------------+
-| This MCP server |
-| (stdlib Python) |
-+-----------------+
+ +---------------+            +----------------------+
+ | AI host (this |            |  RemotePower server  |
+ | runs on your  |<---------->|  (HTTPS / API)       |
+ | laptop)       |   HTTPS    |                      |
+ +---------------+            +----------------------+
+         ^
+         | stdio JSON-RPC 2.0
+         v
+ +-----------------+
+ | This MCP server |
+ | (stdlib Python) |
+ +-----------------+
 ```
 
-**The MCP server runs on the operator's laptop, not on the
-RemotePower server.** The AI host (e.g. Claude Desktop) spawns it
-as a subprocess and exchanges JSON-RPC 2.0 frames over
-stdin/stdout. The MCP server makes HTTPS calls to RemotePower's
-REST API on behalf of the AI, using a token you provision.
+**The MCP server runs on your laptop, not on the RemotePower server.** The AI
+host (for example Claude Desktop) starts it as a subprocess and exchanges
+JSON-RPC 2.0 messages over stdin and stdout. The MCP server makes HTTPS calls to
+RemotePower's REST API on behalf of the AI, using a token you provision.
 
 This split is important for the security story:
 
 - Credentials live on **your** laptop, in your AI host's config
- (a plain JSON file).
-- They never travel to the AI provider — only the tool *results*
- do.
+  (a plain JSON file).
+- They never travel to the AI provider. Only the tool *results* do.
 - The MCP server speaks to your RemotePower instance over HTTPS
- with normal token auth — no special privileges.
+  with normal token auth and no special privileges.
 
 ## Setup
 
 ### 1. Generate an API token
 
-In the dashboard: **Admin → API Keys → Generate new key**.
-Give it a name like `mcp-laptop`. Choose role `viewer` for a strictly
-read-only key, or role `mcp` if you also want the five guarded write
-tools — **the role is the switch**, and it is fixed at creation. Copy
-the resulting token value.
-It's shown once and not recoverable; if you lose it, generate a
-new one.
+In the dashboard: **Admin → API Keys → New key**.
+Give it a name like `mcp-laptop`. Choose the role `Viewer` for a strictly
+read-only key, or `MCP` if you also want the five guarded write tools. **The
+role is the switch**, and it is fixed when you create the key. Copy the token.
+It is shown once and not recoverable. If you lose it, generate a new one.
+
+While you are in the dialog, consider these:
+
+- **Host scope** confines the key to some groups, tags or sites, so the AI can
+  only see and act on those hosts.
+- **Source IP allowlist** rejects the key from any other address. Use your
+  laptop's or VPN's egress IP.
+- **Expires** and **Rate limit** cap how long and how fast the key works.
 
 ### 2. Copy the MCP server to your laptop
 
+`remotepower-mcp.py` is in the `mcp/` folder of the RemotePower release archive
+and of the repository. Copy that one file to your laptop and make it executable:
+
 ```bash
-scp remotepower-server:/var/www/remotepower/mcp/remotepower-mcp.py \
- ~/remotepower-mcp.py
 chmod +x ~/remotepower-mcp.py
 ```
 
-It's a single self-contained Python file (~880 lines, stdlib
-only). Python 3.10+.
+It is a single self-contained Python file that uses only the standard library.
+It needs Python 3.10 or newer.
 
 ### 3. Configure your AI host
 
@@ -84,26 +87,31 @@ Windows (create the file if it doesn't exist):
 
 ```json
 {
- "mcpServers": {
- "remotepower": {
- "command": "python3",
- "args": ["/Users/you/remotepower-mcp.py"],
- "env": {
- "REMOTEPOWER_URL": "https://remotepower.example.com",
- "REMOTEPOWER_TOKEN": "your-api-token-here"
- }
- }
- }
+  "mcpServers": {
+    "remotepower": {
+      "command": "python3",
+      "args": ["/Users/you/remotepower-mcp.py"],
+      "env": {
+        "REMOTEPOWER_URL": "https://remotepower.example.com",
+        "REMOTEPOWER_TOKEN": "your-api-token-here"
+      }
+    }
+  }
 }
 ```
 
-Restart Claude Desktop. The hammer-and-wrench tool icon at the
-bottom of the chat input will show **remotepower** with all
-tools enabled.
+Restart Claude Desktop. The tool icon at the bottom of the chat input shows
+**remotepower** with its tools enabled.
+
+| Variable | Meaning |
+|---|---|
+| `REMOTEPOWER_URL` | The base URL of your RemotePower server. |
+| `REMOTEPOWER_TOKEN` | The API token from step 1. |
+| `REMOTEPOWER_VERIFY_SSL` | Set to `0` to accept a self-signed certificate. The default is to verify. |
 
 #### Cursor / VS Code Copilot / others
 
-Same JSON shape — refer to your host's MCP server documentation
+Same JSON shape. Refer to your host's MCP server documentation
 for where the config file lives. Every MCP-compliant host
 supports the same `command + args + env` setup.
 
@@ -111,8 +119,7 @@ supports the same `command + args + env` setup.
 
 Open a chat and ask: *"What hosts are in my RemotePower fleet?"*
 
-The host should show a "tool use" indicator (Claude Desktop calls
-it ) and return a list of your hosts.
+The host should show a "tool use" indicator and return a list of your hosts.
 
 ## Available tools
 
@@ -123,8 +130,8 @@ created with role `mcp` (see *Guarded write tools* below).
 
 | Tool | What it returns |
 |---|---|
-| `list_alerts` | The Alerts inbox — open, acknowledged or resolved alerts, newest first, with severity, host, when it first fired, who acked it, and the correlation flags (root cause, collateral, declared incident). The right first call for "what is wrong right now?" — `list_devices` only shows up or down. |
-| `get_attention` | The needs-attention digest — everything the fleet wants looked at, ranked, including things that never became an alert: stale backups, expiring certificates, drifted config, posture gaps. Broader than `list_alerts`, and the better call for "what should I work on?" |
+| `list_alerts` | The Alerts inbox: open, acknowledged or resolved alerts, newest first, with severity, host, when it first fired, who acked it, and the correlation flags (root cause, collateral, declared incident). The right first call for "what is wrong right now?", because `list_devices` only shows up or down. |
+| `get_attention` | The needs-attention digest: everything the fleet wants looked at, ranked, including things that never became an alert, such as stale backups, expiring certificates, drifted config and posture gaps. Broader than `list_alerts`, and the better call for "what should I work on?" |
 | `list_devices` | Every host with status, OS, group, tags, IP |
 | `get_device` | Full detail for one host (name match) |
 | `get_journal` | Recent systemd journal entries |
@@ -133,27 +140,28 @@ created with role `mcp` (see *Guarded write tools* below).
 | `get_cves` | CVE findings (per-host or fleet-wide) |
 | `get_drift` | Configuration drift (per-host or fleet-wide) |
 | `get_recent_commands` | Recent commands run on a host |
-| `get_runbook` | AI-generated host runbook (v2.1.7+) |
+| `get_runbook` | The AI-generated host runbook, or `exists: false` if none has been generated yet |
 | `get_patches` | Pending OS package updates |
 | `get_tls` | TLS / DNS expiry watchlist |
 | `get_snmp_data` | SNMP data collected from a network appliance / host |
 | `search_devices` | Free-text search by name / OS / group / tags / notes |
-| `search_fleet` | RAG retrieval across all fleet state, CMDB, runbooks, history, and docs — one call for broad/cross-host questions ("worst CVEs in the fleet", "which hosts need a reboot"). Returns ranked, cited chunks incl. fleet-wide rollups. (v3.4.0) |
+| `search_fleet` | RAG retrieval across all fleet state, CMDB, runbooks, history, and docs. One call for broad or cross-host questions ("worst CVEs in the fleet", "which hosts need a reboot"). Returns ranked, cited chunks including fleet-wide rollups. |
 
 > `search_fleet` is the bridge between MCP and the RAG knowledge index: where
 > the granular `get_*` tools each fetch one host's structured record,
 > `search_fleet` answers a natural-language question in one shot and lets the
 > fleet rollups (worst CVEs, pending reboots, drift, cert expiry) do the
-> aggregation the model would otherwise have to do by hand. Requires the RAG
-> index to be enabled (Settings → AI assistant → Knowledge index).
+> aggregation the model would otherwise have to do by hand. It needs the
+> knowledge index to be switched on (**Settings → AI assistant → Knowledge
+> index (RAG)**).
 
 The five **write tools** are reachable only by a key whose role is `mcp`:
 
 | Write tool | What it does |
 |---|---|
-| `acknowledge_alert` | Acknowledge one open alert, with an optional note |
+| `acknowledge_alert` | Acknowledge one open alert, with an optional note. It cannot resolve an alert. |
 | `reboot_device` | Queue a reboot for one host |
-| `run_saved_script` | Run a script **from the saved library** (by id) — never an arbitrary command |
+| `run_saved_script` | Run a script **from the saved library** (by id), never an arbitrary command |
 | `force_package_scan` | Ask an agent to push its installed-package list now |
 | `force_acme_rescan` | Re-check a host's ACME / TLS / DNS expiry now |
 
@@ -164,53 +172,79 @@ recorded in the audit log alongside the AI host name.
 
 The tools accept friendly names. The MCP server does:
 
-1. **Exact match** — `pmg01` matches a host named `pmg01`.
-2. **Prefix match** — `web01` matches `web01.example.com`
- if there's only one host starting with it.
-3. **Substring match** — `web` matches `web01.example.com`
- if there's only one host containing it.
-4. **Ambiguous** — `web` raises an error if it matches multiple
- hosts; the model is told to ask for more specifics.
+1. **Exact match**: `pmg01` matches a host named `pmg01`.
+2. **Prefix match**: `web01` matches `web01.example.com`
+   if there is only one host starting with it.
+3. **Substring match**: `web` matches `web01.example.com`
+   if there is only one host containing it.
+4. **Ambiguous**: `web` raises an error if it matches multiple
+   hosts, and the model is told to ask for more specifics.
 
-You can also pass full names. The matching is conservative — it
-only auto-disambiguates when there's exactly one match.
+You can also pass full names. The matching is conservative: it
+only auto-disambiguates when there is exactly one match.
 
-## Guarded write tools — and what's still absent
+## Guarded write tools, and what is still absent
 
-The five write tools (`reboot_device`, `run_saved_script`,
-`force_package_scan`, `force_acme_rescan`) ship with exactly the guard rails an
-LLM acting on a fleet needs:
+The five write tools (`acknowledge_alert`, `reboot_device`, `run_saved_script`,
+`force_package_scan` and `force_acme_rescan`) ship with the guard rails an LLM
+acting on a fleet needs:
 
 - **A server-side allow-list, compiled in.** The set of callable write actions
- is a fixed list in the server (`MCP_ACTION_ALLOWLIST`) — not something a
- request can widen. Anything outside it is refused with the allowed set echoed
- back. The AI host's own "Allow this tool to run? [y/n]" consent prompt is
- **not** the control; the server is.
+  is a fixed list in the server, not something a request can widen. Anything
+  outside it is refused with the allowed set echoed back. The AI host's own
+  "Allow this tool to run?" consent prompt is **not** the control; the server is.
 - **Role-gated, and admins are excluded too.** Only a key created with role
- `mcp` reaches these endpoints. An *admin* key is rejected here as
- well — admins have their own direct endpoints — so anything in the audit log
- that came through this path is unambiguously AI-initiated rather than a human
- clicking a button.
+  `mcp` reaches these endpoints. An *admin* key is rejected here as
+  well, because admins have their own direct endpoints. Anything in the audit log
+  that came through this path is unambiguously AI-initiated rather than a human
+  clicking a button.
 - **Pre-saved actions only.** `run_saved_script` runs a script from the library
- by id — there is **no `run_command`** and **no `edit_device`**, so
- the model can never assemble an arbitrary shell command.
+  by id. There is **no `run_command`** and **no `edit_device`**, so the model can
+  never assemble an arbitrary shell command.
+- **An approval step for the destructive two.** `reboot_device` and
+  `run_saved_script` do not run at once on a host that has *require
+  confirmation* set, which is the default for every host. The call returns a
+  confirmation id and waits for an admin to approve it. See *Approving a
+  request* below. The other three run immediately, because they change nothing
+  on the host.
 - **Per-token roles + scope.** Write calls are checked against the token's role
- permissions and host scope, just like any other action.
-- **Audit logging.** Every write call is recorded with the AI host name.
+  permissions and host scope, just like any other action.
+- **Audit logging.** Every write call is recorded with the AI host name and the
+  prompt that led to it.
 
 So the worst outcome of a confused model is bounded: it can reboot a host or run
-a vetted library script you already trust — never run an arbitrary command or
-shut a box down off-script. If you want a purely read-only assistant, create the
-key with role `viewer`; all five write tools then refuse it permanently.
+a vetted library script you already trust, and with confirmation on, only after
+you approve. It can never run an arbitrary command or shut a box down off-script.
+If you want a purely read-only assistant, create the key with role `viewer`; all
+five write tools then refuse it permanently.
+
+### Approving a request
+
+Open **Automation → Confirmations** (the page is titled *MCP Confirmations*).
+Each pending request shows the host, the action, the AI host that asked and the
+prompt behind it. **Approve** runs it and **Reject** discards it. A request that
+nobody decides expires after one hour and raises the *MCP confirmation expired
+without operator decision* event. **Clear resolved** tidies the list.
+
+Only admins see the page. A key acts as the user who created it, so by default
+the admin who created the key cannot approve its requests: another admin has to.
+To allow it, untick **Requester cannot approve their own change** under
+**Settings → Security → Change approval (maker-checker)**.
+
+A host with *require confirmation* turned off runs `reboot_device` and
+`run_saved_script` at once. Turn it off only for hosts where you trust the AI
+workflow, never for production. There is no switch for it in the UI yet: an admin
+sets it with `PATCH /api/devices/{id}/require_confirmation` and
+`{"require_confirmation": false}`.
 
 ## Security model
 
 | Concern | Mitigation |
 |---|---|
-| Token leakage | Stored in your AI host's config file, never sent to the LLM provider. Scoped to its role and host scope; generate one per laptop and revoke any time. |
-| Prompt injection | Tool *outputs* contain operator-controlled text (host names, notes, journal entries). A malicious note could try to "instruct" the AI. Read tools are bounded (worst case: a confused summary); write tools are limited to the five compiled-in, pre-saved actions above, so an injected instruction still can't run an arbitrary command. Use a `viewer`-role key for a read-only assistant. |
+| Token leakage | Stored in your AI host's config file, never sent to the LLM provider. Scoped to its role and host scope; generate one per laptop and revoke any time. Lock it to your IP with a source allowlist. |
+| Prompt injection | Tool *outputs* contain operator-controlled text (host names, notes, journal entries). A malicious note could try to "instruct" the AI. Read tools are bounded (worst case: a confused summary); write tools are limited to the five compiled-in, pre-saved actions above, and the destructive two wait for your approval, so an injected instruction still can't run an arbitrary command. Use a `viewer`-role key for a read-only assistant. |
 | Self-signed TLS | Set `REMOTEPOWER_VERIFY_SSL=0` in the MCP env if you must, but prefer to install your CA's root cert in the laptop's trust store. |
-| Data sensitivity | Same as the AI privacy redaction toggles in Settings → AI assistant: when in doubt, run a local model (Ollama) as the AI host. |
+| Data sensitivity | Tool results go to the AI provider behind your AI host. The privacy settings under Settings → AI assistant control RemotePower's own assistant, not a separate AI host. When in doubt, run a local model (Ollama) as the AI host. |
 
 ## Troubleshooting
 
@@ -228,13 +262,20 @@ not `http://`), corporate proxy.
 ### "HTTP 401" on every tool
 
 The API token was rejected. Either it's wrong, or it was revoked,
-or its expiry passed. Generate a new one.
+or its expiry passed, or you are calling from an address outside the key's
+source allowlist. Generate a new key or fix the allowlist.
 
-### "HTTP 403: read-only role" on a tool that *should* work
+### "HTTP 403" on a tool that *should* work
 
-The MCP server should only be calling read-only endpoints with a
-`viewer` token. If you're seeing this, it's a bug in the tool —
-file an issue with the tool name + endpoint.
+The key's role or host scope does not allow the call. A `viewer` key cannot use
+the write tools, an `admin` key cannot either, and a host outside the key's
+scope answers as if it did not exist. Check the role and the host scope on
+**Admin → API Keys**.
+
+### A write tool answers "pending confirmation"
+
+That is the approval step working. Approve the request on **Automation →
+Confirmations**, see *Approving a request* above.
 
 ### Tools show up in Claude Desktop but every call hangs
 
@@ -243,9 +284,9 @@ Try running it manually to verify it starts:
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
- | REMOTEPOWER_URL=https://remotepower.example.com \
- REMOTEPOWER_TOKEN=your-api-token \
- python3 ~/remotepower-mcp.py
+  | REMOTEPOWER_URL=https://remotepower.example.com \
+    REMOTEPOWER_TOKEN=your-api-token \
+    python3 ~/remotepower-mcp.py
 ```
 
 You should get a JSON response on stdout within a second. If you
@@ -261,20 +302,13 @@ logs.
 
 ## A note on the protocol
 
-MCP version pinned: **`2024-11-05`**.
-
-This is the version Anthropic stabilised shortly after first
-publishing the spec, and the one that's widely supported by hosts
-as of mid-2026. The protocol has continued to evolve — there's a
-2026 roadmap covering stateless HTTP transport, async tasks,
-enterprise auth — but those features aren't yet universal in
-hosts, and the 2024-11-05 surface is sufficient for read-only
-fleet queries. We'll bump when there's a concrete reason.
+The server speaks MCP version **`2024-11-05`** over stdio. It offers tools only,
+not resources or prompts. The server will move to a newer version when a host
+needs one.
 
 ## See also
 
-- [Model Context Protocol spec](https://modelcontextprotocol.io)
-- [MCP Linux Foundation governance](https://modelcontextprotocol.io/community/governance)
-- [Claude Desktop MCP docs](https://docs.claude.com/claude/desktop)
-- [ai.md](ai.md) — the existing in-RemotePower AI assistant
- (different feature: dashboard buttons + AI page chat).
+- [Model Context Protocol](https://modelcontextprotocol.io): the protocol and its spec.
+- [AI assistant](ai.md): the assistant built into RemotePower (dashboard buttons and the AI page), which is a different feature.
+- [API reference](api.md): the REST API the MCP server calls.
+- [Knowledge index](rag.md): what `search_fleet` searches.

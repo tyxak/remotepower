@@ -1,153 +1,195 @@
 # Exposed secrets on disk & canary files
 
-*Secrets-on-disk scan in v3.14.0; per-fingerprint mutes in v3.14.0, whole-host
-mutes in v4.1.0; canary (honeytoken) files in v6.0.0; "Scan now" in v6.1.2.*
+Two tripwires that run on the host, both **off by default**:
 
-Two related tripwires, both agent-side and both **off by default**:
+- the **secrets-on-disk scan**: the agent sweeps the paths you choose for
+  credentials that should not be lying around in files (private keys, API
+  tokens, passwords) and reports *redacted* findings;
+- **canary files**: the agent plants decoy credential files and raises a
+  critical alert the moment anything modifies, deletes or (where the
+  filesystem records access times) reads one. Linux, Windows and macOS.
 
-- the **secrets-on-disk scan** — agents periodically sweep configured paths
-  for credentials that shouldn't be lying around in files (private keys, API
-  tokens, passwords) and report *redacted* findings;
-- **canary files** — agents plant decoy credential files and raise a critical
-  alert the moment anything modifies, deletes or (where the filesystem records
-  access times) reads one. Linux, Windows and macOS.
+## What is reported, and what never leaves the host
 
-## What is reported — and what never leaves the host
+The scanner redacts by construction. For each finding the agent sends only:
 
-The scanner is **redacting by construction**. For each finding the agent
-sends only:
-
-- the **rule** that matched (e.g. `aws_access_key`, `private_key`),
+- the **rule** that matched (for example `aws_access_key` or `private_key`),
 - the **file path** and **line number**,
-- a **masked preview** — the first few characters plus the length
+- a **masked preview**: the first few characters plus the length
   (`AKIA********…(20)`), never the full value,
-- a **fingerprint** — the first 16 hex chars of the value's SHA-256, so the
+- a **fingerprint**: the first 16 hex characters of the value's SHA-256, so the
   server can dedupe and mute a finding without ever seeing the secret.
 
-The secret's value itself is never transmitted, and the server re-sanitizes
-defensively on ingest before persisting to `secret_findings.json` — so
-neither the wire nor the control plane's datastore ever holds it. (The
+The secret itself is never sent. The server cleans the fields again when it
+stores them, so neither the network nor the server's data holds the value. The
 sibling [PII scan](pii-scan.md) goes one step further and drops even the
-fingerprint, because PII is low-entropy enough to reverse a hash; API keys
-are not.)
+fingerprint, because personal data is easy enough to guess that a hash would
+give it away. API keys are not.
 
-Detection rules: private keys (PEM headers), AWS access keys, GitHub tokens
-and PATs, Slack tokens and webhook URLs, Google API keys, Stripe live keys,
-JWTs, plus a lower-confidence generic `password/secret/api_key/token = …`
-assignment catch-all (the usual false-positive source — mute those).
+The rules cover private keys (PEM headers), AWS access keys, GitHub tokens and
+personal access tokens, Slack tokens and webhook URLs, Google API keys, Stripe
+live keys, JWTs, and a lower-confidence generic `password`, `secret`,
+`api_key` or `token` assignment. The generic rule is the usual source of false
+positives. Mute those.
 
 ## Enabling and cadence
 
-**Settings → Security → Secrets-on-disk scanning**: tick **Enable
-secrets-on-disk scanning** (config `secrets_scan_enabled`) and optionally set
-**Scan paths** (one per line, config `secrets_scan_paths`; blank = the
-agent's per-OS defaults):
+Open **Settings → Security → Secrets-on-disk scanning**, tick **Enable
+secrets-on-disk scanning**, and optionally fill in **Scan paths** (one per
+line, up to 50). Leave the paths blank to use the agent's defaults:
 
 - Linux: `/etc /root /home /opt /srv /var/www`
 - macOS: `/etc /Users /opt /usr/local /srv`
 - Windows: `C:\Users C:\ProgramData C:\inetpub`
 
-The server pushes the flag and paths to every agent in the heartbeat
-response; nothing is installed or changed host-side. The scan runs on a
-**~6-hour cadence**, tracked as a persisted wall-clock interval on all three
-platforms (it survives agent restarts).
+The server hands the switch and the paths to every agent in the heartbeat
+response. Nothing is installed or changed on the host. The scan runs about
+every 6 hours. The agent keeps the time of the last run on disk on all three
+platforms, so a restart does not reset the clock.
 
-It is bounded hard so it can never hog a host: at most 200 findings, 5,000
-files visited, 1 MiB read per file, ~12 s wall clock per run; binaries,
-symlinks and noise directories (`.git`, `node_modules`, `venv`, …) are
+The scan is capped so it cannot hog a host: at most 200 findings, 5,000 files
+visited, 1 MiB read per file and about 12 seconds per run. Binary files,
+symlinks and noise folders (`.git`, `node_modules`, `venv` and similar) are
 skipped.
 
 ### Scan now
 
-`POST /api/secrets-scan/scan` with `{"device_id": "..."}` for one host or
-`{}` for every agent host (requires the `exec` write permission, and the scan
-must be enabled). It sets a one-shot `force_secrets_scan` flag that all three
-agents (Linux, Windows, macOS) honour on their next heartbeat. The Exposure
-page's **Scan now** button triggers the same endpoint.
+On the **Exposure** page, **Scan now** queues a one-shot scan on every agent
+host. The agents run it on their next heartbeat. It needs an admin or an
+operator role (viewer, auditor, finance and MCP roles get a 403), and the scan
+must be enabled in Settings first, otherwise the server answers 400.
 
 ## Findings, alerts and mutes
 
-Findings appear on the **Exposure** page under **"Exposed secrets on disk"**
-(filterable by host / type / path / preview), backed by
-`GET /api/fleet/secrets` — scope- and tenant-filtered, values never present.
-The Security posture page also shows whether the scan is enabled.
+Findings appear on the **Exposure** page (Security group) under **Exposed
+secrets on disk**. You can filter by host, type, path or preview. Everyone who
+can see a host can see its findings, and tenants only see their own hosts. The
+**Security posture** card on the **Audit** page also shows whether the scan is
+switched on.
 
-Alerting is edge-triggered per fingerprint: a `secret_exposed` event
-(severity **high**) fires only when a *new*, un-muted fingerprint appears on
-a host — and only **one summary event per ingest** (first finding + count),
-so enabling the scan on a host with 50 pre-existing findings produces one
-alert, not fifty.
+Alerting is edge-triggered per fingerprint. A `secret_exposed` event (severity
+**high**) fires only when a *new*, un-muted fingerprint appears on a host, and
+only **one summary event per ingest** (the first finding plus a count). Turning
+the scan on for a host that already holds 50 findings produces one alert, not
+fifty. When a rescan finds nothing left on a host, `secret_cleared` closes the
+open alert. You can silence either event under **Settings → Notifications →
+Per-event toggles**.
 
-Two mute levels, both admin-only and audit-logged:
+Two mute levels, both admin-only and both written to the audit log:
 
-- **Per finding** — `POST /api/secrets/mute` `{fingerprint, unmute?}` (the
-  Mute button on the Exposure row). The finding stays listed, flagged muted,
-  and stops alerting/counting. The fingerprint is a hash prefix, never the
-  secret.
-- **Per host** — `POST /api/secrets/host-mute` `{device_id, unmute?}` for a
-  host whose findings you've accepted wholesale: none of its findings alert
-  or count, open `secret_exposed` alerts for it are auto-resolved, and its
-  rows stay visible flagged muted.
+- **Mute** on a row silences one finding fleet-wide, by fingerprint. The row
+  stays listed, marked muted, and stops alerting and counting. With
+  multi-tenancy on, only the platform operator can do this, because the list
+  is shared by every tenant.
+- **Mute host** silences a host whose findings you have accepted as a whole.
+  None of its findings alert or count, its open `secret_exposed` alerts are
+  closed, and its rows stay visible marked muted. A tenant admin can only do
+  this for hosts in their own tenant.
+
+**Unmute** and **Unmute host** reverse both.
 
 ## Canary files (honeytokens)
 
-**Settings → Security → Canary files (honeytokens)**: one absolute path per
-line (config `canary_files`; blank = off). At each path the agent plants a
-decoy file (mode 0600) containing realistic-but-fake AWS credentials — a
-custom `content` per entry can be set via `POST /api/config` — and then
-watches it every heartbeat:
+Open **Settings → Security → Canary files (honeytokens)** and enter one
+absolute path per line (blank turns canaries off). At each path the agent
+plants a decoy file (mode 0600) with realistic but fake AWS credentials, then
+watches it on every heartbeat:
 
-- **read** — atime advancing past plant time,
-- **modified** — mtime or size changed,
-- **deleted** — file gone.
+- **read**: the access time moved past the time of planting,
+- **modified**: the modification time or the size changed,
+- **deleted**: the file is gone.
 
-Any of the three is reported to the server (`canary_events` in the
-heartbeat), which fires a **`canary_accessed`** event — severity
-**critical** — carrying the path and the reason. Nothing legitimate ever
-touches a decoy, so this is as close to a zero-false-positive intrusion
-tripwire as monitoring gets (a backup job or indexer that walks the path is
-the one benign trigger to think about when choosing locations).
+Any of the three is reported with the path and the reason, and the server fires
+a **`canary_accessed`** event with severity **critical**. Nothing legitimate
+touches a decoy, so this is close to a zero-false-positive intrusion tripwire.
+A backup job or indexer that walks the path is the one benign trigger, so pick
+locations they skip.
 
-Behaviour worth knowing:
+The settings page saves paths only. To give a decoy its own contents, send
+`content` for that entry through `POST /api/config` (see the table below).
 
-- The agent **never overwrites an existing file**: a path that already
-  exists is baselined and watched, but its content is untouched — and on
-  uninstall the agent removes only decoys it created itself.
-- Each access is reported **once per agent run** (edge-triggered in memory);
-  an agent restart re-baselines the file and re-arms detection.
-- Detecting pure *reads* depends on the filesystem updating atime: the Linux
-  default `relatime` catches the first read; on a `noatime` mount only
-  modification and deletion are detected. **On Windows this is the usual
-  case, not the exception** — NTFS last-access updates are disabled by
-  default (`NtfsDisableLastAccessUpdate`), so treat read-detection there as
-  best-effort. Modification and deletion — what ransomware actually does —
-  are detected on every platform. macOS (APFS/HFS+) maintains access times,
-  so reads are detected there.
-- Canaries run on **Linux, Windows and macOS** *(v6.4.1; Linux-only before
-  that)*. Paths may be POSIX (`/root/.aws/credentials.bak`), drive-letter
-  (`C:\Users\Public\payroll.xlsx`) or UNC (`\\server\share\decoy.docx`);
-  traversal is rejected under either separator.
-- **Uninstall cleanup covers Linux and Windows** — the agent removes only
-  decoys it created. The macOS agent has no uninstall command, so a Mac agent
-  removed by hand leaves its decoys on disk; delete them yourself.
+### Where a decoy can live
+
+A canary is a file written as root (or SYSTEM) with content you supply, so the
+server and the agent both refuse places where the system runs what it finds:
+
+- folders such as `/etc/cron.d/`, `/etc/systemd/`, `/etc/sudoers.d/`,
+  `/usr/bin/`, `/usr/local/bin/`, `/etc/profile.d/`, and the Windows startup
+  and `System32` folders;
+- files such as `~/.ssh/authorized_keys`, `~/.bashrc`, `/etc/crontab` and
+  `/etc/sudoers`;
+- executable and script types, for example `.sh`, `.py`, `.ps1`, `.exe`,
+  `.service` and `.timer`.
+
+Saving one of these returns 400 with the reason. Use a name a thief would open
+instead, such as `/root/.aws/credentials.bak`. Paths may be POSIX
+(`/root/.aws/credentials.bak`), drive-letter (`C:\Users\Public\payroll.xlsx`)
+or UNC (`\\server\share\decoy.docx`). Traversal (`..`) is rejected under either
+separator, and you can set up to 50 canaries.
+
+### Checking that a decoy is really in place
+
+The agent reports the outcome of every planting, and the host drawer shows it
+in the **Canary files** row, worst first:
+
+| Status | Meaning |
+|--------|---------|
+| `NOT PLANTED` | The agent could not create the decoy. The reason is shown, for example a read-only filesystem, permission denied, or a folder that does not exist. |
+| `watching a real file (not a decoy)` | A real file was already at the path. The agent never overwrites it, so the path is a change-watch on real data, not a honeytoken. |
+| `not yet planted` | Configured, but the agent has not processed it yet. |
+| `armed` | The agent created the decoy and is watching it. |
+
+A host with a failed planting also gets a **Canary not armed** reason in its
+risk score. You can change its weight under **Settings → Alert parameters →
+Risk score weights**.
+
+### Behaviour worth knowing
+
+- The agent **never overwrites an existing file**, and it does not create
+  missing folders. On uninstall it removes only decoys it created itself.
+- In **audit mode** (the read-only agent flag) the agent plants nothing and
+  marks every path `NOT PLANTED` with the reason `audit mode (read-only)`.
+- Each access is reported **once per agent run**. A restart baselines the file
+  again and re-arms detection.
+- Detecting a plain *read* depends on the filesystem updating access times.
+  The Linux default `relatime` catches the first read. On a `noatime` mount
+  only changes and deletions are detected. **On Windows this is the usual
+  case**: NTFS last-access updates are off by default
+  (`NtfsDisableLastAccessUpdate`), so treat read detection there as
+  best-effort. Changes and deletions, which is what ransomware does, are caught
+  on every platform. macOS keeps access times, so reads are detected there.
+- Uninstall cleanup covers Linux and Windows. The macOS agent has no uninstall
+  command, so a Mac agent you remove by hand leaves its decoys on disk. Delete
+  them yourself.
+
+## Troubleshooting
+
+- **No findings, and you expect some.** Check that the scan is enabled and that
+  the host runs an agent (agentless hosts cannot scan). Paths outside your list
+  are not visited, and a run stops after 5,000 files or about 12 seconds, so
+  point **Scan paths** at the folders that matter instead of `/`.
+- **"Scan now" says scanning is off.** Enable it under **Settings → Security**
+  first.
+- **A finding is still listed after you removed the secret.** The list only
+  changes when the agent rescans, which happens every 6 hours. Use **Scan now**
+  to check sooner. If the same value is still in another file, it is still
+  reported there.
+- **A canary shows `NOT PLANTED`.** Read the reason in the drawer. Fix the path
+  (the parent folder has to exist) or pick a writable location.
+- **A canary fired and you are sure nobody opened it.** Look for a backup,
+  indexer or antivirus scanner that walks the folder, and move the decoy.
 
 ## API
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| GET  | `/api/fleet/secrets` | any | Redacted findings per host + active count + enabled flag. |
-| POST | `/api/secrets-scan/scan` | `exec` write role | `{device_id?}` — queue a one-shot scan (all agent hosts when omitted). |
-| POST | `/api/secrets/mute` | admin | `{fingerprint, unmute?}` — mute one finding. |
-| POST | `/api/secrets/host-mute` | admin | `{device_id, unmute?}` — mute a whole host; auto-resolves its open alerts. |
-| POST | `/api/config` | admin | `secrets_scan_enabled`, `secrets_scan_paths`, `canary_files` (list of `{path, content?}`), plus the stored mute lists `secrets_mutes` / `secrets_host_mutes`. |
+| GET  | `/api/fleet/secrets` | any signed-in user | Redacted findings per host, the active count and the enabled flag. Scoped to the hosts the caller can see. |
+| POST | `/api/secrets-scan/scan` | admin or an operator role | `{device_id?}`. Queues a one-shot scan (all agent hosts when omitted). Needs the scan enabled. |
+| POST | `/api/secrets/mute` | admin (platform operator under multi-tenancy) | `{fingerprint, unmute?}`. Mutes one finding. |
+| POST | `/api/secrets/host-mute` | admin | `{device_id, unmute?}`. Mutes a whole host and closes its open alerts. |
+| POST | `/api/config` | admin | `secrets_scan_enabled`, `secrets_scan_paths`, `canary_files` (a list of `{path, content?}`, up to 50), and the stored mute lists `secrets_mutes` and `secrets_host_mutes`. |
 
-Implementation: `collect_secret_findings` / `_plant_canaries` /
-`_check_canaries` in `client/remotepower-agent.py` (siblings in the Windows
-and macOS agents for the scan); `_ingest_secret_findings`, the
-`canary_events` ingest and `handle_fleet_secrets` / `handle_secrets_*` in
-`server/cgi-bin/api.py`.
-
-Related: [pii-scan.md](pii-scan.md) — the sibling scan for regulated data,
-[exposure.md](exposure.md) — the page the findings live on,
-[security.md](security.md) — the wider trust-boundary story,
-[alerts.md](alerts.md) — acknowledge/resolve for the fired events.
+See also: [pii-scan.md](pii-scan.md) for the sibling scan for regulated data,
+[exposure.md](exposure.md) for the page the findings live on,
+[alerts.md](alerts.md) for acknowledging and resolving the fired events, and
+[security.md](security.md) for the wider trust boundaries.

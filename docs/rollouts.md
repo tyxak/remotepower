@@ -39,9 +39,12 @@ caught on a few hosts before it reaches everything.
 
 - Progress and per-host results also appear in the batch-jobs view; live status
   updates while a rollout runs.
-- Rollouts honour [maintenance windows](maintenance.md) and quarantine.
+- Rollouts skip quarantined hosts. The commands a ring queues wait in each
+  host's queue like any other, so a
+  [maintenance window](maintenance.md) with **Gate command/upgrade execution**
+  ticked holds them until it opens.
 
 ## Permissions
 
-Creating and advancing rollouts requires the **upgrade** action permission (or
-admin); every ring release and approval is audit-logged.
+Creating, advancing and deleting rollouts is admin-only, and every ring release
+and approval is audit-logged. Everyone who is signed in can see them.

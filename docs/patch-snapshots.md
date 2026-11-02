@@ -1,6 +1,6 @@
 # Package snapshots
 
-**Monitoring → Package Snapshots**
+**Automation → Package Snapshots**
 
 A package snapshot freezes the exact package versions your fleet is running right
 now into a named, dated record. Later you can diff two snapshots, nominate one as

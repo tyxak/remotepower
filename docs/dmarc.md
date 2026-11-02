@@ -1,43 +1,57 @@
 # Reputation/DMARC monitor
 
 Track your mail-deliverability posture from the **Reputation/DMARC** page (under
-Security in the sidebar). The page has three complementary halves:
+**Compliance** in the sidebar). The page has three complementary parts:
 
-- **IP reputation (DNSBL)** — add the IPv4 addresses you send mail from and
-  RemotePower checks each against a set of **DNS blocklists** (DNSBLs such as
-  Spamhaus, SpamCop, Barracuda). It shows which lists, if any, name each IP,
-  re-scans periodically, and raises an **`ip_blacklisted`** alert when a
-  monitored IP gets listed (auto-resolved when it clears).
-- **DNS posture checks** — RemotePower reads each domain's published TXT records
-  (`_dmarc`, SPF, optionally a DKIM selector) and grades them. Fast and
-  synchronous; no mailbox required.
-- **Aggregate reports via IMAP** *(optional)* — point RemotePower at the mailbox
-  that receives your DMARC **RUA** aggregate reports. It polls that mailbox on a
-  schedule (and on demand), parses the gzip/zip XML reports, and shows per-source
-  SPF/DKIM pass/fail tallies plus a lightweight **mailbox health** view (message
-  and unseen counts).
+- **IP reputation (DNS blocklists)**: add the IPv4 addresses you send mail from and
+  RemotePower checks each one against a set of **DNS blocklists** (DNSBLs). It shows which
+  lists, if any, name each IP, re-checks every six hours, and raises an **`ip_blacklisted`**
+  alert when a monitored IP is listed. The alert resolves when the listing clears.
+- **DMARC / SPF / DKIM posture**: RemotePower reads each domain's published TXT records
+  (`_dmarc`, SPF, and a DKIM selector if you give one) and grades them. The check is fast and
+  needs no mailbox.
+- **Aggregate reports (RUA) via IMAP** *(optional)*: point RemotePower at the mailbox that
+  receives your DMARC aggregate reports. It polls the mailbox on a schedule (and on demand),
+  parses the gzip or zip XML reports, and shows pass/fail tallies for each sending source,
+  plus a **mailbox health** line (message and unseen counts).
 
-All three are read-only — RemotePower never sends mail or changes a DNS record.
+All three are read-only. RemotePower never sends mail and never changes a DNS record.
+Admins add and remove entries and start scans; any signed-in user can read the results.
 
 ## IP reputation (DNS blocklists)
 
-Add an IPv4 address (your MX / smarthost / outbound mail IP) under **IP
-reputation** and click **Check reputation now**, or let the periodic re-scan run.
-For each IP the table shows whether it is **Clean**, **Listed on N** blocklists,
-or **Partial — N unreachable** (some lists could not be queried, so the result is
-neither a confirmed clean nor a listing). Which lists, the return codes, and the
-reason (hover a listing) are shown, along with when it was last checked. A
-newly-listed IP fires the `ip_blacklisted` webhook/alert; clearing fires
-`ip_blacklist_cleared` and auto-resolves the alert. A *partial* result never
-fires or clears an alert — it only reports that those lists couldn't answer.
+Click **+ Add IP**, enter an IPv4 address (your MX, smarthost or outbound mail IP) and an
+optional label, and RemotePower checks it at once. **Check reputation now** re-checks all of them.
+You can add up to 200 IPs.
+
+RemotePower queries six lists by default: Spamhaus ZEN, SpamCop, Barracuda, SORBS, UCEPROTECT
+level 1 and PSBL. The page names the lists it is checking.
+
+For each IP the table shows a status:
+
+- **Clean** (green): no list names the IP.
+- **Clean — N unreachable** (amber): no list that answered names the IP, but N lists could not
+  be queried. See the resolver note below.
+- **Listed on N** (red): N lists name the IP. The **Blocklists** column gives each list with its
+  return codes, and a hover shows the reason the list gives (often a delisting link).
+- **not checked**: the first check has not run yet.
+
+The table also shows the label and when each IP was last checked.
+
+**When an alert fires.** An IP has to be listed on **two scans in a row** before `ip_blacklisted`
+fires (**Settings → Alert parameters → Reachability → IP-reputation confirm scans**, default 2),
+so one blip does not page you. `ip_blacklist_cleared` fires, and the alert resolves, only
+after a scan where every list answered and none named the IP. A scan where some lists could not be
+queried never fires an alert and never clears one. Automatic re-checks run every six hours per
+IP, up to 20 IPs per run. A manual check skips an IP that was checked less than a minute ago.
 
 Endpoints: `GET /api/reputation/targets`, `POST /api/reputation/targets`,
-`DELETE /api/reputation/targets/<id>`, `POST /api/reputation/scan`.
+`DELETE /api/reputation/targets/<id>` and `POST /api/reputation/scan`.
 
 > **Resolver note (important).** Most public DNSBLs — Spamhaus, Barracuda,
 > SpamCop, SORBS, UCEPROTECT — **refuse free queries that arrive via large public
 > or shared DNS resolvers** (a cloud VM's default resolver usually forwards to
-> one). When that happens the row shows **Partial — N unreachable** with a reason
+> one). When that happens the row shows **Clean — N unreachable** with a reason
 > like *"query via a public/open resolver"* (Spamhaus code `127.255.255.254`) or
 > *"rate-limited / daily query volume exceeded"* (`127.255.255.255`) — these mean
 > the **query** was rejected, not that the IP is dirty.
@@ -108,7 +122,7 @@ dig +short 2.0.0.127.zen.spamhaus.org @127.0.0.1   # -> 127.0.0.2 (and friends)
 ```
 
 If it returns an answer, RemotePower's next scan will resolve the rows to
-**Clean / Listed** instead of *Partial — N unreachable*.
+**Clean** or **Listed** instead of *Clean — N unreachable*.
 
 **Already have unbound on another box** (e.g. a LAN resolver)? Point the scanning
 host at *that* IP instead of `127.0.0.1` — but the scanning host must be able to
@@ -123,7 +137,8 @@ server:
 
 ## What it checks
 
-For each domain you add:
+Click **+ Add domain** and enter the domain, and a DKIM selector if you want one checked. You
+can watch up to 200 domains. For each domain RemotePower checks:
 
 - **DMARC** — `_dmarc.<domain>`: the policy (`p=none` / `quarantine` / `reject`),
   `pct`, and whether an aggregate-report address (`rua=`) is set.
@@ -141,9 +156,12 @@ For each domain you add:
 | **weak** | Enforcing, but with gaps (no `rua`, `pct<100`, soft SPF, missing DKIM). |
 | **fail** | Not enforcing — no DMARC record, or `p=none`. The domain is spoofable. |
 
-The page lists each domain with its grade and the specific findings. **Add
-domain** prompts for the domain (and an optional DKIM selector); **Scan now**
-re-checks every domain over DNS (fast, synchronous).
+The table lists each domain with its grade, the DMARC, SPF and DKIM results, the specific
+findings and when it was checked. **Scan now** re-checks every domain over DNS and answers at
+once. RemotePower does not re-check domains on a schedule, so click **Scan now** after you change a
+record. The grades raise no alert of their own, but they feed the email-authentication control on
+the [Compliance](compliance.md) page: it fails for a domain that does not enforce DMARC or enforces
+it with gaps, and reads *Not assessed* until a domain has been checked.
 
 ## Aggregate reports via IMAP
 
@@ -158,15 +176,21 @@ RemotePower can collect and parse those reports for you:
 
 1. Create (or reuse) a mailbox that receives the RUA reports — i.e. the address
    in your `rua=mailto:` tag.
-2. Configure its **IMAP** connection on the DMARC page (host, port, username,
-   credential, folder).
-3. RemotePower **polls that mailbox on a schedule and on demand**, downloads each
-   report attachment, decompresses the gzip/zip payload, and parses the XML.
+2. Click **IMAP settings** in the *Aggregate reports (RUA)* card and fill in the host, port
+   (993 by default), username, password and folder (`INBOX` by default). Tick **Enabled**. The
+   dialog also has **Use SSL/TLS**, **Verify TLS certificate** (untick it for an internal server
+   with a self-signed certificate) and **Poll interval** (900 seconds by default, 300 at least).
+3. RemotePower **polls that mailbox on the interval you set, and when you click
+   Fetch reports now**. It downloads each report attachment, decompresses the gzip or zip
+   payload, and parses the XML.
 
-The page then shows **per-source pass/fail tallies** (which sending IPs are
-passing or failing SPF/DKIM, and in what volume) alongside a **mailbox health**
-summary (total message count and unseen/unread count) so you can confirm reports
-are actually arriving. Parsed report state is stored in `dmarc_reports`.
+The page then shows a **Reporter / Domain / Policy / Window / Messages / Pass / Fail** table of
+the reports, a **Sending sources** table (which IPs are passing or failing SPF and DKIM, and
+in what volume, with the domains they send as and when they were last seen) and a **mailbox
+health** line (total messages and unread count), so you can confirm reports are arriving.
+**Clear reports** empties the reports, the sources and the mailbox status. Your IMAP settings
+stay, and the next fetch reads the mailbox again from the start. RemotePower keeps the latest 300
+reports, and the page lists the newest 100.
 
 ## Endpoints
 
@@ -180,6 +204,21 @@ are actually arriving. Parsed report state is stored in `dmarc_reports`.
 | POST   | `/api/dmarc/fetch` | poll the IMAP mailbox now and ingest reports (admin) |
 | GET    | `/api/dmarc/imap` | current IMAP mailbox config + health |
 | POST   | `/api/dmarc/imap` | configure / update the IMAP mailbox (admin) |
+| DELETE | `/api/dmarc/reports` | clear the ingested reports and sources (admin) |
 
-DNS targets and results are stored in `dmarc_targets.json` / `dmarc_results.json`
-in the data dir; parsed aggregate-report state lives in `dmarc_reports`.
+The IMAP password is never returned. `GET /api/dmarc/imap` only says whether one is set.
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| Every IP shows **Clean — N unreachable** | The server's resolver is a public or forwarding one. See the resolver note above. |
+| An IP is listed on one scan but no alert came | It has to be listed on two scans in a row (see *When an alert fires*). |
+| **Fetch reports now** ingests nothing | Read the mailbox line on the page for the IMAP error. Check the host, port, folder, and whether the certificate verifies. Reports arrive as `.gz`, `.zip` or `.xml` attachments. |
+| The sender list is empty | Reports usually arrive once a day from each provider, so it takes a day or more after you publish a `rua=` address. |
+| A domain shows **fail** though DMARC is published | `p=none` is monitoring only. Move to `quarantine` or `reject` once the reports show your own mail passing. |
+
+## See also
+
+[ip-intel.md](ip-intel.md) (reputation of addresses that attack you), [tls-monitor.md](tls-monitor.md)
+(certificate and domain expiry), [dns.md](dns.md), [compliance.md](compliance.md).

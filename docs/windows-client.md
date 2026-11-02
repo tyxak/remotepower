@@ -12,7 +12,7 @@ It is **stdlib-only** Python (3.8+); two pip packages sharpen it:
 
 Both are installed automatically by the installer.
 
-## How it runs: a Windows service (default) *(v6.2.0)*
+## How it runs: a Windows service (default)
 
 By default the agent installs as a **Windows service** named `RemotePowerAgent`
 ("RemotePower Agent" in `services.msc`), running as **LocalSystem**, start type
@@ -43,8 +43,8 @@ semantics. Everything below notes which mechanism a command targets.
 
 ### One-liner (recommended)
 
-In the dashboard: **Add host → Quick install** copies a one-liner with a
-one-time enrollment token baked in. On the target host, in an **elevated**
+In the dashboard, click **Enroll host** on the Hosts page and then **Quick install
+command**. It shows a one-liner with a one-time enrollment token baked in. On the target host, in an **elevated**
 PowerShell:
 
 ```powershell
@@ -87,7 +87,7 @@ Two credentials enroll a host; **don't mix up the flags**:
 
 - **Enrollment token** — a long (16–256 char) one-time string, e.g. the `t=…`
   value baked into the one-liner. Pass with **`--token`** / `-Token`.
-- **PIN** — a **6-digit** code from **Add host**. Pass with **`--pin`** /
+- **PIN** — a **6-digit** code from **Enroll host**. Pass with **`--pin`** /
   `-Pin`.
 
 A 6-digit value passed to `--token` is rejected by the server (tokens must be
@@ -208,37 +208,37 @@ for the agent.
 
 ## What the Windows agent reports and does
 
-Parity with the Linux agent for the core management surface (v6.2.0 buildout):
+Parity with the Linux agent for the core management surface:
 
 | Capability | Linux | Windows |
 |---|---|---|
 | Core metrics (CPU/mem/disk/net) | psutil | psutil (optional; reduced set without it) |
 | Reboot / shutdown | `systemctl` | `shutdown /r`/`/s` |
-| **reboot-required** detection | `/run/reboot-required` | registry (CBS / WindowsUpdate / PendingFileRenameOperations) *(v6.2.0)* |
-| Remote command | `exec:` (shell) | `exec:` (PowerShell); explicit **`ps:`** / **`cmd:`** verbs *(v6.2.0)* |
-| **Service** enumerate + control | systemd | `Get-Service` + Start/Stop/Restart-Service *(v6.2.0)* |
-| **Process** list + kill | `/proc` + signals | psutil + `taskkill` *(v6.2.0)* |
-| **File manager** (`files:`) | yes | yes, Windows-rooted allowlist *(v6.2.0)* |
+| **reboot-required** detection | `/run/reboot-required` | registry (CBS / WindowsUpdate / PendingFileRenameOperations) |
+| Remote command | `exec:` (shell) | `exec:` (PowerShell); explicit **`ps:`** / **`cmd:`** verbs |
+| **Service** enumerate + control | systemd | `Get-Service` + Start/Stop/Restart-Service |
+| **Process** list + kill | `/proc` + signals | psutil + `taskkill` |
+| **File manager** (`files:`) | yes | yes, Windows-rooted allowlist |
 | Patch detect | apt/dnf/… | Windows Update COM API |
 | Patch apply | package manager | PSWindowsUpdate → COM fallback (never auto-reboots) |
-| **Third-party patch** (winget) | flatpak/snap/pip/npm (detect) | `winget:` detect **and remediate** *(v6.2.0)* |
+| **Third-party patch** (winget) | flatpak/snap/pip/npm (detect) | `winget:` detect **and remediate** |
 | AV posture | ClamAV/rkhunter | Windows Defender (`Get-MpComputerStatus`) |
-| Event Log | journalctl | `Get-WinEvent` — System/Application **+ Security**, RecordId cursor that survives a **log clear** (no dup/loss), Event IDs in each line for alert rules *(v6.2.0)* |
-| Privileged-group tripwire | `sudo`/`wheel` | `Administrators` (`Get-LocalGroupMember`) *(v6.2.0)* |
+| Event Log | journalctl | `Get-WinEvent` — System/Application **+ Security**, RecordId cursor that survives a **log clear** (no dup/loss), Event IDs in each line for alert rules |
+| Privileged-group tripwire | `sudo`/`wheel` | `Administrators` (`Get-LocalGroupMember`) |
 | Listening ports | yes | yes |
 | Secrets-on-disk scan | yes | yes |
-| **Signed self-update** | yes (fail-closed GPG gate) | yes (fail-closed GPG gate) *(v6.2.0)* |
-| **SMART** disk health | smartctl | `Get-PhysicalDisk` + reliability counters *(v6.2.0)* |
-| **Hardware inventory** | dmidecode | WMI (system + memory) *(v6.2.0)* |
-| **Config drift** (file hashing) | yes | yes *(v6.2.0)* |
-| **Containers** | docker/podman/k8s | docker CLI (Desktop / Windows containers) *(v6.2.0)* |
-| **Custom checks** (file/job/log/service) | yes | yes; `windows_service` type *(v6.2.0)* |
-| Security posture → Checks | (n/a) | BitLocker, Firewall (per profile), Defender real-time + signature age, Windows Update service *(v6.2.0)* |
-| Compliance scan | OpenSCAP | not ported (oscap is Linux-only; use the cross-platform CIS baseline). Triggering an OpenSCAP scan on a Windows/macOS host now returns an honest "Linux only, skipped" instead of a silent no-op *(v6.4.0)* |
-| **Scan packages now** (`force_package_scan`) | apt/dnf refresh | Windows Update pending refresh *(v6.4.0)* |
-| **Update agent now** (`force_agent_upgrade`) | signed self-update | signed self-update *(v6.4.0)* |
-| **Backup-freshness monitors** (`backup_monitors`) | mtime + size | mtime + size *(v6.4.0)* |
-| Runs as | systemd service | **Windows service** (services.msc); scheduled-task fallback *(v6.2.0)* |
+| **Signed self-update** | yes (fail-closed GPG gate) | yes (fail-closed GPG gate) |
+| **SMART** disk health | smartctl | `Get-PhysicalDisk` + reliability counters |
+| **Hardware inventory** | dmidecode | WMI (system + memory) |
+| **Config drift** (file hashing) | yes | yes |
+| **Containers** | docker/podman/k8s | docker CLI (Desktop / Windows containers) |
+| **Custom checks** (file/job/log/service) | yes | yes; `windows_service` type |
+| Security posture → Checks | (n/a) | BitLocker, Firewall (per profile), Defender real-time + signature age, Windows Update service |
+| Compliance scan | OpenSCAP | not ported (oscap is Linux-only; use the cross-platform CIS baseline). Triggering an OpenSCAP scan on a Windows/macOS host now returns an honest "Linux only, skipped" instead of a silent no-op |
+| **Scan packages now** (`force_package_scan`) | apt/dnf refresh | Windows Update pending refresh |
+| **Update agent now** (`force_agent_upgrade`) | signed self-update | signed self-update |
+| **Backup-freshness monitors** (`backup_monitors`) | mtime + size | mtime + size |
+| Runs as | systemd service | **Windows service** (services.msc); scheduled-task fallback |
 | Read-only audit mode | `/etc/remotepower/audit-mode` | `%ProgramData%\RemotePower\audit-mode` |
 
 ### Interpreter selection (`exec:` vs `ps:` vs `cmd:`)
@@ -259,7 +259,7 @@ auto-reboots**. Third-party app CVEs (Chrome, 7-Zip, VLC, …) are remediated wi
 **winget**: `winget:<id>` upgrades one package, `winget:` upgrades all (argv-only,
 package-id charset-validated, no shell). Both ride the audited, maker-checker-gated
 `upgrade` command, and reboot-flagged policies/rollouts queue a
-**`reboot-if-required`** afterward *(v6.4.0)* — the agent consults its
+**`reboot-if-required`** afterward — the agent consults its
 pending-reboot registry signals and reboots only when Windows actually asks
 for one, reporting "no reboot required — skipped" otherwise. (Windows agents
 never reboot on their own; the explicit `reboot` command remains
@@ -380,7 +380,7 @@ Start-Service RemotePowerAgent
 - Every fixed system binary (`powershell`, `winget`, `shutdown`, `icacls`,
   `schtasks`, `taskkill`, `cmd`, `sc`) is invoked by **absolute path**, never bare
   name — the agent runs as SYSTEM, so a writable `%PATH%` entry would otherwise be
-  a privilege-escalation vector *(v6.2.0)*.
+  a privilege-escalation vector.
 - The credential file (`agent.json`, holds the host token) has its ACL locked to
   **SYSTEM + Administrators** via locale-proof SIDs, inheritance stripped, written
   before the first token is stored.
@@ -399,7 +399,7 @@ Everything lives under `%ProgramData%\RemotePower\`:
 | File | Purpose |
 |---|---|
 | `agent.json` | credentials (server URL, host id, token) — ACL-locked |
-| `agent.log` | rotating agent log *(v6.2.0)* |
+| `agent.log` | rotating agent log |
 | `eventlog_cursor.json` | per-channel Event Log RecordId cursor |
 | `audit-mode` | marker: read-only mode (refuse write commands) |
 | `release.pub` | pinned release public key (enables signature enforcement) |

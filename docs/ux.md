@@ -1,8 +1,7 @@
 # Working the interface
 
-The v6.3.0 "Fl0wMatters" release turned a long list of small UI frictions
-into one coherent set of interface behaviours. This guide collects them in
-one place — everything here applies across the whole app unless noted.
+This guide collects the interface behaviours that work the same way across the
+whole app, unless a section says otherwise.
 Keyboard specifics live in [keyboard-shortcuts.md](keyboard-shortcuts.md).
 
 ## Undo instead of "are you sure?"

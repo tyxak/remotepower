@@ -1,7 +1,5 @@
 # TLS / DNS expiry monitor
 
-*Introduced in v1.11.0.*
-
 A lightweight watchlist of `(hostname, port)` pairs the server probes
 periodically. Each probe records cert expiry, issuer, subject, SAN
 list, DNS A/AAAA records, and any errors at the DNS / TLS / verify
@@ -225,8 +223,8 @@ cloud-hosted services, anything visible to the RemotePower box.
 
 For internal-only certs (a `.lan` host on a different subnet, an
 IPMI cert on a management VLAN the server can't reach), the probe
-will fail with a connect error. There's no agent-based probe in
-v1.11.0; the workaround is either:
+will fail with a connect error. There is no agent-based probe, so the workaround is
+one of these:
 
 - Make the host reachable from the RemotePower server (VLAN
   routing, jump host, whatever)
@@ -235,10 +233,6 @@ v1.11.0; the workaround is either:
 - Run the probe script on a different machine that does have
   network access (it's portable — just needs `tls_targets.json`
   in `RP_DATA_DIR` on whichever box runs it)
-
-A "designated probe agent" feature, where one chosen agent does
-the TLS probes for an internal subnet, was discussed for v1.11.0
-and deferred. May come back if there's demand.
 
 ---
 

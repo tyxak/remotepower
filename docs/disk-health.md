@@ -1,24 +1,29 @@
 # Predictive Health
 
 **Hardware → Predictive Health** surfaces hardware that is *predicted* to be
-at risk before it fails — most urgent first:
+at risk before it fails, most urgent first. It has three cards:
 
-- **Disks** — the reactive SMART verdict plus trends in reallocated and
-  pending sectors, and SSD wear level. A disk whose reallocated count is
+- **Disks at risk** lists a disk with its risk, wear, an ETA once there is enough history,
+  and the signals behind the rating. It combines the SMART verdict with trends in
+  reallocated and pending sectors and the SSD wear level. A disk whose reallocated count is
   *growing* ranks above one with a static count.
-- **Unstable hosts** — hosts restarting unusually often (reboot-frequency
-  anomaly), which often precedes PSU/RAM/thermal failure.
+- **Frequently restarting hosts** lists hosts that restart unusually often (restarts in the
+  last seven days, and the last boot reason). Repeated restarts often come before a power
+  supply, memory or thermal failure.
+- **Hosts likely to fail** gives each host one score that folds every failure signal together
+  (see [Host reliability prediction](#host-reliability-prediction)).
 
-Tracked/unstable disk state also appears in the host drawer's SMART view.
-Unmonitored hosts are shown and flagged; only monitored hosts raise the
+The same disk state shows in the host drawer's SMART table (**Audit → Health & hardware**).
+Unmonitored hosts are shown and flagged, but only monitored hosts raise the
 `disk_predict_fail` alert.
 
-## Naming your disks *(v7.4.3)*
+## Naming your disks
 
 A host with eleven drives, several of the same model, lists them as `/dev/sda` to
 `/dev/sdk`, and the letters can change after a reboot or a controller change. Give a
 drive a name and it keeps it. Open the host, go to the **Audit** tab, expand **Health &
-hardware** and fill in **Disk names** under the SMART table.
+hardware**, fill in **Disk names** under the SMART table and click **Save names**
+(administrators see **Save names and lines**).
 
 - The name is kept against the drive's **serial number**, so it follows the drive when
   its letter changes. A disk that reports no serial number cannot be named.
@@ -27,7 +32,7 @@ hardware** and fill in **Disk names** under the SMART table.
   in Needs attention and in the reasons on the reliability card. The letter and the
   serial always stay next to the name.
 - Administrators and roles with an action permission can set names. Everyone who can
-  see the host sees them.
+  see the host sees them. Without that permission the form is not shown.
 - An empty box removes the name. Deleting a host deletes its names. A drive that moves
   to another host starts without a name there.
 - From a script: `PUT /api/devices/{id}/disk-names` with
@@ -85,12 +90,11 @@ A hard disk, a SATA SSD and an NVMe drive run at different temperatures, so one 
 numbers cannot suit all three. Set a warning line and a critical line, in °C, and a drive
 that reaches one raises an alert.
 
-Before 7.4.4 a drive's temperature was judged only by the fleet's hot and critical pair (75
-and 85 °C unless you changed them), in the risk score and on the Thermal page, and no alert
-came from it. The lines on this page add the alert, the colour of the *Temp* column in the
-SMART table and a line in Needs attention. Since 7.4.6 the Thermal page and the risk score
-hold a drive to its lines as well, and a drive with no line at any level is still judged by
-the fleet's pair. The sensors of a drive's own chip follow the same lines: see
+The lines give you the alert, the colour of the *Temp* column in the SMART table, a line in
+Needs attention, and the drive's place on the [Thermal](thermal.md) page and in the risk score.
+A drive with no line at any level is judged by the fleet's hot and critical pair for sensors
+(75 and 85 °C unless you changed them under **Settings → Alert parameters → Thermal & GPU**), and
+raises no alert. The sensors of a drive's own chip follow the same lines: see
 [Thermal health](thermal.md#a-drives-own-sensors-and-limits-that-are-not-limits).
 
 ### Which line applies
@@ -99,8 +103,8 @@ For the warning line and for the critical line, one at a time, the first of thes
 a number wins:
 
 1. **The drive's own line,** kept against its serial number, so it follows the drive when
-   its letter changes. Administrators set it on the host's Hardware tab, in the two boxes
-   beside the drive's name.
+   its letter changes. Administrators set it in **Disk names** (host → **Audit** →
+   **Health & hardware**), in the **Warn** and **Crit** boxes beside the drive.
 2. **The host's line for the drive's type** (hard disk, SATA SSD or NVMe), under **Metric
    thresholds** in the host's menu.
 3. **The host's line for any drive,** in the same place.
@@ -162,12 +166,15 @@ an alert can arrive that much after the drive crosses the line.
   and `crit` it is held to (`null` for none), what it would `inherit` and its `own` lines.
 - The fleet's lines are the eight `drivetemp_*_c` keys of `POST /api/config`; 0 or empty is off.
 
-## Host reliability prediction *(v6.2.0)*
+## Host reliability prediction
 
 The page's third card, **Hosts likely to fail**, folds every failure signal into
-one composite score per host (0–100, higher = more likely to fail) with an
-explainable factor breakdown — each factor names itself, its point contribution
-and why.
+one composite score per host (0–100, higher means more likely to fail) with a
+factor breakdown. Each factor names itself, its points and why.
+
+The levels are **critical** from 70, **high** from 45 and **medium** from 20 by default.
+Change them under **Settings → Alert parameters → Reliability levels**, and the weight of each
+factor under **Reliability score weights**.
 
 ### Reliability is not risk
 
@@ -188,24 +195,40 @@ No new collection: every input was already being stored.
 
 | Signal | Source | Contribution |
 |---|---|---|
-| SMART verdict | `hardware.json` | the drive says it is failing — believe it |
-| Reallocated sectors **growing** | `smart_history.json` (~6 months daily) | the predictive one: a disk with 4 reallocated sectors that has had 4 for a year is fine; one that went 0 → 4 this month is on its way out |
-| Pending sectors / wear / NVMe spare | `hardware.json` | remap pressure, spent endurance |
-| ECC memory errors | posture state | an **uncorrectable** error means the DIMM could *not* fix it — scored far above a corrected one |
-| Reboot churn | `uptime.json` | a box that keeps coming back has been going away |
-| Health-score trajectory | `health_history.json` (~6 months daily) | is this host getting *worse*? |
-| Thermals, recent OOM | `hardware.json`, sysinfo | heat kills hardware |
+| SMART verdict | The host's hardware report | The drive says it is failing. RemotePower believes it. |
+| Reallocated sectors **growing** | Daily SMART history (about 6 months) | The predictive one. A disk with 4 reallocated sectors that has had 4 for a year is fine. One that went 0 → 4 this month is on its way out. |
+| Pending sectors, wear, NVMe spare | The host's hardware report | Remap pressure and spent endurance |
+| ECC memory errors | The host's memory error counters | An **uncorrectable** error means the DIMM could *not* fix it. It scores far above a corrected one. |
+| Reboot churn | Uptime history | A box that keeps coming back has been going away. |
+| Health-score trajectory | Daily health-score history (about 6 months) | Is this host getting *worse*? |
+| Thermals, recent OOM | Hardware report and system information | Heat kills hardware. |
 
-Only **high** and **critical** hosts raise a Needs-Attention card. A low bar
-becomes noise, and a noisy predictor is one people learn to ignore — which is
-worse than no predictor at all. The card is muteable.
+Only **high** and **critical** hosts raise a Needs Attention card. A low bar
+becomes noise, and a noisy predictor is one people learn to ignore, which is
+worse than no predictor at all. You can mute the card. Hosts you do not monitor are scored
+but raise no card.
 
 ### What is *not* scored
 
-**Unit flapping.** `services.json` keeps systemd's `NRestarts` as a *cumulative*
-counter and stores only the latest value — the flap **delta** the `unit_flapping`
-event fires on is computed in flight and never persisted. Scoring on
+**Unit flapping.** The service data keeps systemd's `NRestarts` as a *cumulative*
+counter and stores only the latest value. The flap **delta** that the `unit_flapping`
+event fires on is worked out as it arrives and never saved. Scoring on
 `restarts > 0` would mark every host that ever deployed a service as failing,
 while a crash-looping unit that reset its counter scored zero. An
-honest omission beats a confidently wrong number; persisting a daily delta would
-make this a real factor.
+omission is better than a confidently wrong number.
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| A drive has no name box | It reports no serial number (typical behind some RAID controllers and USB bridges), or you lack permission. Only administrators and roles with an action permission see the form. |
+| The Disk I/O table is missing | Only the Linux agent sends it. Wait for the next system-information report (about 10 minutes at the default poll interval). |
+| A drive over its line did not alert | Check that the host is monitored, that a line is set at some level, and that the drive is awake. A sleeping drive reports no temperature. |
+| The temperature alert came late | It is judged on each hardware report, about every five minutes. |
+| A drive's type shows nothing | An older Linux agent sends no type. Update the agent, or the server guesses from the name (`/dev/nvme*`). |
+| A host looks fine but scores high on reliability | Open the **Why** column. Reboot churn and a falling health score count even when the disks are healthy. |
+
+## See also
+
+[thermal.md](thermal.md), [storage.md](storage.md), [alert-parameters.md](alert-parameters.md),
+[risk.md](risk.md), [forecast.md](forecast.md).

@@ -2,15 +2,20 @@
 
 Beyond the metrics each agent reports about *itself*, RemotePower runs
 **server-side synthetic checks** against targets you name, plus receivers for
-telemetry hosts push to it. These live under **Monitoring → Remote checks** (and
-a few sibling pages), and every failure/recovery is a first-class event.
+telemetry hosts push to it. The checks live on **Monitoring → Live Monitor**
+(the page is titled *Monitoring*), and every failure and recovery is an event you
+can notify on.
 
 ## Remote checks
 
-**Monitoring → Remote checks** lists your synthetic checks — Label, Type, Target,
-Status, Detail and last-checked time — with **Check now**, **Reset alerts** and
-**Add target**. The server runs them on a cadence (`monitor_interval`, default
-300s) and stores results in `monitor_history.json`.
+The **Remote checks** card on **Monitoring → Live Monitor** lists your synthetic
+checks (Label, Type, Target, Status, Detail and the time of the last check) with
+**Check now**, **Reset alerts**, **Mail round-trip** and **Add target**. The
+server runs them every `monitor_interval` seconds (default 300, between 60 and
+3600; **Settings → General → Monitor check interval**) and stores results in
+`monitor_history.json`. An install holds up to 50 targets. **Settings → Alert
+parameters → Reliability tuning → Monitor checks kept** sets how many results
+each check remembers (300 by default).
 
 | Type | Target | Checks |
 | --- | --- | --- |
@@ -22,10 +27,20 @@ Status, Detail and last-checked time — with **Check now**, **Reset alerts** an
 | `db` | `host:port` | database liveness (PostgreSQL / MySQL / Redis protocol probe, credential-less) |
 | `path` | host or IP | network path (traceroute) — fires `path_changed` when the route's hop set moves vs the baseline |
 
-Targets are validated server-side (`_sanitize_monitor_target`) so a check can't
-be pointed at a private/rebound address. Each check raises **`monitor_down`** when
-it fails and **`monitor_up`** when it recovers. The `/api/monitor` endpoint can
-also be pinged by an external scheduler to force a run.
+Targets are validated on the server so a check can't be pointed at a
+private/rebound address. Each check raises **`monitor_down`** when it fails and
+**`monitor_up`** when it recovers. Two more options in the dialog help with noise:
+**Alert after consecutive failures** (2 to 10) waits for several failed checks in
+a row before it alerts, and **Max latency ms** (HTTP and ICMP) and **Max packet
+loss %** (ICMP) turn a slow answer into a failure.
+
+A `ping`, `icmp` or `tcp` check can target **every host with a tag** or **every
+host in a group** instead of one address. The server fans it out into one check
+per host. A tag or group `tcp` check needs a port.
+
+`GET /api/monitor` answers from the newest run when it is recent, and
+`GET /api/monitor?run=1` probes now. That is what **Check now** does. You must be
+signed in, and the call is limited to 30 a minute per user.
 
 ### HTTP checks
 
@@ -63,8 +78,8 @@ percentiles** (p50/p95/p99 over the window, successful checks only).
 ## SLA / SLO objects
 
 Named availability targets that remote probes attach to. Define an object —
-name, target % (say 99.9), rolling window in days — under **Monitoring → SLA /
-SLO objects**, then tick it on each probe whose checks should count toward it
+name, target % (say 99.9), rolling window in days — in the **SLA / SLO objects**
+card on **Monitoring → Live Monitor**, then tick it on each probe whose checks should count toward it
 (checkboxes in the probe editor; any type, and a tag/group probe's fanned-out
 per-host checks all count). The panel shows each object's check-weighted
 **availability**, **error budget remaining** and **burn rate** over its own
@@ -78,9 +93,10 @@ resolve steps of 100/N percentage points. When that step is coarser than the
 error budget itself — a 99.9% target leaves 0.1 pp, so it needs at least 1,000
 checks in the window — the budget could only ever read 100% or 0%, and one
 failed check would report a blown budget for a probe that was up 99.7%. The
-budget column shows *too few checks* in that case instead. Raise
-`monitor_history_max` (Settings) so the window holds more checks, or set a
-target the window can actually measure.
+budget column shows *too few checks* in that case instead. Raise **Monitor
+checks kept** (`monitor_history_max`, under **Settings → Alert parameters →
+Reliability tuning**) so the window holds more checks, or set a target the
+window can actually measure.
 
 `GET /api/slo` returns the objects alongside the per-monitor availability
 list, and the same numbers export as Prometheus gauges
@@ -92,10 +108,25 @@ breach; `availability` is always exported.
 
 ## Service monitoring
 
-Watch specific systemd units per host (`watched_services`). The agent reports
-each unit's state in its heartbeat; a stopped unit raises **`service_down`** and
-a recovered one **`service_up`**. Service baselines let you snapshot the expected
-running set and alert on deviation.
+Watch specific systemd units per host (`watched_services`) on **Monitoring →
+Services**. The agent reports each unit's state in its heartbeat; a stopped unit
+raises **`service_down`** and a recovered one **`service_up`**. Service baselines
+let you snapshot the expected running set and alert on deviation.
+
+## Mail round-trip
+
+The **Mail round-trip** button on the Remote checks card measures real mail
+delivery from end to end. RemotePower sends a token-stamped e-mail through your
+outbound SMTP server (**Settings → Notifications → Email notifications (SMTP)**
+must be set up) to a probe address, then looks for it in that mailbox over IMAP.
+It deletes the probe message once it finds it.
+
+Fill in the probe address, the IMAP host, port, user, password and folder, and
+tick **Enabled**. **Max round-trip latency** is how long a probe may take, 30
+seconds or more and 300 by default. A new probe goes out every five minutes. If
+one has not arrived in time, RemotePower raises **`mailflow_delayed`**, and
+**`mailflow_ok`** when a probe gets through again. The IMAP password is write-only
+and an empty field keeps the stored one. Only admins can change these settings.
 
 ## Log-tail alerts
 
@@ -105,7 +136,7 @@ Two layers, both firing **`log_alert`**:
   severity}` — the agent tails the unit's journal and reports matches.
 - **Fleet-wide** rules (**`/api/logs/rules/global`**): a pattern + threshold +
   optional `exclude_pattern` and a `file:/path/to/log` synthetic unit for tailing
-  a plain file. Managed on the Logs page.
+  a plain file. Managed on the Logs page. See [Logs](log-watch.md).
 
 ## Inbound receivers (syslog & SNMP traps)
 
@@ -113,8 +144,9 @@ Hosts and appliances can push to tokenised, admin-created endpoints (tokens
 start with `rpwi_`, managed as inbound webhooks):
 
 - **Syslog** — `POST /api/syslog/in/{token}` accepts `{lines:[…]}`, a bare JSON
-  array, or plain newline-separated text. Lines are parsed for severity and run
-  through the syslog rules (fires `log_alert`).
+  array, or plain newline-separated text. A syslog token is pinned to one host.
+  Lines are parsed for severity and run through the log rules for the unit
+  `syslog` (fires `log_alert`).
 - **Alerts** — `POST /api/webhook/in/{token}` lands an external system's alert
   in the inbox. The sender's own payload shape is **adapted**: Prometheus
   Alertmanager, Grafana (legacy and unified), Authentik, or RemotePower's own
@@ -129,7 +161,7 @@ start with `rpwi_`, managed as inbound webhooks):
 
 ### Trap rules
 
-Settings → Integrations → **SNMP trap rules** decides what a trap *means*. A
+**Settings → Integrations → SNMP trap rules** decides what a trap *means*. A
 rule matches an **OID prefix** — and optionally a regex against the value — and
 sets the alert severity, or `ignore` to drop the trap without alerting at all.
 
@@ -137,39 +169,58 @@ sets the alert severity, or `ignore` to drop the trap without alerting at all.
   a broad `1.3.6.1.4.1.318` rule added later, so you never have to reorder.
 - **Traps matching different rules stay in different alerts.** The matched rule
   name is part of the alert's identity, so a UPS on battery and a chatty
-  linkDown from the same switch no longer fold into one row where acknowledging
+  linkDown from the same switch do not fold into one row where acknowledging
   the noise buries the outage.
-- A rule can be scoped to a single host, or left fleet-wide.
-- Traps matching no rule keep the old behaviour: one coalesced `medium` alert
-  per host.
+- A rule can be scoped to a single host, or left fleet-wide. The severity is
+  `critical`, `high`, `medium`, `low`, `info` or `ignore`. You can keep up to 200
+  rules.
+- A trap that matches no rule raises one coalesced `medium` alert per host.
 - **Test before you wait for 3am.** `POST /api/snmp/trap-rules/test` with
   `{oid, value}` (or the Test box on the settings pane) reports which rule would
   match and what it would do — a mistyped OID prefix otherwise looks exactly
   like a correct one until the host happens to emit.
 
 `GET/POST /api/snmp/trap-rules`, `PATCH/DELETE /api/snmp/trap-rules/{id}`.
-- **SNMP polling** is separate: per host, `POST …/snmp/poll` and a deep
-  inspection at `GET …/snmp/deep`.
+
+**SNMP polling** is separate: per host, `POST /api/devices/{id}/snmp/poll` polls
+now and `GET /api/devices/{id}/snmp/deep` runs a deep inspection.
 
 ## Resolver health & watchdog
 
-- **Resolver health** monitor (`resolver_health.py`): names you register are
-  resolved at several vetted public resolvers on a cadence; latency, NXDOMAIN and
-  failure counts are tracked, and a name that stops resolving raises
-  **`resolver_unhealthy`** (and `resolver_recovered` when it comes back). See
-  [dns.md](dns.md).
-- **Healthchecks.io watchdog** — set `healthchecks_url` and RemotePower pings it
-  every `healthchecks_interval_seconds`, so an external dead-man's-switch alerts
-  *you* if the control plane itself goes dark.
-- **Server disk watchdog** — `disk_watchdog_pct` (default 85, 0 = off) raises
-  `server_disk_low` when the data volume fills (recovers with `server_disk_ok`).
+- **Resolver health** monitor: names you register are resolved at several vetted
+  public resolvers on a cadence; latency, NXDOMAIN and failure counts are
+  tracked, and a name that stops resolving raises **`resolver_unhealthy`** (and
+  `resolver_recovered` when it comes back). See [DNS](dns.md).
+- **Healthchecks.io watchdog.** Set the ping URL under **Settings →
+  Notifications → Healthchecks.io watchdog** and RemotePower pings it every
+  `healthchecks_interval_seconds` (60 by default, at least 30), so an external
+  dead-man's-switch alerts *you* if the control plane itself goes dark.
+- **Server disk watchdog.** **Settings → Alert parameters → Hardware & power →
+  Server disk** (`disk_watchdog_pct`, default 85, 0 = off) raises
+  `server_disk_low` when the data volume fills, and `server_disk_ok` when it
+  recovers.
 
 ## Prometheus exposition
 
 `GET /api/metrics` renders everything above — and most of what the rest of the
 product measures — as Prometheus text exposition, for Grafana or an external
-alertmanager. Authenticate with an operator token or the dedicated **status
-token** (Settings → Advanced), which is the usual choice for a scrape config.
+alertmanager. Authenticate with an operator session token, or with the dedicated
+**status token** that you generate under **Settings → Integrations → Status
+endpoint**, which is the usual choice for a scrape config:
+
+```yaml
+scrape_configs:
+  - job_name: remotepower
+    metrics_path: /api/metrics
+    params:
+      token: ['<status token>']
+    scheme: https
+    static_configs:
+      - targets: ['remote.example.com']
+```
+
+A session caller sees only the hosts their role and tenant allow. A scrape with
+the status token sees the whole instance.
 [`prometheus-metrics-sample.txt`](prometheus-metrics-sample.txt) is real output
 from a small seeded fleet; ready-made dashboards live in
 [`contrib/grafana/`](../contrib/grafana/).
@@ -188,12 +239,12 @@ dashboard can slice by host or by group without a join.
 | `remotepower_fleet_health_score`, `remotepower_device_health_score`, `remotepower_attention_items` | Fleet health and the Needs-Attention digest behind it |
 | `remotepower_maintenance_windows_active`, `remotepower_commands_pending_total`, `remotepower_scheduled_jobs_total`, `remotepower_webhook_deliveries_total`, `remotepower_webhook_log_size`, `remotepower_control_plane_uptime_percent`, `remotepower_timeline_events_24h` | Control-plane state |
 
-### Hardware, backup and posture families *(v6.4.2)*
+### Hardware, backup and posture families
 
-These signals already drove RemotePower's own alerts, drawers and scores, but
-none of them reached the exporter — so a Grafana user could not alert on a
-failing drive, a UPS on battery or a stale backup from RemotePower's own
-metrics. Each block is emitted only when the underlying store has data.
+These signals drive RemotePower's own alerts, drawers and scores, and they reach
+the exporter too, so you can alert in Grafana on a failing drive, a UPS on
+battery or a stale backup. Each block is emitted only when the underlying store
+has data.
 
 | Family | Extra labels | Notes |
 | --- | --- | --- |
@@ -237,3 +288,11 @@ distinction the product makes everywhere else.
   not a session.
 - All targets/URLs are SSRF-guarded (loopback, link-local and cloud-metadata
   addresses are refused), and inbound endpoints are rate-limited.
+
+## See also
+
+- [Logs](log-watch.md): log rules, clearing a noisy line.
+- [Alerts](alerts.md): where `monitor_down`, `service_down` and the rest land.
+- [Maintenance windows](maintenance.md): hold notifications while a target is down on purpose.
+- [Integrations](integrations.md): health checks for the software your hosts run.
+- [Inbound tokens](inbound-tokens.md): syslog, alert and SNMP trap endpoints.

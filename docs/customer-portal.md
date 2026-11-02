@@ -23,7 +23,7 @@ out, nothing else.
 
 The portal reuses two things you already have:
 
-1. **The ticket system** (Advanced → Tickets module) — tickets are grouped by
+1. **The ticket system** (Settings → Advanced → Optional modules → Tickets) — tickets are grouped by
    **site**, which is how the portal knows which tickets belong to which customer.
 2. **The Contacts directory** — a contact is the person who gets portal access.
 
@@ -33,14 +33,17 @@ access and they can't.
 
 ## Turning it on
 
-1. **Enable the ticket system** if you haven't already (Advanced settings).
-2. **Enable the portal** — set **Customer portal** on (`portal_enabled`) in
-   Settings.
-3. **Set the portal URL** (`portal_base_url`) — the public address your customers
-   reach the portal at (for example `https://support.example.com`). This is the
-   address baked into every magic-link email, so it must be the real one.
-4. **Grant a contact access** — in Contacts, give the contact a **site** and turn
-   on **portal access**. Their tickets are the tickets on that site.
+1. **Enable the ticket system** if you haven't already (**Settings → Advanced →
+   Optional modules**). Outgoing sign-in links need working email (SMTP) under
+   **Settings → Notifications**.
+2. **Enable the portal** under **Settings → Tickets → Customer portal**
+   (`portal_enabled`).
+3. **Set the portal URL** (`portal_base_url`) in the same section — the public address
+   your customers reach the portal at (for example `https://support.example.com`).
+   This is the address baked into every magic-link email, so it must be the real one.
+4. **Grant a contact access** — in Contacts, edit the contact, set its **Portal
+   site** and tick **Allow customer-portal sign-in**. Their tickets are the tickets
+   on that site.
 
 Customers then visit the portal URL, enter their email, and follow the link.
 

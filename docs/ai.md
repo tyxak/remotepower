@@ -1,70 +1,57 @@
 # AI assistant
 
-*(v2.1.3 introduced this feature; v2.1.4 added the standalone page; v2.1.5 added markdown rendering, more buttons, fixed a few bugs)*
+An optional link to a language model. It explains outputs, diagnoses problems,
+prioritises patches, drafts scripts, writes fleet reports and answers free-form
+questions. **It is off by default.** An admin turns it on under **Settings → AI
+assistant**.
 
-Optional integration with an LLM provider for explaining outputs,
-diagnosing problems, prioritising patches, generating scripts, and
-free-form chat. **Disabled by default**; an admin opts in through
-Settings → AI assistant.
-
-Nothing leaves the building unless you explicitly enable a cloud
-provider. If you want a fully self-hosted setup with no external
-calls, pick Ollama or LocalAI and point at a server on your own
-network.
+Nothing leaves your network unless you enable a cloud provider. For a fully
+self-hosted setup with no external calls, pick Ollama or LocalAI and point it at a
+server on your own network.
 
 ## Providers
 
-Seven providers behind four adapters. All wire to a single
-`/api/ai/chat` endpoint, pure stdlib (`urllib.request` for HTTP, a
-minimal RFC-6455 client for openclaw's WebSocket) — no new pip
-dependencies.
+Seven providers sit behind four adapters. They all go through one `/api/ai/chat`
+endpoint and use only the Python standard library, so there are no extra packages to
+install.
 
 | Provider | Network egress | API key needed? | Adapter |
 |---|---|---|---|
-| **Ollama** (local) | None — runs on your network | No | OpenAI-compatible |
-| **LocalAI** (local) | None — runs on your network | No | OpenAI-compatible |
-| **opencode** (local) | None — runs on your network | Optional (HTTP-basic) | opencode REST session server |
-| **openclaw** (local) | None — runs on your network | Optional (gateway token) | openclaw WebSocket-RPC gateway |
+| **Ollama** (local) | None, runs on your network | No | OpenAI-compatible |
+| **LocalAI** (local) | None, runs on your network | No | OpenAI-compatible |
+| **opencode** (local) | None, runs on your network | Optional (HTTP basic) | opencode REST session server |
+| **openclaw** (local) | None, runs on your network | Optional (gateway token) | openclaw WebSocket-RPC gateway |
 | **Anthropic** (Claude) | api.anthropic.com | Yes | `/v1/messages` |
 | **OpenAI** (ChatGPT) | api.openai.com | Yes | OpenAI-compatible |
 | **DeepSeek** | api.deepseek.com | Yes | OpenAI-compatible |
 
-**opencode** and **openclaw** *(v5.8.0)* are locally-run agentic
-coding backends. opencode is driven through its `serve` REST API
-(create a session, POST the prompt, read the reply); openclaw is
-driven over its control WebSocket (JSON-RPC `connect` + `chat.send`).
-Both are best-effort/experimental — point the **Base URL** at your
-running instance (`http://localhost:4096` / `ws://localhost:18789` by
-default), supply a token only if the instance requires one, and the
-same connect-time SSRF guard used for every other outbound call
-applies (private/loopback peers are blocked unless you opt into
-insecure mode). Set the **Model** to `providerID/modelID` to route
-opencode's own backend.
+**opencode** and **openclaw** are locally run agentic coding backends. opencode is
+driven through its `serve` REST API (create a session, post the prompt, read the
+reply). openclaw is driven over its control WebSocket (JSON-RPC `connect` and
+`chat.send`). Both are best-effort. Point the **Base URL** at your running instance
+(`http://localhost:4096` and `ws://localhost:18789` by default), supply a token only if
+the instance asks for one, and set the **Model** to `providerID/modelID` to route
+opencode's own backend. The same connect-time SSRF guard that protects every other
+outbound call applies, so private and loopback peers are blocked unless you opt into
+insecure mode.
 
-For the "what does my privacy posture look like?" question, the
-adapter applies regex-based redaction before the bytes leave the
-Python process. That covers hostnames, IPs, and a handful of
-secret-shaped patterns (bearer tokens, AWS access keys, long hex).
-See [Privacy toggles](#privacy-toggles) below for what's redacted
-when. Pre-redaction interception by the model provider is, of
-course, not something we can prevent — the only way to make that
-moot is to run the model locally.
+The adapter redacts hostnames, IP addresses and secret-shaped strings before the bytes
+leave the Python process (see [Privacy toggles](#privacy-toggles)). It cannot stop a
+provider from seeing what you send. The only way to rule that out is to run the model
+locally.
 
 ## Setting it up
 
-1. **Settings → AI assistant** → toggle **Enabled** to On.
-2. Pick a **Provider**, optionally enter a **Model** name (leave
- blank for the provider's default).
-3. For cloud providers, paste your **API key**. For Ollama or
- LocalAI, leave it blank.
-4. Optionally override the **Base URL** if you're running Ollama
- at a non-default address (e.g. `http://10.0.0.2:11434/v1`).
-5. Set **Privacy** toggles (see below) and **Limits**.
-6. Click ** Test connection** to verify. A success message means
- the provider responded with a tiny 8-token reply. A failure
- message names the problem.
-7. Save settings. The buttons across the dashboard are now
- active for every authenticated user.
+1. **Settings → AI assistant**: set **Enabled** to On.
+2. Pick a **Provider**. Optionally enter a **Model** (leave it blank for the provider's
+   default).
+3. For cloud providers, paste your **API key**. For Ollama or LocalAI, leave it blank.
+4. Optionally override the **Base URL**, for example `http://10.0.0.2:11434/v1` for an
+   Ollama server on another machine.
+5. Set the **Privacy** toggles and the **Limits** (below).
+6. Click **Test connection**. A success message means the provider answered a tiny
+   request. A failure message names the problem.
+7. Save. The AI buttons across the dashboard now work for every signed-in user.
 
 ### Default models per provider
 
@@ -74,23 +61,21 @@ If you leave the Model field blank, these are used:
 |---|---|
 | Ollama | `llama3.1:8b` |
 | LocalAI | `gpt-3.5-turbo` |
-| opencode | *(the server's own configured default)* |
-| openclaw | *(the gateway's own configured default)* |
+| opencode | the server's own configured default |
+| openclaw | the gateway's own configured default |
 | Anthropic | `claude-3-5-sonnet-latest` |
 | OpenAI | `gpt-4o-mini` |
 | DeepSeek | `deepseek-chat` |
 
-You can override per-conversation on the standalone AI page (model
-picker dropdown above the chat).
+On the AI Assistant page you can pick another model for one conversation with the model
+picker above the chat.
 
 ### Slow local models and nginx
 
-Local thinking models (smallthinker, qwq, deepseek-r1) can spend
-60–180 seconds generating a response. nginx's default
-`proxy_read_timeout` of 60s will close the connection before
-that, and the browser sees a 504 Gateway Timeout. The HTTP timeout
-on the Python side was bumped to 5 minutes in v2.1.4; for nginx
-you must add a per-location block:
+Local thinking models (smallthinker, qwq, deepseek-r1) can spend 60 to 180 seconds
+generating a reply. nginx's default `proxy_read_timeout` is 60 seconds, so it closes the
+connection first and the browser sees a 504 Gateway Timeout. The app server waits up to
+five minutes. For nginx, add a per-location block:
 
 ```nginx
 location /api/ai/ {
@@ -104,22 +89,20 @@ location /api/ai/ {
 }
 ```
 
-This block must appear **before** any catch-all `location ^~ /api/`
-block in the same server stanza — nginx routes on first match.
+This block must appear **before** any catch-all `location ^~ /api/` block in the same
+server stanza, because nginx routes on the first match. Run
 `sudo nginx -t && sudo systemctl reload nginx` after editing.
 
 ### Thinking models (Ollama and others)
 
-A thinking model reasons before it answers, and the reasoning counts
-against the token limit. A small local model can spend the whole
-allowance thinking and return nothing, so you wait a couple of minutes
-for an empty reply.
+A thinking model reasons before it answers, and the reasoning counts against the token
+limit. A small local model can spend the whole allowance thinking and return nothing,
+so you wait a couple of minutes for an empty reply.
 
-Set **Reasoning effort** to **None** under **Settings → AI assistant**
-to turn thinking off. RemotePower then sends `reasoning_effort: "none"`
-with every request to an OpenAI-compatible provider (OpenAI, DeepSeek,
-Ollama and LocalAI). Ollama only stops a thinking model when it gets
-that field. A `/no_think` line in the prompt does not do it.
+Set **Reasoning effort** to **None** under **Settings → AI assistant** to turn thinking
+off. RemotePower then sends `reasoning_effort: "none"` with every request to an
+OpenAI-compatible provider (OpenAI, DeepSeek, Ollama and LocalAI). Ollama only stops a
+thinking model when it gets that field. A `/no_think` line in the prompt does not do it.
 
 | Reasoning effort | What is sent |
 |---|---|
@@ -127,282 +110,240 @@ that field. A `/no_think` line in the prompt does not do it.
 | None | `reasoning_effort: "none"` |
 | Low, Medium, High | `reasoning_effort` with that value |
 
-A single prompt can have its own value: open **Prompt customization**,
-then the prompt's **Fine-tuning**. It wins over the setting above.
-**Use the global setting** follows Settings again.
+A single prompt can have its own value: open **Prompt customization**, then the prompt's
+**Fine-tuning**. It wins over the setting above. **Use the global setting** follows
+Settings again.
 
-Anthropic, opencode and openclaw have no such field. The row is hidden
-for them and nothing is sent.
+Anthropic, opencode and openclaw have no such field. The row is hidden for them and
+nothing is sent.
 
-If a reply is empty because the model reached the token limit first,
-RemotePower says so, and names this setting, instead of showing an
-empty box.
+If a reply is empty because the model reached the token limit first, RemotePower says so
+and names this setting, instead of showing an empty box.
 
 ## What the model is told about your fleet
 
-Every request carries a short **fleet snapshot** preamble: a count line, then one
-line per host with its name, OS, package manager, online state, group and your
-own notes.
+Under **Settings → AI assistant → Context awareness** three switches control what
+travels with every request: a short note about what RemotePower is, a **fleet
+snapshot**, and per-question retrieval (see [rag.md](rag.md)). The snapshot is a count
+line, then one line per host with its name, OS, package manager, online state, group and
+your own notes.
 
-Since v7.0.0 a host also names its **notable conditions** — high CPU, memory or
-disk, a pending reboot, failed units, mount problems, an inactive host firewall,
-unencrypted disks, an unsynchronised clock, quarantined files, or the agent's own
-"my metrics are limited" signal. Before that the preamble was pure inventory, so
-an advisor asked what to fix first saw a list of machines and nothing about their
-state.
+A host also names its **notable conditions**: high CPU, memory or disk, a pending
+reboot, failed units, mount problems, an inactive host firewall, unencrypted disks, an
+unsynchronised clock, quarantined files, or the agent's own "my metrics are limited"
+signal. Two things about that:
 
-Two things about it worth knowing:
+- **A healthy host adds nothing.** Conditions appear only when they cross the same
+  thresholds the product already alerts on, so a fleet that is fine costs no extra
+  tokens and never shows the model a "problem" your own pages call fine.
+- **Each host names at most four.** One very sick machine must not crowd the rest of the
+  fleet out of a bounded prompt.
 
-- **A healthy host adds nothing.** Conditions appear only when they cross the
-  same thresholds the product already alerts on, so a fleet that is fine costs
-  no extra tokens and never shows the model a "problem" your own pages call
-  fine.
-- **Each host names at most four.** One very sick machine must not crowd out the
-  rest of the fleet in a bounded prompt.
+Anything beyond that comes from retrieval, which runs per question. The snapshot is what
+the model knows before it retrieves anything.
 
-Anything beyond that comes from [RAG retrieval](rag.md), which fires per
-question. The preamble is what the model knows before it retrieves anything.
-
-The privacy toggles below apply to this preamble exactly as they do to
-everything else — with **Send hostnames** off, the host names in it are
-redacted too.
+The privacy toggles below apply to the snapshot exactly as they apply to everything else.
+With **Send hostnames** off, the host names in it are redacted too.
 
 ## Privacy toggles
 
-Located under Settings → AI assistant → **Privacy**.
+Under **Settings → AI assistant → Privacy**.
 
 | Toggle | Default | Effect when off |
 |---|---|---|
 | Send hostnames (FQDNs) | **Off** | Any FQDN-shaped token becomes `<HOST>` |
-| Send IP addresses | **Off** | IPv4 → `<IP>`, IPv6 → `<IPv6>` |
+| Send IP addresses | **Off** | IPv4 becomes `<IP>`, IPv6 becomes `<IPv6>` |
 | Send journal / log content | **Off** | Journal text is **not** sent at all (only summaries) |
-| Send command output | **On** | (Off would defeat the Explain button) |
+| Send command output | **On** | (Turning it off would defeat the Explain buttons.) |
 
-### Always-redacted (no toggle)
+### Always redacted (no toggle)
 
-These are stripped from every request regardless of your toggles
-because they should never reach an AI provider, even on a fully
-permissive deployment:
+These are stripped from every request whatever your toggles say, because they should
+never reach an AI provider:
 
-- Bearer tokens: `Bearer <16+ chars>` → `Bearer <REDACTED>`
-- AWS access keys: `AKIA[0-9A-Z]{16}` → `<REDACTED-AWS>`
-- Long hex strings: any 32+ char hex sequence → `<REDACTED-HEX>`
+- Bearer tokens: `Bearer <16+ characters>` becomes `Bearer <REDACTED>`.
+- AWS access keys: `AKIA[0-9A-Z]{16}` becomes `<REDACTED-AWS>`.
+- Long hex strings: any run of 32 or more hex characters becomes `<REDACTED-HEX>`.
 
-Regex-based, not real DLP — works on common cases, doesn't catch
-arbitrary secret formats. For operations where data sensitivity
-matters, the right answer is to run Ollama locally.
+This is regex-based, not real data-loss prevention. It works on common cases and does not
+catch arbitrary secret formats. Where data sensitivity matters, run Ollama locally.
 
 ## Rate limiting
 
-Two limits, both per user, both in Settings → AI assistant →
-**Limits**:
+Two limits, both per user, both under **Settings → AI assistant → Limits**:
 
-- **Max tokens per response** — caps the model's output length
- (default 4000; max 16000). Lower = faster + cheaper but may
- truncate long responses.
-- **Daily requests per user** — caps the number of `/api/ai/chat`
- calls per UTC day per username (default 100). Set to **0** for
- unlimited.
+- **Max tokens per response** caps the model's output length (default 4000, up to
+  16000). Lower is faster and cheaper but may truncate long replies.
+- **Daily requests per user** caps the number of `/api/ai/chat` calls per UTC day per
+  username (default 100). Set it to **0** for unlimited.
 
-The daily counter resets at midnight UTC. The bookkeeping lives in
-`ai_usage.json`; the file is GC'd nightly so it doesn't grow.
-
-Per-button max_tokens overrides are also applied client-side so a
-30-line Explain doesn't sit waiting for 4000 tokens to generate:
-
-| Button | Client max_tokens |
-|---|---|
-| Explain alert | 800 |
-| Explain TLS / Triage CVE | 800–1000 |
-| Explain command output / Find the problem / Explain script | 1500 |
-| Investigate host / Audit script / Prioritise patches | 2000 |
-| Generate script | 4000 |
-
-The server still respects your configured global cap — the
-per-button value is a *floor*, not a *raise*.
+The daily counter resets at midnight UTC. It lives in `ai_usage.json`, which is cleaned
+up daily so it does not grow. The buttons ask for a shorter reply than the global cap
+(roughly 800 to 2000 tokens, more for a generated script) so a short answer does not wait
+for a long one. The per-button value is a ceiling under your global cap, never a way past
+it.
 
 ## AI Insights hub
 
-The **AI Assistant** page hosts an **AI Insights** grid — one-click reports
-and advisors that run a focused system prompt against your fleet with RAG +
-fleet context attached automatically. They fall into five groups:
+The **AI Assistant** page (sidebar, Admin group) hosts a grid of **AI Insights**: 34
+one-click reports and advisors that run a focused prompt against your fleet, with
+retrieval and fleet context attached. They fall into five groups:
 
-- **Proactive** — daily fleet briefing, log-anomaly digest, alert-noise tuning,
-  predictive-maintenance narrative.
-- **Incident** — root-cause narrative, group-related-alerts, pre-run
-  change-risk review.
-- **Natural language → config** — fleet query → filter, monitor/check from a
-  sentence, reverse-IaC (Ansible from a host's live state). These return a
-  structured draft (JSON / YAML) for you to review.
-- **Planning** — CVE remediation plan, compliance remediation plan, capacity &
-  cost forecast, backup/DR-readiness.
-- **Advisors** — firewall auditor, DNS hygiene, email deliverability, homelab
-  integration assistant, supply-chain/SBOM Q&A, host one-pager, remote-access
-  (WG Access VPN) review.
+- **Proactive**: daily fleet briefing, log-anomaly digest, alert-noise tuning,
+  predictive maintenance, automation suggestions.
+- **Incident**: incident root cause, group related alerts, change-risk review.
+- **Natural language to config**: fleet query as a filter, a monitor from a sentence,
+  reverse IaC (Ansible from a host's live state). These return a structured draft for
+  you to review.
+- **Planning**: CVE remediation plan, patch prioritisation, compliance remediation plan,
+  capacity and cost forecast, backup and DR readiness, billing review.
+- **Advisors**: security advisory, TLS and certificate triage, CVE prioritisation,
+  investigate the top alert, firewall auditor, DNS hygiene, email deliverability,
+  homelab assistant, supply-chain and SBOM questions, host one-pager, remote-access
+  review, helpdesk triage, virtualization hygiene, IaC review, drift triage, access and
+  credential review, network dependency review.
 
-Cards marked with an input prompt you for a target (a host, zone, CVE, or a
-command to review) first. Every Insight is a tunable prompt
-(Settings → AI assistant → Prompts), rate-limited and redaction-aware like the inline
-Explain/Investigate buttons below. The firewall auditor is also reachable as an
-**AI audit** button on each host in the Firewall page.
+A card marked with an input first asks for a target: a host, a zone, a CVE, or a command
+to review. Every Insight is a tunable prompt (**Settings → AI assistant → Prompt
+customization**), rate-limited and redaction-aware like the inline buttons below. Many
+pages also carry a small **AI review** button that opens the matching Insight in place.
 
-## Hail-mary log sweep — "Diagnose from logs" *(v6.4.0)*
+## Diagnose from logs
 
-For the *"something is wrong on this host but I don't know where"* moment,
-the host drawer has **Diagnose from logs**:
+For the "something is wrong on this host but I don't know where" moment, the host drawer
+has **Diagnose from logs**:
 
-1. **Collect** sets a one-shot `force_log_sweep` flag; on its next heartbeat
-   the agent snapshots `/var/log/*` and `/var/log/*/*` — only files modified
-   in the last 24 h, compressed/binary/rotated files skipped, at most 12 KB
-   tail per file, 40 files, 256 KB total, ranked by **error density +
-   recency**. (Windows agents sweep the last 24 h of Error/Warning
-   System/Application event-log entries instead; macOS sweeps `/var/log`.)
-2. At ingest the server **re-caps every size and redacts credential
-   material** line-by-line (`password=…`, `Authorization: Bearer …`,
-   `api_key: …`, `https://user:pass@…` → `[REDACTED]`). One sweep is kept
-   per host; you can browse the per-file tails in the modal.
-3. **Diagnose** sends a ≤48 KB excerpt (highest-scored files first) to your
-   configured provider under the `log_sweep_rca` prompt and renders the
-   verdict, per-file findings and next steps.
+1. **Collect** sets a one-shot flag. On its next heartbeat the agent snapshots
+   `/var/log/*` and `/var/log/*/*`: only files modified in the last 24 hours, skipping
+   compressed, binary and rotated files, with at most a 12 KB tail per file, 40 files and
+   256 KB in total, ranked by error density and recency. Windows agents sweep the last 24
+   hours of Error and Warning entries in the System and Application event logs instead.
+   macOS sweeps `/var/log`.
+2. At ingest the server **re-caps every size and redacts credential material**
+   line by line (`password=…`, `Authorization: Bearer …`, `api_key: …`,
+   `https://user:pass@…` become `[REDACTED]`). One sweep is kept per host, and you can
+   browse the per-file tails in the dialog.
+3. **Diagnose** sends an excerpt of at most 48 KB (highest-scoring files first) to your
+   provider under the `log_sweep_rca` prompt and shows the verdict, per-file findings
+   and next steps.
 
-**Consent model:** like the mitigate flow, this is an *explicit action* —
-log content is sent to the AI provider only when you click Diagnose, and the
-modal says so. The ambient `send_journal` privacy toggle governs automatic
-context, not this button.
+**Consent.** Like the mitigate flow, this is an explicit action. Log content goes to the
+provider only when you click Diagnose, and the dialog says so. The `send_journal` toggle
+governs automatic context, not this button.
 
 Endpoints: `POST /api/devices/{id}/log-sweep/run` (admin),
-`GET /api/devices/{id}/log-sweep`, `POST /api/devices/{id}/log-sweep/diagnose`
-(write role).
+`GET /api/devices/{id}/log-sweep`, and `POST /api/devices/{id}/log-sweep/diagnose`
+(a role that can change things).
 
-## Agentic alert triage *(v6.4.0)*
+## Agentic alert triage
 
-The alert inbox's **Triage** action (`POST /api/alerts/{id}/ai-triage`) runs a
-bounded investigate loop: instead of answering from a static context blob, the
-model requests evidence through a fixed menu of **read-only, host-scoped
-tools** — host summary, journal tail, watched services, the host's other
-open alerts, recent command output, a regex search over the 6 h log buffer,
-and the latest hail-mary sweep — replying with strict JSON (one tool call or
-a final verdict) each round, hard-capped at 4 tool calls, every tool result
-clipped and secret-redacted.
+The alert inbox's **Triage** action (`POST /api/alerts/{id}/ai-triage`) runs a bounded
+investigation. The model asks for evidence through a fixed menu of **read-only,
+host-scoped tools**: a host summary, the journal tail, watched services, the host's other
+open alerts, recent command output, a regex search over the six-hour log buffer, and the
+latest log sweep. Each round it answers in strict JSON with one tool call or a final
+verdict. It gets at most 4 tool calls, and every result is clipped and secret-redacted.
 
-The verdict (root cause, confidence, evidence lines, recommended action, and —
-when the evidence suggests adversary behaviour — **proof-labelled
-MITRE ATT&CK techniques**: observed / inferred / theoretical, never a claim of
-certainty) and the tool trail are stored on the alert and reopen from the
-**AI verdict** badge on the row. The model **never executes anything** — acting on a verdict
-stays on the existing approval-gated paths (mitigate playbooks, the governed
-AI executor). Cross-tenant or out-of-scope alert ids 404.
+The verdict holds a root cause, a confidence, evidence lines, a recommended action and,
+when the evidence suggests an adversary, **proof-labelled MITRE ATT&CK techniques**
+(observed, inferred or theoretical, never a claim of certainty). It is stored on the alert
+with the tool trail and reopens from the **AI verdict** badge on the row. The model
+**never executes anything**. Acting on a verdict stays on the approval-gated paths
+(mitigate playbooks and the [governed AI executor](ai-executor.md)). Alert IDs from
+another tenant or outside your scope return 404. The row's **Quick investigate** action is
+the lighter one-shot version: an explanation and suggested fixes with no stored verdict.
 
-**Automatic triage (opt-in, off by default).** Settings → AI assistant Assistant →
-*Automatic alert triage* runs the same loop on new open alerts from the
-maintenance cadence: one alert per tick, a severity floor (default High and
-up), and a daily run cap (default 20). Verdicts store as `by: auto`. With
-the out-of-band scheduler the provider latency never touches the request
-path; without it, the tick that picks an alert pays it in-request — which is
-why the feature ships off.
+**Automatic triage (opt-in, off by default).** **Settings → AI assistant → Automatic
+alert triage** runs the same loop on new open alerts from the maintenance cadence: one
+alert per tick, above a minimum severity (High by default), with a daily run cap (20 by
+default). Those verdicts are marked `by: auto`. With the out-of-band scheduler the
+provider's latency never touches the request path. Without it, the request that picks up
+an alert pays that latency, which is why the feature ships off. It sends alert evidence
+automatically, including the host's recent journal, hostname and IP, to your provider for
+every matching alert, so prefer a local model for this.
 
-**Feedback.** Every verdict offers 👍/👎 (`POST
-/api/alerts/{id}/ai-triage/feedback`); aggregates ride `GET /api/ai/stats`.
+**Feedback.** Every verdict offers thumbs up and down (`POST
+/api/alerts/{id}/ai-triage/feedback`). The totals appear in `GET /api/ai/stats`.
 
-**From verdict to fix.** With the AI-executor module enabled, the verdict
-modal's *Propose fix (governed executor)* button turns the verdict into an
-executor proposal — the model picks from operator-authored saved actions
-only, and a human approves in Confirmations before anything runs. Tickets
-opened from a triaged alert carry the verdict in their seeded note.
+**From verdict to fix.** With the AI executor module on, the verdict dialog gets a
+**Propose fix (governed executor)** button. The model picks from your saved actions only,
+and a person approves on the Confirmations page before anything runs. A ticket opened
+from a triaged alert carries the verdict in its first note.
 
-The `log_sweep` evidence tool is self-provisioning: a missing or stale
-(>30 min) sweep makes the server set `force_log_sweep` itself so the next
-run has fresh evidence.
+The log-sweep evidence tool provisions itself: when the sweep is missing or older than 30
+minutes, the server requests a new one so the next run has fresh evidence.
 
-Both prompt keys (`log_sweep_rca`, `alert_triage`) are tunable under
-Settings → AI assistant → Prompts.
+Both prompt keys, `log_sweep_rca` and `alert_triage`, are tunable under **Prompt
+customization**.
 
-## button inventory
+## Inline AI buttons
 
-| Location | Label | What gets sent |
+AI buttons sit next to the thing they explain, so you rarely need the AI page for them.
+They are visible to every signed-in user once the feature is on, and the rate limits
+apply per user.
+
+| Where | Button | What gets sent |
 |---|---|---|
-| Host dropdown (⋯ menu) | ** Investigate** | sysinfo + last 30 journal lines + last 10 commands |
-| Host detail → Command output | ** Explain** | command + output + host name |
-| Host detail → Journal panel | ** Find the problem** | error/warning lines with 2-line context, or last 50 lines |
-| Services → service detail | ** Diagnose** *(failed services only)* | unit name + state + last 30 log lines |
-| TLS → table row | ** Triage** *(warning/critical/error only)* | host + port + expiry + issuer + starttls type |
-| Patches → table row | ** Prioritise** *(hosts with pending updates only)* | upgradable package list from latest apt/dnf check |
-| CVEs → finding row | ** Triage** | CVE id + package + version + summary + host |
-| Notifications → webhook log row | ** Explain** | event type + raw detail |
-| Scripts → edit modal | ** Generate from prompt** | natural-language description |
-| Scripts → edit modal | ** Explain** | the script body |
-| Scripts → edit modal | ** Audit for risks** | the script body |
-| Help → AI Assistant page | (free-form chat) | full conversation history (local to browser) |
+| Alerts, row actions | **Triage**, **Quick investigate** | The alert, and for Triage the tool trail above |
+| Host drawer | **Investigate** | System info, recent journal lines and recent commands |
+| Host drawer, failed units | **AI diagnose** | Unit names, state and recent log lines |
+| Host drawer, unhealthy container | AI icon | The container's state and logs |
+| Host drawer, command output | **Explain output** | The command, its output and the host name |
+| Containers, log view | **Explain logs** | The log lines on screen |
+| TLS / DNS, warning and critical rows | AI icon | Host, port, expiry, issuer and STARTTLS type |
+| CVEs, a finding | AI triage | CVE ID, package, version, summary and host |
+| Firewall, a host's rules | **AI audit** | The ruleset |
+| Drift, a diff | **Explain drift** | What changed |
+| Compliance, a control | AI icon | The control and its status |
+| Forecast, a mount | AI icon | The mount's fill trend |
+| Exposure, a world-reachable port | AI icon | Port, protocol and process |
+| Scripts, edit dialog | **Generate from prompt**, **Explain**, **Audit for risks** | Your description, or the script body |
 
-Generated scripts go through the same dry-run + dangerous-pattern
-detection as a human-written one — there's no special AI-trusted
-path. The buttons are visible to every authenticated user once
-the feature is enabled; rate limits apply per-user.
+Generated scripts go through the same dry-run and dangerous-pattern checks as a script
+you wrote yourself. There is no special trusted path for AI output.
 
-## The AI Assistant page (Help → AI Assistant)
+## The AI Assistant page
 
-Three things on one page:
+Three things on one page.
 
-### Provider status header
+### Provider status
 
-For Ollama and LocalAI ("local providers"), shows:
-
-- Provider name + base URL
-- Reachability indicator (● Reachable / ● Unreachable / ● Error)
-- Server version (Ollama: from `/api/version`)
-- **Currently-loaded models** with VRAM use + expiry time (Ollama:
- from `/api/ps`)
-
-For cloud providers (Anthropic, OpenAI, DeepSeek), shows the
-configured provider + base URL + a "reachable" indicator that's
-just `bool(api_key configured)` — a real round-trip would burn an
-API call on every page load, so the Test Connection button is the
-right place for that.
-
-The **Refresh** button re-fetches stats without reloading the page.
+For Ollama and LocalAI it shows the provider name and base URL, whether it is reachable,
+the server version, and the **currently loaded models** with their VRAM use and expiry.
+For cloud providers it shows the provider and base URL with a "reachable" mark that only
+means an API key is configured. A real round trip would spend an API call on every page
+load, so use **Test connection** for that. **Refresh** reloads these figures.
 
 ### Model picker
 
-Above the chat, a dropdown populated from the provider's own
-listing:
-
-- **Ollama** → `GET /api/tags` — name + size + parameter count
-- **LocalAI / OpenAI / DeepSeek** → `GET /v1/models`
-- **Anthropic** → hardcoded fallback (no `/v1/models` endpoint)
-
-Selecting a model overrides the configured default for this
-conversation only. Useful when comparing models that are both
-loaded into Ollama at the same time.
+A dropdown above the chat, filled from the provider's own listing: Ollama's `/api/tags`
+(name, size, parameter count), `/v1/models` for LocalAI, OpenAI and DeepSeek, and a
+built-in list for Anthropic. Choosing a model overrides the default for this conversation
+only.
 
 ### Free-form chat
 
-Multi-turn, Ctrl/+Enter to send. Conversation history persists in
-**localStorage** in your browser — last 40 messages, capped to keep
-request size bounded. Clearing the conversation wipes the local
-history; the server-side audit log of individual requests is
-untouched, by design (logs grow forever, and they'd reproduce the
-privacy redaction problem at storage layer).
-
-**Conversation is local to the browser.** Not synced across users,
-not visible to other sessions, gone if you clear browser storage.
-The audit log records that requests happened with token counts; it
-doesn't record content.
+Multi-turn chat, with Ctrl or Cmd plus Enter to send. The conversation is kept in your
+browser's local storage (the last 40 messages) and is not synced to the server or to
+other people. It is gone if you clear browser storage. The server's audit log records that
+a request happened and its token counts, never the content.
 
 ## Endpoints
 
-All require authentication (any logged-in user — except config
-which is admin-only).
+Any signed-in user can call these, except the config and test routes, which are
+admin-only. On an install with tenants, only a platform operator can save provider
+settings.
 
 ```
-GET /api/ai/config — current config, api_key masked
-POST /api/ai/config — admin, validated, audit-logged
-POST /api/ai/chat — main chat endpoint
-POST /api/ai/test — admin, "say OK" smoke test
-GET /api/ai/models — list available models from the provider
-GET /api/ai/stats — provider info, version, loaded models
+GET  /api/ai/config   current config, API key masked
+POST /api/ai/config   admin, validated, audit-logged
+POST /api/ai/chat     main chat endpoint
+POST /api/ai/test     admin, one-word smoke test
+GET  /api/ai/models   models the provider lists
+GET  /api/ai/stats    provider info, version, loaded models, triage feedback
 ```
 
-### POST /api/ai/chat — body shape
+### POST /api/ai/chat
 
 ```json
 {
@@ -414,137 +355,89 @@ GET /api/ai/stats — provider info, version, loaded models
 }
 ```
 
-The `system` field accepts either a key from the system prompt
-registry (full list below) or a literal prompt string (bounded to
-16 KB). Keys are looked up first, so the client stays simple.
+`system` takes either a key from the prompt registry or a literal prompt (up to 16 KB).
+Keys are looked up first. `model` is limited to 1 to 200 characters, and anything else is
+ignored. `max_tokens` is capped at your configured per-response limit: a client can ask
+for less but not more.
 
-The `model` field is bounded to 1–200 chars; anything else is
-ignored — defence against a client sending 50 KB as the model name.
+### Prompt registry
 
-The `max_tokens` field is capped to the configured per-response
-limit; a client can request less but not more.
-
-### System prompt registry
-
-Keys live in `server/cgi-bin/ai_provider.py::SYSTEM_PROMPTS`:
-
-```
-explain_output — command output
-find_problem — journal slice
-explain_script — script body
-audit_script — script body, security focus
-generate_script — natural language → bash
-triage_cve — CVE id + package context
-investigate_device — host snapshot
-explain_alert — webhook payload
-free_form — generic, used by the AI page
-diagnose_service — failed systemd unit + logs
-explain_tls — certificate expiry / renewal
-prioritise_patches — pending updates list
-explain_container_logs — docker / podman logs
-… and many more
-```
-
-The registry has grown well past those originals — it now backs
-dozens of advisor cards across the proactive, incident, planning,
-natural-language-config and advisors categories (see the **AI Insights
-hub** section above, and `features.md` for the full, current set). Each
-card in the AI Insights grid maps to one `SYSTEM_PROMPTS` key, and every
-key is editable under **Settings → AI assistant → Prompts**.
+The registry holds 70 prompts (`SYSTEM_PROMPTS` in `ai_provider.py`), for example
+`explain_output`, `find_problem`, `explain_script`, `audit_script`, `generate_script`,
+`triage_cve`, `investigate_device`, `explain_alert`, `free_form`, `diagnose_service`,
+`explain_tls`, `prioritise_patches` and `explain_container_logs`. Each Insight card maps
+to one key, and every key is editable under **Settings → AI assistant → Prompt
+customization**. See [features.md](features.md) for the full list of advisors.
 
 ## Storage
 
-- **API key**: cleartext in `config.json` under `cfg['ai']['api_key']`.
- The file is mode 0600 owned by the app-server user. Operators who need
- stronger storage can swap in `cmdb_vault` later — there's a hook
- point in `_ai_cfg()`.
-- **Rate-limit counters**: `ai_usage.json`, one key per `<date>:<user>`,
- garbage-collected daily.
-- **Audit log**: every `/api/ai/chat` call appends an entry to the
- audit log with provider, model, token counts, elapsed time,
- context label, and rate-limit position. **Content is not logged**
- — neither the prompt nor the response. that's on purpose.
+- **API key.** Stored in `config.json` under `ai.api_key`. The file is mode 0600 and owned
+  by the app-server user. `GET /api/ai/config` (admin only) returns the key masked, as
+  bullets followed by its last four characters. If you set `RP_CONFIG_KEY`, secret fields
+  in the stored configuration are encrypted (see [security.md](security.md)).
+- **Rate-limit counters.** `ai_usage.json`, one entry per day and user, cleaned up daily.
+- **Audit log.** Each `/api/ai/chat` call adds an entry with the provider, model, token
+  counts, elapsed time, context label and rate-limit position. **The prompt and the
+  response are not logged**, so the log does not become a second copy of your data.
 
 ## Troubleshooting
 
 ### "AI is disabled. Configure in Settings → AI assistant."
 
-The Enabled toggle in Settings → AI assistant is off. Turn it on,
-configure a provider, save.
+The Enabled switch is off. Turn it on, configure a provider and save.
 
 ### "Network error: SyntaxError: JSON.parse: unexpected character"
 
-Almost always nginx's `proxy_read_timeout` cutting off a slow
-request before the model responds. Add the `location /api/ai/`
-block above and reload nginx. v2.1.4+ replaces this generic error
-with a more specific message that tells you exactly which fix to
-try.
+Almost always nginx's `proxy_read_timeout` cutting off a slow request before the model
+answers. Add the `location /api/ai/` block above and reload nginx.
 
 ### "Daily AI request cap reached (N/M)"
 
-You've hit your own daily rate limit. Either wait for midnight UTC
-or bump the cap in Settings → AI assistant → Limits.
+You have hit your own daily limit. Wait for midnight UTC or raise the cap under
+**Settings → AI assistant → Limits**.
 
-### "HTTP 401: invalid_api_key" / "HTTP 403"
+### "HTTP 401: invalid_api_key" or "HTTP 403"
 
-Cloud provider rejected your API key. Re-paste it in Settings (the
-field is blank when masked — type to overwrite). For Anthropic
-specifically, keys start with `sk-ant-`; for OpenAI, `sk-`; for
-DeepSeek, `sk-`.
+The cloud provider rejected the key. Paste it again in Settings. The field is blank while
+the key is masked, so type to overwrite it. Anthropic keys start with `sk-ant-`, and OpenAI
+and DeepSeek keys start with `sk-`.
 
 ### "URLError: timed out" on every chat
 
-The provider hostname is unreachable from the app server. For
-Ollama at `10.0.0.2`, check that the server can resolve and reach
-that address — if you're running RemotePower in a container or
-behind tight egress firewalling, the app-server process may not have the
-network path.
+The app server cannot reach the provider. For Ollama at `10.0.0.2`, check that the server
+can resolve and reach that address. In a container, or behind tight egress firewalling,
+the app-server process may not have a network path.
 
 ### "The model reached the token limit before it wrote an answer"
 
-A thinking model used the whole token allowance reasoning and had none
-left for the answer. Set **Reasoning effort** to **None** in Settings →
-AI assistant, or for one prompt under its **Fine-tuning**. You can also
-raise the token limit, which is slower and ties up the GPU for longer.
-See "Thinking models" above.
+A thinking model used its whole allowance reasoning and had none left for the answer. Set
+**Reasoning effort** to **None** under **Settings → AI assistant**, or for one prompt under
+its **Fine-tuning**. You can also raise the token limit, which is slower and holds the GPU
+for longer. See "Thinking models" above.
 
 ### "Test connection succeeds but real chats fail"
 
-This was the canonical 2.1.3→2.1.4 bug. Test uses `max_tokens=8`
-(fast), real chats use up to 4000. On slow local models, the
-60–180 second generation tripped nginx's 60s timeout. Fixed in
-2.1.4 by lowering per-button max_tokens and bumping the Python
-timeout to 5 min, but you still need to bump nginx's
-`proxy_read_timeout` to 300s as shown above.
+The test asks for 8 tokens, and a real chat can ask for thousands. On a slow local model
+the longer generation trips nginx's 60-second timeout. Raise `proxy_read_timeout` to 300
+seconds as shown above.
 
-### Heartbeat noise in `error.log`
+### Heartbeat noise in the server log
 
-Unrelated to AI but commonly noticed at the same time. v2.1.5
-silences routine heartbeat and lock-wait logs by default; set
-`RP_LOG_HEARTBEATS=1` or `RP_LOG_LOCK_WAITS=1` in the app-server
-environment to re-enable for diagnostics. OFFLINE/ONLINE
-transitions stay unconditional.
+Routine heartbeat and lock-wait lines are silent by default. Set `RP_LOG_HEARTBEATS=1` or
+`RP_LOG_LOCK_WAITS=1` in the app server's environment to turn them back on for
+diagnostics. Offline and online transitions always log.
 
 ## What's not in scope
 
-These are deferred. Each one is a real feature, none
-of them are in this release. (Tool calls / agent mode used to be on
-this list; it shipped in v6.4.0 as the bounded investigate loop
-described above, where the model requests evidence through a fixed
-set of read-only calls rather than being handed the API.)
+- **Streaming responses.** The gain is small for replies that take 1 to 30 seconds, and
+  buffering in the app server and nginx complicates it. Requests are synchronous.
+- **Cross-user conversation sync.** AI page conversations are per browser, which keeps the
+  privacy surface small.
+- **Token cost tracking.** The audit log records `tokens_in` and `tokens_out` per call.
+  There is no dashboard summary of them yet.
+- **Vault storage for the API key.** A mode-0600 `config.json` is enough for a self-hosted
+  single-tenant server. A vault would make sense once you need per-user keys or rotation.
 
-- **Streaming responses.** Visible benefit small for 1–30s
- requests; complications with app-server buffering and nginx
- buffering large. Sync request/response only.
-- **Saved prompts / templates.** The inline buttons cover the
- bulk of use. A library of named prompts could come later.
-- **Cross-user conversation sync.** AI page conversations are
- per-browser by design — keeps the privacy surface clean. If
- you want a shared scratchpad, that's a different feature.
-- **Token cost tracking.** Audit log captures `tokens_in` and
- `tokens_out` per call; a dashboard summary across them would
- be nice but isn't here yet.
-- **cmdb_vault integration for the API key.** Mode-0600
- `config.json` is good enough for a self-hosted single-tenant
- box. Vault makes sense once you want per-user key scoping or
- rotation.
+See also: [rag.md](rag.md) for the knowledge index, [ai-executor.md](ai-executor.md) for
+governed remediation, [autonomy.md](autonomy.md) for unattended actions, and
+[mitigation.md](mitigation.md) for the investigate-and-fix dialog.

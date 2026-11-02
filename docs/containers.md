@@ -426,8 +426,9 @@ can never run. Manage containers on a Mac from the host.
   are not. Use the SSH link on the host for those.
 - **Image scanning is separate from package CVEs.** The host CVE
   scanner runs against installed packages; container images are
-  scanned by Trivy on the agent, on a roughly daily cadence and on
-  demand from Security → Image CVEs. Trivy has to be installed on
+  scanned by Trivy on the agent, on a roughly daily cadence (set under
+  Settings → Security → Container image scanning) and on demand with
+  **Scan now** in the container-image section of Security → CVEs. Trivy has to be installed on
   the host — without it the page stays empty. Linux only: the flag
   that triggers a scan is read by the Linux agent alone.
 - **No restart policy or compose state.** The agent reads `docker

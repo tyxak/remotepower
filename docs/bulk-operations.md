@@ -1,18 +1,18 @@
 # Bulk operations
 
-Run an operation across many hosts at once. Reachable from the command palette (`/` → "Bulk actions"), Settings → Advanced → Bulk actions, or via the existing checkbox-selection batch bar on the Hosts page.
+Run an operation across many hosts at once. Open it from the **Bulk actions** button on the Hosts page, from the command palette (`/` or `Ctrl/Cmd-K`, then "Bulk actions"), or from the checkbox batch bar on the Hosts page.
 
 ## Available operations
 
-| Action | Backend | Notes |
+| Action | API | Notes |
 |---|---|---|
-| Upgrade packages | `_queue_command_batch(ids, 'update')` | apt/dnf/yum/pacman, agent picks the right one |
-| Reboot | `_queue_command_batch(ids, 'reboot')` | Requires typing `RUN` to confirm |
-| Shut down | `_queue_command_batch(ids, 'shutdown')` | Requires typing `RUN` to confirm |
-| Force package scan | per-host `POST /devices/<id>/scan-packages` fan-out | Useful before a CVE re-scan |
-| Force ACME rescan | per-host `POST /devices/<id>/acme/force-rescan` fan-out | After issuing/renewing via CLI |
-| Bulk delete *(v5.0.0)* | `POST /api/devices/bulk-delete` | Admin only. Removes many hosts in one audited call. |
-| Bulk tag *(v5.0.0)* | `POST /api/devices/bulk-tags` | Admin only. Add and/or remove tags across the selection. |
+| Upgrade packages | one batch call | apt/dnf/yum/pacman, the agent picks the right one |
+| Reboot | one batch call | Requires typing `RUN` to confirm |
+| Shut down | one batch call | Requires typing `RUN` to confirm |
+| Force package scan | per-host `POST /devices/<id>/scan-packages` | Useful before a CVE re-scan |
+| Force ACME rescan | per-host `POST /devices/<id>/acme/force-rescan` | After issuing or renewing via CLI. Linux hosts only. |
+| Bulk delete | `POST /api/devices/bulk-delete` | Admin only. Removes many hosts in one audited call. |
+| Bulk tag | `POST /api/devices/bulk-tags` | Admin only. Add and/or remove tags across the selection. |
 
 ## Filtering targets
 
@@ -46,4 +46,4 @@ The bulk modal is for ad-hoc operations across the UI's mental model — "patch 
 
 - Sequential fan-out for per-host endpoints (force_pkg_scan, force_acme_rescan) — N agent heartbeats means N round-trips before everything is queued. Future improvement: bulk endpoint for these.
 - No "wait for completion" — the modal closes once commands are queued. Watch Recent Activity or the host drawer for execution results.
-- No undo once a command has been *delivered* — but while it's still waiting, **Admin → Command Queue** shows every pending command per host and lets you cancel one or clear a host's whole queue (`DELETE /api/devices/<id>/command-queue`).
+- No undo once a command has been *delivered* — but while it's still waiting, **Automation → Command Queue** shows every pending command per host and lets you cancel one or clear a host's whole queue (`DELETE /api/devices/<id>/command-queue`).

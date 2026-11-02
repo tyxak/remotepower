@@ -48,13 +48,21 @@ curl -v https://your-server/api/heartbeat
 - The existing `device_id` from `/etc/remotepower/credentials` must be present
 
 **Reset everything**
+
+This deletes all of your data, so take a full backup first (**Settings → Backups →
+Full backup**). `rp status` shows which storage backend you use. On the JSON and
+SQLite backends the data lives in `/var/lib/remotepower`:
+
 ```bash
-sudo rm -rf /var/lib/remotepower/
-sudo systemctl restart nginx remotepower-wsgi
-sudo python3 /var/www/remotepower/cgi-bin/remotepower-passwd
+sudo systemctl stop remotepower-wsgi
+sudo find /var/lib/remotepower -mindepth 1 -delete
+sudo systemctl start remotepower-wsgi
+sudo python3 /var/www/remotepower/cgi-bin/remotepower-passwd   # create the first admin
 ```
 
----
+On PostgreSQL, which is the default of `install-server.sh`, the data lives in the
+database, so emptying the folder does not reset it. Remove or recreate the RemotePower
+database as well, then start the app server again.
 
 ---
 

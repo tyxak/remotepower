@@ -1,8 +1,5 @@
 # On-call & escalation
 
-*Rotation and escalation tiers introduced in v3.4.2; per-tier targets in
-v5.5.0; the anchored calendar schedule and overrides in v6.0.0.*
-
 An alert that nobody acknowledges should get louder, not sit silent. This
 feature adds two things on top of the normal alert pipeline:
 
@@ -30,7 +27,7 @@ don't have to be RemotePower users.
 ### Calendar schedule (anchored rotation)
 
 Set a **Rotation start** date to anchor the schedule: contact #1 holds the
-first slot starting at that date, and every handoff after that is
+first slot starting at midnight UTC on that date, and every handoff after that is
 deterministic — "who is on call this week" is computable from the anchor, not
 from whenever the server happened to do the modulo. With an anchor set, the
 Settings card (and `GET /api/oncall`) shows the current holder plus the next
@@ -114,10 +111,26 @@ off).
 The home payload (`GET /api/home`) also carries `oncall.current` for the
 dashboard widget.
 
-Implementation: `server/cgi-bin/oncall_handlers.py` (rotation resolver,
-escalation tick, `handle_oncall`); config validation in `api.py`'s
-`handle_config_save`; UI in `app.js` (`saveOncall`, `_renderOncallSchedule`).
+To script escalation, send the `escalation` object to the same endpoint:
 
-Related: [webhooks.md](webhooks.md) for destinations and the
-PagerDuty/Opsgenie formats, [alerts.md](alerts.md) for acknowledge/resolve,
-[calendar.md](calendar.md) for the (separate) shared events calendar.
+```json
+{"escalation": {"enabled": true,
+                "severities": ["critical", "high"],
+                "tiers": [{"after_minutes": 15},
+                          {"after_minutes": 60, "target": "PagerDuty"}]}}
+```
+
+## Troubleshooting
+
+| You see | Check |
+|---|---|
+| Nothing escalates | **Escalation** is off, the alert's severity is not in **Severities**, or the alert is already acknowledged or resolved. Escalation only walks the Alerts inbox, so an event that never records an alert cannot escalate. |
+| A tier fired at the wrong destination | The per-tier target is matched by position, so `Slack,, PagerDuty` lines up with tiers `15, 60, 240`. It matches a destination's name or id without regard to case. A target that matches no destination sends to none. A destination scoped to a group, tag or site only receives alerts that belong to it. |
+| "Currently on call" shows `(rotation off)` | The rotation is off, or it has no contacts. |
+| An override disappeared | Saving the Settings card replaces the whole `oncall` object and does not send overrides. Set them again through the API. |
+
+## See also
+
+- [Webhooks](webhooks.md): destinations and the PagerDuty and Opsgenie formats.
+- [Alerts](alerts.md): acknowledge and resolve.
+- [Calendar](calendar.md): the separate shared events calendar.

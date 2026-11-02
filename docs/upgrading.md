@@ -41,6 +41,21 @@ they're not free, so a stray conflicting service doesn't surprise you mid-run.
 `install.sh update --dry-run` prints every step it would take without changing
 anything, if you want to see the plan first.
 
+## Rolling back
+
+Every `deploy-server.sh` run (and so `install.sh update` and `rp deploy`) first
+saves a copy of the deployed code to `/var/backups/remotepower-deploys/` and keeps
+the three newest. If a release misbehaves, run:
+
+```bash
+sudo bash deploy-server.sh --rollback
+```
+
+That puts back the code from the newest snapshot. It does **not** touch your data.
+If the newer version migrated the database, also restore the data backup from the
+same time (see [self-monitoring.md](self-monitoring.md#restoring-from-a-backup)).
+The server logs a warning on every request when its data is newer than its code.
+
 ## Other install methods
 
 - **Docker:** `docker compose pull && docker compose up -d --build` — a
@@ -83,7 +98,7 @@ anything, if you want to see the plan first.
   shaped from the package alone, nothing to convert there), done. If WSGI
   was already active, it just prints the restart reminder for the new code.
 
-Before any upgrade you can flip **Settings → Advanced → Maintenance mode** to
+Before any upgrade you can flip **Settings → Security → Maintenance mode** to
 pause new command dispatch (heartbeats and browsing keep working, so hosts
 don't flap offline), then turn it off when you're done.
 
@@ -92,9 +107,9 @@ don't flap offline), then turn it off when you're done.
 **Settings → Install** compares the running version against the latest
 published release and shows the upgrade command for your install method. For
 hands-off upgrades, point it at a server-side **update script** (an absolute
-path, set under the same panel). The **Run update** button then executes that
+path, set under the same panel). The **Run update now** button then executes that
 script (`POST /api/server/self-update`, admin-only, audited, run directly
-rather than through a shell). The button's output is shown on success or
+rather than through a shell). The output is shown on success or
 failure. Self-update stays disabled until you set the script path.
 
 A ready-made, install-aware script ships at
@@ -104,13 +119,13 @@ app server — it assumes gunicorn/Flask is already the transport (v6.1.0+); if
 `remotepower-wsgi.service` doesn't exist yet, it warns rather than guessing,
 since installing packages and rewriting nginx config unattended from a
 web-triggered button is exactly the kind of thing that should require a human
-running `install.sh update` once,. Because the API runs
+running `install.sh update` once. Because the API runs
 unprivileged, the script re-execs itself under scoped passwordless `sudo` —
 its header has the setup commands (drop it in `/usr/local/sbin/` and add a
 one-line sudoers entry for the API user). Then set the path to
 `/usr/local/sbin/remotepower-server-update`.
 
-### Escalation under `NoNewPrivileges=true` *(v6.4.2)*
+### Escalation under `NoNewPrivileges=true`
 
 The shipped `remotepower-wsgi.service` sets `NoNewPrivileges=true`, which blocks
 `sudo`'s setuid transition **regardless of the sudoers entry** — the same reason

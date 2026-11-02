@@ -61,7 +61,7 @@ subject, host, group and assignee.
 ## SLA targets
 
 Each priority has a **response-time target** in hours, configurable under
-**Settings → Advanced → Tickets → Ticket SLA targets** (defaults: P1 = 1h,
+**Settings → Tickets → Ticket SLA targets** (defaults: P1 = 1h,
 P2 = 4h, P3 = 24h, P4 = 72h). Open tickets show the time remaining, and a red
 **overdue** badge once they pass their target, so breaches are obvious at a glance.
 
@@ -91,7 +91,7 @@ The ticket system can send and receive email through your existing mail server.
   email** button on a ticket emails the contact and logs the message on the ticket.
   Your personal **HTML signature** (Profile → Email signature) is appended as a
   rich part, with a plain-text fallback.
-- **Inbound** uses a dedicated IMAP mailbox (Settings → Advanced → Tickets). The
+- **Inbound** uses a dedicated IMAP mailbox (Settings → Tickets). The
   poller threads each reply onto its ticket by the `#RP` number in the subject, or
   opens a new ticket when there's no match. Auto-replies, bulk mail and the
   system's own outgoing messages are skipped, so nothing loops.

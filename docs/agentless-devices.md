@@ -1,59 +1,59 @@
 # Agentless hosts
 
-*Introduced in v1.11.0.*
+Most of RemotePower assumes an agent on the host that sends heartbeats. That works for
+Linux, macOS and Windows machines. It does not work for the rest of the estate: the
+managed switch, the printer, the IPMI card, the IP camera, the smart plug, the UPS.
 
-Most of RemotePower's features assume a Python agent on the host
-posting heartbeats. That works for Linux hosts. It doesn't work
-for the rest of the homelab — the managed switch, the printer, the
-IPMI card, the IP camera, the smart plug, the UPS. v1.11.0 adds
-agentless host records: same CMDB metadata, same vault
-credentials, same SSH link feature, same place in the network
-map. Just no heartbeat.
+An agentless host is a record for one of those. It gets the same CMDB metadata, the
+same vault credentials, the same SSH links and the same place on the network map as any
+other host. It just has no heartbeat, so RemotePower learns about it by pinging it,
+polling it over SNMP, or running a command over SSH.
 
 ---
 
 ## Adding one
 
-On the Hosts page toolbar, click **+ Agentless host**. The
-form asks for:
+On the **Hosts** page, click **+ Agentless host**. The form asks for:
 
-- **Name** — required, free text up to 64 chars
-- **Type** — switch / router / firewall / AP / printer / camera /
-  IPMI / UPS / PDU / NAS / IoT / smart plug / phone / other
-- **Connected to (upstream)** — optional, picks from existing
-  hosts for the network map
-- **Hostname / IP / MAC** — all optional, but you'll want at least
-  IP if you ever plan to use SSH-link or HTTP-link features
-- **Group** — optional, free text
-- **Notes** — optional, free text up to 1 KB
-- **Mark as currently up** — checkbox, defaults to true
+- **Name** (required, up to 64 characters).
+- **Type**: switch, router, firewall, access point, printer, camera, IPMI / BMC, UPS,
+  PDU, NAS, IoT, smart plug, phone or other.
+- **Connected to (upstream)**: optional. Pick an existing host so the network map can
+  draw the link.
+- **Hostname, IP and MAC**: all optional, but you want an IP if you plan to use the SSH
+  link, ping it or poll it over SNMP.
+- **Group**: optional.
+- **Notes**: optional, up to 1 KB.
+- **Mark as currently up**: ticked by default. It is the status RemotePower shows when
+  you set the reachability mode to manual.
 
-Save and the host appears in the list immediately with an amber
-outline (vs. accent-blue for agented hosts) so you can see at a
-glance which are which.
+The host appears in the list straight away.
+
+Other ways to get agentless records:
+
+- **Network discovery.** Run a LAN scan from an enrolled host's **Health & hardware**
+  card. The **Network** page then lists the unmanaged addresses it found, and **Add as
+  host** turns one into an agentless host.
+- **Cloud import.** **Settings → Integrations → Cloud import** pulls running instances
+  from AWS EC2, Hetzner Cloud or DigitalOcean in as agentless hosts. It is read-only,
+  and running it again updates the records in place.
 
 ---
 
 ## What works on agentless hosts
 
-- **CMDB metadata** — asset_id, server_function, hypervisor_url,
-  ssh_port, Markdown documentation. All of it. The CMDB modal works
-  identically.
-- **Credential vault** — encrypt and store passwords against the
-  host. Reveal is admin-only and audit-logged just like
-  everything else.
-- **SSH link** — for any credential, the SSH and Copy buttons work
-  the same way. Useful for IPMI consoles, switch CLIs, any host
-  that takes SSH login. The link uses the host's hostname / IP
-  and ssh_port the same way as for agented hosts.
-- **Network map** — agentless hosts are first-class nodes. The
-  map only really starts being useful once you can model your
-  switches and APs.
-- **Audit log** — creation, deletion, credential operations are
-  all logged.
-- **Native syslog** *(v6.3.0)* — hosts that only speak classic
-  syslog/UDP (switches, firewalls, printers, NAS appliances) can feed the
-  log-alert pipeline via the `remotepower-syslogd` sidecar. Install:
+- **CMDB metadata**: asset ID, server function, hypervisor URL, SSH port and Markdown
+  documentation. The CMDB dialog works the same as for any host.
+- **Credential vault**: encrypt and store passwords against the host. Revealing one is
+  admin-only and audit-logged.
+- **SSH link**: for any credential, the SSH and Copy buttons work the same way. They use
+  the host's hostname or IP and its SSH port. This suits IPMI consoles and switch CLIs.
+- **Network map**: agentless hosts are first-class nodes. The map gets useful once you
+  model the switches and access points.
+- **Audit log**: creation, deletion and credential operations are all logged.
+- **Syslog**: a host that only speaks classic syslog over UDP (a switch, firewall,
+  printer or NAS) can feed the log-alert pipeline through the syslog receiver. Install
+  the receiver with `install-server.sh --with-syslogd`, or by hand:
 
   ```
   install -m 755 server/syslog/remotepower-syslogd.py /usr/local/bin/remotepower-syslogd
@@ -61,93 +61,106 @@ glance which are which.
   systemctl daemon-reload && systemctl enable --now remotepower-syslogd
   ```
 
-  Point the appliance's syslog output at the server (udp/5514 by default;
-  uncomment the unit's `CAP_NET_BIND_SERVICE` lines for classic 514). A
-  source is accepted when an enrolled host has that **IP** and carries an
-  enabled **syslog inbound-webhook token** (Settings → Integrations →
-  Inbound webhooks, kind `syslog`, pinned to the host) — the daemon is a
-  thin shim that batches lines to the same `POST /api/syslog/in/<token>`
-  endpoint rsyslog/fluent-bit users already use, so `log_watch` rules with
-  unit `syslog` fire `log_alert` identically. Unknown sources are dropped.
-  The deploy/self-update flows refresh and restart the daemon like the
-  other sidecars.
+  Point the appliance's syslog output at the server (UDP port 5514 by default; to use
+  514, uncomment the `CAP_NET_BIND_SERVICE` lines in the unit). RemotePower accepts a
+  source when an enrolled host has that **IP** and carries an enabled **syslog inbound
+  token** pinned to it (**Settings → Integrations → Inbound webhooks**, kind `syslog`).
+  The receiver batches lines to the same `POST /api/syslog/in/<token>` endpoint that
+  rsyslog and fluent-bit users use, so `log_watch` rules for the unit `syslog` fire
+  `log_alert` in the same way. Unknown sources are dropped. See [syslog.md](syslog.md).
 
 ## Reachability and health
 
-Agentless hosts don't run an agent, but RemotePower can still tell
-whether they're up and read a handful of basic facts about them —
-without anything installed on the host.
+An agentless host cannot run a check on itself, but RemotePower can still tell whether
+it is up and read some basic facts, without installing anything on it. Pick the mode in
+the host drawer under **Actions & settings → Reachability**.
 
-- **ICMP reachability (default).** Every agentless host with an IP or
-  hostname is pinged on a cadence (roughly once a minute). When a host
-  stops responding it flips to offline and fires **`device_offline`**;
-  when it comes back it fires **`device_online`**. The transition is
-  debounced (a couple of consecutive misses) so a single dropped packet
-  doesn't page you. Set a host's reachability mode to **manual** for
-  hosts that block ping — then status is whatever you set in the Up/Down
-  control (`manual_status`, defaults to up) and RemotePower won't probe.
-- **SNMP polling (opt-in).** Point a host at an SNMP endpoint and
-  RemotePower polls it on a schedule for reachability plus a set of basic
-  facts. Losing contact fires **`snmp_unreachable`**; recovering fires
-  **`snmp_recover`**. Both **SNMPv2c** (community string) and, as of
-  v5.8.0, **SNMPv3 / USM** (per-user auth + AES privacy) are supported.
-  A poll reads the standard system group and host-resource OIDs, so you
-  get **sysName / sysDescr / sysUpTime / sysContact**, CPU load across
-  processors, memory usage, filesystem-like storage entries, and some
-  vendor extras (e.g. MikroTik board/CPU temperatures) surfaced on the
-  host card. See the [SNMP walkthrough](cookbook.md#watch-an-agentless-host-with-snmp)
-  for setup.
-- **Memory without the cache (v7.4.2).** net-snmp counts the page cache
-  and the buffers as used in the "Physical memory" row and lists them again
-  as the rows "Cached memory" and "Memory buffers", so a firewall or a NAS
-  can read 90% when most of it is cache. RemotePower takes those two rows
-  off the figure. The result is what the memory alert, the history graph,
-  the Hosts page and the SNMP tab show; the tab also shows the figure the
-  host reports, with the cache and buffers next to it. A host that lists
-  no such rows is read as it reports. The figure can still be higher than
-  the host's own `top`. On FreeBSD (OPNsense, pfSense) the pages waiting to
-  be written back to disk, which `top` lists as Laundry, count as in use, as
-  they do in the host's own "Real memory" row, so the figure sits above
-  Active plus Wired. The poll reads one table, and a host may keep
-  reusable memory that it does not put in it; RemotePower cannot tell which
-  from here. To see what your host does offer, open the **SNMP** tab, go to
-  **Browse OID tree** and walk the presets **Storage table** and **Memory
-  (UCD-SNMP)**; the second names `memShared`, `memBuffer` and `memCached`.
-  To alert at a different level, set the memory warning and critical
-  thresholds for the host under **Metric thresholds**.
-- **OID browser (v6.4.1).** Open the host drawer, go to the **Audit** tab,
-  and expand **System → SNMP**; the browser is at the bottom of that section,
-  under **Browse OID tree**. The poll above reads a fixed set of OIDs — the
-  ones RemotePower knows how to interpret. When a host exposes something
-  outside that set (a vendor counter, a PDU's per-outlet draw, a UPS's
-  runtime estimate), open the host drawer's **SNMP** tab and use
-  **Browse OID tree** to walk any subtree with the same stored credentials.
-  Presets cover the common MIBs; well-known OIDs are resolved to names, and
-  anything vendor-private stays numeric so you can cross-reference it
-  against the vendor's own MIB. Walks are admin-only, written to the audit
-  log, and return a capped page — narrow the OID rather than raising the cap
-  if you hit it. There is no write path: this reads, it does not SET.
-  The browser is shown even when the SNMP poll itself fails — a host you
-  cannot get a clean poll from is exactly the one worth exploring by hand.
+- **ICMP ping (default).** Every agentless host with an IP or hostname is pinged about
+  once a minute. After two consecutive misses it flips to offline and fires
+  **`device_offline`**. When it answers again it fires **`device_online`**. One dropped
+  packet does not page you.
+- **Manual.** For hosts that block ping. The status is whatever you set with the **Host
+  is up** box (`manual_status`, up by default) and RemotePower does not probe.
+- **SSH.** See "Agentless SSH" below.
+- **SNMP polling (opt-in).** Point a host at an SNMP endpoint and RemotePower polls it
+  every five minutes for reachability plus basic facts. Losing contact fires
+  **`snmp_unreachable`** and recovering fires **`snmp_recover`**. It supports
+  **SNMPv2c** (a community string) and **SNMPv3 / USM** (per-user authentication and
+  AES privacy). A poll reads the system group and the host-resource OIDs, so you get
+  sysName, sysDescr, sysUpTime, sysContact, CPU load across processors, memory usage,
+  filesystem-like storage entries, and some vendor extras (for example MikroTik board
+  and CPU temperatures) on the host card. See the
+  [SNMP walkthrough](cookbook.md#watch-an-agentless-host-with-snmp) for setup. Turn on
+  **per-port history** for a switch if you want bandwidth, utilisation, error counters
+  and link state per port; it is off by default because a full interface walk is heavy
+  on a big switch.
+- **Memory without the cache.** net-snmp counts the page cache and the buffers as used
+  in the "Physical memory" row and lists them again as the rows "Cached memory" and
+  "Memory buffers", so a firewall or a NAS can read 90% when most of it is cache.
+  RemotePower takes those two rows off the figure. The result is what the memory alert,
+  the history graph, the Hosts page and the SNMP section show. The SNMP section also
+  shows the figure the host reports, with the cache and buffers next to it. A host that
+  lists no such rows is read as it reports. The figure can still be higher than the
+  host's own `top`. On FreeBSD (OPNsense, pfSense) the pages waiting to be written back
+  to disk, which `top` lists as Laundry, count as in use, as they do in the host's own
+  "Real memory" row, so the figure sits above Active plus Wired. The poll reads one
+  table, and a host may keep reusable memory that it does not put in it; RemotePower
+  cannot tell which from here. To see what your host offers, open the **SNMP** section,
+  go to **Browse OID tree** and walk the presets **Storage table** and **Memory
+  (UCD-SNMP)**; the second names `memShared`, `memBuffer` and `memCached`. To alert at a
+  different level, set the memory warning and critical thresholds for the host under
+  **Metric thresholds**.
+- **OID browser.** The poll reads a fixed set of OIDs, the ones RemotePower knows how to
+  interpret. When a host exposes something outside that set (a vendor counter, a PDU's
+  per-outlet draw, a UPS's runtime estimate), open the host drawer, go to the **Audit**
+  tab and expand **System → SNMP**. **Browse OID tree** at the bottom walks any subtree
+  with the stored credentials. Presets cover the common MIBs, well-known OIDs are
+  resolved to names, and anything vendor-private stays numeric so you can look it up in
+  the vendor's own MIB. Walks are admin-only, written to the audit log, and return a
+  capped page, so narrow the OID instead of raising the cap. The browser only reads and
+  never sets a value. It stays available when the poll itself fails, because a host you
+  cannot poll cleanly is exactly the one worth exploring by hand.
 
-Unmonitored agentless hosts are still probed and polled (so you keep
-rolling status and uptime history), but they stay silent — no webhooks.
+Unmonitored agentless hosts are still probed and polled, so you keep status and uptime
+history, but they stay silent and send no webhooks.
+
+### Agentless SSH
+
+For Linux, BSD and macOS machines where you cannot or will not install an agent, RemotePower
+can run commands and read a basic snapshot over SSH.
+
+1. Turn it on under **Settings → Security → Agentless SSH** and paste an SSH private key.
+   The feature is off by default, and the key is write-only: RemotePower never returns
+   it.
+2. In the host drawer, under **Actions & settings**, set **Reachability** to **SSH** and
+   fill in the SSH user and port.
+3. Use **Poll over SSH** to read the OS, hostname, uptime, memory, disk and load, which
+   then show as the host's metrics.
+
+Connections never prompt (`BatchMode`, key only) and trust the host key on first use. A
+changed host key stops the connection. Running a command needs an admin, the host's
+command allowlist applies, and every poll and command is audited.
 
 ## What still doesn't work
 
-- **Full sysinfo, services, packages, CVE scanning, update logs,
-  patches, resource graphs, custom exec, container listing, agent
-  self-update.** These need an agent posting rich telemetry, and there
-  isn't one — SNMP polling only covers the basic facts listed above.
-- **Wake-on-LAN.** Could in theory work for hosts on the same L2
-  segment as a host that's running an agent, but isn't wired up here.
-  Use the host's WoL feature if you have it.
+- **Full system information, services, packages, CVE scanning, update logs, patches,
+  resource graphs, container listing and agent self-update.** These need an agent that
+  sends rich data. SNMP and SSH polling only cover the basic facts above. Custom
+  commands work only through agentless SSH.
+- **Wake-on-LAN** is not wired up for agentless hosts. Use the host's own Wake-on-LAN
+  feature if it has one.
+- **Bulk add from a CSV file**, and **auto-discovering neighbours from an SNMP walk**
+  (LLDP or CDP), are not supported. Network discovery and cloud import cover most of
+  the same ground.
+
+You can also point a standard ping or HTTP monitor from the Monitors page at an
+agentless host, on top of the built-in reachability check.
 
 ---
 
 ## API
 
-`POST /api/devices/agentless`:
+`POST /api/devices/agentless` (admin only):
 
 ```json
 {
@@ -156,74 +169,54 @@ rolling status and uptime history), but they stay silent — no webhooks.
   "hostname": "switch-1.lan",
   "ip": "10.0.0.1",
   "mac": "aa:bb:cc:dd:ee:ff",
+  "os": "RouterOS",
   "group": "core-network",
+  "tags": ["rack-1"],
   "notes": "MikroTik CRS328 in the rack",
   "connected_to": "",
   "manual_status": true
 }
 ```
 
-Returns `{"ok": true, "id": "al_<hex>"}`. The `al_` prefix
-distinguishes agentless hosts from agented ones (which use
-their enrollment-time host ID format) and from credentials
-(`cred_<hex>`) and TLS targets (`tls_<hex>`).
+Only `name` is required. `tags` takes up to 20 entries. The reply is
+`{"ok": true, "id": "al_<hex>"}`. The `al_` prefix tells agentless hosts apart from
+agent hosts, from credentials (`cred_<hex>`) and from TLS targets (`tls_<hex>`).
 
-The same record can be updated through the standard CMDB and
-host endpoints — `PUT /api/cmdb/{al_xyz}` to set
-documentation, `PUT /api/devices/{al_xyz}/connected-to` to
-change the network-map link, `DELETE /api/devices/{al_xyz}` to
-remove it (with the same exclusion-rule path the regular delete
-uses).
+You change the record through the standard CMDB and host endpoints:
+`PUT /api/cmdb/{al_xyz}` for documentation, `PUT /api/devices/{al_xyz}/connected-to`
+for the network-map link, and `DELETE /api/devices/{al_xyz}` to remove it. SSH has
+`POST /api/devices/{id}/ssh-poll` and `POST /api/devices/{id}/ssh-exec`
+(body: `{"command": "…"}`), and SNMP has `GET` and `PATCH /api/devices/{id}/snmp`,
+`POST /api/devices/{id}/snmp/poll` and `GET /api/devices/{id}/snmp/interfaces`.
 
 ---
 
 ## Host types
 
-The fifteen accepted types are roughly:
+The fifteen accepted types:
 
 | Type | Use for |
 |------|---------|
-| `switch` | Managed/unmanaged Ethernet switch |
-| `router` | Edge router, firewall+router combo, MikroTik |
-| `firewall` | Dedicated firewall (pfSense box, Fortigate, etc.) |
-| `access_point` / `ap` | Wi-Fi APs, Unifi/Aruba/etc. |
+| `switch` | Managed or unmanaged Ethernet switch |
+| `router` | Edge router, firewall and router combination, MikroTik |
+| `firewall` | Dedicated firewall (a pfSense box, a Fortigate, and so on) |
+| `access_point` / `ap` | Wi-Fi access points (`ap` is an alias) |
 | `printer` | Network printer |
-| `camera` | IP camera, baby monitor, doorbell cam |
+| `camera` | IP camera, baby monitor, doorbell camera |
 | `ipmi` | Dell iDRAC, HP iLO, Supermicro IPMI |
 | `ups` | APC, CyberPower, Eaton |
-| `pdu` | Switched/metered PDU |
-| `nas` | Synology, QNAP, TrueNAS-without-agent (although TrueNAS Linux can run the agent if you want) |
-| `iot` | Generic catch-all for IoT, ESP-based stuff |
+| `pdu` | Switched or metered PDU |
+| `nas` | Synology, QNAP, or a TrueNAS box you do not run the agent on |
+| `iot` | Generic catch-all for IoT gear and ESP-based boards |
 | `smart_plug` | Tasmota, Shelly, Kasa |
 | `phone` | VoIP phones |
-| `other` | The escape hatch |
+| `other` | Anything else |
 
-The type list is enforced server-side because it powers the
-icon mapping on the network map. If you need a new type, add it
-to `AGENTLESS_DEVICE_TYPES` in `server/cgi-bin/api.py`.
+The server enforces the list because it drives the icons on the network map.
 
 ---
 
-## Already shipped since v1.11.0
-
-Several things this page once listed as "future ideas" are now live:
-
-- **ICMP reachability + SNMP polling** — agentless hosts are pinged on
-  a cadence and can be polled over SNMP (v2c or SNMPv3/USM) for status
-  and basic facts, instead of relying solely on the manual Up/Down flag.
-  See **Reachability and health** above.
-- **Watch with ping/HTTP monitors** — any agentless host can also be
-  targeted by a standard ping or HTTP monitor from the Monitors page, on
-  top of the built-in reachability sweep.
-
-## Still on the wish list
-
-- **Auto-import from your switch** via SNMP walk / LLDP / CDP topology
-  discovery. Manual SNMP polling of a known host is supported;
-  auto-discovering neighbours from it is not.
-- **Bulk-add** from a CSV. Useful if you have 50 IoT hosts to enrol at
-  once.
-- **HTTP launch** button alongside SSH link, for things like UniFi
-  controllers and printer admin pages. The data is there
-  (`hypervisor_url` works for any HTTP admin URL); it just doesn't have a
-  dedicated one-click affordance yet.
+See also: [cookbook.md](cookbook.md) for the SNMP walkthrough, [cmdb.md](cmdb.md) for
+the asset records and vault, [network-map.md](network-map.md) for the map,
+[syslog.md](syslog.md) for the syslog receiver, and [monitors.md](monitors.md) for ping
+and HTTP monitors.

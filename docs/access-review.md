@@ -21,7 +21,7 @@ fields a recertification needs:
 | `username`, `role`, `team` | Who, and what they can do. |
 | `mfa` — `passkey` / `totp` / `none` | Whether the account is defensible if the password leaks. |
 | `source` — `local` / `oidc` / `saml` / `scim` | Whether your IdP owns the lifecycle, or you do. |
-| `last_login` | **The signal that matters.** `0` means never logged in since the field shipped in v6.4.2. |
+| `last_login` | **The signal that matters.** `0` means no sign-in is recorded. An account that last signed in before RemotePower began recording this also shows `0`. |
 | `disabled` | Already deactivated — confirm it should stay that way. |
 | `created` | How long the account has existed. |
 
@@ -55,15 +55,18 @@ gap: set one.
 
 ## 3. Check what the accounts have been doing
 
-The **Audit log** page, filtered by actor, answers "what has this account
-actually done since the last review". Two things to look for beyond the obvious:
+The **Audit** page (Compliance group), filtered by actor, answers "what has this
+account actually done since the last review". Two things to look for beyond the
+obvious:
 
 - Actions from an account whose owner says they no longer use it.
-- **`governance_config_change` entries** — changes to four-eyes approval, MFA-required roles,
-  the WORM sink, audit retention or forwarding, the IP allowlist, SSO-only,
-  tenancy or read-only mode. These are step-up gated and logged by name, and they
-  are the changes an access review should notice even when the account is
-  legitimate.
+- **`governance_config_change` entries** — changes to four-eyes approval (and its
+  rule that the requester cannot approve their own change), MFA-required roles,
+  SSO-only sign-in, the IP allowlist, the WORM sink, audit retention or
+  forwarding, or tenancy. These need a fresh password or code (step-up) and are
+  logged by name, and they are the changes an access review should notice even
+  when the account is legitimate. A litigation hold is logged on its own, as
+  `litigation_hold`.
 
 ## 4. Act, then record
 
@@ -71,23 +74,24 @@ actually done since the last review". Two things to look for beyond the obvious:
   rewrite the audit entries naming them — that is on purpose, and is what keeps
   the log usable as evidence — but deactivation keeps the history readable.
 - Revoke unused API keys, and set an expiry on the ones you keep.
-- For live sessions, **Settings → Security → Active sessions** *(v7.0.0)* lists
-  every login on the instance — user, role, IdP source, IP, last-active and
-  expiry — and revokes them. Revocation is **per user**, not per session: the
-  server offers `POST /api/sessions/revoke {username}`, which signs that account
-  out everywhere at once. (The per-session revoke on the Account page only ever
-  applies to your own sessions.) Use it during offboarding rather than waiting
-  for the idle timeout, and when checking an incident against who was actually
-  logged in.
+- For live sessions, **Settings → Security → Active sessions** lists every login
+  on the instance (click **Load sessions**): user, role, source, IP, last active
+  and expiry. **Revoke user** ends them. Revocation is **per user**, not per
+  session: the server offers `POST /api/sessions/revoke {username}`, which signs
+  that account out everywhere at once. With no username it signs out everyone
+  except you. (The per-session revoke on the Account page only ever applies to
+  your own sessions.) Use it during offboarding rather than waiting for the idle
+  timeout, and when checking an incident against who was actually logged in.
 
 Then record the review itself. Two artifacts are worth keeping, and it is worth
 being precise about what each one proves:
 
-- The **compliance evidence pack** (Reports → Export evidence, or
-  `GET /api/report/evidence?days=N`) is HMAC-signed and bundles the current fleet
-  posture, the compliance-baseline trend and the audit-log excerpt for the
-  period. It does **not** contain the user roster, so it is context for the
-  review, not the review itself.
+- The **compliance evidence pack** (Reports → **Evidence pack**, or
+  `GET /api/report/evidence?days=N`, 1 to 366 days, 90 by default) is
+  HMAC-signed and bundles the current fleet posture, the compliance-baseline
+  trend, the reports that were emailed during the period and an audit-log
+  excerpt (the newest 2,000 entries of the period). It does **not** contain the
+  user roster, so it is context for the review, not the review itself.
 - The roster you actually certified: save the `GET /api/users` response alongside
   it. Generating the evidence pack is itself audit-logged, which dates the
   exercise.
@@ -107,4 +111,5 @@ being precise about what each one proves:
 ---
 
 ← [Back to docs index](README.md) · [Compliance mapping](compliance.md) ·
-[Security controls](security.md) · [Data retention](data-retention.md)
+[Security controls](security.md) · [Data retention](data-retention.md) ·
+[SSO and SCIM](sso.md)

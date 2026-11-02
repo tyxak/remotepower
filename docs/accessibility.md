@@ -34,30 +34,42 @@ Three sources, all reproducible from the repository:
 
 - **Automated, in the release gate.** `tests/test_a11y_axe.py` drives a real
   Chromium against a real gunicorn/`wsgi.py` stack and runs **axe-core** on the
-  login page, the post-login dashboard, and **every sidebar page** (50+). The
-  bar is **zero `critical` or `serious` violations with every default rule
-  enabled** — there are no disabled rules and no exemptions. `color-contrast`
-  and `nested-interactive` are both fully enforced; the last exemption was
-  removed in v6.1.1, and `tests/test_v430_a11y.py` asserts it cannot come back.
-- **Automated again, this time with data on the screen** (v7.0.0). The sweep
-  above walks an *empty* install, where a table has no rows and a status pill
-  has no state — so anything that only exists inside a populated row was
-  structurally invisible to it. A second pass now seeds the demo dataset, ages
-  half the hosts so both the online and offline presentations render, and
-  re-audits Hosts, Alerts, Monitors, Containers and CMDB. It found 48
-  contrast failures on the first run that the empty-install sweep had never
-  been able to see; the ceiling is now zero, and the assertion names the
-  offending nodes rather than reporting a count.
+  login page, the post-login dashboard, every sidebar page and all 14 Settings
+  panes. `tests/test_a11y_axe_modals.py` opens every dialog in the page through
+  the real `openModal()` and audits each one. The bar is **zero
+  `critical` or `serious` violations with every default rule enabled** — there
+  are no disabled rules and no exemptions. `color-contrast` and
+  `nested-interactive` are both fully enforced, and `tests/test_v430_a11y.py`
+  asserts that no exemption can come back.
+- **Automated again, with data on the screen.** An empty install has tables
+  without rows and status pills without a state, so anything that only exists
+  inside a populated row is invisible to the first sweep. A second pass seeds
+  the demo dataset, ages half the hosts so both the online and offline
+  presentations render, and re-audits fourteen data-heavy pages (Hosts, Alerts,
+  Live Monitor, Containers, CMDB, Tickets, Services, Reports, Server Status,
+  Pentest, Users, Logs, Billing and Knowledge base). Billing and Knowledge base
+  are optional modules that are off on an empty install, so this pass is the
+  only place they are audited. The same pass audits the host drawer and the
+  command palette, which the page sweep cannot reach. The contrast ceiling is
+  zero, and the assertion names the offending nodes rather than reporting a
+  count.
 - **Structural ratchets, no browser needed.** `tests/test_a11y_labels.py`
-  re-implements the accessible-name computation and fails the build if the
-  number of form controls without an accessible name in `index.html` rises
-  above **0** (it was 313 before the sweep). `tests/test_v430_a11y.py` pins:
-  every icon-only button carries `aria-label`/`title` (in static HTML **and**
-  in the `innerHTML` templates JavaScript renders from), every modal overlay is
-  `role="dialog" aria-modal="true"` *with* an accessible name, every
-  `aria-labelledby` points at exactly one existing id, every placeholder-only
-  filter/search input carries `aria-label`, and the global `:focus-visible`
-  ring still exists.
+  re-implements the accessible-name computation and fails the build if any form
+  control in `index.html` lacks an accessible name (the ceiling is **0**).
+  `tests/test_v430_a11y.py` pins: every icon-only button carries
+  `aria-label`/`title` (in static HTML **and** in the `innerHTML` templates
+  JavaScript renders from), every modal overlay is `role="dialog"
+  aria-modal="true"` *with* an accessible name, every `aria-labelledby` points
+  at exactly one existing id, every placeholder-only filter/search input carries
+  `aria-label`, and the global `:focus-visible` ring still exists.
+  `tests/test_v642_modal_focus.py` pins that the drift and AI dialogs open
+  through `openModal()`, so they cannot skip the focus handling described below.
+- **Keyboard walk in a real browser.** `tests/test_v740_keyboard_e2e.py` presses
+  the keys a person would press on a seeded instance: a dialog takes focus when
+  it opens, keeps Tab inside, closes on Escape and hands focus back; the overlays
+  that are not dialogs (bulk actions, the notification popover) do the same;
+  everything a mouse can click has a keyboard path; and focus is visible on
+  every control that can take it.
 - **Manual code review** for the keyboard and screen-reader behaviours that no
   static check covers — the results of which are the limitations section below.
 
@@ -77,11 +89,25 @@ as the more interesting half of this document.
   mouse clicks.
 - **Modals** opened through `openModal()` trap Tab and Shift-Tab inside the
   dialog, close on **Escape** (topmost first, tracked as a stack for nested
-  dialogs), move focus to the first focusable control on open, and **restore
-  focus to the opener** on close. Every dialog also gets an injected top-right
-  close button labelled `Close dialog`.
+  dialogs), move focus to the first control of the dialog's content on open, and
+  **restore focus to the opener** on close. Every dialog also gets an injected
+  top-right close button labelled `Close dialog`.
 - The **host drawer** does the same: `role="dialog"`, Tab trap, Escape to
   close, focus moved in on open and restored to the opener on close.
+- The **command palette** (`/` or `Ctrl/Cmd-K`) is a `role="dialog"` with
+  `aria-modal="true"` and an accessible name. Its input is a `role="combobox"`
+  with its own `aria-label`, `aria-controls` pointing at the results and
+  `aria-activedescendant` tracking the highlighted row, which is what makes
+  arrow-key navigation audible while focus stays in the input. The results are
+  a `role="listbox"` of `role="option"` rows. Tab is trapped, and closing
+  restores focus to where the palette was opened from.
+- **Clickable elements are operable from the keyboard.** Enter and Space on any
+  element that carries a `data-action` replay a click through the same single
+  dispatcher. Native buttons, links, form controls and `summary` are skipped,
+  because the browser already turns Enter and Space into a click on those.
+  Table rows and cells that act as controls have a tab stop; simple leaf
+  controls (status pills, chips, the notes and ticket icons) also carry
+  `role="button"`. Rows keep their implicit `row` role.
 - **Sortable table headers** are focusable (`tabindex="0"`), activate on Enter
   or Space, and expose their state via `aria-sort`
   (`none`/`ascending`/`descending`). The sort glyphs themselves are
@@ -101,9 +127,12 @@ as the more interesting half of this document.
   `aria-modal="true"`, plus `aria-labelledby` pointing at the visible title (or
   an `aria-label`).
 - **Active navigation** is exposed with `aria-current="page"`, not colour alone.
-- **Table headers** in the static markup overwhelmingly use `scope="col"`
-  (444 of 495 `<th>` elements when this was last measured) — see the
-  limitations for the tables JavaScript renders.
+  The sidebar groups expose `aria-expanded`, and every tab in a tab strip (28 in
+  the static markup, among them the 14 Settings tabs) exposes `aria-selected`;
+  the same function that sets the visual state writes the attribute.
+- **Table headers** in the static markup mostly use `scope="col"` (548 of 607
+  `<th>` elements at this release) — see the limitations for the tables
+  JavaScript renders.
 - **Status messages** (toasts) live in a `role="status" aria-live="polite"`
   region, so a success or failure is announced without stealing focus.
 
@@ -140,16 +169,14 @@ These are real, current, and each one is a reason a criterion below is marked
 
 ### 1. Most form errors are not identified programmatically — WCAG 2.1 AA partial failure (SC 3.3.1)
 
-**Four forms** mark the offending field with `aria-invalid` and move focus to
-it — sign-in, the step-up prompt, adding a user, and Settings → Alert
-parameters *(the last added in v7.0.0, which also gave `aria-invalid` a visible
-style; before that the attribute was set for screen readers with no visual
-counterpart, which is half of this criterion)*.
+**Four forms** mark the offending field with `aria-invalid`, style it visibly
+and move focus to it: sign-in, the step-up prompt, adding a user, and
+Settings → Alert parameters.
 
-**Everywhere else — roughly 180 validation paths — still does not.** A
-client-side validation failure like "Name is required", "Pick at least one
-host" or "Username and password required" is delivered as a **toast**: a
-transient message in the polite live region at the corner of the screen, which
+**Everywhere else — roughly 185 validation paths — does not.** A client-side
+validation failure like "Name is required", "Pick at least one host" or
+"Username and password required" is delivered as a **toast**: a transient
+message in the polite live region at the corner of the screen, which
 **auto-dismisses after 3.5 seconds** and is not associated with the field that
 caused it. Nothing marks the field, and focus does not move, so a screen-reader
 user hears that something is wrong without being told which control to fix.
@@ -169,91 +196,35 @@ Two consequences, both bad for a screen-reader or cognitively-impaired user:
 
 This is the gap that keeps the overall self-assessment at *partially supports*.
 
-### 2. The automated gate does not yet open every surface
+### 2. The automated gate finds what axe can detect, no more
 
-The axe sweep loads each page and audits it as rendered. Since v6.4.2 it also
-**switches through all fourteen Settings panes** and audits each one, and a
-companion browser suite presses keys: it drives the sidebar accordion, every tab
-widget, the command palette and the login form, asserting the live DOM rather
-than the source text.
+The sweeps open every page, every Settings pane, every dialog, the host drawer
+and the command palette, on an empty install and (for the data-heavy pages) on
+a seeded one. The keyboard walk asserts the live DOM rather than the source
+text.
 
-That mattered more than it sounds. `display:none` subtrees are not scanned by
-axe at all, so thirteen of the fourteen panes were not "audited while hidden" —
-they were invisible to the gate entirely, and real critical failures were living
-there: 368 unlabelled checkboxes in the notification event matrix, an unnamed
-button, and two colour-contrast failures. The pane sweep found the last of those
-the first time it ran.
+That is still a rendered-markup audit. axe reports missing names, bad roles and
+low contrast. It cannot tell you whether a flow makes sense with a screen
+reader, whether focus lands somewhere useful after an action, or whether a
+message is announced at the right moment. Those are the manual checks listed
+under "Not assessed".
 
-The same blindness had a second form, closed in v7.0.0: the sweep ran against
-an **empty database**. A page with no rows renders none of the controls that
-live in rows, so "zero violations" meant "zero violations in the chrome". The
-seeded pass described above found 48 contrast failures the moment there was
-data to render — all of them stray `opacity` declarations dimming text that was
-already muted, none of them visible without rows.
+### 3. Some pickers are not exposed as a combobox
 
-Still not opened by the gate: the ~133 modal overlays and the host drawer.
-A violation inside one of those remains invisible to automation.
+The typeahead pickers, such as the host picker in dialogs, work from the
+keyboard (arrow keys, Enter and Escape), but their input is not a `combobox` and
+their result rows are not `option` elements inside a `listbox`. The command
+palette has the full pattern; the pickers can converge on it.
 
-### 3. Four dialogs bypass the modal manager and get no focus trap
+### 4. JavaScript-rendered table headers mostly lack `scope`
 
-Six call sites across four dynamically-built dialogs activate themselves with
-`classList.add('active')` instead of going through `openModal()`: the **drift
-detail** and **drift diff** dialogs (`app-drift.js`), and the **AI advisor** and
-**runbook** dialogs (`app-ai.js`). They are correctly marked `role="dialog"`
-and named, and they raise correctly above other overlays — but they get **no
-Tab trap, no Escape-to-close from the modal stack, and no focus restore**. A
-keyboard user can tab straight out of them into the page behind. (The
-log-sweep dialog, built the same way, routes through `openModal()` and does not
-have this problem.)
-
-### 4. ~~The command palette is not exposed as a dialog~~ — fixed in v6.4.2
-
-The palette is now a `role="dialog"` with `aria-modal="true"` and an accessible
-name. Its input is a `role="combobox"` with its own `aria-label` (rather than
-relying on the placeholder), `aria-controls` pointing at the results, and
-`aria-activedescendant` tracking the highlighted row — which is what makes
-arrow-key navigation audible, since focus stays in the input. The
-results list is a `role="listbox"` of `role="option"` rows. Tab is trapped, and
-closing restores focus to wherever it was opened from.
-
-`aria-activedescendant` is re-pointed inside the render function itself, because
-the list is rebuilt on every keystroke — set once at open time it would dangle
-at the first re-render.
-
-### 5. ~~`data-action` is click-only~~ — fixed in v6.4.2
-
-The dispatcher now has a keydown twin: Enter and Space on any element carrying
-`data-action` replay a click through the same single dispatcher, so there is one
-code path and the two cannot drift. Native activatable elements
-(`button`, `a[href]`, form controls, `summary`) are skipped — the
-browser already synthesises a click from Enter/Space on those, and firing here
-as well would invoke the handler twice. That is not hypothetical: a checkbox
-with its own `data-action` sits inside a row carrying another one.
-
-Elements that needed a tab stop got one. Table rows and cells got `tabindex`
-**only** — not `role="button"`, which would strip a `<tr>`'s
-implicit `row` role and break table semantics. Simple leaf controls (status
-pills, chips, the notes and ticket icons) got `role="button"` as well.
-
-Space still scrolls the page when no `data-action` element has focus: the
-handler resolves its target before calling `preventDefault`, which is
-load-bearing and covered by a regression test.
-
-Two picker families remain imperfect rather than broken: the typeahead result
-rows are keyboard-operable but are not yet exposed as a `listbox`/`option`
-combobox, because `role="option"` requires a `role="listbox"` parent to be
-valid. `comboifyDeviceSelect` is the shipped pattern to converge them on.
-
-### 6. JavaScript-rendered table headers mostly lack `scope`
-
-The static markup is good (444 of 495 headers scoped when last measured), but of
-the ~500 `<th>` elements generated from JavaScript template strings only about
-**twenty** carry `scope="col"`. Browsers infer column association for simple
-tables, so this is
+The static markup is good (548 of 607 headers scoped), but of the 592 `<th>`
+elements generated from JavaScript template strings only 38 carry
+`scope="col"`. Browsers infer column association for simple tables, so this is
 usually recoverable by assistive technology — but it is not stated explicitly
 and is not guaranteed for the more complex tables.
 
-### 7. Not assessed
+### 5. Not assessed
 
 No formal assessment has been done of: screen-reader behaviour with an actual
 screen reader (NVDA/JAWS/VoiceOver), 400% zoom reflow (SC 1.4.10), text-spacing
@@ -275,7 +246,7 @@ do not read this as either a pass or a fail.
 |---|---|---|---|
 | 1.1.1 Non-text Content | A | Supports | Icon-only buttons carry `aria-label`/`title` (ratchet-tested in static HTML and JS templates); decorative SVG is `aria-hidden`. |
 | 1.2.x Time-based Media | A/AA | Not applicable | The interface contains no audio or video. |
-| 1.3.1 Info and Relationships | A | Partially supports | Labels, dialog roles, `aria-sort` and `aria-current` are in place; static table headers use `scope="col"`, JS-rendered ones largely do not (limitation 6). |
+| 1.3.1 Info and Relationships | A | Partially supports | Labels, dialog roles, `aria-sort` and `aria-current` are in place; static table headers use `scope="col"`, JS-rendered ones largely do not (limitation 4). |
 | 1.3.2 Meaningful Sequence | A | Supports | DOM order matches visual order; full-viewport overlays are body-level children by rule. |
 | 1.3.3 Sensory Characteristics | A | Supports | Instructions never depend on shape, position or colour alone. |
 | 1.3.4 Orientation | AA | Supports | No orientation lock; the layout reflows to mobile. |
@@ -293,22 +264,22 @@ do not read this as either a pass or a fail.
 
 | Criterion | Level | Assessment | Notes |
 |---|---|---|---|
-| 2.1.1 Keyboard | A | Supports | Buttons, links, form controls, sortable headers, modals and the drawer are keyboard-operable, and since v6.4.2 so is every `data-action` element — the dispatcher gained an Enter/Space twin and non-native targets gained tab stops (limitation 5). |
-| 2.1.2 No Keyboard Trap | A | Supports | Modal and drawer traps are on purpose, scoped to an open dialog, and always escapable with Escape. The dialogs in limitation 3 do not trap at all — the failure is the opposite direction. |
+| 2.1.1 Keyboard | A | Supports | Buttons, links, form controls, sortable headers, modals, the drawer and the command palette are keyboard-operable, and so is every `data-action` element: the dispatcher has an Enter/Space twin and non-native targets have tab stops. |
+| 2.1.2 No Keyboard Trap | A | Supports | Modal and drawer traps are on purpose, scoped to an open dialog, and always escapable with Escape. |
 | 2.1.4 Character Key Shortcuts | A | Supports | Single-character shortcuts are suppressed while a form field has focus. |
 | 2.2.1 Timing Adjustable | A | Partially supports | Session idle timeout is operator-configurable; toast dismissal timing is not adjustable, which is the substance of limitation 1. |
 | 2.2.2 Pause, Stop, Hide | A | Supports | The only continuous motion is the status-dot pulse, which stops under `prefers-reduced-motion`. No auto-updating content moves or scrolls on its own. |
 | 2.3.1 Three Flashes | A | Supports | Nothing flashes more than three times per second. |
 | 2.4.1 Bypass Blocks | A | Supports | Skip link to main content, visible on focus. |
 | 2.4.2 Page Titled | A | Supports | Single-page app with a document title; each page carries a `.page-title` heading. |
-| 2.4.3 Focus Order | A | Partially supports | Correct for the modal manager, the drawer and (since v6.4.2) the command palette, which traps Tab and restores focus on close; the four dialogs in limitation 3 do not manage focus order. |
+| 2.4.3 Focus Order | A | Supports | Dialogs go through one modal manager, which moves focus in, traps Tab and restores focus to the opener on close; the drawer and the command palette do the same. |
 | 2.4.4 Link Purpose (In Context) | A | Supports | Links and buttons are named in context; documentation pointers name their topic. |
 | 2.4.5 Multiple Ways | AA | Supports | Sidebar navigation, the command palette (`Ctrl/Cmd-K`), the sidebar search index, and deep links (`#page`, `#device/<id>`). |
 | 2.4.6 Headings and Labels | AA | Supports | One heading idiom (`.section-title`) per card; every control named. |
 | 2.4.7 Focus Visible | AA | Supports | Global `:focus-visible` outline, ratchet-tested. |
 | 2.5.1 Pointer Gestures | A | Supports | No path-based or multipoint gestures. |
 | 2.5.2 Pointer Cancellation | A | Supports | Actions fire on click (up-event), not down-event. |
-| 2.5.3 Label in Name | A | Partially supports | Visible-label/accessible-name agreement holds for labelled controls; icon-only buttons have no visible text, and the palette input is named by its placeholder. |
+| 2.5.3 Label in Name | A | Partially supports | Visible-label/accessible-name agreement holds for labelled controls; icon-only buttons have no visible text, and the palette input is named by its `aria-label` rather than its placeholder. |
 | 2.5.4 Motion Actuation | A | Supports | No device-motion input. |
 
 ### Understandable
@@ -321,8 +292,8 @@ do not read this as either a pass or a fail.
 | 3.2.2 On Input | A | Supports | Changing a control's value does not submit or navigate; explicit Save/Apply throughout. |
 | 3.2.3 Consistent Navigation | AA | Supports | One sidebar, one topbar, same order on every page. |
 | 3.2.4 Consistent Identification | AA | Supports | Actions with the same function use the same icon and label everywhere. |
-| **3.3.1 Error Identification** | **A** | **Partially supports** | Four forms (sign-in, step-up, add-user, Alert parameters) mark the offending field with `aria-invalid`, style it visibly and move focus to it. The remaining ~180 validation paths deliver an auto-dismissing toast with no `aria-invalid`, no `aria-describedby` and no association to the field (limitation 1). |
-| 3.3.2 Labels or Instructions | A | Supports | Every control in the static interface has an accessible name and most have hint text; the command palette input gained an `aria-label` in v6.4.2 rather than relying on its placeholder. |
+| **3.3.1 Error Identification** | **A** | **Partially supports** | Four forms (sign-in, step-up, add-user, Alert parameters) mark the offending field with `aria-invalid`, style it visibly and move focus to it. The remaining ~185 validation paths deliver an auto-dismissing toast with no `aria-invalid`, no `aria-describedby` and no association to the field (limitation 1). |
+| 3.3.2 Labels or Instructions | A | Supports | Every control in the static interface has an accessible name and most have hint text; the command palette input has its own `aria-label`. |
 | 3.3.3 Error Suggestion | AA | Partially supports | Message text usually says what to fix ("Pick at least one host"); it is not programmatically attached to the field. |
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | Supports | Destructive fan-out operations require explicit — sometimes typed — confirmation; low-risk deletes are deferred with Undo; configuration history allows rollback. |
 
@@ -330,8 +301,8 @@ do not read this as either a pass or a fail.
 
 | Criterion | Level | Assessment | Notes |
 |---|---|---|---|
-| 4.1.2 Name, Role, Value | A | Partially supports | Names and roles are ratchet-enforced and `aria-sort`/`aria-current` carry state. v6.4.2 made the state attributes live rather than static: the sidebar accordion's `aria-expanded` and all 28 tabs' `aria-selected` are now written by the same function that sets the visual class, and the command palette exposes full combobox/listbox semantics. The four dialogs in limitation 3 still do not expose dialog semantics. |
-| 4.1.3 Status Messages | AA | Partially supports | Toasts and ~17 per-action result regions announce through `role="status" aria-live="polite"`; table loading and empty states do not. |
+| 4.1.2 Name, Role, Value | A | Partially supports | Names and roles are ratchet-enforced and `aria-sort`/`aria-current` carry state. The sidebar accordion's `aria-expanded` and every tab's `aria-selected` are written by the same function that sets the visual class, and the command palette exposes full combobox/listbox semantics. The typeahead pickers do not (limitation 3). |
+| 4.1.3 Status Messages | AA | Partially supports | Toasts and about 30 per-action result regions announce through `role="status" aria-live="polite"`; table loading and empty states do not. |
 
 *(SC 4.1.1 Parsing was removed in WCAG 2.2 and is obsolete; it is not assessed.)*
 

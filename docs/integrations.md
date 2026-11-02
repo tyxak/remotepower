@@ -1,252 +1,283 @@
 # Homelab software integrations
 
 RemotePower can poll popular self-hosted software for health and fold the result
-into its **Alerts** inbox and dashboard activity feed — so a degraded TrueNAS
-pool, a Pi-hole that stopped answering, or a Sonarr with a failing indexer shows
-up next to the rest of your fleet's signals.
+into its **Alerts** inbox and dashboard activity feed. A degraded TrueNAS pool, a
+Pi-hole that stopped answering or a Sonarr with a failing indexer shows up next to
+the rest of your fleet's signals.
 
-Each integration is a **server-side connector**: RemotePower reaches out to the
-target's HTTP API on a cadence (default every 5 minutes), records an
+Each integration is a **server-side connector**. RemotePower reaches out to the
+target's HTTP API on a cadence (every 5 minutes by default), records an
 ok / warning / critical / unknown result, and raises an `integration_down` alert
-on a downward transition (auto-resolved by `integration_recovered` when it comes
-back). Nothing is installed on the target.
+when the result turns bad. `integration_recovered` resolves it when the service
+comes back. Nothing is installed on the target.
+
+You see the result in two places:
+
+- **Monitoring → Integrations** shows one tile per integration with its status and key
+  figures. **Refresh** reloads it, and **Manage integrations** opens the settings. Pi-hole
+  and AdGuard Home also get a card of the top blocked domains and clients (and the
+  [pause control](dns-control.md)), and WordPress gets its last logins.
+- **Settings → Integrations → Homelab software integrations** is where you set them up.
 
 ## Setting one up
 
 **Settings → Integrations → Homelab software integrations.**
 
-1. Pick a type from the dropdown and click **Add**.
-2. Give it a **Name**, the service **URL** on your LAN (e.g.
-   `https://truenas.lan`), and the credential the connector needs (an API token,
-   or username + password — the form shows the right fields per type).
+1. Pick a type under **Add integration** and click **Add**.
+2. Give it a **Name** and the service **URL** on your LAN (for example
+   `https://truenas.lan`). Fill in the credential the connector needs (an API token,
+   or a username and password). The form shows the right fields for each type.
 3. For a service with a self-signed certificate, untick **Verify TLS**. The
-   SSRF/IP guard still applies — only certificate verification is relaxed.
-4. Click **Test** to probe it immediately, then **Save integrations**.
+   address guard still applies. Only certificate verification is relaxed.
+4. Click **Test** to probe it at once, then **Save integrations**.
 
-Saved secrets are never sent back to the browser (the form shows a "set" hint and
-leaving a credential blank keeps the stored value). Configuration is admin-only.
+Saved secrets are never sent back to the browser. The form shows "set" and a blank
+box keeps the stored value. Only admins can change the configuration. The **Poll
+interval (s)** box sets the cadence (60 seconds at least, 300 by default), and the tick
+box on each card enables or disables that integration.
 
-## Binding an instance to a host *(v6.4.2)*
+VMware vSphere / vCenter, Red Hat OpenShift and VMware Cloud Director are
+virtualization platforms. You add them under **Settings → Virtualization**
+(see [virtualization.md](virtualization.md)). They use the same connectors and show on the
+same Integrations page.
 
-An integration watches a **service**; that service runs on a **machine**. Until
-you say which machine, RemotePower has no way to connect the two — a poll result
-carries the instance's label and nothing else, so `integration_down` fired as a
-fleet-level event with no host attached to it.
+## Binding an instance to a host
 
-An instance now takes an optional **`device_id`** (a host already enrolled in
-RemotePower) and an optional **`site`**, set on the instance object you send to
-`POST /api/integrations` and returned by `GET /api/integrations`. Both default to
-empty, and an unbound instance behaves exactly as it always did. Binding is
-admin-only and validated against the fleet — an unknown id is rejected, and one
-belonging to a host you cannot see is refused rather than confirmed to exist.
+An integration watches a **service**, and that service runs on a **host**. Say which
+host in the optional **Runs on host** box (and a **Site** if you use sites) on the card. An
+unbound instance works as it always has. A bound one carries its `device_id` and `site`
+on the `integration_down`, `integration_recovered` and metric events, which is what the
+rest of the alert pipeline keys on:
 
-Everything binding buys follows from one change: the `integration_down` and
-`integration_recovered` payloads now carry that `device_id` (and `site`), which
-is what the rest of the alert pipeline keys on.
+- **Maintenance windows hold it.** A **host** or **group** window covering the bound host
+  holds the outbound notification (webhook and email), as it does for `device_offline`.
+  Rebooting one box during a declared window then does not page once for every app that
+  runs on it.
+- **Mutes reach it.** A mute is keyed to a host and an event. Bound, muting
+  `integration_down` for that host in [Alert tuning](alert-tuning.md) silences it in the inbox,
+  webhooks, email and browser push, while the activity feed and the SIEM stream keep recording.
+- **Unmonitored hosts stay quiet.** Marking the bound host unmonitored suppresses its
+  integrations' alerts too.
+- **The inbox says where the service lives.** The alert stores the host and site.
 
-- **Maintenance windows suppress it.** Both events joined the suppressible set,
-  so a **host** or **group** window covering the bound host now holds the
-  outbound notification (webhook and e-mail) the same way it holds a
-  `device_offline`. This is the case worth binding for: rebooting one box during
-  a declared window used to notify once per self-hosted app running on it — five
-  services on that NAS, five pages, inside the window the operator had just
-  declared. Only a *global* window could ever catch them, because a host-scoped
-  one had no host to match against.
-- **Per-(host, event) mutes reach it.** A mute is keyed `(device_id, event)`, so
-  an unbound integration alert had no host to mute it *against* — the row's mute
-  button had nothing to send. Bound, muting `integration_down` for that host from
-  [Alert tuning](alert-tuning.md) silences it across the inbox, webhooks, e-mail
-  and browser push, while the activity feed and the SIEM stream keep recording.
-- **Unmonitored hosts stay quiet.** Marking the bound host `monitored: false`
-  (decommissioning, a known-broken box) now suppresses its integrations' alerts
-  too, instead of leaving them as the one signal that kept paging.
-- **The inbox says where the service lives.** `device_id` and `site` are stored
-  on the alert, so a failing service is attributable to a machine and a location
-  rather than to a bare label.
+Recovery matches on the integration, not the host. If you bind an instance after its
+down-alert was recorded, the recovery still closes that alert.
 
-Recovery still matches on the integration id,: if you bind an
-instance *after* its down-alert was recorded, the stored alert has no host
-while the recovery carries one, and requiring both to match would strand that
-alert open forever.
+You must bind to a host you can see. An unknown ID is rejected.
 
-### On the host's card *(v7.4.2)*
+### On the host's card
 
-A host with no agent and no SNMP, a Hubitat hub for one, gets its health from
-the integrations bound to it, and its card used to show nothing but whether it
-answers. Open the host, go to the **Audit** tab, and **Integrations on this
-host** lists every instance bound to it, worst first: the status, when it was
-last checked, the latest values the connector read, a trend line for each
-number, and how the last checks went. The section opens by itself when
-something is bound to the host and stays shut when nothing is.
+A host with no agent and no SNMP, such as a Hubitat hub, takes its health from the integrations
+bound to it. Open the host, go to the **Audit** tab, and **Integrations on this host** lists every
+instance bound to it, worst first: the status, when it was last checked, the latest values the
+connector read, a trend line for each number, and how the last checks went. The section opens
+by itself when something is bound to the host and stays shut when nothing is. The address and
+the credentials of an instance are never part of what the card is given.
+`GET /api/devices/<id>/integrations` returns the same rows.
 
-- **Who sees it.** Anyone who may open the host. The address and the
-  credentials of an instance are never part of what the card is given.
-  `GET /api/devices/<id>/integrations` returns the same rows.
-- **How much trend.** Each number has a line drawn from the last 100 checks,
-  about eight hours at the default five-minute cycle. Behind it a second line
-  shows the average of each clock hour, for up to seven days. The second line
-  appears for a number once it reaches back an hour or more further than the
-  first, so a newly bound instance shows one line. Both start when you bind the
-  instance, because the numbers are kept only for an instance bound to a host,
-  and unbinding the instance drops what was kept. A check that returns text
-  rather than a number has a status history and no trend.
-- **A value that is not a number.** A service that prints `NaN` when a sensor
-  read fails used to stop RemotePower saving the results of every integration,
-  for as long as it kept doing so. Those values are now stored as empty, and
-  the rest are saved.
+- **How much trend.** Each number has a line drawn from the last 100 checks, about eight hours
+  at the default cycle. Behind it a second line shows the average of each clock hour for up to
+  seven days. The second line shows once a number reaches back an hour or more further than the
+  first. Both start when you bind the instance, because numbers are kept only for an instance
+  bound to a host, and unbinding it drops what was kept. A check that returns text rather than a
+  number has a status history and no trend.
+- **A value that is not a number.** A service that prints `NaN` when a sensor read fails does not
+  stop the other results from being saved. Such values are stored as empty.
+
+## Alerting on a metric
+
+Every connector reads numbers as well as a status. A Pi-hole whose blocklist silently empties still
+reports OK, with `blocked_pct` falling from 23 to 0. To catch that, open **Alert on a metric** on
+the card and write one rule per line:
+
+```
+blocked_pct lt 5 high
+queries_today gt 1000000
+```
+
+The form is `metric operator value [severity]`. Operators are `gt`, `lt`, `gte`, `lte`, `eq` and
+`ne`. Severity is `critical`, `high`, `medium` (the default) or `low`. After a poll, the card
+lists the metric names that connector reported. A rule can have up to 20 lines. It runs whatever the
+connector's own status is.
+
+A breach raises `integration_metric_alert`, once, and `integration_metric_recovered` resolves
+it when the value is back within bounds. Two rules on one integration do not clear each other.
 
 ## Security model
 
-- Every outbound request goes through RemotePower's **SSRF guard**: the target
+- Every outbound request goes through RemotePower's **address guard**: the target
   must resolve to a normal address. Loopback (`127.0.0.0/8`), link-local and
-  cloud-metadata (`169.254.169.254`) are refused; RFC1918 LAN is allowed because
-  that's where homelab services live. The peer IP is re-checked at connect time
-  (anti-rebinding) and redirects are not followed.
-- Credentials are stored server-side and redacted from `GET /api/config` and
-  `GET /api/integrations` (a `*_set` boolean is returned instead of the value).
-- Polling is read-only — RemotePower never changes the target's state. The one
-  considered exception is **DNS-blocker control** (Pi-hole / AdGuard): an admin
-  can pause blocking for a bounded window (30 s – 4 h, always self-re-enabling,
-  audit-logged) from the Integrations page — see [dns-control.md](dns-control.md).
+  cloud-metadata (`169.254.169.254`) are refused. Private LAN ranges (RFC 1918) are
+  allowed, because that is where homelab services live. The address is checked again
+  when the connection opens, which stops DNS rebinding, and redirects are not followed.
+  A service on the RemotePower server itself needs the server's LAN address, not
+  `127.0.0.1`.
+- Credentials are stored on the server and left out of `GET /api/config` and
+  `GET /api/integrations`, which return a `*_set` flag instead of the value.
+- Polling is read-only. RemotePower never changes the target's state. The one
+  exception is **DNS-blocker control** (Pi-hole and AdGuard Home): an admin
+  can pause blocking for a bounded window (30 seconds to 4 hours, always
+  self-re-enabling, audit-logged) from the Integrations page. See
+  [dns-control.md](dns-control.md).
+- A response is read up to 2 MB, and a poll that takes too long is cut off so one slow target
+  cannot stall the rest.
 
 ## Supported targets
+
+RemotePower ships connectors for these. You can add your own (see below).
 
 | Category | Targets |
 |----------|---------|
 | DNS | **Pi-hole** (v6), **AdGuard Home** |
-| Storage / NAS | **TrueNAS** (CORE/SCALE), **Unraid** |
-| Virtualization / orchestration | **Kubernetes / k3s**, **VMware vSphere / ESXi / vCenter**, **Red Hat OpenShift**, **VMware Cloud Director**, **Proxmox Backup Server** |
+| Storage and NAS | **TrueNAS** (CORE and SCALE), **Unraid** |
+| Virtualization and orchestration | **Kubernetes / k3s**, **VMware vSphere / ESXi / vCenter**, **Red Hat OpenShift**, **VMware Cloud Director**, **Proxmox Backup Server** |
 | Network | **UniFi Network** |
-| Reverse proxy / certs | **Traefik**, **Nginx Proxy Manager**, **Caddy** |
+| Reverse proxy and certificates | **Traefik**, **Nginx Proxy Manager**, **Caddy** |
 | Observability | **Netdata**, **Grafana**, **Uptime Kuma**, **RemotePower (peer instance)**, **Prometheus** (a PromQL query), **Prometheus exporter** (a `/metrics` scrape) |
-| Security / EDR | **Wazuh**, **CrowdStrike Falcon**, **SentinelOne** — each reports the hosts it protects, cross-referenced by `GET /api/edr/coverage` to name the machines with no EDR at all (see [edr-coverage.md](edr-coverage.md)) |
+| Security and EDR | **Wazuh**, **CrowdStrike Falcon**, **SentinelOne**. Each reports the hosts it protects, and `GET /api/edr/coverage` cross-references them to name the hosts with no EDR at all (see [edr-coverage.md](edr-coverage.md)) |
 | Media | **Jellyfin**, **Plex**, **Immich**, **Frigate** |
-| Apps | **Home Assistant**, **Nextcloud**, **GitHub Issues**, **WordPress** (site health + the last 5 logins with source IP, via an Application password and the Simple History plugin's REST API; IPs geo-enriched when a GeoIP MMDB is configured), **Paperless-ngx**, **Vaultwarden**, **Gitea / Forgejo**, **Syncthing**, **OctoPrint**, **ESPHome** (dashboard), **Homebridge** |
+| Apps | **Home Assistant**, **Nextcloud**, **GitHub Issues**, **WordPress**, **Paperless-ngx**, **Vaultwarden**, **Gitea / Forgejo**, **Syncthing**, **OctoPrint**, **ESPHome** (dashboard), **Homebridge** |
 | Download clients | **qBittorrent**, **Transmission**, **Deluge**, **SABnzbd**, **NZBGet** |
-| Media automation | **Servarr** (Sonarr / Radarr / Prowlarr / Lidarr — one connector), **Bazarr** |
+| Media automation | **Sonarr**, **Radarr**, **Prowlarr**, **Lidarr**, **Readarr** (all on one Servarr connector), **Bazarr** |
 | Requests | **Overseerr / Jellyseerr** |
-| Custom | **Custom HTTP probe** — declarative, code-free: turn any endpoint's status code / JSON field into a health signal (see [writing-a-connector.md](writing-a-connector.md) for going beyond it) |
+| Custom | **Custom HTTP probe**: no code, turns any endpoint's status code or JSON field into a health signal |
+
+The *Connector plugins* section of Settings → Integrations lists every connector type, built in or
+third-party. A third-party connector is a Python file you drop into `connectors.d/` on the
+server, and the *Reload connectors* button picks it up without a restart. There is no upload from
+the browser, on purpose, so a stolen session cannot add code. See
+[writing-a-connector.md](writing-a-connector.md).
 
 ### Credentials at a glance
 
-- **API token / key** (Bearer or header): TrueNAS, Home Assistant, Kubernetes,
-  PBS, Jellyfin, Plex, SABnzbd, Servarr, Bazarr, Overseerr/Jellyseerr, Netdata
-  (optional), Grafana (optional), Unraid, Immich, Paperless-ngx, Syncthing,
-  OctoPrint, Gitea/Forgejo (optional).
-- **Username + password** (Basic / login): AdGuard, UniFi, vCenter, NPM,
-  NZBGet, Nextcloud, qBittorrent, Homebridge; Traefik / Transmission only if
-  protected.
-- **No credential / public**: Caddy admin API, Uptime Kuma (a published
-  status-page slug), Vaultwarden (`/alive` liveness), Frigate, ESPHome
-  dashboard (protect it at your proxy).
-- **Optional Basic or bearer**: Prometheus and Prometheus exporter. A user name
-  and a password send Basic auth; a password alone is sent as a bearer token;
-  leave both empty for a server on your LAN with no login.
+- **API token or key** (bearer or header): TrueNAS, Unraid, Home Assistant,
+  Kubernetes, OpenShift, Jellyfin, Plex, Immich, SABnzbd, Sonarr, Radarr, Prowlarr,
+  Lidarr, Readarr (the Servarr entry too), Bazarr, Overseerr/Jellyseerr, Paperless-ngx,
+  Syncthing, OctoPrint, SentinelOne, the RemotePower peer. Optional for Netdata, Grafana,
+  Gitea/Forgejo and GitHub.
+- **Token ID and secret**: Proxmox Backup Server. **Client ID and secret**: CrowdStrike Falcon.
+- **Username and password** (Basic or a login): AdGuard Home, UniFi, vCenter, Cloud Director,
+  Nginx Proxy Manager (an email), NZBGet, Nextcloud, qBittorrent, Homebridge, Wazuh. Optional
+  for Traefik and Transmission. Pi-hole and Deluge take a password only.
+- **Application password**: WordPress (optional; it unlocks the login list).
+- **Optional Basic or bearer**: Prometheus and Prometheus exporter. A user name and a password
+  send Basic auth, a password alone is sent as a bearer token, and leaving both empty suits a
+  server on your LAN with no login.
+- **No credential**: Caddy, Uptime Kuma (a published status-page slug), Vaultwarden (`/alive`),
+  Frigate, ESPHome (protect these at your proxy).
 
-### Notes per category
+### Notes per target
 
-- **Pi-hole** uses the v6 API (an *app password* under Settings → Web interface
-  / API). v5 instances aren't supported.
-- **Caddy**'s admin API listens on `:2019` and is usually localhost-only — it
+- **Pi-hole** uses the v6 API with an *app password* (Settings → Web interface / API in
+  Pi-hole). Version 5 is not supported.
+- **Caddy**'s admin API listens on `:2019` and is usually reachable only from its own host. It
   must be reachable from the RemotePower server for this to work.
-- **Uptime Kuma** has no official API, so this reads a **published status page**;
-  set the page slug rather than a token.
-- **RemotePower (peer instance)** turns another, off-site RemotePower into a tile
-  beside your homelab integrations ("federation-lite"). Point URL at the peer's
-  base (`https://peer.example.com`) and paste a **viewer-role API key** generated
-  on that instance (Admin → API Keys) as the secret. It reads only the peer's
-  **public health** — `GET /api/nav-counts` (host count, offline hosts, open
-  alerts, control-plane health) plus the no-auth `/api/public-info` for the
-  version — and shows the tile OK when the peer is reachable and healthy,
-  WARNING when the peer reports offline hosts / open alerts / a degraded
-  control-plane, and CRITICAL only when it's unreachable or the key is rejected.
-  This is **read-only off-site visibility, not federation**: there is no shared
-  identity and no cross-instance control.
-- **Prometheus** and **Prometheus exporter** *(v7.4.3)* read named values from
-  something that already speaks Prometheus, such as an OPNsense firewall running
-  node_exporter. You write one line for each value, `name = …`, up to 12 to an
-  instance. The first sample becomes a metric under that name, so you can alert on
-  it under **Alert on a metric**, and bound to a host with **Runs on host** the
-  value and its trend show on that host's card. A line that cannot be read is
-  refused when you save, with its line number.
-  - **Prometheus (PromQL query)**: the URL is the Prometheus server
-    (`http://prometheus.lab:9090`). Each line is a name and a PromQL expression,
-    for example `mem_active = node_memory_active_bytes{instance="192.168.0.1:9100"}`.
-    The first sample of the answer is the value, and a scalar works too. A query
-    that returns nothing counts as a problem, so write one that always answers,
-    such as `down = count(up == 0) or vector(0)`.
-  - **Prometheus exporter (/metrics scrape)**: the URL is the exporter
-    (`http://192.168.0.1:9100`) and the path is `/metrics` unless you change it.
-    Each line is a name and a metric, with `=` or `!=` label matchers if you need
-    them: `root_free = node_filesystem_avail_bytes{mountpoint="/"}`. Leave the name
-    out and the metric's own name is used. The first sample on the page that matches
-    is the value. Regular expressions are not supported on a scrape; for those, or
-    for a calculation across metrics, use the query form against a server.
-  - The status is *OK* when every value was read, *warning* when some were not (the
-    detail names them) and *critical* when none were, when the server cannot be
-    reached or when it refuses the login.
-- **Servarr** is a single connector for any *arr app — it **auto-detects the API
-  version** (`/api/v3` for Sonarr/Radarr, `/api/v1` for Prowlarr/Lidarr/Readarr)
-  and surfaces the app's own health-check warnings/errors. **Bazarr** uses a
-  different API and is its own type.
-- **Standalone ESXi** exposes only SOAP; point the vCenter connector at a
-  vCenter instance.
-- **OctoPrint** reports a disconnected printer as a *warning* (OctoPrint itself
-  is still up), and only unreachability as critical. **ESPHome** warns when a
-  node's deployed firmware is behind the dashboard's current version.
-- **WordPress** needs the URL to be the **site root** (`https://blog.example`,
-  not `/wp-admin` and not the REST path). Without credentials it reports REST
-  reachability and the site title; add a username and an **Application
-  password** (Users → Profile → Application Passwords, WordPress 5.6+) and it
-  also lists the last logins from the free **Simple History** plugin. Paste the
-  password exactly as WordPress shows it — the spaces are stripped for you.
-  Things that make it report a problem, and what each means:
+- **Uptime Kuma** has no official API, so this reads a **published status page**. Set the page
+  slug instead of a token.
+- **RemotePower (peer instance)** turns another, off-site RemotePower into a tile beside your
+  homelab integrations. Point the URL at the peer's base (`https://peer.example.com`) and paste a
+  **viewer-role API key** from that instance (Admin → API Keys) as the secret. It reads only the
+  peer's public health: `GET /api/nav-counts` (host count, offline hosts, open alerts,
+  control-plane health) and the no-auth `/api/public-info` for the version. The tile is OK when
+  the peer is reachable and healthy, a warning when the peer reports offline hosts, open alerts or
+  a degraded control plane, and critical only when it is unreachable or rejects the key. This is
+  read-only visibility from another site, not federation: there is no shared identity and no
+  cross-instance control.
+- **Prometheus** and **Prometheus exporter** read named values from something that already speaks
+  Prometheus, such as an OPNsense firewall running node_exporter. You write one line for each
+  value, `name = …`, up to 12 for each instance. The first sample becomes a metric under that
+  name, so you can alert on it under **Alert on a metric**. Bound to a host with **Runs on host**,
+  the value and its trend show on that host's card. A line that cannot be read is refused when you
+  save, with its line number.
+  - **Prometheus (PromQL query)**: the URL is the Prometheus server (`http://prometheus.lab:9090`).
+    Each line is a name and a PromQL expression, for example
+    `mem_active = node_memory_active_bytes{instance="192.168.0.1:9100"}`. The first sample of
+    the answer is the value, and a scalar works too. A query that returns nothing counts as a
+    problem, so write one that always answers, such as `down = count(up == 0) or vector(0)`.
+  - **Prometheus exporter (/metrics scrape)**: the URL is the exporter (`http://192.168.0.1:9100`)
+    and the path is `/metrics` unless you change it. Each line is a name and a metric, with `=` or
+    `!=` label matchers if you need them: `root_free = node_filesystem_avail_bytes{mountpoint="/"}`.
+    Leave the name out and the metric's own name is used. The first matching sample on the page is
+    the value. Regular expressions are not supported on a scrape. For those, or for a calculation
+    across metrics, use the query form against a server.
+  - The status is *OK* when every value was read, *warning* when some were not (the detail names
+    them) and *critical* when none were, when the server cannot be reached or when it refuses the
+    login.
+- **Servarr** is one connector for any *arr app. It **detects the API version** (`/api/v3` for
+  Sonarr and Radarr, `/api/v1` for Prowlarr, Lidarr and Readarr) and shows the app's own
+  health-check warnings and errors. The named entries (Sonarr, Radarr and the rest) use the same
+  connector, so pick one per instance. **Bazarr** has a different API and is its own type.
+- **Standalone ESXi** exposes only SOAP. Point the vCenter connector at a vCenter instance.
+- **OctoPrint** reports a disconnected printer as a *warning* (OctoPrint itself is still up) and
+  only unreachability as critical. **ESPHome** warns when a node's deployed firmware is behind the
+  dashboard's current version.
+- **WordPress** needs the URL to be the **site root** (`https://blog.example`, not `/wp-admin` and
+  not the REST path). Without credentials it reports REST reachability and the site title. Add a
+  username and an **Application password** (Users → Profile → Application Passwords, WordPress
+  5.6 or later) and it also lists the last five logins, with source IP, from the free **Simple
+  History** plugin. The IPs get a country when a GeoIP database is configured. Paste the password
+  as WordPress shows it. The spaces are stripped for you. What each problem message means:
 
   | What you see | What it means |
   |---|---|
-  | `HTTP 404 … no REST API at /wp-json/ or ?rest_route=/` | The URL is not a WordPress site root, or the REST API is disabled by a plugin. Both forms are tried, so permalinks set to *Plain* are fine. |
-  | `returned HTML, not JSON` | Something answered instead of WordPress — a login wall, a "checking your browser" interstitial, or a parked domain. |
+  | `HTTP 404 … no REST API at /wp-json/ or ?rest_route=/` | The URL is not a WordPress site root, or a plugin disabled the REST API. Both forms are tried, so permalinks set to *Plain* are fine. |
+  | `returned HTML, not JSON` | Something answered instead of WordPress: a login wall, a "checking your browser" page or a parked domain. |
   | `refusing anonymous requests` | A security plugin or host rule blocks the REST API for logged-out callers. |
-  | `the site did not accept the login … Authorization header` | The credentials never reached PHP. Many CGI/FastCGI hosts drop the `Authorization` header; the fix is a host/`.htaccess` rule, not a new password. |
+  | `the site did not accept the login … Authorization header` | The credentials never reached PHP. Many CGI and FastCGI hosts drop the `Authorization` header. The fix is a host or `.htaccess` rule, not a new password. |
   | `credentials rejected` | WordPress rejected them. Application Passwords also require HTTPS. |
-  | `sent output before its JSON` | A theme or plugin is emitting a PHP notice. RemotePower reads past it, so this only appears when the rest failed to parse too. |
-  | `login history unavailable` | The site is healthy; Simple History just isn't installed. |
+  | `sent output before its JSON` | A theme or plugin prints a PHP notice. RemotePower reads past it, so this appears only when the rest failed to parse too. |
+  | `login history unavailable` | The site is healthy. Simple History is not installed. |
 
-- **GitHub Issues** watches repositories for **newly opened issues** rather than
-  service health. URL is the API root (`https://api.github.com`, or your GitHub
-  Enterprise `/api/v3` root); list repos as `owner/repo, owner/repo` (up to 10);
-  the token is optional (needed for private repos, and lifts the anonymous rate
-  limit). A new issue raises a `github_new_issue` alert in the Alerts inbox —
-  pull requests are ignored and the first poll only baselines, so attaching a
-  repo never floods with its existing backlog. The **GitHub new issues** channel
-  kind defaults to inbox + activity feed only; enable webhook/push routing in
-  Settings → Notifications if you want to page on it.
+- **GitHub Issues** watches repositories for **newly opened issues** rather than service health.
+  The URL is the API root (`https://api.github.com`, or your GitHub Enterprise `/api/v3` root).
+  List repositories as `owner/repo, owner/repo` (up to 10). The token is optional: you need it for
+  private repositories, and it lifts the anonymous rate limit. A new issue raises a
+  `github_new_issue` alert in the Alerts inbox. Pull requests are ignored, and the first poll only
+  sets a baseline, so attaching a repository never floods you with its backlog. At most 10 issues
+  alert per poll, and a summary line covers the rest. The **GitHub new issues** channel kind sends to
+  the inbox and activity feed only by default. Enable webhook or push routing under Settings →
+  Alerting → Channel routing if you want to be paged.
 
 ## What you see
 
-- **Settings → Integrations**: each card shows a live status badge + the last
-  detail line (e.g. "2 pools, DEGRADED: cold" or "1000 queries today, 10% blocked").
-- **Alerts**: `integration_down` (severity from the result — critical → high,
-  warning → medium) lands in the inbox and routes through your channels
-  (the **Integration health** channel kind); it auto-resolves on recovery.
-- **Dashboard activity feed**: up/down transitions appear and click through to
-  the Integrations settings.
+- **Monitoring → Integrations**: a tile for each integration with its status badge, the last
+  detail line (for example "2 pools, DEGRADED: cold" or "1000 queries today, 10% blocked") and key
+  figures. Tiles sort worst first.
+- **Alerts**: `integration_down` (severity comes from the result: critical maps to high, warning to
+  medium) lands in the inbox and routes through your channels (the **Integration health** kind). It
+  resolves when the target recovers.
+- **Dashboard activity feed**: up and down transitions appear and click through to the
+  Integrations page.
 
 ## API
 
-- `GET  /api/integrations` — instances (redacted) + the connector catalog.
-- `POST /api/integrations` — replace the instance list (admin).
-- `POST /api/integrations/test` — probe one instance without saving (admin).
-- `GET  /api/integrations/status` — latest poll result + history per instance.
-
-Adjust the poll cadence with the **Poll interval** field (minimum 60 s).
+- `GET  /api/integrations`: instances (secrets left out) and the connector catalog.
+- `POST /api/integrations`: replace the instance list (admin).
+- `POST /api/integrations/test`: probe one instance without saving (admin).
+- `GET  /api/integrations/status`: latest poll result and history for each instance.
+- `GET  /api/devices/<id>/integrations`: the instances bound to a host.
 
 ## Hiding the feature (enterprise)
 
-The **Show Homelab software** checkbox (Settings → Integrations, default on) is an
-instance-wide kill switch for enterprise deployments that don't use any of this.
-Unchecking it **disables the feature wholesale** — no polling, so no
-`integration_down` alerts; the configuration section is hidden; and the
-*Integration health* dashboard widget disappears from the grid, the widget
-catalog, and the data the dashboard requests. Re-checking it resumes polling on
-the next cycle.
+**Show Homelab software on this instance** (Settings → Integrations, on by default) is a switch for
+enterprise installs that do not use any of this. Unticking it **disables the feature entirely**:
+nothing is polled, so there are no `integration_down` alerts, the configuration section is
+hidden, and the *Integration health* dashboard widget disappears from the grid, the widget
+catalog and the data the dashboard requests. Ticking it again resumes polling on the next cycle.
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| The tile says *no URL configured* | The card has no URL. Fill it in and save. |
+| *target is a blocked address* | The URL points to loopback, link-local or a cloud-metadata address. Use the service's LAN address. |
+| A certificate error | Untick **Verify TLS** for a self-signed certificate. |
+| A tile stays *unknown* | Click **Test** on the card to see the reason, and check that the integration is enabled. |
+| A slow target makes others late | One poll cycle has a time budget, and the longest-waiting instance goes first next time. A very slow target is the one to fix. |
+| Alerts keep firing during a reboot | Bind the instance to its host with **Runs on host**, then use a maintenance window on that host. |
+
+## See also
+
+[dns-control.md](dns-control.md), [edr-coverage.md](edr-coverage.md),
+[writing-a-connector.md](writing-a-connector.md), [virtualization.md](virtualization.md),
+[alert-tuning.md](alert-tuning.md), [alerts.md](alerts.md).

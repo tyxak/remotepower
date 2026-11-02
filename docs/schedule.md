@@ -1,29 +1,57 @@
 # Scheduled Commands
 
-**Scheduling → Schedule** queues a **shutdown** or **reboot** on a host to run
-at a specific future time, instead of dispatching it immediately.
+**Scheduling → Schedule** runs a command on a host at a time you choose, once or
+on a repeating schedule, instead of dispatching it now.
+
+## Adding a job
+
+Press **Add job** and fill in:
+
+- **Host.** The host the command runs on.
+- **Command.** One of **Shut down**, **Reboot**, **Suspend (sleep)**, **Wake
+  (Wake-on-LAN)**, **Upgrade packages** (apt, dnf or pacman, with cleanup),
+  **Upgrade packages + cleanup + reboot**, or **Run script…** (pick a script from
+  the library). The API also accepts `docker_prune` and
+  `container_restart:<container name>` for a container the agent has listed.
+- **When.** **One-shot** takes a date and time. The repeating choices are **Every
+  hour (:00)**, **Every N hours**, **Daily**, **Weekly**, **Monthly** and **Custom
+  cron**, a 5-field expression (minute, hour, day of month, month, day of week).
+  Times are read in the **server timezone**, which is shown next to the field.
+- **Suppress alerts for 1h (maintenance window).** Tick it to open a
+  [maintenance window](maintenance.md) around the run, so the reboot or the
+  upgrade doesn't page anyone.
+
+The **Cron builder** below the list turns a plain-English description into a
+cron expression, checks it and shows its next run times. It needs the AI
+assistant to be set up.
 
 ## How it works
 
-- Add a job: pick a host, the action (shutdown / reboot), and the date/time.
-  Times are interpreted in the **server timezone** (shown next to the field).
-- Pending jobs are listed with Host, Command, Scheduled-for and By (the actor
-  who queued it). Delete a job any time before it fires.
+- Pending jobs are listed with Host, Command, Scheduled for and By (the admin who
+  queued it). Delete a job any time before it fires. A repeating job keeps
+  running until you delete it. You can keep up to 200 jobs.
 - At the scheduled moment the command is placed on the host's normal
   [command queue](agent-commands.md) and delivered on the agent's next
-  heartbeat — so it rides the same audit log, permission checks, quarantine and
-  4-eyes controls as any other host command.
+  heartbeat, so it rides the same audit log, quarantine and approval controls as
+  any other host command. If the server was down at the time, a repeating job
+  catches up on what it missed in the last hour, and no more.
+- An upgrade follows the host's [upgrade mode](patches.md#upgrade-mode), so a
+  host set to Extended installs the new packages an update needs.
+- Scheduling a **shutdown** or **suspend** on a host with no MAC address on record
+  works, but the answer warns you that a scheduled Wake-on-LAN is not possible: the
+  host stays down until someone wakes it.
 
 ## Related scheduling surfaces
 
-- For **recurring** shutdowns/reboots or arbitrary host jobs, manage the host's
-  own [crontab and systemd timers](cron.md).
-- For automatic **package upgrades** on a schedule, use [Auto-patch](auto-patch.md).
+- For jobs that run on the host itself, manage its own
+  [crontab and systemd timers](cron.md).
+- For automatic **package upgrades** with rings and holds, use
+  [Auto-patch](auto-patch.md).
 - For staged fleet-wide deploys, use [Rollouts](rollouts.md).
-- To keep scheduled actions from alerting during expected downtime, pair them
-  with [Maintenance Windows](maintenance.md).
+- To keep scheduled actions from alerting during expected downtime, tick the
+  maintenance option above or define a [maintenance window](maintenance.md).
 
 ## Permissions
 
-Queuing and cancelling a scheduled command requires the **reboot** action
-permission (or admin); every queue and cancel is audit-logged.
+Adding, changing and deleting a scheduled command is **admin-only**, and every
+change is audit-logged. Everyone who is signed in can see the list.

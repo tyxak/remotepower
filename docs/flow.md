@@ -1,4 +1,4 @@
-# Network flow visibility (NetFlow / IPFIX) — v6.4.0
+# Network flow visibility (NetFlow / IPFIX / sFlow)
 
 RemotePower observes hosts through the agent and appliances through syslog/SNMP;
 `remotepower-flowd` adds the **traffic** view for gear that can't run an agent
@@ -106,7 +106,7 @@ links that were fine.
 
 Server Status counts silent exporters separately, so one healthy router no
 longer hides the rest behind a recent "last export" timestamp — and **names
-them** (v7.0.0), because "1 of 3 exporter(s) silent" leaves you to work out
+them**, because "1 of 3 exporter(s) silent" leaves you to work out
 which of three routers it meant.
 
 ### "Never exported" is usually not the router

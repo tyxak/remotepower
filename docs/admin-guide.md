@@ -1,9 +1,8 @@
-# RemotePower — Install &amp; Admin Guide
+# RemotePower: install and admin guide
 
-A complete operator's guide: installing RemotePower, securing it,
-running it day to day, backing it up, and upgrading it. For a quick
-two-command install see [install.md](install.md); this document is
-the longer, operational companion.
+A complete operator's guide: installing RemotePower, securing it, running it day to
+day, backing it up, and upgrading it. For a quick two-command install see
+[install.md](install.md). This document is the longer, operational companion.
 
 ---
 
@@ -11,278 +10,336 @@ the longer, operational companion.
 
 RemotePower has three parts:
 
-- **The server** — nginx in front of a persistent gunicorn/Flask app
-  server. It serves the dashboard and API, ingests agent heartbeats,
-  runs CVE and monitor checks, and stores everything in Postgres (the
-  default, single-node "enterprise" install) or flat JSON/SQLite for a
-  lightweight install. See [security.md](security.md) for the on-disk
-  data layout and the storage backends.
-- **The agent** — a small Python script (`remotepower-agent`) on
-  each managed host. It heartbeats out to the server every 60
-  seconds. The agent reaches the server; the server never needs
-  inbound access to a host.
-- **The web terminal daemon** *(optional)* — a hardened daemon that
-  proxies browser SSH sessions.
+- **The server.** nginx in front of a persistent gunicorn/Flask app server. It serves
+  the dashboard and API, ingests agent heartbeats, and runs CVE and monitor checks.
+  State lives in Postgres (the default for Docker and for `install-server.sh`) or in
+  flat JSON or SQLite files for a lightweight install. See [security.md](security.md)
+  for the data layout and [scaling.md](scaling.md) for the storage backends.
+- **The agent.** A small Python script (`remotepower-agent`) on each managed host. It
+  heartbeats out to the server every 60 seconds by default. The agent reaches the
+  server, and the server never needs inbound access to a host. There are agents for
+  Linux, macOS and Windows.
+- **Optional daemons.** An out-of-band scheduler that runs the maintenance sweeps, a
+  scanner for the Pentest page, a push daemon that nudges agents, and a web terminal
+  daemon that proxies browser SSH sessions. `install-server.sh` installs the first
+  three by default.
 
-The server needs Python 3, nginx, and gunicorn + Flask (the app
-server). The agent needs only Python 3.
+The server needs Python 3, nginx, and gunicorn with Flask. The agent needs only
+Python 3.
 
 ---
 
 ## 2. Installing the server
 
-### 2.1 Quick path (recommended): the unified wizard
+### 2.1 Quick path: the wizard
 
-On the host that will run the dashboard, the turnkey wizard provisions
-everything — nginx, the app, TLS and the admin account — in one run, with
-**HTTPS on by default** and **no insecure default password**:
+On the host that will run the dashboard, the wizard sets up nginx, the app, TLS and
+the admin account in one run, with HTTPS on by default and no fixed default password:
 
 ```
 git clone https://github.com/tyxak/remotepower && cd remotepower
 sudo bash install.sh
 ```
 
-Prefer containers? One command brings the server up over self-signed HTTPS and
-prints the generated admin password to the container log:
+The wizard offers a self-signed certificate, Let's Encrypt, a certificate you bring, or
+none (`--tls self-signed|letsencrypt|byo|none`). It stores state in files. Add
+`--with-postgres` to provision Postgres, and `--with-scheduler` to run the maintenance
+sweeps out of band. `sudo bash install.sh doctor` checks the host first without
+changing anything, and `--dry-run` prints each step instead of running it.
+
+Prefer containers? One command brings the server up over self-signed HTTPS and prints
+the generated admin password to the container log:
 
 ```
 docker compose up -d
 ```
 
-Open the printed URL and log in. To add hosts, use the self-hosted one-line agent
-installer (`wget -qO- "https://your-server/install?t=<token>" | sudo sh`) or push
-agents over SSH with
-`sudo bash install.sh agent push --server https://your-server --token <token> user@host1 [user@host2...]`.
-Tear any of it down with `sudo bash install.sh uninstall` (server, agent or demo;
-add `--purge` to also remove data). See [install.md](install.md) for the full
-quick-start.
+Open the printed URL and sign in. To add hosts, use the one-line installer that the
+dashboard hands you under **Hosts → Enroll host → Quick install command**
+(`wget -qO- "https://your-server/install?t=<token>" | sudo sh`), or push the agent
+over SSH:
 
-**Advanced — the individual scripts.** The component scripts still exist for
-bigger / segmented / HA deployments (the explicit heavy-fleet track) or when you
-want to wire each piece yourself. On the host that will run the dashboard:
+```
+sudo bash install.sh agent push --server https://your-server --token <token> user@host
+```
+
+One enrollment token enrolls one host, so mint one token per host. Tear an install
+down with `sudo bash install.sh uninstall` (add `--purge` to remove the data too). See
+[install.md](install.md) for the full quick-start.
+
+**Advanced: the individual scripts.** For larger or segmented deployments you can run
+the component scripts yourself. On the host that will run the dashboard:
 
 ```
 sudo bash install-server.sh
 ```
 
-The installer provisions nginx, gunicorn + Flask, Postgres, and the
-out-of-band scheduler by default (single-node), lays out the data
-directory, and prints the dashboard URL plus an auto-generated admin
-password. Use that password for the first login.
+This is the full single-node topology: nginx, gunicorn and Flask, Postgres, the
+out-of-band scheduler, a scanner for the Pentest page and the push daemon. It lays out
+the data directory and prints the dashboard URL plus a generated admin password. Opt
+out of parts with `--no-postgres`, `--no-scheduler`, `--no-scanner` or `--no-push`.
+Optional pieces such as the SSH gateway, the syslog and NetFlow receivers and the KMIP
+key server are off unless you pass `--with-sshgw`, `--with-syslogd`, `--with-flowd` or
+`--with-kmip`, because each opens a network port.
 
 ### 2.2 What the installer lays down
 
 - The application under the web root (the `server/` tree).
-- A data directory for local state, created mode `0700` (used by the
-  flat-JSON backend, and for files that live on disk even under Postgres).
-- An nginx vhost with the security headers and the `/api/` `proxy_pass`
-  location.
-- The state files themselves, written mode `0600`.
+- A data directory for local state, created with mode `0700`. The JSON and SQLite
+  backends keep their state here, and it holds the files that stay on disk even under
+  Postgres, such as certificates and backup archives.
+- An nginx vhost with the security headers and the `/api/` `proxy_pass` location.
+- The state files themselves, written with mode `0600`.
+- The [`rp`](cli.md) command in `/usr/local/bin` (with `install-server.sh` and
+  `deploy-server.sh`).
 
 ### 2.3 First login
 
-Open the printed URL and log in as `admin` with the printed
-password. RemotePower shows a **default-password warning banner**
-until you change it — do that immediately (see §4.1).
+Open the printed URL and sign in as `admin` with the password the installer printed.
+The password is shown once. If RemotePower shows a banner asking you to change a
+default password, do it straight away (see section 4.1).
 
 ---
 
 ## 3. Installing agents
 
-On each host you want to manage:
+On each host you want to manage, the easiest route is **Hosts → Enroll host** in the
+dashboard. It gives you a one-line installer for Linux and macOS, one for Windows, and
+a ready-made `docker compose` file to run the agent as a container. To install by
+hand instead:
 
 ```
 sudo bash install-client.sh
 ```
 
-It asks for the server URL and a 6-digit enrolment PIN. Generate the
-PIN from the dashboard (Hosts → enrol). The agent installs as a
-systemd service (`remotepower-agent.service`), enabled and started.
+The script asks for the server URL and the 6-digit enrollment PIN, which you create
+under **Hosts → Enroll host**. The PIN expires after 10 minutes. You can also pass
+`--server URL --pin PIN` to skip the prompts. For a server with its own certificate
+authority, add `--ca-fingerprint <sha256>` so the agent fetches and trusts that CA
+only if the fingerprint matches. The agent installs as a systemd service
+(`remotepower-agent.service`), enabled and started.
 
-Check it afterwards:
+Running the installer again on an enrolled host is an upgrade: the binary and unit are
+refreshed, enrollment and credentials are kept, and the agent restarts. Add
+`--re-enroll` to enroll from scratch.
+
+Check the result:
 
 ```
 systemctl status remotepower-agent.service
 journalctl -u remotepower-agent.service -n 50
 ```
 
-A healthy agent logs a startup line with its version and the server
-URL, then `Config updated:` lines as the server pushes it watch
-lists.
+A healthy agent logs a startup line with its version and the server URL, then
+`Config updated:` lines as the server pushes it watch lists. Windows and macOS hosts
+have their own installers: see [windows-client.md](windows-client.md).
 
 ### Agent logs and rotation
 
-Every agent **rotates its own log** — there is no logrotate or newsyslog file
-to install, and none is needed:
+Every agent rotates its own log. There is no logrotate or newsyslog file to install.
 
 | Platform | Log file | Rotation |
 |---|---|---|
-| Linux | `/var/log/remotepower-agent.log` | 5 MB × 5 backups (~25 MB) |
-| Windows | `%ProgramData%\RemotePower\agent.log` | 1 MB × 3 backups (~4 MB) |
-| macOS | `/var/log/remotepower-agent.log` | 5 MB × 5 backups (~25 MB) *(v6.4.1 — unbounded before that)* |
+| Linux | `/var/log/remotepower-agent.log` | 5 MB × 5 backups (about 25 MB) |
+| Windows | `%ProgramData%\RemotePower\agent.log` | 1 MB × 3 backups (about 4 MB) |
+| macOS | `/var/log/remotepower-agent.log` | 5 MB × 5 backups (about 25 MB) |
 
-On Linux the agent also logs to the journal (`journalctl -u
-remotepower-agent.service`), so the file is a convenience copy, not the only
-record. A file sitting well under its cap has simply not reached the rotation
-threshold yet — that is normal, not a missing rotation.
+On Linux the agent also logs to the journal (`journalctl -u remotepower-agent.service`),
+so the file is a convenience copy. A file well under its cap has not reached the
+rotation threshold yet. That is normal, not a missing rotation.
 
-On macOS, launchd's own crash output goes to a **separate**
-`/var/log/remotepower-agent-boot.log`, not the rotating file: the
-rotating handler renames on rollover while launchd keeps an open descriptor to
-the old file, so sharing one path would send launchd's output somewhere nothing
-reads. That boot file normally stays empty — it only catches a traceback that
-escapes Python logging — and the agent truncates it if it ever passes 1 MB.
+On macOS, launchd's own crash output goes to a separate
+`/var/log/remotepower-agent-boot.log`. The rotating handler renames the file on
+rollover while launchd keeps an open descriptor to the old one, so sharing one path
+would send launchd's output somewhere nothing reads. The boot file normally stays
+empty. It only catches a traceback that escapes Python logging, and the agent
+truncates it if it ever passes 1 MB.
 
-For fleet enrolment (cloud-init, Ansible) use a long-lived enrolment
-token instead of a one-time PIN — see [install.md](install.md).
+For fleet enrollment from cloud-init or Ansible, mint one-time enrollment tokens with
+`POST /api/enrollment-tokens` instead of using a PIN. A token lasts 24 hours by default
+(7 days at most), enrolls one host, and can carry a default group and tags. See
+[install.md](install.md).
 
 ---
 
 ## 4. Post-install hardening
 
-RemotePower ships with sensible defaults, but a few steps are worth
-taking before it manages anything important.
+RemotePower ships with sensible defaults, but a few steps are worth taking before it
+manages anything important. [security.md](security.md) has the full list.
 
 ### 4.1 Change the admin password
 
-Settings → Security. Passwords are stored with bcrypt (or salted
-PBKDF2 where bcrypt is unavailable). The
-default-password banner clears once the seeded password is replaced.
+Open **My Account** from the avatar menu in the top-right corner, then **Security →
+Password**. You need your current password, and every other session signed in as you
+is signed out. Passwords are stored with bcrypt (cost 12), or with salted PBKDF2 where
+bcrypt is not installed. A default-password banner stays until the account's
+"must change password" flag is cleared.
 
-### 4.2 Enable two-factor authentication
+### 4.2 Turn on two-factor authentication
 
-Settings → Security → "Enable two-factor". Scan the QR with any
-authenticator app. Disabling 2FA later requires a current code —
-so a stolen session cookie alone cannot remove it.
+On **My Account → Security → Two-factor authentication**, scan the QR code with any
+authenticator app and confirm one code. Store the recovery codes somewhere safe; they
+are shown once. Turning 2FA off again needs your account password, so a stolen session
+cookie alone cannot remove it. You can also register a passkey on the same page.
+
+To make it mandatory, tick **Require MFA for admin accounts** (and list any other
+roles) under **Settings → Security → Account guardrails**. That section also sets a
+default expiry for API keys, a per-user session cap, and the webhook SSRF guard.
 
 ### 4.3 Put the dashboard behind TLS
 
-Do not run the dashboard over plain HTTP outside localhost. Agents
-verify the server's certificate, and the login form and API tokens
-must not cross the network in the clear. Terminate TLS at nginx —
-see [https.md](https.md).
+Do not run the dashboard over plain HTTP outside localhost. Agents verify the server's
+certificate, and the sign-in form and API tokens must not cross the network in the
+clear. Terminate TLS at nginx. See [https.md](https.md), or [tls-selfsigned.md](tls-selfsigned.md)
+for a private CA.
 
-### 4.4 Restrict the command allow-list
+### 4.4 Restrict what a host will run
 
-Per host, the command allow-list bounds what can be executed. Keep
-it as narrow as the host's role needs.
+Each host can carry a **command allowlist**: open the host, go to **Actions &
+settings**, and fill in **Command allowlist**. When the list has entries, only those exact commands can be
+run on the host through exec, one per line (up to 50). Leave it empty to allow any
+command except a short built-in denylist (`rm -rf /`, `mkfs`, writes to `/dev/sd*`,
+`dd if=` and a fork bomb). Keep it as narrow as the host's role needs. Roles and their
+permissions are managed on the **Users** page.
 
 ### 4.5 Secrets via environment variables
 
-Sensitive config — the Proxmox API token secret, for instance — can
-be supplied through an environment variable (`RP_PROXMOX_TOKEN_SECRET`)
-rather than living in `config.json`. The backup export redacts
-secret fields. Set these in `/etc/remotepower/api.env` (the
-`remotepower-wsgi` service's `EnvironmentFile=`).
+Sensitive configuration can come from the server's environment instead of being kept
+in `config.json`:
+
+- `RP_PROXMOX_TOKEN_SECRET` supplies the Proxmox API token secret.
+- `RP_BACKUP_PASSPHRASE` turns on encrypted backups (see section 6).
+- `RP_CONFIG_KEY` encrypts secret fields in the stored configuration.
+
+Put them in `/etc/remotepower/api.env`, which the `remotepower-wsgi` service loads with
+`EnvironmentFile=`. Make the file root-owned with mode `0600`. Do not put them inline
+in the unit file, which the update scripts overwrite. The redacted export on
+Settings → Backups strips secret fields.
 
 ---
 
 ## 5. Day-to-day operation
 
-### 5.0 Managing the server itself — `rp`
+### 5.0 Managing the server itself: `rp`
 
-On the server box, the [`rp`](cli.md) command controls the RemotePower stack,
-omd/checkmk-style: **`rp status`** (or the live **`rp tui`**) shows every
-component, **`sudo rp restart`** bounces the stack (or one part, `rp restart push`),
-**`sudo rp doctor`** health-checks everything with fixes, `rp logs <component>`
-tails a unit, and `rp deploy` / `rp repair` update or restore it. See
+On the server, the [`rp`](cli.md) command controls the RemotePower stack in the style
+of omd and checkmk. **`rp status`** (or the live **`rp tui`**) shows every component,
+**`sudo rp restart`** bounces the stack (or one part, `sudo rp restart push`),
+**`sudo rp doctor`** health-checks everything and suggests fixes, `rp logs <component>`
+follows a unit, and `rp deploy` and `rp repair` update or restore the install. See
 [cli.md](cli.md) for the full guide and troubleshooting table.
 
 ### 5.1 The dashboard
 
-The Home page is the daily view: fleet status tiles (hosts online,
-pending updates, drift events, CVE findings, and — if a host is
-promoted — unread mail), a "needs attention" column, and recent
-fleet activity. Drill into any host for sysinfo, journals, CVEs,
-drift, services and command output.
+The Dashboard is the daily view. By default it shows fleet tiles (hosts online,
+pending updates, drift events, critical CVEs), upcoming events, open alerts, the fleet
+health score, a heat map, a "needs attention" column and recent activity. You can add,
+remove and resize widgets. See [dashboard.md](dashboard.md). Click any host for
+sysinfo, journals, CVEs, drift, services and command output.
 
 ### 5.2 Running commands
 
-Hosts page → a host's action menu: shutdown, reboot,
-Wake-on-LAN, package upgrade, arbitrary commands, scheduled jobs.
-Batch actions run across multiple selected hosts. Everything is
-recorded in the fleet event log and the per-host command history.
+Open the **Hosts** page. The **⋯** menu on a host offers shutdown, reboot, Wake-on-LAN,
+package upgrade, **Scan packages now**, **Update agent**, a custom command, the web
+terminal and more. **Bulk actions** (or `Ctrl/Cmd-K` and "Bulk actions") runs an action
+across many hosts at once. Every action is recorded in the activity feed and in the
+per-host command history. See [fleet-management.md](fleet-management.md).
 
 ### 5.3 Monitoring
 
-- **CVE scanning** — automatic, OSV-backed. Use "Scan packages now"
-  on a host to refresh its inventory immediately after patching.
-- **Drift detection** — watched config files are hashed every heartbeat;
-  review and accept baselines on the host detail.
-- **External monitors** — ping/TCP/HTTP probes, TLS/DNS expiry.
-- **Mailbox monitor** — Settings → Mailbox monitor.
-- **Alerts** — state changes fire webhooks (Settings → Notifications).
+- **CVE scanning** is automatic and uses OSV. After patching a host, use **Scan
+  packages now** on it to refresh its inventory straight away.
+- **Drift detection** hashes watched config files on every heartbeat. Review and
+  accept baselines on the host.
+- **External monitors** run ping, TCP and HTTP probes. **TLS / DNS** tracks certificate
+  and domain expiry.
+- **Mailbox monitor** is under Settings → Mailbox monitor.
+- **Alerts.** State changes fire webhooks, email and push. Configure destinations
+  under Settings → Notifications and thresholds under Settings → Alert parameters.
+  See [alerts.md](alerts.md).
 
 ### 5.4 Virtualization
 
-Settings → Virtualization connects your hypervisors. **Proxmox VE** uses a
-scoped API token (one node); the Virtualization and Containers pages then manage
-QEMU VMs and LXC containers, including snapshots, clone and migrate.
+**Settings → Virtualization** connects your hypervisors. **Proxmox VE** uses a scoped
+API token for one node. The Virtualization and Containers pages then list QEMU VMs and
+LXC containers. Start, stop, reboot, snapshot, clone and migrate are off until you
+tick **Allow VM/CT lifecycle actions**, because they change running guests.
 
-**VMware vSphere / ESXi / vCenter, VMware Cloud Director and OpenShift
-Virtualization** are added as integration instances on the same tab. On the
-Virtualization page a platform picker lets you list guests and run **power**
-(start / shutdown / reboot / suspend, filtered to each platform) and
-**snapshot** (create / revert / delete) actions. Reads are available to any
-signed-in user; power and snapshot actions are admin-only and audited. See
+**VMware vSphere, ESXi and vCenter, VMware Cloud Director and OpenShift
+Virtualization** are added on the same tab as platforms. On the Virtualization page a
+platform picker lists guests and offers **power** actions (start, shutdown, reboot,
+suspend, filtered to each platform) and **snapshot** actions (create, revert, delete).
+Any signed-in user can read; power and snapshot actions are admin-only and audited. See
 [virtualization.md](virtualization.md).
 
-### 5.5 Settings &amp; controls (v5.0.0)
+### 5.5 Settings and controls worth knowing
 
-A few controls worth knowing about:
-
-- **Login banner** (Settings → Advanced → General) — an optional notice shown
-  above the sign-in form, e.g. "Authorized use only."
-- **Per-API-key rate limits** (Admin → API Keys) — give a key its own
-  requests-per-minute budget; 0 means unlimited.
-- **Two-person break-glass** for the most sensitive vault credentials: one admin
-  requests a reveal, a second approves, the whole exchange is audit-logged and
-  raises a `vault_break_glass` alert.
-- **Mutual-TLS agent auth** — pin a per-host client certificate and optionally
-  enforce it fleet-wide so the server only accepts heartbeats from a known agent.
-- **Maintenance mode** (Settings → Advanced) — pause command dispatch during an
-  upgrade without hosts flapping offline.
-- **Self-update script** (Settings → Install) — an absolute path the **Run
-  update** button executes; see [upgrading.md](upgrading.md).
-- **Backup encryption** — AES-256-GCM at rest via `RP_BACKUP_PASSPHRASE` (put it
-  in `/etc/remotepower/api.env`, root-owned `0600` — **not** an inline
-  `Environment=` line in the unit, which is overwritten on every redeploy), plus a
-  Server Status → Backup button to encrypt existing archives.
-- **NOC Status Board** and the **Network Metrics** page give glanceable
-  fleet-wide views for large estates.
+- **Login banner** (Settings → General) is an optional notice shown above the sign-in
+  form, for example "Authorized use only."
+- **Per-API-key rate limits** (Admin → API Keys) give a key its own requests-per-minute
+  budget. `0` means unlimited.
+- **Two-person break-glass** protects the most sensitive vault credentials. One admin
+  requests a reveal, a second approves, the whole exchange is audit-logged, and a
+  `vault_break_glass` alert fires.
+- **Agent mutual TLS** (Settings → Security → Agent mutual TLS) pins a per-host client
+  certificate and can enforce it fleet-wide, so the server only accepts heartbeats from
+  a known agent.
+- **Maintenance mode** (Settings → Security → Maintenance mode) pauses new command
+  dispatch during a server upgrade. Heartbeats and read-only browsing keep working, so
+  hosts do not flip offline. Planned work on the hosts themselves belongs in
+  [maintenance.md](maintenance.md).
+- **Guided self-update** (Settings → Install) takes an absolute path to an update
+  script and adds a **Run update now** button. See [upgrading.md](upgrading.md).
+- **Backup encryption.** Set `RP_BACKUP_PASSPHRASE` and archives are written as
+  AES-256-GCM. **Server Status → Encrypt existing backups** converts archives already on
+  disk. See [backups.md](backups.md).
+- **Status Board** and **Network Metrics** give glanceable fleet-wide views for large
+  estates.
 
 ---
 
-## 6. Backup &amp; restore
+## 6. Backup and restore
 
-All state lives in the data directory — PostgreSQL by default (flat JSON with `--no-postgres`), or a
-single `remotepower.db` SQLite file if you switched backends — so
-backing RemotePower up is backing up that directory.
+What holds your data depends on the storage backend. The JSON backend keeps files in
+the data directory. SQLite adds a single `remotepower.db` there. Postgres keeps state
+in the database and leaves only certificates, backup archives and similar files in the
+data directory.
 
-### 6.1 Built-in export
+### 6.1 Built-in backup (recommended)
 
-Settings → Backups &amp; export produces a single archive of the state
-files with secret fields redacted. Schedule it, or pull it before an
-upgrade.
+**Settings → Backups** has a daily **Scheduled backup** (on by default, 14 days of
+retention) and three buttons:
+
+- **Full backup (tar.gz)** downloads an archive that can rebuild the server, including
+  the encrypted credentials vault and integration secrets. Keep it private.
+- **Export (redacted ZIP)** strips API keys and integration secrets, so it is safe to
+  store or share. It is for reference, not for a restore.
+- **Restore…** loads an archive back, on any storage backend.
+
+The archive carries your data whichever backend you run, because the database backends
+export their documents into it. **Test restore (latest backup)** checks that the newest
+archive opens, and a scheduled drill does the same every week. Set
+`RP_BACKUP_PASSPHRASE` to encrypt archives, and set an off-host copy path so a lost
+server does not take its backups with it. All of that is in [backups.md](backups.md).
 
 ### 6.2 Filesystem backup
 
-Equivalently, snapshot the data directory directly:
+On the JSON or SQLite backend you can also copy the data directory:
 
 ```
 tar czf remotepower-backup-$(date +%F).tar.gz -C /path/to/datadir .
 ```
 
-Do this with the server briefly quiesced, or accept that a file
-written mid-backup is captured atomically (saves are atomic, so a
-backup never catches a half-written file — but it may catch a mix of
-old and new files across a multi-file update).
+Saves are atomic, so a backup never catches a half-written file. It can catch a mix of
+old and new files across a multi-file update, so stop the server briefly if you need a
+consistent copy. On Postgres, back up the database with your usual tooling as well.
 
 ### 6.3 Restore
 
-Stop the server, replace the data directory contents from the
-archive, restore ownership (`0700` on the directory, `0600` on the
-files), and start the server.
+The easiest route is **Settings → Backups → Restore…** with the archive. RemotePower
+takes a safety snapshot of the current state first. To restore by hand on the JSON or
+SQLite backend, stop the server, replace the data directory contents from the archive,
+restore ownership (`0700` on the directory, `0600` on the files) and start the server.
 
 ---
 
@@ -290,31 +347,35 @@ files), and start the server.
 
 ### 7.1 Check for updates
 
-RemotePower checks the project's GitHub repository and shows an
-in-app notice when the running version is behind. The notice
-includes the update commands. RemotePower never modifies its own
-code — upgrading is always a considered operator action.
+**Settings → Install → Check for updates** compares the running version with the latest
+published release. When a newer one exists, a banner appears with the release notes
+link and the update steps. **Snooze 30d** hides the banner for that version.
+RemotePower never changes its own code by itself. You run the update, or you set up the
+optional guided self-update script.
 
 ### 7.2 Upgrade procedure
 
-1. **Back up** the data directory (§6).
+1. **Back up** (section 6).
 2. Pull the new release.
-3. `sudo bash install.sh update` — self-detects whether that's a plain code
-   deploy or a pre-6.1.0 CGI/SCGI-to-gunicorn/Flask conversion, re-deploys
-   the `server/` tree, and reloads nginx. Full detail: [upgrading.md](upgrading.md).
-4. Update agents (the dashboard can push an agent update, or
-   re-run `install-client.sh`). Keep agent and server versions
-   aligned — a feature that spans both needs both updated.
+3. `sudo bash install.sh update` detects whether this is a plain code deploy or a
+   pre-6.1.0 CGI conversion, redeploys the `server/` tree and reloads nginx. `rp deploy`
+   does the code deploy too. Full detail: [upgrading.md](upgrading.md).
+4. Update agents. The host menu has **Update agent**, and you can also run
+   `install-client.sh` again. Keep agent and server versions aligned, because a feature
+   that spans both needs both updated.
 
-Releases are drop-in unless a release note says otherwise; state
-files are forward-compatible. Read the relevant `docs/vX.Y.Z.md`
-notes before a multi-version jump.
+Releases are drop-in unless a release note says otherwise, and state files are
+forward-compatible. Read the release notes for each version before a multi-version
+jump.
 
 ### 7.3 Rolling back
 
-Re-deploy the previous release and restore the data directory backup
-taken in step 1. Because state files only ever gain optional fields,
-an older version simply ignores fields it does not recognise.
+Each deploy first saves a snapshot of the code, and the three newest are kept.
+`sudo bash deploy-server.sh --rollback` restores the newest one. That restores code
+only. If the newer version changed the database schema, also restore the data backup you
+took in step 1; the server logs a loud warning on every request while the schema is
+newer than the code. State files only gain optional fields, so an older version ignores
+fields it does not recognise.
 
 ---
 
@@ -322,11 +383,12 @@ an older version simply ignores fields it does not recognise.
 
 | Symptom | First thing to check |
 |---|---|
-| A host shows offline | `systemctl status remotepower-agent` on the host; then `journalctl -u remotepower-agent` |
-| Agent can't reach the server | TLS trust, the server URL, firewalling on the path agent → server |
-| 403 on the dashboard | Session expired — log in again; check the system clock if TOTP fails |
-| A pushed config (drift, mailbox) doesn't take effect | Agent version — a config push only works on an agent new enough to know the field |
-| CVE severities look wrong | Trigger a scan; pre-2.3.4 cache entries re-classify on next scan |
+| A host shows offline | `systemctl status remotepower-agent` on the host, then `journalctl -u remotepower-agent` |
+| Agent cannot reach the server | TLS trust, the server URL, and firewalling between agent and server |
+| 403 on the dashboard | The session expired, so sign in again. If a TOTP code fails, check the system clock |
+| A pushed config (drift, mailbox) does not take effect | The agent version: a push only works on an agent new enough to know the field |
+| Pages load but nothing updates | `sudo rp doctor`, then `rp logs wsgi` |
+| The server will not start after an upgrade | `rp logs wsgi`, then `rp repair` |
 
 More in [troubleshooting.md](troubleshooting.md).
 
@@ -336,11 +398,12 @@ More in [troubleshooting.md](troubleshooting.md).
 
 | Item | Location |
 |---|---|
-| Application | the nginx web root (`server/` tree) |
-| State (JSON) | the data directory — mode `0700`, files `0600` |
-| Agent | `/usr/local/bin/remotepower-agent` + systemd unit |
-| nginx vhost | your nginx `sites-available` / `conf.d` |
-| Release notes | `docs/vX.Y.Z.md` |
+| Application | The nginx web root (`server/` tree) |
+| State | The data directory (mode `0700`, files `0600`), plus the database on Postgres |
+| Server settings that come from the environment | `/etc/remotepower/api.env` |
+| Agent | `/usr/local/bin/remotepower-agent` plus a systemd unit |
+| nginx vhost | Your nginx `sites-available` or `conf.d` |
+| Release notes | `docs/vX.Y.Z.md` and `CHANGELOG.md` |
 
 ---
 

@@ -1,7 +1,5 @@
 # Racks & IPAM
 
-*Racks and IPAM introduced in v6.0.0; duplicate-MAC detection added in v6.1.2.*
-
 Two related inventory features, both living on the **Sites & teams** page
 (sidebar → Sites):
 
