@@ -218,6 +218,10 @@ The IMAP password is never returned. `GET /api/dmarc/imap` only says whether one
 | The sender list is empty | Reports usually arrive once a day from each provider, so it takes a day or more after you publish a `rua=` address. |
 | A domain shows **fail** though DMARC is published | `p=none` is monitoring only. Move to `quarantine` or `reject` once the reports show your own mail passing. |
 
+## With multi-tenancy
+
+The DMARC domains and their reports belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can read them, and only the platform operator can change them.
+
 ## See also
 
 [ip-intel.md](ip-intel.md) (reputation of addresses that attack you), [tls-monitor.md](tls-monitor.md)

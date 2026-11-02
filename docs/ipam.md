@@ -162,3 +162,7 @@ Rack and subnet writes are audit-logged (`rack_create` / `rack_update` /
 Implementation: `server/cgi-bin/rack_ipam_handlers.py` (handlers + the
 conflict sweep), placement fields in `server/cgi-bin/cmdb_handlers.py`, UI in
 `app.js` (`loadRacks` / `loadIpam` and friends) on the Sites & teams page.
+
+## With multi-tenancy
+
+The address plan, the racks and the site reports belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can read or change them.

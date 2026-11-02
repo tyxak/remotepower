@@ -109,6 +109,10 @@ health, latency, which resolvers answered and the last-checked time.
 | *Import from agent* finds nothing | The agent must run as root on a host that has `acme.sh` with DNS credentials. |
 | `resolver_unhealthy` for a name that works | Some resolvers rate-limit or block cloud-hosted servers. The status line shows which ones answered. |
 
+## With multi-tenancy
+
+The DNS providers, their zones and records, and the credentials behind them belong to the organisation that runs the installation. With tenant isolation on, only the platform operator can open or change them.
+
 ## See also
 
 [acme.md](acme.md), [tls-monitor.md](tls-monitor.md), [dmarc.md](dmarc.md),

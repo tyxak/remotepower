@@ -441,3 +441,7 @@ diagnostics. Offline and online transitions always log.
 See also: [rag.md](rag.md) for the knowledge index, [ai-executor.md](ai-executor.md) for
 governed remediation, [autonomy.md](autonomy.md) for unattended actions, and
 [mitigation.md](mitigation.md) for the investigate-and-fix dialog.
+
+## With multi-tenancy
+
+The provider, its address, model and key, the parameters and the prompts are the operator's. With tenant isolation on, a tenant's administrator is told whether the assistant is on and nothing else, and only the platform operator can change the settings or test the provider.

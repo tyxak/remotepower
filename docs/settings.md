@@ -210,3 +210,7 @@ Instance-wide switches. Read the hint before you change anything here.
 - **Scaling** (PostgreSQL, the out-of-band scheduler, satellites): [scaling.md](scaling.md).
 - **Roles and permissions**: [admin-guide.md](admin-guide.md).
 - What changed in each release: [../CHANGELOG.md](../CHANGELOG.md).
+
+## With multi-tenancy
+
+GitOps, metrics push and the other pages of Settings that act on the whole installation are for the platform operator. A tenant's administrator reads the numbers and switches its own pages draw, and nothing else of the settings document.

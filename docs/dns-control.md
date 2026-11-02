@@ -61,3 +61,7 @@ request, the badge does not pretend it obeyed.
 ---
 
 ← [Back to docs index](README.md)
+
+## With multi-tenancy
+
+The DNS blockers are the operator's own. With tenant isolation on, only users of the default tenant can see them, and only the platform operator can switch blocking on or off.

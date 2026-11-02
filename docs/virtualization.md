@@ -63,3 +63,7 @@ power state, vCPU / memory and host (or namespace, for OpenShift).
 
 `{id}` is the integration instance id from `GET /api/virt/platforms`. Proxmox
 keeps its own `/api/proxmox/*` endpoints.
+
+## With multi-tenancy
+
+The hypervisor platforms are the operator's own integrations. With tenant isolation on, only users of the default tenant can list them or their machines, and only the platform operator can power a machine on or off or take a snapshot.

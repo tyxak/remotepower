@@ -85,7 +85,10 @@ Force renew does not add credentials: `acme.sh` renews with what it saved on the
 when it first issued the certificate.
 
 Saving credentials needs an instance admin. On an install with tenants, tenant admins
-cannot change them.
+cannot change them, and the central credentials go only into commands for hosts of the
+default tenant. A tenant's host keeps its token in its own `account.conf`, because the
+saved token would otherwise end up in `account.conf` on that host. If you saved central
+credentials before 7.4.9 and have tenants, rotate the token.
 
 You can also pull credentials the other way. On the **DNS** page, **Import from agent**
 asks a host's agent to read the tokens saved in its `acme.sh` `account.conf` and move

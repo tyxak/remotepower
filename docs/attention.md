@@ -186,3 +186,7 @@ The decorator step at the end of `_compute_attention` automatically:
 These conditions previously fired webhooks (so Recent Activity showed them on
 the transition) but never produced an NA item — meaning a service that was
 already down when the operator opened the dashboard was effectively invisible.
+
+## With multi-tenancy
+
+The suppression rules hide whole kinds of item for the fleet, a group, a tag or a host, so they belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can read them and only the platform operator can add or remove one. A tenant sees the items that name its own hosts.

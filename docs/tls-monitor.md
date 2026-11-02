@@ -266,3 +266,7 @@ ago.)
 now" takes longer than the app server's request timeout (`proxy_read_timeout`,
 typically 30-130s depending on the route). Either trigger the cron
 script directly via SSH, or split the watchlist and run partial scans.
+
+## With multi-tenancy
+
+The monitored endpoints belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can read them, and only the platform operator can change them or replace the server's own certificate.

@@ -63,3 +63,7 @@ see. Creating, editing and removing rules is admin-only and is written to the au
 - To fix a violation, install or remove packages from the [Patch Report](patches.md), or
   push the change with [Rollouts](rollouts.md).
 - SSH key hygiene is covered by the [SSH key audit](security.md).
+
+## With multi-tenancy
+
+There is one software policy, judged against the hosts of every tenant. With tenant isolation on, a tenant reads the policy and the violations on its own hosts, and only the platform operator can change the policy.

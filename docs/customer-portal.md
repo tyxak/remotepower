@@ -91,3 +91,7 @@ All under `/api/portal/`, cookie-authenticated:
 - [Ticket system](ticket-system.md) — the helpdesk the portal is a customer-facing
   window onto.
 - [Contacts](contacts.md) — where portal access is granted.
+
+## With multi-tenancy
+
+The portal's request queue belongs to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can read or answer it. A customer signs in to the portal itself and is not affected.

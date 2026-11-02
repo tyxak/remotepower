@@ -105,3 +105,7 @@ intrusion. Before declaring an incident:
 ← [Back to docs index](README.md) · [Security controls](security.md) ·
 [Access review](access-review.md) · [Data retention](data-retention.md) ·
 [Alert tuning](alert-tuning.md)
+
+## With multi-tenancy
+
+Incidents belong to the organisation that runs the installation. With tenant isolation on, only users of the default tenant can read or change them.

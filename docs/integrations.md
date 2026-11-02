@@ -276,6 +276,10 @@ catalog and the data the dashboard requests. Ticking it again resumes polling on
 | A slow target makes others late | One poll cycle has a time budget, and the longest-waiting instance goes first next time. A very slow target is the one to fix. |
 | Alerts keep firing during a reboot | Bind the instance to its host with **Runs on host**, then use a maintenance window on that host. |
 
+## With multi-tenancy
+
+The integrations are the operator's own. With tenant isolation on, only users of the default tenant can list them or see their status, and a tenant's administrator cannot add or test one.
+
 ## See also
 
 [dns-control.md](dns-control.md), [edr-coverage.md](edr-coverage.md),

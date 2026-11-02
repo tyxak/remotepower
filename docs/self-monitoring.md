@@ -322,3 +322,7 @@ redacted, which they always are in `config.json` exports.
 
 See also: [cli.md](cli.md), [scaling.md](scaling.md), [backups.md](backups.md),
 [webhooks.md](webhooks.md), [alert-parameters.md](alert-parameters.md).
+
+## With multi-tenancy
+
+The self-test, the security posture, the setup checklist and the diagnostics bundle describe the installation. With tenant isolation on, only users of the default tenant can open them.

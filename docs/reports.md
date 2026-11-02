@@ -102,3 +102,7 @@ Practical notes:
 
 Viewing and exporting reports is available to admins and the **finance** /
 **auditor** read-only roles; the evidence pack is admin-only.
+
+## With multi-tenancy
+
+Report definitions and the schedule are the operator's: they mail fleet-wide reports. With tenant isolation on, only users of the default tenant can read them, and only the platform operator can change them. A tenant's administrator still gets the fleet report and the evidence pack for its own hosts.

@@ -259,6 +259,10 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
   errors and container crash loops in the risk score, `docker_df` sent on its own on a first poll, and DMI and memory-module data
   for the AI index.
   Three more (the Advisory's disk-encryption finding, the AI digest and the GPU line) are done.
+- **Tenant-owned features.** The users of a tenant lost the pages of the organisation that runs the installation (monitors, links,
+  calendar, integrations, dead-man jobs, needs-attention suppression rules and the rest of the list above). A tenant that needs its
+  own copy of one has none. Each would keep its records stamped with the tenant, as tickets do: a feature to build, not a way to
+  attack an installation.
 - **Translations.** The strings added in 7.4.9 are owed a read by a native speaker in each of the six languages.
 
 ## Not found
