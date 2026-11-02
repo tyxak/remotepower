@@ -23,6 +23,7 @@ the warning, as for the disk busy lines.
 from __future__ import annotations
 
 import math
+import re
 from typing import Any, Callable
 
 # The drive types a line can be set for. A drive of any other type, or of none the agent could tell, is
@@ -102,14 +103,61 @@ def sensor_media(label: Any) -> str | None:
     return None
 
 
-def sensor_lines(label: Any, host: Any, fleet: Any) -> tuple[float | None, float | None]:
+_DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,31}\Z")
+
+
+def as_drive_name(value: Any) -> str | None:
+    """A disk's name as the kernel gives it ("sda", "sdaa", "vdb") and the agent sends it for a drivetemp sensor,
+    or None when the value is anything else. The name is only ever compared with the end of a SMART entry's
+    device path, but it is also stored, so it is held to the shape of a block device name."""
+    return value if isinstance(value, str) and _DRIVE_NAME.match(value) else None
+
+
+def disk_of(drive: Any, smart: Any) -> dict | None:
+    """The SMART entry of the disk a drivetemp sensor reads (#54), or None when there is not exactly one.
+
+    `drive` is the disk's name the agent put on the sensor and `smart` the SMART entries of the same hardware report.
+    An entry is the disk when the end of its device path is the name ("/dev/sda" for "sda"). None for a sensor with no
+    name, a report without that disk, or two entries that claim it, so the sensor falls back to the lines for any
+    drive rather than to a disk that may be the wrong one."""
+    name = as_drive_name(drive)
+    if name is None or not isinstance(smart, list):
+        return None
+    hits = [
+        e
+        for e in smart
+        if isinstance(e, dict) and str(e.get("device") or "").rsplit("/", 1)[-1] == name
+    ]
+    return hits[0] if len(hits) == 1 else None
+
+
+def sensor_disk(label: Any, drive: Any, smart: Any) -> dict | None:
+    """The SMART entry of the disk this sensor reads, or None. Only a drivetemp sensor reads one disk: an NVMe
+    sensor is held to the NVMe lines as it was, and a board sensor is not a drive's at all."""
+    return disk_of(drive, smart) if sensor_media(label) == "" else None
+
+
+def sensor_lines(
+    label: Any, host: Any, fleet: Any, drive: Any = None, smart: Any = None
+) -> tuple[float | None, float | None]:
     """The (warn, crit) lines a sensor of a drive's own chip is held to, or (None, None) for a sensor that is not a
-    drive's, or a drive with no line at any level. The critical line is None when only a warning line is set. A sensor
-    has no serial number, so a line kept against one never applies to it."""
+    drive's, or a drive with no line at any level. The critical line is None when only a warning line is set.
+
+    A drivetemp sensor the agent could name a disk for (`drive`, with that report's `smart` entries) is held to the
+    lines of that disk, exactly as its SMART reading is: the disk's own line kept against its serial number first, then
+    the host's and the fleet's for its type (#54). Every other sensor is held to the lines for its chip: the NVMe
+    lines for an `nvme-*` sensor and the lines for any drive for a drivetemp sensor whose disk is not known. A line
+    kept against a serial number reaches only a sensor whose disk is known, because only then is there a serial.
+    """
     media = sensor_media(label)
     if media is None:
         return None, None
-    lines = view({"media": media}, None, host, fleet)
+    entry = sensor_disk(label, drive, smart)
+    if entry is not None:
+        own = host.get("drivetemp_per_serial") if isinstance(host, dict) else None
+        lines = view(entry, own, host, fleet)
+    else:
+        lines = view({"media": media}, None, host, fleet)
     return lines["warn"], lines["crit"]
 
 

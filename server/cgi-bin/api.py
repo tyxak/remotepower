@@ -47959,12 +47959,16 @@ def _sensor_limit(value):
 
 
 def _stored_sensor(t):
-    """One sensor of a hardware report as it is stored: its label, its reading and its limit, if that is one."""
+    """One sensor of a hardware report as it is stored: its label, its reading, its limit if that is one, and the
+    disk it reads when the agent named one (#54)."""
     row = {'label': _sanitize_str(str(t.get('label', '')), 64),
            'current_c': round(float(t['current_c']), 1)}
     lim = _sensor_limit(t.get('crit_c'))
     if lim is not None:
         row['crit_c'] = lim
+    disk = drive_temp_mod.as_drive_name(t.get('drive'))
+    if disk is not None:
+        row['drive'] = disk
     return row
 
 
@@ -52419,7 +52423,8 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                 _ln = drive_temp_mod.view(_e, _host_mt.get('drivetemp_per_serial'), _host_mt, _gc)
                 _lv = drive_temp_mod.level(float(_c), _ln['warn'], _ln['crit'], _hot_c, _crit_c)
             elif _key == 'current_c':     # #54: a drive's own sensors (nvme-*, drivetemp-*) follow its lines too
-                _dw, _dc = drive_temp_mod.sensor_lines(_e.get('label'), _host_mt, _gc)
+                _dw, _dc = drive_temp_mod.sensor_lines(_e.get('label'), _host_mt, _gc,
+                                                       _e.get('drive'), hw_rec.get('smart'))
                 _lv = drive_temp_mod.level(float(_c), _dw, _dc, _hot_c, _crit_c)
             else:
                 _lv = drive_temp_mod.level(float(_c), None, None, _hot_c, _crit_c)
@@ -66777,9 +66782,14 @@ def handle_fleet_thermal():
                 continue
             # #54: the sensors of a drive's own chip (nvme-*, drivetemp-*) are held to the drive lines like its SMART
             # reading. Any other sensor, and a drive with no line at any level, is held to the fleet's pair as before.
-            _dw, _dc = drive_temp_mod.sensor_lines(lbl, _host_mt, _gc)
+            # A drivetemp sensor whose disk the agent named is held to that disk's lines (#54), and the row says which
+            # disk that is, so the page can show whose lines they are.
+            _dw, _dc = drive_temp_mod.sensor_lines(lbl, _host_mt, _gc, t.get('drive'), hw.get('smart'))
             _lv = drive_temp_mod.level(float(c), _dw, _dc, _hot_c, _crit_c)
             any_hot, any_crit = any_hot or _lv != 'ok', any_crit or _lv == 'critical'
+            _disk = drive_temp_mod.sensor_disk(lbl, t.get('drive'), hw.get('smart'))
+            if _disk is not None:
+                row['disk'], row['media'] = drive_temp_mod.as_drive_name(t.get('drive')), drive_temp_mod.media_of(_disk)
             if _dw is not None or _dc is not None:
                 row['crit'], row['warn'], row['level'] = _dc, _dw, _lv
                 cr = _dc

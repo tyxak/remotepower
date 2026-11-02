@@ -1090,7 +1090,8 @@ class TestTheModuleIsRegistered(unittest.TestCase):
         tree = ast.parse((_CGI / "drive_temp.py").read_text())
         names = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         names |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
-        self.assertTrue(names <= {"__future__", "math", "typing"}, names)
+        # Standard library only. `re` joined the list for the disk name check (#54); nothing of the server may.
+        self.assertTrue(names <= {"__future__", "math", "re", "typing"}, names)
 
 
 if __name__ == "__main__":

@@ -8749,6 +8749,44 @@ def _sensor_limit(value):
     return round(value, 1)
 
 
+_SCSI_ADDRESS = re.compile(r'([0-9]+):([0-9]+):([0-9]+):([0-9a-fA-F]+)\Z')
+_BLOCK_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,31}\Z')
+
+
+def _drivetemp_disks():
+    """{lm-sensors chip name: the disk's name} for the drivetemp sensors on this host (#54).
+
+    The kernel's drivetemp driver puts one hwmon device on each SATA disk. Its `device` link is the disk's SCSI device
+    ("1:0:0:0": host, channel, target, lun) and that directory's `block/` holds the disk's name ("sda"). lm-sensors
+    names the chip from the same address: `drivetemp-scsi-<host>-<(channel << 8) + (target << 4) + lun, in hex>`
+    (libsensors, lib/sysfs.c and lib/data.c). That packing loses information, so the name is built from each device
+    and matched, never decoded, and two devices that build the same name are both left out: nothing tells them apart.
+
+    Best-effort and read-only. {} when the host has no drivetemp sensor or sysfs cannot be read. Never raises, because
+    the caller's temperature list must not be lost to a failure here."""
+    try:
+        base = host_path('/sys/class/hwmon')
+        found = {}
+        for hw in sorted(os.listdir(base)):
+            try:
+                if _safe_read(f'/sys/class/hwmon/{hw}/name', 64).strip() != 'drivetemp':
+                    continue
+                scsi = os.path.realpath(os.path.join(base, hw, 'device'))
+                addr = _SCSI_ADDRESS.match(os.path.basename(scsi))
+                blocks = os.listdir(os.path.join(scsi, 'block'))
+            except OSError:
+                continue
+            if not addr:
+                continue
+            host, channel, target = (int(addr.group(i)) for i in (1, 2, 3))
+            chip = f'drivetemp-scsi-{host}-{(channel << 8) + (target << 4) + int(addr.group(4), 16):x}'
+            disk = blocks[0] if len(blocks) == 1 and _BLOCK_NAME.match(blocks[0]) else None
+            found[chip] = None if chip in found else disk
+        return {chip: disk for chip, disk in found.items() if disk}
+    except Exception:
+        return {}
+
+
 def get_hardware_inventory():
     """v3.4.0: passive hardware inventory — DIMMs, system serial, temps,
     RAID arrays, disk models. Best-effort; each section omitted on failure.
@@ -8815,6 +8853,7 @@ def get_hardware_inventory():
             r = subprocess.run(['sensors', '-A', '-j'],
                                capture_output=True, text=True, timeout=10)
             temps = []
+            disks = None      # a drivetemp sensor's disk, read once and only if the host has one
             if r.returncode == 0 and r.stdout.strip():
                 data = json.loads(r.stdout)
                 for chip, feats in data.items():
@@ -8849,6 +8888,13 @@ def get_hardware_inventory():
                                 thr = _sensor_limit(high)
                             if thr is not None:
                                 entry['crit_c'] = thr
+                            # #54: name the disk a drivetemp sensor reads, so the server can hold the sensor to that
+                            # disk's temperature lines. Left out when the disk cannot be told.
+                            if chip.startswith('drivetemp-scsi-'):
+                                if disks is None:
+                                    disks = _drivetemp_disks()
+                                if chip in disks:
+                                    entry['drive'] = disks[chip]
                             temps.append(entry)
             if temps:
                 hw['temps'] = temps[:64]
