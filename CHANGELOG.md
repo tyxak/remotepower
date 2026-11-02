@@ -142,6 +142,23 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   → AI assistant → Privacy. Their answers can now contain those placeholders where the prompt had a name or address. A local
   model (Ollama or LocalAI) never needed this; with a cloud provider it did. The documentation cross-check found this.
 
+### Interface
+
+- **Spacing, wrapping and focus, measured on the demo.** A rendered audit of all 85 pages, the settings panes, 141 dialogs and
+  the host drawer, at desktop and phone width and in the six languages, gave the fixes below; each was tried in a browser
+  before it was written. A card's hint no longer touches its first row (28 cards on 15 pages), and a settings row no longer
+  touches the next field (36 pairs in four panes). The Hosts buttons stay on one line when the sidebar is pinned open, and a
+  clipped OS name ends in an ellipsis. Short pills and timeline chips stay on one line, and a drawer action button may wrap its
+  label in German, French and Spanish. The focus ring of table headers, summaries, segmented buttons and clickable rows sits
+  inside the box that clipped it (143 clipped rings on four pages became 18). In Arabic, a checkbox label sat 826 px from its
+  box and the buttons side by side in a cell did not mirror; they use logical properties now.
+- **Two boxes scroll.** The 34-row list of AI sources and the SSH gateway's configuration text had no height limit.
+- **Names for 332 checkboxes.** The notification routing matrix's checkboxes had no accessible name; each now says the kind and
+  the channel. Five drawer fields (Icon, the SNMP community and the SNMPv3 user and secrets) were squeezed to 70 px at 16 px
+  and showed "e.g. mo"; they take the width of the other fields.
+- **"≥ undefined" on the Logs page.** A fleet-wide rule saved without a threshold printed that; it prints the threshold the
+  server uses, 1, and the demo's rules carry one.
+
 ### Fixes
 
 - **A maintenance window written with a day name opens.** The New maintenance window dialog suggested `0 3 * * SUN`, and the

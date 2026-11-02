@@ -168,6 +168,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_tenant_instance_gate.py",    # (extended) instance-wide operations, session revoke, links, schedules and rollouts stay in the tenant
         "tests/test_v749_hostile_input.py",      # a non-ASCII token, a lone surrogate, Infinity and unhashable elements are refused, not a 500
         "tests/test_v749_logout.py",             # Sign out ends the session on the server
+        "tests/test_v749_ui_polish.py",          # the measured spacing, wrapping, focus and mirroring rules and the two text bugs
         "tests/test_v749_seeder.py",             # the demo hosts carry the upgrade mode, kept-back packages and named drive sensors
     )
 
