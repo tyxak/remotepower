@@ -28,6 +28,11 @@ security flag from that.
 - **A held package does not count.** One held with `apt-mark hold` stays out, because somebody chose to
   keep it (auto-patch holds the packages you declined in the patch catalog the same way). If the agent
   cannot read the holds, it counts no kept-back package at all.
+- **An update Ubuntu is still phasing in does not count.** Ubuntu releases many updates to a share of its
+  hosts at a time and defers the rest. Until the update reaches your host it is not pending: apt would not
+  install it, and neither would any upgrade mode. Ubuntu 24.04 lists such a package under a heading of its
+  own. Ubuntu 22.04 lists it as kept back, so the agent asks apt the same question with phasing ignored, and a
+  package that stops being kept back was only deferred. If that question fails, the package counts.
 - **The patch run does not install them.** Auto-patch and the patch button run `apt-get upgrade`, which
   keeps the package back again, so it stays pending after a successful run. On the host,
   `apt-get install <package>` installs it with what it needs, and `apt-get full-upgrade` does everything

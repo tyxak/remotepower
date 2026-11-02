@@ -22,6 +22,17 @@ What the reporters of #54 and Discussion #30 asked for after 7.4.8.
   settings said. It now uses the same verdict as the Thermal page: a drive's own lines, the lines of the disk a
   `drivetemp` sensor reads, and the fleet's hot and critical temperatures for every other sensor.
 
+### Patching
+
+- **An update Ubuntu is still phasing in is not pending (Discussion #30).** 7.4.8 counted every package under apt's
+  "kept back" heading, except the ones held with `apt-mark`. Run against a real apt for the first time (Ubuntu 22.04's
+  apt 2.4.13 and 24.04's apt 2.8.3), that was right for a package that needs a new package and for a held one, and wrong
+  for an update Ubuntu is phasing in: apt 2.4 lists it as kept back, so a 22.04 host read as having an update that
+  neither the patch button nor auto-patch could install until Ubuntu reached it. The agent now asks apt the same question
+  with phasing ignored, and a package that stops being kept back was only deferred. Ubuntu 24.04 lists such an update
+  under a heading of its own and was never affected. If the second question fails, the package still counts. Update the
+  agents.
+
 ## v7.4.8 — "Hon3stMatters" — 2026-11-01
 
 Three screens said something that was not true: a Problems row that read "never" under Updated, a sensor limit of 65261.8 °C,

@@ -161,7 +161,7 @@ class TestTheCount(unittest.TestCase):
         apt = _Apt(DEBIAN)
         got = patch_info(apt, container=True)
         self.assertEqual((got["upgradable"], got["security_updates"]), (1, 1))
-        self.assertEqual(len(apt.calls), 3, apt.calls)
+        self.assertEqual(len(apt.calls), 4, apt.calls)     # the plain simulation, the holds, the one that ignores phasing, new packages
         for cmd, _ in apt.calls:
             self.assertIn("Dir=/host", cmd, cmd)
             self.assertIn("Dir::State::status=/host/var/lib/dpkg/status", cmd, cmd)

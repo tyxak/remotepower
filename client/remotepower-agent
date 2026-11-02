@@ -2879,6 +2879,10 @@ def _add_apt_kept_back(result, simulate_out, apt_opts=()):
     that is not installed yet (a new kernel image, the split linux-firmware). It prints no Inst line and exits 0, so
     such a host read as fully patched while an update waited. A package held with apt-mark stays out, since somebody
     chose that, and when the holds cannot be read nothing is added, because a held package would then count for ever.
+    An update apt defers for phasing is not pending either: Ubuntu releases an update to a share of its hosts at a time,
+    and apt 2.4 (Ubuntu 22.04) lists a deferred package under "kept back" beside the real ones, where apt 2.8 (24.04) gives
+    it a heading of its own. It arrives by itself, and no upgrade mode installs it before then. So apt is asked the same
+    question with phasing ignored, and a name that stops being kept back was only deferred.
     The security flag is on the Inst line of what would be installed, so apt is asked what the upgrade would do with
     new packages allowed (a simulation) and the lines of the kept-back names are counted. Never raises."""
     try:
@@ -2889,6 +2893,16 @@ def _add_apt_kept_back(result, simulate_out, apt_opts=()):
         if held is None:
             return
         kept = sorted(set(kept) - held)
+        if not kept:
+            return
+        try:
+            ignoring = subprocess.check_output(
+                ['apt-get', *apt_opts, '--simulate', '--quiet', '-oAPT::Get::Always-Include-Phased-Updates=true', 'upgrade'],
+                text=True, timeout=45, stderr=subprocess.DEVNULL, env=_c_locale_env())
+            if re.search(r'\d+ upgraded, \d+ newly installed', ignoring):    # apt really answered
+                kept = sorted(set(kept) & set(_apt_kept_back(ignoring)))
+        except Exception:
+            pass       # cannot tell: count them, as an update that is hidden is the worse mistake
         if not kept:
             return
         result['upgradable'] += len(kept)

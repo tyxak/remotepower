@@ -249,10 +249,14 @@ class TestHostileAptOutput(unittest.TestCase):
         words = {w for cmd, _ in calls for w in cmd}
         for n in NAMES:
             self.assertNotIn(n, words, name(n))
-        self.assertEqual([c[0] for c, _ in calls], ["apt-mark", "apt-get"], "one read of the holds, one simulation")
+        # one read of the holds, then two simulations: the question with phasing ignored (an update deferred for phasing
+        # is not pending), then the one with new packages allowed (for the security flag). Both only when something is
+        # kept back, each with a time limit, and a fixed set of words whatever apt printed.
+        self.assertEqual([c[0] for c, _ in calls], ["apt-mark", "apt-get", "apt-get"])
         for cmd, kw in calls:
             self.assertFalse(kw.get("shell"), cmd)
-        self.assertIn("--simulate", calls[1][0])
+        for cmd, _ in calls[1:]:
+            self.assertIn("--simulate", cmd)
         self.assertEqual(result["upgradable"], len(NAMES))
         self.assertEqual(result["security_updates"], len(NAMES))
 
