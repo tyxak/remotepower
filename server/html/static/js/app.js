@@ -6746,7 +6746,12 @@ function openModal(id) {
   requestAnimationFrame(() => { enhanceDeviceCombos(el); enhanceLongSelects(el); });
   setTimeout(() => { enhanceDeviceCombos(el); enhanceLongSelects(el); }, 350);
 }
+// Declared before closeModal, which reads it: the pending answer of the confirm / prompt dialog, if one is open.
+let _uiPromptResolve = null;
 function closeModal(id) {
+  // 7.4.9: a confirm or prompt dialog closed any way but its own buttons (Escape, the corner ×, a script) is a cancel, and the code
+  // waiting for its answer has to be told: it was left waiting until the next dialog opened, which answered it with null.
+  if (id === 'ui-prompt-modal' && _uiPromptResolve) { _uiPromptFinish(false); return; }
   // v6.4.2: stop the enrollment watcher immediately rather than on its next
   // tick — the modal is gone, so the poll is pure waste from here on.
   if (id === 'enroll-modal') _stopEnrollWatch();
@@ -6773,7 +6778,6 @@ function closeModal(id) {
 // Returns a Promise that resolves to the entered string, or null if cancelled.
 // One modal, consistent with the rest of the UI; opts: {title, message, value,
 // placeholder, type:'text'|'password', confirmText, danger, multiline}.
-let _uiPromptResolve = null;
 // v4.8.0 (#U3): styled confirm() replacement. Native confirm()/prompt() get
 // THROTTLED by browsers after a few in a row (e.g. a fleet-wide sweep) — they
 // then return false/null with no dialog, the handler silently bails, and the UI
@@ -6855,8 +6859,8 @@ function _uiPromptFinish(ok) {
     const field = document.getElementById(multiline ? 'ui-prompt-textarea' : 'ui-prompt-input');
     val = ok ? field.value : null;
   }
+  const r = _uiPromptResolve; _uiPromptResolve = null;    // taken first: closing the modal answers a dialog that is still waiting
   closeModal('ui-prompt-modal');
-  const r = _uiPromptResolve; _uiPromptResolve = null;
   if (r) r(val);
 }
 function _uiPromptOk() { _uiPromptFinish(true); }
@@ -28663,6 +28667,55 @@ async function testS3Backup() {
   const r = await api('POST', '/backup/s3-test', {s3: _backupS3Form()});
   if (r?.ok) { toast('S3 connection test passed', 'success'); if (el) el.textContent = '✓ ' + (r.message || 'Works.') + ` (${Number(r.ms) || 0} ms)`; }
   else { toast(r?.error || 'S3 connection test failed', 'error'); if (el) el.textContent = failText(r); }
+}
+
+// 7.4.9: restore the server from an archive the S3 copy put in the bucket. The list comes from the bucket named in the form as it
+// stands (a rebuilt server has no saved settings), the restore is the one an upload uses, and the passphrase is asked for in the same way.
+async function openS3Restore() {
+  const list = document.getElementById('s3-restore-list'), err = document.getElementById('s3-restore-error');
+  if (list) list.innerHTML = '<div class="empty-state">Loading…</div>';
+  if (err) err.textContent = '';
+  openModal('s3-restore-modal');
+  const r = await api('POST', '/backup/s3-archives', { s3: _backupS3Form() });
+  if (!list) return;
+  if (!r || r.error || r.ok === false) { list.innerHTML = ''; if (err) err.textContent = failText(r); return; }
+  const rows = r.archives || [];
+  list.innerHTML = rows.length
+    ? `<table class="data-table w-full"><thead><tr><th>Archive</th><th>Size</th><th>Date</th><th></th></tr></thead><tbody>${rows.map(a =>
+        `<tr><td class="ff-mono">${escHtml(a.name)}</td><td class="hint">${escHtml(_fmtBytes(a.size))}</td>`
+        + `<td class="hint">${a.mtime ? escHtml(_fmtAbsTs(a.mtime)) : '—'}</td>`
+        + `<td><button class="btn-secondary" data-action="restoreFromS3" data-arg="${escAttr(a.name)}">Restore</button></td></tr>`).join('')}</tbody></table>`
+      + (r.total > rows.length ? '<div class="hint mt-6">Older archives are not shown.</div>' : '')
+    : '<div class="empty-state">No archives in the bucket.</div>';
+}
+async function restoreFromS3(name) {
+  if (!await uiConfirm({ message: `Restore from "${name}" in the S3 bucket?\n\nThis OVERWRITES the current RemotePower data (hosts, config, all state, the credentials vault). A safety snapshot of the current data is taken automatically first. Continue?`, confirmText: 'Restore', danger: true })) return;
+  const pass = await uiPrompt({
+    title: 'Encrypted backup',
+    message: `"${name}" is encrypted. Enter the backup passphrase (RP_BACKUP_PASSPHRASE on the server that wrote it).`,
+    type: 'password', confirmText: 'Restore',
+  });
+  if (pass === null) return;                         // cancelled; an empty one is allowed through: the server falls back to its own
+  const headers = { 'X-Token': getToken(), 'Content-Type': 'application/json' };
+  if (pass) headers['X-RP-Backup-Passphrase'] = pass;
+  const res = document.getElementById('backup-result');
+  if (res) { res.hidden = false; res.textContent = 'Reading from the bucket & restoring…'; }
+  closeModal('s3-restore-modal');
+  try {
+    const r = await fetch('/api/backup/s3-restore', { method: 'POST', headers, body: JSON.stringify({ name, s3: _backupS3Form() }) });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) {
+      if (res) res.textContent = `Restored ${data.restored} files. Safety snapshot: ${data.snapshot}. Reload the page to see the restored state.`;
+      toast(`Restored ${data.restored} files`, 'success');
+    } else {
+      const msg = (data && data.error) || ('HTTP ' + r.status);
+      if (res) res.textContent = 'Restore failed: ' + msg;
+      toast('Restore failed: ' + msg, 'error');
+    }
+  } catch (e) {
+    if (res) res.textContent = 'Restore failed: ' + e;
+    toast('Restore failed', 'error');
+  }
 }
 
 async function testRestore() {

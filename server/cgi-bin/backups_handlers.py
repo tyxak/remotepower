@@ -1091,7 +1091,6 @@ def handle_backup_restore():
     validation (no absolute paths, no '..', regular files/dirs only — symlinks,
     devices and hardlinks are rejected)."""
     actor = A.require_admin_auth()
-    import tarfile, io as _io
     raw = A.get_body()
     if not raw:
         A.respond(400, {'error': 'empty body — POST the backup .tar.gz'})
@@ -1115,6 +1114,19 @@ def handle_backup_restore():
             except A.backup_crypto.BackupCryptoError as e:
                 A.respond(400, {'error': str(e)})
             raw = _dp.read_bytes()
+    _restore_apply(actor, raw, 'upload')
+
+
+def _restore_apply(actor, raw, source):
+    """Put the gzip tarball `raw` (already decrypted) over the data directory, and answer the request. Used by the upload and, since
+    7.4.9, by the restore from the S3 bucket, so the two take the same safety snapshot, the same checks of the archive, the same
+    extraction and report the same way. `source` is for the audit trail: 'upload' or 's3:<name>'. Never returns: it answers through
+    respond().
+
+    Order: a safety snapshot of the current data first, then the archive is opened and every member checked (regular files and
+    directories only, no absolute path, no '..', nothing outside the data directory, a cap on size and count), then it is extracted
+    and the stores are imported into the SQL backends."""
+    import tarfile, io as _io
     stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
     # 1) Safety snapshot of the current state before we overwrite anything.
     try:
@@ -1245,7 +1257,8 @@ def handle_backup_restore():
                                  f'pre-restore snapshot is {snap_name}'})
     A.audit_log(actor, 'backup_restore',
               f'{restored}/{expected} files restored, {len(imported)} stores '
-              f'imported, {len(failed)} failed (safety snapshot {snap_name})')
+              f'imported, {len(failed)} failed (safety snapshot {snap_name})'
+              + ('' if source == 'upload' else f' from {source}'))
     # A partial restore is not a success. Say so in the flag the UI reads, keep
     # the counts so the operator can see how partial, and name the first few
     # failures — the snapshot is still there to roll back to.
@@ -1463,6 +1476,16 @@ def _s3_drill(settings, scratch_parent):
         shutil.rmtree(str(tmp), ignore_errors=True)
 
 
+def _s3_request_settings(body):
+    """(settings, '') for the S3 settings a request names (`s3`, the form as it stands) or, without any, the saved ones; (None, reason)
+    when there is nothing to use. The connection test, the list of archives and the restore share it. The address comes from the
+    request and the server connects to it, so all three are for the platform operator (see the callers)."""
+    raw = body.get('s3') if isinstance(body.get('s3'), dict) else ((A.load(A.CONFIG_FILE) or {}).get('backup') or {}).get('s3')
+    if not isinstance(raw, dict) or not (raw.get('endpoint') or raw.get('bucket')):
+        return None, 'The S3 copy is not set up yet: fill in the endpoint and the bucket'
+    return A._s3_validate(dict(raw, enabled=True))
+
+
 def handle_backup_s3_test():
     """POST /api/backup/s3-test — write, read and delete a small object in the S3 bucket, and list it, to show that the copy of the
     backup will work. Body: optional `s3` settings to try without saving them (the form as it stands); without it the saved ones are
@@ -1471,11 +1494,7 @@ def handle_backup_s3_test():
     actor = A.require_instance_admin_auth('The S3 copy of the backup')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
-    body = A.get_json_obj()
-    raw = body.get('s3') if isinstance(body.get('s3'), dict) else ((A.load(A.CONFIG_FILE) or {}).get('backup') or {}).get('s3')
-    if not isinstance(raw, dict) or not (raw.get('endpoint') or raw.get('bucket')):
-        A.respond(400, {'error': 'The S3 copy is not set up yet: fill in the endpoint and the bucket'})
-    settings, why = A._s3_validate(dict(raw, enabled=True))
+    settings, why = A._s3_request_settings(A.get_json_obj())
     if settings is None:
         A.respond(400, {'error': why})
     result, error = None, ''
@@ -1490,6 +1509,86 @@ def handle_backup_s3_test():
     A.respond(200, {'ok': True, 'steps': result['steps'], 'ms': result['ms'],
                     'encrypted_archives': bool(A._backup_passphrase()),
                     'message': 'The bucket can be written to, read, listed and cleaned up.'})
+
+
+# 7.4.9: restore from the bucket. The archives are listed and read with the client and the settings of the copy (the secret key is
+# the server's environment's). Only an encrypted archive made by the copy is restored: the passphrase is what shows it is ours.
+_S3_RESTORE_MAX_BYTES = 1024**3        # the restore holds the archive in memory, as an upload does, so a larger one is not taken
+_S3_ARCHIVES_SHOWN = 100
+
+
+def _s3_archives(client):
+    """The encrypted archives the copy has put in the bucket, newest first, as {name, size, mtime}."""
+    mine = [i for i in client.list('remotepower_data_') if s3_client.ARCHIVE_RE.match(i['name']) and i['name'].endswith('.enc')]
+    mine.sort(key=lambda i: (i['mtime'], i['name']), reverse=True)
+    return mine
+
+
+def handle_backup_s3_archives():
+    """POST /api/backup/s3-archives — the archives in the S3 bucket, newest first, for the restore. Body: optional `s3` settings as in
+    the connection test (a rebuilt server has none saved, so the form can be used as it stands). Platform operator only, audited. A
+    failure of the store is a 200 with `ok: false` and the reason."""
+    actor = A.require_instance_admin_auth('Restoring from the S3 bucket')
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    settings, why = A._s3_request_settings(A.get_json_obj())
+    if settings is None:
+        A.respond(400, {'error': why})
+    items, error = [], ''
+    try:
+        items = A._s3_archives(A._s3_client(settings, timeout=30.0))
+    except s3_client.S3Error as e:
+        error = A._s3_message(e)
+    A.audit_log(actor, 'backup_s3_list', f"bucket={settings['bucket']} " + (f'error={error[:120]}' if error else f'archives={len(items)}'))
+    if error:
+        A.respond(200, {'ok': False, 'error': error})
+    A.respond(200, {'ok': True, 'bucket': settings['bucket'], 'total': len(items), 'archives': items[:_S3_ARCHIVES_SHOWN]})
+
+
+def handle_backup_s3_restore():
+    """POST /api/backup/s3-restore — restore the data directory from an archive in the S3 bucket. Body: `name` (an archive the list
+    shows) and optional `s3` settings. The passphrase is the X-RP-Backup-Passphrase header or the server's RP_BACKUP_PASSPHRASE, as for
+    an uploaded archive. The archive is read into a private scratch directory, its digest compared with the one stored with it,
+    decrypted, and handed to the same restore as an upload: safety snapshot first, strict checks of every member. Platform operator
+    only, audited. Answers like the upload does, except that a failure of the store is a 200 with `ok: false`."""
+    actor = A.require_instance_admin_auth('Restoring from the S3 bucket')
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A.get_json_obj()
+    name = body.get('name')
+    if not (isinstance(name, str) and s3_client.ARCHIVE_RE.match(name) and name.endswith('.enc')):
+        A.respond(400, {'error': 'That is not the name of an archive made by the S3 copy'})
+    pw = (A._env('HTTP_X_RP_BACKUP_PASSPHRASE') or A._backup_passphrase()).strip()
+    if not pw:
+        A.respond(400, {'error': 'encrypted backup — supply the passphrase via the '
+                               'X-RP-Backup-Passphrase header or RP_BACKUP_PASSPHRASE env'})
+    if not A.backup_crypto.available():
+        A.respond(400, {'error': "the 'cryptography' library is required to decrypt this backup"})
+    settings, why = A._s3_request_settings(body)
+    if settings is None:
+        A.respond(400, {'error': why})
+    tmp = A.Path(tempfile.mkdtemp(prefix='.s3restore_'))
+    try:
+        client = A._s3_client(settings, timeout=120.0)
+        item = next((i for i in A._s3_archives(client) if i['name'] == name), None)
+        if item is None:
+            A.respond(404, {'error': 'That archive is not in the bucket'})
+        if item['size'] > _S3_RESTORE_MAX_BYTES:
+            A.respond(400, {'error': 'That archive is larger than a restore from the bucket takes'})
+        got = client.get_file(name, str(tmp / 'in.enc'), max_bytes=int(item['size']) + 1024)
+        if got['recorded_sha256'] and got['recorded_sha256'] != got['sha256']:
+            A.respond(200, {'ok': False, 'error': 'the copy in the bucket is not the one that was uploaded '
+                                                  '(its digest differs from the one stored with it)'})
+        try:
+            A.backup_crypto.decrypt_file(tmp / 'in.enc', tmp / 'out.tar.gz', pw)
+        except A.backup_crypto.BackupCryptoError as e:
+            A.respond(400, {'error': str(e)})
+        raw = (tmp / 'out.tar.gz').read_bytes()
+    except s3_client.S3Error as e:
+        A.respond(200, {'ok': False, 'error': A._s3_message(e)})
+    finally:
+        shutil.rmtree(str(tmp), ignore_errors=True)
+    _restore_apply(actor, raw, f"s3:{settings['bucket']}/{name}")
 
 
 def _restore_drill_core():

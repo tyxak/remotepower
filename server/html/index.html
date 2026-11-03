@@ -3243,6 +3243,7 @@
               <button class="btn-icon" data-action="exportBackup" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-c923885c"/></svg> Export (redacted ZIP)</button>
               <button class="btn-icon" data-action="downloadBackup" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M1 3h22v5H1z"/><line x1="10" y1="12" x2="14" y2="12"/></svg> Full backup (tar.gz)</button>
               <button class="btn-icon" data-action="pickRestoreFile" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> Restore…</button>
+              <button class="btn-icon" data-action="openS3Restore" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> Restore from S3…</button>
               <input type="file" id="restore-file-input" accept=".gz,.tgz,.enc,application/gzip,application/octet-stream" class="d-none" data-change="restoreBackup" aria-label="Restore file input">
             </div>
             <div id="backup-result" class="hint sb-result" hidden></div>
@@ -11209,6 +11210,15 @@ nextcloud mem=95 sustain=6</pre>
      so clicking Detail on the Patches page threw "can't access property
      textContent, document.getElementById(...) is null". Restored here. -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-patch-title" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" class="isl-192 scroll-cap"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-patch-modal" >Close</button></div></div></div>
+<!-- 7.4.9: restore the server from an archive in the S3 bucket. Filled by openS3Restore() in app.js. -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="s3-restore-title" id="s3-restore-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="s3-restore-title">Restore from the S3 bucket</div>
+  <p class="hint">These are the archives the S3 copy has put in the bucket, newest first. The settings are the ones in the form under Backup, saved or not, and the secret key is the one in the server's environment.</p>
+  <div id="s3-restore-list" class="scroll-cap mt-8"></div>
+  <div id="s3-restore-error" class="hint c-red" role="alert"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="s3-restore-modal">Close</button></div>
+</div></div>
+
 <!-- 7.4.9: the time period editor. Filled by app-timeperiods.js (lazy). -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="time-period-modal-title" id="time-period-modal"><div class="modal modal-wide">
   <div class="modal-title" id="time-period-modal-title">Add a time period</div>

@@ -171,18 +171,29 @@ class TestAPartialRestoreSaysSo(unittest.TestCase):
         sys.path.insert(0, str(pathlib.Path(__file__).parent))
         import srcpin
         body = srcpin.py_function(
-            (_CGI / 'backups_handlers.py').read_text(), 'handle_backup_restore')
+            (_CGI / 'backups_handlers.py').read_text(), '_restore_apply')    # 7.4.9: the part the upload and the S3 restore share
         code = '\n'.join(l for l in body.splitlines()
                          if not l.lstrip().startswith('#'))
         self.assertIn('failed.append(', code,
                       'extraction failures are swallowed again')
         self.assertNotIn('except Exception:\n            pass', code)
 
+    def test_both_ways_in_go_through_the_one_that_reports(self):
+        """The checks above are of _restore_apply; an entry point that did its own extraction would sit outside them."""
+        sys.path.insert(0, str(pathlib.Path(__file__).parent))
+        import srcpin
+        src = (_CGI / 'backups_handlers.py').read_text()
+        for entry in ('handle_backup_restore', 'handle_backup_s3_restore'):
+            body = srcpin.py_function(src, entry)
+            self.assertIn('_restore_apply(actor, raw,', body, entry)
+            self.assertNotIn('extract(', body, f'{entry} extracts on its own')
+            self.assertNotIn('tarfile.open', body, f'{entry} opens the archive on its own')
+
     def test_a_partial_restore_is_not_reported_as_ok(self):
         sys.path.insert(0, str(pathlib.Path(__file__).parent))
         import srcpin
         body = srcpin.py_function(
-            (_CGI / 'backups_handlers.py').read_text(), 'handle_backup_restore')
+            (_CGI / 'backups_handlers.py').read_text(), '_restore_apply')
         code = '\n'.join(l for l in body.splitlines()
                          if not l.lstrip().startswith('#'))
         self.assertIn("'ok': False", code,

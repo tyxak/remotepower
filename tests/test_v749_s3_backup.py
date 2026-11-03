@@ -471,6 +471,339 @@ class TestTheConnectionTest(_Base):
         self.assertEqual(self.cap["s"], 405)
 
 
+class TestRestoreFromTheBucket(_Base):
+    """The archives the copy put in the bucket can be listed and one of them restored. The backup is the real one, the store checks
+    every signature, and the restore is the one an upload uses: the safety snapshot first, the checks of every member, the audit."""
+
+    MARK = "restore_marker.json"
+
+    def setUp(self):
+        super().setUp()
+        self.env = {}
+        api._env = lambda k, d="": self.env.get(k, d)
+        api.save(api.DATA_DIR / self.MARK, {"v": "before"})
+        api._LOAD_CACHE.clear()
+
+    def marker(self):
+        api._LOAD_CACHE.clear()
+        return (api.load(api.DATA_DIR / self.MARK) or {}).get("v")
+
+    def backed_up(self):
+        r = self.run_backup()
+        self.assertTrue(r["ok"] and r["s3_ok"], r)
+        return Path(r["file"]).name
+
+    def restore(self, name, **extra):
+        return self.call(api.handle_backup_s3_restore, dict({"name": name}, **extra))
+
+    # ── the list ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    def test_the_list_shows_the_encrypted_archives_newest_first(self):
+        for stamp, mt in (("20260101_000000", 1000), ("20260301_000000", 3000), ("20260201_000000", 2000)):
+            self.store.objects[f"rp/remotepower_data_{stamp}.tar.gz.enc"] = {"data": b"x" * 10, "mtime": mt, "meta": None}
+        st, body = self.call(api.handle_backup_s3_archives, {})
+        self.assertEqual(st, 200, body)
+        self.assertTrue(body["ok"])
+        self.assertEqual([a["name"] for a in body["archives"]], [f"remotepower_data_{d}.tar.gz.enc" for d in ("20260301_000000", "20260201_000000", "20260101_000000")])
+        self.assertEqual((body["bucket"], body["total"]), ("bkt", 3))
+        self.assertEqual(set(body["archives"][0]), {"name", "size", "mtime"})
+
+    def test_the_list_leaves_out_what_is_not_ours(self):
+        for key in ("rp/remotepower_data_20260101_000000.tar.gz", "rp/other.tar.gz.enc", "rp/remotepower_data_x/../y.tar.gz.enc",
+                    "rp/notes.txt", "rp/remotepower_data_20260102_000000.tar.gz.enc.bak"):
+            self.store.objects[key] = {"data": b"x", "mtime": 5, "meta": None}
+        self.store.objects["rp/remotepower_data_20260103_000000.tar.gz.enc"] = {"data": b"x", "mtime": 6, "meta": None}
+        st, body = self.call(api.handle_backup_s3_archives, {})
+        self.assertEqual([a["name"] for a in body["archives"]], ["remotepower_data_20260103_000000.tar.gz.enc"],
+                         "a plaintext archive is not offered: only one made with the passphrase shows it is ours")
+
+    def test_the_list_is_cut_and_says_how_many_there_are(self):
+        for i in range(130):
+            self.store.objects[f"rp/remotepower_data_20260101_{i:06d}.tar.gz.enc"] = {"data": b"x", "mtime": i + 1, "meta": None}
+        st, body = self.call(api.handle_backup_s3_archives, {})
+        self.assertEqual((len(body["archives"]), body["total"]), (100, 130))
+        self.assertEqual(body["archives"][0]["name"], "remotepower_data_20260101_000129.tar.gz.enc", "the newest are the ones shown")
+
+    def test_the_list_is_audited_without_a_secret(self):
+        self.store.objects["rp/remotepower_data_20260101_000000.tar.gz.enc"] = {"data": b"x", "mtime": 5, "meta": None}
+        self.call(api.handle_backup_s3_archives, {})
+        entries = [a for (a, _k) in self.audit if len(a) > 1 and a[1] == "backup_s3_list"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0][2], "bucket=bkt archives=1")
+        self.store.deny = {"list"}
+        self.call(api.handle_backup_s3_archives, {})
+        failed = [a for (a, _k) in self.audit if len(a) > 1 and a[1] == "backup_s3_list"][-1]
+        self.assertIn("error=", failed[2])
+        self.assertNotIn(SK, json.dumps(self.audit, default=str))
+
+    def test_an_empty_bucket_is_an_empty_list(self):
+        st, body = self.call(api.handle_backup_s3_archives, {})
+        self.assertEqual((st, body["ok"], body["archives"], body["total"]), (200, True, [], 0))
+
+    def test_the_form_as_it_stands_is_used_when_nothing_is_saved(self):
+        """A rebuilt server has no settings; the operator types them and the secret key is in its environment."""
+        api.save(api.CONFIG_FILE, {})
+        api._LOAD_CACHE.clear()
+        self.store.objects["rp/remotepower_data_20260101_000000.tar.gz.enc"] = {"data": b"x", "mtime": 5, "meta": None}
+        st, body = self.call(api.handle_backup_s3_archives, {})
+        self.assertEqual(st, 400)
+        self.assertIn("not set up", body["error"])
+        st, body = self.call(api.handle_backup_s3_archives, {"s3": self.settings})
+        self.assertEqual((st, body["total"]), (200, 1))
+
+    def test_a_store_that_refuses_is_a_reason_not_a_crash(self):
+        self.store.deny = {"list"}
+        st, body = self.call(api.handle_backup_s3_archives, {})
+        self.assertEqual(st, 200)
+        self.assertIs(body["ok"], False)
+        self.assertIn("AccessDenied", body["error"])
+
+    def test_an_address_that_may_not_be_asked_is_refused(self):
+        st, body = self.call(api.handle_backup_s3_archives, {"s3": dict(self.settings, endpoint="https://169.254.169.254")})
+        self.assertEqual(st, 400)
+        self.assertEqual(self.store.requests, [])
+
+    # ── the restore ────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    def test_a_restore_puts_the_data_back_and_takes_a_safety_snapshot(self):
+        name = self.backed_up()
+        api.save(api.DATA_DIR / self.MARK, {"v": "after"})
+        self.assertEqual(self.marker(), "after")
+        st, body = self.restore(name)
+        self.assertEqual(st, 200, body)
+        self.assertTrue(body["ok"], body)
+        self.assertGreaterEqual(body["restored"], 1)
+        self.assertEqual(body["restored"], body["expected"])
+        self.assertEqual(self.marker(), "before", "the data is what was in the archive")
+        snap = api.DATA_DIR / api._BACKUP_SNAPSHOT_DIR / body["snapshot"]
+        self.assertTrue(snap.is_file(), "the state before the restore was kept")
+        self.assertTrue(body["snapshot"].endswith(".enc"), "and encrypted, as the passphrase is set")
+
+    def test_the_audit_trail_says_where_it_came_from(self):
+        name = self.backed_up()
+        self.restore(name)
+        entries = [a for (a, _k) in self.audit if len(a) > 1 and a[1] == "backup_restore"]
+        self.assertEqual(len(entries), 1)
+        self.assertIn(f"from s3:bkt/{name}", entries[0][2])
+
+    def test_the_upload_keeps_its_audit_text(self):
+        """The restore of an uploaded archive is the same function, and its audit line is unchanged."""
+        name = self.backed_up()
+        raw = next(iter(self.store.objects.values()))["data"]
+        env = {"CONTENT_LENGTH": str(len(raw)), "HTTP_X_RP_BACKUP_PASSPHRASE": PASSPHRASE}
+        api._env = lambda k, d="": env.get(k, d)
+        import io
+        real_stdin = api.sys.stdin
+        api.sys.stdin = type("I", (), {"buffer": io.BytesIO(raw)})()
+        self.addCleanup(setattr, api.sys, "stdin", real_stdin)
+        self.audit.clear()
+        api.method = lambda: "POST"
+        try:
+            api.handle_backup_restore()
+        except api.HTTPError:
+            pass
+        self.assertEqual(self.cap["s"], 200, self.cap)
+        entries = [a for (a, _k) in self.audit if len(a) > 1 and a[1] == "backup_restore"]
+        self.assertEqual(len(entries), 1)
+        self.assertNotIn(" from ", entries[0][2])
+        self.assertTrue(name)
+
+    def test_the_header_passphrase_is_the_one_used(self):
+        name = self.backed_up()
+        api._backup_passphrase = lambda: ""
+        st, body = self.restore(name)
+        self.assertEqual(st, 400, "no passphrase anywhere")
+        self.assertIn("X-RP-Backup-Passphrase", body["error"])
+        self.env["HTTP_X_RP_BACKUP_PASSPHRASE"] = PASSPHRASE
+        api.save(api.DATA_DIR / self.MARK, {"v": "after"})
+        st, body = self.restore(name)
+        self.assertEqual((st, body.get("ok")), (200, True), body)
+        self.assertEqual(self.marker(), "before")
+
+    def test_a_wrong_passphrase_fails_before_anything_is_changed(self):
+        name = self.backed_up()
+        api.save(api.DATA_DIR / self.MARK, {"v": "after"})
+        self.env["HTTP_X_RP_BACKUP_PASSPHRASE"] = "not the passphrase"
+        snaps = lambda: sorted(p.name for p in (api.DATA_DIR / api._BACKUP_SNAPSHOT_DIR).glob("*")) if (api.DATA_DIR / api._BACKUP_SNAPSHOT_DIR).is_dir() else []
+        before = snaps()
+        st, body = self.restore(name)
+        self.assertEqual(st, 400, body)
+        self.assertIn("decryption failed", body["error"])
+        self.assertEqual(self.marker(), "after", "nothing was extracted")
+        self.assertEqual(snaps(), before, "and no snapshot was taken for a restore that did not start")
+
+    def test_no_passphrase_anywhere_asks_nothing_of_the_store(self):
+        name = self.backed_up()
+        api._backup_passphrase = lambda: ""
+        self.store.requests.clear()
+        st, _ = self.restore(name)
+        self.assertEqual(st, 400)
+        self.assertEqual(self.store.requests, [])
+
+    def test_only_a_name_the_copy_would_have_written_is_taken(self):
+        self.backed_up()
+        self.store.requests.clear()
+        for bad in ("", "x", "../remotepower_data_20260101_000000.tar.gz.enc", "rp/remotepower_data_20260101_000000.tar.gz.enc",
+                    "remotepower_data_20260101_000000.tar.gz", "remotepower_data_.tar.gz.enc/../x", "REMOTEPOWER_DATA_1.tar.gz.enc",
+                    "remotepower_data_1.tar.gz.enc\n", None, 5, ["a"], {"a": 1}, True):
+            with self.subTest(name=repr(bad)[:40]):
+                st, body = self.restore(bad)
+                self.assertEqual(st, 400, body)
+        self.assertEqual(self.store.requests, [], "nothing was asked of the store for any of them")
+
+    def test_an_archive_that_is_not_in_the_bucket_is_a_404(self):
+        self.backed_up()
+        st, body = self.restore("remotepower_data_19990101_000000.tar.gz.enc")
+        self.assertEqual(st, 404, body)
+
+    def test_a_copy_that_changed_in_the_store_is_refused(self):
+        name = self.backed_up()
+        key = next(iter(self.store.objects))
+        data = bytearray(self.store.objects[key]["data"])
+        data[len(data) // 2] ^= 0xFF
+        self.store.objects[key]["data"] = bytes(data)          # the digest stored with it is the one of the original
+        api.save(api.DATA_DIR / self.MARK, {"v": "after"})
+        st, body = self.restore(name)
+        self.assertEqual(st, 200)
+        self.assertIs(body["ok"], False)
+        self.assertIn("not the one that was uploaded", body["error"])
+        self.assertEqual(self.marker(), "after")
+
+    def test_a_copy_with_no_digest_that_is_damaged_fails_to_decrypt_and_changes_nothing(self):
+        name = self.backed_up()
+        key = next(iter(self.store.objects))
+        data = bytearray(self.store.objects[key]["data"])
+        data[len(data) // 2] ^= 0xFF
+        self.store.objects[key].update(data=bytes(data), meta=None)        # an object whose digest was not stored
+        api.save(api.DATA_DIR / self.MARK, {"v": "after"})
+        st, body = self.restore(name)
+        self.assertEqual(st, 400, body)
+        self.assertEqual(self.marker(), "after")
+
+    def test_an_archive_that_is_too_large_is_not_taken(self):
+        name = self.backed_up()
+        with mock.patch.object(api.backups_handlers_mod, "_S3_RESTORE_MAX_BYTES", 100):
+            st, body = self.restore(name)
+        self.assertEqual(st, 400, body)
+        self.assertIn("larger than", body["error"])
+
+    def test_the_size_cap_is_exact(self):
+        name = self.backed_up()
+        size = len(next(iter(self.store.objects.values()))["data"])
+        with mock.patch.object(api.backups_handlers_mod, "_S3_RESTORE_MAX_BYTES", size - 1):
+            st, body = self.restore(name)
+        self.assertEqual(st, 400, "one byte over")
+        with mock.patch.object(api.backups_handlers_mod, "_S3_RESTORE_MAX_BYTES", size):
+            st, body = self.restore(name)
+        self.assertEqual((st, body.get("ok")), (200, True), "exactly the cap is taken")
+
+    def test_a_store_that_cannot_be_read_is_a_reason(self):
+        name = self.backed_up()
+        self.store.deny = {"get"}
+        st, body = self.restore(name)
+        self.assertEqual((st, body["ok"]), (200, False))
+        self.assertIn("AccessDenied", body["error"])
+
+    def test_a_store_that_cuts_the_object_short_is_a_reason(self):
+        name = self.backed_up()
+        self.store.short_read = True
+        st, body = self.restore(name)
+        self.assertEqual((st, body["ok"]), (200, False))
+        self.assertIn("cut short", body["error"])
+
+    def test_the_scratch_directory_is_gone_whatever_happened(self):
+        made = []
+        real = tempfile.mkdtemp
+
+        def spy(*a, **k):
+            d = real(*a, **k)
+            if str(k.get("prefix", "")).startswith(".s3restore_"):
+                made.append(d)
+            return d
+        name = self.backed_up()
+        with mock.patch.object(tempfile, "mkdtemp", spy):
+            self.restore(name)                                         # a restore
+            self.env["HTTP_X_RP_BACKUP_PASSPHRASE"] = "wrong"
+            self.restore(name)                                         # one that fails to decrypt
+            self.env.pop("HTTP_X_RP_BACKUP_PASSPHRASE")
+            self.store.deny = {"get"}
+            self.restore(name)                                         # one the store refuses
+        self.assertEqual(len(made), 3)
+        for d in made:
+            self.assertFalse(os.path.exists(d), d)
+
+    def test_nothing_secret_is_in_an_answer_or_the_audit_trail(self):
+        name = self.backed_up()
+        self.env["HTTP_X_RP_BACKUP_PASSPHRASE"] = PASSPHRASE
+        outs = [json.dumps(self.restore(name)[1]), json.dumps(self.call(api.handle_backup_s3_archives, {"s3": self.settings})[1]),
+                json.dumps(self.audit, default=str)]
+        self.restore(name, s3=dict(self.settings, bucket="nope"))
+        outs.append(json.dumps(self.cap, default=str))
+        for text in outs:
+            self.assertNotIn(SK, text)
+            self.assertNotIn(PASSPHRASE, text)
+
+    def test_the_access_key_id_comes_from_the_settings_not_the_answer(self):
+        self.backed_up()
+        text = json.dumps(self.call(api.handle_backup_s3_archives, {})[1])
+        self.assertNotIn(AK, text)
+
+    def test_a_restore_that_is_refused_by_the_store_changes_nothing_else(self):
+        name = self.backed_up()
+        api.save(api.DATA_DIR / self.MARK, {"v": "after"})
+        st, body = self.restore(name, s3=dict(self.settings, bucket="nope"))
+        self.assertEqual(st, 200)
+        self.assertIs(body["ok"], False)
+        self.assertEqual(self.marker(), "after")
+
+
+class TestWhoMayRestoreFromTheBucket(_Base):
+
+    def asks(self, fn, who, role, body=None, tenant=False):
+        api.verify_token = lambda *a, **k: (who, role)
+        if tenant:
+            with mock.patch.object(api, "_tenancy_enforced", lambda: True), mock.patch.object(api, "_caller_is_superadmin", lambda: False):
+                return self.call(fn, body or {"name": "remotepower_data_20260101_000000.tar.gz.enc", "s3": self.settings})
+        return self.call(fn, body or {"name": "remotepower_data_20260101_000000.tar.gz.enc", "s3": self.settings})
+
+    def test_a_tenant_administrator_can_neither_list_nor_restore(self):
+        for fn in (api.handle_backup_s3_archives, api.handle_backup_s3_restore):
+            st, body = self.asks(fn, "tenantadmin", "admin", tenant=True)
+            self.assertEqual(st, 403, fn.__name__)
+            self.assertIn("platform operator", body["error"])
+        self.assertEqual(self.store.requests, [], "the server connected to nothing for them")
+
+    def test_a_reader_and_a_read_only_key_can_neither(self):
+        for role in ("viewer", "auditor", "mcp", "finance"):
+            for fn in (api.handle_backup_s3_archives, api.handle_backup_s3_restore):
+                st, _ = self.asks(fn, "someone", role)
+                self.assertIn(st, (401, 403), (role, fn.__name__))
+        self.assertEqual(self.store.requests, [])
+
+    def test_the_platform_operator_can_both(self):
+        self.store.objects["rp/remotepower_data_20260101_000000.tar.gz.enc"] = {"data": b"x", "mtime": 5, "meta": None}
+        st, body = self.asks(api.handle_backup_s3_archives, "admin", "admin")
+        self.assertEqual((st, body["total"]), (200, 1))
+
+    def test_other_methods_are_refused(self):
+        for fn in (api.handle_backup_s3_archives, api.handle_backup_s3_restore):
+            api.get_json_obj = lambda: {}
+            api.method = lambda: "GET"
+            self.cap.clear()
+            try:
+                fn()
+            except api.HTTPError:
+                pass
+            self.assertEqual(self.cap["s"], 405, fn.__name__)
+
+    def test_the_routes_exist_and_are_platform_routes(self):
+        routes = api._build_exact_routes()
+        self.assertIs(routes[("POST", "/api/backup/s3-archives")], api.handle_backup_s3_archives)
+        self.assertIs(routes[("POST", "/api/backup/s3-restore")], api.handle_backup_s3_restore)
+        for path in ("/api/backup/s3-archives", "/api/backup/s3-restore"):
+            self.assertTrue(api._platform_route(path, "POST"), f"{path} is for the platform operator whatever the handler asks")
+
+
 class TestTheConnectionGuard(_Base):
     """The client talks through the product's own guarded opener: a name that turns out to be the metadata address is not connected to,
     and a redirect is not followed."""

@@ -173,6 +173,13 @@ RemotePower can back up **itself** so you can rebuild the server after a loss.
     like the archives in your folder.
   - The restore drill reads the newest copy back, compares it with the digest stored at upload, and runs the same decrypt, unpack
     and structure check as for the local archive. A copy that changed in the store fails the drill.
+  - **Restore from S3…** (Settings → Backups → Backup & restore) lists the archives in the bucket, newest first. It uses the settings
+    in the form as they stand, saved or not, so it works on a rebuilt server that has none yet; the secret key still has to be in the
+    server's environment. Pick **Restore**, confirm, and give the backup passphrase (leave it empty to use the server's own). The
+    server reads the archive into a private scratch directory, compares it with the digest stored at upload, decrypts it, takes a
+    safety snapshot of the current data and restores it the way an uploaded archive is restored. Only encrypted archives made by the
+    copy are listed, and one over 1 GiB is not taken from the bucket: download it and restore the file. With tenant isolation on, only
+    the platform operator can list or restore.
   - The Security posture row *Backups mirrored off-host* counts the bucket, and every destination you set has to have worked on
     the last run. A failed copy never fails the backup: Server Status shows the reason.
 - **RPO and RTO targets.** `backup.rpo_hours` and `backup.rto_hours` (Settings →

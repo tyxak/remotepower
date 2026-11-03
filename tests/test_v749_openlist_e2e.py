@@ -673,6 +673,245 @@ class TestS3Backup(_Page):
 
 
 @unittest.skipUnless(_GATE, SKIP_REASON)
+class TestConfirmAndPromptAnswerWhenClosed(_Page):
+    """uiConfirm and uiPrompt hand back a promise. The dialog closed with Escape used to disappear and leave the promise waiting, which the
+    next dialog to open then answered with null. Every way of closing it has to answer the code that is waiting, now."""
+
+    def setUp(self):
+        super().setUp()
+        self.page.evaluate("() => { window.__answers = []; }")
+
+    def tearDown(self):
+        self.page.evaluate("() => { closeModal('ui-prompt-modal'); }")
+        super().tearDown()
+
+    def ask(self, kind):
+        call = ("uiConfirm({message: 'Go on?'})" if kind == "confirm"
+                else "uiPrompt({title: 'Name', message: 'A name', type: 'text'})")
+        self.page.evaluate(f"() => {{ {call}.then(v => window.__answers.push([{kind!r}, v])); }}")
+        self.page.wait_for_selector("#ui-prompt-modal.active", timeout=10000)
+
+    def answers(self):
+        return self.page.evaluate("() => window.__answers")
+
+    def wait_answers(self, n):
+        self.page.wait_for_function("(n) => window.__answers.length >= n", arg=n, timeout=5000)
+        return self.answers()
+
+    def waiting(self):
+        return self.page.evaluate("() => _uiPromptResolve !== null")
+
+    def test_escape_on_a_confirm_answers_false(self):
+        self.ask("confirm")
+        self.page.keyboard.press("Escape")
+        self.assertEqual(self.wait_answers(1), [["confirm", False]])
+        self.assertFalse(self.waiting())
+        self.assertFalse(self.page.evaluate("() => document.getElementById('ui-prompt-modal').classList.contains('active')"))
+
+    def test_escape_on_a_prompt_answers_null(self):
+        self.ask("prompt")
+        self.page.fill("#ui-prompt-input", "half typed")
+        self.page.keyboard.press("Escape")
+        self.assertEqual(self.wait_answers(1), [["prompt", None]], "what was typed is not an answer")
+        self.assertFalse(self.waiting())
+
+    def test_the_buttons_still_answer_as_they_did(self):
+        self.ask("confirm")
+        self.page.click("#ui-prompt-confirm")
+        self.assertEqual(self.wait_answers(1), [["confirm", True]])
+        self.ask("confirm")
+        self.page.click("[data-action='_uiPromptCancel']")
+        self.assertEqual(self.wait_answers(2)[1], ["confirm", False])
+        self.ask("prompt")
+        self.page.fill("#ui-prompt-input", "abc")
+        self.page.click("#ui-prompt-confirm")
+        self.assertEqual(self.wait_answers(3)[2], ["prompt", "abc"])
+        self.ask("prompt")
+        self.page.fill("#ui-prompt-input", "def")
+        self.page.keyboard.press("Enter")
+        self.assertEqual(self.wait_answers(4)[3], ["prompt", "def"])
+        self.assertFalse(self.waiting())
+
+    def test_closing_it_from_a_script_answers_too(self):
+        self.ask("prompt")
+        self.page.evaluate("() => closeModal('ui-prompt-modal')")
+        self.assertEqual(self.wait_answers(1), [["prompt", None]])
+
+    def test_a_dialog_closed_with_escape_does_not_answer_the_next_one(self):
+        self.ask("confirm")
+        self.page.keyboard.press("Escape")
+        self.wait_answers(1)
+        self.ask("confirm")                                           # the second dialog, opened after the first was cancelled
+        self.page.wait_for_timeout(300)
+        self.assertEqual(self.answers(), [["confirm", False]], "the second is still waiting for its own answer")
+        self.assertTrue(self.waiting())
+        self.page.click("#ui-prompt-confirm")
+        self.assertEqual(self.wait_answers(2)[1], ["confirm", True])
+
+    def test_a_dialog_opened_over_another_modal_cancels_alone(self):
+        self.page.evaluate("() => openModal('s3-restore-modal')")
+        self.ask("confirm")
+        self.page.keyboard.press("Escape")
+        self.assertEqual(self.wait_answers(1), [["confirm", False]])
+        self.assertTrue(self.page.evaluate("() => document.getElementById('s3-restore-modal').classList.contains('active')"),
+                        "Escape closed the dialog on top and left the one under it")
+        self.page.evaluate("() => closeModal('s3-restore-modal')")
+
+
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestS3Restore(_Page):
+    """Restore from the S3 bucket, from the page. The demo has no store and no secret key in its environment, so the two requests are
+    answered inside the browser: what is tested here is what the page asks for, what it shows of the answer, and what it sends when a
+    person confirms. The server side is driven against a real store in test_v749_s3_backup."""
+
+    ARCHIVES = {"ok": True, "bucket": "bkt", "total": 2, "archives": [
+        {"name": "remotepower_data_20260302_030000.tar.gz.enc", "size": 5242880, "mtime": 1772420400},
+        {"name": "remotepower_data_20260301_030000.tar.gz.enc", "size": 5100000, "mtime": 1772334000}]}
+
+    def setUp(self):
+        super().setUp()
+        self.seen = []
+        self.answers = {"s3-archives": (200, dict(self.ARCHIVES)), "s3-restore": (200, {"ok": True, "restored": 12, "expected": 12,
+                                                                                         "snapshot": "pre-restore-20260303-101500.tar.gz.enc", "stores_imported": 0})}
+        self.page.evaluate("() => { const n = document.getElementById('backup-s3-secret-state'); if (n) n.textContent = ''; }")
+        self.page.evaluate("() => { showPage('settings'); }")
+        self.page.wait_for_selector("#settings-tab-btn-backups", timeout=30000)
+        self.page.evaluate("() => switchSettingsTab('backups')")
+        self.page.wait_for_selector("#backup-s3-endpoint", state="visible", timeout=30000)
+        self.page.wait_for_function("() => (document.getElementById('backup-s3-secret-state')?.innerText || '').trim() !== ''", timeout=60000)
+        self.page.fill("#backup-s3-endpoint", "http://127.0.0.1:9000")
+        self.page.fill("#backup-s3-bucket", "bkt")
+        self.page.fill("#backup-s3-key", "AKIAEXAMPLE")
+
+        def answer(route):
+            req = route.request
+            which = req.url.rsplit("/", 1)[1]
+            self.seen.append((which, req.post_data, {k.lower(): v for k, v in req.headers.items()}))
+            status, body = self.answers[which]
+            route.fulfill(status=status, content_type="application/json", body=json.dumps(body))
+        self.page.route("**/api/backup/s3-*", answer)
+        self.addCleanup(lambda: self.page.unroute("**/api/backup/s3-*"))
+
+    def tearDown(self):
+        self.page.evaluate("() => { closeModal('s3-restore-modal'); closeModal('ui-prompt-modal'); }")
+        self.page.evaluate("() => { const r = document.getElementById('backup-result'); if (r) { r.hidden = true; r.textContent = ''; } }")
+        super().tearDown()
+
+    def open_list(self):
+        self.page.click('[data-action="openS3Restore"]')
+        self.page.wait_for_function("() => { const l = document.getElementById('s3-restore-list'); return l && !l.innerText.includes('Loading'); }", timeout=20000)
+
+    def rows(self):
+        return self.page.eval_on_selector_all("#s3-restore-list tbody tr", "rs => rs.map(r => [...r.children].map(c => c.innerText.trim().replace(/\\s+/g, ' ')))")
+
+    def test_the_list_asks_with_the_form_as_it_stands_and_shows_the_archives(self):
+        self.open_list()
+        which, raw, headers = self.seen[0]
+        self.assertEqual(which, "s3-archives")
+        sent = json.loads(raw)
+        self.assertEqual((sent["s3"]["endpoint"], sent["s3"]["bucket"], sent["s3"]["access_key_id"]), ("http://127.0.0.1:9000", "bkt", "AKIAEXAMPLE"))
+        self.assertNotIn("secret", raw.lower(), "the page has no secret key to send")
+        rows = self.rows()
+        self.assertEqual([r[0] for r in rows], ["remotepower_data_20260302_030000.tar.gz.enc", "remotepower_data_20260301_030000.tar.gz.enc"])
+        self.assertEqual(rows[0][1], "5.0 MB")
+        self.assertRegex(rows[0][2], r"2026")
+        self.assertEqual(rows[0][3], "Restore")
+        self.assertNotIn("Older archives", self.page.inner_text("#s3-restore-list"))
+
+    def test_an_empty_bucket_says_so(self):
+        self.answers["s3-archives"] = (200, {"ok": True, "bucket": "bkt", "total": 0, "archives": []})
+        self.open_list()
+        self.assertIn("No archives in the bucket.", self.page.inner_text("#s3-restore-list"))
+
+    def test_more_than_are_shown_says_so(self):
+        self.answers["s3-archives"] = (200, dict(self.ARCHIVES, total=130))
+        self.open_list()
+        self.assertIn("Older archives are not shown.", self.page.inner_text("#s3-restore-list"))
+
+    def test_a_store_that_refuses_shows_the_reason_and_no_table(self):
+        self.answers["s3-archives"] = (200, {"ok": False, "error": "the store answered 403 AccessDenied: Access Denied"})
+        self.open_list()
+        self.assertIn("AccessDenied", self.page.inner_text("#s3-restore-error"))
+        self.assertIsNone(self.page.query_selector("#s3-restore-list table"))
+
+    def test_a_request_the_server_refuses_shows_the_reason(self):
+        self.answers["s3-archives"] = (403, {"error": "Restoring from the S3 bucket is for the platform operator"})
+        self.open_list()
+        self.assertIn("platform operator", self.page.inner_text("#s3-restore-error"))
+
+    def test_a_name_from_the_bucket_is_text(self):
+        hostile = 'x"><img src=x id=pwned>.tar.gz.enc'
+        self.answers["s3-archives"] = (200, {"ok": True, "bucket": "bkt", "total": 1, "archives": [{"name": hostile, "size": 1, "mtime": 0}]})
+        self.open_list()
+        self.assertIsNone(self.page.query_selector("#pwned"), "it was not parsed as markup")
+        self.assertEqual(self.page.get_attribute("#s3-restore-list [data-action='restoreFromS3']", "data-arg"), hostile)
+        self.assertEqual(self.rows()[0][0], hostile)
+
+    def confirm_restore(self, passphrase="correct horse"):
+        self.open_list()
+        self.page.click("#s3-restore-list [data-action='restoreFromS3']")
+        self.page.wait_for_selector("#ui-prompt-modal.active", timeout=10000)
+        self.assertIn("OVERWRITES", self.page.inner_text("#ui-prompt-message"))
+        self.assertIn("remotepower_data_20260302_030000.tar.gz.enc", self.page.inner_text("#ui-prompt-message"))
+        self.page.click("#ui-prompt-confirm")
+        self.page.wait_for_function("() => document.getElementById('ui-prompt-input') && !document.getElementById('ui-prompt-input').classList.contains('d-none')", timeout=10000)
+        self.assertEqual(self.page.get_attribute("#ui-prompt-input", "type"), "password")
+        self.page.fill("#ui-prompt-input", passphrase)
+        self.page.click("#ui-prompt-confirm")
+
+    def test_a_restore_sends_the_name_the_settings_and_the_passphrase_and_shows_the_result(self):
+        self.confirm_restore()
+        self.page.wait_for_function("() => (document.getElementById('backup-result')?.innerText || '').includes('Restored')", timeout=20000)
+        which, raw, headers = [x for x in self.seen if x[0] == "s3-restore"][0]
+        sent = json.loads(raw)
+        self.assertEqual(sent["name"], "remotepower_data_20260302_030000.tar.gz.enc")
+        self.assertEqual(sent["s3"]["bucket"], "bkt")
+        self.assertEqual(headers["x-rp-backup-passphrase"], "correct horse")
+        self.assertTrue(headers["x-token"], "the session goes with it")
+        self.assertNotIn("correct horse", raw, "the passphrase is in the header, not in the body")
+        text = self.page.inner_text("#backup-result")
+        self.assertIn("Restored 12 files", text)
+        self.assertIn("pre-restore-20260303-101500.tar.gz.enc", text)
+        self.assertFalse(self.page.evaluate("() => document.getElementById('s3-restore-modal').classList.contains('active')"), "the list is closed")
+
+    def test_a_restore_the_server_refuses_says_why(self):
+        self.answers["s3-restore"] = (400, {"error": "decryption failed: wrong passphrase or damaged archive"})
+        self.confirm_restore("wrong")
+        self.page.wait_for_function("() => (document.getElementById('backup-result')?.innerText || '').includes('Restore failed')", timeout=20000)
+        self.assertIn("decryption failed", self.page.inner_text("#backup-result"))
+
+    def test_a_restore_the_store_could_not_serve_says_why(self):
+        self.answers["s3-restore"] = (200, {"ok": False, "error": "the store answered 404 NoSuchKey"})
+        self.confirm_restore()
+        self.page.wait_for_function("() => (document.getElementById('backup-result')?.innerText || '').includes('Restore failed')", timeout=20000)
+        self.assertIn("NoSuchKey", self.page.inner_text("#backup-result"))
+
+    def test_cancelling_the_confirmation_sends_nothing(self):
+        self.open_list()
+        self.page.click("#s3-restore-list [data-action='restoreFromS3']")
+        self.page.wait_for_selector("#ui-prompt-modal.active", timeout=10000)
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(800)
+        self.assertEqual([x for x in self.seen if x[0] == "s3-restore"], [])
+
+    def test_cancelling_the_passphrase_sends_nothing(self):
+        self.open_list()
+        self.page.click("#s3-restore-list [data-action='restoreFromS3']")
+        self.page.wait_for_selector("#ui-prompt-modal.active", timeout=10000)
+        self.page.click("#ui-prompt-confirm")
+        self.page.wait_for_function("() => document.getElementById('ui-prompt-input') && !document.getElementById('ui-prompt-input').classList.contains('d-none')", timeout=10000)
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(800)
+        self.assertEqual([x for x in self.seen if x[0] == "s3-restore"], [])
+
+    def test_an_empty_passphrase_is_sent_as_none_so_the_servers_own_is_used(self):
+        self.confirm_restore("")
+        self.page.wait_for_function("() => (document.getElementById('backup-result')?.innerText || '').includes('Restored')", timeout=20000)
+        headers = [x for x in self.seen if x[0] == "s3-restore"][0][2]
+        self.assertNotIn("x-rp-backup-passphrase", headers)
+
+
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestCpuTime(_Page):
 
     def test_the_drawer_shows_where_the_cpu_time_goes(self):

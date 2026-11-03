@@ -217,6 +217,16 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   The access key id is shown to administrators only; any other reader of the settings gets an indicator that one is set.
   Multipart upload is not built, so an archive over 5 GiB is reported as failed. Tested against a store written for the tests
   that verifies every signature, not against AWS, MinIO or Backblaze themselves.
+- **A server can be restored from the bucket (gap-fill).** The restore took a file, and the drill was the only thing that read the
+  bucket. **Restore from S3…** under Settings → Backups → Backup & restore lists the archives the copy put there, newest first,
+  using the settings in the form as they stand, so it works on a rebuilt server with none saved (the secret key is still the
+  server's environment's). **Restore** asks for confirmation and the backup passphrase, and the server reads the archive into a
+  private scratch directory, compares it with the digest stored at upload, decrypts it, takes the safety snapshot and restores it
+  the way an uploaded archive is restored: it is the same function now (`_restore_apply`), so the checks of every member, the
+  partial-restore report and the audit entry cannot drift apart. Only encrypted archives made by the copy are listed and taken, a
+  name has to be one the listing shows, and one over 1 GiB is not taken (the restore holds an archive in memory, as an upload does).
+  `POST /api/backup/s3-archives` and `POST /api/backup/s3-restore` are for the platform operator whatever the role, since the
+  server connects to the address in the request.
 
 ### CPU time
 
@@ -557,6 +567,12 @@ and missing it in two or three. These are the cheap ones:
 
 ### Fixes
 
+- **A confirm or prompt dialog closed with Escape answers the code that is waiting.** `uiConfirm` and `uiPrompt` hand back a promise
+  that is settled when a button is pressed. Escape was taken by the general handler that closes the dialog on top, which closed it
+  without settling the promise, so the code that asked went on waiting until the next dialog opened and answered it with null. A
+  passphrase prompt that was cancelled with Escape could therefore carry on later, at a time nobody was looking at. Closing the
+  dialog any way now settles it as a cancel (false for a confirm, null for a prompt), and the buttons answer as before. Found
+  while testing the restore from the bucket.
 - **A host profile carries every line a single host can be given.** A profile is a named bundle of settings that **Apply**
   copies onto the hosts you pick. Its thresholds were checked by a table written with the feature, and the per-host editor went
   on getting lines the table never heard of: how busy a disk may be (7.4.3), the drive temperatures (7.4.4), the mail queue depth

@@ -1010,6 +1010,7 @@ for _bk_name in (
         '_maybe_run_scheduled_backup', '_maybe_run_restore_drill', '_restore_drill_core',
         '_refresh_proxmox_backup_cache', '_run_data_backup',
         '_s3_message', '_s3_validate', '_s3_settings', '_s3_client', '_s3_offsite_copy', '_s3_drill', 'handle_backup_s3_test',
+        '_s3_request_settings', '_s3_archives', 'handle_backup_s3_archives', 'handle_backup_s3_restore', '_restore_apply',
         'handle_backup_clear', 'handle_backup_download', 'handle_backup_encrypt_existing',
         '_backup_job_command', '_backup_job_targets', '_backup_targets_summary',
         '_backup_run_and_wait', '_backup_job_status', '_backup_queue_and_wait',
@@ -75296,6 +75297,8 @@ def _build_exact_routes():
         ('POST', '/api/self/backup-encrypt'): handle_backup_encrypt_existing,   # v5.0.0
         ('POST', '/api/backup/test-restore'): handle_backup_test_restore,       # v5.4.1 (G1)
         ('POST', '/api/backup/s3-test'): handle_backup_s3_test,                 # 7.4.9: write, read, delete in the S3 bucket
+        ('POST', '/api/backup/s3-archives'): handle_backup_s3_archives,         # 7.4.9: the archives in the bucket, for the restore
+        ('POST', '/api/backup/s3-restore'): handle_backup_s3_restore,           # 7.4.9: restore the data directory from one of them
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,
         ('GET', '/api/detection-selftest'): handle_detection_selftest,   # v6.3.1 alert-chain self-test
