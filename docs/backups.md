@@ -161,7 +161,8 @@ RemotePower can back up **itself** so you can rebuild the server after a loss.
   Backblaze B2, Wasabi, Cloudflare R2 and any other store that speaks S3 work. The secret access key is not a setting: put
   `RP_BACKUP_S3_SECRET_KEY` in the server's environment (or `RP_BACKUP_S3_SECRET_KEY_CMD`, a command that prints it), next to
   `RP_BACKUP_PASSPHRASE`, so it never lands in the data directory or in an archive. **Test S3 connection** writes, reads, lists and
-  deletes a small object and tells you which step failed.
+  deletes a small object and tells you which step failed. With tenant isolation on, only the platform operator can use it, since the
+  server connects to the address in the request.
   - Only an **encrypted** archive is sent. An unencrypted one holds every secret of the installation, so with no
     `RP_BACKUP_PASSPHRASE` the copy is skipped and Server Status says why.
   - Use an `https://` endpoint. A plain `http://` one is accepted for a private or loopback address only, such as a MinIO on your

@@ -514,6 +514,8 @@ class TestTheConnectionGuard(_Base):
 
             def do_PUT(self):
                 seen.append(self.path)
+                n = int(self.headers.get("Content-Length") or 0)
+                self.rfile.read(n)             # take the archive before answering, or the client may see a broken pipe instead of the 307
                 self.send_response(307)
                 self.send_header("Location", f"http://127.0.0.1:{self.server.server_address[1]}/elsewhere")
                 self.send_header("Content-Length", "0")

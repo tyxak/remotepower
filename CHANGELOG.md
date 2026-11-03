@@ -202,7 +202,8 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   endpoint is accepted for a private or loopback address only, link-local and cloud metadata addresses are refused when you save
   and again at connect time, and a redirect is not followed. The restore drill now reads the newest copy back and fails when it
   is not the one that was uploaded, or when it does not decrypt and unpack. **Test S3 connection** writes, reads, lists and
-  deletes a small object and names the step that failed (`POST /api/backup/s3-test`). Server Status shows each destination's
+  deletes a small object and names the step that failed (`POST /api/backup/s3-test`; with tenant isolation on it is the platform
+  operator's, since the server connects to the address in the request). Server Status shows each destination's
   last result, and the posture row *Backups mirrored off-host* counts the bucket: every destination you set has to have worked.
   The access key id is shown to administrators only; any other reader of the settings gets an indicator that one is set.
   Multipart upload is not built, so an archive over 5 GiB is reported as failed. Tested against a store written for the tests

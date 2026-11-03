@@ -15,22 +15,46 @@ below says so.
 
 ## What changed that a reviewer should look at
 
-**Added after the review.** Six features were built once the sweep was done and the gates had run. None loosens a permission, and
-each was checked with the same instruments. The matrix, run again on the finished tree, found one defect in them, fixed before
-release (S32). The matrix ran again on the finished tree: 1,082 routed operations (the seven new routes included), 84,801 requests
-in 60 runs, and no answer to a tenant user held another tenant's id, name or object. The 58 operations that answered some caller with a
-marker it should not hold fall in the same groups as before: 13 answered tenant users (the caller's own input stored and read back, the
-content of a cloned host, the shared knowledge base, or a host token's own scripts), 42 answered only roles scoped to groups or tags, 2
-answered the finance role, and one was a planted row that the product itself had already rewritten into an alert about the
-installation's own service. The 697 answers that were not a refusal are the same as in the earlier run (251 were 400 and 446 were 405). New routes: `POST /api/alerts/{id}/assign` (it asks for the right to acknowledge an
-alert, refuses an alert the caller cannot reach, and refuses an assignee who could not open the alert: another tenant's account,
-a role scoped to other hosts, a disabled account), and `/api/business-services` with its `{id}` and `impact` routes (the
-organisation that runs the installation's, so they sit in the second table below and a tenant's users never reach them; creating,
-changing and deleting ask for an administrator, and a service that holds a host a user cannot see is hidden from that user).
-`allowed_cidrs` on `POST /api/enrollment-tokens` narrows what a token allows and can only refuse more. The handler ratchet
-(`tests/test_v749_handler_tenant_ratchet.py`) and the store-shape registry cover the new handlers and stores. Two review notes: the
-Nagios-plugin reading of a custom script runs no new code on a host (the server reads the exit code the agent already sends), and a
-container's health-check output is shown to whoever can read the container's alert, so a check should not print a secret.
+**Added after the review, in two batches.** Six features were built once the sweep was done and the gates had run, and eight more after
+them. None loosens a permission, and each was checked with the same instruments. The matrix, run on the tree after the first batch, found
+one defect in them, fixed before release (S32). It ran again on the finished tree: 1,088 routed operations (the thirteen new routes of the
+two batches included), 85,302 requests in 60 runs, and no answer to a tenant user held another tenant's id, name or object. The 60 operations
+that answered some caller with a marker it should not hold fall in the same groups as before: 13 answered tenant users (the caller's own
+input stored and read back, the content of a cloned host, the shared knowledge base, or a host token's own scripts), 44 answered only
+roles or keys scoped to groups or tags, 2 answered the finance role, and one was a planted row that the product itself had already
+rewritten into an alert about the installation's own service. The 44 are two more than before: `GET /api/alerts` and `GET /api/problems`
+for a scoped key, which carry the installation's monitor alerts (a scoped role is shown the same rows; see "Known and unchanged"). The 697
+answers that were not a refusal are the same as in the earlier run (251 were 400 and 446 were 405), and so are the eight requests that
+answered 5xx or not at all.
+
+New routes of the first batch: `POST /api/alerts/{id}/assign` (it asks for the right to acknowledge an alert, refuses an alert the
+caller cannot reach, and refuses an assignee who could not open the alert: another tenant's account, a role scoped to other hosts, a
+disabled account), and `/api/business-services` with its `{id}` and `impact` routes (the organisation that runs the installation's, so
+they sit in the second table below and a tenant's users never reach them; creating, changing and deleting ask for an administrator, and
+a service that holds a host a user cannot see is hidden from that user). `allowed_cidrs` on `POST /api/enrollment-tokens` narrows what a
+token allows and can only refuse more. The handler ratchet (`tests/test_v749_handler_tenant_ratchet.py`) and the store-shape registry cover
+the new handlers and stores. Two review notes: the Nagios-plugin reading of a custom script runs no new code on a host (the server reads
+the exit code the agent already sends), and a container's health-check output is shown to whoever can read the container's alert, so a
+check should not print a secret.
+
+New routes of the second batch: `GET` and `POST /api/devices/{id}/patch-preview` (anyone who may patch the host; a host outside the
+caller's tenant or scope is refused first), `PUT /api/devices/{id}/container-audit` (an administrator, for a host the caller can reach; audited), `GET /api/containers/audit`
+and `GET /api/repositories` (within the tenant and role scope of every fleet listing) and `POST /api/backup/s3-test` (the platform operator
+only: the address comes from the request and the server connects to it; in the matrix every caller except the platform operator's
+administrators was refused). The other features use routes that exist: the settings document (`time_periods`, `backup.s3` and the CPU time
+lines, saved by the platform operator only under tenant isolation), `POST /api/maintenance` (takes a `period`), the monitors (`via_host`)
+and the heartbeat (the server sends a host the checks assigned to it and takes their results back, for that host's own checks only). Review
+notes: the agent's collectors for repositories, ZFS and container run options only read; the checks a host runs for the server use the
+agent's own vetting of addresses (the host's loopback allowed, link-local and cloud metadata refused when the check is saved and again when
+the agent connects, no redirect followed); the secret key of the S3 copy is read from the server's environment and is in no store, archive
+or answer.
+
+**Caught while building the second batch.** The test suite stopped three things before they shipped. A host in audit mode (read-only)
+would have run the checks the server assigned to it, which open connections and run `ping` to addresses the server names: the agent
+refuses them now, a check cannot be assigned to such a host and the row says why. The read of the settings would have given every reader
+the access key id of the S3 copy, which names the account that owns the bucket: readers who are not administrators get an indicator
+that one is set. The S3 connection test asked for an administrator in its handler and relied on the route table to keep a tenant's users
+out: the handler asks for the platform operator itself. They are not in the counts above, which are the review's.
 
 - **Routes.** One route is new: `POST /api/logout`. Two others are new for one feature: `POST /api/scap/{id}/report-ticket`, and
   the SCAP report route now also accepts a one-minute link. No permission was loosened. A permission check was added to one
@@ -46,7 +70,7 @@ container's health-check output is shown to whoever can read the container's ale
 - **Containers.** The Docker image starts its app server and daemons as `www-data`, not root.
 - **Supply chain.** The GitHub Actions in the three workflows are pinned to commits, and Dependabot waits seven days before it
   proposes a release.
-- **Size.** Since 7.4.8, counted by git with the documents left out: 172 files, +13,702 −799 lines. Server 33 files (+2,099 −282), web client 17 (+350 −125), agents and installers 7 (+1,088 −120), tests 96 (+9,891 −237), packaging, Docker and tools 19 (+274 −35).
+- **Size.** Since 7.4.8, counted by git with the documents left out: 244 files, +33,621 −1,035 lines. Server 55 files (+7,760 −475), web client 26 (+2,176 −161), agents and installers 7 (+2,338 −122), tests 135 (+20,660 −241), packaging, Docker and tools 21 (+687 −36).
 - **Not changed.** No dependency was added or removed in the server (Swagger UI moved from 5.34.0 to 5.34.1, a bug-fix release with
   no advisory). The agent version is 7.4.9 in all three agents.
 
@@ -329,7 +353,7 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 - A fully compromised server is root on its agents, by design (see the threat model).
 - **A role scoped to groups, tags or sites limits what a user can change, not what they can see.** The host list is filtered, and
   every operation on a single host outside the scope is refused (88 of 88 for a group role, 84 of 84 for a tag role and 11 of 11 for
-  a scoped key in the matrix), but in the last run 51 operations answered a scoped caller with a marker of a host outside its scope.
+  a scoped key in the matrix), but in the last run 54 operations answered a scoped caller with a marker of a host outside its scope.
   Most are lists that cover the whole fleet (alerts, problems, activity, checks, exposure, metrics and others); a few echo the
   caller's own input. The boundary for confidentiality is the tenant: give a person who must not see other hosts a tenant.
 - **IdP-initiated SAML sign-in** (`saml_allow_unsolicited`, off by default) has no start in the browser tab, so the check of S26
@@ -341,19 +365,23 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 
 ## The release gate
 
-The suites ran on the commits of this release. Where a line names a commit, the run is of that commit. After `2f0a7a0f` only two
-tests changed (`5ffc3dc6`); they were run on their own and again in the suite of `make dist`, and nothing else in the tree has
-changed since but documents.
+The suites ran on the commits of this release. Where a line names a commit, the run is of that commit. After `c636d4b7` the tree changed in
+documents and in one test (the redirect test of the S3 copy, which raced under load and is fixed). Rows that name an older commit were
+not repeated, and the matrix ran on `a3e1ff9a`: the one commit after it (`c636d4b7`) only adds refusals (a host in audit mode runs no
+checks, the S3 test asks for the platform operator in its handler, readers who are not administrators get no access key id).
 
 | Check | Result |
 |---|---|
-| Test suite, JSON storage (`2f0a7a0f`) | 18,304 tests, 57 skipped. Red: the two subtests of the AUR check, a storage property test that had stopped being true for `config.json` and an interface test that raced a scroll. The last two are fixed in `5ffc3dc6` |
-| Test suite, SQLite (`2f0a7a0f`) | 17,985 tests, 145 skipped. Red: the two AUR subtests only |
-| PostgreSQL tests (`2f0a7a0f`) | 28 tests, none skipped. The server was PostgreSQL 18.6 and CI runs 16 |
-| `make ci-parity` (`5ffc3dc6`): Python 3.14, the workflow's dependency list resolved fresh, the workflow's runner | 18,060 tests, 368 skipped. Red: the two AUR subtests only |
-| `make dist` (`5ffc3dc6`): the tarball, its leak check and the suite on the staged tree | 18,305 tests, 88 skipped. Red: the two AUR subtests only. The tarball was built and passed its leak check |
-| CodeQL 2.27.3, Python and JavaScript, the repository's own configuration (`5ffc3dc6`) | no result |
-| bandit against its baseline, gitleaks over the tree and the 60 commits since 7.4.8, `make lint`, `tools/release-prep.py verify` (`5ffc3dc6`) | no issue, no leak, clean, 0 failures |
+| Test suite, JSON storage (`c636d4b7`) | 19,159 tests, 57 skipped. Red: the two subtests of the AUR check |
+| Test suite, SQLite (`c636d4b7`) | 18,784 tests, 148 skipped. Red: the two AUR subtests, and the redirect test of the S3 copy, which failed when three suites ran at once (the server answered a 307 before the client had sent its upload and the client saw a broken pipe). The test reads the upload before it answers now, and passed eight runs at once |
+| PostgreSQL tests (`c636d4b7`) | 28 tests, none skipped. The server was PostgreSQL 18.6 and CI runs 16 |
+| `make ci-parity` (`c636d4b7`): Python 3.14, the workflow's dependency list resolved fresh, the workflow's runner | 18,858 tests, 371 skipped. Red: the two AUR subtests and the same redirect test |
+| Authorization matrix (`a3e1ff9a`) | 1,088 operations, 85,302 requests, 60 runs; no answer to a tenant user held another tenant's id, name or object |
+| `make dist` (`5ffc3dc6`): the tarball, its leak check and the suite on the staged tree | 18,305 tests, 88 skipped. Red: the two AUR subtests only. The tarball was built and passed its leak check. Not repeated after the later features |
+| CodeQL 2.27.3, Python and JavaScript, the repository's own configuration (`c636d4b7`) | no result |
+| bandit against its baseline, `make lint` (`c636d4b7`), gitleaks over the commits since the first batch (`a273939b`..`c636d4b7`) | no issue, clean, no leak |
+| semgrep (python, javascript and security-audit rule sets) over the 18 files changed since the first batch (`c636d4b7`) | 5 findings, all in code older than this release (the permissions of files the agent creates, its restart call, one HTML format string); none new. A control file produced its 4 |
+| `tools/release-prep.py verify` (`5ffc3dc6`) | 0 failures. Not repeated after the later features |
 
 The two AUR subtests check that the Arch packages are on the last shipped release. They are on 7.4.0 and the last shipped release is
 7.4.8, so they stay red until the packages are bumped. They were red in the gates of the earlier 7.4 releases too.
@@ -365,5 +393,8 @@ The two AUR subtests check that the Arch packages are on the last shipped releas
   address's policy differently, which matters for S14).
 - Real Windows and macOS hosts, real package managers, and a real container runtime for the agent's container update. The
   PowerShell installers were read, not run.
+- The second batch against real services: the S3 copy ran against a store written for the tests that checks every signature, not against
+  AWS, MinIO or Backblaze; the checks a host runs for the server ran against local servers and a stubbed `ping`, not on a real host; the
+  CPU time shares were read from a real `/proc/stat` on the development machine and not from a Windows or macOS host.
 - A latency benchmark of the product. One measurement was taken of the shape check, on a busy machine: it takes 10 ms for a
   1,000-host `devices.json` of 5.0 MB (parsing that file takes 34 ms) and 2 ms for 5,000 alerts. Nothing else is quoted.
