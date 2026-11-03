@@ -4,7 +4,7 @@ Pure, side-effect-free formatters carved out of api.py (same model as
 integrations.py / hypervisor.py): every function here turns
 (event, title, message, payload, dest) into (body, headers, content_type)
 for one downstream service — Discord, Slack, Teams, ntfy, GitHub Issues,
-PagerDuty, Opsgenie, Pushover, Telegram, Matrix, the generic JSON contract,
+PagerDuty, Opsgenie, Pushover, Telegram, Matrix, Mattermost, Rocket.Chat, Google Chat, Gotify, the generic JSON contract,
 and the ITSM ticket adapters (Jira / ServiceNow / Zendesk) — plus the
 human-readable _webhook_message() renderer they all share.
 
@@ -73,33 +73,51 @@ def _auto_detect_format(url):
         return "opsgenie"
     if _host_in("api.telegram.org", "telegram.org"):
         return "telegram"
+    if _host_in("chat.googleapis.com"):
+        return "googlechat"
+    if _host_in("cloud.mattermost.com"):
+        return "mattermost"
+    if _host_in("rocket.chat"):
+        return "rocketchat"
     return "generic"
 
 
 # Allowed format adapters — anything else falls back to generic.
 
 
+# RGB colour of an event's notification: Discord takes the integer, the chat services that paint an attachment
+# bar (Mattermost, Rocket.Chat) take it as #RRGGBB. An event that is not listed is blue, or green when it is
+# the recovery of an alert.
+_EVENT_COLORS = {
+    "device_offline": 0xEF4444,
+    "device_online": 0x22C55E,
+    "monitor_down": 0xEF4444,
+    "monitor_up": 0x22C55E,
+    "service_down": 0xEF4444,
+    "service_up": 0x22C55E,
+    "patch_alert": 0xF59E0B,
+    "command_queued": 0x3B7EFF,
+    "command_executed": 0x3B7EFF,
+    "test": 0x7C3AED,
+    "container_stopped": 0xEF4444,
+    "container_restarting": 0xF59E0B,
+    "container_unhealthy": 0xEF4444,
+    "containers_stale": 0xF59E0B,
+    "cve_found": 0xEF4444,
+    "log_alert": 0xF59E0B,
+    "brute_force_detected": 0xEF4444,
+    "tls_expiry": 0xF59E0B,
+}
+
+
+def _event_color(event):
+    c = _EVENT_COLORS.get(event)
+    if c is not None:
+        return c
+    return 0x22C55E if event in _RECOVER_EVENTS else 0x3B7EFF
+
+
 def _build_discord_body(event, title, message):
-    colors = {
-        "device_offline": 0xEF4444,
-        "device_online": 0x22C55E,
-        "monitor_down": 0xEF4444,
-        "monitor_up": 0x22C55E,
-        "service_down": 0xEF4444,
-        "service_up": 0x22C55E,
-        "patch_alert": 0xF59E0B,
-        "command_queued": 0x3B7EFF,
-        "command_executed": 0x3B7EFF,
-        "test": 0x7C3AED,
-        "container_stopped": 0xEF4444,
-        "container_restarting": 0xF59E0B,
-        "container_unhealthy": 0xEF4444,
-        "containers_stale": 0xF59E0B,
-        "cve_found": 0xEF4444,
-        "log_alert": 0xF59E0B,
-        "brute_force_detected": 0xEF4444,
-        "tls_expiry": 0xF59E0B,
-    }
     body = json.dumps(
         {
             "username": "RemotePower",
@@ -107,7 +125,7 @@ def _build_discord_body(event, title, message):
                 {
                     "title": title,
                     "description": message,
-                    "color": colors.get(event, 0x3B7EFF),
+                    "color": _EVENT_COLORS.get(event, 0x3B7EFF),
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "footer": {"text": f"RemotePower {SERVER_VERSION}"},
                 }
@@ -119,6 +137,58 @@ def _build_discord_body(event, title, message):
 
 def _build_slack_body(event, title, message):
     body = json.dumps({"text": f"*{title}*\n{message}"}).encode()
+    return body, {}, "application/json"
+
+
+def _build_mattermost_body(event, title, message):
+    """Mattermost incoming webhook: a bold first line (what a phone push shows) and an attachment whose bar takes
+    the event's colour. The webhook URL carries the token, as for Slack."""
+    body = json.dumps(
+        {
+            "username": "RemotePower",
+            "text": f"**{title}**",
+            "attachments": [
+                {
+                    "fallback": f"{title}: {message}"[:500],
+                    "color": "#%06X" % _event_color(event),
+                    "text": (message or "")[:4000],
+                    "footer": f"RemotePower {SERVER_VERSION}",
+                }
+            ],
+        }
+    ).encode()
+    return body, {}, "application/json"
+
+
+def _build_rocketchat_body(event, title, message):
+    """Rocket.Chat incoming webhook: bold title as the text and the message in a coloured attachment."""
+    body = json.dumps(
+        {
+            "alias": "RemotePower",
+            "text": f"*{title}*",
+            "attachments": [{"color": "#%06X" % _event_color(event), "text": (message or "")[:4000]}],
+        }
+    ).encode()
+    return body, {}, "application/json"
+
+
+def _build_googlechat_body(event, title, message):
+    """Google Chat space webhook: a text message, *bold* title first. A message is cut at 4,000 characters (the
+    API accepts 4,096)."""
+    body = json.dumps({"text": f"*{title}*\n{message or ''}"[:4000]}).encode()
+    return body, {}, "application/json"
+
+
+# Gotify rings at 4 and above and treats 8 and above as high, so the three levels RemotePower sends (3 normal,
+# 4 high, 5 urgent) go out as 5, 8 and 10. The generic body would send the 3, 4 and 5 as they are, which Gotify
+# shows as quiet messages.
+_GOTIFY_PRIORITY = {3: 5, 4: 8, 5: 10}
+
+
+def _build_gotify_body(event, title, message, priority):
+    """Gotify: POST /message?token=<app token> with title, message and priority. The token is in the URL."""
+    gp = _GOTIFY_PRIORITY.get(priority, 3 if isinstance(priority, int) and priority < 3 else 5)
+    body = json.dumps({"title": title, "message": (message or "")[:4000], "priority": gp}).encode()
     return body, {}, "application/json"
 
 
@@ -150,12 +220,21 @@ def _build_teams_body(event, title, message):
     return body, {}, "application/json"
 
 
+# The 0-2 scale an early release used. A value of 3 to 5 is the real scale (3 default, 4 high, 5 urgent) and ntfy
+# reads it the same way, so it goes through as it is. Until 7.4.9 the table was the only mapping, a 4 or a 5 fell to the
+# default 3, and ntfy never showed an alert as high or urgent.
+_NTFY_LEGACY_PRIORITY = {0: 3, 1: 4, 2: 5}
+
+
 def _build_ntfy_body(event, title, message, priority):
     """ntfy.sh takes a plain-text body + headers for title/priority/tags.
 
-    Priority mapping: our 0-2 internal → ntfy 3-5 (min=1, default=3, urgent=5).
+    Priority: RemotePower's 3 (default), 4 (high) and 5 (urgent) are ntfy's own 3, 4 and 5 (1 min, 5 max).
     """
-    ntfy_prio = {0: 3, 1: 4, 2: 5}.get(priority, 3)
+    if isinstance(priority, bool) or not isinstance(priority, int):
+        ntfy_prio = 3
+    else:
+        ntfy_prio = _NTFY_LEGACY_PRIORITY.get(priority) or (priority if 1 <= priority <= 5 else 3)
     body = (message or "").encode()
     headers = {
         "Title": _ascii_header(title),

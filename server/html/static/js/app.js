@@ -32378,6 +32378,10 @@ let _tenancyOn = false;
 const _WEBHOOK_FORMATS = [
   ['discord',   'Discord',        'https://discord.com/api/webhooks/...'],
   ['slack',     'Slack',          'https://hooks.slack.com/services/...'],
+  ['mattermost','Mattermost',     'https://your-mattermost.example.com/hooks/<id>'],
+  ['rocketchat','Rocket.Chat',    'https://your-rocketchat.example.com/hooks/<id>/<token>'],
+  ['googlechat','Google Chat',    'https://chat.googleapis.com/v1/spaces/<space>/messages?key=...&token=...'],
+  ['gotify',    'Gotify',         'https://your-gotify.example.com/message?token=<app token>'],
   ['pushover',  'Pushover',       'https://api.pushover.net/1/messages.json'],
   ['ntfy',      'ntfy.sh',        'https://ntfy.sh/your-topic'],
   ['teams',     'Microsoft Teams','https://outlook.office.com/webhook/...'],

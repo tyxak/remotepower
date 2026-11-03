@@ -14,9 +14,13 @@ The legacy single `webhook_url` field is still honoured — operators with one D
 |---|---|---|
 | `discord` | `discord.com`, `discordapp.com` | Embed with severity colour, footer "RemotePower vX.Y.Z" |
 | `slack` | `hooks.slack.com` | Plain markdown text with bold title |
+| `mattermost` | `*.cloud.mattermost.com` | Incoming webhook: a bold first line and an attachment whose bar takes the event's colour (red for a failure, green for a recovery) *(7.4.9)* |
+| `rocketchat` | `*.rocket.chat` | Incoming webhook: a bold title and a coloured attachment with the message *(7.4.9)* |
+| `googlechat` | `chat.googleapis.com` | A Google Chat space webhook: one text message with a bold title, cut at 4,000 characters *(7.4.9)* |
+| `gotify` | explicit | `POST /message?token=<app token>` with title, message and priority. RemotePower's normal, high and urgent go out as Gotify 5, 8 and 10, so an urgent alert rings *(7.4.9)* |
 | `pushover` | `api.pushover.net` | Form-encoded with `token`, `user`, `title`, `message`, `priority` |
 | `teams` | `outlook.office.com`, `webhook.office.com` | MessageCard schema with theme colour |
-| `ntfy` | `ntfy.sh` | Plain-text body + `Title`/`Priority`/`Tags` headers |
+| `ntfy` | `ntfy.sh` | Plain-text body + `Title`/`Priority`/`Tags` headers. Normal, high and urgent alerts go out as ntfy priority 3, 4 and 5 *(before 7.4.9 every alert went out as 3)* |
 | `github` | `api.github.com` | Opens a GitHub issue (PAT in the destination's credential field) |
 | `pagerduty` | `events.pagerduty.com` | Events API v2 — triggers an incident; recover events auto-resolve it |
 | `opsgenie` | `opsgenie.com` | Alerts API v2 — P1–P4 by severity |

@@ -69,6 +69,20 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   asks `docker inspect` about an unhealthy container only (eight per report at most), so a healthy host pays nothing. Update
   the agents for the output text; without it the alert still fires.
 
+### Notifications
+
+- **Mattermost, Rocket.Chat, Google Chat and Gotify are destinations of their own.** They used to get the generic JSON
+  body: Google Chat refuses it, Mattermost and Rocket.Chat show an empty message, and Gotify shows an urgent alert as a
+  quiet one. A Mattermost or Rocket.Chat destination posts a bold title and an attachment whose bar is red for a failure
+  and green for a recovery. A Google Chat destination posts one text message. A Gotify destination sends RemotePower's
+  normal, high and urgent as Gotify 5, 8 and 10, so an urgent alert rings. Pick the format in **Settings → Notifications**
+  and paste the service's webhook URL (for Gotify, `…/message?token=<app token>`). A legacy URL on `chat.googleapis.com`,
+  `*.cloud.mattermost.com` or `*.rocket.chat` is recognised without a choice.
+- **ntfy gets the priority of the alert.** The ntfy destination only knew a priority of 0 to 2, while RemotePower sends
+  3 (normal), 4 (high) and 5 (urgent), so every alert reached ntfy as the default priority and none was ever high or
+  urgent. They go out as 3, 4 and 5 now. If your phone treated every ntfy alert as the same, an urgent one will behave as
+  ntfy's urgent from now on.
+
 ### Security
 
 - **A security review of the whole project, not only of what changed.** Seven reviews ran side by side: who can reach what
