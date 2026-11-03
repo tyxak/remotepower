@@ -2184,6 +2184,19 @@ EVENT_REGISTRY = {
         label='A container stopped restart-looping (restart count stable)',
         kind='container', title='Container Restart Loop Cleared',
         resolves=('container_restarting',), tags='white_check_mark,whale'),
+    # 7.4.9: a container whose own health check keeps failing. Docker marks it unhealthy after the
+    # configured number of failures, so this is the application saying it does not serve, which the
+    # stopped and restarting events never see (the container is up). The inbox row carries the failing
+    # check's output. The recovery closes on a passing check, and also when the container stops or
+    # leaves the list, where container_stopped takes over.
+    'container_unhealthy': dict(
+        label='A container reports unhealthy (its own health check keeps failing)', kind='container',
+        title='Container Unhealthy', severity='high', priority=4, tags='warning,whale',
+        symptom=True),
+    'container_healthy': dict(
+        label='A container passes its health check again (or stopped, or left the list)',
+        kind='container', title='Container Healthy',
+        resolves=('container_unhealthy',), tags='white_check_mark,whale'),
     # v7.4.3 (#50): a container held over a CPU or memory line the operator set for a run of reports.
     # One event with a `metric` (cpu | memory | memory_mb), because two resources on one container are two
     # alerts, told apart by (container, metric), both in _ALERT_IDENTITY_FIELDS.
@@ -10359,6 +10372,10 @@ def _alert_title(event, payload):
         return f'Container stopped on {name}: {p.get("container", "")}'
     if event == 'container_restarting':
         return f'Container restarting on {name}: {p.get("container", "")}'
+    if event == 'container_unhealthy':
+        return f'Container unhealthy on {name}: {p.get("container", "")}'
+    if event == 'container_healthy':
+        return f'Container healthy again on {name}: {p.get("container", "")}'
     if event == 'containers_stale':
         return f'Container data stale on {name}'
     if event in ('image_update_available', 'image_updated'):
@@ -12751,6 +12768,9 @@ def _auto_resolve_alerts(event, payload):
         # touching its memory alert or the alerts of another container.
         sub_match['container'] = p.get('container')
         sub_match['metric'] = p.get('metric')
+    elif event == 'container_healthy':
+        # 7.4.9: per container, so a healthy web does not close the unhealthy alert of db on the host.
+        sub_match['container'] = p.get('container')
     elif event == 'container_recovered':
         # v5.6.0: a container running again resolves the open container_stopped
         # alert for THAT container (per-name, so a recovered web1 doesn't clear
@@ -23592,6 +23612,9 @@ def handle_heartbeat():
         for _rk in ('res_streak', 'res_alerted'):
             if _ctr_state.get(_rk):
                 _rec[_rk] = _ctr_state[_rk]
+        # 7.4.9: the names under an open container_unhealthy alert, so container_healthy closes it.
+        if _ctr_state.get('unhealthy_alerted'):
+            _rec['unhealthy_alerted'] = _ctr_state['unhealthy_alerted']
         # v6.1.2: `docker system df` — the disk-footprint breakdown, on its own
         # slow cadence (the agent only sends it ~hourly, since docker has to walk
         # the layer store). It arrives on SOME container reports, not all, so
@@ -51709,6 +51732,13 @@ def _compute_attention():
                     'device': monitored[dev_id].get('name', dev_id),
                     'summary': f'{restarting} container{"s" if restarting != 1 else ""} restarting',
                 })
+            unhealthy = (summary or {}).get('unhealthy', 0)
+            if unhealthy > 0:
+                items.append({
+                    'severity': 'warning', 'kind': 'container',
+                    'device': monitored[dev_id].get('name', dev_id),
+                    'summary': f'{unhealthy} container{"s" if unhealthy != 1 else ""} unhealthy',
+                })
     except Exception as _e:
         # v4.1.0 (#33): stay resilient (a bad containers file must not break the
         # whole digest) but don't fail silently — the v3.0.4 lesson.
@@ -52477,7 +52507,7 @@ _NA_MUTE_EVENTS = {
     ('mount',              'critical'): ('mount_issue',),
     ('mount',              'warning'):  ('mount_issue',),
     ('container',          'warning'):  ('container_stopped', 'container_restarting',
-                                         'containers_stale'),
+                                         'containers_stale', 'container_unhealthy'),
     ('brute_force',        'critical'): ('brute_force_detected',),
     ('failed_units',       'warning'):  ('failed_unit',),
     ('av_posture',         'critical'): ('av_infected',),
@@ -61480,6 +61510,7 @@ _EVENT_TO_MITIGATION = {
     'cve_found':            'cve',
     'container_stopped':    'container',
     'container_restarting': 'container',
+    'container_unhealthy':  'container',
     'av_infected':          'av_posture',
     'av_warning':           'av_posture',
     'backup_stale':         'backup',
@@ -70004,6 +70035,9 @@ SUPPRESSIBLE_EVENTS = (
     'backup_stale',
     # v7.4.3 (#50): a window holds a container's resource alert, and its recovery with it.
     'container_resource_high', 'container_resource_ok',
+    # 7.4.9: and a container's health alert. Restarting a stack inside a window leaves its containers
+    # unhealthy for the start period, which is the noise a window is declared to hold.
+    'container_unhealthy', 'container_healthy',
     # v7.4.2 (#45): a container that runs again closes its stop alert, and does it
     # the way a host coming back does (device_online above): the notice is held by the
     # window that held the stop. Otherwise a backup that stops its containers inside a
@@ -71606,6 +71640,54 @@ def _sanitize_docker_df(raw):
     return out or None
 
 
+_UNHEALTHY_ALERTED_CAP = 200
+
+
+def _evaluate_container_health(dev_id, running_now, prev_entry, excluded, state):
+    """container_unhealthy / container_healthy from the health each RUNNING container reports (7.4.9).
+
+    `running_now` maps a name to its entry for the containers that run in this report. An unhealthy
+    one that is not excluded fires once. Its name is kept in ``state['unhealthy_alerted']`` (stored on
+    the host's container entry) until the container reports healthy, stops, leaves the list or is
+    excluded, and only then is container_healthy fired, so the alert closes once and only when the
+    cause is gone. A container that is ``starting`` after a restart keeps its alert open: docker resets
+    the health to starting on every restart, and a recovery notice for a container that has not yet
+    passed a check would be false."""
+    prev = prev_entry.get('unhealthy_alerted')
+    held = list(dict.fromkeys(str(n) for n in prev if n)) if isinstance(prev, list) else []
+    still = []
+    for name in held:
+        cur = running_now.get(name)
+        if cur is not None and cur.get('health') in ('unhealthy', 'starting') \
+                and not excluded(name, cur.get('image', ''), cur.get('tag', '')):
+            still.append(name)
+            continue
+        cur = cur or {}
+        _fire_container_webhook('container_healthy', dev_id, name, {
+            'runtime':   cur.get('runtime', 'unknown'),
+            'namespace': cur.get('namespace', ''),
+            'image':     cur.get('image', ''),
+        })
+    for name, c in running_now.items():
+        if c.get('health') != 'unhealthy' or name in still:
+            continue
+        if excluded(name, c.get('image', ''), c.get('tag', '')):
+            continue
+        extra = {
+            'runtime':   c.get('runtime', 'unknown'),
+            'namespace': c.get('namespace', ''),
+            'image':     c.get('image', ''),
+        }
+        if c.get('health_output'):
+            extra['output'] = c['health_output']
+        if c.get('health_streak'):
+            extra['health_streak'] = c['health_streak']
+        _fire_container_webhook('container_unhealthy', dev_id, name, extra)
+        still.append(name)
+    if state is not None:
+        state['unhealthy_alerted'] = still[-_UNHEALTHY_ALERTED_CAP:]
+
+
 def process_container_report(dev_id, normalised, now, state=None):
     """Diff a heartbeat's container list against the previous one and fire webhooks.
 
@@ -71672,6 +71754,11 @@ def process_container_report(dev_id, normalised, now, state=None):
     # a first report is a report like any other.
     try:
         _evaluate_container_resources(dev_id, running_now, prev_entry, excluded, state, now)
+    except Exception:
+        traceback.print_exc(file=sys.stderr)
+    # 7.4.9: the health each running container reports. Same place and same reason.
+    try:
+        _evaluate_container_health(dev_id, running_now, prev_entry, excluded, state)
     except Exception:
         traceback.print_exc(file=sys.stderr)
 

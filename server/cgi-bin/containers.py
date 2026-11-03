@@ -49,6 +49,8 @@ MAX_CONTAINER_STATUS_LEN = 64
 MAX_CONTAINER_NAMESPACE_LEN = 128
 MAX_PORT_STRING_LEN = 128
 MAX_PORTS_PER_CONTAINER = 20
+# What an unhealthy container's failing health check printed (7.4.9). The agent cuts it at 240 as well.
+MAX_HEALTH_OUTPUT_LEN = 240
 
 # Allowed runtime tags. Anything else falls through to 'unknown'.
 ALLOWED_RUNTIMES = ("docker", "podman", "kubernetes", "unknown")
@@ -86,6 +88,15 @@ def _str(value: Any, cap: int) -> str:
     if value is None:
         return ""
     s = str(value).strip()
+    return s[:cap] if len(s) > cap else s
+
+
+def _clean_text(value: Any, cap: int) -> str:
+    """One line of text: control characters become spaces, runs of white space collapse, then the cap."""
+    if value is None:
+        return ""
+    s = "".join(" " if (ord(ch) < 32 or ord(ch) == 127) else ch for ch in str(value))
+    s = " ".join(s.split())
     return s[:cap] if len(s) > cap else s
 
 
@@ -205,6 +216,11 @@ def normalize_container(item: Any) -> dict | None:
         # `docker stats`), but the normaliser used to drop them so the UI could
         # never show a container's health badge or live CPU/mem. Preserve them.
         "health": _str(item.get("health"), 32),
+        # 7.4.9: the output of the latest failing health check and the run of failures, sent for an
+        # unhealthy container only. Control characters are removed here too: the text reaches the
+        # alert inbox, e-mail and webhook bodies, and a hostile agent could put anything in it.
+        "health_output": _clean_text(item.get("health_output"), MAX_HEALTH_OUTPUT_LEN),
+        "health_streak": min(_int_or_zero(item.get("health_streak")), 100000),
         "cpu_percent": _pct_or_none(item.get("cpu_percent"), _CPU_PCT_TOP),
         "mem_percent": _pct_or_none(item.get("mem_percent")),
         "mem_usage": _str(item.get("mem_usage"), 48),
@@ -252,12 +268,14 @@ def summarise(items: list[dict], restarting_min: int = 5) -> dict:
 
     Returns:
         Dict with ``total``, ``running``, ``stopped``, ``restarting``,
+        ``unhealthy`` (running, with a failing health check) and
         ``by_runtime`` (dict of runtime -> count).
     """
     total = len(items)
     running = 0
     stopped = 0
     restarting = 0
+    unhealthy = 0
     by_runtime: dict[str, int] = {}
     for c in items:
         status = str(c.get("status") or "").lower()
@@ -268,6 +286,8 @@ def summarise(items: list[dict], restarting_min: int = 5) -> dict:
             stopped += 1
         if c.get("restart_count", 0) >= restarting_min:
             restarting += 1
+        if c.get("health") == "unhealthy" and not any(t in status for t in ("exited", "stopped", "dead", "terminated")):
+            unhealthy += 1
         rt = c.get("runtime") or "unknown"
         by_runtime[rt] = by_runtime.get(rt, 0) + 1
     return {
@@ -275,5 +295,6 @@ def summarise(items: list[dict], restarting_min: int = 5) -> dict:
         "running": running,
         "stopped": stopped,
         "restarting": restarting,
+        "unhealthy": unhealthy,
         "by_runtime": by_runtime,
     }

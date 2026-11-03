@@ -297,6 +297,8 @@ class TestSuppressibleEvents(unittest.TestCase):
             'integration_down', 'integration_recovered',
             # v7.4.3 (#50): a container's CPU and memory alert, and its close
             'container_resource_high', 'container_resource_ok',
+            # 7.4.9: a container's health alert, and its close
+            'container_unhealthy', 'container_healthy',
         }
         self.assertEqual(set(api_module.SUPPRESSIBLE_EVENTS), expected)
 

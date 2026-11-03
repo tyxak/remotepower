@@ -4226,6 +4226,58 @@ def _docker_inspect_meta(cmd_path, ids):
     return meta
 
 
+# An unhealthy container is asked what its check said. At most this many per report, so a host
+# with a broken stack of thirty containers spends five seconds on it, not a minute.
+_HEALTH_DETAIL_MAX = 8
+_HEALTH_OUTPUT_CAP = 240
+
+
+def _docker_health_detail(cmd_path, cid):
+    """Why an unhealthy container is unhealthy: the output of its latest failing health check and the
+    number of checks in a row that have failed.
+
+    docker and podman keep the last few check results under State.Health.Log (older podman calls the
+    record State.Healthcheck). The newest entry with a non-zero exit code is the answer an operator
+    wants first, such as "curl: (7) Failed to connect to localhost port 8080". Best effort: returns
+    ('', 0) when the runtime does not answer or the container has no health record."""
+    if not cid:
+        return '', 0
+    health = None
+    for field in ('.State.Health', '.State.Healthcheck'):
+        try:
+            r = subprocess.run(
+                [cmd_path, 'inspect', '--format', '{{json ' + field + '}}', cid],
+                capture_output=True, text=True, timeout=CONTAINER_CMD_TIMEOUT)
+        except Exception:
+            return '', 0
+        if r.returncode != 0:
+            continue
+        try:
+            parsed = json.loads(r.stdout.strip() or 'null')
+        except (ValueError, TypeError):
+            continue
+        if isinstance(parsed, dict):
+            health = parsed
+            break
+    if health is None:
+        return '', 0
+    streak = health.get('FailingStreak')
+    streak = streak if isinstance(streak, int) and not isinstance(streak, bool) and 0 <= streak < 100000 else 0
+    text = ''
+    entries = health.get('Log')
+    if isinstance(entries, list):
+        for ent in reversed(entries):
+            if not isinstance(ent, dict):
+                continue
+            code = ent.get('ExitCode')
+            if isinstance(code, int) and not isinstance(code, bool) and code != 0:
+                text = str(ent.get('Output') or '')
+                break
+    text = re.sub(r'[\x00-\x1f\x7f]+', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:_HEALTH_OUTPUT_CAP], streak
+
+
 def _parse_iso_to_epoch(s):
     """Parse a docker/k8s RFC3339 timestamp ('2024-01-15T10:30:00.123456789Z')
     into epoch seconds. Returns 0 on anything unparseable (incl. the zero-value
@@ -4382,6 +4434,7 @@ def _docker_listing(cmd_path, runtime_name):
         cmd_path, [d.get('ID', '') for d in parsed])
 
     items = []
+    health_asked = 0
     for d in parsed:
         # Image splits as 'nginx:1.25-alpine' or 'nginx' (no tag = latest)
         image_full = d.get('Image', '')
@@ -4414,6 +4467,12 @@ def _docker_listing(cmd_path, runtime_name):
         st = stats.get(name, {})
         # v3.10.0: real restart-count + start time from the batched inspect.
         im = inspect_meta.get(d.get('ID', ''), {})
+        # 7.4.9: what the failing health check printed, for an unhealthy container only.
+        health_output, health_streak = '', 0
+        if health == 'unhealthy' and health_asked < _HEALTH_DETAIL_MAX:
+            health_asked += 1
+            health_output, health_streak = _docker_health_detail(
+                cmd_path, d.get('ID', '') or name)
         items.append({
             'name':           name,
             'image':          image,
@@ -4439,6 +4498,9 @@ def _docker_listing(cmd_path, runtime_name):
             # limit is half a story — an unlimited container can OOM the host.
             'mem_limit_bytes': im.get('mem_limit_bytes', 0),
             'cpu_limit_cores': im.get('cpu_limit_cores', 0),
+            # 7.4.9: the failing check's output and the run of failures (unhealthy only).
+            'health_output':  health_output,
+            'health_streak':  health_streak,
         })
     return items
 

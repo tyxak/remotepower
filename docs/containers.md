@@ -180,6 +180,50 @@ Webhook payload:
 }
 ```
 
+### `container_unhealthy` and `container_healthy` *(7.4.9)*
+
+A container can have a health check of its own (`HEALTHCHECK` in the image, or `healthcheck:` in the compose file).
+Docker marks the container `unhealthy` once the check has failed the number of times in a row you configured there. The
+container is still running, so it never raised **Container stopped** or **Container restarting**, and the only sign was
+the red badge in the list.
+
+**Container unhealthy** fires once for each container that reports `unhealthy`. The alert says what the failing check
+printed, so you do not have to open a shell to find out, and how many checks in a row have failed:
+
+```text
+serverbox: container "web" (docker) is unhealthy (3 failed checks in a row)
+→ curl: (7) Failed to connect to localhost port 8080
+```
+
+**Container healthy** closes it. That happens when a check passes, when the container stops (where **Container stopped**
+takes over), when it leaves the list, or when you add it to the exclude list. A container that is `starting` after a
+restart keeps its alert open, because docker resets the health to `starting` on every restart and the container has not
+passed a check yet.
+
+- The agent asks `docker inspect` for the output of an unhealthy container only, for eight containers per report at
+  most. A host whose containers are healthy runs no extra command. Podman works the same way.
+- The output text is one line of at most 240 characters. It comes from the container, so keep secrets out of what a
+  health check prints.
+- The exclude list, a per-container mute and maintenance windows apply as they do to the other container alerts, and the
+  host's row on **Needs attention** says how many containers are unhealthy.
+- An agent older than 7.4.9 still raises the alert; it just has no output text to show.
+
+Webhook payload of `container_unhealthy` (`container_healthy` carries the same keys without `output` and `health_streak`):
+
+```json
+{
+  "device_id": "dev-abc123",
+  "name": "web-1",
+  "group": "prod",
+  "container": "web",
+  "runtime": "docker",
+  "namespace": "",
+  "image": "acme/web",
+  "output": "curl: (7) Failed to connect to localhost port 8080",
+  "health_streak": 3
+}
+```
+
 ### `container_resource_high` and `container_resource_ok` *(v7.4.3)*
 
 A container that stays over a CPU or memory line you set raises **Container resource

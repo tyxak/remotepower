@@ -93,6 +93,7 @@ def _build_discord_body(event, title, message):
         "test": 0x7C3AED,
         "container_stopped": 0xEF4444,
         "container_restarting": 0xF59E0B,
+        "container_unhealthy": 0xEF4444,
         "containers_stale": 0xF59E0B,
         "cve_found": 0xEF4444,
         "log_alert": 0xF59E0B,
@@ -773,6 +774,19 @@ def _webhook_message(event, payload):
             f'restarted {plural(payload.get("delta", "?"), "time", "times")} since last report '
             f'(total restart_count={payload.get("restart_count", "?")})'
         )
+    elif event == "container_unhealthy":
+        # 7.4.9: the application behind the container says it does not serve. The failing check's own
+        # output is the first thing anyone asks for, so it rides in the message.
+        head = f'{name}: container "{payload.get("container", "?")}" ({payload.get("runtime", "?")}) is unhealthy'
+        streak = payload.get("health_streak")
+        if isinstance(streak, int) and not isinstance(streak, bool) and streak > 0:
+            head += f' ({plural(streak, "failed check", "failed checks")} in a row)'
+        why = str(payload.get("output") or "").strip()
+        if why:
+            head += f"\n→ {why[:240]}"
+        return head
+    elif event == "container_healthy":
+        return f'{name}: container "{payload.get("container", "?")}" passes its health check again'
     elif event == "container_resource_high":
         return f'{name}: container "{payload.get("container", "?")}" {container_resource_phrase(payload)}'
     elif event == "container_resource_ok":

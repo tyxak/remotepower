@@ -56,6 +56,19 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   under a heading of its own and was never affected. If the second question fails, the package still counts. Update the
   agents.
 
+### Containers
+
+- **A container that fails its own health check raises an alert.** Docker marks a container `unhealthy` after the check it
+  was built with has failed the configured number of times in a row. The container list always showed that as a badge, but
+  nothing fired, because the container is up: it passes the stopped and the restarting tests. Now **Container unhealthy**
+  fires once per container and carries what the check printed ("curl: (7) Failed to connect to localhost port 8080") and how
+  many checks in a row have failed, in the inbox row and in every notification. It closes with **Container healthy** when a
+  check passes, and also when the container stops or leaves the list. A container that is `starting` after a restart keeps
+  the alert open, because it has not passed a check yet. The host's row on Needs attention counts its unhealthy containers,
+  a maintenance window holds the alert and its close, and the container exclude list and per-container mute apply. The agent
+  asks `docker inspect` about an unhealthy container only (eight per report at most), so a healthy host pays nothing. Update
+  the agents for the output text; without it the alert still fires.
+
 ### Security
 
 - **A security review of the whole project, not only of what changed.** Seven reviews ran side by side: who can reach what

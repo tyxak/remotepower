@@ -1716,6 +1716,8 @@ def build_containers() -> dict:
                 'ports':         [],
                 'runtime':       'docker',
                 'health':        rng.choice(['healthy', 'healthy', '']),
+                'health_output': '',
+                'health_streak': 0,
                 'cpu_percent':   round(rng.uniform(0.0, 12.0), 1),
                 'mem_percent':   round(rng.uniform(1.0, 40.0), 1),
                 'mem_usage':     '%dMiB' % rng.randint(24, 900),
@@ -1724,6 +1726,12 @@ def build_containers() -> dict:
                 'mem_limit_bytes': rng.choice([0, 256 * 1024 ** 2, 1024 ** 3]),
                 'cpu_limit_cores': 0,
             })
+            # 7.4.9: one container on Home Assistant fails its own health check, so the demo shows the
+            # badge, the Needs attention count and the alert with the check's output.
+            if dev['id'] == 'ha01' and cname == 'zwave-js':
+                containers[-1].update({
+                    'status': 'Up 3 hours (unhealthy)', 'health': 'unhealthy', 'health_streak': 4,
+                    'health_output': 'wget: can\'t connect to remote host (127.0.0.1): Connection refused'})
 
         if containers:
             out[dev['id']] = {
@@ -3651,6 +3659,12 @@ def build_alerts() -> dict:
          'Edge feed down: Cloudflare firewall events — the token was refused',
          {'label': 'Cloudflare firewall events',
           'detail': 'the token was refused: Authentication error'}, 'alice', 'auto'),
+        # 7.4.9: a container that is up and fails its own health check. Appended last so the ids of the
+        # alerts above (derived from their position) stay the same.
+        ('container_unhealthy', 'high',    'ha01',  'Container unhealthy on home-assistant.lab: zwave-js',
+         {'device_id': 'ha01', 'device_name': 'home-assistant.lab', 'container': 'zwave-js',
+          'image': 'zwavejs/zwave-js-ui', 'runtime': 'docker',
+          'output': "wget: can't connect to remote host (127.0.0.1): Connection refused"}, None, None),
     ]
     alerts = []
     for i, (event, sev, dev_id, title, payload, ack_by, resolved_by) in enumerate(specs):
@@ -3718,6 +3732,7 @@ def build_fleet_events() -> dict:
         ('kernel_outdated', 'pmx01', {}),
         ('health_degraded', 'nc01',  {'severity': 'warning'}),
         ('health_recovered','nc01',  {}),
+        ('container_unhealthy', 'ha01', {'container': 'zwave-js'}),   # 7.4.9, last so the others keep their times
     ]
     events = []
     for i, (event, dev_id, extra) in enumerate(templates):

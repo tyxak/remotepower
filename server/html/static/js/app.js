@@ -18605,6 +18605,7 @@ const EVENT_CLASS = {
   'metric_recovered': 'ok',
   'container_stopped': 'warn', 'container_recovered': 'ok', 'container_restarting': 'warn',
   'container_restarting_cleared': 'ok', 'unit_flapping_cleared': 'ok',
+  'container_unhealthy': 'warn', 'container_healthy': 'ok',   // 7.4.9
   'container_resource_high': 'warn', 'container_resource_ok': 'ok',   // v7.4.3 (#50)
   'containers_stale': 'warn',
   'log_alert': 'warn',
@@ -20994,6 +20995,7 @@ function _renderHomeActivity(fleetEvents) {
     'log_alert',
     'container_stopped', 'container_recovered', 'container_restarting', 'container_restarting_cleared', 'containers_stale', 'containers_current',
     'container_resource_high', 'container_resource_ok',   // v7.4.3 (#50)
+    'container_unhealthy', 'container_healthy',   // 7.4.9
     // v3.2.x: container image update tracking
     'image_update_available', 'image_updated',
     'metric_warning', 'metric_critical', 'metric_recovered', 'custom_metric_alert', 'custom_metric_recover',
@@ -21287,6 +21289,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="services"`;
     case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'container_restarting_cleared': case 'containers_stale': case 'containers_current':
     case 'container_resource_high': case 'container_resource_ok':   // v7.4.3 (#50)
+    case 'container_unhealthy': case 'container_healthy':   // 7.4.9
     case 'image_update_available': case 'image_updated':
       return `${base} data-home-act="containers"`;
     // v6.3.1 recover events: click through to where the condition lived.
