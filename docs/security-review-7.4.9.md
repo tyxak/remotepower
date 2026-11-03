@@ -15,6 +15,17 @@ below says so.
 
 ## What changed that a reviewer should look at
 
+**Added after the review.** Six features were built once the sweep was done and the gates had run. None loosens a permission, and
+each was checked with the same instruments. New routes: `POST /api/alerts/{id}/assign` (it asks for the right to acknowledge an
+alert, refuses an alert the caller cannot reach, and refuses an assignee who could not open the alert: another tenant's account,
+a role scoped to other hosts, a disabled account), and `/api/business-services` with its `{id}` and `impact` routes (the
+organisation that runs the installation's, so they sit in the second table below and a tenant's users never reach them; creating,
+changing and deleting ask for an administrator, and a service that holds a host a user cannot see is hidden from that user).
+`allowed_cidrs` on `POST /api/enrollment-tokens` narrows what a token allows and can only refuse more. The handler ratchet
+(`tests/test_v749_handler_tenant_ratchet.py`) and the store-shape registry cover the new handlers and stores. Two review notes: the
+Nagios-plugin reading of a custom script runs no new code on a host (the server reads the exit code the agent already sends), and a
+container's health-check output is shown to whoever can read the container's alert, so a check should not print a secret.
+
 - **Routes.** One route is new: `POST /api/logout`. Two others are new for one feature: `POST /api/scap/{id}/report-ticket`, and
   the SCAP report route now also accepts a one-minute link. No permission was loosened. A permission check was added to one
   endpoint (`services/config`) and a tenant check to the ticket handlers and to many others. The table of what only the platform

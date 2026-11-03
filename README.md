@@ -207,7 +207,11 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   five High, sixteen Medium and ten Low or hardening issues and fixed every one of them:
   a viewer could rewrite a host's watched services, Sign out did not end the session on the
   server, a tenant's users could read the operator's tickets and invoices, and the Docker image
-  ran its app as root. Update the agents.
+  ran its app as root. After the review it also gained a Business services page (hosts, monitors,
+  units, containers and scripts grouped under a name with a rule), an alert for a container that
+  fails its own health check, Nagios-plugin results for custom scripts, assigning an alert to a
+  person, Mattermost, Rocket.Chat, Google Chat and Gotify destinations, and enrolment tokens limited
+  to a network. Update the agents.
 - **v7.4.8 "Hon3stMatters"** — three screens that said something untrue. A Problems row
   that read "never" under Updated shows when its host last reported. A sensor limit that is
   not a temperature (an NVMe drive with no threshold reported 65,261.8 °C) is no limit. A
