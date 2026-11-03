@@ -108,6 +108,8 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   `remotepower_script_state` and `remotepower_script_perf_value` carry the states and the values to Prometheus, so a panel
   can graph a plugin. The server reads the exit code the agents already send, so no agent update is needed. A script you
   leave on the default is read exactly as before.
+- **The output of a script result opens from the keyboard.** The Last output column of the results table opened the full
+  output on a click and could not be reached with Tab. The text is a link now, looks the same, and Enter opens the output.
 
 ### Alerts
 

@@ -221,9 +221,9 @@ function renderCustomScriptsPage() {
       <td>${escHtml(r.device_name)}</td>
       <td class="hint">${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '—'}</td>
       <td class="ta-center">${statusBadge}<br>${changedAgo}</td>
-      <td
-          data-action-btn="_csOutputFromStore" data-store-key="${_storeEvtData([r.script_name, r.device_name, output])}"
-          title="Click for full output" class="isl-603">${outputSnippet}</td>
+      <td class="isl-603"><a href="#" data-action-btn="_csOutputFromStore" data-prevent-default
+          data-store-key="${_storeEvtData([r.script_name, r.device_name, output])}"
+          title="Click for full output">${outputSnippet}</a></td>
       <td class="meta-sm-nm">${ranAt}</td>
       <td class="isl-604">${dur}</td>
       <td class="nowrap">

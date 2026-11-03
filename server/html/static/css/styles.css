@@ -5799,6 +5799,9 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-601 { font-size: 11px; padding: 2px 8px; color: var(--red-ink); border-color: rgba(239,68,68,0.3) }
 .isl-602 { font-size: 10px; color: var(--muted) }
 .isl-603 { font-family: var(--font-mono); font-size: 11px; max-width: 260px; overflow: hidden; cursor: pointer }
+/* 7.4.9: the output is a link (a real keyboard stop) that reads as the plain text it always was; it underlines on hover */
+.isl-603 a { color: inherit; text-decoration: none }
+.isl-603 a:hover { text-decoration: underline }
 .isl-604 { text-align: right; font-size: 11px; color: var(--muted) }
 .isl-605 { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; background: var(--surface); border: 1px solid var(--border) }
 .isl-606 { width: 14px; height: 14px }
