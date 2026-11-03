@@ -6,7 +6,7 @@ installers, a review of the web client and the web server headers, a rendered au
 and a map of what the agents send against where it is used. Scanners ran beside them. Everything below was found, reproduced and
 fixed on a seeded copy of the product, not on anyone's installation.
 
-It found **five High issues, seventeen Medium ones and ten Low or hardening items. Every one of them is fixed.** Nothing rated
+It found **five High issues, seventeen Medium ones and eleven Low or hardening items. Every one of them is fixed.** Nothing rated
 Medium or higher is open. "Open" lists what is left, and none of it is a way to attack an installation. Each fix has tests, and
 each test was run against the code with its fix taken out.
 
@@ -189,6 +189,7 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
 | S30 | **High** | server, tenancy | an ACME issue request handed the operator's central DNS credentials to a tenant's own host |
 | S31 | Medium | server | a read-only role was shown the address that reports a dead-man job alive |
 | S32 | Medium | server, tenancy | an event that names no host reached a tenant's users in the Home feed, in a personal notification and in a browser push, and a business service's alert named hosts to readers who cannot see them |
+| S33 | Low | server | the words a host chose (its name, a container, a line of a log) went into chat messages as written, so they could ping a whole channel or put a link behind a harmless label |
 
 ## Fixed in 7.4.9
 
@@ -313,6 +314,14 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
   page had hidden them from a reader who cannot see one of the hosts. A row about a service is shown to a reader only if every host
   it names is one they can see, and acknowledging, resolving or assigning such an alert refuses a reader who cannot see it.
   The hosts a row names are recorded with it, so changing a service later does not widen who can read an older row.
+- **S33.** An alert is made of what the hosts report, and whoever controls a host chooses those words. A host named `@channel`, or a
+  log line with `<!here>` or `[Sign in](https://…)` in it, reached nine kinds of chat destination as written, where it pinged people or
+  showed a link under another name. It needs a host the attacker controls and a person who clicks, so it is rated Low. Each builder
+  for those services passes the text through one helper (`notify.defuse`) now. Slack's three characters are escaped, an `@` that opens a
+  word and a Markdown link get an invisible space, and Discord and Matrix say in the message that nothing mentions anyone. The words
+  read the same. `tests/test_v749_chat_text.py` drives the dispatcher with hostile names, containers and log lines, and holds the list of
+  formats: a new format has to be placed on it. The generic JSON destination, the ticket destinations and the push services send the
+  text as before, and the test says why.
 - **S1, S11, S22.** Described in the CHANGELOG.
 
 ## Open

@@ -33,6 +33,21 @@ The legacy single `webhook_url` field is still honoured — operators with one D
 
 Format auto-detect runs only on the legacy `webhook_url`. Entries in the new array carry an explicit `format` field — change it in the UI dropdown.
 
+## What a host can write into an alert
+
+An alert is made of what your hosts report: a host's name, a container, a service, a line of a log. Whoever controls a host chooses those words. RemotePower makes sure they ping nobody and hide no link.
+
+| Format | What is done |
+|---|---|
+| `slack` | `&`, `<` and `>` are escaped, which Slack asks every sender to do. A host named `<!channel>` is shown as `<!channel>` and does not notify the channel. |
+| `discord` | The message says that no mention may ring, so `@everyone` stays text. A Markdown link is shown as the text it was written as. |
+| `matrix` | The message says that it mentions nobody. |
+| `mattermost`, `rocketchat`, `telegram`, `github` | An `@` that opens a word gets an invisible space after it, so `@channel` is text. An address such as `ops@example.org` is left as it is. |
+| `mattermost`, `rocketchat`, `github`, `teams` | A Markdown link is shown as the text it was written as. |
+| `googlechat`, `teams`, `github` | A `<` gets an invisible space after it, so `<users/all>` and `<address|label>` are text. |
+
+The `generic` format sends the words as they are, in a JSON body for a program. What a name means is for your receiver to decide. The ticket formats (Jira, ServiceNow, Zendesk) and the push formats (ntfy, Gotify, Pushover) send them as they are too, since nothing in them rings a room.
+
 ## On-call vs. ticketing
 
 These are two different jobs — use the right tool for each:

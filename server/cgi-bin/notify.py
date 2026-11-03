@@ -17,6 +17,7 @@ LINT + TYPECHECK baseline.
 """
 
 import json
+import re
 import time
 import urllib.parse
 from email.header import Header as _EmailHeader
@@ -117,14 +118,55 @@ def _event_color(event):
     return 0x22C55E if event in _RECOVER_EVENTS else 0x3B7EFF
 
 
+# ── text that a host chose (7.4.9) ──────────────────────────────────────────
+# An alert is written from what the hosts report: a host's name, a container, a service, a line of a log. Whoever runs on
+# the host chose those words, and a chat service acts on some words. A mention pings people, and a labelled link sends them
+# to an address the label does not show. Each builder for a service that does either passes the title and the message
+# through defuse() first, so the words stay readable and none of them is acted on. The builders that need it, and the
+# ones that do not and why, are listed in tests/test_v749_chat_text.py, which fails when a new builder is on neither list.
+_ZWSP = "\u200b"  # zero-width space: splits a word in two without showing
+# an "@" that opens a word: @channel, @here, @all, @name. "ops@example.org" is not
+_MENTION = re.compile(r"(?<!\w)@(?=\w)")
+# the ways a Markdown link is written: [text](url), [text][ref] and [ref]: url
+_MD_LINK = re.compile(r"\](?=[(\[:])")
+
+
+def defuse(text, fmt):
+    """`text` with what the chat service `fmt` would act on made inert. It reads the same and does nothing.
+
+    slack: the three characters Slack asks every sender to escape (& < >), which also ends <!channel>, <@U123> and
+    <url|label>. googlechat: <users/all> and <url|label> are written with a "<". mattermost, rocketchat and github: a
+    mention is an "@" that opens a word, a link is Markdown. discord and teams: Markdown links (Discord's mentions are
+    switched off in the body instead, see _build_discord_body). telegram: an "@name" in a message pings that user.
+    """
+    s = "" if text is None else str(text)
+    if fmt == "slack":
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    if fmt == "googlechat":
+        return s.replace("<", "<" + _ZWSP)
+    if fmt in ("mattermost", "rocketchat"):
+        return _MD_LINK.sub("]" + _ZWSP, _MENTION.sub("@" + _ZWSP, s))
+    if fmt == "github":
+        return _MD_LINK.sub("]" + _ZWSP, _MENTION.sub("@" + _ZWSP, s)).replace("<", "<" + _ZWSP)
+    if fmt == "teams":
+        return _MD_LINK.sub("]" + _ZWSP, s).replace("<", "<" + _ZWSP)
+    if fmt == "discord":
+        return _MD_LINK.sub("]" + _ZWSP, s)
+    if fmt == "telegram":
+        return _MENTION.sub("@" + _ZWSP, s)
+    return s
+
+
 def _build_discord_body(event, title, message):
     body = json.dumps(
         {
             "username": "RemotePower",
+            # nothing in the text pings anyone: @everyone, @here, <@id> and <@&role> stay text
+            "allowed_mentions": {"parse": []},
             "embeds": [
                 {
-                    "title": title,
-                    "description": message,
+                    "title": defuse(title, "discord"),
+                    "description": defuse(message, "discord"),
                     "color": _EVENT_COLORS.get(event, 0x3B7EFF),
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "footer": {"text": f"RemotePower {SERVER_VERSION}"},
@@ -136,13 +178,14 @@ def _build_discord_body(event, title, message):
 
 
 def _build_slack_body(event, title, message):
-    body = json.dumps({"text": f"*{title}*\n{message}"}).encode()
+    body = json.dumps({"text": f"*{defuse(title, 'slack')}*\n{defuse(message, 'slack')}"}).encode()
     return body, {}, "application/json"
 
 
 def _build_mattermost_body(event, title, message):
     """Mattermost incoming webhook: a bold first line (what a phone push shows) and an attachment whose bar takes
     the event's colour. The webhook URL carries the token, as for Slack."""
+    title, message = defuse(title, "mattermost"), defuse(message, "mattermost")
     body = json.dumps(
         {
             "username": "RemotePower",
@@ -162,6 +205,7 @@ def _build_mattermost_body(event, title, message):
 
 def _build_rocketchat_body(event, title, message):
     """Rocket.Chat incoming webhook: bold title as the text and the message in a coloured attachment."""
+    title, message = defuse(title, "rocketchat"), defuse(message, "rocketchat")
     body = json.dumps(
         {
             "alias": "RemotePower",
@@ -177,7 +221,9 @@ def _build_rocketchat_body(event, title, message):
 def _build_googlechat_body(event, title, message):
     """Google Chat space webhook: a text message, *bold* title first. A message is cut at 4,000 characters (the
     API accepts 4,096)."""
-    body = json.dumps({"text": f"*{title}*\n{message or ''}"[:4000]}).encode()
+    body = json.dumps(
+        {"text": f"*{defuse(title, 'googlechat')}*\n{defuse(message, 'googlechat')}"[:4000]}
+    ).encode()
     return body, {}, "application/json"
 
 
@@ -196,6 +242,7 @@ def _build_gotify_body(event, title, message, priority):
 
 def _build_teams_body(event, title, message):
     """Microsoft Teams uses MessageCard schema. Severity drives the theme color."""
+    title, message = defuse(title, "teams"), defuse(message, "teams")
     severity_colors = {
         "device_offline": "EF4444",
         "monitor_down": "EF4444",
@@ -274,7 +321,7 @@ def _build_github_body(event, title, message, dest, safe_payload):
         labels.append(sev[:32])
     # Compose the issue body — operator-readable details on top, then
     # the raw payload in a fenced JSON block for grep/parse downstream.
-    body_md = (message or "").strip()
+    body_md = defuse(message, "github").strip()
     body_md += "\n\n---\n\n"
     body_md += "Raised by RemotePower v" + SERVER_VERSION + "\n\n"
     body_md += "<details><summary>Payload</summary>\n\n```json\n"
@@ -676,6 +723,7 @@ def _build_telegram_body(event, title, message, dest):
     chat_id = str(dest.get("telegram_chat_id") or "").strip()
     if not chat_id:
         return None, None, None
+    title, message = defuse(title, "telegram"), defuse(message, "telegram")
     text = (f"{title}\n\n{message}" if title else (message or str(event)))[:4000]
     body = json.dumps(
         {
@@ -695,7 +743,9 @@ def _build_matrix_body(event, title, message, dest):
     if not token:
         return None, None, None
     text = (f"{title}\n\n{message}" if title else (message or str(event)))[:8000]
-    body = json.dumps({"msgtype": "m.text", "body": text}).encode()
+    # An event that carries "m.mentions" is read for the people it names and for nobody else; without it a client falls
+    # back to scanning the text for a name or "@room".
+    body = json.dumps({"msgtype": "m.text", "body": text, "m.mentions": {}}).encode()
     return body, {"Authorization": f"Bearer {token}"}, "application/json"
 
 

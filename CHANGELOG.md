@@ -262,13 +262,21 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   3 (normal), 4 (high) and 5 (urgent), so every alert reached ntfy as the default priority and none was ever high or
   urgent. They go out as 3, 4 and 5 now. If your phone treated every ntfy alert as the same, an urgent one will behave as
   ntfy's urgent from now on.
+- **What a host writes into an alert pings nobody.** An alert is made of what your hosts report, and whoever controls a host
+  chooses those words: its name, a container, a service, a line of a log. They went into chat messages as written, so a host
+  named `@channel`, or a log line with `<!here>` in it, pinged the channel, and `[Sign in](https://…)` showed a link under
+  another name. The Slack, Mattermost, Rocket.Chat, Google Chat, Telegram, Discord, Teams, Matrix and GitHub destinations show
+  those words as text now: Slack gets the escaping it asks for, a mention or a link gets an invisible space, and Discord and
+  Matrix are told in the message that nothing mentions anyone. The words read the same, and an address such as
+  `ops@example.org` is left alone. The generic JSON destination, the ticket destinations and ntfy, Gotify and Pushover send the
+  text as before. See `docs/webhooks.md`.
 
 ### Security
 
 - **A security review of the whole project, not only of what changed.** Seven reviews ran side by side: who can reach what
   on every route (1,075 operations as 26 kinds of caller), hostile input on every route, the three agents and their
   installers, the web client and the web server headers, the interface, the documents, and a map of what the agents send
-  against where it is used. Scanners ran beside them. They found five High issues, seventeen Medium ones and ten Low or hardening
+  against where it is used. Scanners ran beside them. They found five High issues, seventeen Medium ones and eleven Low or hardening
   items. Every one of them is fixed, and the entries below describe them. What is left, which is nothing that attacks an
   installation, is in [docs/security-review-7.4.9.md](docs/security-review-7.4.9.md), with the scans and the numbers behind
   each check.
