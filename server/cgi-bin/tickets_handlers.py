@@ -28,7 +28,6 @@ import secrets
 import sys
 import time
 import urllib
-from datetime import datetime, timedelta, timezone
 
 # The api namespace, bound by api.py at import time (see bind()). A dict-backed
 # proxy rather than the module object: under the runpy CGI shim the executing
@@ -122,9 +121,21 @@ def _ticket_auto_route(ttype):
 def _business_hours_cfg():
     """W2-29: business-hours calendar for SLA clocks. {enabled, tz_offset_min,
     weekly: {'0'..'6': [[startMin,endMin],...]}, holidays: ['YYYY-MM-DD']}.
-    weekday 0=Monday..6=Sunday. Absent/disabled → wall-clock SLA (unchanged)."""
+    weekday 0=Monday..6=Sunday. Absent/disabled → wall-clock SLA (unchanged).
+
+    7.4.9: the calendar can be a named time period (Settings → Time periods), which has the same shape and a real time zone. A
+    period that has been removed falls back to the calendar typed here."""
     c = (A._config_ro() or {}).get('ticket_business_hours')
-    return c if isinstance(c, dict) and c.get('enabled') else None
+    if not (isinstance(c, dict) and c.get('enabled')):
+        return None
+    if c.get('period'):
+        per = A.time_periods_mod.find((A._config_ro() or {}).get('time_periods'), c.get('period'))
+        if per is not None:
+            return per
+    spec = dict(c)
+    if spec.get('tz_offset_min') is None:
+        spec['tz_offset_min'] = 0       # a calendar typed here without an offset has always been read in UTC
+    return spec
 
 
 def _business_deadline(start_ts, seconds, spec):
@@ -132,39 +143,9 @@ def _business_deadline(start_ts, seconds, spec):
     `start_ts`, walking forward through the calendar's open windows only (the
     clock 'pauses' overnight / weekends / holidays). Falls back to wall-clock if
     no windows are configured so a misconfigured calendar can't push a deadline
-    to infinity."""
-    try:
-        offset = int(spec.get('tz_offset_min', 0) or 0)
-    except (TypeError, ValueError, OverflowError):
-        offset = 0
-    tz = timezone(timedelta(minutes=offset))
-    weekly = spec.get('weekly') or {}
-    holidays = set(spec.get('holidays') or [])
-    remaining = float(seconds)
-    cur = datetime.fromtimestamp(int(start_ts), tz)
-    for _ in range(3700):     # ~10 years of days — safety bound
-        if remaining <= 0:
-            return int(cur.timestamp())
-        day_key = str(cur.weekday())
-        if cur.strftime('%Y-%m-%d') not in holidays:
-            midnight = cur.replace(hour=0, minute=0, second=0, microsecond=0)
-            for win in (weekly.get(day_key) or []):
-                try:
-                    s_min, e_min = int(win[0]), int(win[1])
-                except (TypeError, ValueError, IndexError, OverflowError):
-                    continue
-                if e_min <= s_min:
-                    continue
-                w_start = max(cur, midnight + timedelta(minutes=s_min))
-                w_end = midnight + timedelta(minutes=e_min)
-                if w_start >= w_end:
-                    continue
-                avail = (w_end - w_start).total_seconds()
-                if avail >= remaining:
-                    return int((w_start + timedelta(seconds=remaining)).timestamp())
-                remaining -= avail
-        cur = (cur + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(start_ts) + int(seconds)     # never fit → wall-clock fallback
+    to infinity. 7.4.9: the walk is time_periods.business_deadline, the one reading
+    of a calendar that quiet hours, after-hours and maintenance windows share."""
+    return A.time_periods_mod.business_deadline(start_ts, seconds, spec)
 
 
 def _ticket_sla(t, policy=None):

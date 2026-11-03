@@ -222,6 +222,10 @@ def generate_metrics(ctx: dict) -> str:
          'swap_percent'),
         ('remotepower_device_loadavg_1m', 'One-minute load average.',
          'loadavg_1m'),
+        # 7.4.9: where the CPU time went between two system reports, in percent (Linux agents). Empty for a host that
+        # does not report them, so a panel can tell "none" from "zero".
+        ('remotepower_device_cpu_iowait_percent', 'Share of the CPU time spent waiting for I/O.', 'cpu_iowait'),
+        ('remotepower_device_cpu_steal_percent', 'Share of the CPU time taken by the hypervisor.', 'cpu_steal'),
         ('remotepower_device_fd_percent',
          'Open file descriptors as a percentage of the limit.', 'fd_percent'),
         ('remotepower_device_conntrack_percent',

@@ -816,6 +816,7 @@ sudo systemctl restart remotepower-api</pre>
           <tr><td class="c-muted-padded">Size</td><td>${_selfFmtBytes(bk.last_bytes)}</td></tr>
           ${_selfBackupContentsRow(s)}
           <tr><td class="c-muted-padded">Retention</td><td>${bk.retain_days ?? 14} days (last prune removed ${bk.pruned ?? 0})</td></tr>
+          ${_selfOffhostRows(bk)}
           ${bk.last_drill_at ? `<tr><td class="c-muted-padded">Restore drill</td><td>${bk.last_drill_ok === false
             ? '<span class="patch-badge crit">failed</span>'
             : (bk.last_drill_ok ? '<span class="patch-badge ok">passed</span>' : '<span class="patch-badge warn">no result</span>')} ${_selfFmtAgo(bk.last_drill_at)}${
@@ -883,6 +884,20 @@ function _selfRestartAvailability(ver) {
 // logical documents the export wrote into the tar; on a database backend that
 // is the entire state, and 0 there means the archive is hollow — it opens, it
 // looks the right size, and restoring it produces an empty install.
+// 7.4.9: where the last backup was copied off the host, and whether that worked. Every address and message here comes from the
+// state file or from an object store, so it is text.
+function _selfOffhostRows(bk) {
+  const badge = ok => (ok === true ? '<span class="patch-badge ok">copied</span>'
+    : (ok === false ? '<span class="patch-badge crit">failed</span>' : '<span class="patch-badge warn">no result</span>'));
+  const rows = [];
+  if (bk.offsite_dir) rows.push(`<tr><td class="c-muted-padded">Off-host copy</td><td><code class="fs-11">${escHtml(bk.offsite_dir)}</code> ${badge(bk.offsite_ok)}</td></tr>`);
+  if (bk.s3_bucket || bk.s3_ok === false) {
+    rows.push(`<tr><td class="c-muted-padded">S3 bucket</td><td>${bk.s3_bucket ? `<code class="fs-11">${escHtml(bk.s3_bucket)}</code> ` : ''}${badge(bk.s3_ok)}`
+      + (bk.s3_error ? ` <span class="hint">· ${escHtml(bk.s3_error)}</span>` : '')
+      + (bk.s3_note ? ` <span class="hint">· ${escHtml(bk.s3_note)}</span>` : '') + '</td></tr>');
+  }
+  return rows.join('');
+}
 function _selfBackupContentsRow(s) {
   const bk = s.backup || {};
   if (bk.stores == null) return '';

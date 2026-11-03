@@ -934,6 +934,7 @@ from textfmt import agree, plural  # noqa: E402, F401 — '3 hosts', never 'host
 import filebackup as filebackup_mod   # noqa: F401  v6.3.0: structured file-backup command gen (pure); A.filebackup_mod in backups_handlers
 import checks as checks_mod    # per-host Checks engine (pure)
 import drive_temp as drive_temp_mod   # v7.4.4 (#54): temperature lines for drives (pure)
+import time_periods as time_periods_mod   # 7.4.9: named time periods, the one reading of "when" (pure)
 import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host and the grade of its listeners (pure)
 from secure_eq import secure_eq as _secure_eq   # constant-time comparison of secrets that never raises (7.4.9)
 import store_shapes                             # the shape each store file is expected to have, and its repair (7.4.9)
@@ -1008,6 +1009,7 @@ for _bk_name in (
         '_default_backup_dir', '_sweep_stale_partials',
         '_maybe_run_scheduled_backup', '_maybe_run_restore_drill', '_restore_drill_core',
         '_refresh_proxmox_backup_cache', '_run_data_backup',
+        '_s3_message', '_s3_validate', '_s3_settings', '_s3_client', '_s3_offsite_copy', '_s3_drill', 'handle_backup_s3_test',
         'handle_backup_clear', 'handle_backup_download', 'handle_backup_encrypt_existing',
         '_backup_job_command', '_backup_job_targets', '_backup_targets_summary',
         '_backup_run_and_wait', '_backup_job_status', '_backup_queue_and_wait',
@@ -10619,6 +10621,9 @@ def _alert_title(event, payload):
         lvl = (p.get('level') or ('critical' if event == 'metric_critical' else 'warning')).upper()
         if p.get('metric') == 'diskio' and p.get('target'):       # v7.4.3 (#49)
             return f'Disk {p["target"]} busy {lvl} on {name}: {notify_mod._num(p.get("value", "?"))}%'
+        if p.get('metric') in ('iowait', 'steal'):                # 7.4.9: share of the CPU time
+            _what = 'waiting for storage' if p.get('metric') == 'iowait' else 'taken by the hypervisor'
+            return f'CPU time {_what} {lvl} on {name}: {notify_mod._num(p.get("value", "?"))}%'
         if p.get('metric') == 'drivetemp' and p.get('target'):    # v7.4.4 (#54)
             return (f'Drive {notify_mod.drive_phrase(p)} {lvl} on {name}: '
                     f'{notify_mod._num(p.get("value", "?"))}°C')
@@ -13231,17 +13236,28 @@ def _quiet_hours_active(event, payload, cfg, now=None):
     qh = (cfg or {}).get('quiet_hours') or {}
     if not qh.get('enabled'):
         return None
-    start = str(qh.get('start') or '').strip()
-    end = str(qh.get('end') or '').strip()
-    if len(start) != 5 or len(end) != 5:
-        return None
+    # 7.4.9: the hours are a named time period when one is chosen, else the start and end typed here, read as the same kind of period
+    # (every day, on the clock of the server). One reading of "inside the window" for both.
+    if qh.get('period'):
+        period = time_periods_mod.find((cfg or {}).get('time_periods'), qh.get('period'))
+        label = (period or {}).get('name') or ''
+        if period is None:
+            return None     # the period it names is gone, so nothing is held; the settings page shows the choice as removed
+    else:
+        start = str(qh.get('start') or '').strip()
+        end = str(qh.get('end') or '').strip()
+        if len(start) != 5 or len(end) != 5:
+            return None
+        period = time_periods_mod.from_clock_range(start, end)
+        label = f'{start}-{end}'
+        if period is None:
+            return None     # equal times are an empty range, as they always were
     min_sev = (qh.get('min_severity') or 'critical').lower()
     sev = _alert_severity(event, payload or {}) or 'info'
     if _QH_SEV_RANK.get(sev, 0) >= _QH_SEV_RANK.get(min_sev, 4):
         return None  # important enough to page through quiet hours
-    hhmm = time.strftime('%H:%M', time.localtime(now or time.time()))
-    if _in_time_window(hhmm, start, end):
-        return f'{start}-{end}'
+    if time_periods_mod.is_active(period, now or time.time()):
+        return label
     return None
 
 
@@ -13252,15 +13268,19 @@ def _record_after_hours(event, payload, cfg):
     ah = (cfg or {}).get('after_hours') or {}
     if not ah.get('enabled') or event not in (ah.get('events') or []):
         return
-    start, end = ah.get('start', ''), ah.get('end', '')
-    if len(start) != 5 or len(end) != 5:
-        return
-    import datetime as _dt
-    lt = _dt.datetime.fromtimestamp(int(time.time()))
-    workdays = ah.get('workdays') or [0, 1, 2, 3, 4]
-    in_business = lt.weekday() in workdays and _in_time_window(lt.strftime('%H:%M'), start, end)
-    if in_business:
-        return
+    # 7.4.9: business hours are a named time period when one is chosen, else the start, end and working days typed here, read as
+    # the same kind of period. A period that has been removed can not be judged, so nothing is recorded.
+    if ah.get('period'):
+        period = time_periods_mod.find((cfg or {}).get('time_periods'), ah.get('period'))
+        if period is None:
+            return
+    else:
+        start, end = ah.get('start', ''), ah.get('end', '')
+        if len(start) != 5 or len(end) != 5:
+            return
+        period = time_periods_mod.from_clock_range(start, end, ah.get('workdays') or [0, 1, 2, 3, 4])
+    if period is not None and time_periods_mod.is_active(period, time.time()):
+        return      # inside business hours
     p = payload or {}
     try:
         with _LockedUpdate(AFTER_HOURS_FILE) as store:
@@ -16232,6 +16252,11 @@ def handle_device_save_bulk(dev_id):
 
 
 # v1.11.10: per-device metric threshold overrides
+# 7.4.9: the lines for the share of the CPU time spent waiting for storage (iowait) and taken by the hypervisor (steal), in the
+# order of the editor. A host keeps its own under metric_thresholds, the fleet's are in the settings.
+_CPU_TIME_LINE_KEYS = ('iowait_warn_percent', 'iowait_crit_percent', 'steal_warn_percent', 'steal_crit_percent')
+
+
 def _threshold_change_detail(before, after):
     """What a save of a host's metric thresholds changed, for the audit trail. v7.4.4.
 
@@ -16310,6 +16335,11 @@ def handle_device_metric_thresholds(dev_id):
                       for k in ('diskio_warn_percent', 'diskio_crit_percent')}
         for k, v in _fleet_dio.items():
             effective[k] = overrides.get(k, v)
+        # 7.4.9: the same for the share of the CPU time spent waiting for storage and the share the hypervisor takes
+        _fleet_ct = {k: (_gc[k] if _finite_number(_gc.get(k)) and _gc[k] > 0 else 0)
+                     for k in _CPU_TIME_LINE_KEYS}
+        for k, v in _fleet_ct.items():
+            effective[k] = overrides.get(k, v)
         # v7.4.4 (#54): the temperature lines for drives. Same shape: `defaults` carries the FLEET's lines
         # (0 = none), and the host's own win. A drive's own lines are in `overrides`, under
         # drivetemp_per_serial.
@@ -16327,7 +16357,7 @@ def handle_device_metric_thresholds(dev_id):
             'overrides': overrides,
             'effective': effective,
             'defaults':  dict(DEFAULT_METRIC_THRESHOLDS, nic_err_alert_min=_fleet_err,
-                              nic_drop_alert_min=_fleet_drop, **_fleet_dio, **_fleet_dt),
+                              nic_drop_alert_min=_fleet_drop, **_fleet_dio, **_fleet_ct, **_fleet_dt),
             # v6.4.2: sensors this device's operator has taken out of the
             # temperature picture (a dead/unconnected board pin). Kept OUT of
             # `overrides` so a DELETE — "reset my thresholds" — does not also
@@ -16365,7 +16395,7 @@ def handle_device_metric_thresholds(dev_id):
               'cpu_crit_load_ratio', 'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent',
               'temp_warn_celsius', 'temp_crit_celsius', 'mailq_warn_count', 'mailq_crit_count',
               'nic_err_alert_min', 'nic_drop_alert_min', 'diskio_warn_percent', 'diskio_crit_percent'
-              ) + drive_temp_mod.ALL_LINE_KEYS:
+              ) + _CPU_TIME_LINE_KEYS + drive_temp_mod.ALL_LINE_KEYS:
         if k in body and body[k] is None:
             overrides.pop(k, None)
             del body[k]
@@ -16403,6 +16433,15 @@ def handle_device_metric_thresholds(dev_id):
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not (1 <= v <= 99):
                 # A fixed sentence, so the dashboard can translate it (see the server-messages gate).
                 respond(400, {'error': 'The disk busy lines must be a number from 1 to 99', 'field': k})
+            overrides[k] = float(v)
+
+    # 7.4.9: the share of the CPU time that may go to waiting for storage or to the hypervisor on this host. A number from 1 to 99.
+    for k in _CPU_TIME_LINE_KEYS:
+        if k in body:
+            v = body[k]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not (1 <= v <= 99):
+                # A fixed sentence, so the dashboard can translate it (see the server-messages gate).
+                respond(400, {'error': 'The CPU time lines must be a number from 1 to 99', 'field': k})
             overrides[k] = float(v)
 
     # v7.4.4 (#54): temperature lines for drives on this host, a number of degrees from 1 to 150 (a bool
@@ -22564,7 +22603,9 @@ def handle_heartbeat():
             # v1.11.10 additions: per-mount disk list, swap, loadavg, cpu_count.
             for metric_key in ('cpu_percent', 'mem_percent', 'disk_percent', 'swap_percent',
                                # v4.1.0: file-descriptor + conntrack table fullness
-                               'fd_percent', 'conntrack_percent'):
+                               'fd_percent', 'conntrack_percent',
+                               # 7.4.9: where the CPUs spent their time between two reports (Linux agents)
+                               'cpu_user', 'cpu_nice', 'cpu_system', 'cpu_idle', 'cpu_iowait', 'cpu_irq', 'cpu_steal'):
                 val = si.get(metric_key)
                 if isinstance(val, (int, float)) and 0.0 <= val <= 100.0:
                     safe_si[metric_key] = round(float(val), 2)
@@ -29387,6 +29428,7 @@ def _declarative_collections():
         # off (changing the compliance SCORE). Both are secret-free and
         # round-trippable.
         'exposure_mutes':        cfg_list('exposure_mutes'),
+        'time_periods':          cfg_list('time_periods'),      # 7.4.9
         'sla_targets':           cfg.get('sla_targets') if isinstance(cfg.get('sla_targets'), dict) else {},
         'compliance_baseline':   cfg.get('compliance_baseline') if isinstance(cfg.get('compliance_baseline'), dict) else {},
         # own-file collections
@@ -29597,6 +29639,7 @@ def _declarative_meta():
         'backup_monitors':       {'kind': 'cfg_list', 'key': 'backup_monitors', 'id': 'path'},
         'log_alert_rules':       {'kind': 'file_list', 'file': LOG_RULES_GLOBAL_FILE, 'inner': 'rules', 'id': 'id'},
         'exposure_mutes':        {'kind': 'cfg_list', 'key': 'exposure_mutes', 'id': None},
+        'time_periods':          {'kind': 'cfg_list', 'key': 'time_periods', 'id': 'id'},      # 7.4.9
         'sla_targets':           {'kind': 'cfg_dict', 'key': 'sla_targets'},
         'compliance_baseline':   {'kind': 'cfg_dict', 'key': 'compliance_baseline'},
         'automation_rules':      {'kind': 'file_list', 'file': RULES_FILE, 'inner': 'rules', 'id': 'id'},
@@ -29847,6 +29890,8 @@ def handle_config_get():
                          'monitor_notified', 'containers_stale_notified',
                          '_github_latest_version', '_github_latest_ts')}
     safe['webhook_configured'] = bool(str(cfg.get('webhook_url', '')).strip())
+    # 7.4.9: the S3 copy's secret key lives in the server's environment; the page is told only whether one is there
+    safe['backup_s3_secret_set'] = bool(os.environ.get('RP_BACKUP_S3_SECRET_KEY') or os.environ.get('RP_BACKUP_S3_SECRET_KEY_CMD'))
     safe.setdefault('offline_webhook_enabled', True)
     safe.setdefault('monitor_webhook_enabled', True)
     safe.setdefault('cve_webhook_enabled', True)
@@ -30015,6 +30060,10 @@ def handle_config_get():
     safe.setdefault('diskio_warn_percent', 0)          # v7.4.3: disk busy share → metric_warning (0 = off)
     safe.setdefault('diskio_crit_percent', 0)          # disk busy share → metric_critical (0 = off)
     safe.setdefault('diskio_sustain', 5)               # reports in a row over the line before it alerts
+    safe.setdefault('time_periods', [])                # 7.4.9: named time periods
+    for _ct_key in _CPU_TIME_LINE_KEYS:                # 7.4.9: share of the CPU time spent waiting for storage / taken by the hypervisor (0 = off)
+        safe.setdefault(_ct_key, 0)
+    safe.setdefault('cpu_time_sustain', 3)             # reports in a row over the line before it alerts
     for _dt_key in drive_temp_mod.ALL_LINE_KEYS:       # v7.4.4 (#54): drive temperature lines (0 = none)
         safe.setdefault(_dt_key, 0)
     safe.setdefault('offline_missed_polls', OFFLINE_MISSED_POLLS)             # offline after N missed polls
@@ -31413,14 +31462,29 @@ def handle_config_save():
         except (ValueError, TypeError, OverflowError):
             respond(400, {'error': 'health_alert_threshold must be an integer'})
 
+    # 7.4.9: named time periods. Assigned here, before the settings that point at them are read, so one save can add a period and use
+    # it. A period that something still uses can not go: that is checked after those settings have been read (see below).
+    _tp_removed = set()
+    if 'time_periods' in body:
+        try:
+            _tp_new = time_periods_mod.clean_periods(body['time_periods'], lambda: 'tp-' + secrets.token_hex(4))
+        except ValueError as _tp_err:
+            respond(400, {'error': str(_tp_err), 'field': 'time_periods'})
+        _tp_removed = ({p.get('id') for p in (cfg.get('time_periods') or []) if isinstance(p, dict)}
+                       - {p['id'] for p in _tp_new})
+        cfg['time_periods'] = _tp_new
+
     # v3.4.1: quiet hours — hold non-critical notifications in a daily window.
     if 'quiet_hours' in body:
         qh = body['quiet_hours'] if isinstance(body['quiet_hours'], dict) else {}
         import re as _re
         start = _sanitize_str(qh.get('start', ''), 5)
         end = _sanitize_str(qh.get('end', ''), 5)
+        _qh_period = _sanitize_str(str(qh.get('period', '') or ''), 16)       # 7.4.9: a named time period instead of the times
+        if _qh_period and time_periods_mod.find(cfg.get('time_periods'), _qh_period) is None:
+            respond(400, {'error': 'that time period does not exist', 'field': 'quiet_hours'})
         _hhmm = _re.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
-        if qh.get('enabled') and not (_hhmm.match(start) and _hhmm.match(end)):
+        if qh.get('enabled') and not _qh_period and not (_hhmm.match(start) and _hhmm.match(end)):
             respond(400, {'error': 'quiet_hours start/end must be HH:MM (24h)'})
         sev = str(qh.get('min_severity', 'critical')).lower()
         if sev not in _QH_SEV_RANK:
@@ -31429,6 +31493,7 @@ def handle_config_save():
             'enabled':      bool(qh.get('enabled')),
             'start':        start,
             'end':          end,
+            'period':       _qh_period,
             'min_severity': sev,
         }
 
@@ -31656,6 +31721,12 @@ def handle_config_save():
         ('diskio_warn_percent',       0,   100,    True),
         ('diskio_crit_percent',       0,   100,    True),
         ('diskio_sustain',            1,   60,     True),
+        # 7.4.9: the share of the CPU time that may go to waiting for storage or to the hypervisor, and for how many reports. 0 keeps it off.
+        ('iowait_warn_percent',       0,   100,    True),
+        ('iowait_crit_percent',       0,   100,    True),
+        ('steal_warn_percent',        0,   100,    True),
+        ('steal_crit_percent',        0,   100,    True),
+        ('cpu_time_sustain',          1,   60,     True),
         # v7.4.4 (#54): temperature lines for drives, in degrees: for any drive and for each type. 0 keeps a
         # line off, and nothing alerts until one is set.
         ('drivetemp_warn_c',            0,   150,    True),
@@ -31957,7 +32028,10 @@ def handle_config_save():
         _hhmm = _re2.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
         start = _sanitize_str(ah.get('start', ''), 5)
         end = _sanitize_str(ah.get('end', ''), 5)
-        if ah.get('enabled') and not (_hhmm.match(start) and _hhmm.match(end)):
+        _ah_period = _sanitize_str(str(ah.get('period', '') or ''), 16)       # 7.4.9: a named time period for the business hours
+        if _ah_period and time_periods_mod.find(cfg.get('time_periods'), _ah_period) is None:
+            respond(400, {'error': 'that time period does not exist', 'field': 'after_hours'})
+        if ah.get('enabled') and not _ah_period and not (_hhmm.match(start) and _hhmm.match(end)):
             respond(400, {'error': 'after_hours start/end must be HH:MM (business hours)'})
         evs = [e for e in (ah.get('events') or []) if isinstance(e, str) and e in WEBHOOK_EVENT_NAMES][:30]
         try:
@@ -31968,6 +32042,7 @@ def handle_config_save():
             'enabled':  bool(ah.get('enabled')),
             'start':    start,
             'end':      end,
+            'period':   _ah_period,
             'events':   evs,
             'workdays': days or [0, 1, 2, 3, 4],
         }
@@ -32389,10 +32464,20 @@ def handle_config_save():
             h = re.sub(r'[^0-9\-]', '', str(h))[:10]
             if re.match(r'^\d{4}-\d{2}-\d{2}$', h):
                 holidays.append(h)
+        _bh_period = _sanitize_str(str(bh.get('period', '') or ''), 16)       # 7.4.9: a named time period for the SLA clock
+        if _bh_period and time_periods_mod.find(cfg.get('time_periods'), _bh_period) is None:
+            respond(400, {'error': 'that time period does not exist', 'field': 'ticket_business_hours'})
         cfg['ticket_business_hours'] = {
             'enabled': bool(bh.get('enabled')),
             'tz_offset_min': tzoff, 'weekly': weekly, 'holidays': holidays,
+            'period': _bh_period,
         }
+    # 7.4.9: a time period that something still uses can not be removed. Checked against the settings as they will be saved, so one save
+    # can both stop using a period and remove it.
+    if _tp_removed:
+        _tp_users = _time_period_users(cfg, _tp_removed)
+        if _tp_users:
+            respond(400, {'error': 'time_periods: still used by ' + ', '.join(_tp_users)})
     # W1-9: enrolment auto-placement rules. A rule matches a NEW device by
     # hostname regex or source-IP CIDR and stamps group/site/tags at enrolment
     # (token defaults win). Regex is length-capped + compile-validated here.
@@ -32716,6 +32801,11 @@ def handle_config_save():
                 if any(c in od for c in ('\n', '\r', '\x00', ';', '|', '`', '$', '<', '>')):
                     respond(400, {'error': 'backup.offsite_dir has illegal characters'})
             clean_bk['offsite_dir'] = od
+        if 's3' in bk:   # 7.4.9: an S3-compatible bucket as the off-host copy; the secret key stays in the environment
+            _s3c, _s3why = _s3_validate(bk.get('s3'))
+            if _s3c is None:
+                respond(400, {'error': 'backup.s3: ' + _s3why})
+            clean_bk['s3'] = _s3c
         # master-improvement-scoping #56: declared RPO/RTO targets so the
         # backup state is graded against something, not just pass/fail.
         # RPO is enforceable (compared against hours-since-last-successful-
@@ -51969,6 +52059,19 @@ def _compute_attention():
             kind, target = key.split(':', 1)
             if kind == 'disk':
                 continue  # handled above with mount path + pct
+            if kind in ('iowait', 'steal'):
+                # 7.4.9: a host whose CPUs lose their time to storage or to the hypervisor. The item is kind 'cpu', so it is muted,
+                # and held by a maintenance window, with the other CPU problems (metric_warning / metric_critical).
+                _w, _c = _resolve_metric_thresholds(dev, kind, target)
+                _thr = _c if level == 'critical' else _w
+                _share = si.get(f'cpu_{kind}')
+                if _thr is not None and _thr != float('inf') and _finite_number(_share):
+                    _what = 'waiting for storage' if kind == 'iowait' else 'taken by the hypervisor'
+                    items.append({
+                        'severity': 'critical' if level == 'critical' else 'warning', 'kind': 'cpu',
+                        'device': dev.get('name', dev_id),
+                        'summary': f'CPU time {_what}: {_share:.0f}% ({level} ≥ {_thr:.0f}%)'})
+                continue
             if kind == 'diskio':
                 # v7.4.3 (#49): a disk that stays busy. The item is kind 'disk' so it is muted, and held by
                 # a maintenance window, with the other disk problems (metric_warning / metric_critical).
@@ -52846,6 +52949,16 @@ _NA_MUTE_EVENTS = {
                                          'backup_size_anomaly'),
     ('disk',               'critical'): ('metric_critical', 'disk_predict_fail'),
     ('disk',               'warning'):  ('metric_warning',),
+    # 7.4.9: the items of the metric loop that are not a disk: the load ratio and, since 7.4.9, the share of the CPU time spent
+    # waiting for storage or taken by the hypervisor (all 'cpu'), and the share of the memory or swap in use. They are emitted per
+    # host from the same loop as the disk items and had no row, so muting metric_warning or metric_critical for a host stopped the
+    # notification and left the item standing, and the host's score never recovered.
+    ('cpu',                'critical'): ('metric_critical',),
+    ('cpu',                'warning'):  ('metric_warning',),
+    ('memory',             'critical'): ('metric_critical',),
+    ('memory',             'warning'):  ('metric_warning',),
+    ('swap',               'critical'): ('metric_critical',),
+    ('swap',               'warning'):  ('metric_warning',),
     ('mount',              'critical'): ('mount_issue',),
     ('mount',              'warning'):  ('mount_issue',),
     ('container',          'warning'):  ('container_stopped', 'container_restarting',
@@ -54607,6 +54720,9 @@ def _dashboard_upcoming(limit=3, horizon_days=45):
                     ts = None
             elif w.get('cron'):
                 ts = _cron_next(w['cron'], now, horizon_days)
+            elif w.get('period'):
+                _nc = time_periods_mod.next_change(_period_by_id(w['period']), now, horizon_days)
+                ts = _nc[0] if _nc and _nc[1] else None     # the next time the period turns on
             if ts and now <= ts <= horizon:
                 items.append({'title': title, 'when': ts, 'ongoing': False,
                               'kind': 'maintenance'})
@@ -61081,22 +61197,28 @@ def handle_security_posture():
     # their disaster recovery.
     _offsite = str((cfg.get('backup') or {}).get('offsite_dir') or '').strip()
     _bstate = load(DATA_DIR / 'self_backup_state.json') or {}
-    _off_ok = _bstate.get('offsite_ok')
-    if not _offsite:
+    # 7.4.9: an S3 bucket is an off-host destination too. Every destination that is set has to have worked on the last run.
+    _s3cfg = (cfg.get('backup') or {}).get('s3')
+    _dests = []
+    if _offsite:
+        _dests.append((_offsite, _bstate.get('offsite_ok')))
+    if isinstance(_s3cfg, dict) and _s3cfg.get('enabled') is True:
+        _dests.append(('S3 bucket ' + _sanitize_str(str(_s3cfg.get('bucket') or ''), 63), _bstate.get('s3_ok')))
+    if not _dests:
         _off_detail, _off_pass = 'local-host only', False
-    elif _off_ok is False:
+    elif any(ok is False for _d, ok in _dests):
         # Configured AND the last attempt failed — the case that used to read
         # as a clean pass.
         _off_detail, _off_pass = (
-            f'{_offsite} — LAST MIRROR FAILED', False)
-    elif _off_ok is None:
+            '; '.join(f'{_d} — LAST MIRROR FAILED' for _d, ok in _dests if ok is False), False)
+    elif any(ok is None for _d, ok in _dests):
         _off_detail, _off_pass = (
-            f'{_offsite} — configured, no backup has run yet', False)
+            '; '.join(f'{_d} — configured, no backup has run yet' for _d, ok in _dests if ok is None), False)
     else:
-        _off_detail, _off_pass = _offsite, True
+        _off_detail, _off_pass = ', '.join(_d for _d, _ok in _dests), True
     add('backup_offsite', 'Backups mirrored off-host', _off_pass, _off_detail,
-        'Set an off-host backup destination (an NFS/SMB/sshfs mount) under '
-        'Settings → Maintenance → Backup, and test-restore it. If it is already '
+        'Set an off-host backup destination (an NFS/SMB/sshfs mount, or an S3-compatible '
+        'bucket) under Settings → Backups, and test-restore it. If it is already '
         'set, check the last backup run — the mirror step reports its own '
         'success separately from the archive.', fix_tab='maintenance')
     # v6.4.3: the control plane's OWN disk. Every managed host is graded on
@@ -70367,6 +70489,25 @@ def _window_applies(w, dev_id, dev=None, dev_group=None, owner=_OWNER_UNKNOWN):
     return False
 
 
+def _time_period_users(cfg, ids):
+    """7.4.9: what still uses any of these time periods, as short phrases for a message. The settings that point at one, and the
+    maintenance windows that follow one."""
+    used = []
+    for key, phrase in (('quiet_hours', 'quiet hours'), ('after_hours', 'after-hours detection'), ('ticket_business_hours', 'the ticket SLA calendar')):
+        entry = cfg.get(key)
+        if isinstance(entry, dict) and entry.get('period') in ids:
+            used.append(phrase)
+    windows = [w for w in ((_load_ro(MAINT_FILE) or {}).get('windows') or []) if isinstance(w, dict) and w.get('period') in ids]
+    if windows:
+        used.append(plural(len(windows), 'maintenance window', 'maintenance windows'))
+    return used
+
+
+def _period_by_id(pid):
+    """7.4.9: the stored time period (Settings -> Time periods) with this id, or None."""
+    return time_periods_mod.find(_config_ro().get('time_periods'), pid)
+
+
 def _window_active(window, now):
     """Return True if this maintenance window is active right now."""
     # One-shot: ISO-8601 start + end
@@ -70381,6 +70522,11 @@ def _window_active(window, now):
                 return True
         except ValueError:
             pass
+    # 7.4.9: a named time period (Settings -> Time periods): the window is open while the period is
+    if window.get('period'):
+        _per = _period_by_id(window.get('period'))
+        if _per is not None and time_periods_mod.is_active(_per, now):
+            return True
     # Recurring cron window
     cron = window.get('cron')
     dur  = int(window.get('duration', 0) or 0)
@@ -70592,6 +70738,8 @@ def handle_maintenance_list():
     users, owners = _load_ro(USERS_FILE) or {}, {}
     for w in windows:
         entry = {**w, 'active': _window_active(w, now)}
+        if w.get('period'):      # 7.4.9: a window that follows a time period shows its name
+            entry['period_name'] = (_period_by_id(w['period']) or {}).get('name', '')
         # Resolve a device-scoped target id to a human label so the UI can
         # show the hostname instead of the opaque device id.
         if w.get('scope') == 'device':
@@ -70674,6 +70822,7 @@ def _validate_maintenance_body(body):
     start  = _sanitize_str(body.get('start', ''), 32)
     end    = _sanitize_str(body.get('end', ''), 32)
     cron   = _sanitize_str(body.get('cron', ''), 64)
+    period = _sanitize_str(str(body.get('period', '') or ''), 16)     # 7.4.9: a named time period
     try:
         duration = int(body.get('duration', 0) or 0)
     except (TypeError, ValueError, OverflowError):
@@ -70696,7 +70845,12 @@ def _validate_maintenance_body(body):
         respond(400, {'error': 'smart-group-scoped window requires a smart group id'})
     has_oneshot = bool(start and end)
     has_cron    = bool(cron and duration > 0)
-    if has_oneshot == has_cron:
+    if period:
+        if has_oneshot or has_cron:
+            respond(400, {'error': 'a window follows a time period or has times of its own, not both'})
+        if _period_by_id(period) is None:
+            respond(400, {'error': 'that time period does not exist'})
+    elif has_oneshot == has_cron:
         respond(400, {'error': 'specify exactly one of (start+end) or (cron+duration)'})
     if has_oneshot:
         try:
@@ -70717,7 +70871,7 @@ def _validate_maintenance_body(body):
             respond(400, {'error': 'duration must be 60..604800 seconds'})
     return {
         'reason': reason, 'scope': scope, 'target': target,
-        'start': start, 'end': end, 'cron': cron,
+        'start': start, 'end': end, 'cron': cron, 'period': period,
         'duration': duration, 'events': events,
         # v3.4.2: when set, exec/upgrade commands for covered devices are HELD
         # until one of the device's gating windows is active (change-window
@@ -71101,14 +71255,15 @@ def _resolve_metric_thresholds(dev, kind, target=''):
     if kind == 'conntrack':
         return (float(overrides.get('conntrack_warn_percent', _gc.get('conntrack_warn_percent', 80))),
                 float(overrides.get('conntrack_crit_percent', _gc.get('conntrack_crit_percent', 95))))
-    if kind == 'diskio':
-        # v7.4.3 (#49): how busy a disk is, as a share of the time. Off until a line is set (0 or nothing).
+    if kind in ('diskio', 'iowait', 'steal'):
+        # v7.4.3 (#49): how busy a disk is, as a share of the time. 7.4.9: the share of the CPU time that went to
+        # waiting for storage (iowait) or to the hypervisor (steal). Off until a line is set (0 or nothing).
         # A warning line alone leaves the critical one out of reach, and a critical line alone is also
         # the warning. The host's own line wins over the fleet's, as for every other kind.
         def _line(key):
             v = overrides.get(key, _gc.get(key, 0))
             return float(v) if _finite_number(v) and v > 0 else 0.0
-        w, c = _line('diskio_warn_percent'), _line('diskio_crit_percent')
+        w, c = _line(f'{kind}_warn_percent'), _line(f'{kind}_crit_percent')
         if w <= 0 and c <= 0:
             return (None, None)
         return (w if w > 0 else c, c if c > 0 else float('inf'))
@@ -71123,6 +71278,17 @@ def _diskio_sustain():
         n = int(_config_ro().get('diskio_sustain', 5))
     except (TypeError, ValueError, OverflowError):
         n = 5
+    return max(1, min(60, n))
+
+
+def _cpu_time_sustain():
+    """Reports in a row the share of the CPU time spent waiting for storage, or taken by the hypervisor, has to be over its line before
+    it alerts (7.4.9). Its own setting: a backup or a boot makes a host wait for its disk for a few minutes, which is not news, and an
+    hour of it is."""
+    try:
+        n = int(_config_ro().get('cpu_time_sustain', 3))
+    except (TypeError, ValueError, OverflowError):
+        n = 3
     return max(1, min(60, n))
 
 
@@ -71415,6 +71581,23 @@ def process_metric_thresholds(dev_id, dev, safe_si, defer=False):
                 _emit('metric_recovered', dev_id, dev, 'diskio', _k.split(':', 1)[1], 0, 0)
             state.pop(_k, None)
             streaks.pop(_k, None)
+
+    # 7.4.9: how the CPUs spent the time between two reports: the share that went to waiting for storage (iowait) and the share the
+    # hypervisor took (steal). Host-wide, so no target. Off until a line is set, and held for its own run of reports (see
+    # _cpu_time_sustain). Only a report that carries the figure is judged: a beat without it (an agent that was just restarted, a host
+    # that is not Linux) says nothing, so it leaves the state as it was. An alert is closed when its line is turned off, whether the
+    # report carries the figure or not, so nothing stays open for a condition that cannot be checked any more.
+    for _ct_kind in ('iowait', 'steal'):
+        _ct_key = f'{_ct_kind}:'
+        _ct_val = safe_si.get(f'cpu_{_ct_kind}')
+        if _resolve_metric_thresholds(dev, _ct_kind, '')[0] is None:
+            if state.get(_ct_key, 'ok') != 'ok':
+                _emit('metric_recovered', dev_id, dev, _ct_kind, '', _ct_val if _ct_val is not None else 0, 0)
+            state.pop(_ct_key, None)
+            streaks.pop(_ct_key, None)
+            continue
+        if _ct_val is not None:
+            _check(_ct_kind, '', _ct_val, hold=_cpu_time_sustain())
 
     # v4.1.0: file-descriptor + conntrack table fullness (host-wide, no target).
     _check('fd', '', safe_si.get('fd_percent'))
@@ -75049,6 +75232,7 @@ def _build_exact_routes():
         ('POST', '/api/self/backup-now'): handle_backup_run,
         ('POST', '/api/self/backup-encrypt'): handle_backup_encrypt_existing,   # v5.0.0
         ('POST', '/api/backup/test-restore'): handle_backup_test_restore,       # v5.4.1 (G1)
+        ('POST', '/api/backup/s3-test'): handle_backup_s3_test,                 # 7.4.9: write, read, delete in the S3 bucket
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,
         ('GET', '/api/detection-selftest'): handle_detection_selftest,   # v6.3.1 alert-chain self-test

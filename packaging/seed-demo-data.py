@@ -1296,6 +1296,29 @@ def _demo_serial(dev_id, device):
     raise RuntimeError(f'the demo has no disk {device} on {dev_id}')
 
 
+# 7.4.9: where a demo host's CPU time goes, in percent: (I/O wait, steal). The others get a small figure of their own, worked out from
+# the host id so it is the same on every run.
+_DEMO_CPU_TIME = {
+    'tnas': (31.0, 0.0),      # the NAS waits for its disks
+    'bk01': (18.5, 0.0),      # the backup host, during its run
+    'jf01': (2.2, 12.5),      # a guest on a busy hypervisor
+}
+
+
+def _demo_cpu_time(dev: dict, busy: float) -> dict:
+    """The CPU-time shares the Linux agent sends (cpu_user ... cpu_steal) for a demo host whose CPU is `busy` percent used. Derived
+    from the CPU figure and the host id, with no draw from the random stream, so no other figure of the demo moves."""
+    h = int(hashlib.md5(str(dev['id']).encode()).hexdigest()[:4], 16)
+    io, steal = _DEMO_CPU_TIME.get(dev['id'], (round(0.1 + (h % 15) / 10, 1), round((h // 15 % 8) / 10, 1)))
+    io = round(min(io, max(0.0, 100.0 - busy)), 1)
+    irq = round(min(busy * 0.04, 3.0), 1)
+    nice = round(min(busy * 0.03, 2.0), 1)
+    system = round(busy * 0.22, 1)
+    user = round(max(0.0, busy - system - nice - irq - steal), 1)
+    idle = round(max(0.0, 100.0 - busy - io), 1)
+    return {'cpu_user': user, 'cpu_nice': nice, 'cpu_system': system, 'cpu_idle': idle, 'cpu_iowait': io, 'cpu_irq': irq, 'cpu_steal': steal}
+
+
 def build_devices() -> dict:
     """Build devices.json with sysinfo, last_seen, and per-mount disks."""
     out = {}
@@ -1483,6 +1506,10 @@ def build_devices() -> dict:
                                  'mechanism': rng.choice(['unattended-upgrades',
                                                           'dnf-automatic', ''])},
             }
+            # 7.4.9: where this host's CPU time goes (iowait, steal, irq, nice), worked out from its CPU figure. Only a Linux agent
+            # sends it: the Windows and macOS agents do not, so a demo host of those systems has none.
+            if not any(x in (dev.get('os') or '').lower() for x in ('windows', 'macos', 'mac os', 'junos', 'unifi')):
+                rec['sysinfo'].update(_demo_cpu_time(dev, rec['sysinfo']['cpu_percent']))
             # v3.11–v3.13: device-drawer cards — access watch (recent logins),
             # systemd timers, listening ports w/ scope (Exposure), per-host
             # storage/RAID health, and the firewall posture + fingerprint.
@@ -2899,6 +2926,12 @@ def build_config() -> dict:
         'diskio_warn_percent':      85,
         'diskio_crit_percent':      98,
         'diskio_sustain':           5,
+        # 7.4.9: how much of the CPU time may go to waiting for storage or to the hypervisor, and for how many reports in a row
+        'iowait_warn_percent':      25,
+        'iowait_crit_percent':      50,
+        'steal_warn_percent':       10,
+        'steal_crit_percent':       25,
+        'cpu_time_sustain':         3,
         # v7.4.4 (#54): how warm a drive may get, for each type. Set, so the Hardware tab has lines to
         # colour the temperatures against and Alert parameters shows values.
         'drivetemp_hdd_warn_c':     45,
@@ -3179,6 +3212,19 @@ def build_config() -> dict:
         # Quiet hours (do-not-disturb window for notifications).
         'quiet_hours': {'enabled': True, 'start': '22:00', 'end': '07:00',
                          'min_severity': 'high'},
+
+        # 7.4.9: named time periods. A maintenance window follows the second one (see build_maintenance); the others are there to
+        # pick from for quiet hours, after-hours detection and the ticket SLA clock.
+        'time_periods': [
+            {'id': 'tp-0ff1ce01', 'name': 'Office hours (Copenhagen)', 'tz': 'Europe/Copenhagen', 'tz_offset_min': None,
+             'weekly': {str(d): [[510, 1020]] for d in range(5)},
+             'holidays': ['2026-12-24', '2026-12-25', '2026-12-31']},
+            {'id': 'tp-c4a9e001', 'name': 'Sunday change window', 'tz': 'Europe/Copenhagen', 'tz_offset_min': None,
+             'weekly': {'6': [[120, 300]]}, 'holidays': []},
+            {'id': 'tp-a1c0ffee', 'name': 'Night shift', 'tz': 'UTC', 'tz_offset_min': None,
+             'weekly': {'0': [[1320, 1440]], '1': [[0, 420], [1320, 1440]], '2': [[0, 420], [1320, 1440]], '3': [[0, 420], [1320, 1440]],
+                        '4': [[0, 420], [1320, 1440]], '5': [[0, 420]]}, 'holidays': []},
+        ],
 
         # Escalation tiers + on-call rotation (two separate config keys).
         'escalation': {'enabled': True,
@@ -5179,6 +5225,12 @@ def build_maintenance() -> dict:
          'cron': '0 1 1 * *', 'duration': 10800,
          'events': ['device_offline', 'device_online', 'service_down', 'service_up'],
          'gate_exec': True, 'created_by': 'alice', 'created_at': base + 86400 * 16},
+        # 7.4.9: a window that follows a named time period (Settings, Time periods) instead of carrying its own times
+        {'id': _stable_hex('maint', 'sunday-period', nbytes=8),
+         'reason': 'Weekly change window (follows the Sunday change window time period)',
+         'scope': 'tag', 'target': 'critical', 'start': '', 'end': '', 'cron': '', 'duration': 0,
+         'period': 'tp-c4a9e001', 'events': ['device_offline', 'device_online'],
+         'gate_exec': False, 'created_by': 'alice', 'created_at': base + 86400 * 17},
     ]}
 
 

@@ -14,7 +14,11 @@ import os
 import secrets
 import shutil
 import sys
+import tempfile
 import time
+import urllib.parse
+
+import s3_client
 
 
 class _ApiNamespace:
@@ -391,6 +395,21 @@ def _run_data_backup(triggered_by='scheduled'):
         except Exception as e:
             offsite_ok = False
             sys.stderr.write(f'[remotepower] offsite backup copy failed: {e}\n')
+    # 7.4.9: and to an S3-compatible bucket. Best-effort in the same way: a failed copy never fails the backup, and the result is
+    # recorded in the state and graded on the posture page. The archive has to be encrypted (see _s3_offsite_copy).
+    s3_cfg, s3_error = A._s3_settings(bcfg)
+    s3_ok = None
+    s3_note = ''
+    if s3_cfg:
+        try:
+            _r3 = A._s3_offsite_copy(out_path, s3_cfg, keep)
+            s3_ok, s3_note = True, _r3.get('note', '')
+        except Exception as e:
+            s3_ok, s3_error = False, A._s3_message(e)
+    elif s3_error:
+        s3_ok = False
+    if s3_ok is False:
+        sys.stderr.write(f'[remotepower] S3 backup copy failed: {s3_error}\n')
     if skipped_unreadable:
         sys.stderr.write(
             f"[remotepower] backup: skipped {A.plural(len(skipped_unreadable), 'unreadable path', 'unreadable paths')}: "
@@ -407,6 +426,11 @@ def _run_data_backup(triggered_by='scheduled'):
         'retain_days': keep,
         'offsite_dir': offsite,
         'offsite_ok':  offsite_ok,
+        # 7.4.9: the same for the S3 copy; the message is the store's answer, cut and cleaned (s3_client)
+        's3_ok':       s3_ok,
+        's3_error':    s3_error,
+        's3_note':     s3_note,
+        's3_bucket':   (s3_cfg or {}).get('bucket', ''),
         # v6.2.2: visible on the posture/self page — a backup that silently
         # skipped paths must say so, not present itself as complete.
         'skipped_unreadable': skipped_unreadable[:50],
@@ -418,7 +442,7 @@ def _run_data_backup(triggered_by='scheduled'):
     A.save(A.DATA_DIR / 'self_backup_state.json', state)
     return {'ok': True, 'file': str(out_path), 'encrypted': encrypted,
             'bytes': out_path.stat().st_size, 'pruned': pruned,
-            'offsite_ok': offsite_ok, 'stores': _stores,
+            'offsite_ok': offsite_ok, 's3_ok': s3_ok, 'stores': _stores,
             'skipped_unreadable': len(skipped_unreadable)}
 
 
@@ -1342,6 +1366,132 @@ def _drill_one_dir(base):
         shutil.rmtree(str(scratch), ignore_errors=True)
 
 
+# ── 7.4.9: an S3-compatible bucket as the off-host copy ───────────────────────────────────────────────────────────────
+
+_S3_SECRET_ENV = 'RP_BACKUP_S3_SECRET_KEY'
+
+
+def _s3_message(err):
+    """A message about a failed S3 step that is safe to keep and show: the store's own error, which s3_client has already cut and
+    cleaned, or the kind of any other failure."""
+    if isinstance(err, s3_client.S3Error):
+        return str(err)[:300]
+    return f'{type(err).__name__} while talking to the store'
+
+
+def _s3_validate(raw):
+    """(settings, '') for S3 settings that can be used, or (None, reason). The settings are checked for their shape (s3_client) and
+    the endpoint for the address classes the rest of the product refuses to connect to: link-local and cloud metadata."""
+    try:
+        settings = s3_client.clean_settings(raw)
+    except ValueError as e:
+        return None, str(e)
+    if settings.get('endpoint') and A._url_targets_local_or_meta(urllib.parse.urlparse(settings['endpoint']), allow_loopback=True):
+        return None, 'that address is not allowed (link-local or cloud metadata)'
+    return settings, ''
+
+
+def _s3_settings(bcfg):
+    """(settings, error) for the S3 copy of the backup: (None, '') when it is off, (settings, '') when it is on and usable, and
+    (None, reason) when it is switched on and the stored settings can not be used."""
+    raw = (bcfg or {}).get('s3')
+    if not isinstance(raw, dict) or raw.get('enabled') is not True:
+        return None, ''
+    settings, why = A._s3_validate(raw)
+    if settings is None:
+        return None, f'the S3 settings can not be used: {why}'
+    return settings, ''
+
+
+def _s3_client(settings, timeout=60.0):
+    """The client for these settings. The secret access key comes from the environment (or the command named beside it), never from
+    the data directory the backup is made of. The connection guard is the one the rest of the product uses: no link-local or
+    metadata address at connect time, and no redirect."""
+    secret = A._secret_from_env(_S3_SECRET_ENV)
+    if not secret:
+        raise s3_client.S3Error(0, 'NoSecret', f'{_S3_SECRET_ENV} is not set in the environment of the server')
+    ctx = None if settings.get('verify_tls', True) else A._get_unverified_ssl_context()
+    opener = A._ssrf_safe_opener(allow_loopback=True, ssl_ctx=ctx, no_redirect=True)
+    return s3_client.S3Client(settings['endpoint'], settings['region'], settings['bucket'], settings['access_key_id'], secret,
+                              settings['prefix'], settings['path_style'], opener=opener, timeout=timeout)
+
+
+def _s3_offsite_copy(archive, settings, keep_days):
+    """Upload the finished archive, then prune the copies older than the retention. Raises S3Error when the upload fails. A prune
+    that fails is reported in `note` and does not fail the copy: the archive is safe in the bucket.
+
+    An archive that is not encrypted is refused. It holds every secret of the installation, and an object store is somebody
+    else's machine."""
+    if not str(archive).endswith('.enc'):
+        raise s3_client.S3Error(0, 'NotEncrypted', 'the archive is not encrypted and holds every secret of the installation: '
+                                'set RP_BACKUP_PASSPHRASE before it is copied to an object store')
+    client = A._s3_client(settings)
+    name = A.Path(archive).name
+    digest = client.put_file(name, str(archive))
+    out = {'name': name, 'sha256': digest, 'pruned': 0, 'note': ''}
+    try:
+        for old in s3_client.expired(client.list('remotepower_data_'), time.time(), keep_days, spare=name):
+            client.delete(old)
+            out['pruned'] += 1
+    except s3_client.S3Error as e:
+        out['note'] = f'uploaded, but the old copies were not pruned: {A._s3_message(e)}'
+    return out
+
+
+def _s3_drill(settings, scratch_parent):
+    """Read the newest archive back from the bucket and run the drill's checks on it, as for the local copy. Also compares what was
+    read with the digest stored with the object when it was uploaded, which catches a copy that changed in the store."""
+    tmp = A.Path(tempfile.mkdtemp(prefix='.s3drill_', dir=str(scratch_parent) if A.Path(str(scratch_parent)).is_dir() else None))
+    try:
+        client = A._s3_client(settings, timeout=120.0)
+        latest = s3_client.newest_archive(client.list('remotepower_data_'))
+        if latest is None:
+            return {'ok': False, 'no_archives': True, 'error': 'no archive found in the bucket'}
+        dest = tmp / latest['name']
+        got = client.get_file(latest['name'], str(dest), max_bytes=int(latest['size']) + 1024)
+        if got['recorded_sha256'] and got['recorded_sha256'] != got['sha256']:
+            return {'ok': False, 'file': latest['name'],
+                    'error': 'the copy in the bucket is not the one that was uploaded (its digest differs from the one stored with it)'}
+        if latest['mtime']:
+            os.utime(dest, (latest['mtime'], latest['mtime']))
+        r = _drill_one_dir(str(tmp))
+        r['bytes'] = got['bytes']
+        return r
+    except s3_client.S3Error as e:
+        return {'ok': False, 'error': A._s3_message(e)}
+    finally:
+        shutil.rmtree(str(tmp), ignore_errors=True)
+
+
+def handle_backup_s3_test():
+    """POST /api/backup/s3-test — write, read and delete a small object in the S3 bucket, and list it, to show that the copy of the
+    backup will work. Body: optional `s3` settings to try without saving them (the form as it stands); without it the saved ones are
+    used. The secret access key is the server's `RP_BACKUP_S3_SECRET_KEY`. Admin only, audited. A failure is a 200 with `ok: false`
+    and the step that failed, like the restore test."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A.get_json_obj()
+    raw = body.get('s3') if isinstance(body.get('s3'), dict) else ((A.load(A.CONFIG_FILE) or {}).get('backup') or {}).get('s3')
+    if not isinstance(raw, dict) or not (raw.get('endpoint') or raw.get('bucket')):
+        A.respond(400, {'error': 'The S3 copy is not set up yet: fill in the endpoint and the bucket'})
+    settings, why = A._s3_validate(dict(raw, enabled=True))
+    if settings is None:
+        A.respond(400, {'error': why})
+    result, error = None, ''
+    try:
+        result = A._s3_client(settings, timeout=30.0).check()
+    except s3_client.S3Error as e:
+        error = A._s3_message(e)
+    A.audit_log(actor, 'backup_s3_test', f"bucket={settings['bucket']} ok={error == ''}"
+                + (f' error={error[:120]}' if error else ''))
+    if error:
+        A.respond(200, {'ok': False, 'error': error})
+    A.respond(200, {'ok': True, 'steps': result['steps'], 'ms': result['ms'],
+                    'encrypted_archives': bool(A._backup_passphrase()),
+                    'message': 'The bucket can be written to, read, listed and cleaned up.'})
+
+
 def _restore_drill_core():
     """Drill the local archive AND, when configured, the off-host mirror.
 
@@ -1361,21 +1511,31 @@ def _restore_drill_core():
     local = _drill_one_dir(bk.get('path') or _default_backup_dir())
 
     offsite_dir = str(bk.get('offsite_dir') or '').strip()
-    if not offsite_dir:
-        return local
-
-    off = _drill_one_dir(offsite_dir)
     out = dict(local)
-    out['offsite'] = dict(off, dir=offsite_dir)
-    if not off.get('ok'):
-        out['ok'] = False
-        _why = ('no archive found at the off-host destination'
-                if off.get('no_archives') else (off.get('error') or 'unknown'))
-        out['error'] = (f'off-host copy at {offsite_dir} did not verify: {_why}'
-                        + (f' (the local archive passed: {local.get("file")})'
-                           if local.get('ok') else
-                           f' — and the local archive also failed: {local.get("error")}'))
-        out.setdefault('http', 500)
+    if offsite_dir:
+        off = _drill_one_dir(offsite_dir)
+        out['offsite'] = dict(off, dir=offsite_dir)
+        if not off.get('ok'):
+            out['ok'] = False
+            _why = ('no archive found at the off-host destination'
+                    if off.get('no_archives') else (off.get('error') or 'unknown'))
+            out['error'] = (f'off-host copy at {offsite_dir} did not verify: {_why}'
+                            + (f' (the local archive passed: {local.get("file")})'
+                               if local.get('ok') else
+                               f' — and the local archive also failed: {local.get("error")}'))
+            out.setdefault('http', 500)
+    # 7.4.9: the copy in the S3 bucket is read back and checked the same way, for the same reason: it is the one that survives
+    # losing the machine, so it is the one a green drill has to vouch for.
+    s3_cfg, s3_error = A._s3_settings(bk)
+    if s3_cfg or s3_error:
+        s3r = A._s3_drill(s3_cfg, bk.get('path') or _default_backup_dir()) if s3_cfg else {'ok': False, 'error': s3_error}
+        out['s3'] = dict(s3r, bucket=(s3_cfg or {}).get('bucket', ''))
+        if not s3r.get('ok'):
+            _why = ('no archive found in the bucket' if s3r.get('no_archives') else (s3r.get('error') or 'unknown'))
+            prior = out.get('error')
+            out['ok'] = False
+            out['error'] = (f'{prior}; ' if prior else '') + f'the copy in the S3 bucket did not verify: {_why}'
+            out.setdefault('http', 500)
     return out
 
 

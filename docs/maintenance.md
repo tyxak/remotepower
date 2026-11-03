@@ -17,7 +17,8 @@ A window has a scope, a schedule and, optionally, a list of events.
 - **Schedule.** Either **One-shot**, with a start and an end in your local time,
   or **Recurring (cron)**, with a cron expression and a duration in minutes (1 to
   10,080, which is a week). The weekly builder fills the cron expression from the
-  days and the time you tick.
+  days and the time you tick. Or **Follow a time period**: the window is open
+  whenever a [named time period](time-periods.md) is, in that period's time zone.
 - **Events.** Leave the list empty and the window covers every event it can hold.
   Tick events to narrow it. The dialog offers `device_offline`, `device_online`,
   `monitor_down`, `monitor_up`, `service_down`, `service_up`, `patch_alert`,

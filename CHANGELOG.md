@@ -187,6 +187,54 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   The Windows and macOS agents and agentless hosts do not probe. Update the agents: until then the row reads *awaiting first
   probe from the host*. Not run against a real host yet: the probes ran against local servers and a stubbed `ping`.
 
+### Backups
+
+- **The server's backup can be copied to an S3-compatible bucket (gap-fill).** The off-host copy needed a mounted directory.
+  Most places that keep a backup off the machine speak S3: AWS, MinIO, Backblaze B2, Wasabi, Cloudflare R2 and the object
+  gateway of a NAS. Under **Settings → Backups** you now give an endpoint, a bucket, a region, a folder and an access key id,
+  and each finished archive is uploaded after it is written. There is no new dependency: the request signing (AWS Signature
+  Version 4) is about forty lines, checked against the four examples AWS publishes for S3. The archive goes up in one request
+  (5 GiB at most) with its SHA-256 stored beside it, and copies older than **Retain (days)** are deleted, never the newest one
+  and never more than 50 in a run. Only an encrypted archive is sent, because an unencrypted one holds every secret of the
+  installation. The secret access key is not a setting: it is read from `RP_BACKUP_S3_SECRET_KEY` in the server's environment
+  (or the command in `RP_BACKUP_S3_SECRET_KEY_CMD`), so it is never in the data directory or in an archive. A plain http
+  endpoint is accepted for a private or loopback address only, link-local and cloud metadata addresses are refused when you save
+  and again at connect time, and a redirect is not followed. The restore drill now reads the newest copy back and fails when it
+  is not the one that was uploaded, or when it does not decrypt and unpack. **Test S3 connection** writes, reads, lists and
+  deletes a small object and names the step that failed (`POST /api/backup/s3-test`). Server Status shows each destination's
+  last result, and the posture row *Backups mirrored off-host* counts the bucket: every destination you set has to have worked.
+  Multipart upload is not built, so an archive over 5 GiB is reported as failed. Tested against a store written for the tests
+  that verifies every signature, not against AWS, MinIO or Backblaze themselves.
+
+### CPU time
+
+- **Where the CPU time goes: I/O wait, steal, interrupts, nice (gap-fill).** The load average and the CPU percentage say a
+  host is busy and not with what. A slow disk and a crowded hypervisor both look like load. The Linux agent now reads
+  `/proc/stat` and reports the share of the time since the last system report that all CPUs spent in user, nice, system, I/O
+  wait, interrupts (irq and softirq together), steal and idle. The host drawer shows them under **System info → CPU time**.
+  I/O wait (time waiting for storage) and steal (time the hypervisor gave to other guests) have a warning and a critical line
+  each, for the fleet under **Settings → Alert parameters → CPU time** and per host under **Metric thresholds**, where a host's
+  own line wins over the fleet's. They are off at 0, a host has to stay over a line for **Reports in a row** (3 unless you change
+  it), and they raise the same `metric_warning` and `metric_critical` as the other metrics, with the kind *iowait* or *steal*, and
+  close when the share falls below the line or when the line is turned off. A report without the figure says nothing and leaves an open alert as it was. Update the agents:
+  until then a host sends no shares and nothing is judged. Linux only. There is no trend chart yet: the history of a host's
+  figures has a fixed set of columns in SQLite and Postgres, and a chart needs a store of its own.
+
+### Time periods
+
+- **One model for "when": named time periods (gap-fill).** Four places asked the same question in four ways. Quiet hours held a
+  start, an end and the server's clock. After-hours detection added the days of the week. The ticket SLA calendar had minutes per
+  weekday, holidays and a fixed offset from UTC. A maintenance window held two timestamps or a cron line. Each had its own idea of a
+  time zone, of a window that crosses midnight and of a holiday, and none of them followed summer time. A **time period**
+  (Settings → Alerting → Time periods) is a name, a time zone from the IANA database, up to six ranges a day, ranges that cross
+  midnight and a list of holidays. Quiet hours, after-hours detection and the ticket SLA calendar each get a **Time period** box, and
+  a maintenance window can have the type **Follow a time period**. All four now read a window through one module
+  (`time_periods.py`): the checks that compared clock strings and the SLA walk are replaced by it, and the older settings are read as
+  a period of the same shape. The old checks were kept as test oracles and compared with it on every minute of a week and on 3,000
+  random calendars; their own tests pass unchanged. A period that something still uses cannot be deleted, and the error says what
+  uses it. `time_periods` is in the settings and in config as code, and `POST /api/maintenance` takes a `period`. The ticket SLA
+  calendar keeps one range per day in its own editor; the periods editor takes up to six.
+
 ### Alerts
 
 - **An alert can be assigned to a person.** The inbox knew who acknowledged an alert and nothing about who was dealing with
@@ -488,6 +536,11 @@ and missing it in two or three. These are the cheap ones:
 
 ### Fixes
 
+- **Muting a host's metric alert takes its CPU, memory and swap items off Needs attention too.** Muting `metric_warning` or
+  `metric_critical` for a host stopped the notification, and the disk item of the Needs attention list went with it, but the
+  load, memory and swap items of the same loop stayed, so the host's health score did not recover. They have a mute route now,
+  the same one the disk item has. The CPU time items (see CPU time) use it. A mute of a host's `metric_warning` hides the
+  warning items of all four kinds for that host, as it already stopped the warning alerts of all four.
 - **A maintenance window written with a day name opens.** The New maintenance window dialog suggested `0 3 * * SUN`, and the
   matcher read numbers only, so a window saved that way never opened. With "Gate command/upgrade execution" ticked it held
   every command and upgrade for its hosts until someone edited it. The matcher now reads the three-letter day and month names
@@ -505,6 +558,8 @@ and missing it in two or three. These are the cheap ones:
 
 ### Demo data
 
+- **CPU time shares are seeded for Linux hosts only.** The Windows and macOS agents do not send them, and a demo host of those
+  systems showed a row of figures its agent would never produce.
 - **The demo hosts carry what 7.4.9 added.** One host runs the Extended upgrade mode and two have a package that apt keeps
   back, so the Patch Report shows both modes. The NAS, the backup host and the Nextcloud host report `drivetemp` sensors
   that name their disk, one of them not identified. Every demo host now reports the package manager its agent would send;

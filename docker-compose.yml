@@ -46,6 +46,8 @@ services:
       # which is the systemd path and doesn't exist in the container. Without it,
       # scheduled backups are written in PLAINTEXT.
       # RP_BACKUP_PASSPHRASE: "${RP_BACKUP_PASSPHRASE:-}"
+      # Secret access key for copying backups to an S3-compatible bucket (the rest is under Settings → Backups).
+      # RP_BACKUP_S3_SECRET_KEY: "${RP_BACKUP_S3_SECRET_KEY:-}"
       # ── Single-node enterprise topology — all default ON ───────────────────
       # gunicorn+Flask (server/cgi-bin/wsgi.py) is the only server, started
       # unconditionally by the entrypoint. Run the maintenance sweeps from a

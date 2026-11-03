@@ -344,6 +344,7 @@ index — a doc nobody can find is a doc nobody reads.)
 - **[calendar.md](calendar.md)** — The shared team events calendar (a memory
  aid — it doesn't run anything; on-call lives in [oncall.md](oncall.md)).
 - **[maintenance.md](maintenance.md)** — Maintenance windows and alert suppression.
+- **[time-periods.md](time-periods.md)** — Named sets of hours that quiet hours, after-hours detection, the ticket SLA clock and maintenance windows share.
 - **[rollouts.md](rollouts.md)** — Health-gated staged rollouts.
 - **[command-library.md](command-library.md)** — Saved commands and scripts.
 - **[app-catalog.md](app-catalog.md)** — One-click app deployment.

@@ -708,6 +708,10 @@ def _num(v):
     return f"{f:,.0f}" if f == int(f) else f"{f:,.1f}"
 
 
+# 7.4.9: what the share in a metric alert of the kinds iowait and steal is a share of
+_CPU_TIME_PHRASE = {"iowait": "went to waiting for storage", "steal": "was taken by the hypervisor"}
+
+
 def drive_phrase(payload):
     """Which drive an alert is about, for v7.4.4 (#54): 'Pool disk 2 (/dev/sdd, sn WD-1234)' when the
     drive has a name, the device when it has not, and the alert's target (the serial) as a last resort.
@@ -898,6 +902,12 @@ def _webhook_message(event, payload):
                 f"{name}: {sev} — drive {drive_phrase(payload)} at {_num(payload.get('value', '?'))}°C "
                 f"(threshold: {_num(payload.get('threshold', '?'))}°C)"
             )
+        # 7.4.9: the share of the CPU time that went to waiting for storage, or to the hypervisor.
+        if kind in ("iowait", "steal"):
+            return (
+                f"{name}: {sev} — {_num(payload.get('value', '?'))}% of the CPU time "
+                f"{_CPU_TIME_PHRASE[kind]} (threshold: {_num(payload.get('threshold', '?'))}%)"
+            )
         # Disk has a target (mount path); other kinds don't.
         if kind == "disk" and target:
             return (
@@ -924,6 +934,8 @@ def _webhook_message(event, payload):
             return (
                 f"{name}: drive {drive_phrase(payload)} back to {_num(payload.get('value', '?'))}°C"
             )
+        if kind in ("iowait", "steal"):
+            return f"{name}: the share of the CPU time that {_CPU_TIME_PHRASE[kind]} is back to {_num(payload.get('value', '?'))}%"
         if kind == "disk" and target:
             return f"{name}: disk {target} recovered to " f'{payload.get("value", "?")}%'
         if kind == "cpu":

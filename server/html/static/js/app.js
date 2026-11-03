@@ -2754,7 +2754,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js'];   // 7.4.9: the patch preview dialog
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js'];   // 7.4.9: the patch preview dialog, the time period editor
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -5493,6 +5493,7 @@ async function loadSettings() {
   if (_br) _br.value = _bk.retain_days || '';
   const _bo = document.getElementById('backup-offsite-dir');   // v5.4.1 (G1)
   if (_bo) _bo.value = _bk.offsite_dir || '';
+  _fillBackupS3(_bk.s3 || {}, !!data.backup_s3_secret_set);    // 7.4.9
   const _brpo = document.getElementById('backup-rpo-hours');
   if (_brpo) _brpo.value = _bk.rpo_hours || '';
   const _brto = document.getElementById('backup-rto-hours');
@@ -5885,6 +5886,7 @@ async function saveSettings(btn) {
       enabled:     _bkEl.checked,
       path:        (document.getElementById('backup-path')?.value || '').trim() || undefined,
       offsite_dir: (document.getElementById('backup-offsite-dir')?.value || '').trim(),   // v5.4.1 (G1)
+      s3:          _backupS3Form(),                                                      // 7.4.9
       retain_days: parseInt(document.getElementById('backup-retain-days')?.value || '14', 10),
       rpo_hours:   parseInt(document.getElementById('backup-rpo-hours')?.value || '0', 10) || 0,
       rto_hours:   parseInt(document.getElementById('backup-rto-hours')?.value || '0', 10) || 0,
@@ -8373,7 +8375,7 @@ async function openMetricThresholds(id, name) {
   // Clear the form before loading — avoids flashing stale values
   ['mem-warn','mem-crit','swap-warn','swap-crit','disk-warn','disk-crit','cpu-warn','cpu-crit',
    'snmp-cpu-warn','snmp-cpu-crit','temp-warn','temp-crit','mailq-warn','mailq-crit',
-   'nic-err','nic-drop','diskio-warn','diskio-crit',
+   'nic-err','nic-drop','diskio-warn','diskio-crit','iowait-warn','iowait-crit','steal-warn','steal-crit',
    'dt-warn','dt-crit','dt-hdd-warn','dt-hdd-crit','dt-ssd-warn','dt-ssd-crit','dt-nvme-warn','dt-nvme-crit']
     .forEach(k => {
       const el = document.getElementById('thr-' + k);
@@ -8421,6 +8423,11 @@ async function openMetricThresholds(id, name) {
   // v7.4.3 (#49): how busy a disk may be on this host; the placeholder is the fleet's line (0 = none)
   fillField('thr-diskio-warn',   'diskio_warn_percent');
   fillField('thr-diskio-crit',   'diskio_crit_percent');
+  // 7.4.9: how much of the CPU time may go to waiting for storage or to the hypervisor; the placeholder is the fleet's line (0 = none)
+  fillField('thr-iowait-warn',   'iowait_warn_percent');
+  fillField('thr-iowait-crit',   'iowait_crit_percent');
+  fillField('thr-steal-warn',    'steal_warn_percent');
+  fillField('thr-steal-crit',    'steal_crit_percent');
   // v7.4.4 (#54): how warm a drive on this host may get; the placeholder is the fleet's line (0 = none)
   fillField('thr-dt-warn', 'drivetemp_warn_c');
   fillField('thr-dt-crit', 'drivetemp_crit_c');
@@ -8501,6 +8508,8 @@ async function saveMetricThresholds() {
   readPair('thr-mailq-warn',    'thr-mailq-crit',    'mailq_warn_count',      'mailq_crit_count');
   readPair('thr-nic-err',       'thr-nic-drop',      'nic_err_alert_min',     'nic_drop_alert_min');
   readPair('thr-diskio-warn',   'thr-diskio-crit',   'diskio_warn_percent',   'diskio_crit_percent');
+  readPair('thr-iowait-warn',   'thr-iowait-crit',   'iowait_warn_percent',   'iowait_crit_percent');
+  readPair('thr-steal-warn',    'thr-steal-crit',    'steal_warn_percent',    'steal_crit_percent');
   readPair('thr-dt-warn', 'thr-dt-crit', 'drivetemp_warn_c', 'drivetemp_crit_c');
   readPair('thr-dt-hdd-warn', 'thr-dt-hdd-crit', 'drivetemp_hdd_warn_c', 'drivetemp_hdd_crit_c');
   readPair('thr-dt-ssd-warn', 'thr-dt-ssd-crit', 'drivetemp_ssd_warn_c', 'drivetemp_ssd_crit_c');
@@ -12807,7 +12816,8 @@ function _registerMaintTable() {
       status: w.active ? 'active' : 'scheduled',
     }),
     row: (w) => {
-      const when = w.cron ? `<code class="fs-11">${escHtml(w.cron)}</code> for ${Math.round((w.duration||0)/60)}min`
+      const when = w.period ? `<span>Time period</span> <code class="fs-11">${escHtml(w.period_name || '—')}</code>`
+                : w.cron ? `<code class="fs-11">${escHtml(w.cron)}</code> for ${Math.round((w.duration||0)/60)}min`
                           : `${escHtml(w.start||'?')} → ${escHtml(w.end||'?')}`;
       const events = (w.events && w.events.length) ? w.events.join(', ') : '<em class="c-muted">all</em>';
       // v7.4.3 (#48): a window that raises no alerts says so in its row.
@@ -12922,6 +12932,7 @@ async function openNewMaintModal() {
   document.getElementById('maint-scope').value = 'device';
   document.getElementById('maint-target-group').value = '';
   document.getElementById('maint-type').value = 'oneshot';
+  _tpApply(null, { 'maint-period': '' });          // 7.4.9
   document.getElementById('maint-cron').value = '';
   document.getElementById('maint-duration').value = 60;
   const _ge = document.getElementById('maint-gate-exec'); if (_ge) _ge.checked = false;
@@ -12965,8 +12976,11 @@ async function _editMaintenanceBtn(btn) {
   if (w.scope === 'device') sel.value = w.target || '';
   else if (w.scope && w.scope !== 'global') document.getElementById('maint-target-group').value = w.target || '';
   const isCron = !!(w.cron && w.duration);
-  document.getElementById('maint-type').value = isCron ? 'cron' : 'oneshot';
-  if (isCron) {
+  const isPeriod = !!w.period;
+  document.getElementById('maint-type').value = isPeriod ? 'period' : (isCron ? 'cron' : 'oneshot');
+  if (isPeriod) {
+    _tpApply(null, { 'maint-period': w.period });
+  } else if (isCron) {
     document.getElementById('maint-cron').value     = w.cron || '';
     document.getElementById('maint-duration').value = String(Math.round((w.duration || 60) / 60));
   } else {
@@ -13012,6 +13026,7 @@ function onMaintTypeChange() {
   // "Recurring (cron)" showed neither the cron field nor the duration (#41).
   document.getElementById('maint-oneshot-row').classList.toggle('d-none', t !== 'oneshot');
   document.getElementById('maint-cron-row').classList.toggle('d-none', t !== 'cron');
+  document.getElementById('maint-period-row')?.classList.toggle('d-none', t !== 'period');       // 7.4.9
 }
 
 // Weekly day-picker → cron string in #maint-cron (server cron is day-of-week 0-6).
@@ -13047,6 +13062,9 @@ async function saveMaintenance() {
     // Convert local datetime-local → ISO UTC
     body.start = new Date(s).toISOString();
     body.end   = new Date(e).toISOString();
+  } else if (type === 'period') {                       // 7.4.9: the window is open while a named time period is
+    body.period = document.getElementById('maint-period')?.value || '';
+    if (!body.period) { toast('Choose a time period', 'error', {transient: true}); return; }
   } else {
     body.cron = document.getElementById('maint-cron').value.trim();
     body.duration = parseInt(document.getElementById('maint-duration').value) * 60;
@@ -23060,6 +23078,12 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-diskio-warn',               'diskio_warn_percent',        0],
   ['ap-diskio-crit',               'diskio_crit_percent',        0],
   ['ap-diskio-sustain',            'diskio_sustain',             5],
+  // 7.4.9: how much of the CPU time may go to waiting for storage or to the hypervisor, and for how many reports in a row (0 keeps a line off).
+  ['ap-iowait-warn',               'iowait_warn_percent',        0],
+  ['ap-iowait-crit',               'iowait_crit_percent',        0],
+  ['ap-steal-warn',                'steal_warn_percent',         0],
+  ['ap-steal-crit',                'steal_crit_percent',         0],
+  ['ap-cputime-sustain',           'cpu_time_sustain',           3],
   // v7.4.4 (#54): how warm a drive may get, for each type and for any other drive (0 keeps a line off).
   ['ap-drivetemp-hdd-warn',          'drivetemp_hdd_warn_c',        0],
   ['ap-drivetemp-hdd-crit',          'drivetemp_hdd_crit_c',        0],
@@ -23423,6 +23447,7 @@ async function saveAlertParams(btn) {
 // The matrix UI reads /api/dashboard/kinds — no more duplicated arrays here.
 
 async function loadDashboardSettings() {
+  const tpTicket = _tpTicket();          // 7.4.9: taken before the request goes out, see _tpApply
   const cfg = await api('GET', '/config');
   if (!cfg) return;
 
@@ -23461,6 +23486,8 @@ async function loadDashboardSettings() {
   // v6.3.1: business-days picker (was persisted server-side but not settable).
   { const days = new Set(ah.workdays || [0, 1, 2, 3, 4]);
     document.querySelectorAll('#ah-workdays .ah-day').forEach(cb => { cb.checked = days.has(parseInt(cb.value, 10)); }); }
+  // 7.4.9: the list of time periods, and the period each of these two points at
+  _tpApply(cfg, { 'qh-period': qh.period, 'ah-period': ah.period }, tpTicket);
 
   // v6.3.1: flow-verified service-dependency link alerts
   { const dl = document.getElementById('dep-link-alerts');
@@ -23614,10 +23641,11 @@ async function saveAfterHours() {
   const end = document.getElementById('ah-end').value;
   const events = document.getElementById('ah-events').value.split(',').map(s => s.trim()).filter(Boolean);
   const workdays = [...document.querySelectorAll('#ah-workdays .ah-day:checked')].map(cb => parseInt(cb.value, 10));
-  if (enabled && (!start || !end)) { toast('Set business start and end times', 'error', {transient: true}); return; }
+  const period = document.getElementById('ah-period')?.value || '';
+  if (enabled && !period && (!start || !end)) { toast('Set business start and end times', 'error', {transient: true}); return; }
   if (enabled && !events.length) { toast('List at least one event to watch', 'error', {transient: true}); return; }
-  if (enabled && !workdays.length) { toast('Select at least one business day', 'error', {transient: true}); return; }
-  const r = await api('POST', '/config', { after_hours: { enabled, start, end, events, workdays } }).catch(() => null);
+  if (enabled && !period && !workdays.length) { toast('Select at least one business day', 'error', {transient: true}); return; }
+  const r = await api('POST', '/config', { after_hours: { enabled, start, end, events, workdays, period } }).catch(() => null);
   if (r?.ok) toast(enabled ? `After-hours watch on (${start}–${end})` : 'After-hours watch off', 'success');
   else failToast(r);
 }
@@ -23683,8 +23711,9 @@ async function saveQuietHours() {
   const start = document.getElementById('qh-start').value;
   const end = document.getElementById('qh-end').value;
   const min_severity = document.getElementById('qh-min-sev').value;
-  if (enabled && (!start || !end)) { toast('Set both a start and end time', 'error'); return; }
-  const r = await api('POST', '/config', { quiet_hours: { enabled, start, end, min_severity } });
+  const period = document.getElementById('qh-period')?.value || '';
+  if (enabled && !period && (!start || !end)) { toast('Set both a start and end time', 'error'); return; }
+  const r = await api('POST', '/config', { quiet_hours: { enabled, start, end, min_severity, period } });
   if (r?.ok) toast(enabled ? `Quiet hours ${start}–${end}` : 'Quiet hours off', 'success');
   else failToast(r);
 }
@@ -25230,6 +25259,7 @@ async function _loadAuditSection(key) {
           ['Total disk', si.disk_total_gb != null
                           ? Number(si.disk_total_gb).toFixed(0) + ' GB' : null],
           ['Load avg',  si.loadavg_1m],
+          ['CPU time',  _cpuTimeText(si)],     // 7.4.9
           // v3.13.0: surface root-disk and swap pressure as at-a-glance pills
           // (both already in sysinfo; previously only on the devices table).
           ['Disk', si.disk_percent != null ? Number(si.disk_percent).toFixed(1) + '%' : null],
@@ -28557,6 +28587,70 @@ function _downloadAuthed(url, fallbackName, okLabel) {
 }
 
 // v5.4.1 (G1): verify the latest backup is actually restorable.
+// 7.4.9: named time periods (Settings → Time periods). The list, the editor and the selects of the forms that can use one are in
+// app-timeperiods.js, loaded on demand; these three are what the page calls before it is there.
+let _tpListForForms = null;      // the periods as last read, for the forms that open without the settings page
+// Four places read the settings and fill the lists from the answer (the settings page, the ticket hours, the editor after a save, a
+// form that opens first). Each takes a number before it asks, and the list is replaced only by an answer whose number is newer than
+// the newest already used, so a read that was asked for earlier and answers late cannot put the old list back.
+let _tpReadSeq = 0;
+let _tpUsedSeq = 0;
+function _tpTicket() { return ++_tpReadSeq; }
+async function _tpApply(cfg, picks, ticket) {
+  try {
+    if (cfg || _tpListForForms === null) {
+      const t = ticket || _tpTicket();
+      const c = cfg || await api('GET', '/config');
+      if (t > _tpUsedSeq) { _tpUsedSeq = t; _tpListForForms = (c && Array.isArray(c.time_periods)) ? c.time_periods : []; }
+    }
+    await _loadJsModule('app-timeperiods.js');
+    renderTimePeriods(_tpListForForms);
+    for (const [id, value] of Object.entries(picks || {})) setPeriodSelect(id, value);
+  } catch (e) { /* the module could not load: the forms work without a period */ }
+}
+async function openTimePeriodEdit(id) { await _loadJsModule('app-timeperiods.js'); _tpOpen(id); }
+async function saveTimePeriod() { await _loadJsModule('app-timeperiods.js'); await _tpSaveNow(); }
+
+// 7.4.9: where the CPUs spent their time between the last two system reports, from the shares the Linux agent sends. null when the
+// host has not sent them (a Windows or macOS host, an agent that is not updated, a first report).
+function _cpuTimeText(si) {
+  if (!si || si.cpu_iowait == null) return null;
+  const part = (k, label) => (si[k] != null && isFinite(Number(si[k])) ? `${label} ${Number(si[k]).toFixed(1)}%` : null);
+  return [part('cpu_user', 'user'), part('cpu_nice', 'nice'), part('cpu_system', 'system'), part('cpu_iowait', 'I/O wait'),
+          part('cpu_irq', 'interrupts'), part('cpu_steal', 'steal'), part('cpu_idle', 'idle')].filter(Boolean).join(' · ');
+}
+
+// 7.4.9: an S3-compatible bucket as the off-host copy of the backup. The secret access key is not here on purpose: the server reads it
+// from its environment, so it never reaches this page or the archive; the page is told only whether it is set.
+function _backupS3Form() {
+  const v = id => (document.getElementById(id)?.value || '').trim();
+  return {
+    enabled: !!document.getElementById('backup-s3-enabled')?.checked,
+    endpoint: v('backup-s3-endpoint'), bucket: v('backup-s3-bucket'), region: v('backup-s3-region') || 'us-east-1',
+    prefix: v('backup-s3-prefix'), access_key_id: v('backup-s3-key'),
+    path_style: !!document.getElementById('backup-s3-path-style')?.checked,
+    verify_tls: !!document.getElementById('backup-s3-verify-tls')?.checked,
+  };
+}
+function _fillBackupS3(s3, secretSet) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  const tick = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
+  tick('backup-s3-enabled', s3.enabled === true);
+  set('backup-s3-endpoint', s3.endpoint); set('backup-s3-bucket', s3.bucket); set('backup-s3-region', s3.region);
+  set('backup-s3-prefix', s3.prefix); set('backup-s3-key', s3.access_key_id);
+  tick('backup-s3-path-style', s3.path_style !== false); tick('backup-s3-verify-tls', s3.verify_tls !== false);
+  const note = document.getElementById('backup-s3-secret-state');
+  if (note) note.textContent = secretSet ? "The secret access key is set in the server's environment."
+    : "The secret access key is not set: add RP_BACKUP_S3_SECRET_KEY to the server's environment.";
+}
+async function testS3Backup() {
+  const el = document.getElementById('backup-s3-result');
+  if (el) el.textContent = 'Testing…';
+  const r = await api('POST', '/backup/s3-test', {s3: _backupS3Form()});
+  if (r?.ok) { toast('S3 connection test passed', 'success'); if (el) el.textContent = '✓ ' + (r.message || 'Works.') + ` (${Number(r.ms) || 0} ms)`; }
+  else { toast(r?.error || 'S3 connection test failed', 'error'); if (el) el.textContent = failText(r); }
+}
+
 async function testRestore() {
   const el = document.getElementById('test-restore-result');
   if (el) el.textContent = 'Testing…';

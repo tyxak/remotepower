@@ -1907,6 +1907,70 @@ def _disk_io_is_whole(name):
     return os.path.isdir(host_path('/sys/block/' + name))
 
 
+# ─── 7.4.9: where the CPUs spent their time ──────────────────────────────────
+# /proc/stat counts the time all CPUs together spent in each state. The shares of the interval since the previous report say what
+# a busy CPU is busy with: waiting for storage (iowait), serving interrupts (irq, softirq), running low-priority work (nice), or
+# losing its time to the hypervisor (steal), which the load average cannot tell apart. The figures are those of the interval
+# between two system reports, not of one moment.
+_CPU_TIME_MIN_DT = 5.0        # seconds: a reading closer to the last one is left to the next report
+_CPU_TIME_MAX_DT = 3600.0     # seconds: after a longer gap the old counters say nothing about now
+_prev_cpu_times = None
+
+
+def _read_cpu_times():
+    """The eight counters of the aggregate `cpu` line of /proc/stat (user, nice, system, idle, iowait, irq, softirq, steal), or
+    None. An old kernel that reports fewer counters is read as zero for the rest."""
+    try:
+        with open(host_path('/proc/stat'), 'r') as f:
+            first = f.readline().split()
+    except OSError:
+        return None
+    if len(first) < 5 or first[0] != 'cpu':
+        return None
+    try:
+        vals = [int(x) for x in first[1:9]]
+    except ValueError:
+        return None
+    return tuple(vals + [0] * (8 - len(vals)))
+
+
+def collect_cpu_time():
+    """Percent of the time since the previous call that all CPUs together spent in each state, as flat keys: cpu_user, cpu_nice,
+    cpu_system, cpu_idle, cpu_iowait, cpu_irq (irq and softirq together) and cpu_steal. Empty on the first call, when /proc/stat
+    cannot be read, and after a gap or a counter that went backwards, each of which begins a new interval."""
+    global _prev_cpu_times
+    cur = _read_cpu_times()
+    if cur is None:
+        return {}
+    now = time.monotonic()
+    prev = _prev_cpu_times
+    if prev is None:
+        _prev_cpu_times = cur + (now,)
+        return {}
+    dt = now - prev[8]
+    if dt < _CPU_TIME_MIN_DT:
+        return {}                                   # too soon: keep the older baseline
+    _prev_cpu_times = cur + (now,)
+    if dt > _CPU_TIME_MAX_DT or any(c < p for c, p in zip(cur, prev[:8])):
+        return {}
+    d = [c - p for c, p in zip(cur, prev[:8])]
+    total = sum(d)
+    if total <= 0:
+        return {}
+    def share(n):
+        return round(100.0 * n / total, 1)
+    return {'cpu_user': share(d[0]), 'cpu_nice': share(d[1]), 'cpu_system': share(d[2]), 'cpu_idle': share(d[3]),
+            'cpu_iowait': share(d[4]), 'cpu_irq': share(d[5] + d[6]), 'cpu_steal': share(d[7])}
+
+
+try:
+    _first_cpu_times = _read_cpu_times()     # a baseline at start, so the first report after it has an interval to speak of
+    if _first_cpu_times is not None:
+        _prev_cpu_times = _first_cpu_times + (time.monotonic(),)
+except Exception:
+    pass
+
+
 def collect_disk_io():
     """For each whole disk and md array: busy share of the interval, read and write MiB/s, IOPS and
     the average wait. Rows are the busiest first, at most 32."""
@@ -14927,6 +14991,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             }
             # Merge metrics if psutil available
             sysinfo.update(get_metrics())
+            # 7.4.9: where the CPU time went (iowait, steal, irq, nice). Not psutil's, and inside `if send_sysinfo:` after
+            # `sysinfo = {...}` like the collectors around it.
+            try:
+                sysinfo.update(collect_cpu_time())
+            except Exception as e:
+                log.debug(f'cpu time probe error: {e}')
             # v2.2.6: extra host telemetry (reboot-required, failed
             # systemd units, logged-in users, listening ports, last
             # boot). Best-effort — wrapped so a probe failure can't

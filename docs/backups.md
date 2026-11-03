@@ -156,6 +156,24 @@ RemotePower can back up **itself** so you can rebuild the server after a loss.
 - **Off-host copy.** Set **Off-host copy** (`backup.offsite_dir`) to a mounted path
   (NFS, SMB or sshfs) and each finished archive is copied there as well. The copy is
   best-effort and never fails the backup. The Security posture page grades it.
+- **S3-compatible bucket.** Under **Settings → Backups → Scheduled backup**, tick *Also copy each backup to an S3-compatible
+  bucket* and fill in the endpoint, the bucket, the region, a folder if you want one, and the access key id. AWS S3, MinIO,
+  Backblaze B2, Wasabi, Cloudflare R2 and any other store that speaks S3 work. The secret access key is not a setting: put
+  `RP_BACKUP_S3_SECRET_KEY` in the server's environment (or `RP_BACKUP_S3_SECRET_KEY_CMD`, a command that prints it), next to
+  `RP_BACKUP_PASSPHRASE`, so it never lands in the data directory or in an archive. **Test S3 connection** writes, reads, lists and
+  deletes a small object and tells you which step failed.
+  - Only an **encrypted** archive is sent. An unencrypted one holds every secret of the installation, so with no
+    `RP_BACKUP_PASSPHRASE` the copy is skipped and Server Status says why.
+  - Use an `https://` endpoint. A plain `http://` one is accepted for a private or loopback address only, such as a MinIO on your
+    LAN. Link-local and cloud metadata addresses are refused when you save and again when the server connects, and a redirect is
+    not followed. For a store with a self-signed certificate, untick *Verify the TLS certificate*.
+  - Each archive goes up in one request (5 GiB at most; a larger one is reported as failed), with its SHA-256 stored beside it.
+    Copies older than **Retain (days)** are deleted, never the newest and never more than 50 in one run, and only files named
+    like the archives in your folder.
+  - The restore drill reads the newest copy back, compares it with the digest stored at upload, and runs the same decrypt, unpack
+    and structure check as for the local archive. A copy that changed in the store fails the drill.
+  - The Security posture row *Backups mirrored off-host* counts the bucket, and every destination you set has to have worked on
+    the last run. A failed copy never fails the backup: Server Status shows the reason.
 - **RPO and RTO targets.** `backup.rpo_hours` and `backup.rto_hours` (Settings →
   Backups, `0` is off). RPO is graded on Server Status against the hours since the last
   successful run, and a target with no successful run reads as breached. RTO is a

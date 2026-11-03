@@ -312,7 +312,7 @@ _CONFIG_NUMBERS = (
     'cis_swap_pct_max', 'clock_skew_threshold_ms', 'cloud_autosync_interval', 'command_history_max',
     'compliance_lookback_days', 'compliance_tls_expiring_days', 'conntrack_crit_percent', 'conntrack_warn_percent',
     'container_restart_delta_threshold', 'container_restarting_min', 'container_stale_ttl', 'contract_soon_days',
-    'contract_warn_days', 'cpu_pct_crit', 'cpu_pct_warn', 'csp_report_throttle_per_minute',
+    'contract_warn_days', 'cpu_pct_crit', 'cpu_pct_warn', 'cpu_time_sustain', 'csp_report_throttle_per_minute',
     'ct_fail_backoff', 'cve_cache_days', 'default_poll_interval', 'defender_sig_warn_days',
     'dependency_check_interval_s', 'dependency_silence_min', 'disk_forecast_crit_days', 'disk_forecast_warn_days',
     'disk_predict_medium_eta_days', 'disk_watchdog_pct', 'diskio_crit_percent', 'diskio_sustain',
@@ -323,7 +323,7 @@ _CONFIG_NUMBERS = (
     'gateway_latency_high_ms', 'github_new_issue_per_poll_cap', 'gpu_hot_c', 'health_alert_threshold',
     'health_grade_fair', 'health_grade_good', 'health_grade_poor', 'healthchecks_interval_seconds',
     'heartbeat_min_interval_s', 'history_retention_days', 'idle_timeout_minutes', 'image_scan_interval',
-    'incident_device_threshold', 'inode_crit_percent', 'inode_warn_percent', 'integrations_interval',
+    'incident_device_threshold', 'inode_crit_percent', 'inode_warn_percent', 'iowait_crit_percent', 'iowait_warn_percent', 'integrations_interval',
     'ip_rep_confirm_scans', 'laptop_offline_grace_hours', 'last_disk_predict_check', 'last_healthchecks_ping',
     'last_kev_epss_refresh', 'last_mitigate_verify', 'last_monitor_run', 'last_posture_digest',
     'last_sidecar_watch', 'last_snmp_poll', 'ldap_timeout', 'log_buffer_max_bytes_per_unit',
@@ -339,7 +339,7 @@ _CONFIG_NUMBERS = (
     'self_online_pct_warn', 'session_ttl_long', 'session_ttl_short', 'slo_target_percent',
     'slow_handler_ms', 'smart_realloc_crit_sectors', 'smart_wear_high_pct', 'smart_wear_warn_pct',
     'smtp_port', 'snapshot_stale_days', 'snmp_cpu_crit_percent', 'snmp_cpu_warn_percent',
-    'snmp_dead_threshold', 'snmp_failures_before_alert', 'sshgw_public_port', 'temp_alert_threshold_c',
+    'snmp_dead_threshold', 'snmp_failures_before_alert', 'sshgw_public_port', 'steal_crit_percent', 'steal_warn_percent', 'temp_alert_threshold_c',
     'thermal_crit_c', 'thermal_hot_c', 'tls_crit_days', 'tls_warn_days',
     'unit_flap_restarts', 'unstable_host_returns_min', 'unstable_host_window_days', 'vpn_port_base',
     'webhook_log_retention_days', 'wol_port',
@@ -387,6 +387,7 @@ def _config_fields() -> dict:
         alert_runbooks=DICT,
         patch_sla=list_of(),
         monitoring_profiles=list_of(),
+        time_periods=list_of(),
     )
     for k in _CONFIG_TEXT:
         spec[k] = STR

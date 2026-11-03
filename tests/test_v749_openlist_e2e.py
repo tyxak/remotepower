@@ -83,6 +83,7 @@ def tearDownModule():
         _STACK["shutdown"]()
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class _Page(unittest.TestCase):
 
     @property
@@ -576,6 +577,217 @@ class TestHostProbes(_Page):
         self.page.wait_for_selector(".toast", timeout=15000)
         self.assertIn("regex", self.page.inner_text(".toast"))
         self.assertEqual([m for m in self.monitors() if m["label"] == self.LABEL], [])
+
+
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestS3Backup(_Page):
+    """Settings, Backups: the form for the copy to an S3-compatible bucket."""
+
+    def open_pane(self):
+        self.page.evaluate("() => { showPage('settings'); }")
+        self.page.wait_for_selector("#settings-tab-btn-backups", timeout=30000)
+        self.page.evaluate("() => switchSettingsTab('backups')")
+        self.page.wait_for_selector("#backup-s3-endpoint", state="visible", timeout=30000)
+
+    def config(self):
+        return self.page.evaluate("api('GET', '/config')")
+
+    def tearDown(self):
+        self.page.evaluate("() => api('POST', '/config', {backup: {s3: {enabled: false}}})")
+        super().tearDown()
+
+    def test_the_form_has_its_fields_and_says_where_the_secret_key_is(self):
+        self.open_pane()
+        for fid in ("backup-s3-enabled", "backup-s3-endpoint", "backup-s3-bucket", "backup-s3-region", "backup-s3-prefix", "backup-s3-key",
+                    "backup-s3-path-style", "backup-s3-verify-tls"):
+            self.assertTrue(self.page.is_visible("#" + fid), fid)
+        self.assertIn("RP_BACKUP_S3_SECRET_KEY", self.page.inner_text("#backup-s3-secret-state"), "the demo has no secret key in its environment, and the page says where it goes")
+        self.assertIsNone(self.page.query_selector("#backup-s3-secret"), "there is no box to type a secret key into")
+
+    def test_a_save_stores_what_was_typed_and_never_a_secret(self):
+        self.open_pane()
+        self.page.fill("#backup-s3-endpoint", "https://s3.eu-central-1.amazonaws.com")
+        self.page.fill("#backup-s3-bucket", "my-remotepower-backups")
+        self.page.fill("#backup-s3-region", "eu-central-1")
+        self.page.fill("#backup-s3-prefix", "/rp/main")
+        self.page.fill("#backup-s3-key", "AKIAEXAMPLE")
+        self.page.check("#backup-s3-enabled")
+        r = self.page.evaluate("() => api('POST', '/config', {backup: {s3: _backupS3Form()}})")
+        self.assertTrue(r.get("ok"), r)
+        s3 = self.config()["backup"]["s3"]
+        self.assertEqual((s3["bucket"], s3["prefix"], s3["region"], s3["access_key_id"], s3["enabled"]),
+                         ("my-remotepower-backups", "rp/main/", "eu-central-1", "AKIAEXAMPLE", True))
+        self.assertEqual(set(s3), {"enabled", "endpoint", "bucket", "region", "prefix", "access_key_id", "path_style", "verify_tls"})
+
+    def test_a_form_the_server_refuses_says_why(self):
+        self.open_pane()
+        self.page.fill("#backup-s3-endpoint", "ftp://nowhere")
+        self.page.fill("#backup-s3-bucket", "my-remotepower-backups")
+        self.page.fill("#backup-s3-key", "AKIAEXAMPLE")
+        self.page.check("#backup-s3-enabled")
+        self.page.click('[data-action="testS3Backup"]')
+        self.page.wait_for_selector(".toast", timeout=20000)
+        self.assertIn("endpoint", self.page.inner_text(".toast").lower())
+
+    def test_the_connection_test_names_the_step_that_failed(self):
+        self.open_pane()
+        self.page.fill("#backup-s3-endpoint", "http://127.0.0.1:1")
+        self.page.fill("#backup-s3-bucket", "my-remotepower-backups")
+        self.page.fill("#backup-s3-key", "AKIAEXAMPLE")
+        self.page.check("#backup-s3-enabled")
+        self.page.click('[data-action="testS3Backup"]')
+        self.page.wait_for_function("() => document.getElementById('backup-s3-result').innerText.trim() !== 'Testing…'", timeout=60000)
+        text = self.page.inner_text("#backup-s3-result")
+        self.assertTrue("RP_BACKUP_S3_SECRET_KEY" in text or "cannot write" in text, text)
+
+
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestCpuTime(_Page):
+
+    def test_the_drawer_shows_where_the_cpu_time_goes(self):
+        self.open_drawer_section("tnas", "truenas.lab", "sysinfo")
+        self.page.wait_for_function("() => document.getElementById('audit-body-sysinfo').innerText.includes('I/O wait')", timeout=30000)
+        text = self.page.inner_text("#audit-body-sysinfo")
+        self.assertIn("cpu time", text.lower(), "the pill label is drawn in capitals")
+        self.assertIn("user 18.4% · nice 0.8% · system 5.7% · I/O wait 31.0% · interrupts 1.0% · steal 0.0% · idle 43.1%", text)
+
+    def test_a_windows_host_has_no_cpu_time_row(self):
+        """Only the Linux agent sends the shares, so a Windows host shows none rather than a row of zeros."""
+        self.open_drawer_section("wks01", "design-win11", "sysinfo")
+        self.page.wait_for_function("() => document.getElementById('audit-body-sysinfo').innerText.length > 40", timeout=30000)
+        text = self.page.inner_text("#audit-body-sysinfo").lower()
+        self.assertIn("disk", text, "control: the drawer for this host did load")
+        self.assertNotIn("cpu time", text)
+        self.assertNotIn("i/o wait", text)
+
+    def test_the_host_editor_shows_the_fleets_lines_and_saves_its_own(self):
+        self.page.evaluate("() => openMetricThresholds('tnas', 'truenas.lab')")
+        self.page.wait_for_selector("#thr-iowait-warn", state="visible", timeout=30000)
+        self.page.wait_for_function("() => document.getElementById('thr-iowait-warn').placeholder !== ''", timeout=30000)
+        self.assertEqual(self.page.get_attribute("#thr-iowait-warn", "placeholder"), "25")
+        self.assertEqual(self.page.get_attribute("#thr-steal-crit", "placeholder"), "25")
+        self.addCleanup(lambda: self.page.evaluate("() => api('DELETE', '/devices/tnas/metric-thresholds')"))
+        self.page.fill("#thr-iowait-warn", "40")
+        self.page.click('#metric-thresholds-modal [data-action="saveMetricThresholds"]')
+        self.page.wait_for_function("() => !document.getElementById('metric-thresholds-modal').classList.contains('active')", timeout=30000)
+        got = self.page.evaluate("() => api('GET', '/devices/tnas/metric-thresholds')")
+        self.assertEqual(got["overrides"]["iowait_warn_percent"], 40.0)
+
+    def test_the_fleet_lines_are_in_alert_parameters(self):
+        self.page.evaluate("() => { showPage('settings'); }")
+        self.page.wait_for_selector("#settings-tab-btn-alertparams", timeout=30000)
+        self.page.click("#settings-tab-btn-alertparams")          # the tab button also loads the values: switchSettingsTab alone does not
+        self.page.wait_for_selector("#ap-iowait-warn", state="visible", timeout=30000)
+        self.page.wait_for_function("() => document.getElementById('ap-iowait-warn').value === '25'", timeout=30000)
+        self.assertEqual(self.page.input_value("#ap-steal-warn"), "10")
+        self.assertEqual(self.page.input_value("#ap-cputime-sustain"), "3")
+
+
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestTimePeriods(_Page):
+
+    def open_settings(self):
+        self.page.evaluate("() => { showPage('settings'); }")
+        self.page.wait_for_selector("#settings-tab-btn-dashboard", timeout=30000)
+        self.page.evaluate("() => switchSettingsTab('dashboard')")
+        self.page.wait_for_function("() => document.querySelectorAll('#tp-tbody tr').length >= 3 && !document.getElementById('tp-tbody').innerText.includes('No time periods')", timeout=60000)
+
+    def config(self):
+        return self.page.evaluate("api('GET', '/config')")
+
+    def tearDown(self):
+        self.page.evaluate("closeModal('time-period-modal')")
+        super().tearDown()
+
+    def test_the_list_summarises_each_period(self):
+        self.open_settings()
+        rows = self.page.eval_on_selector_all("#tp-tbody tr", "rs => rs.map(r => [...r.children].map(c => c.innerText.trim().replace(/\\s+/g, ' ')))")
+        by = {r[0]: r for r in rows}
+        office = by["Office hours (Copenhagen)"]
+        self.assertEqual(office[1], "Europe/Copenhagen")
+        self.assertIn("Mon–Fri 08:30–17:00", office[2])
+        self.assertIn("3 holidays", office[2])
+        self.assertIn("Sun 02:00–05:00", by["Sunday change window"][2])
+        self.assertIn("Mon 22:00–24:00", by["Night shift"][2])
+
+    def test_the_selects_of_the_forms_list_them_and_keep_a_period_that_is_gone(self):
+        self.open_settings()
+        opts = self.page.eval_on_selector_all("#qh-period option", "os => os.map(o => o.textContent.trim())")
+        self.assertEqual(opts[0], "Use the times below")
+        self.assertIn("Night shift", opts)
+        self.page.evaluate("() => setPeriodSelect('qh-period', 'tp-deadbeef')")
+        self.assertEqual(self.page.eval_on_selector("#qh-period", "s => s.selectedOptions[0].textContent.trim()"), "Removed time period")
+
+    def test_a_period_is_added_and_used_by_quiet_hours(self):
+        self.open_settings()
+        self.addCleanup(lambda: self.page.evaluate("""async () => {
+            const c = await api('GET', '/config');
+            await api('POST', '/config', {quiet_hours: {enabled: true, start: '22:00', end: '07:00', min_severity: 'high', period: ''},
+                                         time_periods: (c.time_periods || []).filter(p => p.name !== 'zz e2e period')});
+        }"""))
+        self.page.click('[data-action="openTimePeriodEdit"]')
+        self.page.wait_for_selector("#tp-name", state="visible", timeout=30000)
+        self.page.fill("#tp-name", "zz e2e period")
+        self.page.fill("#tp-tz", "Europe/Berlin")
+        self.page.click('#tp-days .tp-day[data-day="0"] [data-action-btn="_tpAddRangeBtn"]')
+        self.page.click('#time-period-modal [data-action="saveTimePeriod"]')
+        self.page.wait_for_function("() => !document.getElementById('time-period-modal').classList.contains('active')", timeout=30000)
+        mine = [p for p in self.config()["time_periods"] if p["name"] == "zz e2e period"]
+        self.assertEqual(len(mine), 1)
+        self.assertEqual((mine[0]["tz"], mine[0]["weekly"]), ("Europe/Berlin", {"0": [[540, 1020]]}))
+        self.page.wait_for_function("() => [...document.querySelectorAll('#qh-period option')].some(o => o.textContent.trim() === 'zz e2e period')", timeout=30000)
+        self.page.select_option("#qh-period", label="zz e2e period")
+        self.page.click('[data-action="saveQuietHours"]')
+        self.page.wait_for_timeout(1500)
+        self.assertEqual(self.config()["quiet_hours"]["period"], mine[0]["id"])
+
+    def test_a_read_that_was_asked_for_earlier_and_answers_late_does_not_put_the_old_list_back(self):
+        """The settings page, the ticket hours and the editor after a save each read the settings with a request of their own and fill
+        the period lists from the answer. The answer to the earlier request can arrive after the later one's, and used to replace the
+        list with the old one, which took the period that had just been saved out of every form."""
+        self.open_settings()
+        self.addCleanup(lambda: self.page.evaluate("() => _tpReload()"))
+        names = self.page.evaluate("""async () => {
+            const was = (await api('GET', '/config')).time_periods;
+            const added = {id: 'tp-e2e00001', name: 'zz late answer', tz: 'UTC', tz_offset_min: null, weekly: {'0': [[540, 1020]]}, holidays: []};
+            const early = _tpTicket();                 // a read is asked for ...
+            const later = _tpTicket();                 // ... and then another one, which sees the period saved in between
+            await _tpApply({time_periods: [...was, added]}, null, later);
+            await _tpApply({time_periods: was}, null, early);          // the earlier one answers last
+            return {
+              select: [...document.querySelectorAll('#qh-period option')].map(o => o.textContent.trim()),
+              table: [...document.querySelectorAll('#tp-tbody tr td:first-child')].map(c => c.textContent.trim()),
+              forms: _tpListForForms.map(p => p.name),
+            };
+        }""")
+        self.assertIn("zz late answer", names["select"])
+        self.assertIn("zz late answer", names["table"])
+        self.assertIn("zz late answer", names["forms"])
+
+    def test_a_period_in_use_can_not_be_deleted_and_the_page_says_by_what(self):
+        self.open_settings()
+        r = self.page.evaluate("""async () => {
+            const c = await api('GET', '/config');
+            return await api('POST', '/config', {time_periods: (c.time_periods || []).filter(p => p.name !== 'Sunday change window')});
+        }""")
+        self.assertIn("maintenance window", r.get("error", ""))
+        self.assertEqual(len([p for p in self.config()["time_periods"] if p["name"] == "Sunday change window"]), 1)
+
+    def test_the_maintenance_form_can_follow_a_period(self):
+        self.page.evaluate("() => showPage('maintenance')")
+        self.page.evaluate("() => openNewMaintModal()")
+        self.page.wait_for_selector("#maint-type", state="visible", timeout=30000)
+        self.page.select_option("#maint-type", "period")
+        self.assertTrue(self.page.is_visible("#maint-period-row"))
+        self.assertFalse(self.page.is_visible("#maint-oneshot-row"))
+        self.page.wait_for_function("() => document.querySelectorAll('#maint-period option').length > 2", timeout=30000)
+        self.page.evaluate("closeModal('new-maint-modal')")
+
+    def test_the_list_of_windows_names_the_period(self):
+        self.page.evaluate("() => showPage('maintenance')")
+        self.page.wait_for_function("() => document.body.innerText.includes('follows the Sunday change window')", timeout=60000)
+        row = self.page.locator("tr", has_text="follows the Sunday change window").first.inner_text()
+        self.assertIn("Sunday change window", row)
 
 
 if __name__ == "__main__":

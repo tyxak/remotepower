@@ -83,7 +83,7 @@ CHECK_FAMILY = {
 
 # Kinds Needs attention builds from a metric alert's own state (cpu:, memory:, swap:, disk:), which have no row in
 # the map of mutes because nothing else needed one.
-METRIC_KINDS = frozenset(('cpu', 'memory', 'swap', 'disk'))
+METRIC_KINDS = frozenset(('cpu', 'memory', 'swap', 'disk', 'iowait', 'steal'))
 
 DEFAULT_WINDOW_DAYS = 7
 

@@ -942,7 +942,11 @@ async function loadBusinessHours() {
   const box = document.getElementById('bh-days');
   if (!box) return;
   let bh = {};
-  try { const c = await api('GET', '/config'); bh = (c && c.ticket_business_hours) || {}; } catch (e) { bh = {}; }
+  try {
+    const tpTicket = _tpTicket();                      // 7.4.9: taken before the request goes out, see _tpApply
+    const c = await api('GET', '/config'); bh = (c && c.ticket_business_hours) || {};
+    _tpApply(c, { 'bh-period': bh.period }, tpTicket); // a named time period can replace the hours below
+  } catch (e) { bh = {}; }
   const en = document.getElementById('bh-enabled'); if (en) en.checked = !!bh.enabled;
   const tz = document.getElementById('bh-tz'); if (tz) tz.value = bh.tz_offset_min || 0;
   const ho = document.getElementById('bh-holidays'); if (ho) ho.value = (bh.holidays || []).join('\n');
@@ -968,6 +972,7 @@ async function saveBusinessHours() {
       enabled: !!document.getElementById('bh-enabled')?.checked,
       tz_offset_min: parseInt(document.getElementById('bh-tz')?.value || '0', 10) || 0,
       weekly, holidays,
+      period: document.getElementById('bh-period')?.value || '',
     },
   };
   const r = await api('POST', '/config', body);

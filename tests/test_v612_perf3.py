@@ -258,7 +258,13 @@ class TestEagerJsPayload(unittest.TestCase):
         # format list, and the custom script's mode select with its four-state badge add about 2.9 KB to app.js and
         # app-hostconfig.js. The page itself is app-business-services.js, which is lazy, and the translations are in
         # i18n.js, which is not eager.
-        self.assertLess(total, 2_650_000,
+        # 7.4.9 open-list batch: 2_660_000. The form for the S3 bucket, the CPU time line of the host drawer and the
+        # threshold editor, and the time period selects with the ticket number that keeps an old answer from replacing a
+        # newer one add about 8.4 KB to app.js, app-self.js and app-tickets.js (a diff of the three, added minus removed).
+        # The forms are drawn from Settings, the maintenance window dialog and the host drawer, which the eager core draws.
+        # The editor and the list of time periods are in app-timeperiods.js, which is lazy, and the translations are in
+        # i18n.js, which is not eager.
+        self.assertLess(total, 2_660_000,
                         'the eager JS payload regressed past its budget')
 
 

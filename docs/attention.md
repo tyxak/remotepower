@@ -128,6 +128,7 @@ active. Anything else in `fleet_events` is past-tense only.
 | `snapshot` | snapshot age > threshold | warning |
 | `backup` | backup state stale | critical |
 | `disk` | metric overrides per mount | warning / critical |
+| `cpu` | the share of the CPU time spent waiting for storage (I/O wait) or taken by the hypervisor (steal) is over its line | warning / critical |
 | `tls` | TLS expiry watchlist | warning / critical |
 | `reboot` | `/run/reboot-required` exists in sysinfo | warning |
 | `agent_version` | agent version ≠ server version | info |

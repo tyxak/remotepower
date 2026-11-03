@@ -74,6 +74,9 @@ escalation tiers**, **backup file monitoring**, **process thresholds**, **log ig
 patterns** and the **channel routing** matrix that sets, for every alert kind,
 whether it shows on Needs Attention, Recent Activity, the Alerts inbox or goes out
 by webhook. See [alerts.md](alerts.md) and [oncall.md](oncall.md).
+The same page holds **time periods**: named sets of hours that quiet hours, after-hours
+detection, the ticket SLA clock and maintenance windows can share. See
+[time-periods.md](time-periods.md).
 
 ### Alert parameters
 The one filterable home for the numeric alert thresholds, the health-grade, risk

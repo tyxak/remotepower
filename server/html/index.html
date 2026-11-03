@@ -3103,6 +3103,7 @@
             <div class="section-title">Business hours (SLA calendar)</div>
             <div class="meta-sm-nm mt-4">Count ticket SLA targets in <strong>business hours only</strong> — the SLA clock pauses overnight, on weekends, and on holidays. Off = 24/7 wall-clock (unchanged). One open window per weekday; blank = closed. <a href="docs/sla.md" class="c-accent">Documentation</a></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="bh-enabled"> Enable business-hours SLA</label></div>
+            <div class="settings-row"><label class="form-label" for="bh-period">Time period</label><select id="bh-period" class="form-input" data-tp-select data-tp-none="Use the hours below"><option value="">Use the hours below</option></select></div>
             <div class="settings-row"><label class="form-label" for="bh-tz">UTC offset (minutes, e.g. 60 = UTC+1, -300 = UTC-5)</label><input type="number" id="bh-tz" class="form-input" min="-720" max="840" value="0"></div>
             <div id="bh-days" class="mt-8"></div>
             <div class="settings-row"><label class="form-label" for="bh-holidays">Holidays (YYYY-MM-DD, one per line)</label><textarea id="bh-holidays" class="form-input ff-mono" rows="3" placeholder="2026-12-25"></textarea></div>
@@ -3180,6 +3181,39 @@
               <label class="form-label" for="backup-offsite-dir">Off-host copy (absolute path — typically an NFS/SMB/sshfs mount to off-host storage)</label>
               <input type="text" id="backup-offsite-dir" class="form-input mw-380" placeholder="/mnt/offsite/remotepower (leave blank for local-host only)">
             </div>
+            <div class="settings-row">
+              <label class="click-row"><input type="checkbox" id="backup-s3-enabled"> <span class="form-label">Also copy each backup to an S3-compatible bucket</span></label>
+              <div class="hint">AWS S3, MinIO, Backblaze B2, Wasabi, Cloudflare R2 or any store that speaks S3. The archive has to be encrypted (set RP_BACKUP_PASSPHRASE). The secret access key is read from the server's environment as RP_BACKUP_S3_SECRET_KEY, or from the command in RP_BACKUP_S3_SECRET_KEY_CMD, so it is never stored in the data directory or in an archive.</div>
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="backup-s3-endpoint">S3 endpoint</label>
+              <input type="text" id="backup-s3-endpoint" class="form-input mw-380" placeholder="https://s3.eu-central-1.amazonaws.com" maxlength="300" autocomplete="off">
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="backup-s3-bucket">Bucket</label>
+              <input type="text" id="backup-s3-bucket" class="form-input mw-380" placeholder="my-remotepower-backups" maxlength="63" autocomplete="off">
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="backup-s3-region">Region</label>
+              <input type="text" id="backup-s3-region" class="form-input mw-160" placeholder="us-east-1" maxlength="32" autocomplete="off">
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="backup-s3-prefix">Folder in the bucket (optional)</label>
+              <input type="text" id="backup-s3-prefix" class="form-input mw-380" placeholder="remotepower/" maxlength="200" autocomplete="off">
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="backup-s3-key">Access key id</label>
+              <input type="text" id="backup-s3-key" class="form-input mw-380" placeholder="AKIA…" maxlength="128" autocomplete="off">
+              <div class="hint" id="backup-s3-secret-state"></div>
+            </div>
+            <div class="settings-row">
+              <label class="click-row"><input type="checkbox" id="backup-s3-path-style" checked> <span class="form-label">Path-style addressing (leave on for MinIO and most S3-compatible stores)</span></label>
+            </div>
+            <div class="settings-row">
+              <label class="click-row"><input type="checkbox" id="backup-s3-verify-tls" checked> <span class="form-label">Verify the TLS certificate (untick for a self-signed one)</span></label>
+            </div>
+            <div class="row-6 mt-8"><button class="btn-secondary" data-action="testS3Backup">Test S3 connection</button></div>
+            <div id="backup-s3-result" class="hint mt-6" role="status" aria-live="polite"></div>
             <div class="settings-row">
               <label class="form-label" for="backup-rpo-hours">RPO target in hours (0 = off — max acceptable time between successful backups; graded on the Server Status page)</label>
               <input type="number" id="backup-rpo-hours" class="form-input mw-160" min="0" max="8760" placeholder="0">
@@ -3598,12 +3632,26 @@
              Settings → Alert parameters (Server health). -->
 
         <div class="settings-section">
+          <div class="section-title">Time periods</div>
+          <p class="hint">A named set of hours, such as office hours or a change window, that quiet hours, after-hours detection, the ticket SLA clock and maintenance windows can use. A period has a time zone, hours for each day of the week and a list of holidays. Leave the time zone empty to use the clock of the server. <a href="docs/time-periods.md" class="c-accent">Documentation</a></p>
+          <div class="table-card scrollable-table-wrap audit-scroll"><table>
+            <thead><tr><th scope="col">Name</th><th scope="col">Time zone</th><th scope="col">Hours</th><th scope="col"></th></tr></thead>
+            <tbody id="tp-tbody"><tr><td colspan="4" class="empty-state">No time periods yet.</td></tr></tbody>
+          </table></div>
+          <div class="row-6 mt-8"><button class="btn-secondary" data-action="openTimePeriodEdit">Add a time period</button></div>
+        </div>
+
+        <div class="settings-section">
           <div class="section-title">Quiet hours</div>
           <p class="hint">Hold non-critical webhook/email notifications during a daily window — events still land in the Alerts inbox and Recent Activity, they just don't page you overnight. Anything at or above the chosen severity always goes through. The window may cross midnight (e.g. 22:00–07:00). <a href="docs/oncall.md" class="c-accent">Documentation</a></p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label for="qh-enabled" class="form-label">Enabled</label>
               <select id="qh-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select>
+            </div>
+            <div class="form-group">
+              <label for="qh-period" class="form-label">Time period</label>
+              <select id="qh-period" class="form-input isl-79" data-tp-select data-tp-none="Use the times below"><option value="">Use the times below</option></select>
             </div>
             <div class="form-group">
               <label for="qh-start" class="form-label">Start (HH:MM)</label>
@@ -3632,6 +3680,10 @@
             <div class="form-group">
               <label for="ah-enabled" class="form-label">Enabled</label>
               <select id="ah-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select>
+            </div>
+            <div class="form-group">
+              <label for="ah-period" class="form-label">Time period</label>
+              <select id="ah-period" class="form-input isl-79" data-tp-select data-tp-none="Use the times below"><option value="">Use the times below</option></select>
             </div>
             <div class="form-group"><label class="form-label">Business start</label><input type="time" id="ah-start" class="form-input isl-80" value="08:00" aria-label="Business start"></div>
             <div class="form-group"><label class="form-label">Business end</label><input type="time" id="ah-end" class="form-input isl-80" value="18:00" aria-label="Business end"></div>
@@ -4044,6 +4096,34 @@
             <div class="form-group">
               <label for="ap-diskio-sustain" class="form-label">Reports in a row</label>
               <input type="number" id="ap-diskio-sustain" class="form-input isl-80" min="1" max="60" placeholder="5">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">CPU time</div>
+          <p class="hint">Where the CPUs spend their time. I/O wait is time spent waiting for storage, and steal is time the hypervisor took for other guests; the load average cannot tell either from work. Both are shares of the time between two system reports. The lines are off at 0, and a host has to stay over a line for several reports in a row. A line set for one host under Metric thresholds replaces the fleet's. <a href="docs/alert-parameters.md#cpu-time" class="c-accent">Documentation</a></p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-iowait-warn" class="form-label">I/O wait warn %</label>
+              <input type="number" id="ap-iowait-warn" class="form-input isl-80" min="0" max="100" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-iowait-crit" class="form-label">I/O wait crit %</label>
+              <input type="number" id="ap-iowait-crit" class="form-input isl-80" min="0" max="100" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-steal-warn" class="form-label">Steal warn %</label>
+              <input type="number" id="ap-steal-warn" class="form-input isl-80" min="0" max="100" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-steal-crit" class="form-label">Steal crit %</label>
+              <input type="number" id="ap-steal-crit" class="form-input isl-80" min="0" max="100" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="ap-cputime-sustain" class="form-label">Reports in a row</label>
+              <input type="number" id="ap-cputime-sustain" class="form-input isl-80" min="1" max="60" placeholder="3">
             </div>
           </div>
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
@@ -10357,6 +10437,22 @@ nextcloud mem=95 sustain=6</pre>
       <input type="number" class="form-input" id="thr-diskio-crit" min="1" max="99" aria-label="Disk busy critical">
     </div>
 
+    <!-- 7.4.9: where the CPUs may spend their time on this host -->
+    <div class="isl-198">
+      <div class="isl-199">CPU time</div>
+      <div class="isl-200">How much of the CPU time may go to waiting for storage (I/O wait) or to the hypervisor (steal) before an alert, as a percentage. The first box is the warning, the second the critical line. Leave a box blank to follow the fleet setting under Settings, Alert parameters, shown in grey. A fleet line of 0 means nothing alerts.</div>
+    </div>
+    <div class="isl-196">
+      <label class="fs-13">I/O wait % (warning, critical)</label>
+      <input type="number" class="form-input" id="thr-iowait-warn" min="1" max="99" aria-label="I/O wait warning">
+      <input type="number" class="form-input" id="thr-iowait-crit" min="1" max="99" aria-label="I/O wait critical">
+    </div>
+    <div class="isl-196">
+      <label class="fs-13">Steal % (warning, critical)</label>
+      <input type="number" class="form-input" id="thr-steal-warn" min="1" max="99" aria-label="Steal warning">
+      <input type="number" class="form-input" id="thr-steal-crit" min="1" max="99" aria-label="Steal critical">
+    </div>
+
     <!-- v7.4.4 (#54): how warm a drive on this host may get -->
     <div class="isl-198">
       <div class="isl-199">Drive temperature</div>
@@ -11113,6 +11209,22 @@ nextcloud mem=95 sustain=6</pre>
      so clicking Detail on the Patches page threw "can't access property
      textContent, document.getElementById(...) is null". Restored here. -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-patch-title" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" class="isl-192 scroll-cap"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-patch-modal" >Close</button></div></div></div>
+<!-- 7.4.9: the time period editor. Filled by app-timeperiods.js (lazy). -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="time-period-modal-title" id="time-period-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="time-period-modal-title">Add a time period</div>
+  <div class="form-group"><label class="form-label" for="tp-name">Name</label><input type="text" id="tp-name" class="form-input" maxlength="64" placeholder="Office hours" aria-label="Name"></div>
+  <div class="form-group"><label class="form-label" for="tp-tz">Time zone</label>
+    <input type="text" id="tp-tz" class="form-input" list="tp-zone-list" maxlength="64" placeholder="Europe/Copenhagen" aria-label="Time zone" autocomplete="off">
+    <datalist id="tp-zone-list"></datalist>
+    <span class="hint">A name from the time zone database follows summer time. Leave it empty for the clock of the server, or give a fixed offset below.</span></div>
+  <div class="form-group"><label class="form-label" for="tp-offset">Offset from UTC in minutes (only used without a time zone)</label><input type="number" id="tp-offset" class="form-input" min="-720" max="840" placeholder="60" aria-label="Offset from UTC in minutes"></div>
+  <div class="form-group"><label class="form-label">Hours</label><div id="tp-days"></div>
+    <span class="hint">A range that ends before it starts crosses midnight. A day with no hours is closed.</span></div>
+  <div class="form-group"><label class="form-label" for="tp-holidays">Holidays (YYYY-MM-DD, one per line)</label><textarea id="tp-holidays" class="form-input ff-mono" rows="3" placeholder="2026-12-25" aria-label="Holidays"></textarea></div>
+  <div id="tp-error" class="hint c-red" role="alert"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="time-period-modal">Cancel</button><button class="btn-primary" data-action="saveTimePeriod">Save</button></div>
+</div></div>
+
 <!-- 7.4.9: the patch preview. Filled by app-patchplan.js (lazy). -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="patch-plan-title" id="patch-plan-modal"><div class="modal modal-wide"><div class="modal-title" id="patch-plan-title">Patch preview</div><div class="hint mb-16" id="patch-plan-host"></div><div id="patch-plan-body" class="scroll-cap-lg"><div class="empty-state">Loading…</div></div><div class="modal-actions"><span id="patch-plan-actions"><button class="btn-secondary" data-action="patchPlanAsk">Ask the host again</button></span><button class="btn-secondary" data-action="patchPlanClose">Close</button></div></div></div>
 
@@ -12161,7 +12273,13 @@ nextcloud mem=95 sustain=6</pre>
     <select id="maint-type" data-change="onMaintTypeChange" aria-label="Window type">
       <option value="oneshot">One-shot (specific time)</option>
       <option value="cron">Recurring (cron)</option>
+      <option value="period">Follow a time period</option>
     </select>
+  </div>
+  <div id="maint-period-row" class="d-none">
+    <div class="form-group"><label for="maint-period">Time period</label>
+      <select id="maint-period" data-tp-select data-tp-none="Choose a time period" aria-label="Time period"><option value="">Choose a time period</option></select>
+      <span class="hint">The window is open whenever the period is. Define periods under Settings, Time periods.</span></div>
   </div>
   <div id="maint-oneshot-row">
     <div class="form-group"><label>Start (local time)</label><input type="datetime-local" id="maint-start" aria-label="Start (local time)"></div>

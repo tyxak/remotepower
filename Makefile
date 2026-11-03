@@ -48,6 +48,8 @@ LINT_SRC := server/cgi-bin/safe_opener.py \
             server/cgi-bin/zfs_stats.py \
             server/cgi-bin/container_audit.py \
             server/cgi-bin/repo_inventory.py \
+            server/cgi-bin/s3_client.py \
+            server/cgi-bin/time_periods.py \
             tests/test_v190.py \
             tests/test_v1100.py \
             tests/test_wsgi_entrypoint.py \
@@ -89,6 +91,8 @@ TYPECHECK_SRC := server/cgi-bin/safe_opener.py \
                  server/cgi-bin/zfs_stats.py \
                  server/cgi-bin/container_audit.py \
                  server/cgi-bin/repo_inventory.py \
+                 server/cgi-bin/s3_client.py \
+                 server/cgi-bin/time_periods.py \
                  server/cgi-bin/importers.py
 PIP_FLAGS ?= --break-system-packages
 

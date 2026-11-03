@@ -224,6 +224,7 @@ in `config.json`:
 
 - `RP_PROXMOX_TOKEN_SECRET` supplies the Proxmox API token secret.
 - `RP_BACKUP_PASSPHRASE` turns on encrypted backups (see section 6).
+- `RP_BACKUP_S3_SECRET_KEY` is the secret access key for copying backups to an S3-compatible bucket (`RP_BACKUP_S3_SECRET_KEY_CMD` prints it from a command). The rest of that setting is under **Settings → Backups**.
 - `RP_CONFIG_KEY` encrypts secret fields in the stored configuration.
 
 Put them in `/etc/remotepower/api.env`, which the `remotepower-wsgi` service loads with

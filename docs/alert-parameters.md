@@ -153,6 +153,20 @@ host's own line under Metric thresholds wins. See [disk-health.md](disk-health.m
 
 Fields: Disk busy warn % [0], Disk busy crit % [0], Reports in a row [5].
 
+### CPU time
+
+How much of the CPU time may go to waiting for storage (**I/O wait**) or to the hypervisor
+(**steal**), and how many reports in a row a host has to stay over a line before an alert.
+The load average cannot tell either from real work, so a host that looks busy because its
+disk is slow, or because other guests on the same hypervisor take its CPU, is not told
+apart from one that is computing. All four lines are off at 0. A host's own lines under
+Metric thresholds win. The alert is a metric warning or critical with the kind **I/O wait**
+or **Steal**, and it closes when the share falls below the line. The host's menu shows the
+shares in **System info → CPU time**.
+
+Fields: I/O wait warn % [0], I/O wait crit % [0], Steal warn % [0], Steal crit % [0],
+Reports in a row [3].
+
 ### Drive temperature
 
 How warm a drive may get, in °C, before an alert. Hard disks, SATA SSDs and NVMe drives
