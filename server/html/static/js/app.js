@@ -2712,6 +2712,7 @@ const _LAZY_PAGE_MODULES = {
   alerts: ['app-alerts.js'],
   checks: ['app-checks.js'],
   problems: ['app-problems.js'],   // #56 one list of problems (lazy)
+  patches: ['app-repos.js'],   // 7.4.9 the repository inventory card (the page itself is eager)
   containers: ['app-containeraudit.js'],   // 7.4.9 the hardening audit section (the page itself is eager)
   'business-services': ['app-business-services.js'],   // 7.4.9 services made of hosts, monitors, units, containers and scripts (lazy)
   protect: ['app-checks.js'],   // Integrity Guard vault renderer
@@ -2967,7 +2968,7 @@ function showPage(name, btn, opts) {
   if (name === 'patchsnapshots') loadPatchSnapshotsPage();
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'scripts')  loadScripts();
-  if (name === 'patches')        loadPatchReport();
+  if (name === 'patches')        { loadPatchReport(); loadRepositories(); }
   if (name === 'cve')            loadCVEReport();
   if (name === 'scans')          loadScans();
   if (name === 'services') loadServicesReport();

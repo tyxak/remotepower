@@ -66,6 +66,7 @@ CMD_OUTPUT_FILE  = DATA_DIR / 'cmd_output.json'
 UPDATE_LOGS_FILE = DATA_DIR / 'update_logs.json'
 PATCH_PREVIEWS_FILE = DATA_DIR / 'patch_previews.json'   # 7.4.9: per host, the last upgrade plan and the request waiting for one
 CONTAINER_AUDIT_ACCEPTS_FILE = DATA_DIR / 'container_audit_accepts.json'   # 7.4.9: per host, the audit findings an administrator accepted
+REPO_INVENTORY_FILE = DATA_DIR / 'repo_inventory.json'   # 7.4.9: per host, the package repository definitions it reported
 IGNORED_ITEMS_FILE = DATA_DIR / 'ignored_items.json'  # v3.0.1: per-item ignores
 NA_SUPPRESS_FILE = DATA_DIR / 'na_suppress_rules.json'  # v6.4.0: class-level NA suppression rules
 ACME_STATE_FILE    = DATA_DIR / 'acme_state.json'    # v3.0.1: acme.sh per-device state
@@ -1869,6 +1870,16 @@ container_audit_handlers_mod.bind(globals())
 for _ca_name in ('handle_container_audit', 'handle_device_container_audit'):
     globals()[_ca_name] = getattr(container_audit_handlers_mod, _ca_name)
 del _ca_name
+
+# 7.4.9: the package repository inventory: what each Linux host fetches its updates from.
+_ri_spec = _tk_ilu.spec_from_file_location(
+    'repo_inventory_handlers', Path(__file__).parent / 'repo_inventory_handlers.py')
+repo_inventory_handlers_mod = _tk_ilu.module_from_spec(_ri_spec)
+_ri_spec.loader.exec_module(repo_inventory_handlers_mod)
+repo_inventory_handlers_mod.bind(globals())
+for _ri_name in ('handle_repositories', 'repo_inventory_ingest'):
+    globals()[_ri_name] = getattr(repo_inventory_handlers_mod, _ri_name)
+del _ri_name
 from checks import (  # noqa: F401  (test_checks_module pins api._custom_checks_for)
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -15844,6 +15855,7 @@ def _purge_device(dev_id):
         DISKIO_HIST_FILE,            # v7.4.3 (#49): and its disk I/O samples
         PATCH_PREVIEWS_FILE,         # 7.4.9: and its upgrade plan
         CONTAINER_AUDIT_ACCEPTS_FILE,   # 7.4.9: and the audit findings accepted for its containers
+        REPO_INVENTORY_FILE,            # 7.4.9: and the repository files it reported
     ]
     try:
         for store_path in _SIMPLE_STORES:
@@ -23546,6 +23558,14 @@ def handle_heartbeat():
             process_service_report(dev_id, body['services'])
         except Exception:
             pass  # never let service processing break heartbeat
+
+    # 7.4.9: the package repository definitions a Linux agent reports with its system information, for the repository
+    # inventory. Validated and capped by repo_inventory, written only when they changed. Post-lock, like the services above.
+    if isinstance(body.get('sysinfo'), dict) and body['sysinfo'].get('repo_files') is not None:
+        try:
+            repo_inventory_ingest(dev_id, body['sysinfo']['repo_files'], int(time.time()))
+        except Exception as _rie:
+            sys.stderr.write(f"[remotepower] repository inventory ingest failed dev={dev_id}: {type(_rie).__name__}: {_rie}\n")
 
     # executed_command webhook — validate it's one of our known command types
     if 'executed_command' in body:
@@ -74715,6 +74735,7 @@ def _build_exact_routes():
         ('GET', '/api/confirmations'): handle_confirmations_list,
         ('GET', '/api/containers'): handle_containers_overview,
         ('GET', '/api/containers/audit'): handle_container_audit,   # 7.4.9
+        ('GET', '/api/repositories'): handle_repositories,   # 7.4.9
         ('POST', '/api/csp-report'): handle_csp_report,
         ('POST', '/api/client-error'): handle_client_error,   # v5.4.1 (F4)
         ('GET', '/api/client-error'): handle_client_error,    # v5.4.1 (F4): admin list

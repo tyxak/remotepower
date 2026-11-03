@@ -7,6 +7,7 @@
 // counting. Nothing here decides a severity, and every name and path in it is text from a host, so it goes through escHtml.
 
 let _caData = null;                 // the last answer of GET /api/containers/audit
+let _caSeq = 0;                    // bumped by every load, so a slow answer to an earlier one cannot replace a later one
 const _caOpen = new Set();          // rows that are expanded ("<device_id>|<container>")
 
 const _CA_PILL = { critical: 'sev-critical', high: 'sev-high', medium: 'sev-medium', low: 'sev-low' };
@@ -24,7 +25,9 @@ async function loadContainerAudit() {
   tableCtl.wireSortOnly('ca-thead', 'container_audit', renderContainerAudit);
   if (!_caData) tbody.innerHTML = _skeletonRows(4);
   const min = (document.getElementById('ca-min') || {}).value || 'medium';
+  const seq = ++_caSeq;
   const data = await api('GET', `/containers/audit?min=${encodeURIComponent(min)}`);
+  if (seq !== _caSeq) return;
   if (!data || data.error) {
     tbody.innerHTML = `<tr><td colspan="4" class="empty-state-error">${escHtml((data && data.error) || 'Could not load the audit.')}</td></tr>`;
     return;

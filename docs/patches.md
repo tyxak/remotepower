@@ -99,6 +99,33 @@ is in maintenance, for a quarantined host and for an agent in audit mode. It is 
 `POST /api/devices/{id}/patch-preview` asks for one (anyone who may patch the host), and `GET` reads the last plan and says
 whether a request is still waiting (`?raw=1` adds the start of the host's answer).
 
+## Package repositories
+
+The **Package repositories** card on the Patches page lists the repositories the fleet's Linux hosts fetch their updates from.
+An update only comes from a repository the host trusts, so the list is part of a host's attack surface. The agent sends the
+repository definition files (apt's `sources.list`, `sources.list.d/*.list` and `*.sources`; dnf and yum's `*.repo` and main
+configuration; pacman's `pacman.conf`) with the comments taken out, when they change and every six hours. RemotePower reads
+them into one row per repository: its address, suite and components, how many hosts use it and what is wrong with it.
+
+Click a repository to see the hosts that use it, the files it is defined in and its findings:
+
+| Severity | Finding |
+|---|---|
+| High | signature checking is switched off (`trusted=yes` or `allow-insecure=yes` for apt, `gpgcheck=0` for dnf, `SigLevel = Never` or `TrustAll` for pacman) |
+| High | certificate checking is switched off (`sslverify=0`) |
+| Medium | fetched over plain http while signatures are not checked either |
+| Low | fetched over plain http (the metadata is still signed, which is how most distribution mirrors work) |
+| Low | not a distribution's repository: a vendor's, a personal package archive or an internal mirror. This is a fact, not a fault: a vendor repository a host needs is on the list because it is a third party |
+| Low | the same repository defined twice on one host |
+
+A repository that is disabled is listed and has no findings. The filter sets the lowest severity to list, and the line above it
+counts the repositories by their worst finding and the hosts that report. A `deb` line and a `deb-src` line for one archive are two
+entries, not a repeat. `GET /api/repositories` lists them (`?min=critical|high|medium|low`, `?q=` to filter on address, host
+or host name, `?host=<id>` for one host); a host outside your tenant or role scope is not listed.
+
+Update the agents for this. Nothing raises an alert: most hosts have a vendor repository, so an alert would never clear. A
+Windows or macOS host reports no repositories.
+
 ## Patch SLA
 
 The **Patch SLA** card flags hosts whose pending updates have gone unpatched for

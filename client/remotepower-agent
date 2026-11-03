@@ -6551,6 +6551,58 @@ def collect_firewall_detail():
     return {'backends': backends, 'active': overall}
 
 
+# ─── 7.4.9: package repository definitions, for the repository inventory ───────
+# The agent sends the repository definition files with the comments and blank lines taken out (one blank line is kept, since
+# deb822 stanzas are separated by it) and the server reads them, so a change to a reader needs no agent update. They are sent
+# when they change and every six hours, not on every system report.
+_REPO_STATE = {'hash': '', 'sent': 0}
+REPO_RESEND_S = 6 * 3600
+_REPO_FILE_MAX = 12000
+
+
+def _compact_repo_text(text):
+    out = []
+    blank = False
+    for ln in (text or '').splitlines():
+        s = ln.rstrip()
+        if s.lstrip().startswith(('#', ';')):
+            continue
+        if not s.strip():
+            if out and not blank:
+                out.append('')
+                blank = True
+            continue
+        blank = False
+        out.append(s[:300])
+    return '\n'.join(out).strip()[:_REPO_FILE_MAX]
+
+
+def get_repo_files(force=False):
+    """{path: compacted text} of the apt, dnf, yum and pacman repository definitions, or None when nothing changed since the last
+    time they were sent (and they were sent within REPO_RESEND_S) or the host has none."""
+    paths = ['/etc/apt/sources.list', '/etc/dnf/dnf.conf', '/etc/yum.conf', '/etc/pacman.conf']
+    for d, pats in (('/etc/apt/sources.list.d', ('*.list', '*.sources')), ('/etc/yum.repos.d', ('*.repo',))):
+        base = Path(host_path(d))
+        if base.is_dir():
+            for pat in pats:
+                paths.extend(unhost_path(str(f)) for f in sorted(base.glob(pat)))
+    files = {}
+    for p in paths[:60]:
+        t = _compact_repo_text(_safe_read(p, 60000))
+        if t:
+            files[p] = t
+        if len(files) >= 40:
+            break
+    if not files:
+        return None
+    h = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+    now = int(time.time())
+    if not force and h == _REPO_STATE['hash'] and now - _REPO_STATE['sent'] < REPO_RESEND_S:
+        return None
+    _REPO_STATE['hash'], _REPO_STATE['sent'] = h, now
+    return files
+
+
 # ─── 7.4.9: ZFS adaptive replacement cache and datasets ─────────────────────
 _ZFS_ARC_KEYS = ('size', 'c_min', 'c_max', 'hits', 'misses', 'l2_size', 'l2_hits', 'l2_misses', 'mru_size', 'mfu_size')
 
@@ -14714,6 +14766,14 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     sysinfo['ssh_hostkeys'] = hk
             except Exception as e:
                 log.debug(f'ssh hostkey probe error: {e}')
+            try:
+                # 7.4.9: the package repository definitions, for the repository inventory. Inside `if send_sysinfo:` and
+                # after `sysinfo = {...}`, like the collectors around it. None when nothing changed since the last send.
+                _rf = get_repo_files()
+                if _rf:
+                    sysinfo['repo_files'] = _rf
+            except Exception as e:
+                log.debug(f'repo files probe error: {e}')
             try:
                 # v6.2.0: USB inventory → the usb_device_added tripwire. MUST be
                 # written here (inside `if send_sysinfo:`, AFTER `sysinfo = {...}`)

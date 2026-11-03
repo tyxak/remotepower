@@ -4868,6 +4868,60 @@ def build_diskio_history() -> dict:
     return out
 
 
+_DEMO_DEBIAN_LIST = """deb http://deb.debian.org/debian bookworm main non-free-firmware
+deb-src http://deb.debian.org/debian bookworm main non-free-firmware
+deb http://deb.debian.org/debian-security bookworm-security main non-free-firmware
+deb http://deb.debian.org/debian bookworm-updates main non-free-firmware"""
+_DEMO_UBUNTU_SOURCES = """Types: deb
+URIs: http://archive.ubuntu.com/ubuntu/
+Suites: noble noble-updates noble-backports
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: http://security.ubuntu.com/ubuntu/
+Suites: noble-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg"""
+_DEMO_REPO_FILES = {
+    # host id -> {path: the file with its comments taken out, as the agent sends it}
+    'pmx01': {'/etc/apt/sources.list': _DEMO_DEBIAN_LIST,
+              '/etc/apt/sources.list.d/pve-no-subscription.list':
+                  'deb [signed-by=/usr/share/keyrings/proxmox-archive-keyring.gpg] http://download.proxmox.com/debian/pve bookworm pve-no-subscription'},
+    'tnas': {'/etc/apt/sources.list': _DEMO_DEBIAN_LIST},
+    'fw01': {'/etc/apt/sources.list': _DEMO_DEBIAN_LIST},
+    'gt01': {'/etc/apt/sources.list': _DEMO_DEBIAN_LIST,
+             '/etc/apt/sources.list.d/docker.list':
+                 'deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable'},
+    'pr01': {'/etc/apt/sources.list': _DEMO_DEBIAN_LIST,
+             '/etc/apt/sources.list.d/grafana.list':
+                 'deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main'},
+    'bk01': {'/etc/apt/sources.list': _DEMO_DEBIAN_LIST},
+    'ng01': {'/etc/apt/sources.list.d/ubuntu.sources': _DEMO_UBUNTU_SOURCES,
+             '/etc/apt/sources.list.d/nginx.list':
+                 'deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/ubuntu noble nginx'},
+    'jf01': {'/etc/apt/sources.list.d/ubuntu.sources': _DEMO_UBUNTU_SOURCES,
+             '/etc/apt/sources.list.d/jellyfin.sources':
+                 'Types: deb\nURIs: https://repo.jellyfin.org/ubuntu\nSuites: noble\nComponents: main\nSigned-By: /etc/apt/keyrings/jellyfin.gpg'},
+    # one host with an internal mirror that is neither encrypted nor checked, so the demo has a high finding
+    'nc01': {'/etc/apt/sources.list.d/ubuntu.sources': _DEMO_UBUNTU_SOURCES,
+             '/etc/apt/sources.list.d/lab-mirror.list': 'deb [trusted=yes] http://mirror.lab.local/ubuntu noble main'},
+}
+
+
+def build_repo_inventory() -> dict:
+    """The repository definition files of the demo's apt hosts -> repo_inventory.json (7.4.9).
+
+    {dev_id: {ts, hash, files}}, written the way repo_inventory_handlers.repo_inventory_ingest keeps them. Most hosts use their
+    distribution's repositories and a vendor's; nc01 also has an internal mirror without signature checking."""
+    import hashlib as _h
+    out = {}
+    for dev_id, files in _DEMO_REPO_FILES.items():
+        digest = _h.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()[:24]
+        out[dev_id] = {'ts': now() - 600, 'hash': digest, 'files': files}
+    return out
+
+
 def build_patch_previews() -> dict:
     """The last upgrade plan of one Linux host -> patch_previews.json (7.4.9).
 
@@ -7756,6 +7810,7 @@ BUILDERS = {
     'smart_history.json':          build_smart_history,
     'diskio_history.json':         build_diskio_history,
     'patch_previews.json':         build_patch_previews,
+    'repo_inventory.json':         build_repo_inventory,
     'gpu_history.json':            build_gpu_history,
     'thermal_history.json':        build_thermal_history,
     'thermal_rollup.json':         build_thermal_rollup,

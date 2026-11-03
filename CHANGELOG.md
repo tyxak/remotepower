@@ -70,6 +70,20 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   read-only and the server reads its answer, so no agent update is needed. Linux hosts only: Windows and macOS hosts list
   what is pending on the Patches page, and the API says so.
 
+- **An inventory of the package repositories each host uses (gap-fill).** An update only comes from a repository the host
+  trusts, so the list of repositories is part of a host's attack surface, and nothing listed them. The Linux agent now
+  sends the repository definition files (apt `sources.list` and `sources.list.d`, deb822 `*.sources`, dnf and yum `*.repo`
+  with the main configuration, pacman `pacman.conf`) with the comments taken out, when they change and every six hours. The
+  server reads them into one row per repository, so a corrected reader needs no agent update. A **Package repositories**
+  card on the Patches page lists the fleet's repositories, worst first, with how many hosts use each one and, opened, which
+  hosts, which file and what is wrong: signature checking switched off (`trusted=yes`, `gpgcheck=0`, `SigLevel = Never`),
+  certificate checking switched off (`sslverify=0`), plain http (worse when signatures are not checked), a source that is
+  not a distribution's (a personal package archive says so) and a repository defined twice. A disabled repository is
+  listed and has no findings. `GET /api/repositories` (`?min=`, `?q=`, `?host=`), within the tenant and role scope of every
+  fleet listing. The files are validated against the few places repository files live and capped, and a host's record is
+  written only when they changed. Update the agents. No alert: this is an inventory, and most hosts have a vendor
+  repository.
+
 ### Storage
 
 - **The ZFS cache and the datasets that hold the space (gap-fill).** The agent has reported a pool's health, last scrub

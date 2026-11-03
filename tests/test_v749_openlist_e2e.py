@@ -309,6 +309,19 @@ class TestContainerAudit(_Page):
         f = self.data / "container_audit_accepts.json"
         self.assertEqual(json.loads(f.read_text()) if f.exists() else {}, {})
 
+    def test_a_slow_answer_to_an_earlier_request_does_not_replace_a_later_one(self):
+        self.open_audit("critical")
+        self.page.evaluate("() => { window.__origApi = window.api; window.api = async (m, p, ...r) => { "
+                           "if (String(p).includes('/containers/audit?min=medium')) await new Promise(x => setTimeout(x, 2000)); "
+                           "return window.__origApi(m, p, ...r); }; }")
+        try:
+            self.page.select_option("#ca-min", "medium")     # slow
+            self.page.select_option("#ca-min", "high")       # quick, and the one asked for last
+            self.page.wait_for_timeout(3500)
+            self.assertEqual(sorted(self.names()), ["gitea", "homeassistant", "node-exporter"], "what was asked for last is what is shown")
+        finally:
+            self.page.evaluate("() => { window.api = window.__origApi; }")
+
     def test_names_from_a_host_are_text(self):
         evil = "<img src=x onerror=\"window.__capwn=1\">"
 
@@ -324,6 +337,123 @@ class TestContainerAudit(_Page):
         self.assertEqual(self.page.locator("#ca-tbody img").count(), 0)
         self.assertIsNone(self.page.evaluate("() => window.__capwn"))
         self.assertIn("<img src=x", self.page.inner_text("#ca-tbody"))
+
+
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestRepositories(_Page):
+
+    def open_repos(self, floor="low"):
+        self.page.evaluate("() => showPage('patches', document.querySelector('.nav-btn[data-page=patches]'))")
+        self.page.wait_for_function("() => typeof loadRepositories === 'function'", timeout=60000)
+        self.page.evaluate("async (f) => { document.getElementById('repo-min').value = f; document.getElementById('repo-filter').value = ''; "
+                           "_repoOpen.clear(); await loadRepositories(); }", floor)
+        self.page.wait_for_selector("#repo-tbody tr [data-action-btn='_repoToggleBtn']", timeout=30000)
+
+    def labels(self):
+        return self.page.eval_on_selector_all("#repo-tbody tr[data-repo-row] a", "as => as.map(a => a.innerText.trim())")
+
+    def tearDown(self):
+        try:
+            self.page.evaluate("() => { if (typeof _repoOpen !== 'undefined') _repoOpen.clear(); }")
+        except Exception:
+            pass
+        super().tearDown()
+
+    def test_the_card_lists_the_fleets_repositories_worst_first(self):
+        self.open_repos()
+        labels = self.labels()
+        joined = "\n".join(labels)
+        for want in ("download.docker.com", "apt.grafana.com", "repo.jellyfin.org", "nginx.org", "download.proxmox.com", "mirror.lab.local"):
+            self.assertIn(want, joined)
+        self.assertIn("mirror.lab.local", labels[0], "the unsigned internal mirror leads")
+        summary = self.page.inner_text("#repo-summary").lower()
+        self.assertIn("high", summary)
+        self.assertIn("third party", summary)
+        self.assertIn("9 hosts reporting", summary)
+
+    def test_a_shared_repository_says_how_many_hosts_use_it(self):
+        self.open_repos()
+        rows = self.page.eval_on_selector_all("#repo-tbody tr[data-repo-row]", "rs => rs.map(r => [r.querySelector('a').innerText.trim(), r.children[2].innerText.trim()])")
+        by = {l: n for l, n in rows}
+        debian = [n for l, n in by.items() if "deb.debian.org/debian bookworm" in l and "security" not in l and "updates" not in l]
+        self.assertTrue(debian and all(int(n) >= 5 for n in debian), by)
+
+    def test_a_row_opens_to_its_hosts_and_findings(self):
+        self.open_repos()
+        self.page.click("#repo-tbody a:has-text('mirror.lab.local')")
+        self.page.wait_for_selector("#repo-tbody .ca-findings", timeout=10000)
+        text = self.page.inner_text("#repo-tbody .ca-detail")
+        self.assertIn("nextcloud.lab", text)
+        self.assertIn("Signature checking is switched off", text)
+        self.assertIn("Fetched over plain http", text)
+        self.assertIn("/etc/apt/sources.list.d/lab-mirror.list", text)
+        self.assertEqual(self.page.get_attribute("#repo-tbody a:has-text('mirror.lab.local')", "aria-expanded"), "true")
+
+    def test_the_severity_filter_and_the_text_filter(self):
+        self.open_repos("high")
+        labels = self.labels()
+        self.assertEqual(len(labels), 1, labels)
+        self.assertIn("mirror.lab.local", labels[0])
+        self.page.select_option("#repo-min", "low")
+        self.page.wait_for_function("() => document.querySelectorAll('#repo-tbody tr[data-repo-row]').length > 3", timeout=15000)
+        self.page.fill("#repo-filter", "grafana")
+        self.page.wait_for_timeout(500)
+        self.assertEqual([l for l in self.labels() if "grafana" in l], self.labels())
+        self.assertEqual(len(self.labels()), 1)
+        self.page.fill("#repo-filter", "no-such-repository-anywhere")
+        self.page.wait_for_timeout(500)
+        self.assertIn("No repository matches the filter.", self.page.inner_text("#repo-tbody"))
+        self.page.fill("#repo-filter", "")
+
+    def test_the_table_sorts(self):
+        self.open_repos()
+        self.page.click("#repo-thead th[data-col='hosts']")
+        self.page.wait_for_timeout(300)
+        first = self.page.eval_on_selector_all("#repo-tbody tr[data-repo-row]", "rs => rs.map(r => Number(r.children[2].innerText))")
+        self.page.click("#repo-thead th[data-col='hosts']")
+        self.page.wait_for_timeout(300)
+        second = self.page.eval_on_selector_all("#repo-tbody tr[data-repo-row]", "rs => rs.map(r => Number(r.children[2].innerText))")
+        self.assertEqual(first, sorted(first))
+        self.assertEqual(second, sorted(second, reverse=True))
+
+    def test_a_slow_answer_to_an_earlier_request_does_not_replace_a_later_one(self):
+        self.open_repos("high")
+        self.page.evaluate("() => { window.__origApi = window.api; window.api = async (m, p, ...r) => { "
+                           "if (String(p).includes('/repositories?min=low')) await new Promise(x => setTimeout(x, 2000)); "
+                           "return window.__origApi(m, p, ...r); }; }")
+        try:
+            self.page.select_option("#repo-min", "low")      # slow
+            self.page.select_option("#repo-min", "high")     # quick, and the one asked for last
+            self.page.wait_for_timeout(3500)                 # the slow one has answered by now
+            self.assertEqual(len(self.labels()), 1, "the answer to the request made last is what is shown")
+            self.assertEqual(self.page.eval_on_selector("#repo-min", "e => e.value"), "high")
+        finally:
+            self.page.evaluate("() => { window.api = window.__origApi; }")
+
+    def test_a_host_name_is_text(self):
+        evil = "<img src=x onerror=\"window.__repwn2=1\">"
+
+        def patch(devs):
+            devs["nc01"]["name"] = evil
+        self.edit_store("devices.json", patch)
+        self.open_repos("high")
+        self.page.click("#repo-tbody a:has-text('mirror.lab.local')")
+        self.page.wait_for_selector("#repo-tbody .ca-detail", timeout=10000)
+        self.assertEqual(self.page.locator("#repo-tbody img").count(), 0)
+        self.assertIsNone(self.page.evaluate("() => window.__repwn2"))
+        self.assertIn("<img src=x", self.page.inner_text("#repo-tbody .ca-detail"))
+
+    def test_addresses_from_a_host_are_text(self):
+        evil = "<img src=x onerror=\"window.__repwn=1\">"
+
+        def patch(store):
+            files = store["gt01"]["files"]
+            files["/etc/apt/sources.list.d/evil.list"] = f"deb http://{evil}/u noble main\ndeb http://evil.example/{evil} noble main"
+        self.edit_store("repo_inventory.json", patch)
+        self.open_repos()
+        self.assertEqual(self.page.locator("#repo-tbody img").count(), 0)
+        self.assertIsNone(self.page.evaluate("() => window.__repwn"))
+        self.assertIn("<img src=x", self.page.inner_text("#repo-tbody"))
 
 
 if __name__ == "__main__":

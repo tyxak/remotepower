@@ -187,6 +187,9 @@ ENTITY_FILES = {
     # 7.4.9: container_audit_accepts.json -- per host, the container audit findings an administrator accepted
     # ({device_id: [{container, rule, by, ts, note}]}). Born an ENTITY file, so there is no cold blob to migrate.
     'container_audit_accepts.json',
+    # 7.4.9: repo_inventory.json -- per host, the package repository definition files it reported ({device_id: {ts, hash,
+    # files}}), written only when they change. Born an ENTITY file, so there is no cold blob to migrate.
+    'repo_inventory.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

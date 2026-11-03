@@ -577,6 +577,7 @@ SHAPES: dict = {
     'update_logs.json': dict_of(list_of()),
     'patch_previews.json': dict_of(fields(pending=OPT_DICT, plan=OPT_DICT)),   # 7.4.9: per host, the waiting request and the last plan
     'container_audit_accepts.json': dict_of(list_of(fields(need=('container', 'rule'), container=STR, rule=STR, ts=NUM))),   # 7.4.9
+    'repo_inventory.json': dict_of(fields(ts=NUM, files=DICT)),   # 7.4.9
     # The settings document. Only the keys that always hold a map or a list. The lists listed with `list_of()` hold maps by
     # design (their shape is documented where they are read).
     'config.json': ('fields', _config_fields(), ()),
