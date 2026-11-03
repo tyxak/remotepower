@@ -9781,25 +9781,36 @@ const _CPU_TIME_SERIES = [
   { name: 'Interrupts', color: 'var(--purple)', idx: [5] },
   { name: 'Steal',      color: 'var(--red)',    idx: [6] },
 ];
+// A sample is [ts, user, nice, system, iowait, irq, steal, idle]. User, system and idle are numbers; nice, I/O wait, interrupts and steal
+// are numbers or null, where the system does not have the state (Windows has no nice, macOS no interrupts, neither an I/O wait or a steal).
+const _CPU_TIME_NEEDED = [0, 1, 3, 7];
 function _cpuTimeRows(rows) {
-  return (Array.isArray(rows) ? rows : []).filter(r => Array.isArray(r) && r.length === 8 && r.every(v => typeof v === 'number' && isFinite(v)));
+  const num = v => typeof v === 'number' && isFinite(v);
+  return (Array.isArray(rows) ? rows : []).filter(r => Array.isArray(r) && r.length === 8
+    && _CPU_TIME_NEEDED.every(i => num(r[i])) && [2, 4, 5, 6].every(i => r[i] === null || num(r[i])));
 }
 function _cpuTimeShell(rows) {
   rows = _cpuTimeRows(rows);
   if (rows.length < 2) return '';
   const last = rows[rows.length - 1];
+  // the two states a host can lose time to; a system that has neither (Windows, macOS) is described by what it has
+  const lost = [last[4] === null ? '' : `I/O wait <b>${last[4].toFixed(1)}%</b>`, last[6] === null ? '' : `steal <b>${last[6].toFixed(1)}%</b>`].filter(Boolean);
+  const now = (lost.length ? lost : [`user <b>${last[1].toFixed(1)}%</b>`, `system <b>${last[3].toFixed(1)}%</b>`]).join(' · ');
   return `<div class="isl-355"><div class="metric-chart-head"><span class="isl-356">CPU time</span>
-      <span class="metric-stats">now I/O wait <b>${last[4].toFixed(1)}%</b> · steal <b>${last[6].toFixed(1)}%</b></span></div>
+      <span class="metric-stats">now ${now}</span></div>
     <div class="hint metric-note">Where the CPUs spent their time between two system reports. The history is kept for about two days.</div>
     <div id="mc-cputime"></div></div>`;
 }
 function _paintCpuTime(rows) {
   rows = _cpuTimeRows(rows);
   if (rows.length < 2 || !document.getElementById('mc-cputime')) return;
-  renderTimeSeries('mc-cputime', _CPU_TIME_SERIES.map(s => ({
+  // a state the system does not have has no points, and so no line: a flat zero would say it was measured
+  const series = _CPU_TIME_SERIES.map(s => ({
     name: s.name, color: s.color,
-    points: rows.map(r => ({ x: r[0], y: Math.round(s.idx.reduce((t, i) => t + r[i], 0) * 10) / 10 })),
-  })), { zoom: true, crosshair: true, yUnit: '%', yMin: 0, yMax: 100, annotations: _metricAnnotations, label: 'CPU time over time' });
+    points: rows.filter(r => s.idx.some(i => r[i] !== null))
+                .map(r => ({ x: r[0], y: Math.round(s.idx.reduce((t, i) => t + (r[i] === null ? 0 : r[i]), 0) * 10) / 10 })),
+  })).filter(s => s.points.length);
+  renderTimeSeries('mc-cputime', series, { zoom: true, crosshair: true, yUnit: '%', yMin: 0, yMax: 100, annotations: _metricAnnotations, label: 'CPU time over time' });
 }
 
 function _metricsOverlayShell(samples) {
@@ -28666,7 +28677,7 @@ async function saveTimePeriod() { await _loadJsModule('app-timeperiods.js'); awa
 // 7.4.9: where the CPUs spent their time between the last two system reports, from the shares the Linux agent sends. null when the
 // host has not sent them (a Windows or macOS host, an agent that is not updated, a first report).
 function _cpuTimeText(si) {
-  if (!si || si.cpu_iowait == null) return null;
+  if (!si || (si.cpu_user == null && si.cpu_system == null)) return null;      // every agent sends these two; only Linux sends the rest
   const part = (k, label) => (si[k] != null && isFinite(Number(si[k])) ? `${label} ${Number(si[k]).toFixed(1)}%` : null);
   return [part('cpu_user', 'user'), part('cpu_nice', 'nice'), part('cpu_system', 'system'), part('cpu_iowait', 'I/O wait'),
           part('cpu_irq', 'interrupts'), part('cpu_steal', 'steal'), part('cpu_idle', 'idle')].filter(Boolean).join(' · ');

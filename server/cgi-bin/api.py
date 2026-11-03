@@ -459,6 +459,7 @@ CPUTIME_HIST_FILE = DATA_DIR / 'cputime_history.json'   # 7.4.9: {device_id: [[t
 _CPUTIME_HIST_MIN_GAP = 60      # seconds between two samples of one host
 _CPUTIME_HIST_MAX = 288         # samples kept per host: two days at a system report every ten minutes
 _CPUTIME_KEYS = ('cpu_user', 'cpu_nice', 'cpu_system', 'cpu_iowait', 'cpu_irq', 'cpu_steal', 'cpu_idle')
+_CPUTIME_NEEDED = ('cpu_user', 'cpu_system', 'cpu_idle')     # every system has these three; Windows has no nice, macOS no irq, neither an iowait or a steal
 SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted on-disk-secret findings
 DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.2.0: du top-consumers per host
 _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned path
@@ -23595,8 +23596,9 @@ def handle_heartbeat():
         # record still holds the last full reading, which would be sampled again under a new time.
         if isinstance(_fresh_si, dict) and 'disk_io' in _fresh_si:
             _record_diskio(dev_id, _fresh_si.get('disk_io') or [], now)
-        # 7.4.9: where the CPU time went, on the same terms: only when this beat itself carried the shares.
-        if isinstance(_fresh_si, dict) and 'cpu_iowait' in _fresh_si:
+        # 7.4.9: where the CPU time went, on the same terms: only when this beat itself carried the shares. Every agent sends
+        # cpu_user with them; only the Linux agent sends cpu_iowait.
+        if isinstance(_fresh_si, dict) and 'cpu_user' in _fresh_si:
             _record_cputime(dev_id, _fresh_si, now)
 
     # W3-47: merge any store-and-forward backfill (samples the agent spooled
@@ -24943,15 +24945,17 @@ def _record_diskio(dev_id, rows, now):
 
 def _record_cputime(dev_id, si, now):
     """7.4.9: add this report's CPU time shares to the host's history: [ts, user, nice, system, iowait, irq, steal, idle] in percent, at
-    most one a minute, _CPUTIME_HIST_MAX kept. A report that does not carry every share (an agent that is not updated, a figure that
-    was not a number) adds nothing, because a line with a hole in it would be drawn as a drop to zero."""
+    most one a minute, _CPUTIME_HIST_MAX kept. User, system and idle are needed: a report without a good one adds nothing. The other
+    four are None where the system does not have the state (Windows has no nice, macOS no irq, neither an I/O wait or a steal) or the
+    figure was not a number, and the chart leaves them out, which says "not measured" where a zero would say "measured, and none"."""
     try:
         row = [now]
         for k in _CPUTIME_KEYS:
             v = si.get(k)
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or not (0 <= v <= 100):
+            good = isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 100
+            if not good and k in _CPUTIME_NEEDED:
                 return
-            row.append(round(float(v), 1))
+            row.append(round(float(v), 1) if good else None)
         hist = _entity_read_one(CPUTIME_HIST_FILE, dev_id, []) or []
         if not isinstance(hist, list):
             hist = []
@@ -24963,14 +24967,19 @@ def _record_cputime(dev_id, si, now):
 
 
 def _cputime_history(dev_id, since=0):
-    """7.4.9: the host's CPU time samples from `since` on, oldest first, as [ts, user, nice, system, iowait, irq, steal, idle]. A stored
-    sample that is not eight numbers (a row from an import or an old release) is left out, so the chart draws what is good."""
+    """7.4.9: the host's CPU time samples from `since` on, oldest first, as [ts, user, nice, system, iowait, irq, steal, idle]. Nice, I/O wait,
+    interrupts and steal may be None (the system does not have the state); the time, user, system and idle are numbers, and every share
+    is from 0 to 100. A stored sample that is not that (a row from an import or an old release) is left out, so the chart draws what is
+    good."""
     rows = _entity_read_one(CPUTIME_HIST_FILE, dev_id, []) or []
+
+    def number(v):
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) != float('inf')
     out = []
     for r in rows if isinstance(rows, list) else []:
-        if (isinstance(r, list) and len(r) == 8
-                and all(isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) != float('inf') for v in r)
-                and r[0] >= since and all(0 <= v <= 100 for v in r[1:])):
+        if (isinstance(r, list) and len(r) == 8 and number(r[0]) and r[0] >= since
+                and all(number(r[i]) and 0 <= r[i] <= 100 for i in (1, 3, 7))
+                and all(r[i] is None or (number(r[i]) and 0 <= r[i] <= 100) for i in (2, 4, 5, 6))):
             out.append(r)
     out.sort(key=lambda r: r[0])
     return out

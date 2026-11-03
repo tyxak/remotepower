@@ -1319,6 +1319,17 @@ def _demo_cpu_time(dev: dict, busy: float) -> dict:
     return {'cpu_user': user, 'cpu_nice': nice, 'cpu_system': system, 'cpu_idle': idle, 'cpu_iowait': io, 'cpu_irq': irq, 'cpu_steal': steal}
 
 
+def _demo_cpu_time_other(busy: float, windows: bool) -> dict:
+    """The CPU-time shares the Windows or macOS agent sends: psutil's, for the states the system has. Windows has user, system, idle and
+    interrupts (interrupt time and deferred procedure calls together), macOS user, nice, system and idle; neither has an I/O wait or a
+    steal state, so those keys are not there. Derived from the CPU figure alone, with no draw from the random stream."""
+    system = round(busy * 0.25, 1)
+    extra = round(min(busy * 0.05, 3.0), 1) if windows else round(min(busy * 0.03, 2.0), 1)
+    user = round(max(0.0, busy - system - extra), 1)
+    idle = round(max(0.0, 100.0 - user - system - extra), 1)
+    return {'cpu_user': user, 'cpu_system': system, 'cpu_idle': idle, ('cpu_irq' if windows else 'cpu_nice'): extra}
+
+
 def build_devices() -> dict:
     """Build devices.json with sysinfo, last_seen, and per-mount disks."""
     out = {}
@@ -1506,9 +1517,14 @@ def build_devices() -> dict:
                                  'mechanism': rng.choice(['unattended-upgrades',
                                                           'dnf-automatic', ''])},
             }
-            # 7.4.9: where this host's CPU time goes (iowait, steal, irq, nice), worked out from its CPU figure. Only a Linux agent
-            # sends it: the Windows and macOS agents do not, so a demo host of those systems has none.
-            if not any(x in (dev.get('os') or '').lower() for x in ('windows', 'macos', 'mac os', 'junos', 'unifi')):
+            # 7.4.9: where this host's CPU time goes, worked out from its CPU figure. The Linux agent sends all seven shares; the Windows
+            # and macOS agents send the states their system has (no I/O wait, no steal); an appliance sends none.
+            _os = (dev.get('os') or '').lower()
+            if 'windows' in _os:
+                rec['sysinfo'].update(_demo_cpu_time_other(rec['sysinfo']['cpu_percent'], windows=True))
+            elif 'macos' in _os or 'mac os' in _os:
+                rec['sysinfo'].update(_demo_cpu_time_other(rec['sysinfo']['cpu_percent'], windows=False))
+            elif not any(x in _os for x in ('junos', 'unifi')):
                 rec['sysinfo'].update(_demo_cpu_time(dev, rec['sysinfo']['cpu_percent']))
             # v3.11–v3.13: device-drawer cards — access watch (recent logins),
             # systemd timers, listening ports w/ scope (Exposure), per-host
@@ -4943,16 +4959,19 @@ def build_diskio_history() -> dict:
 def build_cputime_history() -> dict:
     """Where the CPU time went -> cputime_history.json (7.4.9): {dev_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]} in
     percent, a sample every ten minutes for the last eight hours (a system report comes about that often), ending on exactly the
-    shares the host's sysinfo shows. A host whose I/O wait or steal is high ramps up to it; the others wander around their own."""
+    shares the host's sysinfo shows. A share the host's system does not have (Windows: nice, I/O wait, steal; macOS: interrupts, I/O wait,
+    steal) is null in every sample. A host whose I/O wait or steal is high ramps up to it; the others wander around their own."""
     out = {}
     t_end = now()
     n = 48
+    order = ('cpu_user', 'cpu_nice', 'cpu_system', 'cpu_iowait', 'cpu_irq', 'cpu_steal', 'cpu_idle')
     for dev_id, dev in build_devices().items():
         si = dev.get('sysinfo') or {}
-        if 'cpu_iowait' not in si:
+        if 'cpu_user' not in si:
             continue
-        cur = [float(si[k]) for k in ('cpu_user', 'cpu_nice', 'cpu_system', 'cpu_iowait', 'cpu_irq', 'cpu_steal', 'cpu_idle')]
+        cur = [float(si[k]) if k in si else None for k in order]
         user, nice, system, io, irq, steal, idle = cur
+        zero = lambda v: 0.0 if v is None else v
         rng = _seeded_random('cputimehist', dev_id)
         rows = []
         for i in range(n):
@@ -4961,14 +4980,18 @@ def build_cputime_history() -> dict:
                 rows.append([t_end] + cur)
                 continue
             k = max(0.0, 1.0 - age * 0.02)
-            io_t = max(0.0, io * (k if io >= 10 else 1.0) + rng.uniform(-io * 0.4, io * 0.4))
-            st_t = max(0.0, steal * (k if steal >= 5 else 1.0) + rng.uniform(-steal * 0.4, steal * 0.4))
-            work = max(0.0, (user + nice + system + irq) * rng.uniform(0.6, 1.4))
-            work = min(work, 100.0 - io_t - st_t)
-            share = work / max(user + nice + system + irq, 0.1)
-            u, ni, sy, ir = (round(x * share, 1) for x in (user, nice, system, irq))
-            io_r, st_r = round(io_t, 1), round(st_t, 1)
-            rows.append([t_end - age * 600, u, ni, sy, io_r, ir, st_r, round(max(0.0, 100.0 - u - ni - sy - io_r - ir - st_r), 1)])
+            io_t = None if io is None else max(0.0, io * (k if io >= 10 else 1.0) + rng.uniform(-io * 0.4, io * 0.4))
+            st_t = None if steal is None else max(0.0, steal * (k if steal >= 5 else 1.0) + rng.uniform(-steal * 0.4, steal * 0.4))
+            base = zero(user) + zero(nice) + zero(system) + zero(irq)
+            work = min(max(0.0, base * rng.uniform(0.6, 1.4)), 100.0 - zero(io_t) - zero(st_t))
+            share = work / max(base, 0.1)
+            u, sy = round(user * share, 1), round(system * share, 1)
+            ni = None if nice is None else round(nice * share, 1)
+            ir = None if irq is None else round(irq * share, 1)
+            io_r = None if io_t is None else round(io_t, 1)
+            st_r = None if st_t is None else round(st_t, 1)
+            id_r = round(max(0.0, 100.0 - u - sy - zero(ni) - zero(ir) - zero(io_r) - zero(st_r)), 1)
+            rows.append([t_end - age * 600, u, ni, sy, io_r, ir, st_r, id_r])
         out[dev_id] = rows
     return out
 

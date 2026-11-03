@@ -925,14 +925,31 @@ class TestCpuTime(_Page):
         self.assertIn("cpu time", text.lower(), "the pill label is drawn in capitals")
         self.assertIn("user 18.4% · nice 0.8% · system 5.7% · I/O wait 31.0% · interrupts 1.0% · steal 0.0% · idle 43.1%", text)
 
-    def test_a_windows_host_has_no_cpu_time_row(self):
-        """Only the Linux agent sends the shares, so a Windows host shows none rather than a row of zeros."""
+    def test_a_windows_host_shows_the_states_windows_has_and_no_zeros_for_the_rest(self):
+        """psutil gives Windows user, system, idle and interrupts. It has no I/O wait or steal, so the row does not say 0.0% of them."""
         self.open_drawer_section("wks01", "design-win11", "sysinfo")
         self.page.wait_for_function("() => document.getElementById('audit-body-sysinfo').innerText.length > 40", timeout=30000)
-        text = self.page.inner_text("#audit-body-sysinfo").lower()
-        self.assertIn("disk", text, "control: the drawer for this host did load")
-        self.assertNotIn("cpu time", text)
-        self.assertNotIn("i/o wait", text)
+        text = self.page.inner_text("#audit-body-sysinfo")
+        self.assertIn("disk", text.lower(), "control: the drawer for this host did load")
+        self.assertIn("cpu time", text.lower())
+        self.assertIn("user 65.4% · system 22.8% · interrupts 3.0% · idle 8.8%", text)
+        self.assertNotIn("I/O wait", text)
+        self.assertNotIn("steal", text)
+        self.assertNotIn("nice", text)
+
+    def test_a_macos_host_shows_nice_and_no_interrupts(self):
+        self.open_drawer_section("mbp01", "mette-macbook", "sysinfo")
+        self.page.wait_for_function("() => document.getElementById('audit-body-sysinfo').innerText.length > 40", timeout=30000)
+        text = self.page.inner_text("#audit-body-sysinfo")
+        self.assertIn("user 13.6% · nice 0.6% · system 4.7% · idle 81.1%", text)
+        for absent in ("I/O wait", "steal", "interrupts"):
+            self.assertNotIn(absent, text)
+
+    def test_an_appliance_has_no_cpu_time_row(self):
+        """A switch sends no shares at all, and shows no row rather than a row of zeros."""
+        self.open_drawer_section("sw01", "switch-core", "sysinfo")
+        self.page.wait_for_function("() => document.getElementById('audit-body-sysinfo').innerText.length > 20", timeout=30000)
+        self.assertNotIn("cpu time", self.page.inner_text("#audit-body-sysinfo").lower())
 
     def open_metrics(self, dev, name):
         self.page.evaluate("([d, n]) => openMetrics(d, n)", [dev, name])
@@ -951,8 +968,16 @@ class TestCpuTime(_Page):
         self.assertIn("kept for about two days", self.page.inner_text("#metrics-body"))
         self.assertEqual(len(self.page.query_selector_all("#mc-cputime svg path")) >= 5, True, "a line for each of the five series")
 
-    def test_a_host_that_sends_no_shares_has_no_cpu_time_chart(self):
+    def test_a_windows_host_has_a_chart_with_the_lines_windows_has(self):
         self.open_metrics("wks01", "design-win11")
+        self.page.wait_for_selector("#mc-cputime svg", timeout=30000)
+        head = self.page.inner_text("#metrics-body .metric-chart-head >> nth=-1")
+        self.assertIn("user 65.4%", head, "there is no I/O wait or steal to report, so the heading says what there is")
+        self.assertIn("system 22.8%", head)
+        self.assertNotIn("I/O wait", head)
+
+    def test_a_host_that_sends_no_shares_has_no_cpu_time_chart(self):
+        self.open_metrics("sw01", "switch-core")
         self.assertIsNone(self.page.query_selector("#mc-cputime"))
         self.assertNotIn("cpu time", self.page.inner_text("#metrics-body").lower())
 
@@ -1009,6 +1034,51 @@ class TestCpuTime(_Page):
         self.assertEqual((call["opts"]["yMin"], call["opts"]["yMax"], call["opts"]["yUnit"]), (0, 100, "%"))
         self.assertTrue(call["opts"]["zoom"] and call["opts"]["crosshair"])
         self.assertEqual(len({s["color"] for s in call["series"]}), 5, "a colour each")
+
+    WINDOWS = [[1_800_000_000, 40.0, None, 10.0, None, 5.0, None, 45.0], [1_800_000_600, 50.0, None, 12.0, None, 3.0, None, 35.0]]
+    MACOS = [[1_800_000_000, 10.0, 1.0, 4.0, None, None, None, 85.0], [1_800_000_600, 14.0, 0.5, 5.0, None, None, None, 80.5]]
+
+    def test_a_system_without_a_state_has_no_line_for_it_and_no_zero(self):
+        win = {s["name"]: [p["y"] for p in s["points"]] for s in self.draw_cpu_time(self.WINDOWS)["seen"][0]["series"]}
+        self.assertEqual(list(win), ["User", "System", "Interrupts"], "no I/O wait or steal line on Windows")
+        self.assertEqual(win["User"], [40.0, 50.0], "no nice: user alone")
+        self.assertEqual(win["Interrupts"], [5.0, 3.0])
+        mac = {s["name"]: [p["y"] for p in s["points"]] for s in self.draw_cpu_time(self.MACOS)["seen"][0]["series"]}
+        self.assertEqual(list(mac), ["User", "System"], "no interrupts, I/O wait or steal line on macOS")
+        self.assertEqual(mac["User"], [11.0, 14.5], "user and nice are one line")
+
+    def test_a_share_that_is_text_leaves_its_row_out(self):
+        rows = self.WINDOWS + [[1_800_001_200, 10.0, None, 5.0, "3", 1.0, None, 84.0], [1_800_001_800, 10.0, None, 5.0, None, "x", None, 85.0],
+                               [1_800_002_400, 10.0, None, 5.0, None, 1.0, True, 84.0], [1_800_003_000, 10.0, None, 5.0, None, 1.0, None, 84.0]]
+        user = [s for s in self.draw_cpu_time(rows)["seen"][0]["series"] if s["name"] == "User"][0]
+        self.assertEqual([p["x"] for p in user["points"]], [1_800_000_000, 1_800_000_600, 1_800_003_000], "the three rows with text or a boolean are not drawn")
+
+    def test_the_drawer_row_needs_user_or_system_and_nothing_more(self):
+        text = lambda si: self.page.evaluate("(si) => _cpuTimeText(si)", si)
+        self.assertEqual(text({"cpu_user": 5}), "user 5.0%", "one share is a row")
+        self.assertEqual(text({"cpu_system": 3}), "system 3.0%")
+        self.assertIsNone(text({}))
+        self.assertIsNone(text(None))
+        self.assertIsNone(text({"cpu_iowait": 4, "cpu_steal": 1, "cpu_idle": 90}), "without user or system there is no row: these are shares of something")
+        self.assertEqual(text({"cpu_user": "x", "cpu_system": 3}), "system 3.0%", "a share that is not a number is left out of the row")
+
+    def test_the_heading_of_a_system_without_the_two_states_gives_user_and_system(self):
+        self.assertIn("user 50.0%", self.draw_cpu_time(self.WINDOWS)["head"])
+        self.assertIn("system 12.0%", self.draw_cpu_time(self.WINDOWS)["head"])
+        self.assertNotIn("I/O wait", self.draw_cpu_time(self.MACOS)["head"])
+        self.assertIn("user 14.0%", self.draw_cpu_time(self.MACOS)["head"])
+
+    def test_a_row_with_a_hole_in_a_needed_share_is_not_drawn(self):
+        bad = [[1_800_000_000, None, 0, 10.0, 1.0, 1.0, 0.0, 88.0], [1_800_000_000, 10.0, 0, None, 1.0, 1.0, 0.0, 88.0], [1_800_000_000, 10.0, 0, 5.0, 1.0, 1.0, 0.0, None]]
+        self.assertEqual(self.draw_cpu_time(bad + self.WINDOWS[:1])["seen"], [], "three bad rows and one good: not a line")
+        self.assertEqual(len(self.draw_cpu_time(bad + self.WINDOWS)["seen"]), 1)
+
+    def test_a_hole_in_the_middle_of_a_series_leaves_out_that_point_only(self):
+        rows = [[1_800_000_000, 10.0, 0.0, 5.0, 3.0, 1.0, 0.0, 81.0], [1_800_000_600, 10.0, 0.0, 5.0, None, 1.0, 0.0, 84.0],
+                [1_800_001_200, 10.0, 0.0, 5.0, 4.0, 1.0, 0.0, 80.0]]
+        series = {s["name"]: [p["x"] for p in s["points"]] for s in self.draw_cpu_time(rows)["seen"][0]["series"]}
+        self.assertEqual(series["I/O wait"], [1_800_000_000, 1_800_001_200])
+        self.assertEqual(len(series["User"]), 3)
 
     def test_the_heading_reports_the_last_sample(self):
         got = self.draw_cpu_time(self.ROWS)

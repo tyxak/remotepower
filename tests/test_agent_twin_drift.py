@@ -54,6 +54,9 @@ TWINNED = {
     '_vtuple',
     # 7.4.9: the signed-release downgrade check, ported to both agents. `_t` is the version parser nested inside `_is_downgrade`.
     '_embedded_version', '_is_downgrade', '_t',
+    # 7.4.9: psutil's CPU time shares. One function for both systems, since each leaves out the states it does not have (`share` is the
+    # helper nested in it), so a one-sided fix would make the two disagree about what a share is.
+    'collect_cpu_time', 'share',
     # file-log tailing state
     '_file_log_state_path', '_load_file_log_state', '_save_file_log_state',
     '_submit_file_logs',

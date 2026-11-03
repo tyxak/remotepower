@@ -7,8 +7,12 @@ its own: the metric history has a fixed set of columns on SQLite and PostgreSQL,
 row a host, a sample a minute at most, 288 kept. The Metrics window of a host draws it.
 
 Driven through the real heartbeat, the real storage and the real endpoint; the readers are held against stored rows of every wrong kind.
+
+User, system and idle are needed in a sample: every system has them. Nice, I/O wait, interrupts and steal are numbers or null. The Linux
+agent sends all seven; the Windows agent sends user, system, idle and interrupts, and the macOS agent user, nice, system and idle
+(psutil, for the states each system has). A state a system does not have is stored as null, which the chart leaves out; a zero would say
+it was measured and none was found.
 """
-import json
 import sys
 import unittest
 from pathlib import Path
@@ -21,6 +25,8 @@ from test_v749_cpu_time import _Cpu  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 SHARES = dict(user=12.0, nice=1.0, system=4.0, idle=70.0, iowait=10.0, irq=1.0, steal=2.0)
 ORDER = ("user", "nice", "system", "iowait", "irq", "steal", "idle")
+NEEDED = ("user", "system", "idle")
+OPTIONAL = ("nice", "iowait", "irq", "steal")
 
 
 class _Hist(_Cpu):
@@ -93,25 +99,62 @@ class TestWhatIsKept(_Hist):
         self.beat_cpu(partial=True)                                  # the merged record still holds the first reading
         self.assertEqual(len(self.hist()), 1)
 
-    def test_a_report_missing_one_share_adds_nothing(self):
-        for missing in ORDER:
+    def test_a_report_missing_user_system_or_idle_adds_nothing(self):
+        for missing in NEEDED:
             shares = {k: v for k, v in SHARES.items() if k != missing}
             self.beat_cpu(**shares)
             self.assertEqual(self.hist(), [], missing)
 
-    def test_a_share_that_is_not_a_number_in_range_adds_nothing(self):
-        # the ingest drops such a figure, and the recorder holds the same line for a figure that got past it
-        # (a boolean is read as 1.0 by the ingest, as it is for every figure there, so it never reaches the recorder as one)
-        for bad in ("lots", None, [1], {"a": 1}, -1, 101, float("nan"), 10 ** 400):
-            self.beat_cpu(**dict(SHARES, iowait=bad))
-            self.assertEqual(self.hist(), [], repr(bad)[:20])
+    def test_a_report_missing_one_of_the_other_four_is_a_sample_with_a_hole(self):
+        for missing in OPTIONAL:
+            self.store([])
+            shares = {k: v for k, v in SHARES.items() if k != missing}
+            self.beat_cpu(**shares)
+            row = self.hist()[0]
+            col = 1 + ORDER.index(missing)
+            self.assertIsNone(row[col], missing)
+            self.assertEqual([v for i, v in enumerate(row[1:], 1) if i != col], [SHARES[k] for k in ORDER if k != missing], "the rest is kept")
 
-    def test_the_recorder_itself_refuses_what_is_not_a_number_in_range(self):
+    def test_a_windows_report_has_user_system_idle_and_interrupts(self):
+        self.beat_cpu(user=40.0, system=10.0, idle=45.0, irq=5.0)
+        self.assertEqual(self.hist()[0][1:], [40.0, None, 10.0, None, 5.0, None, 45.0])
+
+    def test_a_macos_report_has_user_nice_system_and_idle(self):
+        self.beat_cpu(user=10.0, nice=1.0, system=4.0, idle=85.0)
+        self.assertEqual(self.hist()[0][1:], [10.0, 1.0, 4.0, None, None, None, 85.0])
+
+    def test_a_needed_share_that_is_not_a_number_in_range_adds_nothing(self):
+        # (a boolean is read as 1.0 by the ingest, as it is for every figure there, so it never reaches the recorder as one)
+        for field in NEEDED:
+            for bad in ("lots", None, [1], {"a": 1}, -1, 101, float("nan"), 10 ** 400):
+                self.store([])
+                self.beat_cpu(**dict(SHARES, **{field: bad}))
+                self.assertEqual(self.hist(), [], (field, repr(bad)[:20]))
+
+    def test_an_optional_share_that_is_not_a_number_in_range_is_a_hole_and_the_sample_stays(self):
+        for field in OPTIONAL:
+            for bad in ("lots", None, [1], {"a": 1}, -1, 101, float("nan"), 10 ** 400):
+                self.store([])
+                self.beat_cpu(**dict(SHARES, **{field: bad}))
+                row = self.hist()
+                self.assertEqual(len(row), 1, (field, repr(bad)[:20]))
+                self.assertIsNone(row[0][1 + ORDER.index(field)], (field, repr(bad)[:20]))
+
+    def test_the_recorder_itself_holds_the_same_line(self):
         """The ingest drops such a figure first; this holds the recorder to the same line for a caller that did not go through it."""
-        for bad in (True, False, "5", None, -0.1, 100.1, float("nan"), float("inf"), 10 ** 400, [5]):
-            api._record_cputime(DEV, dict({f"cpu_{k}": v for k, v in SHARES.items()}, cpu_iowait=bad), 1_800_000_000)
-            self.assertEqual(self.hist(), [], repr(bad)[:20])
-        api._record_cputime(DEV, {f"cpu_{k}": v for k, v in SHARES.items()}, 1_800_000_000)
+        full = {f"cpu_{k}": v for k, v in SHARES.items()}
+        for field in NEEDED:
+            for bad in (True, False, "5", None, -0.1, 100.1, float("nan"), float("inf"), 10 ** 400, [5]):
+                self.store([])
+                api._record_cputime(DEV, dict(full, **{f"cpu_{field}": bad}), 1_800_000_000)
+                self.assertEqual(self.hist(), [], (field, repr(bad)[:20]))
+        for field in OPTIONAL:
+            for bad in (True, False, "5", None, -0.1, 100.1, float("nan"), float("inf"), 10 ** 400, [5]):
+                self.store([])
+                api._record_cputime(DEV, dict(full, **{f"cpu_{field}": bad}), 1_800_000_000)
+                self.assertIsNone(self.hist()[0][1 + ORDER.index(field)], (field, repr(bad)[:20]))
+        self.store([])
+        api._record_cputime(DEV, full, 1_800_000_000)
         self.assertEqual(len(self.hist()), 1)
         api._record_cputime(DEV, {}, 1_800_001_000)
         api._record_cputime(DEV, {"cpu_iowait": 5}, 1_800_001_000)
@@ -172,9 +215,26 @@ class TestWhatIsRead(_Hist):
         self.store([[1_800_000_200] + self.GOOD[1:], [1_800_000_000] + self.GOOD[1:], [1_800_000_100] + self.GOOD[1:]])
         self.assertEqual([r[0] for r in api._cputime_history(DEV)], [1_800_000_000, 1_800_000_100, 1_800_000_200])
 
+    def test_a_hole_in_one_of_the_four_optional_shares_is_kept_and_in_a_needed_one_is_not(self):
+        holes = [[1_800_000_000, 10.0, None, 5.0, None, None, None, 85.0], [1_800_000_001, 10.0, 0.0, 5.0, 3.0, None, 0.0, 81.0]]
+        needed = [[1_800_000_000, None] + self.GOOD[2:], [1_800_000_000] + self.GOOD[1:3] + [None] + self.GOOD[4:], self.GOOD[:7] + [None]]
+        self.store(holes + needed)
+        self.assertEqual(api._cputime_history(DEV), holes)
+
+    def test_an_optional_share_out_of_range_or_not_a_number_leaves_the_row_out(self):
+        ts = 1_800_000_000
+        bad = [[ts, 10.0, 101, 5.0, 3.0, 1.0, 0.0, 81.0], [ts, 10.0, 0.0, 5.0, -1, 1.0, 0.0, 81.0], [ts, 10.0, 0.0, 5.0, 3.0, 150, 0.0, 81.0],
+               [ts, 10.0, 0.0, 5.0, 3.0, 1.0, -0.5, 81.0], [ts, 10.0, True, 5.0, 3.0, 1.0, 0.0, 81.0], [ts, 10.0, 0.0, 5.0, "3", 1.0, 0.0, 81.0],
+               [ts, 10.0, 0.0, 5.0, 3.0, [1], 0.0, 81.0], [ts, 10.0, 0.0, 5.0, 3.0, 1.0, {"a": 1}, 81.0]]
+        self.store(bad + [self.GOOD])
+        self.assertEqual(api._cputime_history(DEV), [self.GOOD])
+        with mock.patch.object(api, "_entity_read_one", return_value=bad + [[ts, 10.0, 0.0, 5.0, 3.0, 1.0, float("nan"), 81.0],
+                                                                           [ts, 10.0, 0.0, 5.0, 3.0, 1.0, float("inf"), 81.0], self.GOOD]):
+            self.assertEqual(api._cputime_history(DEV), [self.GOOD])
+
     def test_a_row_of_the_wrong_kind_is_left_out_and_the_good_ones_stay(self):
         bad = [None, "x", 5, {"a": 1}, [], [1], self.GOOD[:7], self.GOOD + [1], ["t"] + self.GOOD[1:], [1_800_000_000] + ["x"] + self.GOOD[2:],
-               [1_800_000_000] + [True] + self.GOOD[2:], [1_800_000_000] + [None] + self.GOOD[2:], [1_800_000_000, -1] + self.GOOD[2:],
+               [1_800_000_000] + [True] + self.GOOD[2:], [1_800_000_000, True] + self.GOOD[2:], [1_800_000_000, -1] + self.GOOD[2:],
                [1_800_000_000, 101] + self.GOOD[2:], [1_800_000_000, 10 ** 400] + self.GOOD[2:], [1_800_000_000] + [[1]] + self.GOOD[2:]]
         self.store(bad + [self.GOOD])
         self.assertEqual(api._cputime_history(DEV), [self.GOOD])
@@ -340,23 +400,39 @@ class TestWhatTheDemoHolds(unittest.TestCase):
         cls.hist = cls.seed.build_cputime_history()
         cls.devs = cls.seed.build_devices()
 
-    def test_every_linux_host_with_shares_has_a_history_and_nothing_else_has(self):
-        with_shares = {k for k, d in self.devs.items() if "cpu_iowait" in (d.get("sysinfo") or {})}
+    def test_every_host_whose_agent_sends_shares_has_a_history_and_nothing_else_has(self):
+        with_shares = {k for k, d in self.devs.items() if "cpu_user" in (d.get("sysinfo") or {})}
         self.assertEqual(set(self.hist), with_shares)
-        self.assertGreaterEqual(len(with_shares), 8)
+        self.assertGreaterEqual(len(with_shares), 10)
+        for appliance in ("sw01", "sw02", "ap01", "ap02"):
+            self.assertNotIn(appliance, self.hist)
 
-    def test_it_ends_on_the_shares_the_host_shows(self):
+    def test_it_ends_on_the_shares_the_host_shows_and_a_missing_one_is_a_hole(self):
         for k, rows in self.hist.items():
             si = self.devs[k]["sysinfo"]
-            self.assertEqual(rows[-1][1:], [si[f"cpu_{n}"] for n in ORDER], k)
+            self.assertEqual(rows[-1][1:], [si.get(f"cpu_{n}") for n in ORDER], k)
 
-    def test_every_sample_is_eight_numbers_in_range_that_add_up(self):
+    def test_the_windows_host_has_user_system_idle_and_interrupts_and_the_macos_host_nice_instead(self):
+        win, mac = self.hist["wks01"], self.hist["mbp01"]
+        for r in win:
+            self.assertEqual([r[i] is None for i in (2, 4, 5, 6)], [True, True, False, True], "no nice, I/O wait or steal on Windows")
+        for r in mac:
+            self.assertEqual([r[i] is None for i in (2, 4, 5, 6)], [False, True, True, True], "no I/O wait, interrupts or steal on macOS")
+        si = self.devs["wks01"]["sysinfo"]
+        self.assertTrue({"cpu_user", "cpu_system", "cpu_idle", "cpu_irq"} <= set(si))
+        self.assertFalse({"cpu_iowait", "cpu_steal", "cpu_nice"} & set(si), "the Windows agent does not send what Windows does not have")
+        si = self.devs["mbp01"]["sysinfo"]
+        self.assertTrue({"cpu_user", "cpu_nice", "cpu_system", "cpu_idle"} <= set(si))
+        self.assertFalse({"cpu_iowait", "cpu_steal", "cpu_irq"} & set(si))
+
+    def test_every_sample_is_eight_values_in_range_that_add_up(self):
         for k, rows in self.hist.items():
             self.assertEqual(len(rows), 48)
             for r in rows:
                 self.assertEqual(len(r), 8, k)
-                self.assertTrue(all(isinstance(v, (int, float)) and 0 <= v <= 100 for v in r[1:]), (k, r))
-                self.assertAlmostEqual(sum(r[1:]), 100.0, delta=1.0, msg=(k, r))
+                self.assertTrue(all(v is None or (isinstance(v, (int, float)) and 0 <= v <= 100) for v in r[1:]), (k, r))
+                self.assertTrue(all(r[i] is not None for i in (1, 3, 7)), (k, r))
+                self.assertAlmostEqual(sum(v for v in r[1:] if v is not None), 100.0, delta=1.0, msg=(k, r))
 
     def test_samples_are_ten_minutes_apart_and_oldest_first(self):
         for k, rows in self.hist.items():
@@ -373,6 +449,11 @@ class TestWhatTheDemoHolds(unittest.TestCase):
     def test_it_is_the_same_on_every_run(self):
         again = self.seed.build_cputime_history()
         self.assertEqual({k: [r[1:] for r in v] for k, v in again.items()}, {k: [r[1:] for r in v] for k, v in self.hist.items()})
+
+    def test_the_servers_reader_takes_every_row_the_demo_writes(self):
+        for k, rows in self.hist.items():
+            with mock.patch.object(api, "_entity_read_one", return_value=rows):
+                self.assertEqual(len(api._cputime_history(k)), len(rows), k)
 
 
 if __name__ == "__main__":

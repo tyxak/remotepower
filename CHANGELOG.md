@@ -245,7 +245,11 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   own line wins over the fleet's. They are off at 0, a host has to stay over a line for **Reports in a row** (3 unless you change
   it), and they raise the same `metric_warning` and `metric_critical` as the other metrics, with the kind *iowait* or *steal*, and
   close when the share falls below the line or when the line is turned off. A report without the figure says nothing and leaves an open alert as it was. Update the agents:
-  until then a host sends no shares and nothing is judged. Linux only. The host's **Metrics** window draws them in a **CPU time**
+  until then a host sends no shares and nothing is judged. The Windows and macOS agents send the states their system has, from
+  psutil (Windows: user, system, interrupts and deferred procedure calls together, idle; macOS: user, nice, system, idle). Neither
+  system has an I/O wait or a steal state, so those two are not sent as zeros that would say they were measured, the drawer and
+  the chart show only what a host has, and the two alerts never apply to it. Not run on a real Windows or macOS host: the
+  collectors ran against the shapes psutil returns on each. The host's **Metrics** window draws them in a **CPU time**
   chart (user, system, I/O wait, interrupts, steal), a sample at each system report, kept for about two days. They have a store
   of their own, one row a host (`cputime_history.json`), because the metric history has a fixed set of columns on SQLite and
   PostgreSQL and the shares do not belong in them. A host profile can carry these lines too (see Fixes).

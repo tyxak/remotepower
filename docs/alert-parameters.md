@@ -163,7 +163,9 @@ apart from one that is computing. All four lines are off at 0. A host's own line
 Metric thresholds win. The alert is a metric warning or critical with the kind **I/O wait**
 or **Steal**, and it closes when the share falls below the line. The host's menu shows the
 shares in **System info → CPU time**, and the host's **Metrics** window draws them over the last
-two days.
+two days. Only Linux has these two states: a Windows or macOS host is not judged against the lines
+and shows the states its system has (user, system and idle, plus interrupts on Windows and nice on
+macOS).
 
 Fields: I/O wait warn % [0], I/O wait crit % [0], Steal warn % [0], Steal crit % [0],
 Reports in a row [3].

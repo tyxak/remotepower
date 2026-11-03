@@ -79,6 +79,7 @@ SHARED_BY_WIN_MAC = (
     '_spent',
     '_submit_file_logs',
     'collect_backup_status',
+    'collect_cpu_time',     # 7.4.9: psutil's shares; the same code, since each system leaves out the states it does not have
     'collect_file_log',
     'collect_listening_ports',
     'collect_pii_findings',

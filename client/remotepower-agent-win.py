@@ -151,6 +151,46 @@ def _winget_bin():
 
 _WINGET_PATH = None
 
+# ─── 7.4.9: where the CPUs spent their time ──────────────────────────────────
+# psutil gives the shares of the time since the previous call. Windows has user, system, idle, interrupt and dpc.
+# Neither system has an I/O wait or a steal state, so those two keys are left out and the server draws and judges only what it is
+# sent. The first report after the start speaks for the time since the agent began (the baseline is taken at import, below), a report
+# less than _CPU_TIME_MIN_DT after the last is left to the next one, and a reading of all zeros (psutil keeps a baseline for each
+# thread, so the first call from another one is empty) is no reading.
+_CPU_TIME_MIN_DT = 5.0
+_cpu_time_last = None
+
+
+def collect_cpu_time():
+    """Percent of the time since the previous call that all CPUs together spent in each state the system has, as flat keys: cpu_user,
+    cpu_nice (macOS), cpu_system, cpu_idle and cpu_irq (Windows: interrupts and deferred procedure calls together). Empty without
+    psutil, when it fails, when there is no interval to speak of, and when user, system or idle is missing."""
+    global _cpu_time_last
+    now = time.monotonic()
+    if _cpu_time_last is not None and now - _cpu_time_last < _CPU_TIME_MIN_DT:
+        return {}
+    try:
+        import psutil
+        t = psutil.cpu_times_percent(interval=None)
+    except Exception:
+        return {}
+    _cpu_time_last = now
+
+    def share(*names):
+        got = [getattr(t, n, None) for n in names]
+        got = [g for g in got if isinstance(g, (int, float)) and not isinstance(g, bool) and 0 <= g <= 100]
+        return min(100.0, round(sum(got), 1)) if got else None
+    out = {}
+    for key, names in (('cpu_user', ('user',)), ('cpu_nice', ('nice',)), ('cpu_system', ('system',)),
+                       ('cpu_idle', ('idle',)), ('cpu_irq', ('interrupt', 'dpc'))):
+        v = share(*names)
+        if v is not None:
+            out[key] = v
+    if not all(k in out for k in ('cpu_user', 'cpu_system', 'cpu_idle')) or sum(out.values()) <= 0:
+        return {}
+    return out
+
+
 # Prime the non-blocking CPU sampler once at import so the first heartbeat's
 # cpu_percent(interval=None) measures against a real baseline instead of
 # returning 0.0 — and we never pay a blocking 0.3s sample on the heartbeat hot
@@ -158,6 +198,8 @@ _WINGET_PATH = None
 try:
     import psutil as _psutil_prime
     _psutil_prime.cpu_percent(interval=None)
+    _psutil_prime.cpu_times_percent(interval=None)      # 7.4.9: the CPU time shares have a baseline of their own
+    _cpu_time_last = time.monotonic()
 except Exception:
     pass
 
@@ -1824,6 +1866,7 @@ def collect_sysinfo():
         import psutil
         info['cpu_percent'] = round(psutil.cpu_percent(interval=None), 1)  # non-blocking; primed at import
         info['cpu_count'] = psutil.cpu_count() or 0
+        info.update(collect_cpu_time())   # 7.4.9: where the CPU time went (the states this system has)
         vm = psutil.virtual_memory()
         info['mem_percent'] = round(vm.percent, 1)
         info['mem_total_mb'] = int(vm.total / (1024 * 1024))
