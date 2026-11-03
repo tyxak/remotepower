@@ -2712,6 +2712,7 @@ const _LAZY_PAGE_MODULES = {
   alerts: ['app-alerts.js'],
   checks: ['app-checks.js'],
   problems: ['app-problems.js'],   // #56 one list of problems (lazy)
+  containers: ['app-containeraudit.js'],   // 7.4.9 the hardening audit section (the page itself is eager)
   'business-services': ['app-business-services.js'],   // 7.4.9 services made of hosts, monitors, units, containers and scripts (lazy)
   protect: ['app-checks.js'],   // Integrity Guard vault renderer
   advisory: ['app-checks.js'],  // Security Advisory renderer + host-list filter
@@ -2977,7 +2978,7 @@ function showPage(name, btn, opts) {
   if (name === 'calendar') loadCalendar();
   if (name === 'tasks')    loadTasks();
   if (name === 'cmdb')     enterCMDB();
-  if (name === 'containers') { enterContainers(); _showAllContainerPanels(); }
+  if (name === 'containers') { enterContainers(); _showAllContainerPanels(); loadContainerAudit(); }
   if (name === 'virtualization') loadVirtualizationPage();
   if (name === 'netmap')   { enterNetmap(); loadDiscovery(); }
   if (name === 'netmetrics') loadNetMetrics();

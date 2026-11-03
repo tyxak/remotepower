@@ -459,6 +459,38 @@ can never run. Manage containers on a Mac from the host.
 
 ---
 
+## Hardening audit *(7.4.9)*
+
+The **Hardening audit** section of the Containers page lists how each container was started and what that allows. A
+container that runs privileged, shares the host's process or network namespace, holds the container engine's socket or mounts the
+host's `/etc` is as exposed as the host, whatever the image does. The audit reads each container's run options, not what runs
+inside it.
+
+Each row is a container with its findings, worst first. Click the container's name to see them with their evidence (the
+path, the capability, the port). The filter above the table sets the lowest severity to list (Medium and above is the
+default); the line next to it counts every audited container by its worst finding, whatever the filter. A container
+that is **not audited** has an agent that has not reported how it was started: update the agent.
+
+| Severity | Findings |
+|---|---|
+| Critical | runs privileged; the engine's socket mounted (read-only too: it still gives control of the engine); the host's `/` mounted writable |
+| High | a sensitive host directory mounted writable (`/etc`, `/proc`, `/sys`, `/boot`, `/usr`, `/var/lib/docker`, ...); the host's process or network namespace; `SYS_ADMIN`, `SYS_MODULE`, `SYS_PTRACE`, `SYS_RAWIO`, `BPF`, `DAC_READ_SEARCH` or `ALL` added; seccomp switched off |
+| Medium | AppArmor switched off; the host's IPC or user namespace; `NET_ADMIN`, `NET_RAW` and similar capabilities added; disks or memory passed through from the host; a database or admin port (3306, 5432, 6379, 22, 2375, ...) published on all interfaces; `/` mounted read-only |
+| Low | a port published on all interfaces; new privileges allowed; runs as root; writable root filesystem; no memory limit; no health check; image tag is `latest` or missing; other host hardware passed through |
+
+A finding says what the container can do, not that it is wrong. A metrics agent mounts `/`, a manager mounts the socket,
+a media server passes through a GPU. An administrator can **Accept** a finding for one container, with a note saying why. It
+stays in the list, marked accepted, no longer counts towards the container's findings or the header, and **Take back** undoes
+it. Every change is audited (`container_audit_accept`, `container_audit_unaccept`), at most 200 findings can be accepted on one host, and
+a host's acceptances go when the host is deleted.
+
+Nothing raises an alert: most containers have some low finding, so an alert would never clear. The audit is for review.
+
+The agent inspects a container once, when it first shows up, because its run options cannot change while it exists, and
+keeps the answer for as long as the container is listed. It sends facts, not the record: never the environment, the
+labels or the command. A Kubernetes pod is not audited. `GET /api/containers/audit` lists the findings (`?min=critical|high|medium|low`,
+`?q=` to filter) and `PUT /api/devices/{id}/container-audit` accepts or takes back one (administrators).
+
 ## What's not captured
 
 - **No live state.** The list is overwritten on every heartbeat;

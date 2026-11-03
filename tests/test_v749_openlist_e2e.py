@@ -208,5 +208,123 @@ class TestZfs(_Page):
         self.assertIsNone(self.page.evaluate("() => window.__zpwn"))
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestContainerAudit(_Page):
+
+    def open_audit(self, floor="medium"):
+        self.page.evaluate("() => showPage('containers', document.querySelector('.nav-btn[data-page=containers]'))")
+        self.page.wait_for_function("() => typeof loadContainerAudit === 'function'", timeout=60000)
+        # start every test from the same state: the floor asked for, no filter, a fresh answer
+        self.page.evaluate("async (f) => { document.getElementById('ca-min').value = f; document.getElementById('ca-filter').value = ''; "
+                           "_caOpen.clear(); await loadContainerAudit(); }", floor)
+        self.page.wait_for_selector("#ca-tbody tr [data-action-btn='_caToggleBtn']", timeout=30000)
+
+    def names(self):
+        return self.page.eval_on_selector_all("#ca-tbody tr[data-ca-row] a", "as => as.map(a => a.innerText.trim())")
+
+    def open_row(self, name):
+        self.page.click(f"#ca-tbody a[data-action-btn='_caToggleBtn']:text-is('{name}')")
+        self.page.wait_for_selector("#ca-tbody .ca-findings", timeout=10000)
+
+    def tearDown(self):
+        try:
+            self.page.evaluate("() => { _caOpen.clear(); if (typeof closeModal === 'function') closeModal('ui-prompt-modal'); }")
+        except Exception:
+            pass
+        (self.data / "container_audit_accepts.json").write_text("{}")      # whatever a test accepted is gone for the next
+        super().tearDown()
+
+    def test_the_audit_lists_what_the_demo_containers_allow_worst_first(self):
+        self.open_audit()
+        names = self.names()
+        self.assertTrue({"gitea", "homeassistant", "node-exporter", "pihole", "gitea-db"} <= set(names), names)
+        self.assertNotIn("vaultwarden", names, "a carefully started container has nothing at this level")
+        self.assertNotIn("mosquitto", names)
+        self.assertIn(names.index("homeassistant"), (0, 1), "the two critical ones lead")
+        self.assertIn(names.index("gitea"), (0, 1))
+        summary = self.page.inner_text("#ca-summary").lower()
+        self.assertIn("critical", summary)
+        self.assertIn("not audited", summary)
+        self.assertRegex(summary, r"\d+ low")
+
+    def test_the_severity_filter(self):
+        self.open_audit("critical")
+        self.assertEqual(sorted(self.names()), ["gitea", "homeassistant"])
+        self.page.select_option("#ca-min", "high")
+        self.page.wait_for_function("() => [...document.querySelectorAll('#ca-tbody a')].some(a => a.innerText.trim() === 'node-exporter')", timeout=15000)
+        self.assertEqual(sorted(self.names()), ["gitea", "homeassistant", "node-exporter"])
+        self.page.select_option("#ca-min", "low")
+        self.page.wait_for_function("() => [...document.querySelectorAll('#ca-tbody a')].some(a => a.innerText.trim() === 'vaultwarden')", timeout=15000)
+        self.assertIn("vaultwarden", self.names(), "everything includes a container with one low finding")
+
+    def test_a_row_opens_to_its_findings_with_the_evidence(self):
+        self.open_audit()
+        self.open_row("gitea")
+        text = self.page.inner_text("#ca-tbody .ca-findings")
+        self.assertIn("Container engine socket mounted", text)
+        self.assertIn("/var/run/docker.sock", text)
+        self.assertIn("critical", text.lower())
+        self.assertEqual(self.page.get_attribute("#ca-tbody a:text-is('gitea')", "aria-expanded"), "true")
+        self.page.click("#ca-tbody a:text-is('gitea')")
+        self.assertEqual(self.page.locator("#ca-tbody .ca-findings").count(), 0, "a second click closes it")
+
+    def test_the_filter_box(self):
+        self.open_audit()
+        self.page.fill("#ca-filter", "node-exp")
+        self.page.wait_for_timeout(500)
+        self.assertEqual(self.names(), ["node-exporter"])
+        self.page.fill("#ca-filter", "no-such-thing-here")
+        self.page.wait_for_timeout(500)
+        self.assertIn("No container matches the filter.", self.page.inner_text("#ca-tbody"))
+        self.page.fill("#ca-filter", "")
+        self.page.wait_for_timeout(300)
+
+    def test_accepting_a_finding_and_taking_it_back(self):
+        self.open_audit("critical")
+        self.open_row("gitea")
+        btn = "#ca-tbody [data-action-btn='_caAcceptBtn'][data-rule='engine_socket']"
+        self.page.click(btn)
+        self.page.wait_for_selector("#ui-prompt-modal.active", timeout=10000)
+        self.page.fill("#ui-prompt-input", "CI runner needs the engine")
+        self.page.click("#ui-prompt-confirm")
+        # the row says so once the change is saved and the list drawn again
+        self.page.wait_for_function("() => [...document.querySelectorAll('#ca-tbody tr[data-ca-row]')].some(r => /accepted/.test(r.innerText))", timeout=20000)
+        self.assertEqual(self.names(), ["homeassistant", "gitea"], "gitea stays findable, after the one that still counts")
+        stored = json.loads((self.data / "container_audit_accepts.json").read_text())
+        row = stored["gt01"][0]
+        self.assertEqual((row["container"], row["rule"], row["by"], row["note"]), ("gitea", "engine_socket", "alice", "CI runner needs the engine"))
+        # the row stayed open through the reload, with the finding marked
+        self.assertIn("accepted", self.page.inner_text("#ca-tbody .ca-findings").lower())
+        self.page.click("#ca-tbody [data-action-btn='_caAcceptBtn'][data-rule='engine_socket']")
+        self.page.wait_for_function("() => [...document.querySelectorAll('#ca-tbody [data-rule=\"engine_socket\"]')].every(b => b.innerText.trim() === 'Accept')", timeout=20000)
+        self.assertEqual(json.loads((self.data / "container_audit_accepts.json").read_text()), {})
+
+    def test_cancelling_the_prompt_changes_nothing(self):
+        self.open_audit("critical")
+        self.open_row("homeassistant")
+        self.page.click("#ca-tbody [data-action-btn='_caAcceptBtn'][data-rule='privileged']")
+        self.page.wait_for_selector("#ui-prompt-modal.active", timeout=10000)
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(800)
+        f = self.data / "container_audit_accepts.json"
+        self.assertEqual(json.loads(f.read_text()) if f.exists() else {}, {})
+
+    def test_names_from_a_host_are_text(self):
+        evil = "<img src=x onerror=\"window.__capwn=1\">"
+
+        def patch(store):
+            it = store["gt01"]["items"][0]
+            it["name"] = evil
+            it["image"] = evil
+            it["audit"]["mounts"][0]["src"] = "/var/run/docker.sock"
+        self.edit_store("containers.json", patch)
+        self.open_audit()
+        self.page.click("#ca-tbody a[data-action-btn='_caToggleBtn'] >> nth=0")
+        self.page.wait_for_timeout(500)
+        self.assertEqual(self.page.locator("#ca-tbody img").count(), 0)
+        self.assertIsNone(self.page.evaluate("() => window.__capwn"))
+        self.assertIn("<img src=x", self.page.inner_text("#ca-tbody"))
+
+
 if __name__ == "__main__":
     unittest.main()

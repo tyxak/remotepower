@@ -8574,3 +8574,8 @@ td > .btn-icon + .btn-icon { margin-left: 0; margin-inline-start: 6px; }
   .sev-pill, .chk-pill, .tl-devchip, .section-header > .row-8 > button { white-space: normal; }
   .section-header > .row-8 { flex: 0 1 auto; }
 }
+
+/* 7.4.9: the container hardening audit, one list of findings under a container's row */
+.ca-findings { list-style: none; margin: 0; padding: 4px 0 8px; }
+.ca-finding { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 0; }
+.ca-detail td { padding-top: 0; }

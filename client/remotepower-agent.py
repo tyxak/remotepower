@@ -4160,6 +4160,96 @@ def _docker_stats(cmd_path):
     return stats
 
 
+# ─── 7.4.9: how each container was started, for the hardening audit ─────────
+# A container's run options (privileged, capabilities, mounts, namespaces, devices) are fixed when it is created, so each
+# container is inspected once, by its id, and the answer is kept for as long as the container is listed. The agent sends plain
+# facts, leaves out every value that is the default, and never sends the environment or any other part of the record.
+_AUDIT_CACHE = {}
+_AUDIT_CACHE_MAX = 400
+_AUDIT_INSPECT_TIMEOUT = 30
+
+
+def _audit_facts_from_inspect(info):
+    """Facts about how one container was started, from one `inspect` record (docker or podman). The server decides what they mean."""
+    hc = info.get('HostConfig') if isinstance(info.get('HostConfig'), dict) else {}
+    cfg = info.get('Config') if isinstance(info.get('Config'), dict) else {}
+
+    def _strs(v, n=40):
+        return [str(x)[:96] for x in v[:n]] if isinstance(v, list) else []
+    facts = {'v': 1}
+    if hc.get('Privileged') is True:
+        facts['privileged'] = True
+    if hc.get('ReadonlyRootfs') is True:
+        facts['readonly_rootfs'] = True
+    for src, key in (('CapAdd', 'cap_add'), ('CapDrop', 'cap_drop'), ('SecurityOpt', 'security_opt')):
+        v = _strs(hc.get(src))
+        if v:
+            facts[key] = v
+    devs = [str(d.get('PathOnHost') or '')[:96] for d in (hc.get('Devices') or []) if isinstance(d, dict)]
+    devs = [d for d in devs if d][:16]
+    if devs:
+        facts['devices'] = devs
+    for src, key in (('NetworkMode', 'net_mode'), ('PidMode', 'pid_mode'), ('IpcMode', 'ipc_mode'), ('UsernsMode', 'userns_mode')):
+        v = str(hc.get(src) or '')[:64]
+        if v and v not in ('default', 'private', 'bridge'):
+            facts[key] = v
+    user = str(cfg.get('User') or '')[:64]
+    if user:
+        facts['user'] = user
+    test = ((cfg.get('Healthcheck') or {}).get('Test')) if isinstance(cfg.get('Healthcheck'), dict) else None
+    if isinstance(test, list) and test and str(test[0]).upper() != 'NONE':
+        facts['has_healthcheck'] = True
+    mounts = []
+    for m in (info.get('Mounts') or [])[:24]:
+        if isinstance(m, dict) and m.get('Source'):
+            row = {'src': str(m['Source'])[:255], 'dst': str(m.get('Destination') or '')[:255]}
+            if m.get('RW') is False:
+                row['rw'] = False
+            mounts.append(row)
+    if mounts:
+        facts['mounts'] = mounts
+    ports = []
+    binds = hc.get('PortBindings') if isinstance(hc.get('PortBindings'), dict) else {}
+    for key, targets in binds.items():
+        proto = str(key).split('/', 1)[1][:8] if '/' in str(key) else 'tcp'
+        for b in (targets or []) if isinstance(targets, list) else []:
+            if not isinstance(b, dict):
+                continue
+            try:
+                hp = int(b.get('HostPort') or 0)
+            except (TypeError, ValueError):
+                continue
+            if 0 < hp < 65536 and len(ports) < 24:
+                ports.append({'port': hp, 'proto': proto, 'ip': str(b.get('HostIp') or '')[:45]})
+    if ports:
+        facts['ports'] = ports
+    return facts
+
+
+def _docker_audit_facts(cmd_path, ids):
+    """{container id: facts or None} for the listed containers. Only a container not seen before is inspected, in one call,
+    so a host with a hundred long-running containers pays for them once. Best effort: a failure leaves the container
+    unaudited this time and it is asked again on the next report."""
+    ids = [i for i in (ids or []) if i]
+    need = [i for i in ids if i not in _AUDIT_CACHE]
+    if need:
+        try:
+            r = subprocess.run([cmd_path, 'inspect', *need[:CONTAINERS_HARD_CAP]], capture_output=True, text=True,
+                               timeout=_AUDIT_INSPECT_TIMEOUT)
+            if r.returncode == 0:
+                for info in json.loads(r.stdout or '[]'):
+                    if isinstance(info, dict) and info.get('Id'):
+                        _AUDIT_CACHE[str(info['Id'])] = _audit_facts_from_inspect(info)
+        except Exception as e:
+            log.debug(f'container audit inspect failed: {e}')
+    live = set(ids)
+    for k in [k for k in _AUDIT_CACHE if k not in live]:
+        del _AUDIT_CACHE[k]
+    while len(_AUDIT_CACHE) > _AUDIT_CACHE_MAX:
+        _AUDIT_CACHE.pop(next(iter(_AUDIT_CACHE)))
+    return {i: _AUDIT_CACHE.get(i) for i in ids}
+
+
 def _docker_inspect_meta(cmd_path, ids):
     """v3.10.0: one batched ``inspect`` for restart-count + start time.
 
@@ -4432,6 +4522,8 @@ def _docker_listing(cmd_path, runtime_name):
             break
     inspect_meta = _docker_inspect_meta(
         cmd_path, [d.get('ID', '') for d in parsed])
+    # 7.4.9: how each container was started (cached by id), for the hardening audit
+    audit_facts = _docker_audit_facts(cmd_path, [d.get('ID', '') for d in parsed])
 
     items = []
     health_asked = 0
@@ -4501,6 +4593,8 @@ def _docker_listing(cmd_path, runtime_name):
             # 7.4.9: the failing check's output and the run of failures (unhealthy only).
             'health_output':  health_output,
             'health_streak':  health_streak,
+            # 7.4.9: how the container was started (None when it could not be inspected)
+            'audit':          audit_facts.get(d.get('ID', '')),
         })
     return items
 

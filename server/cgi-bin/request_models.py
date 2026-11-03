@@ -2022,6 +2022,14 @@ if _AVAILABLE:
         rule: Any = None
         _v0 = field_validator('description', 'name', mode='before')(_coerce_str_loose)
 
+    class ContainerAuditAcceptRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        container: str = ''
+        rule: str = ''
+        note: str = ''
+        accepted: Any = None
+        _v0 = field_validator('container', 'rule', 'note', mode='before')(_coerce_str_loose)
+
     class AlertAssignRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         user: str = ''

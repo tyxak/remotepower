@@ -38,6 +38,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import container_audit
+
 # Hard caps applied at the server-side validation layer. The agent applies
 # the same caps before posting; we duplicate here so a misbehaving agent
 # can't bloat containers.json.
@@ -231,6 +233,9 @@ def normalize_container(item: Any) -> dict | None:
         # This normaliser is a whitelist; an unlisted key never reaches the UI.
         "mem_limit_bytes": _int_or_zero(item.get("mem_limit_bytes")),
         "cpu_limit_cores": _float_or_zero(item.get("cpu_limit_cores")),
+        # 7.4.9: how the container was started, for the hardening audit (container_audit.py); None when the agent could
+        # not inspect it. Validated and capped there, because it is data from the host.
+        "audit": container_audit.clean_facts(item.get("audit")),
     }
 
 

@@ -65,6 +65,7 @@ CMD_OUTPUT_FILE  = DATA_DIR / 'cmd_output.json'
 # without scanning thousands of unrelated entries.
 UPDATE_LOGS_FILE = DATA_DIR / 'update_logs.json'
 PATCH_PREVIEWS_FILE = DATA_DIR / 'patch_previews.json'   # 7.4.9: per host, the last upgrade plan and the request waiting for one
+CONTAINER_AUDIT_ACCEPTS_FILE = DATA_DIR / 'container_audit_accepts.json'   # 7.4.9: per host, the audit findings an administrator accepted
 IGNORED_ITEMS_FILE = DATA_DIR / 'ignored_items.json'  # v3.0.1: per-item ignores
 NA_SUPPRESS_FILE = DATA_DIR / 'na_suppress_rules.json'  # v6.4.0: class-level NA suppression rules
 ACME_STATE_FILE    = DATA_DIR / 'acme_state.json'    # v3.0.1: acme.sh per-device state
@@ -1858,6 +1859,16 @@ patch_plan_handlers_mod.bind(globals())
 for _pp_name in ('handle_device_patch_preview', 'request_patch_preview', 'patch_preview_ingest'):
     globals()[_pp_name] = getattr(patch_plan_handlers_mod, _pp_name)
 del _pp_name
+
+# 7.4.9: the container hardening audit. Two routes, so a bound module.
+_ca_spec = _tk_ilu.spec_from_file_location(
+    'container_audit_handlers', Path(__file__).parent / 'container_audit_handlers.py')
+container_audit_handlers_mod = _tk_ilu.module_from_spec(_ca_spec)
+_ca_spec.loader.exec_module(container_audit_handlers_mod)
+container_audit_handlers_mod.bind(globals())
+for _ca_name in ('handle_container_audit', 'handle_device_container_audit'):
+    globals()[_ca_name] = getattr(container_audit_handlers_mod, _ca_name)
+del _ca_name
 from checks import (  # noqa: F401  (test_checks_module pins api._custom_checks_for)
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -15832,6 +15843,7 @@ def _purge_device(dev_id):
         CONTAINER_STATS_HIST_FILE,   # v7.4.3 (#50): and its container samples
         DISKIO_HIST_FILE,            # v7.4.3 (#49): and its disk I/O samples
         PATCH_PREVIEWS_FILE,         # 7.4.9: and its upgrade plan
+        CONTAINER_AUDIT_ACCEPTS_FILE,   # 7.4.9: and the audit findings accepted for its containers
     ]
     try:
         for store_path in _SIMPLE_STORES:
@@ -74702,6 +74714,7 @@ def _build_exact_routes():
         ('DELETE', '/api/confirmations'): handle_confirmations_clear,
         ('GET', '/api/confirmations'): handle_confirmations_list,
         ('GET', '/api/containers'): handle_containers_overview,
+        ('GET', '/api/containers/audit'): handle_container_audit,   # 7.4.9
         ('POST', '/api/csp-report'): handle_csp_report,
         ('POST', '/api/client-error'): handle_client_error,   # v5.4.1 (F4)
         ('GET', '/api/client-error'): handle_client_error,    # v5.4.1 (F4): admin list
@@ -75209,6 +75222,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET', 'PUT'), '/api/devices/', '/exposure-internal', 'handle_device_exposure_internal', "pi.startswith('/api/devices/') and pi.endswith('/exposure-internal') and m in ('GET', 'PUT')"),
     ('pat', ('GET', 'PUT'), '/api/devices/', '/upgrade-mode', 'handle_device_upgrade_mode', "pi.startswith('/api/devices/') and pi.endswith('/upgrade-mode') and m in ('GET', 'PUT')"),
     ('pat', ('GET', 'POST'), '/api/devices/', '/patch-preview', 'handle_device_patch_preview', "pi.startswith('/api/devices/') and pi.endswith('/patch-preview') and m in ('GET', 'POST')"),
+    ('pat', ('PUT',), '/api/devices/', '/container-audit', 'handle_device_container_audit', "pi.startswith('/api/devices/') and pi.endswith('/container-audit') and m == 'PUT'"),
     ('pat', ('POST',), '/api/devices/', '/snmp/walk', 'handle_device_snmp_walk', "pi.startswith('/api/devices/') and pi.endswith('/snmp/walk') and m == 'POST'"),
     # v6.4.2: per-port bandwidth / error / link history for SNMP gear.
     ('pat', ('GET',), '/api/devices/', '/snmp/interfaces', 'handle_device_snmp_interfaces', "pi.startswith('/api/devices/') and pi.endswith('/snmp/interfaces') and m == 'GET'"),

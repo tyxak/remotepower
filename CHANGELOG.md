@@ -96,6 +96,23 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   asks `docker inspect` about an unhealthy container only (eight per report at most), so a healthy host pays nothing. Update
   the agents for the output text; without it the alert still fires.
 
+- **A hardening audit of how each container was started (gap-fill).** Nothing looked at how containers were started, only
+  at whether they ran. A container that is privileged, shares the host's process or network namespace, holds the engine's
+  socket or mounts the host's `/etc` is as exposed as the host, whatever the image does. The Linux agent now reads each
+  container's run options once from `inspect` (they cannot change while the container exists, so a container is inspected
+  once and the answer kept) and the server works out the findings, so a corrected rule needs no agent update. The Containers
+  page has a **Hardening audit** section: one row per container with its findings, worst first, each with its evidence.
+  Nineteen rules, from the container checks of the CIS Docker benchmark that a container's own configuration can decide:
+  privileged, the engine's socket, host directories, host process, network, IPC and user namespaces, dangerous
+  and extra capabilities, seccomp or AppArmor switched off, host hardware passed through, ports published on all
+  interfaces (a database or admin port counts for more), new privileges, root, a writable root filesystem, no memory limit,
+  no health check and an unpinned image tag. It reviews and does not block. A container that needs what a finding flags (a
+  metrics agent mounts `/`, a manager mounts the socket) can have it accepted by an administrator with a note: the finding
+  stays listed, marked, and stops counting, and can be taken back. `GET /api/containers/audit` (`?min=`, `?q=`) and
+  `PUT /api/devices/{id}/container-audit`, audited. The agent never sends a container's environment or anything else from its
+  record. Update the agents: until then a container reads as not audited. No alert fires, on purpose: most containers have
+  some low finding, so an alert would never clear.
+
 ### Enrolment
 
 - **An enrolment token can be limited to a network.** A token minted for a build network or a cloud project was good from

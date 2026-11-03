@@ -184,6 +184,9 @@ ENTITY_FILES = {
     # 7.4.9: patch_previews.json -- per host, the last upgrade plan and the request that is waiting for one
     # ({device_id: {pending, plan}}), one row per host. Born an ENTITY file, so no cold blob to migrate.
     'patch_previews.json',
+    # 7.4.9: container_audit_accepts.json -- per host, the container audit findings an administrator accepted
+    # ({device_id: [{container, rule, by, ts, note}]}). Born an ENTITY file, so there is no cold blob to migrate.
+    'container_audit_accepts.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

@@ -8239,6 +8239,27 @@ nextcloud mem=95 sustain=6</pre>
             </table>
           </div>
 
+          <!-- ── 7.4.9: hardening audit (app-containeraudit.js, lazy) ───── -->
+          <div class="subsection-title mt-32">Hardening audit</div>
+          <div class="page-subtitle">How each container was started and what that allows: privileged mode, the engine's socket, host directories, host namespaces, extra capabilities and more. It reviews and does not block. Accept a finding for a container that needs it and it stops counting.</div>
+          <div class="toolbar">
+            <input type="text" id="ca-filter" class="form-input isl-170" placeholder="Filter by host, container or image…" aria-label="Filter by host, container or image" data-input="renderContainerAudit">
+            <select id="ca-min" class="form-input" aria-label="Lowest severity to list" data-change="loadContainerAudit">
+              <option value="medium" selected>Medium and above</option>
+              <option value="high">High and above</option>
+              <option value="critical">Critical only</option>
+              <option value="low">Everything</option>
+            </select>
+            <button class="btn-icon" data-action="loadContainerAudit"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            <span id="ca-summary" class="isl-100"></span>
+          </div>
+          <div class="table-card">
+            <table>
+              <thead id="ca-thead"><tr><th scope="col" data-col="device">Host</th><th scope="col" data-col="container">Container</th><th scope="col" data-col="image">Image</th><th scope="col" data-col="findings">Findings</th></tr></thead>
+              <tbody id="ca-tbody"><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
+            </table>
+          </div>
+
           <!-- ── v3.3.4: container image updates ───────────────────────── -->
           <div class="subsection-title mt-32">Image updates</div>
           <div class="page-subtitle">Containers whose pulled image is behind the registry's current digest for that tag. Notify-only — RemotePower flags staleness, you decide when to pull. <span id="image-updates-meta" class="hint" data-i18n-park></span></div>

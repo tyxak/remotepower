@@ -1695,6 +1695,35 @@ def build_metrics() -> dict:
     return out
 
 
+def _audit_facts(**kw) -> dict:
+    """How a demo container was started, in the form containers.normalize_container keeps it (container_audit.clean_facts)."""
+    f = {'v': 1, 'privileged': False, 'readonly_rootfs': False, 'has_healthcheck': False, 'cap_add': [], 'cap_drop': [],
+         'security_opt': [], 'devices': [], 'user': '', 'mounts': [], 'ports': [], 'net_mode': '', 'pid_mode': '',
+         'ipc_mode': '', 'userns_mode': ''}
+    f.update(kw)
+    return f
+
+
+# 7.4.9: the run options of the demo containers, by name. A container that is not listed was started plainly. mosquitto has
+# none, as if its agent were older, so the audit says "not audited" for it.
+_DEMO_AUDIT = {
+    'vaultwarden': _audit_facts(readonly_rootfs=True, has_healthcheck=True, user='1000:1000', security_opt=['no-new-privileges']),
+    'jellyfin': _audit_facts(devices=['/dev/dri/renderD128'], user='1000', has_healthcheck=True),
+    'homeassistant': _audit_facts(privileged=True, net_mode='host', has_healthcheck=True),
+    'zwave-js': _audit_facts(devices=['/dev/ttyUSB0'], user='1000'),
+    'pihole': _audit_facts(cap_add=['NET_ADMIN'], has_healthcheck=True,
+                           ports=[{'port': 53, 'proto': 'tcp', 'ip': ''}, {'port': 53, 'proto': 'udp', 'ip': ''},
+                                  {'port': 80, 'proto': 'tcp', 'ip': ''}]),
+    'node-exporter': _audit_facts(net_mode='host', pid_mode='host', user='65534', readonly_rootfs=True,
+                                  mounts=[{'src': '/', 'dst': '/host', 'rw': False}]),
+    'gitea': _audit_facts(has_healthcheck=True, mounts=[{'src': '/var/run/docker.sock', 'dst': '/var/run/docker.sock', 'rw': True}],
+                          ports=[{'port': 3000, 'proto': 'tcp', 'ip': ''}]),
+    'gitea-db': _audit_facts(user='999', has_healthcheck=True, ports=[{'port': 5432, 'proto': 'tcp', 'ip': ''}]),
+    'nextcloud-cache': _audit_facts(user='999', has_healthcheck=True, security_opt=['no-new-privileges']),
+    'mosquitto': None,
+}
+
+
 def build_containers() -> dict:
     """A handful of docker containers per services-flavoured device."""
     out = {}
@@ -1750,6 +1779,9 @@ def build_containers() -> dict:
                 # "unlimited" flag on the card is trying to make.
                 'mem_limit_bytes': rng.choice([0, 256 * 1024 ** 2, 1024 ** 3]),
                 'cpu_limit_cores': 0,
+                # 7.4.9: how the container was started, for the hardening audit (None: the agent could not tell)
+                'audit':         (dict(_DEMO_AUDIT[cname], **{}) if _DEMO_AUDIT.get(cname) is not None else None)
+                                 if cname in _DEMO_AUDIT else _audit_facts(),
             })
             # 7.4.9: one container on Home Assistant fails its own health check, so the demo shows the
             # badge, the Needs attention count and the alert with the check's output.

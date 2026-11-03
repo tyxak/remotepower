@@ -46,6 +46,7 @@ LINT_SRC := server/cgi-bin/safe_opener.py \
             server/cgi-bin/bizsvc.py \
             server/cgi-bin/patch_plan.py \
             server/cgi-bin/zfs_stats.py \
+            server/cgi-bin/container_audit.py \
             tests/test_v190.py \
             tests/test_v1100.py \
             tests/test_wsgi_entrypoint.py \
@@ -85,6 +86,7 @@ TYPECHECK_SRC := server/cgi-bin/safe_opener.py \
                  server/cgi-bin/bizsvc.py \
                  server/cgi-bin/patch_plan.py \
                  server/cgi-bin/zfs_stats.py \
+                 server/cgi-bin/container_audit.py \
                  server/cgi-bin/importers.py
 PIP_FLAGS ?= --break-system-packages
 
