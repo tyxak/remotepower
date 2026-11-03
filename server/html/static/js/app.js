@@ -2754,7 +2754,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js'];   // 7.4.9: the patch preview dialog, the time period editor
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js'];   // 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -28669,54 +28669,9 @@ async function testS3Backup() {
   else { toast(r?.error || 'S3 connection test failed', 'error'); if (el) el.textContent = failText(r); }
 }
 
-// 7.4.9: restore the server from an archive the S3 copy put in the bucket. The list comes from the bucket named in the form as it
-// stands (a rebuilt server has no saved settings), the restore is the one an upload uses, and the passphrase is asked for in the same way.
-async function openS3Restore() {
-  const list = document.getElementById('s3-restore-list'), err = document.getElementById('s3-restore-error');
-  if (list) list.innerHTML = '<div class="empty-state">Loading…</div>';
-  if (err) err.textContent = '';
-  openModal('s3-restore-modal');
-  const r = await api('POST', '/backup/s3-archives', { s3: _backupS3Form() });
-  if (!list) return;
-  if (!r || r.error || r.ok === false) { list.innerHTML = ''; if (err) err.textContent = failText(r); return; }
-  const rows = r.archives || [];
-  list.innerHTML = rows.length
-    ? `<table class="data-table w-full"><thead><tr><th>Archive</th><th>Size</th><th>Date</th><th></th></tr></thead><tbody>${rows.map(a =>
-        `<tr><td class="ff-mono">${escHtml(a.name)}</td><td class="hint">${escHtml(_fmtBytes(a.size))}</td>`
-        + `<td class="hint">${a.mtime ? escHtml(_fmtAbsTs(a.mtime)) : '—'}</td>`
-        + `<td><button class="btn-secondary" data-action="restoreFromS3" data-arg="${escAttr(a.name)}">Restore</button></td></tr>`).join('')}</tbody></table>`
-      + (r.total > rows.length ? '<div class="hint mt-6">Older archives are not shown.</div>' : '')
-    : '<div class="empty-state">No archives in the bucket.</div>';
-}
-async function restoreFromS3(name) {
-  if (!await uiConfirm({ message: `Restore from "${name}" in the S3 bucket?\n\nThis OVERWRITES the current RemotePower data (hosts, config, all state, the credentials vault). A safety snapshot of the current data is taken automatically first. Continue?`, confirmText: 'Restore', danger: true })) return;
-  const pass = await uiPrompt({
-    title: 'Encrypted backup',
-    message: `"${name}" is encrypted. Enter the backup passphrase (RP_BACKUP_PASSPHRASE on the server that wrote it).`,
-    type: 'password', confirmText: 'Restore',
-  });
-  if (pass === null) return;                         // cancelled; an empty one is allowed through: the server falls back to its own
-  const headers = { 'X-Token': getToken(), 'Content-Type': 'application/json' };
-  if (pass) headers['X-RP-Backup-Passphrase'] = pass;
-  const res = document.getElementById('backup-result');
-  if (res) { res.hidden = false; res.textContent = 'Reading from the bucket & restoring…'; }
-  closeModal('s3-restore-modal');
-  try {
-    const r = await fetch('/api/backup/s3-restore', { method: 'POST', headers, body: JSON.stringify({ name, s3: _backupS3Form() }) });
-    const data = await r.json().catch(() => ({}));
-    if (r.ok && data.ok) {
-      if (res) res.textContent = `Restored ${data.restored} files. Safety snapshot: ${data.snapshot}. Reload the page to see the restored state.`;
-      toast(`Restored ${data.restored} files`, 'success');
-    } else {
-      const msg = (data && data.error) || ('HTTP ' + r.status);
-      if (res) res.textContent = 'Restore failed: ' + msg;
-      toast('Restore failed: ' + msg, 'error');
-    }
-  } catch (e) {
-    if (res) res.textContent = 'Restore failed: ' + e;
-    toast('Restore failed', 'error');
-  }
-}
+// 7.4.9: restore from the S3 bucket (app-s3restore.js, lazy): the buttons call these two, which load it first.
+async function openS3Restore() { await _loadJsModule('app-s3restore.js'); return _s3RestoreOpen(); }
+async function restoreFromS3(name) { await _loadJsModule('app-s3restore.js'); return _s3RestoreRun(name); }
 
 async function testRestore() {
   const el = document.getElementById('test-restore-result');
