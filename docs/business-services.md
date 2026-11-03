@@ -4,7 +4,7 @@ A host list tells you which machines are up. A monitor tells you whether one add
 **Checkout** works, because Checkout is a web server, a database, a cache and a payment monitor, and someone has to add
 them up in their head. A business service writes that sum down.
 
-**Business services** (sidebar, under Monitoring) lists the services you defined, each with its state, the rule that
+**Business Services** (sidebar, under Monitoring) lists the services you defined, each with its state, the rule that
 decides it, how many of its parts are up, since when, and its availability over 30 days.
 
 ## A service is a name, parts and a rule
@@ -37,7 +37,7 @@ what it is: still serving, with less margin.
 
 ## Create one
 
-1. **Business services → New service.**
+1. **Business Services → New service.**
 2. Give it a name, and a description if you like.
 3. Pick the rule. For the quorum rule, set the number.
 4. Add the parts. Choose the kind, fill in its fields (a host, plus the unit name, the container name or the script) and

@@ -10123,7 +10123,7 @@
     "the number of parts that have to be up is more than the parts": { "zh": "必须正常的组成部分数量超过了组成部分总数", "hi": "चालू रहने वाले हिस्सों की संख्या कुल हिस्सों से अधिक है", "es": "El número de partes que deben estar activas supera el de partes", "ar": "عدد الأجزاء المطلوب أن تعمل أكبر من عدد الأجزاء", "de": "Die Zahl der Bestandteile, die laufen müssen, ist größer als die Zahl der Bestandteile", "fr": "Le nombre d'éléments qui doivent fonctionner dépasse celui des éléments" },
     "the limit of services is reached": { "zh": "已达到服务数量上限", "hi": "सेवाओं की सीमा पूरी हो गई है", "es": "Se alcanzó el límite de servicios", "ar": "تم بلوغ الحد الأقصى للخدمات", "de": "Die Obergrenze für Dienste ist erreicht", "fr": "La limite de services est atteinte" },
     "that user cannot see this alert": { "zh": "该用户无法查看此告警", "hi": "वह उपयोगकर्ता यह अलर्ट नहीं देख सकता", "es": "Ese usuario no puede ver esta alerta", "ar": "لا يستطيع هذا المستخدم رؤية هذا التنبيه", "de": "Dieser Benutzer kann diese Warnung nicht sehen", "fr": "Cet utilisateur ne peut pas voir cette alerte" },
-    "Business services": { "zh": "业务服务", "hi": "बिज़नेस सेवाएँ", "es": "Servicios de negocio", "ar": "خدمات الأعمال", "de": "Geschäftsdienste", "fr": "Services métier" },
+    "Business Services": { "zh": "业务服务", "hi": "बिज़नेस सेवाएँ", "es": "Servicios de negocio", "ar": "خدمات الأعمال", "de": "Geschäftsdienste", "fr": "Services métier" },
     "Add part": { "zh": "添加部分", "hi": "हिस्सा जोड़ें", "es": "Añadir parte", "ar": "إضافة جزء", "de": "Teil hinzufügen", "fr": "Ajouter un élément" },
     "New service": { "zh": "新建服务", "hi": "नई सेवा", "es": "Nuevo servicio", "ar": "خدمة جديدة", "de": "Neuer Dienst", "fr": "Nouveau service" },
     "Edit service": { "zh": "编辑服务", "hi": "सेवा संपादित करें", "es": "Editar servicio", "ar": "تعديل الخدمة", "de": "Dienst bearbeiten", "fr": "Modifier le service" },
@@ -10160,7 +10160,8 @@
     "That part is already in the service": { "zh": "该部分已在服务中", "hi": "वह हिस्सा पहले से सेवा में है", "es": "Esa parte ya está en el servicio", "ar": "هذا الجزء موجود بالفعل في الخدمة", "de": "Dieser Teil ist bereits im Dienst", "fr": "Cet élément fait déjà partie du service" },
     "Not known": { "zh": "未知", "hi": "अज्ञात", "es": "Desconocido", "ar": "غير معروف", "de": "Unbekannt", "fr": "Inconnu" },
     "All parts": { "zh": "所有部分", "hi": "सभी हिस्से", "es": "Todas las partes", "ar": "جميع الأجزاء", "de": "Alle Teile", "fr": "Tous les éléments" },
-    "At least one part": { "zh": "至少一个部分", "hi": "कम से कम एक हिस्सा", "es": "Al menos una parte", "ar": "جزء واحد على الأقل", "de": "Mindestens ein Teil", "fr": "Au moins un élément" }
+    "At least one part": { "zh": "至少一个部分", "hi": "कम से कम एक हिस्सा", "es": "Al menos una parte", "ar": "جزء واحد على الأقل", "de": "Mindestens ein Teil", "fr": "Au moins un élément" },
+    "This enrollment token cannot be used from this address": { "zh": "此注册令牌不能从该地址使用", "hi": "इस नामांकन टोकन का उपयोग इस पते से नहीं किया जा सकता", "es": "Este token de inscripción no se puede usar desde esta dirección", "ar": "لا يمكن استخدام رمز التسجيل هذا من هذا العنوان", "de": "Dieses Registrierungs-Token kann von dieser Adresse aus nicht verwendet werden", "fr": "Ce jeton d'enrôlement ne peut pas être utilisé depuis cette adresse" }
   };
 
   // v4.2: page-subtitle translations keyed by normalized English innerHTML

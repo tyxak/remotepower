@@ -7759,9 +7759,8 @@ def _ip_in_cidrs(ip, cidrs):
     except (ValueError, TypeError):
         return False
     # 7.4.9: a client seen on a dual-stack listener can arrive as ::ffff:10.0.0.5. It is the IPv4 address 10.0.0.5, and a
-    # list that names 10.0.0.0/24 has to match it.
-    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
-        addr = addr.ipv4_mapped
+    # list that names 10.0.0.0/24 has to match it. Only that form: ssrf_ip.unmap leaves a 6to4 or NAT64 address alone.
+    addr = ssrf_ip.unmap(addr)
     for c in (cidrs or []):
         c = str(c).strip()
         if not c:
@@ -52668,6 +52667,7 @@ _NA_MUTE_EVENTS = {
     ('av_posture',         'critical'): ('av_infected',),
     ('av_posture',         'warning'):  ('av_warning',),
     ('custom_script_fail', 'warning'):  ('custom_script_fail',),
+    ('custom_script_fail', 'critical'): ('custom_script_fail',),   # 7.4.9: a script read as a plugin can be critical
     ('custom_check',        'critical'): ('custom_check_failed',),   # v6.4.0
     ('custom_check',        'warning'):  ('custom_check_failed',),
     ('log_alert',          'critical'): ('log_alert',),

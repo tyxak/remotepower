@@ -296,6 +296,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ea455fa1"/></svg>
           <span>Needs Attention</span>
         </button>
+        <button class="nav-btn" data-page="business-services" title="Group hosts, monitors, units, containers and scripts into the services people depend on, and see when one is degraded or down">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17.5h7M17.5 14v7"/></svg>
+          <span>Business Services</span>
+        </button>
         <button class="nav-btn" data-page="checks" title="Per-host service checks (CheckMK-style)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-896fd277"/></svg>
           <span>Checks</span>
@@ -327,10 +331,6 @@
         <button class="nav-btn" data-page="services" title="systemd units watched per host — history, logs and configuration">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span>Services</span>
-        </button>
-        <button class="nav-btn" data-page="business-services" title="Group hosts, monitors, units, containers and scripts into the services people depend on, and see when one is degraded or down">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17.5h7M17.5 14v7"/></svg>
-          <span>Business services</span>
         </button>
         <button class="nav-btn" data-page="board" title="NOC status board — a glanceable wall view of fleet health, grouped and rolled up for large fleets">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
@@ -4884,7 +4884,7 @@
               <p><strong>A drive sensor follows its own disk.</strong> A hard disk and a SATA SSD behind the same controllers keep their own temperature lines. The Thermal page names the disk beside each <code>drivetemp</code> sensor, and the temperature list in the host drawer uses the same verdict. Update the Linux agents.</p>
               <p><strong>What 7.4.8 got wrong on Ubuntu 22.04.</strong> An update Ubuntu was still phasing in was counted as pending, and nothing could clear it. The agent leaves such an update out now.</p>
               <p><strong>The whole project was reviewed.</strong> Seven reviews ran side by side: who can reach what on every route, hostile input, the agents and their installers, the web client, the interface, the documents and the signals the agents send. They found five High, sixteen Medium and ten Low or hardening issues, and every one of them is fixed. Among the fixes: a viewer could rewrite a host&rsquo;s watched services by changing the HTTP verb, Sign out did not end the session on the server, a tenant&rsquo;s users could read the operator&rsquo;s tickets and invoices, and the Docker image ran its app as root. See <code>docs/security-review-7.4.9.md</code>.</p>
-              <p><strong>New after the review.</strong> A <em>Business services</em> page names what people depend on and the hosts, monitors, units, containers and scripts it is made of, with a rule for how they add up. A container that fails its own health check raises an alert with what the check printed. A custom script can be read as a Nagios plugin, with four states and performance data. An alert can be assigned to a person. Mattermost, Rocket.Chat, Google Chat and Gotify are destinations of their own, and ntfy now gets the real priority. An enrolment token can be limited to a network.</p>
+              <p><strong>New after the review.</strong> A <em>Business Services</em> page names what people depend on and the hosts, monitors, units, containers and scripts it is made of, with a rule for how they add up. A container that fails its own health check raises an alert with what the check printed. A custom script can be read as a Nagios plugin, with four states and performance data. An alert can be assigned to a person. Mattermost, Rocket.Chat, Google Chat and Gotify are destinations of their own, and ntfy now gets the real priority. An enrolment token can be limited to a network.</p>
               <p><strong>What changes for you.</strong> Update the agents. If you used ACME with a DNS credential saved in Settings, rotate that token. In Docker, add <code>-u www-data</code> to a <code>docker exec</code> that writes to the data volume. A host&rsquo;s SCAP report opens from a link that works for one minute. A maintenance window written with a day name such as <code>SUN</code> opens now, so look at the ones you edited by hand.</p>
               <p><strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
               <p class="hint">See <code>docs/v7.4.9.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
@@ -6404,8 +6404,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div>
 
       <div id="page-business-services" class="page">
-        <div class="page-title">Business services</div>
+        <div class="page-title">Business Services</div>
         <div class="page-subtitle">Name what people depend on, such as Checkout or the office network, and the hosts, monitors, units, containers and scripts it is made of. A rule says how the parts add up, and you are told when a service goes down, gets worse or comes back.</div>
+        <p class="hint"><a href="docs/business-services.md" class="c-accent">Documentation</a></p>
         <div class="stats-row" id="bs-stats">
           <div class="stat-card" data-stat-tone="bad"><div><div class="stat-value c-red" id="bs-n-critical">0</div><div class="stat-label">Down</div></div></div>
           <div class="stat-card"><div><div class="stat-value c-amber" id="bs-n-warning">0</div><div class="stat-label">Degraded</div></div></div>

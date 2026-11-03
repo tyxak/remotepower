@@ -42,6 +42,7 @@ SYSTEM_RESOLVERS = frozenset(
         "device-removed",
         "check-deleted",
         "script-deleted",
+        "service-deleted",
         "secrets-host-mute",
     )
 )

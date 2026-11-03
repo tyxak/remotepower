@@ -402,7 +402,7 @@ def handle_business_services_impact():
     qs = A.urllib.parse.parse_qs(A._env("QUERY_STRING", ""))
     dev_id = A._sanitize_str((qs.get("device_id") or [""])[0], 64)
     if not dev_id or dev_id not in set(A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})):
-        A.respond(404, {"error": "host not found"})
+        A.respond(404, {"error": "Host not found"})
     defs = _definitions()
     show = _visible_ids(defs)
     direct = {sid for sid, rec in defs.items() if dev_id in bizsvc.device_ids(_members_of(rec))}

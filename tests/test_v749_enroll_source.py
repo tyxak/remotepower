@@ -61,6 +61,14 @@ class TestTheNetworkList(unittest.TestCase):
         self.assertFalse(api._ip_in_cidrs("10.0.0.5", ["junk", 5, None]))
         self.assertFalse(api._ip_in_cidrs("10.0.0.5", ["2001:db8::/32"]))        # a version that does not match
 
+    def test_only_the_mapped_form_counts_as_the_ipv4_address(self):
+        # 6to4 (2002:0a00:0005::) and NAT64 (64:ff9b::a00:5) embed 10.0.0.5 but are other addresses: an allow-list for
+        # 10.0.0.0/24 must not admit them
+        for ip in ("2002:a00:5::1", "64:ff9b::a00:5", "::10.0.0.5", "2001:db8::a00:5"):
+            self.assertFalse(api._ip_in_cidrs(ip, ["10.0.0.0/24"]), ip)
+        self.assertTrue(api._ip_in_cidrs("::ffff:10.0.0.5", ["10.0.0.0/24"]))
+        self.assertTrue(api._ip_in_cidrs("::ffff:10.0.0.5", ["10.0.0.5"]))
+
 
 class _Enrol(_Base):
     STORES = _Base.STORES + ("RATELIMIT_FILE",)

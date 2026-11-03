@@ -114,7 +114,7 @@ def result(rc, text="", ok=None):
 
 
 class _Ingest(_Base):
-    STORES = _Base.STORES + ("CUSTOM_SCRIPTS_FILE", "ALERTS_FILE", "FLEET_EVENTS_FILE")
+    STORES = _Base.STORES + ("CUSTOM_SCRIPTS_FILE", "ALERTS_FILE", "FLEET_EVENTS_FILE", "ALERT_MUTES_FILE")
 
     def setUp(self):
         super().setUp()
@@ -311,6 +311,16 @@ class TestThePages(_Ingest):
         self.assertEqual(sorted(by), ["critical", "warning"])
         self.assertIn("CRITICAL", by["critical"])
         self.assertIn("failed", by["warning"])
+
+    def test_muting_the_alert_hides_the_critical_item_as_well(self):
+        # the warning item was always muteable; the critical one a plugin can now raise needs its own _NA_MUTE_EVENTS row,
+        # or muting the alert stops the message and leaves the item (and the host's health score) where it was
+        self.report("sP", 2, "CRIT")
+        shown = lambda: [i for i in api._compute_attention() if i.get("kind") == "custom_script_fail"]
+        self.assertEqual([i["severity"] for i in shown()], ["critical"])
+        api.save(api.ALERT_MUTES_FILE, {"mutes": [{"id": "m1", "device_id": DEV, "event": "custom_script_fail"}]})
+        api._ALERT_MUTE_SET_CACHE["mtime"] = None
+        self.assertEqual(shown(), [])
 
     def test_the_script_list_and_the_definition_carry_the_mode(self):
         st, d = self.call(api.handle_custom_scripts_list, m="GET", who="platform")

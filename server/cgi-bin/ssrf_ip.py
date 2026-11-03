@@ -75,6 +75,19 @@ def unwrap(ip):
     return inner if inner is not None else ip
 
 
+def unmap(ip):
+    """The IPv4 address inside an IPv4-mapped IPv6 address (`::ffff:10.0.0.5`), or `ip` unchanged.
+
+    Narrower than unwrap() on purpose. A listener that serves both families shows an IPv4 client as `::ffff:a.b.c.d`, which
+    is the same address, so a comparison against a list of networks has to see it as such. A 6to4 or NAT64 address is a
+    different address that merely embeds one, so it is left alone: unwrapping it would let an allow-list written for
+    10.0.0.0/24 admit a client that is not on that network.
+    """
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
+
+
 def block_reason(ip_str, allow_loopback=False):
     """The human-readable class name for a blocked IP, or None if allowed.
 

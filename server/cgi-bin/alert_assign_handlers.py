@@ -112,7 +112,7 @@ def handle_alert_assign(alert_id):
     users = A.load(A.USERS_FILE) or {}
     rec = users.get(target) if target else None
     if target and (not isinstance(rec, dict) or rec.get('disabled') or not A._user_tenant_visible(target)):
-        A.respond(404, {'error': 'user not found'})
+        A.respond(404, {'error': 'User not found'})
     denied = None
     snapshot = None
     with A._LockedUpdate(A.ALERTS_FILE) as store:
