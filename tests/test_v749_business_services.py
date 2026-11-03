@@ -9,7 +9,6 @@ Three layers, each driven for real: the pure rules (bizsvc), the handlers over t
 real alert ledger. The state of each kind of part is read from the store the product already keeps for it, so each is tested against
 that store's real shape.
 """
-import json
 import os
 import sys
 import time
@@ -19,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_tenant_instance_gate import _Base, api  # noqa: E402
 
 import bizsvc as bz  # noqa: E402
+import problems  # noqa: E402
 
 
 def host(i):
@@ -213,10 +213,11 @@ class _Svc(_Base):
         return [(e, p) for e, p in self.fired if e.startswith("business_service") and (name is None or e == name)]
 
     def set_last_seen(self, dev, ts):
-        # save() refuses to move a host's last_seen back (the heartbeat's monotonic guard), so write the file itself
+        # save() refuses to move a host's last_seen back (the heartbeat's monotonic guard); clamp_last_seen=False lifts it, and it
+        # works on every backend (writing devices.json as a file lands in a void on SQLite and Postgres)
         devs = api.load(api.DEVICES_FILE)
         devs[dev]["last_seen"] = ts
-        api.DEVICES_FILE.write_text(json.dumps(devs))
+        api.save(api.DEVICES_FILE, devs, clamp_last_seen=False)
         api._LOAD_CACHE.clear()
 
 
@@ -397,6 +398,8 @@ class TestCreatingAndChanging(_Svc):
         self.assertNotIn(sid, api.load(api.BUSINESS_SERVICE_HIST_FILE) or {})
         alerts = api.load(api.ALERTS_FILE)["alerts"]
         self.assertTrue(alerts and all(a.get("resolved_at") and a.get("resolved_by") == "service-deleted" for a in alerts))
+        # the system closed it: the Problems page must not call it "resolved by you"
+        self.assertFalse(any(problems.resolved_by_hand(a) for a in alerts))
         self.assertEqual(self.call(api.handle_business_service, sid, m="GET", who="platform")[0], 404)
 
     def test_a_service_another_one_holds_cannot_be_deleted(self):
@@ -597,7 +600,7 @@ class TestHostileStores(_Svc):
             "bs_ok": {"name": "Fine", "members": [host("h1")], "rule": {"type": "all"}},
             "bs_str": {"name": "S", "members": "host", "rule": "any"},
             "bs_none": {"name": None, "members": None, "rule": None},
-            "bs_list": ["x"], "bs_num": 5, 7: {"name": "int key"},
+            "bs_list": ["x"], "bs_num": 5, "7": {"name": "numeric key"},   # a JSON store only ever holds string keys
             "bs_junk": {"name": ["l"], "members": [None, 5, {"kind": "host"}, {"kind": "host", "device_id": ["d"]}], "rule": [1]}})
         api._LOAD_CACHE.clear()
         rows = self.listing()

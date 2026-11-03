@@ -82,6 +82,12 @@ class TestLogin(unittest.TestCase):
                           'created': int(time.time()), 'totp_secret': self.secret}
         api.save(api.USERS_FILE, users)
 
+    def _good_code(self):
+        # The server accepts the previous, the current and the next 30-second step. The current one is index 1: the previous
+        # one (index 0) stops being good if a step ends while the password is being hashed, which a gate with two suites
+        # running at once did hit (the login answered totp_invalid for a code made a moment before).
+        return api._totp(self.secret)[1]
+
     def _wrong_code(self):
         good = set(api._totp(self.secret))
         for n in range(1000000):
@@ -101,7 +107,7 @@ class TestLogin(unittest.TestCase):
         self.assertIn(429, statuses, statuses)
         # and it holds: the right code is refused while the account is locked
         status, _ = _login({'username': 'alice', 'password': self.PASSWORD,
-                            'totp_code': api._totp(self.secret)[0]}, ip='203.0.113.200')
+                            'totp_code': self._good_code()}, ip='203.0.113.200')
         self.assertEqual(status, 429)
 
     def test_a_correct_login_still_works_and_clears_the_count(self):
@@ -110,7 +116,7 @@ class TestLogin(unittest.TestCase):
             _login({'username': 'alice', 'password': self.PASSWORD, 'totp_code': code},
                    ip=f'203.0.113.{i + 1}')
         status, body = _login({'username': 'alice', 'password': self.PASSWORD,
-                               'totp_code': api._totp(self.secret)[0]}, ip='203.0.113.50')
+                               'totp_code': self._good_code()}, ip='203.0.113.50')
         self.assertEqual(status, 200)
         self.assertTrue(body.get('ok'), body)
         self.assertNotIn('login:alice', api.load(api.RATELIMIT_FILE) or {})
