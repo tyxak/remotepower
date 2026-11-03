@@ -1291,6 +1291,16 @@ def _host_checks(
             if res.get("output"):
                 parts = str(res["output"]).strip().splitlines()
                 last = parts[-1] if parts else ""
+            # 7.4.9: a script read as a plugin has four states, and its own first line says what it found; the
+            # last line of a plugin's output is long output or nothing. A two-state script is read as before.
+            if res.get("mode") == "nagios" and res.get("state") in (
+                "ok",
+                "warning",
+                "critical",
+                "unknown",
+            ):
+                status = res["state"]
+                last = str(res.get("status_text") or "")
             add(
                 f"script:{sid}",
                 f"Script: {name}",

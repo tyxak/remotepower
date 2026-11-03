@@ -166,7 +166,9 @@ def _build_rocketchat_body(event, title, message):
         {
             "alias": "RemotePower",
             "text": f"*{title}*",
-            "attachments": [{"color": "#%06X" % _event_color(event), "text": (message or "")[:4000]}],
+            "attachments": [
+                {"color": "#%06X" % _event_color(event), "text": (message or "")[:4000]}
+            ],
         }
     ).encode()
     return body, {}, "application/json"
@@ -933,7 +935,13 @@ def _webhook_message(event, payload):
     elif event == "custom_script_fail":
         out = str(payload.get("output", "")).strip()
         snippet = f" — {out[:120]}" if out else ""
-        return f'{name}: script "{payload.get("script_name", "?")}" FAILED (exit {payload.get("rc", "?")}){snippet}'
+        # 7.4.9: a script read as a plugin names its state (WARNING, CRITICAL or UNKNOWN); a two-state script FAILED
+        what = (
+            str(payload.get("state") or "").upper()
+            if payload.get("state") in ("warning", "critical", "unknown")
+            else "FAILED"
+        )
+        return f'{name}: script "{payload.get("script_name", "?")}" {what} (exit {payload.get("rc", "?")}){snippet}'
     elif event == "custom_script_recover":
         return f'{name}: script "{payload.get("script_name", "?")}" recovered (OK)'
     elif event == "config_drift":

@@ -4,7 +4,7 @@
 # the exporter is server/cgi-bin/prometheus_export.py.
 # HELP remotepower_info Server build information.
 # TYPE remotepower_info gauge
-remotepower_info{version="7.3.0"} 1
+remotepower_info{version="7.4.9"} 1
 # HELP remotepower_devices_total Total enrolled devices.
 # TYPE remotepower_devices_total gauge
 remotepower_devices_total 2
@@ -17,8 +17,8 @@ remotepower_device_online{device="abc123",name="web-1",group="prod"} 1
 remotepower_device_online{device="def456",name="nas-1",group="lab"} 0
 # HELP remotepower_device_last_seen_timestamp_seconds Last heartbeat time.
 # TYPE remotepower_device_last_seen_timestamp_seconds gauge
-remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1791790508
-remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1791783308
+remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1793669491
+remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1793662291
 # HELP remotepower_device_cpu_percent CPU utilization percentage.
 # TYPE remotepower_device_cpu_percent gauge
 remotepower_device_cpu_percent{device="abc123",name="web-1",group="prod"} 12
@@ -70,7 +70,7 @@ remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severit
 remotepower_monitor_up{label="website",type="http",target="https://example.com/"} 1
 # HELP remotepower_monitor_last_check_timestamp_seconds Last check ts per monitor.
 # TYPE remotepower_monitor_last_check_timestamp_seconds gauge
-remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1791190808
+remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1793069791
 # HELP remotepower_service_active Whether a watched systemd unit is active (1/0).
 # TYPE remotepower_service_active gauge
 # HELP remotepower_services_down_total Number of watched services currently not active per device.
@@ -94,15 +94,15 @@ remotepower_webhook_deliveries_total{status="other"} 0
 remotepower_webhook_log_size 0
 # HELP remotepower_fleet_health_score Fleet health score (0-100).
 # TYPE remotepower_fleet_health_score gauge
-remotepower_fleet_health_score 88
+remotepower_fleet_health_score 84
 # HELP remotepower_device_health_score Per-device health score (0-100).
 # TYPE remotepower_device_health_score gauge
 remotepower_device_health_score{device="def456",name="nas-1"} 75
-remotepower_device_health_score{device="abc123",name="web-1"} 100
+remotepower_device_health_score{device="abc123",name="web-1"} 92
 # HELP remotepower_attention_items Needs-attention items by severity.
 # TYPE remotepower_attention_items gauge
 remotepower_attention_items{severity="critical"} 1
-remotepower_attention_items{severity="warning"} 0
+remotepower_attention_items{severity="warning"} 1
 remotepower_attention_items{severity="info"} 0
 # HELP remotepower_cve_fixable_total Critical/high CVEs a pending patch would fix.
 # TYPE remotepower_cve_fixable_total gauge
@@ -128,21 +128,28 @@ remotepower_slo_object_availability_percent{name="Public web"} 99.95
 # HELP remotepower_slo_object_budget_remaining_percent Error budget remaining for the SLA/SLO object (omitted while the window holds too few checks to resolve the target).
 # TYPE remotepower_slo_object_budget_remaining_percent gauge
 remotepower_slo_object_budget_remaining_percent{name="Public web"} 50.0
-# HELP remotepower_device_risk_score Per-device security-posture risk score (0-100, higher is worse).
+# HELP remotepower_script_state State of a custom monitoring script on a host: 0 ok, 1 warning, 2 critical, 3 unknown.
+# TYPE remotepower_script_state gauge
+remotepower_script_state{device="abc123",name="web-1",group="prod",script="disk plugin",script_id="cs_plugin"} 1
+remotepower_script_state{device="abc123",name="web-1",group="prod",script="ntp synced",script_id="cs_plain"} 0
+# HELP remotepower_script_perf_value A performance value a script read as a Nagios-style plugin printed after its "|".
+# TYPE remotepower_script_perf_value gauge
+remotepower_script_perf_value{device="abc123",name="web-1",group="prod",script="disk plugin",script_id="cs_plugin",label="/",unit="MB"} 17988.0
+# HELP remotepower_device_risk_score Per-host security-posture risk score (0-100, higher is worse).
 # TYPE remotepower_device_risk_score gauge
 remotepower_device_risk_score{device="def456",name="nas-1",group="lab"} 25.0
 remotepower_device_risk_score{device="abc123",name="web-1",group="prod"} 0.0
-# HELP remotepower_risk_devices Devices per risk level.
+# HELP remotepower_risk_devices Hosts per risk level.
 # TYPE remotepower_risk_devices gauge
 remotepower_risk_devices{level="critical"} 0
 remotepower_risk_devices{level="high"} 0
 remotepower_risk_devices{level="low"} 1
 remotepower_risk_devices{level="medium"} 1
-# HELP remotepower_device_reliability_score Per-device predicted failure likelihood (0-100, higher is worse).
+# HELP remotepower_device_reliability_score Per-host predicted failure likelihood (0-100, higher is worse).
 # TYPE remotepower_device_reliability_score gauge
 remotepower_device_reliability_score{device="abc123",name="web-1",group="prod"} 0.0
 remotepower_device_reliability_score{device="def456",name="nas-1",group="lab"} 0.0
-# HELP remotepower_reliability_devices Devices per failure-likelihood level.
+# HELP remotepower_reliability_devices Hosts per failure-likelihood level.
 # TYPE remotepower_reliability_devices gauge
 remotepower_reliability_devices{level="critical"} 0
 remotepower_reliability_devices{level="high"} 0

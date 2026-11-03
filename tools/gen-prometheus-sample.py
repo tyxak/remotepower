@@ -43,12 +43,23 @@ def main():
         'abc123': {'name': 'web-1', 'ip': '10.0.0.11', 'group': 'prod',
                    'last_seen': now, 'token': 't',
                    'sysinfo': {'os': 'Debian 12', 'cpu_percent': 12,
-                               'mem_percent': 43, 'disk_percent': 61}},
+                               'mem_percent': 43, 'disk_percent': 61},
+                   # 7.4.9: a plugin-mode script and a pass-or-fail one, so the script families fire
+                   'custom_script_results': {
+                       'cs_plugin': {'ok': False, 'state': 'warning', 'mode': 'nagios', 'rc': 1, 'output': '',
+                                     'status_text': 'DISK WARNING - 18% free',
+                                     'perf': [{'label': '/', 'value': 17988.0, 'uom': 'MB', 'warn': '19000',
+                                               'crit': '20000', 'min': 0.0, 'max': 22000.0}]},
+                       'cs_plain': {'ok': True, 'state': 'ok', 'rc': 0, 'output': 'fine'}}},
         'def456': {'name': 'nas-1', 'ip': '10.0.0.12', 'group': 'lab',
                    'last_seen': now - 7200, 'token': 't',
                    'sysinfo': {'os': 'TrueNAS', 'cpu_percent': 3,
                                'mem_percent': 70, 'disk_percent': 82}},
     })
+    api.save(api.CUSTOM_SCRIPTS_FILE, {
+        'cs_plugin': {'id': 'cs_plugin', 'name': 'disk plugin', 'body': 'x', 'assigned_devices': ['abc123'],
+                      'mode': 'nagios'},
+        'cs_plain': {'id': 'cs_plain', 'name': 'ntp synced', 'body': 'x', 'assigned_devices': ['abc123']}})
     cfg = api.load(api.CONFIG_FILE) or {}
     cfg['monitors'] = [{'label': 'website', 'type': 'http',
                         'target': 'https://example.com/',

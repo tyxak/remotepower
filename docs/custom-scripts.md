@@ -28,13 +28,65 @@ HTTPS channel the agent already uses.
 
 ## Exit code convention
 
+By default a script is **pass or fail**:
+
 | Exit code | Meaning |
 |-----------|---------|
 | **0** | OK — check passed |
 | **non-zero** | FAIL — check failed |
 
-This is a binary signal, not MRPE's four-level severity. Keep your
-scripts simple: succeed or fail.
+Keep these scripts simple: succeed or fail. If you want four states and
+performance data instead, read the script as a Nagios plugin (next section).
+
+### Read it as a Nagios plugin *(7.4.9)*
+
+Under **How the result is read**, pick **Nagios plugin** and the exit code
+becomes one of four states, the way a Nagios, Icinga or Sensu check does it:
+
+| Exit code | State |
+|-----------|-------|
+| **0** | OK |
+| **1** | WARNING |
+| **2** | CRITICAL |
+| **3**, or anything else | UNKNOWN (a script the agent could not run, or one that timed out, is UNKNOWN too) |
+
+That lets you run the plugins you already have, such as `check_disk`,
+`check_procs`, `check_http` or an NRPE command, as they are. Put the plugin's
+command in the script body:
+
+```bash
+#!/bin/sh
+/usr/lib/nagios/plugins/check_disk -w 20% -c 10% -p /
+```
+
+The plugin's first line is the status text, and it can end with performance
+data after a `|`:
+
+```text
+DISK WARNING - free space: / 4012 MB (18%) | /=17988MB;19000;20000;0;22000 inodes=41%;80;90
+```
+
+- **Status text.** The part before the `|` is what the Checks page, the alert and
+  every notification say. The rest of the output stays in the full output dialog.
+- **Performance data.** Each `label=value[unit];warn;crit;min;max` item is kept
+  (up to 20), and the results table shows the first three. A label with spaces is
+  written in single quotes, `'free space'=12MB`, and a value of `U` means unknown.
+  The warning and critical fields are kept as the plugin wrote them, ranges such as
+  `10:20` or `~:5` included.
+- **Alerts.** The first result raises nothing. After that, a change of state raises
+  **Custom script failed** (the title says *warning* or *unknown* for those states)
+  and a return to OK closes it. A script that goes from warning to critical raises
+  the open alert to high; a warning or unknown alert is medium, a critical one is
+  high, as a failing script always was. Going from critical back to warning does not
+  lower the open alert, and a return to OK closes it.
+- **Checks and Needs attention.** The script's row on the Checks page has the four
+  states. Needs attention counts a critical plugin as critical and the others as
+  warnings.
+- **Prometheus.** `remotepower_script_state` is 0, 1, 2 or 3 (a pass-or-fail script
+  is 0 or 2), and `remotepower_script_perf_value` carries each numeric performance
+  value with its `label` and `unit`, so a Grafana panel can graph a plugin.
+- **No agent update needed.** The agent already reports the exit code; the server
+  reads it. A script you do not switch keeps reading exactly as before.
 
 ---
 

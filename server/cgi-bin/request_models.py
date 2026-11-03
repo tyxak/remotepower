@@ -1757,16 +1757,18 @@ if _AVAILABLE:
         assigned_devices: Any = None
         body: str = ''
         description: str = ''
+        mode: str = ''
         name: str = ''
-        _v0 = field_validator('body', 'description', 'name', mode='before')(_coerce_str_loose)
+        _v0 = field_validator('body', 'description', 'mode', 'name', mode='before')(_coerce_str_loose)
 
     class CustomScriptUpdateRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         assigned_devices: str = ''
         body: str = ''
         description: str = ''
+        mode: str = ''
         name: str = ''
-        _v0 = field_validator('assigned_devices', 'body', 'description', 'name', mode='before')(_coerce_str_loose)
+        _v0 = field_validator('assigned_devices', 'body', 'description', 'mode', 'name', mode='before')(_coerce_str_loose)
 
     class ChecksToggleRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

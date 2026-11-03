@@ -900,6 +900,7 @@ import storage_pg   # v3.14.0 (#1): Postgres backend (psycopg imported lazily in
 # v1.11.0: container/pod awareness. Agent posts a normalised list in
 # heartbeats; this module validates and summarises.
 import containers as containers_mod
+import nagios_result   # 7.4.9: a plugin's exit code and performance data
 # v3.3.4: container image-update detection — resolves the registry's
 # current manifest digest for a repo:tag so the scan can flag stale images.
 import image_registry as image_registry_mod
@@ -2260,7 +2261,7 @@ EVENT_REGISTRY = {
         resolves=('mailbox_threshold',), tags='white_check_mark'),
     'custom_script_fail': dict(
         label='Custom monitoring script returned non-zero', kind='script',
-        title='Custom Script Failed', severity='high', priority=4, tags='red_circle,test_tube'),
+        title='Custom Script Failed', severity=None, priority=4, tags='red_circle,test_tube'),
     'custom_script_recover': dict(
         label='Custom monitoring script recovered to OK', kind='script',
         title='Custom Script Recovered', resolves=('custom_script_fail',),
@@ -10307,6 +10308,10 @@ def _alert_severity(event, payload):
         if days < 14:
             return 'high'
         return 'medium'
+    if event == 'custom_script_fail':
+        # 7.4.9: a script read as a plugin can be only warning or unknown, which is a medium alert; a failing
+        # script, and a plugin that says critical, stay the high alert they always were.
+        return 'medium' if p.get('state') in ('warning', 'unknown') else 'high'
     if event == 'custom_check_failed':
         # A hard failure (process down / port closed) is 'critical' → high;
         # an agent-reported 'warning' (e.g. log_errors, slightly stale job) → medium.
@@ -10464,6 +10469,9 @@ def _alert_title(event, payload):
     if event == 'mailbox_threshold':
         return f'Mailbox threshold on {name}: {p.get("path", "")} = {p.get("count", "?")}'
     if event == 'custom_script_fail':
+        _st = str(p.get('state') or '')
+        if _st in ('warning', 'unknown'):
+            return f'Custom script {_st} on {name}: {p.get("script_name", "")}'
         return f'Custom script failed on {name}: {p.get("script_name", "")}'
     if event == 'log_alert':
         # v3.2.3: show the actual matched line in the alert title, not
@@ -50001,21 +50009,31 @@ def _ingest_custom_script_results(dev_id, dev_name, results):
             if not s or dev_id not in (s.get('assigned_devices') or []):
                 continue  # reject results for unassigned scripts
 
-            ok    = bool(raw.get('ok', False))
             out   = str(raw.get('output', ''))[:MAX_SCRIPT_OUTPUT]
-            rc    = int(raw['rc']) if isinstance(raw.get('rc'), int) else (0 if ok else 1)
+            rc    = int(raw['rc']) if isinstance(raw.get('rc'), int) else (0 if raw.get('ok') else 1)
             ran_at = int(raw['ran_at']) if isinstance(raw.get('ran_at'), int) else now
             dur   = int(raw['duration_ms']) if isinstance(raw.get('duration_ms'), int) else 0
 
+            # 7.4.9: a script can ask to be read as a Nagios-style plugin: its exit code is then one of four
+            # states and its first line carries the performance data. Every other script keeps the two-state
+            # reading it always had. `ok` stays what older readers expect: the script is in its good state.
+            mode  = nagios_result.clean_mode(s.get('mode'))
+            state = nagios_result.state_for(rc, mode)
+            ok    = (state == 'ok')
+            status_text, perf = nagios_result.parse_output(out) if mode == nagios_result.MODE_NAGIOS else ('', [])
+
             prev  = stored.get(script_id, {})
             prev_ok = prev.get('ok')   # None on first run
+            # a result stored before states existed has only `ok`: it was ok, or it failed
+            prev_state = None if prev_ok is None and not prev.get('state') else nagios_result.stored_state(prev)
 
             changed_at = prev.get('changed_at', ran_at)
-            if prev_ok is not None and ok != prev_ok:
+            if prev_state is not None and state != prev_state:
                 changed_at = now
 
-            stored[script_id] = {
+            row = {
                 'ok':          ok,
+                'state':       state,
                 'output':      out,
                 'rc':          rc,
                 'ran_at':      ran_at,
@@ -50023,24 +50041,34 @@ def _ingest_custom_script_results(dev_id, dev_name, results):
                 'prev_ok':     prev_ok,
                 'changed_at':  changed_at,
             }
+            if mode == nagios_result.MODE_NAGIOS:
+                row['mode'] = mode
+                row['status_text'] = status_text
+                row['perf'] = perf
+            stored[script_id] = row
 
-            # Fire edge-triggered alerts — only on state transitions, not
-            # every failing heartbeat.
-            if prev_ok is None:
-                # First result — no alert on initial acquisition
+            # Fire edge-triggered alerts — only when the state changes, not on every failing heartbeat.
+            # A change from one failing state to another (warning to critical) fires again: the inbox row
+            # escalates, and the person who was told "warning" is told it got worse.
+            if prev_state is None or state == prev_state:
+                # First result — no alert on initial acquisition — or nothing changed
                 pass
-            elif not ok and prev_ok:
-                # Transition OK → FAIL
-                pending_webhooks.append(('custom_script_fail', {
+            elif state != 'ok':
+                fail = {
                     'device_id':   dev_id,
                     'name':        dev_name,
                     'script_id':   script_id,
                     'script_name': s['name'],
                     'output':      out,
                     'rc':          rc,
-                }))
-            elif ok and not prev_ok:
-                # Transition FAIL → OK
+                }
+                if mode == nagios_result.MODE_NAGIOS:
+                    # only a plugin names its state; the two-state script's alert reads as it always did
+                    fail['state'] = state
+                    fail['output'] = status_text or out
+                pending_webhooks.append(('custom_script_fail', fail))
+            else:
+                # Back to OK
                 pending_webhooks.append(('custom_script_recover', {
                     'device_id':   dev_id,
                     'name':        dev_name,
@@ -50325,6 +50353,7 @@ def handle_custom_scripts_list():
             'name':             s['name'],
             'description':      s.get('description', ''),
             'assigned_devices': s.get('assigned_devices', []),
+            'mode':             nagios_result.clean_mode(s.get('mode')),
             'timeout':          s.get('timeout', CUSTOM_SCRIPT_TIMEOUT),
             'created_at':       s.get('created_at', 0),
             'updated_at':       s.get('updated_at', 0),
@@ -50397,6 +50426,7 @@ def handle_custom_script_create():
         'description':      desc,
         'body':             script_body,
         'assigned_devices': assigned,
+        'mode':             nagios_result.clean_mode(body.get('mode')),
         'timeout':          CUSTOM_SCRIPT_TIMEOUT,
         'created_at':       now,
         'updated_at':       now,
@@ -50428,6 +50458,8 @@ def handle_custom_script_update(script_id):
         s['name'] = _sanitize_str(str(body['name']).strip(), MAX_CUSTOM_SCRIPT_NAME) or s['name']
     if 'description' in body:
         s['description'] = _sanitize_str(str(body['description']), MAX_CUSTOM_SCRIPT_DESC)
+    if 'mode' in body:
+        s['mode'] = nagios_result.clean_mode(body['mode'])
     if 'body' in body:
         new_body = str(body['body']).strip()
         if '\x00' in new_body:
@@ -50512,6 +50544,7 @@ def handle_custom_scripts_results():
         'name':             s['name'],
         'description':      s.get('description', ''),
         'assigned_devices': [d for d in (s.get('assigned_devices') or []) if d in devices],
+        'mode':             nagios_result.clean_mode(s.get('mode')),
     } for sid, s in scripts.items() if _custom_script_reachable(s, set(devices))}
 
     rows = []
@@ -50533,14 +50566,19 @@ def handle_custom_scripts_results():
                 'script_name': meta['name'],
                 'description': meta['description'],
                 'ok':          r.get('ok', False),
+                'state':       nagios_result.stored_state(r),
+                'mode':        nagios_result.clean_mode(r.get('mode')),
                 'output':      r.get('output', ''),
+                'status_text': r.get('status_text', ''),
+                'perf':        r.get('perf') or [],
                 'rc':          r.get('rc', 0),
                 'ran_at':      r.get('ran_at', 0),
                 'duration_ms': r.get('duration_ms', 0),
                 'changed_at':  r.get('changed_at', 0),
             })
 
-    rows.sort(key=lambda r: (r['ok'], r['device_name'].lower(), r['script_name'].lower()))
+    _rank = {'critical': 0, 'unknown': 1, 'warning': 2, 'ok': 3}
+    rows.sort(key=lambda r: (_rank.get(r['state'], 0), r['device_name'].lower(), r['script_name'].lower()))
     respond(200, {'results': rows, 'scripts': list(script_meta.values())})
 
 
@@ -52191,10 +52229,14 @@ def _compute_attention():
             if rc is None or rc == 0:
                 continue
             ran = r.get('ran_at') or r.get('ts') or 0
+            # 7.4.9: a script read as a plugin says which of the failing states it is in, and a critical one is
+            # critical here; the older two-state script is the warning item it has always been.
+            st = r.get('state') if r.get('mode') == nagios_result.MODE_NAGIOS else None
             items.append({
-                'severity': 'warning', 'kind': 'custom_script_fail',
+                'severity': 'critical' if st == 'critical' else 'warning',
+                'kind': 'custom_script_fail',
                 'device':   dev.get('name', dev_id),
-                'summary':  f'{r.get("script_name", script_id)} failed '
+                'summary':  f'{r.get("script_name", script_id)} {st.upper() if st else "failed"} '
                             f'(rc={rc})' + (f' at {time.strftime("%H:%M", time.localtime(ran))}' if ran else ''),
             })
 
@@ -69254,6 +69296,9 @@ def _build_metrics_ctx(visible=None):
         # All of these are cached or cheap reads; the two O(fleet) scores go
         # through their existing file-backed caches.
         'hardware':          load(HARDWARE_FILE),
+        # 7.4.9: the names of the custom monitoring scripts, for the families of their results (the results
+        # themselves ride the device records above, so a caller sees only the hosts it may see).
+        'custom_scripts':    _load_custom_scripts(),
         # backup_state.json (per-device backup-monitor results, keyed
         # `<device_id>:<path>`) — NOT self_backup_state.json, which is the
         # control plane's own DR run and has a completely different shape.

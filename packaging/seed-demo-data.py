@@ -1325,6 +1325,8 @@ def build_devices() -> dict:
         }
         if dev['id'] in boot_reasons:
             rec['last_boot_reason'], rec['last_boot_reason_at'] = boot_reasons[dev['id']]
+        if not dev['agentless'] and _demo_script_results(dev['id']):
+            rec['custom_script_results'] = _demo_script_results(dev['id'])
         # v7.4.9 (Discussion #30): a host that runs apt upgrades in the Extended mode. Absent means Standard, as the
         # API stores it; only an apt host can have one, and the demo's apt hosts are the Debian-family ones.
         if dev['id'] in _DEMO_EXTENDED_UPGRADE:
@@ -4657,6 +4659,10 @@ def build_custom_scripts() -> dict:
          "#!/bin/sh\nn=$(restic snapshots --json 2>/dev/null | grep -c '\"time\"')\n"
          "echo \"$n snapshots\"\n[ \"$n\" -gt 0 ]\n",
          ['bk01']),
+        (_DEMO_PLUGIN_NAME,
+         'A Nagios plugin: free space on / with its performance data (exit 0 ok, 1 warning, 2 critical).',
+         "#!/bin/sh\n/usr/lib/nagios/plugins/check_disk -w 20% -c 10% -p /\n",
+         list(_DEMO_PLUGIN_RESULTS)),
     ]
     out = {}
     for i, (name, desc, body, assigned) in enumerate(plan):
@@ -4666,7 +4672,34 @@ def build_custom_scripts() -> dict:
                     'assigned_devices': assigned, 'timeout': 30,
                     'created_at': created, 'updated_at': created + 86400,
                     'created_by': 'alice' if i % 2 == 0 else 'bob'}
+        if name == _DEMO_PLUGIN_NAME:
+            out[sid]['mode'] = 'nagios'     # 7.4.9: read as a plugin
     return out
+
+
+# 7.4.9: one custom script is read as a Nagios plugin, so the Custom Scripts page, the Checks page and
+# /api/metrics have a warning with performance data to show. (rc, free %, used MB) per host.
+_DEMO_PLUGIN_NAME = 'Disk free (plugin)'
+_DEMO_PLUGIN_RESULTS = {'pmx01': (1, 17, 17988), 'nc01': (0, 52, 9470), 'gt01': (0, 61, 7210)}
+
+
+def _demo_script_results(dev_id):
+    """The stored result of the demo's plugin script on one host: what the heartbeat's ingest would have written."""
+    if dev_id not in _DEMO_PLUGIN_RESULTS:
+        return {}
+    rc, free, used = _DEMO_PLUGIN_RESULTS[dev_id]
+    state = {0: 'ok', 1: 'warning'}.get(rc, 'critical')
+    word = {0: 'OK', 1: 'WARNING'}.get(rc, 'CRITICAL')
+    text = f'DISK {word} - free space: / {100 - free}% used ({free}% free)'
+    perf = [{'label': '/', 'value': float(used), 'uom': 'MB', 'warn': '19000', 'crit': '20000',
+             'min': 0.0, 'max': 22000.0},
+            {'label': 'inodes', 'value': 41.0, 'uom': '%', 'warn': '80', 'crit': '90', 'min': None, 'max': None}]
+    ran = now() - _seeded_random(dev_id, 'plugin-ran').randint(20, 240)
+    sid = 'cs_' + _stable_id('custom_script', _DEMO_PLUGIN_NAME, length=11)
+    return {sid: {'ok': rc == 0, 'state': state, 'mode': 'nagios', 'output': text + ' | ' +
+                  ' '.join(f"{p['label']}={int(p['value'])}{p['uom']};{p['warn']};{p['crit']}" for p in perf),
+                  'status_text': text, 'perf': perf, 'rc': rc, 'ran_at': ran, 'duration_ms': 38,
+                  'prev_ok': True, 'changed_at': ran - 3600 * (3 if rc else 30)}}
 
 
 def build_diskio_history() -> dict:

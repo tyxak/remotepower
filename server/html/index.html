@@ -1191,6 +1191,7 @@
             <select id="cs-status-filter" aria-label="Filter custom scripts by status" class="form-input isl-16" data-change="renderCustomScriptsPage">
               <option value="all">All</option>
               <option value="fail">Failing</option>
+              <option value="warning">Warning</option>
               <option value="ok">OK</option>
             </select>
             <button class="btn-icon" data-action="loadCustomScripts" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -12311,6 +12312,15 @@ nextcloud mem=95 sustain=6</pre>
     <div class="form-group">
       <label for="cs-modal-desc" class="form-label">Description (optional)</label>
       <input type="text" id="cs-modal-desc" class="form-input" placeholder="Verifies nginx responds on localhost" maxlength="256">
+    </div>
+
+    <div class="form-group">
+      <label for="cs-modal-mode" class="form-label">How the result is read</label>
+      <select id="cs-modal-mode" class="form-input">
+        <option value="exit">Pass or fail: exit code 0 passes</option>
+        <option value="nagios">Nagios plugin: 0 OK, 1 warning, 2 critical, 3 unknown</option>
+      </select>
+      <div class="meta-sm">A plugin can end its first line with performance data, <code>TEXT | label=value;warn;crit</code>, which RemotePower shows beside the result.</div>
     </div>
 
     <!-- AI generation row -->

@@ -143,13 +143,14 @@ function renderCustomScriptsPage() {
   }
   if (statusFilter === 'fail') rows = rows.filter(r => !r.ok);
   if (statusFilter === 'ok')   rows = rows.filter(r => r.ok);
+  if (statusFilter === 'warning') rows = rows.filter(r => r.state === 'warning');
 
   tableCtl.wireSortOnly('cs-results-thead', 'cs_results', renderCustomScriptsPage);
   rows = tableCtl.sortRows('cs_results', rows, (r) => ({
     script_name: (r.script_name || '').toLowerCase(),
     device_name: (r.device_name || '').toLowerCase(),
     group:       (r.group || '').toLowerCase(),
-    ok:          r.ok ? 1 : 0,
+    ok:          _csStateRank(r),
     output:      (r.output || '').toLowerCase(),
     ran_at:      r.ran_at || 0,
     duration_ms: r.duration_ms || 0,
@@ -203,13 +204,13 @@ function renderCustomScriptsPage() {
   }
 
   tbody.innerHTML = noResultHtml + rows.map(r => {
-    const statusBadge = r.ok
-      ? '<span class="c-green-bold">● OK</span>'
-      : '<span class="c-red-bold">● FAIL</span>';
+    const statusBadge = _csStateBadge(r);
     const output = (r.output || '').trim();
-    const outputSnippet = output.length > 80
-      ? escHtml(output.slice(0, 80)) + '<span class="c-muted">…</span>'
-      : escHtml(output || '—');
+    // a script read as a plugin shows the line it printed, not the whole output, and its performance values
+    const shown = (r.mode === 'nagios' && r.status_text) ? r.status_text : output;
+    const outputSnippet = (shown.length > 80
+      ? escHtml(shown.slice(0, 80)) + '<span class="c-muted">…</span>'
+      : escHtml(shown || '—')) + _csPerfHtml(r);
     const ranAt = r.ran_at ? _fmtAbsTs(r.ran_at) : '—';
     const dur   = r.duration_ms ? `${r.duration_ms} ms` : '—';
     const changedAgo = r.changed_at
@@ -233,6 +234,29 @@ function renderCustomScriptsPage() {
       </td>
     </tr>`;
   }).join('');
+}
+
+// 7.4.9: a script read as a Nagios plugin has four states; a pass-or-fail script keeps OK and FAIL.
+function _csStateRank(r) {
+  return ({ ok: 3, warning: 2, unknown: 1, critical: 0 })[r.state] ?? (r.ok ? 3 : 0);
+}
+function _csStateBadge(r) {
+  const plugin = r.mode === 'nagios';
+  const st = r.state || (r.ok ? 'ok' : 'critical');
+  if (st === 'ok') return '<span class="c-green-bold">● OK</span>';
+  if (st === 'warning') return '<span class="c-amber-bold">● WARN</span>';
+  if (st === 'unknown') return '<span class="c-muted">● UNKNOWN</span>';
+  return `<span class="c-red-bold">● ${plugin ? 'CRIT' : 'FAIL'}</span>`;
+}
+function _csPerfHtml(r) {
+  const perf = Array.isArray(r.perf) ? r.perf : [];
+  if (!perf.length) return '';
+  const first = perf.slice(0, 3).map(p => {
+    const v = (p.value === null || p.value === undefined) ? 'U' : String(p.value);
+    return `${escHtml(p.label)}=${escHtml(v)}${escHtml(p.uom || '')}`;
+  }).join(' · ');
+  const more = perf.length > 3 ? ` +${perf.length - 3}` : '';
+  return `<div class="meta-sm-nm" data-no-i18n>${first}${more}</div>`;
 }
 
 function openCsOutput(scriptName, deviceName, output) {
@@ -263,6 +287,7 @@ async function openCustomScriptModal(scriptId) {
   document.getElementById('cs-modal-name').value  = '';
   document.getElementById('cs-modal-desc').value  = '';
   document.getElementById('cs-modal-body').value  = '';
+  document.getElementById('cs-modal-mode').value  = 'exit';
   document.getElementById('cs-ai-prompt').value   = '';
   document.getElementById('cs-ai-status').textContent = '';
   document.getElementById('cs-modal-delete-btn').style.display = scriptId ? 'block' : 'none';
@@ -274,6 +299,7 @@ async function openCustomScriptModal(scriptId) {
       document.getElementById('cs-modal-name').value = s.name || '';
       document.getElementById('cs-modal-desc').value = s.description || '';
       document.getElementById('cs-modal-body').value = s.body || '';
+      document.getElementById('cs-modal-mode').value = s.mode === 'nagios' ? 'nagios' : 'exit';
     }
   }
 
@@ -391,7 +417,8 @@ async function saveCustomScript() {
   if (!name) { toast('Script name is required', 'error', {transient: true}); return; }
   if (!body) { toast('Script body is required', 'error', {transient: true}); return; }
 
-  const payload = { name, description: desc, body, assigned_devices: assigned };
+  const mode = document.getElementById('cs-modal-mode').value === 'nagios' ? 'nagios' : 'exit';
+  const payload = { name, description: desc, body, assigned_devices: assigned, mode };
   let result;
   if (sid) {
     result = await api('PUT', `/custom-scripts/${sid}`, payload);

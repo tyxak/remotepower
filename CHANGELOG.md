@@ -69,6 +69,18 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   asks `docker inspect` about an unhealthy container only (eight per report at most), so a healthy host pays nothing. Update
   the agents for the output text; without it the alert still fires.
 
+### Custom scripts
+
+- **A script can be read as a Nagios plugin.** The Custom Scripts page said it plainly: a pass-or-fail signal, not four
+  levels. A plugin that reports a warning (exit 1) was a failure, and a `check_disk`, an NRPE command or any Icinga or
+  Sensu check needed a wrapper. Under **How the result is read**, pick **Nagios plugin** and the exit code is the state
+  (0 OK, 1 warning, 2 critical, 3 or anything else unknown), the first line is the status text, and the performance data
+  after the `|` is kept (up to 20 items, shown in the results table). The Checks row has four states, the alert is medium
+  for a warning or unknown and high for critical, it rises when a warning becomes critical, and a return to OK closes it.
+  `remotepower_script_state` and `remotepower_script_perf_value` carry the states and the values to Prometheus, so a panel
+  can graph a plugin. The server reads the exit code the agents already send, so no agent update is needed. A script you
+  leave on the default is read exactly as before.
+
 ### Alerts
 
 - **An alert can be assigned to a person.** The inbox knew who acknowledged an alert and nothing about who was dealing with

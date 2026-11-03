@@ -71,6 +71,7 @@ Uptime tracking, user counts, and api key counts can be added later if needed.
 import math
 
 import checks   # v7.0.3: the shared accepted-risk predicate
+import nagios_result   # 7.4.9: the state of a stored script result
 
 
 # ── Label escaping (per Prometheus spec) ──────────────────────────────────────
@@ -571,6 +572,13 @@ def generate_metrics(ctx: dict) -> str:
         _emit_smart(lines, devices, hardware)
         _emit_ups(lines, devices, hardware)
 
+    # ── 7.4.9: custom monitoring scripts ───────────────────────────────────────
+    # Every script result is a state, and a script read as a Nagios plugin also carries performance data, which
+    # is what a Grafana panel graphs. Skipped when the caller supplies no definitions (the names).
+    scripts = ctx.get('custom_scripts')
+    if isinstance(scripts, dict) and scripts:
+        _emit_script_results(lines, devices, scripts)
+
     # ── v6.4.2: backup freshness ───────────────────────────────────────────────
     backup_state = ctx.get('backup_state')
     if backup_state:
@@ -884,6 +892,52 @@ def _emit_smart(lines, devices, hardware):
                 continue
             lines.append(_metric(name, _dev_labels(devices, dev_id, {'disk': disk}),
                                  round(v / 100.0, 4)))
+
+
+# The state a script result is in, as the number a plugin exits with: 0 ok, 1 warning, 2 critical, 3 unknown.
+_SCRIPT_STATE_CODE = {'ok': 0, 'warning': 1, 'critical': 2, 'unknown': 3}
+
+
+def _emit_script_results(lines, devices, scripts):
+    """Custom monitoring scripts (7.4.9): the state of each result, and the performance data of a script read as a
+    Nagios-style plugin.
+
+    ``remotepower_script_state`` is 0 ok, 1 warning, 2 critical, 3 unknown (a pass-or-fail script is 0 or 2).
+    ``remotepower_script_perf_value`` is one sample per performance item with a number; ``unit`` is the plugin's own
+    unit text. The script id is a label because two scripts can share a name, and a duplicate series is dropped by
+    Prometheus."""
+    states, perfs = [], []
+    for dev_id, d in devices.items():
+        res = d.get('custom_script_results') if isinstance(d, dict) else None
+        if not isinstance(res, dict):
+            continue
+        for sid, r in res.items():
+            sdef = scripts.get(sid)
+            if not isinstance(r, dict) or not isinstance(sdef, dict):
+                continue
+            extra = {'script': str(sdef.get('name') or sid), 'script_id': str(sid)}
+            states.append((_dev_labels(devices, dev_id, extra), _SCRIPT_STATE_CODE[nagios_result.stored_state(r)]))
+            perf = r.get('perf')
+            if not isinstance(perf, list):
+                continue
+            seen = set()
+            for p in perf:
+                v = _num(p.get('value')) if isinstance(p, dict) else None
+                if v is None:
+                    continue
+                label = _uniq(seen, str(p.get('label') or 'value'))
+                perfs.append((_dev_labels(devices, dev_id, dict(extra, label=label, unit=str(p.get('uom') or ''))), v))
+    if not states:
+        return
+    lines.append('# HELP remotepower_script_state State of a custom monitoring script on a host: 0 ok, 1 warning, 2 critical, 3 unknown.')
+    lines.append('# TYPE remotepower_script_state gauge')
+    for labels, code in states:
+        lines.append(_metric('remotepower_script_state', labels, code))
+    if perfs:
+        lines.append('# HELP remotepower_script_perf_value A performance value a script read as a Nagios-style plugin printed after its "|".')
+        lines.append('# TYPE remotepower_script_perf_value gauge')
+        for labels, v in perfs:
+            lines.append(_metric('remotepower_script_perf_value', labels, v))
 
 
 def _emit_ups(lines, devices, hardware):

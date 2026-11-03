@@ -237,6 +237,7 @@ dashboard can slice by host or by group without a join.
 | `remotepower_slo_target_percent`, `remotepower_monitor_slo_budget_remaining_percent`, `remotepower_monitor_slo_burn_rate`, `remotepower_slo_object_*` | SLO targets, error budgets and burn rate |
 | `remotepower_service_active`, `remotepower_services_down_total` | Watched systemd units |
 | `remotepower_fleet_health_score`, `remotepower_device_health_score`, `remotepower_attention_items` | Fleet health and the Needs-Attention digest behind it |
+| `remotepower_script_state`, `remotepower_script_perf_value` | The state (0 ok, 1 warning, 2 critical, 3 unknown) of each custom monitoring script on a host, and the performance values of a script read as a Nagios plugin *(7.4.9)* |
 | `remotepower_maintenance_windows_active`, `remotepower_commands_pending_total`, `remotepower_scheduled_jobs_total`, `remotepower_webhook_deliveries_total`, `remotepower_webhook_log_size`, `remotepower_control_plane_uptime_percent`, `remotepower_timeline_events_24h` | Control-plane state |
 
 ### Hardware, backup and posture families
