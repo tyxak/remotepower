@@ -32497,20 +32497,10 @@ def handle_config_save():
             tzoff = max(-720, min(840, int(bh.get('tz_offset_min', 0))))
         except (TypeError, ValueError, OverflowError):
             tzoff = 0
-        weekly = {}
-        for wd in range(7):
-            wins = (bh.get('weekly') or {}).get(str(wd)) or []
-            clean = []
-            for w in wins[:6]:
-                try:
-                    s, e = int(w[0]), int(w[1])
-                except (TypeError, ValueError, IndexError, OverflowError):
-                    continue
-                s = max(0, min(1440, s)); e = max(0, min(1440, e))
-                if e > s:
-                    clean.append([s, e])
-            if clean:
-                weekly[str(wd)] = clean
+        # 7.4.9: the cleaner a time period uses, so a calendar typed here and one saved as a period take the same hours: up to six
+        # ranges a day, one that ends before it starts crosses midnight, ranges that touch are joined. The loop that stood here kept
+        # a crossing range out without a word.
+        weekly = time_periods_mod.clean_weekly(bh.get('weekly'))
         holidays = []
         for h in (bh.get('holidays') or [])[:200]:
             h = re.sub(r'[^0-9\-]', '', str(h))[:10]

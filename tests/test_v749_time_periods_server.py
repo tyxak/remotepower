@@ -317,6 +317,72 @@ class TestTicketClock(_Base):
         self.assertEqual(self.due(at(2026, 11, 6, 16), 2), at(2026, 11, 9, 10))
 
 
+class TestTheCalendarTypedHere(_Base):
+    """The hours typed under Settings -> Tickets are saved by the same settings call, and read with the cleaner a time period uses:
+    up to six ranges a day, a range across midnight split over the two days, ranges that touch joined. Until 7.4.9 the call had a
+    loop of its own that dropped a range across midnight without a word, and the page showed and saved only the first range of a
+    day, so a calendar with a lunch break lost the rest the next time anyone pressed Save."""
+
+    def hours(self, weekly, **extra):
+        st, body = self.save({"ticket_business_hours": dict({"enabled": True, "tz_offset_min": 0, "weekly": weekly, "holidays": []}, **extra)})
+        self.assertEqual(st, 200, body)
+        return self.cfg()["ticket_business_hours"]["weekly"]
+
+    def due(self, created, hours):
+        api._LOAD_CACHE.clear()
+        return api._ticket_sla({"created_at": created, "priority": 3, "status": "ongoing", "type": "incident"}, {3: hours})[0]
+
+    def test_a_day_with_a_lunch_break_keeps_both_ranges(self):
+        self.assertEqual(self.hours({"0": [[540, 720], [780, 1020]]})["0"], [[540, 720], [780, 1020]])
+
+    def test_the_clock_pauses_for_the_break(self):
+        self.hours({str(d): [[540, 720], [780, 1020]] for d in range(5)})
+        # Monday 2026-11-02, created 11:00, two hours of work: one until noon, then none until 13:00, then one more
+        self.assertEqual(self.due(at(2026, 11, 2, 11), 2), at(2026, 11, 2, 14))
+        # the same calendar with one range 09:00-17:00 would be due at 13:00
+        self.hours({str(d): [[540, 1020]] for d in range(5)})
+        self.assertEqual(self.due(at(2026, 11, 2, 11), 2), at(2026, 11, 2, 13))
+
+    def test_six_ranges_a_day_are_kept_and_a_seventh_is_cut(self):
+        six = [[60 * h, 60 * h + 30] for h in range(8, 20, 2)]
+        self.assertEqual(len(six), 6)
+        self.assertEqual(self.hours({"1": six})["1"], six)
+        seven = six + [[1300, 1320]]
+        self.assertEqual(self.hours({"1": seven})["1"], six, "the seventh is the one that goes")
+
+    def test_a_range_across_midnight_is_split_over_the_two_days(self):
+        w = self.hours({"4": [[1320, 360]]})           # Friday 22:00 to 06:00
+        self.assertEqual(w, {"4": [[1320, 1440]], "5": [[0, 360]]})
+        w = self.hours({"6": [[1320, 360]]})           # Sunday night runs into Monday
+        self.assertEqual(w, {"6": [[1320, 1440]], "0": [[0, 360]]})
+
+    def test_the_clock_runs_through_the_night_shift(self):
+        self.hours({"0": [[1320, 360]]})
+        # Monday 22:00 created, 3 hours of work: Monday 22:00 -> 24:00 is two, then Tuesday 00:00 -> 01:00 is the third... on a calendar
+        # that is open Monday night and Tuesday early (the split puts 0-360 on TUESDAY, which is not in this calendar)
+        self.assertEqual(self.due(at(2026, 11, 2, 22), 2), at(2026, 11, 3, 0))
+
+    def test_ranges_that_touch_or_overlap_are_joined(self):
+        self.assertEqual(self.hours({"2": [[540, 720], [720, 1020]]})["2"], [[540, 1020]])
+        self.assertEqual(self.hours({"2": [[540, 800], [700, 1020]]})["2"], [[540, 1020]])
+        self.assertEqual(self.hours({"2": [[780, 1020], [540, 720]]})["2"], [[540, 720], [780, 1020]], "and they are sorted")
+
+    def test_what_is_not_a_range_is_left_out_without_failing_the_save(self):
+        w = self.hours({"0": [[-5, 30], [540, 1020], [1500, 1600], [600, 600], [], [5]], "x": [[1, 2]], "9": [[1, 2]], "3": "no"})
+        self.assertEqual(w, {"0": [[0, 30], [540, 1020]]},
+                         "-5 reads as the start of the day, 1500 to 1600 as an empty range at its end, 600 to 600 as an empty one")
+        self.assertEqual(self.hours({"1": [["a", "b"], None, 7, "x", {"a": 1}, [540, 600]]}), {"1": [[540, 600]]})
+        for junk in (None, [], "text", 5, True, [[540, 1020]]):
+            self.assertEqual(self.hours(junk), {}, repr(junk))
+
+    def test_a_calendar_with_one_range_a_day_is_unchanged(self):
+        self.assertEqual(self.hours({str(d): [[540, 1020]] for d in range(5)}), {str(d): [[540, 1020]] for d in range(5)})
+
+    def test_a_day_with_no_range_is_closed(self):
+        w = self.hours({"0": [[540, 1020]], "1": []})
+        self.assertEqual(w, {"0": [[540, 1020]]})
+
+
 class TestMaintenanceWindows(_Base):
 
     def add(self, **body):

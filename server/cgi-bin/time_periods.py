@@ -33,6 +33,8 @@ except ImportError:  # pragma: no cover
 
 MAX_PERIODS = 50
 MAX_RANGES_PER_DAY = 6
+# what int(pair[0]), int(pair[1]) raises for a thing that is not a pair of numbers; a map where a pair belongs is a KeyError
+_NOT_A_PAIR = (TypeError, ValueError, IndexError, KeyError, OverflowError)
 MAX_HOLIDAYS = 200
 _ID_RE = re.compile(r"^tp-[0-9a-f]{8}$")
 _TZ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_+\-]*(?:/[A-Za-z0-9_+\-]+){0,2}$")
@@ -78,7 +80,7 @@ def _ranges(period: dict[str, Any], weekday: int) -> list[tuple[int, int]]:
     for win in weekly.get(str(weekday)) or []:
         try:
             s, e = int(win[0]), int(win[1])
-        except (TypeError, ValueError, IndexError, OverflowError):
+        except _NOT_A_PAIR:
             continue
         if 0 <= s < e <= 1440:
             out.append((s, e))
@@ -220,7 +222,7 @@ def clean_weekly(raw: Any) -> dict[str, list[list[int]]]:
             for w in wins[:MAX_RANGES_PER_DAY]:
                 try:
                     s, e = int(w[0]), int(w[1])
-                except (TypeError, ValueError, IndexError, OverflowError):
+                except _NOT_A_PAIR:
                     continue
                 s, e = max(0, min(1440, s)), max(0, min(1440, e))
                 if s == e:

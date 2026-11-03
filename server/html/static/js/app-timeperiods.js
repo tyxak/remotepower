@@ -90,33 +90,47 @@ function _tpOpen(id) {
   document.getElementById('tp-holidays').value = (per.holidays || []).join('\n');
   const list = document.getElementById('tp-zone-list');
   if (list && !list.children.length) list.innerHTML = _TP_ZONES.map(z => `<option value="${escAttr(z)}"></option>`).join('');
-  document.getElementById('tp-days').innerHTML = _TP_DAY_NAMES.map((name, d) => `<div class="tp-day" data-day="${d}">
-      <span class="tp-day-name">${escHtml(name)}</span><div class="tp-ranges"></div>
-      <button type="button" class="btn-secondary" data-action-btn="_tpAddRangeBtn" data-day="${d}">Add hours</button></div>`).join('');
-  for (let d = 0; d < 7; d++) for (const r of ((per.weekly || {})[String(d)] || [])) _tpAddRange(d, r[0], r[1]);
+  _hoursFill(document.getElementById('tp-days'), per.weekly);
   document.getElementById('tp-error').textContent = '';
   openModal('time-period-modal');
 }
 
-function _tpAddRange(day, from, to) {
-  const box = document.querySelector(`#tp-days .tp-day[data-day="${day}"] .tp-ranges`);
-  if (!box) return;
+// The hours editor: a column of days, each with its ranges and an Add hours button. The period dialog and the ticket SLA hours
+// (Settings → Tickets) both draw it into an element of class tp-days, so a day takes the same ranges in both: up to six.
+const _HOURS_MAX_PER_DAY = 6;
+function _hoursFill(root, weekly) {
+  if (!root) return;
+  root.innerHTML = _TP_DAY_NAMES.map((name, d) => `<div class="tp-day" data-day="${d}">
+      <span class="tp-day-name">${escHtml(name)}</span><div class="tp-ranges"></div>
+      <button type="button" class="btn-secondary" data-action-btn="_tpAddRangeBtn" data-day="${d}">Add hours</button></div>`).join('');
+  for (let d = 0; d < 7; d++) for (const r of ((weekly || {})[String(d)] || [])) _hoursAddRange(root, d, r[0], r[1]);
+}
+function _hoursAddRange(root, day, from, to) {
+  const dayEl = root && root.querySelector(`.tp-day[data-day="${day}"]`);
+  const box = dayEl && dayEl.querySelector('.tp-ranges');
+  if (!box || box.children.length >= _HOURS_MAX_PER_DAY) return;
   const row = document.createElement('div');
   row.className = 'tp-range';
   row.innerHTML = `<input type="time" class="form-input tp-from" value="${_tpHHMM(from == null ? 540 : from)}" aria-label="From">
     <input type="time" class="form-input tp-to" value="${to == null ? '17:00' : (to >= 1440 ? '00:00' : _tpHHMM(to))}" aria-label="To">
     <button type="button" class="btn-icon isl-44 c-danger-outline" title="Remove" data-action-btn="_tpDropRangeBtn">${_icon('trash', 14)}</button>`;
   box.appendChild(row);
+  _hoursSyncAdd(dayEl);
 }
-function _tpAddRangeBtn(btn) { _tpAddRange(Number(btn.dataset.day)); }
-function _tpDropRangeBtn(btn) { btn.closest('.tp-range')?.remove(); }
+// a day that holds as many ranges as it can has its Add button switched off, so the page does not accept what the server would cut
+function _hoursSyncAdd(dayEl) {
+  const add = dayEl && dayEl.querySelector('[data-action-btn="_tpAddRangeBtn"]');
+  if (add) add.disabled = dayEl.querySelectorAll('.tp-range').length >= _HOURS_MAX_PER_DAY;
+}
+function _tpAddRangeBtn(btn) { _hoursAddRange(btn.closest('.tp-days'), Number(btn.dataset.day)); }
+function _tpDropRangeBtn(btn) { const dayEl = btn.closest('.tp-day'); btn.closest('.tp-range')?.remove(); _hoursSyncAdd(dayEl); }
 function _tpEditBtn(btn) { _tpOpen(btn.dataset.id); }
 
 // what the editor holds, in the shape the server stores. A range whose end is before its start crosses midnight, and the server
 // stores it as two (the rest of that day and the beginning of the next); one that ends at 00:00 runs to the end of its day.
-function _tpCollect() {
+function _hoursCollect(root) {
   const weekly = {};
-  document.querySelectorAll('#tp-days .tp-day').forEach(dayEl => {
+  (root ? root.querySelectorAll('.tp-day') : []).forEach(dayEl => {
     const d = dayEl.dataset.day;
     dayEl.querySelectorAll('.tp-range').forEach(row => {
       const s = _tpMinutes(row.querySelector('.tp-from').value);
@@ -126,6 +140,10 @@ function _tpCollect() {
       (weekly[d] = weekly[d] || []).push([s, e]);
     });
   });
+  return weekly;
+}
+function _tpCollect() {
+  const weekly = _hoursCollect(document.getElementById('tp-days'));
   const off = document.getElementById('tp-offset').value.trim();
   return {
     id: _tpEditId || undefined,

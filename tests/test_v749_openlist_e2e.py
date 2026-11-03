@@ -715,6 +715,130 @@ class TestCpuTime(_Page):
 
 
 @unittest.skipUnless(_GATE, SKIP_REASON)
+class TestTicketHours(_Page):
+    """The hours of the ticket SLA calendar are edited with the editor the time periods use: a day takes several ranges."""
+
+    def setUp(self):
+        super().setUp()
+        self.original = self.page.evaluate("api('GET', '/config').then(c => c.ticket_business_hours || {})")
+        self.addCleanup(lambda: self.page.evaluate("async (bh) => { await api('POST', '/config', {ticket_business_hours: bh}); }", {
+            "enabled": bool(self.original.get("enabled")), "tz_offset_min": self.original.get("tz_offset_min", 0), "weekly": self.original.get("weekly") or {},
+            "holidays": self.original.get("holidays") or [], "period": self.original.get("period") or ""}))
+        # opening the page starts a load of the settings that draws the hours when it answers. Open it once and wait for that draw, or
+        # a late one lands in the middle of a test and replaces the ranges the test has just added; then draw them again so that every
+        # test starts from what is stored, whatever the one before did to the editor
+        if not self.page.evaluate("() => !!document.querySelector('#page-settings.active')"):
+            self.page.evaluate("() => { showPage('settings'); }")
+            self.page.wait_for_function("() => document.querySelectorAll('#bh-days .tp-day').length === 7", timeout=60000)
+        self.page.wait_for_selector("#settings-tab-btn-tickets", timeout=30000)
+        self.page.evaluate("() => switchSettingsTab('tickets')")
+        self.page.evaluate("() => loadBusinessHours()")
+        self.page.wait_for_function("() => document.querySelectorAll('#bh-days .tp-day').length === 7", timeout=60000)
+
+    def stored(self):
+        return self.page.evaluate("api('GET', '/config').then(c => c.ticket_business_hours)")
+
+    def draw(self, weekly, holidays=()):
+        self.page.evaluate("""async ([w, h]) => {
+            await api('POST', '/config', {ticket_business_hours: {enabled: true, tz_offset_min: 0, weekly: w, holidays: h}});
+            await loadBusinessHours();
+        }""", [weekly, list(holidays)])
+
+    def day(self, d):
+        return self.page.eval_on_selector_all(f'#bh-days .tp-day[data-day="{d}"] .tp-range',
+                                              "rs => rs.map(r => [r.querySelector('.tp-from').value, r.querySelector('.tp-to').value])")
+
+    def save(self):
+        self.page.click('[data-action="saveBusinessHours"]')
+        self.page.wait_for_function("() => [...document.querySelectorAll('.toast')].some(t => t.innerText.includes('Business hours saved'))", timeout=15000)
+
+    def test_a_day_with_a_lunch_break_is_shown_whole(self):
+        self.draw({"0": [[540, 720], [780, 1020]], "1": [[540, 1020]]})
+        self.assertEqual(self.day(0), [["09:00", "12:00"], ["13:00", "17:00"]])
+        self.assertEqual(self.day(1), [["09:00", "17:00"]])
+        self.assertEqual(self.day(5), [], "a day with none is closed")
+
+    def test_saving_without_a_change_keeps_every_range(self):
+        # the editor used to show the first range of a day and save only that one
+        self.draw({"0": [[540, 720], [780, 1020]], "2": [[480, 600], [660, 780], [900, 1020]]})
+        self.save()
+        weekly = self.stored()["weekly"]
+        self.assertEqual(weekly["0"], [[540, 720], [780, 1020]])
+        self.assertEqual(weekly["2"], [[480, 600], [660, 780], [900, 1020]])
+
+    def test_a_break_is_added_from_the_page(self):
+        self.draw({"3": [[540, 1020]]})
+        self.page.fill('#bh-days .tp-day[data-day="3"] .tp-to', "12:00")
+        self.page.click('#bh-days .tp-day[data-day="3"] [data-action-btn="_tpAddRangeBtn"]')
+        self.page.fill('#bh-days .tp-day[data-day="3"] .tp-range:nth-child(2) .tp-from', "13:00")
+        self.save()
+        self.assertEqual(self.stored()["weekly"]["3"], [[540, 720], [780, 1020]])
+        self.page.evaluate("() => loadBusinessHours()")
+        self.page.wait_for_function("() => document.querySelectorAll('#bh-days .tp-day[data-day=\"3\"] .tp-range').length === 2", timeout=15000)
+
+    def test_a_range_across_midnight_is_kept_as_two_days(self):
+        self.draw({})
+        self.page.click('#bh-days .tp-day[data-day="4"] [data-action-btn="_tpAddRangeBtn"]')
+        self.page.fill('#bh-days .tp-day[data-day="4"] .tp-from', "22:00")
+        self.page.fill('#bh-days .tp-day[data-day="4"] .tp-to', "06:00")
+        self.save()
+        weekly = self.stored()["weekly"]
+        self.assertEqual(weekly, {"4": [[1320, 1440]], "5": [[0, 360]]}, "the call used to drop it without a word")
+        self.page.evaluate("() => loadBusinessHours()")
+        self.page.wait_for_function("() => document.querySelectorAll('#bh-days .tp-day[data-day=\"5\"] .tp-range').length === 1", timeout=15000)
+        self.assertEqual(self.day(4), [["22:00", "00:00"]])
+        self.assertEqual(self.day(5), [["00:00", "06:00"]])
+
+    def test_add_hours_switches_itself_off_at_six_and_on_again(self):
+        self.draw({})
+        add = '#bh-days .tp-day[data-day="6"] [data-action-btn="_tpAddRangeBtn"]'
+        for _ in range(8):
+            if self.page.is_enabled(add):
+                self.page.click(add)
+        self.assertEqual(len(self.day(6)), 6)
+        self.assertFalse(self.page.is_enabled(add))
+        self.page.click('#bh-days .tp-day[data-day="6"] .tp-range:nth-child(3) [data-action-btn="_tpDropRangeBtn"]')
+        self.assertEqual(len(self.day(6)), 5)
+        self.assertTrue(self.page.is_enabled(add))
+
+    def test_the_period_dialog_has_the_same_cap(self):
+        self.page.evaluate("() => openTimePeriodEdit('')")
+        self.page.wait_for_selector("#tp-days .tp-day", timeout=30000)
+        add = '#tp-days .tp-day[data-day="0"] [data-action-btn="_tpAddRangeBtn"]'
+        for _ in range(8):
+            if self.page.is_enabled(add):
+                self.page.click(add)
+        self.assertEqual(self.page.eval_on_selector_all('#tp-days .tp-day[data-day="0"] .tp-range', "rs => rs.length"), 6)
+        self.assertFalse(self.page.is_enabled(add))
+        self.page.evaluate("closeModal('time-period-modal')")
+
+    def test_a_whole_day_is_midnight_to_midnight(self):
+        self.draw({})
+        self.page.click('#bh-days .tp-day[data-day="2"] [data-action-btn="_tpAddRangeBtn"]')
+        self.page.fill('#bh-days .tp-day[data-day="2"] .tp-from', "00:00")
+        self.page.fill('#bh-days .tp-day[data-day="2"] .tp-to', "00:00")
+        self.save()
+        self.assertEqual(self.stored()["weekly"], {"2": [[0, 1440]]}, "an end at 00:00 is the end of that day, so this day is open all day")
+
+    def test_the_holidays_are_shown_and_kept(self):
+        self.draw({"0": [[540, 1020]]}, holidays=["2026-12-25", "2026-12-26"])
+        self.assertEqual(self.page.input_value("#bh-holidays").split("\n"), ["2026-12-25", "2026-12-26"])
+        self.save()
+        self.assertEqual(self.stored()["holidays"], ["2026-12-25", "2026-12-26"])
+
+    def test_an_editor_that_was_never_drawn_does_not_save_an_empty_calendar(self):
+        self.draw({"0": [[540, 1020]]})
+        self.page.evaluate("() => { document.getElementById('bh-days').innerHTML = ''; }")
+        self.page.click('[data-action="saveBusinessHours"]')
+        self.page.wait_for_function("() => [...document.querySelectorAll('.toast')].some(t => t.innerText.includes('The hours are not loaded yet.'))", timeout=15000)
+        self.assertEqual(self.stored()["weekly"], {"0": [[540, 1020]]}, "nothing was sent")
+
+    def test_the_text_over_the_editor_no_longer_says_one_window(self):
+        text = self.page.inner_text("#settings-pane-tickets")
+        self.assertNotIn("One open window per weekday", text)
+        self.assertIn("up to six ranges", text)
+
+
 class TestTimePeriods(_Page):
 
     def open_settings(self):

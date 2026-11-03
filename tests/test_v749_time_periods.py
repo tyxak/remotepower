@@ -108,8 +108,15 @@ class TestIsActive(ServerClock):
 
     def test_what_is_not_a_period(self):
         for junk in (None, "x", 5, [], [1], {}, {"weekly": "x"}, {"weekly": {"0": "x"}}, {"weekly": {"0": [[1]]}}, {"weekly": {"x": [[0, 60]]}},
-                     {"weekly": {"0": [[60, 30]]}}, {"weekly": {"0": [["a", "b"]]}}, {"weekly": {"0": [[0, 99999]]}}):
+                     {"weekly": {"0": [[60, 30]]}}, {"weekly": {"0": [["a", "b"]]}}, {"weekly": {"0": [[0, 99999]]}},
+                     {"weekly": {"0": [{"a": 1}]}}, {"weekly": {"0": [{"0": 0, "1": 99}]}}, {"weekly": {"0": [None, 7, "x", {}]}}):
             self.assertFalse(tp.is_active(junk, ts_of(2026, 11, 2, 0, 30)), repr(junk))
+
+    def test_a_map_where_a_range_belongs_is_skipped_and_the_ranges_beside_it_are_kept(self):
+        # a JSON object has string keys, so w[0] is a KeyError: that used to escape as an error from the reader of stored periods
+        per = {"tz_offset_min": 0, "weekly": {"0": [{"from": 0, "to": 60}, [0, 60]]}}
+        self.assertTrue(tp.is_active(per, ts_of(2026, 11, 2, 0, 30)))
+        self.assertFalse(tp.is_active(per, ts_of(2026, 11, 2, 2, 0))), "and nothing else is open"
 
     def test_a_huge_or_odd_timestamp_does_not_raise(self):
         for odd in (0, 1, 2 ** 31, 2 ** 40, -5):
@@ -277,6 +284,12 @@ class TestCleaning(unittest.TestCase):
     def test_junk_in_gives_an_empty_calendar(self):
         for junk in (None, "x", 5, [], [[0, 60]]):
             self.assertEqual(tp.clean_weekly(junk), {})
+
+    def test_a_map_where_a_range_belongs_is_left_out_not_raised(self):
+        # the settings call hands this the body as sent: a JSON object in place of a pair is a KeyError on w[0]
+        self.assertEqual(tp.clean_weekly({"0": [{"a": 1}]}), {})
+        self.assertEqual(tp.clean_weekly({"0": [{"a": 1}, [60, 120], {"0": 1}, None]}), {"0": [[60, 120]]})
+        self.assertEqual(tp.clean_period({"name": "x", "weekly": {"3": [{"a": 1}, [60, 120]]}}, new_id="tp-0a0b0c0d")["weekly"], {"3": [[60, 120]]})
 
     def test_a_period(self):
         per = tp.clean_period({"name": "  Night\x00 shift ", "tz": "Europe/Copenhagen", "weekly": {"0": [[1320, 420]]}, "holidays": ["2026-12-25", "2026-12-25", "junk", "2026-02-30", 5, "2026-01-01"]},

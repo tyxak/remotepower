@@ -71,8 +71,8 @@ By default SLA targets count wall-clock hours (24/7). Turn on **Settings →
 Tickets → Business hours** to count them in **business time only** — the SLA
 clock pauses overnight, on weekends, and on configured holidays, so a P3 with a
 "24 business hours" target opened Friday afternoon isn't breached over the
-weekend. Configure a UTC offset, one open window per weekday (blank = closed),
-and a holiday list. When enabled, the computed due date and breach flag come
+weekend. Configure a UTC offset, the hours of each weekday (up to six ranges a
+day, so a lunch break is two; a day with none is closed), and a holiday list. When enabled, the computed due date and breach flag come
 from the server so the ticket list and detail agree; leaving it off preserves
 the exact previous wall-clock behaviour.
 

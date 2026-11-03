@@ -934,10 +934,8 @@ function deleteTicketSchedule(i) {
   const scheds = [..._tkSchedules]; scheds.splice(idx, 1);
   _tkPostSchedules(scheds, 'Schedule deleted');
 }
-// W2-29: business-hours SLA calendar.
-const _BH_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-function _minToHHMM(m) { if (m == null) return ''; const h = Math.floor(m / 60), mm = m % 60; return String(h).padStart(2, '0') + ':' + String(mm).padStart(2, '0'); }
-function _hhmmToMin(s) { const m = /^(\d{1,2}):(\d{2})$/.exec((s || '').trim()); if (!m) return null; return parseInt(m[1], 10) * 60 + parseInt(m[2], 10); }
+// W2-29: business-hours SLA calendar. 7.4.9: the day-by-day editor is the one the time periods use (app-timeperiods.js, loaded on
+// demand), so a day takes up to six ranges here too.
 async function loadBusinessHours() {
   const box = document.getElementById('bh-days');
   if (!box) return;
@@ -950,22 +948,15 @@ async function loadBusinessHours() {
   const en = document.getElementById('bh-enabled'); if (en) en.checked = !!bh.enabled;
   const tz = document.getElementById('bh-tz'); if (tz) tz.value = bh.tz_offset_min || 0;
   const ho = document.getElementById('bh-holidays'); if (ho) ho.value = (bh.holidays || []).join('\n');
-  const weekly = bh.weekly || {};
-  box.innerHTML = _BH_DAYS.map((name, i) => {
-    const win = (weekly[String(i)] || [])[0] || [];
-    return `<div class="row-6-center mb-4"><span class="fs-13 bh-day">${name}</span>`
-      + `<input type="time" class="form-input" data-bh-start="${i}" value="${_minToHHMM(win[0])}" aria-label="${name} start">`
-      + `<span class="meta-sm-nm">to</span>`
-      + `<input type="time" class="form-input" data-bh-end="${i}" value="${_minToHHMM(win[1])}" aria-label="${name} end"></div>`;
-  }).join('');
+  await _loadJsModule('app-timeperiods.js');
+  _hoursFill(box, bh.weekly);
 }
 async function saveBusinessHours() {
-  const weekly = {};
-  for (let i = 0; i < 7; i++) {
-    const s = _hhmmToMin(document.querySelector(`[data-bh-start="${i}"]`)?.value);
-    const e = _hhmmToMin(document.querySelector(`[data-bh-end="${i}"]`)?.value);
-    if (s != null && e != null && e > s) weekly[String(i)] = [[s, e]];
-  }
+  await _loadJsModule('app-timeperiods.js');
+  const days = document.getElementById('bh-days');
+  // an editor that was never drawn would save a calendar with no hours, which reads as closed all week
+  if (!days || !days.querySelector('.tp-day')) { toast('The hours are not loaded yet.', 'error'); return; }
+  const weekly = _hoursCollect(days);
   const holidays = (document.getElementById('bh-holidays')?.value || '').split('\n').map(x => x.trim()).filter(Boolean);
   const body = {
     ticket_business_hours: {

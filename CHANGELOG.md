@@ -244,8 +244,8 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   (`time_periods.py`): the checks that compared clock strings and the SLA walk are replaced by it, and the older settings are read as
   a period of the same shape. The old checks were kept as test oracles and compared with it on every minute of a week and on 3,000
   random calendars; their own tests pass unchanged. A period that something still uses cannot be deleted, and the error says what
-  uses it. `time_periods` is in the settings and in config as code, and `POST /api/maintenance` takes a `period`. The ticket SLA
-  calendar keeps one range per day in its own editor; the periods editor takes up to six.
+  uses it. `time_periods` is in the settings and in config as code, and `POST /api/maintenance` takes a `period`. The hours typed
+  for the ticket SLA calendar take up to six ranges a day, as a period does (see Fixes).
 
 ### Alerts
 
@@ -556,6 +556,13 @@ and missing it in two or three. These are the cheap ones:
 
 ### Fixes
 
+- **The ticket SLA calendar keeps all the hours of a day.** The editor under Settings → Tickets → Business hours showed the first
+  range of each day and saved only that one. A calendar with a lunch break, which the settings call has always accepted, lost
+  everything after the first range of a day the next time anyone pressed Save, and a day could not be given a break from the page
+  at all. The settings call also dropped a range that ends before it starts, which crosses midnight, without saying so. Each day
+  takes up to six ranges now, in the same editor the time periods use, the call reads them with the cleaner the periods use (a
+  range across midnight is split over the two days, ranges that touch are joined), and the Add hours button switches itself off at
+  six instead of letting the server cut the seventh.
 - **Muting a host's metric alert takes its CPU, memory and swap items off Needs attention too.** Muting `metric_warning` or
   `metric_critical` for a host stopped the notification, and the disk item of the Needs attention list went with it, but the
   load, memory and swap items of the same loop stayed, so the host's health score did not recover. They have a mute route now,

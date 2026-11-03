@@ -3101,11 +3101,11 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Business hours (SLA calendar)</div>
-            <div class="meta-sm-nm mt-4">Count ticket SLA targets in <strong>business hours only</strong> — the SLA clock pauses overnight, on weekends, and on holidays. Off = 24/7 wall-clock (unchanged). One open window per weekday; blank = closed. <a href="docs/sla.md" class="c-accent">Documentation</a></div>
+            <div class="meta-sm-nm mt-4">Count ticket SLA targets in <strong>business hours only</strong> — the SLA clock pauses overnight, on weekends, and on holidays. Off = 24/7 wall-clock (unchanged). A day takes up to six ranges, so a lunch break is two; a day with none is closed. <a href="docs/sla.md" class="c-accent">Documentation</a></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="bh-enabled"> Enable business-hours SLA</label></div>
             <div class="settings-row"><label class="form-label" for="bh-period">Time period</label><select id="bh-period" class="form-input" data-tp-select data-tp-none="Use the hours below"><option value="">Use the hours below</option></select></div>
             <div class="settings-row"><label class="form-label" for="bh-tz">UTC offset (minutes, e.g. 60 = UTC+1, -300 = UTC-5)</label><input type="number" id="bh-tz" class="form-input" min="-720" max="840" value="0"></div>
-            <div id="bh-days" class="mt-8"></div>
+            <div id="bh-days" class="tp-days mt-8"></div>
             <div class="settings-row"><label class="form-label" for="bh-holidays">Holidays (YYYY-MM-DD, one per line)</label><textarea id="bh-holidays" class="form-input ff-mono" rows="3" placeholder="2026-12-25"></textarea></div>
             <div class="row-6"><button class="btn-primary" data-action="saveBusinessHours">Save business hours</button></div>
             <div id="bh-result" class="hint mt-6" role="status" aria-live="polite"></div>
@@ -11218,7 +11218,7 @@ nextcloud mem=95 sustain=6</pre>
     <datalist id="tp-zone-list"></datalist>
     <span class="hint">A name from the time zone database follows summer time. Leave it empty for the clock of the server, or give a fixed offset below.</span></div>
   <div class="form-group"><label class="form-label" for="tp-offset">Offset from UTC in minutes (only used without a time zone)</label><input type="number" id="tp-offset" class="form-input" min="-720" max="840" placeholder="60" aria-label="Offset from UTC in minutes"></div>
-  <div class="form-group"><label class="form-label">Hours</label><div id="tp-days"></div>
+  <div class="form-group"><label class="form-label">Hours</label><div id="tp-days" class="tp-days"></div>
     <span class="hint">A range that ends before it starts crosses midnight. A day with no hours is closed.</span></div>
   <div class="form-group"><label class="form-label" for="tp-holidays">Holidays (YYYY-MM-DD, one per line)</label><textarea id="tp-holidays" class="form-input ff-mono" rows="3" placeholder="2026-12-25" aria-label="Holidays"></textarea></div>
   <div id="tp-error" class="hint c-red" role="alert"></div>
