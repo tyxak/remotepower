@@ -17,10 +17,10 @@ async function _s3RestoreOpen() {
   if (!r || r.error || r.ok === false) { list.innerHTML = ''; if (err) err.textContent = failText(r); return; }
   const rows = r.archives || [];
   list.innerHTML = rows.length
-    ? `<table class="data-table w-full"><thead><tr><th>Archive</th><th>Size</th><th>Date</th><th></th></tr></thead><tbody>${rows.map(a =>
+    ? `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full"><thead><tr><th>Archive</th><th>Size</th><th>Date</th><th></th></tr></thead><tbody>${rows.map(a =>
         `<tr><td class="ff-mono">${escHtml(a.name)}</td><td class="hint">${escHtml(_fmtBytes(a.size))}</td>`
         + `<td class="hint">${a.mtime ? escHtml(_fmtAbsTs(a.mtime)) : '—'}</td>`
-        + `<td><button class="btn-secondary" data-action="restoreFromS3" data-arg="${escAttr(a.name)}">Restore</button></td></tr>`).join('')}</tbody></table>`
+        + `<td><button class="btn-secondary" data-action="restoreFromS3" data-arg="${escAttr(a.name)}">Restore</button></td></tr>`).join('')}</tbody></table></div>`
       + (r.total > rows.length ? '<div class="hint mt-6">Older archives are not shown.</div>' : '')
     : '<div class="empty-state">No archives in the bucket.</div>';
 }

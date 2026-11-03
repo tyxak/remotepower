@@ -1308,7 +1308,7 @@ _DEMO_CPU_TIME = {
 def _demo_cpu_time(dev: dict, busy: float) -> dict:
     """The CPU-time shares the Linux agent sends (cpu_user ... cpu_steal) for a demo host whose CPU is `busy` percent used. Derived
     from the CPU figure and the host id, with no draw from the random stream, so no other figure of the demo moves."""
-    h = int(hashlib.md5(str(dev['id']).encode()).hexdigest()[:4], 16)
+    h = int(hashlib.md5(str(dev['id']).encode(), usedforsecurity=False).hexdigest()[:4], 16)
     io, steal = _DEMO_CPU_TIME.get(dev['id'], (round(0.1 + (h % 15) / 10, 1), round((h // 15 % 8) / 10, 1)))
     io = round(min(io, max(0.0, 100.0 - busy)), 1)
     irq = round(min(busy * 0.04, 3.0), 1)

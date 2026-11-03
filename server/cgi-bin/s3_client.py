@@ -560,7 +560,7 @@ class S3Client:
                 )
                 with resp:
                     resp.read(_ERROR_BODY_MAX)
-                    etag = (resp.headers.get("ETag") or "").strip()
+                    etag = str(resp.headers.get("ETag") or "").strip()
             except S3Error as e:
                 if 400 <= e.status < 500:
                     raise

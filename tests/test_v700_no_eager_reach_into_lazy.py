@@ -53,7 +53,7 @@ def _lazy_modules():
         if marker not in _APP:
             continue
         blk = _APP[_APP.index(marker):]
-        out |= set(re.findall(r"'([a-z-]+\.js)'", blk[:blk.index(end)]))
+        out |= set(re.findall(r"'([a-z0-9-]+\.js)'", blk[:blk.index(end)]))
     return {f for f in out if f'static/js/{f}?' not in _HTML}
 
 
@@ -105,6 +105,18 @@ class TestTheScanWorks(unittest.TestCase):
         lz = _lazy_modules()
         self.assertGreaterEqual(len(lz), 2, f'only found {lz}')
         self.assertIn('app-alerts.js', lz)
+
+    def test_it_reads_every_name_in_the_lists(self):
+        """The names were read with a pattern of letters and hyphens, which cannot see app-s3restore.js: that lazy module was not in
+        the population of this guard at all. Any quoted .js name in the two lists that is not boot-loaded has to be one it finds."""
+        lz = _lazy_modules()
+        seen = set()
+        for marker, end in (('_LAZY_PAGE_MODULES = {', '};'), ('_LAZY_NON_PAGE_MODULES = [', '];')):
+            blk = _APP[_APP.index(marker):]
+            seen |= {f for f in re.findall(r"'([^']+\.js)'", blk[:blk.index(end)]) if f'static/js/{f}?' not in _HTML}
+        self.assertGreaterEqual(len(seen), 4, 'the lists were read as empty')
+        self.assertEqual(sorted(seen - lz), [], 'in the lazy lists, and this guard does not see it')
+        self.assertEqual(sorted(lz - seen), [], 'seen by this guard and not in the lazy lists')
 
     def test_it_finds_their_bindings(self):
         v, f = _top_level_bindings((_JS / 'app-alerts.js').read_text(encoding='utf-8'))

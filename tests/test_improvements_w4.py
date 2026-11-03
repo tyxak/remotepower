@@ -3,6 +3,7 @@ import http.server
 import os
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -608,7 +609,7 @@ class TestProbeFromSatellite(_HandlerBase):
             {'type': 'ping', 'label': 'no-result', 'target': '10.0.0.2', 'via_satellite': self.sid}])
         api.save(api.SATELLITE_MON_FILE, {'has-result': {
             'label': 'has-result', 'type': 'ping', 'target': '10.0.0.1',
-            'ok': True, 'detail': 'up', 'checked': 123}})
+            'ok': True, 'detail': 'up', 'checked': int(time.time())}})
         api._invalidate_load_cache(api.SATELLITE_MON_FILE)
         rows = api._satellite_monitor_display((api.load(api.CONFIG_FILE) or {}).get('monitors'))
         by = {r['label']: r for r in rows}

@@ -269,11 +269,13 @@ class TestTheAnswer(_Base, _Call):
 
     def test_another_hosts_trend_is_not_in_this_hosts_answer(self):
         self.configure(inst(1, "a"), inst(2, "b", device_id=OTHER))
-        self.poll(result(1, "a", metrics={"n": 1}, ts=T0), result(2, "b", metrics={"n": 99}, ts=T0))
+        # the other host's number has a fraction: a timestamp is a whole number, and T0 follows the clock, so "99" is in some of the
+        # hours the test runs in (it was in the one of 2026-11-03 22:00) and read as a leak
+        self.poll(result(1, "a", metrics={"n": 1}, ts=T0), result(2, "b", metrics={"n": 99.25}, ts=T0))
         rows = self.get(HUB)["integrations"]
         self.assertEqual([r["label"] for r in rows], ["a"])
         self.assertEqual(rows[0]["series_long"]["n"], [{"ts": T0, "val": 1}])
-        self.assertNotIn("99", json.dumps(rows))
+        self.assertNotIn("99.25", json.dumps(rows))
 
     def test_damaged_rollup_in_the_store_cannot_break_the_answer(self):
         self.configure(inst(1, "x"))

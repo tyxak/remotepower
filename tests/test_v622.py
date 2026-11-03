@@ -202,10 +202,10 @@ class TestLazyModuleLockstep(unittest.TestCase):
         js = (_ROOT / "server/html/static/js/app.js").read_text()
         block = js[js.index("_LAZY_PAGE_MODULES = {"):]
         block = block[:block.index("};")]
-        out = set(re.findall(r"'([a-z-]+\.js)'", block))
+        out = set(re.findall(r"'([a-z0-9-]+\.js)'", block))
         if "_LAZY_NON_PAGE_MODULES = [" in js:
             nb = js[js.index("_LAZY_NON_PAGE_MODULES = ["):]
-            out |= set(re.findall(r"'([a-z-]+\.js)'", nb[:nb.index("];")]))
+            out |= set(re.findall(r"'([a-z0-9-]+\.js)'", nb[:nb.index("];")]))
         return out
 
     def test_lazy_modules_not_also_boot_loaded(self):
