@@ -47,27 +47,10 @@ def _assignee_may_see(target, rec, users, alert):
     """Whether this account could open this alert on its own. An alert that its assignee cannot see is a
     notice nobody can act on, and under tenancy it would also hand the alert's title to another tenant.
 
-    The same three tests the personal-notification path makes, resolved from the stored account (the assignee is
-    not the caller): the tenant of the host (a platform operator, an administrator of the default tenant, sees
-    the whole estate), the role's device scope, and, for an alert that names no host, the organisation that
-    runs the installation."""
-    did = alert.get('device_id')
-    dev = (A.device_get(did) or {}) if did else {}
-    if A._tenancy_enforced():
-        role = rec.get('role') or 'viewer'
-        tenant = A._user_tenant(target)
-        operator = (role == 'admin' and tenant == A.DEFAULT_TENANT)
-        if not operator:
-            if not did:
-                if tenant != A.DEFAULT_TENANT:
-                    return False
-            elif A._device_tenant(dev) != tenant:
-                return False
-    if did:
-        scope = A._user_notify_scope(target, users)
-        if scope is not None and not A._device_in_scope(scope, dev):
-            return False
-    return True
+    The tests are the ones every path that has no signed-in caller makes (A._account_may_see): the tenant of the
+    host, the role's device scope, and, for an alert that names no host, the organisation that runs the
+    installation, with the hosts a business service's alert names added."""
+    return A._account_may_see(target, users, alert.get('device_id'), alert.get('event'), alert.get('payload'))
 
 
 def _notify_assignee(target, assigner, alert):

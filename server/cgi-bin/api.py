@@ -1842,7 +1842,8 @@ business_services_handlers_mod = _tk_ilu.module_from_spec(_bs_spec)
 _bs_spec.loader.exec_module(business_services_handlers_mod)
 business_services_handlers_mod.bind(globals())
 for _bs_name in ('handle_business_services', 'handle_business_service', 'handle_business_services_impact',
-                 'run_business_services_if_due'):
+                 'run_business_services_if_due', 'business_service_event_visible', 'business_service_row_hosts',
+                 'business_service_visible_hosts', 'BS_EVENTS'):
     globals()[_bs_name] = getattr(business_services_handlers_mod, _bs_name)
 del _bs_name
 from checks import (  # noqa: F401  (test_checks_module pins api._custom_checks_for)
@@ -9211,15 +9212,24 @@ def _webpush_cfg():
     return (True, pem, pub, subject)
 
 
-def _webpush_send_all(title, body_text, url_hint=''):
+def _webpush_send_all(title, body_text, url_hint='', event=None, payload=None):
     """Push a notification to every stored subscription. Prunes subs the push
-    service reports as gone (404/410). Best-effort; never raises."""
+    service reports as gone (404/410). Best-effort; never raises.
+
+    7.4.9: given the event, only the accounts that may see it are pushed to (_account_may_see). It went to every
+    subscription before, so a tenant's user was told the title of every other tenant's host alert."""
     enabled, pem, _pub, subject = _webpush_cfg()
     if not enabled:
         return 0
     subs = load(PUSH_SUBS_FILE) or {}
     if not subs:
         return 0
+    users = load(USERS_FILE) or {} if event is not None else None
+    if event is not None:
+        did = (payload or {}).get('device_id') if isinstance(payload, dict) else None
+        subs = {u: s for u, s in subs.items() if _account_may_see(u, users, did, event, payload)}
+        if not subs:
+            return 0
     try:
         import webpush as _wp
     except Exception:
@@ -9274,7 +9284,7 @@ def _maybe_webpush(event, payload):
         title = _alert_title(event, payload)
     except Exception:
         title = event
-    _webpush_send_all(f'RemotePower: {sev}', title)
+    _webpush_send_all(f'RemotePower: {sev}', title, event=event, payload=payload)
 
 
 def handle_push_vapid():
@@ -9902,7 +9912,10 @@ def _record_fleet_event(event, payload):
                     # v6.3.1: dependency_missing/_restored feed detail — the broken
                     # edge + upstream so the activity row is self-describing
                     # (mirrors the _record_alert whitelist).
-                    'dep_edge', 'upstream_id', 'upstream_name'):
+                    'dep_edge', 'upstream_id', 'upstream_name',
+                    # 7.4.9: a business service's entry says which service and which hosts it names, so a reader
+                    # who cannot see one of them is not shown it (business_service_event_visible)
+                    'service_id', 'host_ids'):
             if key == 'sample':
                 # ONE matched line, bounded: the feed is evidence, not a log
                 # shipper. The alerts inbox keeps up to three.
@@ -12379,6 +12392,8 @@ def _record_alert(event, payload):
                     'container', 'script_name', 'value', 'source',
                     # 7.4.9: a business service's alert: which one (the recovery's match key), and what is wrong
                     'service_id', 'service_name', 'parts_ok', 'parts',
+                    # 7.4.9: the hosts its detail names; who may read the row is decided on these
+                    'host_ids',
                     # v6.2.0: dead-man's-switch job id — the ping_missed alert's
                     # match key for ping_recovered auto-resolve.
                     'job_id',
@@ -13926,6 +13941,50 @@ def _user_notify_scope(username, users):
     return rs if rs.get('type') != 'all' else None
 
 
+def _account_may_see(target, users, device_id, event, payload):
+    """Could this stored account read an alert or an event like this one on its own? The paths that run with no signed-in
+    caller (the notice to an assignee, a personal notification, a browser push) resolve it from the account's record,
+    with the tests the request paths make: the tenant of the host (a platform operator, an administrator of the default
+    tenant, sees the whole estate), the role's device scope, and, for an event that names no host, the organisation that
+    runs the installation, so a tenant's user is never sent what the operator's monitors and integrations raise. An
+    event about a business service also has to have every host it names in reach.
+
+    The request-side twin of this is _filter_alerts_for_caller; keep the two in step."""
+    rec = users.get(target) if isinstance(users, dict) else None
+    if not isinstance(rec, dict) or rec.get('disabled'):
+        return False
+    devices = _load_ro(DEVICES_FILE) or {}
+    dev = (devices.get(device_id) or {}) if device_id else {}
+    tenancy = _tenancy_enforced()
+    tenant = _user_tenant(target) if tenancy else None
+    operator = bool(tenancy and (rec.get('role') or 'viewer') == 'admin' and tenant == DEFAULT_TENANT)
+    if tenancy and not operator:
+        if not device_id:
+            if tenant != DEFAULT_TENANT:
+                return False
+        elif _device_tenant(dev) != tenant:
+            return False
+    scope = _user_notify_scope(target, users)
+    if device_id and scope is not None and not _device_in_scope(scope, dev):
+        return False
+    if event in BS_EVENTS:
+        ids = business_service_row_hosts(payload)
+        if ids is None:
+            return False
+        restricted = bool(tenancy and not operator) or scope is not None
+        for i in ids:
+            d = devices.get(i)
+            if not isinstance(d, dict):
+                if restricted:
+                    return False      # a host that is gone cannot be shown to be one the account may see
+                continue
+            if tenancy and not operator and _device_tenant(d) != tenant:
+                return False
+            if scope is not None and not _device_in_scope(scope, d):
+                return False
+    return True
+
+
 def _deliver_user_notifications(event, payload, message, cfg):
     """W2-20: deliver an event to every user whose personal subscription matches.
     Additive to the global channels; each user's filters (min priority, event
@@ -13953,41 +14012,21 @@ def _deliver_user_notifications(event, payload, message, cfg):
         evs = p.get('events')
         if isinstance(evs, list) and evs and event not in evs:
             continue
-        # device-scoped events: respect tenancy, RBAC visibility, and the
-        # user's own filter
+        # Who may be sent it: the tests the request paths make, resolved from the subscriber's own record (this runs on
+        # the FIRING path, usually the scheduler, with no signed-in caller, so _tenant_gate() and _caller_scope() would
+        # gate on the wrong principal). v6.4.3: a tenant's account was once sent every tenant's host events, because
+        # the role scope of a full-fleet role is None and skipped the only filter there was. 7.4.9: an event that
+        # names no host (a monitor, an integration, a business service) belongs to the organisation that runs the
+        # installation, so a tenant's account is not sent it either, and one about a service needs each of its hosts.
+        if not _account_may_see(username, users, dev_id, event, payload):
+            continue
         if dev_id:
+            # the subscriber's own group or tag filter (a personal narrowing, on top of what they may see)
             if devices is None:
                 devices = load(DEVICES_FILE) or {}
-            dev = devices.get(dev_id) or {}
-            # v6.4.3 (SECURITY): tenancy was not checked here at all, and the
-            # RBAC check below cannot stand in for it: _user_notify_scope
-            # returns None for every FULL-FLEET role — a tenant admin, but also
-            # a plain viewer, auditor, mcp or finance user, whose scope type is
-            # 'all' — so `rscope is not None` skipped the only filter there was.
-            # Any account could therefore point a personal webhook at itself and
-            # receive every tenant's device events, indefinitely and invisibly.
-            #
-            # This runs on the FIRING path — usually the scheduler, sometimes an
-            # agent heartbeat — with no operator request in flight, so
-            # _tenant_visible()/_tenant_gate() must NOT be used: they resolve
-            # the REQUEST caller and would gate on the wrong principal (or on
-            # nobody). The subscriber is the principal here, so resolve their
-            # tenant from their stored record, the same way the other
-            # scheduler-context paths do.
-            if _tenancy_enforced():
-                sub_role = (users.get(username) or {}).get('role') or 'viewer'
-                sub_tenant = _user_tenant(username)
-                # A platform operator — admin in the built-in default tenant —
-                # still sees the whole estate, matching _caller_is_superadmin.
-                if not (sub_role == 'admin' and sub_tenant == DEFAULT_TENANT):
-                    if _device_tenant(dev) != sub_tenant:
-                        continue
-            rscope = _user_notify_scope(username, users)
-            if rscope is not None and not _device_in_scope(rscope, dev):
-                continue
             pf = p.get('scope_filter')
             if isinstance(pf, dict) and pf.get('type', 'all') != 'all' \
-                    and not _device_in_scope(pf, dev):
+                    and not _device_in_scope(pf, devices.get(dev_id) or {}):
                 continue
         url = str(p.get('webhook_url') or '').strip()
         if url:
@@ -54850,6 +54889,18 @@ def handle_home():
         events = [e for e in events
                   if (e.get('payload') or {}).get('device_id') not in devices_raw
                   or (e.get('payload') or {}).get('device_id') in _visible_ids]
+        # 7.4.9: the events endpoint kept an event that names no host for the organisation that runs the installation,
+        # and kept an event of a deleted host from a tenant's user; this feed kept both for everybody (a tenant's user
+        # saw the operator's monitors and every business service in the dashboard). One rule for both readers.
+        if _tenant_gate() is not None:
+            _fleet_ok = _caller_in_operator_org()
+            events = [e for e in events
+                      if (e.get('payload') or {}).get('device_id') in _visible_ids
+                      or (not (e.get('payload') or {}).get('device_id') and _fleet_ok)]
+        if any(e.get('event') in BS_EVENTS for e in events):
+            _bs_hosts = business_service_visible_hosts()
+            events = [e for e in events
+                      if business_service_event_visible(e.get('event'), e.get('payload'), _bs_hosts)]
         _routing = _channel_routing()   # v6.3.0 perf: build once, not per event
         events = [e for e in events
                   if _channel_allowed(e.get('event', ''), 'recent_activity', _routing)]
@@ -61889,7 +61940,9 @@ def _alert_tenant_visible(alert):
         return True
     did = alert.get('device_id')
     if not did:
-        return _caller_in_operator_org()      # 7.4.9: an alert that names no host is the installation's (a monitor, an integration)
+        # 7.4.9: an alert that names no host is the installation's (a monitor, an integration), and one about a business
+        # service also needs every host it names to be one the caller can see
+        return _caller_in_operator_org() and business_service_event_visible(alert.get('event'), alert.get('payload'))
     dev = device_get(did) or {}
     return _device_tenant(dev) == gate
 
@@ -61916,10 +61969,17 @@ def _filter_alerts_for_caller(all_alerts):
     devs = _load_ro(DEVICES_FILE) or {}
     out = []
     fleet_level_ok = gate is None or _caller_in_operator_org()      # 7.4.9: see _alert_tenant_visible
+    bs_hosts = None
     for a in all_alerts:
         did = a.get('device_id')
         if not did:
             if fleet_level_ok:
+                if a.get('event') in BS_EVENTS:
+                    # 7.4.9: a business service's alert names its hosts; the caller needs to see all of them
+                    if bs_hosts is None:
+                        bs_hosts = business_service_visible_hosts()
+                    if not business_service_event_visible(a.get('event'), a.get('payload'), bs_hosts):
+                        continue
                 out.append(a)
             continue
         d = devs.get(did, {})
@@ -61975,7 +62035,7 @@ def _alert_mutable_by_caller(alert):
         return True
     did = alert.get('device_id')
     if not did:
-        return True
+        return business_service_event_visible(alert.get('event'), alert.get('payload'))
     dev = device_get(did) or {}
     return _device_in_scope(scope, dev)
 
@@ -66639,6 +66699,11 @@ def handle_fleet_events():
         events = [e for e in events
                   if (not (e.get('payload') or {}).get('device_id') and _fleet_ok)
                   or (e.get('payload') or {}).get('device_id') in _visible]
+    # 7.4.9: an entry about a business service names its hosts; a caller who cannot see all of them does not get it
+    if any(e.get('event') in BS_EVENTS for e in events):
+        _bs_hosts = business_service_visible_hosts()
+        events = [e for e in events
+                  if business_service_event_visible(e.get('event'), e.get('payload'), _bs_hosts)]
 
     # v3.2.3: routing matrix filter — Recent Activity only shows events
     # whose kind has recent_activity=true. Centralised here so the home

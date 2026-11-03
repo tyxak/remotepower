@@ -11,6 +11,7 @@
 
 builtins = [
     "APP_CATALOG",
+    "BS_EVENTS",
     "COMPOSE_YAML_MAX",
     "MAX_LOG_ACKS",
     "MAX_REPORT_DEFS",
@@ -303,6 +304,9 @@ builtins = [
     "annotate_attention_with_problems",
     "annotate_checks_with_problems",
     "appliance_sensor_ingest",
+    "business_service_event_visible",
+    "business_service_row_hosts",
+    "business_service_visible_hosts",
     "capture_fix_outcome",
     "command_is_stale",
     "crowdsec_alert_lines",

@@ -216,6 +216,72 @@ def _visible_ids(defs):
     return {sid for sid in defs if ok(sid, ())}
 
 
+# ── who may read an alert or an activity entry about a service ───────────────
+# The text of such a row lists the parts of the service by name, so the rule is the one the page applies to the
+# service itself: a reader who cannot see one of its hosts does not see the row. That is what keeps one tenant's host
+# names out of another tenant's feed, and the names of hosts outside a role's scope out of that role's inbox.
+BS_EVENTS = ("business_service_down", "business_service_up")
+MAX_EVENT_HOSTS = 200
+
+
+def _host_closure(sid, defs):
+    """Every host a service holds, directly or through the services inside it."""
+    out, seen, todo = [], {sid}, [sid]
+    while todo:
+        rec = defs.get(todo.pop())
+        if rec is None:
+            continue
+        for m in _members_of(rec):
+            d = m.get("device_id")
+            if d and d not in out:
+                out.append(d)
+            if m["kind"] == bizsvc.KIND_SERVICE and m["service_id"] in defs and m["service_id"] not in seen:
+                seen.add(m["service_id"])
+                todo.append(m["service_id"])
+    return out
+
+
+def business_service_row_hosts(payload):
+    """The hosts a stored alert or activity entry about a service names: what it recorded when it was written (the
+    service may have been changed since), or, for a row that records none (written by hand, or by an older build),
+    the hosts the service holds now. None when neither is known."""
+    p = payload if isinstance(payload, dict) else {}
+    ids = p.get("host_ids")
+    if isinstance(ids, list):
+        return ids if all(isinstance(i, str) for i in ids) else None
+    sid = p.get("service_id")
+    defs = _definitions()
+    if isinstance(sid, str) and sid in defs:
+        return _host_closure(sid, defs)
+    return None
+
+
+def business_service_visible_hosts():
+    """The ids of the hosts the signed-in caller can see (tenant and role scope together)."""
+    return set(A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {}))
+
+
+def business_service_event_visible(event, payload, visible=None):
+    """May the signed-in caller read this alert or activity entry? Anything that is not about a service is not this
+    function's question. The platform operator, and an installation with neither tenancy nor a scoped role, read
+    everything. Under tenancy the rows belong to the organisation that runs the installation, and every reader has to
+    see every host the row names. A host that no longer exists cannot be seen, so a restricted reader does not get a
+    row that names one (the page is the opposite on purpose, so that an administrator can take the name out).
+    `visible` is the set from business_service_visible_hosts(), for a caller that filters a whole list."""
+    if event not in BS_EVENTS:
+        return True
+    if A._tenant_gate() is None and A._caller_scope() is None:
+        return True
+    if A._tenant_gate() is not None and not A._caller_in_operator_org():
+        return False
+    ids = business_service_row_hosts(payload)
+    if ids is None:
+        return False
+    if visible is None:
+        visible = business_service_visible_hosts()
+    return all(i in visible for i in ids)
+
+
 def _view(sid, rec, evaluated, stored, hist, now, detail=False):
     state, rows = evaluated
     good = sum(1 for r in rows if r["state"] == "ok")
@@ -515,7 +581,11 @@ def run_business_services_if_due():
     for sid, state, rows in to_fire:
         name = str(defs[sid].get("name") or sid)
         if state == "ok":
-            A.fire_webhook("business_service_up", {"service_id": sid, "service_name": name, "name": name})
+            A.fire_webhook(
+                "business_service_up",
+                {"service_id": sid, "service_name": name, "name": name,
+                 "host_ids": _host_closure(sid, defs)[:MAX_EVENT_HOSTS]},
+            )
         else:
             A.fire_webhook(
                 "business_service_down",
@@ -527,5 +597,7 @@ def run_business_services_if_due():
                     "detail": _detail_text(rows),
                     "parts_ok": sum(1 for r in rows if r["state"] == "ok"),
                     "parts": len(rows),
+                    # the hosts the detail names: who may read the alert and the feed entry is decided on these
+                    "host_ids": _host_closure(sid, defs)[:MAX_EVENT_HOSTS],
                 },
             )
