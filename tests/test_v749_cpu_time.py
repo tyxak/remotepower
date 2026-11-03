@@ -594,7 +594,7 @@ class TestNothingWasLeftOut(unittest.TestCase):
         for rel in self.FILES:
             text = (ROOT / rel).read_text()
             disk = text.count("diskio_warn_percent")
-            cpu = text.count("iowait_warn_percent")
+            cpu = text.count("iowait_warn_percent") + text.count("_CPU_TIME_LINE_KEYS")        # the constant stands for all four lines
             seen[rel] = (disk, cpu)
             self.assertGreater(disk, 0, f"{rel}: the baseline is empty, so the comparison would pass over nothing")
             self.assertEqual(text.count("iowait_crit_percent"), text.count("steal_crit_percent") + 0 if rel.endswith("store_shapes.py") else text.count("iowait_crit_percent"))

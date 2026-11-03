@@ -560,6 +560,7 @@ SHAPES: dict = {
     'device_profiles.json': dict_of(fields(services_watched=list_of(STR), log_watch=list_of(), metric_thresholds=DICT)),
     'disk_usage.json': dict_of(fields(paths=DICT)),
     'diskio_history.json': dict_of(dict_of(LIST)),
+    'cputime_history.json': dict_of(LIST),                  # 7.4.9: {device_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]}
     'dmarc_reports.json': fields(reports=list_of(), sources=DICT, mailbox=DICT),
     'flow.json': dict_of(fields(latest=DICT, history=list_of())),
     'gitops_state.json': fields(last_summary=DICT),

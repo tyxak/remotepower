@@ -9772,6 +9772,36 @@ function _metricChartShell(id, label, samples, key) {
     <div id="${escAttr(id)}"></div></div>`;
 }
 
+// 7.4.9: where the CPU time went, from the history the server keeps for the Linux agent's shares ([ts, user, nice, system, iowait, irq,
+// steal, idle] a sample). User and nice are drawn as one line; idle is what is left. null for a host with fewer than two samples.
+const _CPU_TIME_SERIES = [
+  { name: 'User',       color: 'var(--accent)', idx: [1, 2] },
+  { name: 'System',     color: 'var(--green)',  idx: [3] },
+  { name: 'I/O wait',   color: 'var(--amber)',  idx: [4] },
+  { name: 'Interrupts', color: 'var(--purple)', idx: [5] },
+  { name: 'Steal',      color: 'var(--red)',    idx: [6] },
+];
+function _cpuTimeRows(rows) {
+  return (Array.isArray(rows) ? rows : []).filter(r => Array.isArray(r) && r.length === 8 && r.every(v => typeof v === 'number' && isFinite(v)));
+}
+function _cpuTimeShell(rows) {
+  rows = _cpuTimeRows(rows);
+  if (rows.length < 2) return '';
+  const last = rows[rows.length - 1];
+  return `<div class="isl-355"><div class="metric-chart-head"><span class="isl-356">CPU time</span>
+      <span class="metric-stats">now I/O wait <b>${last[4].toFixed(1)}%</b> · steal <b>${last[6].toFixed(1)}%</b></span></div>
+    <div class="hint metric-note">Where the CPUs spent their time between two system reports. The history is kept for about two days.</div>
+    <div id="mc-cputime"></div></div>`;
+}
+function _paintCpuTime(rows) {
+  rows = _cpuTimeRows(rows);
+  if (rows.length < 2 || !document.getElementById('mc-cputime')) return;
+  renderTimeSeries('mc-cputime', _CPU_TIME_SERIES.map(s => ({
+    name: s.name, color: s.color,
+    points: rows.map(r => ({ x: r[0], y: Math.round(s.idx.reduce((t, i) => t + r[i], 0) * 10) / 10 })),
+  })), { zoom: true, crosshair: true, yUnit: '%', yMin: 0, yMax: 100, annotations: _metricAnnotations, label: 'CPU time over time' });
+}
+
 function _metricsOverlayShell(samples) {
   const present = _METRIC_SERIES.filter(s => _metricPts(samples, s.key).length);
   if (present.length < 2) return '';
@@ -9842,7 +9872,10 @@ async function _loadMetrics() {
         + 'percentages are not collected. Install it on the host and the agent picks it up '
         + 'on its next restart.'
       : 'No metrics recorded for this host yet. CPU/RAM/disk tracking needs <code>psutil</code> '
-        + 'on the agent, and a recent heartbeat.') + '</div>';
+        + 'on the agent, and a recent heartbeat.') + '</div>'
+      // the CPU time comes from /proc/stat and needs no psutil, so a host can have it without the rest
+      + (_cpuTimeShell(data && data.cputime) ? `<div class="isl-354">${_cpuTimeShell(data.cputime)}</div>` : '');
+    _paintCpuTime(data && data.cputime);
     return;
   }
   const metrics = data.metrics;
@@ -9860,11 +9893,12 @@ async function _loadMetrics() {
   const charts = _METRIC_SERIES.map(s =>
     _metricChartShell('mc-' + s.key, s.label, metrics, s.key)).join('');
   body.innerHTML = picker + note + span +
-    `<div class="isl-354">${_metricsOverlayShell(metrics)}${charts}</div>` +
+    `<div class="isl-354">${_metricsOverlayShell(metrics)}${charts}${_cpuTimeShell(data.cputime)}</div>` +
     `<p class="isl-357">Hover for the value at a point in time; drag across the chart to zoom, double-click to reset. Longer windows are downsampled to keep the charts readable. Metric history is stored on the SQLite/PostgreSQL backend.</p>`;
   // After innerHTML — renderTimeSeries looks the container up by id and wires
   // pointer handlers onto it, so it has to already be in the document.
   _paintMetricCharts(metrics);
+  _paintCpuTime(data.cputime);
 }
 function pickRestoreFile() { document.getElementById('restore-file-input')?.click(); }
 async function restoreBackup() {

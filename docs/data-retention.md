@@ -28,6 +28,7 @@ So set the numbers you need, and check the row caps in the table below against t
 | Monitor history | 300 results per monitor (`monitor_history_max`, 10 to 5,000) | `monitor_history_retention_days` | off |
 | Alerts | 5,000 rows | `alerts_retention_days` (resolved alerts only) | off |
 | Metric samples (host trend charts) | JSON backend: 1,440 samples per host, about a day. SQLite and Postgres: none | `metric_samples_retention_days` | off |
+| CPU time (the chart in a host's Metrics window) | 288 samples per host, about two days, at most one a minute | none | none |
 | Ingested log lines | optional byte cap per unit (`log_buffer_max_bytes_per_unit`) | `log_buffer_retention_hours` | **6** hours |
 
 "Off" means 0 or unset: nothing is trimmed by age. The age settings count whole days (0 to 3,650).

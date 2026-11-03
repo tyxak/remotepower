@@ -455,6 +455,10 @@ DISK_NAMES_FILE  = DATA_DIR / 'disk_names.json'        # v7.4.3 (#47): {device_i
 DISKIO_HIST_FILE = DATA_DIR / 'diskio_history.json'    # v7.4.3 (#49): {device_id: {disk: [[ts, busy%, read MB/s, write MB/s, IOPS, await ms], ...]}}
 _DISKIO_HIST_MIN_GAP = 60       # seconds between two samples of one disk
 _DISKIO_HIST_MAX = 120          # samples kept per disk
+CPUTIME_HIST_FILE = DATA_DIR / 'cputime_history.json'   # 7.4.9: {device_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]} in percent
+_CPUTIME_HIST_MIN_GAP = 60      # seconds between two samples of one host
+_CPUTIME_HIST_MAX = 288         # samples kept per host: two days at a system report every ten minutes
+_CPUTIME_KEYS = ('cpu_user', 'cpu_nice', 'cpu_system', 'cpu_iowait', 'cpu_irq', 'cpu_steal', 'cpu_idle')
 SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted on-disk-secret findings
 DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.2.0: du top-consumers per host
 _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned path
@@ -15890,6 +15894,7 @@ def _purge_device(dev_id):
         DISK_NAMES_FILE,        # v7.4.3 (#47): a deleted host takes its disk names with it
         CONTAINER_STATS_HIST_FILE,   # v7.4.3 (#50): and its container samples
         DISKIO_HIST_FILE,            # v7.4.3 (#49): and its disk I/O samples
+        CPUTIME_HIST_FILE,           # 7.4.9: and where its CPU time went
         PATCH_PREVIEWS_FILE,         # 7.4.9: and its upgrade plan
         CONTAINER_AUDIT_ACCEPTS_FILE,   # 7.4.9: and the audit findings accepted for its containers
         REPO_INVENTORY_FILE,            # 7.4.9: and the repository files it reported
@@ -23590,6 +23595,9 @@ def handle_heartbeat():
         # record still holds the last full reading, which would be sampled again under a new time.
         if isinstance(_fresh_si, dict) and 'disk_io' in _fresh_si:
             _record_diskio(dev_id, _fresh_si.get('disk_io') or [], now)
+        # 7.4.9: where the CPU time went, on the same terms: only when this beat itself carried the shares.
+        if isinstance(_fresh_si, dict) and 'cpu_iowait' in _fresh_si:
+            _record_cputime(dev_id, _fresh_si, now)
 
     # W3-47: merge any store-and-forward backfill (samples the agent spooled
     # while the server was unreachable) into the metrics history. History only —
@@ -24931,6 +24939,41 @@ def _record_diskio(dev_id, rows, now):
             _entity_write_one(DISKIO_HIST_FILE, dev_id, out)
     except Exception as e:
         sys.stderr.write(f'[remotepower] disk io history: {e}\n')
+
+
+def _record_cputime(dev_id, si, now):
+    """7.4.9: add this report's CPU time shares to the host's history: [ts, user, nice, system, iowait, irq, steal, idle] in percent, at
+    most one a minute, _CPUTIME_HIST_MAX kept. A report that does not carry every share (an agent that is not updated, a figure that
+    was not a number) adds nothing, because a line with a hole in it would be drawn as a drop to zero."""
+    try:
+        row = [now]
+        for k in _CPUTIME_KEYS:
+            v = si.get(k)
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not (0 <= v <= 100):
+                return
+            row.append(round(float(v), 1))
+        hist = _entity_read_one(CPUTIME_HIST_FILE, dev_id, []) or []
+        if not isinstance(hist, list):
+            hist = []
+        if hist and isinstance(hist[-1], list) and hist[-1] and isinstance(hist[-1][0], (int, float)) and now - hist[-1][0] < _CPUTIME_HIST_MIN_GAP:
+            return
+        _entity_write_one(CPUTIME_HIST_FILE, dev_id, (hist + [row])[-_CPUTIME_HIST_MAX:])
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] cpu time history: {e}\n')
+
+
+def _cputime_history(dev_id, since=0):
+    """7.4.9: the host's CPU time samples from `since` on, oldest first, as [ts, user, nice, system, iowait, irq, steal, idle]. A stored
+    sample that is not eight numbers (a row from an import or an old release) is left out, so the chart draws what is good."""
+    rows = _entity_read_one(CPUTIME_HIST_FILE, dev_id, []) or []
+    out = []
+    for r in rows if isinstance(rows, list) else []:
+        if (isinstance(r, list) and len(r) == 8
+                and all(isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) != float('inf') for v in r)
+                and r[0] >= since and all(0 <= v <= 100 for v in r[1:])):
+            out.append(r)
+    out.sort(key=lambda r: r[0])
+    return out
 
 
 def _record_metrics(dev_id, sysinfo):
@@ -26943,7 +26986,8 @@ def handle_metrics(dev_id):
         if series:
             respond(200, {'device_id': dev_id, 'metrics': series, 'range': secs,
                           'annotations': _metric_annotations(
-                              dev_id, int(time.time()) - secs)})
+                              dev_id, int(time.time()) - secs),
+                          'cputime': _cputime_history(dev_id, int(time.time()) - secs)})
         # Time-series still empty (just enabled, or this device hasn't reported
         # since) — fall through to the recent metrics.json window so the chart
         # shows what we have rather than a dead "no samples".
@@ -26953,7 +26997,8 @@ def handle_metrics(dev_id):
     since = int(win[0].get('ts', 0)) if win else 0
     respond(200, {'device_id': dev_id, 'metrics': win,
                   'recent_window': True,
-                  'annotations': _metric_annotations(dev_id, since)})
+                  'annotations': _metric_annotations(dev_id, since),
+                  'cputime': _cputime_history(dev_id, since)})
 
 
 # v6.1.2: events worth marking ON the metric charts. The question a metric chart

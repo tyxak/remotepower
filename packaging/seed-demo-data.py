@@ -4940,6 +4940,39 @@ def build_diskio_history() -> dict:
     return out
 
 
+def build_cputime_history() -> dict:
+    """Where the CPU time went -> cputime_history.json (7.4.9): {dev_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]} in
+    percent, a sample every ten minutes for the last eight hours (a system report comes about that often), ending on exactly the
+    shares the host's sysinfo shows. A host whose I/O wait or steal is high ramps up to it; the others wander around their own."""
+    out = {}
+    t_end = now()
+    n = 48
+    for dev_id, dev in build_devices().items():
+        si = dev.get('sysinfo') or {}
+        if 'cpu_iowait' not in si:
+            continue
+        cur = [float(si[k]) for k in ('cpu_user', 'cpu_nice', 'cpu_system', 'cpu_iowait', 'cpu_irq', 'cpu_steal', 'cpu_idle')]
+        user, nice, system, io, irq, steal, idle = cur
+        rng = _seeded_random('cputimehist', dev_id)
+        rows = []
+        for i in range(n):
+            age = n - 1 - i
+            if age == 0:
+                rows.append([t_end] + cur)
+                continue
+            k = max(0.0, 1.0 - age * 0.02)
+            io_t = max(0.0, io * (k if io >= 10 else 1.0) + rng.uniform(-io * 0.4, io * 0.4))
+            st_t = max(0.0, steal * (k if steal >= 5 else 1.0) + rng.uniform(-steal * 0.4, steal * 0.4))
+            work = max(0.0, (user + nice + system + irq) * rng.uniform(0.6, 1.4))
+            work = min(work, 100.0 - io_t - st_t)
+            share = work / max(user + nice + system + irq, 0.1)
+            u, ni, sy, ir = (round(x * share, 1) for x in (user, nice, system, irq))
+            io_r, st_r = round(io_t, 1), round(st_t, 1)
+            rows.append([t_end - age * 600, u, ni, sy, io_r, ir, st_r, round(max(0.0, 100.0 - u - ni - sy - io_r - ir - st_r), 1)])
+        out[dev_id] = rows
+    return out
+
+
 _DEMO_DEBIAN_LIST = """deb http://deb.debian.org/debian bookworm main non-free-firmware
 deb-src http://deb.debian.org/debian bookworm main non-free-firmware
 deb http://deb.debian.org/debian-security bookworm-security main non-free-firmware
@@ -7888,6 +7921,7 @@ BUILDERS = {
     'business_service_history.json': build_business_service_history,
     'smart_history.json':          build_smart_history,
     'diskio_history.json':         build_diskio_history,
+    'cputime_history.json':        build_cputime_history,
     'patch_previews.json':         build_patch_previews,
     'repo_inventory.json':         build_repo_inventory,
     'gpu_history.json':            build_gpu_history,

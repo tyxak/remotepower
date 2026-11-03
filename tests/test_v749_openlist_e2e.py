@@ -914,6 +914,10 @@ class TestS3Restore(_Page):
 @unittest.skipUnless(_GATE, SKIP_REASON)
 class TestCpuTime(_Page):
 
+    def tearDown(self):
+        self.page.evaluate("() => closeModal('metrics-modal')")
+        super().tearDown()
+
     def test_the_drawer_shows_where_the_cpu_time_goes(self):
         self.open_drawer_section("tnas", "truenas.lab", "sysinfo")
         self.page.wait_for_function("() => document.getElementById('audit-body-sysinfo').innerText.includes('I/O wait')", timeout=30000)
@@ -929,6 +933,104 @@ class TestCpuTime(_Page):
         self.assertIn("disk", text, "control: the drawer for this host did load")
         self.assertNotIn("cpu time", text)
         self.assertNotIn("i/o wait", text)
+
+    def open_metrics(self, dev, name):
+        self.page.evaluate("([d, n]) => openMetrics(d, n)", [dev, name])
+        self.page.wait_for_function("() => { const b = document.getElementById('metrics-body'); return b && !b.querySelector('.skeleton') && b.innerText.length > 30; }", timeout=60000)
+
+    def test_the_metrics_window_draws_where_the_cpu_time_went(self):
+        self.open_metrics("tnas", "truenas.lab")
+        self.page.wait_for_selector("#mc-cputime svg", timeout=30000)
+        head = self.page.inner_text("#metrics-body .metric-chart-head >> nth=-1")
+        self.assertIn("cpu time", head.lower(), "the heading is drawn in capitals")
+        self.assertIn("I/O wait 31.0%", head, "the NAS waits for its disks now")
+        self.assertIn("steal 0.0%", head)
+        names = self.page.eval_on_selector_all("#mc-cputime svg text", "ts => ts.map(t => t.textContent.trim())")
+        for series in ("User", "System", "I/O wait", "Interrupts", "Steal"):
+            self.assertTrue(any(series in t for t in names) or series in self.page.inner_text("#mc-cputime"), f"{series} is on the chart")
+        self.assertIn("kept for about two days", self.page.inner_text("#metrics-body"))
+        self.assertEqual(len(self.page.query_selector_all("#mc-cputime svg path")) >= 5, True, "a line for each of the five series")
+
+    def test_a_host_that_sends_no_shares_has_no_cpu_time_chart(self):
+        self.open_metrics("wks01", "design-win11")
+        self.assertIsNone(self.page.query_selector("#mc-cputime"))
+        self.assertNotIn("cpu time", self.page.inner_text("#metrics-body").lower())
+
+    def test_a_host_with_only_one_sample_has_no_chart_yet(self):
+        # a line needs two points: one sample is the row of the drawer
+        self.page.route("**/api/devices/tnas/metrics*", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"device_id": "tnas", "metrics": [{"ts": 1, "cpu": 5, "mem": 5, "swap": 0, "disk": 5}, {"ts": 2, "cpu": 6, "mem": 5, "swap": 0, "disk": 5}],
+                             "annotations": [], "cputime": [[1, 1, 0, 1, 1, 0, 0, 97]]})))
+        self.addCleanup(lambda: self.page.unroute("**/api/devices/tnas/metrics*"))
+        self.open_metrics("tnas", "truenas.lab")
+        self.assertIsNone(self.page.query_selector("#mc-cputime"))
+        self.assertIn("CPU", self.page.inner_text("#metrics-body"), "control: the window did draw")
+
+    def test_rows_of_the_wrong_kind_from_the_server_are_not_drawn(self):
+        good = [[1_800_000_000 + i * 600, 10, 0, 5, 3, 1, 0, 81] for i in range(4)]
+        junk = [None, "x", [1, 2], [1, 2, 3, 4, 5, 6, 7, "x"], [1, 2, 3, 4, 5, 6, 7, None], {"a": 1}]
+        self.page.route("**/api/devices/tnas/metrics*", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"device_id": "tnas", "metrics": [{"ts": 1, "cpu": 5, "mem": 5, "swap": 0, "disk": 5}, {"ts": 2, "cpu": 6, "mem": 5, "swap": 0, "disk": 5}],
+                             "annotations": [], "cputime": junk + good})))
+        self.addCleanup(lambda: self.page.unroute("**/api/devices/tnas/metrics*"))
+        self.open_metrics("tnas", "truenas.lab")
+        self.page.wait_for_selector("#mc-cputime svg", timeout=30000)
+
+    ROWS = [[1_800_000_000, 10.0, 2.0, 5.0, 3.0, 1.0, 0.5, 78.5], [1_800_000_600, 20.0, 1.0, 6.0, 40.0, 2.0, 7.25, 23.75]]
+
+    def draw_cpu_time(self, rows):
+        """The chart's own functions, with renderTimeSeries wrapped to record what it is given."""
+        return self.page.evaluate("""(rows) => {
+            const holder = document.createElement('div'); holder.id = 'zz-holder'; document.body.appendChild(holder);
+            holder.innerHTML = _cpuTimeShell(rows);
+            const seen = [], real = window.renderTimeSeries;
+            window.renderTimeSeries = (id, series, opts) => { seen.push({id, series, opts}); return real(id, series, opts); };
+            try { _paintCpuTime(rows); } finally { window.renderTimeSeries = real; }
+            const head = holder.querySelector('.metric-chart-head') ? holder.querySelector('.metric-chart-head').innerText : '';
+            holder.remove();
+            return {seen, head};
+        }""", rows)
+
+    def test_the_series_are_the_shares_added_as_documented(self):
+        got = self.draw_cpu_time(self.ROWS)
+        self.assertEqual(len(got["seen"]), 1)
+        call = got["seen"][0]
+        self.assertEqual(call["id"], "mc-cputime")
+        series = {s["name"]: [p["y"] for p in s["points"]] for s in call["series"]}
+        self.assertEqual(list(series), ["User", "System", "I/O wait", "Interrupts", "Steal"])
+        self.assertEqual(series["User"], [12.0, 21.0], "user and nice are one line")
+        self.assertEqual(series["System"], [5.0, 6.0])
+        self.assertEqual(series["I/O wait"], [3.0, 40.0])
+        self.assertEqual(series["Interrupts"], [1.0, 2.0])
+        self.assertEqual(series["Steal"], [0.5, 7.3], "one decimal")
+        self.assertEqual([p["x"] for p in call["series"][0]["points"]], [1_800_000_000, 1_800_000_600])
+        self.assertEqual((call["opts"]["yMin"], call["opts"]["yMax"], call["opts"]["yUnit"]), (0, 100, "%"))
+        self.assertTrue(call["opts"]["zoom"] and call["opts"]["crosshair"])
+        self.assertEqual(len({s["color"] for s in call["series"]}), 5, "a colour each")
+
+    def test_the_heading_reports_the_last_sample(self):
+        got = self.draw_cpu_time(self.ROWS)
+        self.assertIn("I/O wait 40.0%", got["head"])
+        self.assertIn("steal 7.3%", got["head"])
+
+    def test_the_painter_holds_the_same_line_when_the_container_is_there_anyway(self):
+        got = self.page.evaluate("""(rows) => {
+            const holder = document.createElement('div'); holder.id = 'zz-holder2'; holder.innerHTML = '<div id="mc-cputime"></div>'; document.body.appendChild(holder);
+            const seen = [], real = window.renderTimeSeries;
+            window.renderTimeSeries = (id, series, opts) => { seen.push(id); return real(id, series, opts); };
+            try { _paintCpuTime(rows); } finally { window.renderTimeSeries = real; holder.remove(); }
+            return seen;
+        }""", self.ROWS[:1] + [None, [1, 2]])
+        self.assertEqual(got, [], "one good sample is not a line")
+
+    def test_nothing_is_drawn_for_fewer_than_two_good_samples(self):
+        self.assertEqual(self.draw_cpu_time([])["seen"], [])
+        self.assertEqual(self.draw_cpu_time(self.ROWS[:1])["seen"], [])
+        self.assertEqual(self.draw_cpu_time(self.ROWS[:1] + [None, "x", [1, 2], [1, 2, 3, 4, 5, 6, 7, "x"]])["seen"], [], "junk does not count as a sample")
+        self.assertEqual(self.draw_cpu_time(None)["seen"], [])
+        self.assertEqual(self.draw_cpu_time("rows")["seen"], [])
 
     def test_the_host_editor_shows_the_fleets_lines_and_saves_its_own(self):
         self.page.evaluate("() => openMetricThresholds('tnas', 'truenas.lab')")
