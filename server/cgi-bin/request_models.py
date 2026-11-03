@@ -250,6 +250,7 @@ if _AVAILABLE:
         default_group: str = ''
         default_tags: list[str] = []
         label: str = ''
+        allowed_cidrs: Any = None      # 7.4.9: the networks the token may be used from; the handler reads and refuses
 
         _v_expires = field_validator('expires_in', mode='before')(_coerce_int_strict)
         _v_group = field_validator('default_group', mode='before')(_coerce_str_falsy_empty)

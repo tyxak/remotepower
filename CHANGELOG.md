@@ -69,6 +69,17 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   asks `docker inspect` about an unhealthy container only (eight per report at most), so a healthy host pays nothing. Update
   the agents for the output text; without it the alert still fires.
 
+### Enrolment
+
+- **An enrolment token can be limited to a network.** A token minted for a build network or a cloud project was good from
+  anywhere until it expired or was used, so a copy taken from a log or a chat could enrol a host. Add `allowed_cidrs`
+  (addresses or networks, at most 10) to `POST /api/enrollment-tokens` and the token works from those only. A host that tries
+  from another address gets a 403 and the attempt is audited (`enrollment_token_refused_source`). The refusal does not use the
+  token up, so a copy used from the wrong place does not cost you the one meant for the right place. A network that matches
+  every address (`0.0.0.0/0`) is refused, a limit that is stored in a shape nobody can read refuses instead of opening the
+  token, and the token list shows each token's networks. The same check now reads an IPv4 client that arrives as
+  `::ffff:10.0.0.5` as the IPv4 address, which also helps an API key's source-address list.
+
 ### Business services
 
 - **A new page names what people depend on.** Nothing answered "is Checkout up?": a host list says which machines are, a

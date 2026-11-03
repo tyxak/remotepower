@@ -160,6 +160,21 @@ For fleet enrollment from cloud-init or Ansible, mint one-time enrollment tokens
 (7 days at most), enrolls one host, and can carry a default group and tags. See
 [install.md](install.md).
 
+**Limit a token to a network** *(7.4.9)*. A token that leaks from a build log or a chat is good from anywhere until it
+expires or is used. Add `allowed_cidrs` when you mint it, a list of addresses or networks (or one string separated by
+commas, spaces or new lines), and it works from those only:
+
+```json
+{"label": "build network", "expires_in": 3600, "allowed_cidrs": ["10.20.0.0/16", "192.0.2.17"]}
+```
+
+A host that tries to enrol from another address gets a 403 and the attempt is written to the audit log
+(`enrollment_token_refused_source`). The refusal does not use the token up, so a copy used from the wrong place does not
+cost you the one meant for the right place. At most 10 entries, and a network that matches every address (`0.0.0.0/0`,
+`::/0`) is refused, because a limit everything passes is not a limit. The address is the one the server sees: behind
+your own reverse proxy, set `trust_proxy` so it reads the forwarded address (the local nginx the installer sets up is
+handled already). **Enrollment tokens** in the list shows each token's networks.
+
 ---
 
 ## 4. Post-install hardening

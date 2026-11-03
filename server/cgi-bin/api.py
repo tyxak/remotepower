@@ -6386,6 +6386,40 @@ def cleanup_tokens():
         save(TOKENS_FILE, pruned)
 
 # ── Brute-force protection ─────────────────────────────────────────────────────
+MAX_ENROLL_CIDRS = 10
+
+
+def _clean_enroll_cidrs(raw):
+    """7.4.9: the networks an enrolment token may be used from, as ``(cidrs, error)``.
+
+    Text that is a list, or one string separated by commas, spaces or new lines. Each entry is an address or a network
+    (``10.0.0.0/24``, ``192.168.1.5``, ``2001:db8::/32``); a host bit set in a network is allowed and cut off. At most
+    MAX_ENROLL_CIDRS, and ``0.0.0.0/0`` or ``::/0`` is refused, because a limit that every address passes is not a limit."""
+    if raw in (None, '', []):
+        return [], None
+    if isinstance(raw, str):
+        items = [x for x in re.split(r'[\s,]+', raw) if x]
+    elif isinstance(raw, list):
+        items = raw
+    else:
+        return None, 'allowed_cidrs must be a list of addresses or networks'
+    out = []
+    for item in items:
+        if not isinstance(item, str):
+            return None, 'allowed_cidrs must be a list of addresses or networks'
+        try:
+            net = ipaddress.ip_network(item.strip(), strict=False)
+        except (ValueError, TypeError):
+            return None, f'"{_sanitize_str(item, 64)}" is not an address or a network'
+        if net.prefixlen == 0:
+            return None, 'a network that matches every address is not a limit'
+        if str(net) not in out:
+            out.append(str(net))
+    if len(out) > MAX_ENROLL_CIDRS:
+        return None, f'at most {MAX_ENROLL_CIDRS} networks'
+    return out, None
+
+
 def _get_client_ip():
     """Best-effort client IP from CGI env. Nginx sets REMOTE_ADDR.
 
@@ -7724,6 +7758,10 @@ def _ip_in_cidrs(ip, cidrs):
         addr = ipaddress.ip_address(str(ip))
     except (ValueError, TypeError):
         return False
+    # 7.4.9: a client seen on a dual-stack listener can arrive as ::ffff:10.0.0.5. It is the IPv4 address 10.0.0.5, and a
+    # list that names 10.0.0.0/24 has to match it.
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
     for c in (cidrs or []):
         c = str(c).strip()
         if not c:
@@ -21369,6 +21407,10 @@ def handle_enroll_token_create():
             clean_tags.append(s)
 
     label = _sanitize_str(body.get('label', ''), 128)
+    # 7.4.9: the networks the token may be used from (empty = anywhere, as before)
+    allowed_cidrs, _cidr_err = _clean_enroll_cidrs(body.get('allowed_cidrs'))
+    if _cidr_err:
+        respond(400, {'error': _cidr_err})
 
     # Generate the token. 32 url-safe bytes → 43 chars after base64. That's
     # enough entropy that brute-forcing at the rate-limit isn't a concern.
@@ -21392,16 +21434,20 @@ def handle_enroll_token_create():
             'label':         label,
             'prefix':        token[:8],
         }
+        if allowed_cidrs:
+            tokens[_hash_device_token(token)]['allowed_cidrs'] = allowed_cidrs
         _tok_tenant = _enrol_tenant()
         if _tok_tenant:
             tokens[_hash_device_token(token)]['tenant'] = _tok_tenant
     audit_log(actor, 'enrollment_token_created',
-              f'label="{label}" expires_in={ttl}s group="{default_group}" tags={clean_tags}')
+              f'label="{label}" expires_in={ttl}s group="{default_group}" tags={clean_tags}'
+              + (f' only_from={allowed_cidrs}' if allowed_cidrs else ''))
     respond(201, {
         'token':   token,
         'expires': now + ttl,
         'created': now,
         'label':   label,
+        'allowed_cidrs': allowed_cidrs,
         'ca_fingerprint': _self_signed_ca_fingerprint(),
     })
 
@@ -21443,6 +21489,7 @@ def handle_enroll_token_list():
             'default_group': meta.get('default_group', ''),
             'default_tags':  meta.get('default_tags', []) or [],
             'label':         meta.get('label', ''),
+            'allowed_cidrs': [c for c in (meta.get('allowed_cidrs') or []) if isinstance(c, str)][:MAX_ENROLL_CIDRS],   # 7.4.9
             'remaining_seconds': max(0, meta.get('expires', 0) - now),
         })
     out.sort(key=lambda t: t['created'], reverse=True)
@@ -21585,6 +21632,14 @@ def handle_enroll_register():
             meta = tokens.get(_ekey)
             if not meta:
                 respond(403, {'error': 'Invalid or expired enrollment token'})
+            # 7.4.9: a token made for a network works from that network only. The refusal leaves the token alone, so a
+            # copy used from the wrong place does not use up the one meant for the right place.
+            # A limit that is stored in a shape nobody can read refuses, it does not open the token to everyone.
+            _only = meta.get('allowed_cidrs')
+            if _only not in (None, '', []) and not (isinstance(_only, list) and _ip_in_cidrs(_get_client_ip(), _only)):
+                audit_log('enroll', 'enrollment_token_refused_source',
+                          f'prefix={str(meta.get("prefix") or "")[:8]} from={_sanitize_str(_get_client_ip(), 64)}')
+                respond(403, {'error': 'This enrollment token cannot be used from this address'})
             del tokens[_ekey]
         default_group = meta.get('default_group', '') or ''
         default_tags = meta.get('default_tags', []) or []
