@@ -936,6 +936,7 @@ import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host
 from secure_eq import secure_eq as _secure_eq   # constant-time comparison of secrets that never raises (7.4.9)
 import store_shapes                             # the shape each store file is expected to have, and its repair (7.4.9)
 import upgrade_mode as upgrade_mode_mod   # a host's apt upgrade mode, Standard or Extended (Discussion #30; pure)
+import zfs_stats as zfs_stats_mod   # 7.4.9: a host's ZFS cache counters and datasets, validated (pure)
 import peer_direction as peer_direction_mod   # v7.4.6 (#58): which way an observed TCP connection runs (pure)
 import thermal_sensors as thermal_sensors_mod   # a temperature history for every sensor, not only the hottest (pure)
 import disk_mounts as disk_mounts_mod   # which mounts of a host are one filesystem (pure)
@@ -23008,6 +23009,14 @@ def handle_heartbeat():
                         sp['last_snapshot'] = p['last_snapshot']
                     safe_pools.append(sp)
                 safe_si['storage_health'] = safe_pools
+            # 7.4.9: the ZFS cache and the datasets that hold the most space. safe_si is a whitelist, so a key
+            # that is not listed here never reaches the store. Both are validated and capped by zfs_stats.
+            _zarc = zfs_stats_mod.clean_arc(si.get('zfs_arc'))
+            if _zarc:
+                safe_si['zfs_arc'] = _zarc
+            _zds = zfs_stats_mod.clean_datasets(si.get('zfs_datasets'))
+            if _zds:
+                safe_si['zfs_datasets'] = _zds
             # v3.11.0: recent logins / source IPs (access watch)
             if isinstance(si.get('auth'), dict):
                 a = si['auth']
@@ -67726,7 +67735,25 @@ def handle_storage_overview():
                 'target': target, 'online': (int(time.time()) - d.get('last_seen', 0)) < get_online_ttl(),
             })
     rows.sort(key=lambda r: (0 if r['degraded'] else 1, r['device'], r['pool'] or ''))
-    respond(200, {'pools': rows, 'degraded': degraded, 'count': len(rows)})
+    # 7.4.9: the ZFS cache of each host that reports one, and the datasets that hold the most space (eight per host)
+    arc_rows = []
+    ds_rows = []
+    for dev_id, d in (devices or {}).items():
+        si = d.get('sysinfo') or {}
+        arc = si.get('zfs_arc')
+        if isinstance(arc, dict) and arc:
+            arc_rows.append(dict(arc, device_id=dev_id, device=d.get('name', dev_id),
+                                 monitored=d.get('monitored') is not False))
+        zds = si.get('zfs_datasets')
+        if isinstance(zds, dict):
+            for r in (zds.get('rows') or [])[:8]:
+                if isinstance(r, dict):
+                    ds_rows.append(dict(r, device_id=dev_id, device=d.get('name', dev_id),
+                                        monitored=d.get('monitored') is not False))
+    arc_rows.sort(key=lambda r: (r.get('device') or '', r['device_id']))
+    ds_rows.sort(key=lambda r: (-(r.get('used') or 0), r.get('device') or '', r.get('name') or ''))
+    respond(200, {'pools': rows, 'degraded': degraded, 'count': len(rows), 'arc': arc_rows[:200],
+                  'datasets': ds_rows[:200]})
 
 
 # ─── v3.14.0: fleet thermal roll-up ("hottest hosts") ────────────────────────

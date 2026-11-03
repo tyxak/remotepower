@@ -115,11 +115,11 @@ def plan_id_of(cmd: Any) -> str:
 
 # ── small readers ────────────────────────────────────────────────────────────
 def _name(s: Any) -> str:
-    return s if isinstance(s, str) and NAME_RE.match(s) else ""
+    return s if isinstance(s, str) and NAME_RE.fullmatch(s) else ""
 
 
 def _ver(s: Any) -> str:
-    return s if isinstance(s, str) and VER_RE.match(s) else ""
+    return s if isinstance(s, str) and VER_RE.fullmatch(s) else ""
 
 
 def _int(s: Any, default: int = 0) -> int:

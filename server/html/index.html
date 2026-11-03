@@ -9015,6 +9015,32 @@ nextcloud mem=95 sustain=6</pre>
           </table>
           </div>
         </div>
+        <div class="table-card" id="storage-arc-card" hidden>
+          <div class="section-title">ZFS cache (ARC)</div>
+          <div class="scrollable-table-wrap audit-scroll">
+          <table class="data-table w-full">
+            <thead id="storage-arc-thead"><tr>
+              <th scope="col" data-col="device">Host</th><th scope="col" data-col="size">Cache size</th><th scope="col" data-col="fill">Full</th>
+              <th scope="col" data-col="hit">Hit ratio</th><th scope="col" data-col="l2">L2ARC</th>
+            </tr></thead>
+            <tbody id="storage-arc-tbody"></tbody>
+          </table>
+          </div>
+        </div>
+        <div class="table-card" id="storage-ds-card" hidden>
+          <div class="section-title">ZFS datasets</div>
+          <div class="scrollable-table-wrap audit-scroll">
+          <table class="data-table w-full">
+            <thead id="storage-ds-thead"><tr>
+              <th scope="col" data-col="device">Host</th><th scope="col" data-col="name">Dataset</th><th scope="col" data-col="used">Used</th>
+              <th scope="col" data-col="avail">Available</th><th scope="col" data-col="quota">Quota</th><th scope="col" data-col="snap">Snapshots</th>
+              <th scope="col" data-col="ratio">Compression</th>
+            </tr></thead>
+            <tbody id="storage-ds-tbody"></tbody>
+          </table>
+          </div>
+          <p class="hint mt-12">The hit ratio counts since the host booted. The datasets listed are the eight that hold the most space on each host.</p>
+        </div>
         <p class="hint mt-12">Pools with a <strong>Maintain…</strong> button can run scrubs, trims/balances, status checks and snapshot cleanup directly — the command is built server-side and queued on the host (admin-only, audited). Output appears under Hosts → the host.</p>
       </div>
 

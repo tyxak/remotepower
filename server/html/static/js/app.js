@@ -25572,6 +25572,8 @@ async function _loadAuditSection(key) {
                    <td class="fs-11 c-muted">${escHtml(p.scrub||'—')}</td></tr>`
             ).join('') + `</tbody></table></div>`;
         }
+        // 7.4.9: the ZFS cache and the datasets that hold the most space (app-storage.js is lazy; a host without ZFS never loads it)
+        if (si.zfs_arc || si.zfs_datasets) { await _loadJsModule('app-storage.js'); h += _zfsHostHtml(si); }
         // Top processes by CPU — data already in sysinfo (top_processes:
         // [{pid,name,cpu,mem}]). Shown fleet-wide on the Processes page; surface
         // a compact view here too.

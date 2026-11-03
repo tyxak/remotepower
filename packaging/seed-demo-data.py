@@ -673,6 +673,29 @@ def _demo_enrich_sysinfo(dev, rng, si):
             {'name': 'btrfs:data', 'kind': 'btrfs', 'state': 'online',
              'mount': '/mnt/vault', 'capacity': rng.randint(45, 88)},
         ]
+        # 7.4.9: the ZFS cache and the datasets that hold the most space, as zfs_stats keeps them. Drawn from a
+        # generator of its own so the draws above, and every host after this one, are unchanged.
+        _zr = _seeded_random('zfs', dev['id'])
+        _gib = 1024 ** 3
+        _arc_max = 16 * _gib
+        _arc_size = int(_arc_max * _zr.uniform(0.55, 0.98))
+        _hits = _zr.randint(800_000_000, 4_000_000_000)
+        _miss = int(_hits * _zr.uniform(0.02, 0.18))
+        si['zfs_arc'] = {'size': _arc_size, 'c_min': _gib, 'c_max': _arc_max, 'hits': _hits, 'misses': _miss,
+                         'l2_size': 0, 'l2_hits': 0, 'l2_misses': 0, 'mru_size': int(_arc_size * 0.4),
+                         'mfu_size': int(_arc_size * 0.5), 'hit_ratio': round(_hits / (_hits + _miss), 4),
+                         'fill_pct': round(_arc_size * 100.0 / _arc_max, 1)}
+        _ds = []
+        for _nm, _tb, _quota_tb, _snap_gb, _ratio in (
+                ('tank/media', 5.4, 0, 120, 1.02), ('tank/backups', 1.88, 2.0, 640, 1.61),
+                ('tank/vm', 1.1, 0, 310, 1.34), ('tank/photos', 0.82, 1.0, 40, 1.01),
+                ('tank/docker', 0.34, 0, 12, 1.78), ('tank/home', 0.12, 0.5, 6, 1.52), ('tank', 0.004, 0, 0, 1.0)):
+            _used = int(_tb * 1024 ** 4)
+            _q = int(_quota_tb * 1024 ** 4)
+            _ds.append({'name': _nm, 'used': _used, 'avail': int(2.6 * 1024 ** 4), 'refer': int(_used * 0.9), 'quota': _q,
+                        'snap': _snap_gb * _gib, 'ratio': _ratio,
+                        'quota_pct': round(_used * 100.0 / _q, 1) if _q else None})
+        si['zfs_datasets'] = {'count': len(_ds) + 9, 'rows': _ds}
     # ── host firewall posture + drift fingerprint ──
     # v6.4.2: ~1 in 6 hosts has no active ruleset so the linux_firewall check,
     # the firewall_off fleet-query facet, the report posture section and PCI

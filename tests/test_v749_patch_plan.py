@@ -227,6 +227,13 @@ class TestAptEdges(unittest.TestCase):
         self.assertGreaterEqual(p["skipped"], 6, "what was dropped is counted")
         self.assertNotIn("<", json.dumps({k: v for k, v in p.items() if k != "raw"}), "the raw answer is the host's own text and is escaped where it is shown")
 
+    def test_a_trailing_newline_does_not_make_a_name(self):
+        # `$` matches before a final newline, so a pattern ending in it accepts "name\n"; the readers use fullmatch
+        for bad in ("foo\n", "1.0\n", "foo\n\n"):
+            self.assertEqual(P._name(bad), "")
+            self.assertEqual(P._ver(bad), "")
+        self.assertEqual(P._name("foo"), "foo")
+
     def test_it_never_raises_on_what_is_not_text(self):
         for junk in (None, 5, 1.5, b"##manager apt", [], {}, True, "", "\x00" * 100, "##", "##manager", "##manager apt\n##plan"):
             p = P.parse(junk)

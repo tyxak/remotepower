@@ -6457,6 +6457,55 @@ def collect_firewall_detail():
     return {'backends': backends, 'active': overall}
 
 
+# ─── 7.4.9: ZFS adaptive replacement cache and datasets ─────────────────────
+_ZFS_ARC_KEYS = ('size', 'c_min', 'c_max', 'hits', 'misses', 'l2_size', 'l2_hits', 'l2_misses', 'mru_size', 'mfu_size')
+
+
+def get_zfs_arc():
+    """The ZFS cache's size, limits and hit and miss counters from the kernel's arcstats ("name type data" lines after two
+    header lines), or None when ZFS is not loaded. Read-only, no command run; the server works out the hit ratio."""
+    text = _safe_read('/proc/spl/kstat/zfs/arcstats', 65536)
+    if not text:
+        return None
+    out = {}
+    for ln in text.splitlines()[2:]:
+        f = ln.split()
+        if len(f) == 3 and f[0] in _ZFS_ARC_KEYS and f[2].isdigit():
+            out[f[0]] = int(f[2])
+    return out if 'size' in out else None
+
+
+def get_zfs_datasets(limit=30):
+    """{count, rows}: how many datasets there are and the `limit` that hold the most space, from `zfs list`
+    (parsable numbers, no header). A row is {name, used, avail, refer, quota, snap, ratio}; quota is 0 for none, snap
+    is what the dataset's snapshots hold and ratio its compression ratio. None when zfs is absent or fails."""
+    if not _which('zfs'):
+        return None
+    r = subprocess.run(['zfs', 'list', '-H', '-p', '-t', 'filesystem,volume', '-o',
+                        'name,used,avail,refer,quota,usedbysnapshots,compressratio'],
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        return None
+
+    def _n(x):
+        return int(x) if x.isdigit() else 0
+    rows = []
+    for ln in r.stdout.splitlines():
+        f = ln.split('\t')
+        if len(f) < 7 or not f[1].isdigit():
+            continue
+        try:
+            ratio = float(f[6].rstrip('x'))
+        except ValueError:
+            ratio = 1.0
+        rows.append({'name': f[0][:255], 'used': int(f[1]), 'avail': _n(f[2]), 'refer': _n(f[3]),
+                     'quota': _n(f[4]), 'snap': _n(f[5]), 'ratio': ratio})
+    if not rows:
+        return None
+    rows.sort(key=lambda x: -x['used'])
+    return {'count': len(rows), 'rows': rows[:limit]}
+
+
 def get_host_health():
     """v2.2.6: extra host telemetry — cheap signals an operator wants
     at a glance but that weren't collected before. Everything here is
@@ -6762,6 +6811,21 @@ def get_host_health():
                         except (ValueError, OverflowError):
                             pass
                 p['last_snapshot'] = newest   # 0 = no snapshots found
+    except Exception:
+        pass
+
+    # ── 7.4.9: ZFS cache and datasets ────────────────────────────────
+    try:
+        _arc = get_zfs_arc()
+        if _arc:
+            out['zfs_arc'] = _arc
+    except Exception:
+        pass
+    try:
+        if any(p.get('kind') == 'zfs' for p in pools):
+            _zds = get_zfs_datasets()
+            if _zds:
+                out['zfs_datasets'] = _zds
     except Exception:
         pass
 

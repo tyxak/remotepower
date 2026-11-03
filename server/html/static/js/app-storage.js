@@ -18,6 +18,7 @@ async function loadStorage() {
     _storageResp = data;
     if (summary) summary.textContent = `${data.count} pools · ${data.degraded} degraded`;
     _renderStorage();
+    _renderStorageZfs();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="6" class="empty-state-error">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
@@ -59,6 +60,78 @@ function _renderStorage() {
       <td class="nowrap">${maintBtn}</td>
     </tr>`;
   }).join('') + note;
+}
+
+// ─── 7.4.9: the ZFS cache (ARC) and the datasets that hold the most space ─────────────────────────────────────────────
+// Both come from what the Linux agent reads on a host that has ZFS (zfs_stats.py validates it and works out the hit ratio and
+// the share of a quota that is used), so a host without ZFS adds nothing and the two cards stay hidden.
+function _zfsBytes(n) { return (typeof n === 'number' && isFinite(n) && n >= 0) ? _fmtBytes(n) : '—'; }
+function _zfsPct(n, digits) { return (typeof n === 'number' && isFinite(n)) ? n.toFixed(digits == null ? 1 : digits) + '%' : '—'; }
+function _zfsRatio(n) { return (typeof n === 'number' && isFinite(n)) ? (n * 100).toFixed(1) + '%' : '—'; }
+
+function _renderStorageZfs() {
+  const arcCard = document.getElementById('storage-arc-card');
+  const dsCard = document.getElementById('storage-ds-card');
+  if (!arcCard || !dsCard || !_storageResp) return;
+  const arc = (_storageResp.arc || []).slice();
+  const ds = (_storageResp.datasets || []).slice();
+  arcCard.hidden = !arc.length;
+  dsCard.hidden = !ds.length;
+  tableCtl.wireSortOnly('storage-arc-thead', 'storage_arc', _renderStorageZfs);
+  tableCtl.wireSortOnly('storage-ds-thead', 'storage_ds', _renderStorageZfs);
+  const arcRows = tableCtl.sortRows('storage_arc', arc, (r) => ({
+    device: (r.device || '').toLowerCase(), size: r.size || 0, fill: r.fill_pct || 0,
+    hit: r.hit_ratio == null ? -1 : r.hit_ratio, l2: r.l2_size || 0,
+  }));
+  document.getElementById('storage-arc-tbody').innerHTML = arcRows.map(r => `<tr>
+      <td class="fw-500">${escHtml(r.device)}</td>
+      <td>${_zfsBytes(r.size)} <span class="hint">/ ${_zfsBytes(r.c_max)}</span></td>
+      <td>${_zfsPct(r.fill_pct)}</td>
+      <td>${_zfsRatio(r.hit_ratio)}</td>
+      <td>${r.l2_size ? _zfsBytes(r.l2_size) : '—'}</td>
+    </tr>`).join('');
+  const dsRows = tableCtl.sortRows('storage_ds', ds, (r) => ({
+    device: (r.device || '').toLowerCase(), name: (r.name || '').toLowerCase(), used: r.used || 0, avail: r.avail || 0,
+    quota: r.quota_pct == null ? -1 : r.quota_pct, snap: r.snap || 0, ratio: r.ratio || 0,
+  }));
+  const capped = _capFleetRows(dsRows, 7, 'datasets');
+  document.getElementById('storage-ds-tbody').innerHTML = capped.rows.map(r => `<tr>
+      <td class="fw-500">${escHtml(r.device)}</td>
+      <td><code>${escHtml(r.name || '—')}</code></td>
+      <td>${_zfsBytes(r.used)}</td>
+      <td>${_zfsBytes(r.avail)}</td>
+      <td class="${r.quota_pct != null && r.quota_pct >= 90 ? 'fw-600' : ''}">${r.quota ? `${_zfsPct(r.quota_pct)} <span class="hint">· ${_zfsBytes(r.quota)}</span>` : '—'}</td>
+      <td>${_zfsBytes(r.snap)}</td>
+      <td>${typeof r.ratio === 'number' ? escHtml(r.ratio.toFixed(2)) + '×' : '—'}</td>
+    </tr>`).join('') + capped.note;
+}
+
+// The host drawer's System info section (app.js loads this file when the host has ZFS data).
+function _zfsHostHtml(si) {
+  const arc = si && si.zfs_arc;
+  const ds = si && si.zfs_datasets;
+  if (!arc && !ds) return '';
+  let h = '<div class="mt-16 mb-8 fw-500 fs-13">ZFS</div>';
+  if (arc && arc.size != null) {
+    h += '<div class="sysinfo-row mb-16">'
+      + `<div class="sysinfo-pill"><div class="label"><span>Cache</span></div><div class="value">${escHtml(_zfsBytes(arc.size))} <span class="hint">/ ${escHtml(_zfsBytes(arc.c_max))}</span></div></div>`
+      + `<div class="sysinfo-pill"><div class="label"><span>Full</span></div><div class="value">${escHtml(_zfsPct(arc.fill_pct))}</div></div>`
+      + `<div class="sysinfo-pill"><div class="label"><span>Hit ratio</span></div><div class="value">${escHtml(_zfsRatio(arc.hit_ratio))}</div></div>`
+      + (arc.l2_size ? `<div class="sysinfo-pill"><div class="label"><span>L2ARC</span></div><div class="value">${escHtml(_zfsBytes(arc.l2_size))}</div></div>` : '')
+      + '</div>';
+  }
+  const rows = (ds && ds.rows) || [];
+  if (rows.length) {
+    h += `<div class="scrollable-table-wrap audit-scroll"><table class="isl-627">
+      <thead><tr class="c-muted"><th class="isl-628"><span>Dataset</span></th><th><span>Used</span></th><th><span>Available</span></th><th><span>Quota</span></th><th><span>Snapshots</span></th><th><span>Compression</span></th></tr></thead>
+      <tbody>` + rows.map(r => `<tr><td class="isl-629"><code>${escHtml(r.name || '—')}</code></td>
+        <td>${escHtml(_zfsBytes(r.used))}</td><td>${escHtml(_zfsBytes(r.avail))}</td>
+        <td>${r.quota ? escHtml(_zfsPct(r.quota_pct)) : '—'}</td><td>${escHtml(_zfsBytes(r.snap))}</td>
+        <td>${typeof r.ratio === 'number' ? escHtml(r.ratio.toFixed(2)) + '×' : '—'}</td></tr>`).join('')
+      + '</tbody></table></div>';
+    if (ds.count > rows.length) h += `<div class="hint">${rows.length} of ${escHtml(String(ds.count))} datasets, the ones that hold the most space.</div>`;
+  }
+  return h;
 }
 
 // ─── v5.0.0: one-click ZFS/Btrfs pool maintenance ───────────────────────────

@@ -21,6 +21,22 @@ reported a ZFS, mdadm or btrfs pool yet.
   attributes). A drive that reports failure or pre-fail raises `smart_failure`, and
   `smart_recovered` clears it.
 
+### ZFS cache and datasets
+
+A host that has ZFS also reports what its memory cache (the ARC) is doing and which datasets hold the most space. The
+Storage page lists both for the whole fleet, under the pools:
+
+- **ZFS cache (ARC)**: the cache's size against its upper limit, how full it is, and its hit ratio. The hit ratio counts
+  since the host booted, so a low figure on a host that has just started says little. A cache that sits at its limit while
+  the ratio stays low means the data you read does not fit in memory. A second-level cache (L2ARC) is shown when the host has one.
+- **ZFS datasets**: the eight datasets that hold the most space on each host, with what is used and available, the share of
+  the quota that is used (when the dataset has one), the space its snapshots hold and its compression ratio.
+
+The host drawer shows the same for that host under **System info**. Nothing here raises an alert. A dataset that has reached its
+quota already shows as full in the host's disk usage, because ZFS reports the quota as the size.
+
+Update the agent for this. A host without ZFS reports neither, and the tables are not shown when no host has them.
+
 ### Maintain a pool
 
 A ZFS or btrfs pool with a mounted target has a **Maintain…** button. The dialog

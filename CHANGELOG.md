@@ -70,6 +70,19 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   read-only and the server reads its answer, so no agent update is needed. Linux hosts only: Windows and macOS hosts list
   what is pending on the Patches page, and the API says so.
 
+### Storage
+
+- **The ZFS cache and the datasets that hold the space (gap-fill).** The agent has reported a pool's health, last scrub
+  and newest snapshot since 3.11.0, and nothing about what the pool's memory does or which dataset fills it, which is what a
+  ZFS owner asks first when a host is slow or a pool is nearly full. The Linux agent now reads the cache's size, its limits and its hit and
+  miss counters from the kernel, and the eight datasets that hold the most space from `zfs list` (used, available, quota,
+  what the snapshots hold, compression). The Storage page gets a **ZFS cache (ARC)** table and a **ZFS datasets** table
+  for the whole fleet (sortable, and only there when a host has ZFS), and the host drawer's System info shows both for that
+  host. The server keeps only numbers that are numbers and names that are ZFS names, and works out the hit ratio and the share of a
+  quota that is used itself, so a host cannot report them. The hit ratio counts since the host booted. Update the agents;
+  hosts without ZFS report nothing new. This is display only: no alert fires on a full dataset, because `df` already shows a
+  dataset at its quota as full.
+
 ### Containers
 
 - **A container that fails its own health check raises an alert.** Docker marks a container `unhealthy` after the check it
