@@ -252,9 +252,10 @@ class TestEagerJsPayload(unittest.TestCase):
         # host drawer's temperature verdict add about 4.6 KB to app.js, and 7.4.8 had left 721 bytes of headroom. The
         # dialog is opened from the Patches page only, but the Patches page itself is drawn from app.js (its table, its
         # filters and the dialog share state), so the block sits with it; the translations are in i18n.js, which is not eager.
-        # 7.4.9 gap-fill: 2_650_000. The sweep ended at 2_639_500. The four event pairs the new alerts raise (container
-        # unhealthy, business service, custom script state), the Business Services page entry in the lazy map and the
-        # documentation map, and the custom script's mode select with its four-state badge add about 2.9 KB to app.js and
+        # 7.4.9 gap-fill: 2_650_000. The sweep ended at 2_639_500. The two event pairs the new alerts raise (container
+        # unhealthy and healthy, business service down and up) in the activity feed's registries, the Business Services
+        # entries in the lazy map, the page refresher list and the documentation map, the four chat destinations in the
+        # format list, and the custom script's mode select with its four-state badge add about 2.9 KB to app.js and
         # app-hostconfig.js. The page itself is app-business-services.js, which is lazy, and the translations are in
         # i18n.js, which is not eager.
         self.assertLess(total, 2_650_000,
