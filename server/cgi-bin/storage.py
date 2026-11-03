@@ -181,6 +181,9 @@ ENTITY_FILES = {
     # v7.4.3 (#49): diskio_history.json -- per-host, per-disk busy share, throughput, IOPS and wait
     # ({device_id: {disk: [[ts, busy%, read MB/s, write MB/s, IOPS, await ms], ...]}}), one row per host.
     'diskio_history.json',
+    # 7.4.9: patch_previews.json -- per host, the last upgrade plan and the request that is waiting for one
+    # ({device_id: {pending, plan}}), one row per host. Born an ENTITY file, so no cold blob to migrate.
+    'patch_previews.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

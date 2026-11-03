@@ -2752,7 +2752,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js'];
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js'];   // 7.4.9: the patch preview dialog
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -12335,6 +12335,12 @@ function _upgradeModeBlock(id, data) {
   const hint = 'Standard runs apt-get upgrade, which keeps back an update that needs a package that is not installed yet, such as a new kernel image. Extended runs apt-get upgrade --with-new-pkgs, which installs those packages as well and removes nothing. The mode applies to the patch button, auto-patch, scheduled upgrades and rollouts.';
   return `<div id="upgrade-mode-block" class="mb-16"><div class="section-title">Upgrade mode</div>${select}<div class="hint">${hint}</div>${keptLine}</div>`;
 }
+// 7.4.9: the patch preview (app-patchplan.js, lazy) opens from here and from a parked upgrade on the Approvals page.
+function _patchPlanButton(id, name, data) {
+  const mgr = String((data && data.pkg_manager) || '');
+  if (mgr && !['apt', 'dnf', 'pacman', 'unknown'].includes(mgr)) return '';
+  return `<div class="mb-16"><div class="section-title">Preview</div><button class="btn-secondary" data-action-btn="_patchPlanBtn" data-dev-id="${escAttr(id)}" data-dev-name="${escAttr(name)}">Preview the next upgrade</button> <span class="hint">Asks the host for a dry run. Nothing is changed.</span></div>`;
+}
 async function setHostUpgradeMode(arg) {
   const id = String(arg).replace(/^host:/, '');
   const sel = document.getElementById('device-patch-mode');
@@ -12351,7 +12357,7 @@ async function setHostUpgradeMode(arg) {
   const block = document.getElementById('upgrade-mode-block');
   if (data && block) block.outerHTML = _upgradeModeBlock(id, data);
 }
-async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this host.'}); return; } const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += _upgradeModeBlock(devId, data); html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
+async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this host.'}); return; } const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += _upgradeModeBlock(devId, data); html += _patchPlanButton(devId, devName, data); html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
 let cveReportData = null;
@@ -14247,7 +14253,11 @@ function _renderConfirmations(arr) {
     }
     let buttons = '';
     if (status === 'pending') {
-      buttons = `<button class="btn-icon btn-xs c-success" data-action="approveConfirmation" data-arg="${c.id}">Approve</button> ` +
+      // 7.4.9: a parked Linux upgrade comes with a dry run of what it would change
+      if (c.action === 'queue_command' && _p.kind === 'upgrade' && String(_p.command || '').startsWith('exec:') && c.device_id) {
+        buttons += `<button class="btn-icon btn-xs" data-action-btn="_patchPlanBtn" data-dev-id="${escAttr(c.device_id)}" data-dev-name="${escAttr(c.device_name || c.device_id)}">Preview</button> `;
+      }
+      buttons += `<button class="btn-icon btn-xs c-success" data-action="approveConfirmation" data-arg="${c.id}">Approve</button> ` +
                 `<button class="btn-icon btn-xs c-danger-outline" data-action="rejectConfirmation" data-arg="${c.id}">Reject</button>`;
     }
     return `<tr>

@@ -56,6 +56,20 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   under a heading of its own and was never affected. If the second question fails, the package still counts. Update the
   agents.
 
+- **A patch preview shows what the next upgrade would change (gap-fill).** The patch button and the four-eyes gate showed a
+  count, "14 pending", and nothing about what the run does. **Preview the next upgrade** in a host's Patch Report, and
+  **Preview** beside a parked upgrade on the Approvals page, ask the host for a dry run and show the answer: each package
+  that moves with its old and new version and whether the distribution marks it security, the new packages an update
+  needs, anything that would be removed, what apt keeps back (told apart from a package held on purpose), what it defers
+  for phasing, what the run will clean up afterwards, a kernel flag and an estimate of whether a reboot follows. The dry
+  run follows the host's upgrade mode, so an Extended host is asked the Extended question. It works for apt, dnf, yum and
+  pacman. pacman prints no removals in a dry run, so none are claimed; a table that cannot be read in full is marked
+  partial instead of passing a short list off as the whole. A parked upgrade asks for its preview at once, so the second
+  administrator finds it waiting. `POST /api/devices/{id}/patch-preview` asks (anyone who may patch the host; at most one
+  request waits in a host's queue), `GET` reads the last plan and says whether a request is still waiting. The script is
+  read-only and the server reads its answer, so no agent update is needed. Linux hosts only: Windows and macOS hosts list
+  what is pending on the Patches page, and the API says so.
+
 ### Containers
 
 - **A container that fails its own health check raises an alert.** Docker marks a container `unhealthy` after the check it

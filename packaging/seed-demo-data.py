@@ -3949,6 +3949,8 @@ def build_confirmations() -> dict:
         ('exec_command', 'pmx01', {'command': 'apt full-upgrade -y'},          'alice', 'pending',  None,    1800),
         ('reboot',       'nc01',  {},                                          'bob',   'pending',  None,    3600),
         ('exec_command', 'tnas',  {'command': 'zpool clear tank'},             'alice', 'pending',  None,    600),
+        # 7.4.9: a parked Linux upgrade, which the Approvals page offers a patch preview for (see build_patch_previews)
+        ('queue_command', 'gt01', {'command': 'exec:set -e; apt-get -y upgrade', 'kind': 'upgrade'}, 'bob', 'pending', None, 900),
         ('exec_command', 'gt01',  {'command': 'docker compose pull && docker compose up -d'}, 'bob', 'approved', 'alice', 86400),
         ('exec_command', 'fw01',  {'command': 'rm -rf /tmp/old-rules'},        'alice', 'rejected', 'bob',   86400 * 2),
     ]
@@ -4809,6 +4811,44 @@ def build_diskio_history() -> dict:
             rec[disk] = rows
         out[dev_id] = rec
     return out
+
+
+def build_patch_previews() -> dict:
+    """The last upgrade plan of one Linux host -> patch_previews.json (7.4.9).
+
+    {dev_id: {pending, plan}}. The plan is what patch_plan.parse returns for a Debian 12 host that has a security kernel
+    waiting, one package held on purpose and an old kernel image the run will clean up. The values are plain data, so the
+    demo needs no agent: the Approvals page offers it next to the parked upgrade of the same host."""
+    t = now() - 120
+    plan = {
+        'status': 'done', 'error': '', 'manager': 'apt', 'mode': 'standard', 'host_time': t, 'lists_at': t - 7200,
+        'lists_age_s': 7200,
+        'upgrades': [
+            {'name': 'libc6', 'from': '2.36-9+deb12u8', 'to': '2.36-9+deb12u9', 'security': True,
+             'source': 'Debian-Security:12/stable-security'},
+            {'name': 'openssl', 'from': '3.0.15-1~deb12u1', 'to': '3.0.16-1~deb12u1', 'security': True,
+             'source': 'Debian-Security:12/stable-security'},
+            {'name': 'libssl3', 'from': '3.0.15-1~deb12u1', 'to': '3.0.16-1~deb12u1', 'security': True,
+             'source': 'Debian-Security:12/stable-security'},
+            {'name': 'curl', 'from': '7.88.1-10+deb12u8', 'to': '7.88.1-10+deb12u9', 'security': False,
+             'source': 'Debian:12.8/stable'},
+            {'name': 'tzdata', 'from': '2024a-0+deb12u1', 'to': '2024b-0+deb12u1', 'security': False,
+             'source': 'Debian:12.8/stable'},
+        ],
+        'installs': [
+            {'name': 'linux-image-6.1.0-29-amd64', 'to': '6.1.123-1', 'security': True,
+             'source': 'Debian-Security:12/stable-security'},
+        ],
+        'removals': [],
+        'kept_back': [{'name': 'docker-ce', 'held': True}],
+        'deferred': [],
+        'autoremove': ['linux-image-6.1.0-25-amd64'],
+        'counts': {'upgrade': 5, 'install': 1, 'remove': 0, 'kept_back': 1, 'security': 4},
+        'kernel': True, 'reboot_likely': True, 'reboot_reasons': ['linux-image-6.1.0-29-amd64', 'libc6'],
+        'download_bytes': None, 'truncated': False, 'partial': False, 'skipped': 0, 'raw': '',
+        'id': 'pp-' + _stable_hex('patchplan', 'gt01')[:12], 'at': t, 'requested_at': t - 20, 'by': 'alice', 'rc': 0,
+    }
+    return {'gt01': {'pending': None, 'plan': plan}}
 
 
 def build_smart_history() -> dict:
@@ -7660,6 +7700,7 @@ BUILDERS = {
     'business_service_history.json': build_business_service_history,
     'smart_history.json':          build_smart_history,
     'diskio_history.json':         build_diskio_history,
+    'patch_previews.json':         build_patch_previews,
     'gpu_history.json':            build_gpu_history,
     'thermal_history.json':        build_thermal_history,
     'thermal_rollup.json':         build_thermal_rollup,

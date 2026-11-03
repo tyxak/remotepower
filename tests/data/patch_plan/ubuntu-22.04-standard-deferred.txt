@@ -1,0 +1,17 @@
+##now 1793696476
+##manager apt
+##mode standard
+##lists 1793696467
+##held
+lab-held
+##rc 0
+##plan
+The following packages have been kept back:
+  lab-held lab-kernel-meta lab-phased
+The following packages will be upgraded:
+  lab-plain
+1 upgraded, 0 newly installed, 0 to remove and 3 not upgraded.
+Inst lab-plain [1.0] (1.1 Lab:noble-updates [all])
+##unphased
+  lab-held lab-kernel-meta
+##end

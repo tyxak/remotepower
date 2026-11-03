@@ -1,0 +1,25 @@
+##now 1793696477
+##manager apt
+##mode extended
+##lists 1793696445
+##held
+lab-held
+##rc 0
+##plan
+The following package was automatically installed and is no longer required:
+  lab-kernel-image-1
+Use 'apt autoremove' to remove it.
+The following NEW packages will be installed:
+  lab-kernel-image-2
+The following packages have been kept back:
+  lab-held
+The following packages will be upgraded:
+  lab-kernel-meta lab-phased lab-plain
+3 upgraded, 1 newly installed, 0 to remove and 1 not upgraded.
+Inst lab-kernel-image-2 (2.0 Lab:noble-security [all])
+Inst lab-kernel-meta [1.0] (2.0 Lab:noble-security [all])
+Inst lab-phased [1.0] (1.1 Lab:noble-updates [all])
+Inst lab-plain [1.0] (1.1 Lab:noble-updates [all])
+##unphased
+  lab-held
+##end

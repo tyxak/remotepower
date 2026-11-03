@@ -66,6 +66,39 @@ Only administrators set the mode, and a change is audited as `upgrade_mode_set`.
 `GET` and `PUT /api/devices/{id}/upgrade-mode` read and set it; `PUT` takes `{"mode": "standard"}` or
 `{"mode": "extended"}` and refuses anything else.
 
+## Patch preview
+
+The Patches page counts what is pending. The **patch preview** says what an upgrade would do. Open a Linux host's **Patch
+Report** and choose **Preview the next upgrade**, or choose **Preview** beside a parked upgrade on the Approvals page.
+RemotePower asks the host for a dry run, which changes nothing, and shows the answer when the host reports (a few seconds
+to a minute):
+
+- **Upgrades**: each package with the version it has and the version it would get, and a *security* mark where the
+  distribution itself calls the update a security update.
+- **New packages**: packages an update needs that are not installed yet, such as a new kernel image.
+- **Removed**: anything the upgrade would take off.
+- **Kept back**, **On hold** and **Deferred**: what apt leaves alone. A package held with `apt-mark hold` is on hold, on
+  purpose. A package whose new version needs a new package is kept back, and the **Extended** [upgrade mode](#upgrade-mode)
+  installs it. An update Ubuntu is still phasing in is deferred and arrives by itself.
+- **Cleaned up afterwards**: packages that stop being needed once the upgrade is done, which the run removes.
+- A **kernel update** or **reboot likely** note. This is an estimate from the package names (a kernel, microcode, the C
+  library, systemd, D-Bus). The distribution's own reboot marker is written only after the install.
+
+The preview follows the host's upgrade mode, so an Extended host is asked the Extended question. It works for hosts that
+use apt, dnf, yum or pacman. pacman prints no removals in a dry run, so none are shown for it. The package lists are as
+fresh as the host's last refresh, and the upgrade refreshes them first, so the real list can be longer. If the plan is
+cut off, or its rows do not match the counts the package manager printed, the dialog says so.
+
+A request that comes in while another one is waiting is the same request. A plan younger than ten minutes is shown as it is
+when you open the dialog. When four-eyes approval is on, a parked upgrade asks its host for a preview at once, so the second
+administrator finds the plan waiting. **Show the host's output** opens the start of the host's own answer, for when a plan
+looks wrong.
+
+A preview is a read-only command, so it is not parked for approval itself. It is refused like any command while the server
+is in maintenance, for a quarantined host and for an agent in audit mode. It is not available for Windows and macOS hosts.
+`POST /api/devices/{id}/patch-preview` asks for one (anyone who may patch the host), and `GET` reads the last plan and says
+whether a request is still waiting (`?raw=1` adds the start of the host's answer).
+
 ## Patch SLA
 
 The **Patch SLA** card flags hosts whose pending updates have gone unpatched for

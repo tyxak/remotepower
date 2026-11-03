@@ -64,6 +64,7 @@ CMD_OUTPUT_FILE  = DATA_DIR / 'cmd_output.json'
 # Stored separately from generic exec output so the Patches page can filter
 # without scanning thousands of unrelated entries.
 UPDATE_LOGS_FILE = DATA_DIR / 'update_logs.json'
+PATCH_PREVIEWS_FILE = DATA_DIR / 'patch_previews.json'   # 7.4.9: per host, the last upgrade plan and the request waiting for one
 IGNORED_ITEMS_FILE = DATA_DIR / 'ignored_items.json'  # v3.0.1: per-item ignores
 NA_SUPPRESS_FILE = DATA_DIR / 'na_suppress_rules.json'  # v6.4.0: class-level NA suppression rules
 ACME_STATE_FILE    = DATA_DIR / 'acme_state.json'    # v3.0.1: acme.sh per-device state
@@ -1846,6 +1847,16 @@ for _bs_name in ('handle_business_services', 'handle_business_service', 'handle_
                  'business_service_visible_hosts', 'BS_EVENTS'):
     globals()[_bs_name] = getattr(business_services_handlers_mod, _bs_name)
 del _bs_name
+
+# 7.4.9: the patch preview, what the next upgrade would change on a Linux host. A new route, so a bound module.
+_pp_spec = _tk_ilu.spec_from_file_location(
+    'patch_plan_handlers', Path(__file__).parent / 'patch_plan_handlers.py')
+patch_plan_handlers_mod = _tk_ilu.module_from_spec(_pp_spec)
+_pp_spec.loader.exec_module(patch_plan_handlers_mod)
+patch_plan_handlers_mod.bind(globals())
+for _pp_name in ('handle_device_patch_preview', 'request_patch_preview', 'patch_preview_ingest'):
+    globals()[_pp_name] = getattr(patch_plan_handlers_mod, _pp_name)
+del _pp_name
 from checks import (  # noqa: F401  (test_checks_module pins api._custom_checks_for)
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -15819,6 +15830,7 @@ def _purge_device(dev_id):
         DISK_NAMES_FILE,        # v7.4.3 (#47): a deleted host takes its disk names with it
         CONTAINER_STATS_HIST_FILE,   # v7.4.3 (#50): and its container samples
         DISKIO_HIST_FILE,            # v7.4.3 (#49): and its disk I/O samples
+        PATCH_PREVIEWS_FILE,         # 7.4.9: and its upgrade plan
     ]
     try:
         for store_path in _SIMPLE_STORES:
@@ -23656,6 +23668,16 @@ def handle_heartbeat():
                         cs['last_output'] = str(co.get('output', ''))[:8192]
             except Exception as e:
                 sys.stderr.write(f"[remotepower] compose status update failed dev={dev_id}: {e}\n")
+        # 7.4.9: a patch preview's answer is read into a plan on the host's record, and the history keeps one line of it
+        # instead of the dry run's output. A fault in the reader must never fail the heartbeat.
+        try:
+            _pp_line = patch_preview_ingest(dev_id, cmd_raw, co.get('output'), co.get('rc'), now)
+        except Exception as _ppe:
+            _pp_line = None
+            sys.stderr.write(f"[remotepower] patch preview ingest failed dev={dev_id}: {type(_ppe).__name__}: {_ppe}\n")
+        if _pp_line is not None:
+            cmd_display = 'patch preview'
+            raw_output = _pp_line[:MAX_CMD_OUT_BYTES]
         outputs[dev_id].append({
             'ts':     now,
             'cmd':    cmd_display,
@@ -26421,6 +26443,13 @@ def handle_upgrade_device():
         queued_str = _upgrade_command_for(dev)
         if _gate:
             cid = _park_for_approval(dev_id, queued_str, actor, 'upgrade')
+            # 7.4.9: the approver should see what the upgrade would do, so the host is asked for a plan now. Best effort:
+            # a host that is offline, quarantined or not on Linux just has no preview waiting, and parking is unaffected.
+            try:
+                if _device_os_family(dev) == 'linux':
+                    request_patch_preview(dev_id, dev, actor)
+            except Exception:
+                pass
             results[dev_id] = {'ok': True, 'approval_required': True, 'confirmation_id': cid}; continue
         if dev_id not in cmds:
             cmds[dev_id] = []
@@ -75152,6 +75181,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET', 'PUT'), '/api/devices/', '/container-thresholds', 'handle_device_container_thresholds', "pi.startswith('/api/devices/') and pi.endswith('/container-thresholds') and m in ('GET', 'PUT')"),
     ('pat', ('GET', 'PUT'), '/api/devices/', '/exposure-internal', 'handle_device_exposure_internal', "pi.startswith('/api/devices/') and pi.endswith('/exposure-internal') and m in ('GET', 'PUT')"),
     ('pat', ('GET', 'PUT'), '/api/devices/', '/upgrade-mode', 'handle_device_upgrade_mode', "pi.startswith('/api/devices/') and pi.endswith('/upgrade-mode') and m in ('GET', 'PUT')"),
+    ('pat', ('GET', 'POST'), '/api/devices/', '/patch-preview', 'handle_device_patch_preview', "pi.startswith('/api/devices/') and pi.endswith('/patch-preview') and m in ('GET', 'POST')"),
     ('pat', ('POST',), '/api/devices/', '/snmp/walk', 'handle_device_snmp_walk', "pi.startswith('/api/devices/') and pi.endswith('/snmp/walk') and m == 'POST'"),
     # v6.4.2: per-port bandwidth / error / link history for SNMP gear.
     ('pat', ('GET',), '/api/devices/', '/snmp/interfaces', 'handle_device_snmp_interfaces', "pi.startswith('/api/devices/') and pi.endswith('/snmp/interfaces') and m == 'GET'"),
