@@ -44,13 +44,13 @@ By the numbers:
 |---|---|
 | Server Python (`server/cgi-bin/`) | ~149,000 lines |
 | The main API module (`api.py`) | ~78,000 lines |
-| Focused sibling modules | ~119 |
+| Focused sibling modules | ~135 |
 | HTTP routes (exact + templated) | ~527 exact, ~439 pattern |
 | Request handlers (`handle_*`) | ~886 |
 | Typed request-body models | ~278 |
 | Homelab integration connectors | 50 (+ a generic HTTP probe) |
 | Background maintenance sweeps | ~76 |
-| Frontend JS files (no bundler) | 51 |
+| Frontend JS files (no bundler) | 56 |
 | Test methods across ~1,000 files | ~17,800 |
 
 ---|---|
@@ -257,8 +257,8 @@ the UI.
 
 ## The frontend: a framework you can read
 
-The dashboard is one `index.html` (~12,100 lines), one main `app.js` (~31,600
-lines), and ~48 supporting JS modules — all vanilla, all served as-is. No
+The dashboard is one `index.html` (~13,000 lines), one main `app.js` (~33,000
+lines), and ~55 supporting JS modules — all vanilla, all served as-is. No
 framework, no build, no bundler. State lives in a few module-scoped objects;
 rendering is `innerHTML` with escaped values plus targeted DOM updates.
 

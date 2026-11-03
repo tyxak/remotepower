@@ -32,6 +32,9 @@ NOW = int(time.time())
 
 # Persisted sysinfo fields deliberately NOT in the corpus, with the reason.
 DELIBERATELY_UNINDEXED = {
+    'zfs_arc': 'cache counters that move with every report, the same churn argument as the NIC counters; the Storage page '
+               'and the host drawer are where a question about them is answered',
+    'zfs_datasets': 'dataset sizes that move with every report; the Storage page lists the datasets that hold the most space',
     'top_processes': 'changes every heartbeat; re-embeds the device chunk for '
                      'no retrieval value',
     'network_io': 'per-interface counters, same churn argument',

@@ -53,7 +53,10 @@ AGENTS = {
 # rejected all three: they live on the payload, not inside sysinfo, so no agent
 # sends them here and exempting them was inventing debt. The staleness check
 # earning its place on its first run is the reason it is in the file.
-DELIBERATELY_NOT_PERSISTED = {}
+DELIBERATELY_NOT_PERSISTED = {
+    'repo_files': 'read from the heartbeat by the repository inventory, which keeps the rows it parses (the repositories store) '
+                  'and not the files',
+}
 
 
 def _linux_keys():

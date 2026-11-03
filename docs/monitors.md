@@ -82,7 +82,8 @@ database on a private network, a port on the host's own loopback (`127.0.0.1:543
 
 Pick the host under **Probe from** in the check dialog. The row then carries a *via host* badge that names the host.
 
-- The host has to run the **Linux agent**. The Windows and macOS agents and agentless hosts do not probe.
+- The host has to run the **Linux agent**. The Windows and macOS agents and agentless hosts do not probe, and neither does a host in
+  audit mode (read-only), since an audited host does not act on what the server tells it. The row says so.
 - The check is `tcp`, `http` or `ping`, and it names one address, not a tag or a group.
 - An HTTP check can use **Expected HTTP status**, **Body must contain**, **Method** and **Verify TLS**. A regex, a *must not
   contain* text, a JSON field, a latency limit and a packet loss limit are only available from the server. Saving one with a

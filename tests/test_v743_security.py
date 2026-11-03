@@ -237,6 +237,7 @@ class TestEveryTestHandlerHasDecidedAboutTenants(unittest.TestCase):
         "handle_ticket_imap_test": "the host and port come from the request, with no address guard",
         "handle_proxmox_test": "a fresh host comes from the request",
         "handle_ip_intel_edge_test": "already instance-gated in 7.3.0",
+        "handle_backup_s3_test": "the endpoint comes from the request, and the server connects to it (loopback and private addresses are allowed for a store of the operator's own)",
     }
     EXEMPT = {
         "handle_webhook_test": "fires only at destinations already saved; the id picks one of them",

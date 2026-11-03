@@ -513,6 +513,23 @@ class TestTheAgentRuns(unittest.TestCase):
         thread.assert_not_called()
         self.assertEqual(a._PROBE_OUTBOX, [], "one is still running")
 
+    def test_a_host_in_audit_mode_runs_nothing_the_server_assigns(self):
+        """Observe-only means the server's instructions are not acted on: ping and a connection to an address the server names would
+        let a hostile server look around the network of an audited host."""
+        a = self.agent
+        spec = {"label": "up", "type": "tcp", "target": f"127.0.0.1:{self.port}"}
+        a._probe_update([spec], 60)
+        a._PROBE_OUTBOX.append({"label": "old"})
+        with mock.patch.object(a, "_audit_mode", return_value=True):
+            a._probe_update([spec], 60)
+            self.assertEqual((a._PROBE["specs"], list(a._PROBE_OUTBOX)), ([], []), "nothing is kept and nothing waits to be sent")
+            a._PROBE["specs"] = [dict(spec)]                    # assigned before the flag was set
+            a._probe_tick()
+        self.assertFalse(a._PROBE["running"])
+        self.assertEqual(list(a._PROBE_OUTBOX), [])
+        a._probe_update([spec], 60)
+        self.assertEqual(len(a._PROBE["specs"]), 1, "and out of audit mode it works as before")
+
     def test_the_outbox_is_bounded(self):
         a = self.agent
         a._probe_update([{"label": "up", "type": "tcp", "target": f"127.0.0.1:{self.port}"}], 60)
@@ -629,6 +646,16 @@ class TestSaving(_Save):
             st, body = self.save([m])
             self.assertEqual(st, 400, m)
             self.assertIn("link-local", body["error"], m)
+
+    def test_a_host_in_audit_mode_is_not_a_place_to_probe_from(self):
+        devs = api.load(api.DEVICES_FILE)
+        devs["lin1"]["sysinfo"] = {"audit_mode": True}
+        api.save(api.DEVICES_FILE, devs)
+        api._LOAD_CACHE.clear()
+        st, body = self.save([self.mon()])
+        self.assertEqual(st, 400)
+        self.assertIn("audit mode", body["error"])
+        self.assertEqual(self.save([self.mon(via_host="lin2")])[0], 200, "another host is fine")
 
     def test_which_hosts_may_probe(self):
         # an id is cut to 64 characters before it is looked up, so a 200-character one is simply a host that is not enrolled
@@ -882,6 +909,15 @@ class TestSendingAndTaking(_Save):
         self.assertNotIn("paused", by, "a paused monitor has its own display row")
         self.assertEqual((by["db"]["origin_name"], by["web"]["origin_name"]), ("web1", "web1"), "the host's name comes with the id")
         self.assertNotIn("origin_name", by["sat"], "and only for a host")
+
+    def test_a_pending_row_of_a_host_in_audit_mode_says_so(self):
+        devs = api.load(api.DEVICES_FILE)
+        devs["lin1"]["sysinfo"] = {"audit_mode": True}
+        api.save(api.DEVICES_FILE, devs)
+        api._LOAD_CACHE.clear()
+        by = {r["label"]: r for r in api._satellite_monitor_display(api._config_ro().get("monitors"))}
+        self.assertEqual(by["web"]["detail"], "the host is in audit mode and does not run probes")
+        self.assertEqual(by["sat"]["detail"], "awaiting first satellite probe", "only a host can be in audit mode")
 
     def test_a_host_that_is_gone_has_no_name(self):
         cfg = api.load(api.CONFIG_FILE)

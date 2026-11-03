@@ -584,10 +584,15 @@ class TestS3Backup(_Page):
     """Settings, Backups: the form for the copy to an S3-compatible bucket."""
 
     def open_pane(self):
+        # the saved settings are put in the form when the settings document has been read, and the note under the form is set by the
+        # same call: empty it first and wait for it to come back, or the load of an earlier visit looks like this one and what is
+        # typed is overwritten by the answer
+        self.page.evaluate("() => { const n = document.getElementById('backup-s3-secret-state'); if (n) n.textContent = ''; }")
         self.page.evaluate("() => { showPage('settings'); }")
         self.page.wait_for_selector("#settings-tab-btn-backups", timeout=30000)
         self.page.evaluate("() => switchSettingsTab('backups')")
         self.page.wait_for_selector("#backup-s3-endpoint", state="visible", timeout=30000)
+        self.page.wait_for_function("() => (document.getElementById('backup-s3-secret-state')?.innerText || '').trim() !== ''", timeout=60000)
 
     def config(self):
         return self.page.evaluate("api('GET', '/config')")

@@ -22604,7 +22604,7 @@ def handle_heartbeat():
             for metric_key in ('cpu_percent', 'mem_percent', 'disk_percent', 'swap_percent',
                                # v4.1.0: file-descriptor + conntrack table fullness
                                'fd_percent', 'conntrack_percent',
-                               # 7.4.9: where the CPUs spent their time between two reports (Linux agents)
+                               # 7.4.9: where the CPUs spent their time between two reports, sent by Linux agents
                                'cpu_user', 'cpu_nice', 'cpu_system', 'cpu_idle', 'cpu_iowait', 'cpu_irq', 'cpu_steal'):
                 val = si.get(metric_key)
                 if isinstance(val, (int, float)) and 0.0 <= val <= 100.0:
@@ -29211,6 +29211,8 @@ def _satellite_monitor_display(monitors):
                    'target': m.get('target', ''), 'ok': True,
                    'detail': 'awaiting first satellite probe' if sid else 'awaiting first probe from the host',
                    'checked': 0, 'origin': origin}
+            if vh and not sid and ((device_get(vh) or {}).get('sysinfo') or {}).get('audit_mode'):
+                row['detail'] = 'the host is in audit mode and does not run probes'
             if vh and not sid:
                 row['origin_name'] = _host_origin_name(vh)
             out.append(row)
@@ -30374,6 +30376,15 @@ def handle_config_get():
                     _i['url'] = ''
                 _red_ints.append(_i)
             safe['integrations'] = _red_ints
+        # 7.4.9: the S3 copy of the backup. An access key id names the account that owns the bucket, so a reader who is not an
+        # administrator gets an indicator that one is set, as for the endpoints above.
+        if isinstance(safe.get('backup'), dict) and isinstance(safe['backup'].get('s3'), dict):
+            _bk = dict(safe['backup'])
+            _s3 = dict(_bk['s3'])
+            _s3['access_key_id_set'] = bool(str(_s3.get('access_key_id') or '').strip())
+            _s3['access_key_id'] = ''
+            _bk['s3'] = _s3
+            safe['backup'] = _bk
 
     # v3.10.0: the AI provider key and the per-registry credentials map are
     # secrets the dedicated admin endpoints (/api/ai/config, settings) manage and

@@ -203,14 +203,16 @@ def _parse_deb822(file: str, text: str) -> list[dict[str, Any]]:
         ).lower() not in ("yes", "true", "1")
         types = f.get("types", "deb").split()[:4]
         for uri in f["uris"].split()[:6]:
-            for suite in (f.get("suites") or "").split()[:12] or [""]:
+            for suite in str(f.get("suites") or "").split()[:12] or [""]:
                 rows.append(
                     _row(
                         file,
                         "deb822",
                         uri,
                         suite=_clean(suite, 80),
-                        components=[_clean(c, 40) for c in f.get("components", "").split()[:12]],
+                        components=[
+                            _clean(c, 40) for c in str(f.get("components", "")).split()[:12]
+                        ],
                         types=types,
                         enabled=enabled,
                         signed=signed,

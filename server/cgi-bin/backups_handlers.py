@@ -1468,7 +1468,7 @@ def handle_backup_s3_test():
     backup will work. Body: optional `s3` settings to try without saving them (the form as it stands); without it the saved ones are
     used. The secret access key is the server's `RP_BACKUP_S3_SECRET_KEY`. Admin only, audited. A failure is a 200 with `ok: false`
     and the step that failed, like the restore test."""
-    actor = A.require_admin_auth()
+    actor = A.require_instance_admin_auth('The S3 copy of the backup')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A.get_json_obj()

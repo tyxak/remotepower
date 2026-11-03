@@ -178,11 +178,16 @@ def _require_signed_updates():
 #   9. guard restore/delete    _apply_guard_actions()     refused (v7.0.2)
 #  10. backup verify          collect_backup_verify()    refused (v7.0.3)
 #  11. restore drill          run_restore_drills()       refused (v7.0.3)
+#  12. host probes            _probe_update()            refused (7.4.9)
 #
 # 10 and 11 spawn `restic`/`borg`/`tar` as root against a repository the server
 # names, and 11 also creates and deletes a directory tree. They are CONFIG-driven
 # rather than command-driven, so require-signed-commands does not reach them —
 # audit mode does, and did not.
+#
+# 12 runs the checks the server assigned: it opens connections and runs ping to addresses the server names, so a hostile
+# server could use an audited host to look around its network. The server is told (the heartbeat carries audit_mode) and
+# shows the host as one that does not probe.
 #
 # A new channel that writes to the host, spawns a process, or moves a file
 # belongs on this list with its own _audit_mode() check — the flag is only worth
@@ -6763,7 +6768,10 @@ def _probe_ping(spec):
 
 def _probe_opener(verify):
     """http and https only (no file: or ftp:), the system's certificate authorities, and no redirect."""
-    ctx = _ssl.create_default_context() if verify else _ssl._create_unverified_context()
+    ctx = _ssl.create_default_context()
+    if not verify:                      # the operator switched Verify TLS off for this check
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
     op = request.OpenerDirector()
     for h in (request.UnknownHandler(), _ProbeHTTPHandler(), _ProbeHTTPSHandler(context=ctx),
               request.HTTPDefaultErrorHandler(), _NoRedirect(), request.HTTPErrorProcessor()):
@@ -6813,6 +6821,11 @@ def _probe_update(raw_specs, interval):
     """Take the monitors the server assigned to this host (None leaves them as they are). An empty list stops the probing."""
     if not isinstance(raw_specs, list):
         return
+    if _audit_mode():                   # observe-only: nothing the server assigns is run
+        _PROBE['specs'] = []
+        with _PROBE_LOCK:
+            _PROBE_OUTBOX.clear()
+        return
     specs = [s for s in (_probe_spec(r) for r in raw_specs[:_PROBE_MAX_SPECS]) if s]
     _PROBE['specs'] = specs
     try:
@@ -6841,6 +6854,8 @@ def _probe_delivered(batch):
 def _probe_tick():
     """Start a run of the assigned probes when one is due and none is running. Never blocks the heartbeat."""
     if not _PROBE['specs'] or _PROBE['running'] or time.time() < _PROBE['next']:
+        return
+    if _audit_mode():                   # the flag can be set after the checks were assigned
         return
     _PROBE['running'] = True
     _PROBE['next'] = time.time() + _PROBE['interval']

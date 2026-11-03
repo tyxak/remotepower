@@ -373,6 +373,7 @@ KNOWN_APT_UPGRADE_STRINGS = {
     ("ai_provider.py", "<module>"): "prompt text for the assistant; builds nothing",
     ("openapi_spec.py", "_path_devices"): "API documentation text; builds nothing",
     ("upgrade_mode.py", "<module>"): "the two apt lines of the mode itself",
+    ("patch_plan.py", "<module>"): "the read-only dry run (apt-get --simulate): it asks the question of the host's mode and installs nothing",
 }
 
 

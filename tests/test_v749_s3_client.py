@@ -305,6 +305,7 @@ class FakeStore:
         self.hang_up = False                 # close the connection without a word
         self.garbage_status = False          # answer with something that is not HTTP
         self.reset_midway = False            # start an answer to a GET and reset the connection in the middle of it
+        self.reset_midway_writes = False     # ... and the same for the answer to a PUT or a DELETE, after the change is made
 
 
 def make_server(store: FakeStore, bucket="bkt", secret=SK, tls=None):
@@ -350,6 +351,16 @@ def make_server(store: FakeStore, bucket="bkt", secret=SK, tls=None):
                 store.bad_auth += 1
                 return self._err(403, "SignatureDoesNotMatch", "The request signature we calculated does not match")
             if store.reset_midway and self.command == "GET":
+                self.send_response(200)
+                self.send_header("Content-Length", "100000")
+                self.end_headers()
+                self.wfile.write(b"<partial")
+                self.wfile.flush()
+                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+                self.connection.close()
+                self.close_connection = True
+                return None
+            if store.reset_midway_writes and self.command in ("PUT", "DELETE"):
                 self.send_response(200)
                 self.send_header("Content-Length", "100000")
                 self.end_headers()
@@ -642,6 +653,30 @@ class TestTheClientAgainstAStore(_Base):
                 self.assertEqual(cm.exception.code, "ConnectionFailed", attr)
                 self.assertLess(len(str(cm.exception)), 300)
             setattr(self.store, attr, False)
+
+    def test_a_store_that_hangs_up_or_talks_nonsense_is_named_by_the_request_not_by_the_wrapper(self):
+        """The request converts what goes wrong while it is made and says the store could not be reached; the wrapper around every
+        call only catches what happens later, and its words are different. A request that fell through to the wrapper would read as
+        a failure of something else."""
+        c = self.client()
+        p = self.file()
+        for attr in ("hang_up", "garbage_status"):
+            setattr(self.store, attr, True)
+            for call in (lambda: c.put_bytes("a.txt", b"x"), lambda: c.put_file(p.name, str(p)), lambda: c.get_bytes("a.txt"),
+                         lambda: c.get_file("a.txt", str(self.tmp / "o")), lambda: c.delete("a.txt"), lambda: c.list()):
+                with self.assertRaises(s3.S3Error) as cm:
+                    call()
+                self.assertTrue(str(cm.exception).startswith("could not connect to the store"), (attr, str(cm.exception)))
+            setattr(self.store, attr, False)
+
+    def test_a_connection_that_is_reset_while_the_answer_to_a_write_is_read_is_an_s3_error(self):
+        c = self.client()
+        p = self.file()
+        self.store.reset_midway_writes = True
+        for call in (lambda: c.put_bytes("a.txt", b"x"), lambda: c.put_file(p.name, str(p)), lambda: c.delete("a.txt")):
+            with self.assertRaises(s3.S3Error) as cm:
+                call()
+            self.assertEqual(cm.exception.code, "ConnectionFailed")
 
     def test_a_connection_that_is_reset_while_an_answer_is_read_is_an_s3_error(self):
         c = self.client()

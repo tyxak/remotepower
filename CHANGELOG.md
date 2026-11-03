@@ -184,7 +184,8 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   *must not contain* text, a JSON field, a latency limit or a loss limit is refused with the reason, since the agent does not
   evaluate those. A host's results are accepted for its own checks only, a check runs from a satellite or a host and not both,
   and a reader whose role is scoped to other hosts does not get the id or name of a host outside that scope in the monitor list.
-  The Windows and macOS agents and agentless hosts do not probe. Update the agents: until then the row reads *awaiting first
+  The Windows and macOS agents, agentless hosts and a host in audit mode do not probe (a check cannot be assigned to one, and the row of a
+  host that was put in audit mode afterwards says so). Update the agents: until then the row reads *awaiting first
   probe from the host*. Not run against a real host yet: the probes ran against local servers and a stubbed `ping`.
 
 ### Backups
@@ -203,6 +204,7 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   is not the one that was uploaded, or when it does not decrypt and unpack. **Test S3 connection** writes, reads, lists and
   deletes a small object and names the step that failed (`POST /api/backup/s3-test`). Server Status shows each destination's
   last result, and the posture row *Backups mirrored off-host* counts the bucket: every destination you set has to have worked.
+  The access key id is shown to administrators only; any other reader of the settings gets an indicator that one is set.
   Multipart upload is not built, so an archive over 5 GiB is reported as failed. Tested against a store written for the tests
   that verifies every signature, not against AWS, MinIO or Backblaze themselves.
 

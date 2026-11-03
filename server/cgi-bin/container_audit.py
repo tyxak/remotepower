@@ -120,7 +120,8 @@ _RISKY_DEVICE_RE = re.compile(
 _RISKY_PORTS = frozenset(
     {22, 23, 2375, 2376, 3306, 3389, 5432, 5900, 5984, 6379, 9200, 11211, 27017, 1433}
 )
-_ALL_IFACES = frozenset({"", "0.0.0.0", "::", "[::]"})
+# the spellings of "every interface" in a published port, to recognise one; nothing is bound here
+_ALL_IFACES = frozenset({"", "0.0.0.0", "::", "[::]"})  # nosec B104
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _MODE_OK = re.compile(r"^[A-Za-z0-9_.:/@=-]{0,64}$")
 

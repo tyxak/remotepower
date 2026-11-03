@@ -362,6 +362,21 @@ class TestTheSettings(_Base):
                 pass
         self.assertIs(self.cap["b"]["backup_s3_secret_set"], False)
 
+    def test_a_reader_who_is_not_an_administrator_gets_no_access_key_id(self):
+        self.save_config()
+        for role in ("viewer", "auditor", "mcp"):
+            api.verify_token = lambda *a, role=role, **k: ("someone", role)
+            api.method = lambda: "GET"
+            self.cap.clear()
+            try:
+                api.handle_config_get()
+            except api.HTTPError:
+                pass
+            s3cfg = self.cap["b"]["backup"]["s3"]
+            self.assertEqual((s3cfg["access_key_id"], s3cfg["access_key_id_set"]), ("", True), role)
+            self.assertEqual(s3cfg["bucket"], "bkt", role)
+            self.assertNotIn(AK, json.dumps(self.cap["b"]), role)
+
     def test_turning_it_off_keeps_the_settings(self):
         st, _ = self.save(dict(self.settings, enabled=False))
         self.assertEqual(st, 200)
@@ -433,6 +448,16 @@ class TestTheConnectionTest(_Base):
             api.verify_token = lambda *a, role=role, **k: ("someone", role)
             st, _ = self.call(api.handle_backup_s3_test, {})
             self.assertIn(st, (401, 403), role)
+        self.assertEqual(self.store.requests, [])
+
+    def test_a_tenant_administrator_can_not_make_the_server_connect_anywhere(self):
+        """The address comes from the request, and loopback and private addresses are allowed for the operator's own store, so
+        under tenancy only the platform operator may ask."""
+        with mock.patch.object(api, "_tenancy_enforced", lambda: True), mock.patch.object(api, "_caller_is_superadmin", lambda: False):
+            api.verify_token = lambda *a, **k: ("tenantadmin", "admin")
+            st, body = self.call(api.handle_backup_s3_test, {"s3": self.settings})
+        self.assertEqual(st, 403)
+        self.assertIn("platform operator", body["error"])
         self.assertEqual(self.store.requests, [])
 
     def test_wrong_method(self):

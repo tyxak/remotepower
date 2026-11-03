@@ -125,6 +125,8 @@ def host_probe_validate(dev_id, mtype, m):
         return 'it probes from a host that has no agent'
     if A._device_os_family(dev) != 'linux':
         return 'only the Linux agent probes: a Windows or macOS host cannot run it'
+    if (dev.get('sysinfo') or {}).get('audit_mode'):
+        return 'that host is in audit mode (read-only) and does not run probes'
     if mtype not in SUPPORTED:
         return 'a host probes tcp, http and ping monitors'
     if m.get('target_kind', 'host') not in ('host', None, ''):
