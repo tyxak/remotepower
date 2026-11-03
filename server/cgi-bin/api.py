@@ -1823,6 +1823,16 @@ for _rp_name in (
 ):
     globals()[_rp_name] = getattr(reports_handlers_mod, _rp_name)
 del _rp_name
+
+# 7.4.9: assign an alert to a person. One handler and its notice, so a bound module of its own.
+_aa_spec = _tk_ilu.spec_from_file_location(
+    'alert_assign_handlers', Path(__file__).parent / 'alert_assign_handlers.py')
+alert_assign_handlers_mod = _tk_ilu.module_from_spec(_aa_spec)
+_aa_spec.loader.exec_module(alert_assign_handlers_mod)
+alert_assign_handlers_mod.bind(globals())
+for _aa_name in ('handle_alert_assign', '_assignee_may_see', '_notify_assignee'):
+    globals()[_aa_name] = getattr(alert_assign_handlers_mod, _aa_name)
+del _aa_name
 from checks import (  # noqa: F401  (test_checks_module pins api._custom_checks_for)
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -61658,6 +61668,15 @@ def handle_alerts_list():
     # v3.12.0: My Account → "My acked alerts" — only those this user acked.
     if (qs.get('mine', [''])[0] or '').lower() in ('1', 'true', 'yes'):
         filtered = [a for a in filtered if a.get('acknowledged_by') == user]
+    # 7.4.9: who the alert is assigned to. `me` is the caller, `none` the alerts nobody has taken, anything else
+    # an account name.
+    want_assignee = _sanitize_str(qs.get('assigned', [''])[0] or '', 64).strip()
+    if want_assignee:
+        if want_assignee.lower() == 'none':
+            filtered = [a for a in filtered if not a.get('assigned_to')]
+        else:
+            who = user if want_assignee.lower() == 'me' else want_assignee
+            filtered = [a for a in filtered if a.get('assigned_to') == who]
     # v6.4.2 filters — applied after the visibility filter above so `total`
     # never counts a row the caller cannot see.
     if want_dev:
@@ -75069,6 +75088,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/alerts/', '/ai-triage', 'handle_alert_ai_triage', "pi.startswith('/api/alerts/') and pi.endswith('/ai-triage') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/ack', 'handle_alert_ack', "pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/unack', 'handle_alert_unack', "pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST'"),
+    ('pat', ('POST',), '/api/alerts/', '/assign', 'handle_alert_assign', "pi.startswith('/api/alerts/') and pi.endswith('/assign') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/unresolve', 'handle_alert_unresolve', "pi.startswith('/api/alerts/') and pi.endswith('/unresolve') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/resolve', 'handle_alert_resolve', "pi.startswith('/api/alerts/') and pi.endswith('/resolve') and m == 'POST'"),
     ('pat', ('POST',), '/api/kmip/clients/', '/revoke', 'handle_kmip_client_revoke', "pi.startswith('/api/kmip/clients/') and pi.endswith('/revoke') and m == 'POST'"),

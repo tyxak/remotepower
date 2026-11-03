@@ -485,7 +485,7 @@ SHAPES: dict = {
     'monitor_history.json': dict_of(list_of(fields(ts=NUM))),
     'commands.json': dict_of(LIST),
     # ── a map holding one or more named lists ───────────────────────────────────────────────────────────────────────────
-    'alerts.json': fields(alerts=list_of(fields(id=SCALAR, resolved_at=OPT_NUM))),
+    'alerts.json': fields(alerts=list_of(fields(id=SCALAR, resolved_at=OPT_NUM, assigned_at=OPT_NUM, assigned_to=OPT_STR))),
     'alert_mutes.json': fields(mutes=list_of(fields(device_id=OPT_STR))),
     'audit_log.json': fields(entries=list_of(fields(_hash=OPT_STR, ts=OPT_NUM))),
     'automation_rules.json': fields(rules=list_of(fields(cooldown_seconds=OPT_NUM, fire_count=OPT_NUM))),

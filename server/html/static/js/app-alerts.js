@@ -23,11 +23,12 @@ let _alertsTotal = 0;
 let _alertsQuery = '';         // the q the LOADED page was fetched with
 let _alertsSeverity = '';      // '' | 'critical' | 'critical,high' | …
 let _alertsDeviceId = '';
+let _alertsAssigned = '';      // '' | 'me' | 'none'   (7.4.9)
 let _alertsLoadedStatus = '';
 let _alertsSearchTimer = null;
 
 function _alertsFiltered() {
-  return !!(_alertsQuery || _alertsSeverity || _alertsDeviceId);
+  return !!(_alertsQuery || _alertsSeverity || _alertsDeviceId || _alertsAssigned);
 }
 
 async function loadAlerts() {
@@ -45,6 +46,7 @@ async function loadAlerts() {
   if (q) path += `&q=${encodeURIComponent(q)}`;
   if (_alertsSeverity) path += `&severity=${encodeURIComponent(_alertsSeverity)}`;
   if (_alertsDeviceId) path += `&device_id=${encodeURIComponent(_alertsDeviceId)}`;
+  if (_alertsAssigned) path += `&assigned=${encodeURIComponent(_alertsAssigned)}`;
   try {
     const data = await api('GET', path);
     // v7.0.2: an error body has no `alerts`, so this used to render "No alerts
@@ -127,6 +129,12 @@ const _ALERT_SEV_CHOICES = [
   ['low', 'Low'],
 ];
 
+const _ALERT_ASSIGNEE_CHOICES = [
+  ['', 'Anyone'],
+  ['me', 'Assigned to me'],
+  ['none', 'Unassigned'],
+];
+
 function _renderAlertsControls() {
   const host = _alertsControlsHost();
   if (!host) return;
@@ -138,7 +146,11 @@ function _renderAlertsControls() {
       + `</select>`
       + `<select id="alerts-filter-device" class="form-input isl-68" data-change="alertsFilterChanged" aria-label="Filter alerts by host">`
       + `<option value="">All hosts</option></select>`
-      + `<button class="btn-icon d-none" id="alerts-clear-filters" data-action="clearAlertFilters" title="Clear the search, severity and host filters">${_icon('x', 12)} Clear filters</button>`;
+      + `<select id="alerts-filter-assignee" class="form-input isl-68" data-change="alertsFilterChanged" aria-label="Filter alerts by who they are assigned to">`
+      + _ALERT_ASSIGNEE_CHOICES.map(([v, l]) =>
+          `<option value="${escAttr(v)}">${escHtml(l)}</option>`).join('')
+      + `</select>`
+      + `<button class="btn-icon d-none" id="alerts-clear-filters" data-action="clearAlertFilters" title="Clear the search, severity, host and assignee filters">${_icon('x', 12)} Clear filters</button>`;
     host.dataset.built = '1';
     _fillAlertDeviceFilter();
   }
@@ -146,6 +158,8 @@ function _renderAlertsControls() {
   if (sev) sev.value = _alertsSeverity;
   const dev = document.getElementById('alerts-filter-device');
   if (dev) dev.value = _alertsDeviceId;
+  const asg = document.getElementById('alerts-filter-assignee');
+  if (asg) asg.value = _alertsAssigned;
   const clear = document.getElementById('alerts-clear-filters');
   if (clear) clear.classList.toggle('d-none', !_alertsFiltered());
 }
@@ -221,8 +235,10 @@ function alertsPageSize() {
 function alertsFilterChanged() {
   const sev = document.getElementById('alerts-filter-sev');
   const dev = document.getElementById('alerts-filter-device');
+  const asg = document.getElementById('alerts-filter-assignee');
   _alertsSeverity = (sev && sev.value) || '';
   _alertsDeviceId = (dev && dev.value) || '';
+  _alertsAssigned = (asg && asg.value) || '';
   _alertsOffset = 0;
   loadAlerts();
 }
@@ -232,6 +248,7 @@ function clearAlertFilters() {
   if (t) t.value = '';
   _alertsSeverity = '';
   _alertsDeviceId = '';
+  _alertsAssigned = '';
   _alertsOffset = 0;
   clearTimeout(_alertsSearchTimer);
   loadAlerts();
@@ -605,6 +622,14 @@ function _alertRowHtml(a, role) {
     if (window._ticketsOn && !a.rp_ticket) {
       more += `<button data-action="createTicketFromAlert" data-arg="${a.id}" title="Open an incident ticket from this alert" role="menuitem">${_icon('ticket',14)} Open ticket</button>`;
     }
+    // 7.4.9: hand the alert to a person. Taking it yourself is one click; "Assign…" asks for a name.
+    if (a.assigned_to !== getMe()) {
+      more += `<button data-action="assignAlertToMe" data-arg="${a.id}" title="Take this alert: it shows your name in the inbox" role="menuitem">${_icon('users',14)} Assign to me</button>`;
+    }
+    more += `<button data-action="assignAlertTo" data-arg="${a.id}" title="Hand this alert to a teammate, who is told on the channels set up under My Account" role="menuitem">${_icon('users',14)} Assign…</button>`;
+    if (a.assigned_to) {
+      more += `<button data-action="unassignAlert" data-arg="${a.id}" title="Take the assignment back" role="menuitem">${_icon('x',14)} Unassign</button>`;
+    }
     more += `<button data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" role="menuitem">${_icon('link',14)} Copy link</button>`;
     actions += `<button class="btn-icon btn-xs" data-action="rowMoreMenu" data-pass-btn="1" aria-haspopup="menu" aria-expanded="false" title="More actions for this alert" aria-label="More actions">${_icon('moreHorizontal',14)}</button>`
       + `<template class="row-more-items">${more}</template>`;
@@ -625,6 +650,10 @@ function _alertRowHtml(a, role) {
   // an item may have been hidden, so the tag only says what is true: nothing else lists it.
   const unlistedTag = (!isResolved && a.problem_state === 'host_clear')
     ? ' <span class="chk-pill chk-warning" title="Needs attention and Checks no longer list this problem. It may have cleared on the host, or an item may have been hidden or switched off.">No longer listed</span>'
+    : '';
+  // 7.4.9: who has this one. Shown on a resolved row too, as the record of who handled it.
+  const assignedTag = a.assigned_to
+    ? ` <span class="patch-badge fs-10${a.assigned_to === getMe() ? ' ok' : ''}" title="Assigned to ${escAttr(a.assigned_to)}${a.assigned_by ? ' by ' + escAttr(a.assigned_by) : ''}${a.assigned_at ? ' ' + escAttr(_formatTs(a.assigned_at)) : ''}">${_icon('users',11)} <span data-no-i18n>${_escapeHtml(a.assigned_to)}</span></span>`
     : '';
   const confirmTag = (!isResolved && a.autoheals === false)
     ? ' <span class="patch-badge fs-10" title="This records an event, not an ongoing condition — it will not clear on its own. Resolve it once you have looked.">confirm</span>'
@@ -664,7 +693,7 @@ function _alertRowHtml(a, role) {
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}${_alertAgeHtml(a)}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${unlistedTag}${_alertEscalationBadge(a)}${badge}${incBadge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${_priorIncidentBadge(a)}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}${_alertResolveNoteHtml(a)}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${unlistedTag}${assignedTag}${_alertEscalationBadge(a)}${badge}${incBadge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${_priorIncidentBadge(a)}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}${_alertResolveNoteHtml(a)}</td>
     <td>${a.device_id ? `<span data-dev-hover="${_escapeHtml(a.device_id)}">${_escapeHtml(dev)}</span>` : _escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td><div class="alert-actions">${actions}</div></td>
@@ -917,6 +946,46 @@ async function bulkAckAlerts() {
       `Acknowledged ${r.acked}`);
   }
   else failToast(r);
+}
+
+// ── 7.4.9: assign an alert to a person ──────────────────────────────────────────
+// POST /api/alerts/<id>/assign {user}. An empty user takes the assignment back. api() resolves on a refusal,
+// so the answer is read from the body, not from a catch.
+async function _assignAlert(id, user, doneMsg) {
+  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/assign`, { user: user || '' });
+  if (r && r.ok) { toast(doneMsg, 'success'); loadAlerts(); }
+  else failToast(r);
+}
+
+function assignAlertToMe(id) {
+  const me = getMe();
+  if (!me) { toast('Could not tell who you are. Sign in again.', 'error'); return; }
+  return _assignAlert(id, me, 'Alert assigned to you');
+}
+
+async function assignAlertTo(id) {
+  const a = (_alertsCache || []).find(x => String(x.id) === String(id));
+  if (a && a.resolved_at) return;
+  let names = [];
+  try {
+    const users = await api('GET', '/users');
+    if (Array.isArray(users)) names = users.filter(u => u && u.username && !u.disabled).map(u => String(u.username)).sort();
+  } catch (e) { /* the prompt still works without the list */ }
+  const who = await uiPrompt({
+    title: 'Assign this alert',
+    message: 'Who should handle it? Type the account name.',
+    placeholder: names.length ? names.slice(0, 4).join(', ') : 'account name',
+    value: (a && a.assigned_to) || '',
+    confirmText: 'Assign',
+  });
+  if (who === null) return;                    // cancelled: nothing changes
+  const user = String(who).trim();
+  if (!user) { if (a && a.assigned_to) return unassignAlert(id); return; }
+  return _assignAlert(id, user, `Alert assigned to ${user}`);
+}
+
+function unassignAlert(id) {
+  return _assignAlert(id, '', 'Assignment removed');
 }
 
 // v6.4.2: ask what fixed it, THEN resolve. Separate entry point so the plain

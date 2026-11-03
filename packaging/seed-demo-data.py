@@ -3685,6 +3685,12 @@ def build_alerts() -> dict:
             'resolved_by':     resolved_by,
             'resolved_at':     (ts + rng.randint(3600, 7200)) if resolved_by else None,
         }
+        # 7.4.9: two open alerts are somebody's, so the inbox shows the assignee badge and the filter has a hit.
+        _taker = {('metric_critical', 'nc01'): ('alice', 'bob'),
+                  ('container_unhealthy', 'ha01'): ('bob', 'alice')}.get((event, dev_id))
+        if _taker and not resolved_by:
+            rec['assigned_to'], rec['assigned_by'] = _taker
+            rec['assigned_at'] = ts + rng.randint(300, 1800)
         alerts.append(rec)
     # Newest-first, like the live store tends to present.
     alerts.sort(key=lambda a: a['ts'], reverse=True)

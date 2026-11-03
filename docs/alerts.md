@@ -23,6 +23,16 @@ resolve them yourself after looking.
 - **Acknowledge** takes ownership. It can prompt for a comment (**Settings →
   Notifications → Alerts inbox**), which is stored on the alert and included in the
   acknowledgement webhook. **Ack selected** acknowledges several rows at once.
+- **Assign** hands an alert to a person. **Assign to me** in the row's More menu takes it
+  yourself, and **Assign…** asks for an account name. The name shows on the row (green when
+  it is yours), also after the alert is resolved, so the inbox records who dealt with it. The
+  **Anyone / Assigned to me / Unassigned** filter above the table narrows the list. Someone
+  you assign an alert to is told on the channels they set up under **My Account → Notifications**
+  (their own webhook or e-mail), if they have switched those on; assigning an alert to
+  yourself tells nobody. The person has to be an enabled account that can open the alert: an
+  account of another tenant, a role scoped to other hosts, or (for an alert that names no host)
+  an account outside the organisation that runs the installation is refused. Whoever may
+  acknowledge alerts may assign them. **Unassign** takes it back.
 - **Resolve, Resolve selected, Clear resolved, Clear all** are housekeeping, and history
   is kept. Resolving an alert by hand, one at a time or in bulk, also asks its host to
   send a fresh report on its next poll, so Needs Attention and Checks stop listing what
@@ -144,6 +154,12 @@ ack_comment_enabled}`. All parameters are optional:
 | `severity` | — | `critical`/`high`/`medium`/`low`; repeat the parameter or comma-separate for several |
 | `device_id` | — | exact match |
 | `mine` | — | only alerts *you* acknowledged |
+| `assigned` | — | `me` (assigned to you), `none` (assigned to nobody) or an account name |
+
+`POST /api/alerts/{id}/assign` with `{"user": "alice"}` assigns an alert, and with `{"user": ""}`
+takes the assignment back. The row then carries `assigned_to`, `assigned_by` and `assigned_at`.
+It answers 404 for an alert or an account you may not see, and 409 for a resolved alert or an
+assignee who cannot open it.
 
 Rows come back newest first. Filtering runs **after** the visibility filter, so
 `total` counts only rows you are allowed to see — page through it with `offset`

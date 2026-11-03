@@ -69,6 +69,17 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   asks `docker inspect` about an unhealthy container only (eight per report at most), so a healthy host pays nothing. Update
   the agents for the output text; without it the alert still fires.
 
+### Alerts
+
+- **An alert can be assigned to a person.** The inbox knew who acknowledged an alert and nothing about who was dealing with
+  it, so on a team two people looked at the same alert or each assumed the other one had it. **Assign to me**, **Assign…** and
+  **Unassign** are in the row's More menu. The name shows on the row, also once the alert is resolved, and the new
+  **Anyone / Assigned to me / Unassigned** filter narrows the list (`GET /api/alerts?assigned=me|none|<name>`;
+  `POST /api/alerts/{id}/assign`). The person you assign it to is told on the webhook or e-mail they set up under My Account,
+  and assigning an alert to yourself tells nobody. The assignee has to be an enabled account that can open the alert: an
+  alert of one tenant's host cannot be handed to another tenant's account, a role scoped to other hosts cannot be given an
+  alert it cannot see, and an alert that names no host stays with the organisation that runs the installation.
+
 ### Notifications
 
 - **Mattermost, Rocket.Chat, Google Chat and Gotify are destinations of their own.** They used to get the generic JSON

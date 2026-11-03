@@ -2011,6 +2011,11 @@ if _AVAILABLE:
         note: str = ''
         _v0 = field_validator('note', mode='before')(_coerce_str_loose)
 
+    class AlertAssignRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        user: str = ''
+        _v0 = field_validator('user', mode='before')(_coerce_str_loose)
+
     class AlertMutesRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         alert_id: str = ''
@@ -3018,6 +3023,7 @@ else:
     WebauthnLoginCompleteRequest = None
     AlertAckRequest = None
     AlertResolveRequest = None
+    AlertAssignRequest = None
     AlertMutesRequest = None
     AlertsBulkResolveRequest = None
     AlertsBulkAckRequest = None
