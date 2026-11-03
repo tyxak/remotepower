@@ -1880,6 +1880,16 @@ repo_inventory_handlers_mod.bind(globals())
 for _ri_name in ('handle_repositories', 'repo_inventory_ingest'):
     globals()[_ri_name] = getattr(repo_inventory_handlers_mod, _ri_name)
 del _ri_name
+
+# 7.4.9: monitors probed by a host's agent (the monitor's `via_host`): validation, the specs a host runs, and its results.
+_hp_spec = _tk_ilu.spec_from_file_location(
+    'host_probe_handlers', Path(__file__).parent / 'host_probe_handlers.py')
+host_probe_handlers_mod = _tk_ilu.module_from_spec(_hp_spec)
+_hp_spec.loader.exec_module(host_probe_handlers_mod)
+host_probe_handlers_mod.bind(globals())
+for _hp_name in ('host_probe_validate', 'host_monitors_for', 'host_probe_ingest', 'clean_latency'):
+    globals()[_hp_name] = getattr(host_probe_handlers_mod, _hp_name)
+del _hp_name
 from checks import (  # noqa: F401  (test_checks_module pins api._custom_checks_for)
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -8038,13 +8048,17 @@ def _monitor_host_block_reason(host, allow_loopback):
     return None
 
 
-def _sanitize_monitor_target(mtype, target, with_reason=False):
+def _sanitize_monitor_target(mtype, target, with_reason=False, allow_loopback=None):
     """Validate monitor targets to prevent SSRF and flag injection.
 
     Returns the cleaned target, or None when rejected. With `with_reason=True`
     returns `(target_or_None, reason_or_None)` so the caller can tell the
     operator WHY — the plain form is unchanged for the other call sites and
     the existing tests.
+
+    `allow_loopback` is None for a monitor the SERVER probes: the loopback is then the RemotePower host's own, and the
+    `allow_internal_monitors` setting decides. A monitor that a host's agent probes passes True, since the loopback is that
+    host's and the server never connects to it; link-local and cloud metadata addresses stay refused either way.
     """
     def _out(value, reason=None):
         return (value, reason) if with_reason else value
@@ -8078,7 +8092,8 @@ def _sanitize_monitor_target(mtype, target, with_reason=False):
         # metadata/link-local always blocked; loopback only when opted in. The
         # connect-time peer recheck in _execute_monitor_checks closes rebinding.
         cfg = load(CONFIG_FILE)
-        allow_internal = bool(cfg.get('allow_internal_monitors', False))
+        allow_internal = (bool(cfg.get('allow_internal_monitors', False))
+                          if allow_loopback is None else bool(allow_loopback))
         if _url_targets_local_or_meta(
                 urllib.parse.urlparse(f'//{host}', scheme='tcp'),
                 allow_loopback=allow_internal):
@@ -8102,7 +8117,8 @@ def _sanitize_monitor_target(mtype, target, with_reason=False):
         # service is the normal case. The connect-time peer recheck in
         # _execute_monitor_checks closes the DNS-rebinding TOCTOU.
         cfg = load(CONFIG_FILE)
-        allow_internal = bool(cfg.get('allow_internal_monitors', False))
+        allow_internal = (bool(cfg.get('allow_internal_monitors', False))
+                          if allow_loopback is None else bool(allow_loopback))
         if _url_targets_local_or_meta(parsed, allow_loopback=allow_internal):
             return _out(None, _monitor_host_block_reason(parsed.hostname,
                                                          allow_internal))
@@ -23559,6 +23575,13 @@ def handle_heartbeat():
         except Exception:
             pass  # never let service processing break heartbeat
 
+    # 7.4.9: the results of the monitors this host probes for the server (post-lock, like the services above)
+    if isinstance(body.get('monitor_results'), list):
+        try:
+            host_probe_ingest(dev_id, body['monitor_results'])
+        except Exception as _hpe:
+            sys.stderr.write(f"[remotepower] host probe ingest failed dev={dev_id}: {type(_hpe).__name__}: {_hpe}\n")
+
     # 7.4.9: the package repository definitions a Linux agent reports with its system information, for the repository
     # inventory. Validated and capped by repo_inventory, written only when they changed. Post-lock, like the services above.
     if isinstance(body.get('sysinfo'), dict) and body['sysinfo'].get('repo_files') is not None:
@@ -24566,6 +24589,15 @@ def handle_heartbeat():
     # for an empty list meant disabling/deleting a device's LAST check left the
     # agent evaluating (and quarantining on) the stale set until restart.
     common_resp['agent_checks'] = _agent_checks
+    # 7.4.9: the monitors assigned to this host to probe from here. The key is always sent to a Linux agent, even empty, so a
+    # monitor that was removed or paused stops being probed; other agents never see it.
+    try:
+        _hm = host_monitors_for(dev_id, saved_dev)
+        if _hm is not None:
+            common_resp['host_monitors'] = _hm
+            common_resp['host_monitor_interval'] = max(60, int(_config_ro().get('monitor_interval', 300) or 300))
+    except Exception as _hme:
+        sys.stderr.write(f"[remotepower] host monitors dispatch failed: {type(_hme).__name__}: {_hme}\n")
 
     # v4.9.0: one-shot directive — tell the agent to harvest its acme.sh DNS
     # credentials on the next poll (admin clicked "Import from agent"). Cleared
@@ -27437,6 +27469,9 @@ def _execute_monitor_checks(monitors):
         # here. Their last-reported result is merged in for display separately.
         if m.get('via_satellite'):
             continue
+        # 7.4.9: and a monitor assigned to a host is probed by that host's agent.
+        if m.get('via_host'):
+            continue
         mtype = m.get('type', 'ping')
         label = _sanitize_str(m.get('label', m.get('target', '')), 128)
         tkind = m.get('target_kind', 'host')
@@ -29072,15 +29107,38 @@ def handle_monitor_run():
     # satellite-assigned ones too — they're skipped by both probe paths).
     for m in monitors:
         if isinstance(m, dict) and m.get('paused'):
-            results.append({
+            _prow = {
                 'label': _sanitize_str(m.get('label', m.get('target', '')), 128),
                 'type': m.get('type', 'ping'), 'target': str(m.get('target', '')),
                 'ok': True, 'detail': 'paused', 'checked': 0, 'paused': True,
                 # keep the satellite attribution so the "via satellite" badge
                 # survives a pause (v6.4.0 polish)
-                'origin': (f"satellite:{m['via_satellite']}"
-                           if m.get('via_satellite') else 'server')})
-    respond(200, {'monitors': results, 'from_last_run': from_last})
+                'origin': (f"satellite:{m['via_satellite']}" if m.get('via_satellite')
+                           else f"host:{m['via_host']}" if m.get('via_host') else 'server')}
+            if m.get('via_host') and not m.get('via_satellite'):
+                _prow['origin_name'] = _host_origin_name(m['via_host'])
+            results.append(_prow)
+    respond(200, {'monitors': _mask_host_origins(results), 'from_last_run': from_last})
+
+
+def _host_origin_name(dev_id):
+    """7.4.9: the name of the host a check is probed from, for the monitor list, or '' when the host is gone."""
+    d = device_get(dev_id) if _validate_id(str(dev_id or '')) else None
+    return _sanitize_str(str(d.get('name', '')), 128) if isinstance(d, dict) else ''
+
+
+def _mask_host_origins(rows):
+    """7.4.9: a row probed from a host names that host in `origin` (`host:<id>`) and `origin_name`. A reader whose role is scoped
+    to other hosts gets the row without either, so the monitor list does not name a host they cannot see."""
+    if not any(isinstance(r, dict) and str(r.get('origin', '')).startswith('host:') for r in rows):
+        return rows
+    visible = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
+    for r in rows:
+        o = r.get('origin') if isinstance(r, dict) else None
+        if isinstance(o, str) and o.startswith('host:') and o[5:] not in visible:
+            r['origin'] = 'host'
+            r.pop('origin_name', None)
+    return rows
 
 
 def _satellite_monitor_display(monitors):
@@ -29090,24 +29148,31 @@ def _satellite_monitor_display(monitors):
     out = []
     for m in monitors:
         sid = m.get('via_satellite')
-        if not sid:
+        vh = m.get('via_host')       # 7.4.9: probed by a host's agent
+        if not sid and not vh:
             continue
         if m.get('paused'):
             continue   # v6.4.0: shown as a paused display row instead (one row, not two)
         label = _sanitize_str(m.get('label', m.get('target', '')), 128)
+        origin = f'satellite:{sid}' if sid else f'host:{vh}'
         prev = stored.get(label)
         if isinstance(prev, dict):
             row = dict(prev)
             row['label'] = label
             row.setdefault('type', m.get('type', 'ping'))
             row.setdefault('target', m.get('target', ''))
-            row['origin'] = f'satellite:{sid}'
+            row['origin'] = origin
+            if vh and not sid:
+                row['origin_name'] = _host_origin_name(vh)
             out.append(row)
         else:
-            out.append({'label': label, 'type': m.get('type', 'ping'),
-                        'target': m.get('target', ''), 'ok': True,
-                        'detail': 'awaiting first satellite probe',
-                        'checked': 0, 'origin': f'satellite:{sid}'})
+            row = {'label': label, 'type': m.get('type', 'ping'),
+                   'target': m.get('target', ''), 'ok': True,
+                   'detail': 'awaiting first satellite probe' if sid else 'awaiting first probe from the host',
+                   'checked': 0, 'origin': origin}
+            if vh and not sid:
+                row['origin_name'] = _host_origin_name(vh)
+            out.append(row)
     return out
 
 
@@ -31100,8 +31165,10 @@ def handle_config_save():
                     continue
             else:
                 tkind = 'host'
-                target, _why = _sanitize_monitor_target(mtype, raw_target,
-                                                        with_reason=True)
+                # 7.4.9: a monitor that a host's agent probes may name that host's own loopback
+                target, _why = _sanitize_monitor_target(
+                    mtype, raw_target, with_reason=True,
+                    allow_loopback=True if _sanitize_str(str(m.get('via_host', '')), 64) else None)
                 if target is None:
                     _mon_reject(_mon_name,
                                 _why or f'invalid target {raw_target[:80]!r}', m)
@@ -31217,6 +31284,18 @@ def handle_config_save():
                                 'longer registered', m)
                     continue
                 entry['via_satellite'] = vs
+            # 7.4.9: or probe it from the agent of a host (a service on the host's own loopback, a network only that host
+            # reaches). The host, the type and the address are checked by host_probe_handlers; a monitor runs from one place.
+            vh = _sanitize_str(str(m.get('via_host', '')), 64)
+            if vh:
+                if entry.get('via_satellite'):
+                    _mon_reject(_mon_name, 'it runs from a satellite or from a host, not both', m)
+                    continue
+                _why = host_probe_validate(vh, mtype, m)
+                if _why:
+                    _mon_reject(_mon_name, _why, m)
+                    continue
+                entry['via_host'] = vh
             # v6.4.0: SLA/SLO object attachments (checkboxes in the editor).
             _sids = _sanitize_slo_ids(m.get('slo_ids'))
             if _sids:
@@ -57221,8 +57300,9 @@ def handle_satellite_monitor_results():
             'detail': _sanitize_str(str(r.get('detail', '')), 256),
             'checked': now,
         }
-        if isinstance(r.get('latency_ms'), (int, float)):
-            res['latency_ms'] = round(float(r['latency_ms']), 1)
+        _lat = clean_latency(r.get('latency_ms'))      # 7.4.9: the guard a host's results have; float() of a huge integer raises
+        if _lat is not None:
+            res['latency_ms'] = _lat
         results.append(res)
         store[label] = res
     if results:
@@ -68967,8 +69047,8 @@ def handle_export_monitors():
               'body_match', 'expect_json', 'steps', 'failures_before_alert',
               'paused', 'method', 'verify_tls')
              if m.get(k) not in (None, '')}
-        # via_satellite is an id local to THIS install — it would be meaningless
-        # (or worse, wrong) on the instance importing this file.
+        # via_satellite and via_host are ids local to THIS install — they would be
+        # meaningless (or worse, wrong) on the instance importing this file.
         out.append(e)
     respond(200, {'format': 'remotepower', 'version': SERVER_VERSION,
                   'monitors': out})

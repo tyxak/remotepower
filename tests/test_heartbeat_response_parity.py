@@ -107,6 +107,10 @@ DECLARED = {
     # CrowdSec log layouts. Only the Linux agent carries it, and the server sends
     # the key to Linux agents alone (threat_sensor_config_for).
     'threat_sensor':        ('linux',),
+    # 7.4.9: monitors probed from a host's agent. The Linux agent runs them; the server sends the keys to Linux agents alone
+    # (host_monitors_for returns None for the rest).
+    'host_monitors':        ('linux',),
+    'host_monitor_interval': ('linux',),
     # v7.0.2: the eight keys from the `common_resp = { ... }` literal. They
     # were outside the extraction above, so none of them had a row here.
     'poll_interval':        _ALL,

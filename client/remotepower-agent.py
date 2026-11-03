@@ -6551,6 +6551,252 @@ def collect_firewall_detail():
     return {'backends': backends, 'active': overall}
 
 
+# ─── 7.4.9: probes run from this host ───────────────────────────────────────
+# The server probes from where it is, and a satellite from its own network. A monitor can also be assigned to a host, and its agent
+# then probes from there: a database on a private network, a service on the host's own loopback. The server sends the monitors
+# in the heartbeat response, this host runs them on the monitor interval and reports the results with a later heartbeat. Each
+# spec is checked here again, whatever the server sent.
+_PROBE = {'specs': [], 'interval': 300, 'next': 0.0, 'running': False}
+_PROBE_OUTBOX = []
+_PROBE_LOCK = threading.Lock()      # the probe thread adds to the outbox while the heartbeat thread sends and clears it
+_PROBE_OUTBOX_MAX = 200
+_PROBE_MAX_SPECS = 20
+_PROBE_HOST_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9.\-]{0,252}$')
+_PROBE_V6_RE = re.compile(r'^\[[0-9A-Fa-f:.]{2,45}\]$')
+_PROBE_CTRL_RE = re.compile(r'[\x00-\x1f\x7f]')
+
+
+def _probe_host_ok(h):
+    return bool(_PROBE_HOST_RE.match(h or '') or _PROBE_V6_RE.match(h or ''))
+
+
+def _probe_spec(raw):
+    """A monitor spec from the server as this agent will run it, or None when it is not one this agent runs."""
+    if not isinstance(raw, dict):
+        return None
+    label = _PROBE_CTRL_RE.sub(' ', str(raw.get('label') or '')).strip()[:128]
+    mtype = raw.get('type')
+    target = _PROBE_CTRL_RE.sub('', str(raw.get('target') or '')).strip()[:512]
+    if not label or mtype not in ('tcp', 'http', 'ping') or not target:
+        return None
+    spec = {'label': label, 'type': mtype, 'target': target}
+    if mtype == 'ping':
+        if not _probe_host_ok(target.strip('[]')) or target.startswith('-'):
+            return None
+    elif mtype == 'tcp':
+        host, _, port_s = target.rpartition(':')
+        try:
+            port = int(port_s)
+        except ValueError:
+            return None
+        if not _probe_host_ok(host) or not 0 < port < 65536:
+            return None
+        spec['host'], spec['port'] = host.strip('[]'), port
+    else:
+        u = urlparse.urlsplit(target)
+        if u.scheme not in ('http', 'https') or not u.hostname or not _probe_host_ok(u.hostname if ':' not in u.hostname else '[' + u.hostname + ']'):
+            return None
+        es = raw.get('expect_status')
+        if isinstance(es, int) and not isinstance(es, bool) and 100 <= es <= 599:
+            spec['expect_status'] = es
+        ec = raw.get('expect_contains')
+        if isinstance(ec, str) and ec:
+            spec['expect_contains'] = _PROBE_CTRL_RE.sub(' ', ec)[:200]
+        if raw.get('method') in ('head', 'get'):
+            spec['method'] = raw['method']
+        if raw.get('verify_tls') is False:
+            spec['verify_tls'] = False
+    return spec
+
+
+# The addresses a probe never connects to, even when a monitor names a host that resolves to one: the link-local range, where a
+# cloud keeps its instance metadata, the metadata addresses that are not link-local, and the unspecified, multicast and reserved
+# ranges. The loopback and the private ranges are the point of probing from a host. This is the server's ssrf_ip ladder with the
+# loopback allowed; tests/test_v749_host_probes.py compares the two over a list of addresses.
+_PROBE_METADATA_IPS = frozenset({'fd00:ec2::254', '100.100.100.200', '192.0.0.192'})
+_PROBE_NAT64 = 0x0064ff9b << 64
+
+
+class _ProbeBlocked(Exception):
+    """The name resolved to an address a probe does not connect to."""
+
+
+def _probe_addr_blocked(ip_str):
+    try:
+        ip = ipaddress.ip_address(str(ip_str))
+    except ValueError:
+        return True                     # an address that cannot be read is not one to connect to
+    if isinstance(ip, ipaddress.IPv6Address):
+        inner = ip.ipv4_mapped or ip.sixtofour      # an IPv4 address wrapped in an IPv6 one is judged as the IPv4 address
+        if inner is None and (int(ip) >> 32) == _PROBE_NAT64:
+            inner = ipaddress.IPv4Address(int(ip) & 0xffffffff)
+        if inner is not None:
+            ip = inner
+    if str(ip) in _PROBE_METADATA_IPS:
+        return True
+    if ip.is_loopback:
+        return False
+    return bool(ip.is_link_local or ip.is_unspecified or ip.is_multicast or ip.is_reserved)
+
+
+def _probe_connect(address, timeout=None, source_address=None):
+    """socket.create_connection that resolves the name once, refuses it when any of its addresses is one a probe does not reach,
+    and connects to an address it has checked. A name cannot answer one thing to the check and another to the connection."""
+    host, port = address[0], address[1]
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    for info in infos:
+        if _probe_addr_blocked(info[4][0]):
+            raise _ProbeBlocked(host)
+    err = None
+    for info in infos:
+        try:
+            return socket.create_connection((info[4][0], info[4][1]), timeout, source_address)
+        except OSError as e:
+            err = e
+    raise err or OSError('no address to connect to')
+
+
+class _ProbeHTTPConnection(_http_client.HTTPConnection):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._create_connection = _probe_connect
+
+
+class _ProbeHTTPSConnection(_http_client.HTTPSConnection):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._create_connection = _probe_connect
+
+
+class _ProbeHTTPHandler(request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_ProbeHTTPConnection, req)
+
+
+class _ProbeHTTPSHandler(request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_ProbeHTTPSConnection, req, context=self._context)
+
+
+def _probe_tcp(spec):
+    with _probe_connect((spec['host'], spec['port']), 3):
+        return True, 'open'
+
+
+def _probe_ping(spec):
+    target = spec['target'].strip('[]')
+    try:
+        literal = ipaddress.ip_address(target)
+    except ValueError:
+        literal = None                  # a name: ping resolves it, and only an address can be judged here
+    if literal is not None and _probe_addr_blocked(literal):
+        raise _ProbeBlocked(target)
+    if not shutil.which('ping'):
+        return False, 'ping is not installed on this host'
+    r = subprocess.run(['ping', '-c', '1', '-W', '2', '--', target], capture_output=True, text=True, timeout=6)
+    return r.returncode == 0, ('reachable' if r.returncode == 0 else 'unreachable')
+
+
+def _probe_opener(verify):
+    """http and https only (no file: or ftp:), the system's certificate authorities, and no redirect."""
+    ctx = _ssl.create_default_context() if verify else _ssl._create_unverified_context()
+    op = request.OpenerDirector()
+    for h in (request.UnknownHandler(), _ProbeHTTPHandler(), _ProbeHTTPSHandler(context=ctx),
+              request.HTTPDefaultErrorHandler(), _NoRedirect(), request.HTTPErrorProcessor()):
+        op.add_handler(h)
+    return op
+
+
+def _probe_http(spec):
+    op = _probe_opener(spec.get('verify_tls') is not False)
+    want = spec.get('expect_status')
+    needs_body = bool(spec.get('expect_contains'))
+    verbs = ['GET'] if needs_body or spec.get('method') == 'get' else ['HEAD', 'GET'] if spec.get('method') != 'head' else ['HEAD']
+    status, body = 0, ''
+    for i, verb in enumerate(verbs):
+        req = request.Request(spec['target'], method=verb, headers={'User-Agent': 'RemotePower-agent/' + VERSION})
+        try:
+            resp = op.open(req, timeout=5)
+        except error.HTTPError as e:
+            resp = e
+        with resp:
+            status = resp.status
+            if needs_body and verb == 'GET':
+                body = resp.read(512 * 1024).decode('utf-8', 'replace')
+        if i + 1 < len(verbs) and status in (404, 405, 501):
+            continue            # a server that answers HEAD with 405 answers GET
+        break
+    ok = (status == want) if want is not None else status < 400
+    detail = f'{status}' + (f' (expected {want})' if want is not None and not ok else '')
+    if ok and needs_body and spec['expect_contains'] not in body:
+        ok, detail = False, f'{status} · "{spec["expect_contains"][:40]}" not found'
+    return ok, detail
+
+
+def _probe_run_one(spec):
+    t0 = time.monotonic()
+    try:
+        ok, detail = {'tcp': _probe_tcp, 'ping': _probe_ping, 'http': _probe_http}[spec['type']](spec)
+    except _ProbeBlocked:
+        ok, detail = False, 'that address is not allowed (link-local or cloud metadata)'
+    except Exception as e:
+        ok, detail = False, ('closed' if spec['type'] == 'tcp' else 'error: ' + type(e).__name__)
+    return {'label': spec['label'], 'type': spec['type'], 'target': spec['target'][:256], 'ok': bool(ok),
+            'detail': str(detail)[:200], 'latency_ms': round((time.monotonic() - t0) * 1000, 1)}
+
+
+def _probe_update(raw_specs, interval):
+    """Take the monitors the server assigned to this host (None leaves them as they are). An empty list stops the probing."""
+    if not isinstance(raw_specs, list):
+        return
+    specs = [s for s in (_probe_spec(r) for r in raw_specs[:_PROBE_MAX_SPECS]) if s]
+    _PROBE['specs'] = specs
+    try:
+        _PROBE['interval'] = max(60, min(3600, int(interval or 300)))
+    except (TypeError, ValueError):
+        _PROBE['interval'] = 300
+    if not specs:
+        with _PROBE_LOCK:
+            _PROBE_OUTBOX.clear()
+
+
+def _probe_take(n=100):
+    """The oldest results that wait to be sent, without removing them."""
+    with _PROBE_LOCK:
+        return list(_PROBE_OUTBOX[:n])
+
+
+def _probe_delivered(batch):
+    """Forget the results the server has taken. They are matched by identity, since a run that finished meanwhile may have trimmed
+    the front of the list and moved the rest."""
+    gone = {id(r) for r in batch}
+    with _PROBE_LOCK:
+        _PROBE_OUTBOX[:] = [r for r in _PROBE_OUTBOX if id(r) not in gone]
+
+
+def _probe_tick():
+    """Start a run of the assigned probes when one is due and none is running. Never blocks the heartbeat."""
+    if not _PROBE['specs'] or _PROBE['running'] or time.time() < _PROBE['next']:
+        return
+    _PROBE['running'] = True
+    _PROBE['next'] = time.time() + _PROBE['interval']
+    specs = list(_PROBE['specs'])
+
+    def _run():
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=5) as ex:
+                results = list(ex.map(_probe_run_one, specs))
+            with _PROBE_LOCK:
+                _PROBE_OUTBOX.extend(results)
+                del _PROBE_OUTBOX[:max(0, len(_PROBE_OUTBOX) - _PROBE_OUTBOX_MAX)]
+        except Exception as e:
+            log.debug(f'probe run error: {e}')
+        finally:
+            _PROBE['running'] = False
+    threading.Thread(target=_run, daemon=True).start()
+
+
 # ─── 7.4.9: package repository definitions, for the repository inventory ───────
 # The agent sends the repository definition files with the comments and blank lines taken out (one blank line is kept, since
 # deb822 stanzas are separated by it) and the server reads them, so a change to a reader needs no agent update. They are sent
@@ -14888,6 +15134,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         # heartbeat's writes) must not lose a finished scan permanently.
         if _HOST_SCAN_OUTBOX:
             payload['host_scan_result'] = _HOST_SCAN_OUTBOX[0]
+        # 7.4.9: the results of the probes this host runs for the server. Peeked, not taken: they are dropped below only after the
+        # server accepted the heartbeat, so a busy answer or a network error does not lose them.
+        _probe_batch = _probe_take()
+        if _probe_batch:
+            payload['monitor_results'] = _probe_batch
 
         # W3-47: attach any spooled samples (from earlier offline cycles) so the
         # server backfills the metrics gap. Cleared only after a successful POST.
@@ -14929,6 +15180,8 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 # Server stored this heartbeat's writes — the scan result is
                 # safely delivered, drop it from the retry queue.
                 _HOST_SCAN_OUTBOX.pop(0)
+            if _probe_batch and resp.get('busy') is not True:
+                _probe_delivered(_probe_batch)       # 7.4.9: the server has them
             # v6.2.2: delta sysinfo bookkeeping. Commit this beat's full-sent
             # hashes only when the server actually stored the beat (non-busy);
             # (re)learn the capability from every response — a downgraded or
@@ -15134,6 +15387,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             # v4.2.0 (B5 P3): one-shot host scan (lynis). Same model as oscap —
             # daemon thread, lock prevents overlap; result goes back via the
             # heartbeat outbox, not a direct POST.
+            # 7.4.9: the monitors the server assigned to this host to probe from here, and the interval to run them at
+            if 'host_monitors' in resp:
+                _probe_update(resp.get('host_monitors'), resp.get('host_monitor_interval'))
+            _probe_tick()
             _hs = resp.get('host_scan')
             if isinstance(_hs, dict) and _hs.get('id'):
                 if _host_scan_running.acquire(blocking=False):

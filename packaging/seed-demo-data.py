@@ -1837,7 +1837,28 @@ def _demo_monitors():
             {'label': 'Edge site — probed from the HQ relay', 'type': 'ping',
              'target': 'nginx.lab', 'target_kind': 'host',
              'via_satellite': _stable_hex('satellite', 'hq-relay', nbytes=8)},
+            # 7.4.9: probed by the agent of a host, from where it is: a service on the host's own loopback.
+            {'label': 'Gitea web — from gt01', 'type': 'http',
+             'target': 'http://127.0.0.1:3000/', 'target_kind': 'host',
+             'expect_status': 200, 'via_host': 'gt01'},
+            {'label': 'Gitea Postgres — from gt01', 'type': 'tcp',
+             'target': '127.0.0.1:5432', 'target_kind': 'host', 'via_host': 'gt01'},
     ]
+
+
+def build_host_monitor_results() -> dict:
+    """The last result of each monitor a host's agent probes -> satellite_monitors.json (7.4.9). A satellite's results and a
+    host's share the store, keyed by the monitor's label. Fixed numbers, so no other part of the seed moves."""
+    t = now()
+    detail = {'http': ('200', 14.6), 'tcp': ('open', 0.8)}
+    out = {}
+    for m in _demo_monitors():
+        if not m.get('via_host'):
+            continue
+        text, ms = detail.get(m['type'], ('ok', 1.0))
+        out[m['label']] = {'label': m['label'], 'type': m['type'], 'target': m['target'], 'ok': True, 'detail': text,
+                           'checked': t - 41, 'latency_ms': ms}
+    return out
 
 
 def build_monitor_history() -> dict:
@@ -7789,6 +7810,7 @@ BUILDERS = {
     'discovery.json':              build_discovery,
     'tunnels.json':                build_tunnels,
     'satellites.json':             build_satellites,
+    'satellite_monitors.json':     build_host_monitor_results,
     # security / scan / compliance
     'secret_findings.json':        build_secret_findings,
     'after_hours_hits.json':       build_after_hours_hits,

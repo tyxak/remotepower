@@ -17,7 +17,8 @@ this agent does NOT read): OpenSCAP (`force_scap_scan` /
 `sshgw_enabled` (SSH gateway tunnel); `threat_sensor` (log sensor, Linux logs);
 `mdns_enabled`; `force_iac_collect`;
 `guard_actions` (Integrity Guard check types are Linux-only);
-`harvest_dns_creds` / `force_acme_rescan` (acme.sh).
+`harvest_dns_creds` / `force_acme_rescan` (acme.sh);
+`host_monitors` / `host_monitor_interval` (checks probed from this host: the Linux agent only).
 Everything else the server sends is honoured here — when closing one of these,
 also update this list and the Windows agent's.
 
@@ -64,6 +65,7 @@ HEARTBEAT_KEYS_NOT_HONOURED = (
     'force_iac_collect',
     'guard_actions',                      # Integrity Guard types are Linux-only
     'harvest_dns_creds', 'force_acme_rescan',   # acme.sh
+    'host_monitors', 'host_monitor_interval',   # checks probed from this host: the Linux agent only (the server refuses the assignment)
 )
 _warned_unsigned_scripts = False   # v6.4.3: log the refusal once, not per poll
 DEFAULT_POLL = 60

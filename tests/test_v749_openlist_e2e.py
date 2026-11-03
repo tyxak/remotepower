@@ -456,5 +456,127 @@ class TestRepositories(_Page):
         self.assertIn("<img src=x", self.page.inner_text("#repo-tbody"))
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestHostProbes(_Page):
+    """A check that runs from a host's own agent: the rows on the Remote checks table and the editor that creates them."""
+
+    LABEL = "zz host-probe e2e"
+
+    def setUp(self):
+        super().setUp()
+        self.page.evaluate("closeModal('monitor-add-modal')")
+        self.page.evaluate("showPage('monitor')")
+
+    def tearDown(self):
+        self.page.evaluate("closeModal('monitor-add-modal')")
+        self.page.evaluate("""async (label) => {
+            const cfg = await api('GET', '/config');
+            await api('POST', '/config', {monitors: (cfg.monitors || []).filter(m => !String(m.label).startsWith(label))});
+        }""", self.LABEL)
+        super().tearDown()
+
+    def rows(self):
+        self.page.wait_for_function("() => (window.monitorTargets || []).some(r => r.label === 'Gitea Postgres \u2014 from gt01')", timeout=90000)
+        self.page.wait_for_function("() => { const t = document.getElementById('monitor-tbody'); return t && t.innerText.includes('from gt01'); }",
+                                    timeout=30000)
+        return self.page.eval_on_selector_all("#monitor-tbody tr", "rs => rs.map(r => [...r.children].map(c => c.innerText.trim().replace(/\\s+/g, ' ')))")
+
+    def open_add(self):
+        # the dialog fills its "Probe from" list after its requests answer, and a later fill supersedes an earlier one:
+        # wait for the last, or a choice made now would be replaced when the list arrives
+        self.page.evaluate("async () => { openMonitorAdd(); await _fillMonitorSatellites(''); }")
+        self.page.wait_for_function("() => document.querySelectorAll('#mon-satellite option').length > 3", timeout=30000)
+
+    def monitors(self):
+        return self.page.evaluate("api('GET', '/config').then(c => c.monitors || [])")
+
+    def wait_closed(self):
+        self.page.wait_for_function("() => !document.getElementById('monitor-add-modal').classList.contains('active')", timeout=15000)
+
+    def test_the_table_names_the_host_that_probes(self):
+        rows = {r[0]: r for r in self.rows()}
+        db = rows["Gitea Postgres \u2014 from gt01"]
+        self.assertEqual(db[1], "tcp")
+        self.assertIn("127.0.0.1:5432", db[2])
+        self.assertIn("via host", db[2])
+        self.assertIn("gitea.lab", db[2], "the badge is followed by the host's name")
+        self.assertIn("up", db[3])
+        self.assertEqual(db[4], "open")
+        web = rows["Gitea web \u2014 from gt01"]
+        self.assertIn("200", web[4])
+        # the satellite's row keeps its own badge and is not taken for a host's
+        sat = [r for r in rows.values() if r[0].startswith("Edge site")][0]
+        self.assertIn("via satellite", sat[2])
+        self.assertNotIn("via host", sat[2])
+
+    def test_the_editor_offers_the_linux_hosts_that_have_an_agent(self):
+        self.rows()
+        self.open_add()
+        opts = self.page.eval_on_selector_all("#mon-satellite option", "os => os.map(o => [o.value, o.textContent.trim()])")
+        hosts = [(v[5:], t) for v, t in opts if v.startswith("host:")]
+        names = {t for _, t in hosts}
+        self.assertIn("gitea.lab", names)
+        self.assertIn("vaultwarden.lab", names)
+        for not_a_prober in ("design-win11", "mette-macbook", "switch-core", "ap-living"):
+            self.assertNotIn(not_a_prober, names, "a Windows or macOS host and a host with no agent do not probe")
+        self.assertEqual(len(hosts), 12, hosts)
+        self.assertEqual([t.lower() for _, t in hosts], sorted(t.lower() for _, t in hosts), "sorted by name")
+
+    def test_a_check_is_saved_with_its_host(self):
+        self.rows()
+        self.open_add()
+        self.page.fill("#mon-label", self.LABEL)
+        self.page.select_option("#mon-type", "tcp")
+        self.page.fill("#mon-target", "127.0.0.1:6379")
+        self.page.select_option("#mon-satellite", "host:vw01")
+        self.page.click('#monitor-add-modal [data-action="addMonitor"]')
+        self.wait_closed()
+        saved = [m for m in self.monitors() if m["label"] == self.LABEL]
+        self.assertEqual(len(saved), 1, saved)
+        self.assertEqual(saved[0].get("via_host"), "vw01")
+        self.assertNotIn("via_satellite", saved[0])
+        self.page.wait_for_function("(l) => (window.monitorTargets || []).some(r => r.label === l)", arg=self.LABEL, timeout=60000)
+        row = self.page.evaluate("(l) => window.monitorTargets.find(r => r.label === l)", self.LABEL)
+        self.assertEqual(row["origin"], "host:vw01")
+        self.assertEqual(row["detail"], "awaiting first probe from the host")
+
+    def test_editing_a_check_shows_its_host_and_a_save_keeps_it(self):
+        self.rows()
+        idx = self.page.evaluate("() => window.monitorTargets.findIndex(r => r.label === 'Gitea Postgres \u2014 from gt01')")
+        self.page.evaluate("(i) => editMonitor(i)", idx)
+        self.page.wait_for_function("() => document.getElementById('mon-satellite').value === 'host:gt01'", timeout=30000)
+        self.page.click('#monitor-add-modal [data-action="addMonitor"]')
+        self.wait_closed()
+        kept = [m for m in self.monitors() if m["label"] == "Gitea Postgres \u2014 from gt01"]
+        self.assertEqual(kept[0].get("via_host"), "gt01")
+
+    def test_a_host_that_is_gone_stays_on_screen_instead_of_moving_the_check_to_the_server(self):
+        self.edit_store("config.json", lambda cfg: [m.update(via_host="gone-host") for m in cfg["monitors"] if m.get("label") == "Gitea web \u2014 from gt01"])
+        self.page.evaluate("showPage('monitor')")
+        self.rows()
+        idx = self.page.evaluate("() => window.monitorTargets.findIndex(r => r.label === 'Gitea web \u2014 from gt01')")
+        self.page.evaluate("(i) => editMonitor(i)", idx)
+        self.page.wait_for_function("() => document.getElementById('mon-satellite').value === 'host:gone-host'", timeout=30000)
+        self.assertEqual(self.page.eval_on_selector("#mon-satellite", "s => s.selectedOptions[0].textContent.trim()"), "Removed host")
+        self.page.click('#monitor-add-modal [data-action="addMonitor"]')
+        self.page.wait_for_selector(".toast", timeout=15000)
+        self.assertIn("not enrolled", self.page.inner_text(".toast"))
+        self.assertTrue(self.page.evaluate("document.getElementById('monitor-add-modal').classList.contains('active')"), "the dialog stays open")
+
+    def test_a_check_the_agent_cannot_evaluate_is_refused_with_the_reason(self):
+        self.rows()
+        self.open_add()
+        self.page.fill("#mon-label", self.LABEL)
+        self.page.select_option("#mon-type", "http")
+        self.page.fill("#mon-target", "http://127.0.0.1:8080/")
+        self.page.select_option("#mon-body-mode", "regex")
+        self.page.fill("#mon-body-value", "ok.*")
+        self.page.select_option("#mon-satellite", "host:vw01")
+        self.page.click('#monitor-add-modal [data-action="addMonitor"]')
+        self.page.wait_for_selector(".toast", timeout=15000)
+        self.assertIn("regex", self.page.inner_text(".toast"))
+        self.assertEqual([m for m in self.monitors() if m["label"] == self.LABEL], [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -75,6 +75,33 @@ segmented/private space the server can't; the row shows a *via satellite*
 badge). Every probe is timed, so the History modal shows **response-time
 percentiles** (p50/p95/p99 over the window, successful checks only).
 
+### Probe from a host
+
+A check can run from the agent of one of your hosts instead of from the server. That reaches what only the host can reach: a
+database on a private network, a port on the host's own loopback (`127.0.0.1:5432`), an internal web page.
+
+Pick the host under **Probe from** in the check dialog. The row then carries a *via host* badge that names the host.
+
+- The host has to run the **Linux agent**. The Windows and macOS agents and agentless hosts do not probe.
+- The check is `tcp`, `http` or `ping`, and it names one address, not a tag or a group.
+- An HTTP check can use **Expected HTTP status**, **Body must contain**, **Method** and **Verify TLS**. A regex, a *must not
+  contain* text, a JSON field, a latency limit and a packet loss limit are only available from the server. Saving one with a
+  host tells you which one to take out.
+- A check runs from one place: the server, a satellite or a host.
+- The host's loopback is allowed, since it is the host's own. Link-local and cloud metadata addresses stay refused, when you
+  save the check and again when the agent connects.
+
+The server sends the host its checks with a heartbeat answer. The agent runs them every **Monitor check interval** (60 seconds
+at the least) and returns the results with a later heartbeat, so a result can be a heartbeat behind. History, uptime, SLO
+figures and the `monitor_down` and `monitor_up` alerts work as they do for any other check, and **Alert after consecutive
+failures** applies. A paused check is not sent. A host that has not updated its agent shows *awaiting first probe from the
+host*. If a host goes offline its checks stop with it: the row keeps the last result and the time it was taken, and the host's
+own offline alert tells you why.
+
+The agent follows no redirect, checks the certificate unless you untick **Verify TLS**, and reads at most 512 KB of a page for a
+text check. It runs only `http` and `https` addresses it has checked itself, and the server accepts results from a host for
+that host's own checks only.
+
 ## SLA / SLO objects
 
 Named availability targets that remote probes attach to. Define an object —

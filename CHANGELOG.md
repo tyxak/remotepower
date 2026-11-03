@@ -169,6 +169,24 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 - **The output of a script result opens from the keyboard.** The Last output column of the results table opened the full
   output on a click and could not be reached with Tab. The text is a link now, looks the same, and Enter opens the output.
 
+### Monitors
+
+- **A check can run from a host's own agent (gap-fill).** The server probes from where it is and a relay satellite from its own
+  network, so a database on a private network or a service that listens only on a host's loopback was out of reach for both.
+  Pick a Linux host under **Probe from** in the check dialog and its agent runs the `tcp`, `http` or `ping` check from there.
+  The server sends the host its checks in the heartbeat answer, the agent runs them every monitor interval (60 seconds at the
+  least) and returns the results with a later heartbeat. Results are stored, graphed and alerted on like any other check:
+  `monitor_down` and `monitor_up`, the history, the uptime and the SLO figures, and the row carries a *via host* badge with the
+  host's name. The host's own loopback is allowed because it is the host's. Link-local and cloud metadata addresses are refused
+  when the check is saved and again when the agent connects, and the agent connects to the address it checked, so a name that
+  changes its answer cannot lead it there. The agent follows no redirect, checks the certificate unless Verify TLS is off, runs
+  only `http` and `https` addresses and validates every spec itself, whatever the server sent. A check that needs a regex, a
+  *must not contain* text, a JSON field, a latency limit or a loss limit is refused with the reason, since the agent does not
+  evaluate those. A host's results are accepted for its own checks only, a check runs from a satellite or a host and not both,
+  and a reader whose role is scoped to other hosts does not get the id or name of a host outside that scope in the monitor list.
+  The Windows and macOS agents and agentless hosts do not probe. Update the agents: until then the row reads *awaiting first
+  probe from the host*. Not run against a real host yet: the probes ran against local servers and a stubbed `ping`.
+
 ### Alerts
 
 - **An alert can be assigned to a person.** The inbox knew who acknowledged an alert and nothing about who was dealing with

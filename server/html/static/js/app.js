@@ -4002,7 +4002,7 @@ function _registerMonitorTable() {
       const _pauseBtn = m.paused
         ? `<button class="btn-icon isl-44" title="Resume probing" data-action="toggleMonitorPause" data-arg="${escAttr(m.label)}" data-arg2="0"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>`
         : `<button class="btn-icon isl-44" title="Pause — stop probing but keep the monitor and its history" data-action="toggleMonitorPause" data-arg="${escAttr(m.label)}" data-arg2="1"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>`;
-      return `<tr${m.paused ? ' class="c-muted"' : ''}><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}${(m.origin && m.origin.indexOf('satellite:') === 0) ? ' <span class="patch-badge fs-11" title="Probed by a relay satellite">via satellite</span>' : ''}</td><td>${_st}</td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.paused ? '—' : (m.checked ? timeAgoHtml(m.checked) : '—')}</td><td class="row-6">${_pauseBtn}<button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44" title="Clone — prefill a new monitor from this one" data-action="cloneMonitor" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeMonitor" data-arg="${i}">${_icon('trash',14)}</button></td></tr>`;
+      return `<tr${m.paused ? ' class="c-muted"' : ''}><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}${(m.origin && m.origin.indexOf('satellite:') === 0) ? ' <span class="patch-badge fs-11" title="Probed by a relay satellite">via satellite</span>' : ''}${(m.origin && m.origin.indexOf('host:') === 0) ? ' <span class="patch-badge fs-11" title="Probed by the agent of a host">via host</span>' + (m.origin_name ? ` <span class="hint">${escHtml(m.origin_name)}</span>` : '') : ''}</td><td>${_st}</td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.paused ? '—' : (m.checked ? timeAgoHtml(m.checked) : '—')}</td><td class="row-6">${_pauseBtn}<button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44" title="Clone — prefill a new monitor from this one" data-action="cloneMonitor" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeMonitor" data-arg="${i}">${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No monitors configured.',
     emptyMsgFiltered: 'No monitors match the filter.',
@@ -4087,14 +4087,30 @@ function _monClearFields() {
 }
 // W4-14: populate the "Probe from" satellite picker (bounded ≤50 → a select is
 // fine, unlike device pickers). Preserves the current selection.
+let _monSatSeq = 0;      // bumped by every fill, so a slow answer for an earlier dialog cannot overwrite the choices of a later one
 async function _fillMonitorSatellites(selected) {
   const sel = document.getElementById('mon-satellite');
   if (!sel) return;
-  const sats = await api('GET', '/satellites').catch(() => []);
+  const seq = ++_monSatSeq;
+  const [sats, devs] = await Promise.all([api('GET', '/satellites').catch(() => []), api('GET', '/devices').catch(() => [])]);
+  if (seq !== _monSatSeq) return;
+  // 7.4.9: a Linux host with an agent can probe too; its value is host:<id>, a satellite's is its own id
+  const hosts = (Array.isArray(devs) ? devs : []).filter(d => d && d.id && !d.agentless && !/windows|mac/i.test(d.os || ''))
+    .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
   sel.innerHTML = '<option value="">Server (this RemotePower host)</option>'
     + (Array.isArray(sats) ? sats : []).map(s =>
-        `<option value="${escAttr(s.id)}">${escHtml(s.name || s.id)}</option>`).join('');
-  if (selected) sel.value = selected;
+        `<option value="${escAttr(s.id)}">${escHtml(s.name || s.id)}</option>`).join('')
+    + hosts.map(d => `<option value="host:${escAttr(d.id)}">${escHtml(d.name || d.id)}</option>`).join('');
+  if (selected) {
+    sel.value = selected;
+    if (sel.value !== selected) {
+      // The satellite or host this check names is gone. Keep the choice on screen, so a save says so, instead of
+      // letting the select fall back to the server and move the check there without a word.
+      const gone = String(selected).startsWith('host:') ? 'Removed host' : 'Removed satellite';
+      sel.insertAdjacentHTML('beforeend', `<option value="${escAttr(selected)}">${gone}</option>`);
+      sel.value = selected;
+    }
+  }
 }
 function openMonitorAdd() {
   _monitorEditIdx = -1;
@@ -4147,7 +4163,7 @@ async function editMonitor(idx) {
   set('mon-json-path', (m.expect_json && m.expect_json.path) || '');
   set('mon-json-value', (m.expect_json && m.expect_json.value) || '');
   set('mon-flow-steps', Array.isArray(m.steps) ? m.steps.map(s => JSON.stringify(s)).join('\n') : '');  // W4-13
-  _fillMonitorSatellites(m.via_satellite || '');   // W4-14
+  _fillMonitorSatellites(m.via_host ? 'host:' + m.via_host : (m.via_satellite || ''));   // W4-14, 7.4.9
   _fillMonitorSlos(m.slo_ids || []);               // v6.4.0
   monTypeChanged();
   openModal('monitor-add-modal');
@@ -4314,7 +4330,8 @@ async function addMonitor() {
   if (fba !== null && Math.round(fba) > 1) entry.failures_before_alert = Math.max(2, Math.min(10, Math.round(fba)));
   // W4-14: optionally probe from a relay satellite instead of the server.
   const viaSat = document.getElementById('mon-satellite')?.value || '';
-  if (viaSat) entry.via_satellite = viaSat;
+  if (viaSat.startsWith('host:')) entry.via_host = viaSat.slice(5);    // 7.4.9: probed by a host's agent
+  else if (viaSat) entry.via_satellite = viaSat;
   // v6.4.0: SLA/SLO object attachments.
   const sloIds = _collectMonitorSlos();
   if (sloIds.length) entry.slo_ids = sloIds;
