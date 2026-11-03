@@ -715,6 +715,86 @@ class TestCpuTime(_Page):
 
 
 @unittest.skipUnless(_GATE, SKIP_REASON)
+class TestProfileLines(_Page):
+    """The host profile dialog: boxes for disk busy, I/O wait and steal, and a save that keeps the lines it has no box for."""
+
+    NAME = "zz e2e profile"
+
+    def setUp(self):
+        super().setUp()
+        self.page.evaluate("closeModal('device-profile-modal')")
+
+    def tearDown(self):
+        self.page.evaluate("closeModal('device-profile-modal')")
+        self.page.evaluate("""async (name) => {
+            const r = await api('GET', '/device-profiles');
+            for (const p of (r && r.profiles) || []) if (p.name === name) await api('DELETE', '/device-profiles/' + encodeURIComponent(p.id));
+        }""", self.NAME)
+        super().tearDown()
+
+    def profiles(self):
+        return [p for p in self.page.evaluate("api('GET', '/device-profiles').then(r => r.profiles || [])") if p["name"] == self.NAME]
+
+    def make(self, mt):
+        return self.page.evaluate("""async ([name, mt]) => (await api('POST', '/device-profiles', {name, metric_thresholds: mt})).id""", [self.NAME, mt])
+
+    def edit(self, pid):
+        self.page.evaluate("""async (pid) => { await loadDeviceProfiles(); editDeviceProfile(_deviceProfiles.findIndex(p => p.id === pid)); }""", pid)
+        self.page.wait_for_selector("#dp-iowait-warn", state="visible", timeout=30000)
+
+    def save(self):
+        self.page.click('[data-action="saveDeviceProfile"]')
+        self.page.wait_for_function("() => !document.getElementById('device-profile-modal').classList.contains('active')", timeout=15000)
+
+    def test_the_dialog_saves_the_disk_busy_and_cpu_time_lines(self):
+        self.page.evaluate("() => openDeviceProfileCreate()")
+        self.page.wait_for_selector("#dp-name", state="visible", timeout=30000)
+        self.page.fill("#dp-name", self.NAME)
+        for box, value in (("diskio-warn", "60"), ("diskio-crit", "90"), ("iowait-warn", "20"), ("iowait-crit", "40"), ("steal-warn", "5"), ("steal-crit", "15")):
+            self.page.fill(f"#dp-{box}", value)
+        self.save()
+        mine = self.profiles()
+        self.assertEqual(len(mine), 1)
+        self.assertEqual(mine[0]["metric_thresholds"], {"diskio_warn_percent": 60.0, "diskio_crit_percent": 90.0, "iowait_warn_percent": 20.0,
+                                                          "iowait_crit_percent": 40.0, "steal_warn_percent": 5.0, "steal_crit_percent": 15.0})
+
+    def test_the_boxes_show_what_the_profile_holds(self):
+        pid = self.make({"iowait_warn_percent": 25, "iowait_crit_percent": 45, "steal_warn_percent": 6, "diskio_crit_percent": 95, "mem_warn_percent": 70})
+        self.edit(pid)
+        got = {b: self.page.input_value(f"#dp-{b}") for b in ("diskio-warn", "diskio-crit", "iowait-warn", "iowait-crit", "steal-warn", "steal-crit", "mem-warn", "mem-crit")}
+        self.assertEqual(got, {"diskio-warn": "", "diskio-crit": "95", "iowait-warn": "25", "iowait-crit": "45", "steal-warn": "6", "steal-crit": "", "mem-warn": "70", "mem-crit": ""})
+
+    def test_saving_keeps_the_lines_the_dialog_has_no_box_for(self):
+        pid = self.make({"swap_warn_percent": 30, "temp_crit_celsius": 90, "mailq_warn_count": 200, "drivetemp_hdd_crit_c": 55, "nic_err_alert_min": 9,
+                         "cpu_crit_load_ratio": 4, "iowait_warn_percent": 20})
+        self.edit(pid)
+        self.page.fill("#dp-iowait-warn", "30")
+        self.page.fill("#dp-steal-warn", "7")
+        self.save()
+        mt = self.profiles()[0]["metric_thresholds"]
+        self.assertEqual(mt["iowait_warn_percent"], 30.0)
+        self.assertEqual(mt["steal_warn_percent"], 7.0)
+        self.assertEqual((mt["swap_warn_percent"], mt["temp_crit_celsius"], mt["mailq_warn_count"], mt["drivetemp_hdd_crit_c"], mt["nic_err_alert_min"], mt["cpu_crit_load_ratio"]),
+                         (30.0, 90.0, 200, 55.0, 9, 4.0), "these used to be replaced by the four the dialog showed")
+
+    def test_emptying_the_last_box_removes_the_line(self):
+        pid = self.make({"mem_warn_percent": 70})
+        self.edit(pid)
+        self.page.fill("#dp-mem-warn", "")
+        self.save()
+        self.assertEqual(self.profiles()[0]["metric_thresholds"], {}, "an update that left the field out kept the old line")
+
+    def test_a_warning_line_above_its_critical_line_is_refused_with_the_reason(self):
+        pid = self.make({"iowait_warn_percent": 20})
+        self.edit(pid)
+        self.page.fill("#dp-iowait-warn", "50")
+        self.page.fill("#dp-iowait-crit", "30")
+        self.page.click('[data-action="saveDeviceProfile"]')
+        self.page.wait_for_function("() => [...document.querySelectorAll('.toast')].some(t => t.innerText.includes('I/O wait: warning'))", timeout=15000)
+        self.assertTrue(self.page.evaluate("() => document.getElementById('device-profile-modal').classList.contains('active')"), "the dialog stays open")
+        self.assertEqual(self.profiles()[0]["metric_thresholds"], {"iowait_warn_percent": 20.0}, "nothing was saved")
+
+
 class TestTicketHours(_Page):
     """The hours of the ticket SLA calendar are edited with the editor the time periods use: a day takes several ranges."""
 

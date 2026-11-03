@@ -16694,6 +16694,10 @@ def _validate_device_profile(body):
               'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent'), 1, 99, 'percent'),
             (('cpu_warn_load_ratio', 'cpu_crit_load_ratio'), 0.1, 100, 'load ratio'),
             (('temp_warn_celsius', 'temp_crit_celsius'), 0, 200, 'celsius'),
+            # 7.4.9: the lines a single host can be given and a profile could not carry: how busy a disk may be and how much of the
+            # CPU time may go to I/O wait or to steal (1 to 99, as on a host), and how deep the mail queue may grow
+            (('diskio_warn_percent', 'diskio_crit_percent') + _CPU_TIME_LINE_KEYS, 1, 99, 'percent'),
+            (('mailq_warn_count', 'mailq_crit_count'), 1, 1000000, 'messages'),
         )
         _known = {k for keys, _lo, _hi, _u in _RANGES for k in keys}
         for k, v in mt.items():
@@ -16704,7 +16708,7 @@ def _validate_device_profile(body):
                 respond(400, {'error': f'{k} must be a number'})
             if not (lo <= v <= hi):
                 respond(400, {'error': f'{k} must be {lo}–{hi} ({unit})'})
-            clean[k] = float(v)
+            clean[k] = int(v) if k in ('mailq_warn_count', 'mailq_crit_count') else float(v)     # counts stay whole, as on a host
         # v7.4.1 (#37): the NIC floors are counts, not percentages. 0 on the drops floor
         # turns drop alerts off for the hosts the profile is applied to.
         for k, lo in (('nic_err_alert_min', 1), ('nic_drop_alert_min', 0)):
@@ -16715,6 +16719,18 @@ def _validate_device_profile(body):
                         respond(400, {'error': 'The NIC error floor must be a whole number from 1 to 100000'})
                     respond(400, {'error': 'The NIC drop floor must be a whole number from 0 to 100000'})
                 clean[k] = int(v)
+        # 7.4.9: the drive temperature lines (any drive, or one type), checked as on a host: a number of degrees from 1 to 150
+        # and a warning line below its critical line
+        for k in drive_temp_mod.ALL_LINE_KEYS:
+            if k in mt:
+                v = drive_temp_mod.as_line(mt[k])
+                if v is None:
+                    respond(400, {'error': 'The drive temperature lines must be a number from 1 to 150', 'field': k})
+                clean[k] = v
+        for m in ('',) + drive_temp_mod.MEDIA:
+            wk, ck = drive_temp_mod.line_keys(m)
+            if drive_temp_mod.inverted(clean.get(wk), clean.get(ck)):
+                respond(400, {'error': 'A drive temperature warning line must be below its critical line', 'field': wk})
         # v6.4.3: warn must be BELOW crit. The per-device PATCH has always
         # enforced this; the profile path did not, so a profile with
         # mem_warn=90 / mem_crit=50 was accepted and stamped across the fleet —
@@ -16725,7 +16741,11 @@ def _validate_device_profile(body):
                                ('swap_warn_percent', 'swap_crit_percent', 'swap'),
                                ('snmp_cpu_warn_percent', 'snmp_cpu_crit_percent', 'SNMP CPU'),
                                ('cpu_warn_load_ratio', 'cpu_crit_load_ratio', 'CPU load'),
-                               ('temp_warn_celsius', 'temp_crit_celsius', 'temperature')):
+                               ('temp_warn_celsius', 'temp_crit_celsius', 'temperature'),
+                               ('diskio_warn_percent', 'diskio_crit_percent', 'disk busy'),
+                               ('iowait_warn_percent', 'iowait_crit_percent', 'I/O wait'),
+                               ('steal_warn_percent', 'steal_crit_percent', 'steal'),
+                               ('mailq_warn_count', 'mailq_crit_count', 'mail queue')):
             if _w in clean and _c in clean and clean[_w] >= clean[_c]:
                 respond(400, {'error': f'{_label}: warning ({clean[_w]:g}) must be '
                                        f'below critical ({clean[_c]:g}) — otherwise '

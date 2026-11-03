@@ -230,7 +230,8 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   it), and they raise the same `metric_warning` and `metric_critical` as the other metrics, with the kind *iowait* or *steal*, and
   close when the share falls below the line or when the line is turned off. A report without the figure says nothing and leaves an open alert as it was. Update the agents:
   until then a host sends no shares and nothing is judged. Linux only. There is no trend chart yet: the history of a host's
-  figures has a fixed set of columns in SQLite and Postgres, and a chart needs a store of its own.
+  figures has a fixed set of columns in SQLite and Postgres, and a chart needs a store of its own. A host profile can carry
+  these lines too (see Fixes).
 
 ### Time periods
 
@@ -556,6 +557,16 @@ and missing it in two or three. These are the cheap ones:
 
 ### Fixes
 
+- **A host profile carries every line a single host can be given.** A profile is a named bundle of settings that **Apply**
+  copies onto the hosts you pick. Its thresholds were checked by a table written with the feature, and the per-host editor went
+  on getting lines the table never heard of: how busy a disk may be (7.4.3), the drive temperatures (7.4.4), the mail queue depth
+  and the I/O wait and steal lines of this release. A profile that named one of them had it dropped without a word, because the
+  validator skipped keys it did not know. It takes all 30 now (the 14 it took, those four groups, and the same checks: a number
+  inside the range, a warning line below its critical line). The profile dialog has boxes for disk busy, I/O wait and steal.
+  Two things in the dialog were wrong in the same way. Saving a profile that had been made through the API replaced its
+  thresholds with the four the dialog shows, so the swap, load, temperature and other lines it held were lost; the dialog keeps
+  what it has no box for now. And emptying the last box of a profile did not remove it, because an empty list was left out of the
+  update; an update now sends what is left, even when that is nothing.
 - **The ticket SLA calendar keeps all the hours of a day.** The editor under Settings → Tickets → Business hours showed the first
   range of each day and saved only that one. A calendar with a lunch break, which the settings call has always accepted, lost
   everything after the first range of a day the next time anyone pressed Save, and a day could not be given a break from the page

@@ -10837,6 +10837,16 @@ async function loadDeviceProfiles() {
 }
 
 let _profileEditId = null;
+let _profileMtKept = {};
+// the lines the dialog has a box for: memory, disk, how busy a disk may be, and how much of the CPU time may go to waiting for storage
+// or to the hypervisor (7.4.9)
+const _PROFILE_LINES = [
+  ['dp-mem-warn', 'mem_warn_percent'], ['dp-mem-crit', 'mem_crit_percent'],
+  ['dp-disk-warn', 'disk_warn_percent'], ['dp-disk-crit', 'disk_crit_percent'],
+  ['dp-diskio-warn', 'diskio_warn_percent'], ['dp-diskio-crit', 'diskio_crit_percent'],
+  ['dp-iowait-warn', 'iowait_warn_percent'], ['dp-iowait-crit', 'iowait_crit_percent'],
+  ['dp-steal-warn', 'steal_warn_percent'], ['dp-steal-crit', 'steal_crit_percent'],
+];
 function openDeviceProfileCreate() { _profileEditId = null; _fillProfileForm({}); document.getElementById('device-profile-modal-title').textContent = 'New host profile'; openModal('device-profile-modal'); }
 function editDeviceProfile(i) {
   const p = _deviceProfiles[i]; if (!p) return;
@@ -10860,10 +10870,11 @@ function _fillProfileForm(p) {
     .filter(Boolean).join('\n'));
   set('dp-drift', (p.drift_files || []).join('\n'));
   const mt = p.metric_thresholds || {};
-  set('dp-mem-warn', mt.mem_warn_percent ?? '');
-  set('dp-mem-crit', mt.mem_crit_percent ?? '');
-  set('dp-disk-warn', mt.disk_warn_percent ?? '');
-  set('dp-disk-crit', mt.disk_crit_percent ?? '');
+  // the lines the dialog has no box for (swap, load, temperature, mail queue, NIC floors, drive temperatures) are kept as they are,
+  // so saving a profile that was made through the API does not drop them
+  const managed = new Set(_PROFILE_LINES.map(([, k]) => k));
+  _profileMtKept = Object.fromEntries(Object.entries(mt).filter(([k]) => !managed.has(k)));
+  _PROFILE_LINES.forEach(([id, k]) => set(id, mt[k] ?? ''));
 }
 async function saveDeviceProfile() {
   const val = id => (document.getElementById(id)?.value || '').trim();
@@ -10873,13 +10884,13 @@ async function saveDeviceProfile() {
   const body = { name, services_watched: lines('dp-units'), log_watch: lines('dp-logs'), drift_files: lines('dp-drift') };
   const poll = parseInt(val('dp-poll'), 10);
   if (!isNaN(poll)) body.poll_interval = poll;
-  const mt = {};
+  const mt = _profileEditId ? { ..._profileMtKept } : {};
   const num = id => { const v = parseFloat(val(id)); return isNaN(v) ? null : v; };
-  [['dp-mem-warn', 'mem_warn_percent'], ['dp-mem-crit', 'mem_crit_percent'],
-   ['dp-disk-warn', 'disk_warn_percent'], ['dp-disk-crit', 'disk_crit_percent']].forEach(([id, k]) => {
+  _PROFILE_LINES.forEach(([id, k]) => {
     const v = num(id); if (v !== null) mt[k] = v;
   });
-  if (Object.keys(mt).length) body.metric_thresholds = mt;
+  // an update replaces the lines, so an emptied box has to be sent as a profile without it, even when that leaves none
+  if (Object.keys(mt).length || _profileEditId) body.metric_thresholds = mt;
   const r = _profileEditId
     ? await api('PATCH', `/device-profiles/${encodeURIComponent(_profileEditId)}`, body)
     : await api('POST', '/device-profiles', body);

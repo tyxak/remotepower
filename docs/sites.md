@@ -57,7 +57,8 @@ hosts that are already enrolled. See [fleet-management.md](fleet-management.md).
 
 **Host profiles.** A named bundle of per-host settings: poll interval, watched
 units, log watches, drift-watched files and metric thresholds (disk, memory, swap,
-CPU load and temperature). **Apply…** copies the fields a profile defines onto the
+CPU load, temperature, how busy a disk may be, I/O wait and steal, the mail queue and
+drive temperatures). **Apply…** copies the fields a profile defines onto the
 hosts you pick (up to 500 at a time). It is a one-shot copy, so each host stays
 editable afterwards. Thresholds are merged with the host's own, so per-mount disk
 overrides survive. You can keep up to 100 profiles. Only admins manage them.
