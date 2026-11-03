@@ -69,6 +69,23 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   asks `docker inspect` about an unhealthy container only (eight per report at most), so a healthy host pays nothing. Update
   the agents for the output text; without it the alert still fires.
 
+### Business services
+
+- **A new page names what people depend on.** Nothing answered "is Checkout up?": a host list says which machines are, a
+  monitor says whether one address answers, and the person on call added the rest in their head. **Business services**
+  (Monitoring) groups hosts, monitors, systemd units, containers, custom scripts and other services under a name, with a
+  rule: all parts have to be up, at least one, or at least N. A part that is down but not needed makes the service
+  degraded, not down, so a redundant pair that lost a member shows what it is. The state of each part is read from the
+  stores the product already keeps, so nothing asks a host anything new. A sweep reads every service once a minute, and
+  a change has to hold for two reads before anyone is told: **Business service down** (degraded is medium, down is
+  critical, and getting worse raises the open alert) and **Business service up**, in the Alerts inbox, the activity feed
+  and every notification channel. The detail view lists each part with its state and the reason, the recent changes and
+  the 30-day availability. Up to 100 services of 50 parts each, nested five levels deep, with cycles refused.
+  `GET`/`POST /api/business-services`, `GET`/`PUT`/`DELETE /api/business-services/{id}` and
+  `GET /api/business-services/impact?device_id=` (which services depend on a host). The feature is the installation's
+  own: on an installation with tenancy it answers users of the organisation that runs it, and a service is hidden from a
+  user who cannot see one of its hosts.
+
 ### Custom scripts
 
 - **A script can be read as a Nagios plugin.** The Custom Scripts page said it plainly: a pass-or-fail signal, not four

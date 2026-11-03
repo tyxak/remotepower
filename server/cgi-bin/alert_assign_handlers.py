@@ -124,7 +124,7 @@ def handle_alert_assign(alert_id):
             elif a.get('resolved_at'):
                 denied = (409, 'alert already resolved')
             elif target and not _assignee_may_see(target, rec, users, a):
-                denied = (409, f'{target} cannot see this alert')
+                denied = (409, 'that user cannot see this alert')
             elif target:
                 a['assigned_to'] = target
                 a['assigned_by'] = caller

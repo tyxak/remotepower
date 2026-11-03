@@ -481,12 +481,16 @@ SHAPES: dict = {
     'tls_targets.json': dict_of(fields(crit_days=NUM, host=STR, port=NUM, warn_days=NUM)),
     'tunnels.json': dict_of(fields(endpoints=list_of(STR))),
     'metrics.json': dict_of(list_of(fields(ts=NUM))),
+    'business_services.json': dict_of(fields(created_at=NUM, updated_at=NUM)),
+    'business_service_history.json': dict_of(list_of(fields(ts=NUM))),
     'sudo_log.json': dict_of(list_of(fields(ts=NUM))),
     'monitor_history.json': dict_of(list_of(fields(ts=NUM))),
     'commands.json': dict_of(LIST),
     # ── a map holding one or more named lists ───────────────────────────────────────────────────────────────────────────
     'alerts.json': fields(alerts=list_of(fields(id=SCALAR, resolved_at=OPT_NUM, assigned_at=OPT_NUM, assigned_to=OPT_STR))),
     'alert_mutes.json': fields(mutes=list_of(fields(device_id=OPT_STR))),
+    # 7.4.9: business services. The definitions are read through bizsvc's cleaners, so the registry only guards the container shape
+    'business_service_state.json': fields(last_run=NUM, services=dict_of(fields(since=NUM))),
     'audit_log.json': fields(entries=list_of(fields(_hash=OPT_STR, ts=OPT_NUM))),
     'automation_rules.json': fields(rules=list_of(fields(cooldown_seconds=OPT_NUM, fire_count=OPT_NUM))),
     'autonomy_receipts.json': fields(receipts=list_of(), last_run=NUM),

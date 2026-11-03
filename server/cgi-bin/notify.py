@@ -942,6 +942,17 @@ def _webhook_message(event, payload):
             else "FAILED"
         )
         return f'{name}: script "{payload.get("script_name", "?")}" {what} (exit {payload.get("rc", "?")}){snippet}'
+    elif event == "business_service_down":
+        # 7.4.9: a business service is made of parts; the message says which of them are the trouble
+        word = "degraded" if payload.get("state") == "warning" else "DOWN"
+        parts = payload.get("parts")
+        ratio = f' ({payload.get("parts_ok", "?")} of {parts} parts up)' if parts else ""
+        why = str(payload.get("detail") or "").strip()
+        return f'Business service "{payload.get("service_name") or name}" is {word}{ratio}' + (
+            f" — {why[:200]}" if why else ""
+        )
+    elif event == "business_service_up":
+        return f'Business service "{payload.get("service_name") or name}" is up again'
     elif event == "custom_script_recover":
         return f'{name}: script "{payload.get("script_name", "?")}" recovered (OK)'
     elif event == "config_drift":

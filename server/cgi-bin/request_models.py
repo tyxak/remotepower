@@ -2013,6 +2013,14 @@ if _AVAILABLE:
         note: str = ''
         _v0 = field_validator('note', mode='before')(_coerce_str_loose)
 
+    class BusinessServiceRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        description: str = ''
+        members: Any = None
+        name: str = ''
+        rule: Any = None
+        _v0 = field_validator('description', 'name', mode='before')(_coerce_str_loose)
+
     class AlertAssignRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         user: str = ''
@@ -3026,6 +3034,7 @@ else:
     AlertAckRequest = None
     AlertResolveRequest = None
     AlertAssignRequest = None
+    BusinessServiceRequest = None
     AlertMutesRequest = None
     AlertsBulkResolveRequest = None
     AlertsBulkAckRequest = None

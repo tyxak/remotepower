@@ -1834,6 +1834,17 @@ alert_assign_handlers_mod.bind(globals())
 for _aa_name in ('handle_alert_assign', '_assignee_may_see', '_notify_assignee'):
     globals()[_aa_name] = getattr(alert_assign_handlers_mod, _aa_name)
 del _aa_name
+
+# 7.4.9: business services. Their names are generic (`_view`, `_part`), so only the handlers and the sweep are bound here.
+_bs_spec = _tk_ilu.spec_from_file_location(
+    'business_services_handlers', Path(__file__).parent / 'business_services_handlers.py')
+business_services_handlers_mod = _tk_ilu.module_from_spec(_bs_spec)
+_bs_spec.loader.exec_module(business_services_handlers_mod)
+business_services_handlers_mod.bind(globals())
+for _bs_name in ('handle_business_services', 'handle_business_service', 'handle_business_services_impact',
+                 'run_business_services_if_due'):
+    globals()[_bs_name] = getattr(business_services_handlers_mod, _bs_name)
+del _bs_name
 from checks import (  # noqa: F401  (test_checks_module pins api._custom_checks_for)
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -2266,6 +2277,14 @@ EVENT_REGISTRY = {
         label='Custom monitoring script recovered to OK', kind='script',
         title='Custom Script Recovered', resolves=('custom_script_fail',),
         tags='green_circle,test_tube'),
+    # 7.4.9: a business service is degraded or down, or is up again. One failing event whose payload says which, so a
+    # service that gets worse raises its open alert and one that recovers closes it, as for a custom script.
+    'business_service_down': dict(
+        label='A business service is degraded or down', kind='business_service',
+        title='Business Service Down', severity=None, priority=4, tags='red_circle,package'),
+    'business_service_up': dict(
+        label='A business service is up again', kind='business_service',
+        title='Business Service Up', resolves=('business_service_down',), tags='green_circle,package'),
     'custom_check_failed': dict(
         label='Custom check failed (process/port/file/unit/log/job)', kind='custom_check',
         title='Custom Check Failed', severity=None),
@@ -9975,6 +9994,7 @@ CHANNEL_KIND_DEFS = (
     ('enrollment', 'Host enrolled', 'operational'),   # v6.4.2
     ('online', 'Host came online', 'operational'),
     ('monitor', 'Monitor target up/down', 'operational'),
+    ('business_service', 'Business service degraded / down', 'operational'),   # 7.4.9
     ('patches', 'Pending patches', 'operational'),
     ('cve', 'CVE findings', 'operational'),
     ('service', 'Service down/up', 'operational'),
@@ -10308,6 +10328,9 @@ def _alert_severity(event, payload):
         if days < 14:
             return 'high'
         return 'medium'
+    if event == 'business_service_down':
+        # a service that is degraded still serves; one that is down does not
+        return 'medium' if p.get('state') == 'warning' else 'critical'
     if event == 'custom_script_fail':
         # 7.4.9: a script read as a plugin can be only warning or unknown, which is a medium alert; a failing
         # script, and a plugin that says critical, stay the high alert they always were.
@@ -10468,6 +10491,10 @@ def _alert_title(event, payload):
         return f'TLS expires in {p.get("days_left", "?")}d: {host}'
     if event == 'mailbox_threshold':
         return f'Mailbox threshold on {name}: {p.get("path", "")} = {p.get("count", "?")}'
+    if event == 'business_service_down':
+        return f'Business service {"degraded" if p.get("state") == "warning" else "down"}: {p.get("service_name") or name}'
+    if event == 'business_service_up':
+        return f'Business service up: {p.get("service_name") or name}'
     if event == 'custom_script_fail':
         _st = str(p.get('state') or '')
         if _st in ('warning', 'unknown'):
@@ -10812,6 +10839,7 @@ _ALERT_IDENTITY_FIELDS = (
     'ip', 'label', 'port', 'proto', 'script_name', 'cve_id', 'container', 'rtype',
     'client_id',   # v5.2.0: WG Access clients (no device_id) coalesce by client_id
     'check_id',    # v5.6.0: custom checks coalesce per (host, check)
+    'service_id',  # 7.4.9: a business service has no host, so its id is what tells two services' alerts apart
     # v6.0.1: storage_degraded fires per POOL and process_alert per PROCESS — without
     # these, two degraded pools (or two watched processes) on one host coalesced into
     # a single alert, so the per-pool / per-process recovery (storage_recovered /
@@ -11413,6 +11441,7 @@ _OPERATOR_ORG_ROUTES = (
     '/api/ipam',
     '/api/racks',
     '/api/incidents',
+    '/api/business-services',   # 7.4.9: a view across the installation's own hosts, monitors and scripts
     '/api/patch-snapshots',
     '/api/report/site',
     # 7.4.9 (the sweep of handlers with no tenant test): the operator's own integrations, accounts, logs, settings pages and
@@ -12311,6 +12340,8 @@ def _record_alert(event, payload):
                     'high', 'upgradable', 'pattern', 'level', 'days',
                     'detail',        # W1-33: patch_sla_violation breach summary
                     'container', 'script_name', 'value', 'source',
+                    # 7.4.9: a business service's alert: which one (the recovery's match key), and what is wrong
+                    'service_id', 'service_name', 'parts_ok', 'parts',
                     # v6.2.0: dead-man's-switch job id — the ping_missed alert's
                     # match key for ping_recovered auto-resolve.
                     'job_id',
@@ -12643,6 +12674,9 @@ def _auto_resolve_alerts(event, payload):
         sub_match['unit'] = p.get('unit')
     elif event == 'custom_script_recover':
         sub_match['script_name'] = p.get('script_name')
+    elif event == 'business_service_up':
+        # 7.4.9: per service; the alert has no host, so the service id is all there is to match
+        sub_match['service_id'] = p.get('service_id')
     elif event == 'custom_check_recovered':
         # v5.6.0: per (host, check) — a recovered check clears only its own
         # open custom_check_failed alert (device_id + check_id).
@@ -48084,6 +48118,10 @@ MAX_MAILBOX_PATH_LEN = 512
 # Scripts are defined server-side, assigned to devices, pushed via heartbeat
 # response, executed by the agent with a timeout, and results reported back.
 CUSTOM_SCRIPTS_FILE     = DATA_DIR / 'custom_scripts.json'
+# 7.4.9: business services: the definitions, the state of record the sweep keeps, and the history of its changes
+BUSINESS_SERVICES_FILE      = DATA_DIR / 'business_services.json'
+BUSINESS_SERVICE_STATE_FILE = DATA_DIR / 'business_service_state.json'
+BUSINESS_SERVICE_HIST_FILE  = DATA_DIR / 'business_service_history.json'
 MAX_CUSTOM_SCRIPTS      = 50       # fleet-wide script definitions
 MAX_CUSTOM_SCRIPTS_PER_DEVICE = 10 # scripts assigned to one device
 MAX_CUSTOM_SCRIPT_NAME  = 80
@@ -74653,6 +74691,9 @@ def _build_exact_routes():
         # W5-3: rack registry + elevation view.
         ('GET', '/api/racks'): handle_racks,
         ('POST', '/api/racks'): handle_racks,
+        ('GET', '/api/business-services'): handle_business_services,
+        ('POST', '/api/business-services'): handle_business_services,
+        ('GET', '/api/business-services/impact'): handle_business_services_impact,
         # W5-2: IPAM subnets.
         ('GET', '/api/ipam/subnets'): handle_ipam_subnets,
         ('POST', '/api/ipam/subnets'): handle_ipam_subnets,
@@ -75117,6 +75158,9 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/racks/', '/elevation', 'handle_rack_elevation', "pi.startswith('/api/racks/') and pi.endswith('/elevation') and m == 'GET'"),
     ('pat', ('PATCH',), '/api/racks/', '', 'handle_rack', "pi.startswith('/api/racks/') and m == 'PATCH'"),
     ('pat', ('DELETE',), '/api/racks/', '', 'handle_rack', "pi.startswith('/api/racks/') and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/business-services/', '', 'handle_business_service', "pi.startswith('/api/business-services/') and m == 'GET'"),
+    ('pat', ('PUT',), '/api/business-services/', '', 'handle_business_service', "pi.startswith('/api/business-services/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/business-services/', '', 'handle_business_service', "pi.startswith('/api/business-services/') and m == 'DELETE'"),
     ('pat', ('GET',), '/api/smart-groups/', '/members', 'handle_smart_group', "pi.startswith('/api/smart-groups/') and pi.endswith('/members') and m == 'GET'"),
     ('pat', ('PATCH',), '/api/smart-groups/', '', 'handle_smart_group', "pi.startswith('/api/smart-groups/') and m == 'PATCH'"),
     ('pat', ('DELETE',), '/api/smart-groups/', '', 'handle_smart_group', "pi.startswith('/api/smart-groups/') and m == 'DELETE'"),
@@ -76278,6 +76322,7 @@ def main():
     _safe(run_snmp_if_history_if_due, 'run_snmp_if_history_if_due')
     # W5-2: detect duplicate IPs within defined subnets (edge-triggered).
     _safe(run_ipam_conflicts_if_due, 'run_ipam_conflicts_if_due')
+    _safe(run_business_services_if_due, 'run_business_services_if_due')   # 7.4.9: business service states and alerts
     _safe(run_ignored_prune_if_due, 'run_ignored_prune_if_due')      # v6.4.0 #1 ignore GC
     _safe(run_autoheal_recheck_if_due, 'run_autoheal_recheck_if_due')  # v6.4.0 #3 auto-heal gap recheck
     # W6-44: scheduled cloud inventory re-sync (opt-in; slow cadence).

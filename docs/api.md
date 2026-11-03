@@ -172,6 +172,10 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | `POST` | `/api/devices/bulk-tags` | admin | Add and/or remove tags across a selection |
 | `PATCH` | `/api/devices/:id/decommissioned` | admin | Retire/restore an asset (forces `monitored=false`) |
 | `GET` | `/api/board` | | NOC status-board rollups (`?by=group\|site\|tag`) |
+| `GET`/`POST` | `/api/business-services` | get any / create admin | Business services with the live state of each part *(7.4.9)* |
+| `GET`/`PUT`/`DELETE` | `/api/business-services/:id` | get any / change admin | One service with its history and 30-day availability *(7.4.9)* |
+| `GET` | `/api/business-services/impact` | | The services that depend on a host (`?device_id=`) *(7.4.9)* |
+| `POST` | `/api/alerts/:id/assign` | ack policy | Assign an alert to an account, or take it back with an empty `user` *(7.4.9)* |
 | `GET` | `/api/network-metrics` | | Per-host RX/TX throughput (`?by=fleet\|group\|tag\|site`) |
 | `GET` | `/api/network-map` | | Topology; supports `?site=&group=&tag=` scope filter |
 | `GET`/`POST` | `/api/maintenance-mode` | get any / set admin | Read or toggle runtime maintenance mode |

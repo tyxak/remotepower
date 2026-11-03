@@ -2712,6 +2712,7 @@ const _LAZY_PAGE_MODULES = {
   alerts: ['app-alerts.js'],
   checks: ['app-checks.js'],
   problems: ['app-problems.js'],   // #56 one list of problems (lazy)
+  'business-services': ['app-business-services.js'],   // 7.4.9 services made of hosts, monitors, units, containers and scripts (lazy)
   protect: ['app-checks.js'],   // Integrity Guard vault renderer
   advisory: ['app-checks.js'],  // Security Advisory renderer + host-list filter
   autonomy: ['app-autonomy.js'],  // v7.0.0 receipts + safety envelope (lazy)
@@ -2988,6 +2989,7 @@ function showPage(name, btn, opts) {
   if (name === 'alerts')   loadAlerts();
   if (name === 'checks')   loadChecks();
   if (name === 'problems') enterProblems();
+  if (name === 'business-services') loadBusinessServices();
   if (name === 'confirmations') loadConfirmations();
   if (name === 'self')     loadSelfStatus();
   if (name === 'forecast') loadForecast();
@@ -6412,6 +6414,7 @@ const PAGE_REFRESHERS = {
   alerts:    { fn: 'loadAlerts',        every: 60 },
   checks:    { fn: 'loadChecks',        every: 60 },
   problems:  { fn: 'loadProblems',      every: 60 },
+  'business-services': { fn: 'loadBusinessServices', every: 60 },
   attention: { fn: 'loadAttentionPage', every: 60 },
   board:     { fn: 'loadBoard',         every: 60 },
   // The CVE and exposure reports read a stored scan result rather than
@@ -18606,6 +18609,7 @@ const EVENT_CLASS = {
   'container_stopped': 'warn', 'container_recovered': 'ok', 'container_restarting': 'warn',
   'container_restarting_cleared': 'ok', 'unit_flapping_cleared': 'ok',
   'container_unhealthy': 'warn', 'container_healthy': 'ok',   // 7.4.9
+  'business_service_down': 'critical', 'business_service_up': 'ok',   // 7.4.9
   'container_resource_high': 'warn', 'container_resource_ok': 'ok',   // v7.4.3 (#50)
   'containers_stale': 'warn',
   'log_alert': 'warn',
@@ -20996,6 +21000,7 @@ function _renderHomeActivity(fleetEvents) {
     'container_stopped', 'container_recovered', 'container_restarting', 'container_restarting_cleared', 'containers_stale', 'containers_current',
     'container_resource_high', 'container_resource_ok',   // v7.4.3 (#50)
     'container_unhealthy', 'container_healthy',   // 7.4.9
+    'business_service_down', 'business_service_up',   // 7.4.9
     // v3.2.x: container image update tracking
     'image_update_available', 'image_updated',
     'metric_warning', 'metric_critical', 'metric_recovered', 'custom_metric_alert', 'custom_metric_recover',
@@ -21292,6 +21297,8 @@ function _homeActivityAttrs(event, p) {
     case 'container_unhealthy': case 'container_healthy':   // 7.4.9
     case 'image_update_available': case 'image_updated':
       return `${base} data-home-act="containers"`;
+    case 'business_service_down': case 'business_service_up':   // 7.4.9
+      return `${base} data-home-act="business-services"`;
     // v6.3.1 recover events: click through to where the condition lived.
     case 'port_closed':          return `${base} data-home-act="exposure"`;
     case 'policy_compliant':     return `${base} data-home-act="software-policy"`;
@@ -30930,6 +30937,7 @@ function _homeNavAction(btn) {
     case 'tls':      showPage('tls',             document.querySelector('.nav-btn[data-section-page="tls"]')); break;
     case 'virtualization': showPage('virtualization', document.querySelector('.nav-btn[data-page="virtualization"]')); break;
     case 'self':     showPage('self',            document.querySelector('.nav-btn[data-page="self"]')); break;
+    case 'business-services': showPage('business-services', document.querySelector('.nav-btn[data-page="business-services"]')); break;   // 7.4.9
     case 'timeline':
       // v3.4.1: open the device's timeline (deep-link via pending-device).
       if (devId) openDeviceTimeline(devId);
@@ -32011,6 +32019,7 @@ const _PAGE_HELP = {
   catalog:    { doc: 'docs/app-catalog.md' },
   autopatch:  { doc: 'docs/auto-patch.md' },
   scripts:    { doc: 'docs/custom-scripts.md' },
+  'business-services': { doc: 'docs/business-services.md' },   // 7.4.9
   automation: { doc: 'docs/automations.md' },
   ai:         { doc: 'docs/ai.md' },
   // v6.3.0 (wave 8): second sweep of the map

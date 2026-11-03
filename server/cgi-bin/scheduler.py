@@ -95,6 +95,7 @@ CADENCE = (
     'run_netconfig_backup_if_due',       # v6.4.2 appliance config archive
     'run_snmp_if_history_if_due',        # v6.4.2 SNMP per-port history
     'run_ipam_conflicts_if_due',         # W5-2 IPAM duplicate-IP detection
+    'run_business_services_if_due',      # 7.4.9 business service states and their alerts
     'run_ignored_prune_if_due',          # v6.4.0 #1 GC moot ignores
     'run_autoheal_recheck_if_due',       # v6.4.0 #3 auto-resolve gap recheck
     'run_cloud_sync_if_due',             # W6-44 scheduled cloud inventory re-sync

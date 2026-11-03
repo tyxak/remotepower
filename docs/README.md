@@ -317,6 +317,8 @@ index — a doc nobody can find is a doc nobody reads.)
 - **[disk-health.md](disk-health.md)** — SMART disk health, wear, NVMe spare
  reserve and failure prediction.
 - **[services.md](services.md)** — Watched systemd services and baselines.
+- **[business-services.md](business-services.md)** — Business services: hosts, monitors, units, containers and scripts
+  grouped under a name, with a rule for how the parts add up, a state, and alerts when it goes down.
 - **[log-watch.md](log-watch.md)** — The rolling log buffer and log alert rules.
 - **[detection-selftest.md](detection-selftest.md)** — Verify the alert
   detection → routing → delivery chain is intact — silence isn't clearance.

@@ -3663,6 +3663,14 @@ def build_alerts() -> dict:
           'detail': 'the token was refused: Authentication error'}, 'alice', 'auto'),
         # 7.4.9: a container that is up and fails its own health check. Appended last so the ids of the
         # alerts above (derived from their position) stay the same.
+        ('business_service_down', 'critical', None, 'Business service down: Public website',
+         {'service_id': 'bs_' + _stable_id('business_service', 'Public website', length=10), 'service_name': 'Public website',
+          'name': 'Public website', 'state': 'critical', 'parts': 3, 'parts_ok': 2,
+          'detail': 'Public site — nginx.lab (down)'}, None, None),
+        ('business_service_down', 'medium', None, 'Business service degraded: Smart home',
+         {'service_id': 'bs_' + _stable_id('business_service', 'Smart home', length=10), 'service_name': 'Smart home',
+          'name': 'Smart home', 'state': 'warning', 'parts': 3, 'parts_ok': 2,
+          'detail': 'zwave-js on home-assistant.lab (unhealthy)'}, None, None),
         ('container_unhealthy', 'high',    'ha01',  'Container unhealthy on home-assistant.lab: zwave-js',
          {'device_id': 'ha01', 'device_name': 'home-assistant.lab', 'container': 'zwave-js',
           'image': 'zwavejs/zwave-js-ui', 'runtime': 'docker',
@@ -4700,6 +4708,70 @@ def _demo_script_results(dev_id):
                   ' '.join(f"{p['label']}={int(p['value'])}{p['uom']};{p['warn']};{p['crit']}" for p in perf),
                   'status_text': text, 'perf': perf, 'rc': rc, 'ran_at': ran, 'duration_ms': 38,
                   'prev_ok': True, 'changed_at': ran - 3600 * (3 if rc else 30)}}
+
+
+# 7.4.9: business services. Their parts are the demo's own hosts, units, containers, monitor and plugin script, so the page
+# computes a believable state from the rest of the demo: Public website is down (its homepage monitor cannot reach the site),
+# Smart home is degraded (its Z-Wave container is unhealthy), Media and Nextcloud are up, and the service that holds the last
+# three is degraded because one of them is.
+def _demo_bs_defs():
+    unit = lambda d, u: {'kind': 'unit', 'device_id': d, 'unit': u}
+    cont = lambda d, n: {'kind': 'container', 'device_id': d, 'name': n}
+    host = lambda d: {'kind': 'host', 'device_id': d}
+    plugin = 'cs_' + _stable_id('custom_script', _DEMO_PLUGIN_NAME, length=11)
+    sid = lambda name: 'bs_' + _stable_id('business_service', name, length=10)
+    specs = [
+        ('Public website', 'nginx.lab and its homepage monitor', {'type': 'all'},
+         [host('ng01'), unit('ng01', 'nginx.service'), {'kind': 'monitor', 'label': 'Public site — nginx.lab'}]),
+        ('Media', 'Jellyfin and the host it runs on', {'type': 'all'},
+         [host('jf01'), unit('jf01', 'jellyfin.service'), cont('jf01', 'jellyfin')]),
+        ('Smart home', 'Home Assistant and its radios', {'type': 'all'},
+         [host('ha01'), cont('ha01', 'homeassistant'), cont('ha01', 'zwave-js')]),
+        ('Nextcloud', 'Files, their database and the disk-free plugin', {'type': 'all'},
+         [host('nc01'), cont('nc01', 'nextcloud'), cont('nc01', 'nextcloud-db'),
+          {'kind': 'script', 'device_id': 'nc01', 'script_id': plugin}]),
+    ]
+    out = {}
+    for name, desc, rule, members in specs:
+        out[sid(name)] = {'id': sid(name), 'name': name, 'description': desc, 'rule': rule, 'members': members,
+                          'created_at': now() - 86400 * 20, 'updated_at': now() - 86400 * 3, 'created_by': 'alice'}
+    home = 'Home services'
+    out[sid(home)] = {'id': sid(home), 'name': home, 'description': 'The family-facing services: any one of them keeps the house going',
+                      'rule': {'type': 'any'},
+                      'members': [{'kind': 'service', 'service_id': sid(n)} for n in ('Media', 'Smart home', 'Nextcloud')],
+                      'created_at': now() - 86400 * 20, 'updated_at': now() - 86400 * 3, 'created_by': 'alice'}
+    return out
+
+
+def build_business_services() -> dict:
+    """Business service definitions -> business_services.json ({id: {name, description, rule, members, ...}})."""
+    return _demo_bs_defs()
+
+
+# state of record for each service, as the sweep would have kept it: what the page shows under "since"
+_DEMO_BS_STATE = {'Public website': ('critical', 3600 * 3), 'Media': ('ok', 86400 * 6), 'Smart home': ('warning', 3600 * 2),
+                  'Nextcloud': ('ok', 86400 * 9), 'Home services': ('warning', 3600 * 2)}
+
+
+def build_business_service_state() -> dict:
+    sid = lambda name: 'bs_' + _stable_id('business_service', name, length=10)
+    return {'last_run': now() - 20,
+            'services': {sid(n): {'state': st, 'since': now() - age, 'alerted': st, 'pending': None}
+                         for n, (st, age) in _DEMO_BS_STATE.items()}}
+
+
+def build_business_service_history() -> dict:
+    """The changes behind those states, so the 30-day figure has something to count."""
+    sid = lambda name: 'bs_' + _stable_id('business_service', name, length=10)
+    out = {}
+    for n, (st, age) in _DEMO_BS_STATE.items():
+        rows = [{'ts': now() - 86400 * 20, 'state': 'ok'}]
+        if st != 'ok':
+            rows.append({'ts': now() - age, 'state': st})
+        elif n == 'Media':
+            rows += [{'ts': now() - 86400 * 12, 'state': 'critical'}, {'ts': now() - 86400 * 12 + 1500, 'state': 'ok'}]
+        out[sid(n)] = rows
+    return out
 
 
 def build_diskio_history() -> dict:
@@ -7583,6 +7655,9 @@ BUILDERS = {
     'helm.json':                   build_helm,
     'gitops_state.json':           build_gitops_state,
     'custom_scripts.json':         build_custom_scripts,
+    'business_services.json':      build_business_services,
+    'business_service_state.json': build_business_service_state,
+    'business_service_history.json': build_business_service_history,
     'smart_history.json':          build_smart_history,
     'diskio_history.json':         build_diskio_history,
     'gpu_history.json':            build_gpu_history,

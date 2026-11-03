@@ -19,7 +19,7 @@ below says so.
   the SCAP report route now also accepts a one-minute link. No permission was loosened. A permission check was added to one
   endpoint (`services/config`) and a tenant check to the ticket handlers and to many others. The table of what only the platform
   operator (an administrator of the default tenant) may do holds 55 entries, 29 more than in 7.4.8. A second table, new in this
-  release, holds the 58 route prefixes that belong to the organisation running the installation (monitors, links, calendar,
+  release, holds the 59 route prefixes that belong to the organisation running the installation (monitors, links, calendar,
   billing, integrations, DNS, the audit trail's archive and others): with tenant isolation on they answer only users of the
   default tenant.
 - **Credentials.** Every comparison of a secret in the server goes through one helper (`secure_eq.py`) that never raises. A DNS
@@ -181,7 +181,7 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
 - **S23.** A ticket has no tenant field, so it takes one from what it names: the tenant of its host while the host exists,
   otherwise the tenant of the account that opened it (a customer's reply by mail and an automation rule belong to the default
   tenant). The ticket list, a single ticket, update, delete, attachments, the e-mail thread, the open count and the hosts marked
-  with a ticket show a tenant its own; a ticket cannot be moved onto another tenant's host. 58 route prefixes whose stores
+  with a ticket show a tenant its own; a ticket cannot be moved onto another tenant's host. 59 route prefixes whose stores
   have no tenant column, or whose pages are the operator's, belong to the organisation running the installation (the monitors
   and the SLO figures, the links, the calendar and its feed, the mail round trip, Proxmox, the diagnostics bundle, configuration as
   code, billing, invoices, quotes, time entries and timesheets, sites, contacts, IPAM, racks, incidents, patch snapshots, the site

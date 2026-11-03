@@ -328,6 +328,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span>Services</span>
         </button>
+        <button class="nav-btn" data-page="business-services" title="Group hosts, monitors, units, containers and scripts into the services people depend on, and see when one is degraded or down">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17.5h7M17.5 14v7"/></svg>
+          <span>Business services</span>
+        </button>
         <button class="nav-btn" data-page="board" title="NOC status board — a glanceable wall view of fleet health, grouped and rolled up for large fleets">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
           <span>Status Board</span>
@@ -6398,6 +6402,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
       </div>
 
+      <div id="page-business-services" class="page">
+        <div class="page-title">Business services</div>
+        <div class="page-subtitle">Name what people depend on, such as Checkout or the office network, and the hosts, monitors, units, containers and scripts it is made of. A rule says how the parts add up, and you are told when a service goes down, gets worse or comes back.</div>
+        <div class="stats-row" id="bs-stats">
+          <div class="stat-card" data-stat-tone="bad"><div><div class="stat-value c-red" id="bs-n-critical">0</div><div class="stat-label">Down</div></div></div>
+          <div class="stat-card"><div><div class="stat-value c-amber" id="bs-n-warning">0</div><div class="stat-label">Degraded</div></div></div>
+          <div class="stat-card"><div><div class="stat-value c-green" id="bs-n-ok">0</div><div class="stat-label">Up</div></div></div>
+          <div class="stat-card" id="bs-card-unknown" hidden><div><div class="stat-value c-muted" id="bs-n-unknown">0</div><div class="stat-label">Not known</div></div></div>
+        </div>
+        <div class="isl-186">
+          <input type="text" id="bs-filter" class="form-input isl-170" placeholder="Filter by name or part…" data-input="renderBusinessServices" data-input-debounce="150" aria-label="Filter by name or part">
+          <button class="btn-icon" data-action="loadBusinessServices"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <button class="enroll-btn" id="bs-new-btn" data-action="openBusinessServiceModal"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><use href="#ic-8a2aac00"/></svg> New service</button>
+        </div>
+        <div class="table-card scrollable-table-wrap audit-scroll">
+          <table>
+            <thead id="bs-thead"><tr>
+              <th scope="col" data-col="name">Service</th>
+              <th scope="col" data-col="state">State</th>
+              <th scope="col" data-col="rule">Rule</th>
+              <th scope="col" data-col="parts">Parts up</th>
+              <th scope="col" data-col="since">Since</th>
+              <th scope="col" data-col="availability">30 days</th>
+              <th scope="col"></th>
+            </tr></thead>
+            <tbody id="bs-tbody"><tr><td colspan="7" class="empty-state">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
       <div id="page-problems" class="page">
         <div class="page-title">Problems</div>
         <div class="page-subtitle">Everything wrong with the fleet, each problem once. An alert, a Needs Attention item and a check for the same trouble on a host are one row, and its state says whether the host still reports it. <a href="docs/problems.md" class="c-accent">Documentation</a></div>
@@ -12300,6 +12334,72 @@ nextcloud mem=95 sustain=6</pre>
 </div></div>
 
 <!-- v2.6.0: Custom script create / edit modal -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="bs-modal-title" id="bs-modal">
+  <div class="modal modal-wide">
+    <div class="modal-title" id="bs-modal-title">New service</div>
+    <input type="hidden" id="bs-modal-id">
+    <div class="form-group">
+      <label for="bs-modal-name" class="form-label">Service name</label>
+      <input type="text" id="bs-modal-name" class="form-input" placeholder="Checkout" maxlength="80">
+    </div>
+    <div class="form-group">
+      <label for="bs-modal-desc" class="form-label">Description (optional)</label>
+      <input type="text" id="bs-modal-desc" class="form-input" placeholder="The shop front, its database and the payment monitor" maxlength="256">
+    </div>
+    <div class="form-group">
+      <label for="bs-modal-rule" class="form-label">How the parts add up</label>
+      <div class="row-8">
+        <select id="bs-modal-rule" class="form-input" data-change="bsRuleChanged">
+          <option value="all">All parts have to be up</option>
+          <option value="any">At least one part has to be up</option>
+          <option value="min">At least a number of parts have to be up</option>
+        </select>
+        <input type="number" id="bs-modal-min" class="form-input input-narrow d-none" min="1" max="50" value="2" aria-label="Number of parts that have to be up">
+      </div>
+      <div class="meta-sm">A part that is down but not needed makes the service degraded, not down.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Parts</label>
+      <div id="bs-members" class="scroll-cap-sm"></div>
+      <div class="row-8 mt-6">
+        <select id="bs-add-kind" class="form-input" data-change="bsKindChanged" aria-label="Kind of part">
+          <option value="host">Host</option>
+          <option value="monitor">Monitor</option>
+          <option value="unit">systemd unit</option>
+          <option value="container">Container</option>
+          <option value="script">Custom script</option>
+          <option value="service">Business service</option>
+        </select>
+        <span id="bs-add-fields" class="row-8"></span>
+        <button class="btn-icon" data-action="bsAddPart">Add part</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-icon c-danger-outline" id="bs-modal-delete-btn" data-action="deleteBusinessServiceFromModal">Delete</button>
+      <button class="btn-icon" data-action="closeModal" data-arg="bs-modal">Cancel</button>
+      <button class="enroll-btn" data-action="saveBusinessService">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="bs-detail-title" id="bs-detail-modal">
+  <div class="modal modal-wide">
+    <div class="modal-title" id="bs-detail-title">Service</div>
+    <div class="modal-subtitle" id="bs-detail-sub"></div>
+    <div class="table-card scrollable-table-wrap audit-scroll">
+      <table>
+        <thead><tr><th scope="col">Part</th><th scope="col">Kind</th><th scope="col">State</th><th scope="col">Why</th></tr></thead>
+        <tbody id="bs-detail-members"></tbody>
+      </table>
+    </div>
+    <div class="section-title mt-12">Recent changes</div>
+    <div id="bs-detail-history" class="scroll-cap-sm"></div>
+    <div class="modal-actions">
+      <button class="btn-icon" data-action="closeModal" data-arg="bs-detail-modal">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cs-modal-title" id="custom-script-modal">
   <div class="modal modal-wide">
     <div class="modal-title" id="cs-modal-title">New custom script</div>
