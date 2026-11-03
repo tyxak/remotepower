@@ -1292,7 +1292,11 @@ class TestApprovalGates(_HandlerBase):
         r = self.call(api.handle_upgrade_device)
         self.assertEqual(self.cap['s'], 202)
         self.assertTrue(r['approval_required'])
-        self.assertEqual((api.load(api.CMDS_FILE) or {}).get('dev1', []), [])
+        # The upgrade is not queued. Since 7.4.9 a parked upgrade asks the host for a read-only dry run (the patch preview), so that
+        # the second administrator finds the plan waiting: that one command may be there, and nothing else.
+        queued = (api.load(api.CMDS_FILE) or {}).get('dev1', [])
+        self.assertLessEqual(len(queued), 1, queued)
+        self.assertTrue(all(c.startswith('exec:#patchplan:') and '--simulate' in c for c in queued), queued)
         self.assertEqual(self._pending()[0]['params']['kind'], 'upgrade')
 
     def test_uninstall_parked_and_leaves_no_trace(self):

@@ -211,7 +211,11 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   units, containers and scripts grouped under a name with a rule), an alert for a container that
   fails its own health check, Nagios-plugin results for custom scripts, assigning an alert to a
   person, Mattermost, Rocket.Chat, Google Chat and Gotify destinations, and enrolment tokens limited
-  to a network. Update the agents.
+  to a network. Later it gained a preview of what an upgrade would change, an inventory of each
+  host's package repositories, ZFS cache and dataset tables, a hardening audit of how containers
+  were started, checks run from a host's own agent, a backup copy to an S3-compatible bucket, the
+  CPU time split into I/O wait, steal and the rest, and named time periods that quiet hours,
+  after-hours detection, the ticket SLA clock and maintenance windows share. Update the agents.
 - **v7.4.8 "Hon3stMatters"** — three screens that said something untrue. A Problems row
   that read "never" under Updated shows when its host last reported. A sensor limit that is
   not a temperature (an NVMe drive with no threshold reported 65,261.8 °C) is no limit. A
