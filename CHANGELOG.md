@@ -204,7 +204,7 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   gateway of a NAS. Under **Settings → Backups** you now give an endpoint, a bucket, a region, a folder and an access key id,
   and each finished archive is uploaded after it is written. There is no new dependency: the request signing (AWS Signature
   Version 4) is about forty lines, checked against the four examples AWS publishes for S3. The archive goes up in one request
-  (5 GiB at most) with its SHA-256 stored beside it, and copies older than **Retain (days)** are deleted, never the newest one
+  (parts above 5 GiB, see below) with its SHA-256 stored beside it, and copies older than **Retain (days)** are deleted, never the newest one
   and never more than 50 in a run. Only an encrypted archive is sent, because an unencrypted one holds every secret of the
   installation. The secret access key is not a setting: it is read from `RP_BACKUP_S3_SECRET_KEY` in the server's environment
   (or the command in `RP_BACKUP_S3_SECRET_KEY_CMD`), so it is never in the data directory or in an archive. A plain http
@@ -215,8 +215,14 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   operator's, since the server connects to the address in the request). Server Status shows each destination's
   last result, and the posture row *Backups mirrored off-host* counts the bucket: every destination you set has to have worked.
   The access key id is shown to administrators only; any other reader of the settings gets an indicator that one is set.
-  Multipart upload is not built, so an archive over 5 GiB is reported as failed. Tested against a store written for the tests
-  that verifies every signature, not against AWS, MinIO or Backblaze themselves.
+  Tested against a store written for the tests that verifies every signature, not against AWS, MinIO or Backblaze themselves.
+- **An archive over 5 GiB is uploaded in parts.** One request carries at most 5 GiB, and a larger archive used to be reported as
+  failed. It goes up as a multipart upload now: parts of at least 64 MiB (up to 1 TiB in all, never more than 10,000 parts), each
+  tried three times with a pause that doubles, a refusal (4xx) not tried again, and the upload cancelled in the store when a part
+  cannot be sent, so nothing half-finished stays there to be paid for. The SHA-256 is stored with the object as for a single
+  request, so the drill and the restore compare it the same way. The store's answer to the last request is read, because S3 may
+  answer 200 and say in the body that it did not put the object together. Archives up to 5 GiB are sent as before. Not run against
+  a real store: the stand-in for the tests now speaks the multipart requests and checks the order and the ETags of the parts.
 - **A server can be restored from the bucket (gap-fill).** The restore took a file, and the drill was the only thing that read the
   bucket. **Restore from S3…** under Settings → Backups → Backup & restore lists the archives the copy put there, newest first,
   using the settings in the form as they stand, so it works on a rebuilt server with none saved (the secret key is still the

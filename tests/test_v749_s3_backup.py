@@ -757,6 +757,55 @@ class TestRestoreFromTheBucket(_Base):
         self.assertEqual(self.marker(), "after")
 
 
+class TestAnArchiveThatNeedsParts(_Base):
+    """The copy of a backup larger than one upload takes goes up in parts, and everything that reads it back works the same: the drill and
+    the restore from the bucket. The limits are patched down to a few hundred bytes so the real archive crosses them."""
+
+    def setUp(self):
+        super().setUp()
+        for name, value in (("SINGLE_PUT_MAX", 300), ("PART_MIN", 200), ("_RETRY_PAUSE", 0.0)):       # the test backup is about 750 bytes
+            p = mock.patch.object(fixtures.s3, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        api.save(api.DATA_DIR / "restore_marker.json", {"v": "before"})
+        api._LOAD_CACHE.clear()
+
+    def test_the_copy_is_put_together_from_parts_and_is_the_archive(self):
+        r = self.run_backup()
+        self.assertTrue(r["ok"] and r["s3_ok"], r)
+        self.assertEqual(len(self.store.completed), 1)
+        key, numbers = self.store.completed[0]
+        self.assertGreater(len(numbers), 1, "the archive needed more than one part")
+        self.assertEqual(self.store.objects[key]["data"], Path(r["file"]).read_bytes())
+        self.assertEqual((self.store.uploads, self.store.aborted, self.store.bad_auth), ({}, [], 0))
+
+    def test_the_drill_reads_it_back_and_compares_the_digest_stored_at_the_start(self):
+        self.run_backup()
+        st, body = self.call(api.handle_backup_test_restore)
+        self.assertEqual(st, 200, body)
+        self.assertTrue(body.get("ok"), body)
+
+    def test_it_can_be_restored_from_the_bucket(self):
+        r = self.run_backup()
+        name = Path(r["file"]).name
+        api.save(api.DATA_DIR / "restore_marker.json", {"v": "after"})
+        api._env = lambda k, d="": {}.get(k, d)
+        st, body = self.call(api.handle_backup_s3_restore, {"name": name})
+        self.assertEqual((st, body.get("ok")), (200, True), body)
+        api._LOAD_CACHE.clear()
+        self.assertEqual((api.load(api.DATA_DIR / "restore_marker.json") or {}).get("v"), "before")
+
+    def test_a_failed_part_is_reported_in_the_backup_state_and_leaves_nothing_in_the_store(self):
+        self.store.fail_part = {2: 99}
+        r = self.run_backup()
+        self.assertTrue(r["ok"], "the backup itself is fine")
+        self.assertIs(r["s3_ok"], False)
+        st = self.state()
+        self.assertIn("part 2", st["s3_error"])
+        self.assertEqual((self.store.objects, self.store.uploads), ({}, {}))
+        self.assertEqual(len(self.store.aborted), 1)
+
+
 class TestWhoMayRestoreFromTheBucket(_Base):
 
     def asks(self, fn, who, role, body=None, tenant=False):

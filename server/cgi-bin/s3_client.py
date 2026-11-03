@@ -4,9 +4,9 @@ The server's backup could be copied to a mounted directory, which needs a mount.
 speak S3: AWS, MinIO, Backblaze B2, Wasabi, Cloudflare R2 and a NAS with an object gateway. This is the client for that, standard
 library only (the request signing is AWS Signature Version 4, about forty lines), so there is no new dependency to install.
 
-What it does: upload one file (the finished archive) in a single PUT, list a prefix, read an object back, delete one, and check
-a connection by writing, reading and deleting a small object. It does not do multipart upload, so one archive can be at most
-5 GiB, and a larger one is refused with that reason.
+What it does: upload one file (the finished archive), list a prefix, read an object back, delete one, and check a connection by
+writing, reading and deleting a small object. A file up to 5 GiB goes up in one PUT. A larger one goes up as a multipart upload
+(parts of at least 64 MiB, each tried up to three times, the whole upload aborted in the store when a part cannot be sent), up to 1 TiB.
 
 Everything the store sends back is data from outside. Error bodies and listings are read up to a limit and parsed with safe_xml, a
 message that comes from the store is cut and cleaned before it is shown, and a listing is stopped after a number of pages. The
@@ -22,6 +22,7 @@ import functools
 import hashlib
 import hmac
 import http.client
+import io
 import ipaddress
 import os
 import re
@@ -38,7 +39,17 @@ import safe_xml
 ALGORITHM = "AWS4-HMAC-SHA256"
 SERVICE = "s3"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
-MAX_OBJECT_BYTES = 5 * 1024**3  # one PUT carries at most 5 GiB
+MAX_OBJECT_BYTES = (
+    5 * 1024**3
+)  # the largest object a read is expected to return, unless the caller says otherwise
+SINGLE_PUT_MAX = 5 * 1024**3  # one PUT carries at most 5 GiB; a larger file goes up in parts
+MAX_UPLOAD_BYTES = (
+    1024**4
+)  # a larger file is not uploaded at all: a part would be too large to hold in memory
+PART_MIN = 64 * 1024**2  # a part is at least this (the store wants 5 MiB), except the last
+MAX_PARTS = 10000  # the store's limit
+PART_ATTEMPTS = 3  # tries for one part: a long upload should not be lost to one dropped connection
+_RETRY_PAUSE = 1.0  # seconds before the next try of a part, doubled each time
 LIST_PAGE = 1000
 MAX_LIST_PAGES = 50  # 50,000 objects: a backup prefix never holds that many, and a listing that never ends must not exist
 META_SHA = "x-amz-meta-rp-sha256"  # the digest of what was uploaded, so a copy read back can be compared with it
@@ -81,6 +92,11 @@ def _guarded(fn: Any) -> Any:
             ) from None
 
     return inner
+
+
+def _xml_text(text: str) -> str:
+    """`text` as the content of an XML element we write (the ETags of an upload's parts, which the store gave us)."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _clean(text: Any, limit: int = 200) -> str:
@@ -401,6 +417,7 @@ class S3Client:
         size: int | None = None,
         payload_sha256: str = EMPTY_SHA256,
         headers: dict[str, str] | None = None,
+        content_type: str = "application/octet-stream",
     ) -> Any:
         query = query or {}
         url, host, path = self._target(name, query)
@@ -418,7 +435,7 @@ class S3Client:
         )
         if size is not None:
             signed["Content-Length"] = str(size)
-            signed["Content-Type"] = "application/octet-stream"
+            signed["Content-Type"] = content_type
         req = urllib.request.Request(url, data=body, method=method, headers=signed)
         try:
             return self.opener.open(req, timeout=self.timeout)
@@ -450,20 +467,23 @@ class S3Client:
 
     @_guarded
     def put_file(self, name: str, path: str) -> str:
-        """Upload a file in one PUT and return the sha256 of its content. The digest is stored with the object, so a later read can be
-        compared with what was sent."""
+        """Upload a file and return the sha256 of its content: in one PUT up to SINGLE_PUT_MAX, as a multipart upload above it. The
+        digest is stored with the object, so a later read can be compared with what was sent."""
         try:
             size = os.path.getsize(path)
         except OSError as e:
             raise S3Error(
                 0, "LocalFile", "the archive could not be read: " + _clean(e, 120)
             ) from None
-        if size > MAX_OBJECT_BYTES:
+        if size > MAX_UPLOAD_BYTES:
             raise S3Error(
-                0, "EntityTooLarge", "the archive is larger than the 5 GiB one upload takes"
+                0, "EntityTooLarge", "the archive is larger than the 1 TiB an upload takes"
             )
         try:
             digest = file_sha256(path)
+            if size > SINGLE_PUT_MAX:
+                self._put_in_parts(name, path, size, digest)
+                return digest
             fh = open(path, "rb")
         except OSError as e:
             raise S3Error(
@@ -476,6 +496,128 @@ class S3Client:
             with resp:
                 resp.read(_ERROR_BODY_MAX)
         return digest
+
+    def _put_in_parts(self, name: str, path: str, size: int, digest: str) -> None:
+        """A file too large for one PUT: start an upload, send it in parts, put it together. The upload is aborted in the store when
+        anything fails, so no half-finished upload is left to be paid for. A part is held in memory, one at a time (at most 128 MiB
+        for the largest file taken), and sent from there so that the connection's timeout is per block and not for the whole part.
+        """
+        part_size = max(PART_MIN, -(-size // MAX_PARTS))
+        if part_size >= 1 << 20:
+            part_size = -(-part_size // (1 << 20)) << 20  # whole MiB
+        upload_id = self._start_upload(name, digest)
+        parts: list[tuple[int, str]] = []
+        sent = 0
+        try:
+            with open(path, "rb") as fh:
+                while True:
+                    chunk = fh.read(part_size)
+                    if not chunk:
+                        break
+                    if len(parts) >= MAX_PARTS:
+                        raise S3Error(0, "TooManyParts", "the archive grew while it was uploaded")
+                    parts.append(
+                        (len(parts) + 1, self._send_part(name, upload_id, len(parts) + 1, chunk))
+                    )
+                    sent += len(chunk)
+            if sent != size:
+                raise S3Error(0, "LocalFile", "the archive changed while it was uploaded")
+            self._finish_upload(name, upload_id, parts)
+        except BaseException:
+            self._abandon_upload(name, upload_id)
+            raise
+
+    def _start_upload(self, name: str, digest: str) -> str:
+        resp = self._send("POST", name, {"uploads": ""}, headers={META_SHA: digest})
+        with resp:
+            body = bytes(resp.read(_ERROR_BODY_MAX + 1))
+        try:
+            root = safe_xml.fromstring(body)
+        except (safe_xml.ParseError, ValueError):
+            raise S3Error(0, "BadAnswer", "the store did not start the upload") from None
+        found = [(el.text or "").strip() for el in root.iter() if _local(el.tag) == "UploadId"]
+        upload_id = found[0] if found else ""
+        if not upload_id or len(upload_id) > 1024 or _CTRL_RE.search(upload_id):
+            raise S3Error(0, "BadAnswer", "the store did not give an upload id")
+        return upload_id
+
+    def _send_part(self, name: str, upload_id: str, number: int, data: bytes) -> str:
+        """One part, up to PART_ATTEMPTS times: a dropped connection or a server error is tried again after a pause, a refusal is not.
+        Returns the part's ETag, which the store wants back when the upload is put together."""
+        digest = hashlib.sha256(data).hexdigest()
+        last = S3Error(0, "NotSent", "the part was not sent")
+        for attempt in range(PART_ATTEMPTS):
+            if attempt:
+                time.sleep(_RETRY_PAUSE * 2 ** (attempt - 1))
+            try:
+                resp = self._send(
+                    "PUT",
+                    name,
+                    {"partNumber": str(number), "uploadId": upload_id},
+                    body=io.BytesIO(data),
+                    size=len(data),
+                    payload_sha256=digest,
+                )
+                with resp:
+                    resp.read(_ERROR_BODY_MAX)
+                    etag = (resp.headers.get("ETag") or "").strip()
+            except S3Error as e:
+                if 400 <= e.status < 500:
+                    raise
+                last = e
+                continue
+            except (OSError, http.client.HTTPException) as e:
+                last = S3Error(
+                    0, "ConnectionFailed", "the connection to the store failed: " + _clean(e, 120)
+                )
+                continue
+            if not etag or len(etag) > 256 or _CTRL_RE.search(etag):
+                raise S3Error(0, "BadAnswer", f"the store did not return an ETag for part {number}")
+            return etag
+        raise S3Error(
+            last.status,
+            last.code,
+            f"part {number} could not be sent after {PART_ATTEMPTS} tries: {last}",
+        )
+
+    def _finish_upload(self, name: str, upload_id: str, parts: list[tuple[int, str]]) -> None:
+        listing = "".join(
+            f"<Part><PartNumber>{n}</PartNumber><ETag>{_xml_text(etag)}</ETag></Part>"
+            for n, etag in parts
+        )
+        data = f"<CompleteMultipartUpload>{listing}</CompleteMultipartUpload>".encode()
+        resp = self._send(
+            "POST",
+            name,
+            {"uploadId": upload_id},
+            body=io.BytesIO(data),
+            size=len(data),
+            payload_sha256=hashlib.sha256(data).hexdigest(),
+            content_type="application/xml",
+        )
+        with resp:
+            body = bytes(resp.read(_ERROR_BODY_MAX + 1))
+        # a store may answer 200 and say in the body that it did not put the object together
+        try:
+            root = safe_xml.fromstring(body)
+        except (safe_xml.ParseError, ValueError):
+            raise S3Error(0, "BadAnswer", "the store did not confirm the upload") from None
+        if _local(root.tag) == "Error":
+            fields = {_local(el.tag): _clean(el.text) for el in root}
+            code = re.sub(r"[^A-Za-z0-9_.\-]", "", fields.get("Code", ""))[:64] or "Error"
+            raise S3Error(
+                200,
+                code,
+                "the store could not put the upload together: " + (fields.get("Message") or code),
+            )
+
+    def _abandon_upload(self, name: str, upload_id: str) -> None:
+        try:
+            resp = self._send("DELETE", name, {"uploadId": upload_id})
+            with resp:
+                resp.read(_ERROR_BODY_MAX)
+        except (S3Error, OSError, http.client.HTTPException):
+            pass
 
     @_guarded
     def get_bytes(self, name: str, limit: int = 1024 * 1024) -> bytes:

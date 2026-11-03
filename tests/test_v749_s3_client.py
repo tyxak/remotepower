@@ -9,6 +9,8 @@ bytes it received (the path as sent, the query, the body's digest, the Host head
 import calendar
 import datetime as dt
 import hashlib
+import re
+import secrets
 import http.client
 import http.server
 import os
@@ -23,6 +25,7 @@ import unittest
 import urllib.parse
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "server" / "cgi-bin"))
@@ -306,6 +309,19 @@ class FakeStore:
         self.garbage_status = False          # answer with something that is not HTTP
         self.reset_midway = False            # start an answer to a GET and reset the connection in the middle of it
         self.reset_midway_writes = False     # ... and the same for the answer to a PUT or a DELETE, after the change is made
+        self.uploads: dict = {}              # multipart uploads in progress: id -> {key, parts: {n: {data, etag}}, meta}
+        self.aborted: list = []              # ids of uploads that were aborted
+        self.completed: list = []            # (key, [part numbers]) of uploads put together
+        self.fail_part: dict = {}            # part number -> how many times to answer 500 before accepting it
+        self.hang_up_part: dict = {}         # part number -> how many times to close the connection before accepting it
+        self.refuse_part: set = set()        # part numbers answered with 403
+        self.no_etag = False                 # accept a part and leave its ETag out of the answer
+        self.min_part = 0                    # bytes: Complete refuses a part, but the last, smaller than this (EntityTooSmall)
+        self.error_in_200 = False            # answer Complete with 200 and an <Error> body, as S3 may
+        self.bad_start: Any = None           # a body to answer the start of an upload with, instead of an upload id
+        self.complete_status = 200
+        self.etag_override: Any = None       # the ETag header to answer a part with, instead of its md5
+        self.complete_body: Any = None       # answer Complete with 200 and this body, without putting the object together
 
 
 def make_server(store: FakeStore, bucket="bkt", secret=SK, tls=None):
@@ -383,6 +399,21 @@ def make_server(store: FakeStore, bucket="bkt", secret=SK, tls=None):
                 return None
             if self.command == "GET" and not key:
                 return self._list(urllib.parse.parse_qs(parts.query))
+            q = urllib.parse.parse_qs(parts.query, keep_blank_values=True)
+            if self.command == "POST":
+                return self._post(key, q, body)
+            if self.command == "PUT" and "partNumber" in q:
+                return self._put_part(key, q, body)
+            if self.command == "DELETE" and "uploadId" in q:
+                if "delete" in store.deny:
+                    return self._err(403, "AccessDenied", "Access Denied")
+                up = store.uploads.pop(q["uploadId"][0], None)
+                if up is None:
+                    return self._err(404, "NoSuchUpload", "The specified upload does not exist.")
+                store.aborted.append(q["uploadId"][0])
+                self.send_response(204)
+                self.end_headers()
+                return None
             if self.command == "PUT":
                 if "put" in store.deny:
                     return self._err(403, "AccessDenied", "Access Denied")
@@ -425,6 +456,76 @@ def make_server(store: FakeStore, bucket="bkt", secret=SK, tls=None):
                 return None
             return self._err(405, "MethodNotAllowed", "no")
 
+        def _xml(self, status, xml, headers=None):
+            body = xml.encode()
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _post(self, key, q, body):
+            if "put" in store.deny:
+                return self._err(403, "AccessDenied", "Access Denied")
+            if "uploads" in q:
+                if store.bad_start is not None:
+                    return self._xml(200, store.bad_start)
+                uid = secrets.token_hex(12)
+                store.uploads[uid] = {"key": key, "parts": {}, "meta": self.headers.get("x-amz-meta-rp-sha256")}
+                return self._xml(200, f'<?xml version="1.0"?><InitiateMultipartUploadResult xmlns="{NS}"><Bucket>{bucket}</Bucket><Key>{key}</Key>'
+                                      f"<UploadId>{uid}</UploadId></InitiateMultipartUploadResult>")
+            uid = q.get("uploadId", [""])[0]
+            up = store.uploads.get(uid)
+            if up is None:
+                return self._err(404, "NoSuchUpload", "The specified upload does not exist.")
+            listed = [(int(n), e) for n, e in re.findall(r"<Part><PartNumber>(\d+)</PartNumber><ETag>(.*?)</ETag></Part>", body.decode("utf-8", "replace"))]
+            numbers = [n for n, _ in listed]
+            if not listed or numbers != sorted(numbers) or numbers[0] != 1 or len(set(numbers)) != len(numbers):
+                return self._err(400, "InvalidPartOrder", "The list of parts was not in ascending order.")
+            for n, e in listed:
+                if n not in up["parts"] or up["parts"][n]["etag"] != e.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">"):
+                    return self._err(400, "InvalidPart", f"One or more of the specified parts could not be found (part {n}).")
+            for n, _ in listed[:-1]:
+                if len(up["parts"][n]["data"]) < store.min_part:
+                    return self._err(400, "EntityTooSmall", "Your proposed upload is smaller than the minimum allowed size")
+            if store.complete_body is not None:
+                return self._xml(200, store.complete_body)
+            if store.error_in_200:
+                return self._xml(200, "<?xml version=\"1.0\"?><Error><Code>InternalError</Code><Message>We encountered an internal error. Please try again.</Message></Error>")
+            if store.complete_status != 200:
+                return self._err(store.complete_status, "ServiceUnavailable", "Please reduce your request rate.")
+            store.objects[key] = {"data": b"".join(up["parts"][n]["data"] for n in numbers), "mtime": int(time.time()) + len(store.objects), "meta": up["meta"]}
+            store.completed.append((key, numbers))
+            del store.uploads[uid]
+            return self._xml(200, f'<?xml version="1.0"?><CompleteMultipartUploadResult xmlns="{NS}"><Location>x</Location><Bucket>{bucket}</Bucket><Key>{key}</Key>'
+                                  '<ETag>"deadbeef-2"</ETag></CompleteMultipartUploadResult>')
+
+        def _put_part(self, key, q, body):
+            if "put" in store.deny:
+                return self._err(403, "AccessDenied", "Access Denied")
+            uid, n = q["uploadId"][0], int(q["partNumber"][0])
+            up = store.uploads.get(uid)
+            if up is None:
+                return self._err(404, "NoSuchUpload", "The specified upload does not exist.")
+            if n in store.refuse_part:
+                return self._err(403, "AccessDenied", "Access Denied")
+            if store.hang_up_part.get(n):
+                store.hang_up_part[n] -= 1
+                self.close_connection = True
+                return None
+            if store.fail_part.get(n):
+                store.fail_part[n] -= 1
+                return self._err(500, "InternalError", "We encountered an internal error. Please try again.")
+            etag = store.etag_override if store.etag_override is not None else '"' + hashlib.md5(body).hexdigest() + '"'      # nosec B324 - an ETag, as the real service writes it
+            up["parts"][n] = {"data": body, "etag": etag}
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            if not store.no_etag:
+                self.send_header("ETag", etag)
+            self.end_headers()
+            return None
+
         def _list(self, q):
             if "list" in store.deny:
                 return self._err(403, "AccessDenied", "Access Denied")
@@ -450,7 +551,7 @@ def make_server(store: FakeStore, bucket="bkt", secret=SK, tls=None):
             self.end_headers()
             self.wfile.write(body)
 
-        do_GET = do_PUT = do_DELETE = _handle
+        do_GET = do_PUT = do_DELETE = do_POST = _handle
 
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
     srv.daemon_threads = True
@@ -706,10 +807,10 @@ class TestTheClientAgainstAStore(_Base):
             c.put_bytes("a.txt", b"x")
         self.assertEqual((cm.exception.status, cm.exception.code), (0, "ConnectionFailed"))
 
-    def test_an_archive_over_five_gib_is_refused_without_reading_it(self):
+    def test_an_archive_over_a_tebibyte_is_refused_without_reading_it(self):
         p = self.file(data=b"x")
         real = os.path.getsize
-        s3.os.path.getsize = lambda path: s3.MAX_OBJECT_BYTES + 1       # type: ignore[assignment]
+        s3.os.path.getsize = lambda path: s3.MAX_UPLOAD_BYTES + 1       # type: ignore[assignment]
         self.addCleanup(setattr, s3.os.path, "getsize", real)
         with self.assertRaises(s3.S3Error) as cm:
             self.client().put_file(p.name, str(p))
@@ -731,6 +832,357 @@ class TestTheClientAgainstAStore(_Base):
         self.assertNotIn(SK, repr(c))
         for _method, path, headers in self.store.requests:
             self.assertNotIn(SK, path + " ".join(str(v) for v in headers.values()))
+
+
+class TestMultipartUpload(_Base):
+    """A file larger than one PUT takes goes up in parts. The limits are patched small so that a few hundred bytes cross them; the
+    store checks every signature (the query of each request included) and the order and ETags of the parts, as the real service does."""
+
+    DATA = bytes(range(256)) * 5           # 1,280 bytes
+
+    def setUp(self):
+        super().setUp()
+        for name, value in (("SINGLE_PUT_MAX", 100), ("PART_MIN", 300), ("_RETRY_PAUSE", 0.0)):
+            self.patch(name, value)
+        self.path = self.file(data=self.DATA)
+
+    def patch(self, name, value):
+        p = mock.patch.object(s3, name, value)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def sent(self):
+        """The requests the store saw, with the header names in lower case."""
+        return [(m, p, {k.lower(): v for k, v in h.items()}) for m, p, h in self.store.requests]
+
+    def up(self, **kw):
+        return self.client(**kw).put_file("remotepower_data_20261102_030001.tar.gz.enc", str(self.path))
+
+    def stored(self):
+        return self.store.objects["rp/main/remotepower_data_20261102_030001.tar.gz.enc"]
+
+    def test_a_file_over_the_limit_goes_up_in_parts_and_is_put_together(self):
+        digest = self.up()
+        self.assertEqual(self.stored()["data"], self.DATA)
+        self.assertEqual(digest, hashlib.sha256(self.DATA).hexdigest())
+        self.assertEqual(self.stored()["meta"], digest, "the digest is stored with the object, as for a single PUT")
+        self.assertEqual(self.store.completed, [("rp/main/remotepower_data_20261102_030001.tar.gz.enc", [1, 2, 3, 4, 5])], "5 parts of 300, 300, 300, 300, 80")
+        self.assertEqual((self.store.uploads, self.store.aborted, self.store.bad_auth), ({}, [], 0))
+
+    def test_every_request_is_signed_including_the_query(self):
+        self.up()
+        kinds = [(m, bool(re.search(r"[?&]uploads(=|&|$)", p)), "partNumber=" in p, "uploadId=" in p) for m, p, _ in self.store.requests]
+        self.assertEqual(kinds[0], ("POST", True, False, False), "start")
+        self.assertEqual(kinds[1:6], [("PUT", False, True, True)] * 5, "five parts")
+        self.assertEqual(kinds[6], ("POST", False, False, True), "put together")
+        self.assertEqual(len(kinds), 7)
+        self.assertEqual(self.store.bad_auth, 0)
+
+    def test_the_parts_are_sent_with_their_own_digest(self):
+        self.up()
+        parts = [h for m, p, h in self.sent() if m == "PUT"]
+        self.assertEqual([h.get("content-length") for h in parts], ["300", "300", "300", "300", "80"])
+        for h, chunk in zip(parts, [self.DATA[i:i + 300] for i in range(0, len(self.DATA), 300)]):
+            self.assertEqual(h["x-amz-content-sha256"], hashlib.sha256(chunk).hexdigest(), "the digest signed is the part's own")
+
+    def test_the_start_carries_the_digest_and_the_end_says_what_it_is(self):
+        self.up()
+        first, last = self.sent()[0][2], self.sent()[-1][2]
+        self.assertEqual(first.get("x-amz-meta-rp-sha256"), hashlib.sha256(self.DATA).hexdigest())
+        self.assertEqual(last.get("content-type"), "application/xml")
+
+    def test_a_file_at_the_limit_is_one_put_and_one_byte_over_is_parts(self):
+        mock.patch.object(s3, "SINGLE_PUT_MAX", len(self.DATA)).start()
+        self.up()
+        self.assertEqual(self.store.completed, [], "at the limit: a single PUT")
+        self.assertEqual([m for m, _, _ in self.store.requests], ["PUT"])
+        self.store.requests.clear()
+        self.store.objects.clear()
+        mock.patch.object(s3, "SINGLE_PUT_MAX", len(self.DATA) - 1).start()
+        self.up()
+        self.assertEqual(len(self.store.completed), 1, "one byte over: parts")
+
+    def test_the_part_size_grows_to_stay_inside_ten_thousand_parts(self):
+        self.patch("MAX_PARTS", 4)
+        self.patch("PART_MIN", 10)
+        self.up()
+        numbers = self.store.completed[0][1]
+        self.assertLessEqual(len(numbers), 4)
+        self.assertEqual(self.stored()["data"], self.DATA)
+
+    def test_a_part_size_is_a_whole_number_of_mebibytes_once_it_is_that_large(self):
+        self.patch("PART_MIN", 1 << 20)
+        self.patch("MAX_PARTS", 1000)
+        self.up()
+        self.assertEqual(len(self.store.completed[0][1]), 1, "1,280 bytes fit in one part of 1 MiB")
+
+    def test_a_part_that_is_not_a_whole_number_of_mebibytes_is_rounded_up_to_one(self):
+        self.patch("PART_MIN", (1 << 20) + 5)
+        self.path = self.file(data=b"y" * (3 << 20))
+        self.up()
+        sizes = [h["content-length"] for m, p, h in self.sent() if m == "PUT"]
+        self.assertEqual(sizes, [str(2 << 20), str(1 << 20)], "2 MiB and the 1 MiB that is left")
+
+    def test_exactly_a_tebibyte_is_taken_and_one_byte_more_is_not(self):
+        calls = []
+        with mock.patch.object(s3.S3Client, "_put_in_parts", lambda self_, *a: calls.append(a)), \
+                mock.patch.object(s3.os.path, "getsize", lambda path: s3.MAX_UPLOAD_BYTES):
+            self.up()
+        self.assertEqual(len(calls), 1, "a file of exactly the cap goes to the parts")
+        with mock.patch.object(s3.os.path, "getsize", lambda path: s3.MAX_UPLOAD_BYTES + 1):
+            with self.assertRaises(s3.S3Error) as cm:
+                self.up()
+        self.assertEqual(cm.exception.code, "EntityTooLarge")
+
+    def test_a_file_that_keeps_growing_is_stopped_at_the_stores_limit_on_parts(self):
+        self.patch("MAX_PARTS", 2)
+        real_open = open
+
+        class Endless:
+            """Gives as many bytes as it is asked for, up to a limit, so that a client that does not stop fails the test instead of hanging it."""
+
+            def __init__(self, path):
+                self.fh, self.reads = real_open(path, "rb"), 0
+
+            def read(self, n=-1):
+                self.reads += 1
+                return b"z" * n if n > 0 and self.reads <= 50 else b""
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                self.fh.close()
+        opened = []
+
+        def fake_open(path, mode="rb"):
+            opened.append(path)
+            return real_open(path, mode) if len(opened) == 1 else Endless(path)       # the first read is the digest of the real file
+        with mock.patch.object(s3, "open", fake_open, create=True):
+            with self.assertRaises(s3.S3Error) as cm:
+                self.up()
+        self.assertEqual(cm.exception.code, "TooManyParts")
+        self.assertEqual(len(self.store.aborted), 1)
+
+    def test_the_pause_between_tries_doubles(self):
+        self.patch("_RETRY_PAUSE", 0.5)
+        self.store.fail_part = {1: 2}
+        pauses = []
+        with mock.patch.object(s3.time, "sleep", pauses.append):
+            self.up()
+        self.assertEqual(pauses, [0.5, 1.0], "after the first failure and after the second")
+
+    # ── when a part goes wrong ──────────────────────────────────────────────────────────────────────────────────────────
+
+    def test_a_server_error_on_a_part_is_tried_again(self):
+        self.store.fail_part = {3: 2}
+        self.up()
+        self.assertEqual(self.stored()["data"], self.DATA)
+        puts = [p for m, p, _ in self.store.requests if m == "PUT" and "partNumber=3" in p]
+        self.assertEqual(len(puts), 3, "two failures and the try that worked")
+        self.assertEqual(self.store.aborted, [])
+
+    def test_a_dropped_connection_on_a_part_is_tried_again(self):
+        self.store.hang_up_part = {2: 1}
+        self.up()
+        self.assertEqual(self.stored()["data"], self.DATA)
+
+    def test_a_part_that_never_works_aborts_the_upload_and_says_which(self):
+        self.store.fail_part = {2: 99}
+        with self.assertRaises(s3.S3Error) as cm:
+            self.up()
+        self.assertIn("part 2", str(cm.exception))
+        self.assertIn("3 tries", str(cm.exception))
+        self.assertEqual(len(self.store.aborted), 1, "the half-finished upload is not left to be paid for")
+        self.assertEqual(self.store.uploads, {})
+        self.assertEqual(self.store.objects, {})
+        self.assertEqual(len([p for m, p, _ in self.store.requests if m == "PUT" and "partNumber=2" in p]), 3)
+
+    def test_a_refusal_is_not_tried_again(self):
+        self.store.refuse_part = {2}
+        with self.assertRaises(s3.S3Error) as cm:
+            self.up()
+        self.assertEqual((cm.exception.status, cm.exception.code), (403, "AccessDenied"))
+        self.assertEqual(len([p for m, p, _ in self.store.requests if m == "PUT" and "partNumber=2" in p]), 1)
+        self.assertEqual(len(self.store.aborted), 1)
+
+    def test_a_store_that_gives_no_etag_is_a_reason_and_aborts(self):
+        self.store.no_etag = True
+        with self.assertRaises(s3.S3Error) as cm:
+            self.up()
+        self.assertEqual(cm.exception.code, "BadAnswer")
+        self.assertIn("ETag for part 1", str(cm.exception))
+        self.assertEqual(len(self.store.aborted), 1)
+
+    def test_a_start_that_gives_no_upload_id_is_a_reason(self):
+        for body in ("<InitiateMultipartUploadResult/>", "not xml", "", "<R><UploadId></UploadId></R>", "<R><UploadId>" + "x" * 2000 + "</UploadId></R>",
+                     "<R><UploadId>a\x01b</UploadId></R>",
+                     "<R><UploadId>a\tb</UploadId></R>", "<R><UploadId>a\x7fb</UploadId></R>", "<R><UploadId>a\nb</UploadId></R>"):      # XML allows the last three
+            self.store.bad_start = body
+            with self.subTest(body=body[:30]):
+                with self.assertRaises(s3.S3Error) as cm:
+                    self.up()
+                self.assertEqual(cm.exception.code, "BadAnswer")
+        self.assertEqual([m for m, p, _ in self.store.requests if m == "PUT"], [], "no part was sent without an upload id")
+
+    def test_a_connection_reset_while_the_answer_is_read_is_tried_again(self):
+        """The part reached the store and the answer was lost: the part is sent again, and the upload comes out right."""
+        real = s3.S3Client._send
+        state = {"n": 0}
+
+        class Lost:
+            headers: dict = {}
+
+            def read(self, *a):
+                raise ConnectionResetError("reset by peer")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def flaky(self_, method, name="", query=None, *a, **kw):
+            sent = real(self_, method, name, query, *a, **kw)
+            if method == "PUT" and query and query.get("partNumber") == "2" and state["n"] == 0:
+                state["n"] += 1
+                sent.close()
+                return Lost()
+            return sent
+        with mock.patch.object(s3.S3Client, "_send", flaky):
+            self.up()
+        self.assertEqual(self.stored()["data"], self.DATA)
+        self.assertEqual(len([p for m, p, _ in self.store.requests if m == "PUT" and "partNumber=2" in p]), 2,
+                         "the store saw part 2 twice: the try whose answer was lost, and the second try")
+        self.assertEqual(state["n"], 1)
+
+    def test_an_etag_with_a_control_character_is_not_taken(self):
+        self.store.etag_override = '"ab\tc"'
+        with self.assertRaises(s3.S3Error) as cm:
+            self.up()
+        self.assertEqual(cm.exception.code, "BadAnswer")
+        self.assertIn("ETag for part 1", str(cm.exception))
+        self.assertEqual(len(self.store.aborted), 1)
+
+    def test_an_answer_to_the_last_request_that_is_not_xml_is_not_a_success(self):
+        for body in ("not xml", "", "OK"):
+            self.store.complete_body = body
+            self.store.aborted.clear()
+            with self.subTest(body=body):
+                with self.assertRaises(s3.S3Error) as cm:
+                    self.up()
+                self.assertEqual(cm.exception.code, "BadAnswer")
+                self.assertEqual(len(self.store.aborted), 1)
+        self.assertEqual(self.store.objects, {})
+
+    def test_an_error_in_a_200_answer_to_the_last_request_is_an_error(self):
+        self.store.error_in_200 = True
+        with self.assertRaises(s3.S3Error) as cm:
+            self.up()
+        self.assertEqual(cm.exception.code, "InternalError")
+        self.assertIn("could not put the upload together", str(cm.exception))
+        self.assertEqual(len(self.store.aborted), 1)
+        self.assertEqual(self.store.objects, {})
+
+    def test_an_error_status_on_the_last_request_aborts(self):
+        self.store.complete_status = 503
+        with self.assertRaises(s3.S3Error) as cm:
+            self.up()
+        self.assertEqual(cm.exception.status, 503)
+        self.assertEqual(len(self.store.aborted), 1)
+
+    def test_a_store_that_refuses_the_start_sends_nothing_else(self):
+        self.store.deny = {"put"}
+        with self.assertRaises(s3.S3Error) as cm:
+            self.up()
+        self.assertEqual(cm.exception.code, "AccessDenied")
+        self.assertEqual([m for m, _, _ in self.store.requests], ["POST"])
+
+    def test_a_store_that_is_not_there_is_a_failure_and_nothing_to_abort(self):
+        with self.assertRaises(s3.S3Error) as cm:
+            self.up(endpoint="http://127.0.0.1:1")
+        self.assertEqual((cm.exception.status, cm.exception.code), (0, "ConnectionFailed"))
+
+    def test_a_part_the_store_finds_too_small_is_the_stores_answer(self):
+        """The real service wants 5 MiB for every part but the last. PART_MIN is 64 MiB, so a part is never that small in use; the answer
+        of a store that disagrees is still an error, with the upload aborted."""
+        self.store.min_part = 10_000
+        with self.assertRaises(s3.S3Error) as cm:
+            self.up()
+        self.assertEqual(cm.exception.code, "EntityTooSmall")
+        self.assertEqual(len(self.store.aborted), 1)
+
+    def test_a_file_that_is_shorter_than_it_was_is_not_put_together(self):
+        """The archive is cut after its size was taken. A file object reads ahead, so this hands the client one that stops short."""
+        real_open = open
+
+        class Short:
+            def __init__(self, path, left):
+                self.fh, self.left = real_open(path, "rb"), left
+
+            def read(self, n=-1):
+                n = self.left if n < 0 else min(n, self.left)
+                data = self.fh.read(n)
+                self.left -= len(data)
+                return data
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                self.fh.close()
+        with mock.patch.object(s3, "open", lambda path, mode="rb": Short(path, 700), create=True):
+            with self.assertRaises(s3.S3Error) as cm:
+                self.up()
+        self.assertEqual(cm.exception.code, "LocalFile")
+        self.assertIn("changed while it was uploaded", str(cm.exception))
+        self.assertEqual(len(self.store.aborted), 1, "the parts already sent are thrown away")
+        self.assertEqual(self.store.objects, {})
+        self.assertEqual(self.store.completed, [])
+
+    def test_an_abort_that_fails_does_not_hide_the_reason(self):
+        self.store.fail_part = {2: 99}
+        self.store.deny = set()
+        real = s3.S3Client._abandon_upload
+
+        def fail(self_, name, upload_id):
+            self.store.deny = {"delete"}
+            return real(self_, name, upload_id)
+        with mock.patch.object(s3.S3Client, "_abandon_upload", fail):
+            with self.assertRaises(s3.S3Error) as cm:
+                self.up()
+        self.assertIn("part 2", str(cm.exception), "the error is the part's, not the abort's")
+
+    def test_the_secret_key_is_in_no_request_and_no_error(self):
+        self.store.fail_part = {2: 99}
+        with self.assertRaises(s3.S3Error) as cm:
+            self.up()
+        text = repr(self.store.requests) + str(cm.exception) + repr(self.client())
+        self.assertNotIn(SK, text)
+
+    def test_an_etag_with_markup_in_it_is_escaped_in_what_is_sent(self):
+        etags = []
+        real = s3.S3Client._send_part
+
+        def evil(self_, name, upload_id, number, data):
+            real(self_, name, upload_id, number, data)
+            etags.append(number)
+            return '"a&b<c>d"'
+        sent = []
+        real_finish = s3.S3Client._finish_upload
+
+        def spy(self_, name, upload_id, parts):
+            def capture(method, name_, query=None, body=None, **kw):
+                if body is not None and method == "POST":
+                    sent.append(body.getvalue().decode())
+                raise s3.S3Error(0, "Stop", "stop here")
+            self_._send = capture
+            return real_finish(self_, name, upload_id, parts)
+        with mock.patch.object(s3.S3Client, "_send_part", evil), mock.patch.object(s3.S3Client, "_finish_upload", spy):
+            with self.assertRaises(s3.S3Error):
+                self.up()
+        self.assertIn("<ETag>\"a&amp;b&lt;c&gt;d\"</ETag>", sent[0])
+        self.assertNotIn("a&b<c>", sent[0])
 
 
 class TestTheConnectionCheck(_Base):

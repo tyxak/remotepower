@@ -168,7 +168,9 @@ RemotePower can back up **itself** so you can rebuild the server after a loss.
   - Use an `https://` endpoint. A plain `http://` one is accepted for a private or loopback address only, such as a MinIO on your
     LAN. Link-local and cloud metadata addresses are refused when you save and again when the server connects, and a redirect is
     not followed. For a store with a self-signed certificate, untick *Verify the TLS certificate*.
-  - Each archive goes up in one request (5 GiB at most; a larger one is reported as failed), with its SHA-256 stored beside it.
+  - An archive up to 5 GiB goes up in one request. A larger one goes up in parts of at least 64 MiB (up to 1 TiB), each part tried
+    three times, and the upload is cancelled in the store when a part cannot be sent, so no half-finished upload is left behind.
+    The SHA-256 is stored beside the archive either way.
     Copies older than **Retain (days)** are deleted, never the newest and never more than 50 in one run, and only files named
     like the archives in your folder.
   - The restore drill reads the newest copy back, compares it with the digest stored at upload, and runs the same decrypt, unpack
