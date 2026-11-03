@@ -1874,17 +1874,22 @@ def _demo_monitors():
 
 
 def build_host_monitor_results() -> dict:
-    """The last result of each monitor a host's agent probes -> satellite_monitors.json (7.4.9). A satellite's results and a
-    host's share the store, keyed by the monitor's label. Fixed numbers, so no other part of the seed moves."""
+    """The last result of each monitor a host's agent or a satellite probes -> satellite_monitors.json (7.4.9). The two share the
+    store, keyed by the monitor's label, and a result names who probed it (`by`), as the server writes it. Fixed numbers, so no other
+    part of the seed moves. A monitor with no result here would show as waiting for its first one."""
     t = now()
-    detail = {'http': ('200', 14.6), 'tcp': ('open', 0.8)}
+    detail = {'http': ('200', 14.6), 'tcp': ('open', 0.8), 'ping': ('reachable', 3.2)}
     out = {}
     for m in _demo_monitors():
-        if not m.get('via_host'):
+        if m.get('via_host'):
+            by = f"host:{m['via_host']}"
+        elif m.get('via_satellite'):
+            by = f"satellite:{m['via_satellite']}"
+        else:
             continue
         text, ms = detail.get(m['type'], ('ok', 1.0))
         out[m['label']] = {'label': m['label'], 'type': m['type'], 'target': m['target'], 'ok': True, 'detail': text,
-                           'checked': t - 41, 'latency_ms': ms}
+                           'checked': t - 41, 'latency_ms': ms, 'by': by}
     return out
 
 

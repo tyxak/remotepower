@@ -95,9 +95,14 @@ Pick the host under **Probe from** in the check dialog. The row then carries a *
 The server sends the host its checks with a heartbeat answer. The agent runs them every **Monitor check interval** (60 seconds
 at the least) and returns the results with a later heartbeat, so a result can be a heartbeat behind. History, uptime, SLO
 figures and the `monitor_down` and `monitor_up` alerts work as they do for any other check, and **Alert after consecutive
-failures** applies. A paused check is not sent. A host that has not updated its agent shows *awaiting first probe from the
-host*. If a host goes offline its checks stop with it: the row keeps the last result and the time it was taken, and the host's
-own offline alert tells you why.
+failures** applies. A paused check is not sent.
+
+A row that is not a reading says so. A check that has not reported yet reads **WAITING** with *awaiting first probe from the host*,
+which is also what a host that has not updated its agent shows. If a host stops reporting, its checks stop with it. After the longest
+a result should take to arrive, which is twice the monitor check interval plus the host's own report interval, the row reads **NO
+DATA** instead of up or down. The detail keeps the last result and the age column keeps the time it was taken. No alert is raised
+for a row with no data: the host's own offline alert tells you why. The same holds for a check a satellite probes. When you move a
+check to another host or to a satellite, the row shows nothing of the old prober's result and waits for the new one.
 
 The agent follows no redirect, checks the certificate unless you untick **Verify TLS**, and reads at most 512 KB of a page for a
 text check. It runs only `http` and `https` addresses it has checked itself, and the server accepts results from a host for

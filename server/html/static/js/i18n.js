@@ -8874,6 +8874,7 @@
     'Nothing quarantined.': { fr: 'Rien en quarantaine.', de: 'Nichts in Quarantäne.', zh: '无隔离项。', hi: 'कुछ भी संगरोध में नहीं।', es: 'Nada en cuarentena.', ar: 'لا شيء في الحجر.' },
     'Nothing scheduled in the next 45 days.': { fr: 'Rien de planifié dans les 45 prochains jours.', de: 'Nichts in den nächsten 45 Tagen geplant.', zh: '未来 45 天内无计划事项。', hi: 'अगले 45 दिनों में कुछ नियोजित नहीं।', es: 'Nada programado en los próximos 45 días.', ar: 'لا شيء مجدول خلال 45 يومًا القادمة.' },
     'Nothing to show.': { fr: 'Rien à afficher.', de: 'Nichts anzuzeigen.', zh: '无可显示内容。', hi: 'दिखाने को कुछ नहीं।', es: 'Nada que mostrar.', ar: 'لا شيء للعرض.' },
+    'NO DATA': { fr: 'AUCUNE DONNÉE', de: 'KEINE DATEN', zh: '无数据', hi: 'कोई डेटा नहीं', es: 'SIN DATOS', ar: 'لا بيانات' },
     'Offline alert delay': { fr: "Délai d'alerte hors ligne", de: 'Offline-Alarmverzögerung', zh: '离线警报延迟', hi: 'ऑफ़लाइन अलर्ट विलंब', es: 'Retraso de alerta sin conexión', ar: 'تأخير تنبيه عدم الاتصال' },
     'On-demand diagnostics': { fr: 'Diagnostics à la demande', de: 'Diagnose auf Abruf', zh: '按需诊断', hi: 'मांग पर निदान', es: 'Diagnósticos bajo demanda', ar: 'تشخيصات عند الطلب' },
     'Open Settings': { fr: 'Ouvrir les paramètres', de: 'Einstellungen öffnen', zh: '打开设置', hi: 'सेटिंग्स खोलें', es: 'Abrir ajustes', ar: 'فتح الإعدادات' },
@@ -8888,6 +8889,7 @@
     'Partial errors': { fr: 'Erreurs partielles', de: 'Teilfehler', zh: '部分错误', hi: 'आंशिक त्रुटियाँ', es: 'Errores parciales', ar: 'أخطاء جزئية' },
     'Patch Command History': { fr: 'Historique des commandes de correctif', de: 'Patch-Befehlsverlauf', zh: '补丁命令历史', hi: 'पैच कमांड इतिहास', es: 'Historial de comandos de parche', ar: 'سجل أوامر التصحيح' },
     'Patch report': { fr: 'Rapport de correctifs', de: 'Patch-Bericht', zh: '补丁报告', hi: 'पैच रिपोर्ट', es: 'Informe de parches', ar: 'تقرير التصحيحات' },
+    'WAITING': { fr: 'EN ATTENTE', de: 'WARTET', zh: '等待中', hi: 'प्रतीक्षारत', es: 'EN ESPERA', ar: 'قيد الانتظار' },
     // v6.4.1 pass 16 — P–U slice. Crypto/hash names, protocol tokens and
     // sentence fragments stay English by design.
     'Pick a host to see its memory / swap / disk / CPU-load history.': { fr: "Choisissez un hôte pour voir l'historique mémoire / swap / disque / charge CPU.", de: 'Wählen Sie einen Host, um den Verlauf von Speicher / Swap / Datenträger / CPU-Last zu sehen.', zh: '选择主机以查看其内存/交换/磁盘/CPU 负载历史。', hi: 'मेमोरी / स्वैप / डिस्क / CPU-लोड इतिहास देखने हेतु होस्ट चुनें।', es: 'Elige un host para ver su historial de memoria / swap / disco / carga de CPU.', ar: 'اختر مضيفًا لعرض سجل الذاكرة / التبديل / القرص / حمل المعالج.' },

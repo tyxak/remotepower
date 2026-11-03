@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -509,6 +510,31 @@ class TestHostProbes(_Page):
         sat = [r for r in rows.values() if r[0].startswith("Edge site")][0]
         self.assertIn("via satellite", sat[2])
         self.assertNotIn("via host", sat[2])
+        self.assertIn("up", sat[3], "the demo's satellite has reported")
+
+    def test_a_result_that_is_no_longer_current_does_not_read_as_up_or_down(self):
+        db, web = "Gitea Postgres \u2014 from gt01", "Gitea web \u2014 from gt01"
+        self.assertIn("up", {r[0]: r for r in self.rows()}[db][3], "a recent result is a reading")
+
+        def age(doc):
+            # the demo checks every hour and the host reports every 5 minutes, so a result is current for 2 x 65 minutes
+            doc[db]["checked"] = int(time.time()) - 20000       # the host stopped reporting hours ago
+            doc.pop(web)                                          # and this one never reported
+
+        self.edit_store("satellite_monitors.json", age)
+        self.page.evaluate("() => runMonitor(false)")
+        self.page.wait_for_function("() => document.getElementById('monitor-tbody').innerText.includes('NO DATA')", timeout=30000)
+        rows = {r[0]: r for r in self.rows()}
+        self.assertEqual(rows[db][3], "NO DATA")
+        self.assertEqual(rows[db][4], "no recent result from the host (the last one was up: open)")
+        self.assertIn("ago", rows[db][5], "and the age column still says how old it is")
+        self.assertEqual(rows[web][3], "WAITING")
+        self.assertEqual(rows[web][4], "awaiting first probe from the host")
+        self.assertEqual(self.page.eval_on_selector_all("#monitor-tbody .mon-status", "els => els.map(e => e.innerText.trim())")
+                         .count("\u2191 up") >= 1, True, "rows that are readings still show the arrow")
+        for label in (db, web):
+            self.assertNotIn("\u2191", rows[label][3])
+            self.assertNotIn("\u2193", rows[label][3])
 
     def test_the_editor_offers_the_linux_hosts_that_have_an_agent(self):
         self.rows()

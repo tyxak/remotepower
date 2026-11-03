@@ -940,6 +940,240 @@ class TestSendingAndTaking(_Save):
         api._satellite_monitor_display(api._config_ro().get("monitors"))      # a name of the wrong kind does not raise
 
 
+class TestAResultThatIsNoLongerCurrent(_Save):
+    """A monitor probed by a host or a satellite keeps its last result. When the prober stops reporting, that result must not go on
+    reading as the state of the check: a green arrow from three days ago is a reading nobody took today."""
+
+    NOW = 1_800_000_000
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.CONFIG_FILE, {"monitors": [
+            self.mon(label="db", via_host="lin1"),
+            {"label": "sat", "type": "tcp", "target": "10.0.0.9:22", "target_kind": "host", "via_satellite": "sat-1"},
+            self.mon(label="paused", via_host="lin1", paused=True)]})
+        api._LOAD_CACHE.clear()
+
+    def put(self, label, age, by="host:lin1", **kw):
+        row = dict({"label": label, "type": "tcp", "target": "10.0.0.5:5432", "ok": True, "detail": "open", "checked": self.NOW - age}, **kw)
+        if by is not None:
+            row["by"] = by
+        store = api.load(api.SATELLITE_MON_FILE) or {}
+        store[label] = row
+        api.save(api.SATELLITE_MON_FILE, store)
+        api._LOAD_CACHE.clear()
+
+    def rows(self):
+        with mock.patch.object(api.time, "time", return_value=self.NOW):
+            return {r["label"]: r for r in api._satellite_monitor_display(api._config_ro().get("monitors"))}
+
+    def test_a_recent_result_is_a_reading(self):
+        self.put("db", 100)
+        row = self.rows()["db"]
+        self.assertNotIn("state", row)
+        self.assertEqual((row["ok"], row["detail"]), (True, "open"))
+
+    def test_the_limit_is_two_rounds_of_the_interval_and_the_hosts_report(self):
+        # the interval is 300 s and the host reports every 60 s: 2 x (300 + 60) = 720
+        self.put("db", 720)
+        self.assertNotIn("state", self.rows()["db"], "exactly at the limit is still current")
+        self.put("db", 721)
+        self.assertEqual(self.rows()["db"]["state"], "stale")
+
+    def test_a_stale_result_keeps_what_it_was_and_says_so(self):
+        self.put("db", 5000)
+        up = self.rows()["db"]
+        self.assertEqual((up["state"], up["ok"]), ("stale", True))
+        self.assertEqual(up["detail"], "no recent result from the host (the last one was up: open)")
+        self.assertEqual(up["checked"], self.NOW - 5000, "the age column still says how old it is")
+        self.put("db", 5000, ok=False, detail="connection refused")
+        down = self.rows()["db"]
+        self.assertEqual((down["state"], down["ok"]), ("stale", False))
+        self.assertEqual(down["detail"], "no recent result from the host (the last one was down: connection refused)")
+        self.put("db", 5000, detail="")
+        self.assertEqual(self.rows()["db"]["detail"], "no recent result from the host (the last one was up)")
+
+    def test_a_host_that_reports_slowly_is_given_the_time_it_needs(self):
+        self.put("db", 1000)
+        self.assertEqual(self.rows()["db"]["state"], "stale", "60 s between reports: the limit is 720")
+        devs = api.load(api.DEVICES_FILE)
+        devs["lin1"]["poll_interval"] = 600
+        api.save(api.DEVICES_FILE, devs)
+        api._LOAD_CACHE.clear()
+        self.assertNotIn("state", self.rows()["db"], "600 s between reports: the limit is 1800")
+        self.put("db", 1801)
+        self.assertEqual(self.rows()["db"]["state"], "stale")
+
+    def test_a_poll_interval_that_is_not_a_number_is_the_default(self):
+        for junk in ("soon", None, [], {}, 10 ** 400, True):
+            devs = api.load(api.DEVICES_FILE)
+            devs["lin1"]["poll_interval"] = junk
+            api.save(api.DEVICES_FILE, devs)
+            api._LOAD_CACHE.clear()
+            self.put("db", 100)
+            self.assertNotIn("state", self.rows()["db"], repr(junk)[:20])
+
+    def test_the_limit_follows_the_monitor_interval(self):
+        for interval, limit in ((60, 240), (600, 1320), (3600, 7320)):
+            cfg = api.load(api.CONFIG_FILE)
+            cfg["monitor_interval"] = interval
+            api.save(api.CONFIG_FILE, cfg)
+            api._LOAD_CACHE.clear()
+            self.put("db", limit)
+            self.assertNotIn("state", self.rows()["db"], (interval, limit))
+            self.put("db", limit + 1)
+            self.assertEqual(self.rows()["db"]["state"], "stale", (interval, limit))
+
+    def interval_is(self, value):
+        cfg = api.load(api.CONFIG_FILE)
+        cfg["monitor_interval"] = value
+        api.save(api.CONFIG_FILE, cfg)
+        api._LOAD_CACHE.clear()
+
+    def test_an_interval_that_is_not_a_number_is_five_minutes(self):
+        for junk in ("x", None, [], {}, 0, ""):
+            self.interval_is(junk)
+            self.put("db", 700)
+            self.assertNotIn("state", self.rows()["db"], f"{junk!r}: five minutes, a limit of 720")
+            self.put("db", 721)
+            self.assertEqual(self.rows()["db"]["state"], "stale", repr(junk))
+
+    def test_a_setting_the_loader_let_through_is_five_minutes_too(self):
+        # the loader repairs a setting of the wrong kind before it gets here, so the guard is reached by handing it one directly
+        monitors = api._config_ro().get("monitors")
+        for junk in ("x", "", [], {}, float("nan"), float("inf")):
+            self.put("db", 700)
+            with mock.patch.object(api, "_config_ro", return_value={"monitor_interval": junk}):
+                with mock.patch.object(api.time, "time", return_value=self.NOW):
+                    row = {r["label"]: r for r in api._satellite_monitor_display(monitors)}["db"]
+            self.assertNotIn("state", row, repr(junk))
+            self.put("db", 721)
+            with mock.patch.object(api, "_config_ro", return_value={"monitor_interval": junk}):
+                with mock.patch.object(api.time, "time", return_value=self.NOW):
+                    row = {r["label"]: r for r in api._satellite_monitor_display(monitors)}["db"]
+            self.assertEqual(row["state"], "stale", repr(junk))
+
+    def test_an_interval_below_the_minimum_is_the_minimum(self):
+        for small in (-5, 1, 59):
+            self.interval_is(small)
+            self.put("db", 240)
+            self.assertNotIn("state", self.rows()["db"], f"{small}: a minute, a limit of 240")
+            self.put("db", 241)
+            self.assertEqual(self.rows()["db"]["state"], "stale", small)
+
+    def test_an_interval_too_large_to_be_one_does_not_raise(self):
+        self.interval_is(10 ** 400)
+        self.put("db", 5000)
+        self.assertEqual(self.rows()["db"]["checked"], self.NOW - 5000, "the row is there, whatever the loader made of the setting")
+
+    def test_a_satellite_reports_at_its_interval(self):
+        self.put("sat", 1200, by="satellite:sat-1", target="10.0.0.9:22")
+        self.assertNotIn("state", self.rows()["sat"], "2 x (300 + 300)")
+        self.put("sat", 1201, by="satellite:sat-1", target="10.0.0.9:22")
+        row = self.rows()["sat"]
+        self.assertEqual(row["state"], "stale")
+        self.assertEqual(row["detail"], "no recent result from the satellite (the last one was up: open)")
+
+    def test_a_stamp_that_is_not_a_time_is_old_and_one_in_the_future_is_not(self):
+        for junk in ("soon", None, [], {}, 10 ** 400, "12"):
+            self.put("db", 0, checked=junk)
+            self.assertEqual(self.rows()["db"]["state"], "stale", repr(junk)[:20])
+        self.put("db", -10 ** 6)
+        self.assertNotIn("state", self.rows()["db"], "a result stamped ahead of this clock is not old")
+
+    def test_numbers_a_file_could_hold_but_the_store_will_not_write(self):
+        # a hand-edited file can carry NaN and Infinity, which the writer refuses, so these go to the helpers directly
+        for junk in (float("nan"), float("inf"), float("-inf")):
+            self.assertTrue(api._probe_result_stale(junk, 300, 60, self.NOW), repr(junk))
+        self.assertEqual(api._host_poll_seconds({"poll_interval": float("nan")}), 60)
+        self.assertEqual(api._host_poll_seconds({"poll_interval": float("inf")}), 60)
+        self.assertEqual(api._host_poll_seconds(None), 60)
+        self.assertEqual(api._host_poll_seconds("not a host"), 60)
+        self.assertEqual(api._host_poll_seconds({"poll_interval": 0}), 1, "never zero")
+        self.assertEqual(api._host_poll_seconds({"poll_interval": 90}), 90)
+
+    def test_a_monitor_that_has_not_reported_yet_is_waiting_not_up(self):
+        row = self.rows()["db"]
+        self.assertEqual((row["state"], row["detail"], row["checked"]), ("pending", "awaiting first probe from the host", 0))
+        self.assertEqual(self.rows()["sat"]["state"], "pending")
+
+    def test_the_result_of_another_prober_is_no_result(self):
+        # the monitor was assigned to another host, to a satellite, or to the server, and the old prober's result is still stored
+        for other in ("host:lin2", "satellite:sat-1", "host:gone", "server"):
+            self.put("db", 100, by=other)
+            row = self.rows()["db"]
+            self.assertEqual((row["state"], row["origin"], row["checked"]), ("pending", "host:lin1", 0), other)
+        self.put("sat", 100, by="host:lin1", target="10.0.0.9:22")
+        self.assertEqual(self.rows()["sat"]["state"], "pending", "and the other way round")
+
+    def test_a_result_stored_before_the_producer_was_recorded_is_still_shown(self):
+        self.put("db", 100, by=None)
+        self.assertNotIn("state", self.rows()["db"])
+        self.put("db", 5000, by=None)
+        self.assertEqual(self.rows()["db"]["state"], "stale", "and it ages like any other")
+
+    def test_the_producer_is_not_in_the_row(self):
+        self.put("db", 100)
+        self.put("sat", 100, by="satellite:sat-1")
+        for label, row in self.rows().items():
+            self.assertNotIn("by", row, label)
+
+    def test_the_result_is_stamped_with_who_probed_it(self):
+        self.assertEqual(api.host_probe_ingest("lin1", [{"label": "db", "type": "tcp", "target": "x:1", "ok": True}]), 1)
+        api._LOAD_CACHE.clear()
+        self.assertEqual(api.load(api.SATELLITE_MON_FILE)["db"]["by"], "host:lin1")
+        real = api.require_satellite
+        api.require_satellite = lambda: "sat-1"
+        self.addCleanup(setattr, api, "require_satellite", real)
+        api.method = lambda: "POST"
+        api.get_json_obj = lambda: {"results": [{"label": "sat", "type": "tcp", "target": "10.0.0.9:22", "ok": True, "detail": "open"}]}
+        try:
+            api.handle_satellite_monitor_results()
+        except api.HTTPError:
+            pass
+        api._LOAD_CACHE.clear()
+        self.assertEqual(api.load(api.SATELLITE_MON_FILE)["sat"]["by"], "satellite:sat-1")
+
+    def test_a_result_that_arrives_makes_a_stale_row_current_again(self):
+        self.put("db", 5000)
+        self.assertEqual(self.rows()["db"]["state"], "stale")
+        self.assertEqual(api.host_probe_ingest("lin1", [{"label": "db", "type": "tcp", "target": "x:1", "ok": True, "detail": "open"}]), 1)
+        api._LOAD_CACHE.clear()
+        row = {r["label"]: r for r in api._satellite_monitor_display(api._config_ro().get("monitors"))}["db"]
+        self.assertNotIn("state", row)
+        self.assertEqual(row["detail"], "open")
+
+    def test_the_monitor_page_gets_the_states(self):
+        self.put("db", 5000)
+        api.method = lambda: "GET"
+        self.cap.clear()
+        with mock.patch.object(api.time, "time", return_value=self.NOW):
+            try:
+                api.handle_monitor_run()
+            except api.HTTPError:
+                pass
+        self.assertEqual(self.cap.get("s"), 200, self.cap)
+        by = {r["label"]: r for r in self.cap["b"]["monitors"]}
+        self.assertEqual(by["db"]["state"], "stale")
+        self.assertEqual(by["sat"]["state"], "pending")
+        self.assertNotIn("state", by["paused"], "a paused monitor is its own row")
+        self.assertTrue(by["paused"]["paused"])
+        self.assertNotIn("by", json.dumps(self.cap["b"]), "who probed is not given to a reader")
+
+    def test_the_row_of_a_quiet_host_does_not_name_it_to_a_reader_who_cannot_see_it(self):
+        self.put("db", 5000)
+        rows = [dict(r) for r in self.rows().values()]
+        before = {r["label"]: r for r in rows}["db"]
+        self.assertEqual((before["origin"], before["origin_name"]), ("host:lin1", "web1"), "an administrator is told")
+        with mock.patch.object(api, "_scope_filter_devices", return_value={}):
+            masked = {r["label"]: r for r in api._mask_host_origins(rows)}["db"]
+        self.assertEqual(masked["origin"], "host")
+        self.assertNotIn("origin_name", masked)
+        self.assertEqual(masked["state"], "stale")
+        self.assertNotIn("web1", json.dumps(masked))
+        self.assertNotIn("lin1", json.dumps(masked))
+
+
 class TestThroughTheHeartbeat(_Save):
     """The response carries the monitors and the body carries the results, with the agent's own request."""
 

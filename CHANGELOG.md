@@ -187,6 +187,15 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   The Windows and macOS agents, agentless hosts and a host in audit mode do not probe (a check cannot be assigned to one, and the row of a
   host that was put in audit mode afterwards says so). Update the agents: until then the row reads *awaiting first
   probe from the host*. Not run against a real host yet: the probes ran against local servers and a stubbed `ping`.
+- **A check that has gone quiet no longer reads as up.** A check that a host or a satellite probes keeps its last result, and the
+  page went on showing it as up or down for as long as nothing replaced it: a green arrow from days ago after the host stopped
+  reporting, or the old prober's result after the check was moved to another host or to a satellite. A row reads **NO DATA** now
+  when its last result is older than twice the monitor check interval plus the time the prober takes to report (a host's own
+  report interval), and **WAITING** while nothing has been reported. The detail keeps the last result (*no recent result from the
+  host (the last one was up: open)*) and the age column keeps its time. Each stored result names who probed it, so a check that
+  moves shows nothing of the old prober's. No alert is raised for a row with no data: the host's own offline alert is the signal.
+  `GET /api/monitor` rows carry `state` (`stale` or `pending`) when they are not a reading. The demo's satellite check has a
+  result now, so it no longer waits.
 
 ### Backups
 

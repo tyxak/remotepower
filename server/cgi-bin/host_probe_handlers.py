@@ -190,7 +190,8 @@ def host_probe_ingest(dev_id, raw):
             continue
         res = {'label': label, 'type': A._sanitize_str(str(r.get('type', 'ping')), 16),
                'target': A._sanitize_str(str(r.get('target', '')), 256), 'ok': r.get('ok') is True,
-               'detail': A._sanitize_str(str(r.get('detail', '')), 256), 'checked': now}
+               'detail': A._sanitize_str(str(r.get('detail', '')), 256), 'checked': now,
+               'by': f'host:{dev_id}'}        # who probed it, so a monitor that moves to another prober shows nothing of the old one
         lat = clean_latency(r.get('latency_ms'))
         if lat is not None:
             res['latency_ms'] = lat

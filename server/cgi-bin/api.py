@@ -29182,10 +29182,42 @@ def _mask_host_origins(rows):
     return rows
 
 
+# 7.4.9: a monitor probed by a host or a satellite is produced every interval and reaches the server with the prober's next
+# report. A result older than this many rounds of both is not shown as the state of the check.
+_PROBE_STALE_ROUNDS = 2
+
+
+def _probe_result_stale(checked, interval, poll, now):
+    """True when the stored result of a monitor that a host or a satellite probes is too old to be shown as current: older than
+    _PROBE_STALE_ROUNDS rounds of the interval plus the time the prober takes to report. A stamp that is not a number counts as
+    old, and one in the future does not."""
+    try:
+        age = now - int(checked)
+    except (TypeError, ValueError, OverflowError):
+        return True
+    return age > _PROBE_STALE_ROUNDS * (interval + poll)
+
+
+def _host_poll_seconds(dev):
+    try:
+        return max(1, int((dev or {}).get('poll_interval', DEFAULT_POLL_INTERVAL)))
+    except (TypeError, ValueError, OverflowError, AttributeError):
+        return DEFAULT_POLL_INTERVAL
+
+
 def _satellite_monitor_display(monitors):
     """W4-14: display rows for satellite-assigned monitors — the last result the
-    satellite POSTed (or a 'pending' placeholder until the first probe)."""
+    satellite POSTed (or a 'pending' placeholder until the first probe).
+
+    7.4.9: the same for a monitor a host's agent probes. A row carries `state` when its status is not a reading: 'pending' before
+    the first result, 'stale' when the last one is older than the prober reports (see _probe_result_stale). The result of another
+    prober, kept from before the monitor was moved, counts as no result."""
     stored = load(SATELLITE_MON_FILE) or {}
+    now = int(time.time())
+    try:
+        interval = max(60, int(_config_ro().get('monitor_interval', 300) or 300))
+    except (TypeError, ValueError, OverflowError):
+        interval = 300
     out = []
     for m in monitors:
         sid = m.get('via_satellite')
@@ -29197,18 +29229,27 @@ def _satellite_monitor_display(monitors):
         label = _sanitize_str(m.get('label', m.get('target', '')), 128)
         origin = f'satellite:{sid}' if sid else f'host:{vh}'
         prev = stored.get(label)
+        if isinstance(prev, dict) and prev.get('by') not in (None, origin):
+            prev = None          # probed by someone else, before the monitor was moved to this prober
         if isinstance(prev, dict):
             row = dict(prev)
+            row.pop('by', None)
             row['label'] = label
             row.setdefault('type', m.get('type', 'ping'))
             row.setdefault('target', m.get('target', ''))
             row['origin'] = origin
             if vh and not sid:
                 row['origin_name'] = _host_origin_name(vh)
+            poll = interval if sid else _host_poll_seconds(device_get(vh) if _validate_id(str(vh)) else None)
+            if _probe_result_stale(prev.get('checked'), interval, poll, now):
+                row['state'] = 'stale'
+                row['detail'] = _sanitize_str(
+                    f"no recent result from the {'satellite' if sid else 'host'} (the last one was "
+                    f"{'up' if prev.get('ok') else 'down'}{': ' + str(prev['detail']) if prev.get('detail') else ''})", 256)
             out.append(row)
         else:
             row = {'label': label, 'type': m.get('type', 'ping'),
-                   'target': m.get('target', ''), 'ok': True,
+                   'target': m.get('target', ''), 'ok': True, 'state': 'pending',
                    'detail': 'awaiting first satellite probe' if sid else 'awaiting first probe from the host',
                    'checked': 0, 'origin': origin}
             if vh and not sid and ((device_get(vh) or {}).get('sysinfo') or {}).get('audit_mode'):
@@ -57426,6 +57467,7 @@ def handle_satellite_monitor_results():
             'ok':     bool(r.get('ok')),
             'detail': _sanitize_str(str(r.get('detail', '')), 256),
             'checked': now,
+            'by':     f'satellite:{sid}',     # 7.4.9: who probed it, as for a host's results
         }
         _lat = clean_latency(r.get('latency_ms'))      # 7.4.9: the guard a host's results have; float() of a huge integer raises
         if _lat is not None:

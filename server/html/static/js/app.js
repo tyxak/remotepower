@@ -3988,7 +3988,7 @@ function _registerMonitorTable() {
       target:  m.target || '',
       // Sort 'up' before 'down' alphabetically by accident — fine; users
       // who want all-down at the top can click descending.
-      status:  m.ok ? 'up' : 'down',
+      status:  (m.state === 'stale' || m.state === 'pending') ? m.state : (m.ok ? 'up' : 'down'),
       detail:  m.detail || '',
       checked: m.checked || 0,
     }),
@@ -3998,7 +3998,10 @@ function _registerMonitorTable() {
       // showing "↑ up"/"↓ down" would be a lie — say PAUSED instead.
       const _st = m.paused
         ? '<span class="patch-badge fs-11" title="Not being probed — history and uptime% are kept">PAUSED</span>'
-        : `<span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span>`;
+        // 7.4.9: a row that is not a reading says so (the detail says why), where a green or red arrow would be read as one
+        : (m.state === 'stale' || m.state === 'pending')
+          ? `<span class="patch-badge fs-11">${m.state === 'stale' ? 'NO DATA' : 'WAITING'}</span>`
+          : `<span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span>`;
       const _pauseBtn = m.paused
         ? `<button class="btn-icon isl-44" title="Resume probing" data-action="toggleMonitorPause" data-arg="${escAttr(m.label)}" data-arg2="0"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>`
         : `<button class="btn-icon isl-44" title="Pause — stop probing but keep the monitor and its history" data-action="toggleMonitorPause" data-arg="${escAttr(m.label)}" data-arg2="1"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>`;
