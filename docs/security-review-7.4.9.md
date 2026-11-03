@@ -6,7 +6,7 @@ installers, a review of the web client and the web server headers, a rendered au
 and a map of what the agents send against where it is used. Scanners ran beside them. Everything below was found, reproduced and
 fixed on a seeded copy of the product, not on anyone's installation.
 
-It found **five High issues, seventeen Medium ones and eleven Low or hardening items. Every one of them is fixed.** Nothing rated
+It found **five High issues, seventeen Medium ones and twelve Low or hardening items. Every one of them is fixed.** Nothing rated
 Medium or higher is open. "Open" lists what is left, and none of it is a way to attack an installation. Each fix has tests, and
 each test was run against the code with its fix taken out.
 
@@ -190,6 +190,7 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
 | S31 | Medium | server | a read-only role was shown the address that reports a dead-man job alive |
 | S32 | Medium | server, tenancy | an event that names no host reached a tenant's users in the Home feed, in a personal notification and in a browser push, and a business service's alert named hosts to readers who cannot see them |
 | S33 | Low | server | the words a host chose (its name, a container, a line of a log) went into chat messages as written, so they could ping a whole channel or put a link behind a harmless label |
+| S34 | Low | server | a JSON object where an hour range belongs, in the hours of the ticket calendar or of a time period, answered 500 |
 
 ## Fixed in 7.4.9
 
@@ -322,6 +323,12 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
   read the same. `tests/test_v749_chat_text.py` drives the dispatcher with hostile names, containers and log lines, and holds the list of
   formats: a new format has to be placed on it. The generic JSON destination, the ticket destinations and the push services send the
   text as before, and the test says why.
+- **S34.** The hours of a ticket calendar and of a time period are lists of start and end minutes. The code that reads one caught every
+  error a wrong value can raise except `KeyError`, which is what a JSON object raises when it stands where a pair belongs. A settings
+  save with such a body answered 500, and so would the reader of a stored period that held one. Only an administrator can send the body
+  and the answer is an error page, so it is rated Low. One list of those errors serves both readers now, and a value that is not a range
+  is left out, as every other value of the wrong kind is. A test written for the editor found it: it sends the body to the real settings
+  call and to the SLA clock (`tests/test_v749_time_periods_server.py`, `tests/test_v749_time_periods.py`).
 - **S1, S11, S22.** Described in the CHANGELOG.
 
 ## Open

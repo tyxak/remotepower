@@ -307,7 +307,7 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 - **A security review of the whole project, not only of what changed.** Seven reviews ran side by side: who can reach what
   on every route (1,075 operations as 26 kinds of caller), hostile input on every route, the three agents and their
   installers, the web client and the web server headers, the interface, the documents, and a map of what the agents send
-  against where it is used. Scanners ran beside them. They found five High issues, seventeen Medium ones and eleven Low or hardening
+  against where it is used. Scanners ran beside them. They found five High issues, seventeen Medium ones and twelve Low or hardening
   items. Every one of them is fixed, and the entries below describe them. What is left, which is nothing that attacks an
   installation, is in [docs/security-review-7.4.9.md](docs/security-review-7.4.9.md), with the scans and the numbers behind
   each check.

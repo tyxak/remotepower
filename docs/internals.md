@@ -50,7 +50,7 @@ By the numbers:
 | Typed request-body models | ~278 |
 | Homelab integration connectors | 50 (+ a generic HTTP probe) |
 | Background maintenance sweeps | ~76 |
-| Frontend JS files (no bundler) | 56 |
+| Frontend JS files (no bundler) | 57 |
 | Test methods across ~1,000 files | ~17,800 |
 
 ---|---|

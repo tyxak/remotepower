@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.9-4">
+<meta name="rp-i18n" content="static/js/i18n.js?v=7.4.9-5">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=7.4.9-4">
+<link rel="stylesheet" href="static/css/styles.css?v=7.4.9-5">
 
 </head>
 <body>
@@ -4964,8 +4964,8 @@
               <p><strong>Choose how a host upgrades.</strong> <code>apt-get upgrade</code> keeps back an update that needs a package that is not installed yet, such as a new kernel image, and exits 0. A host can run its upgrades in <em>Standard</em> mode (the default) or <em>Extended</em> mode, which runs <code>apt-get upgrade --with-new-pkgs</code> and installs those packages too. Choose it in the host&rsquo;s Patch Report, which names the packages apt keeps back, or for many hosts in Bulk actions. It applies to the patch button, auto-patch, scheduled upgrades and rollouts.</p>
               <p><strong>A drive sensor follows its own disk.</strong> A hard disk and a SATA SSD behind the same controllers keep their own temperature lines. The Thermal page names the disk beside each <code>drivetemp</code> sensor, and the temperature list in the host drawer uses the same verdict. Update the Linux agents.</p>
               <p><strong>What 7.4.8 got wrong on Ubuntu 22.04.</strong> An update Ubuntu was still phasing in was counted as pending, and nothing could clear it. The agent leaves such an update out now.</p>
-              <p><strong>The whole project was reviewed.</strong> Seven reviews ran side by side: who can reach what on every route, hostile input, the agents and their installers, the web client, the interface, the documents and the signals the agents send. They found five High, seventeen Medium and eleven Low or hardening issues, and every one of them is fixed. Among the fixes: a viewer could rewrite a host&rsquo;s watched services by changing the HTTP verb, Sign out did not end the session on the server, a tenant&rsquo;s users could read the operator&rsquo;s tickets and invoices, and the Docker image ran its app as root. See <code>docs/security-review-7.4.9.md</code>.</p>
-              <p><strong>New after the review.</strong> A <em>Business Services</em> page names what people depend on and the hosts, monitors, units, containers and scripts it is made of, with a rule for how they add up. A container that fails its own health check raises an alert with what the check printed. A custom script can be read as a Nagios plugin, with four states and performance data. An alert can be assigned to a person. Mattermost, Rocket.Chat, Google Chat and Gotify are destinations of their own, and ntfy now gets the real priority. An enrolment token can be limited to a network. A patch run can be previewed first, and each host&rsquo;s package repositories are listed with what is wrong with them. The Storage page shows the ZFS cache and datasets, and the Containers page audits how each container was started. A check can run from a host&rsquo;s own agent. The backup can be copied to an S3-compatible bucket. The host drawer shows where the CPU time goes, with lines for I/O wait and steal. Named <em>time periods</em> in Settings are shared by quiet hours, after-hours detection, the ticket SLA clock and maintenance windows.</p>
+              <p><strong>The whole project was reviewed.</strong> Seven reviews ran side by side: who can reach what on every route, hostile input, the agents and their installers, the web client, the interface, the documents and the signals the agents send. They found five High, seventeen Medium and twelve Low or hardening issues, and every one of them is fixed. Among the fixes: a viewer could rewrite a host&rsquo;s watched services by changing the HTTP verb, Sign out did not end the session on the server, a tenant&rsquo;s users could read the operator&rsquo;s tickets and invoices, and the Docker image ran its app as root. See <code>docs/security-review-7.4.9.md</code>.</p>
+              <p><strong>New after the review.</strong> A <em>Business Services</em> page names what people depend on and the hosts, monitors, units, containers and scripts it is made of, with a rule for how they add up. A container that fails its own health check raises an alert with what the check printed. A custom script can be read as a Nagios plugin, with four states and performance data. An alert can be assigned to a person. Mattermost, Rocket.Chat, Google Chat and Gotify are destinations of their own, and ntfy now gets the real priority. What a host writes into an alert reaches the chat destinations as text, so a host named <code>@channel</code> pings nobody. An enrolment token can be limited to a network. A patch run can be previewed first, and each host&rsquo;s package repositories are listed with what is wrong with them. The Storage page shows the ZFS cache and datasets, and the Containers page audits how each container was started. A check can run from a host&rsquo;s own agent, and reads <em>NO DATA</em> when that host stops reporting. The backup can be copied to an S3-compatible bucket, and a server can be restored from there. The host drawer shows where the CPU time goes, with lines for I/O wait and steal, and the Metrics window draws it over two days. Named <em>time periods</em> in Settings are shared by quiet hours, after-hours detection, the ticket SLA clock and maintenance windows, and a day takes up to six ranges.</p>
               <p><strong>What changes for you.</strong> Update the agents. If you used ACME with a DNS credential saved in Settings, rotate that token. In Docker, add <code>-u www-data</code> to a <code>docker exec</code> that writes to the data volume. A host&rsquo;s SCAP report opens from a link that works for one minute. A maintenance window written with a day name such as <code>SUN</code> opens now, so look at the ones you edited by hand.</p>
               <p><strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
               <p class="hint">See <code>docs/v7.4.9.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
@@ -12972,39 +12972,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=7.4.9-4"></script>
+<script defer src="static/js/app.js?v=7.4.9-5"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-cmdb.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-containers.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-network.js?v=7.4.9-4"></script>
+<script defer src="static/js/app-calendar.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-cmdb.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-containers.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-network.js?v=7.4.9-5"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-compliance.js?v=7.4.9-4"></script>
+<script defer src="static/js/app-hostconfig.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-compliance.js?v=7.4.9-5"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-dns.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-drift.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-cve.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-firewall.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-backups.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-iac.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-proxmox.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-virt.js?v=7.4.9-4"></script>
+<script defer src="static/js/app-ai.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-dns.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-drift.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-cve.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-firewall.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-backups.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-iac.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-proxmox.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-virt.js?v=7.4.9-5"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-remote.js?v=7.4.9-4"></script>
-<script defer src="static/js/app-tickets.js?v=7.4.9-4"></script>
+<script defer src="static/js/app-logs.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-remote.js?v=7.4.9-5"></script>
+<script defer src="static/js/app-tickets.js?v=7.4.9-5"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=7.4.9-4"></script>
+<script defer src="static/js/app-self.js?v=7.4.9-5"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=7.4.9-4"></script>
+<script defer src="static/js/app-tooltip.js?v=7.4.9-5"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -13014,6 +13014,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=7.4.9-4"></script>
+<script defer src="static/js/sw-register.js?v=7.4.9-5"></script>
 </body>
 </html>

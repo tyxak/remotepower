@@ -204,7 +204,7 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   update needs, such as a new kernel image that apt keeps back. A hard disk and a SATA SSD behind
   the same controllers keep their own temperature lines, and an update Ubuntu is still phasing in
   is no longer counted as pending. The review covered everything, not only the new code. It found
-  five High, seventeen Medium and eleven Low or hardening issues and fixed every one of them:
+  five High, seventeen Medium and twelve Low or hardening issues and fixed every one of them:
   a viewer could rewrite a host's watched services, Sign out did not end the session on the
   server, a tenant's users could read the operator's tickets and invoices, and the Docker image
   ran its app as root. After the review it also gained a Business services page (hosts, monitors,
@@ -213,8 +213,8 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   person, Mattermost, Rocket.Chat, Google Chat and Gotify destinations, and enrolment tokens limited
   to a network. Later it gained a preview of what an upgrade would change, an inventory of each
   host's package repositories, ZFS cache and dataset tables, a hardening audit of how containers
-  were started, checks run from a host's own agent, a backup copy to an S3-compatible bucket, the
-  CPU time split into I/O wait, steal and the rest, and named time periods that quiet hours,
+  were started, checks run from a host's own agent, a backup copy to an S3-compatible bucket that a
+  server can be restored from, the CPU time split into I/O wait, steal and the rest, drawn over two days, and named time periods that quiet hours,
   after-hours detection, the ticket SLA clock and maintenance windows share. Update the agents.
 - **v7.4.8 "Hon3stMatters"** — three screens that said something untrue. A Problems row
   that read "never" under Updated shows when its host last reported. A sensor limit that is
