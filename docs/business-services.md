@@ -76,7 +76,9 @@ so it starts counting when you create the service.
 
 Business services are a view across the installation's own hosts, monitors and scripts, so on an installation with
 [tenancy](scaling.md) they belong to the organisation that runs it. Administrators create, change and delete them. Other
-signed-in users of that organisation see the services whose hosts they can see. Users of a tenant do not see the page.
+signed-in users of that organisation see the services whose hosts they can see. Users of a tenant do not see the page, and they are not shown the alerts and activity entries a service raises either. The same
+rule covers the alert, the Problems list, the activity feed and the notifications: a person sees what a service raises only if
+they can see every host it names, because the text lists its parts by name.
 
 ## API
 

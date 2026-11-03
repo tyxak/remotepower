@@ -6,7 +6,7 @@ installers, a review of the web client and the web server headers, a rendered au
 and a map of what the agents send against where it is used. Scanners ran beside them. Everything below was found, reproduced and
 fixed on a seeded copy of the product, not on anyone's installation.
 
-It found **five High issues, sixteen Medium ones and ten Low or hardening items. Every one of them is fixed.** Nothing rated
+It found **five High issues, seventeen Medium ones and ten Low or hardening items. Every one of them is fixed.** Nothing rated
 Medium or higher is open. "Open" lists what is left, and none of it is a way to attack an installation. Each fix has tests, and
 each test was run against the code with its fix taken out.
 
@@ -16,7 +16,13 @@ below says so.
 ## What changed that a reviewer should look at
 
 **Added after the review.** Six features were built once the sweep was done and the gates had run. None loosens a permission, and
-each was checked with the same instruments. New routes: `POST /api/alerts/{id}/assign` (it asks for the right to acknowledge an
+each was checked with the same instruments. The matrix, run again on the finished tree, found one defect in them, fixed before
+release (S32). The matrix ran again on the finished tree: 1,082 routed operations (the seven new routes included), 84,801 requests
+in 60 runs, and no answer to a tenant user held another tenant's id, name or object. The 58 operations that answered some caller with a
+marker it should not hold fall in the same groups as before: 13 answered tenant users (the caller's own input stored and read back, the
+content of a cloned host, the shared knowledge base, or a host token's own scripts), 42 answered only roles scoped to groups or tags, 2
+answered the finance role, and one was a planted row that the product itself had already rewritten into an alert about the
+installation's own service. The 697 answers that were not a refusal are the same as in the earlier run (251 were 400 and 446 were 405). New routes: `POST /api/alerts/{id}/assign` (it asks for the right to acknowledge an
 alert, refuses an alert the caller cannot reach, and refuses an assignee who could not open the alert: another tenant's account,
 a role scoped to other hosts, a disabled account), and `/api/business-services` with its `{id}` and `impact` routes (the
 organisation that runs the installation's, so they sit in the second table below and a tenant's users never reach them; creating,
@@ -158,6 +164,7 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
 | S29 | Low (defense in depth) | web client, stored data | a number stored as text would be printed as markup by 731 template operands; no agent or API call can store one, and the loader now reads 34 kinds of field that way |
 | S30 | **High** | server, tenancy | an ACME issue request handed the operator's central DNS credentials to a tenant's own host |
 | S31 | Medium | server | a read-only role was shown the address that reports a dead-man job alive |
+| S32 | Medium | server, tenancy | an event that names no host reached a tenant's users in the Home feed, in a personal notification and in a browser push, and a business service's alert named hosts to readers who cannot see them |
 
 ## Fixed in 7.4.9
 
@@ -272,6 +279,16 @@ Severity follows the project's own scale. Anything a stranger or a lower-privile
   central DNS credentials and have tenants, rotate that token.**
 - **S31.** The dead-man job list gave every signed-in role the address that reports a job alive, and whoever has it can report a
   missed job as on time. A read-only role is shown the job and not the address; an administrator gets both.
+- **S32.** The events endpoint and the alert inbox kept an event that names no host (a monitor, an integration, a business service)
+  for the organisation that runs the installation, and showed a tenant's users only the events of their own hosts. Three other
+  readers did not. The Home feed showed a tenant's users the operator's monitors and integrations. A personal notification went to
+  every subscriber, whichever tenant they belonged to. The browser push went to every subscription, so a tenant's user was told the
+  title of every other tenant's high or critical host alert. All of them ask the same question now: a tenant's user is never shown
+  or sent an event that names no host, and a host's event reaches the people who can see that host. The matrix also found the same gap in
+  the Business Services feature before it shipped: the alert and the activity entry of a service list its parts by name, and only the
+  page had hidden them from a reader who cannot see one of the hosts. A row about a service is shown to a reader only if every host
+  it names is one they can see, and acknowledging, resolving or assigning such an alert refuses a reader who cannot see it.
+  The hosts a row names are recorded with it, so changing a service later does not widen who can read an older row.
 - **S1, S11, S22.** Described in the CHANGELOG.
 
 ## Open

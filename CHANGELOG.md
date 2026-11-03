@@ -141,10 +141,20 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 - **A security review of the whole project, not only of what changed.** Seven reviews ran side by side: who can reach what
   on every route (1,075 operations as 26 kinds of caller), hostile input on every route, the three agents and their
   installers, the web client and the web server headers, the interface, the documents, and a map of what the agents send
-  against where it is used. Scanners ran beside them. They found five High issues, sixteen Medium ones and ten Low or hardening
+  against where it is used. Scanners ran beside them. They found five High issues, seventeen Medium ones and ten Low or hardening
   items. Every one of them is fixed, and the entries below describe them. What is left, which is nothing that attacks an
   installation, is in [docs/security-review-7.4.9.md](docs/security-review-7.4.9.md), with the scans and the numbers behind
   each check.
+- **An event that names no host reached people it should not, and a business service's alert named hosts a reader cannot see (Medium).**
+  Found by the authorization matrix on the finished tree. The events endpoint and the alert inbox already kept an event that names
+  no host (a monitor, an integration, a business service) for the organisation that runs the installation. Three other readers did
+  not: the Home feed showed a tenant's users the operator's monitors and every service, a personal notification went to every
+  subscriber whichever tenant they belonged to, and the browser push went to every subscription, so a tenant's user was told the
+  title of every other tenant's high or critical host alert. They ask the same question now. The alert and the activity entry of a
+  business service list its parts by name, which only the page had hidden from a reader who cannot see one of the hosts. A reader
+  sees such a row only if every host it names is one they can see (a viewer of the installation's own organisation no longer reads
+  another tenant's host names, and a role scoped to one group no longer reads another group's), and acknowledging, resolving or
+  assigning an alert refuses a reader who cannot see it.
 - **A tenant's users no longer see the operator's data or another tenant's hosts in the listings that had no filter (Medium).**
   This is the rest of the listings the authorization matrix found; the history, the schedule and the image view are in the entry
   further down. They matter on an installation with tenancy on.
