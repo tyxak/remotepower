@@ -8644,6 +8644,23 @@ td > .btn-icon + .btn-icon { margin-left: 0; margin-inline-start: 6px; }
 /* Focus: a ring inside a scrolling list or the heat map is drawn inside the box that clips it. */
 .scroll-cap :focus-visible, .scroll-cap-sm :focus-visible, .heatmap-grid :focus-visible { outline-offset: -2px; }
 
+/* Buttons in one row look like one family. Measured on 1,273 rows with two or more controls: the label of `.btn-icon` sat 1 px above
+   the others (its line height is 14 px, theirs was `normal`), the filled buttons had no border beside the outlined ones (168 rows),
+   the text inset was 13, 14, 15 or 18 px, and the action buttons had a radius of 8 and a padding of 9 where the rest have 7 and 8.
+   The phone block keeps its own larger boxes. */
+.btn-primary, .btn-secondary, .enroll-btn { line-height: 14px; }
+.btn-primary, .enroll-btn { border: 1px solid transparent; }
+.enroll-btn, .btn-update, .btn-upgrade, .btn-shutdown, .btn-reboot { border-radius: 7px; }
+.btn-update, .btn-upgrade, .btn-shutdown, .btn-reboot { padding-top: 8px; padding-bottom: 8px; }
+@media (min-width: 721px) {
+  .btn-primary, .btn-secondary, .enroll-btn, .btn-xs { padding-left: 12px; padding-right: 12px; }
+}
+
+/* An icon and its label inside one inline element were separated by the width of a space (2.8 to 3.6 px) where a button has 5 px:
+   every section of the host drawer's Audit tab, the board labels, the drawer setting labels and the compliance fix links. */
+.audit-section summary > span, .board-tile-name, .meta-label, .drawer-setting-label, a.compliance-fix { display: inline-flex; align-items: center; gap: 5px; }
+.audit-section summary .audit-section-badge { margin-left: 0; }
+
 /* ═══ PILOT LOOK (7.4.9) ═══ BEGIN ═════════════════════════════════════════════════════════════════════════════════════════════════
    The second look, chosen under My Account → Appearance (body[data-look]). Classic is the stylesheet above this block, unchanged:
    every selector below starts with body[data-look="pilot"], so nothing here can reach it (tests/test_v749_look_css.py holds that).
@@ -8674,7 +8691,7 @@ body[data-look="pilot"] .sev-pill[class*="sev-"],
 body[data-look="pilot"] .up-kind,
 body[data-look="pilot"] #page-home .patch-badge {
   --led: var(--muted);
-  display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; border-radius: 0; background: transparent;
+  display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; border-radius: 0; background: transparent;
   color: var(--text); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: capitalize;
 }
 body[data-look="pilot"] .sev-pill::before,
@@ -8783,11 +8800,11 @@ body[data-look="pilot"] .pilot-field { display: flex; flex-direction: column; ju
    moves. tests/test_v749_look_css.py keeps the padding at least as large as the reach of the dot's shadow, and a browser test looks
    for any shadow that a clipping ancestor cuts. */
 body[data-look="pilot"] .pilot-matrix { display: flex; flex-wrap: wrap; gap: 16px 30px; align-items: flex-start; max-height: 340px; overflow: auto; padding: 12px; margin: -12px; }
-body[data-look="pilot"] .pilot-cluster { display: flex; flex-direction: column; gap: 9px; }
+body[data-look="pilot"] .pilot-cluster { display: flex; flex-direction: column; gap: 8px; }
 body[data-look="pilot"] .pilot-row { display: flex; flex-wrap: wrap; gap: 8px; }
 body[data-look="pilot"] .pilot-glabel { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 body[data-look="pilot"] .pilot-legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 11px; color: var(--muted); }
-body[data-look="pilot"] .pilot-key { display: inline-flex; align-items: center; gap: 7px; }
+body[data-look="pilot"] .pilot-key { display: inline-flex; align-items: center; gap: 8px; }
 body[data-look="pilot"] .pilot-dot { --c: var(--green); display: inline-block; flex: none; width: 19px; height: 19px; padding: 0; border: 0; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent), 0 0 10px color-mix(in srgb, var(--c) var(--glow-a), transparent); cursor: pointer; }
 body[data-look="pilot"] .pilot-key .pilot-dot { width: 8px; height: 8px; cursor: default; box-shadow: 0 0 6px color-mix(in srgb, var(--c) var(--glow-a), transparent); }
 body[data-look="pilot"] .pilot-matrix.is-md .pilot-dot { width: 14px; height: 14px; }
