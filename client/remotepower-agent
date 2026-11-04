@@ -1188,6 +1188,15 @@ def _restart_self():
         log.warning(f"could not restart on new credentials ({e}); carrying on as before")
 
 
+def _write_all(fd, data):
+    """Write every byte of `data` to `fd`. os.write() does not loop: on a file system that fills up it writes what fits and returns
+    that count, and only the next call fails. The calls below used to ignore the count, so a script, a configuration file or the
+    credentials could be stored cut short, and reported as written (7.5.0)."""
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view):]
+
+
 def _safe_state_write(name: str, content: str) -> None:
     """Write a small marker file to STATE_DIR if possible, else /tmp/.
 
@@ -1204,7 +1213,7 @@ def _safe_state_write(name: str, content: str) -> None:
                      os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
                      0o600)
         try:
-            os.write(fd, content.encode())
+            _write_all(fd, content.encode())
         finally:
             os.close(fd)
         return
@@ -1224,7 +1233,7 @@ def _safe_state_write(name: str, content: str) -> None:
                      os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                      0o600)
         try:
-            os.write(fd, content.encode())
+            _write_all(fd, content.encode())
         finally:
             os.close(fd)
     except OSError as e:
@@ -1771,7 +1780,8 @@ def save_credentials(creds):
                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                  0o600)
     try:
-        os.write(fd, json.dumps(creds, indent=2).encode())
+        _write_all(fd, json.dumps(creds, indent=2).encode())
+        os.fsync(fd)
     finally:
         os.close(fd)
     log.info(f"Credentials saved to {CREDS_FILE}")
@@ -2132,6 +2142,23 @@ def _plant_canaries(canary_cfg):
         if not _ok:
             _canary_failed[str(p)[:256]] = _why
             continue
+        # 7.5.0: places the system reads to run something that the mirrored list above does not name: a drop-in for sshd
+        # (AuthorizedKeysCommand), logrotate (postrotate), rsyslog (omprog), fail2ban, snmpd (extend), modprobe (install), tmpfiles,
+        # supervisor, kernel and initramfs hooks, and the library trees. A compromised server could write a root program into any
+        # of them on a host that does not ask for signed commands. Kept beside the mirrored list, inline, because the tests run
+        # this function on its own and the three copies of the list are held equal.
+        _low = str(p).lower().replace('\\', '/')
+        _bad = next((d for d in ('/etc/ssh/', '/etc/logrotate.d/', '/etc/rsyslog.d/', '/etc/modprobe.d/', '/etc/modules-load.d/',
+                                 '/etc/tmpfiles.d/', '/etc/sysctl.d/', '/etc/udev/', '/etc/security/', '/etc/default/',
+                                 '/etc/sysconfig/', '/etc/fail2ban/', '/etc/xinetd.d/', '/etc/audit/', '/etc/dbus-1/',
+                                 '/etc/snmp/', '/etc/supervisor/', '/etc/openvpn/', '/etc/zabbix/', '/etc/nrpe.d/',
+                                 '/etc/ca-certificates/', '/etc/kernel/', '/etc/initramfs-tools/', '/etc/dracut.conf.d/',
+                                 '/etc/grub.d/', '/etc/dhcp/', '/etc/network/', '/etc/apparmor.d/', '/etc/environment.d/',
+                                 '/etc/pam.conf', '/etc/anacrontab', '/etc/crontab', '/usr/lib/', '/usr/libexec/', '/usr/share/',
+                                 '/lib/', '/lib64/', '/var/spool/', '/library/launchdaemons/', '/library/launchagents/') if d in _low), None)
+        if _bad:
+            _canary_failed[str(p)[:256]] = 'a decoy cannot live in ' + _bad.strip('/')
+            continue
         hp = host_path(p)
         if p in _canary_planted:
             continue
@@ -2165,7 +2192,9 @@ def _plant_canaries(canary_cfg):
             _land = os.path.join(_real_parent, os.path.basename(hp))
             fd = os.open(_land, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             try:
-                os.write(fd, content.encode())
+                view = memoryview(content.encode())      # all of it (see _write_all; this function is also run on its own by tests)
+                while view:
+                    view = view[os.write(fd, view):]
             finally:
                 os.close(fd)
             st = os.stat(hp)
@@ -5966,8 +5995,10 @@ def collect_backup_status(backup_monitors):
     """
     results = []
     for mon in (backup_monitors or []):
+        if not isinstance(mon, dict):       # 7.5.0: a monitor is a dict; the other collectors of this list already say so
+            continue
         p = mon.get('path', '')
-        if not p:
+        if not p or not isinstance(p, str):
             continue
         try:
             fp = Path(host_path(p))   # v5.0.0: containerized agent reads host fs
@@ -6821,7 +6852,13 @@ def _probe_update(raw_specs, interval):
     """Take the monitors the server assigned to this host (None leaves them as they are). An empty list stops the probing."""
     if not isinstance(raw_specs, list):
         return
-    if _audit_mode():                   # observe-only: nothing the server assigns is run
+    # Observe-only mode runs nothing the server assigns, and neither does a host that wants a signed word for everything: the
+    # monitors ride the heartbeat as a setting, there is nothing to verify, and what they do is open connections and start ping
+    # to addresses the server names, from this host's network. Without this a server that is not trusted any more could still use
+    # the host to look around its private network (7.5.0; canary files, backup verification and restore drills were closed in
+    # 7.4.9, this channel arrived after).
+    if _audit_mode() or _refuse_unsigned_channel('host probes', 'the monitors are a setting, not a signed command, and a probe '
+                                                 'opens connections and starts ping from this host to addresses the server names'):
         _PROBE['specs'] = []
         with _PROBE_LOCK:
             _PROBE_OUTBOX.clear()
@@ -6855,7 +6892,7 @@ def _probe_tick():
     """Start a run of the assigned probes when one is due and none is running. Never blocks the heartbeat."""
     if not _PROBE['specs'] or _PROBE['running'] or time.time() < _PROBE['next']:
         return
-    if _audit_mode():                   # the flag can be set after the checks were assigned
+    if _audit_mode() or _require_signed_commands():     # either flag can be set after the checks were assigned
         return
     _PROBE['running'] = True
     _PROBE['next'] = time.time() + _PROBE['interval']
@@ -6884,6 +6921,66 @@ _REPO_STATE = {'hash': '', 'sent': 0}
 REPO_RESEND_S = 6 * 3600
 _REPO_FILE_MAX = 12000
 
+# 7.5.0: a repository definition can hold a credential, and the repository inventory shows these URLs to every signed-in user.
+# apt and pacman take `https://user:password@host/` in the line itself, a dnf or yum .repo file takes `username=` and `password=`
+# (and the same for the proxy), and a mirror can ask for a token in the query of its URL. The server needs the scheme, the host
+# and the path to judge a repository and nothing of this, so it is taken out here and the credential never leaves the host.
+_REPO_SECRET_KEY_RE = re.compile(r'(?i)^\s*[\w.\-]*(?:pass(?:word|wd|phrase)?|secret|token|api[_\-]?key|credential|user(?:name)?)\s*[=:]')
+_REPO_SECRET_PARAM = ('pass', 'secret', 'token', 'key', 'auth', 'sig', 'cred', 'session', 'user')
+_REPO_URL_END = frozenset(' \t\r\n\'"<>')
+
+
+def _repo_mask_query(query):
+    """`query` with the value of every parameter whose name says it is a credential replaced by ***."""
+    parts = []
+    for seg in re.split(r'([&;])', query):
+        name, eq, _val = seg.partition('=')
+        if eq and any(w in name.lower() for w in _REPO_SECRET_PARAM):
+            parts.append(name + '=***')
+        else:
+            parts.append(seg)
+    return ''.join(parts)
+
+
+def _repo_redact_line(line):
+    """One line of a repository definition without the credentials in it: the user name and password before the `@` of a URL's
+    address (and a token in its query), and the value of a `password=`-style setting. Scans once from left to right, so a long
+    line costs no more than its length."""
+    m = _REPO_SECRET_KEY_RE.match(line)
+    if m:
+        rest = line[m.end():]
+        return line[:m.end()] + rest[:len(rest) - len(rest.lstrip())] + '***'
+    out, i, n = [], 0, len(line)
+    while True:
+        j = line.find('://', i)
+        if j < 0:
+            out.append(line[i:])
+            break
+        a = j + 3
+        e = a
+        while e < n and line[e] not in _REPO_URL_END:
+            e += 1
+        token = line[a:e]                     # address, path and query of this URL
+        end = len(token)
+        for ch in '?#':
+            k = token.find(ch)
+            if k >= 0:
+                end = min(end, k)
+        head, tail = token[:end], token[end:]
+        slash = head.find('/')
+        auth = head if slash < 0 else head[:slash]
+        at = auth.rfind('@')
+        if at >= 0:
+            head = head[at + 1:]              # user:password@host
+        elif slash >= 0 and ':' in auth and not auth.rsplit(':', 1)[1].isdigit() and '@' in head[slash:]:
+            head = head[head.rfind('@') + 1:]  # a password with a raw `/` in it: `user:pa/ss@host/path`
+        q = tail.find('?')
+        if q >= 0:
+            tail = tail[:q + 1] + _repo_mask_query(tail[q + 1:])
+        out.append(line[i:a] + head + tail)
+        i = e
+    return ''.join(out)
+
 
 def _compact_repo_text(text):
     out = []
@@ -6898,7 +6995,7 @@ def _compact_repo_text(text):
                 blank = True
             continue
         blank = False
-        out.append(s[:300])
+        out.append(_repo_redact_line(s[:2000])[:300])
     return '\n'.join(out).strip()[:_REPO_FILE_MAX]
 
 
@@ -7105,6 +7202,13 @@ def get_host_health():
     # connectionless), so accept both LISTEN and NONE for UDP.
     if _PSUTIL:
         try:
+            # 7.5.0: any user can hold tens of thousands of listening sockets (a hard limit of 500,000 open files is the default
+            # under systemd). The list was searched from the start for every socket and a process object was built for each, so
+            # 12,000 listeners took 3.3 seconds and 60,000 took minutes of the one thread that also sends the heartbeat: a local user
+            # could make a host go quiet for as long as they liked. One lookup table instead, and only the 80 ports that are sent
+            # are looked up by name.
+            by_key = {(p['proto'], p['port']): p for p in ports}
+            pid_of = {}
             for c in _psutil.net_connections('inet'):
                 if not c.laddr:
                     continue
@@ -7120,23 +7224,26 @@ def get_host_health():
                     continue
                 proto = 'tcp' if is_tcp else 'udp'
                 key = (proto, c.laddr.port)
-                proc = ''
+                existing = by_key.get(key)
+                if existing is not None:
+                    if not existing['process'] and c.pid:
+                        pid_of.setdefault(key, c.pid)
+                    continue
+                seen.add(key)
+                _ip = getattr(c.laddr, 'ip', '') or ''
+                entry = {'proto': proto, 'port': c.laddr.port, 'process': '', 'addr': _ip, 'scope': _sock_scope(_ip)}
+                ports.append(entry)
+                by_key[key] = entry
                 if c.pid:
+                    pid_of[key] = c.pid
+            ports.sort(key=lambda p: p['port'])
+            for entry in ports[:80]:
+                pid = pid_of.get((entry['proto'], entry['port']))
+                if pid and not entry['process']:
                     try:
-                        proc = _psutil.Process(c.pid).name()
+                        entry['process'] = _psutil.Process(pid).name()
                     except (_psutil.NoSuchProcess, _psutil.AccessDenied):
                         pass
-                existing = next((p for p in ports
-                                 if (p['proto'], p['port']) == key), None)
-                if existing:
-                    if not existing['process'] and proc:
-                        existing['process'] = proc
-                elif key not in seen:
-                    seen.add(key)
-                    _ip = getattr(c.laddr, 'ip', '') or ''
-                    ports.append({'proto': proto, 'port': c.laddr.port,
-                                  'process': proc, 'addr': _ip,
-                                  'scope': _sock_scope(_ip)})
         except Exception:
             pass
 
@@ -10207,15 +10314,41 @@ def check_for_update(server_url, force=False):
         log.info("Release signature verified — installing.")
         _safe_state_unlink('update-rejected')
 
+    tmp_path = None
     try:
         fd, tmp_path = tempfile.mkstemp(dir=AGENT_BINARY.parent, prefix='.rp-update-')
-        try: os.write(fd, data)
-        finally: os.close(fd)
+        try:
+            # 7.5.0: the bytes were checked above, in memory, and not what lands on disk. os.write() does not loop: on a file
+            # system that fills up it writes what fits and returns that count, and the next call is the one that fails. The count
+            # was not looked at, so the first 300 KB of a 750 KB agent was moved over the running one, a restart was asked for,
+            # and the host had an agent that does not start (measured on a 300 KB file system). The update is the one thing the
+            # agent does on a host that has just run out of room, which is when it matters most. Write all of it, make the
+            # system say it has it, and read it back before it replaces anything.
+            view = memoryview(data)
+            while view:
+                view = view[os.write(fd, view):]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        written = _open_regular(tmp_path)
+        if written is None:
+            raise OSError('the file written beside the agent is not a regular file')
+        with written:
+            on_disk = hashlib.sha256(written.read(len(data) + 1)).hexdigest().lower()
+        if not _hmac.compare_digest(on_disk, remote_sha256):
+            raise OSError('the file written beside the agent is not the one that was downloaded (a full or failing disk?)')
         os.chmod(tmp_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         shutil.move(tmp_path, str(AGENT_BINARY))
+        tmp_path = None
         log.info(f"Agent updated to v{remote_version} ({remote_sha256[:12]}…). Restarting service…")
     except Exception as e:
-        log.error(f"Failed to write update: {e}"); return False
+        log.error(f"Failed to write update: {e}")
+        if tmp_path:                    # nothing is left behind on a disk that was already short of room
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        return False
     try: subprocess.Popen(['systemctl', 'restart', 'remotepower-agent'])
     except Exception as e: log.warning(f"systemctl restart failed: {e}")
     return True
@@ -10434,7 +10567,7 @@ kill {os.getpid()} 2>/dev/null || true
 """
         fd, path = _tf.mkstemp(prefix='rp-uninstall-', suffix='.sh')
         try:
-            os.write(fd, script.encode())
+            _write_all(fd, script.encode())
         finally:
             os.close(fd)
         os.chmod(path, 0o700)
@@ -10961,8 +11094,17 @@ def _handle_file_op(cmd):
             # future write — matches the server's _write_json_atomic.
             _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
             try:
-                os.write(_fd, content.encode('utf-8', 'replace'))
+                # 7.5.0: all of it, and stored, before it replaces anything. A full disk cut the file short and the answer said it
+                # was written; the half-written .rp-tmp is removed when it fails.
+                _write_all(_fd, content.encode('utf-8', 'replace'))
+                os.fsync(_fd)
                 _keep_owner_and_mode(_fd, real)
+            except BaseException:
+                try:
+                    os.unlink(str(tmp))
+                except OSError:
+                    pass
+                raise
             finally:
                 os.close(_fd)
             os.replace(str(tmp), real)      # atomic same-dir replace
@@ -10979,8 +11121,15 @@ def _handle_file_op(cmd):
                 tmp = real_fs.with_name(real_fs.name + '.rp-tmp')
                 _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
                 try:
-                    os.write(_fd, raw)
+                    _write_all(_fd, raw)
+                    os.fsync(_fd)
                     _keep_owner_and_mode(_fd, real)
+                except BaseException:
+                    try:
+                        os.unlink(str(tmp))
+                    except OSError:
+                        pass
+                    raise
                 finally:
                     os.close(_fd)
                 os.replace(str(tmp), real)
@@ -11784,7 +11933,8 @@ def run_custom_scripts(scripts):
         try:
             fd, tmp_path = tempfile.mkstemp(prefix='rp_cs_', suffix='.sh')
             try:
-                os.write(fd, body.encode('utf-8', errors='replace'))
+                # all of it: a script cut short by a full disk would run its first part as root
+                _write_all(fd, body.encode('utf-8', errors='replace'))
             finally:
                 os.close(fd)
             os.chmod(tmp_path, _stat.S_IRWXU)   # 0700 — owner only
@@ -12124,6 +12274,38 @@ def collect_host_config():
     return current
 
 
+def _write_host_file(path, content, mode=0o644):
+    """Write `content` to `path` for the host-config apply. Raises OSError.
+
+    A file meant for root alone (mode 0600 or tighter) is created with that mode, beside the target, and renamed over it. It used to
+    be written by write_text(), which creates a file at the umask's 0644, with chmod after: a netplan file can hold a Wi-Fi key or a
+    WireGuard key, /etc/netplan is 0755, and for as long as the write took any user who could list the directory (inotify says when)
+    could open the file and read what went into it (7.5.0). Other files are written in place, as before: a bind-mounted
+    /etc/resolv.conf or /etc/hosts cannot be renamed over."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if mode & 0o077:
+        p.write_text(content)
+        os.chmod(path, mode)
+        return
+    tmp = p.with_name('.' + p.name + '.rp-' + os.urandom(4).hex())
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+    try:
+        os.fchmod(fd, mode)
+        view = memoryview(content.encode('utf-8'))
+        while view:
+            view = view[os.write(fd, view):]
+    except BaseException:
+        os.close(fd)
+        try:
+            os.unlink(str(tmp))
+        except OSError:
+            pass
+        raise
+    os.close(fd)
+    os.replace(str(tmp), str(p))
+
+
 def apply_host_config(desired):
     """v2.6.0: Apply desired host configuration pushed by the server.
 
@@ -12154,10 +12336,7 @@ def apply_host_config(desired):
 
     def _write(path, content, mode=0o644):
         try:
-            p = Path(path)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content)
-            os.chmod(path, mode)
+            _write_host_file(path, content, mode)
             return True
         except OSError as e:
             log.warning(f'apply_host_config: write {path} failed: {e}')
@@ -12271,8 +12450,15 @@ def apply_host_config(desired):
     if 'groups' in desired:
         errs = []
         for g in (desired['groups'] or []):
+            if not isinstance(g, dict):
+                continue
             name = g.get('name', '')
             if not name:
+                continue
+            # 7.5.0: the users above are checked as POSIX names and passed after `--`; the groups were neither, so a group called
+            # `-o` or `--help` was read by groupadd as an option.
+            if not isinstance(name, str) or not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', name):
+                errs.append(f'{name}: invalid group name')
                 continue
             try:
                 _grp.getgrnam(name)  # already exists
@@ -12280,7 +12466,7 @@ def apply_host_config(desired):
                 cmd = ['groupadd']
                 if g.get('gid'):
                     cmd += ['-g', str(g['gid'])]
-                cmd.append(name)
+                cmd += ['--', name]
                 ok, out = _run(cmd)
                 if not ok:
                     errs.append(f'{name}: {out[:80]}')
@@ -14609,7 +14795,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 
         # v2.8.1: backup file age reporting (every poll if monitors configured)
         if _backup_monitors:
-            payload['backup_status'] = collect_backup_status(_backup_monitors)
+            try:
+                payload['backup_status'] = collect_backup_status(_backup_monitors)
+            except Exception as e:      # 7.5.0: outside the response's try; a monitor of a shape it did not expect ended the process
+                log.debug(f'backup status error: {e}')
             _bv = collect_backup_verify(_backup_monitors)   # v4.10.0: integrity checks
             if _bv:
                 payload['backup_verify'] = _bv
@@ -15292,13 +15481,22 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     interval = _srv_iv
             # v1.8.0: pick up server-pushed watch config
             # v1.8.3: log at info when it *changes* so ops can see config pushes
+            # 7.5.0: the lines of this loop that follow a response are not inside a try, and heartbeat() has no wrapper. A number
+            # where a list of names was expected, a list of lists or a dict made set() or .get() raise, which ended the process
+            # with a traceback. It started again 30 seconds later, was sent the same answer and ended again, and the host showed as
+            # online in between because the POST had landed. Found by sending every key this loop reads a value of every type:
+            # `services_watched` and `backup_monitors` did it. Only the entries of the right type are taken, as the Windows and
+            # macOS agents have always done. (Inline, not a helper: tests/test_v703_agent_audit_mode_population.py reads every
+            # function this loop gives server data and wants it gated or listed.)
             if 'services_watched' in resp:
-                new_sw = resp.get('services_watched') or []
+                new_sw = resp.get('services_watched')
+                new_sw = [u for u in new_sw if isinstance(u, str)] if isinstance(new_sw, list) else []
                 if new_sw != services_watched:
                     log.info(f'Config updated: services_watched = {new_sw}')
                 services_watched = new_sw
             if 'log_watch' in resp:
-                new_lw = resp.get('log_watch') or []
+                new_lw = resp.get('log_watch')
+                new_lw = [r for r in new_lw if isinstance(r, dict)] if isinstance(new_lw, list) else []
                 if new_lw != log_watch_rules:
                     log.info(f'Config updated: log_watch rules = {len(new_lw)}')
                 log_watch_rules = new_lw
@@ -15602,7 +15800,8 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     agent_checks = new_ac
             # v2.6.0: receive desired host config from server
             if 'backup_monitors' in resp:
-                _backup_monitors = resp['backup_monitors'] or []
+                _backup_monitors = resp.get('backup_monitors')
+                _backup_monitors = [m for m in _backup_monitors if isinstance(m, dict)] if isinstance(_backup_monitors, list) else []
 
             if 'host_config_desired' in resp:
                 new_hcd = resp.get('host_config_desired')
@@ -15724,9 +15923,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             # hand-edited store still can.
             if not isinstance(r, dict):
                 continue
-            if r.get('path'):
+            # 7.5.0: a path or a unit that is not text (a list is not hashable) ended the process here too
+            if r.get('path') and isinstance(r['path'], str):
                 _file_paths.append(r['path'])
-            elif r.get('unit') and not str(r.get('unit', '')).startswith('file:'):
+            elif isinstance(r.get('unit'), str) and r['unit'] and not r['unit'].startswith('file:'):
                 log_units.add(r['unit'])
         if log_units and poll_count % LOG_SUBMIT_EVERY == 0:
             try:

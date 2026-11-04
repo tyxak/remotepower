@@ -272,6 +272,20 @@ def _require_signed_commands_mac():
         return False
 
 
+_REFUSED_UNSIGNED = set()
+
+
+def _refuse_unsigned_channel(channel, why):
+    """True when `require-signed-commands` is set and this config-driven channel must therefore not run (logged once). The
+    Linux agent has the same function: a setting that rides the heartbeat answer has no signature to verify (7.5.0)."""
+    if not _require_signed_commands_mac():
+        return False
+    if channel not in _REFUSED_UNSIGNED:
+        _REFUSED_UNSIGNED.add(channel)
+        log.error('REFUSED %s: require-signed-commands is set and %s', channel, why)
+    return True
+
+
 def _require_signed_updates_mac():
     try:
         return os.path.exists(_REQUIRE_SIGNED_UPDATES_MAC)
@@ -1241,7 +1255,21 @@ def _canary_path_ok(p):
     if not (p.startswith('/') or p.startswith('\\\\')
             or re.match(r'^[A-Za-z]:[\\/]', p)):
         return False
-    return not any(seg == '..' for seg in re.split(r'[\\/]+', p))
+    if any(seg == '..' for seg in re.split(r'[\\/]+', p)):
+        return False
+    # 7.5.0: the mirrored deny list above was written for Linux and Windows. It did not know the places macOS runs what it finds:
+    # a decoy at /Library/LaunchDaemons/com.x.plist, with the content the server sent, is a root program at the next boot, and a
+    # compromised server could plant one even on a host that asks for signed commands. These are refused here as well (a list
+    # that sits beside the mirrored one, so tests/test_v702_canary_paths.py still sees the three copies equal), for both systems
+    # because the function is the same text in both agents.
+    low = p.lower().replace('\\', '/')
+    for d in ('/library/launchdaemons/', '/library/launchagents/', '/library/startupitems/', '/library/privilegedhelpertools/',
+              '/library/preferences/', '/library/scripting additions/', '/system/', '/etc/periodic/', '/etc/paths.d/', '/etc/ssh/',
+              '/etc/newsyslog.d/', '/etc/cups/', '/etc/sudoers', '/etc/pam.d/', '/private/etc/', '/usr/', '/bin/', '/sbin/',
+              '/windows/', '/program files/', '/program files (x86)/', '/programdata/microsoft/', '/users/default/'):
+        if d in low or low.startswith(d.rstrip('/')):
+            return False
+    return not low.endswith(('.plist', '.pkg', '.dylib', '.kext', '.app', '.command', '.workflow', '.scpt', '.applescript'))
 
 
 # Mirrors server/cgi-bin/sanitize.py — a decoy never needs to live where
@@ -1310,6 +1338,15 @@ def _plant_canaries(canary_cfg):
             _p = c.get('path') if isinstance(c, dict) else c
             if _p:
                 _canary_failed[str(_p)[:256]] = 'audit mode (read-only)'
+        return
+    # 7.5.0: the same refusal the Linux agent has had since 7.4.9. A canary list is a setting that rides every heartbeat answer, so
+    # there is nothing to verify, and planting writes a root-owned file with content the server chose.
+    if (canary_cfg or []) and _refuse_unsigned_channel(
+            'canary files', 'a canary list is a setting, not a signed command, and planting one writes a file with content the server chose'):
+        for c in (canary_cfg or [])[:50]:
+            _p = c.get('path') if isinstance(c, dict) else c
+            if _p:
+                _canary_failed[str(_p)[:256]] = 'refused (require-signed-commands)'
         return
     for c in (canary_cfg or [])[:50]:
         p = c.get('path') if isinstance(c, dict) else c
@@ -2558,6 +2595,10 @@ def _self_update():
         os.chmod(tmp, 0o755)  # nosec B103: the agent is a public file that has to be executable
         os.replace(tmp, self_path)   # atomic on APFS
     except Exception as e:
+        try:
+            os.unlink(self_path + '.rp-new')    # 7.5.0: a half-written copy is not left on a disk that is already short of room
+        except OSError:
+            pass
         return {'cmd': 'update', 'output': f'install write failed: {e}', 'rc': 1}
     _RESTART_AFTER_REPORT[0] = True
     return {'cmd': 'update',
@@ -2819,9 +2860,14 @@ def heartbeat_once(creds, poll_count, pending_output=None):
     resp = _post_json(f'{server}/api/heartbeat', payload)
     new_pending = None
     if isinstance(resp, dict):
-        if isinstance(resp.get('poll_interval'), int):
-            if resp['poll_interval'] != creds.get('poll_interval'):
-                creds['poll_interval'] = resp['poll_interval']
+        _iv = resp.get('poll_interval')
+        if isinstance(_iv, int) and not isinstance(_iv, bool):
+            # 7.5.0: 10 to 3600 seconds, as on the Linux agent and as the `poll_interval:` command below. The value was stored as
+            # sent, in the credentials file: a number in the millions put the host to sleep for as long, across restarts, and one
+            # past what a C time_t holds made time.sleep() raise outside the try of the run loop, again and again.
+            _iv = max(10, min(3600, _iv))
+            if _iv != creds.get('poll_interval'):
+                creds['poll_interval'] = _iv
                 save_creds(creds)
         cmd = resp.get('command')
         # v6.3.1: signed-command gate (opt-in, fail-closed); refusal is
@@ -2982,7 +3028,10 @@ def run():
                          [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
         except Exception as e:
             log.warning('heartbeat error: %s', e)
-        delay = max(10, int(load_creds().get('poll_interval', DEFAULT_POLL)))
+        try:
+            delay = max(10, min(3600, int(load_creds().get('poll_interval', DEFAULT_POLL))))
+        except (TypeError, ValueError, OverflowError):      # 7.5.0: a stored value that is not a number is no interval
+            delay = DEFAULT_POLL
         # v6.4.1: honour the 202-busy retry_after hint — lock contention is
         # momentary, so a short retry beats waiting out a full poll interval.
         # Floor of 5 s so a tiny hint can never turn the loop into a hammer.

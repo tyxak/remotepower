@@ -105,6 +105,16 @@ Install-PythonIfMissing
 
 New-Item -ItemType Directory -Force -Path $installDir, $dataDir | Out-Null
 
+# 7.5.0: lock the data folder down before anything is written into it. A new folder under %ProgramData% lets every local user
+# create files in it, and the agent restricted it only when it first saved its credentials, after the CA, the agent file and pip
+# had been through it. The same SIDs the agent uses (SYSTEM and Administrators), so a language other than English does not matter.
+# Best effort, as in the agent: icacls ships with Windows, and the agent does it again at the first save.
+try {
+  & (Join-Path $env:SystemRoot 'System32\icacls.exe') $dataDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+} catch {
+  Write-Warning "Could not restrict $dataDir to SYSTEM and Administrators: $($_.Exception.Message)"
+}
+
 # ── Self-signed CA trust (optional) ───────────────────────────────────────────
 $caPath = Join-Path $dataDir 'ca.crt'
 if ($CaFingerprint -or $Ca) {

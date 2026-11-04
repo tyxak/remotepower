@@ -148,7 +148,14 @@ def _sandbox(image, tool_argv, volumes=None, workdir=None, env=None, caps=None):
         for k, val in (env or {}).items():
             cmd += ['-e', f'{k}={val}']
         return cmd + [image] + tool_argv
-    return tool_argv   # RP_SCAN_RUNNER is a local binary name (advanced)
+    # RP_SCAN_RUNNER is a local binary name (advanced). The argv was handed back without a program in it, so every scan in this mode
+    # tried to run `-u` and failed with "runner not found: -u": the mode the scanner container and scanner-setup.sh fall back to has
+    # never scanned (7.5.0). The binary is the one the setting names, and it runs the tool it is: nuclei for `nuclei`. A tool it
+    # cannot run (nmap on a nuclei-only node) gets None, and the worker reports that instead of passing nmap's options to nuclei.
+    tool = next((name for name, img in _TOOL_IMAGE.items() if img == image), '')
+    if not tool or os.path.basename(RUNNER) != tool:
+        return None
+    return [RUNNER] + tool_argv
 
 
 MAX_FINDINGS = int(os.environ.get('RP_SCAN_MAX_FINDINGS', '200'))
@@ -552,7 +559,14 @@ def _fatal_from_output(tool, stdout):
     return ''
 
 
+def _cannot_run(tool):
+    return (f'{tool} cannot run with RP_SCAN_RUNNER={RUNNER}: a local binary runs only the tool it is. '
+            'Use docker or podman as the runner for the other tools.')
+
+
 def _run_stdout_tool(argv, parse_fn, tool=''):
+    if argv is None:
+        return [], _cannot_run(tool)
     stdout, stderr, err = _run(argv)
     if err:
         return [], err
@@ -594,7 +608,10 @@ def _run_report_tool(argv_fn, parse_fn, target, profile, intensity):
             os.chmod(workdir, 0o777)  # nosec B103
         except OSError:
             pass
-        stdout, stderr, err = _run(argv_fn(target, profile, intensity, workdir, _REPORT_NAME))
+        argv = argv_fn(target, profile, intensity, workdir, _REPORT_NAME)
+        if argv is None:
+            return [], _cannot_run(next((n for n, f in REPORT_TOOLS.items() if f[0] is argv_fn), 'this tool'))
+        stdout, stderr, err = _run(argv)
         if err:
             return [], err
         try:
@@ -613,8 +630,19 @@ def _run_report_tool(argv_fn, parse_fn, target, profile, intensity):
         shutil.rmtree(parent, ignore_errors=True)
 
 
+def _target_ok(target):
+    """A target is one host name, address, address range or URL. The server decides what is scanned, and this worker still does not
+    pass an option to a tool: nmap takes its targets last on the command line, so a "target" of `-oN/some/file` or
+    `--script=...` would be read as an option, and a space or a control character has no place in one argument that names one
+    host (7.5.0). The characters a URL, a name, an address and a range use are all allowed."""
+    return (isinstance(target, str) and 0 < len(target) <= 2048 and not target.startswith('-')
+            and all(33 <= ord(c) < 127 for c in target))
+
+
 def _run_tool(tool, target, profile='passive', intensity='quick'):
     """Dispatch to a tool runner. Returns (findings, error)."""
+    if not _target_ok(target):
+        return [], 'refused: the target is not one host name, address, range or URL (no spaces, no leading dash)'
     if tool in STDOUT_TOOLS:
         argv_fn, parse_fn = STDOUT_TOOLS[tool]
         return _run_stdout_tool(argv_fn(target, profile, intensity), parse_fn, tool)

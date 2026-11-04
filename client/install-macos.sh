@@ -43,6 +43,33 @@ done
 [ "$(uname -s)" = "Darwin" ] || die "This installer is for macOS. Use install-client.sh (Linux) or install-windows.ps1 (Windows)."
 command -v python3 >/dev/null || die "python3 not found — install it (e.g. 'xcode-select --install' or Homebrew)."
 
+# ── Where the agent lives ─────────────────────────────────────────────────────
+# The daemon runs as root from this file, so nobody but root may be able to replace it. /usr/local/bin belongs to root on a clean
+# Mac, but on an Intel Mac Homebrew hands it to the person who installed Homebrew, and anything running as that person could put
+# a program of its own where the agent is and be root at the next start. When the directory is not root's alone the agent goes to
+# /Library/PrivilegedHelperTools, where macOS keeps the programs a LaunchDaemon runs. `stat -f` is the BSD form; this script runs
+# on macOS only.
+dir_is_roots() {   # $1: a directory; succeeds when root owns it and neither its group nor others can write to it
+  local owner mode
+  owner="$(stat -f '%u' "$1" 2>/dev/null)" || return 1
+  mode="$(stat -f '%Lp' "$1" 2>/dev/null)" || return 1
+  [ "$owner" = "0" ] && [ $(( 8#$mode & 8#022 )) -eq 0 ]
+}
+pick_agent_dir() { # prints the directory the agent is installed into
+  if [ -d /usr/local/bin ]; then
+    if dir_is_roots /usr/local/bin; then echo /usr/local/bin; else echo /Library/PrivilegedHelperTools; fi
+  elif [ ! -d /usr/local ] || dir_is_roots /usr/local; then
+    echo /usr/local/bin      # install -d creates it, as root's
+  else
+    echo /Library/PrivilegedHelperTools
+  fi
+}
+AGENT_DIR="$(pick_agent_dir)"
+AGENT_BIN="$AGENT_DIR/remotepower-agent-mac"
+if [ "$AGENT_DIR" != /usr/local/bin ]; then
+  warn "/usr/local/bin can be written by a user, so the agent goes to $AGENT_DIR, where only root can replace it."
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$SCRIPT_DIR/remotepower-agent-mac.py"
 [ -f "$SRC" ] || SRC="$SCRIPT_DIR/client/remotepower-agent-mac.py"
@@ -99,12 +126,16 @@ if [ -n "$CA_FP" ] || [ -n "$CA_SRC" ]; then
   success "CA installed → /etc/remotepower/ca.crt"
 fi
 
-info "Installing agent to /usr/local/bin/remotepower-agent-mac"
-install -d -m 0755 /usr/local/bin
-install -m 0755 "$SRC" /usr/local/bin/remotepower-agent-mac
+info "Installing agent to $AGENT_BIN"
+install -d -m 0755 "$AGENT_DIR"
+install -m 0755 "$SRC" "$AGENT_BIN"
+# A copy left in the user-writable directory by an earlier install is not run any more; take it away so nobody mistakes it for the agent.
+if [ "$AGENT_DIR" != /usr/local/bin ] && [ -f /usr/local/bin/remotepower-agent-mac ]; then
+  rm -f /usr/local/bin/remotepower-agent-mac
+fi
 
 info "Enrolling…"
-RP_CA_BUNDLE=/etc/remotepower/ca.crt /usr/bin/env python3 /usr/local/bin/remotepower-agent-mac --enroll --server "$SERVER" --pin "$PIN"
+RP_CA_BUNDLE=/etc/remotepower/ca.crt /usr/bin/env python3 "$AGENT_BIN" --enroll --server "$SERVER" --pin "$PIN"
 
 # Point the daemon at the CA via the launchd EnvironmentVariables dict when set.
 PLIST_ENV=""
@@ -124,7 +155,7 @@ cat > "$PLIST" <<EOF
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string>
-    <string>/usr/local/bin/remotepower-agent-mac</string>
+    <string>$AGENT_BIN</string>
     <string>--run</string>
   </array>
 $PLIST_ENV
@@ -159,4 +190,4 @@ else
 fi
 echo "  Logs:      tail -f /var/log/remotepower-agent.log   (rotates at 5 MB, 5 kept)"
 echo "  Stop:      sudo launchctl unload $PLIST"
-echo "  Re-enroll: sudo python3 /usr/local/bin/remotepower-agent-mac --enroll --server <url> --pin <pin>"
+echo "  Re-enroll: sudo python3 $AGENT_BIN --enroll --server <url> --pin <pin>"
