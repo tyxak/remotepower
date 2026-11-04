@@ -226,7 +226,9 @@ def tool_list_devices(args):
         "group":        d.get("group", ""),
         "tags":         d.get("tags", []),
         "ip":           d.get("ip", ""),
-        "pkg_manager":  d.get("pkg_manager", ""),
+        # The list item carries the host's system information, not a top-level pkg_manager (7.5.0: this read the
+        # top level and answered an empty string for every host).
+        "pkg_manager":  ((d.get("sysinfo") or {}).get("packages") or {}).get("manager", ""),
         "agentless":    d.get("agentless", False),
     } for d in devs]
 
@@ -262,8 +264,14 @@ def tool_get_services(args):
     dev = _find_device_by_name(name) if name else None
     if not dev:
         raise RuntimeError(f"No host named '{name}'")
-    services = dev.get("services_watched_state") or dev.get("services") or []
-    return {"device": dev.get("name"), "services": services}
+    dev_id = dev.get("id") or dev.get("device_id")
+    # 7.5.0: the device list does not carry service state (this read keys that are not in it and answered an empty list for
+    # every host). The per-host endpoint does. Each row keeps its state and restart count; the history and the log tail are left
+    # out, because a model does not need hundreds of lines per unit to answer "is nginx up".
+    data = _api("GET", f"/api/devices/{urllib.parse.quote(dev_id)}/services") or {}
+    rows = [{k: s.get(k) for k in ("unit", "active", "sub", "since", "restarts") if s.get(k) is not None}
+            for s in (data.get("services") or []) if isinstance(s, dict)]
+    return {"device": dev.get("name"), "updated_at": data.get("updated_at"), "services": rows[:200]}
 
 
 def tool_get_containers(args):
@@ -272,7 +280,15 @@ def tool_get_containers(args):
     dev = _find_device_by_name(name) if name else None
     if not dev:
         raise RuntimeError(f"No host named '{name}'")
-    return {"device": dev.get("name"), "containers": dev.get("containers") or []}
+    dev_id = dev.get("id") or dev.get("device_id")
+    # 7.5.0: from the per-host endpoint (the device list has no containers). Trimmed to what answers "what is running and is it
+    # healthy"; the sparklines and the audit facts are left out.
+    data = _api("GET", f"/api/devices/{urllib.parse.quote(dev_id)}/containers") or {}
+    keep = ("name", "image", "tag", "status", "health", "restart_count", "runtime", "namespace", "uptime_seconds")
+    rows = [{k: c.get(k) for k in keep if c.get(k) not in (None, "")}
+            for c in (data.get("items") or []) if isinstance(c, dict)]
+    return {"device": dev.get("name"), "reported_at": data.get("reported_at"), "is_stale": data.get("is_stale"),
+            "summary": data.get("summary"), "containers": rows[:200]}
 
 
 def tool_get_cves(args):
@@ -339,24 +355,21 @@ def tool_get_runbook(args):
 def tool_get_patches(args):
     """Pending OS package updates across the fleet (or one host)."""
     name = (args or {}).get("name") or ""
+    # 7.5.0: the patch report has these figures per host. The device list carries none of them (this read patch_status and
+    # upgradable off a list item and answered null for one host and an empty fleet).
+    data = _api("GET", "/api/patch-report") or {}
+    rows = [d for d in (data.get("devices") or []) if isinstance(d, dict)]
+    keep = ("name", "pkg_manager", "upgradable", "security_updates", "patch_status", "reboot_required", "online")
     if name:
         dev = _find_device_by_name(name)
         if not dev:
             raise RuntimeError(f"No host named '{name}'")
-        return {
-            "device":       dev.get("name"),
-            "patch_status": dev.get("patch_status"),
-            "upgradable":   dev.get("upgradable"),
-        }
-    # Fleet summary
-    data = _api("GET", "/api/devices")
-    devs = data if isinstance(data, list) else (data or {}).get("devices") or []
+        dev_id = dev.get("id") or dev.get("device_id")
+        row = next((d for d in rows if d.get("device_id") == dev_id), None) or {}
+        return {"device": dev.get("name"), **{k: row.get(k) for k in keep if k != "name"}}
     return {
-        "fleet": [{
-            "name":         d.get("name"),
-            "upgradable":   d.get("upgradable"),
-            "patch_status": d.get("patch_status"),
-        } for d in devs if (d.get("upgradable") or 0) > 0]
+        "fleet": [{k: d.get(k) for k in keep} for d in rows if (d.get("upgradable") or 0) > 0],
+        "summary": data.get("summary"),
     }
 
 
