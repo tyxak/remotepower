@@ -798,6 +798,10 @@ UI_DENSITY_DEFAULT         = 'comfortable'
 # optional instance default and lock under Branding. Both must mirror LOOKS and FX_LEVELS in app.js.
 UI_LOOKS                   = ('classic', 'pilot')
 UI_EFFECTS                 = ('full', 'reduced')
+# 7.4.9: the typeface. The system font stack is what the interface has always used and stays the default; B612, a face drawn for
+# aircraft cockpit screens (vendored under static/vendor/fonts), is an option. A reading preference kept in ui_prefs like the look,
+# with no instance default or lock because it is not branding. Must mirror TYPEFACES in app.js.
+UI_TYPEFACES               = ('system', 'b612')
 
 # ─── v1.11.10: enrollment tokens & metric alerting ───────────────────────────
 
@@ -34881,8 +34885,9 @@ def handle_user_passwd():
 #   sort      — list of {col: str, dir: 'asc'|'desc'}, in priority order
 #
 # Top-level (not per table) keys follow below: default_ssh_username, postit, temp_unit, time_display, alert_chime,
-# alert_notify, signature, team, pinned_devices, views and, since 7.4.9, look ('pilot'|'classic') and effects
-# ('full'|'reduced'). A key that is not listed in _sanitise_ui_prefs is dropped on save, so a new one is added there.
+# alert_notify, signature, team, pinned_devices, views and, since 7.4.9, look ('pilot'|'classic'), effects
+# ('full'|'reduced') and typeface ('system'|'b612'). A key that is not listed in _sanitise_ui_prefs is dropped on save, so a new
+# one is added there.
 #
 # Schema enforced by :func:`_sanitise_ui_prefs` — the client can send anything,
 # but we strip everything we don't recognise so a future field rename or
@@ -34950,14 +34955,17 @@ def _sanitise_ui_prefs(raw):
         if k in raw:
             out[k] = bool(raw[k])
 
-    # 7.4.9: the interface look and its effects. The client posts the whole document on every save, so a value that is
-    # not one of the known words is dropped here and cannot reach users.json.
+    # 7.4.9: the interface look, its effects and the typeface. The client posts the whole document on every save, so a value
+    # that is not one of the known words is dropped here and cannot reach users.json.
     look = raw.get('look')
     if isinstance(look, str) and look in UI_LOOKS:
         out['look'] = look
     effects = raw.get('effects')
     if isinstance(effects, str) and effects in UI_EFFECTS:
         out['effects'] = effects
+    typeface = raw.get('typeface')
+    if isinstance(typeface, str) and typeface in UI_TYPEFACES:
+        out['typeface'] = typeface
 
     # Per-user email signature (HTML) appended to outbound ticket emails.
     signature = raw.get('signature')
