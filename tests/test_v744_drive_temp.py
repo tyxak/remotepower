@@ -697,13 +697,14 @@ class TestTheWords(_Drives):
         import attention_isolation
         tmp = tempfile.mkdtemp(prefix="rp-v744-dt-")
         live = {"devices": dict(api.load(api.DEVICES_FILE)), "config": dict(api.load(api.CONFIG_FILE)),
-                "hardware": dict(api.load(api.HARDWARE_FILE))}
+                "hardware": dict(api.load(api.HARDWARE_FILE)), "disk_names": dict(api.load(api.DISK_NAMES_FILE))}
         keep = {n: getattr(api, n) for n in ("DEVICES_FILE", "CONFIG_FILE", "ALERTS_FILE", "HARDWARE_FILE")}
         saved = attention_isolation.isolate(api, tmp)
         try:
             api.save(api.DEVICES_FILE, live["devices"])
             api.save(api.CONFIG_FILE, live["config"])
             api.save(api.HARDWARE_FILE, live["hardware"])
+            api.save(api.DISK_NAMES_FILE, live["disk_names"])    # isolated since 7.5.0 (the digest reads it): copy it in with the rest
             api._LOAD_CACHE.clear()
             return [(i["kind"], i["severity"], i["summary"]) for i in api._compute_attention()
                     if "drive" in (i.get("summary") or "")]

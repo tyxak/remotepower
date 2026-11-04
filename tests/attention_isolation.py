@@ -46,6 +46,9 @@ DIGEST_STORES = (
     # _log_alert_evidence, the rest via _compute_fleet_reliability.
     "DRIFT_STATE_FILE", "HEALTH_HIST_FILE", "LOG_WATCH_FILE",
     "POSTURE_STATE_FILE", "SMART_HIST_FILE", "UPTIME_FILE",
+    # 7.5.0: five the digest has read since 7.4.3 and 7.4.9 and this list never got: the drive names (#47), the CVE feed cache,
+    # the smart groups a suppression rule can name, and the tenant and user tables its scope and mute checks consult.
+    "DISK_NAMES_FILE", "KEV_EPSS_FILE", "SMART_GROUPS_FILE", "TENANTS_FILE", "USERS_FILE",
 )
 
 

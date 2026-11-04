@@ -34,6 +34,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from routing_harness import routes_to  # noqa: E402
 
 
+_API_BEFORE = {}
+
+
+def setUpModule():
+    """The RBAC and settings tests below replace verify_token, require_auth, get_token_from_request, respond and more on the shared api
+    module and put none of them back, so the next module in the same process read the stubs: tests.test_v702_binding failed with
+    'root' != 'admin' when it ran after this one (found in the 7.5.0 sweep). Whatever was a function when this module started is a
+    function again when it ends."""
+    import importlib
+    api = importlib.import_module('api')
+    _API_BEFORE.update({n: v for n, v in vars(api).items() if callable(v) and not n.startswith('__')})
+
+
+def tearDownModule():
+    import importlib
+    api = importlib.import_module('api')
+    for n, v in _API_BEFORE.items():
+        if vars(api).get(n) is not v:
+            setattr(api, n, v)
+    _API_BEFORE.clear()
+
+
 class TestVersionBumps(unittest.TestCase):
     """Loosened to regex — v3.5.0 now holds the strict pin (test_v350.py).
     Version-pin assertions relax to pattern-only; the v3.4.2 feature
