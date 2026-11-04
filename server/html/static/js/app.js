@@ -29344,6 +29344,9 @@ const _REPORT_SECTION_LABELS = {
   // rendered as the raw slug — which the comment above this block predicted
   // would happen and nothing checked.
   posture: 'Security posture',
+  // v7.5.0
+  hardware: 'Hardware health',
+  exposure: 'Network exposure',
   threats: 'Threats & remote access',
   summary: 'AI summary (costs tokens)',
 };

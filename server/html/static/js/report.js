@@ -139,17 +139,14 @@
     // v6.4.2: host security posture — firewall, sshd hardening, encryption,
     // auto-update, each with its own reporting denominator so an absent signal
     // is never shown as a pass.
-    const pos = rep.posture || {};
-    const posRows = [
-      ['Host firewall inactive', pos.firewall_off, pos.firewall_off_count, pos.firewall_reporting],
-      ['Weak SSH configuration', pos.ssh_weak, pos.ssh_weak_count, pos.ssh_reporting],
-      ['Automatic updates off', pos.autoupdate_off, pos.autoupdate_off_count, pos.autoupdate_reporting],
-      ['Disk encryption off', pos.encryption_off, pos.encryption_off_count, pos.encryption_reporting],
-    ].filter(function (r) { return (r[3] || 0) > 0; });
-    if (posRows.length) {
-      html += '<h2>Host security posture</h2><table data-rows="print"><thead><tr><th>Finding</th>'
+    // v7.5.0: the same table for the hardware findings, so one builder draws both.
+    // A row whose denominator is zero is left out: no host sent the signal.
+    function findingsTable(heading, rows) {
+      rows = rows.filter(function (r) { return (r[3] || 0) > 0; });
+      if (!rows.length) return '';
+      return '<h2>' + esc(heading) + '</h2><table data-rows="print"><thead><tr><th>Finding</th>'
         + '<th>Affected / reporting</th><th>For example</th></tr></thead><tbody>'
-        + posRows.map(function (r) {
+        + rows.map(function (r) {
             const n = r[2] || 0, rep_n = r[3] || 0;
             const ex = Array.isArray(r[1]) ? r[1].slice(0, 5).map(esc).join(', ') : '';
             return '<tr><td>' + esc(r[0]) + '</td>'
@@ -157,6 +154,40 @@
               + '<td>' + ex + '</td></tr>';
           }).join('')
         + '</tbody></table>';
+    }
+    const pos = rep.posture || {};
+    html += findingsTable('Host security posture', [
+      ['Host firewall inactive', pos.firewall_off, pos.firewall_off_count, pos.firewall_reporting],
+      ['Weak SSH configuration', pos.ssh_weak, pos.ssh_weak_count, pos.ssh_reporting],
+      ['Automatic updates off', pos.autoupdate_off, pos.autoupdate_off_count, pos.autoupdate_reporting],
+      ['Disk encryption off', pos.encryption_off, pos.encryption_off_count, pos.encryption_reporting],
+    ]);
+    const hw = rep.hardware || {};
+    html += findingsTable('Hardware health', [
+      ['SMART-failed disk', hw.smart_failed, hw.smart_failed_count, hw.reporting],
+      ['Over temperature', hw.temp_high, hw.temp_high_count, hw.reporting],
+      ['UPS on battery', hw.ups_on_battery, hw.ups_on_battery_count, hw.reporting],
+      ['Storage pool or array degraded', hw.storage_degraded, hw.storage_degraded_count, hw.storage_reporting],
+    ]);
+    // v7.5.0: sockets reachable from the world, minus the ones muted on the
+    // Exposure page. A count of zero still prints: "nothing is exposed" is a finding.
+    const exp = rep.exposure || null;
+    if (exp && (exp.reporting || 0) > 0) {
+      const nh = exp.world_hosts_count || 0;
+      html += '<h2>Network exposure</h2><table data-rows="print"><tbody>'
+        + '<tr><td>Hosts with a world-reachable port</td><td class="' + (nh ? 'bad' : 'ok') + '">'
+        + nh + ' / ' + exp.reporting + '</td></tr>'
+        + '<tr><td>World-reachable sockets</td><td>' + (exp.world_sockets || 0) + '</td></tr>'
+        + '</tbody></table>';
+      if (Array.isArray(exp.top) && exp.top.length) {
+        html += '<table data-rows="print"><thead><tr><th>Host</th><th>Sockets</th>'
+          + '<th>Reachable ports</th></tr></thead><tbody>'
+          + exp.top.map(function (t) {
+              return '<tr><td>' + esc(t.device) + '</td><td class="bad">' + esc(String(t.count || 0))
+                + '</td><td>' + (Array.isArray(t.ports) ? t.ports.map(esc).join(', ') : '') + '</td></tr>';
+            }).join('')
+          + '</tbody></table>';
+      }
     }
     // v7.1.0: attacks and remote access. A row whose count is zero still
     // prints — "nothing attacked us" is a finding a reviewer wants to read.

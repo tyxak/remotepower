@@ -195,6 +195,11 @@ def _threats_section(devices, now, days=30, edge=False):
     return out
 
 
+# A pool or array in one of these states is healthy (lower case), the same set the
+# Fleet Query's "Storage degraded" facet and the Needs-attention digest use.
+_STORAGE_OK = frozenset({'online', 'active', 'clean', 'healthy', 'ok'})
+
+
 def _build_fleet_report(site_id=None):
     """Assemble the fleet (or single-site) posture report from data RemotePower
     already holds.
@@ -350,6 +355,64 @@ def _build_fleet_report(site_id=None):
         pos[_k + '_count'] = len(pos[_k])
         pos[_k] = pos[_k][:10]
 
+    # v7.5.0: hardware health and network exposure. Both reached the Fleet Query,
+    # the Needs-attention digest and the risk score, and neither reached the
+    # document an auditor or a customer is handed. Shaped like the posture block
+    # above: a capped list of names with a count, and a "reporting" denominator so
+    # a host that never sent the signal is not counted as healthy. Monitored hosts
+    # only, like posture. `devices` is already confined to the caller's scope and
+    # tenant, and the hardware store is read only for those ids.
+    hw_all = A.load(A.HARDWARE_FILE) or {}
+    exposure_mutes = (A._config_ro() or {}).get('exposure_mutes') or []
+    hwr = {'reporting': 0, 'storage_reporting': 0, 'smart_failed': [],
+           'temp_high': [], 'ups_on_battery': [], 'storage_degraded': []}
+    exr = {'reporting': 0, 'world_hosts': [], 'world_sockets': 0, 'top': []}
+    for did, d in devices.items():
+        if not isinstance(d, dict) or d.get('monitored') is False:
+            continue
+        si = d.get('sysinfo') or {}
+        nm = d.get('name', did)
+        rec = hw_all.get(did)
+        if isinstance(rec, dict) and rec:
+            hwr['reporting'] += 1
+            if rec.get('_smart_failed'):
+                hwr['smart_failed'].append(nm)
+            if rec.get('_temp_high'):
+                hwr['temp_high'].append(nm)
+            if rec.get('_ups_on_battery'):
+                hwr['ups_on_battery'].append(nm)
+        pools = si.get('storage_health')
+        if isinstance(pools, list) and pools:
+            hwr['storage_reporting'] += 1
+            if any(isinstance(p, dict) and str(p.get('state') or '').strip()
+                   and str(p.get('state')).lower() not in _STORAGE_OK for p in pools):
+                hwr['storage_degraded'].append(nm)
+        ports = si.get('listening_ports')
+        if isinstance(ports, list):
+            exr['reporting'] += 1
+            # A socket the operator muted on the Exposure page is accepted risk,
+            # as everywhere else (the check row, the risk score).
+            wide = [p for p in ports if isinstance(p, dict) and p.get('scope') == 'world'
+                    and not A._exposure_muted(p.get('process'), p.get('proto'),
+                                              p.get('port'), exposure_mutes, did)]
+            if wide:
+                exr['world_hosts'].append(nm)
+                exr['world_sockets'] += len(wide)
+                labels = []
+                for p in wide:
+                    lab = f"{p.get('port')}/{p.get('proto') or 'tcp'}"
+                    if p.get('process'):
+                        lab += f" {p['process']}"
+                    if lab not in labels:
+                        labels.append(lab)
+                exr['top'].append({'device': nm, 'count': len(wide), 'ports': labels[:6]})
+    for _k in ('smart_failed', 'temp_high', 'ups_on_battery', 'storage_degraded'):
+        hwr[_k + '_count'] = len(hwr[_k])
+        hwr[_k] = hwr[_k][:10]
+    exr['world_hosts_count'] = len(exr['world_hosts'])
+    exr['world_hosts'] = exr['world_hosts'][:10]
+    exr['top'] = sorted(exr['top'], key=lambda t: (-t['count'], t['device'].lower()))[:10]
+
     # v6.4.2: white-labelling. The printable report (report.html) hardcoded the
     # RemotePower name + logo even on an install that had set brand_name /
     # brand_accent, so the one artefact most likely to be sent to a CUSTOMER was
@@ -378,6 +441,8 @@ def _build_fleet_report(site_id=None):
                            'worst': health['devices'][:10]},
         'attention':      health['counts'],
         'posture':        pos,
+        'hardware':       hwr,
+        'exposure':       exr,
         'threats':        _threats_section(
             devices, now,
             # The edge belongs to the instance: a per-site report, or a reader
@@ -400,7 +465,7 @@ def _build_fleet_report(site_id=None):
 
 # v3.14.0: custom report builder — selectable sections + saved definitions.
 _REPORT_SECTIONS = ('devices', 'sla', 'patches', 'cve', 'health', 'attention',
-                    'posture', 'threats', 'compliance', 'period')
+                    'posture', 'hardware', 'exposure', 'threats', 'compliance', 'period')
 # v6.4.2: sections that cost real money and latency to produce. 
 # OUTSIDE the default tuple, because `sections or list(_REPORT_SECTIONS)` would
 # otherwise switch AI billing on for every install that has ever saved a report
@@ -433,6 +498,12 @@ def _report_summary_context(report):
                             'kev_count'),
         'sla':        _pick('sla', 'days', 'fleet_uptime_pct'),
         'compliance': _pick('compliance', 'score', 'passing', 'failing'),
+        # v7.5.0: counts only. The lists beside them carry host names, which stay out.
+        'posture':    _pick('posture', 'firewall_off_count', 'ssh_weak_count',
+                            'autoupdate_off_count', 'encryption_off_count'),
+        'hardware':   _pick('hardware', 'smart_failed_count', 'temp_high_count',
+                            'ups_on_battery_count', 'storage_degraded_count'),
+        'exposure':   _pick('exposure', 'world_hosts_count', 'world_sockets'),
         'period':     report.get('period') or {},
     }
     if report.get('site_name'):
@@ -585,6 +656,32 @@ def _fleet_report_csv_bytes(report):
              '' if _dl.get('health_score') is None else _dl['health_score']])
         row(['Period', 'Compliance change (pp)',
              '' if _dl.get('compliance_pct') is None else _dl['compliance_pct']])
+    # v7.5.0: posture, hardware and exposure. 'posture' has been a selectable
+    # section since v6.4.2 and this renderer never emitted it, so a CSV that ticked
+    # it wrote nothing, which reads the same as leaving it out.
+    pos = report.get('posture') or {}
+    for key, label, den in (
+            ('firewall_off', 'Host firewall inactive', 'firewall_reporting'),
+            ('ssh_weak', 'Weak SSH configuration', 'ssh_reporting'),
+            ('autoupdate_off', 'Automatic updates off', 'autoupdate_reporting'),
+            ('encryption_off', 'Disk encryption off', 'encryption_reporting')):
+        if pos.get(den):
+            row(['Posture', label, pos.get(key + '_count', 0)])
+            row(['Posture', label + ' (hosts reporting)', pos.get(den, 0)])
+    hwr = report.get('hardware') or {}
+    for key, label, den in (
+            ('smart_failed', 'SMART-failed disk', 'reporting'),
+            ('temp_high', 'Over temperature', 'reporting'),
+            ('ups_on_battery', 'UPS on battery', 'reporting'),
+            ('storage_degraded', 'Storage pool or array degraded', 'storage_reporting')):
+        if hwr.get(den):
+            row(['Hardware', label, hwr.get(key + '_count', 0)])
+            row(['Hardware', label + ' (hosts reporting)', hwr.get(den, 0)])
+    exr = report.get('exposure') or {}
+    if exr.get('reporting'):
+        row(['Exposure', 'Hosts with a world-reachable port', exr.get('world_hosts_count', 0)])
+        row(['Exposure', 'World-reachable sockets', exr.get('world_sockets', 0)])
+        row(['Exposure', 'Hosts reporting their ports', exr.get('reporting', 0)])
     th = report.get('threats') or {}
     if th:
         row(['Threats', 'Hosts under brute force now', th.get('bf_hosts', 0)])
@@ -1015,6 +1112,37 @@ def _render_report_email(report):
         if _dl.get('health_score') is not None or _dl.get('compliance_pct') is not None:
             lines.append(f"  Change             : health {_signed(_dl.get('health_score'))}, "
                          f"compliance {_signed(_dl.get('compliance_pct'), '%')}")
+    pos = report.get('posture') or {}
+    _pos_rows = [(lbl, pos.get(k + '_count', 0), pos.get(den, 0)) for k, lbl, den in (
+        ('firewall_off', 'Firewall inactive', 'firewall_reporting'),
+        ('ssh_weak', 'Weak SSH config', 'ssh_reporting'),
+        ('autoupdate_off', 'Auto-updates off', 'autoupdate_reporting'),
+        ('encryption_off', 'Disk encryption off', 'encryption_reporting'))
+        if pos.get(den)]
+    if _pos_rows:
+        lines.append('')
+        lines.append('Host security posture')
+        for lbl, n, den in _pos_rows:
+            lines.append(f"  {lbl:<20}: {n} of {den} reporting")
+    hwr = report.get('hardware') or {}
+    _hw_rows = [(lbl, hwr.get(k + '_count', 0), hwr.get(den, 0)) for k, lbl, den in (
+        ('smart_failed', 'SMART-failed disk', 'reporting'),
+        ('temp_high', 'Over temperature', 'reporting'),
+        ('ups_on_battery', 'UPS on battery', 'reporting'),
+        ('storage_degraded', 'Storage degraded', 'storage_reporting'))
+        if hwr.get(den)]
+    if _hw_rows:
+        lines.append('')
+        lines.append('Hardware')
+        for lbl, n, den in _hw_rows:
+            lines.append(f"  {lbl:<20}: {n} of {den} reporting")
+    exr = report.get('exposure') or {}
+    if exr.get('reporting'):
+        lines.append('')
+        lines.append('Exposure')
+        lines.append(f"  World-reachable    : {A.plural(exr.get('world_hosts_count', 0), 'host', 'hosts')}, "
+                     f"{A.plural(exr.get('world_sockets', 0), 'socket', 'sockets')} "
+                     f"({exr.get('reporting', 0)} reporting)")
     th = report.get('threats') or {}
     if th:
         lines.append('')

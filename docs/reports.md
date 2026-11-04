@@ -1,9 +1,9 @@
 # Reports
 
 **Business → Reports** produces a single **fleet posture report** — health
-score, pending patches, open CVEs, host security posture, threats and remote
-access, and compliance — as one export you can download on demand or have
-emailed on a schedule.
+score, pending patches, open CVEs, host security posture, hardware health,
+network exposure, threats and remote access, and compliance — as one export you
+can download on demand or have emailed on a schedule.
 
 ## Posture report
 
@@ -13,6 +13,28 @@ emailed on a schedule.
   [compliance](compliance.md) baseline trend and an [audit-log](security.md)
   excerpt for the period into one JSON document — the artifact auditors ask for.
   Generating it is admin-only and itself audit-logged.
+
+## Hardware health and network exposure *(7.5.0)*
+
+Two sections answer the questions a customer asks about the machines themselves.
+
+**Hardware health** counts, for the hosts you monitor, the ones with a
+SMART-failed disk, a temperature over the limit, a UPS running on battery, or a
+storage pool or array that is not healthy (ZFS, mdadm, Btrfs and the like).
+
+**Network exposure** counts the hosts with a listening port reachable from the
+world, and how many sockets that is. A socket you muted on the Exposure page is
+accepted risk and is left out, the same as on the Checks page and in the risk
+score. The ten most exposed hosts are listed with their ports.
+
+Each line shows *affected / reporting*. A host that never sent the signal is not
+in the second number, so silence is never counted as healthy, and a line no host
+reports is left out. Names are listed up to ten per line. Hosts you do not
+monitor are not counted. You see only the hosts your role and tenant allow.
+
+The CSV and the emailed text carry these figures, and the **host security
+posture** figures, as plain counts. The AI summary sees the counts and never the
+host names.
 
 ## Threats and remote access
 
