@@ -13,7 +13,7 @@ which hosts have updates waiting, and which packages are involved.
   **PDF**.
 - The headline **percentage up-to-date counts only online hosts with data** —
   hosts that haven't reported inventory are excluded rather than skewing it.
-- **Inventory search** finds a package (optionally an exact name/version) across
+- **Software inventory search** finds a package (optionally an exact name/version) across
   the fleet, and the **patch catalog** inverts the table: pending updates
   aggregated *by package*, showing which update is waiting on how many hosts.
 

@@ -99,7 +99,7 @@
      for keyboard navigation only, so mouse users see no change; elements with
      their own outline:none + focus styling (e.g. .sidebar-search) win on
      specificity, which is intended. */
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  :focus-visible { outline: 2px solid var(--accent-ink, var(--accent)); outline-offset: 1px; }
   body.light .journal-wrap { background: #f8fafc; color: #334155; }
 
   /* ── v4.1: full themes (data-theme on <body>) ──────────────────────────────
@@ -1903,7 +1903,7 @@
     z-index: 2;
   }
   .modal-close:hover  { background: var(--bg); color: var(--text); border-color: var(--hair); }
-  .modal-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .modal-close:focus-visible { outline: 2px solid var(--accent-ink, var(--accent)); outline-offset: 1px; }
   /* Keep a long title clear of the button. */
   .modal-title { padding-right: 34px; }
   /* A dialog that manages its own scrolling (flex column + overflow hidden)
@@ -2038,7 +2038,7 @@
   .form-input:focus-visible,
   input:where(:not([type=checkbox]):not([type=radio])):focus-visible,
   select:focus-visible, textarea:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--accent-ink, var(--accent));
     outline-offset: 1px;
   }
   /* v5.1.1: keep the native <option> list readable on every theme. Without explicit
@@ -4232,7 +4232,7 @@ button, a, [role="button"],
 .nav-item:hover .nav-star,
 .nav-item:focus-within .nav-star { opacity: .85; }
 .nav-star:hover { opacity: 1; color: var(--text); background: var(--surface2); }
-.nav-star:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+.nav-star:focus-visible { opacity: 1; outline: 2px solid var(--accent-ink, var(--accent)); outline-offset: 1px; }
 .nav-star.faved { opacity: 1; color: var(--amber-ink); }
 .nav-star.faved svg { fill: currentColor; }
 body.sidebar-collapsed .nav-star,
@@ -5384,7 +5384,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
   border-bottom: 2px solid transparent; padding: 8px 12px; cursor: pointer; }
 .pg-tab:hover { color: var(--text); }
 .pg-tab.active { color: var(--text); border-bottom-color: var(--accent); }
-.pg-tab:focus-visible, .pg-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pg-tab:focus-visible, .pg-tile:focus-visible { outline: 2px solid var(--accent-ink, var(--accent)); outline-offset: 2px; }
 .pg-off { display: none !important; }
 .ipi-chip { display: inline-block; font-size: 11px; padding: 2px 8px; margin: 0 4px 4px 0;
   border: 1px solid var(--hair); border-radius: 0; background: var(--surface2); color: var(--text); }
@@ -7205,7 +7205,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .settings-tab:focus-visible {
   color: var(--text);
   background: var(--surface2);
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-ink, var(--accent));
   outline-offset: 1px;
 }
 /* The tab strip scrolls horizontally when the tabs overflow. Two fixes:
@@ -8604,6 +8604,45 @@ td > .btn-icon + .btn-icon { margin-left: 0; margin-inline-start: 6px; }
 .tp-ranges { flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .tp-range { display: flex; align-items: center; gap: 6px; }
 .tp-range .form-input { width: 110px; }
+
+/* 7.5.0 polish: each rule below was measured in a browser against the seeded demo (390 px and 768 px wide, dark and the light themes)
+   before it was written. Classic only: nothing here reaches the Pilot look or a logo. */
+
+/* Tab strips in dialogs wrap instead of running past the dialog: the CMDB asset dialog lost three of its six tabs off screen. */
+.isl-227, .isl-250 { flex-wrap: wrap; }
+
+/* Phone width: a header row with buttons wraps. The rule above that keeps the Hosts buttons on one line (right for a wide screen)
+   gave the row `flex: 0 0 auto`, so it could not shrink below its one-line width and the Monitor header's buttons ended 27 and 150 px
+   past the edge (print relaxes the same rule). Table action cells stay on one row (the table scrolls inside its
+   wrapper), a list row wraps, the dialog footer wraps its buttons and lets one grow with its label. */
+@media (max-width: 720px) {
+  .section-header { flex-wrap: wrap; gap: 8px; }
+  .section-header > .row-8, .section-header > .row-8-center { flex: 0 1 auto; max-width: 100%; flex-wrap: wrap; }
+  td.row-6, td.exposure-actions { flex-wrap: nowrap; }
+  td .btn-icon, td .btn-xs, td .cell-sm, td .btn-sm { white-space: nowrap; }
+  td:has(> .btn-icon + .btn-icon) { white-space: nowrap; }
+  .bp-item { flex-wrap: wrap; }
+  .bp-item-name { flex: 1 1 100%; }
+  .modal-actions { flex-wrap: wrap; }
+  .modal-actions > button, .modal-actions > a { flex: 1 1 120px; height: auto; }
+}
+
+/* An integration card's head wraps (the names were 28 to 56 px wide), and the summary cards do not force three columns (the
+   Checks page ran 35 px past the edge at 768). */
+.integration-card-head { flex-wrap: wrap; }
+.stats-row { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+/* The Home "why" list scrolls after about 15 lines, like every other list. */
+.hh-why-body { max-height: 340px; overflow-y: auto; }
+
+/* A section title inside a flex header row has no bottom margin, so the row centres its text and not its margin box; a form label
+   beside a control in a centred row has none either. */
+.dash-card > :is(.section-header, .row-8-center, .row-12-center, .ai-tool-head, .drift-prof-head):first-child > .section-title:first-child,
+.settings-section > :is(.section-header, .row-8-center, .ai-tool-head):first-child > .section-title:first-child { margin-bottom: 0; }
+.row-8-center > .form-label, .row-6-center > .form-label, .sb-controls > .form-label, .row-8 > .form-label { margin-bottom: 0; }
+
+/* Focus: a ring inside a scrolling list or the heat map is drawn inside the box that clips it. */
+.scroll-cap :focus-visible, .scroll-cap-sm :focus-visible, .heatmap-grid :focus-visible { outline-offset: -2px; }
 
 /* ═══ PILOT LOOK (7.4.9) ═══ BEGIN ═════════════════════════════════════════════════════════════════════════════════════════════════
    The second look, chosen under My Account → Appearance (body[data-look]). Classic is the stylesheet above this block, unchanged:

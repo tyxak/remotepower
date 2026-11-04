@@ -12,7 +12,7 @@ The list is built from the sidebar itself, so it is never out of date, and a pag
 
 ## The sidebar
 
-Dashboard, Hosts, Alerts and Tickets sit at the top. Below them are twelve domains: Fleet, Monitoring, Hardware, Security, Compliance, Patching, Automation, Scheduling, Access, Backups, Business and Admin. Inside a domain the pages are listed alphabetically.
+Dashboard, Hosts, Alerts and Tickets sit at the top. Below them are twelve domains: Fleet, Monitoring, Hardware, Security, Compliance, Patching, Automation, Scheduling, Access, Backups, Business and Admin. Inside a domain the pages are listed alphabetically, except that Needs Attention is always first in Monitoring.
 
 **More than one domain can be open at once.** Clicking a domain header toggles it, and the set is remembered. *Expand every sidebar group* (in the All pages dialog) opens all twelve, and closes them again into a tidy rail if they are already open.
 
