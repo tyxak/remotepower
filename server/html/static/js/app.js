@@ -88,7 +88,7 @@ async function loadUiPrefs() {
   }
   _uiPrefsLoaded = true;
   try { applyLook(); applyTheme(); } catch (_) {}   // 7.4.9: the account's look replaces the browser's copy
-  try { applyTypeface(); } catch (_) {}             // and so does its typeface
+  try { applyTypeface(); _buildTypefacePicker(); } catch (_) {}   // and so does its typeface; the select is right before the page opens
 }
 
 function _scheduleFlushUiPrefs() {

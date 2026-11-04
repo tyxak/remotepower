@@ -246,9 +246,11 @@ class TestTheWiring(unittest.TestCase):
         self.assertIn("_buildTypefacePicker();", srcpin.js_function(_APP, "_buildAppearancePicker"))
         self.assertIn("el.value = _typefaceChoice()", srcpin.js_function(_APP, "_buildTypefacePicker"))
 
-    def test_the_prefs_arriving_re_apply_the_typeface(self):
+    def test_the_prefs_arriving_re_apply_the_typeface_and_fill_the_select(self):
+        # the select is right as soon as the prefs are here; waiting for the account page to build it left "System font" showing
+        # for the moment after the page opened, for a person who had chosen B612
         load = srcpin.js_function(_APP, "loadUiPrefs")
-        self.assertRegex(load, r"(?s)_uiPrefsLoaded = true;.*try \{ applyTypeface\(\); \} catch \(_\) \{\}")
+        self.assertRegex(load, r"(?s)_uiPrefsLoaded = true;.*try \{ applyTypeface\(\); _buildTypefacePicker\(\); \} catch \(_\) \{\}")
 
     def test_the_typeface_is_painted_when_the_script_runs(self):
         # showApp shows the shell before it asks for the prefs; a top-level statement (the one in loadUiPrefs is indented)
