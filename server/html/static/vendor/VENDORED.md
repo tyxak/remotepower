@@ -6,6 +6,16 @@ this table in the same commit.** Where the bundled files carry no version
 marker the version is recorded as the best evidence available — pin it
 properly on the next update.
 
+## v7.5.0 — 2026-11-04
+
+- **Licence texts for Inter and JetBrains Mono added.** The two families were vendored since v3.x with the SIL Open Font License 1.1
+  named only in this record; B612 (v7.4.9) was the first to carry the text beside the files. The texts are the `LICENSE` files of the
+  npm packages `@fontsource/inter@5.3.0` and `@fontsource/jetbrains-mono@5.3.0`, the same versions as the font files here: each
+  tarball's sha512 and sha1 matched the registry's `dist` entry before anything was unpacked, and only `package/LICENSE` was read from
+  it. They are `fonts/inter-OFL.txt` (copyright The Inter Project Authors, https://github.com/rsms/inter) and
+  `fonts/jetbrains-mono-OFL.txt` (copyright The JetBrains Mono Project Authors, https://github.com/JetBrains/JetBrainsMono).
+  `tests/test_v750_font_licences.py` pins their sha256.
+
 ## v7.4.9 — 2026-11-02
 
 - **B612 5.3.0 added (2026-11-04), for the Typeface option.** From the npm `@fontsource/b612@5.3.0` tarball: its sha512 and sha1
