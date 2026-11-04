@@ -87,8 +87,10 @@ hosts with this server as the control node. It needs `ansible-playbook` (the
   with `- hosts: targets`. A host needs a known IP address; hosts without one and
   quarantined hosts are skipped. The SSH port comes from the host record or its
   CMDB entry.
-- The first connection to a host accepts its host key. The key is recorded in a
-  temporary file that is deleted when the run ends, so every run starts fresh.
+- The first connection to a host accepts its host key and records it in the
+  `ansible_known_hosts` file in the data directory. A later run refuses a host that
+  presents a different key. If you rebuilt a host on purpose, delete its line from
+  that file.
 - The SSH key and password are written to temporary files that only the server user
   can read, and the files are deleted after the run. The run is cut off after 15
   minutes and the page shows the last 64 KiB of output, the exit code and how many
@@ -111,7 +113,7 @@ Every blueprint route needs an admin. The Ansible routes say who can call them.
 | `POST /api/provisioning/blueprints/{id}/render` | Render with supplied vars |
 | `POST /api/provisioning/blueprints/{id}/run` | Run terraform `{op: plan\|apply\|destroy}` |
 | `GET /api/ansible/status` | Whether `ansible-playbook` is installed on the server (any signed-in user) |
-| `GET /api/ansible/playbooks` | List playbooks, with their YAML (any signed-in user) |
+| `GET /api/ansible/playbooks` | List playbooks. The YAML comes with it for an admin or a role with the `script` permission; any other signed-in user gets the list without it (`content_hidden: true`) |
 | `POST /api/ansible/playbooks` | Create a playbook (admin) |
 | `PUT /api/ansible/playbooks/{id}` | Update (admin) |
 | `DELETE /api/ansible/playbooks/{id}` | Delete (admin) |

@@ -20947,6 +20947,24 @@ def _ansible_load():
     return data
 
 
+def _ansible_ssh_env(workdir):
+    """The environment a playbook run gets. Trust-on-first-use rather than blanket-disabled host-key checking: the first connect to a
+    host records its key (accept-new) and a later run that finds a different key is refused, the same posture as the agentless SSH
+    path (ssh_exec.py).
+
+    7.5.0: the keys are kept in `ansible_known_hosts` in the data directory. They went into a file in the run's own temporary
+    directory, which is deleted afterwards, so every run started with nothing recorded and accepted whatever key the host presented.
+    If the data directory cannot hold the file, the run falls back to that per-run file rather than failing."""
+    kh = DATA_DIR / 'ansible_known_hosts'
+    try:
+        os.close(os.open(str(kh), os.O_WRONLY | os.O_CREAT, 0o600))
+    except OSError:
+        kh = Path(workdir) / 'known_hosts'
+    return dict(os.environ, ANSIBLE_HOST_KEY_CHECKING='True',
+                ANSIBLE_SSH_ARGS='-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=' + shlex.quote(str(kh)),
+                ANSIBLE_RETRY_FILES_ENABLED='False')
+
+
 def handle_ansible_status():
     """GET /api/ansible/status — whether the control node has ansible."""
     require_auth()
@@ -20954,10 +20972,20 @@ def handle_ansible_status():
 
 
 def handle_ansible_playbooks_list():
-    """GET /api/ansible/playbooks — stored playbooks (content included)."""
+    """GET /api/ansible/playbooks — stored playbooks. The YAML (`content`) goes to an administrator and to a role that may edit or run
+    playbooks (the `script` permission); every other signed-in role gets the list without it and `content_hidden: true`.
+
+    7.5.0: every role got the YAML, including viewer, auditor, finance and the MCP key. A playbook is where addresses, variables and
+    sometimes credentials live, and none of those roles can edit, run or delete one."""
     require_auth()
+    _, _role = verify_token(get_token_from_request())
+    _rd = _resolve_role(_role)
+    _may_read = bool(_rd['admin']) or 'script' in _rd['permissions']
+    _pbs = _ansible_load()['playbooks']
+    if not _may_read:
+        _pbs = [{k: v for k, v in p.items() if k != 'content'} for p in _pbs]
     respond(200, {'ok': True, 'available': _ansible_available(),
-                  'playbooks': _ansible_load()['playbooks']})
+                  'playbooks': _pbs, 'content_hidden': not _may_read})
 
 
 def handle_ansible_playbook_create():
@@ -21124,14 +21152,7 @@ def handle_ansible_playbook_run(pb_id):
             argv += ['-e', '@' + ev_path]
         if become:
             argv.append('--become')
-        # Trust-on-first-use rather than blanket-disable host-key checking: the
-        # first connect records the host key (accept-new), and a later key
-        # change is then refused — same posture as the agentless SSH path
-        # (ssh_exec.py). Honours an existing known_hosts in the Ansible env.
-        env = dict(os.environ, ANSIBLE_HOST_KEY_CHECKING='True',
-                   ANSIBLE_SSH_ARGS='-o StrictHostKeyChecking=accept-new '
-                                    '-o UserKnownHostsFile=' + os.path.join(workdir, 'known_hosts'),
-                   ANSIBLE_RETRY_FILES_ENABLED='False')
+        env = _ansible_ssh_env(workdir)
         if ssh_key:
             key_path = os.path.join(workdir, 'id_key')
             with open(key_path, 'w') as f:
