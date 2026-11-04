@@ -783,6 +783,18 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
                     page.evaluate("() => !!document.querySelector('#device-drawer.open')"),
                     'the drawer did not open, so this audited an invisible subtree')
                 if what == 'agentless':
+                    # The rows are drawn after the drawer's own request. Waiting a fixed
+                    # 1.5 s for them failed once in a full gate that started three
+                    # other suites in the same minute (with 30 ms it fails every
+                    # time, with the same message), so the wait is for the rows, and
+                    # the assertion below still fails when the body is the wrong one.
+                    try:
+                        page.wait_for_function(
+                            "() => !!document.getElementById('ds-ssh-port')"
+                            " && !!document.getElementById('ds-snmp-version')",
+                            timeout=20000)
+                    except Exception:  # noqa: BLE001 - the assertion below says what was missing
+                        pass
                     self.assertTrue(
                         page.evaluate(
                             "() => !!document.getElementById('ds-ssh-port')"
