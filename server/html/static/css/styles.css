@@ -232,6 +232,19 @@
     /* v7.4.0: AA inks, computed by the palette gate (test_v740_theme_contrast). */
     --red-ink:#c62020; --green-ink:#107636; --amber-ink:#985404; --orange-ink:#aa4804; --muted-on-tint:#57626f; --red-on-tint:#96231c; --green-on-tint:#257048; --amber-on-tint:#985404; --orange-on-tint:#aa4804; --on-red:#ffffff; --on-amber:#000000; --purple-ink:#7a38ed; --purple-on-tint:#7531ec;
   }
+  /* 7.4.9: the two palettes of the Pilot look. They are ordinary themes (the contrast gate walks them like the others), and the
+     Pilot look uses them when no palette was chosen; Midnight and Daylight stay for Classic and as choices. Warm graphite and paper,
+     with the amber accent of the product default. */
+  body[data-theme="pilot"] {
+    --bg:#12110f; --surface:#1a1816; --surface2:#211f1c; --border:#2e2a26; --text:#eee8dd; --muted:#a39a8d; --accent:#f59e0b; --accent2:#fbbf24; --green:#58d68d; --green-dim:#24523a; --red:#ff6a5e; --red-dim:#6b2a26; --amber:#f2c14e; --purple:#b59cf2; --accent-soft:rgba(245,158,11,0.12); --accent-edge:rgba(245,158,11,0.32); --accent-contrast:#000;
+    /* 7.4.9: AA inks, computed by the palette gate (test_v740_theme_contrast). */
+    --red-on-tint:#ffb8b4; --accent-ink:#fbbf24; --accent2-ink:#fcd34d; --red-ink:#ff948b; --green-ink:#7be3a6; --amber-ink:#f5cf74; --orange-ink:#ffb27a; --muted-on-tint:#a8a095; --green-on-tint:#8ae9b0; --amber-on-tint:#f5cf74; --orange-on-tint:#ffb27a; --on-red:#000000; --on-amber:#000000; --purple-ink:#cfbdf7; --purple-on-tint:#cfbdf7;
+  }
+  body[data-theme="pilot-paper"] {
+    --bg:#f2eee6; --surface:#fbf9f4; --surface2:#f2eee6; --border:#d8d0c1; --text:#1c1915; --muted:#665d51; --accent:#f59e0b; --accent2:#e9920a; --green:#2f9e63; --green-dim:#cfe8d9; --red:#d6473d; --red-dim:#f3cdc9; --amber:#c99a1c; --purple:#7c3aed; --accent-soft:rgba(245,158,11,0.14); --accent-edge:rgba(245,158,11,0.40); --accent-contrast:#000;
+    /* 7.4.9: AA inks, computed by the palette gate (test_v740_theme_contrast). */
+    --accent-ink:#85500a; --accent2-ink:#85500a; --red-ink:#a3281f; --green-ink:#1b6f43; --amber-ink:#7a5a00; --orange-ink:#9a4d0e; --muted-on-tint:#5a5247; --red-on-tint:#96231c; --green-on-tint:#1b6f43; --amber-on-tint:#7a5a00; --orange-on-tint:#9a4d0e; --on-red:#000000; --on-amber:#000000; --purple-ink:#6b2ff3; --purple-on-tint:#6b2ff3;
+  }
   /* ── v6.0.0 "ClarityMatters" design tokens (chosen-design.html) ──────────
      New tokens the Clarity re-skin adds on top of the existing palette:
        --hair / --hair-2  hairline borders / hover wash (alpha, so they sit on
@@ -296,6 +309,12 @@
   .theme-card .tc-tag { font-size:10px; color:var(--muted); font-weight:500; text-transform:uppercase; letter-spacing:.4px; }
   .theme-card .tc-swatches { display:flex; gap:4px; }
   .theme-card .tc-dot { width:18px; height:18px; border-radius:5px; border:1px solid rgba(255,255,255,0.08); }
+  /* 7.4.9: the look cards (My Account → Appearance) are theme cards with a sentence under the name */
+  #acct-look { grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); }
+  .look-card { min-height:64px; }
+  .look-card .tc-name { margin-bottom:4px; }
+  .look-card .look-desc { font-size:12px; color:var(--muted); line-height:1.4; }
+  .look-card:disabled { opacity:.6; cursor:not-allowed; }
 
   /* v3.14.0 (#46): per-user accent presets — declared AFTER the data-theme
      blocks so a chosen accent overrides the theme's default accent. */

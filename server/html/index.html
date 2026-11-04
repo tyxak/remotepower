@@ -1374,6 +1374,19 @@
           <div class="section-title">Appearance</div>
           <!-- v6.0.0 "ClarityMatters": single interface — the v4.6.0 New/Old
                toggle is gone; themes + accent apply to the one UI. -->
+          <!-- 7.4.9: the look. Saved to the account (ui_prefs), unlike the palette below, which is per browser. -->
+          <div class="mb-16">
+            <div class="form-label mb-6">Look</div>
+            <div id="acct-look" class="theme-grid mb-6"></div>
+            <p class="hint">Saved to your account, so it follows you to other browsers. Palette, accent and background are set per browser.</p>
+            <p class="hint d-none" id="acct-look-locked">Your administrator has set the look for everyone.</p>
+            <div class="form-label mb-6 mt-8">Effects</div>
+            <select id="acct-fx" class="form-input input-auto" data-change="setFxUI" aria-label="Effects">
+              <option value="full">Full effects</option>
+              <option value="reduced">Reduced effects</option>
+            </select>
+            <p class="hint">Reduced effects turn off the glow and the dot texture. No colour changes.</p>
+          </div>
           <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting; <strong>Time of day</strong> switches on the clock instead — which is what you want when the OS is pinned to dark, as it is on most servers and kiosks. The accent tints buttons and highlights on top of any theme.</p>
           <div class="form-label mb-6">Theme</div>
           <div id="acct-theme-grid" class="theme-grid mb-16"></div>
@@ -2971,6 +2984,21 @@
                 </select>
               </div>
             </div>
+            <!-- 7.4.9: the default look, and whether it is the only one -->
+            <div class="settings-row">
+              <div class="form-group mw-200">
+                <label for="cfg-brand-look" class="form-label">Default look</label>
+                <select id="cfg-brand-look" class="form-input">
+                  <option value="">No default (Pilot)</option>
+                  <option value="pilot">Pilot</option>
+                  <option value="classic">Classic</option>
+                </select>
+              </div>
+              <div class="form-group flex-1">
+                <label class="form-label"><input type="checkbox" id="cfg-brand-look-locked"> Everyone uses this look (hides the choice in My Account)</label>
+              </div>
+            </div>
+            <p class="hint">People get the default look until they choose their own in My Account. With the box ticked they cannot.</p>
             <button class="btn-primary mt-12" data-action="saveBranding">Save branding</button>
             <span id="branding-status" class="fs-12 c-muted ml-8"></span>
           </div>

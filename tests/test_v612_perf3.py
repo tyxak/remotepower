@@ -264,7 +264,12 @@ class TestEagerJsPayload(unittest.TestCase):
         # The forms are drawn from Settings, the maintenance window dialog and the host drawer, which the eager core draws.
         # The editor and the list of time periods are in app-timeperiods.js, which is lazy, and the translations are in
         # i18n.js, which is not eager.
-        self.assertLess(total, 2_660_000,
+        # 7.4.9 look switch: 2_670_000. The sweep before it ended at 2_658_511. Resolving the look (the administrator's lock, the
+        # account's choice, the browser's copy), the default palette that follows it, the My Account picker and the Branding rows
+        # add about 6.2 KB to app.js, and the Home hero about 0.8 KB more. The hero itself, its dot-matrix digits and the fleet
+        # field are app-pilot.js, which is lazy and is fetched only when the look is Pilot; the translations are in i18n.js, which
+        # is not eager. The resolution has to be eager: the look must be on the page before the shell is drawn.
+        self.assertLess(total, 2_670_000,
                         'the eager JS payload regressed past its budget')
 
 

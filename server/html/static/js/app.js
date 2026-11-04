@@ -87,6 +87,7 @@ async function loadUiPrefs() {
     _uiPrefs = {};
   }
   _uiPrefsLoaded = true;
+  try { applyLook(); applyTheme(); } catch (_) {}   // 7.4.9: the account's look replaces the browser's copy
 }
 
 function _scheduleFlushUiPrefs() {
@@ -1317,6 +1318,7 @@ function applyAccent() {
 // preview dots: [bg, surface, accent, text].
 const THEMES = [
   { id:'dark',            name:'Midnight',        type:'dark',  dots:['#0a0c10','#1c2230','#3b7eff','#e2e8f0'] },
+  { id:'pilot',           name:'Pilot dark',      type:'dark',  dots:['#12110f','#211f1c','#f59e0b','#eee8dd'] },
   { id:'tokyo',           name:'Tokyo Night',     type:'dark',  dots:['#1a1b26','#24283b','#7aa2f7','#c0caf5'] },
   { id:'catppuccin',      name:'Catppuccin',      type:'dark',  dots:['#1e1e2e','#313244','#cba6f7','#cdd6f4'] },
   { id:'dracula',         name:'Dracula',         type:'dark',  dots:['#282a36','#44475a','#bd93f9','#f8f8f2'] },
@@ -1326,6 +1328,7 @@ const THEMES = [
   { id:'oceanic',         name:'Oceanic',         type:'dark',  dots:['#0f1c24','#1b313f','#22b8cf','#cde3ec'] },
   { id:'solarized',       name:'Solarized Dark',  type:'dark',  dots:['#002b36','#073642','#268bd2','#b3c0c0'] },
   { id:'light',           name:'Daylight',        type:'light', dots:['#f1f5f9','#ffffff','#3b7eff','#0f172a'] },
+  { id:'pilot-paper',     name:'Pilot paper',     type:'light', dots:['#f2eee6','#fbf9f4','#f59e0b','#1c1915'] },
   { id:'paper',           name:'Paper',           type:'light', dots:['#fafafa','#ffffff','#2563eb','#18181b'] },
   { id:'solarized-light', name:'Solarized Light', type:'light', dots:['#fdf6e3','#fbf3d9','#268bd2','#586e75'] },
   { id:'nord-light',      name:'Nord Light',      type:'light', dots:['#eceff4','#ffffff','#5e81ac','#2e3440'] },
@@ -1335,11 +1338,50 @@ const THEMES = [
   { id:'schedule',        name:'Time of day',     type:'auto',  dots:['#f1f5f9','#0a0c10','#3b7eff','#94a3b8'] },
 ];
 const THEME_IDS = THEMES.map(t => t.id);
+
+// ── 7.4.9: the interface look ─────────────────────────────────────────────────────────────────────────────────────────────
+// Pilot is the default; Classic keeps the 6.0 to 7.4 layout. A look is taste, so it follows the ACCOUNT (ui_prefs.look and
+// ui_prefs.effects, saved with the other per-user prefs) and the browser keeps only a copy of the last one it drew, so the first
+// paint matches while the prefs are on their way. Theme, accent and background stay per browser (a wall tablet and a laptop can
+// differ). An administrator can set a default and lock it (Settings → Branding). Mirrors UI_LOOKS / UI_EFFECTS in api.py.
+const LOOKS = ['pilot', 'classic'];
+const FX_LEVELS = ['full', 'reduced'];
+const LOOK_DEFAULT = 'pilot';
+const LOOK_CARDS = [
+  { id: 'pilot',   name: 'Pilot',   desc: 'Calm panels, status shown as lights, dot readouts.' },
+  { id: 'classic', name: 'Classic', desc: 'The previous layout, unchanged.' },
+];
+function _lookChoice() {
+  const dflt = LOOKS.includes(window._brandLook) ? window._brandLook : '';
+  if (dflt && window._brandLookLocked) return dflt;                    // the administrator's lock beats everything
+  if (_uiPrefsLoaded) return LOOKS.includes(_uiPrefs.look) ? _uiPrefs.look : (dflt || LOOK_DEFAULT);
+  let copy = ''; try { copy = localStorage.getItem('rp_look') || ''; } catch (_) {}
+  return LOOKS.includes(copy) ? copy : (dflt || LOOK_DEFAULT);         // the prefs are not here yet: the browser's copy stands in
+}
+function _fxChoice() {
+  if (_uiPrefsLoaded) return FX_LEVELS.includes(_uiPrefs.effects) ? _uiPrefs.effects : 'full';
+  let copy = ''; try { copy = localStorage.getItem('rp_fx') || ''; } catch (_) {}
+  return FX_LEVELS.includes(copy) ? copy : 'full';
+}
+// Sets the attributes the stylesheet reads. True when the look itself changed, so the caller can redraw what depends on it.
+function applyLook() {
+  const look = _lookChoice(), fx = _fxChoice();
+  const changed = document.body.dataset.look !== look;
+  document.body.dataset.look = look;
+  if (fx === 'reduced') document.body.dataset.fx = 'reduced'; else delete document.body.dataset.fx;
+  try { localStorage.setItem('rp_look', look); localStorage.setItem('rp_fx', fx); } catch (_) {}
+  return changed;
+}
+// The palette used when none was chosen: the Pilot look brings its own pair, Classic keeps Midnight and Daylight.
+function _defaultTheme(light) {
+  const pilot = _lookChoice() === 'pilot';
+  return light ? (pilot ? 'pilot-paper' : 'light') : (pilot ? 'pilot' : 'dark');
+}
 function _themeById(id) { return THEMES.find(t => t.id === id) || THEMES[0]; }
 
 // v6.1.2 (#44): the theme schedule. Per-browser (like the theme itself), so the
 // rack tablet in the server room and your laptop can disagree.
-const _SCHED_DEFAULT = { from: 7, to: 19, day: 'light', night: 'dark' };
+const _SCHED_DEFAULT = { from: 7, to: 19 };    // the day and night palettes default to the look's own pair (_defaultTheme)
 function _themeSchedule() {
   let s = {};
   try { s = JSON.parse(localStorage.getItem('rp_theme_sched') || '{}') || {}; }
@@ -1352,8 +1394,8 @@ function _themeSchedule() {
   return {
     from:  clampH(s.from, _SCHED_DEFAULT.from),
     to:    clampH(s.to,   _SCHED_DEFAULT.to),
-    day:   themeOr(s.day,   _SCHED_DEFAULT.day),
-    night: themeOr(s.night, _SCHED_DEFAULT.night),
+    day:   themeOr(s.day,   _defaultTheme(true)),
+    night: themeOr(s.night, _defaultTheme(false)),
   };
 }
 function _scheduleIsDaytime(sched, hour) {
@@ -1367,17 +1409,17 @@ function _scheduleIsDaytime(sched, hour) {
                    : (hour >= from || hour < to);
 }
 function _resolveTheme(id) {
-  if (id === 'auto') return _systemPrefersLight() ? 'light' : 'dark';
+  if (id === 'auto') return _defaultTheme(_systemPrefersLight());
   if (id === 'schedule') {
     const s = _themeSchedule();
     return _scheduleIsDaytime(s, new Date().getHours()) ? s.day : s.night;
   }
-  return THEME_IDS.includes(id) ? id : 'dark';
+  return THEME_IDS.includes(id) ? id : _defaultTheme(false);
 }
 function _isLightTheme(resolvedId) { return _themeById(resolvedId).type === 'light'; }
 function applyTheme() {
-  let theme = 'dark';
-  try { theme = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
+  let theme = _defaultTheme(false);
+  try { theme = localStorage.getItem('rp_theme') || theme; } catch (_) {}
   const resolved = _resolveTheme(theme);
   const light = _isLightTheme(resolved);
   // dark (=:root) and light (=body.light) need no data-theme block.
@@ -1407,9 +1449,9 @@ function _applyPageSubtitleInfo() {
 function toggleTheme() {
   // Header quick-toggle: flip between the dark and light families. The full
   // theme catalog lives in Settings → Appearance.
-  let theme = 'dark';
-  try { theme = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
-  const next = _isLightTheme(_resolveTheme(theme)) ? 'dark' : 'light';
+  let theme = _defaultTheme(false);
+  try { theme = localStorage.getItem('rp_theme') || theme; } catch (_) {}
+  const next = _isLightTheme(_resolveTheme(theme)) ? _defaultTheme(false) : _defaultTheme(true);
   try { localStorage.setItem('rp_theme', next); } catch (_) {}
   applyTheme();
   _buildThemeGrid();
@@ -1473,7 +1515,7 @@ const _ACCENT_COLORS = { blue: '#3b7eff', emerald: '#10b981', violet: '#8b5cf6',
 function _buildThemeGrid() {
   const grid = document.getElementById('acct-theme-grid');
   if (!grid) return;
-  let cur = 'dark'; try { cur = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
+  let cur = _defaultTheme(false); try { cur = localStorage.getItem('rp_theme') || cur; } catch (_) {}
   grid.innerHTML = '';
   THEMES.forEach(t => {
     const card = document.createElement('button');
@@ -1491,7 +1533,57 @@ function _buildThemeGrid() {
     grid.appendChild(card);
   });
 }
+// What depends on the look is redrawn here. A browser with no palette chosen follows the look's own pair, and Home draws its
+// hero for Pilot only, so the same data must not be allowed to skip the redraw.
+function _lookChanged() {
+  applyTheme();
+  try { _buildThemeGrid(); _buildThemeSchedule(); } catch (_) {}
+  window._homeLastRender = null;
+  try { if (document.getElementById('page-home')?.classList.contains('active')) loadHome(); } catch (_) {}
+}
+function setLookUI(id) {
+  if (!LOOKS.includes(id) || window._brandLookLocked) return;
+  _uiPrefs.look = id;
+  _scheduleFlushUiPrefs();
+  const changed = applyLook();
+  _buildLookPicker();
+  if (changed) _lookChanged();
+}
+function setFxUI() {
+  const el = document.getElementById('acct-fx');
+  const v = el ? el.value : 'full';
+  if (!FX_LEVELS.includes(v)) return;
+  _uiPrefs.effects = v;
+  _scheduleFlushUiPrefs();
+  applyLook();
+}
+function _buildLookPicker() {
+  const wrap = document.getElementById('acct-look');
+  if (!wrap) return;
+  const cur = _lookChoice(), locked = !!window._brandLookLocked;
+  wrap.innerHTML = '';
+  LOOK_CARDS.forEach(l => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'theme-card look-card' + (l.id === cur ? ' sel' : '');
+    b.dataset.action = 'setLookUI';
+    b.dataset.arg = l.id;
+    b.disabled = locked;
+    b.setAttribute('aria-pressed', l.id === cur ? 'true' : 'false');
+    const name = document.createElement('div'); name.className = 'tc-name';
+    const label = document.createElement('span'); label.textContent = l.name;
+    name.appendChild(label);
+    const desc = document.createElement('div'); desc.className = 'look-desc'; desc.textContent = l.desc;
+    b.appendChild(name); b.appendChild(desc);
+    wrap.appendChild(b);
+  });
+  const note = document.getElementById('acct-look-locked');
+  if (note) note.classList.toggle('d-none', !locked);
+  const fx = document.getElementById('acct-fx');
+  if (fx) fx.value = _fxChoice();
+}
 function _buildAppearancePicker() {
+  _buildLookPicker();
   _buildThemeGrid();
   _buildBgGrid();
   _buildThemeSchedule();   // v6.1.2 (#44)
@@ -1615,6 +1707,11 @@ function setAccentUI(name) {
   _buildAppearancePicker();
 }
 window.setThemeUI = setThemeUI;
+window.setLookUI = setLookUI;
+window.setFxUI = setFxUI;
+// 7.4.9: paint the look and the palette as soon as the script runs, from the browser's copy. showApp shows the shell first and
+// asks for the prefs after, so waiting for that answer drew the shell in the default colours for the length of a request.
+try { applyLook(); applyTheme(); } catch (_) {}
 // Live-update when the OS theme flips and we're in 'auto'.
 try {
   window.matchMedia && window.matchMedia('(prefers-color-scheme: light)')
@@ -5486,6 +5583,10 @@ async function loadSettings() {
   if (_bn) _bn.value = data.brand_name || '';
   const _bac = document.getElementById('cfg-brand-accent');
   if (_bac) _bac.value = data.brand_accent || '';
+  const _bl = document.getElementById('cfg-brand-look');
+  if (_bl) _bl.value = data.brand_look || '';
+  const _bll = document.getElementById('cfg-brand-look-locked');
+  if (_bll) _bll.checked = !!data.brand_look_locked;
   _renderExposureMutes(data.exposure_mutes);
   const _bk = data.backup || {};
   const _be = document.getElementById('backup-enabled');
@@ -9213,6 +9314,11 @@ async function loadMe() {
     }
     window._brandAccent = me.brand.accent || '';
     if (typeof applyAccent === 'function') applyAccent();
+    // 7.4.9: the administrator's default look, and whether it is the only one
+    window._brandLook = LOOKS.includes(me.brand.look) ? me.brand.look : '';
+    window._brandLookLocked = !!me.brand.look_locked && !!window._brandLook;
+    if (applyLook()) _lookChanged();
+    try { _buildLookPicker(); } catch (_) {}
   }
   return me;
 }
@@ -22343,6 +22449,8 @@ async function saveBranding() {
   const payload = {
     brand_name: document.getElementById('cfg-brand-name').value.trim(),
     brand_accent: document.getElementById('cfg-brand-accent').value,
+    brand_look: document.getElementById('cfg-brand-look').value,
+    brand_look_locked: document.getElementById('cfg-brand-look-locked').checked,
   };
   const r = await api('POST', '/config', payload).catch(() => null);
   if (r && r.ok) {
