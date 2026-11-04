@@ -202,6 +202,7 @@ No new collection: every input was already being stored.
 | Reboot churn | Uptime history | A box that keeps coming back has been going away. |
 | Health-score trajectory | Daily health-score history (about 6 months) | Is this host getting *worse*? |
 | Thermals, recent OOM | Hardware report and system information | Heat kills hardware. |
+| Units restarting repeatedly | The service data (the set the `unit_flapping` alert uses) | A service that crash-loops under `Restart=always` is up every time anything looks at it. Each unit scores, up to a cap *(7.5.0)*. |
 
 Only **high** and **critical** hosts raise a Needs Attention card. A low bar
 becomes noise, and a noisy predictor is one people learn to ignore, which is
@@ -210,12 +211,13 @@ but raise no card.
 
 ### What is *not* scored
 
-**Unit flapping.** The service data keeps systemd's `NRestarts` as a *cumulative*
-counter and stores only the latest value. The flap **delta** that the `unit_flapping`
-event fires on is worked out as it arrives and never saved. Scoring on
-`restarts > 0` would mark every host that ever deployed a service as failing,
-while a crash-looping unit that reset its counter scored zero. An
-omission is better than a confidently wrong number.
+**The restart counter itself.** systemd's `NRestarts` is a *cumulative* count, and
+the service data keeps only its latest value. Scoring on `restarts > 0` would mark
+every host that ever deployed a service as failing, while a crash-looping unit that
+reset its counter scored zero. What is scored is the **flapping** list instead: the
+units whose count climbed by your flap limit between two reports and have not
+settled since. A unit leaves it when its count is stable *and* it is running, so a
+unit that gave up after too many restarts stays on it.
 
 ## Troubleshooting
 

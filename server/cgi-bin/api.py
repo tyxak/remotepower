@@ -54144,9 +54144,13 @@ _RELIABILITY_WEIGHTS = {
     # battery_health_low and likewise counted for nothing.
     'power_throttled':    22,
     'battery_worn':        8,
+    # v7.5.0: a unit that is restarting repeatedly under Restart=always keeps the
+    # host looking healthy to every other signal. Per unit, up to the cap below.
+    'unit_flapping':       8,
 }
 _RELIABILITY_CAPS = {
     'reboot_churn': 24, 'ecc_correctable': 24, 'oom_recent': 8,
+    'unit_flapping': 24,
 }
 # A host is only flagged once it is likely to fail — this feeds an
 # alert and a Needs-Attention item, so a low bar here becomes noise, and a noisy
@@ -54389,18 +54393,23 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
             _add('battery_worn', w['battery_worn'],
                  f'battery health {_worn}% (below {_floor}%)')
 
-    # NOT SCORED, on purpose: unit flapping.
+    # v7.5.0: unit flapping, scored from the set services.json keeps for it.
     #
-    # services.json stores `restarts` as systemd's CUMULATIVE NRestarts counter,
-    # and only the *latest* value — the flap DELTA that `unit_flapping` fires on
-    # is computed in-flight in process_service_report() and never persisted. So
-    # there is nothing here to derive a flap rate from: a long-lived host that
-    # restarted a unit once during a deploy two years ago carries restarts=1
-    # forever, and scoring on `restarts > 0` would mark half a healthy fleet as
-    # failing while a crash-looping unit that reset its counter scores
-    # zero. Persisting a daily delta would make this a real factor — until then
-    # an honest omission beats a confidently wrong number.
-    # (`svc_rec` stays in the signature for exactly that follow-up.)
+    # The cumulative NRestarts counter is still not scored, for the reason this
+    # block used to give: a long-lived host that restarted a unit once during a
+    # deploy two years ago carries restarts=1 forever, and `restarts > 0` would
+    # mark half a healthy fleet as failing while a crash-looping unit that reset
+    # its counter scored zero. But the DELTA is persisted after all:
+    # process_service_report() keeps, per host, the units whose count climbed by
+    # the operator's flap limit between two heartbeats and have not settled since
+    # (`flapping`, the set unit_flapping fires from and unit_flapping_cleared
+    # closes, which also keeps a unit that gave up with a frozen counter). That
+    # is a rate with a memory, and it is what this scores.
+    _fl = svc_rec.get('flapping') if isinstance(svc_rec, dict) else None
+    _fl = [str(u) for u in _fl if u] if isinstance(_fl, list) else []
+    if _fl:
+        _add('unit_flapping', w['unit_flapping'] * len(_fl),   # capped by _RELIABILITY_CAPS in _add
+             f'{plural(len(_fl), "unit", "units")} restarting repeatedly ({", ".join(_fl[:3])})')
 
     score = min(100, sum(f['points'] for f in factors))
     factors.sort(key=lambda f: -f['points'])
