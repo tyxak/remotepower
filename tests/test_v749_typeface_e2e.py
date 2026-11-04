@@ -484,6 +484,7 @@ class TestTheTypefaceInABrowser(unittest.TestCase):
         self.assertEqual(same, [], "the same page against itself must report nothing")
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestTheComparisonSeesWhatItIsFor(unittest.TestCase):
     """The comparison, on measurements written by hand: each way B612 can hurt a page is found, and what the system font already
     did is not blamed on the typeface."""

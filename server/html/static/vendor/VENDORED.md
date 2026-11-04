@@ -8,6 +8,12 @@ properly on the next update.
 
 ## v7.5.0 — 2026-11-04
 
+- **Version check — nothing to update (2026-11-04).** Against the npm registry on this date: `swagger-ui-dist` 5.34.1, `@xterm/xterm` 6.0.0,
+  `@xterm/addon-fit` 0.11.0, `@novnc/novnc` 1.7.0, `qrcode-generator` 2.0.4 and `@fontsource/inter`, `jetbrains-mono` and `b612` 5.3.0 are the
+  current releases, and they are the versions in this folder. The pinned GitHub Actions are the latest releases except
+  `sigstore/cosign-installer`, which published 4.1.3 on the day of this check and stays on 4.1.2 until it has been out for the seven days
+  Dependabot's cooldown asks for; the scanner image's nuclei (3.11.1) is the latest. The server's Python dependencies are not pinned:
+  `pip-audit` finds no known vulnerability in the list `make ci-parity` installs.
 - **Licence texts for Inter and JetBrains Mono added.** The two families were vendored since v3.x with the SIL Open Font License 1.1
   named only in this record; B612 (v7.4.9) was the first to carry the text beside the files. The texts are the `LICENSE` files of the
   npm packages `@fontsource/inter@5.3.0` and `@fontsource/jetbrains-mono@5.3.0`, the same versions as the font files here: each

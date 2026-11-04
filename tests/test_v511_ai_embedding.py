@@ -72,7 +72,7 @@ class TestLocalAIApiKeyAllowed(unittest.TestCase):
         # embed() must attach the key as a Bearer header for LocalAI.
         captured = {}
 
-        def fake_post(url, headers, body, timeout=None, insecure_ssl=False):
+        def fake_post(url, headers, body, timeout=None, insecure_ssl=False, allow_loopback=False):
             captured['url'] = url
             captured['headers'] = headers
             return 200, {'data': [{'index': 0, 'embedding': [0.1, 0.2]}],
@@ -162,7 +162,7 @@ class TestEmbedUsesOverrideEndpoint(unittest.TestCase):
     def test_embed_posts_to_override_endpoint_with_override_key(self):
         captured = {}
 
-        def fake_post(url, headers, body, timeout=None, insecure_ssl=False):
+        def fake_post(url, headers, body, timeout=None, insecure_ssl=False, allow_loopback=False):
             captured['url'] = url
             captured['headers'] = headers
             return 200, {'data': [{'index': 0, 'embedding': [1.0, 2.0, 3.0]}],

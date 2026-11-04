@@ -47,7 +47,7 @@ No route was added. Four things changed what a caller or a host can do:
 | shellcheck | 25 shell scripts | no warning |
 | pip-audit | the server's Python dependencies | no known vulnerability |
 | nuclei 3.3.7 with 10,770 templates (the missing-headers template found 10 headers missing on a bare server, as a control) | a seeded stack behind the shipped web server configuration | 12 findings, all informational: the two headers that are off on plain HTTP (HSTS, which the HTTPS block sets, and Cross-Origin-Embedder-Policy, see "Known and unchanged"), technology matches (nginx, Swagger, Grafana), forms, the published `security.txt` and example addresses on the page |
-| wapiti 3.3.0, 7 modules (a page with a known reflected XSS is the control) | the same stack | @@WAPITI@@ |
+| wapiti 3.3.0, 8 modules (exec, file, redirect, sql, ssl, upload, xss, permanentxss; ssrf and xxe are left out because they call a host on the internet; a page with a known reflected XSS is the control, and the XSS module found it) | the same stack, 150 pages | no injection, traversal, upload or redirect finding. Seven of the eight modules stopped at the ten-minute cap each, so a long payload list may not have run to its end. It reports the plain-HTTP notes of the test setup (the HTTPS block of the shipped configuration is not in it) and 60 "potential path" notes, all on the dashboard page, from example paths in its help text. Not signed in |
 
 **Reviews, with their populations.**
 
@@ -72,7 +72,23 @@ No route was added. Four things changed what a caller or a host can do:
 - *The interface.* A rendered pass over 86 pages, 15 settings views, 147 dialogs and the host drawer at 1440, 768 and 390 px, in
   Classic and Pilot, dark and light. Each check had a planted element that it must find. It found two layout bugs (a dialog's tabs and
   a header's buttons off a phone screen) and a focus ring that did not reach 3:1 in the light themes.
-- *The authorization matrix, on the final tree.* @@MATRIX@@
+- *The authorization matrix, on the final tree.* 1,090 routed operations from the real route tables, 85,422 requests, 60 runs as 26 kinds of caller (no credential, a bad token, a
+  platform administrator, a viewer, a custom role, a role with no permission, an auditor, a finance user, roles scoped to a group or a
+  tag, administrators, viewers and an operator of two tenants, eight API keys and three host tokens), on a copy of the tree of this release
+  (the matrix reads the server code, and the commits after the copy touch tests and documents only). The counts are the ones of the last
+  run of 7.4.9, which is the check that no route was added. Controls: the platform administrator was answered 2xx by 501 to 558
+  operations in each run and the anonymous caller by 16; on the 398 operations that take an id, a tenant administrator's own objects
+  worked in 112 and the same call on another tenant's object was refused (403 or 404) in 107 of them; the scope check refused every
+  host-path operation outside the role's scope (90 of 90 for a group role, 86 of 86 for a tag role and 12 of 12 for a scoped key); a leak
+  scanner found the other tenants' planted markers in the platform operator's answer and none in a tenant administrator's. It found no
+  answer to a tenant user that holds another tenant's id, name or object. 58 operations still answered some caller with a marker it should
+  not hold: 13 of them answered tenant users, and each of the 13 is the caller's own input stored and read back, the content of a cloned
+  host, the shared knowledge base, or a host token's own scripts; 42 answered only roles or keys scoped to groups or tags (see "Known and
+  unchanged"); 3 answered the finance role (the operator's time entries, twice) or, on the Home page, every role: a planted row that the
+  product had already rewritten into an alert about the installation's own service. No request answered 2xx where the handler's own
+  declared gate refuses: of 697 answers that were not a refusal, 251 were 400 and 446 were 405. Eight operations answered 5xx or not at
+  all, each for a reason that belongs to the harness: the SAML library is not installed (three routes), the AI provider is off in the seed
+  (two), the two scans that reach out to the network were cut off by the network namespace, and key generation could not run gpg there.
 
 ## Summary
 

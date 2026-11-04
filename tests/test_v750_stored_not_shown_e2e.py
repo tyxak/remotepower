@@ -27,11 +27,16 @@ try:
 except Exception:                                               # pragma: no cover
     sync_playwright = None
 
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+_GATE = browser_available() or browser_required.required()
+
 
 def _epoch(iso):
     return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestStoredFieldsAreShown(unittest.TestCase):
 
     @classmethod

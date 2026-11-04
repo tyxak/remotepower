@@ -28,6 +28,10 @@ try:
 except Exception:                                               # pragma: no cover
     sync_playwright = None
 
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+_GATE = browser_available() or browser_required.required()
+
 APP = (_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text(encoding="utf-8")
 THEMES = re.findall(r"\{ id:'([a-z-]+)',\s+name:'[^']+',\s+type:'(dark|light)'", APP)
 
@@ -57,6 +61,7 @@ def _contrast(a, b):
     return (hi + 0.05) / (lo + 0.05)
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestThreeMediums(unittest.TestCase):
 
     @classmethod
