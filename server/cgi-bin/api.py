@@ -33398,6 +33398,7 @@ def _qe_device_posture(si):
     _wp = si.get('win_posture') if isinstance(si.get('win_posture'), dict) else {}
     bats = [b for b in (si.get('battery') or []) if isinstance(b, dict)]
     bat = bats[0] if bats else {}
+    pk = si.get('packages') if isinstance(si.get('packages'), dict) else {}
     return {
         'hostname': si.get('hostname') or '',
         'kernel': si.get('kernel') or '',
@@ -33450,6 +33451,13 @@ def _qe_device_posture(si):
         'usb_devices': len(si['usb']) if isinstance(si.get('usb'), dict) else None,
         'logged_in_users': (len(si['logged_in']) if isinstance(si.get('logged_in'), list)
                             else None),
+        # v7.5.0: the two update counts every patch page shows. A query such as
+        # "security updates above 0 and the disk not encrypted" is the usual
+        # first question about exposure, and neither count was a field (the
+        # Fleet Query page had the pending count only). None when the host
+        # never reported a package scan, so a silent host is not read as zero.
+        'pending_updates': _n(pk.get('upgradable')),
+        'security_updates': _n(pk.get('security_updates')),
     }
 
 
@@ -33499,7 +33507,9 @@ _QE_DEVICE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'ssh_x11_forwarding', 'secure_boot', 'clock_synced', 'clock_offset_ms',
     'battery_pct', 'battery_health_pct', 'audit_mode', 'metrics_limited',
     # v7.1.0
-    'usb_devices', 'logged_in_users', 'sshgw_enabled')}
+    'usb_devices', 'logged_in_users', 'sshgw_enabled',
+    # v7.5.0
+    'pending_updates', 'security_updates')}
 
 
 def _qe_cve_rows():
@@ -33950,6 +33960,9 @@ _FQ_PARAMS = (
     # unanswerable fleet-wide — "which hosts have no active firewall / password
     # SSH auth / auto-updates off" had no query. All derived from stored sysinfo.
     'firewall_off', 'ssh_weak', 'autoupdate_off',
+    # v7.5.0: disk encryption and distro-flagged security updates, the two
+    # exposure questions the Data Explorer and the report could already answer.
+    'encryption_off', 'security_gt',
 )
 _MX_PARAMS = ('devices', 'metrics', 'stat', 'tier', 'rel', 'from', 'to')
 
@@ -59284,6 +59297,8 @@ def handle_fleet_query():
       ups_on_battery=1, firewall_off=1 (no active host firewall),
       ssh_weak=1 (root/password/empty-password SSH permitted),
       autoupdate_off=1 (no automatic security updates).
+      v7.5.0: encryption_off=1 (disk encryption reported off),
+      security_gt=<n> (distro-flagged security updates above n).
       format=csv|xml downloads the filtered set (JSON otherwise; the print/PDF
       view fetches the JSON). Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
@@ -59340,6 +59355,8 @@ def handle_fleet_query():
     fwoff_q = q('firewall_off') in ('1', 'true')
     sshweak_q = q('ssh_weak') in ('1', 'true')
     auoff_q = q('autoupdate_off') in ('1', 'true')
+    encoff_q = q('encryption_off') in ('1', 'true')
+    security_gt = qi('security_gt')
     ups_q = q('ups_on_battery') in ('1', 'true')
     temp_q = q('temp_high') in ('1', 'true')
     fmt = q('format').lower()   # '', 'csv', 'xml' — JSON when empty
@@ -59417,6 +59434,13 @@ def handle_fleet_query():
             continue
         pend = pkg.get('upgradable')
         if pending_gt is not None and not (isinstance(pend, int) and pend > pending_gt):
+            continue
+        # v7.5.0: the distro-flagged subset of the pending count. A host that
+        # never ran a package scan has None here and is not matched, so the
+        # list holds hosts that reported the number.
+        sec = pkg.get('security_updates')
+        sec = sec if isinstance(sec, int) and not isinstance(sec, bool) else None
+        if security_gt is not None and not (sec is not None and sec > security_gt):
             continue
         if tp_q:
             tp = pkg.get('third_party') or {}
@@ -59550,6 +59574,12 @@ def handle_fleet_query():
             # reports `wu_service` and macOS `auto_security_update`.
             if checks_mod.posture_flags(si).get('autoupdate_enabled') is not False:
                 continue
+        if encoff_q:
+            # v7.5.0: tri-state like the firewall facet. Only a host that
+            # reported its disks and said they are not encrypted matches; one
+            # whose probes were unreadable stays out of a list of findings.
+            if checks_mod.posture_flags(si).get('disk_encrypted') is not False:
+                continue
         matched_pkg = None
         if has_pkg:
             installed = (pkg_store.get(did) or {}).get('packages') or []
@@ -59573,6 +59603,7 @@ def handle_fleet_query():
                      'version': d.get('version', ''),
                      'online': online,
                      'pending': pend if isinstance(pend, int) else None,
+                     'security': sec,
                      'pkg_match': matched_pkg,
                      # v4.1.0: surface the live resource values too.
                      'cpu': _cpu if isinstance(_cpu, (int, float)) else None,
@@ -59592,7 +59623,7 @@ def _fleet_query_bytes(rows, fmt):
     returns (data, content_type, filename)."""
     cols = [('name', 'Host'), ('group', 'Group'), ('os', 'OS'),
             ('version', 'Agent'), ('online', 'Online'), ('pending', 'Pending'),
-            ('cpu', 'CPU%'), ('mem', 'Mem%'), ('cve_high', 'CVE'),
+            ('security', 'Security'), ('cpu', 'CPU%'), ('mem', 'Mem%'), ('cve_high', 'CVE'),
             ('pkg_match', 'Matched package')]
     ts = time.strftime('%Y%m%d-%H%M%S')
     if fmt == 'csv':
@@ -59620,7 +59651,7 @@ def _fleet_query_bytes(rows, fmt):
         SubElement(de, 'OS').text = str(r.get('os', ''))
         SubElement(de, 'Agent').text = str(r.get('version', ''))
         SubElement(de, 'Online').text = 'true' if r.get('online') else 'false'
-        for k in ('pending', 'cpu', 'mem', 'cve_high'):
+        for k in ('pending', 'security', 'cpu', 'mem', 'cve_high'):
             if r.get(k) is not None:
                 SubElement(de, k).text = str(r.get(k))
         if r.get('pkg_match'):

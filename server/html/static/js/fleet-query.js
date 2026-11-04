@@ -46,7 +46,7 @@
       + ' · ' + (data.total != null ? data.total : rows.length) + ' host(s)';
     el('fq-criteria').textContent = criteria();
     const head = '<tr><th>Host</th><th>Group</th><th>OS</th><th>Agent</th>'
-      + '<th>Online</th><th>Pending</th><th>CPU%</th><th>Mem%</th><th>CVE</th></tr>';
+      + '<th>Online</th><th>Pending</th><th>Security</th><th>CPU%</th><th>Mem%</th><th>CVE</th></tr>';
     const body = rows.map(function (d) {
       return '<tr><td>' + esc(d.name) + '</td>'
         + '<td>' + esc(d.group || '—') + '</td>'
@@ -54,6 +54,7 @@
         + '<td>' + esc(d.version || '—') + '</td>'
         + '<td>' + (d.online ? 'yes' : 'no') + '</td>'
         + '<td>' + (d.pending == null ? '—' : d.pending) + '</td>'
+        + '<td>' + (d.security == null ? '—' : d.security) + '</td>'
         + '<td>' + (d.cpu == null ? '—' : Math.round(d.cpu) + '%') + '</td>'
         + '<td>' + (d.mem == null ? '—' : Math.round(d.mem) + '%') + '</td>'
         + '<td>' + (d.cve_high == null ? '—' : d.cve_high) + '</td></tr>';

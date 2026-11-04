@@ -92,6 +92,17 @@ sortable, which is why nothing could rank hosts by uptime before.
 | `listening_ports` | how many, not which — use the Exposure page for which |
 | `metrics_limited` | the agent said its own metrics are limited. Distinguishes a host with no CPU figure from an idle one |
 
+### Updates
+
+| Field | Notes |
+|---|---|
+| `pending_updates` | packages the host's package manager would upgrade |
+| `security_updates` | the part of that your distribution flags as security fixes (apt, dnf, and pacman with `arch-audit`) |
+
+Both are empty when the host has not reported a package scan, so a host that was never checked is not read as
+"nothing waiting". `{"field": "security_updates", "op": "gt", "value": 0}` finds the hosts that reported a fix
+waiting.
+
 ### Security posture
 
 | Field | Notes |

@@ -13,10 +13,10 @@ name to open its timeline.
 | --- | --- |
 | Identity | Group, Tag, OS contains, Kernel contains, Platform contains (for example `debian` or `arm64`), Agent version contains, Pkg manager (`apt`, `dnf`, `pacman`), **Has package** |
 | State | Online, Monitored, Agentless, Quarantined, Offline for more than N days, Uptime over or under N days, Cores over or under N |
-| Patching | Pending updates over N, Reboot required, Kernel outdated, 3rd-party updates pending, Integrity (agent file verified, mismatch or unknown), **CVE (crit+high)** at least N |
+| Patching | Pending updates over N, **Security updates** over N, Reboot required, Kernel outdated, 3rd-party updates pending, Integrity (agent file verified, mismatch or unknown), **CVE (crit+high)** at least N |
 | Resources | Busiest disk %, Memory %, CPU %, Swap %, Load (1 minute), busiest Inode %, File descriptors %, Conntrack % |
 | Problems | Failed units, Timer failed, Config drift, Mount issue, Storage degraded, Clock skew (NTP), Gateway unreachable, Recent OOM kill, Container stopped, Container restarting, SMART failed, UPS on battery, Over temperature |
-| Security posture | World-exposed port, Brute-force active, No host firewall, Weak SSH config, Auto-updates off |
+| Security posture | World-exposed port, Brute-force active, No host firewall, Weak SSH config, Auto-updates off, **Disk not encrypted** |
 
 Notes:
 
@@ -25,17 +25,20 @@ Notes:
 - **CVE (crit+high)** counts the way the dashboard does: a finding you accepted as a risk is left
   out, and with the [CVE count option](cve.md#counting-only-what-an-update-can-fix) on, so is every
   finding no update can clear.
-- **No host firewall** and **Auto-updates off** cover Linux, Windows and macOS hosts. **Weak SSH
-  config** needs the host to report its sshd settings (Linux). A host that could not report the
-  value does not match.
+- **Security updates** counts the updates your distribution itself flags as security fixes (apt,
+  dnf, and pacman when `arch-audit` is installed). A host that has not reported a count does not
+  match, so it is never mistaken for a host with none waiting.
+- **No host firewall**, **Auto-updates off** and **Disk not encrypted** cover Linux, Windows and
+  macOS hosts (LUKS, BitLocker and FileVault). **Weak SSH config** needs the host to report its
+  sshd settings (Linux). A host that could not report the value does not match.
 - Unmonitored hosts are included unless you set **Monitored** to *monitored*, so inventory
   questions get complete answers.
 - You only see the hosts your role and tenant allow.
 
 ## The result table
 
-Each row shows the host, group, OS, status, pending updates, CPU %, memory % and the critical and
-high CVE count (a dash means the value is not known). The count above the table is the number of
+Each row shows the host, group, OS, status, pending updates, security updates, CPU %, memory % and
+the critical and high CVE count (a dash means the value is not known). The count above the table is the number of
 matching hosts.
 
 ## Saving and sharing queries
@@ -60,12 +63,14 @@ matching hosts.
   **Matched package** column shows the versions.
 - "Offline hosts tagged `production`": **Tag** `production`, **Online** offline.
 - "Reboot needed and more than 30 days up": **Reboot required** yes, **Uptime over** 30 days.
+- "Unencrypted disks with security fixes waiting": **Disk not encrypted** yes, **Security updates**
+  over 0.
 
 ## API
 
 `GET /api/fleet/query` takes the same criteria as query parameters (`group`, `tag`, `os`,
-`version`, `has_package`, `online`, `pending_gt`, `cve_min`, `disk_gt`, `firewall_off`,
-`ssh_weak`, and so on). Add `format=csv` or `format=xml` to download instead of JSON. Saved
+`version`, `has_package`, `online`, `pending_gt`, `security_gt`, `cve_min`, `disk_gt`,
+`firewall_off`, `encryption_off`, `ssh_weak`, and so on). Add `format=csv` or `format=xml` to download instead of JSON. Saved
 queries are under `/api/query/templates`. See [api.md](api.md) for authentication.
 
 ## When you want more than ANDed conditions

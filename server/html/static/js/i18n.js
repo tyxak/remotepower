@@ -5380,6 +5380,7 @@
     "File descriptors % >": { fr: "% descripteurs de fichiers >", de: "Dateideskriptoren % >", zh: "文件描述符 % >", hi: "फ़ाइल डिस्क्रिप्टर % >", es: "% de descriptores de archivo >", ar: "% واصفات الملفات >" },
     "Conntrack % >": { fr: "% conntrack >", de: "Conntrack % >", zh: "Conntrack % >", hi: "Conntrack % >", es: "% de conntrack >", ar: "% تتبع الاتصالات >" },
     "Pending >": { fr: "En attente >", de: "Ausstehend >", zh: "待处理 >", hi: "लंबित >", es: "Pendientes >", ar: "قيد الانتظار >" },
+    "Security updates >": { fr: "Mises à jour de sécurité >", de: "Sicherheitsupdates >", zh: "安全更新 >", hi: "सुरक्षा अपडेट >", es: "Actualizaciones de seguridad >", ar: "تحديثات الأمان >" },
     "…priority": { fr: "…priorité", de: "…Priorität", zh: "…优先级", hi: "…प्राथमिकता", es: "…prioridad", ar: "…الأولوية" },
     // ── My Account: language card ──
     'Language':    { fr: 'Langue', de: 'Sprache', zh: '语言', hi: 'भाषा', es: 'Idioma', ar: 'اللغة' },

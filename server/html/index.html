@@ -6671,6 +6671,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="form-group"><label class="form-label">OS contains</label><input type="text" id="fq-os" class="form-input" placeholder="any" aria-label="OS contains"></div>
             <div class="form-group"><label class="form-label">Online</label><select id="fq-online" class="form-input" aria-label="Online"><option value="">any</option><option value="1">online</option><option value="0">offline</option></select></div>
             <div class="form-group"><label class="form-label">Pending &gt;</label><input type="number" id="fq-pending" class="form-input" min="0" placeholder="—" aria-label="Pending &gt;"></div>
+            <div class="form-group"><label class="form-label">Security updates &gt;</label><input type="number" id="fq-security" class="form-input" min="0" placeholder="—" aria-label="Security updates &gt;"></div>
             <div class="form-group"><label class="form-label">Integrity</label><select id="fq-integrity" class="form-input" aria-label="Integrity"><option value="">any</option><option value="verified">verified</option><option value="mismatch">mismatch</option><option value="unknown">unknown</option></select></div>
             <div class="form-group"><label class="form-label">CVE (crit+high) ≥</label><input type="number" id="fq-cve" class="form-input" min="0" placeholder="—" aria-label="CVE (crit+high) ≥"></div>
             <div class="form-group"><label class="form-label">Agent version contains</label><input type="text" id="fq-version" class="form-input" placeholder="any" aria-label="Agent version contains"></div>
@@ -6715,6 +6716,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="form-group"><label class="form-label">No host firewall</label><select id="fq-fwoff" class="form-input" aria-label="No host firewall"><option value="">any</option><option value="1">yes</option></select></div>
             <div class="form-group"><label class="form-label">Weak SSH config</label><select id="fq-sshweak" class="form-input" aria-label="Weak SSH config"><option value="">any</option><option value="1">yes</option></select></div>
             <div class="form-group"><label class="form-label">Auto-updates off</label><select id="fq-auoff" class="form-input" aria-label="Auto-updates off"><option value="">any</option><option value="1">yes</option></select></div>
+            <div class="form-group"><label class="form-label">Disk not encrypted</label><select id="fq-encoff" class="form-input" aria-label="Disk not encrypted"><option value="">any</option><option value="1">yes</option></select></div>
           </div>
           <div class="row-8-center mt-8">
             <button class="btn-primary" data-action="runFleetQuery">Run</button>
