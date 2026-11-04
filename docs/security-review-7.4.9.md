@@ -15,9 +15,9 @@ below says so.
 
 ## What changed that a reviewer should look at
 
-**Added after the review, in four batches.** Six features were built once the sweep was done and the gates had run, eight more after
+**Added after the review, in five batches.** Six features were built once the sweep was done and the gates had run, eight more after
 them, and eight items of the open list after the second gates (a ninth, a test of the S3 copy against an independent implementation,
-could not run: none is installed here); the fourth batch is one option, described after the third batch's notes. None loosens a permission, and each was checked with the same instruments. The matrix, run on the
+could not run: none is installed here); the fourth and fifth batches are two options, described after the third batch's notes. None loosens a permission. The first four were checked with the same instruments; the fifth was not put through the full gates, see the end. The matrix, run on the
 tree after the first batch, found one defect in them, fixed before release (S32). It ran again on the finished tree: 1,090 routed
 operations (the fifteen new routes of the three batches included), 85,422 requests in 60 runs, and no answer to a tenant user held another
 tenant's id, name or object. The 59 operations that answered some caller with a marker it should not hold fall in the same groups as
@@ -94,6 +94,23 @@ translates by exact text, so an option called *Full* would have read as the disk
 sweep (axe) cannot judge text over the hero's dot texture (it reports it as incomplete, not as a failure): a dark-grey caption put there
 to test it passed it, so the browser test measures that text itself. The matrix was not run again: no route was added or changed, and the new values
 are fixed words.
+
+**The fifth batch: an option for a typeface.** My Account → Appearance can draw the interface in B612, a face Airbus and ENAC drew for
+aircraft cockpit screens. The system font stays the default, and a page that never chooses fetches no font (a browser test reads the
+network of a signed-in session). It adds no route, no dependency and no permission, and one kind of file the product did not ship
+before: two WOFF2 font files (Regular and Bold, 34,404 bytes) under `static/vendor/fonts/files/`, with the licence text beside them.
+They come from the npm package `@fontsource/b612@5.3.0`. Its sha512 and sha1 matched the registry's entry before anything was unpacked,
+it holds no install script, and it was unpacked into a fresh directory; a test pins the sha256 of both files, checks each is a WOFF2 file
+of the declared length, and fails if another B612 file appears. The server stores one more word in an account's UI prefs (`typeface`:
+system or b612), checked against a fixed list like the look's; anything else is dropped, which the tests drive through the real handler
+with forty hostile values (other fonts, a style fragment, a script tag, wrong kinds). It has no administrator setting, and `/api/me`
+hands the page none (a test holds both). The content security policy is unchanged: the files are same-origin and `font-src` falls back
+to `default-src 'self'`. The stylesheet gains two `@font-face` rules and one scoped override, every selector of which starts with
+`body[data-typeface="b612"]` (a test reads the block); the page gains no inline style, no inline handler and no script. The wordmark
+beside the logo is pinned to the system font under B612, and a browser test compares the wordmark, the version pill and the logo under
+both. The browser tests stopped one defect before it shipped: the Typeface select was filled only when the account page finished
+loading, so for a moment after the page opened it showed "System font" to a person who had chosen B612. It is filled when the account's
+prefs arrive now.
 
 - **Routes.** One route is new: `POST /api/logout`. Two others are new for one feature: `POST /api/scap/{id}/report-ticket`, and
   the SCAP report route now also accepts a one-minute link. No permission was loosened. A permission check was added to one
@@ -387,6 +404,9 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
   own copy of one has none. Each would keep its records stamped with the tenant, as tickets do: a feature to build, not a way to
   attack an installation.
 - **Translations.** The strings added in 7.4.9 are owed a read by a native speaker in each of the six languages.
+- **Font licence texts.** The Inter and JetBrains Mono files under `static/vendor/fonts/files/` (SIL Open Font License) have no licence
+  text beside them; the name table of each carries the copyright and the licence address. B612's text was added with its files. Adding
+  the other two needs a small download of the packages' licence files.
 
 ## Not found
 
@@ -459,8 +479,27 @@ The fourth batch (the look switch) ran its gates on `2d074ed0`, the last code co
 The two AUR subtests check that the Arch packages are on the last shipped release. They are on 7.4.0 and the last shipped release is
 7.4.8, so they stay red until the packages are bumped. They were red in the gates of the earlier 7.4 releases too.
 
+The fifth batch (the typeface) was not put through these gates. The owner asked for them to be left out and tests the change before it
+goes anywhere. What ran instead, on the tree it was committed from:
+
+| Check | Result |
+|---|---|
+| The batch's own tests: the font files, the server, the stylesheet block, the client code, the browser | 18, 16, 27, 36 and 21 tests, all passing. Mutations were caught: 11 of the server code, 24 of the stylesheet, 28 of the client code (one had to be redone, because the first did not move what it meant to) and 16 of the page in a browser; four ways of breaking the font files each turn the font test red |
+| The 16 test modules around UI prefs | 1,080 tests passing |
+| The 89 test modules without a browser that read the stylesheet | 3,117 tests passing (8 skipped) |
+| The translation, wiring, script-loader and eager-script-size gates | 126 tests passing; the eager scripts are 1,770 bytes under their budget |
+| The 429 test modules without a browser that read the page and its scripts, in one process | 9,608 tests, one error in `test_v640_client_errors`, which passes alone (4 of 4). It is not code this batch touches, and the same grouping was not run on the commit before to see whether it fails there too |
+| A layout comparison in a browser, every view | 85 views and settings panes, each in four languages at 1440 and 390 px (680 cells), measured with the system font and then with B612 switched in place: no text newly cut off, no element past the screen edge and no page that scrolls sideways. In English and German (340 cells, counted again after the first line counter was found to read a fallback glyph as a second line) 116 distinct elements wrap onto a second line and 15 end their text sooner (ellipses, loading placeholders and a calendar chip 33 px wide) |
+| The same on the 16 views of the permanent test, with `size-adjust` at 100% and at 108% | 2 and 9 distinct labels cut off that were whole, and one page that scrolls sideways at 108% (German logs at phone width): the test that holds the 92% fails on both |
+
+Not run for the fifth batch: the JSON, SQLite and CI-parity suites, the PostgreSQL tests, CodeQL, bandit, semgrep, gitleaks, `tools/release-prep.py
+verify` and the authorization matrix (no route was added or changed).
+
 ## Not run for this review
 
+- The fifth batch against a system font narrower than Arial's. The layout was measured with the system stack resolving to Liberation
+  Sans, which has Arial's widths; on Windows (Segoe UI is a few percent narrower) B612 will look a little wider than measured, and a
+  label that fit by a few pixels may end sooner. It was driven in Chromium only.
 - The fourth batch in browsers other than Chromium. The Pilot look uses `color-mix()`, `mask-image` and logical CSS properties, which
   current Firefox and Safari support; it was driven in Chromium only. The authorization matrix was not run again for it, because no
   route was added or changed.

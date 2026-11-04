@@ -552,6 +552,17 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
   sets no palette of its own, and Classic's stylesheet is untouched (the Pilot look is one block of the stylesheet, every rule in it
   starts with `body[data-look="pilot"]`, and a test holds that). The keys are `look` and `effects` in the account's UI prefs and
   `brand_look` and `brand_look_locked` in the settings; `/api/me` returns the default and the lock under `brand`.
+- **A typeface to choose, B612.** **My Account → Appearance** has a **Typeface** row: **System font**, which is what you have now
+  and the default, and **B612**, the face Airbus and ENAC drew for aircraft cockpit screens. Its letters stay easy to tell apart
+  (0 and O, 1 and l and I), which suits host names, addresses and hashes. Nothing is loaded for the default: B612 is fetched the
+  first time text is drawn with it (Regular and Bold, 34 KB together) and the browser keeps it. It covers Latin letters, so Chinese,
+  Hindi and Arabic text, arrows and symbols come from your system font. B612 is wider than most system faces, so it is drawn at 92%.
+  Against a system font with Arial's widths, on sixteen views in English and German at a desktop and a phone width, that clips no
+  text and pushes nothing off the screen (at 100% two labels are cut off, at 108% nine and a page scrolls sideways); some table
+  cells and descriptions wrap onto a second line. The choice is saved to your account, so it follows you to other browsers, and it
+  works under either look. The wordmark beside the logo and the monospace text keep their own fonts. There is no administrator
+  default or lock: a font is not branding. The key is `typeface` (`system` or `b612`) in the account's UI prefs. B612 is licensed
+  under the SIL Open Font License; the text is `static/vendor/fonts/b612-OFL.txt`.
 - **The batch bar says what it acts on.** The bar above the host list said *Shut down all* and *Reboot all*, and both act only on
   the hosts you ticked. They say *Shut down selected* and *Reboot selected*.
 - **Spacing, wrapping and focus, measured on the demo.** A rendered audit of all 85 pages, the settings panes, 141 dialogs and

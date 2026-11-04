@@ -16,7 +16,9 @@ properly on the next update.
   table carries the same copyright line and the licence address. B612 was drawn by Airbus and ENAC for aircraft cockpit screens.
   Nothing loads it until a person picks it under My Account → Appearance → Typeface: the `@font-face` rules are in `styles.css`, and a
   browser fetches a face only when text on the page uses it. The package's italic files and `.woff` copies were not taken, and neither
-  was B612 Mono. `tests/test_v749_typeface_font.py` pins the sha256 of both files.
+  was B612 Mono. `tests/test_v749_typeface_font.py` pins the sha256 of both files. nginx serves `/static/` for a year and marks it
+  immutable, and the stylesheet names these files without a version, so a new B612 release needs new file names, not new bytes
+  under the old ones.
 - **swagger-ui 5.34.0 → 5.34.1 — DONE.** A bug-fix release (a non-Map value in a response no longer breaks the
   panel); no advisory. From the npm `swagger-ui-dist@5.34.1` tarball, its sha512 integrity checked against the registry.
   `swagger-ui-bundle.js` was copied as `swagger-ui-bundle.min.js`; `swagger-ui.css` is byte-identical to 5.34.0's, so only
