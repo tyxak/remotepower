@@ -151,6 +151,15 @@ an alert path for several releases and reached the checklist nowhere:
 | The regulated-data inventory | Data minimisation — PCI 3.2.1, SOC 2 C1.1, SMB1001 S-data |
 | DMARC / SPF / DKIM posture | Anti-phishing — PCI 5.4.1, SMB1001 S-email |
 
+**v7.5.0 reads what is behind on patching, not only how much.** The patch control (PCI DSS 6.3.3, SOC 2 CC6.7, Essential Eight
+E8-2, SMB1001 S-patch) used to compare the total number of pending updates with one threshold, so a host with 30 security updates
+waiting passed. It now also fails for a host that **does not patch itself** and has **ten or more security updates** waiting (the
+count your distribution flags as security fixes), and for a host in breach of **your own patch SLA** (Settings → Patching). A host
+that patches itself is not an offender for the updates that are about to apply, a few waiting is a normal cycle, and a host that
+reports no security count (Windows, a package manager that does not flag them) is not counted as zero. The reboot control (SOC 2
+CC7.4, E8-6b) lists a host with a newer kernel installed and not running, which has no `/run/reboot-required` to say so. These
+turn some existing passes into fails, which is the point; the evidence names the hosts.
+
 **v7.5.0 reads the backup checks, too.** The backup control (SOC 2 A1.2, E8-8, HIPAA 164.308(a)(7)(ii)(A)) used to look at
 freshness only, so a backup that was a day old and corrupt passed. It now also fails for a backup whose integrity check or restore
 drill is failing, the same statuses that raise the *backup verify failed* and *restore drill failed* alerts. A check that never ran is

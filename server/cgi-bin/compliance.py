@@ -59,15 +59,40 @@ def _no_coverage(facts, coverage_key):
     return facts.get('devices', 0) > 0 and facts.get(coverage_key, 0) == 0
 
 
+# 7.5.0: security updates waiting on a host that does not patch itself, from which the patch control fails. A few waiting is a
+# normal cycle (the number of updates a distribution ships in a week or two); ten or more with nobody installing them is not. The
+# total-count threshold (Settings -> Alert parameters) still applies on top.
+SECURITY_PENDING_FAIL = 10
+
+
 def _patch_control(facts):
+    """Applicable security patches are installed (PCI DSS 6.3.3, SOC 2 CC6.7, Essential Eight E8-2, SMB1001 S-patch).
+
+    Fails for a host over the pending-update threshold, for a host that does not patch itself and has SECURITY_PENDING_FAIL or
+    more security updates waiting, and for a host in breach of the operator's own patch SLA. A host that patches itself is not an
+    offender for the updates that are about to apply."""
     bad = facts.get('pending_patches_devices') or []
-    if bad:
-        return FAIL, f"{plural(len(bad), 'host', 'hosts')} over the patch threshold: " + \
-               ", ".join(bad[:10]) + ("…" if len(bad) > 10 else "")
+    sec = facts.get('security_pending_bad') or []
+    sla = facts.get('patch_sla_breach') or []
+    if bad or sec or sla:
+        parts = []
+        if bad:
+            parts.append(f"{plural(len(bad), 'host', 'hosts')} over the patch threshold: " + ", ".join(bad[:10]) + ("…" if len(bad) > 10 else ""))
+        if sec:
+            parts.append(f"{plural(len(sec), 'host', 'hosts')} with security updates waiting and no automatic updates: "
+                         + ", ".join(sec[:10]) + ("…" if len(sec) > 10 else ""))
+        if sla:
+            parts.append(f"{plural(len(sla), 'host', 'hosts')} past the patch SLA: " + ", ".join(sla[:10]) + ("…" if len(sla) > 10 else ""))
+        return FAIL, ". ".join(parts)
     if _no_coverage(facts, 'patch_data_devices'):
         return NOT_ASSESSED, ("No host has reported package/update status yet — patch "
                     "posture is not assessed (run a package scan).")
-    return PASS, "No host exceeds its pending-patch threshold."
+    note = ""
+    waiting = int(facts.get('security_pending_hosts') or 0)
+    if waiting:
+        note = (f" {plural(waiting, 'host has', 'hosts have')} security updates waiting, within a normal cycle (fewer than "
+                f"{SECURITY_PENDING_FAIL}, or patching themselves).")
+    return PASS, "No host exceeds its pending-patch threshold." + note
 
 
 def _cve_control(facts):
@@ -321,6 +346,7 @@ def _vault_control(facts):
 def _reboot_control(facts):
     rb = facts.get('reboot_required') or []
     if rb:
+        # 7.5.0: includes a host with a newer kernel installed and not running, which has no /run/reboot-required to say so
         return FAIL, f"{plural(len(rb), 'host', 'hosts')} pending a reboot to apply updates: " + \
                ", ".join(rb[:10])
     if _no_coverage(facts, 'sysinfo_devices'):

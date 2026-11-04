@@ -47752,6 +47752,11 @@ def _compliance_facts(devices=None):
     except (TypeError, ValueError, OverflowError):
         patch_thresh = 50
     pending_bad, reboot = [], []
+    # 7.5.0: the patch and reboot controls counted the TOTAL pending number against one threshold (50) and `reboot_required`
+    # alone. A host with 30 security updates waiting, a newer kernel installed and not running, and no automatic updates passed
+    # PCI 6.3.3, SOC 2 CC6.7, E8-2 and CC7.4. These add what the product already collects for exactly that question.
+    security_bad, security_waiting, security_data_devices = [], 0, 0
+    _hw_kernel = _load_ro(HARDWARE_FILE) if backend_exists(HARDWARE_FILE) else {}
     # v6.3.1: CAPABLE-SOURCE coverage counts (the "silence isn't clearance"
     # rule). A control that infers PASS from an empty offenders list is
     # false-green when the underlying telemetry was never collected — so we
@@ -47796,8 +47801,22 @@ def _compliance_facts(devices=None):
             patch_data_devices += 1
             if up >= patch_thresh:
                 pending_bad.append(nm)
+        # 7.5.0: the distribution's own security flag. A host that patches itself is not an offender for a few waiting (they
+        # apply on their own), and one that does not is, once the count is more than the normal cycle's worth. None (no scan, a
+        # package manager that does not flag them, Windows) is not zero and is not counted.
+        _sec = (si.get('packages') or {}).get('security_updates')
+        if isinstance(_sec, int) and not isinstance(_sec, bool):
+            security_data_devices += 1
+            if _sec > 0:
+                security_waiting += 1
+                if (_sec >= compliance.SECURITY_PENDING_FAIL
+                        and checks_mod.posture_flags(si)['autoupdate_enabled'] is not True):
+                    security_bad.append(f'{nm} ({plural(_sec, "security update", "security updates")})')
         if si.get('reboot_required'):
             reboot.append(nm)
+        elif isinstance((_hw_kernel.get(did) or {}).get('kernel'), dict) and _hw_kernel[did]['kernel'].get('reboot_for_kernel'):
+            # the only reboot signal on hosts without /run/reboot-required (Arch and others): a newer kernel is installed
+            reboot.append(f'{nm} (a newer kernel is installed and not running)')
         if dev.get('os'):
             os_known_devices += 1
         # v7.3.0: all three agents. This read `sysinfo.firewall`, which only the
@@ -47882,6 +47901,19 @@ def _compliance_facts(devices=None):
             if _v.get('infected') or _v.get('realtime_off'):
                 av_bad.append(nm)
     facts['pending_patches_devices'] = pending_bad
+    facts['security_pending_bad'] = security_bad
+    facts['security_pending_hosts'] = security_waiting
+    facts['security_data_devices'] = security_data_devices
+    # The operator's own patch SLA (Settings -> Patching), judged by the same evaluator the Patches page uses, over a copy of the
+    # aging store so building a report writes nothing.
+    sla_bad = []
+    try:
+        if cfg.get('patch_sla'):
+            _sla_rows, _ = _eval_patch_sla(devices, cfg, dict(load(PATCH_AGE_FILE) or {}), int(time.time()))
+            sla_bad = [f"{r['name']} ({r['detail']})" for r in _sla_rows if r.get('breached')]
+    except Exception:
+        sla_bad = []
+    facts['patch_sla_breach'] = sla_bad
     facts['reboot_required'] = reboot
     facts['patch_data_devices'] = patch_data_devices
     facts['sysinfo_devices'] = sysinfo_devices
