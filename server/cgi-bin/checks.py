@@ -22,6 +22,7 @@ test suite. Part of the Makefile LINT + TYPECHECK baseline.
 
 import time
 
+import posture_signals
 from textfmt import plural
 
 # v6.2.2 threshold batch 5: seconds-per-day, for the OOM "days ago" display
@@ -722,9 +723,7 @@ def _host_checks(
         bad = [
             p
             for p in pools
-            if isinstance(p, dict)
-            and str(p.get("state") or "").lower()
-            not in ("online", "active", "clean", "healthy", "ok")
+            if isinstance(p, dict) and posture_signals.pool_unhealthy(p.get("state") or "unknown")
         ]
         add(
             "storage",

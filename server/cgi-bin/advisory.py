@@ -29,6 +29,7 @@ unit-testable and out of the circular-import trap).
 import time
 
 import checks
+import posture_signals
 from textfmt import agree, plural
 
 # Order is the product: everything sorts by this, then by how many hosts are
@@ -609,6 +610,82 @@ def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None,
     return out
 
 
+def _hardware_findings(dev_id, name, dev, hw_rec, av_rec, av_tools=()):
+    """What the host's own hardware, storage and malware scanner say, which the advisory did not read.
+
+    7.5.0. `advisory.build` was handed neither the hardware store nor the AV store, so a host with uncorrectable ECC errors, a
+    degraded pool, a failing disk or an active malware detection produced the same findings as a healthy one. Each of these
+    already pages the operator, scores in Risk or reliability, and sits on a Checks row. Titles carry counts only (they go to the
+    AI brief as they are); disk paths and pool names stay in the evidence."""
+    out = []
+    si = dev.get('sysinfo') or {}
+    hw_rec = hw_rec if isinstance(hw_rec, dict) else {}
+
+    verdict = posture_signals.av_verdict(av_rec, av_tools) if av_tools else {'infected': 0, 'realtime_off': False}
+    if verdict['infected']:
+        out.append(_finding(
+            'int.av_infected', 'integrity', 'critical',
+            f'{plural(verdict["infected"], "active malware detection", "active malware detections")}',
+            'The scanner on this host reports malware it has not removed. Until it is cleaned, treat the host as compromised: '
+            'credentials that were on it are exposed.',
+            'Isolate the host, find what the scanner found (the AV page names the tool and the count), clean or rebuild it, and '
+            'rotate what was reachable from it.',
+            device_id=dev_id, device=name, source='antivirus', doc='docs/integrity-guard.md',
+            ai_title='Active malware detections'))
+    elif verdict['realtime_off']:
+        out.append(_finding(
+            'int.av_realtime', 'integrity', 'high', 'Real-time malware protection is switched off',
+            'The scanner is installed and not watching: whatever lands on this host is not looked at until the next scheduled scan.',
+            'Turn real-time protection back on. If it keeps going off, something is turning it off.',
+            device_id=dev_id, device=name, source='antivirus', doc='docs/integrity-guard.md'))
+
+    kern = hw_rec.get('kernel')
+    if isinstance(kern, dict) and kern.get('reboot_for_kernel'):
+        out.append(_finding(
+            'os.kernel', 'os', 'medium', 'A newer kernel is installed and not running',
+            'The fixes in the new kernel do not apply until the host restarts into it. On a host without /run/reboot-required '
+            'nothing else says so.',
+            'Schedule a reboot into the new kernel (or use the livepatch your distribution offers).',
+            device_id=dev_id, device=name,
+            evidence=[f'running {kern.get("running")}, installed {kern.get("latest_installed")}'] if kern.get('running') else [],
+            source='kernel check', doc='docs/patches.md'))
+
+    if hw_rec.get('_smart_failed'):
+        failed = [str(d) for d in (hw_rec.get('_smart_failed_devs') or []) if d][:6]
+        out.append(_finding(
+            'data.smart', 'data', 'high',
+            f'{plural(max(1, len(failed)), "disk", "disks")} reporting SMART failure',
+            'A disk that reports its own failure is the one the data on it will not survive. What was on it is only as safe as '
+            'the last backup.',
+            'Replace the disk, and confirm a restore drill passes for what lives on it before you do.',
+            device_id=dev_id, device=name, evidence=failed, source='SMART', doc='docs/disk-health.md'))
+
+    bad_pools = [p for p in (si.get('storage_health') or [])
+                 if isinstance(p, dict) and posture_signals.pool_unhealthy(p.get('state') or 'unknown')]
+    if bad_pools:
+        out.append(_finding(
+            'data.pool', 'data', 'high',
+            f'{plural(len(bad_pools), "storage pool or array", "storage pools or arrays")} not healthy',
+            'A degraded pool or array has lost its redundancy: the next failure is data loss, and a rebuild loads the disks that are left.',
+            'Replace the failed member and let the rebuild finish. Check the backups before the rebuild if the pool holds anything '
+            'that cannot be recreated.',
+            device_id=dev_id, device=name,
+            evidence=[f'{str(p.get("name") or "?")[:40]}: {str(p.get("state") or "?")[:24]}' for p in bad_pools[:6]],
+            source='storage health', doc='docs/storage.md'))
+
+    ecc = si.get('ecc')
+    ue = ecc.get('ue') if isinstance(ecc, dict) else None
+    if isinstance(ue, int) and not isinstance(ue, bool) and ue > 0:
+        out.append(_finding(
+            'data.ecc', 'data', 'high',
+            f'{plural(ue, "uncorrectable memory error", "uncorrectable memory errors")}',
+            'A memory module could not correct a bit error. It can corrupt what is being written, silently, and it usually gets worse.',
+            'Run a memory test, reseat or replace the module that the host names, and keep an eye on the host until it is done.',
+            device_id=dev_id, device=name, source='ECC counters', doc='docs/disk-health.md',
+            ai_title='Uncorrectable memory errors'))
+    return out
+
+
 def _data_findings(dev_id, name, dev, secrets, stale_backups, disk_encryption_checks=False, backup_checks=None):
     """What is on the disk that should not be, and what is not backed up.
 
@@ -766,7 +843,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None, backup_checks_by_dev=None,
           tls_expiring=None, scap_by_dev=None, agent_tamper_by_dev=None,
           weak_keys_by_dev=None, accounts_by_dev=None, secure_boot_checks=False,
-          drift_by_dev=None, now=None, disk_encryption_checks=False):
+          drift_by_dev=None, now=None, disk_encryption_checks=False, hw_by_dev=None, av_by_dev=None, av_tools=()):
     """Assemble the advisory for a set of devices.
 
     Everything is passed in, so the caller controls scope (one host, a tag, the
@@ -785,6 +862,8 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
     secrets_by_dev = secrets_by_dev or {}
     backups_by_dev = backups_by_dev or {}
     backup_checks_by_dev = backup_checks_by_dev or {}
+    hw_by_dev = hw_by_dev or {}
+    av_by_dev = av_by_dev or {}
     scap_by_dev = scap_by_dev or {}
     agent_tamper_by_dev = agent_tamper_by_dev or {}
     weak_keys_by_dev = weak_keys_by_dev or {}
@@ -812,6 +891,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
         findings += _data_findings(dev_id, name, dev, secrets_by_dev.get(dev_id),
                                    backups_by_dev.get(dev_id), disk_encryption_checks=disk_encryption_checks,
                                    backup_checks=backup_checks_by_dev.get(dev_id))
+        findings += _hardware_findings(dev_id, name, dev, hw_by_dev.get(dev_id), av_by_dev.get(dev_id), av_tools)
         findings += _application_findings(dev_id, name, scans_by_dev.get(dev_id))
     # Fleet-level: the TLS monitor probes targets, not devices.
     findings += _tls_findings(tls_expiring)

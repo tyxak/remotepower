@@ -18,6 +18,8 @@ Constants stay in api.py and are read here through A. Pure logic goes in a
 sibling module (imported directly, like dmarc_monitor / tls_monitor).
 """
 
+import posture_signals
+
 
 class _ApiNamespace:
     __slots__ = ('_g',)
@@ -197,7 +199,7 @@ def _threats_section(devices, now, days=30, edge=False):
 
 # A pool or array in one of these states is healthy (lower case), the same set the
 # Fleet Query's "Storage degraded" facet and the Needs-attention digest use.
-_STORAGE_OK = frozenset({'online', 'active', 'clean', 'healthy', 'ok'})
+_STORAGE_OK = posture_signals.POOL_OK
 
 
 def _build_fleet_report(site_id=None):

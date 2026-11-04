@@ -55345,8 +55345,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             if isinstance(lo, (int, float)) and lo > 0 and (now - lo) < _oom_win:
                 oom_recent += 1
             for pool in (si.get('storage_health') or []):
-                if isinstance(pool, dict) and str(pool.get('state') or '').lower() not in (
-                        'online', 'active', 'clean', 'healthy', 'ok'):
+                if isinstance(pool, dict) and posture_signals.pool_unhealthy(pool.get('state') or 'unknown'):
                     storagedeg += 1
                     break
         out['rebootreq'] = {'count': len(reboot), 'hosts': reboot[:8]}
@@ -59610,7 +59609,7 @@ def handle_fleet_query():
     clock_q = q('clock_skew') in ('1', 'true')
     gw_q = q('gateway_unreachable') in ('1', 'true')
     oom_q = q('oom_recent') in ('1', 'true')
-    _STORAGE_OK = {'online', 'active', 'clean', 'healthy', 'ok'}
+    _STORAGE_OK = posture_signals.POOL_OK        # 7.5.0: one set (posture_signals), not a fourth copy
     # v4.1.0: uptime (days, from last_boot), core count, container state, timers.
     uptime_gt, uptime_lt = qf('uptime_gt'), qf('uptime_lt')
     cores_gt, cores_lt = qi('cores_gt'), qi('cores_lt')

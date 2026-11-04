@@ -338,6 +338,12 @@ def _build_advisory(devs):
         secrets_by_dev=secrets,
         backups_by_dev=A._advisory_stale_backups(ids, devs),
         backup_checks_by_dev=_advisory_backup_checks(ids),
+        # 7.5.0: the hardware and malware-scanner stores. build() was handed neither, so a host with uncorrectable ECC errors, a
+        # degraded pool, a failing disk or an active detection read the same as a healthy one.
+        hw_by_dev={d: v for d, v in (A._load_ro(A.HARDWARE_FILE) or {}).items() if d in ids and isinstance(v, dict)},
+        av_by_dev={d: v for d, v in ((A._load_ro(A.AV_FILE) if A.backend_exists(A.AV_FILE) else {}) or {}).items()
+                   if d in ids and isinstance(v, dict)},
+        av_tools=A._AV_TOOLS,
         tls_expiring=A._advisory_tls_expiring(),
         scap_by_dev={d: v for d, v in (A._load_ro(A.SCAP_FILE) or {}).items()
                      if d in ids and isinstance(v, dict)},

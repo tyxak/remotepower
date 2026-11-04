@@ -88,6 +88,20 @@ def stale_backups_by_device(backup_state, monitors=None):
     return out
 
 
+# Pool and array states that mean healthy, lower case. The Checks row, the Fleet Query facet, the fleet report, the dashboard
+# count and (since 7.5.0) the advisory take "is this pool unhealthy" from here; they had four copies of the set. Everything not in
+# it is unhealthy, `unknown` and `inactive` included: the agent writes `unknown` for an md array whose /proc/mdstat line it could
+# not read, and a pool nobody can read is not one nobody needs to look at. The storage ALERT and the risk score keep their own
+# lists of known-bad words on purpose: they page and score, and a host that has always reported `unknown` should not do either.
+POOL_OK = frozenset({"online", "active", "clean", "healthy", "ok"})
+
+
+def pool_unhealthy(state):
+    """True when a pool or array state is not one of the healthy words. An empty state says nothing and is not unhealthy."""
+    s = str(state or "").strip().lower()
+    return bool(s) and s not in POOL_OK
+
+
 # The statuses that mean a backup check is failing NOW. handle_heartbeat fires backup_verify_failed and restore_drill_failed on
 # these same sets, so the alert, the advisory, the risk score and the compliance report cannot disagree about "failing".
 # `tool_missing` is a drill state the heartbeat remembers so that a drill which works again clears its alert; it is not a
