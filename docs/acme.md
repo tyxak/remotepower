@@ -126,7 +126,8 @@ tells you in the toast that the Logs tab will stay empty.
 ## API
 
 All routes are under `/api`. Reading needs a signed-in user (within their host scope);
-everything that changes something needs an admin.
+everything that changes something needs an admin. So does reading the credential
+providers (`GET /acme/dns-credentials`).
 
 | Method | Path | Purpose |
 |---|---|---|

@@ -19,8 +19,9 @@ Run an operation across many hosts at once. Open it from the **Bulk actions** bu
 The modal lets you scope to a subset:
 
 - **All monitored** — every host with `monitored !== false`. Default.
-- **By group** — hosts grouped under the same package-manager family (apt/dnf/yum/pacman) or your custom group label. Useful for distro-specific operations.
+- **By group** — hosts that share a group label. Hosts with no group are listed under `devices`.
 - **By tag** — hosts carrying a specific tag. Tags are a free-form array on each host; up to 12 distinct tags surface in the modal.
+- **By smart group** — the members of a saved smart group, shown as `smart:<name>` (see [sites.md](sites.md)).
 
 The preview line shows exactly which hosts will receive the command, so there's no surprise. If the preview is empty, the filter excluded everything — adjust before clicking Run.
 

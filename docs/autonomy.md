@@ -71,10 +71,10 @@ never enables anything for another.
 | **Mode** | `off` records nothing at all · `shadow` records, never acts · `enabled` acts within every limit below |
 | **Maximum blast radius** | How much may go dark. Refuses above this. |
 | **Actions per hour** | A ceiling per tenant, so a flapping host cannot become a storm. |
-| **Proven-recoverable backup** | Actions that can lose data require a restore drill that actually restored and verified, within 30 days — not a backup that merely ran. |
-| **Change window** | Holds action on hosts covered by a maintenance window with change gating switched on, until that window is open. A host no such window covers is never held. |
-| **Second pair of eyes** | Destructive actions escalate for approval instead of running. |
-| **Prior fixes required** | Act only where this fleet has fixed the same signature before. On by default. |
+| **Actions that can lose data need a proven-recoverable backup** | Those actions require a restore drill that actually restored and verified, within 30 days — not a backup that merely ran. |
+| **Only inside a change window** | Holds action on hosts covered by a maintenance window with change gating switched on, until that window is open. A host no such window covers is never held. |
+| **Destructive actions need a second pair of eyes** | Destructive actions escalate for approval instead of running. |
+| **Only act where this fleet has fixed the same thing before** | Act only where this fleet has fixed the same signature before. On by default. |
 | **Permitted actions** | An explicit allow-list. Anything not on it is refused. |
 
 ### What counts as recoverable

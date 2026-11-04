@@ -12,7 +12,7 @@ protection as the live configuration itself, so nothing sensitive is exposed by
 keeping the history.
 
 - `GET /api/config/revisions` lists the saved revisions (who changed it, when, and
-  which keys changed, up to 50), newest first.
+  which keys changed, up to 50 keys per revision), newest first.
 - `POST /api/config/revisions/restore` swaps the live configuration for a picked
   revision. The state being replaced is itself saved as a new revision first, so
   a restore is always reversible — you can roll a rollback back.

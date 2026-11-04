@@ -155,7 +155,7 @@ RemotePower can back up **itself** so you can rebuild the server after a loss.
   survives a full compromise.
 - **Off-host copy.** Set **Off-host copy** (`backup.offsite_dir`) to a mounted path
   (NFS, SMB or sshfs) and each finished archive is copied there as well. The copy is
-  best-effort and never fails the backup. The Security posture page grades it.
+  best-effort and never fails the backup. The Security posture card on the Audit page grades it.
 - **S3-compatible bucket.** Under **Settings → Backups → Scheduled backup**, tick *Also copy each backup to an S3-compatible
   bucket* and fill in the endpoint, the bucket, the region, a folder if you want one, and the access key id. AWS S3, MinIO,
   Backblaze B2, Wasabi, Cloudflare R2 and any other store that speaks S3 work. The secret access key is not a setting: put
@@ -184,7 +184,7 @@ RemotePower can back up **itself** so you can rebuild the server after a loss.
     safety snapshot of the current data and restores it the way an uploaded archive is restored. Only encrypted archives made by the
     copy are listed, and one over 1 GiB is not taken from the bucket: download it and restore the file. With tenant isolation on, only
     the platform operator can list or restore.
-  - The Security posture row *Backups mirrored off-host* counts the bucket, and every destination you set has to have worked on
+  - The Security posture row (Audit page) *Backups mirrored off-host* counts the bucket, and every destination you set has to have worked on
     the last run. A failed copy never fails the backup: Server Status shows the reason.
 - **RPO and RTO targets.** `backup.rpo_hours` and `backup.rto_hours` (Settings →
   Backups, `0` is off). RPO is graded on Server Status against the hours since the last
@@ -210,7 +210,7 @@ encryption key, not an application password.
   the new passphrase, so keep the old one escrowed for as long as you keep archives it
   encrypted.
 - If backup encryption is off (no `RP_BACKUP_PASSPHRASE`), archives are plaintext and
-  there is nothing to escrow. The Security posture page flags that trade-off.
+  there is nothing to escrow. The Security posture card on the Audit page flags that trade-off.
 
 ## Permissions
 

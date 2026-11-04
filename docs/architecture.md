@@ -3,7 +3,7 @@
 ```
 Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                       │
-                      ├─ /              → Dashboard (1 HTML + 1 CSS + 1 JS, no framework, no build)
+                      ├─ /              → Dashboard (1 HTML page, 1 main stylesheet, plain JS files loaded on demand; no framework, no build)
                       ├─ /api/*         → Python app tier — gunicorn + Flask (server/cgi-bin/wsgi.py),
                       │                   the only server since v6.1.0; see docs/wsgi.md
                       ├─ /api/webterm/connect → wss://, proxied to remotepower-webterm daemon
@@ -46,7 +46,7 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
   Switch under Settings → Advanced → Storage backend. See docs/scaling.md.
 
   Out-of-band maintenance scheduler (default since v6.1.0, v5.5.0+):
-    • remotepower-scheduler.service runs the ~64 maintenance sweeps from one
+    • remotepower-scheduler.service runs the 77 maintenance sweeps from one
       leader-elected process (file-lock + pg_advisory_lock on Postgres) instead
       of piggy-backing on request traffic. --no-scheduler opts back down to the
       request-path cadence. See docs/scaling.md.

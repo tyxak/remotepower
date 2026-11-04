@@ -36,7 +36,14 @@ Other ways to get agentless records:
   host** turns one into an agentless host.
 - **Cloud import.** **Settings → Integrations → Cloud import** pulls running instances
   from AWS EC2, Hetzner Cloud or DigitalOcean in as agentless hosts. It is read-only,
-  and running it again updates the records in place.
+  and running it again updates the records in place. Tick **Auto re-sync on a schedule**
+  to repeat the import on its own (the interval is in seconds, 3,600 to 604,800).
+  Instances that vanish from the cloud account are marked decommissioned, never
+  deleted. Azure and GCP work the same way, but the page does not offer them. Add them
+  as `cloud_accounts` entries in `POST /api/config`. Azure needs `tenant_id`,
+  `client_id`, `subscription_id` and `secret_key` (the client secret). GCP needs
+  `project_id`, `client_email` and `secret_key` (the service account's private key).
+  The secret is write-only: a later save that leaves it out keeps the stored one.
 
 ---
 
@@ -64,7 +71,7 @@ Other ways to get agentless records:
   Point the appliance's syslog output at the server (UDP port 5514 by default; to use
   514, uncomment the `CAP_NET_BIND_SERVICE` lines in the unit). RemotePower accepts a
   source when an enrolled host has that **IP** and carries an enabled **syslog inbound
-  token** pinned to it (**Settings → Integrations → Inbound webhooks**, kind `syslog`).
+  token** pinned to it (**Settings → Integrations → Inbound webhooks & syslog**, kind `syslog`).
   The receiver batches lines to the same `POST /api/syslog/in/<token>` endpoint that
   rsyslog and fluent-bit users use, so `log_watch` rules for the unit `syslog` fire
   `log_alert` in the same way. Unknown sources are dropped. See [syslog.md](syslog.md).
@@ -93,7 +100,10 @@ the host drawer under **Actions & settings → Reachability**.
   [SNMP walkthrough](cookbook.md#watch-an-agentless-host-with-snmp) for setup. Turn on
   **per-port history** for a switch if you want bandwidth, utilisation, error counters
   and link state per port; it is off by default because a full interface walk is heavy
-  on a big switch.
+  on a big switch. With it on, a port that is enabled on the switch but goes down fires
+  **`snmp_if_down`** (a port shut on purpose is not an incident), and a port at 90% of its
+  speed or more in two samples in a row fires **`snmp_if_saturated`**. If polling keeps
+  failing for six hours, **`snmp_dead`** follows **`snmp_unreachable`**.
 - **Memory without the cache.** net-snmp counts the page cache and the buffers as used
   in the "Physical memory" row and lists them again as the rows "Cached memory" and
   "Memory buffers", so a firewall or a NAS can read 90% when most of it is cache.

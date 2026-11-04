@@ -130,7 +130,7 @@ as the more interesting half of this document.
   The sidebar groups expose `aria-expanded`, and every tab in a tab strip (28 in
   the static markup, among them the 14 Settings tabs) exposes `aria-selected`;
   the same function that sets the visual state writes the attribute.
-- **Table headers** in the static markup mostly use `scope="col"` (548 of 607
+- **Table headers** in the static markup mostly use `scope="col"` (583 of 642
   `<th>` elements at this release) — see the limitations for the tables
   JavaScript renders.
 - **Status messages** (toasts) live in a `role="status" aria-live="polite"`
@@ -218,7 +218,7 @@ palette has the full pattern; the pickers can converge on it.
 
 ### 4. JavaScript-rendered table headers mostly lack `scope`
 
-The static markup is good (548 of 607 headers scoped), but of the 592 `<th>`
+The static markup is good (583 of 642 headers scoped), but of the 581 `<th>`
 elements generated from JavaScript template strings only 38 carry
 `scope="col"`. Browsers infer column association for simple tables, so this is
 usually recoverable by assistive technology — but it is not stated explicitly

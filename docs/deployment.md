@@ -238,7 +238,8 @@ touched by the deploy script. Two recovery situations to know:
 
 - **Rolled back under a newer database.** If the newer version migrated the
   SQLite schema, the old code now logs `database schema vN is NEWER than this
-  server` on every request (in the nginx error log). The data the newer version
+  server` on every request (in the app server's log: `journalctl -u remotepower-wsgi`,
+  or the container log in Docker). The data the newer version
   wrote is preserved but invisible. Either deploy the newer version again or
   restore the matching data backup.
 - **Corrupt SQLite store.** The diagnostics bundle (**Server Status → Diagnostics bundle**, or

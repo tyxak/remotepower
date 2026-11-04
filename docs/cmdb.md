@@ -71,11 +71,14 @@ row to edit:
   they approach.
 - **Contracts / contacts / licenses** *(v3.12.0)* — business-metadata lists
   on the **Contracts & contacts** tab.
-- **Documentation** — Markdown, up to 64 KB per asset. The editor has
-  Edit and Preview tabs. Headings (`#`, `##`, `###`), lists (`- `),
-  code (`` ` ``), bold (`**x**`), italic (`*x*`), and links
+- **Documentation** — on the asset's **Documentation** tab, **+ Add document**
+  adds a titled Markdown document. An asset holds up to 50 of them, each up to
+  64 KB, and the editor has Edit and Preview tabs. Headings (`#`, `##`, `###`),
+  lists (`- `), code (`` ` ``), bold (`**x**`), italic (`*x*`), and links
   (`[text](https://…)`) all render. Anything more exotic stays as
-  literal text — this is a renderer for runbooks, not a CMS.
+  literal text — this is a renderer for runbooks, not a CMS. A single
+  `documentation` text written by an older version shows as one document titled
+  "Documentation".
 
 ### Decommissioning an asset *(v5.0.0)*
 
@@ -225,6 +228,18 @@ Every reveal is logged. The audit log entry includes the actor, the
 asset, the credential label, and the source IP. If you need to know
 who looked at the IPMI password last Thursday, the answer is in the
 audit log.
+
+### Break-glass credentials
+
+Tick **Break-glass (require a second admin's approval to reveal)** when you add or edit a
+credential that should never be read by one person alone, such as a root, IPMI or recovery
+secret. **Reveal** then does not show the password. It opens a request, and the first admin
+sees that the request is pending. A different admin approves it on the **Break-glass
+requests** card of the CMDB page (`POST /api/cmdb/break-glass/{id}/approve`; open requests
+are listed by `GET /api/cmdb/break-glass`). You cannot approve your own request. The
+approval is good for 15 minutes and for one reveal, and only the requester can use it: they
+press **Reveal** again. Each step is written to the audit log, and a `vault_break_glass`
+alert fires.
 
 ### JIT credential checkout *(v6.2.0)*
 
@@ -392,13 +407,16 @@ you don't have. Same answer as above. Sorry.
 ## API reference
 
 All paths are under `/api`. Auth is the same `X-Token` header used
-everywhere else. Vault key is `X-RP-Vault-Key` (hex, 64 chars).
+everywhere else. Vault key is `X-RP-Vault-Key` (hex, 64 chars). **Write role**
+means an administrator or a role that can change things; the viewer, auditor and
+finance roles cannot.
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
 | GET    | `/cmdb` | any | List assets. `?q=…` and `?function=…` filters. |
 | GET    | `/cmdb/{device_id}` | any | Asset detail. Credentials redacted to metadata only. |
-| PUT    | `/cmdb/{device_id}` | any | Patch `asset_id`, `server_function`, `environment`, `vlan`, `interfaces`, `hypervisor_url`, `ssh_port`, `documentation`, the lifecycle dates, and the `contracts`/`contacts`/`licenses` lists. Send only the fields you want to change. |
+| PUT    | `/cmdb/{device_id}` | write role | Patch `asset_id`, `server_function`, `environment`, `vlan`, `interfaces`, `hypervisor_url`, `ssh_port`, `documentation`, the lifecycle dates, and the `contracts`/`contacts`/`licenses` lists. Send only the fields you want to change. |
+| POST   | `/cmdb/{device_id}/docs` | write role | Add a titled document: `{title, body}`. `PUT` and `DELETE` on `/cmdb/{device_id}/docs/{doc_id}` change or remove one. |
 | PATCH  | `/devices/{device_id}/decommissioned` | admin | `{decommissioned: bool}` — retire/restore an asset (forces `monitored=false` when set). |
 | GET    | `/cmdb/server-functions` | any | Distinct server_function values, sorted, for autocomplete. |
 | GET    | `/cmdb/vault/status` | any | `{configured, kdf, iterations, created_at, created_by}`. |
@@ -508,7 +526,7 @@ safe to back up alongside the rest.
 
 ## Limits
 
-- 64 KB Markdown documentation per asset
+- 50 documents per asset, each up to 64 KB of Markdown, with a title of up to 120 characters
 - 25 credentials per asset
 - 1 KB max password length (you should not have a 1 KB password)
 - 64-char labels, 128-char usernames, 512-char notes
@@ -568,14 +586,13 @@ If you want to read the code, the entry points are:
 - `server/cgi-bin/cmdb_vault.py` — all the crypto. Lazy
   `cryptography` import, KDF, encrypt/decrypt, canary verification,
   passphrase validation. Self-contained, no `api.py` imports.
-- `server/cgi-bin/api.py` — handlers and routing. Search for the
-  comment `# ─── v1.9.0: CMDB ──` to find the section. Routes are
-  declared in `main()` near the bottom in most-specific-first order
-  so `/vault/status` doesn't get eaten by the generic
-  `/cmdb/{device_id}` route.
-- `server/html/index.html` — the UI. Search for `// ── v1.9.0: CMDB`
-  for the JS, and `id="page-cmdb"` for the page markup. The vault key
-  lives in the closure variable `_cmdbVaultKey`.
+- `server/cgi-bin/cmdb_handlers.py` — the handlers, loaded by `api.py`.
+  The routes are in `api.py`'s route tables, listed most specific first
+  so `/vault/status` doesn't get eaten by the generic `/cmdb/{device_id}`
+  route.
+- `server/html/static/js/app-cmdb.js` — the UI code, and `id="page-cmdb"`
+  in `server/html/index.html` for the page markup. The vault key lives in
+  the closure variable `_cmdbVaultKey`.
 - `tests/test_v190.py` — 32 tests covering the lot. A reasonable
   starting point if you want to know what something is supposed to
   do.

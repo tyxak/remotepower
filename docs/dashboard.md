@@ -54,6 +54,11 @@ are heavy, so the server only computes them while they are on your dashboard.
 Hosts you switched to unmonitored are left out of the tiles, the roster, alerting and the health
 score. They still appear on the Hosts page.
 
+If you choose the **Pilot** look (My Account → Appearance, see [my-account.md](my-account.md)), a
+panel above the tiles shows the number of hosts online as a dot-matrix readout, next to one dot per
+host, grouped by host group and coloured like the fleet health card. It draws from the same figures
+as the tiles and changes nothing else.
+
 ## Common tasks
 
 | You want to | Do this |
@@ -67,4 +72,4 @@ score. They still appear on the Hosts page.
 ## See also
 
 [health-score.md](health-score.md), [attention.md](attention.md), [alerts.md](alerts.md),
-[ux.md](ux.md).
+[ux.md](ux.md), [my-account.md](my-account.md).

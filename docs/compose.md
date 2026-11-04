@@ -122,8 +122,8 @@ from "never checked"). Read access — viewer or admin.
 
 ### `POST /api/devices/<id>/compose/action`
 
-Admin only. Queues `compose:<action>:<dir>` against the agent's exec
-channel.
+Needs the **containers** permission on the host (an administrator has it).
+Queues `compose:<action>:<dir>` against the agent's exec channel.
 
 ```json
 {
@@ -134,8 +134,8 @@ channel.
 
 Validates:
 
-- `action` ∈ `{up, down, restart, pull, logs}` — the only actions the
-  agent recognises (see below).
+- `action` ∈ `{up, down, restart, pull, logs, update}` — the only actions the
+  agent recognises (see below). The dialog has no button for `update`.
 - `dir` is non-empty and ≤ 1024 chars.
 - `dir` **is one of the directories the agent reported in this host's
   last heartbeat.** This is the security boundary: even a stolen admin
@@ -169,6 +169,7 @@ When the agent dequeues `compose:<action>:<dir>` it:
    - `down`    → `docker compose down`
    - `restart` → `docker compose restart`
    - `pull`    → `docker compose pull`
+   - `update`  → `docker compose pull`, then `docker compose up -d`
    - `logs`    → `docker compose logs --no-color --tail=50`
 5. 180 s timeout (pull + up can be slow on cold caches).
 6. Output capped at 64 KB.
@@ -179,9 +180,9 @@ output would.
 
 ## UI
 
-Host card → **⋯ dropdown** → **docker compose (N)** appears whenever
-the host's reported `compose_projects_count > 0`. If the agent hasn't
-reported yet, the entry doesn't show at all.
+The **⋮** button on a host opens its drawer on the **Actions & settings** tab.
+**Docker compose** in that grid opens the dialog (agentless hosts do not get
+it). The picker lists the projects the host reported in its last heartbeat.
 
 The modal shows:
 

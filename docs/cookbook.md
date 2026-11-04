@@ -55,8 +55,8 @@ Reference: [monitors.md](monitors.md), [mitigation.md](mitigation.md).
 
 The rule: **3** copies, on **2** different media/targets, **1** off-site.
 
-1. **Tell RemotePower which paths to watch.** **Settings → Advanced → Backup
-   monitors** → add each backup destination path + a max-age threshold. The agent
+1. **Tell RemotePower which paths to watch.** **Settings → Alerting → Backup file
+   monitoring** → add each backup destination path + a max-age threshold. The agent
    reports each path's freshness every heartbeat.
 2. **Enable integrity verification** per monitor (v4.10.0) so a *present* backup
    is also proven *restorable*, not just fresh.
@@ -79,14 +79,16 @@ Noise is the #1 reason people stop reading alerts. Tune it:
    per-channel toggles (inbox / activity feed / webhook / needs-attention). Turn
    webhook/push off for chatty kinds (new ports, GitHub issues) and keep them for
    outages.
-3. **Set per-severity escalation.** **Settings → Notifications → Escalation** —
-   only page after N minutes unacknowledged, per severity.
+3. **Set up escalation.** **Settings → Alerting → On-call & escalation** — pick the
+   severities and the tiers in minutes (for example 15, 60, 240). An alert nobody
+   acknowledged is sent again through its channels at each tier.
 4. **Suppress during known work.** Create a **maintenance window** (below) so
    expected churn doesn't alert at all. A window can cover a host, a group, a
    **site**, a **tag**, a smart group, or the whole fleet — so "all of this
    customer's hosts on Saturday" is one window, not one per host.
 
-Reference: [alert-tuning.md](alert-tuning.md), [automations.md](automations.md).
+Reference: [alert-tuning.md](alert-tuning.md), [automations.md](automations.md),
+[oncall.md](oncall.md).
 
 ## Monitor a Proxmox node and its guests
 
@@ -116,7 +118,7 @@ the agent.
    CPU/storage tables, and vendor health (Mikrotik/Synology). Failures raise
    `snmp_unreachable`.
 
-Reference: (SNMP section in) [features.md](features.md).
+Reference: [agentless-devices.md](agentless-devices.md#reachability-and-health).
 
 ## Onboard a segmented site with a satellite
 

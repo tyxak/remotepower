@@ -10,7 +10,8 @@ SSH, no Ansible, no separate monitoring stack.
 
 ## How it works
 
-1. An admin creates a script in the **Custom Scripts** page (sidebar).
+1. An admin creates a script in the **Custom scripts** card on **Monitoring → Live
+   Monitor**.
 2. The server pushes the script body to assigned hosts via their
  regular heartbeat response.
 3. The agent runs each assigned script every **5 minutes** using
@@ -94,7 +95,7 @@ DISK WARNING - free space: / 4012 MB (18%) | /=17988MB;19000;20000;0;22000 inode
 
 ### Paste a script
 
-1. **Custom Scripts → New script**
+1. On **Monitoring → Live Monitor**, in the **Custom scripts** card, click **New script**
 2. Fill in **Name** (required) and **Description** (optional).
 3. Paste the bash body into the **Script body** field.
 4. Pick hosts using the **host picker**.
@@ -109,7 +110,7 @@ If RemotePower's AI assistant is configured (Settings → AI assistant),
 the modal has a **Generate with AI** row:
 
 1. Type a plain-English description of what to check.
-2. Click ** Generate**.
+2. Click **Generate**.
 3. Review the generated script — always read it before saving.
 4. Edit if needed, then Save.
 
@@ -185,7 +186,8 @@ fleet, create one script per platform and assign each to the right hosts.
 
 ## Viewing results
 
-**Custom Scripts → Refresh** loads the current fleet-wide result table:
+The **Custom scripts** card on **Monitoring → Live Monitor** holds the fleet-wide result
+table. **Refresh** loads the current results:
 
 | Column | Meaning |
 |--------|---------|
@@ -219,8 +221,8 @@ failing run):
 ```
 
 Configure delivery under **Settings → Notifications**. Both events are
-enabled by default. Supported destinations: Discord, ntfy, Slack,
-Gotify, generic JSON POST.
+enabled by default. They go to any destination you set up there; see
+[webhooks.md](webhooks.md) for the supported kinds.
 
 **Edge-triggered:** the `custom_script_fail` event fires exactly once
 when a script first fails. It does not re-fire on every subsequent

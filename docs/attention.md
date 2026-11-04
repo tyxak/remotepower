@@ -127,8 +127,8 @@ active. Anything else in `fleet_events` is past-tense only.
 | `brute_force` | active state in `brute_force.json` | critical |
 | `snapshot` | snapshot age > threshold | warning |
 | `backup` | backup state stale | critical |
-| `disk` | metric overrides per mount | warning / critical |
-| `cpu` | the share of the CPU time spent waiting for storage (I/O wait) or taken by the hypervisor (steal) is over its line | warning / critical |
+| `disk` | a mount is over its fill line, or a disk stays busier than its line | warning / critical |
+| `cpu` | the load average per core, or the share of the CPU time spent waiting for storage (I/O wait) or taken by the hypervisor (steal), is over its line | warning / critical |
 | `tls` | TLS expiry watchlist | warning / critical |
 | `cert_files` | the certificate files a host's services read: one item per host, critical when a file has expired, a warning when one expires inside the window *(7.5.0)* | warning / critical |
 | `reboot` | `/run/reboot-required` exists in sysinfo | warning |
@@ -153,6 +153,10 @@ active. Anything else in `fleet_events` is past-tense only.
 | `after_hours` | events fired outside configured business hours (fleet-level) | warning |
 | `cred_rotation` | a vault credential is older than its rotation policy | info |
 | `apikey_rotation_due` | an API key is older than its `rotate_after_days` | info |
+
+Memory use and swap use over their lines raise items of kind `memory` and `swap`, with the same
+severities as `cpu`. They come from the same per-host metric lines, so a host's own Metric thresholds
+apply to them.
 
 ## Adding new kinds
 

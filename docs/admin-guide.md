@@ -185,8 +185,9 @@ manages anything important. [security.md](security.md) has the full list.
 ### 4.1 Change the admin password
 
 Open **My Account** from the avatar menu in the top-right corner, then **Security →
-Password**. You need your current password, and every other session signed in as you
-is signed out. Passwords are stored with bcrypt (cost 12), or with salted PBKDF2 where
+Password**. You need your current password. Every session signed in as you is signed
+out, the one you are using included, so you sign in again with the new password.
+Passwords are stored with bcrypt (cost 12), or with salted PBKDF2 where
 bcrypt is not installed. A default-password banner stays until the account's
 "must change password" flag is cleared.
 
@@ -255,18 +256,20 @@ sysinfo, journals, CVEs, drift, services and command output.
 
 ### 5.2 Running commands
 
-Open the **Hosts** page. The **⋯** menu on a host offers shutdown, reboot, Wake-on-LAN,
-package upgrade, **Scan packages now**, **Update agent**, a custom command, the web
-terminal and more. **Bulk actions** (or `Ctrl/Cmd-K` and "Bulk actions") runs an action
-across many hosts at once. Every action is recorded in the activity feed and in the
+Open the **Hosts** page. The **⋮** button on a host opens its drawer on the **Actions &
+settings** tab. It offers shutdown, reboot, Wake-on-LAN, package upgrade, **Scan
+packages**, **Update agent**, a custom command, the web terminal and more. **Bulk
+actions** (or `Ctrl/Cmd-K` and "Bulk actions") runs an action across many hosts at
+once. Every action is recorded in the activity feed and in the
 per-host command history. See [fleet-management.md](fleet-management.md).
 
 ### 5.3 Monitoring
 
 - **CVE scanning** is automatic and uses OSV. After patching a host, use **Scan
-  packages now** on it to refresh its inventory straight away.
-- **Drift detection** hashes watched config files on every heartbeat. Review and
-  accept baselines on the host.
+  packages** on it to refresh its inventory straight away.
+- **Drift detection** hashes watched config files about once an hour and again right
+  away when a file's modification time changes, so a change shows up within about one
+  heartbeat. Review and accept baselines on the host. See [drift.md](drift.md).
 - **External monitors** run ping, TCP and HTTP probes. **TLS / DNS** tracks certificate
   and domain expiry.
 - **Mailbox monitor** is under Settings → Mailbox monitor.

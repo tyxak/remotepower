@@ -63,7 +63,9 @@ The agent then refuses:
 - custom scripts and host-config applies;
 - agent self-update;
 - canary files, Integrity Guard quarantine checks and guard restore or delete actions;
-- backup integrity checks and restore drills (they start `restic`, `borg` or `tar` as root).
+- backup integrity checks and restore drills (they start `restic`, `borg` or `tar` as root);
+- host probes, the checks you point at this host's agent under **Probe from** (see
+  [monitors.md](monitors.md)).
 
 Read-only assessments such as Lynis, OpenSCAP and CVE scans keep running. The agent
 reports `audit_mode: true` in its heartbeat, the host shows an **AUDIT** badge, and the
@@ -131,8 +133,8 @@ explicit `reboot` command is always unconditional.
 
 A queued exec command can carry its own timeout with a `to=<seconds>:` prefix, for
 example `exec:to=600:restic backup …`. The value is clamped to 1 to 3600 seconds and
-overrides the default of 300 seconds (1800 seconds for package-upgrade and reboot
-commands). All three agents honour it.
+overrides the default of 300 seconds (1800 seconds for package-upgrade commands, which
+includes upgrade-and-reboot). All three agents honour it.
 
 ## Agent and server version compatibility
 

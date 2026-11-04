@@ -5,11 +5,12 @@
 Every enrolled agent detects Docker, Podman, and Kubernetes pods on
 the host it's running on, normalises the output across runtimes, and
 posts the list back to the server. The Containers tab shows fleet-
-wide status with per-host drill-down. RemotePower's job here is
-visibility — what's running and is it healthy. Starting, stopping,
-exec'ing, log-streaming: that's Portainer, k9s, and kubectl. They
-exist, they're good at it, and reproducing them inside RemotePower
-would be inventing a different product.
+wide status with per-host drill-down. RemotePower's main job here is
+visibility — what's running and is it healthy. It can also start,
+stop, restart, pause and update a container and fetch a log snapshot
+(see [Viewing container logs](#viewing-container-logs-v642) and the
+platform table). An interactive shell and a live log follow are not
+part of it: that's Portainer, k9s, and kubectl, and they're good at it.
 
 ---
 
@@ -21,14 +22,14 @@ with summary counts per host:
 - **Total** — every container the agent could see
 - **Running** — anything with status containing "running" or "Up"
 - **Stopped** — exited / dead / terminated
-- **Restarting** — anything with `restart_count >= 5` (gets a red badge)
+- **Restarting** — anything with `restart_count >= 5` (shown in red)
 - **Runtimes** — which runtimes contributed to the count
 
 Click into a host to see the full list. Each entry shows the
 image and tag (e.g. `nginx:1.25-alpine`), status, restart count,
-namespace (for Kubernetes pods), runtime tag, and ports. Containers
-with five or more restarts get an amber badge; more concerning
-behaviour gets red.
+namespace (for Kubernetes pods), runtime tag, and ports. A container
+that has restarted shows an amber `restart×N` badge, which turns red at
+five restarts.
 
 **v1.11.4:** rows with stale data (no fresh heartbeat report within
 the configured TTL) are dimmed and tagged with an amber `STALE`
@@ -104,9 +105,9 @@ hundred containers on one host, you have bigger questions than
 
 ## Alerts (v1.11.4)
 
-Three webhook events fire on container-state changes. All three
-respect the per-event toggle in Settings → Notifications, default
-to enabled, and route through the same payload pipeline as every
+These webhook events fire on container-state changes. Each
+respects the per-event toggle in Settings → Notifications, defaults
+to enabled, and routes through the same payload pipeline as every
 other RemotePower webhook.
 
 ### `container_stopped`
@@ -179,6 +180,9 @@ Webhook payload:
   "delta": 2
 }
 ```
+
+When a container that raised this alert is still listed and its restart count did not climb on
+the next report, `container_restarting_cleared` closes the alert.
 
 ### `container_unhealthy` and `container_healthy` *(7.4.9)*
 
@@ -507,10 +511,9 @@ labels or the command. A Kubernetes pod is not audited. `GET /api/containers/aud
   **Scan now** in the container-image section of Security → CVEs. Trivy has to be installed on
   the host — without it the page stays empty. Linux only: the flag
   that triggers a scan is read by the Linux agent alone.
-- **No restart policy or compose state.** The agent reads `docker
-  ps` output, which doesn't include the compose file the container
-  came from or its restart policy. Both are visible via `docker
-  inspect`, which we don't run for performance reasons.
+- **No restart policy or compose state.** The listing doesn't include
+  the compose file a container came from or its restart policy. Both
+  are visible with `docker inspect` on the host.
 
 ---
 
@@ -565,10 +568,10 @@ with summary counts. Same shape used by the Containers page:
 }
 ```
 
-The `started_at` and `uptime_seconds` fields are usually zero for
-Docker/Podman because `docker ps` doesn't expose start timestamps
-directly — `docker inspect` does, but we skip that for performance.
-For Kubernetes pods, both fields are populated from the
+For Docker and Podman, `started_at` and `uptime_seconds` come from the
+same batched `docker inspect` that reads the restart count (one command
+per report, not one per container). If that command fails, they stay
+zero. For Kubernetes pods, both fields are populated from the
 `containerStatuses[].state.running.startedAt` field.
 
 The `is_stale` and `stale_ttl` fields are new in v1.11.4.
@@ -648,11 +651,11 @@ single-node k3s, the kubeconfig is at `/etc/rancher/k3s/k3s.yaml`
 and only readable by root by default; the agent runs as root, so
 this is usually fine.
 
-**Restart count always 0 for Docker.** `docker ps` doesn't show
-this; only `docker inspect` does, and we don't call it for every
-container. For Kubernetes pods the field works because k8s
-exposes it directly. If Docker restart counts matter for your
-alerting, monitor them via `docker events` separately.
+**Restart count is 0 for Docker.** `docker ps` doesn't show it, so
+the agent reads it with one batched `docker inspect` per report. An
+agent older than 3.10.0 doesn't, and the field stays 0 for Docker and
+Podman: update the agent. For Kubernetes pods the field works because
+k8s exposes it directly.
 
 **Wrong status string.** The agent passes through whatever the
 runtime returned. Different Docker versions render status
