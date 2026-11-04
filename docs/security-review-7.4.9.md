@@ -15,17 +15,20 @@ below says so.
 
 ## What changed that a reviewer should look at
 
-**Added after the review, in two batches.** Six features were built once the sweep was done and the gates had run, and eight more after
-them. None loosens a permission, and each was checked with the same instruments. The matrix, run on the tree after the first batch, found
-one defect in them, fixed before release (S32). It ran again on the finished tree: 1,088 routed operations (the thirteen new routes of the
-two batches included), 85,302 requests in 60 runs, and no answer to a tenant user held another tenant's id, name or object. The 60 operations
-that answered some caller with a marker it should not hold fall in the same groups as before: 13 answered tenant users (the caller's own
-input stored and read back, the content of a cloned host, the shared knowledge base, or a host token's own scripts), 44 answered only
-roles or keys scoped to groups or tags, 2 answered the finance role, and one was a planted row that the product itself had already
-rewritten into an alert about the installation's own service. The 44 are two more than before: `GET /api/alerts` and `GET /api/problems`
-for a scoped key, which carry the installation's monitor alerts (a scoped role is shown the same rows; see "Known and unchanged"). The 697
-answers that were not a refusal are the same as in the earlier run (251 were 400 and 446 were 405), and so are the eight requests that
-answered 5xx or not at all.
+**Added after the review, in three batches.** Six features were built once the sweep was done and the gates had run, eight more after
+them, and eight items of the open list after the second gates (a ninth, a test of the S3 copy against an independent implementation,
+could not run: none is installed here). None loosens a permission, and each was checked with the same instruments. The matrix, run on the
+tree after the first batch, found one defect in them, fixed before release (S32). It ran again on the finished tree: 1,090 routed
+operations (the fifteen new routes of the three batches included), 85,422 requests in 60 runs, and no answer to a tenant user held another
+tenant's id, name or object. The 59 operations that answered some caller with a marker it should not hold fall in the same groups as
+before: 13 answered tenant users (the caller's own input stored and read back, the content of a cloned host, the shared knowledge base, or
+a host token's own scripts), 43 answered only roles or keys scoped to groups or tags, 2 answered the finance role, and one was a planted
+row that the product itself had already rewritten into an alert about the installation's own service. The 43 include `GET /api/alerts` and
+`GET /api/problems` for a scoped key, which carry the installation's monitor alerts (a scoped role is shown the same rows; see "Known and
+unchanged"). They are one fewer than the 44 of the run before this batch: that run found a host's four-letter name by chance in the bytes
+of a compressed backup that an administrator key scoped to a group had downloaded (it may, see "Known and unchanged"), and the same
+download in this run held no match. The 697 answers that were not a refusal are the same as in the earlier run (251 were 400 and 446 were
+405), and so are the eight requests that answered 5xx or not at all.
 
 New routes of the first batch: `POST /api/alerts/{id}/assign` (it asks for the right to acknowledge an alert, refuses an alert the
 caller cannot reach, and refuses an assignee who could not open the alert: another tenant's account, a role scoped to other hosts, a
@@ -56,6 +59,27 @@ the access key id of the S3 copy, which names the account that owns the bucket: 
 that one is set. The S3 connection test asked for an administrator in its handler and relied on the route table to keep a tenant's users
 out: the handler asks for the platform operator itself. They are not in the counts above, which are the review's.
 
+New routes of the third batch: `POST /api/backup/s3-archives` and `POST /api/backup/s3-restore`. Like the connection test they are for the
+platform operator only: the address comes from the request or from the saved settings, and the server connects to it. In the matrix every
+caller but an administrator of the default tenant was refused (7 runs answered 401 and 46 answered 403; the 7 runs of an administrator,
+with the key scoped to a group among them, answered 400: the benign body names no archive, and the seed has no S3 copy set up). The restore reads the archive into
+a private scratch directory, compares its digest with the one stored beside it, decrypts it with the backup passphrase, and hands it to the
+same restore as an uploaded archive: a safety snapshot first, then a strict check of every member. An archive over 1 GiB is refused, since
+the restore holds it in memory as an upload does. The chart of the CPU time reads the answer of the existing
+`GET /api/devices/{id}/metrics`, which refuses a host outside the caller's tenant and scope as before; the shares of a Windows or macOS host
+come in the heartbeat, which a host sends only for itself. A profile carries 30 per-host lines instead of 14, each checked to a range, with a
+warning line kept below its critical line, and the chat destinations get the words of an alert through one helper (`notify.defuse`). Review
+notes: a probe's stored result names who probed it, so a result left from before a check was moved is not shown for the new prober; the
+upload in parts keeps one part in memory at a time (a part is at least 64 MiB, there are at most 10,000) and aborts the upload in the store
+when anything fails.
+
+**Caught while building the third batch.** The tests stopped three things before they shipped. A confirm or prompt dialog closed with Escape
+never answered the code that was waiting, so a passphrase prompt that had been cancelled could carry on later, when nobody was looking. A
+host profile dropped 16 of the 30 lines a single host can be given without a word, and its dialog replaced the thresholds of a profile made
+through the API with the four it shows. A check probed by a host or a satellite went on showing its last result as current after the host
+had stopped reporting, or after the check had been moved to another prober. They are not in the counts above, which are the review's; S34,
+which the tests found too, is.
+
 - **Routes.** One route is new: `POST /api/logout`. Two others are new for one feature: `POST /api/scap/{id}/report-ticket`, and
   the SCAP report route now also accepts a one-minute link. No permission was loosened. A permission check was added to one
   endpoint (`services/config`) and a tenant check to the ticket handlers and to many others. The table of what only the platform
@@ -70,7 +94,7 @@ out: the handler asks for the platform operator itself. They are not in the coun
 - **Containers.** The Docker image starts its app server and daemons as `www-data`, not root.
 - **Supply chain.** The GitHub Actions in the three workflows are pinned to commits, and Dependabot waits seven days before it
   proposes a release.
-- **Size.** Since 7.4.8, counted by git with the documents left out: 244 files, +33,621 −1,035 lines. Server 55 files (+7,760 −475), web client 26 (+2,176 −161), agents and installers 7 (+2,338 −122), tests 135 (+20,660 −241), packaging, Docker and tools 21 (+687 −36).
+- **Size.** Since 7.4.8, counted by git with the documents, the workflow files and the scanner baseline left out: 255 files, +37,444 −1,105 lines. Server 55 files (+8,193 −501), web client 27 (+2,381 −197), agents and installers 7 (+2,424 −122), tests 145 (+23,692 −249), packaging, Docker and tools 21 (+754 −36).
 - **Not changed.** No dependency was added or removed in the server (Swagger UI moved from 5.34.0 to 5.34.1, a bug-fix release with
   no advisory). The agent version is 7.4.9 in all three agents.
 
@@ -381,23 +405,26 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 
 ## The release gate
 
-The suites ran on the commits of this release. Where a line names a commit, the run is of that commit. After `c636d4b7` the tree changed in
-documents and in one test (the redirect test of the S3 copy, which raced under load and is fixed). Rows that name an older commit were
-not repeated, and the matrix ran on `a3e1ff9a`: the one commit after it (`c636d4b7`) only adds refusals (a host in audit mode runs no
-checks, the S3 test asks for the platform operator in its handler, readers who are not administrators get no access key id).
+The suites ran on the commits of this release. Where a line names a commit, the run is of that commit. The first full gates of the third
+batch ran on `8a2a08ad`. Besides the AUR check they were red on five things, none a way in: a test fixture that stamped a result at 1970, a
+header read without `str()`, two lists in the test suite that could not read a module name with a digit in it, a table in the restore dialog
+without a scroll container, and a test whose marker matched a timestamp in one hour of twelve. They were fixed in `c4360a4e` and the suites
+ran again on it. One browser test of the drawer then failed in the JSON run: it looked for two rows after a fixed 1.5 seconds, passed alone
+and in eight copies at once, and failed every time when the wait was cut to 30 ms. It waits for the rows now (`5019ac88`). After that the
+tree changed in documents only. The matrix ran on `8a2a08ad`; the commits after it add no route and change no handler.
 
 | Check | Result |
 |---|---|
-| Test suite, JSON storage (`c636d4b7`) | 19,159 tests, 57 skipped. Red: the two subtests of the AUR check |
-| Test suite, SQLite (`c636d4b7`) | 18,784 tests, 148 skipped. Red: the two AUR subtests, and the redirect test of the S3 copy, which failed when three suites ran at once (the server answered a 307 before the client had sent its upload and the client saw a broken pipe). The test reads the upload before it answers now, and passed eight runs at once |
-| PostgreSQL tests (`c636d4b7`) | 28 tests, none skipped. The server was PostgreSQL 18.6 and CI runs 16 |
-| `make ci-parity` (`c636d4b7`): Python 3.14, the workflow's dependency list resolved fresh, the workflow's runner | 18,858 tests, 371 skipped. Red: the two AUR subtests and the same redirect test |
-| Authorization matrix (`a3e1ff9a`) | 1,088 operations, 85,302 requests, 60 runs; no answer to a tenant user held another tenant's id, name or object |
+| Test suite, JSON storage (`c4360a4e`) | 19,426 tests, 57 skipped. Red: the two subtests of the AUR check, and the drawer test above (fixed in `5019ac88`; the whole accessibility module, 10 tests, passed on it) |
+| Test suite, SQLite (`c4360a4e`) | 19,000 tests, 148 skipped. Red: the two AUR subtests |
+| PostgreSQL tests (`5019ac88`) | 28 tests, none skipped. The server was PostgreSQL 18.6 and CI runs 16 |
+| `make ci-parity` (`c4360a4e`): Python 3.14, the workflow's dependency list resolved fresh, the workflow's runner | 19,074 tests, 371 skipped. Red: the two AUR subtests |
+| Authorization matrix (`8a2a08ad`) | 1,090 operations, 85,422 requests, 60 runs; no answer to a tenant user held another tenant's id, name or object |
 | `make dist` (`5ffc3dc6`): the tarball, its leak check and the suite on the staged tree | 18,305 tests, 88 skipped. Red: the two AUR subtests only. The tarball was built and passed its leak check. Not repeated after the later features |
-| CodeQL 2.27.3, Python and JavaScript, the repository's own configuration (`c636d4b7`) | no result |
-| bandit against its baseline, `make lint` (`c636d4b7`), gitleaks over the commits since the first batch (`a273939b`..`c636d4b7`) | no issue, clean, no leak |
-| semgrep (python, javascript and security-audit rule sets) over the 18 files changed since the first batch (`c636d4b7`) | 5 findings, all in code older than this release (the permissions of files the agent creates, its restart call, one HTML format string); none new. A control file produced its 4 |
-| `tools/release-prep.py verify` (`5ffc3dc6`) | 0 failures. Not repeated after the later features |
+| CodeQL 2.27.3, Python and JavaScript, the repository's own configuration (`c4360a4e`) | no result. The raw results (690 in Python, 1 in JavaScript) are all in code from before this release, under the six rules the configuration excludes |
+| bandit against its baseline, `make lint` (`5019ac88`), gitleaks over the 22 commits since the first batch (`a273939b`..`5019ac88`) | no new finding at Medium and above; the full baseline was regenerated after five results were triaged (an environment variable's name, an empty list token, two best-effort `except` blocks and an error message that says "delete from"; 979 results, none High); lint clean; no leak, and the planted key of the control was found |
+| semgrep (python, javascript and security-audit rule sets) over the 41 code files changed since the first batch, and again over the four largest with 240 seconds a rule | 23 findings, 21 of them in code from before 7.4.8. One of the two added since is the mode of the macOS agent's new binary (0755 on purpose, it is a public file, see S28); the other was an MD5 in the demo seeder, which says now that it is not for security. Two taint rules still time out on `api.py`; no subprocess call was added to it since the first batch. A control file produced its 5 |
+| `tools/release-prep.py verify` (`5019ac88`) | 0 failures |
 
 The two AUR subtests check that the Arch packages are on the last shipped release. They are on 7.4.0 and the last shipped release is
 7.4.8, so they stay red until the packages are bumped. They were red in the gates of the earlier 7.4 releases too.
@@ -409,8 +436,10 @@ The two AUR subtests check that the Arch packages are on the last shipped releas
   address's policy differently, which matters for S14).
 - Real Windows and macOS hosts, real package managers, and a real container runtime for the agent's container update. The
   PowerShell installers were read, not run.
-- The second batch against real services: the S3 copy ran against a store written for the tests that checks every signature, not against
-  AWS, MinIO or Backblaze; the checks a host runs for the server ran against local servers and a stubbed `ping`, not on a real host; the
-  CPU time shares were read from a real `/proc/stat` on the development machine and not from a Windows or macOS host.
+- The second and third batches against real services: the S3 copy, the restore from the bucket and the upload in parts ran against a store
+  written for the tests that checks every signature and speaks the multipart protocol, not against AWS, MinIO or Backblaze (no independent
+  implementation is installed here, and none was downloaded); the checks a host runs for the server ran against local servers and a stubbed
+  `ping`, not on a real host; the CPU time shares were read from a real `/proc/stat` on the development machine, and the Windows and macOS
+  collectors ran against objects shaped like the ones psutil returns, not on a Windows or macOS host.
 - A latency benchmark of the product. One measurement was taken of the shape check, on a busy machine: it takes 10 ms for a
   1,000-host `devices.json` of 5.0 MB (parsing that file takes 34 ms) and 2 ms for 5,000 alerts. Nothing else is quoted.
