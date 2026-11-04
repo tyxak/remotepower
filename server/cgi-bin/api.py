@@ -47756,7 +47756,8 @@ def _compliance_facts(devices=None):
     # alone. A host with 30 security updates waiting, a newer kernel installed and not running, and no automatic updates passed
     # PCI 6.3.3, SOC 2 CC6.7, E8-2 and CC7.4. These add what the product already collects for exactly that question.
     security_bad, security_waiting, security_data_devices = [], 0, 0
-    _hw_kernel = _load_ro(HARDWARE_FILE) if backend_exists(HARDWARE_FILE) else {}
+    _hw_all = _load_ro(HARDWARE_FILE) if backend_exists(HARDWARE_FILE) else {}
+    accounts_blank, accounts_uid0, accounts_data_devices = [], [], 0
     # v6.3.1: CAPABLE-SOURCE coverage counts (the "silence isn't clearance"
     # rule). A control that infers PASS from an empty offenders list is
     # false-green when the underlying telemetry was never collected — so we
@@ -47814,11 +47815,19 @@ def _compliance_facts(devices=None):
                     security_bad.append(f'{nm} ({plural(_sec, "security update", "security updates")})')
         if si.get('reboot_required'):
             reboot.append(nm)
-        elif isinstance((_hw_kernel.get(did) or {}).get('kernel'), dict) and _hw_kernel[did]['kernel'].get('reboot_for_kernel'):
+        elif isinstance((_hw_all.get(did) or {}).get('kernel'), dict) and _hw_all[did]['kernel'].get('reboot_for_kernel'):
             # the only reboot signal on hosts without /run/reboot-required (Arch and others): a newer kernel is installed
             reboot.append(f'{nm} (a newer kernel is installed and not running)')
         if dev.get('os'):
             os_known_devices += 1
+        # 7.5.0: the standing account inventory's two worst lines. Host names only; the account names stay in the Checks row.
+        if isinstance((_hw_all.get(did) or {}).get('accounts'), list):
+            accounts_data_devices += 1
+            _ab, _au = posture_signals.risky_accounts(_hw_all.get(did))
+            if _ab:
+                accounts_blank.append(f'{nm} ({plural(len(_ab), "account", "accounts")})')
+            if _au:
+                accounts_uid0.append(f'{nm} ({plural(len(_au), "account", "accounts")})')
         # v7.3.0: all three agents. This read `sysinfo.firewall`, which only the
         # Linux agent writes, so a Windows or macOS host with its firewall off
         # passed the control and a Windows-heavy fleet scored it on its Linux
@@ -47914,6 +47923,9 @@ def _compliance_facts(devices=None):
     except Exception:
         sla_bad = []
     facts['patch_sla_breach'] = sla_bad
+    facts['accounts_blank'] = accounts_blank
+    facts['accounts_uid0'] = accounts_uid0
+    facts['accounts_data_devices'] = accounts_data_devices
     facts['reboot_required'] = reboot
     facts['patch_data_devices'] = patch_data_devices
     facts['sysinfo_devices'] = sysinfo_devices
@@ -53635,6 +53647,8 @@ _RISK_WEIGHTS = {
     'mac_protection_off': 6,   # per macOS protection off (Gatekeeper, SIP)
     'win_protection_off': 5,   # per Windows protection off (stale Defender signatures, tamper protection, UAC)
     'container_crashloop': 4,  # per container with an open restart-loop alert
+    # A login account with no password, or a second UID 0, is a way in that needs no exploit. Counted per account.
+    'risky_accounts': 12,
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
@@ -53648,7 +53662,7 @@ _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'brute_force': 12, 'known_attacker': 24,
               # v7.5.0
               'security_updates': 18, 'mac_protection_off': 12,
-              'win_protection_off': 15, 'container_crashloop': 12}
+              'win_protection_off': 15, 'container_crashloop': 12, 'risky_accounts': 24}
 # states (substring match) that mean a storage pool / RAID array is unhealthy
 _RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
                      'suspended', 'error', 'fail')
@@ -54029,6 +54043,17 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         _add('container_crashloop',
              min(_RISK_CAPS['container_crashloop'], len(_loop) * w['container_crashloop']),
              f'{plural(len(_loop), "container", "containers")} in a restart loop ({", ".join(_loop[:3])})')
+
+    # 7.5.0: accounts that need no exploit to get into: no password, or UID 0 besides root. Account names are in the detail,
+    # as they are on the Checks page for the same host.
+    _ab, _au = posture_signals.risky_accounts(hw_rec)
+    if _ab or _au:
+        _what = []
+        if _ab:
+            _what.append(f'{plural(len(_ab), "account", "accounts")} with no password ({", ".join(_ab[:3])})')
+        if _au:
+            _what.append(f'{plural(len(_au), "extra UID 0 account", "extra UID 0 accounts")} ({", ".join(_au[:3])})')
+        _add('risky_accounts', min(_RISK_CAPS['risky_accounts'], (len(_ab) + len(_au)) * w['risky_accounts']), '; '.join(_what))
 
     # Backup freshness. Keyed `<device>:<path>`, so filter to this host.
     if backup_stale:

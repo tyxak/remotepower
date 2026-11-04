@@ -382,12 +382,26 @@ def _admin_privilege_control(facts):
     privilege inventory, so it reports recent CHANGES as evidence and is
     otherwise NA — it cannot attest the standing state."""
     changes = facts.get('privileged_group_changes') or []
-    if changes:
-        return FAIL, (f"{plural(len(changes), 'host', 'hosts')} with privileged-group changes in "
-                      f"the window: " + ", ".join(str(h) for h in changes[:10]))
-    if not facts.get('privileged_group_monitored'):
+    # 7.5.0: the standing inventory's two worst lines, from the account list the agent keeps (host names only).
+    blank = facts.get('accounts_blank') or []
+    uid0 = facts.get('accounts_uid0') or []
+    if changes or blank or uid0:
+        parts = []
+        if changes:
+            parts.append(f"{plural(len(changes), 'host', 'hosts')} with privileged-group changes in "
+                         f"the window: " + ", ".join(str(h) for h in changes[:10]))
+        if blank:
+            parts.append(f"{plural(len(blank), 'host', 'hosts')} with a login account that has no password: " + ", ".join(blank[:10]))
+        if uid0:
+            parts.append(f"{plural(len(uid0), 'host', 'hosts')} with a UID 0 account besides root: " + ", ".join(uid0[:10]))
+        return FAIL, ". ".join(parts)
+    if not facts.get('privileged_group_monitored') and not facts.get('accounts_data_devices'):
         return NOT_ASSESSED, ("Privileged-group change detection has no baseline yet — "
                     "standing administrative privilege is not assessed.")
+    if facts.get('accounts_data_devices'):
+        return PASS, (f"No privileged-group changes in the window, and none of the "
+                      f"{plural(int(facts['accounts_data_devices']), 'host', 'hosts')} that reported their accounts has a login account "
+                      "with no password or a UID 0 account besides root. This is not a review of who holds sudo.")
     return PASS, ("No privileged-group (sudo/wheel/Administrators) changes "
                   "detected in the window. Note: this attests change-detection, "
                   "not the standing privilege inventory.")

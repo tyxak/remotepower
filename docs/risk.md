@@ -58,6 +58,8 @@ custom checks, and whether the host is being attacked right now.
 - **A container in a restart loop scores.** The containers counted are the ones
   under an open *container restarting* alert, so the score, the alert and the
   Containers page agree on what a loop is. It clears with the alert *(7.5.0)*.
+- **A login account with no password, or a second UID 0, scores per account** (capped), with the account names in the detail, the
+  same ones the Checks page lists for the host. It needs the agent to run as root, because the answer is in `/etc/shadow` *(7.5.0)*.
 - **ECC memory errors and NIC errors are not in this score.** The
   [reliability score](disk-health.md#host-reliability-prediction) weighs them as failing hardware, and a
   fault counted in both scores makes both wrong.

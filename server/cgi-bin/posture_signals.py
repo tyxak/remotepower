@@ -122,6 +122,29 @@ def failed_backup_checks_by_device(backup_state, monitors=None):
     return out
 
 
+def risky_accounts(hw_rec):
+    """([users with no password], [users with UID 0 besides root]) from a host's stored account list; both empty when the host
+    reported no list.
+
+    7.5.0. The Linux agent tags these (`empty_password`, `uid0`) on every account it reads and the server keeps the list; they
+    raise events (empty_password_account, rogue_uid0) and a Checks row, and counted for nothing in the risk score and nowhere in
+    the compliance report, which said it held no inventory of standing privilege. This is that inventory's two worst lines.
+    Note `empty_password` needs the agent to run as root (it reads /etc/shadow), so a host whose agent does not is silent here."""
+    acc = hw_rec.get("accounts") if isinstance(hw_rec, dict) else None
+    blank, uid0 = [], []
+    if isinstance(acc, list):
+        for a in acc[:500]:
+            flags = a.get("flags") if isinstance(a, dict) else None
+            if not isinstance(flags, list):
+                continue
+            user = str(a.get("user") or "?")[:64]
+            if "empty_password" in flags:
+                blank.append(user)
+            if "uid0" in flags:
+                uid0.append(user)
+    return blank, uid0
+
+
 def live_secret_findings(secrets_rec):
     """Unmuted secret-scanner findings for one device. A muted fingerprint is
     the operator saying "that is a placeholder" — it must not count anywhere."""

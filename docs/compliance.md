@@ -151,6 +151,11 @@ an alert path for several releases and reached the checklist nowhere:
 | The regulated-data inventory | Data minimisation — PCI 3.2.1, SOC 2 C1.1, SMB1001 S-data |
 | DMARC / SPF / DKIM posture | Anti-phishing — PCI 5.4.1, SMB1001 S-email |
 
+**v7.5.0 reads the account inventory.** The administrative-privilege control (PCI DSS 7, SOC 2, Essential Eight E8-5, SMB1001 S-access)
+used to attest only that no privileged-group change was seen. It now also fails for a host with a login account that has no
+password, or a UID 0 account besides root, and names the host (the account names stay on the Checks page). It needs the agent to
+run as root, since the answer is in `/etc/shadow`; a host whose agent does not is not counted.
+
 **v7.5.0 reads what is behind on patching, not only how much.** The patch control (PCI DSS 6.3.3, SOC 2 CC6.7, Essential Eight
 E8-2, SMB1001 S-patch) used to compare the total number of pending updates with one threshold, so a host with 30 security updates
 waiting passed. It now also fails for a host that **does not patch itself** and has **ten or more security updates** waiting (the
