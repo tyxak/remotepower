@@ -159,6 +159,20 @@ def _advisory_stale_backups(ids, devs):
     return {d: v for d, v in all_stale.items() if d in ids}
 
 
+def _advisory_backup_checks(ids):
+    """{device_id: ['label — integrity check failed (restic)', …]}, scoped to `ids`: the backups that are fresh and cannot be
+    verified or restored. Same store, same labels and the same bad-status sets as the alerts (posture_signals)."""
+    bs_file = A.DATA_DIR / 'backup_state.json'
+    if not A.backend_exists(bs_file):
+        return {}
+    try:
+        state = A._load_ro(bs_file) or {}
+    except Exception:
+        return {}
+    all_bad = posture_signals.failed_backup_checks_by_device(state, A._config_ro().get('backup_monitors') or [])
+    return {d: v for d, v in all_bad.items() if d in ids}
+
+
 def _advisory_tls_expiring():
     """[{label, days_left}] for monitored TLS targets at or past their warning
     window — fleet-level, since the TLS monitor probes targets, not devices."""
@@ -323,6 +337,7 @@ def _build_advisory(devs):
         bf_by_dev=A._advisory_brute_force(ids),
         secrets_by_dev=secrets,
         backups_by_dev=A._advisory_stale_backups(ids, devs),
+        backup_checks_by_dev=_advisory_backup_checks(ids),
         tls_expiring=A._advisory_tls_expiring(),
         scap_by_dev={d: v for d, v in (A._load_ro(A.SCAP_FILE) or {}).items()
                      if d in ids and isinstance(v, dict)},

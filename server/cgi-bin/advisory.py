@@ -609,7 +609,7 @@ def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None,
     return out
 
 
-def _data_findings(dev_id, name, dev, secrets, stale_backups, disk_encryption_checks=False):
+def _data_findings(dev_id, name, dev, secrets, stale_backups, disk_encryption_checks=False, backup_checks=None):
     """What is on the disk that should not be, and what is not backed up.
 
     The `data` layer was declared in LAYERS from the start but had no builder
@@ -652,6 +652,20 @@ def _data_findings(dev_id, name, dev, secrets, stale_backups, disk_encryption_ch
             'still an assumption.',
             device_id=dev_id, device=name, evidence=ev,
             source='backup monitor', doc='docs/backups.md'))
+
+    # 7.5.0: a backup that is fresh and fails its integrity check or its restore drill. Its own finding: the title above says
+    # "stale or missing", and a backup that fails a check is neither.
+    if backup_checks:
+        ev = [str(b)[:120] for b in backup_checks[:6]]
+        out.append(_finding(
+            'data.backup_check', 'data', 'high',
+            f'{plural(len(backup_checks), "backup check", "backup checks")} failing',
+            'A backup that is new and cannot be read back or restored is the one the freshness check calls fine: the file exists, '
+            'and the repository is corrupt or the restored file does not match. You find out during the incident.',
+            'Open the host\'s backups and read the output of the failed check. Fix the repository or the job, then run the check '
+            'again; the alert clears when it passes.',
+            device_id=dev_id, device=name, evidence=ev,
+            source='backup check', doc='docs/backups.md'))
 
     # Disk encryption — the one control that makes a stolen or RMA'd disk a
     # non-event. Reported per platform: FileVault and BitLocker below, and dm-crypt / LUKS on Linux.
@@ -749,7 +763,7 @@ def _application_findings(dev_id, name, scans):
 # ── the roll-up ──────────────────────────────────────────────────────────────
 def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           failed_checks_by_dev=None, exposure_mutes=None, muted_fn=None,
-          bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None,
+          bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None, backup_checks_by_dev=None,
           tls_expiring=None, scap_by_dev=None, agent_tamper_by_dev=None,
           weak_keys_by_dev=None, accounts_by_dev=None, secure_boot_checks=False,
           drift_by_dev=None, now=None, disk_encryption_checks=False):
@@ -770,6 +784,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
     bf_by_dev = bf_by_dev or {}
     secrets_by_dev = secrets_by_dev or {}
     backups_by_dev = backups_by_dev or {}
+    backup_checks_by_dev = backup_checks_by_dev or {}
     scap_by_dev = scap_by_dev or {}
     agent_tamper_by_dev = agent_tamper_by_dev or {}
     weak_keys_by_dev = weak_keys_by_dev or {}
@@ -795,7 +810,8 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
                                         agent_tamper_by_dev.get(dev_id),
                                         drift_by_dev.get(dev_id))
         findings += _data_findings(dev_id, name, dev, secrets_by_dev.get(dev_id),
-                                   backups_by_dev.get(dev_id), disk_encryption_checks=disk_encryption_checks)
+                                   backups_by_dev.get(dev_id), disk_encryption_checks=disk_encryption_checks,
+                                   backup_checks=backup_checks_by_dev.get(dev_id))
         findings += _application_findings(dev_id, name, scans_by_dev.get(dev_id))
     # Fleet-level: the TLS monitor probes targets, not devices.
     findings += _tls_findings(tls_expiring)

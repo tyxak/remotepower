@@ -64,9 +64,11 @@ def stale_backups_by_device(backup_state, monitors=None):
     without splitting gives every host every other host's failures. Labels and
     thresholds come from the configured monitors where one matches.
     """
+    if not isinstance(backup_state, dict):
+        return {}
     mons = {m["path"]: m for m in (monitors or []) if isinstance(m, dict) and m.get("path")}
     out = {}
-    for key, entry in (backup_state or {}).items():
+    for key, entry in backup_state.items():
         if ":" not in str(key) or not isinstance(entry, dict):
             continue
         if entry.get("ok", True):
@@ -83,6 +85,40 @@ def stale_backups_by_device(backup_state, monitors=None):
         except (TypeError, ValueError):
             max_h = "24h"
         out.setdefault(did, []).append(f'{mon.get("label") or path} — {age_s} (threshold {max_h})')
+    return out
+
+
+# The statuses that mean a backup check is failing NOW. handle_heartbeat fires backup_verify_failed and restore_drill_failed on
+# these same sets, so the alert, the advisory, the risk score and the compliance report cannot disagree about "failing".
+# `tool_missing` is a drill state the heartbeat remembers so that a drill which works again clears its alert; it is not a
+# failure of the backup (a host without the tool has not been tested).
+VERIFY_BAD = ("failed", "timeout", "error", "unreachable")
+DRILL_BAD = ("failed", "timeout", "error")
+
+
+def failed_backup_checks_by_device(backup_state, monitors=None):
+    """{device_id: ['label — integrity check failed (restic)', 'label — restore drill failed'], …}.
+
+    7.5.0. A backup can be fresh and not restorable: the file is young and the repository is corrupt, or the drill that
+    restores a file from it fails. Both are stored (`verify_status`, `drill_status`) and both page the operator
+    (backup_verify_failed, restore_drill_failed), and the compliance report, the advisory and the risk score read freshness
+    only, so a host whose backup could not be restored still passed A1.2, E8-8 and HIPAA 164.308(a)(7)(ii)(A).
+    Keyed like stale_backups_by_device: `<device_id>:<path>`, split on the first colon.
+    """
+    if not isinstance(backup_state, dict):
+        return {}
+    mons = {m["path"]: m for m in (monitors or []) if isinstance(m, dict) and m.get("path")}
+    out = {}
+    for key, entry in backup_state.items():
+        if ":" not in str(key) or not isinstance(entry, dict):
+            continue
+        did, path = str(key).split(":", 1)
+        label = (mons.get(path) or {}).get("label") or path
+        if entry.get("verify_status") in VERIFY_BAD:
+            tool = str(entry.get("verify_tool") or "").strip()[:24]
+            out.setdefault(did, []).append(f"{label} — integrity check {entry['verify_status']}" + (f" ({tool})" if tool else ""))
+        if entry.get("drill_status") in DRILL_BAD:
+            out.setdefault(did, []).append(f"{label} — restore drill {entry['drill_status']}")
     return out
 
 

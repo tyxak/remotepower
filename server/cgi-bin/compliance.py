@@ -101,12 +101,24 @@ def _tls_control(facts):
 
 
 def _backup_control(facts):
+    """Backups exist, are fresh, and can be restored from (SOC 2 A1.2, E8-8, HIPAA 164.308(a)(7)(ii)(A)).
+
+    7.5.0: freshness AND the two checks the agent runs on a backup (the integrity check and the restore drill). A backup that is a
+    day old and cannot be restored is the failure this control exists for, and it used to pass. A check that was never run is not
+    a failure here: Not assessed is for a fleet with no monitors, and a monitor with no check configured is judged on freshness."""
     bad = facts.get('failed_backups') or []
-    if bad:
-        return FAIL, f"{plural(len(bad), 'stale/missing backup', 'stale/missing backups')}: " + ", ".join(bad[:10])
+    chk = facts.get('failed_backup_checks') or []
+    if bad or chk:
+        parts = []
+        if bad:
+            parts.append(f"{plural(len(bad), 'stale/missing backup', 'stale/missing backups')}: " + ", ".join(bad[:10]))
+        if chk:
+            parts.append(f"{plural(len(chk), 'backup check that is failing', 'backup checks that are failing')}: " + "; ".join(chk[:10]))
+        return FAIL, ". ".join(parts)
     if facts.get('backup_monitors', 0) == 0:
         return NOT_ASSESSED, "No backup monitors are configured."
-    return PASS, "All configured backups are within their freshness window."
+    return PASS, ("All configured backups are within their freshness window, and none fails its integrity check or its restore "
+                  "drill.")
 
 
 def _mfa_control(facts):

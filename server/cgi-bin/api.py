@@ -24256,8 +24256,8 @@ def handle_heartbeat():
                 _voutput = str(entry.get('verify_output', ''))[:200]
                 _state_key = f'{dev_id}:{_path}'
                 _prev = _bv_state.get(_state_key) or {}
-                _was_bad = _prev.get('verify_status') in ('failed', 'timeout', 'error', 'unreachable')
-                _is_bad  = _vstatus in ('failed', 'timeout', 'error', 'unreachable')
+                _was_bad = _prev.get('verify_status') in posture_signals.VERIFY_BAD
+                _is_bad  = _vstatus in posture_signals.VERIFY_BAD
                 _label = _bv_label_by_path.get(_path) or _path
                 if _is_bad and not _was_bad:
                     try:
@@ -24304,8 +24304,8 @@ def handle_heartbeat():
                 _doutput = str(entry.get('drill_output', ''))[:200]
                 _state_key = f'{dev_id}:{_path}'
                 _prev = _rd_state.get(_state_key) or {}
-                _was_bad = _prev.get('drill_status') in ('failed', 'timeout', 'error', 'tool_missing')
-                _is_bad = _dstatus in ('failed', 'timeout', 'error')
+                _was_bad = _prev.get('drill_status') in (*posture_signals.DRILL_BAD, 'tool_missing')
+                _is_bad = _dstatus in posture_signals.DRILL_BAD
                 _label = _rd_label.get(_path) or _path
                 if _is_bad and not _was_bad:
                     fire_webhook('restore_drill_failed', {
@@ -47953,6 +47953,12 @@ def _compliance_facts(devices=None):
         mine = {k: v for k, v in bak.items()
                 if isinstance(v, dict) and str(k).split(':', 1)[0] in _visible_ids}
         facts['failed_backups'] = [k for k, v in mine.items() if not v.get('ok', True)]
+        # 7.5.0: a backup that is fresh and fails its integrity check or its restore drill. Host name first, like the other
+        # offender lists (the stale list above keeps its `<id>:<path>` keys, which tests of the tenant scoping pin).
+        facts['failed_backup_checks'] = [
+            f"{(devices.get(did) or {}).get('name', did)}: {line}"
+            for did, lines in posture_signals.failed_backup_checks_by_device(
+                mine, cfg.get('backup_monitors') or []).items() for line in lines]
         if _caller_in_operator_org():
             facts['backup_monitors'] = len((cfg.get('backup_monitors') or []))
         else:
@@ -47960,6 +47966,7 @@ def _compliance_facts(devices=None):
             facts['backup_monitors'] = len({str(k).split(':', 1)[1] for k in mine if ':' in str(k)})
     except Exception:
         facts['failed_backups'] = []
+        facts['failed_backup_checks'] = []
         facts['backup_monitors'] = 0
 
     # ── v7.0.3: four collected sources no control read ───────────────────────
@@ -53994,7 +54001,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     # Backup freshness. Keyed `<device>:<path>`, so filter to this host.
     if backup_stale:
         _add('backup_stale', w['backup_stale'],
-             f'{plural(len(backup_stale), "backup", "backups")} stale or missing')
+             f'{plural(len(backup_stale), "backup problem", "backup problems")} (stale, missing or failing a check)')
 
     # Credentials sitting in files. Muted findings are operator-accepted.
     _sf = posture_signals.live_secret_findings(secrets_rec)
@@ -54654,9 +54661,13 @@ def _compute_fleet_risk():
     # Backup state is keyed `<device>:<path>`; fold it into per-device counts
     # once rather than re-scanning the store for every host.
     _bs_file = DATA_DIR / 'backup_state.json'
-    stale_backups = posture_signals.stale_backups_by_device(
-        (load(_bs_file) or {}) if backend_exists(_bs_file) else {},
-        _config_ro().get('backup_monitors') or [])
+    _bs_state = (load(_bs_file) or {}) if backend_exists(_bs_file) else {}
+    _bs_mons = _config_ro().get('backup_monitors') or []
+    stale_backups = posture_signals.stale_backups_by_device(_bs_state, _bs_mons)
+    # 7.5.0: and the backups that are fresh and fail their integrity check or restore drill, which page the operator and
+    # scored nothing. One factor, one weight per host, as before: this only stops a host with such a backup scoring zero.
+    for _bd, _bl in posture_signals.failed_backup_checks_by_device(_bs_state, _bs_mons).items():
+        stale_backups.setdefault(_bd, []).extend(_bl)
     # Patch-SLA breaches come from the same evaluator the Patch SLA page uses,
     # over a COPY of the aging store so scoring never writes it.
     sla_detail = {}

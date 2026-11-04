@@ -151,6 +151,11 @@ an alert path for several releases and reached the checklist nowhere:
 | The regulated-data inventory | Data minimisation — PCI 3.2.1, SOC 2 C1.1, SMB1001 S-data |
 | DMARC / SPF / DKIM posture | Anti-phishing — PCI 5.4.1, SMB1001 S-email |
 
+**v7.5.0 reads the backup checks, too.** The backup control (SOC 2 A1.2, E8-8, HIPAA 164.308(a)(7)(ii)(A)) used to look at
+freshness only, so a backup that was a day old and corrupt passed. It now also fails for a backup whose integrity check or restore
+drill is failing, the same statuses that raise the *backup verify failed* and *restore drill failed* alerts. A check that never ran is
+not a failure.
+
 **v7.5.0 adds clock synchronisation (PCI DSS 10.6.1).** The Linux agent has reported
 whether the clock is synchronised, and how far it is off, for several releases. The control
 reads the same verdict as the **Clock / NTP** check and the `clock_skew` alert, so the offset
