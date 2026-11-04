@@ -21305,6 +21305,7 @@ function _renderHomeActivity(fleetEvents) {
     'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found', 'campaign_completed',
     // v6.4.0: the last five auto-heal recover events
     'patch_ok', 'cve_cleared', 'tls_renewed', 'ecc_stable', 'secret_cleared',
+    'image_cve_critical', 'image_cve_cleared',     // v7.5.0: critical CVEs in the container images of a host
     // v6.4.3: Integrity Guard quarantined a file. Without this entry the event
     // fires, lands in the inbox, and is silently absent from the activity feed.
     'guard_quarantined',
@@ -21592,6 +21593,8 @@ function _homeActivityAttrs(event, p) {
     case 'rollout_halted': return `${base} data-home-act="rollouts"`;
     case 'cve_found':      return `${base} data-home-act="cve"`;
   case 'cve_cleared':    return `${base} data-home-act="cve"`;   // v6.4.0 recover
+    case 'image_cve_critical': case 'image_cve_cleared':
+      return `${base} data-home-act="cve"`;      // v7.5.0: the CVE page lists the container images
     case 'patch_alert':    return `${base} data-home-act="patches"`;
   case 'patch_ok':       return `${base} data-home-act="patches"`;   // v6.4.0 recover
     case 'patch_sla_violation': return `${base} data-home-act="patches"`;

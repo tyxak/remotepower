@@ -263,6 +263,18 @@ def _build_fleet_report(site_id=None):
         if affected:
             cve['devices_affected'] += 1
 
+    # 7.5.0: the CVEs in the images of running containers (opt-in trivy scan), a second source beside the host findings. Counts
+    # only. `devices` is already the caller's view and the site, so a host outside it is not added up.
+    cve['images'] = {'critical': 0, 'high': 0, 'hosts': 0}
+    for did, rec in ((A.load(A.IMAGE_CVE_FILE) or {}) if A.backend_exists(A.IMAGE_CVE_FILE) else {}).items():
+        if did not in devices or not isinstance(rec, dict):
+            continue
+        _ic, _ih = posture_signals.image_cve_counts(rec)
+        cve['images']['critical'] += _ic
+        cve['images']['high'] += _ih
+        if _ic or _ih:
+            cve['images']['hosts'] += 1
+
     health = A._fleet_health()
     if site_ids is not None:
         # Scope the health roster + recompute the headline score/grade/counts.
@@ -497,7 +509,7 @@ def _report_summary_context(report):
         'patches':    _pick('patches', 'devices_with_patches', 'total_pending',
                             'security_pending'),
         'cve':        _pick('cve', 'critical', 'high', 'medium', 'devices_affected',
-                            'kev_count'),
+                            'kev_count', 'images'),
         'sla':        _pick('sla', 'days', 'fleet_uptime_pct'),
         'compliance': _pick('compliance', 'score', 'passing', 'failing'),
         # v7.5.0: counts only. The lists beside them carry host names, which stay out.
@@ -642,6 +654,10 @@ def _fleet_report_csv_bytes(report):
         for sev in ('critical', 'high', 'medium', 'low'):
             row(['CVE', sev.capitalize(), c.get(sev, 0)])
         row(['CVE', 'Hosts affected', c.get('devices_affected', 0)])
+        im = c.get('images') or {}
+        if im:
+            row(['CVE', 'Container image critical', im.get('critical', 0)])
+            row(['CVE', 'Container image high', im.get('high', 0)])
     per = report.get('period') or {}
     if per:
         row(['Period', 'Window (days)', per.get('days', 30)])
@@ -1088,6 +1104,10 @@ def _render_report_email(report):
     if c:
         lines.append(f"CVEs               : {c.get('critical',0)} critical, {c.get('high',0)} high, "
                      f"{c.get('medium',0)} medium ({A.plural(c.get('devices_affected',0), 'host', 'hosts')} affected)")
+        im = c.get('images') or {}
+        if im.get('critical') or im.get('high'):
+            lines.append(f"Container images   : {im.get('critical',0)} critical, {im.get('high',0)} high "
+                         f"({A.plural(im.get('hosts',0), 'host', 'hosts')} running them)")
     per = report.get('period') or {}
     if per:
         def _dur(sec):

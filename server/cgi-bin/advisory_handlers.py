@@ -346,6 +346,9 @@ def _build_advisory(devs):
         av_tools=A._AV_TOOLS,
         # 7.5.0: the window for a host's certificate files; None when the operator switched certificate-file expiry off.
         cert_file_days=posture_signals.cert_file_days(A._config_ro()),
+        # 7.5.0: the container image scan (opt-in). A host that was never scanned has no row and no finding.
+        img_by_dev={d: v for d, v in ((A._load_ro(A.IMAGE_CVE_FILE) if A.backend_exists(A.IMAGE_CVE_FILE) else {}) or {}).items()
+                    if d in ids and isinstance(v, dict)},
         tls_expiring=A._advisory_tls_expiring(),
         scap_by_dev={d: v for d, v in (A._load_ro(A.SCAP_FILE) or {}).items()
                      if d in ids and isinstance(v, dict)},

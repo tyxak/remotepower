@@ -299,6 +299,8 @@ class TestSuppressibleEvents(unittest.TestCase):
             'container_resource_high', 'container_resource_ok',
             # 7.4.9: a container's health alert, and its close
             'container_unhealthy', 'container_healthy',
+            # 7.5.0: critical CVEs in a host's container images, and their close (a rebuild in a window changes the count)
+            'image_cve_critical', 'image_cve_cleared',
         }
         self.assertEqual(set(api_module.SUPPRESSIBLE_EVENTS), expected)
 

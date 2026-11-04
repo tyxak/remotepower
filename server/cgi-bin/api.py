@@ -2229,6 +2229,16 @@ EVENT_REGISTRY = {
         label='No CVEs left in the alert severity filter (recovered)',
         kind='cve', title='CVEs Cleared', resolves=('cve_found',),
         tags='white_check_mark,shield'),
+    # 7.5.0: critical CVEs in the images of the containers a host runs. The trivy scan (opt-in) fed the risk score, the AI index and
+    # the Image CVE page and raised nothing, while the host's own CVE scan raises cve_found for the same kind of fault one layer
+    # down. A condition per host: it fires when the count of critical findings goes up (first scan included) and clears when it
+    # reaches zero.
+    'image_cve_critical': dict(
+        label='Critical CVEs found in the container images of a host', kind='cve',
+        title='Critical Image CVEs', severity='high', priority=5, tags='rotating_light,package'),
+    'image_cve_cleared': dict(
+        label='No critical CVEs left in the container images of a host (recovered)', kind='cve',
+        title='Image CVEs Cleared', resolves=('image_cve_critical',), tags='white_check_mark,package'),
     'campaign_completed': dict(
         lifecycle='point',
         label='CVE remediation campaign reached zero affected hosts', kind='cve',
@@ -10575,6 +10585,9 @@ def _alert_title(event, payload):
     if event == 'cve_found':
         c = p.get('critical') or 0; h = p.get('high') or 0
         return f'CVEs on {name}: {c} critical, {h} high'
+    if event == 'image_cve_critical':
+        c = p.get('critical') or 0; h = p.get('high') or 0
+        return f'Container image CVEs on {name}: {c} critical, {h} high'
     if event == 'scan_finding':
         c = p.get('critical') or 0; h = p.get('high') or 0
         return f'Scan findings on {name}: {c} critical, {h} high'
@@ -24523,7 +24536,7 @@ def handle_heartbeat():
     # W6-34: container-image CVE summaries (opt-in trivy scan).
     if 'image_cves' in body and isinstance(body['image_cves'], list):
         try:
-            _ingest_image_cves(dev_id, body['image_cves'])
+            _ingest_image_cves(dev_id, body['image_cves'], saved_dev.get('name'))
         except Exception as e:
             sys.stderr.write(f"[remotepower] image cve ingest failed dev={dev_id}: {e}\n")
 
@@ -40155,11 +40168,24 @@ def _sanitize_image_cves(raw):
     return out
 
 
-def _ingest_image_cves(dev_id, raw):
-    """W6-34: store the device's latest per-image CVE summaries (O(1) row write)."""
+def _ingest_image_cves(dev_id, raw, name=None):
+    """W6-34: store the device's latest per-image CVE summaries (O(1) row write).
+
+    7.5.0: and tell the operator. The count of critical findings is compared with the one the previous scan left in the store, so no
+    new field is kept: a rise fires `image_cve_critical` (the first scan of a host included), and falling to zero fires
+    `image_cve_cleared`. A scan that finds fewer but not none leaves the open alert as it is."""
     clean = _sanitize_image_cves(raw)
     with _LockedUpdate(IMAGE_CVE_FILE) as store:
+        before = posture_signals.image_cve_counts(store.get(dev_id))[0]
         store[dev_id] = {'ts': int(time.time()), 'images': clean}
+    crit, high = posture_signals.image_cve_counts({'images': clean})
+    if crit > before:
+        fire_webhook('image_cve_critical', {
+            'device_id': dev_id, 'name': name or (device_get(dev_id) or {}).get('name') or dev_id,
+            'critical': crit, 'high': high, 'count': sum(1 for i in clean if i['critical'])})
+    elif before and not crit:
+        fire_webhook('image_cve_cleared', {
+            'device_id': dev_id, 'name': name or (device_get(dev_id) or {}).get('name') or dev_id})
 
 
 def handle_image_cves():
@@ -47970,6 +47996,24 @@ def _compliance_facts(devices=None):
     except Exception:
         facts['cve_critical_high'] = 0
         facts['cve_scanned_devices'] = 0
+
+    # 7.5.0: the CVEs in the images of the containers hosts run (opt-in trivy scan). The control counted host findings only, so a
+    # fleet running images with critical CVEs passed 6.3.1, and a fleet that scanned only its images read Not assessed. A host that
+    # was never scanned has no row and counts as neither clean nor dirty. The view limits the hosts, as for every fact here.
+    try:
+        _img_all = (load(IMAGE_CVE_FILE) or {}) if backend_exists(IMAGE_CVE_FILE) else {}
+        _img_bad = _img_hosts = 0
+        for did, rec in _img_all.items():
+            if did not in devices or not isinstance(rec, dict):
+                continue
+            _img_hosts += 1
+            _c, _h = posture_signals.image_cve_counts(rec)
+            _img_bad += _c + _h
+        facts['image_cve_critical_high'] = _img_bad
+        facts['image_scanned_devices'] = _img_hosts
+    except Exception:
+        facts['image_cve_critical_high'] = 0
+        facts['image_scanned_devices'] = 0
 
     # TLS expiry from the TLS monitor results (≤21 days remaining = expiring).
     try:
@@ -71085,6 +71129,7 @@ SUPPRESSIBLE_EVENTS = (
     'monitor_down',   'monitor_up',
     'service_down',   'service_up',
     'patch_alert',    'cve_found',
+    'image_cve_critical', 'image_cve_cleared',     # 7.5.0: rebuilding a stack in a window changes the count
     'log_alert',
     # v5.8.0 (B1.4)
     'metric_warning', 'metric_critical',

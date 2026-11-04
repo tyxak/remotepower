@@ -359,6 +359,34 @@ def _cert_file_findings(dev_id, name, hw_rec, now, days):
     return out
 
 
+def _image_cve_findings(dev_id, name, img_rec):
+    """CVEs in the images of the containers a host runs (the opt-in trivy scan).
+
+    7.5.0. The scan fed the risk score, the AI index and the Image CVE page, and the advisory listed nothing for it, so a host
+    running an image with a critical CVE read the same as one that does not. A host that was never scanned has no record and no
+    finding: absence is not clean here either, which is why the compliance control says Not assessed for it. Titles carry counts
+    only; the image names are in the evidence."""
+    crit, high = posture_signals.image_cve_counts(img_rec)
+    if not crit and not high:
+        return []
+    imgs = [i for i in (img_rec.get("images") or []) if isinstance(i, dict) and (i.get("critical") or i.get("high"))]
+    evidence = [f'{str(i.get("image") or "?")[:80]}: {int(i.get("critical") or 0)} critical, {int(i.get("high") or 0)} high'
+                for i in sorted(imgs, key=lambda i: (-int(i.get("critical") or 0), -int(i.get("high") or 0)))[:6]]
+    why = ('A critical CVE in an image that is running is a way in that needs no guessing: the fix is a newer image, not a '
+           'patch on the host, so the host\'s own update count does not show it.')
+    fix = ('Pull and redeploy the images with a fixed base (the Image CVE page lists the packages and the versions that fix them). '
+           'If an image is not yours to rebuild, ask its maintainer or replace it.')
+    if crit:
+        return [_finding(
+            'os.imagecve', 'os', 'high', f'{plural(crit, "critical CVE", "critical CVEs")} in container images', why, fix,
+            device_id=dev_id, device=name, evidence=evidence, source='container image scan', doc='docs/cve.md',
+            ai_title='Critical CVEs in container images')]
+    return [_finding(
+        'os.imagecve', 'os', 'medium', f'{plural(high, "high CVE", "high CVEs")} in container images', why, fix,
+        device_id=dev_id, device=name, evidence=evidence, source='container image scan', doc='docs/cve.md',
+        ai_title='High CVEs in container images')]
+
+
 def _identity_findings(dev_id, name, dev, bf_sources=None,
                        weak_ssh_keys=None, risky_accounts=None):
     """Who can get in, and how."""
@@ -880,7 +908,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           tls_expiring=None, scap_by_dev=None, agent_tamper_by_dev=None,
           weak_keys_by_dev=None, accounts_by_dev=None, secure_boot_checks=False,
           drift_by_dev=None, now=None, disk_encryption_checks=False, hw_by_dev=None, av_by_dev=None, av_tools=(),
-          cert_file_days=None):
+          cert_file_days=None, img_by_dev=None):
     """Assemble the advisory for a set of devices.
 
     Everything is passed in, so the caller controls scope (one host, a tag, the
@@ -901,6 +929,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
     backup_checks_by_dev = backup_checks_by_dev or {}
     hw_by_dev = hw_by_dev or {}
     av_by_dev = av_by_dev or {}
+    img_by_dev = img_by_dev or {}
     scap_by_dev = scap_by_dev or {}
     agent_tamper_by_dev = agent_tamper_by_dev or {}
     weak_keys_by_dev = weak_keys_by_dev or {}
@@ -930,6 +959,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
                                    backup_checks=backup_checks_by_dev.get(dev_id))
         findings += _hardware_findings(dev_id, name, dev, hw_by_dev.get(dev_id), av_by_dev.get(dev_id), av_tools)
         findings += _cert_file_findings(dev_id, name, hw_by_dev.get(dev_id), now, cert_file_days)
+        findings += _image_cve_findings(dev_id, name, img_by_dev.get(dev_id))
         findings += _application_findings(dev_id, name, scans_by_dev.get(dev_id))
     # Fleet-level: the TLS monitor probes targets, not devices.
     findings += _tls_findings(tls_expiring)

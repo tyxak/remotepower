@@ -96,12 +96,24 @@ def _patch_control(facts):
 
 
 def _cve_control(facts):
+    """Known vulnerabilities are identified and ranked. 7.5.0: the CVEs in the images of running containers count as well. Either
+    source assesses the control, and with neither it reads Not assessed."""
     n = facts.get('cve_critical_high', 0)
-    if n:
-        return FAIL, f"{plural(n, 'critical/high CVE finding', 'critical/high CVE findings')} outstanding across the fleet."
-    if _no_coverage(facts, 'cve_scanned_devices'):
+    img = facts.get('image_cve_critical_high', 0)
+    if n or img:
+        parts = []
+        if n:
+            parts.append(plural(n, 'critical/high CVE finding', 'critical/high CVE findings'))
+        if img:
+            parts.append(plural(img, 'critical/high CVE', 'critical/high CVEs') + " in container images")
+        return FAIL, " and ".join(parts) + " outstanding across the fleet."
+    host_scans = not _no_coverage(facts, 'cve_scanned_devices')
+    if not host_scans and _no_coverage(facts, 'image_scanned_devices'):
         return NOT_ASSESSED, ("No host has a CVE scan on record yet — vulnerability "
                     "posture is not assessed.")
+    if not host_scans:
+        return PASS, ("No outstanding critical or high CVEs in the container images that were scanned. No host has a CVE "
+                      "scan on record yet.")
     return PASS, "No outstanding critical or high CVEs."
 
 

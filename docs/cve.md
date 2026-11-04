@@ -225,6 +225,22 @@ image). **Refresh** on the card queues a scan on every host that reports contain
 (`POST /api/image-cves/scan`); it runs at the host's next heartbeat. Hosts without `trivy`
 and Windows or macOS agents are skipped. The numbers feed the [risk score](risk.md).
 
+Since 7.5.0 the scan is read in more places:
+
+- **Alert** — *Critical CVEs found in the container images of a host* (high), once for a host when its number of critical
+  findings goes up, the first scan included. It clears with *No critical CVEs left in the container images of a host* when the
+  number reaches zero. A scan that finds fewer but not none leaves the alert as it is. You can mute it per host, and a
+  maintenance window can hold it.
+- **Security Advisory** — a finding per host: high when an image has a critical CVE, medium when the worst is high. The image
+  names are in the evidence.
+- **Compliance** — the vulnerability control (PCI DSS 6.3.1, HIPAA risk analysis, SOC 2 CC6.8) counts critical and high CVEs in
+  images as well as the host findings, so a fleet that runs a vulnerable image no longer passes. A fleet that scanned only its
+  images is assessed for those, and says no host has a CVE scan. With neither source it reads **Not assessed**.
+- **Fleet report** — the CVE section carries the critical and high counts for container images and the number of hosts running
+  them.
+
+A host that was never scanned has no row and counts as neither clean nor vulnerable.
+
 ## Remediation campaigns
 
 A campaign groups CVEs into one effort with an owner and a target date, and tracks how many

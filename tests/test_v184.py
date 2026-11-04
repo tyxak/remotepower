@@ -258,6 +258,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             # v6.4.0: the last five auto-heal recover events (gap closure)
             'patch_ok', 'cve_cleared', 'tls_renewed', 'ecc_stable',
             'secret_cleared',
+            'image_cve_critical', 'image_cve_cleared',   # v7.5.0 container image CVEs
             'campaign_completed',                    # W2-35 CVE campaigns
             'service_down', 'service_up',
             'unit_flapping', 'unit_flapping_cleared',   # v6.1.2 systemd flap detection

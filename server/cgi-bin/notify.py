@@ -846,6 +846,11 @@ def _webhook_message(event, payload):
     elif event == "cve_found":
         sev_summary = f'{payload.get("critical", 0)} critical, {payload.get("high", 0)} high'
         return f'{name}: {payload.get("count", "?")} new CVEs ({sev_summary})'
+    elif event == "image_cve_critical":
+        return (f'{name}: {payload.get("critical", 0)} critical and {payload.get("high", 0)} high CVEs in the images of its '
+                f'containers ({payload.get("count", "?")} images with a critical one)')
+    elif event == "image_cve_cleared":
+        return f"{name}: no critical CVEs left in the images of its containers"
     elif event == "monitor_down":
         return f'Monitor "{payload.get("label", "?")}" ({payload.get("type", "?")}: {payload.get("target", "?")}) is DOWN — {payload.get("detail", "")}'
     elif event == "monitor_up":

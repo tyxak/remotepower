@@ -67,7 +67,9 @@
       + card('Hosts', (d.online || 0) + '/' + (d.total || 0), 'online')
       + card('Patches', p.total_pending || 0, (p.devices_with_patches || 0) + ' host(s)')
       + card('CVEs', (c.critical || 0) + (c.high || 0),
-             (c.critical || 0) + ' crit · ' + (c.high || 0) + ' high');
+             (c.critical || 0) + ' crit · ' + (c.high || 0) + ' high'
+             + ((c.images && (c.images.critical || c.images.high))
+                ? ' · ' + (c.images.critical || 0) + ' crit / ' + (c.images.high || 0) + ' high in images' : ''));
 
     let html = '';
 
