@@ -21429,6 +21429,10 @@ function _renderHomeActivity(fleetEvents) {
     'mac_firewall_off', 'mac_firewall_on',
     'mac_gatekeeper_off', 'mac_gatekeeper_on',
     'mac_sip_disabled', 'mac_sip_enabled',
+    // v7.5.0: macOS automatic security updates, and the Linux firewall and disk encryption
+    'mac_update_off', 'mac_update_on',
+    'linux_firewall_off', 'linux_firewall_on',
+    'linux_encryption_off', 'linux_encryption_on',
     // v6.4.2: opt-in Security-hardening advisories
     'ssh_hardening_weak', 'ssh_hardening_ok',
     'autoupdate_disabled', 'autoupdate_enabled',
@@ -21780,6 +21784,10 @@ function _homeActivityAttrs(event, p) {
     case 'mac_firewall_off': case 'mac_firewall_on':
     case 'mac_gatekeeper_off': case 'mac_gatekeeper_on':
     case 'mac_sip_disabled': case 'mac_sip_enabled':
+    // v7.5.0: macOS update setting, Linux firewall and disk encryption → the affected host's drawer
+    case 'mac_update_off': case 'mac_update_on':
+    case 'linux_firewall_off': case 'linux_firewall_on':
+    case 'linux_encryption_off': case 'linux_encryption_on':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v5.2.0: WG Access client connectivity → the WG Access admin page
     case 'vpn_client_connected': case 'vpn_client_disconnected': case 'vpn_handshake_stale':

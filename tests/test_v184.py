@@ -384,6 +384,9 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'mac_gatekeeper_off', 'mac_sip_disabled',
             'mac_filevault_on', 'mac_firewall_on',   # ← recoveries
             'mac_gatekeeper_on', 'mac_sip_enabled',
+            'mac_update_off', 'mac_update_on',           # v7.5.0 macOS updates
+            'linux_firewall_off', 'linux_firewall_on',   # v7.5.0 Linux posture
+            'linux_encryption_off', 'linux_encryption_on',
             'oom_detected',                          # v4.1.0 OOM-killer
             # v5.6.x: host-condition alerts now self-clear — each of these is the
             # recover event that auto-resolves its paired trigger alert.

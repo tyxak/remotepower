@@ -3158,6 +3158,34 @@ EVENT_REGISTRY = {
     'password_stale_cleared': dict(
         label='No stale account passwords remain (recovered)', kind='hardening',
         resolves=('password_stale',)),
+    # v7.5.0: the rest of the posture trio (firewall, disk encryption, automatic
+    # updates). Windows and macOS raised an alert for each protection they lost;
+    # a Linux host that lost its firewall, or a Mac that stopped installing
+    # security updates, paged nobody although the Checks page, the risk score and
+    # the Advisory all said so. Same shape as the events above: a CONDITION that
+    # fires on entering the bad state (first contact included) and clears when it
+    # is fixed. Medium, as the Linux hardening events are. The Linux firewall
+    # follows its Checks row, which is always on; Linux disk encryption follows
+    # its row, which is opt-in (Settings -> Security -> Disk encryption checks).
+    'linux_firewall_off': dict(
+        label='A Linux host has no active firewall ruleset', kind='firewall',
+        title='Host Firewall Off', severity='medium', tags='warning,shield'),
+    'linux_firewall_on': dict(
+        label='A Linux host firewall is active again (recovered)', kind='firewall',
+        resolves=('linux_firewall_off',)),
+    'linux_encryption_off': dict(
+        label='No encrypted volume found on a Linux host (opt-in)',
+        kind='hardening', title='Disk Not Encrypted', severity='medium',
+        tags='warning,lock'),
+    'linux_encryption_on': dict(
+        label='An encrypted volume was found again on a Linux host (recovered)',
+        kind='hardening', resolves=('linux_encryption_off',)),
+    'mac_update_off': dict(
+        label='Automatic security updates are off on a Mac', kind='mac_posture',
+        title='macOS Updates Off', severity='medium', tags='warning,package'),
+    'mac_update_on': dict(
+        label='Automatic security updates are on again on a Mac (recovered)',
+        kind='mac_posture', resolves=('mac_update_off',)),
     # v6.2.2: kernel-module visibility from the agent's execution context. A
     # sandbox that hides /lib/modules turns the next agent-run package upgrade
     # into a module-less, unbootable initramfs. A CONDITION (fires on first
@@ -32786,7 +32814,11 @@ def handle_config_save():
     # v6.4.3: opt-in Linux at-rest-encryption (LUKS) check. Off by default —
     # see the reasoning at the check itself in checks.py.
     if 'disk_encryption_checks' in body:
+        _enc_was = bool(cfg.get('disk_encryption_checks', False))
         cfg['disk_encryption_checks'] = bool(body['disk_encryption_checks'])
+        if _enc_was and not cfg['disk_encryption_checks']:
+            # v7.5.0: the check raises an alert now, so switching it off clears it.
+            _resolve_alerts_for_events(('linux_encryption_off',), by='disk-encryption-checks-disabled')
     if 'secure_boot_checks' in body:
         cfg['secure_boot_checks'] = bool(body['secure_boot_checks'])
     # v6.4.3 (reported from use): rows on the Self page's readiness table the
@@ -40751,9 +40783,9 @@ def _geo_anomaly(prev, country, now, hours):
 # tests/test_v702_posture_gate.py parses the function and fails if these
 # disagree, in either direction.
 _POSTURE_INGEST_KEYS = (
-    'auth', 'autoupdate', 'ecc', 'firewall_fp', 'mac_posture', 'mailq',
-    'mount_issues', 'mounts', 'network_io', 'ssh_config', 'ssh_hostkeys',
-    'storage_health', 'timers', 'usb', 'win_posture',
+    'auth', 'autoupdate', 'disk_encryption', 'ecc', 'firewall', 'firewall_fp',
+    'mac_posture', 'mailq', 'mount_issues', 'mounts', 'network_io', 'ssh_config',
+    'ssh_hostkeys', 'storage_health', 'timers', 'usb', 'win_posture',
 )
 
 
@@ -41065,6 +41097,9 @@ def _ingest_posture_v3110(dev_id, dev_name, si, dev=None):
             'firewall':   ('mac_firewall_off',   'mac_firewall_on',   'The application firewall is disabled'),
             'gatekeeper': ('mac_gatekeeper_off', 'mac_gatekeeper_on', 'Gatekeeper is disabled'),
             'sip':        ('mac_sip_disabled',   'mac_sip_enabled',   'System Integrity Protection is disabled'),
+            # v7.5.0: the Checks row (mac_auto_update) was the only place this showed.
+            'auto_security_update': ('mac_update_off', 'mac_update_on',
+                                     'Automatic security updates are off'),
         }
         _mac_bad, _mac_eval = {}, set()
         for _k, (_fev, _rev, _det) in _mac_map.items():
@@ -41112,6 +41147,47 @@ def _ingest_posture_v3110(dev_id, dev_name, si, dev=None):
             elif not _auoff and prev.get('autoupdate_off') is True:
                 _fire('autoupdate_enabled', {'detail': 'automatic updates restored'})
             new['autoupdate_off'] = _auoff
+
+    # ── v7.5.0: Linux host firewall and disk encryption ─────────────
+    # The Linux half of the posture trio (the auto-update half is the hardening
+    # block above). Same shape as the Windows and macOS blocks: a CONDITION that
+    # fires on entering the bad state, first contact included, and resolves when
+    # it clears. Tri-state: a firewall whose probes could not be read (active
+    # None) and a host that could not see device-mapper (no `encrypted` flag)
+    # neither fire nor recover, because being unable to look is not a finding.
+    #
+    # The firewall follows its Checks row, which is always on (an inactive host
+    # firewall is real exposure). Disk encryption follows ITS row, which is
+    # opt-in (disk_encryption_checks): an unencrypted root is the Linux norm, so
+    # alerting by default would flag a decision as a fault on every host at once.
+    # Windows and macOS report both under win_posture / mac_posture, not here.
+    _lfw = si.get('firewall')
+    if isinstance(_lfw, dict) and isinstance(_lfw.get('active'), bool):
+        _fw_off = _lfw['active'] is False
+        if _fw_off and prev.get('linux_fw_off') is not True:
+            _fw_names = [str(b.get('name')) for b in (_lfw.get('backends') or [])
+                         if isinstance(b, dict) and b.get('name')]
+            _fire('linux_firewall_off', {'detail': (
+                'No active ruleset in ' + ', '.join(_fw_names) + '.' if _fw_names
+                else 'No active firewall ruleset.')})
+        elif not _fw_off and prev.get('linux_fw_off') is True:
+            _fire('linux_firewall_on', {'detail': 'the host firewall is active again'})
+        new['linux_fw_off'] = _fw_off
+    if _config_ro().get('disk_encryption_checks'):
+        _de = si.get('disk_encryption')
+        if isinstance(_de, dict) and isinstance(_de.get('encrypted'), bool):
+            _enc_off = _de['encrypted'] is False
+            if _enc_off and prev.get('linux_enc_off') is not True:
+                _fire('linux_encryption_off', {'detail': (
+                    'no encrypted volume (dm-crypt / LUKS) was found on this host')})
+            elif not _enc_off and prev.get('linux_enc_off') is True:
+                _fire('linux_encryption_on', {'detail': 'an encrypted volume was found again'})
+            new['linux_enc_off'] = _enc_off
+    else:
+        # The check is off: forget the state, so switching it on again alerts
+        # for a host that is still unencrypted (switching it off resolved the
+        # open alert, see handle_config_save).
+        new.pop('linux_enc_off', None)
 
     # ── v6.2.2: kernel-module visibility ───────────────────────────
     # Like av_realtime_off this is a CONDITION, not an edge: a host that

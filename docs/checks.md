@@ -58,7 +58,13 @@ sortable, filterable table.
     is always worth reporting, whereas an unencrypted Linux root is the norm.
     A host whose agent cannot see device-mapper reports nothing either way,
     rather than being reported as unencrypted: being unable to look is not a
-    finding. `secure_boot` (UEFI Secure Boot) is opt-in on the same grounds,
+    finding. Since 7.5.0 the firewall row raises an alert when a host turns up
+    with no active ruleset (`linux_firewall_off`), and so does the encryption
+    row when its setting is on (`linux_encryption_off`). Each clears itself
+    when the host is fixed, and switching *Disk encryption checks* off clears
+    the open encryption alerts. The first heartbeat after the upgrade raises
+    one alert for every Linux host that has no active firewall; mute the event
+    for a host (or route the *Firewall* kind elsewhere) if that is by design. `secure_boot` (UEFI Secure Boot) is opt-in on the same grounds,
     under *Secure Boot checks* — out-of-tree kernel modules such as ZFS, NVIDIA
     or VirtualBox will not load under Secure Boot unless you enroll their
     signing key, so switching it off is a routine decision rather than an
