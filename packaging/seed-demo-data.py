@@ -3363,6 +3363,54 @@ def build_links() -> dict:
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 
+def _hardware_extras(dev_id: str, ts: int) -> dict:
+    """7.5.0: the rest of what the Linux agent files in a host's hardware record, so the pages that read it have something to show:
+    certificate files (a Checks row, a Needs-attention item, a risk factor, a line in the compliance TLS control and the advisory),
+    the local accounts (the administrative-privilege control and a risk factor) and the DMI inventory (the AI index). No random
+    draw here: build_hardware's serials depend on its draw order.
+
+    The dates are relative to `ts`. git.example.org's certificate is about to expire and legacy.example.org's already has; the third
+    host's file sits in the CA bundle, which every reader leaves out, so it shows the rule at work."""
+    DAY = 86400
+    out: dict = {}
+    certs = {
+        'gt01': [('/etc/letsencrypt/live/git.example.org/fullchain.pem', 'git.example.org', 9 * DAY),
+                 ('/etc/nginx/ssl/legacy.crt', 'legacy.example.org', -2 * DAY)],
+        'nc01': [('/etc/letsencrypt/live/cloud.example.org/fullchain.pem', 'cloud.example.org', 62 * DAY)],
+        'jf01': [('/etc/jellyfin/ssl/jf.pem', 'media.example.org', 40 * DAY),
+                 ('/etc/ssl/certs/ca-example.crt', 'Example Root CA', -30 * DAY)],
+    }
+    if dev_id in certs:
+        out['cert_files'] = [{'path': p, 'subject': f'CN = {cn}', 'issuer': "C = US, O = Let's Encrypt, CN = R11",
+                              'not_after': ts + delta} for p, cn, delta in certs[dev_id]]
+    if dev_id == 'tnas':
+        # as get_local_accounts reports them (it needs root for the password column): one account with no password, a second UID 0
+        out['accounts'] = [
+            {'user': 'root', 'uid': 0, 'shell': '/bin/bash', 'home': '/root', 'login': True, 'locked': False, 'sudo': False,
+             'age_days': 410, 'flags': []},
+            {'user': 'admin', 'uid': 1000, 'shell': '/bin/bash', 'home': '/home/admin', 'login': True, 'locked': False,
+             'sudo': True, 'age_days': 90, 'flags': ['sudo']},
+            {'user': 'scan', 'uid': 1001, 'shell': '/bin/bash', 'home': '/home/scan', 'login': True, 'locked': False,
+             'sudo': False, 'age_days': 1500, 'flags': ['empty_password', 'stale_password']},
+            {'user': 'toor', 'uid': 0, 'shell': '/bin/sh', 'home': '/root', 'login': True, 'locked': False, 'sudo': False,
+             'age_days': 2100, 'flags': ['uid0', 'stale_password']},
+        ]
+    inventory = {
+        'pmx01': ({'manufacturer': 'Dell Inc.', 'product': 'PowerEdge R740', 'serial': 'DEMO-R740-0001'},
+                  [('A%d' % i, '32 GB', 'DDR4', '2933 MT/s', 'Samsung') for i in range(1, 9)]),
+        'tnas': ({'manufacturer': 'Supermicro', 'product': 'X11SSH-F', 'serial': 'DEMO-X11-0002'},
+                 [('DIMMA%d' % i, '16 GB', 'DDR4', '2666 MT/s', 'Micron') for i in (1, 2, 3, 4)]),
+        'gt01': ({'manufacturer': 'Intel Corporation', 'product': 'NUC10i7FNH', 'serial': 'DEMO-NUC-0003'},
+                 [('ChannelA-DIMM0', '16 GB', 'DDR4', '3200 MT/s', 'Kingston'), ('ChannelB-DIMM0', '16 GB', 'DDR4', '3200 MT/s', 'Kingston')]),
+    }
+    if dev_id in inventory:
+        system, mods = inventory[dev_id]
+        out['_dmi'] = {'system': system, 'memory': [
+            {'locator': loc, 'size': size, 'type': kind, 'speed': speed, 'manufacturer': maker, 'serial': f'DEMO-DIMM-{dev_id}-{i}'}
+            for i, (loc, size, kind, speed, maker) in enumerate(mods)]}
+    return out
+
+
 def build_hardware() -> dict:
     """v3.4.0 demo: SMART + kernel/livepatch so the device drawer's
     Health & Hardware card has something to show. One disk on the NAS is
@@ -3491,6 +3539,11 @@ def build_hardware() -> dict:
             rec['gpus'] = gpus_map[dev_id]
         if dev_id in ups_map:
             rec['ups'] = ups_map[dev_id]
+        extras = _hardware_extras(dev_id, ts)
+        dmi = extras.pop('_dmi', None)
+        rec.update(extras)
+        if dmi:
+            rec.setdefault('hardware', {}).update(dmi)           # the DMI tables sit under `hardware`, beside the sensors
         out[dev_id] = rec
     return out
 
@@ -4668,8 +4721,15 @@ def build_services() -> dict:
                 sub = 'running'
             services.append({'unit': unit, 'active': active, 'sub': sub,
                              'since': now() - rng.randint(3600, 86400 * 21)})
-        out[dev['id']] = {'updated_at': now() - rng.randint(20, 240),
-                          'services': services}
+        entry = {'updated_at': now() - rng.randint(20, 240), 'services': services}
+        # 7.5.0: a unit that keeps restarting, as process_service_report keeps it: the count systemd gives and the set of units whose
+        # count climbed by the operator's limit between two reports. The unit_flapping alert fires from the set and so does the
+        # "likely to fail" score. The jellyfin unit is the demo's failing one. No random draw: the others keep their values.
+        flapping = [s for s in services if s['unit'] == 'jellyfin.service']
+        if flapping:
+            flapping[0]['restarts'] = 14
+            entry['flapping'] = ['jellyfin.service']
+        out[dev['id']] = entry
     return out
 
 
