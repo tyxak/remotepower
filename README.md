@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.4.9-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-7.5.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -199,6 +199,17 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v7.5.0 "Wh0leMatters"** — finishing what was started, with everything from 7.4.1 to 7.4.9 on top of
+  the production 7.4.0. A second read of the whole product found fifteen Medium issues, twenty-one Low or hardening
+  items and three informational ones, and fixed every one; one of the Medium issues is High on a Mac that
+  asks for signed commands. Four-eyes approval now holds a command in
+  every place that puts one on a host: library scripts, package actions, file writes, the compose
+  action, a smart plug's power-off, a schedule when it comes due and the start of a rollout. Restoring a
+  backup or a configuration revision asks you to sign in again, and so does narrowing which commands
+  need approval. Monitors assigned to a satellite are probed by it, Provisioning works on a fresh
+  install, and the playbook list no longer hands a viewer the YAML. What the agents already send now
+  reaches compliance, the risk score, the advisory, alerts, the AI, Fleet Query, the Data Explorer and
+  the fleet report. Update the agents.
 - **v7.4.9 "Ch0iceMatters"** — choices on a host, and a review of the whole project. A host runs
   its upgrades in a Standard or an Extended mode, and Extended also installs the new packages an
   update needs, such as a new kernel image that apt keeps back. A hard disk and a SATA SSD behind
@@ -235,16 +246,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   dependencies, a CVE finding says whether a fix exists for the host's own release, and
   an alert resolved by hand makes its host report at once, and the Thermal page and the
   risk score hold a drive to its own temperature lines.
-- **v7.4.4 "Spec1ficMatters"** — one request from the same Docker install: temperature
-  lines for each drive. A hard disk, a SATA SSD and an NVMe drive run at different
-  temperatures, so each can have its own warning and critical line, set for one
-  drive, for one host or for every drive of a type.
-  install. Linux hosts report how busy each disk is, with an alert for a disk that
-  stays busy, and a drive can have a name that follows its serial number.
-  Containers get CPU and memory lines. A maintenance window can raise no alerts at
-  all. HTTP monitors can expect a 401, choose HEAD or GET and skip the certificate
-  check. Two new integrations read Prometheus, by PromQL query or by scraping an
-  exporter.
 
 ## Security
 

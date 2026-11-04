@@ -23,8 +23,7 @@ class TestTheReviewLeftTheWindow(unittest.TestCase):
 
     def test_it_is_gone_everywhere(self):
         self.assertFalse((_ROOT / "docs/security-review-7.4.5.md").exists())
-        for rel in ("README.md", "docs/README.md", "docs/security.md", "docs/security-review-7.4.7.md",
-                    "docs/security-review-7.4.8.md", "server/html/index.html"):
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "docs/security-review-7.4.8.md", "server/html/index.html"):
             self.assertNotIn("security-review-7.4.5.md", (_ROOT / rel).read_text(), rel)
 
     def test_the_changelog_still_counts_its_issues(self):

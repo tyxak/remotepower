@@ -33,6 +33,11 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
+- [security-review-7.5.0.md](security-review-7.5.0.md) — a second read of the whole product, for rules the code applied in most
+  places and missed in one or two: fifteen medium issues, twenty-one low ones and three informational ones, all of them fixed.
+  Among them are four-eyes approval that a dozen paths skipped, restores that asked for no sign-in, playbook content shown
+  to every role, a decoy-file channel that a Mac asking for signed commands did not refuse, and a self-update that could
+  install a cut-off agent. It has the scans, the run over every route, the mutation checks, and what is left.
 - [security-review-7.4.9.md](security-review-7.4.9.md) — the release in which the whole project was reviewed, not only
   what changed: five high issues, seventeen medium ones and twelve low ones, all of them fixed. Among them are a host's
   watched services that any signed-in role could rewrite, three flaws in the Linux agent, the app server running as root
@@ -43,11 +48,6 @@ are kept:
   GPU reading, or a sensor limit, too big for a float that answered 500 to everyone on the Thermal page, and a check
   that nothing a host sends or apt prints reaches a command, that a limit or a time of the wrong kind never reaches a
   page, and that no route, permission or dependency changed, with the scans and the mutation checks behind them.
-- [security-review-7.4.7.md](security-review-7.4.7.md) — a feature release: one low issue, a stored
-  alert of the wrong shape that answered 500 to everyone on five readers, and a check that a caller
-  cannot see a host outside their role or tenant through the new list of problems, that hostile
-  parameters and markup in everything it prints do nothing, and that a host cannot store a row that
-  stops a page, with the scans, the run over every route and the mutation checks behind them.
 
 Each review found real defects. The high and low ones were fixed before the
 release went out; a medium one that was too big for the release is named in the

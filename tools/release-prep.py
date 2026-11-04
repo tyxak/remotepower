@@ -406,10 +406,20 @@ class Counter(Concern):
         44 when there were 48), and tests/test_v702_doc_counts.py derives the
         number the same way this does."""
         import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            'integrations_relprep', self.root / 'server/cgi-bin/integrations.py')
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        # integrations.py imports its sibling modules (textfmt, since 7.4.x) by bare name, so the server directory has to be on the path
+        # while it loads; without it `counts` died with ModuleNotFoundError before it counted anything.
+        cgi = str(self.root / 'server/cgi-bin')
+        added = cgi not in sys.path
+        if added:
+            sys.path.insert(0, cgi)
+        try:
+            spec = importlib.util.spec_from_file_location(
+                'integrations_relprep', self.root / 'server/cgi-bin/integrations.py')
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        finally:
+            if added:
+                sys.path.remove(cgi)
         return sorted(k for k in mod.CONNECTORS if not k.startswith('custom'))
 
     def _connector_count(self):

@@ -61,6 +61,10 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-7.5.0.md](security-review-7.5.0.md)** — the v7.5.0 review, a second read of the whole product for rules the
+  code applied in most places and missed in one or two: four-eyes approval on every command, a step-up on the restores, playbook
+  content for the roles that may edit it, flaws in the agents, and the server code added since 7.4.0. Fifteen medium, twenty-one
+  low and three informational findings, all fixed, the scans and the mutation checks behind them, and what is still open.
 - **[security-review-7.4.9.md](security-review-7.4.9.md)** — the v7.4.9 review, of the whole project and not only of what
   changed: an authorization check on every route as 26 kinds of caller, hostile input on every route, the three agents
   and their installers, the web client and the web server headers, the interface, and the documents. Five high, seventeen
@@ -69,21 +73,13 @@ holds long-form docs that don't fit there.
   its own agent do through the sensor limits and labels it reports and the text `apt-get` prints, what a stored row
   of the wrong kind does to the Thermal page and the risk score, and one low issue, a stored reading or limit too big
   for a float that answered 500 to everyone. Caught before release, with the scans and the mutation checks behind it.
-- **[security-review-7.4.7.md](security-review-7.4.7.md)** — the v7.4.7 review: who sees which host through
-  the new list of problems and the pages that show its state (a viewer scoped to a group or a tag, a tenant
-  administrator and a tenant viewer), hostile parameters, markup planted in everything the new pages print,
-  and 18 hostile heartbeats from a host with a valid token, and one low issue, a stored alert of the wrong
-  shape that answered 500 to everyone on five readers. Caught before release, with the scans, the run over
-  every route and the mutation checks behind them.
+- **[v7.5.0.md](v7.5.0.md)** — "Wh0leMatters": the release that carries 7.4.1 to 7.4.9 to production, with four-eyes approval on every
+  command, a sign-in before a restore, the agents' data in every page that can use it, and fifteen medium findings fixed.
 - **[v7.4.9.md](v7.4.9.md)** — "Ch0iceMatters": a host runs its upgrades in a Standard or an Extended mode, a
   hard disk and a SATA SSD behind the same controllers keep their own temperature lines, and an update Ubuntu is
   still phasing in is not counted as pending.
 - **[v7.4.8.md](v7.4.8.md)** — "Hon3stMatters": a Problems row that shows when its host last reported, a sensor
   limit that is not a temperature is no limit, and a package apt keeps back is pending.
-- **[v7.4.7.md](v7.4.7.md)** — "0nceMatters": one list of problems, each once, with its state, its
-  history and the actions that apply, a switch that counts only the CVE findings an update can fix, a
-  chart for any Thermal sensor, one disk for a btrfs volume, and a page that no longer sits under the
-  sidebar while alerts are open.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.

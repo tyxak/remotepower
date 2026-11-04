@@ -137,9 +137,10 @@ class TestTheSecurityReview(unittest.TestCase):
         card = card[:card.index("</details>")]
         self.assertIn("docs/security-review-7.4.8.md", card)
 
-    def test_three_reviews_are_kept(self):
+    def test_it_is_among_the_three_kept_reviews(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
-        self.assertEqual(reviews, ["security-review-7.4.7.md", "security-review-7.4.8.md", "security-review-7.4.9.md"])
+        self.assertEqual(len(reviews), 3, reviews)
+        self.assertIn("security-review-7.4.8.md", reviews)
 
     def test_the_review_that_left_the_window_is_gone_everywhere(self):
         self.assertFalse((_ROOT / "docs/security-review-7.4.5.md").exists())

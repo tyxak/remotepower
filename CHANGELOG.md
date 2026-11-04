@@ -5,7 +5,153 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v7.4.9 — "Ch0iceMatters" — unreleased (test)
+## v7.5.0 — "Wh0leMatters" — unreleased (test)
+
+A release about finishing what was started. The production installation is on 7.4.0, so this release carries everything from 7.4.1
+to 7.4.9 as well (their entries follow, unchanged), and then closes the gaps that a read of the whole product found: rules that
+the code applied in most places and missed in one or two, data the agents send that no page used, and statements in the guides and
+in the interface that the code did not keep. The release page is [docs/v7.5.0.md](docs/v7.5.0.md) and the review is
+[docs/security-review-7.5.0.md](docs/security-review-7.5.0.md).
+
+### Approvals and step-up
+
+- **Change approval reaches every command.** Four-eyes approval parked a command of a gated kind for a second administrator in
+  `_queue_command` and the two batch gateways. About a dozen other paths that put a command on a host did not: two guides said
+  so, and others promised the opposite. Held now, when the command's kind is gated: library script runs,
+  package install, removal, hold and unhold, the file manager's writes (a file written into a cron directory is code that runs, so
+  they count as `exec`), the compose action, Docker clean-up, the smart plug's power-off and cycle, a scheduled command when it
+  comes due, and the start of a rollout or of a script rollback. A parked change says in words what it will do, where the
+  Confirmations table used to print `queue_command`. A schedule is parked in the name `scheduler(<who scheduled it>)`, so nobody
+  approves their own job. A test walks the server and lists every function that writes the command queue (29: 12 ask, 17 are left
+  out with a stated reason), so a thirtieth that does not ask fails the build. Found on the way: the smart plug's refusal of a
+  blocked address answered 200, and the Docker clean-up's own comment promised quarantine and approval that did not apply.
+- **A restore asks for a fresh step-up.** Saving a governance switch from Settings asks you to sign in again. Three routes replaced
+  the same switches without asking: restoring a configuration revision, and the two backup restores, which replace the whole data
+  directory, users and tokens included. A revision restore asks only when a governance switch would change, and the audit trail
+  names it. Both backup restores ask first, before anything is read. An API key cannot step up, so it cannot restore.
+- **Narrowing the gated command kinds asks for a step-up.** Saving `approval_gated_kinds` as `scan` alone switched four-eyes off for
+  reboot and shutdown, and answered 200 where turning approval off answered 403. The declarative import could set it too. It is a
+  governance key now, and the import refuses it.
+- **Playbook YAML is for people who can edit or run playbooks.** The playbook list returned each playbook's content to every
+  signed-in role, including viewer, auditor and finance. A role without the `script` permission gets the list and no content.
+- **The Ansible runner remembers SSH host keys.** It said it trusted a key on first use, but it recorded keys in a file that was
+  deleted after every run, so each run trusted whatever the host presented. The keys are kept in the data directory now.
+
+### Agents and installers
+
+Update the agents for these. The agent version is 7.5.0.
+
+- **The canary channel.** A server could plant a decoy file, and so a root-run job, through the canary channel on a Mac that asks for
+  signed commands: the macOS and Windows agents checked only audit mode. Every agent refuses the channel under
+  `require-signed-commands` now, and refuses the macOS launchd and periodic directories and the drop-in directories that Linux
+  programs read and run.
+- **Self-update on a nearly full disk.** An update moved a 303 KB stub of the 768 KB agent over the running one and restarted. The new
+  file is written whole, synced, read back and checked against the advertised hash first, and a failed update removes its half.
+- **Repository credentials stay on the host.** Repository definitions went to the server with `user:password@` URLs, `password=`
+  lines and URL tokens. The agent keeps them out, and the server redacts what it stores and shows.
+- **Host probes obey `require-signed-commands`.** Connections and pings to addresses the server names ignored it.
+- **The scanner container runs scans.** `RP_SCAN_RUNNER=nuclei`, its default, never ran a scan since 4.2.0.
+- **One local user cannot stall the agent.** A user holding 40,000 listening sockets held the heartbeat thread for 33 seconds.
+- Smaller: five more writes that ignored a short write, heartbeat answers of the wrong type that ended the Linux agent, an unclamped
+  poll interval on Windows and macOS, files created at the umask mode before the chmod, scanner targets read as options, installer
+  hardening. Homebrew runs as its owner on a Mac. `satellite-setup.sh --self-signed` keeps the relay's key where the relay can read it
+  and the unit is sandboxed. The enrolment PIN stays off the command line. The Docker entrypoint refuses links in the data volume.
+
+### Server fixes from the bug hunt
+
+- **Repository passwords were shown to a viewer.** `GET /api/repositories` printed `user:password@` of a repository address to every
+  signed-in role, and the text sat in every backup.
+- **An imported time period could break the ticket list for everyone.** The declarative import stored periods without the check the
+  Settings page uses; one with `weekly: {"0": 5}` made `GET /api/tickets` answer 500.
+- **Business services nest only so deep.** The limit judged the saved service only, so editing the bottom of a chain made every holder
+  deeper unchecked, and the depth walk took about 70 seconds at 40 services. It is checked for every service and walked once.
+- **A host record with a wrong-shaped watch list made its heartbeat answer 500** every time. The store registry types it.
+- Smaller, all with tests: a read-only mount no longer lowers a container-audit severity, an unhashable member kind answers 400, a
+  refused enrolment source is in the audit trail again, probe results from two hosts at once are both kept, "passes its health check
+  again" is no longer sent for a container that stopped, an alert's assignment is kept unless the request says otherwise, overlapping
+  time ranges count their shared minutes once, and the text `nan` is refused by the fourteen decimal settings.
+
+### What did not work and does now
+
+- **Provisioning works on a fresh install.** It became a standard module in 6.0.0 and lost its toggle, but the handlers still read
+  the old setting, so a new install answered "Provisioning is disabled" with nothing in the interface to turn it on.
+- **A monitor assigned to a satellite is probed by the satellite.** The server kept the assignment and listed the work; the relay
+  never asked for it. It does now, with the same probe engine as the agents, and `RP_SATELLITE_PROBES=0` turns it off.
+- **Maintenance windows hold browser push**, keep their public-status flags when you edit them in the dialog, and an auto-patch
+  policy for one tag or one site is a window of that tag or site and not of the whole fleet.
+- **A local model server works at its default address.** Ollama, LocalAI and the like on the same machine were refused by the
+  connect-time guard. Cloud providers still may not reach loopback.
+- **Changing your own password keeps your session.** It signed you out of the session you did it in.
+- **The EDR card counts covered hosts.** A stale agent was counted as protected.
+- Six routes that check their method inside the handler were missing from the API reference, `POST /heartbeat` named a security scheme
+  the document did not define, and the ingest endpoints listed a 403 that none of them answers. Fixed, with a test over the whole
+  document.
+- Interface text that did not match the code, corrected in the six languages: the host configuration toast, the Files subtitle, the
+  package snapshots subtitle, the evidence pack's roles, the health-gate hint, the Online TTL range, the RDP dialog's command and the
+  installer's sweep count.
+
+### The agents' data reaches the pages that can use it
+
+A read of where each signal the three agents send lands, against the eleven places that could use it (the pages, alerts and
+checks, the AI, the knowledge index, the advisory, risk, compliance, Fleet Query, the Data Explorer, Infrastructure as Code and the
+reports), found the read side
+applying a rule in most places and missing it in two or three. These now use what was already there:
+
+- **Alerts** for the rest of the posture trio: the Linux firewall off, Linux disk encryption off (opt-in) and automatic security updates off on a Mac.
+- **Compliance.** Time synchronisation (PCI DSS 10.6.1). The patch and reboot controls see security updates, a stale kernel and the
+  patch SLA, where they passed a host with thirty security updates waiting. Local accounts with UID 0 or a blank password. A backup
+  that is fresh and fails its integrity check or restore drill fails A1.2, E8-8 and HIPAA 164.308(a)(7)(ii)(A). Defender switched off
+  fails the antivirus control; the verdict read `realtime` where the store holds `realtime_enabled`.
+- **The risk score** reads security updates waiting, containers in a restart loop, a Mac's Gatekeeper and System Integrity
+  Protection, a Windows host's Defender signatures, tamper protection and UAC, lapsed certificate files, local accounts and failing
+  backup checks. All of them are tunable like the factors before them. **Reliability** counts a crash-looping unit.
+- **The Security Advisory** reads hardware, storage, kernel and antivirus data: a pool that is not healthy, ECC errors, a failing disk,
+  a kernel waiting for a reboot. Critical CVEs in container images raise an alert (`image_cve_critical`) and reach the advisory, the
+  compliance control and the fleet report. A lapsed certificate file is a Checks row, a risk factor, a compliance finding, an advisory
+  finding and a Needs attention item.
+- **The fleet report** has Hardware and Exposure sections, and posture in its CSV and e-mail.
+- **Fleet Query and the Data Explorer** ask about disk encryption and security updates, and the Explorer has ten more health fields.
+- **The AI** index knows what a host is (system maker and model, installed memory), its ZFS cache and datasets, its newest snapshot
+  and its Docker disk use. The digest that opens each call names more conditions (a pool that is not healthy, swap, inodes, an
+  out-of-memory kill, failed timers, interface errors, a worn battery, a failing disk, a UPS on battery, a host running hot, ports open
+  to the world) and keeps the worst four. The anomaly scan sees the ports its prompt asks about. Four MCP tools that answered empty
+  for every host read keys the list does not carry.
+- **Pages.** The Storage page shows the newest snapshot, the host drawer's backup table shows when a backup was last checked and when
+  its restore drill ran, and an unhealthy container's badge carries the check's output as a tooltip.
+- **Readers that asked for a key nobody wrote.** The Infrastructure-as-Code export, the IP-intel never-block list, the triage
+  services tool and the runbook snapshot each read a name the producer does not use.
+- Docker disk figures sent on their own are kept. The demo writes the hardware flags and the signals above, so each of them has a host
+  to show on the demo.
+
+### Interface
+
+- **The upgrade mode is a checkbox in the host's own drawer**, under Host settings.
+- **Three layout bugs a browser shows.** The CMDB asset dialog's tab strip no longer runs off a phone screen, the Monitor header's
+  buttons no longer end 27 and 150 pixels past the edge, and the focus ring has 3:1 contrast in the five light themes, where it was
+  1.9 to 2.1 against the surface. Table action cells, the Provisioning list, dialog footers, integration card heads and the summary
+  cards no longer overflow at phone width; the Home "why" list scrolls; a section title is centred in its row.
+- **Buttons in one row look like one family**: one line box, a 1 px border on filled buttons, one text inset and one radius, and the
+  icon-to-label gap is 5 px inside the headers of the host drawer's Audit tab and a few labels (it was a space wide).
+- **Translations.** 1,195 values corrected after a read of the whole dictionary in the six languages: one name for the Needs attention
+  page, "host" where a managed machine was called a device, one register per language, and the Hindi glossary words in Devanagari.
+- Inter and JetBrains Mono ship their licence texts beside the files.
+
+### Security review
+
+The review of this release found fifteen Medium issues, twenty-one Low or hardening items and three informational ones. Every one of
+them is fixed, and nothing rated Medium or higher is open. One of the Medium issues is High on a Mac that asks for signed commands
+(the canary channel). Everything in the first four sections above that is about approval, step-up, playbooks, host keys, repository
+credentials, the self-update and the agents is a finding of the review; the rest of its table is in
+[docs/security-review-7.5.0.md](docs/security-review-7.5.0.md).
+
+### Documentation
+
+- **The guides were read against the code.** Three readers took them in three alphabetical parts (accessibility to dns, docker-agent to
+  my-account, patch-snapshots to wsgi), and the six in between by hand. 86 guides needed a correction: a count, a role, a default, a
+  menu path or a promise the code did not keep. The corrections that were bugs in the product are listed above.
+- `docs/security-review-7.5.0.md` and `docs/v7.5.0.md` are new. `docs/v7.4.7.md` and its review are gone with the keep-three rule.
+
+## v7.4.9 — "Ch0iceMatters" — folded into v7.5.0 (no standalone release)
 
 A release about choices a person makes on a host, and about checking the whole product before it ships. A host can run its
 upgrades in a Standard or an Extended mode, a hard disk and a SATA SSD behind the same controllers keep their own temperature
