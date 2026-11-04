@@ -134,18 +134,25 @@ snapshot**, and per-question retrieval (see [rag.md](rag.md)). The snapshot is a
 line, then one line per host with its name, OS, package manager, online state, group and
 your own notes.
 
-A host also names its **notable conditions**: high CPU, memory or disk, a pending
-reboot, pending security updates, failed units, mount problems, uncorrectable memory
-errors, an unreachable gateway, an inactive host firewall, unencrypted disks, an
+A host also names its **notable conditions**: high CPU, memory, swap or disk, inodes
+nearly used up, a pending reboot, pending security updates, failed units or timers, mount
+problems, uncorrectable memory errors, an unreachable gateway, a storage pool that is not
+healthy, a failing disk, a UPS running on battery, a host running hot, a worn battery, an
+out-of-memory kill in the last day, errors on a network interface, ports reachable from
+outside (the ones you have not muted), an inactive host firewall, unencrypted disks, an
 unsynchronised clock, quarantined files, an active brute-force attack, known-abusive
-sources that are not blocked, or the agent's own "my metrics are limited" signal. Two
+sources that are not blocked, or the agent's own "my metrics are limited" signal. Three
 things about that:
 
 - **A healthy host adds nothing.** Conditions appear only when they cross the same
   thresholds the product already alerts on, so a fleet that is fine costs no extra
   tokens and never shows the model a "problem" your own pages call fine.
-- **Each host names at most four.** One very sick machine must not crowd the rest of the
-  fleet out of a bounded prompt.
+- **Each host names at most four, the worst first.** A failing component comes before
+  security, security before a resource running short, and that before housekeeping, so
+  one very sick machine neither crowds the rest of the fleet out of a bounded prompt nor
+  loses its worst problem to the cap.
+- **The wording is RemotePower's.** A pool state, an interface name or any other string a
+  host sent is never copied into the line, so a host cannot put an instruction there.
 
 Anything beyond that comes from retrieval, which runs per question. The snapshot is what
 the model knows before it retrieves anything.

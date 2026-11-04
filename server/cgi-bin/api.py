@@ -46917,12 +46917,33 @@ def _ai_fleet_with_attack_flags(visible):
         _intel = ip_intel_by_device()
     except Exception:
         _bf, _intel = {}, {}
+    # 7.5.0: the hardware faults the ingest keeps on the hardware record, and the ports the operator has not muted on the Exposed page.
+    # One read each for the whole fleet; the record is only read, never changed.
+    try:
+        _hw = _load_ro(HARDWARE_FILE) if backend_exists(HARDWARE_FILE) else {}
+        _hw = _hw if isinstance(_hw, dict) else {}
+        _mutes = _config_ro().get('exposure_mutes') or []
+    except Exception:
+        _hw, _mutes = {}, []
     _now = int(time.time())
     out = []
     for did, dev in visible.items():
         if not isinstance(dev, dict):
             continue
         flags = []
+        _rec = _hw.get(did) if isinstance(_hw.get(did), dict) else {}
+        if _rec.get('_smart_failed'):
+            flags.append((ai_context._FAULT, 'disk failing (SMART)'))
+        if _rec.get('_ups_on_battery'):
+            flags.append((ai_context._FAULT, 'UPS on battery'))
+        if _rec.get('_temp_high'):
+            flags.append((ai_context._FAULT, 'running hot'))
+        _ports = (dev.get('sysinfo') or {}).get('listening_ports')
+        _wp = [p for p in (_ports if isinstance(_ports, list) else [])
+               if isinstance(p, dict) and p.get('scope') == 'world'
+               and not checks_mod._exposure_muted(p.get('process'), p.get('proto'), p.get('port'), _mutes, did)]
+        if _wp:
+            flags.append((ai_context._POSTURE, f'{len(_wp)} port' + ('s' if len(_wp) != 1 else '') + ' reachable from outside'))
         rows = _bf_active(_bf.get(did) or {}, _now - _window, _thresh) if _bf else []
         if rows:
             n = len({r.get('source_ip') for r in rows})
