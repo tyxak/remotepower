@@ -145,7 +145,10 @@ post, update or delete incidents, and RemotePower keeps up to 500.
 A [maintenance window](maintenance.md) changes a component to *under maintenance*
 while it is active. The page also announces the window when it is created through
 the API with `public` set and a `public_title`. Only that title and the times are
-published, never the reason or the host names.
+published, never the reason or the host names. To leave planned maintenance off the
+page altogether, set `status_page.show_maintenance` to `false` through the API (the
+default is `true`); the components then show as up or down and the windows are not
+announced.
 
 ## API
 

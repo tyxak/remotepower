@@ -9374,6 +9374,23 @@ def _webpush_send_all(title, body_text, url_hint='', event=None, payload=None):
     return sent
 
 
+def _push_held_reason(event, payload, mw, upstream):
+    """Why a browser push for this event is held back, or '' when it may go: an active maintenance window (`mw`, what in_maintenance
+    answered), a host the operator marked unmonitored, an upstream that is down (`upstream`, the collateral-damage rule) or quiet
+    hours. The same questions fire_webhook asks before it sends a webhook or an e-mail."""
+    if mw:
+        return 'maintenance'
+    dev_id = (payload or {}).get('device_id') if isinstance(payload, dict) else None
+    if dev_id:
+        dev = device_get(dev_id) or {}
+        if dev and not dev.get('monitored', True):
+            return 'unmonitored'
+    if upstream:
+        return 'upstream down'
+    qh = _quiet_hours_active(event, payload, _config_ro())
+    return f'quiet hours ({qh})' if qh else ''
+
+
 def _maybe_webpush(event, payload):
     """fire_webhook hook: push high/critical alerts to subscribed browsers."""
     cfg = _config_ro() or {}   # v6.3.0 perf: read-only gate, no deepcopy
@@ -13899,9 +13916,15 @@ def fire_webhook(event, payload):
     # (host, event) must NOT surface a browser push either — push is a paging
     # channel, so it obeys the mute exactly like the inbox/webhook/needs-attention
     # (the SIEM archive above still receives the full stream).
+    #
+    # 7.5.0: and it obeys the other holds that are about the SITUATION and not the channel -- a maintenance window, quiet hours, an
+    # unmonitored host, an upstream that is down. It sat above all of them, so a window that held the webhook and the e-mail still
+    # sent the push (and a host marked unmonitored paged every subscribed browser). The channel keeps its own switch and its
+    # severity floor (high and critical); the per-event webhook toggle and the webhook routing matrix stay webhook-only.
     if not _muted:
         try:
-            _maybe_webpush(event, payload)
+            if not _push_held_reason(event, payload, mw, _upstream_collateral):
+                _maybe_webpush(event, payload)
         except Exception as _wp_err:
             sys.stderr.write(f'[remotepower] web push failed: {_wp_err}\n')
 
@@ -20496,14 +20519,15 @@ def _autopatch_sync(pol, remove=False):
             wins[:] = [w for w in wins
                        if not (isinstance(w, dict) and w.get('autopatch_id') == pid)]
             if active:
-                # Map the policy target to the maintenance-window scope vocabulary
-                # (device | group | global). tag/site/all all suppress fleet-wide.
+                # Map the policy target to the maintenance-window scope vocabulary. 7.5.0: a tag or a site maps to a window of
+                # the same scope (windows have taken both since 7.0.2, and match a host the way the policy does: the tag is one
+                # of its tags, the site is its site). Only "all" is fleet-wide. A tag or site policy used to become a `global`
+                # window, so patching one customer's site on a Saturday silenced the alerts of every other host.
                 _tgt = pol.get('target') or {}
                 _tt = _tgt.get('type', 'all')
-                if _tt == 'device':
-                    _scope, _target = 'device', str(_tgt.get('value', ''))
-                elif _tt == 'group':
-                    _scope, _target = 'group', str(_tgt.get('value', ''))
+                _tv = str(_tgt.get('value', ''))
+                if _tt in ('device', 'group', 'tag', 'site') and _tv:
+                    _scope, _target = _tt, _tv
                 else:
                     _scope, _target = 'global', ''
                 # A COMPLETE window (id/reason/scope/target/… — the same shape
@@ -58470,7 +58494,7 @@ def handle_scans_create():
         if dev_id and not _scan_window_active(dev_id, dev):
             if not body.get('override_window'):
                 respond(409, {'error': 'active scan needs an active maintenance '
-                              'window for this host — open one (Monitoring → '
+                              'window for this host — open one (Scheduling → '
                               'Maintenance) or pass "override_window": true'})
             overrode = True
         attest_meta = {'attested': True, 'attested_by': actor,
@@ -71661,7 +71685,7 @@ def handle_maintenance_add():
     # its name claimed all along.
     clean = _validate_maintenance_body(body)
     scope, target, reason = clean['scope'], clean['target'], clean['reason']
-    window = dict(clean, **{
+    window = dict({'public': False, 'public_title': ''}, **clean, **{
         'id':          secrets.token_hex(8),
         'created_by':  actor,
         'created_at':  int(time.time()),
@@ -71756,8 +71780,11 @@ def _validate_maintenance_body(body):
         # dict(clean, id=…), update via new_win.update(clean) — so a key
         # missing here is silently dropped at create AND silently cleared on
         # every edit.
-        'public':       bool(body.get('public')),
-        'public_title': _sanitize_str(str(body.get('public_title', '')), 80),
+        # 7.5.0: `public` and `public_title` are set through the API; the dialog never sends them. They were returned
+        # unconditionally (off, empty), so every edit through the dialog switched a window off the public status page. They are
+        # returned only when the request names them: an edit then keeps what is stored, and create defaults them (see below).
+        **({'public': bool(body.get('public'))} if 'public' in body else {}),
+        **({'public_title': _sanitize_str(str(body.get('public_title', '')), 80)} if 'public_title' in body else {}),
         # v7.4.3 (#48): what the window holds back. 'notifications' is what every window has always
         # done; 'alerts' also keeps the covered events out of the Alerts inbox, Needs attention and
         # the stopped-containers count. Always present, so an edit can switch it back.

@@ -34,8 +34,8 @@ A window has a scope, a schedule and, optionally, a list of events.
   stops applying.
 
 While a matching window is active, events for the hosts in scope are **held back
-from webhooks and e-mail**, including the personal notifications people set up
-under **My Account → My notifications**. Browser push is not held. By default the
+from webhooks, e-mail and browser push**, including the personal notifications people
+set up under **My Account → My notifications**. By default the
 alert is still raised, so the [Alerts](alerts.md) inbox keeps a record and nothing
 is lost. A window can also be set to [raise no alerts at all](#raise-no-alerts-at-all).
 
@@ -134,10 +134,10 @@ before it.
 - **Auto-patch.** Each enabled auto-patch policy keeps a window of its own
   (**Auto-patch: …**, one hour long, notifications only) so the patch run and
   its reboot do not page anyone. You can see it in the list, but the policy owns
-  it. Change the policy, not the window. A policy aimed at one host or one group
-  gets a window for that host or group. A policy aimed at a tag, a site or every
-  host gets a window for the whole fleet (for the whole tenant under
-  multi-tenancy).
+  it. Change the policy, not the window. A policy aimed at one host, one group, one
+  tag or one site gets a window for that host, group, tag or site, so patching one
+  customer's site does not silence the others. A policy aimed at every host gets a
+  window for the whole fleet (for the whole tenant under multi-tenancy).
 - **Public status page.** A host that is not reporting while a window covers it
   counts as in maintenance instead of down, so a component with nothing else
   wrong shows as under maintenance on the [status page](status-board.md). Every
@@ -146,7 +146,7 @@ before it.
   and a `public_title` through the API. It carries the title (up to 80
   characters, *Scheduled maintenance* if blank) and, for a one-shot window, the
   start and end, never the reason or the host names. The dialog does not show
-  these two fields, and saving a window in the dialog clears them.
+  these two fields, and saving a window in the dialog leaves them as they are.
 
 ## Maintenance mode is something else
 
@@ -188,6 +188,7 @@ installation, so with tenant isolation on only the platform operator can set it.
   `events`, `gate_exec` and `suppress` (`notifications` or `alerts`), and then one
   of: `start` and `end` (ISO 8601), `cron` and `duration` in **seconds** (60 to
   604,800), or `period`, the id of a time period. `public` and `public_title`
-  announce the window on the status page. A `PUT` replaces every field, so send
-  them all again.
+  announce the window on the status page. A `PUT` replaces every field it names, so
+  send them all again; `public` and `public_title` are kept as they are when you leave
+  them out.
 - `GET /api/maintenance/suppressions` returns the newest 100 held events.

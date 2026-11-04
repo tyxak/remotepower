@@ -249,6 +249,9 @@ class TestBareRequireAuthMutations(unittest.TestCase):
         # Security → Threat Intel listing: reads the attacker and block stores,
         # scoped to visible devices. Flagged for the same verify_token reason.
         "handle_ip_intel",
+        # 7.5.0: the playbook list reads the caller's role to decide whether the YAML goes with it (admin or the `script`
+        # permission). Flagged for the same verify_token reason; it writes nothing.
+        "handle_ansible_playbooks_list",
     }
 
     def test_new_bare_auth_mutating_handlers_get_reviewed(self):
