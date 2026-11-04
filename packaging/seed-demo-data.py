@@ -3544,8 +3544,30 @@ def build_hardware() -> dict:
         rec.update(extras)
         if dmi:
             rec.setdefault('hardware', {}).update(dmi)           # the DMI tables sit under `hardware`, beside the sensors
+        _hardware_flags(rec)
         out[dev_id] = rec
     return out
+
+
+def _hardware_flags(rec: dict) -> None:
+    """Set the state flags the server's hardware ingest keeps beside a host's report (_smart_failed, _smart_failed_devs, _kernel_old,
+    _temp_high, _ups_on_battery), derived from the record the same way. The Hardware roll-up, the problem list and the Data Explorer
+    read these flags, not the lists, so a record without them showed no failing disk, no UPS on battery and no hot host on the demo.
+    A flag is set only for a part the record reports, as the ingest does: a host with no SMART list has no `_smart_failed`."""
+    if isinstance(rec.get('smart'), list):
+        failed = sorted(d['device'] for d in rec['smart'] if d.get('failed'))
+        rec['_smart_failed_devs'] = failed
+        rec['_smart_failed'] = bool(failed)
+    if isinstance(rec.get('kernel'), dict):
+        rec['_kernel_old'] = bool(rec['kernel'].get('reboot_for_kernel'))
+    if isinstance(rec.get('hardware'), dict):
+        # 85 is the default of the temp_alert_threshold_c setting; the GPUs count toward the same line, as in the ingest.
+        readings = [t.get('current_c') for t in rec['hardware'].get('temps') or []]
+        readings += [g.get('temp_c') for g in rec.get('gpus') or []]
+        rec['_temp_high'] = any(isinstance(v, (int, float)) and v >= 85 for v in readings)
+    if isinstance(rec.get('ups'), list):
+        rec['_ups_on_battery'] = any('OB' in str(u.get('status', '')) or 'BATT' in str(u.get('status', '')).upper()
+                                     for u in rec['ups'])
 
 
 def build_metrics_history() -> dict:

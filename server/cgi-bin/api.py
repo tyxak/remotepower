@@ -33540,6 +33540,37 @@ def _qe_device_posture(si):
         # never reported a package scan, so a silent host is not read as zero.
         'pending_updates': _n(pk.get('upgradable')),
         'security_updates': _n(pk.get('security_updates')),
+        # v7.5.0: the health signals the Checks page, the alerts and the risk score read and a query could not ask for. All
+        # tri-state: None when the host never reported the thing, so a silent host is not read as a healthy one.
+        'cpu_iowait_pct': _n(si.get('cpu_iowait')),
+        'cpu_steal_pct': _n(si.get('cpu_steal')),
+        'storage_degraded': _qe_storage_degraded(si.get('storage_health')),
+        'gateway_reachable': (si['gateway'].get('reachable')
+                              if isinstance(si.get('gateway'), dict) and isinstance(si['gateway'].get('reachable'), bool) else None),
+        'last_oom_ts': _n(si.get('last_oom_ts')),
+        'ecc_uncorrectable': _n((si.get('ecc') or {}).get('ue') if isinstance(si.get('ecc'), dict) else None),
+    }
+
+
+def _qe_storage_degraded(health):
+    """True when any pool or array in a host's storage_health list is not in a healthy state, False when all are, None when the host
+    reported none. The rule is the one the Checks row, the Fleet Query facet and the report use (posture_signals.pool_unhealthy)."""
+    pools = [p for p in health if isinstance(p, dict)] if isinstance(health, list) else []
+    if not pools:
+        return None
+    return any(posture_signals.pool_unhealthy(p.get('state') or 'unknown') for p in pools)
+
+
+def _qe_hardware_flags(hw):
+    """The scalars of a host's hardware record the Data Explorer can query: the flags the SMART, thermal, UPS and kernel checks set.
+    None for a flag the host never reported (no record, or no such section)."""
+    hw = hw if isinstance(hw, dict) else {}
+    kern = hw.get('kernel') if isinstance(hw.get('kernel'), dict) else {}
+    return {
+        'smart_failed': hw.get('_smart_failed') if isinstance(hw.get('_smart_failed'), bool) else None,
+        'temp_high': hw.get('_temp_high') if isinstance(hw.get('_temp_high'), bool) else None,
+        'ups_on_battery': hw.get('_ups_on_battery') if isinstance(hw.get('_ups_on_battery'), bool) else None,
+        'kernel_reboot': kern.get('reboot_for_kernel') if isinstance(kern.get('reboot_for_kernel'), bool) else None,
     }
 
 
@@ -33547,6 +33578,7 @@ def _qe_devices_rows():
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     ttl = get_online_ttl()
     now = int(time.time())
+    hw_all = (_load_ro(HARDWARE_FILE) or {}) if backend_exists(HARDWARE_FILE) else {}      # read once, for the whole fleet
     out = []
     for dev_id, d in devices.items():
         si = d.get('sysinfo') or {}
@@ -33570,6 +33602,7 @@ def _qe_devices_rows():
             'sshgw_enabled': bool(d.get('sshgw_enabled')),
         }
         row.update(_qe_device_posture(si))
+        row.update(_qe_hardware_flags(hw_all.get(dev_id) if isinstance(hw_all, dict) else None))
         out.append(row)
     return out
 
@@ -33591,7 +33624,9 @@ _QE_DEVICE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     # v7.1.0
     'usb_devices', 'logged_in_users', 'sshgw_enabled',
     # v7.5.0
-    'pending_updates', 'security_updates')}
+    'pending_updates', 'security_updates',
+    'cpu_iowait_pct', 'cpu_steal_pct', 'storage_degraded', 'gateway_reachable', 'last_oom_ts', 'ecc_uncorrectable',
+    'smart_failed', 'temp_high', 'ups_on_battery', 'kernel_reboot')}
 
 
 def _qe_cve_rows():

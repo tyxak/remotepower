@@ -103,6 +103,24 @@ Both are empty when the host has not reported a package scan, so a host that was
 "nothing waiting". `{"field": "security_updates", "op": "gt", "value": 0}` finds the hosts that reported a fix
 waiting.
 
+### Hardware and storage health
+
+| Field | Notes |
+|---|---|
+| `smart_failed` | a disk reports SMART failure |
+| `temp_high` | a sensor is over its line |
+| `ups_on_battery` | the host's UPS is running on battery |
+| `kernel_reboot` | a newer kernel is installed and not running |
+| `storage_degraded` | a storage pool or array is not in a healthy state (the rule the Checks page uses) |
+| `gateway_reachable` | the default gateway answers |
+| `ecc_uncorrectable` | uncorrectable memory errors counted since boot |
+| `last_oom_ts` | when the kernel last killed a process for lack of memory (epoch seconds) |
+| `cpu_iowait_pct`, `cpu_steal_pct` | the share of the CPU time spent waiting for storage, or taken by the hypervisor *(Linux hosts)* |
+
+All of them are tri-state like the posture fields below: empty when the host never reported the thing, so
+`{"field": "smart_failed", "op": "eq", "value": true}` lists the hosts with a failing disk and leaves out the ones that
+never reported SMART. A host with no hardware report at all is empty in the first four rows *(7.5.0)*.
+
 ### Security posture
 
 | Field | Notes |

@@ -89,7 +89,8 @@ class TestTheTwoHalvesAgree(unittest.TestCase):
         self.assertGreater(len(row), 25, f'posture returned {len(row)} fields')
 
     def test_every_exposed_field_exists_in_a_row(self):
-        rows = [dict(api._qe_device_posture(_FULL_SI),
+        # _qe_devices_rows builds a row from the base fields, the sysinfo projection and (7.5.0) the hardware flags
+        rows = [dict(api._qe_device_posture(_FULL_SI), **api._qe_hardware_flags(None),
                      device_id='d1', name='web01', group='', site='', os='linux',
                      agent_version='7.0.0', monitored=True, agentless=False,
                      reboot_required=True, cpu_pct=1, mem_pct=1, disk_pct=1,
