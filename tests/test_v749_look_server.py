@@ -102,7 +102,8 @@ class TestUiPrefsKeepTheLook(_Base):
                 self.assertEqual(api._sanitise_ui_prefs({"look": look, "effects": effects}), {"look": look, "effects": effects})
 
     def test_the_two_lists_hold_what_the_ui_offers(self):
-        self.assertEqual(api.UI_LOOKS, ("pilot", "classic"))
+        # Classic first: it is the default, and Pilot is an option
+        self.assertEqual(api.UI_LOOKS, ("classic", "pilot"))
         self.assertEqual(api.UI_EFFECTS, ("full", "reduced"))
 
     def test_anything_else_is_dropped(self):

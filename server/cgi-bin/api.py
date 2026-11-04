@@ -793,10 +793,10 @@ DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
 BRAND_ACCENTS              = ('blue', 'emerald', 'violet', 'amber', 'rose', 'cyan')
 UI_DENSITY_VALUES          = ('minimal', 'compact', 'comfortable', 'spacious')
 UI_DENSITY_DEFAULT         = 'comfortable'
-# 7.4.9: the interface look (Pilot, or Classic, which is the 6.0 to 7.4 layout) and its effects. A look is taste, not data:
-# it is a per-account preference (ui_prefs) with an optional instance default and lock under Branding. Both must mirror
-# LOOKS and FX_LEVELS in app.js.
-UI_LOOKS                   = ('pilot', 'classic')
+# 7.4.9: the interface look and its effects. Classic is the layout as it has been and the default; Pilot is an option a person (or
+# an administrator, for everybody) switches on. A look is taste, not data: it is a per-account preference (ui_prefs) with an
+# optional instance default and lock under Branding. Both must mirror LOOKS and FX_LEVELS in app.js.
+UI_LOOKS                   = ('classic', 'pilot')
 UI_EFFECTS                 = ('full', 'reduced')
 
 # ─── v1.11.10: enrollment tokens & metric alerting ───────────────────────────
@@ -32559,7 +32559,7 @@ def handle_config_save():
     if 'brand_accent' in body:
         _ba = str(body.get('brand_accent') or '').strip().lower()
         cfg['brand_accent'] = _ba if _ba in BRAND_ACCENTS else ''
-    # 7.4.9: the instance default look. '' means "no default": a user without a choice gets Pilot. The lock only means
+    # 7.4.9: the instance default look. '' means "no default": a user without a choice gets Classic. The lock only means
     # something next to a look, so it is stored as given and read together with it.
     if 'brand_look' in body:
         _bl = str(body.get('brand_look') or '').strip().lower()

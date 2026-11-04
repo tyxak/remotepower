@@ -1340,16 +1340,16 @@ const THEMES = [
 const THEME_IDS = THEMES.map(t => t.id);
 
 // ── 7.4.9: the interface look ─────────────────────────────────────────────────────────────────────────────────────────────
-// Pilot is the default; Classic keeps the 6.0 to 7.4 layout. A look is taste, so it follows the ACCOUNT (ui_prefs.look and
+// Classic is the layout as it has been and the default; Pilot is an option. A look is taste, so it follows the ACCOUNT (ui_prefs.look and
 // ui_prefs.effects, saved with the other per-user prefs) and the browser keeps only a copy of the last one it drew, so the first
 // paint matches while the prefs are on their way. Theme, accent and background stay per browser (a wall tablet and a laptop can
 // differ). An administrator can set a default and lock it (Settings → Branding). Mirrors UI_LOOKS / UI_EFFECTS in api.py.
-const LOOKS = ['pilot', 'classic'];
+const LOOKS = ['classic', 'pilot'];
 const FX_LEVELS = ['full', 'reduced'];
-const LOOK_DEFAULT = 'pilot';
+const LOOK_DEFAULT = 'classic';
 const LOOK_CARDS = [
+  { id: 'classic', name: 'Classic', desc: 'The familiar layout, unchanged.' },
   { id: 'pilot',   name: 'Pilot',   desc: 'Calm panels, status shown as lights, dot readouts.' },
-  { id: 'classic', name: 'Classic', desc: 'The previous layout, unchanged.' },
 ];
 function _lookChoice() {
   const dflt = LOOKS.includes(window._brandLook) ? window._brandLook : '';
@@ -1372,7 +1372,7 @@ function applyLook() {
   try { localStorage.setItem('rp_look', look); localStorage.setItem('rp_fx', fx); } catch (_) {}
   return changed;
 }
-// The palette used when none was chosen: the Pilot look brings its own pair, Classic keeps Midnight and Daylight.
+// The palette used when none was chosen: Classic keeps Midnight and Daylight, the Pilot look brings its own pair.
 function _defaultTheme(light) {
   const pilot = _lookChoice() === 'pilot';
   return light ? (pilot ? 'pilot-paper' : 'light') : (pilot ? 'pilot' : 'dark');
@@ -1581,6 +1581,9 @@ function _buildLookPicker() {
   if (note) note.classList.toggle('d-none', !locked);
   const fx = document.getElementById('acct-fx');
   if (fx) fx.value = _fxChoice();
+  // the effects are the glow and the dot texture of Pilot: under Classic the select would change nothing, so it is not shown
+  const fxWrap = document.getElementById('acct-fx-wrap');
+  if (fxWrap) fxWrap.classList.toggle('d-none', cur !== 'pilot');
 }
 function _buildAppearancePicker() {
   _buildLookPicker();

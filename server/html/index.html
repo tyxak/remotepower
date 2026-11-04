@@ -1380,12 +1380,14 @@
             <div id="acct-look" class="theme-grid mb-6"></div>
             <p class="hint">Saved to your account, so it follows you to other browsers. Palette, accent and background are set per browser.</p>
             <p class="hint d-none" id="acct-look-locked">Your administrator has set the look for everyone.</p>
-            <div class="form-label mb-6 mt-8">Effects</div>
-            <select id="acct-fx" class="form-input input-auto" data-change="setFxUI" aria-label="Effects">
-              <option value="full">Full effects</option>
-              <option value="reduced">Reduced effects</option>
-            </select>
-            <p class="hint">Reduced effects turn off the glow and the dot texture. No colour changes.</p>
+            <div id="acct-fx-wrap">
+              <div class="form-label mb-6 mt-8">Effects</div>
+              <select id="acct-fx" class="form-input input-auto" data-change="setFxUI" aria-label="Effects">
+                <option value="full">Full effects</option>
+                <option value="reduced">Reduced effects</option>
+              </select>
+              <p class="hint">Reduced effects turn off the glow and the dot texture. No colour changes.</p>
+            </div>
           </div>
           <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting; <strong>Time of day</strong> switches on the clock instead — which is what you want when the OS is pinned to dark, as it is on most servers and kiosks. The accent tints buttons and highlights on top of any theme.</p>
           <div class="form-label mb-6">Theme</div>
@@ -2989,9 +2991,9 @@
               <div class="form-group mw-200">
                 <label for="cfg-brand-look" class="form-label">Default look</label>
                 <select id="cfg-brand-look" class="form-input">
-                  <option value="">No default (Pilot)</option>
-                  <option value="pilot">Pilot</option>
+                  <option value="">No default (Classic)</option>
                   <option value="classic">Classic</option>
+                  <option value="pilot">Pilot</option>
                 </select>
               </div>
               <div class="form-group flex-1">

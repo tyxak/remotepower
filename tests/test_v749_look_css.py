@@ -12,6 +12,9 @@ Classic is the stylesheet as it was. The Pilot look is one block at the end of i
 * **Every blurred shadow goes through `--glow-a`**, so "Reduced effects" turns every glow off and a new one cannot be added that
   the switch does not reach. A ring (a spread without a blur) is part of the shape and stays.
 
+* **The block does not touch the logo.** The RemotePower logo and the brand text beside it are not part of any look; they are the
+  same under Classic and Pilot, and no rule of the block may name them.
+
 The scanner is checked against inputs that break each promise, because a scan over a block it cannot read would pass.
 """
 import re
@@ -27,6 +30,8 @@ BEGIN = "═══ PILOT LOOK (7.4.9) ═══ BEGIN"
 END = "═══ PILOT LOOK (7.4.9) ═══ END"
 PREFIX = 'body[data-look="pilot"]'
 OWN_PROPERTIES = {"--glow-a", "--tex-a", "--dm-off", "--led", "--c"}
+# what the logo and the brand text are called in the stylesheet and the markup
+LOGO_WORDS = ("logo", ".brand", "brand-", "favicon", "login-page", "#login")
 
 
 def block(css):
@@ -146,6 +151,14 @@ class TestThePilotBlock(unittest.TestCase):
         self.assertEqual(declared - OWN_PROPERTIES, set(), "the look draws structure; palettes come from the theme")
         self.assertTrue(OWN_PROPERTIES <= declared | {"--c"}, declared)
 
+    def test_the_block_does_not_touch_the_logo(self):
+        touched = [s for s in self.sels if any(w in s.lower() for w in LOGO_WORDS)]
+        self.assertEqual(touched, [], "the logo is the same under every look")
+        # and the words are the real ones: the stylesheet does name the logo outside the block
+        outside = _CSS[:_CSS.index(BEGIN)]
+        for word in (".logo-img", ".logo-text", ".brand-v"):
+            self.assertIn(word, outside)
+
     def test_the_block_adds_no_important(self):
         self.assertNotIn("!important", self.block)
 
@@ -203,6 +216,11 @@ class TestTheScannerSeesWhatItIsFor(unittest.TestCase):
                 '0 0 9px color-mix(in srgb, red var(--glow-a), transparent); } '
                 'body[data-look="pilot"] .y { box-shadow: inset 0 0 0 1.5px var(--muted); filter: none; box-shadow: none; }')
         self.assertEqual(unreached_glows(self.parse(fine)), [])
+
+    def test_a_rule_that_names_the_logo_is_found(self):
+        css = 'body[data-look="pilot"] .logo-img { width: 30px; } body[data-look="pilot"] .sidebar .brand .logo-text { color: red; }'
+        touched = [s for s in selectors(self.parse(css)) if any(w in s.lower() for w in LOGO_WORDS)]
+        self.assertEqual(len(touched), 2)
 
     def test_a_block_without_markers_is_refused(self):
         with self.assertRaises(AssertionError):
