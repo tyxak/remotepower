@@ -37,10 +37,18 @@ def load_agent(name="agent_v750_ports"):
 
 agent = load_agent()
 
+# The CI dependency list has no psutil, and these tests replace the agent's psutil object, which does not exist without it.
+try:
+    import psutil  # noqa: F401
+    _HAVE_PSUTIL = True
+except ImportError:                                             # pragma: no cover
+    _HAVE_PSUTIL = False
+
 Addr = collections.namedtuple("Addr", "ip port")
 Conn = collections.namedtuple("Conn", "laddr raddr type status pid")
 
 
+@unittest.skipUnless(_HAVE_PSUTIL, "needs psutil, which the CI dependency list does not install")
 class TestListeningPortsDoNotCostSquaredTime(unittest.TestCase):
     N = 20000
 
