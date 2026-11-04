@@ -46252,6 +46252,12 @@ def _rag_build_corpus(cfg):
                 cont = containers.get(dev_id) if isinstance(containers, dict) else None
                 if isinstance(cont, dict) and cont.get('items'):
                     f['containers'] = cont['items']
+                # 7.5.0: `docker system df` (images, containers, volumes, build cache, what is reclaimable) was stored for the
+                # Containers page and never indexed, so "which host is filling up with images?" had nothing to answer from.
+                if isinstance(cont, dict) and cont.get('df'):
+                    _df = rag_index.docker_df_facet(cont['df'])
+                    if _df:
+                        f['docker_disk'] = _df
                 if snmp.get(dev_id):
                     f['snmp'] = snmp[dev_id]
                 if open_alerts_by_dev.get(dev_id):

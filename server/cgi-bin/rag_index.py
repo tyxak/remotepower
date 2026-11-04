@@ -49,6 +49,7 @@ Public surface used by api.py:
 import re
 import math
 import hashlib
+import time
 
 import checks
 
@@ -473,6 +474,94 @@ def _format_mounts(mounts):
     return '\n'.join(lines)
 
 
+def _utc_date(epoch):
+    """YYYY-MM-DD (UTC) of an epoch, or "an unknown date" for one that is not a time."""
+    try:
+        return time.strftime('%Y-%m-%d', time.gmtime(epoch))
+    except (OverflowError, ValueError, OSError, TypeError):
+        return "an unknown date"
+
+
+def _size_text(n):
+    """A byte count in two significant figures with a binary unit, or None.
+
+    7.5.0. Rounded on purpose: the corpus is rebuilt when a source changes, and a dataset that grew by a few megabytes should not
+    rewrite its chunk (and, with an embedding provider, pay for a new vector). "1.9 TiB" moves when the dataset really does.
+    """
+    if not isinstance(n, (int, float)) or isinstance(n, bool) or n != n or n < 0 or n > 2 ** 62:
+        return None     # a 400-digit integer is a number and float() of it raises (zfs_stats keeps nothing over 2**62 either)
+    units = ('B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB')
+    v, i = float(n), 0
+    while v >= 1024 and i < len(units) - 1:
+        v /= 1024
+        i += 1
+    return (f"{v:.0f}" if v >= 10 or i == 0 else f"{v:.1f}") + f" {units[i]}"
+
+
+def zfs_lines(si):
+    """The ZFS cache and the datasets that hold the most space, as the lines of a host's storage chunk (7.5.0).
+
+    `zfs_arc` and `zfs_datasets` are what zfs_stats keeps of the Linux agent's report; both were stored and shown on the Storage
+    page and neither reached the corpus, so "which dataset is nearly at its quota?" had nothing to answer from. Stable figures only:
+    the hit ratio in whole percent, sizes in two significant figures, the share of a quota in steps of five. A dataset name was
+    checked against a ZFS name when it was stored.
+    """
+    out = []
+    if not isinstance(si, dict):
+        return out
+    arc = si.get('zfs_arc')
+    if isinstance(arc, dict):
+        hit = arc.get('hit_ratio')
+        if isinstance(hit, (int, float)) and not isinstance(hit, bool) and hit == hit and 0 <= hit <= 1:
+            limit = _size_text(arc.get('c_max'))
+            out.append(f"ZFS cache (ARC): {round(hit * 100)}% hit ratio" + (f", limit {limit}" if limit else ""))
+    zds = si.get('zfs_datasets')
+    rows = zds.get('rows') if isinstance(zds, dict) else None
+    for r in [r for r in (rows if isinstance(rows, list) else []) if isinstance(r, dict) and r.get('name')][:12]:
+        used = _size_text(r.get('used'))
+        if not used:
+            continue
+        bits = [f"dataset {r['name']}: {used} used"]
+        quota = _size_text(r.get('quota')) if r.get('quota') else None
+        pct = r.get('quota_pct')
+        if quota:
+            share = (f" ({int(round(pct / 5.0) * 5)}% of it)"
+                     if isinstance(pct, (int, float)) and not isinstance(pct, bool) and pct == pct and 0 <= pct < 1e6 else "")
+            bits.append(f"of a {quota} quota{share}")
+        else:
+            bits.append("no quota")
+        held = _size_text(r.get('snap')) if r.get('snap') else None
+        if held:
+            bits.append(f"snapshots hold {held}")
+        out.append(" — ".join(bits))
+    return out
+
+
+def docker_df_facet(df):
+    """`docker system df` of a host as one short line per kind (7.5.0), or None.
+
+    Docker prints human sizes and the server keeps them as printed (`_sanitize_docker_df`), so the line says what the host's own
+    `docker system df` says. The five largest volumes are named; the rest are a count.
+    """
+    if not isinstance(df, dict):
+        return None
+    out = {}
+    for kind, v in df.items():
+        if isinstance(v, dict) and v.get('size') not in (None, ''):
+            bits = [f"{v.get('size')} in use"]
+            if v.get('reclaimable'):
+                bits.append(f"{v['reclaimable']} reclaimable")
+            if v.get('total'):
+                bits.append(f"{v['total']} in all" + (f", {v['active']} active" if v.get('active') else ""))
+            out[str(kind)] = ", ".join(bits)
+    vols = df.get('volumes')
+    if isinstance(vols, list):
+        named = [f"{x['name']} {x.get('size', '')}".strip() for x in vols[:5] if isinstance(x, dict) and x.get('name')]
+        if named:
+            out['largest volumes'] = ", ".join(named) + (f" and {len(vols) - 5} more" if len(vols) > 5 else "")
+    return out or None
+
+
 def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
     """Build per-(device, facet) chunks of current fleet state.
 
@@ -685,9 +774,10 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
         # (there is no explicit boolean); scrub is a free string; last_snapshot
         # is an epoch (0 = the pool has NO snapshots).
         sh = si.get('storage_health')
-        if isinstance(sh, list):
+        zfs = zfs_lines(si)
+        if isinstance(sh, list) or zfs:
             pool_lines = []
-            for p in sh[:40]:
+            for p in (sh if isinstance(sh, list) else [])[:40]:
                 if not isinstance(p, dict):
                     continue
                 nm = p.get('name')
@@ -709,14 +799,18 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
                     parts.append(f"scrub: {p['scrub']}")
                 ls = p.get('last_snapshot')
                 if isinstance(ls, int):
+                    # 7.5.0: the date, not the epoch. A model cannot turn 1800000000 into "three weeks ago", and a date moves once a
+                    # day at most, so the chunk is not rewritten (and re-embedded) by every snapshot of an hourly schedule.
                     parts.append("no snapshots" if ls == 0
-                                 else f"last snapshot epoch {ls}")
+                                 else f"last snapshot {_utc_date(ls)}")
                 pool_lines.append(" — ".join(parts))
+            pool_lines += zfs
             if pool_lines:
                 docs.append(make_doc(
                     f"live/{dev_id}#storage", 'live_state', 'device_storage',
                     f"{name} storage / RAID pool health (zfs/mdadm/btrfs — pool "
-                    f"state, degraded pools, scrub status, snapshot age):\n"
+                    f"state, degraded pools, scrub status, snapshot age, ZFS cache "
+                    f"and datasets):\n"
                     + '\n'.join(pool_lines),
                     title=f"{name} — storage health", device=dev_id, ts=ts))
 
