@@ -3,7 +3,7 @@
 A library of parameterized IaC / boot templates organised in a folder tree.
 RENDER-ONLY: the server does pure ${var} string substitution and never executes
 anything (the strong guarantee these tests pin). Admin-gated, kill-switched
-behind `show_provisioning`.
+behind `show_provisioning` until 6.0.0, always on since (see tests/test_v750_provisioning_default.py).
 """
 
 # v6.4.1: pin RP_DATA_DIR at module scope BEFORE api.py is exec'd — its
@@ -135,7 +135,8 @@ class TestApiWiring(unittest.TestCase):
             self.assertNotIn(sink, block, f'render handler must not use {sink}')
 
     def test_config_flag_emitted_and_saved(self):
-        self.assertIn("'show_provisioning': bool(cfg.get('show_provisioning'))", _SRC)
+        # 7.5.0: the flag is accepted and reported for API clients but no longer decides anything (it is always on)
+        self.assertIn("'show_provisioning': _provisioning_enabled()", _SRC)
         self.assertIn("cfg['show_provisioning'] = bool(body.get('show_provisioning'))", _SRC)
 
 

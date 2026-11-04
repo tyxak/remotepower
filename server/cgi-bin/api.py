@@ -21186,7 +21186,7 @@ def handle_ansible_playbook_run(pb_id):
 # few ${rp_*} macros) and returns the rendered text to copy / download. There
 # is NO server-side execution here (unlike the Ansible runner) —
 # zero new exec attack surface. Admin-managed; the whole feature hides behind
-# the `show_provisioning` kill switch (default OFF).
+# `_provisioning_enabled()` (always on since 6.0.0; the old `show_provisioning` toggle was removed).
 
 _BLUEPRINT_VAR_RE = re.compile(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}')
 
@@ -21294,8 +21294,8 @@ def _request_base_url(environ=None):
 # ── v5.6.0: server-side terraform execution ─────────────────────────────────
 # Terraform blueprints can be RUN on the server (plan / apply / destroy),
 # mirroring the Ansible runner. This executes arbitrary infrastructure code with
-# cloud credentials, so it carries TWO gates: the page toggle (show_provisioning)
-# AND a separate iac_execute_enabled switch (default OFF). Admin-only, audited.
+# cloud credentials, so it carries TWO gates: admin-only AND a separate
+# iac_execute_enabled switch (default OFF). Audited.
 # State persists in a per-blueprint workdir so destroy / re-apply work. Secret
 # variables are passed as ENV only (never written to disk or the command line);
 # non-secret variables become an auto-loaded tfvars file.
@@ -28731,7 +28731,7 @@ def handle_integrations_list():
                   'catalog': integrations_mod.list_connectors(),
                   'interval': int(cfg.get('integrations_interval', 300) or 300),
                   'show_homelab': cfg.get('show_homelab', True) is not False,
-                  'show_provisioning': bool(cfg.get('show_provisioning'))})
+                  'show_provisioning': _provisioning_enabled()})     # always on since 6.0.0; the key is ignored
 
 
 def handle_connectors_reload():

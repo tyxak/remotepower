@@ -49,7 +49,12 @@ def _blueprints_load():
 
 
 def _provisioning_enabled():
-    return bool((A.load(A.CONFIG_FILE) or {}).get('show_provisioning'))
+    """Provisioning is always on. It was opt-in (`show_provisioning`, off by default) until 6.0.0 made it a standard module and removed the
+    toggle, but this kept reading the key, so a fresh install answered "Provisioning is disabled" to every request while the page, the
+    home payload and the docs all said it was available. The stored key is ignored: an install that once saved it as off has no
+    toggle left to turn it back on (the same reason `tickets_enabled` is ignored). Running Terraform on the server keeps its own
+    switch, `iac_execute_enabled`."""
+    return True
 
 
 def _rollout_advance(roll, devices, cmds, pending=None):

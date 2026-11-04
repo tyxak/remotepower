@@ -3,8 +3,8 @@
 // client JS. A folder-tree catalog of IaC / boot templates (Terraform,
 // cloud-init, Ansible, iPXE). Fill in a blueprint's declared variables, render
 // it (the server does pure ${var} string substitution — NOTHING is executed)
-// and copy / download the result. Opt-in: the page + nav hide unless the
-// `show_provisioning` instance flag is on. (v5.6.0)
+// and copy / download the result. Always available (the opt-in toggle was removed in 6.0.0);
+// running Terraform on the server has its own switch. (v5.6.0)
 
 let _provisioningCache = [];
 let _bpRenderState = null;   // { id, filename } of the blueprint open in the render modal
@@ -14,15 +14,10 @@ let _provExec = false;       // terraform plan/apply/destroy available (enabled 
 async function loadProvisioning() {
   const tree = document.getElementById('provisioning-tree');
   if (tree) tree.innerHTML = _skeletonBlock();
-  // The playbooks card has its own endpoint: with Provisioning switched off (the default) it sat on "Loading…" for good.
+  // The playbooks card has its own endpoint, so it loads whatever the blueprint list answers.
   if (typeof loadAnsible === 'function') { try { loadAnsible(); } catch (_) {} }
   const d = await api('GET', '/provisioning/blueprints');
   if (!d) return;
-  if (!d.enabled) {
-    _provisioningCache = [];
-    if (tree) tree.innerHTML = '<div class="empty-state">Provisioning is disabled. Enable it under Settings → Advanced.</div>';
-    return;
-  }
   _provExec = !!(d.execute_enabled && d.terraform_available);
   _provisioningCache = d.blueprints || [];
   _renderProvisioningTree();
