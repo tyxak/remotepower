@@ -74,6 +74,25 @@ SHADOWS = """(sel) => {
   });
 }"""
 
+# axe cannot judge text that sits over the hero's dot texture (it reports such text as incomplete, not as a failure: a mutation that
+# painted the captions dark grey passed the axe sweep), so the contrast of the hero's own text is measured here, with the WCAG
+# formula, against the first opaque background above it. The last lines are the control: the same measure on a caption forced to
+# a dark grey has to come back under 4.5.
+HERO_CONTRAST = """() => {
+  const chan = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const parse = c => (c.match(/[\\d.]+/g) || []).map(Number);
+  const lum = c => { const [r, g, b] = parse(c); return 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b); };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const bgOf = el => { for (let e = el; e; e = e.parentElement) { const c = getComputedStyle(e).backgroundColor, p = parse(c);
+      if (p.length === 3 || (p.length > 3 && p[3] === 1)) return c; } return 'rgb(255, 255, 255)'; };
+  const sel = '#home-hero .pilot-eyebrow, #home-hero .pilot-cap, #home-hero .pilot-glabel, #home-hero .pilot-key > span';
+  const rows = [...document.querySelectorAll(sel)].map(e => ({ text: e.textContent.trim().slice(0, 30), fg: getComputedStyle(e).color,
+    bg: bgOf(e), ratio: ratio(getComputedStyle(e).color, bgOf(e)) }));
+  const cap = document.querySelector('#home-hero .pilot-cap'); let forced = null;
+  if (cap) { const old = cap.style.color; cap.style.setProperty('color', '#555'); forced = ratio(getComputedStyle(cap).color, bgOf(cap)); cap.style.color = old; }
+  return { rows, forced };
+}"""
+
 LOGO = """() => {
   const img = document.querySelector('.sidebar .brand .logo-img'), txt = document.querySelector('.sidebar .brand .logo-text');
   const part = e => { const c = getComputedStyle(e), r = e.getBoundingClientRect();
@@ -375,6 +394,20 @@ class TestTheLookSwitchInABrowser(unittest.TestCase):
             drawer = ["%s: %s" % (v["id"], (n.get("target") or ["?"])[0]) for v in res.get("violations") or []
                       if v.get("impact") in _SERIOUS_IMPACTS for n in v.get("nodes") or []]
             self.assertEqual(drawer, [], theme)
+
+    def test_the_heros_own_text_reads_on_its_surface_in_pilot_and_in_other_palettes(self):
+        for theme in ("pilot", "pilot-paper", "nord", "paper"):
+            with self.subTest(theme=theme):
+                page = self.login(init="localStorage.setItem('rp_theme', %s);" % json.dumps(theme))
+                self.addCleanup(lambda p=page: self.reset(p))
+                self.api(page, "POST", "/ui-prefs", {"look": "pilot"})
+                self.reload(page)
+                self.wait_hero(page)
+                got = page.evaluate(HERO_CONTRAST)
+                self.assertGreater(len(got["rows"]), 6, "the measure looked at almost nothing: %s" % got["rows"])
+                self.assertEqual([r for r in got["rows"] if r["ratio"] < 4.5], [], theme)
+                self.assertIsNotNone(got["forced"])
+                self.assertLess(got["forced"], 4.5, "the measure cannot fail: a dark grey caption came back at %s" % got["forced"])
 
     def test_the_hero_stays_inside_the_page_on_a_phone_and_with_a_huge_fleet(self):
         from test_a11y_axe import _SERIOUS_IMPACTS
