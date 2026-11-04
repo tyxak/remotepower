@@ -108,10 +108,20 @@ def handle_config_revision_restore():
     # takes CONFIG_REVS_FILE's own lock, so it runs after this block — nesting a
     # second file's lock would raise on the SQLite/Postgres backends.
     with A._LockedUpdate(A.CONFIG_FILE) as cur:
+        # 7.5.0: the swap replaces the governance switches too (four-eyes approval, MFA-required roles, the IP allow-list, tenancy,
+        # the litigation hold ...), which a save of those keys only gets past with a fresh step-up. Asked here, under the lock and
+        # against the document that is about to be replaced, so a save that landed after the revision was read is seen, and before
+        # anything is written: the refusal leaves the document and the revision list as they were.
+        governance = A._governance_keys_changed_by_document(rev['config'], cur)
+        if governance:
+            A.require_step_up()
         current = dict(cur)
         cur.clear()
         cur.update(rev['config'])
     A.record_config_revision(current, rev['config'], f'{actor} (pre-restore)')
+    if governance:
+        A.audit_log(actor, 'governance_config_change',
+                    detail='keys=' + ','.join(governance[:20]) + ' (revision restore)')
     A.audit_log(actor, 'config_restored',
                 f'revision={rid} ts={int(rev.get("ts") or 0)}')
     A.respond(200, {'ok': True, 'restored': rid})

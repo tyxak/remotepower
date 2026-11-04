@@ -30716,6 +30716,45 @@ def _governance_keys_touched(body, cfg):
     return out
 
 
+def _governance_effective(cfg, key):
+    """The value of governance switch `key` as the gate reads it, so two documents can be compared without a missing key and its
+    written-out default looking like a change."""
+    v = cfg.get(key)
+    if key == 'approval_gated_kinds':
+        return frozenset(_approval_gated_kinds(cfg))
+    if key == 'litigation_hold':
+        return bool(isinstance(v, dict) and v.get('enabled'))
+    if key == 'change_approval_no_self':
+        return True if v is None else bool(v)       # the approval gate treats a missing key as on
+    if key == 'audit_log_retention_days':
+        return _audit_retention_days(cfg)
+    if key in ('mfa_required_roles', 'ip_allowlist'):
+        return frozenset(str(x) for x in v) if isinstance(v, (list, tuple)) else frozenset()
+    if key == 'audit_worm_path':
+        return str(v or '')
+    return bool(v)
+
+
+def _governance_keys_changed_by_document(new_cfg, cur_cfg):
+    """Which governance switches replacing the settings document `cur_cfg` with `new_cfg` would change.
+
+    The restore of a saved revision swaps the whole document, so it can switch a control off as surely as a save can. A key that one
+    side lacks counts as its default (a revision saved before a switch existed turns the switch off), values are compared as the gate
+    reads them, and `approval_gated_kinds` counts only when a kind that is gated now would stop being gated, as in
+    `_governance_keys_touched`."""
+    new_cfg = new_cfg if isinstance(new_cfg, dict) else {}
+    cur_cfg = cur_cfg if isinstance(cur_cfg, dict) else {}
+    out = []
+    for k in _GOVERNANCE_CONFIG_KEYS:
+        now, after = _governance_effective(cur_cfg, k), _governance_effective(new_cfg, k)
+        if k == 'approval_gated_kinds':
+            if now - after:
+                out.append(k)
+        elif now != after:
+            out.append(k)
+    return out
+
+
 # v6.4.3: tunables whose save block predates the "blank clears the override"
 # convention the two threshold loops implement. Popped at the top of
 # handle_config_save so a cleared field on Settings -> Alert parameters behaves

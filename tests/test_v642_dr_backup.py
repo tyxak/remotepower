@@ -181,13 +181,17 @@ class TestRestoreAcceptsTheScheduledArchiveShape(unittest.TestCase):
     def setUp(self):
         self.calls = []
         self._orig_admin = api.require_admin_auth
+        self._orig_step_up = api.require_step_up
         self._orig_body = api.get_body
         self._orig_audit = api.audit_log
         api.require_admin_auth = lambda *a, **k: "tester"
+        # 7.5.0: a restore asks for a fresh step-up (test_v750_restore_step_up holds that); here the subject is what it extracts
+        api.require_step_up = lambda *a, **k: "tester"
         api.audit_log = lambda *a, **k: self.calls.append(a)
 
     def tearDown(self):
         api.require_admin_auth = self._orig_admin
+        api.require_step_up = self._orig_step_up
         api.get_body = self._orig_body
         api.audit_log = self._orig_audit
 

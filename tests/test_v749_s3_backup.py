@@ -47,7 +47,8 @@ class _Base(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="rp-s3b-"))
         self.endpoint = f"http://127.0.0.1:{self.srv.server_address[1]}"
         self.cap: dict = {}
-        self._real = {n: getattr(api, n) for n in ("respond", "verify_token", "audit_log", "_env", "method", "get_json_obj", "_backup_passphrase")}
+        self._real = {n: getattr(api, n) for n in ("respond", "verify_token", "require_step_up", "audit_log", "_env", "method", "get_json_obj",
+                                                    "_backup_passphrase")}
 
         def _resp(status, body=None):
             self.cap["s"], self.cap["b"] = status, body
@@ -56,6 +57,7 @@ class _Base(unittest.TestCase):
         api.audit_log = lambda *a, **k: self.audit.append((a, k))
         self.audit: list = []
         api.verify_token = lambda *a, **k: ("admin", "admin")
+        api.require_step_up = lambda *a, **k: "admin"    # 7.5.0: the restore asks for one (test_v750_restore_step_up holds that)
         api._backup_passphrase = lambda: PASSPHRASE
         env = mock.patch.dict(os.environ, {"RP_BACKUP_S3_SECRET_KEY": SK})
         env.start()

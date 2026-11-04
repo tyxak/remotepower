@@ -64,9 +64,10 @@ class TestEncryptedRestoreDriven(unittest.TestCase):
         self.bc.encrypt_file(tgz, enc, "pass123")
         self.blob = enc.read_bytes()
         self._saved = {k: getattr(api, k) for k in
-                       ("require_admin_auth", "audit_log", "method", "_env",
+                       ("require_admin_auth", "require_step_up", "audit_log", "method", "_env",
                         "_backup_passphrase")}
         api.require_admin_auth = lambda *a, **k: "admin"
+        api.require_step_up = lambda *a, **k: "admin"     # 7.5.0: the restore asks for one (test_v750_restore_step_up holds that)
         api.audit_log = lambda *a, **k: None
         api.method = lambda: "POST"
         api._backup_passphrase = lambda: ""

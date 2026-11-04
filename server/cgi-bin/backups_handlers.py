@@ -1089,8 +1089,11 @@ def handle_backup_restore():
     tarball (as produced by /api/backup/download). Admin only. Takes a safety
     snapshot of the CURRENT data dir first, then extracts with strict path
     validation (no absolute paths, no '..', regular files/dirs only — symlinks,
-    devices and hardlinks are rejected)."""
-    actor = A.require_admin_auth()
+    devices and hardlinks are rejected). Needs a fresh step-up: the archive
+    replaces the settings, the users and the tokens, so it can set up anything
+    a step-up-gated action guards (an administrator account, the governance
+    switches). An API key cannot step up and so cannot restore."""
+    actor = A.require_step_up()
     raw = A.get_body()
     if not raw:
         A.respond(400, {'error': 'empty body — POST the backup .tar.gz'})
@@ -1550,10 +1553,12 @@ def handle_backup_s3_restore():
     shows) and optional `s3` settings. The passphrase is the X-RP-Backup-Passphrase header or the server's RP_BACKUP_PASSPHRASE, as for
     an uploaded archive. The archive is read into a private scratch directory, its digest compared with the one stored with it,
     decrypted, and handed to the same restore as an upload: safety snapshot first, strict checks of every member. Platform operator
-    only, audited. Answers like the upload does, except that a failure of the store is a 200 with `ok: false`."""
+    only, needs a fresh step-up like the upload does (the bucket is not contacted before that), audited. Answers like the upload
+    does, except that a failure of the store is a 200 with `ok: false`."""
     actor = A.require_instance_admin_auth('Restoring from the S3 bucket')
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
+    A.require_step_up()
     body = A.get_json_obj()
     name = body.get('name')
     if not (isinstance(name, str) and s3_client.ARCHIVE_RE.match(name) and name.endswith('.enc')):

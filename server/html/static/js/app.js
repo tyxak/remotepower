@@ -4966,6 +4966,17 @@ async function withStepUp(callFn) {
   }
   return data;
 }
+// 7.5.0: a restore replaces the users, the tokens and the settings, so the server asks for a fresh step-up before it reads the
+// upload. The two restores that send a file use fetch (api() sends JSON), so this is withStepUp for a fetch: it asks for the
+// password when the answer is step_up_required and sends the same request again. Resolves to the JSON answer with `_ok` and
+// `_http` added, because the caller needs the status as well as the body.
+async function fetchWithStepUp(url, opts) {
+  return withStepUp(async () => {
+    const r = await fetch(url, opts);
+    const d = await r.json().catch(() => ({}));
+    return Object.assign(d && typeof d === 'object' ? d : {}, { _ok: r.ok, _http: r.status });
+  });
+}
 
 // ─── v1.8.4: Settings tabs + new fields ─────────────────────────────────────
 function switchSettingsTab(tab) {
@@ -10087,13 +10098,12 @@ async function restoreBackup() {
   const res = document.getElementById('backup-result');
   if (res) { res.hidden = false; res.textContent = 'Uploading & restoring…'; }
   try {
-    const r = await fetch('/api/backup/restore', { method: 'POST', headers, body: file });
-    const data = await r.json().catch(() => ({}));
-    if (r.ok && data.ok) {
+    const data = await fetchWithStepUp('/api/backup/restore', { method: 'POST', headers, body: file });
+    if (data._ok && data.ok) {
       if (res) res.textContent = `Restored ${data.restored} files. Safety snapshot: ${data.snapshot}. Reload the page to see the restored state.`;
       toast(`Restored ${data.restored} files`, 'success');
     } else {
-      const msg = (data && data.error) || ('HTTP ' + r.status);
+      const msg = (data && data.error) || ('HTTP ' + data._http);
       if (res) res.textContent = 'Restore failed: ' + msg;
       toast('Restore failed: ' + msg, 'error');
     }
@@ -23516,7 +23526,9 @@ async function restoreConfigRevision(id) {
         title: 'Restore configuration',
         message: 'Swap the live configuration for this snapshot? The current state is saved as a revision first, so you can restore back.',
         confirmText: 'Restore', danger: true })) return;
-  const r = await api('POST', '/config/revisions/restore', { id });
+  // 7.5.0: a revision that changes a governance switch (four-eyes approval, MFA-required roles, the IP allow-list, tenancy, the
+  // litigation hold ...) needs a fresh step-up, like saving that switch does. withStepUp asks for the password and sends it again.
+  const r = await withStepUp(() => api('POST', '/config/revisions/restore', { id }));
   if (r?.ok) {
     toast('Configuration restored', 'success');
     loadSettings();

@@ -38,13 +38,12 @@ async function _s3RestoreRun(name) {
   if (res) { res.hidden = false; res.textContent = 'Reading from the bucket & restoring…'; }
   closeModal('s3-restore-modal');
   try {
-    const r = await fetch('/api/backup/s3-restore', { method: 'POST', headers, body: JSON.stringify({ name, s3: _backupS3Form() }) });
-    const data = await r.json().catch(() => ({}));
-    if (r.ok && data.ok) {
+    const data = await fetchWithStepUp('/api/backup/s3-restore', { method: 'POST', headers, body: JSON.stringify({ name, s3: _backupS3Form() }) });
+    if (data._ok && data.ok) {
       if (res) res.textContent = `Restored ${data.restored} files. Safety snapshot: ${data.snapshot}. Reload the page to see the restored state.`;
       toast(`Restored ${data.restored} files`, 'success');
     } else {
-      const msg = (data && data.error) || ('HTTP ' + r.status);
+      const msg = (data && data.error) || ('HTTP ' + data._http);
       if (res) res.textContent = 'Restore failed: ' + msg;
       toast('Restore failed: ' + msg, 'error');
     }
