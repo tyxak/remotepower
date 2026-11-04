@@ -53553,6 +53553,18 @@ _RISK_WEIGHTS = {
     # the address and nothing here has blocked it.
     'brute_force': 4,          # per source over the brute-force threshold now
     'known_attacker': 8,       # per known-abusive source (IP intel) not blocked
+    # v7.5.0: four more signals the agents already report. Security updates
+    # waiting are the part of the pending count that matters most, and sat inside
+    # it at one point each. Gatekeeper and SIP (macOS) and Defender's signatures,
+    # tamper protection and UAC (Windows) are Checks rows and, for the signatures,
+    # an alert, and counted for nothing here, while the same host's firewall and
+    # disk encryption counted in full. A container stuck in a restart loop is the
+    # failing service the failed-unit factor scores on a host without containers.
+    # ECC is not here on purpose: the reliability score weighs it (see above).
+    'security_updates': 3,     # per update the distribution calls a security fix
+    'mac_protection_off': 6,   # per macOS protection off (Gatekeeper, SIP)
+    'win_protection_off': 5,   # per Windows protection off (stale Defender signatures, tamper protection, UAC)
+    'container_crashloop': 4,  # per container with an open restart-loop alert
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
@@ -53563,7 +53575,10 @@ _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               # checks is in trouble, but not forty times a host with one.
               'files_quarantined': 24, 'timer_failed': 12,
               'custom_check_failed': 20,
-              'brute_force': 12, 'known_attacker': 24}
+              'brute_force': 12, 'known_attacker': 24,
+              # v7.5.0
+              'security_updates': 18, 'mac_protection_off': 12,
+              'win_protection_off': 15, 'container_crashloop': 12}
 # states (substring match) that mean a storage pool / RAID array is unhealthy
 _RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
                      'suspended', 'error', 'fail')
@@ -53608,7 +53623,8 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                  cve_ignore=None, exposure_mutes=None, pkg_entry=None, weights=None,
                  av_rec=None, img_rec=None, backup_stale=None, secrets_rec=None,
                  patch_sla_breach=None, drift_rec=None, custom_defs=None,
-                 checks_disabled=None, bf_rows=None, intel_rec=None, cve_fixable_only=None):
+                 checks_disabled=None, bf_rows=None, intel_rec=None, cve_fixable_only=None,
+                 cont_rec=None):
     si = dev.get('sysinfo') or {}
     hw_rec = hw_rec or {}
     # v6.2.2 batch 4: operator-configurable per-factor weights. Hoisted by the
@@ -53662,6 +53678,13 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         up = 0
     if up:
         _add('pending_updates', min(_RISK_CAPS['pending_updates'], up * w['pending_updates']), f'{plural(up, "pending update", "pending updates")}')
+    # v7.5.0: the part of the pending count the distribution itself calls a
+    # security fix, scored on top of it. None (no package scan, or a package
+    # manager that does not flag them) scores nothing, like any absent signal.
+    _sec = (si.get('packages') or {}).get('security_updates')
+    if isinstance(_sec, int) and not isinstance(_sec, bool) and _sec > 0:
+        _add('security_updates', min(_RISK_CAPS['security_updates'], _sec * w['security_updates']),
+             f'{plural(_sec, "security update", "security updates")} waiting')
     # v3.13.0: don't count world-reachable sockets the operator has muted on the
     # Exposure page (surgical mute, or a host-level mute).
     world = sum(1 for p in (si.get('listening_ports') or [])
@@ -53727,12 +53750,41 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                 and str(v.get('status', '')).lower() not in ('on', 'encrypted')
                 for v in bl):
             _add('encryption_off', w['encryption_off'], 'BitLocker off on an OS volume')
+        # v7.5.0: the three Windows protections that were a Checks row and scored
+        # nowhere. Tri-state, as every posture value is: only an explicit False (or
+        # an age past the limit) scores. The signature limit is the one the
+        # win_defender_stale alert and the Checks row use, so the three agree.
+        _win_off = []
+        _wage = wp.get('defender_sig_age_days')
+        try:
+            _wlimit = int(_config_ro().get('av_sig_stale_days', 7))
+        except (TypeError, ValueError, OverflowError):
+            _wlimit = 7
+        if isinstance(_wage, (int, float)) and not isinstance(_wage, bool) and _wage >= _wlimit:
+            _win_off.append(f'Defender signatures {int(_wage)} days old')
+        if wp.get('tamper_protection') is False:
+            _win_off.append('Defender tamper protection off')
+        if wp.get('uac_enabled') is False:
+            _win_off.append('User Account Control off')
+        if _win_off:
+            _add('win_protection_off',
+                 min(_RISK_CAPS['win_protection_off'], len(_win_off) * w['win_protection_off']),
+                 '; '.join(_win_off))
     mp = si.get('mac_posture')
     if isinstance(mp, dict):
         if 'firewall' in mp and not mp.get('firewall'):
             _add('firewall_off', w['firewall_off'], 'macOS application firewall off')
         if 'filevault' in mp and not mp.get('filevault'):
             _add('encryption_off', w['encryption_off'], 'FileVault off (disk not encrypted)')
+        # v7.5.0: Gatekeeper and System Integrity Protection, the two Mac
+        # protections that were a Checks row and an alert and scored nowhere.
+        _mac_off = [lab for key, lab in (('gatekeeper', 'Gatekeeper is off'),
+                                         ('sip', 'System Integrity Protection is disabled'))
+                    if mp.get(key) is False]
+        if _mac_off:
+            _add('mac_protection_off',
+                 min(_RISK_CAPS['mac_protection_off'], len(_mac_off) * w['mac_protection_off']),
+                 '; '.join(_mac_off))
     # v6.4.3: Linux dm-crypt/LUKS, the third of the three and the one that was
     # missing. Compliance started scoring it earlier in this release; the risk
     # score did not, so an unencrypted Linux root contributed ZERO to a host's
@@ -53897,6 +53949,16 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
              min(_RISK_CAPS['image_cves'],
                  (_ic * w['image_cves']) + (_ih * max(1, w['image_cves'] // 2))),
              f'{_ic} critical / {plural(_ih, "high CVE", "high CVEs")} in running container images')
+
+    # v7.5.0: containers in a restart loop. The names are the ones under an open
+    # container_restarting alert (the ingest stores them with the report), so the
+    # score, the alert and the Containers page agree on what a restart loop is.
+    _loop = cont_rec.get('restarting_alerted') if isinstance(cont_rec, dict) else None
+    _loop = [str(n) for n in _loop if n] if isinstance(_loop, list) else []
+    if _loop:
+        _add('container_crashloop',
+             min(_RISK_CAPS['container_crashloop'], len(_loop) * w['container_crashloop']),
+             f'{plural(len(_loop), "container", "containers")} in a restart loop ({", ".join(_loop[:3])})')
 
     # Backup freshness. Keyed `<device>:<path>`, so filter to this host.
     if backup_stale:
@@ -54522,6 +54584,7 @@ def _compute_fleet_risk():
     av = (load(AV_FILE) or {}) if backend_exists(AV_FILE) else {}
     imgs = (load(IMAGE_CVE_FILE) or {}) if backend_exists(IMAGE_CVE_FILE) else {}
     secrets = (load(SECRETS_FILE) or {}) if backend_exists(SECRETS_FILE) else {}
+    conts = (_load_ro(CONTAINERS_FILE) or {}) if backend_exists(CONTAINERS_FILE) else {}   # v7.5.0: read-only, nothing mutates it here
     now = int(time.time())
     try:
         ttl = get_online_ttl()
@@ -54593,7 +54656,8 @@ def _compute_fleet_risk():
                                                     now - _bf_window, _bf_thresh)
                                          if _bf_store else None),
                                 intel_rec=_intel.get(dev_id),
-                                cve_fixable_only=_cve_count_only))
+                                cve_fixable_only=_cve_count_only,
+                                cont_rec=conts.get(dev_id) or {}))
     out.sort(key=lambda r: -r['score'])
     return out
 
