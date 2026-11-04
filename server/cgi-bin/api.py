@@ -48537,16 +48537,46 @@ def _build_runbook_snapshot(dev_id, devices):
         'mac':            dev.get('mac'),
         'sysinfo':        si,
         'services':       services,
+        # 7.5.0: the container row holds `status` ("Up 2 hours (unhealthy)"); `state` is not a field of it, so this was null for every
+        # container. The health is kept apart, because a container that is up and failing its own check is the usual reason to ask.
         'containers':     [{
             'name':    c.get('name'),
             'image':   c.get('image'),
-            'state':   c.get('state'),
+            'state':   c.get('status') or c.get('state'),
+            'health':  c.get('health') or None,
         } for c in containers],
+        # 7.5.0: what the host itself says is wrong, from the sysinfo the agent sends. The snapshot had the load and the mounts and none
+        # of the flags the Checks page and the alerts are built on.
+        'problems':       _runbook_problems(si_full),
         'recent_commands': recent_cmds,
         'recent_journal':  journal,
         'cve_findings':   cve_findings,
         'patch_status':   patches,
     }
+
+
+def _runbook_problems(si):
+    """Short plain statements of what a host's sysinfo says is wrong, for the runbook snapshot: [] when nothing is."""
+    si = si if isinstance(si, dict) else {}
+    out = []
+    if si.get('reboot_required'):
+        out.append('a reboot is required')
+    fu = si.get('failed_units')
+    if isinstance(fu, list) and fu:
+        out.append('failed systemd units: ' + ', '.join(str(u.get('unit') if isinstance(u, dict) else u)[:60] for u in fu[:5]))
+    mi = si.get('mount_issues')
+    if mi:
+        out.append(f'{plural(len(mi) if isinstance(mi, list) else 1, "mount problem", "mount problems")}')
+    gw = si.get('gateway')
+    if isinstance(gw, dict) and gw.get('reachable') is False:
+        out.append('the default gateway does not answer')
+    oom = si.get('last_oom_ts')
+    if isinstance(oom, (int, float)) and not isinstance(oom, bool) and time.time() - oom < 86400:
+        out.append('the kernel killed a process for lack of memory in the last 24 hours')
+    clk = si.get('clock')
+    if isinstance(clk, dict) and clk.get('skewed'):
+        out.append('the clock is off by more than the limit')
+    return out
 
 
 def handle_runbook_get(dev_id):
@@ -78079,9 +78109,12 @@ def _iac_collect_server_side(dev_id, dev, requested):
             'tags':       dev.get('tags', []),
             'icon':       dev.get('icon'),
             'poll_interval': dev.get('poll_interval'),
-            'watched_services': dev.get('watched_services', []),
-            'drift_files':      dev.get('drift_files', []),
-            'cmd_allowlist':    dev.get('cmd_allowlist', []),
+            # 7.5.0: the names the host record stores. The update endpoint takes watched_services and cmd_allowlist and keeps them as
+            # services_watched and allowed_commands (and the watched files as watched_files); this read the request names, so the
+            # export always listed no watched unit, no watched file and no allowed command.
+            'watched_services': dev.get('services_watched', []),
+            'drift_files':      dev.get('watched_files', []),
+            'cmd_allowlist':    dev.get('allowed_commands', []),
             'custom_scripts':   assigned,
             'host_config_desired': dev.get('host_config_desired'),
         }

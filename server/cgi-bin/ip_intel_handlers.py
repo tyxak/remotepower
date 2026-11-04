@@ -490,8 +490,16 @@ def _protected_networks(pol, devices):
             for k in ('ip', 'public_ip', 'wan_ip'):
                 if dev.get(k):
                     own.append(dev[k])
-            for a in ((dev.get('sysinfo') or {}).get('ip_addresses') or [])[:32]:
-                own.append(a if isinstance(a, str) else (a or {}).get('address'))
+            # 7.5.0: the addresses the agent really sends. This read `sysinfo.ip_addresses`, which no agent has ever sent, so a host's
+            # other addresses (a second NIC, an IPv6 address, a public one) could be blocked by the host's own blocklist. The list of
+            # every address (host_addresses) and the interface list both count.
+            si = dev.get('sysinfo') if isinstance(dev.get('sysinfo'), dict) else {}
+            addrs, nics = si.get('host_addresses'), si.get('network')
+            for a in (addrs if isinstance(addrs, list) else [])[:64]:
+                own.append(a if isinstance(a, str) else (a.get('address') if isinstance(a, dict) else None))
+            for n in (nics if isinstance(nics, list) else [])[:20]:
+                if isinstance(n, dict):
+                    own.append(n.get('ip'))
     cutoff = int(time.time()) - 30 * 86400
     try:
         for e in ((A._load_ro(A.AUDIT_LOG_FILE) or {}).get('entries') or [])[-5000:]:

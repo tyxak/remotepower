@@ -327,16 +327,17 @@ def _triage_tools(dev_id, dev, alert=None):
         return '\n'.join(A._redact_log_line(l) for l in lines) or '(journal empty)'
 
     def _services(args):
-        svcs = dev.get('services') or []
-        if not svcs:
-            return '(no watched services)'
+        # 7.5.0: the state each unit is in now (services.json, what the Services page reads). dev['services'] is the configured name
+        # list, so a host with four stored states answered "(no watched services)" and a failed unit was never in the evidence.
+        stored = ((A._load_ro(A.SERVICES_FILE) or {}).get(dev_id) or {}).get('services')
         out = []
-        for s in svcs[:40]:
-            if isinstance(s, dict):
-                out.append(f"{s.get('name', '?')}: {s.get('status', s.get('active', '?'))}")
-            else:
-                out.append(str(s))
-        return '\n'.join(out)
+        for s in (stored if isinstance(stored, list) else [])[:40]:
+            if isinstance(s, dict) and s.get('unit'):
+                out.append(f"{s['unit']}: {s.get('active', '?')}" + (f" ({s['sub']})" if s.get('sub') else ''))
+        if not out:
+            for s in (dev.get('services_watched') or dev.get('services') or [])[:40]:
+                out.append(f"{s.get('name', '?')}: {s.get('status', s.get('active', '?'))}" if isinstance(s, dict) else f"{s}: no state reported yet")
+        return '\n'.join(out) or '(no watched services)'
 
     def _open_alerts(args):
         alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
