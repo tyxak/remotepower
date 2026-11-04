@@ -8604,3 +8604,159 @@ td > .btn-icon + .btn-icon { margin-left: 0; margin-inline-start: 6px; }
 .tp-ranges { flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .tp-range { display: flex; align-items: center; gap: 6px; }
 .tp-range .form-input { width: 110px; }
+
+/* ═══ PILOT LOOK (7.4.9) ═══ BEGIN ═════════════════════════════════════════════════════════════════════════════════════════════════
+   The second look, chosen under My Account → Appearance (body[data-look]). Classic is the stylesheet above this block, unchanged:
+   every selector below starts with body[data-look="pilot"], so nothing here can reach it (tests/test_v749_look_css.py holds that).
+
+   Pilot is structure, not palette. It never sets a palette colour: the neutrals, the status colours and the inks come from the
+   theme in use (Pilot dark and Pilot paper by default, any other theme the person picks), so a theme and an accent keep working.
+   What it changes is how things are drawn: status is a lit dot and a plain word instead of a tinted, outlined pill; panels sit flat
+   on the page without a header band; the home tiles join into one panel; the home hero reads the fleet as a field of dots.
+
+   Effects: --glow-a is the strength of every glow and --tex-a of the dot texture. "Reduced effects" (body[data-fx="reduced"]) sets
+   both to nothing; no colour changes.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+body[data-look="pilot"] { --glow-a: 55%; --tex-a: 50%; --dm-off: .10; }
+body[data-look="pilot"].light { --dm-off: .14; }
+body[data-look="pilot"][data-fx="reduced"] { --glow-a: 0%; --tex-a: 0%; }
+
+/* the rail: the active page is a lit bar, not a tinted row */
+body[data-look="pilot"] .nav-btn.active { background: var(--hair-2); }
+body[data-look="pilot"] .nav-btn.active::before { left: -8px; width: 3px; border-radius: 0 3px 3px 0; box-shadow: 0 0 10px 1px color-mix(in srgb, var(--accent) var(--glow-a), transparent); }
+
+/* lights: a status dot glows in its own colour (static, nothing moves) */
+body[data-look="pilot"] .status-dot { --led: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--led) 16%, transparent), 0 0 9px color-mix(in srgb, var(--led) var(--glow-a), transparent); }
+body[data-look="pilot"] .status-dot.offline { --led: var(--red); }
+
+/* severity and kind: a light and a plain word, without the outline and the tint */
+body[data-look="pilot"] .sev-pill,
+body[data-look="pilot"] .sev-pill[class*="sev-"],
+body[data-look="pilot"] .up-kind,
+body[data-look="pilot"] #page-home .patch-badge {
+  --led: var(--muted);
+  display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; border-radius: 0; background: transparent;
+  color: var(--text); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: capitalize;
+}
+body[data-look="pilot"] .sev-pill::before,
+body[data-look="pilot"] .up-kind::before,
+body[data-look="pilot"] #page-home .patch-badge::before {
+  content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--led);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--led) 18%, transparent), 0 0 8px color-mix(in srgb, var(--led) var(--glow-a), transparent);
+}
+body[data-look="pilot"] .sev-pill.sev-critical { --led: var(--red); }
+body[data-look="pilot"] .sev-pill.sev-high { --led: var(--orange); }
+body[data-look="pilot"] .sev-pill.sev-medium { --led: var(--amber); }
+body[data-look="pilot"] .sev-pill.sev-low { --led: var(--muted); }
+body[data-look="pilot"] .sev-pill.sev-success { --led: var(--green); }
+body[data-look="pilot"] .sev-pill.sev-info { --led: var(--accent); }
+body[data-look="pilot"] .up-kind.up-maintenance { --led: var(--amber); }
+body[data-look="pilot"] .up-kind.up-job { --led: var(--accent); }
+body[data-look="pilot"] #page-home .patch-badge.ok { --led: var(--green); }
+body[data-look="pilot"] #page-home .patch-badge.warn { --led: var(--amber); }
+body[data-look="pilot"] #page-home .patch-badge.crit { --led: var(--red); }
+body[data-look="pilot"] .group-badge { padding: 0; border: 0; background: transparent; color: var(--muted); font-family: var(--font-mono); }
+
+/* panels sit flat on the page: the title is a heading on the surface, without a band of its own */
+body[data-look="pilot"] .dash-card > .section-title:first-child,
+body[data-look="pilot"] .dash-card > .section-header:first-child,
+body[data-look="pilot"] .dash-card > .row-8-center:first-child,
+body[data-look="pilot"] .dash-card > .ai-tool-head:first-child,
+body[data-look="pilot"] .dash-card > .drift-prof-head:first-child {
+  background: transparent; border-bottom: 0; border-radius: 0; margin: 0 0 12px; padding: 0;
+}
+body[data-look="pilot"] .settings-section > .section-title:first-child,
+body[data-look="pilot"] .settings-section > .section-header:first-child,
+body[data-look="pilot"] .settings-section > .row-8-center:first-child,
+body[data-look="pilot"] .settings-section > .ai-tool-head:first-child {
+  background: transparent; border-bottom: 0; border-radius: 0; margin: 0 0 10px; padding: 0;
+}
+
+/* the summary cards lose the tinted icon and the gradient; a number is a number */
+body[data-look="pilot"] .stat-card .stat-icon { display: none; }
+body[data-look="pilot"] .stat-value,
+body[data-look="pilot"] .tile-value { font-family: var(--font-mono); font-weight: 500; letter-spacing: -.02em; }
+body[data-look="pilot"] #home-tiles .tile,
+body[data-look="pilot"] #home-tiles .tile.ok,
+body[data-look="pilot"] #home-tiles .tile.warn,
+body[data-look="pilot"] #home-tiles .tile.alert { background: var(--surface); border: 1px solid var(--hair); border-radius: 12px; transform: none; }
+body[data-look="pilot"] #home-tiles .tile:hover { background: var(--surface); border-color: var(--hair); box-shadow: none; transform: none; }
+body[data-look="pilot"] #home-tiles .tile-ic { display: none; }
+body[data-look="pilot"] #home-tiles .tile-label { display: flex; align-items: center; gap: 8px; padding: 0; margin-bottom: 12px; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 400; }
+body[data-look="pilot"] #home-tiles .tile-label::before {
+  content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--led, var(--muted));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--led, var(--muted)) 16%, transparent), 0 0 9px color-mix(in srgb, var(--led, var(--muted)) var(--glow-a), transparent);
+}
+body[data-look="pilot"] #home-tiles .tile.ok { --led: var(--green); }
+body[data-look="pilot"] #home-tiles .tile.warn { --led: var(--amber); }
+body[data-look="pilot"] #home-tiles .tile.alert { --led: var(--red); }
+/* the hero already says how many hosts are online, so its tile steps aside once the hero is there */
+body[data-look="pilot"] #home-hero.is-ready ~ #home-tiles .tile[data-arg="devices"] { display: none; }
+/* on a wide page the tiles join into one panel: one-pixel gaps show the panel's own colour as the dividing lines */
+@media (min-width: 901px) {
+  body[data-look="pilot"] #home-tiles { grid-auto-flow: column; grid-auto-columns: 1fr; grid-template-columns: none; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  body[data-look="pilot"] #home-tiles .tile,
+  body[data-look="pilot"] #home-tiles .tile.ok,
+  body[data-look="pilot"] #home-tiles .tile.warn,
+  body[data-look="pilot"] #home-tiles .tile.alert { border: 0; border-radius: 0; padding: 18px 22px 16px; }
+}
+
+/* the hosts page: the proportion bar reads as a row of segments */
+body[data-look="pilot"] .stat-propbar { -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 7px, transparent 7px 9px); mask-image: repeating-linear-gradient(90deg, #000 0 7px, transparent 7px 9px); }
+
+/* the heat map cells are lights too (their colour is set from the data, so they get the shape and no glow) */
+body[data-look="pilot"] .heatmap-cell { border-radius: 50%; opacity: 1; }
+
+/* the primary button gets a warm under-glow */
+body[data-look="pilot"] .btn-primary { box-shadow: 0 8px 18px -10px color-mix(in srgb, var(--accent) var(--glow-a), transparent); }
+body[data-look="pilot"] .btn-primary:hover { box-shadow: 0 10px 22px -10px color-mix(in srgb, var(--accent) var(--glow-a), transparent); }
+
+/* the advisor is an ordinary control, not an effect: no glow behind the button, no sparkles while it thinks */
+body[data-look="pilot"] .ai-btn.available::after,
+body[data-look="pilot"] .ai-btn.local::after { display: none; }
+body[data-look="pilot"] .ai-thinking .sparkle { width: 6px; height: 6px; border-radius: 50%; background: currentColor; text-indent: 100%; white-space: nowrap; overflow: hidden; }
+body[data-look="pilot"] .ai-content::before { background: var(--hair); }
+
+/* the home hero: the number of hosts online as a dot-matrix readout, and the fleet as a field of lights */
+body[data-look="pilot"] .pilot-hero { position: relative; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 34px; align-items: stretch; padding: 24px 30px 22px; margin: 0 0 14px; border: 1px solid var(--hair); border-radius: 12px; background: var(--surface); overflow: hidden; }
+body[data-look="pilot"] .pilot-hero::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(color-mix(in srgb, var(--text) 16%, transparent) 1px, transparent 1.4px); background-size: 14px 14px;
+  -webkit-mask-image: linear-gradient(100deg, transparent 45%, #000 100%); mask-image: linear-gradient(100deg, transparent 45%, #000 100%);
+  opacity: var(--tex-a);
+}
+body[data-look="pilot"] .pilot-hero > * { position: relative; }
+body[data-look="pilot"] .pilot-eyebrow { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+body[data-look="pilot"] .pilot-readout { display: flex; flex-direction: column; justify-content: space-between; gap: 14px; padding-inline-end: 30px; border-inline-end: 1px solid var(--hair); text-align: start; }
+body[data-look="pilot"] .pilot-num { height: 68px; }
+body[data-look="pilot"] .pilot-num .dm { display: block; height: 100%; width: auto; overflow: visible; }
+body[data-look="pilot"] .pilot-num .dm .on { fill: currentColor; filter: drop-shadow(0 0 4px color-mix(in srgb, currentColor var(--glow-a), transparent)); }
+body[data-look="pilot"] .pilot-num .dm .off { fill: currentColor; opacity: var(--dm-off); }
+body[data-look="pilot"] .pilot-num.is-ok { color: var(--green-ink); }
+body[data-look="pilot"] .pilot-num.is-warn { color: var(--amber-ink); }
+body[data-look="pilot"] .pilot-num.is-crit { color: var(--red-ink); }
+body[data-look="pilot"] .pilot-cap { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+body[data-look="pilot"] .pilot-field { display: flex; flex-direction: column; justify-content: space-between; gap: 18px; min-width: 0; }
+body[data-look="pilot"] .pilot-matrix { display: flex; flex-wrap: wrap; gap: 16px 30px; align-items: flex-start; max-height: 340px; overflow: auto; }
+body[data-look="pilot"] .pilot-cluster { display: flex; flex-direction: column; gap: 9px; }
+body[data-look="pilot"] .pilot-row { display: flex; flex-wrap: wrap; gap: 8px; }
+body[data-look="pilot"] .pilot-glabel { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+body[data-look="pilot"] .pilot-legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 11px; color: var(--muted); }
+body[data-look="pilot"] .pilot-key { display: inline-flex; align-items: center; gap: 7px; }
+body[data-look="pilot"] .pilot-dot { --c: var(--green); display: inline-block; flex: none; width: 19px; height: 19px; padding: 0; border: 0; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent), 0 0 10px color-mix(in srgb, var(--c) var(--glow-a), transparent); cursor: pointer; }
+body[data-look="pilot"] .pilot-key .pilot-dot { width: 8px; height: 8px; cursor: default; box-shadow: 0 0 6px color-mix(in srgb, var(--c) var(--glow-a), transparent); }
+body[data-look="pilot"] .pilot-matrix.is-md .pilot-dot { width: 14px; height: 14px; }
+body[data-look="pilot"] .pilot-matrix.is-sm .pilot-dot { width: 9px; height: 9px; box-shadow: none; }
+body[data-look="pilot"] .pilot-matrix.is-md .pilot-row { gap: 5px; }
+body[data-look="pilot"] .pilot-matrix.is-sm .pilot-row { gap: 3px; }
+body[data-look="pilot"] .pilot-matrix.is-md, body[data-look="pilot"] .pilot-matrix.is-sm { gap: 8px 14px; }
+body[data-look="pilot"] .pilot-dot.is-warn { --c: var(--amber); }
+body[data-look="pilot"] .pilot-dot.is-crit { --c: var(--red); }
+body[data-look="pilot"] .pilot-dot.is-none { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); opacity: .6; }
+@media (max-width: 760px) {
+  body[data-look="pilot"] .pilot-hero { grid-template-columns: 1fr; gap: 18px; padding: 18px; }
+  body[data-look="pilot"] .pilot-readout { flex-direction: row; align-items: center; justify-content: space-between; padding-inline-end: 0; border-inline-end: 0; padding-block-end: 16px; border-block-end: 1px solid var(--hair); }
+  body[data-look="pilot"] .pilot-num { height: 52px; }
+  body[data-look="pilot"] .pilot-matrix { gap: 12px 20px; }
+}
+/* ═══ PILOT LOOK (7.4.9) ═══ END ═══════════════════════════════════════════════════════════════════════════════════════════════════ */
