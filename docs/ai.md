@@ -31,9 +31,15 @@ reply). openclaw is driven over its control WebSocket (JSON-RPC `connect` and
 `chat.send`). Both are best-effort. Point the **Base URL** at your running instance
 (`http://localhost:4096` and `ws://localhost:18789` by default), supply a token only if
 the instance asks for one, and set the **Model** to `providerID/modelID` to route
-opencode's own backend. The same connect-time SSRF guard that protects every other
-outbound call applies, so private and loopback peers are blocked unless you opt into
-insecure mode.
+opencode's own backend. The connect-time SSRF guard that protects every other outbound
+call applies to every provider. It refuses link-local, cloud-metadata and other special
+addresses for all of them. It also refuses loopback addresses (`127.0.0.1`, `::1`, so
+also `localhost`) for the cloud providers, which have no reason to be there, and allows
+them for the four providers you run yourself (Ollama, LocalAI, opencode and openclaw), so
+a model server on the same machine as RemotePower works at its default address *(7.5.0;
+before this a local server was refused until you sent `{"insecure_ssl": true}` to
+`POST /api/ai/config`)*. That flag is still there for a cloud-style provider on a private
+address, and it also turns off certificate checking for the provider's HTTPS address.
 
 The adapter redacts hostnames, IP addresses and secret-shaped strings before the bytes
 leave the Python process (see [Privacy toggles](#privacy-toggles)). It cannot stop a
@@ -129,9 +135,11 @@ line, then one line per host with its name, OS, package manager, online state, g
 your own notes.
 
 A host also names its **notable conditions**: high CPU, memory or disk, a pending
-reboot, failed units, mount problems, an inactive host firewall, unencrypted disks, an
-unsynchronised clock, quarantined files, or the agent's own "my metrics are limited"
-signal. Two things about that:
+reboot, pending security updates, failed units, mount problems, uncorrectable memory
+errors, an unreachable gateway, an inactive host firewall, unencrypted disks, an
+unsynchronised clock, quarantined files, an active brute-force attack, known-abusive
+sources that are not blocked, or the agent's own "my metrics are limited" signal. Two
+things about that:
 
 - **A healthy host adds nothing.** Conditions appear only when they cross the same
   thresholds the product already alerts on, so a fleet that is fine costs no extra
@@ -238,11 +246,13 @@ Endpoints: `POST /api/devices/{id}/log-sweep/run` (admin),
 ## Agentic alert triage
 
 The alert inbox's **Triage** action (`POST /api/alerts/{id}/ai-triage`) runs a bounded
-investigation. The model asks for evidence through a fixed menu of **read-only,
+investigation. The model asks for evidence through a fixed menu of ten **read-only,
 host-scoped tools**: a host summary, the journal tail, watched services, the host's other
-open alerts, recent command output, a regex search over the six-hour log buffer, and the
-latest log sweep. Each round it answers in strict JSON with one tool call or a final
-verdict. It gets at most 4 tool calls, and every result is clipped and secret-redacted.
+open alerts, recent command output, a regex search over the six-hour log buffer, the
+latest log sweep, the host's open CVE findings, a recent CPU, memory, swap and disk
+trend, and how the fleet resolved similar past incidents. Each round it answers in
+strict JSON with one tool call or a final verdict. It gets at most 4 tool calls, and
+every result is clipped and secret-redacted.
 
 The verdict holds a root cause, a confidence, evidence lines, a recommended action and,
 when the evidence suggests an adversary, **proof-labelled MITRE ATT&CK techniques**

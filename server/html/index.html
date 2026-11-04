@@ -5186,7 +5186,7 @@
           <details class="doc-card" data-keywords="scan packages now force inventory cve patch refresh">
             <summary><strong>Scan packages now</strong> — on-demand inventory</summary>
             <div class="doc-body">
-              <p>The agent submits its full package inventory (used for CVE scanning) and the patch/upgradable count only every few hours. Right after you patch a host, use the <strong>"Scan packages now"</strong> item in the host action menu to get a fresh report sooner.</p>
+              <p>The agent submits its full package inventory (used for CVE scanning) and the patch/upgradable count only every few hours. Right after you patch a host, open it and use <strong>Scan packages</strong> under <strong>Actions &amp; settings</strong> to get a fresh report sooner.</p>
               <p>It sets a one-shot request; the host sends a fresh package list and patch count within a heartbeat or two — typically a minute or two, not instantly. The agent must be running 2.4.5 or newer to act on it.</p>
             </div>
           </details>
@@ -6013,7 +6013,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="backup scheduled tarball restore retention disaster recovery clear export">
             <summary><strong>Scheduled backup</strong> — daily snapshot of <code>/var/lib/remotepower</code></summary>
             <div class="doc-body">
-              <p>Daily gzipped tarball, 14-day retention (both configurable in <strong>Settings → Advanced → Scheduled backup</strong>). Triggered via the heartbeat hook with a 24h sentinel and stale-lock recovery.</p>
+              <p>Daily gzipped tarball, 14-day retention (both configurable in <strong>Settings → Backups → Scheduled backup</strong>). Triggered via the heartbeat hook with a 24h sentinel and stale-lock recovery.</p>
               <p><strong>Manual triggers (Server Status page):</strong></p>
               <ul>
                 <li><strong>Run backup now</strong> — immediately snapshots <code>/var/lib/remotepower</code> regardless of the 24h cadence.</li>

@@ -34967,10 +34967,17 @@ def handle_user_passwd():
     if username == requester:
         _clear_login_failures(username, 'reauth')
 
-    # Invalidate all existing sessions for this user on password change
-    tokens = load(TOKENS_FILE)
-    tokens = {k: v for k, v in tokens.items() if v.get('user') != username}
-    save(TOKENS_FILE, tokens)
+    # Sign the account out of its sessions on a password change. 7.5.0: a person who changes their OWN password keeps the session they
+    # did it in, which is what the page says ("signs out every other session"), what the guide says, and what the page assumes (it
+    # toasts "Password updated" and carries on; the old code removed that session too and the next request sent them to the sign-in
+    # page). An administrator who resets somebody else's password signs that account out of everything. Under the tokens' lock, as
+    # the revoke-others endpoint is, and tolerant of a row that is not a map.
+    keep = _session_id(get_token_from_request() or '')        # only ever matches a session of the account being changed if that is the caller's
+    with _LockedUpdate(TOKENS_FILE) as tokens:
+        for tok in list(tokens.keys()):
+            e = tokens.get(tok)
+            if isinstance(e, dict) and e.get('user') == username and _key_session_id(tok) != keep:
+                del tokens[tok]
 
     respond(200, {'ok': True})
 
@@ -45535,7 +45542,7 @@ def handle_ai_config_set():
     if _bu:
         _prov = (body.get('provider')
                  or ((load(CONFIG_FILE) or {}).get('ai') or {}).get('provider') or '')
-        _local_ai = _prov in ('ollama', 'localai')
+        _local_ai = _prov in ai_provider.LOCAL_PROVIDERS      # 7.5.0: the same set the connect-time guard relaxes for
         try:
             if _url_targets_local_or_meta(urllib.parse.urlparse(_bu),
                                           allow_loopback=_local_ai):

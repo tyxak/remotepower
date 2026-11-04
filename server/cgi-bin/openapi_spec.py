@@ -1059,6 +1059,46 @@ def _stub_operations(paths: dict[str, Any], routes: list[tuple[str, str]] | None
             op[m]["parameters"] = params
 
 
+def _path_method_in_handler() -> dict[str, Any]:
+    """7.5.0: the six routes whose handler enforces the method itself, so the dispatcher reconstruction (which needs an explicit
+    `m == '<VERB>'` in the branch) and the stub pass skipped them. The methods and the gates are what each handler enforces:
+    enrol PIN (admin, POST), patch snapshots and network-scan schedules (list for any signed-in user, create for an admin), the
+    caller's avatar (read, upload, remove), the software policy (read for any signed-in user, save for an admin) and Wake-on-LAN
+    (admin, POST)."""
+    _ok = {"200": {"description": "Success"}, "401": {"$ref": "#/components/responses/Unauthorized"}}
+    _admin = {**_ok, "403": {"description": "Admin role required."}}
+
+    def op(tag: str, summary: str, description: str, responses: dict[str, Any]) -> dict[str, Any]:
+        return {"tags": [tag], "summary": summary, "description": description, "responses": responses}
+
+    return {
+        "/enroll/pin": {"post": op("Agents", "Generate an enrollment PIN",
+                                   "Mints a six-digit PIN that a host exchanges for its credentials when it enrolls. It expires after "
+                                   "a few minutes; the response carries `pin` and `expires`. Admin only.", _admin)},
+        "/patch-snapshots": {
+            "get": op("Patches", "List patch snapshots",
+                      "The named snapshots of the fleet's package state, newest first (metadata only).", _ok),
+            "post": op("Patches", "Create a patch snapshot",
+                       "Body `{name}`. Freezes the fleet's current package state into a new named snapshot. Admin only.", _admin)},
+        "/netscan-schedules": {
+            "get": op("Network", "List network-scan schedules",
+                      "The scheduled network scans of the hosts the caller can see: host, subnet, interval, last run.", _ok),
+            "post": op("Network", "Create a network-scan schedule",
+                       "Body `{device_id, subnet, interval_minutes}`: the host that scans, the subnet in CIDR form, and the interval "
+                       "in minutes (15 to 10080). Admin only.", _admin)},
+        "/me/avatar": {
+            "get": op("Account", "Read your avatar", "The image of the signed-in account, or 404 when it has none.", _ok),
+            "post": op("Account", "Upload your avatar", "Sets the image of the signed-in account.", _ok),
+            "delete": op("Account", "Remove your avatar", "Removes the image of the signed-in account.", _ok)},
+        "/software-policy": {
+            "get": op("Compliance", "Read the software policy", "The ruleset every host's installed software is judged against.", _ok),
+            "post": op("Compliance", "Save the software policy", "Replaces the ruleset. Admin only.", _admin)},
+        "/wol": {"post": op("Hosts", "Send a Wake-on-LAN packet",
+                            "Body `{device_id}`. Wakes the host using the MAC address RemotePower holds for it; 400 when it has none. "
+                            "Admin only.", _admin)},
+    }
+
+
 def _path_virt() -> dict[str, Any]:
     """v5.6.0: virtualization lifecycle across Proxmox/vSphere/OpenShift/vCloud."""
     _id = {
@@ -1392,6 +1432,7 @@ def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None)
     paths.update(_path_virt())
     paths.update(_path_ingest())
     paths.update(_path_identity())
+    paths.update(_path_method_in_handler())
     _stub_operations(paths, routes)
 
     return {

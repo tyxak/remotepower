@@ -1,11 +1,11 @@
 # API reference
 
 > **This page is a curated tour of the most-used endpoints, not the full surface.**
-> RemotePower exposes **728 paths**. The complete, always-current reference is
+> RemotePower exposes **775 paths**. The complete, always-current reference is
 > generated from the live route table — browse it interactively at
 > **`/swagger.html`**, or fetch the OpenAPI 3.1 document at
-> **`/api/openapi.json`**. Anything shipped is in there; this page is hand-written
-> and covers the ~108 you're likely to reach for.
+> **`/api/openapi.json`**. Everything shipped is in there; this page is hand-written
+> and covers the roughly 100 you're likely to reach for.
 
 All authenticated endpoints require: `X-Token: <session_token_or_api_key>`.
 Every route is also reachable under the permanent `/api/v1/...` alias.
@@ -16,7 +16,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
   offending field, before the handler runs.
 - **A disabled module 404s its whole API prefix.** Switching a module off under
   Settings → Advanced → Optional modules (Alerts, Tickets, Billing, Knowledge base,
-  Compliance, Pentest, AI executor, Autonomy) makes every route under its prefix return **404** at the
+  Compliance, Pentest, AI executor, Autonomy, SSH gateway) makes every route under its prefix return **404** at the
   dispatcher — e.g. all of `/api/tickets/*` with Tickets off. The module is
   off, not merely hidden from the sidebar.
 - **Tenant isolation.** Where tenancy is enforced, a host id belonging to another
@@ -93,7 +93,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 ### Users & Auth
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/users` | | List admin users (with role) |
+| `GET` | `/api/users` | | List users (with role, MFA state, sign-in source and last sign-in) |
 | `POST` | `/api/users` | admin | Create user (pass `role` — a built-in role or any custom role you've defined) |
 | `DELETE` | `/api/users/:name` | admin | Delete user |
 | `POST` | `/api/users/passwd` | | Change password |

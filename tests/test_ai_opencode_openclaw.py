@@ -48,7 +48,7 @@ class TestOpencode(unittest.TestCase):
     def test_happy_path(self):
         calls = []
 
-        def fake_post(url, headers, body, timeout=None, insecure_ssl=False):
+        def fake_post(url, headers, body, timeout=None, insecure_ssl=False, **_kw):
             calls.append((url, body, headers))
             if url.endswith('/session'):
                 return 200, {'id': 'ses_1'}
@@ -70,7 +70,7 @@ class TestOpencode(unittest.TestCase):
     def test_basic_auth_header(self):
         seen = {}
 
-        def fake_post(url, headers, body, timeout=None, insecure_ssl=False):
+        def fake_post(url, headers, body, timeout=None, insecure_ssl=False, **_kw):
             seen.update(headers)
             return (200, {'id': 's'}) if url.endswith('/session') else (200, {'text': 'x'})
         orig = ai._http_post_json
@@ -97,7 +97,7 @@ class TestOpenclaw(unittest.TestCase):
     def test_happy_path(self):
         sent = []
 
-        def fake_ws(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
+        def fake_ws(url, messages, timeout=30, insecure_ssl=False, max_frames=200, **_kw):
             sent.extend(messages)
             return [{'id': 2, 'result': {'runId': 'r1', 'status': 'started'}},
                     {'method': 'chat.event', 'params': {'message': {'content': 'hello from openclaw'}}}]

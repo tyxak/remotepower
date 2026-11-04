@@ -79,6 +79,17 @@ PROVIDER_OPENCLAW  = 'openclaw'    # https://openclaw.ai — WebSocket-RPC gatew
 VALID_PROVIDERS = (PROVIDER_OPENAI, PROVIDER_DEEPSEEK, PROVIDER_OLLAMA,
                    PROVIDER_LOCALAI, PROVIDER_ANTHROPIC,
                    PROVIDER_OPENCODE, PROVIDER_OPENCLAW)
+# The providers an operator runs on their own network. Their default addresses are loopback (below), and the save-time check lets
+# their address point there, so the connect-time check has to as well (7.5.0): it refused a loopback peer for every provider unless
+# `insecure_ssl` was set, a switch the Settings page does not have, so a model server on the same machine answered "SSRF guard ...
+# 127.0.0.1 is a blocked address" out of the box. Link-local and cloud-metadata peers stay blocked for every provider.
+LOCAL_PROVIDERS = (PROVIDER_OLLAMA, PROVIDER_LOCALAI, PROVIDER_OPENCODE, PROVIDER_OPENCLAW)
+
+
+def loopback_allowed(cfg):
+    """Whether the connect-time guard lets this provider's peer be a loopback address: a local provider, or `insecure_ssl` set."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    return bool(cfg.get('insecure_ssl')) or cfg.get('provider') in LOCAL_PROVIDERS
 
 # Default endpoint per provider. base_url in cfg overrides.
 DEFAULT_BASE_URLS = {
@@ -151,9 +162,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 # saved cloud base_url is re-resolved on every call — a DNS-rebinding window where
 # the API key could be replayed to 169.254.169.254 / loopback. Guard the peer IP
 # at connect (mirrors proxmox_client._ssrf_opener; cloud calls are HTTPS, so the
-# HTTPS handler is the right chokepoint). Local providers (ollama/localai) use
-# plain HTTP and never hit this; an internal self-signed HTTPS endpoint sets
-# insecure_ssl, which relaxes the loopback block (metadata/link-local stay blocked).
+# HTTPS handler is the right chokepoint). Plain HTTP is guarded the same way since v5.5.0. The loopback block is relaxed for the
+# local providers (LOCAL_PROVIDERS) and by insecure_ssl; metadata and link-local peers stay blocked either way.
 import http.client as _httpclient
 
 
@@ -320,7 +330,7 @@ def validate_messages(messages):
 
 # ── Provider adapters ──────────────────────────────────────────────────────
 
-def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S, insecure_ssl=False):
+def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S, insecure_ssl=False, allow_loopback=None):
     """Pure-stdlib HTTP POST returning (status, parsed-json-or-str).
 
     Distinguished from the rest of api.py's HTTP helpers so we can
@@ -354,7 +364,7 @@ def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S, insecure_ssl=Fal
         # replay the API key (Authorization header) to an attacker-chosen host.
         # Any 3xx becomes an error. (SSRF hardening — set-time pre-flight already
         # blocks the obvious local/metadata targets.)
-        opener = _ssrf_opener(ctx, allow_loopback=insecure_ssl)
+        opener = _ssrf_opener(ctx, allow_loopback=insecure_ssl if allow_loopback is None else allow_loopback)
         with opener.open(req, timeout=timeout) as r:
             return r.status, json.loads(r.read(2 * 1024 * 1024))  # 2 MB cap
     except urllib.error.HTTPError as e:
@@ -437,7 +447,7 @@ def chat_openai_compatible(cfg, messages, system, max_tokens,
     if cfg.get('api_key'):
         headers['Authorization'] = f"Bearer {cfg['api_key']}"
     status, resp = _http_post_json(url, headers, body,
-                                    insecure_ssl=bool(cfg.get('insecure_ssl')))
+                                    insecure_ssl=bool(cfg.get('insecure_ssl')), allow_loopback=loopback_allowed(cfg))
     if status == 200 and isinstance(resp, dict):
         try:
             choice = resp['choices'][0]
@@ -492,7 +502,7 @@ def chat_anthropic(cfg, messages, system, max_tokens, temperature=None, top_p=No
         'anthropic-version': '2023-06-01',
     }
     status, resp = _http_post_json(url, headers, body,
-                                    insecure_ssl=bool(cfg.get('insecure_ssl')))
+                                    insecure_ssl=bool(cfg.get('insecure_ssl')), allow_loopback=loopback_allowed(cfg))
     if status == 200 and isinstance(resp, dict):
         try:
             # content is a list of blocks; first text block is our answer
@@ -574,8 +584,8 @@ def chat_opencode(cfg, messages, system, max_tokens):
         user = cfg.get('username') or 'opencode'
         headers['Authorization'] = 'Basic ' + base64.b64encode(
             f"{user}:{cfg['api_key']}".encode()).decode()
-    insecure = bool(cfg.get('insecure_ssl'))
-    st, sess = _http_post_json(f'{base}/session', headers, {}, insecure_ssl=insecure)
+    insecure, loopback = bool(cfg.get('insecure_ssl')), loopback_allowed(cfg)
+    st, sess = _http_post_json(f'{base}/session', headers, {}, insecure_ssl=insecure, allow_loopback=loopback)
     if st != 200 or not isinstance(sess, dict) or not sess.get('id'):
         return {'ok': False, 'error': f'opencode: could not create session (HTTP {st})'}
     body = {'parts': [{'type': 'text', 'text': _flatten_prompt(messages, system)}]}
@@ -587,7 +597,7 @@ def chat_opencode(cfg, messages, system, max_tokens):
         else:
             body['modelID'] = model
     st, resp = _http_post_json(f"{base}/session/{sess['id']}/message", headers, body,
-                               insecure_ssl=insecure)
+                               insecure_ssl=insecure, allow_loopback=loopback)
     if st == 200:
         text = _extract_text(resp)
         if text:
@@ -617,7 +627,7 @@ def chat_openclaw(cfg, messages, system, max_tokens):
     ]
     try:
         frames = _ws_rpc(url, rpc, timeout=min(HTTP_TIMEOUT_S, 120),
-                         insecure_ssl=bool(cfg.get('insecure_ssl')))
+                         insecure_ssl=bool(cfg.get('insecure_ssl')), allow_loopback=loopback_allowed(cfg))
     except Exception as e:
         return {'ok': False, 'error': f'openclaw: {type(e).__name__}: {e}'}
     # Collect the richest assistant text seen across the reply frames.
@@ -632,7 +642,7 @@ def chat_openclaw(cfg, messages, system, max_tokens):
     return {'ok': False, 'error': 'openclaw: no assistant text received'}
 
 
-def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
+def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200, allow_loopback=None):
     """Minimal stdlib WebSocket JSON-RPC round-trip (RFC 6455 client): connect,
     perform the HTTP Upgrade handshake, send each JSON message as a masked text
     frame, then read text frames until the socket idles past `timeout` or
@@ -643,6 +653,7 @@ def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
     import base64
     import struct
     import socket as _socket
+    loopback_ok = insecure_ssl if allow_loopback is None else allow_loopback
     p = urllib.parse.urlparse(url)
     secure = p.scheme == 'wss'
     host = p.hostname or 'localhost'
@@ -652,7 +663,7 @@ def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
     try:
         addrs = _socket.getaddrinfo(host, port, proto=_socket.IPPROTO_TCP)
         for fam, _t, _pr, _cn, sa in addrs:
-            if _peer_ip_blocked(sa[0], allow_loopback=insecure_ssl):
+            if _peer_ip_blocked(sa[0], allow_loopback=loopback_ok):
                 raise RuntimeError(f'blocked peer {sa[0]}')
     except _socket.gaierror as e:
         raise RuntimeError(f'DNS: {e}')
@@ -663,7 +674,7 @@ def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
         # defeats a DNS rebind that answers a public IP at check time and an
         # internal / cloud-metadata IP at connect time.
         _peer = sock.getpeername()[0]
-        if _peer_ip_blocked(_peer, allow_loopback=insecure_ssl):
+        if _peer_ip_blocked(_peer, allow_loopback=loopback_ok):
             raise RuntimeError(f'blocked peer {_peer} (post-connect)')
         if secure:
             ctx = ssl.create_default_context()
@@ -958,7 +969,7 @@ def embed(cfg, texts, model=None):
     if ecfg.get('api_key'):
         headers['Authorization'] = f"Bearer {ecfg['api_key']}"
     status, resp = _http_post_json(url, headers, {'model': mdl, 'input': safe},
-                                   insecure_ssl=bool(ecfg.get('insecure_ssl')))
+                                   insecure_ssl=bool(ecfg.get('insecure_ssl')), allow_loopback=loopback_allowed(ecfg))
     if status == 200 and isinstance(resp, dict):
         try:
             # OpenAI returns data out of order in theory; sort by index.
@@ -984,7 +995,7 @@ def embed(cfg, texts, model=None):
 # /api/ps, /api/version); LocalAI / OpenAI / DeepSeek speak the
 # OpenAI-compat /v1/models endpoint; Anthropic ships a hardcoded list.
 
-def _http_get_json(url, headers=None, timeout=10, insecure_ssl=False):
+def _http_get_json(url, headers=None, timeout=10, insecure_ssl=False, allow_loopback=None):
     """GET + parse JSON. Same error shape as _http_post_json. Short
     timeout — if /api/tags hangs, the provider has bigger problems.
 
@@ -1004,7 +1015,7 @@ def _http_get_json(url, headers=None, timeout=10, insecure_ssl=False):
         # provider base_url that passed the set-time preflight can't 302 us to
         # loopback / cloud-metadata and replay the Authorization header there.
         # v5.x: also recheck the peer IP at connect (DNS-rebinding window).
-        opener = _ssrf_opener(ctx, allow_loopback=insecure_ssl)
+        opener = _ssrf_opener(ctx, allow_loopback=insecure_ssl if allow_loopback is None else allow_loopback)
         with opener.open(req, timeout=timeout) as r:
             return r.status, json.loads(r.read(2 * 1024 * 1024))
     except urllib.error.HTTPError as e:
@@ -1058,7 +1069,8 @@ def list_models(cfg):
         return {'ok': False, 'error': 'AI is disabled. Configure in Settings → AI assistant.'}
     provider = cfg.get('provider')
     if provider == PROVIDER_OLLAMA:
-        status, resp = _http_get_json(f'{_ollama_root(cfg)}/api/tags')
+        status, resp = _http_get_json(f'{_ollama_root(cfg)}/api/tags', insecure_ssl=bool(cfg.get('insecure_ssl')),
+                                      allow_loopback=loopback_allowed(cfg))
         if status == 200 and isinstance(resp, dict):
             out = []
             for m in resp.get('models', []) or []:
@@ -1077,7 +1089,8 @@ def list_models(cfg):
         headers = {}
         if cfg.get('api_key'):
             headers['Authorization'] = f"Bearer {cfg['api_key']}"
-        status, resp = _http_get_json(f'{base}/models', headers=headers)
+        status, resp = _http_get_json(f'{base}/models', headers=headers, insecure_ssl=bool(cfg.get('insecure_ssl')),
+                                      allow_loopback=loopback_allowed(cfg))
         if status == 200 and isinstance(resp, dict):
             out = [{'name': m.get('id', ''),
                     'modified': m.get('created', '')}
@@ -1111,10 +1124,12 @@ def provider_stats(cfg):
     }
     if provider == PROVIDER_OLLAMA:
         root = _ollama_root(cfg)
-        status, ver = _http_get_json(f'{root}/api/version', timeout=5)
+        status, ver = _http_get_json(f'{root}/api/version', timeout=5, insecure_ssl=bool(cfg.get('insecure_ssl')),
+                                     allow_loopback=loopback_allowed(cfg))
         if status == 200 and isinstance(ver, dict):
             out['version'] = ver.get('version', '?')
-        status, ps = _http_get_json(f'{root}/api/ps', timeout=5)
+        status, ps = _http_get_json(f'{root}/api/ps', timeout=5, insecure_ssl=bool(cfg.get('insecure_ssl')),
+                                    allow_loopback=loopback_allowed(cfg))
         if status == 200 and isinstance(ps, dict):
             loaded = []
             for m in ps.get('models', []) or []:
@@ -1128,7 +1143,8 @@ def provider_stats(cfg):
         out['reachable'] = 'version' in out or 'loaded_models' in out
     elif provider == PROVIDER_LOCALAI:
         base = (cfg.get('base_url') or DEFAULT_BASE_URLS[provider]).rstrip('/')
-        status, _ = _http_get_json(f'{base}/models', timeout=5)
+        status, _ = _http_get_json(f'{base}/models', timeout=5, insecure_ssl=bool(cfg.get('insecure_ssl')),
+                                   allow_loopback=loopback_allowed(cfg))
         out['reachable'] = (status == 200)
     else:
         # Cloud providers: liveness == "API key configured". A real
