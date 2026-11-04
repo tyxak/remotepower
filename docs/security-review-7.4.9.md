@@ -92,8 +92,13 @@ a layout, so the default is the installation's. The change to the page is one bl
 draws what Home already holds, so what a person may see is unchanged. The tests stopped two things before they shipped. `i18n.js`
 translates by exact text, so an option called *Full* would have read as the disk-usage column in German and French. And the accessibility
 sweep (axe) cannot judge text over the hero's dot texture (it reports it as incomplete, not as a failure): a dark-grey caption put there
-to test it passed it, so the browser test measures that text itself. The matrix was not run again: no route was added or changed, and the new values
-are fixed words.
+to test it passed it, so the browser test measures that text itself. One defect got past the tests and the owner found it on the test trunk: the
+fleet field scrolls, a dot's glow reaches 10 px past the dot, and the field had no padding, so the top row and the left column were drawn with a
+flat edge across their halo. Every box was where it should be, so no layout measurement could see it. It is fixed (12 px of padding with an equal
+negative margin, which moves nothing), a browser test now looks for any shadow that a clipping ancestor cuts (on the owner's nine hosts in four
+groups, on a hundred and on sixteen hundred and fifty, with a control that strips the room and has to be caught), a stylesheet test holds the
+padding at least as large as the shadow's reach, and the same measure over all 85 views under Pilot found no other. The matrix was not run again:
+no route was added or changed, and the new values are fixed words.
 
 **The fifth batch: an option for a typeface.** My Account → Appearance can draw the interface in B612, a face Airbus and ENAC drew for
 aircraft cockpit screens. The system font stays the default, and a page that never chooses fetches no font (a browser test reads the

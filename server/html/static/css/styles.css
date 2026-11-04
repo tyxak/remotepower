@@ -8738,7 +8738,12 @@ body[data-look="pilot"] .pilot-num.is-warn { color: var(--amber-ink); }
 body[data-look="pilot"] .pilot-num.is-crit { color: var(--red-ink); }
 body[data-look="pilot"] .pilot-cap { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 body[data-look="pilot"] .pilot-field { display: flex; flex-direction: column; justify-content: space-between; gap: 18px; min-width: 0; }
-body[data-look="pilot"] .pilot-matrix { display: flex; flex-wrap: wrap; gap: 16px 30px; align-items: flex-start; max-height: 340px; overflow: auto; }
+/* The matrix scrolls when a large fleet is taller than its box, and a scroll container clips whatever it paints outside its edge: the glow
+   of a dot reaches 10px past it (the 1px ring is inside that), so with no padding the top row and the left column were drawn with a
+   flat edge across their halo. The padding is room for the glow, and the negative margin gives the room back to the layout, so nothing
+   moves. tests/test_v749_look_css.py keeps the padding at least as large as the reach of the dot's shadow, and a browser test looks
+   for any shadow that a clipping ancestor cuts. */
+body[data-look="pilot"] .pilot-matrix { display: flex; flex-wrap: wrap; gap: 16px 30px; align-items: flex-start; max-height: 340px; overflow: auto; padding: 12px; margin: -12px; }
 body[data-look="pilot"] .pilot-cluster { display: flex; flex-direction: column; gap: 9px; }
 body[data-look="pilot"] .pilot-row { display: flex; flex-wrap: wrap; gap: 8px; }
 body[data-look="pilot"] .pilot-glabel { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }

@@ -14,6 +14,10 @@ Classic is the stylesheet as it was. The Pilot look is one block at the end of i
 
 * **The block does not touch the logo.** The RemotePower logo and the brand text beside it are not part of any look; they are the
   same under Classic and Pilot, and no rule of the block may name them.
+* **The fleet field leaves room for the glow of its dots.** The field scrolls when a large fleet is taller than its box, a scroll
+  container clips what is painted outside its edge, and a dot's glow reaches 10px past the dot. With no padding the top row and the
+  left column were drawn with a flat edge across their halo (reported by the owner on the test trunk; no layout measurement could
+  see it). The padding has to be at least the reach of the dot's shadow, and an equal negative margin has to give it back.
 
 The scanner is checked against inputs that break each promise, because a scan over a block it cannot read would pass.
 """
@@ -123,6 +127,55 @@ def unreached_glows(rule_list):
     return bad
 
 
+MATRIX = 'body[data-look="pilot"] .pilot-matrix'
+DOT = 'body[data-look="pilot"] .pilot-dot'
+
+
+def declared(body, prop):
+    """The value a rule body gives a property, or None."""
+    m = re.search(r"(?:^|[;{\s])%s\s*:\s*([^;]+)" % re.escape(prop), body)
+    return m.group(1).strip() if m else None
+
+
+def px(value):
+    m = re.fullmatch(r"\s*(-?\d*\.?\d+)(?:px)?\s*", value or "")
+    return float(m.group(1)) if m else None
+
+
+def shadow_reach(value):
+    """How far past its box the widest outer shadow in a box-shadow value paints: blur + spread + the larger offset."""
+    reach = 0.0
+    for shadow in _balanced_split(value):
+        shadow = shadow.strip()
+        if not shadow or shadow == "none" or "inset" in shadow:
+            continue
+        lengths = [float(x.replace("px", "")) for x in re.findall(r"-?\d*\.?\d+(?:px)?", _strip_calls(shadow))]
+        ox, oy, blur, spread = (lengths + [0, 0, 0, 0])[:4]
+        reach = max(reach, blur + spread + max(abs(ox), abs(oy)))
+    return reach
+
+
+def glow_room_problems(rule_list):
+    """What is wrong with the room the dot field leaves for the glow of its dots, as readable lines (empty when it is right)."""
+    # a selector can be restyled in a media block (the matrix is, for its gap), so read all the rules that name it
+    matrix = " ; ".join(b for s, b in rule_list if s == MATRIX)
+    dot = " ; ".join(b for s, b in rule_list if s == DOT)
+    if not matrix or not dot:
+        return ["the matrix rule or the dot rule is not there (%s, %s)" % (bool(matrix), bool(dot))]
+    reach = shadow_reach(declared(dot, "box-shadow") or "none")
+    if reach <= 0:
+        return ["the dot has no outer shadow, so there is nothing to make room for: the rule changed and so must this test"]
+    if (declared(matrix, "overflow") or "visible") not in ("auto", "scroll", "hidden", "clip"):
+        return []                                         # nothing clips it, nothing is cut
+    padding, margin = px(declared(matrix, "padding") or "0"), px(declared(matrix, "margin") or "0")
+    problems = []
+    if padding is None or padding < reach:
+        problems.append("the padding (%spx) is less than the %spx the glow reaches, so a scroll container cuts it" % (padding, reach))
+    if padding is not None and margin != -padding:
+        problems.append("the margin (%spx) does not give the padding (%spx) back to the layout, so the field moves" % (margin, padding))
+    return problems
+
+
 class TestThePilotBlock(unittest.TestCase):
 
     @classmethod
@@ -164,6 +217,12 @@ class TestThePilotBlock(unittest.TestCase):
 
     def test_every_glow_goes_through_the_effects_setting(self):
         self.assertEqual(unreached_glows(self.rules), [])
+
+    def test_the_dot_field_leaves_room_for_the_glow_of_its_dots(self):
+        self.assertEqual(glow_room_problems(self.rules), [])
+        # and the numbers are the real ones: the dot has a 10px glow, and the field has at least that much padding
+        dot = [b for s, b in self.rules if s == DOT][0]
+        self.assertGreaterEqual(shadow_reach(declared(dot, "box-shadow")), 10)
 
     def test_reduced_effects_switch_off_both_strengths(self):
         m = re.search(r'body\[data-look="pilot"\]\[data-fx="reduced"\]\s*\{([^}]*)\}', self.block)
@@ -225,6 +284,51 @@ class TestTheScannerSeesWhatItIsFor(unittest.TestCase):
     def test_a_block_without_markers_is_refused(self):
         with self.assertRaises(AssertionError):
             block("body { color: red; }")
+
+    GOOD_FIELD = (MATRIX + ' { overflow: auto; padding: 12px; margin: -12px; } '
+                  + DOT + ' { box-shadow: 0 0 0 1px color-mix(in srgb, red 40%, transparent), 0 0 10px color-mix(in srgb, red 55%, transparent); }')
+
+    def test_the_reach_of_a_shadow_is_read(self):
+        self.assertEqual(shadow_reach("0 0 0 1px red, 0 0 10px red"), 10)
+        self.assertEqual(shadow_reach("0 4px 12px 2px red"), 18)
+        self.assertEqual(shadow_reach("inset 0 0 0 1.5px red"), 0)
+        self.assertEqual(shadow_reach("none"), 0)
+        self.assertEqual(shadow_reach("0 0 6px color-mix(in srgb, red 50%, transparent)"), 6)
+
+    def test_a_field_with_room_passes(self):
+        self.assertEqual(glow_room_problems(self.parse(self.GOOD_FIELD)), [])
+
+    def test_a_scroll_container_with_no_padding_is_found(self):
+        # the defect as it shipped
+        css = self.GOOD_FIELD.replace(" padding: 12px; margin: -12px;", "")
+        self.assertEqual(len(glow_room_problems(self.parse(css))), 1)
+        self.assertIn("cuts it", glow_room_problems(self.parse(css))[0])
+
+    def test_less_padding_than_the_glow_reaches_is_found(self):
+        css = self.GOOD_FIELD.replace("padding: 12px; margin: -12px;", "padding: 6px; margin: -6px;")
+        self.assertIn("less than the 10.0px", glow_room_problems(self.parse(css))[0])
+
+    def test_padding_that_is_not_given_back_is_found(self):
+        css = self.GOOD_FIELD.replace(" margin: -12px;", "")
+        self.assertIn("does not give the padding", glow_room_problems(self.parse(css))[0])
+        css = self.GOOD_FIELD.replace("margin: -12px;", "margin: -8px;")
+        self.assertIn("does not give the padding", glow_room_problems(self.parse(css))[0])
+
+    def test_a_bigger_glow_than_the_padding_is_found(self):
+        css = self.GOOD_FIELD.replace("0 0 10px", "0 0 16px")
+        self.assertIn("less than the 16.0px", glow_room_problems(self.parse(css))[0])
+
+    def test_a_field_that_does_not_clip_needs_no_room(self):
+        css = self.GOOD_FIELD.replace("overflow: auto; padding: 12px; margin: -12px;", "overflow: visible;")
+        self.assertEqual(glow_room_problems(self.parse(css)), [])
+
+    def test_a_missing_rule_is_reported_and_not_passed(self):
+        self.assertEqual(len(glow_room_problems(self.parse(MATRIX + " { padding: 12px; }"))), 1)
+        self.assertIn("is not there", glow_room_problems(self.parse(""))[0])
+
+    def test_a_media_rule_for_the_same_selector_is_read_with_the_rest(self):
+        css = self.GOOD_FIELD + " @media (max-width: 760px) { " + MATRIX + " { gap: 12px 20px; } }"
+        self.assertEqual(glow_room_problems(self.parse(css)), [])
 
 
 if __name__ == "__main__":

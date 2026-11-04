@@ -93,6 +93,74 @@ HERO_CONTRAST = """() => {
   return { rows, forced };
 }"""
 
+# A shadow (a ring or a glow) that reaches past an ancestor which clips it is drawn with a flat edge. The fleet field scrolls, a dot's
+# glow reaches 10px past the dot, and with no padding the top row and the left column lost their halo, which the owner saw on the test
+# trunk: no layout measurement can see it, because every box was where it should be. This looks for it directly. For every outer shadow
+# of an element inside the root it takes the room the shadow needs on each side and compares it with the padding box of each clipping
+# ancestor (hidden, clip, auto or scroll). An element that is itself cut or scrolled is ordinary clipping and is skipped. It returns how
+# many shadows it examined, so an empty answer over nothing cannot pass, and the worst overshoot per element, ancestor and side.
+GLOW_CLIPPED = """(rootSel) => {
+  const root = document.querySelector(rootSel), found = new Map();
+  let examined = 0;
+  const split = v => { const parts = []; let depth = 0, cur = '';
+    for (const ch of v) { if (ch === '(') depth++; if (ch === ')') depth--; if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; } else cur += ch; }
+    parts.push(cur); return parts; };
+  const alphaOf = s => { const c = s.match(/(rgba?|color)\\([^)]*\\)/); if (!c) return /transparent/.test(s) ? 0 : 1;
+    const t = c[0]; if (t.startsWith('rgba')) { const q = t.slice(t.indexOf('(') + 1, -1).split(','); return q.length > 3 ? parseFloat(q[3]) : 1; }
+    if (t.startsWith('color')) { const m = t.match(/\\/\\s*([\\d.]+)/); return m ? parseFloat(m[1]) : 1; } return 1; };
+  const clips = el => { const list = []; for (let p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
+      const c = getComputedStyle(p); if (['hidden', 'auto', 'scroll', 'clip'].includes(c.overflowX) || ['hidden', 'auto', 'scroll', 'clip'].includes(c.overflowY)) list.push(p); } return list; };
+  const name = e => e.tagName + '.' + String(e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className).trim().split(/\\s+/).slice(0, 3).join('.');
+  for (const el of root.querySelectorAll('*')) {
+    if (el.closest('svg')) continue;
+    const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+    const v = cs.boxShadow; if (!v || v === 'none') continue;
+    const r = el.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
+    for (const part of split(v)) {
+      if (/inset/.test(part) || alphaOf(part) < 0.05) continue;
+      const nums = [...part.replace(/(rgba?|color)\\([^)]*\\)/g, '').matchAll(/(-?\\d*\\.?\\d+)px/g)].map(m => parseFloat(m[1]));
+      const [ox, oy, blur, spread] = [nums[0] || 0, nums[1] || 0, nums[2] || 0, nums[3] || 0], grow = blur + spread;
+      if (grow < 1) continue;
+      examined++;
+      const sh = { l: r.left - grow + ox, t: r.top - grow + oy, r: r.right + grow + ox, b: r.bottom + grow + oy };
+      for (const a of clips(el)) {
+        const ar = a.getBoundingClientRect(), L = ar.left + a.clientLeft, T = ar.top + a.clientTop, R = L + a.clientWidth, B = T + a.clientHeight;
+        if (r.left < L - 0.5 || r.top < T - 0.5 || r.right > R + 0.5 || r.bottom > B + 0.5) continue;
+        for (const [side, over] of Object.entries({ left: L - sh.l, top: T - sh.t, right: sh.r - R, bottom: sh.b - B })) {
+          if (over <= 0.5) continue;
+          const key = name(el) + ' < ' + name(a) + ' ' + side, old = found.get(key);
+          if (!old || over > old.over) found.set(key, { el: name(el), clip: name(a), side, over: Math.round(over * 10) / 10 });
+        }
+      }
+    }
+  }
+  return { examined, found: [...found.values()] };
+}"""
+
+# the owner's fleet: four host groups, five healthy, two critical, two not monitored
+NINE_HOSTS = [
+    {"id": "a1", "name": "nas-a", "group": "agentless", "online": True, "monitored": False},
+    {"id": "a2", "name": "nas-b", "group": "agentless", "online": True, "monitored": False},
+    {"id": "p1", "name": "web01", "group": "apt", "online": True, "monitored": True},
+    {"id": "p2", "name": "web02", "group": "apt", "online": True, "monitored": True},
+    {"id": "p3", "name": "web03", "group": "apt", "online": False, "monitored": True},
+    {"id": "h1", "name": "pve01", "group": "apt-hypervisor", "online": True, "monitored": True},
+    {"id": "h2", "name": "pve02", "group": "apt-hypervisor", "online": False, "monitored": True},
+    {"id": "m1", "name": "arch01", "group": "pacman", "online": True, "monitored": True},
+    {"id": "m2", "name": "arch02", "group": "pacman", "online": True, "monitored": True},
+]
+
+
+def fleet(n):
+    """A fleet of n hosts in seven groups: a tenth offline, a thirteenth not monitored."""
+    return [{"id": "x%d" % i, "name": "host%04d" % i, "group": "g%d" % (i % 7), "online": i % 11 != 0, "monitored": i % 13 != 0}
+            for i in range(n)]
+
+
+# draws the hero with the real module, from hosts passed as data (the page's policy refuses eval)
+DRAW = "devs => _pilotHeroRender(document.getElementById('home-hero'), devs, {devices: []})"
+
+
 LOGO = """() => {
   const img = document.querySelector('.sidebar .brand .logo-img'), txt = document.querySelector('.sidebar .brand .logo-text');
   const part = e => { const c = getComputedStyle(e), r = e.getBoundingClientRect();
@@ -408,6 +476,38 @@ class TestTheLookSwitchInABrowser(unittest.TestCase):
                 self.assertEqual([r for r in got["rows"] if r["ratio"] < 4.5], [], theme)
                 self.assertIsNotNone(got["forced"])
                 self.assertLess(got["forced"], 4.5, "the measure cannot fail: a caption in its own background colour came back at %s" % got["forced"])
+
+    def test_no_dot_has_its_glow_cut_off_by_the_box_that_holds_it(self):
+        page = self.login(init="localStorage.setItem('rp_look', 'pilot');")
+        self.addCleanup(lambda: self.reset(page))
+        self.api(page, "POST", "/ui-prefs", {"look": "pilot"})
+        self.reload(page)
+        self.wait_hero(page)
+        page.evaluate("() => { window._homeLastRender = null; window.loadHome = () => {}; }")     # Home redraws itself: freeze it while measuring
+        for label, devs, sized in (("nine hosts in four groups", NINE_HOSTS, True), ("a hundred hosts", fleet(100), True),
+                                   ("sixteen hundred and fifty hosts", fleet(1650), False)):
+            page.evaluate(DRAW, devs)
+            lit = page.eval_on_selector_all("#home-hero .pilot-matrix .pilot-dot:not(.is-none)", "els => els.length")
+            self.assertGreater(lit, 0, label)
+            got = page.evaluate(GLOW_CLIPPED, "#home-hero")
+            if sized:
+                self.assertGreater(got["examined"], 0, "%s: the measure looked at no shadow at all" % label)
+            self.assertEqual(got["found"], [], "%s: a clipping box cuts the halo of a dot: %s" % (label, got["found"]))
+        # the nine hosts again, and what the room is for: the first dot sits where it always sat, level with the label above and the
+        # legend below, so the padding that makes room for the glow has been given back to the layout
+        page.evaluate(DRAW, NINE_HOSTS)
+        left = page.evaluate("""() => { const q = s => document.querySelector(s).getBoundingClientRect().left;
+            return [q('#home-hero .pilot-field .pilot-eyebrow'), q('#home-hero .pilot-matrix .pilot-dot'), q('#home-hero .pilot-legend')]; }""")
+        self.assertLess(abs(left[0] - left[1]), 0.5, left)
+        self.assertLess(abs(left[2] - left[1]), 0.5, left)
+        # the control: the defect itself. Take the room away and the same measure has to find the dots' halo cut by the matrix.
+        page.evaluate("""() => { const m = document.querySelector('#home-hero .pilot-matrix');
+                                 m.style.setProperty('padding', '0'); m.style.setProperty('margin', '0'); }""")
+        cut = page.evaluate(GLOW_CLIPPED, "#home-hero")["found"]
+        dots = [f for f in cut if f["el"].startswith("SPAN.pilot-dot") and f["clip"].startswith("DIV.pilot-matrix")]
+        self.assertTrue(dots, "the measure cannot see the defect it was written for: %s" % cut)
+        self.assertGreaterEqual(max(f["over"] for f in dots), 9.5, dots)
+        self.assertIn("top", {f["side"] for f in dots})
 
     def test_the_hero_stays_inside_the_page_on_a_phone_and_with_a_huge_fleet(self):
         from test_a11y_axe import _SERIOUS_IMPACTS
