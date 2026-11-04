@@ -2725,12 +2725,12 @@ class TestTenantBranding(_HandlerBase):
                                             'brand_name': 'Acme Ops', 'brand_accent': 'violet'}})
         self._as('acmeadmin')
         res = self.call(api.handle_me)
-        self.assertEqual(res['brand'], {'name': 'Acme Ops', 'accent': 'violet'})
+        self.assertEqual({k: res['brand'][k] for k in ('name', 'accent')}, {'name': 'Acme Ops', 'accent': 'violet'})
 
     def test_me_falls_back_to_instance_wide_when_no_override(self):
         self._as('acmeadmin')   # acme tenant has no brand_name/brand_accent set
         res = self.call(api.handle_me)
-        self.assertEqual(res['brand'], {'name': 'RemotePower', 'accent': 'blue'})
+        self.assertEqual({k: res['brand'][k] for k in ('name', 'accent')}, {'name': 'RemotePower', 'accent': 'blue'})
 
     def test_me_default_tenant_never_sees_a_stray_override(self):
         api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
@@ -2738,7 +2738,7 @@ class TestTenantBranding(_HandlerBase):
                                             'brand_name': 'Acme Ops'}})
         self._as('super')   # in the default tenant
         res = self.call(api.handle_me)
-        self.assertEqual(res['brand'], {'name': 'RemotePower', 'accent': 'blue'})
+        self.assertEqual({k: res['brand'][k] for k in ('name', 'accent')}, {'name': 'RemotePower', 'accent': 'blue'})
 
     def test_me_by_apikey_caller_resolves_the_keys_own_tenant(self):
         # v6.1.1 (adversarial self-review): handle_me used to resolve tenant/
@@ -2759,7 +2759,7 @@ class TestTenantBranding(_HandlerBase):
         api.get_token_from_request = lambda: 'rawacmekey'
         res = self.call(api.handle_me)
         self.assertEqual(res['tenant'], 'acme')
-        self.assertEqual(res['brand'], {'name': 'Acme Ops', 'accent': 'violet'})
+        self.assertEqual({k: res['brand'][k] for k in ('name', 'accent')}, {'name': 'Acme Ops', 'accent': 'violet'})
 
     def test_route_registered(self):
         rows = [(kind, methods, a, b, fn) for kind, methods, a, b, fn, _src

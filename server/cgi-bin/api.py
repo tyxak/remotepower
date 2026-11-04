@@ -793,6 +793,11 @@ DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
 BRAND_ACCENTS              = ('blue', 'emerald', 'violet', 'amber', 'rose', 'cyan')
 UI_DENSITY_VALUES          = ('minimal', 'compact', 'comfortable', 'spacious')
 UI_DENSITY_DEFAULT         = 'comfortable'
+# 7.4.9: the interface look (Pilot, or Classic, which is the 6.0 to 7.4 layout) and its effects. A look is taste, not data:
+# it is a per-account preference (ui_prefs) with an optional instance default and lock under Branding. Both must mirror
+# LOOKS and FX_LEVELS in app.js.
+UI_LOOKS                   = ('pilot', 'classic')
+UI_EFFECTS                 = ('full', 'reduced')
 
 # ─── v1.11.10: enrollment tokens & metric alerting ───────────────────────────
 
@@ -30427,6 +30432,9 @@ def handle_config_get():
     # v3.14.0 (#45): in-app white-label branding (non-secret — applied by the UI).
     safe['brand_name']   = cfg.get('brand_name', '')
     safe['brand_accent'] = cfg.get('brand_accent', '')
+    # 7.4.9: the instance default look, and whether it is the only one (hides the choice in My Account).
+    safe['brand_look']        = cfg.get('brand_look') if cfg.get('brand_look') in UI_LOOKS else ''
+    safe['brand_look_locked'] = bool(cfg.get('brand_look_locked')) and bool(safe['brand_look'])
 
     # v3.14.0 (#27): GitOps manifest auth header is a credential (e.g. a Git PAT);
     # expose only whether it's set and strip the raw value.
@@ -32551,6 +32559,13 @@ def handle_config_save():
     if 'brand_accent' in body:
         _ba = str(body.get('brand_accent') or '').strip().lower()
         cfg['brand_accent'] = _ba if _ba in BRAND_ACCENTS else ''
+    # 7.4.9: the instance default look. '' means "no default": a user without a choice gets Pilot. The lock only means
+    # something next to a look, so it is stored as given and read together with it.
+    if 'brand_look' in body:
+        _bl = str(body.get('brand_look') or '').strip().lower()
+        cfg['brand_look'] = _bl if _bl in UI_LOOKS else ''
+    if 'brand_look_locked' in body:
+        cfg['brand_look_locked'] = body.get('brand_look_locked') is True
     # v3.12.0: host-audit toggle. Off by default; gates new_port_detected,
     # port_exposed_world and firewall_changed fleet-wide (opt-in). Turning it
     # OFF resolves the open backlog for those events in one action.
@@ -34865,6 +34880,10 @@ def handle_user_passwd():
 #   filter    — string, the live filter input value
 #   sort      — list of {col: str, dir: 'asc'|'desc'}, in priority order
 #
+# Top-level (not per table) keys follow below: default_ssh_username, postit, temp_unit, time_display, alert_chime,
+# alert_notify, signature, team, pinned_devices, views and, since 7.4.9, look ('pilot'|'classic') and effects
+# ('full'|'reduced'). A key that is not listed in _sanitise_ui_prefs is dropped on save, so a new one is added there.
+#
 # Schema enforced by :func:`_sanitise_ui_prefs` — the client can send anything,
 # but we strip everything we don't recognise so a future field rename or
 # malicious payload can't blow up users.json. Stored together with the user
@@ -34930,6 +34949,15 @@ def _sanitise_ui_prefs(raw):
     for k in ('alert_chime', 'alert_notify'):
         if k in raw:
             out[k] = bool(raw[k])
+
+    # 7.4.9: the interface look and its effects. The client posts the whole document on every save, so a value that is
+    # not one of the known words is dropped here and cannot reach users.json.
+    look = raw.get('look')
+    if isinstance(look, str) and look in UI_LOOKS:
+        out['look'] = look
+    effects = raw.get('effects')
+    if isinstance(effects, str) and effects in UI_EFFECTS:
+        out['effects'] = effects
 
     # Per-user email signature (HTML) appended to outbound ticket emails.
     signature = raw.get('signature')
@@ -62548,6 +62576,9 @@ def handle_me():
     _cfg = load(CONFIG_FILE) or {}
     _brand_name = _tenant_rec.get('brand_name') or _cfg.get('brand_name', '')
     _brand_accent = _tenant_rec.get('brand_accent') or _cfg.get('brand_accent', '')
+    # 7.4.9: the default look is instance-wide (a tenant brands a name and an accent, not a layout).
+    _brand_look = _cfg.get('brand_look') if _cfg.get('brand_look') in UI_LOOKS else ''
+    _brand_look_locked = bool(_cfg.get('brand_look_locked')) and bool(_brand_look)
     respond(200, {
         'username':             user,
         'role':                 role,
@@ -62574,7 +62605,8 @@ def handle_me():
         # v6.1.1 (#17/#15): now resolves the caller's tenant's OWN override
         # first (see above) -- the pre-auth login page has no tenant to
         # resolve yet, so it always shows the instance-wide brand.
-        'brand':                {'name': _brand_name, 'accent': _brand_accent},
+        'brand':                {'name': _brand_name, 'accent': _brand_accent,
+                                 'look': _brand_look, 'look_locked': _brand_look_locked},
     })
 
 
