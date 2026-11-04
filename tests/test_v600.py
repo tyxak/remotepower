@@ -80,8 +80,13 @@ class TestVersionBumps(unittest.TestCase):
 
 
 class TestClarityMattersInterface(unittest.TestCase):
-    """The v6 interface is THE interface — the Industrial skin and the New/Old
-    toggle are fully gone (guardrail against reintroduction)."""
+    """The v6 interface is the default interface — the Industrial skin and the
+    New/Old toggle are fully gone (guardrail against reintroduction).
+
+    7.4.9 added an opt-in Look switch that is not that toggle (see the docstring of
+    test_v460.TestUIVersionToggle); the old names stay banned here, and the test
+    below holds that Classic, the v6 interface, is still what nobody has to choose.
+    """
 
     def test_no_industrial_skin_or_toggle(self):
         html = _html()
@@ -89,6 +94,17 @@ class TestClarityMattersInterface(unittest.TestCase):
         self.assertNotIn('data-ui', html)
         self.assertNotIn("dataset.ui", js)
         self.assertNotIn('data-action="setUIVersion"', html)
+
+    def test_the_look_switch_leaves_the_v6_interface_the_default(self):
+        html = _html()
+        js = (_ROOT / "server/html/static/js/app.js").read_text()
+        css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        self.assertIn("const LOOK_DEFAULT = 'classic';", js)
+        # the page itself carries no look: it is set at run time, so a page that cannot run it is Classic
+        self.assertIn("<body>", html)
+        self.assertNotIn("data-look", html)
+        # the other look cannot reach the default: every rule that names it is in one scoped block
+        self.assertEqual(css.count("data-look="), css[css.index("PILOT LOOK (7.4.9) ═══ BEGIN"):css.index("PILOT LOOK (7.4.9) ═══ END")].count("data-look="))
 
     def test_standard_modules_always_on(self):
         # the opt-in toggles for the now-standard modules are gone

@@ -539,6 +539,21 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 
 ### Interface
 
+- **A second look, Pilot, as an option.** **My Account → Appearance** has a **Look** row with two cards, **Classic** and **Pilot**.
+  Classic is the interface as it has been, and it is the default: nothing changes for you unless you choose Pilot. Pilot is calmer.
+  A status is a lit dot and a plain word instead of a tinted, outlined pill, panels sit flat without a header band, the Home tiles
+  join into one panel on a wide page, and Home opens with the number of hosts online as a dot-matrix readout beside the fleet as a
+  field of dots, one per host, grouped by host group and coloured as the Fleet health card colours it (a click on a dot opens the
+  host). **Effects**, shown under Pilot, can be set to Reduced, which turns off the glow and the dot texture and changes no colour.
+  Pilot adds two palettes, **Pilot dark** and **Pilot paper**, which it uses until you pick another; every theme and every accent
+  works under both looks. The look and the effects are saved to your account, so they follow you to other browsers; the palette, the
+  accent and the background stay per browser. An administrator can set a default look for everybody, and lock it, under
+  **Settings → Branding**. The logo is the same in both. This is not the New UI / Old UI toggle that 6.0 removed: it is opt-in, it
+  sets no palette of its own, and Classic's stylesheet is untouched (the Pilot look is one block of the stylesheet, every rule in it
+  starts with `body[data-look="pilot"]`, and a test holds that). The keys are `look` and `effects` in the account's UI prefs and
+  `brand_look` and `brand_look_locked` in the settings; `/api/me` returns the default and the lock under `brand`.
+- **The batch bar says what it acts on.** The bar above the host list said *Shut down all* and *Reboot all*, and both act only on
+  the hosts you ticked. They say *Shut down selected* and *Reboot selected*.
 - **Spacing, wrapping and focus, measured on the demo.** A rendered audit of all 85 pages, the settings panes, 141 dialogs and
   the host drawer, at desktop and phone width and in the six languages, gave the fixes below; each was tried in a browser
   before it was written. A card's hint no longer touches its first row (28 cards on 15 pages), and a settings row no longer

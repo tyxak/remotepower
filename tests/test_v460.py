@@ -148,7 +148,17 @@ class TestUIVersionToggle(unittest.TestCase):
     """v6.0.0 "ClarityMatters": ONE interface; the migration is COMPLETE.
 
     The v4.6.0 New/Old toggle, the transitional data-ui pin, applyUIVersion and
-    every body[data-ui="industrial"] rule are gone for good.
+    every body[data-ui="industrial"] rule are gone for good, and those names stay
+    banned below.
+
+    7.4.9 added a different switch at the maintainer's request, and it is not that
+    toggle. It is opt-in: Classic, the v6 interface, is the default and what
+    everybody gets until they choose otherwise. The other look is one block of the
+    stylesheet scoped by body[data-look="pilot"] that sets no palette, so themes and
+    the accent picker work under both (the Industrial skin hard-coded its palette
+    and ignored them until 5.7.0). It is stored with the account, not per browser.
+    tests/test_v749_look_*.py hold all of that; a rule or a name below that comes
+    back is the old toggle again.
     """
 
     def test_js_single_ui_no_preference(self):
