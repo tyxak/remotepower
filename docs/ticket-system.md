@@ -50,7 +50,7 @@ alert is resolved for you** — the loop closes without a second click.
 - **Take ownership** assigns the ticket to you and stamps it with your team.
 - **Assign to group** hands a ticket to a team's queue: it clears the assignee and
   moves the ticket to *Pending internal*, ready for whoever picks it up next.
-- Set your own team under **Profile → Team**. Everyone who types the same team name
+- Set your own team under **My Account → Team**. Everyone who types the same team name
   is on that team, which powers the **My team's open tickets** view.
 
 The Tickets page is organised into four tables — **New** (untriaged), **My open
@@ -89,7 +89,7 @@ The ticket system can send and receive email through your existing mail server.
 
 - **Outbound** uses your configured SMTP (Settings → Notifications). The **Send
   email** button on a ticket emails the contact and logs the message on the ticket.
-  Your personal **HTML signature** (Profile → Email signature) is appended as a
+  Your personal **HTML signature** (My Account → Profile → Email signature) is appended as a
   rich part, with a plain-text fallback.
 - **Inbound** uses a dedicated IMAP mailbox (Settings → Tickets). The
   poller threads each reply onto its ticket by the `#RP` number in the subject, or
@@ -154,4 +154,4 @@ helpdesk service involved.
 A ticket belongs to the tenant of the host it is about. A ticket that names no host belongs to the tenant of the account that opened it. With tenant isolation on, every list, search, edit, attachment and e-mail thread shows a user only their own tenant's tickets, and a ticket can only name hosts the user can see. Hours logged on a ticket are part of time tracking, which stays with the operator's organisation.
 
 See also: [Internal contact directory](contacts.md) · [Webhooks & ITSM](webhooks.md)
-· [Alerts & notifications](features.md).
+· [Alerts & notifications](alerts.md).

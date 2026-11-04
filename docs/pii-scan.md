@@ -7,6 +7,10 @@ on the **Compliance** page.
 
 Works on Linux, Windows and macOS.
 
+The "national ID" pattern is the US Social Security number format (`NNN-NN-NNNN`,
+minus the number ranges that are never issued). The scanner has no pattern for the
+ID formats of other countries.
+
 ## The one rule that shapes everything
 
 **The matched value never leaves the host — not raw, not redacted, and not
@@ -33,10 +37,24 @@ timestamp reads as a credit card and the report becomes noise nobody trusts.
 ## Turn it on
 
 Settings → Security → **Regulated-data scan (PII)**. Off by default (it walks the
-filesystem). Optionally set custom roots; the defaults look where an
-organisation's *data* lives (`/home`, `/srv`, `/var/www`, `/opt` — and the Windows
-equivalents), **not** `/etc`, which is full of maintainer emails and would bury the
-real hits.
+filesystem). Each agent scans about once every 24 hours. Optionally set custom roots
+(one per line, up to 20); leave the box empty to use the defaults, which look where an
+organisation's *data* lives, **not** `/etc`, which is full of maintainer emails and
+would bury the real hits:
+
+| Agent | Default roots |
+|---|---|
+| Linux | `/home`, `/srv`, `/var/www`, `/opt` |
+| Windows | `C:\Users`, `C:\inetpub`, `C:\Data`, `D:\` |
+| macOS | `/Users`, `/srv`, `/opt`, `/usr/local/var`, `/Volumes` |
+
+Once the scan is on, a **Regulated data (PII)** card appears on the Compliance page
+with one block per host. **Scan now** on that card runs the scan on the next heartbeat.
+
+A scan is bounded so it cannot stall a host. It stops after 300 findings, 8,000 files
+or 20 seconds, whichever comes first, and it skips files over 2 MiB, binary files,
+symbolic links and the usual dependency folders (`.git`, `node_modules` and similar).
+On a large tree, a scan can therefore be partial.
 
 ## A report, not an alert
 
@@ -48,8 +66,10 @@ reads as one. The incident case (a *leaked credential*) is still covered by the
 
 ## API
 
-- `GET /api/pii` — the fleet's regulated-data inventory (counts + file paths only).
-- `POST /api/pii/scan {device_id?}` — queue a one-shot scan (admin).
+- `GET /api/pii` — the fleet's regulated-data inventory (counts, file paths and line
+  numbers only). Any signed-in user can read it for the hosts they can see.
+- `POST /api/pii/scan {device_id?}` — queue a one-shot scan (an admin, or a role with
+  at least one action permission). It answers 400 while the scan is off in Settings.
 
 ---
 

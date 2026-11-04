@@ -96,7 +96,7 @@ the same agent inventory:
 | **Predictive Health** | Trends SMART wear and sector data into a per-disk failure ETA and reliability score (`disk_predict_fail`). | [disk-health.md](disk-health.md) |
 | **GPUs** | Every NVIDIA and AMD GPU: utilisation, memory, temperature, power, fan, trends. | [gpus.md](gpus.md) |
 | **Thermal** | CPU, chipset, disk and GPU temperatures in one hottest-first view (`temp_high`). | [thermal.md](thermal.md) |
-| **Power** | UPS status, PDU on, off and cycle control, and per-group energy-cost projection. | [power.md](power.md) |
+| **Power** | UPS status, power draw and a per-group energy cost split. A host's smart plug (on, off, cycle) is controlled from its drawer. | [power.md](power.md) |
 
 ## Permissions
 

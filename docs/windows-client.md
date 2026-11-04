@@ -405,6 +405,7 @@ Everything lives under `%ProgramData%\RemotePower\`:
 | `audit-mode` | marker: read-only mode (refuse write commands) |
 | `release.pub` | pinned release public key (enables signature enforcement) |
 | `require-signed-updates` | marker: refuse any unsigned self-update |
+| `require-signed-commands` | marker: refuse any command that is unsigned or not addressed to this host (see [Signed commands](agent-commands.md#signed-commands)) |
 | `file-roots` | optional override for the file-manager allowlist roots |
 
 The agent itself installs to `C:\Program Files\RemotePower\remotepower-agent-win.py`.

@@ -55,13 +55,17 @@ tuning-step mapping once you're past a few hundred hosts.
   on an aggressive schedule; a homelab-sized scan window is brief.
 - **Disk growth** is retention-driven, not fleet-size-driven per se —
   `metric_samples_retention_days` and the other retention caps (Settings →
-  Advanced → Data retention) bound it directly. 30–90 days of metric history is
-  typical; shrink the window on tight disk.
+  Advanced → Data retention & maintenance) bound it directly; the defaults of each
+  store are in [data-retention.md](data-retention.md). 30–90 days of metric history
+  is typical; shrink the window on tight disk.
 
-The optional sidecars — the webterm daemon, the syslog receiver
-([syslog.md](syslog.md)), the NetFlow/IPFIX receiver ([flow.md](flow.md)) and
-the KMIP key server ([kmip.md](kmip.md)) — each add one more lightweight
-process if you install them; none is part of the default stack. The agent
+The optional sidecars — the webterm daemon, the SSH gateway
+([sshgw.md](sshgw.md)), the syslog receiver ([syslog.md](syslog.md)), the
+NetFlow/IPFIX receiver ([flow.md](flow.md)) and the KMIP key server
+([kmip.md](kmip.md)) — each add one more lightweight process if you install them;
+none is part of the default stack. The SSH gateway and the three receivers listen
+on the network, so the installer only sets them up when you pass the matching
+`--with-...` flag. The agent
 push daemon ([push.md](push.md)) *is* installed by default (`--no-push` opts
 out) but idles until `push_enabled` is switched on.
 

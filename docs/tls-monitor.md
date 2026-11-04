@@ -213,6 +213,10 @@ The script exits 0 on success or partial failure — it logs issues
 to stderr but doesn't fail the cron job. Check the journal
 (`journalctl -u remotepower-tls-check`) for output.
 
+The runner uses fixed thresholds for its `tls_expiry` events: a warning at 30 days
+and critical at 7. It does not read the per-target days from the watchlist, which
+only the built-in schedule honours.
+
 ---
 
 ## Internal vs. external probing
@@ -230,9 +234,11 @@ one of these:
   routing, jump host, whatever)
 - Put a separate RemotePower instance on the internal network and
   query its `/api/tls/targets` endpoint from your monitoring
-- Run the probe script on a different machine that does have
-  network access (it's portable — just needs `tls_targets.json`
-  in `RP_DATA_DIR` on whichever box runs it)
+- Run the legacy `remotepower-tls-check` runner on a different machine that
+  does have network access. It reads the watchlist through the server's own
+  storage code, so that machine needs the RemotePower `cgi-bin` directory and
+  a copy of the watchlist (a `tls_targets.json` in its `RP_DATA_DIR` on the JSON
+  backend)
 
 ---
 
@@ -242,8 +248,8 @@ The TLS monitor probes endpoints from the server. The agent on a Linux host also
 (`/etc/letsencrypt/live/*`, `/etc/nginx/ssl`, `/etc/apache2/ssl`, `/etc/ssl/*.crt`) and reports their expiry. The system CA bundle is
 never read, and the server drops it again if an older agent sends it. The Hosts drawer lists the files.
 
-One setting, **Certificate file expiry** (on by default), and one window, **Cert-file expiring (days)** under Settings → Alert
-parameters (21 days by default), decide everything below:
+One setting, **Certificate file expiry** (Settings → Security, on by default), and one window, **Cert-file expiring (days)** under
+Settings → Alert parameters (21 days by default), decide everything below:
 
 - **Alert** — *A local certificate file is expiring soon*, one per host, naming the soonest file. It clears when the file is renewed.
 - **Checks** — a *Certificate files* row: critical when a file has expired, a warning when one expires inside the window, green

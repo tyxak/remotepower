@@ -75,7 +75,7 @@ process handling your request:
 | **Storage backend** | `PostgreSQL` / `SQLite` / `JSON files` — the active `RP_STORAGE_BACKEND`. |
 | **Request tier** | `WSGI · gunicorn` (the only server) — how requests are executed. |
 | **Out-of-band scheduler** | `Running` (with a live heartbeat age), `Configured — no heartbeat` (flag set but the process is dead — fix it), or `Off`. |
-| **Per-request maintenance** | Whether the ~64 sweeps run *inside each request* or are *offloaded to the scheduler*. |
+| **Per-request maintenance** | Whether the maintenance sweeps (about 77) run *inside each request* or are *offloaded to the scheduler*. |
 
 A green check means the lever below is engaged. This is the fastest way to
 confirm a change actually took effect after you edit `api.env` and restart.
@@ -107,8 +107,9 @@ backend that can be shared across multiple app nodes (Step 4).
      ```
    - or the env vars `RP_STORAGE_BACKEND=postgres` and `RP_PG_DSN=postgresql://…`
      (env wins over the marker; useful for the migration CLI / per-node config).
-3. **Migrate existing data** with `tools/migrate_storage.py` (or the in-app
-   *Settings → Advanced → Storage backend → Migrate*), which copies every store
+3. **Migrate existing data** with `tools/migrate_storage.py --to postgres --dsn
+   'postgresql://…'` (stop the app first), or the in-app
+   *Settings → Advanced → Storage backend → Migrate*, which copies every store
    into Postgres and verifies before flipping the marker. The migration is
    online-safe and reversible (keep the JSON/SQLite files until you're happy) —
    the old backend stays active and writable for the whole copy, and up to 3
@@ -174,9 +175,10 @@ bursts. See [wsgi.md](wsgi.md) for the full worker-model writeup.
 
 ### The out-of-band maintenance scheduler (v5.5.0, default on)
 
-RemotePower runs ~64 `run_*_if_due` maintenance sweeps. Left in-process they'd
+RemotePower runs about 77 maintenance sweeps (the `run_*_if_due` family and its
+siblings). Left in-process they'd
 **piggy-back on request traffic** — convenient on a single node, but it means
-(a) no traffic ⇒ no maintenance, (b) every request makes ~64 "is it due?" DB
+(a) no traffic ⇒ no maintenance, (b) every request makes dozens of "is it due?" DB
 round-trips, and (c) N horizontal nodes all race the same sweep. The default
 `remotepower-scheduler.service` runs the cadence from one dedicated process:
 
@@ -226,12 +228,22 @@ agents / UI ──> Load Balancer (TLS) ──> app node 1 ─┐
   against the shared DB. Round-robin is fine.
 - Health check the LB against **`GET /api/health`** (cheap, no auth).
 - Terminate TLS at the LB or pass through; agents only need a stable hostname.
-- **Enable `trust_proxy`** (Settings, or config) so the real client IP is taken
-  from `X-Forwarded-For` (the hop your LB appended) instead of the balancer's
-  address — otherwise the **audit log, IP allowlist, and brute-force detection**
-  all see the LB. Only turn it on when a trusted proxy fronts *every* request
-  (the HAProxy/nginx examples set `X-Forwarded-For`); off by default so a
-  single-node install can't be spoofed.
+- **Make sure the app sees the real client IP**, or the **audit log, IP
+  allowlist, and brute-force detection** all see the LB. RemotePower takes the
+  *last* address in `X-Forwarded-For` (the hop the proxy next to it appended) when
+  the request comes from the local machine or when `trust_proxy` is on.
+  - If the LB talks to gunicorn directly, set `trust_proxy` to `true` with
+    `POST /api/config` (there is no Settings control for it, and under
+    multi-tenancy only the platform operator can). Only do that when a trusted
+    proxy fronts *every* request; it is off by default so a single-node install
+    can't be spoofed.
+  - If each node has its own nginx, as in the diagram above, that nginx appends the
+    *balancer's* address last, so RemotePower sees the balancer whether or not
+    `trust_proxy` is on. Have nginx replace the peer address with the client's
+    first, for example with `set_real_ip_from <LB address>;` and
+    `real_ip_header X-Forwarded-For;` (the nginx realip module). Then the
+    headers nginx passes on carry the client.
+  - The HAProxy example adds `X-Forwarded-For` for you.
 - The per-request background sweeps (SNMP poll, image scan, KEV/EPSS refresh,
   scheduled backup) are **cheap-when-not-due and idempotent** — they self-gate
   on a timestamp in the shared config, so running them across N nodes doesn't
@@ -251,6 +263,10 @@ agents / UI ──> Load Balancer (TLS) ──> app node 1 ─┐
 > - `scap_reports/` — full OpenSCAP HTML reports per host
 > - `host_config_current/` — host-config snapshots
 > - `mitigate_logs/` (and similar per-scope command/script output logs)
+> - `file_archives/` — folder downloads from the File manager while they wait to be fetched
+> - `iac_runs/` — the working folders and **Terraform state** of Provisioning
+>   blueprints you run on the server (a run on one node and a destroy on another
+>   would not find the state)
 >
 > …plus the **served agent binary** at `/var/www/remotepower/agent/`
 > (`remotepower-agent`, its `.asc` signature, and any beta binary).
@@ -304,10 +320,10 @@ credentials) is shown on *Settings → Advanced → Storage backend* and in
 ## Step 5 — Relay satellites (segmented / remote networks)
 
 If agents live in networks that can't all reach the central server directly,
-**relay satellites** (Settings → Integrations → satellites) let agents report to a nearby
-satellite that forwards (authenticated) to the server. This fans-in
+**relay satellites** (Settings → Integrations → Relay satellites) let agents report to a nearby
+satellite that forwards (authenticated) the requests an agent makes to the server. This fans-in
 connections and avoids opening the central server to every segment. Useful
-for multi-site fleets regardless of raw scale.
+for multi-site fleets regardless of raw scale. See [satellites.md](satellites.md).
 
 ---
 
@@ -362,13 +378,16 @@ data do traverse the app→DB hop, so encrypt it off-LAN.
 
 At 1000+ agents the time-series and logs are what grow. Keep them bounded:
 
-- **Metric retention** — `metric_samples_retention_days` (Settings → Advanced → Data retention) controls how far back trend history is kept; the pruner trims
-  older samples. 30–90 days is typical.
+- **Metric retention** — `metric_samples_retention_days` (Settings → Advanced → Data
+  retention & maintenance) controls how far back trend history is kept; the pruner trims
+  older samples. 30–90 days is typical. The JSON backend keeps only about a day of
+  samples whatever you set.
 - **Other retention** — fleet events, alerts, audit log, webhook log all have
-  retention/caps in the same framework.
-- **`POST /api/db-maintenance`** (Settings → Advanced) runs backend maintenance
-  — on Postgres that's `ANALYZE`/vacuum hints; on SQLite, `VACUUM`/`wal_checkpoint`.
-  Schedule it (cron / `/schedule`) weekly.
+  retention/caps in the same framework. Every store, its cap and its default is in
+  [data-retention.md](data-retention.md).
+- **`POST /api/db-maintenance`** (Settings → Advanced → **Run maintenance now**)
+  purges records older than your retention limits and, on SQLite, runs `VACUUM`, a WAL
+  checkpoint and an integrity check. The same sweep runs once a day on its own.
 - Agent log rotation is on by the agent side; server-side rolling buffers are
   capped.
 
@@ -512,7 +531,7 @@ beneath the application filter as defence in depth. The app-layer filter stays
 the primary, always-on-when-enforced boundary; RLS is the second layer, not a
 replacement.
 
-**6. Check what is actually isolated.** The same Settings section renders
+**6. Check what is actually isolated.** The **Isolation coverage** section next to it renders
 `GET /api/tenancy/readiness`, which reports per store whether it is isolated and
 at which layer. Read it before you promise a customer isolation — the honest
 summary is:
@@ -572,10 +591,9 @@ The endpoints, for reference:
 
 - `worker_processes auto;` and a high `worker_connections`.
 - Raise `LimitNOFILE` for nginx **and** the `remotepower-wsgi` unit (sockets + DB conns).
-- Static assets are already served directly by nginx with an immutable cache +
-  precompressed (brotli/gzip) — don't route them through the app server.
-- `application/json` is intentionally **not** gzipped (defence-in-depth); leave
-  it.
+- Static assets are already served directly by nginx with an immutable cache and
+  precompressed files (`gzip_static`) — don't route them through the app server.
+  The shipped config also turns gzip on for CSS, JavaScript and JSON responses.
 - Put Postgres on a low-latency link to the app nodes (same VPC/subnet); the
   heartbeat RMW does a couple of round trips.
 

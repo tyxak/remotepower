@@ -14,9 +14,9 @@ scripts against the API, start here. The hand-written guide to the main workflow
 3. The Swagger UI page opens in a new tab. Your session token is attached to every
    **Try it out** request for you, so there is no Authorize step.
 
-The operations are grouped under tags: **Auth**, **Hosts**, **Commands**, **CMDB**,
-**Vault**, **Credentials**, **Reporting** and **Other**. Click an operation to expand
-it, fill in the path and query parameters, and **Try it out** sends it to your live
+The operations are grouped under tags such as **Auth**, **Hosts**, **Commands**,
+**Agents**, **Ingest**, **CMDB**, **Vault**, **Credentials**, **Reporting** and
+**Other**. Click an operation to expand it, fill in the path and query parameters, and **Try it out** sends it to your live
 server. **Try it out** really runs the request, so use a test host if the call
 changes something.
 
@@ -27,18 +27,20 @@ says so and links back to the dashboard.
 
 ## What is documented
 
-The spec covers the whole route table: every route the server answers, except the
-agent-only endpoints:
-
-- `/api/heartbeat` (agents post their state and pull queued commands),
-- `/api/enroll/pin` and `/api/enroll/register` (enrolment).
-
-These follow a contract that the agent must honour exactly. Showing them in Swagger
-UI invites test traffic that corrupts fleet state. If you write a custom agent, read
-the agent source.
+The spec covers the whole route table: every route the server answers.
 
 The larger subsystems have hand-written detail (parameters, bodies, responses). The
 rest are listed as stubs with their path parameters and HTTP method.
+
+The calls that agents and inbound sources make are in the spec too:
+
+- **Agents**: `/api/heartbeat` (agents post their state and pull queued commands) and
+  the enrolment calls `/api/enroll/pin` and `/api/enroll/register`. They follow a
+  contract that the agent must honour exactly, and the heartbeat needs a host's own
+  token, not your session. Do not use **Try it out** on them against a live server.
+  If you write a custom agent, read the agent source as well.
+- **Ingest**: the token-in-path endpoints for syslog lines, SNMP traps, webhooks and
+  ITSM events. The token in the URL is their only credential.
 
 ---
 
@@ -125,5 +127,5 @@ checkout can also build a ready-made Postman collection from the same spec with
 - **401 on every call.** The session ended. Sign in again and reload the page.
 - **403 on a call.** Your role does not allow it. The spec lists every route, but the
   server still checks permissions on each one.
-- **A route is missing.** Agent-only routes are left out on purpose. Anything else
-  that is missing is a bug worth reporting.
+- **A route is missing.** The spec is built from the live route table, so a missing
+  route is a bug worth reporting.

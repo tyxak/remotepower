@@ -19,7 +19,7 @@ custom checks, and whether the host is being attacked right now.
 - Sort the fleet by risk to spend attention where it matters; the score
   also feeds the AI advisors and the fleet posture [report](reports.md).
 - **sshd hardening and automatic security updates** contribute only when
-  *Security hardening* is switched on (Settings → Advanced). Root-login or
+  *Security hardening* is switched on (Settings → Security). Root-login or
   password SSH is often a choice, so those advisories are opt-in —
   and the score follows the same switch rather than moving every host's number
   on a policy you never enabled. The verdicts are the ones the Checks page
@@ -52,8 +52,8 @@ custom checks, and whether the host is being attacked right now.
   Defender signatures, tamper protection and User Account Control, score when
   they are off.** Each protection that is off adds its weight, capped. The
   signatures count once they are as old as the limit for the *Defender
-  signatures stale* alert (Settings → Alert parameters), so the score, the alert
-  and the Checks row agree. A setting the agent could not read scores nothing
+  signatures stale* alert (**AV signature stale (days)** under Settings → Alert
+  parameters → Lifecycle), so the score, the alert and the Checks row agree. A setting the agent could not read scores nothing
   *(7.5.0)*.
 - **A container in a restart loop scores.** The containers counted are the ones
   under an open *container restarting* alert, so the score, the alert and the
@@ -73,5 +73,9 @@ custom checks, and whether the host is being attacked right now.
   list of findings should not be padded with hosts that were never asked.
 - It is a *prioritisation* aid computed from observed data — not a formal
   risk assessment.
+
+Related: the [weights](alert-parameters.md#risk-score-weights) and the
+[level cutoffs](alert-parameters.md#risk-levels), the [Checks](checks.md) page whose verdicts several factors reuse, and the
+[health score](health-score.md), which grades a host on what is open now.
 
 ← [Back to docs index](README.md)

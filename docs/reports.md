@@ -2,17 +2,24 @@
 
 **Business → Reports** produces a single **fleet posture report** — health
 score, pending patches, open CVEs, host security posture, hardware health,
-network exposure, threats and remote access, and compliance — as one export you
-can download on demand or have emailed on a schedule.
+network exposure, threats and remote access, compliance, and what changed over
+the last 30 days — as one export you can download on demand or have emailed on a
+schedule. The page has two tabs: **Reports** and [**Capacity**](#the-capacity-tab).
 
 ## Posture report
 
 - A live preview summarises the current fleet posture. Export it as **JSON** or
   **CSV**, or **Print / save as PDF** from the browser.
-- The **evidence pack** bundles the posture report with the 90-day
+- The CVE figures also count the critical and high CVEs in the images of running
+  containers, when the container-image scan is on *(7.5.0)*.
+- The **evidence pack** bundles the posture report with the
   [compliance](compliance.md) baseline trend and an [audit-log](security.md)
   excerpt for the period into one JSON document — the artifact auditors ask for.
-  Generating it is admin-only and itself audit-logged.
+  The period is 90 days unless you ask for another one (1 to 366 days). The
+  excerpt holds the newest 2,000 entries of the period, and the pack carries an
+  HMAC-SHA256 signature so a change to it can be detected. An admin or the
+  **auditor** role can generate it, and generating it is audit-logged.
+- A report for one customer site is a separate download; see [sites.md](sites.md).
 
 ## Hardware health and network exposure *(7.5.0)*
 
@@ -50,22 +57,48 @@ hosts remotely*.
 - [SSH gateway](sshgw.md) sessions in the period, by how many people, to how
   many hosts.
 - The five most attacked hosts.
+- What the edge sources saw, when you can see the whole fleet: addresses seen at
+  the edge, how many were reported, how many are in the Cloudflare IP list now,
+  and the edge bans in force. The edge belongs to the installation, so a report
+  for one site, or for a reader limited to some hosts or one tenant, leaves these
+  rows out.
 
 A count of zero still prints: "nothing attacked us" is a finding worth reading.
-Every figure is limited to the hosts the person generating the report can see.
+Every other figure is limited to the hosts the person generating the report can see.
+
+## What changed in the last 30 days
+
+Every other section is a live counter, so two reports a week apart can look the
+same. The **period** block shows movement:
+
+- Alerts opened and alerts resolved, the median time to resolve and the mean time
+  to acknowledge.
+- The health score and the compliance percentage against their values 30 days ago.
+  A change shows only once the daily samplers hold a sample that old.
+- How many patch runs were recorded on your hosts in the period.
+
+The report also carries the fleet's uptime over the same 30 days.
 
 ## Scheduled reports
 
-- Set a cron schedule and recipient list to have the posture report emailed
-  automatically (requires outbound email configured under Settings).
-- **Custom report definitions** let you save named report configurations with
-  their own recipients and cadence.
+- **Scheduled email delivery** emails the posture report on a cron schedule (five
+  fields, for example `0 8 * * 1` for Mondays at 08:00). It needs outbound email
+  set up under **Settings → Notifications**. Leave the recipients empty to use the
+  configured notification recipients, or list up to 50. Only an administrator of
+  the installation can change it.
+- **Custom reports** save a named configuration: the sections you want, a format
+  (JSON or CSV, attached to the email), a cron schedule, recipients, an optional
+  **Site** and webhook destinations. A report for one site covers only that site's
+  hosts, which is how you send a customer a report of their own hosts. With no
+  sections ticked, a report holds every section except the AI summary. A report can
+  go to the destinations you set up under **Settings → Notifications** instead of,
+  or as well as, email. You can save up to 30.
 
 ## Delivered report archive
 
-Every report RemotePower **emails** is kept, exactly as it was sent, under
-Reports → *Delivered report archive*. Reports you download or print on demand
-are not archived; only deliveries are.
+Every scheduled report RemotePower **sends**, by email or to a webhook
+destination, is kept under Reports → *Delivered report archive*. Reports you
+download or print on demand are not archived; only deliveries are.
 
 This exists because a past-dated posture report cannot be reconstructed. Fleet
 health and fleet compliance % are sampled daily, but **CVE counts, patch backlog
@@ -76,11 +109,15 @@ of the report that was sent at the time.
 - **As of** a date returns the nearest delivery **at or before** it — never
   after. A report generated a week later would look like an answer and is not
   one.
-- Each archived report downloads as JSON or CSV, byte-for-byte as delivered.
-- The archive is capped (60 by default) and the list says how many older
-  reports have aged out, so you can see coverage rather than assume it.
+- Each archived report downloads as JSON or CSV from the stored copy, so the
+  figures are the ones that were sent.
+- The archive keeps the newest 60 reports, and no more than 4 MiB in all. The
+  list says how many older reports have aged out, so you can see coverage rather
+  than assume it.
 - Deleting one is a hard confirm, not an undoable action: it is the only copy.
-- Reading is available to admins and the **auditor** role; deleting is
+- Reading is available to admins and the **auditor** role, and only to full-access
+  ones: a stored report is a whole-fleet snapshot with no scope to filter on, so a
+  role limited to some hosts and a tenant's administrator get a 403. Deleting is
   admin-only.
 - The **evidence pack** includes the archive index for its period. Note that
   the pack's `posture` block is the *current* fleet posture at generation time,
@@ -114,6 +151,46 @@ Practical notes:
 - It is rendered first in the emailed body and in the printable / Save-as-PDF
   view.
 
+## The Capacity tab
+
+The second tab of the Reports page holds five cards. They read the same data as the
+rest of the product and do not change anything.
+
+- **Capacity** — the average and the highest CPU, memory and swap use across the
+  online hosts you monitor, the fleet's disk use in total, and the top five hosts for
+  CPU, memory and disk (the fullest mount counts for disk).
+- **Agent integrity** — each agent reports the hash of its own program, and the
+  server compares it with the published build. The pills count *verified*,
+  *mismatch* and *unknown*; the table lists only the hosts that are not verified. A
+  mismatch on the current version means a changed, damaged or half-updated agent.
+- **Resource anomalies** — hosts whose latest memory, swap or disk reading is far
+  from their own recent baseline: a mean and spread per host, flagged at 2.5
+  standard deviations. Tick **Seasonal baselines** to score each host against its
+  matching day of the week and four-hour block; it falls back to the flat baseline
+  until about two weeks of data exist. `GET /api/fleet/anomalies?z=` takes a
+  threshold from 1.5 to 6.
+- **Software metering** — install counts of named software against an allowance,
+  from the package inventory. Enter one line per item as `name = limit`, optionally
+  `| alias1, alias2` to fold name variants into one entry; a limit of 0 only counts.
+  An entry over its limit is flagged, and *reclaimable* counts hosts where the
+  software is installed but not seen in running processes or listening ports. You
+  can track up to 100 items. Saving needs an administrator.
+- **Uptime (SLA)** — per-host and fleet uptime over 7, 30 or 90 days; see
+  [sla.md](sla.md).
+
+## API
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/report/fleet` | The posture report. `format=csv` for CSV, `sections=a,b` to pick sections (add `summary` for the AI paragraph) |
+| `GET /api/report/site/{id}` | The same report for one site |
+| `GET /api/report/evidence` | The evidence pack. `days=` sets the period, `format=download` saves it as a file |
+| `GET /api/report/archive` | The delivered report archive. `since=`, `until=` or `as_of=` (epoch seconds) narrow it |
+| `GET`, `DELETE /api/report/archive/{id}` | One archived report (`format=csv` or `format=download`), or delete it |
+| `GET`, `PUT /api/report/schedule` | The scheduled email delivery |
+| `GET`, `POST /api/report/definitions` and `DELETE /api/report/definitions/{id}` | The custom reports |
+| `GET /api/fleet/capacity`, `/api/fleet/agent-integrity`, `/api/fleet/anomalies`, `/api/inventory/metering` | The Capacity tab |
+
 ## Related
 
 - The underlying scores come from [health](health-score.md),
@@ -122,8 +199,10 @@ Practical notes:
 
 ## Permissions
 
-Viewing and exporting reports is available to admins and the **finance** /
-**auditor** read-only roles; the evidence pack is admin-only.
+Any signed-in user can view and export the posture report, limited to the hosts
+their role and tenant allow. The evidence pack and the delivered report archive
+are for admins and the **auditor** role, and deleting an archived report is
+admin-only. Changing the schedule or the custom reports is admin-only.
 
 ## With multi-tenancy
 

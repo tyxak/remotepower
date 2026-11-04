@@ -23,7 +23,10 @@ branches.
 
 ## 2. Bump the version
 
-Eleven places, and the build checks most of them for you.
+Thirteen files carry the version, and a test checks them. `make bump VERSION=X.Y.Z`
+edits all of them, prepends a template to `CHANGELOG.md` and creates a template
+`docs/vX.Y.Z.md` (add `DRY=1` to see the plan and write nothing). The list below is
+what it touches.
 
 - [ ] `SERVER_VERSION` in the API.
 - [ ] `VERSION` in all three agents — Linux, Windows, macOS.
@@ -41,7 +44,7 @@ even when the version number does not.
 ## 3. Write it down
 
 - [ ] New entry at the top of `CHANGELOG.md`.
-- [ ] New `docs/<version>.md`, and delete anything older than the last three.
+- [ ] New `docs/vX.Y.Z.md`, and delete anything older than the last three.
       Removing a version doc has knock-on effects: the in-app "What's new"
       card links to it and `docs/README.md` indexes it, so trim both in the
       same commit, then search the repo for links that now point nowhere.
@@ -54,6 +57,12 @@ even when the version number does not.
 - [ ] Read the version doc and the "What's new" card against the changelog.
       Both are written when the version opens and headline features land after,
       so they go stale inside a single cycle.
+
+`tools/release-prep.py` does the mechanical parts of this step and the one above.
+Every subcommand is a dry run until you pass `--apply` after it: `prune` applies the
+keep-three and keep-five rules and scans for links that now point nowhere, `counts`
+refreshes the line, connector and webhook-event counts, and `verify` runs the
+checklist greps and prints PASS or FAIL for each.
 
 ## 4. Check the whole product, not just the diff
 
@@ -82,10 +91,10 @@ Run these across the project, not only over recent commits.
       Text the server sends, rather than markup, is invisible to the
       translation checks — audit those by hand.
 - [ ] **Documentation matches the code as it is now.** Check the numbers you
-      quote by measuring them; counts drift every cycle and are almost always
-      understated. Remove anything describing a limitation you have since
-      fixed. Give every non-obvious page and settings section a link to its
-      guide, and write the guide if it is missing.
+      quote by measuring them; counts drift every cycle. Remove anything
+      describing a limitation you have since fixed. Give every non-obvious
+      page and settings section a link to its guide, and write the guide if
+      it is missing.
 - [ ] **The demo seeder fills every current feature**, with the right version.
       The visual and accessibility checks all measure the seeded instance, so a
       seeder that misses a feature hides it from every one of them.

@@ -47,7 +47,7 @@ are not removed from past figures.
 
 ## Reading the Uptime (SLA) card
 
-On **Business → Reports**, the **Uptime (SLA)** card lists every monitored host
+On **Business → Reports**, the **Uptime (SLA)** card (on the **Capacity** tab) lists every monitored host
 with its group, **Uptime**, **Downtime**, **SLA target** (marked *met* or
 *breached*) and **Error budget**. Pick **7**, **30** (default) or **90** days, search
 by host or group, and use the download button for a CSV. The line above the table

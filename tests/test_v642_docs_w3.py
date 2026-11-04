@@ -339,6 +339,9 @@ class TestPrometheusDoc(unittest.TestCase):
     def setUp(self):
         self.doc = _read(_DOCS / "monitors.md")
         self.exporter = _read(_CGI / "prometheus_export.py")
+        # The scrape handler appends one gauge of its own to every exposition (`remotepower_scrape_error`, the 1/0 that says the
+        # last scrape fell back to a reduced one). Count the metrics it declares with a `# TYPE` line, not every mention.
+        self.exporter += "\n" + "\n".join(re.findall(r"# TYPE (remotepower_[a-z_0-9]+) ", _read(_CGI / "api.py")))
 
     def test_every_metric_named_in_the_prose_exists(self):
         named = set(re.findall(r"remotepower_[a-z_0-9]+", self.doc))

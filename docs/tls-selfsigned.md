@@ -144,7 +144,9 @@ uses a CA the agent trusts additively, rather than pinning a single leaf.
 
 ## Docker
 
-Set `RP_TLS_SELFSIGNED=1` and `RP_TLS_HOST=<name>` and map host `443:8443`:
+The shipped `docker-compose.yml` already turns this on: run
+`RP_TLS_HOST=rp.internal docker compose up -d` and the certificate names that address.
+In your own compose file, set `RP_TLS_SELFSIGNED=1` and `RP_TLS_HOST=<name>` and map host `443:8443`:
 
 ```yaml
 ports:

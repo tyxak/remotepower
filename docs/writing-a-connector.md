@@ -18,8 +18,7 @@ rest of `cgi-bin/`. So:
 - The directory must be **root-owned and only writable by the operator** (same
   permissions as `cgi-bin/`). Anyone who can write there can run code as the web
   user.
-- There is **no UI upload path** and never will be — plugins are installed from a
-  shell,.
+- There is **no UI upload path**: plugins are installed from a shell.
 - A plugin that raises while importing is logged to the server error log and
   skipped, so a broken file can't disable the integrations feature.
 

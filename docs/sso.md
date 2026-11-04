@@ -55,7 +55,7 @@ DN casing rarely survives typing); OIDC/SAML group names stay case-sensitive.
 ## OIDC / OpenID Connect
 
 No extra dependencies — the confidential-client authorization-code flow is
-built in (implicit flow and front-channel id_tokens do not
+built in (the implicit flow and front-channel id_tokens are not
 supported).
 
 **On the IdP**: create a confidential (server-side) client with redirect URI
@@ -291,9 +291,9 @@ per-tenant branding, what is and is not actually isolated — is in
   emergency admin in the users store *before* enabling SSO-only, or you can
   lock yourself out. LDAP logins are not blocked by SSO-only (it's treated as
   an IdP path). The safeguard: if no IdP is enabled, `sso_only` does nothing.
-- **Users → source column**: Settings' user list shows each account's origin
-  (`local` / `saml` / `oidc` / `scim`) and MFA state, so you can see who is
-  IdP-managed at a glance.
+- **Admin → Users, Source column**: the user list shows each account's origin
+  (`local`, `saml`, `oidc` or `scim`; LDAP accounts show `local`) and MFA
+  state, so you can see who is IdP-managed at a glance.
 - SSO sessions are ordinary sessions: same TTL, same per-user session cap,
   same My Account → Sessions listing.
 

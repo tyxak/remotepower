@@ -81,8 +81,9 @@ sudo packaging/install-sshgw.sh
 It installs the daemon and its service, creates the shared secret once, gives
 it to both sides and starts the gateway. It is safe to run again, for example
 after an upgrade. `--port 22` and `--public-host gw.example.com` set the port
-and the name people connect to. Your RemotePower server must already be 7.1.0
-or newer.
+and the name people connect to. A port below 1024 also needs a change to the
+service (see [Good to know](#good-to-know)). Your RemotePower server must
+already be 7.1.0 or newer.
 
 **Running RemotePower in Docker?** The image carries the gateway. It is off
 until you ask for it:
@@ -289,9 +290,12 @@ runs in a container, because a container's loopback isn't the host's sshd.
   `MaxStartups`.** One connection can offer at most 10 keys before it is
   closed, and one address can have at most 10 connections still logging in at
   the same time.
-- **Port 22.** To run the gateway on port 22, add
-  `AmbientCapabilities=CAP_NET_BIND_SERVICE` to the service, and set
-  `SSHGW_SSH_PORT=22` in `/etc/remotepower/sshgw.env`.
+- **Port 22.** The service runs as an unprivileged user with no capabilities, so
+  a port below 1024 needs two more lines in it (`systemctl edit
+  remotepower-sshgw`): `AmbientCapabilities=CAP_NET_BIND_SERVICE` and
+  `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`. Also set `SSHGW_SSH_PORT=22` in
+  `/etc/remotepower/sshgw.env` (`install-sshgw.sh --port 22` does that part), then
+  restart the service.
 - **Requirements.** The gateway needs `asyncssh` 2.14.2 or newer, and refuses
   to start on anything older.
 

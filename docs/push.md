@@ -1,4 +1,4 @@
-# Agent push channel — near-instant command dispatch
+# Agent push channel — faster command dispatch
 
 **Status: opt-in, off by default.** The daemon itself is *installed* by
 default (`install-server.sh`; pass `--no-push` to skip it), but the channel
@@ -11,14 +11,16 @@ for a small/medium fleet you can watch, and report back before relying on
 it at real scale. Use the **Test daemon connection** button next to the
 toggle (Settings → Advanced) for a quick reachability check, and see
 "Verifying it's actually working" below for the full end-to-end procedure.
+Only Linux agents use the channel; the Windows and macOS agents ignore it.
 
 ## What it does, and does NOT do
 
 The agent normally polls the server every `poll_interval` seconds (default
 60s) and picks up queued commands on that cycle. This channel does **one**
-thing: when an agent is connected, the server can send it a tiny "wake up
-and poll now" nudge over a WebSocket, cutting worst-case command-dispatch
-latency from up to 60s down to near-instant.
+thing: the push daemon looks at the command queue every 2 seconds, and when a
+connected agent has commands waiting it sends that agent a tiny "wake up and
+poll now" nudge over a WebSocket. That cuts worst-case command-dispatch latency
+from up to 60s down to about 2 seconds plus the agent's own poll.
 
 It does **not** replace polling, and it does **not** carry command payloads.
 The agent's existing poll-and-execute code path — already correct, already
@@ -51,7 +53,8 @@ on, so enabling push is a single toggle:
    fleet-wide until you flip this.
 2. **Make sure `websockets` is present on the agent hosts** (optional — the agent
    degrades gracefully without it, like it does for `psutil`):
-   `apt/dnf/pacman install python3-websockets`, or
+   `apt install python3-websockets` or `dnf install python3-websockets` (on Arch,
+   `pacman -S python-websockets`), or
    `pip install --break-system-packages 'websockets>=10'`. Without it the agent
    simply never starts the listener and keeps polling normally — no error, just
    no latency benefit. The server host needs it too (it already does if the web
@@ -105,9 +108,10 @@ steps:
    host actually has `websockets` installed (it degrades silently, no
    error, if the package is missing).
 4. The real functional test is **latency, not just connectivity**: queue a
-   command against a connected host. With push working it runs in well
-   under a second; without it (or with the toggle off), it waits up to
-   `poll_interval` seconds for the agent's next scheduled poll. Comparing
+   command against a connected host. With push working it starts within a few
+   seconds (the daemon checks the queue every 2 seconds); without it (or with
+   the toggle off), it waits up to `poll_interval` seconds for the agent's next
+   scheduled poll. Comparing
    that latency on vs. off is what actually proves the nudge is doing its
    job — a successful connection alone only proves the WebSocket path
    works.
@@ -193,15 +197,27 @@ an *installed* server (not the repo test tree), so verify them on the box:
 - The daemon reads host/command state through the active storage backend
   (flat JSON files under the JSON backend, or the DB under Postgres or
   SQLite). It is read-only and shares only the data directory with the app.
-- Token rotation (or a brand-new enrollment) takes effect on the very next
-  connection attempt — the daemon's host cache is keyed on the file's
-  own mtime, not a time-based TTL, so there's no window where a just-
-  rotated token still authenticates.
+- Token rotation (or a brand-new enrollment) takes effect on the next
+  connection attempt. On the JSON backend the daemon's host cache is keyed on the
+  file's own mtime, so a changed host list is read at once. On SQLite and
+  Postgres there is no file, so the daemon re-reads the host list every 5
+  seconds, and a just-rotated token can still connect for up to that long. A
+  connection that is already open stays open until it drops; it only ever
+  receives the wake signal.
 - A wake nudge for the same still-pending command is throttled to at most
-  once every 30 seconds per host (new work always nudges immediately
-  regardless of that cooldown) — bounds how often a connected agent gets
+  once every 30 seconds per host (new work always nudges on the next 2-second
+  check, whatever that cooldown) — bounds how often a connected agent gets
   woken while one command sits queued for a while.
 - Disabling `push_enabled` after an agent's listener thread has already
   started does not stop that thread until the agent restarts — an
   accepted limitation for what's purely a latency optimization; worst case
   the thread keeps trying to connect and has nothing useful to receive.
+
+## Related
+
+- [Agent commands](agent-commands.md) — how queued commands reach an agent.
+- [Relay satellites](satellites.md) — agents behind a satellite.
+- [CLI](cli.md) — `rp doctor` checks the push daemon.
+- Browser push notifications (Settings → Integrations) are a different feature:
+  they show alerts in your browser. This page is about the channel between the
+  server and its agents.

@@ -45,7 +45,7 @@ never indexed by any of them.
 | **Compliance** | Per-framework control pass/fail (CIS, PCI, HIPAA, SOC 2) and the hosts driving each failure | scores + control ids |
 | **Network map** | The declared topology (uplinks and dependencies), the site/subnet layout, unmanaged hosts seen on the LAN, and the **observed** topology — LLDP neighbours as the switches themselves report them, plus each host's actual outbound peers. Unenrolled neighbours (switches, APs) are included, since they appear nowhere else | grounds "what talks to X?" and "what is X physically plugged into?" |
 | **Tickets & KB** | Built-in helpdesk tickets (subject, status, priority) and knowledge-base articles | ticket bodies + KB prose |
-| **Scripts & runbooks** | Saved custom scripts and remediation runbooks (secret-scrubbed before indexing) | `KEY=secret`/token values redacted |
+| **Scripts** | Saved custom scripts: name, description and body (secret-scrubbed before indexing) | `KEY=secret`/token values redacted |
 | **Provisioning & rollouts** | Infrastructure blueprints and staged-rollout state (rings, health gates) | operator-authored |
 | **Contacts, incidents & maintenance** | On-call/vendor contacts, incident timelines, and scheduled maintenance windows | free-text secret-scrubbed |
 | **Metrics** | Custom Prometheus-textfile metrics and their recent trend per host | numeric, name-validated; **the one source off by default** |
@@ -64,7 +64,12 @@ never indexed by any of them.
 | **Billing & time** | Invoice / quote / time-entry counts and totals by status, plus overdue | summary level only |
 | **Physical & IPAM inventory** | Sites, racks, subnets and warranty state — "which rack is host X in", capacity and out-of-warranty planning | operator-authored metadata |
 
-Each chunk carries a stable id (e.g. `live/web01#cves`) that doubles as its
+Fleet rollups come with **Live state**, they have no checkbox of their own. Three
+rows cover more than one checkbox: **Tickets & KB** (tickets, knowledge base),
+**Provisioning & rollouts** (blueprints, staged rollouts) and **Contacts, incidents &
+maintenance** (three checkboxes). The per-host runbooks belong to **Docs & runbooks**.
+
+Each chunk carries a stable id (e.g. `live/<host id>#cves`) that doubles as its
 citation key, plus a freshness timestamp.
 
 ## Configuration (Settings → AI assistant → Knowledge index)
@@ -73,18 +78,21 @@ citation key, plus a freshness timestamp.
 |---|---|---|
 | Enable the knowledge index | on | Master switch for indexing + retrieval |
 | Sources | all on except **metrics** | Which of the 34 sources to index — each is an individual checkbox. Only the long-retention metrics series is off by default (it is noisy and the largest); everything else is cheap and no-PII |
-| Use embeddings | off | Semantic rerank; pre-checked for local providers |
-| Embedding model | provider default | e.g. `text-embedding-3-small`, `nomic-embed-text` |
-| Max chunks per question | 8 | Upper bound on injected chunks |
-| History: keep last N days | 14 | Age cutoff for the history source |
-| `reindex_min_interval_sec` | 600 | Throttle: lazy rebuild at most once per this many seconds |
-| Retrieve context per question (RAG) | on | Per-query injection into chat (Context awareness) |
+| Use embeddings | off | Semantic rerank. The box is greyed out when the embedding provider has no embeddings endpoint. The page notes whether embeddings stay local (Ollama, LocalAI) or send the indexed text to the provider (OpenAI) |
+| Embedding model | provider default | `text-embedding-3-small` for OpenAI, `nomic-embed-text` for Ollama, `text-embedding-ada-002` for LocalAI |
+| Embedding provider, base URL and API key | same as chat | Optional. Run embeddings on a different service than chat (OpenAI, Ollama or LocalAI), for example a separate GPU box. The chat key is never sent to a different service. The embedding key is masked after you save it; type `__clear__` to remove it |
+| Max chunks per question | 8 | Upper bound on injected chunks (1 to 30) |
+| History: keep last N days | 14 | Age cutoff for the history source (0 to 3650) |
+| `reindex_min_interval_sec` | 600 | Throttle: lazy rebuild at most once per this many seconds (0 to 86400). Set through `POST /api/ai/config`, there is no box for it |
+| `max_chars` | 6000 | Size budget for the chunks injected into one question (200 to 20000). Set through `POST /api/ai/config`, there is no box for it |
+| Retrieve relevant infrastructure context per question (RAG) | on | Per-query injection into chat (Context awareness) |
 
 The index rebuilds **lazily** on chat when an enabled source file is newer
 than the last build — but at most once per `reindex_min_interval_sec`
 (default 10 min), so a fleet whose `devices.json` bumps every heartbeat
 doesn't rebuild (and, with embeddings on, re-embed volatile chunks) on
-every chat. The manual **Rebuild index** button bypasses the throttle.
+every chat. The manual **Rebuild index** button bypasses the throttle. A rebuild
+embeds at most 2,000 new chunks; the rest are embedded by the next rebuild.
 Volatile current-usage metrics (load, CPU %, memory %) live in their own
 `#metrics` chunk so they never destabilise the stable specs/summary chunks.
 
@@ -97,19 +105,42 @@ Volatile current-usage metrics (load, CPU %, memory %) live in their own
   before it reaches the index or, with embeddings on, a cloud provider.
 - Embeddings egress is **opt-in** and off by default for cloud providers.
   Run a local Ollama embedding model to keep semantic search fully on-prem.
+- The index is built from every host and is not scoped per role or tenant, so it is
+  only used for full-access callers. In chat, a role limited to some groups, tags or
+  sites and a user of a tenant get no retrieved context. `POST /api/ai/rag/search`
+  answers them 403. With tenancy on, all of `/api/ai/rag/*` belongs to the platform
+  operator.
 
 ## Endpoints
 
 ```
-GET  /api/ai/rag/status     # freshness, chunk + embedding counts        (auth)
+GET  /api/ai/rag/status     # freshness, chunk + embedding counts        (signed in)
 POST /api/ai/rag/reindex     # rebuild corpus + index                     (admin)
-POST /api/ai/rag/search      # standalone retrieval, no LLM call           (auth)
+POST /api/ai/rag/search      # standalone retrieval, no LLM call           (full access)
      body: {"query": "...", "top_n": 6}
+POST /api/ai/rag/index-backend/migrate   # move the index, see below      (admin)
+     body: {"target": "json" | "postgres"}
 ```
 
-`/search` powers the **Test retrieval** box in Settings: see exactly which
-chunks a question pulls in, with scores and citations, before trusting an
-answer — no tokens spent.
+`/search` takes a query of up to 2,000 characters and `top_n` from 1 to 30 (the
+**Max chunks per question** setting when you leave it out). It powers the
+**Knowledge search** box under Settings → AI assistant: see which chunks a question
+pulls in, each with its title, source and a 600-character excerpt, before trusting
+an answer — no tokens spent. The same search runs in the command palette
+(<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>-<kbd>K</kbd>).
+
+## Where the index lives
+
+By default the index is a file in the data directory (`rag_index.json`). When the
+storage backend is Postgres, **Settings → AI assistant → Knowledge index (RAG)** also
+shows **Move index to Postgres (pgvector)**. It stores the chunks and their embeddings
+in the database instead of the file and rebuilds the whole index there, which can take
+a while with embeddings on. Keep the tab open until it finishes. The database needs
+the pgvector extension. If the application role cannot create it, the page shows the
+statement a database admin has to run once (`CREATE EXTENSION vector;`). If the write
+to Postgres fails, the index stays in the file and the page says so. **Move index back to JSON** reverses it and drops the table. Only an
+administrator of the installation can do either. The status line under the buttons
+says which store holds the index.
 
 ## How retrieval is scored
 
@@ -127,5 +158,7 @@ answer — no tokens spent.
 
 - Lexical search has no stemming, so "disk" won't match the indexed token
   "disks". Enable embeddings for paraphrase/semantic recall.
-- Embeddings require an embedding-capable provider; Anthropic and DeepSeek
-  have no embeddings endpoint today (lexical-only there).
+- Embeddings require OpenAI, Ollama or LocalAI, either as the chat provider or as
+  the separate embedding provider. Anthropic, DeepSeek, OpenCode and OpenClaw have
+  no embeddings endpoint, so with one of them as the chat provider search stays
+  lexical-only unless you set one of those three as the embedding provider.

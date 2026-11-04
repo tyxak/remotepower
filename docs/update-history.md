@@ -130,8 +130,8 @@ a minute. Hit **Refresh** in the modal.
 **Output is truncated.**
 The agent's cap for upgrade commands is 256 KB. If your `apt upgrade`
 produces more than that — a major distribution upgrade,
-maybe — it'll be cut off. Bump `MAX_CMD_OUT_BYTES` cap detection in
-`client/remotepower-agent` and re-deploy the agent if you need more.
+maybe — it'll be cut off. If you need more, raise the `256 * 1024` cap next to
+`is_pkg_upgrade` in `client/remotepower-agent.py` and re-deploy the agent.
 
 **Output is empty / shows "(no output captured)".**
 Either the run hasn't completed yet (it's still in flight), or the

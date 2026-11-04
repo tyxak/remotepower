@@ -3,17 +3,22 @@
 A **satellite** is a tiny authenticated relay you run inside a network segment
 that can't reach the central RemotePower server directly (a DMZ, a remote site,
 an isolated VLAN). Agents in that segment talk to the satellite; the satellite
-forwards their `/api/*` traffic to the central server.
+forwards the requests an agent makes to the central server: heartbeats and
+enrolment, package and log submissions, scan and threat reports, the update
+check, the push and SSH-gateway channels, and a few per-host uploads. It answers
+404 to any other path, so a machine on the segment cannot reach the sign-in or
+the administration API through the relay.
 
 ```
 agent ──(https)──▶ satellite ──https──▶ RemotePower server
 ```
 
 Two independent identities ride along: the **agent's host token** still
-authenticates the host end-to-end (the satellite never sees a usable
-credential it could impersonate the host with), and the **satellite token**
-identifies *which relay* the traffic came through — so you can see and revoke a
-satellite independently of its agents.
+authenticates the host to the server (the satellite can relay it but cannot mint
+one), and the **satellite token** identifies *which relay* the traffic came
+through — so you can see and revoke a satellite independently of its agents. The
+satellite reads the requests it relays, including each host token, so run it on a
+machine you trust.
 
 The relay is `client/remotepower-satellite.py` — standard-library only, no
 dependencies.
@@ -24,7 +29,8 @@ dependencies.
 
 ### 1. Mint a satellite token (on the server UI)
 **Settings → Integrations → Relay satellites → New satellite.** The token is
-shown once — copy it. Each satellite gets its own token.
+shown once — copy it. Each satellite gets its own token, and RemotePower keeps up
+to 50 satellites.
 
 ### 2. Install the relay (on the satellite host, inside the segment)
 Use the script (installs a hardened systemd service):
@@ -125,4 +131,6 @@ older than v6.1.2 hard-coded `wss://` and cannot connect to a plaintext satellit
 at all.
 
 See also: [scaling.md](scaling.md) (where satellites fit in a large fleet),
-[install.md](install.md), [agentless-devices.md](agentless-devices.md).
+[install.md](install.md), [agentless-devices.md](agentless-devices.md), and
+[security-scans.md](security-scans.md) for the separate scanner satellite that
+runs Pentest scans.

@@ -32,7 +32,8 @@ Scripts have a different shape:
 /var/lib/remotepower/scripts.json
 ```
 
-Single file. Same flat-JSON pattern as everything else. Shape:
+On the JSON backend this is a single file; on SQLite and PostgreSQL the same
+document lives in the database. Shape:
 
 ```json
 {
@@ -63,6 +64,7 @@ Limits (`api.py`):
 | Max name length | 80 |
 | Max description length | 512 |
 | Max body length | 65 536 bytes (64 KB) |
+| Max hosts in one run | 100 (a longer list is refused, not cut) |
 
 ## API
 
@@ -221,7 +223,8 @@ Two entry points:
  selected)
 
 Both open the same modal. Pick a script from the dropdown; if it has
-dangerous patterns the consent checkbox appears. Click Queue.
+dangerous patterns the consent checkbox appears. Click Queue. A script with a
+syntax error is refused at this point, so fix it or run **Dry run** again first.
 
 The modal closes immediately and a batch-job status modal opens that
 polls `/api/exec/batch/<id>` every 10 s. Output appears per-host as
@@ -234,7 +237,7 @@ One row per target host showing:
 - Name
 - Status pill (`pending`, `rc=0`, `rc=1`, or a reason if skipped:
  `not_found`, `agentless`)
-- For completed hosts: the script output (capped at 32 KB) and the
+- For completed hosts: the script output (the first 8 KiB of it) and the
  finished-at timestamp
 
 Polling stops automatically once every queued host has returned
@@ -255,8 +258,12 @@ default 300s. See [agent-commands.md](agent-commands.md).
 
 ## Security
 
-- **Admin-only** for every mutation, dispatch, and dry-run. Listing and
- read are session-auth.
+- **Admin-only** for every change to the library and for dry-run. Listing and
+ read are session-auth. **Running** a script needs the `command` permission on
+ every target host (an admin always has it), within the role's host scope.
+- **Change approval does not park a library run.** Even with change approval on
+ and **Run command** ticked, a script run is queued at once; only a command
+ typed into **Run command** is held for a second admin.
 - **No shell interpolation** of the script body. It goes unchanged into
  the agent's `exec:` channel, which runs it through `subprocess.run(…,
  shell=True)` on the agent. That's the same execution surface the
@@ -271,8 +278,7 @@ default 300s. See [agent-commands.md](agent-commands.md).
 There is currently **no per-host allowlist** for scripts. The
 existing exec allowlist matches exact one-liners; arbitrary script
 bodies wouldn't match. If you need a host that can't run scripts,
-don't grant the dispatcher admin role on that fleet. A per-host
-script-policy feature is on the roadmap.
+keep the `command` permission, and the admin role, away from that host's scope.
 
 ## Examples
 

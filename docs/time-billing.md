@@ -24,8 +24,8 @@ fees. Built on one shared time-entry ledger so nothing is double-counted.
 billable (debtable) or internal. The customer is taken from the ticket's host's
 site; admins/finance can also pick a rate. The ticket shows a running total.
 
-**On your timesheet** — open **Timesheet** (Planning → Timesheet, or *My Account
-→ Open my timesheet*). Page through the week, and **Log time** for any day —
+**On your timesheet** — open **Timesheet** (Business → Timesheet, or *My Account
+→ Team → Open my timesheet*). Page through the week, and **Log time** for any day —
 billable work against a customer, or internal time (meeting, education, admin,
 travel, internal project). Hours logged on tickets show up here too.
 
@@ -33,6 +33,11 @@ Hours snap to the nearest **0.25** (so typing `1.3` stores `1.25`). A single
 entry is capped at 24 hours.
 
 ## Billing (admins + the finance role)
+
+Billing is an optional module and is off by default. Switch it on under **Settings →
+Advanced → Optional modules → Billing**. Until then it has no menu entry and
+`/api/billing`, `/api/invoices` and `/api/quotes` answer 404. Logging hours does not
+need it.
 
 Under **Business → Billing**:
 
@@ -102,7 +107,7 @@ source. **Voiding** an invoice frees those hours to be re-billed.
 | Role | Can log own hours | See/export billing | Edit rates, issue/void invoices |
 |------|:-:|:-:|:-:|
 | any signed-in user | ✓ | — | — |
-| **finance** (new) | ✓ | ✓ | — |
+| **finance** | ✓ | ✓ | — |
 | **admin** | ✓ | ✓ | ✓ |
 
 Assign **finance** on the **Users** page (Edit role).

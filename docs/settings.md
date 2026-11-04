@@ -44,8 +44,10 @@ The instance basics:
 - **Default poll interval** (10 to 3600 seconds, default 60). How often newly
   enrolled agents check in. Existing hosts keep theirs. Change those from the host
   drawer.
-- **Online TTL** (90 to 7200 seconds, default 180). A host with no heartbeat for this
-  long counts as offline. Keep it at least twice the poll interval.
+- **Online TTL** (150 to 7200 seconds, default 300). A host with no heartbeat for this
+  long counts as offline. The limit for a host is never shorter than five of its own
+  poll intervals plus 10 seconds, so a slow poll does not flap it. Keep the TTL at
+  least twice the poll interval. A lower value than 150 is refused.
 - **Monitor check interval** (60 to 3600 seconds, default 300). Cadence for the
   synthetic monitors (TCP, HTTP, TLS, DNS, ping). A switch allows monitor targets on
   loopback and link-local addresses. It is off by default so monitors cannot probe

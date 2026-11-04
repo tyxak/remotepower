@@ -28,14 +28,14 @@ only when exactly one alert has that kind; with several there is nothing to tell
 
 | State | What it means |
 | --- | --- |
-| **Failing** | An alert is open and the host still reports the problem, or the host reports it and no alert exists. |
+| **Failing** | An alert is open and the host still reports the problem, or the host reports it and no alert exists, or a recovery event closed the alert and the host still reports the problem. |
 | **Resolved, still failing** | You resolved the alert, and the host's last report still shows the problem. |
-| **Resolved, waiting for the host** | You resolved the alert, and the host has not reported since. Resolving an alert asks the host to report on its next poll, so this state is short. |
+| **Resolved, waiting for the host** | You resolved the alert, and the host has not reported since. Resolving an alert asks the host to report on its next poll, so this state is short. A host that was asked less than two minutes ago is not asked again, and a host without an agent is never asked; those hosts stay here until they report on their own. |
 | **Alert open, no longer listed** | An alert is open, but Needs Attention and Checks no longer list the problem. The host may have recovered, or you may have ignored or snoozed the item or switched the check off. It closes when its recovery event arrives, or you can resolve it. |
 | **Resolved** | Resolved, and the host does not report it. |
 | **Recovered** | A recovery event closed it. |
 
-"By hand" means a person closed it. A recovery event, a mute and the removal of a host do not count.
+An alert counts as resolved when a person closes it. A recovery event, a mute and the removal of a host do not count.
 
 An open alert of a kind that neither Needs Attention nor Checks can show stays **Failing**: nobody can tell "the
 host stopped reporting it" from "nothing looks", so the page does not claim the first.
@@ -96,7 +96,7 @@ Resolve an alert on any of the four pages and the other three say so after their
 
 `GET /api/problems` returns the same list. `state` is `active` (default), `all` or one state; `source` is `alert`,
 `attention` or `check`; `device_id`, `q`, `days` (how far back a resolved alert counts, 7 by default, 30 at most),
-`limit` and `offset` narrow it. `counts` covers everything the caller may see, before the filters, and carries
+`limit` (200 by default, 1,000 at most) and `offset` narrow it. `counts` covers everything the caller may see, before the filters, and carries
 `active_sources`, the number of active problems each view holds. The list is filtered to the hosts the caller may
 see.
 
@@ -105,9 +105,14 @@ events a mute would cover, the Needs Attention items with the key an ignore need
 switch-off needs, and the playbook a fix would open.
 
 `GET /api/problems/history` returns the history of one problem, newest first. Pass the row's `device_id` and
-`family`, and `detail` for a problem that has no host.
+`family`, and `detail` for a problem that has no host. `days` sets how far back it reads (90 by default, 365 at most).
 
 The other pages carry the state too. `GET /api/alerts` adds `problem_state` (`host_clear`, `resolved_but_failing` or
 `waiting_for_report`) to the alerts it applies to. `GET /api/attention?problems=1` and `GET /api/checks?problems=1`
 add `problem` (`state`, `alerts_open`, `resolved_by`, `resolved_at`) to an item or a failing check whose host and
 kind have alerts. Without the parameter nothing is built, so the dashboard card costs what it always did.
+
+## Related
+
+- [Alerts](alerts.md), [Needs Attention](attention.md) and [Checks](checks.md) are the three lists this page joins.
+- [Tuning](alert-tuning.md) holds the mutes you lift.
