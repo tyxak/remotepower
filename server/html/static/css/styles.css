@@ -8761,3 +8761,45 @@ body[data-look="pilot"] .pilot-dot.is-none { background: transparent; box-shadow
   body[data-look="pilot"] .pilot-matrix { gap: 12px 20px; }
 }
 /* ═══ PILOT LOOK (7.4.9) ═══ END ═══════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ═══ TYPEFACE (7.4.9) ═══ BEGIN ═══════════════════════════════════════════════════════════════════════════════════════════════════
+   The typeface option, chosen under My Account → Appearance (body[data-typeface]). The system font stack at the top of this file is
+   the default and is not touched: the only rule below that matches anything starts with body[data-typeface="b612"]
+   (tests/test_v749_typeface_css.py holds that), and the two @font-face rules cost nothing until text on the page uses the family,
+   because a browser fetches a face only when it draws with it.
+
+   B612 was drawn by Airbus and ENAC for aircraft cockpit screens (SIL Open Font License, static/vendor/fonts/b612-OFL.txt). Only
+   Regular and Bold exist, so 400-500 draw in Regular and 600-700 in Bold and no weight is faked. The files hold Latin letters, so
+   Chinese, Hindi and Arabic text, arrows and symbols come from the next font in the stack.
+
+   size-adjust: at the same font-size B612 is wider and taller than the system faces (600 interface strings at 13px measured Regular
+   1.106 times as wide as Arial, Bold 1.026 times). Drawn at 92%, Regular is about 1.02 times Arial and its x-height 0.51 em, so the
+   layouts built for the system font keep fitting. Both faces use the same ratio, so Bold is not drawn larger than Regular.
+
+   The wordmark beside the logo is not part of the choice: .logo-text keeps the system stack.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+@font-face {
+  font-family: 'B612';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  size-adjust: 92%;
+  src: url(../vendor/fonts/files/b612-latin-400-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'B612';
+  font-style: normal;
+  font-weight: 600 700;
+  font-display: swap;
+  size-adjust: 92%;
+  src: url(../vendor/fonts/files/b612-latin-700-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+body[data-typeface="b612"] {
+  --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font: 'B612', var(--font-system);
+  --font-ui: 'B612', var(--font-system);
+}
+body[data-typeface="b612"] .logo-text { font-family: var(--font-system); }
+/* ═══ TYPEFACE (7.4.9) ═══ END ═════════════════════════════════════════════════════════════════════════════════════════════════════ */
