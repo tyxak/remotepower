@@ -7,11 +7,11 @@ VS Code Copilot, etc.), you can query the fleet in plain English:
 
 > *Which of my hosts have pending security updates?*
 >
-> *Show me the journal for pmg01 from the last hour.*
+> *Show me the recent journal entries for mail01.*
 >
 > *Is the SSH config on web01 still at its baseline?*
 >
-> *Which hosts haven't been patched in 30 days?*
+> *Which hosts need a reboot?*
 
 The AI host invokes the appropriate RemotePower API endpoints,
 formats the result, and answers naturally. No dashboard click
@@ -54,8 +54,9 @@ This split is important for the security story:
 In the dashboard: **Admin → API Keys → New key**.
 Give it a name like `mcp-laptop`. Choose the role `Viewer` for a strictly
 read-only key, or `MCP` if you also want the five guarded write tools. **The
-role is the switch**, and it is fixed when you create the key. Copy the token.
-It is shown once and not recoverable. If you lose it, generate a new one.
+role is the switch.** You can change it later with the key's **Edit** button, and
+the token stays the same. Copy the token. It is shown once and not recoverable. If
+you lose it, generate a new one.
 
 While you are in the dialog, consider these:
 
@@ -75,7 +76,7 @@ chmod +x ~/remotepower-mcp.py
 ```
 
 It is a single self-contained Python file that uses only the standard library.
-It needs Python 3.10 or newer.
+It is tested with Python 3.10 and newer.
 
 ### 3. Configure your AI host
 
@@ -108,6 +109,7 @@ Restart Claude Desktop. The tool icon at the bottom of the chat input shows
 | `REMOTEPOWER_URL` | The base URL of your RemotePower server. |
 | `REMOTEPOWER_TOKEN` | The API token from step 1. |
 | `REMOTEPOWER_VERIFY_SSL` | Set to `0` to accept a self-signed certificate. The default is to verify. |
+| `MCP_CLIENT_NAME` | Optional. The name of your AI host, such as `claude-desktop`. It is recorded in the audit log and shown on the Confirmations page. The default is `mcp-client`. |
 
 #### Cursor / VS Code Copilot / others
 
@@ -126,7 +128,7 @@ The host should show a "tool use" indicator and return a list of your hosts.
 **21 tools — 16 read, 5 guarded write.** Each takes a small JSON arguments
 object; the AI host generates these from your natural-language question. The
 read tools are always available; the five write tools work only for a key
-created with role `mcp` (see *Guarded write tools* below).
+with role `mcp` (see *Guarded write tools* below).
 
 | Tool | What it returns |
 |---|---|
@@ -153,26 +155,29 @@ created with role `mcp` (see *Guarded write tools* below).
 > fleet rollups (worst CVEs, pending reboots, drift, cert expiry) do the
 > aggregation the model would otherwise have to do by hand. It needs the
 > knowledge index to be switched on (**Settings → AI assistant → Knowledge
-> index (RAG)**).
+> index (RAG)**). The index is not split by host or tenant, so `search_fleet`
+> refuses a key that has a host scope, and any key under tenant isolation, with
+> a 403. Those keys use the `get_*` tools.
 
 The five **write tools** are reachable only by a key whose role is `mcp`:
 
 | Write tool | What it does |
 |---|---|
 | `acknowledge_alert` | Acknowledge one open alert, with an optional note. It cannot resolve an alert. |
-| `reboot_device` | Queue a reboot for one host |
-| `run_saved_script` | Run a script **from the saved library** (by id), never an arbitrary command |
+| `reboot_device` | Queue a reboot for one host, with an optional reason |
+| `run_saved_script` | Run a script **from the saved library** (by id), never an arbitrary command. Takes an optional reason |
 | `force_package_scan` | Ask an agent to push its installed-package list now |
 | `force_acme_rescan` | Re-check a host's ACME / TLS / DNS expiry now |
 
 Every write call is gated by the token's role and host scope, and is
-recorded in the audit log alongside the AI host name.
+recorded in the audit log alongside the AI host name and the reason the model
+gave (a default such as `reboot web01` when it gives none).
 
 ### Host-name resolution
 
 The tools accept friendly names. The MCP server does:
 
-1. **Exact match**: `pmg01` matches a host named `pmg01`.
+1. **Exact match**: `mail01` matches a host named `mail01`.
 2. **Prefix match**: `web01` matches `web01.example.com`
    if there is only one host starting with it.
 3. **Substring match**: `web` matches `web01.example.com`
@@ -181,7 +186,8 @@ The tools accept friendly names. The MCP server does:
    hosts, and the model is told to ask for more specifics.
 
 You can also pass full names. The matching is conservative: it
-only auto-disambiguates when there is exactly one match.
+only auto-disambiguates when there is exactly one match. The read tools ignore
+case. The write tools match case exactly, and they also accept a host id.
 
 ## Guarded write tools, and what is still absent
 
@@ -210,21 +216,24 @@ acting on a fleet needs:
 - **Per-token roles + scope.** Write calls are checked against the token's role
   permissions and host scope, just like any other action.
 - **Audit logging.** Every write call is recorded with the AI host name and the
-  prompt that led to it.
+  reason the model gave for it.
 
 So the worst outcome of a confused model is bounded: it can reboot a host or run
 a vetted library script you already trust, and with confirmation on, only after
 you approve. It can never run an arbitrary command or shut a box down off-script.
 If you want a purely read-only assistant, create the key with role `viewer`; all
-five write tools then refuse it permanently.
+five write tools then refuse it.
 
 ### Approving a request
 
 Open **Automation → Confirmations** (the page is titled *MCP Confirmations*).
-Each pending request shows the host, the action, the AI host that asked and the
-prompt behind it. **Approve** runs it and **Reject** discards it. A request that
-nobody decides expires after one hour and raises the *MCP confirmation expired
-without operator decision* event. **Clear resolved** tidies the list.
+Each pending request shows the host, the action, who asked, the reason the model
+gave and the AI host (the **Source** column). **Approve** runs it and **Reject**
+discards it. A request that nobody decides expires after one hour and raises the
+*MCP confirmation expired without operator decision* event. **Clear resolved**
+tidies the list. The same page also holds the other changes that wait for a second
+person, such as changes parked by change approval and AI remediation proposals.
+For those the **Source** column reads *operator* when no AI host sent them.
 
 Only admins see the page. A key acts as the user who created it, so by default
 the admin who created the key cannot approve its requests: another admin has to.
@@ -248,16 +257,21 @@ sets it with `PATCH /api/devices/{id}/require_confirmation` and
 
 ## Troubleshooting
 
-### "Tool failed: REMOTEPOWER_URL not set"
+### "Tool error: REMOTEPOWER_URL not set"
 
 Your AI host's config doesn't have the env vars set, or they're
 empty strings. Re-check the JSON config and restart the host.
 
-### "Network error: getaddrinfo failed"
+### "Tool error: Network error reaching …"
 
 The MCP server can't reach the RemotePower URL from your laptop.
-Common causes: VPN not connected, wrong URL scheme (use `https://`
-not `http://`), corporate proxy.
+Common causes: VPN not connected, a misspelt host name, corporate proxy.
+
+### "HTTP 301" or "HTTP 302" on every tool
+
+The URL redirects, for example from `http://` to `https://`. The MCP server does
+not follow redirects, so that its token is never sent to another address. Put the
+final `https://` address in `REMOTEPOWER_URL`.
 
 ### "HTTP 401" on every tool
 
@@ -268,9 +282,9 @@ source allowlist. Generate a new key or fix the allowlist.
 ### "HTTP 403" on a tool that *should* work
 
 The key's role or host scope does not allow the call. A `viewer` key cannot use
-the write tools, an `admin` key cannot either, and a host outside the key's
-scope answers as if it did not exist. Check the role and the host scope on
-**Admin → API Keys**.
+the write tools, an `admin` key cannot either, a key with a host scope cannot use
+`search_fleet`, and a host outside the key's scope answers as if it did not exist.
+Check the role and the host scope on **Admin → API Keys**.
 
 ### A write tool answers "pending confirmation"
 

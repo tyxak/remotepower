@@ -53,7 +53,8 @@ containerized agent, which has no access to the host's fail2ban socket).
 
 Click **Manage** to:
 
-- **Ban** an IPv4/IPv6 address in a jail, or **Unban** a currently-banned one.
+- **Ban IP** beside a jail bans an IPv4/IPv6 address in it, and **Unban** lifts a
+  currently-banned one.
 - **Start** or **Stop** a jail.
 
 As with firewall edits, each action is queued through the audited command pipeline.

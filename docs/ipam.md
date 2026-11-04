@@ -52,8 +52,8 @@ Click **Elevation** on a rack row. `GET /api/racks/{id}/elevation` returns the
 model the UI draws: the rack's height, every placed asset
 (`{device_id, name, rack_unit, rack_height_u, top_u, conflict}`, sorted
 top-down) and a `conflicts` list of rack units where two assets' U spans
-overlap. Overlapping assets are flagged in red with a "⚠ Overlapping units"
-banner — the classic "two people racked something in U12 on paper" mistake.
+overlap. Overlapping assets are flagged in red with an "Overlapping units"
+banner that lists the units — the classic "two people racked something in U12 on paper" mistake.
 
 ---
 
@@ -61,7 +61,7 @@ banner — the classic "two people racked something in U12 on paper" mistake.
 
 ### Defining a subnet
 
-**Sites & teams → IP address management → New subnet.** A subnet is
+**Sites & teams → Racks tab → IP address management → New subnet.** A subnet is
 `{cidr, site, vlan, notes}`:
 
 - **CIDR** — required, any valid IPv4/IPv6 network (normalised on save, so

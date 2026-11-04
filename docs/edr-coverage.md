@@ -8,14 +8,18 @@ machines with **no EDR on them at all**.
 > A console reading "EDR: healthy" while three servers are uncovered is worse than
 > no console, because it is reassuring. **The gap is the product.**
 
-Surfaced as a card on the **Risk** page, uncovered hosts first. Hidden until an
-EDR integration is configured.
+Surfaced as a card on the **Risk** page, uncovered hosts first. Each row shows the
+host, a badge (**No EDR**, **Stale agent** or **Protected**), the console that
+reports it and the agent version. Hidden until an EDR integration is configured
+and enabled. Decommissioned hosts are left out.
 
 ## Set it up
 
 Settings → Integrations → add an instance of type `wazuh`, `crowdstrike` or
 `sentinelone` with its read-only API credentials. RemotePower polls it on the
-integrations cadence and stores the protected-host set.
+integrations cadence and stores the protected-host set. It reads the first 500
+agents a console returns and does not page through the rest, so on a console with
+more than 500 agents the hosts beyond them show as **No EDR**.
 
 ## What it gets right
 
@@ -46,7 +50,7 @@ stale) and the vendors protecting each host.
 
 | Problem | What to check |
 | --- | --- |
-| The card is not on the Risk page | It stays hidden until a Wazuh, CrowdStrike or SentinelOne integration exists and has polled. Check its tile on **Monitoring → Integrations**. |
+| The card is not on the Risk page | It stays hidden until a Wazuh, CrowdStrike or SentinelOne integration exists and is enabled. Check its tile on **Monitoring → Integrations**. Until its first poll finishes, every host reads **No EDR**. |
 | A protected host shows as uncovered | Matching uses the short, lowercased host name. If the console knows the machine under a different name, the two do not match. Rename one of them so the short names agree. |
 | A host is listed apart from the covered ones | Its EDR agent installed but has stopped reporting (*stale*). That is the case the page exists to show. |
 

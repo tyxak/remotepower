@@ -53,7 +53,10 @@ is there the first time it runs.
 Records `{path → size:mtime}` for a subtree on first run, then alerts on any
 file **added, changed or removed**. Bounded to 5,000 files; the noise
 directories `cache`, `tmp`, `temp`, `log`, `logs`, `.git`, `.cache`,
-`node_modules` and `vendor` are skipped.
+`node_modules` and `vendor` are skipped, and so are file names that change by
+design: `snap-*.mount` and `snap.*.service`, whose names carry the snap revision.
+A walk that takes more than 20 seconds, or meets more than 400,000 entries, ends
+as `unknown` with the output "scan stopped" instead of a partial result.
 
 The optional `::glob` scopes it to filenames you care about — `/var/www::*.php`
 watches only PHP under the web root, which is what a dropped web shell looks
@@ -152,7 +155,8 @@ leaving it live.
 - An append-only `guard-quarantine.log` is kept as the audit trail.
 - **Only NEW files are ever moved.** Changed or removed files are reported and
   never touched — Guard will not delete or overwrite something you edited.
-- Bounded to 50 files per evaluation.
+- At most 25 new files per evaluation: a larger burst counts as a mass change and
+  is not quarantined (see [Safety rails](#safety-rails)).
 - **A quarantine raises an alert** (`guard_quarantined`, critical) the first time a file appears in the vault, carrying the path and a count. It routes like any other event — webhook, email, the alerts inbox and the activity feed — so a file being quarantined reaches you without anyone opening this page. Only NEW entries fire: the vault is cumulative, so an unchanged ledger stays quiet, and a host's existing vault is not announced when it first enrols.
 
 Because the file is gone from its original location, the check returns to **OK**
@@ -178,7 +182,7 @@ check-in**, so allow a poll interval before the row disappears.
 ## Safety rails
 
 Automatic response is only trustworthy if it refuses to fire on legitimate
-change. Two rails are always on:
+change. Four rails are always on:
 
 **1. Maintenance windows.** While a host is inside an active maintenance window
 (host, group, or global), auto-quarantine is **suppressed** — integrity checks
@@ -189,6 +193,18 @@ evaluation, that's a rollout or a restore, not a dropped payload. The agent
 **refuses to quarantine**, leaves everything on disk, and reports
 `N new (mass change — NOT quarantined)` for a human to judge. This is the guard
 against the worst failure mode: vaulting an entire site.
+
+**3. Audit mode.** A host in read-only
+[audit mode](agent-commands.md#read-only-audit-mode) still evaluates the check and
+reports, and moves nothing.
+
+**4. The agent's own directories.** A file inside the agent's config directory, its
+state directory (which holds the vault itself) or the folder of its binary is
+never moved, even if a check watches that path. It still shows as a new file.
+
+A host that requires signed commands ([agent-commands.md](agent-commands.md#signed-commands))
+also drops the quarantine action, because the checks arrive unsigned. Detection
+keeps working.
 
 ---
 

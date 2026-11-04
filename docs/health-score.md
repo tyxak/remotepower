@@ -56,8 +56,13 @@ visually even on a large fleet where a table wouldn't.
 
 ## API
 
-- `GET /api/fleet/health` — `{score, grade, hosts: [{device_id, device_name,
-  score, critical, warning, info}], total_devices}`. Scoped roles see only their
-  in-scope hosts, with the headline score recomputed over those.
-- A `health_degraded` event fires (and `health_recovered` clears it) when the
-  score crosses the configured alert threshold.
+- `GET /api/fleet/health` — returns `{score, grade, devices, counts, total_devices, grades}`.
+  Each entry in `devices` is `{device_id, device_name, score, critical, warning, info}`,
+  worst host first. `grades` holds your good, fair and poor cutoffs. Scoped roles see only
+  their in-scope hosts, with the headline score recomputed over those.
+- `GET /api/fleet/health/history` — one score a day for the fleet, kept for
+  about six months (180 days). Add `?device=<id>` for one host's series.
+- A `health_degraded` event fires for a host the first time its own score drops
+  below the threshold, and `health_recovered` clears it when the score climbs
+  back. It is off until you set **Settings → Alert parameters → Server health →
+  Alert below score** to a number above 0.

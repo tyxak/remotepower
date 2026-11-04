@@ -42,28 +42,16 @@ By the numbers:
 
 | Thing | Count |
 |---|---|
-| Server Python (`server/cgi-bin/`) | ~149,000 lines |
-| The main API module (`api.py`) | ~78,000 lines |
+| Server Python (`server/cgi-bin/`) | ~158,000 lines |
+| The main API module (`api.py`) | ~80,000 lines |
 | Focused sibling modules | ~135 |
-| HTTP routes (exact + templated) | ~527 exact, ~439 pattern |
-| Request handlers (`handle_*`) | ~886 |
-| Typed request-body models | ~278 |
+| HTTP routes (exact + templated) | ~535 exact, ~446 pattern |
+| Request handlers (`handle_*`) | ~900 |
+| Typed request-body models | ~280 |
 | Homelab integration connectors | 50 (+ a generic HTTP probe) |
-| Background maintenance sweeps | ~76 |
-| Frontend JS files (no bundler) | 57 |
-| Test methods across ~1,000 files | ~17,800 |
-
----|---|
-| Server Python (`server/cgi-bin/`) | ~145,000 lines |
-| The main API module (`api.py`) | ~75,000 lines |
-| Focused sibling modules | ~115 |
-| HTTP routes (exact + templated) | ~515 exact, ~430 pattern |
-| Request handlers (`handle_*`) | ~870 |
-| Typed request-body models | ~268 |
-| Homelab integration connectors | 50 (+ a generic HTTP probe) |
-| Background maintenance sweeps | ~74 |
-| Frontend JS files (no bundler) | 49 |
-| Test methods across ~770 files | ~13,500 |
+| Background maintenance sweeps | ~77 |
+| Frontend JS files (no bundler) | 58 |
+| Test methods across ~1,100 files | ~20,000 |
 
 ---
 
@@ -77,7 +65,7 @@ layer. What happens next is the interesting part.
 The Flask route does almost nothing: it copies the WSGI environ into a
 thread-local request context (`_RCTX`) and calls `api.main()` — the same
 `main()` that has existed since the project's CGI days. The whole dispatch table,
-the auth and CSRF enforcement, the read-only-role gate, the ~76 maintenance
+the auth and CSRF enforcement, the read-only-role gate, the ~77 maintenance
 sweeps: all unchanged. Only the shell around them changed.
 
 That's not an accident. Earlier releases ran the server as CGI behind fcgiwrap (one
@@ -187,7 +175,7 @@ backends and 500s on the third is the bug we design against.
 
 ## The maintenance sweeps
 
-RemotePower has ~64 periodic jobs: poll integrations, check disk headroom, expire
+RemotePower has ~77 periodic jobs: poll integrations, check disk headroom, expire
 confirmations, sample SMART/GPU history, run scheduled backups, re-scan for CVEs,
 and so on. There is no cron inside the app and no external job runner. Each sweep
 is a `run_<x>_if_due()` function with a cheap "is it time yet?" gate backed by a
@@ -208,7 +196,7 @@ costs almost nothing — important when it runs on every request.
 A recurring bug class in any JSON API is the request body: a field silently
 missed, an integer arriving as a string, a top-level array where a dict was
 expected (which 500s the first `.get()`). RemotePower's answer is
-`server/cgi-bin/request_models.py` — a pydantic v2 layer wired into ~250 handlers.
+`server/cgi-bin/request_models.py` — a pydantic v2 layer wired into ~275 handlers.
 
 The design choice worth calling out is that it's **additive and never
 narrowing**. A model validates the body as a *superset* of what the handler
@@ -258,7 +246,7 @@ the UI.
 ## The frontend: a framework you can read
 
 The dashboard is one `index.html` (~13,000 lines), one main `app.js` (~33,000
-lines), and ~55 supporting JS modules — all vanilla, all served as-is. No
+lines), and ~57 supporting JS modules — all vanilla, all served as-is. No
 framework, no build, no bundler. State lives in a few module-scoped objects;
 rendering is `innerHTML` with escaped values plus targeted DOM updates.
 
@@ -331,7 +319,7 @@ codebase scans clean under CodeQL, Bandit and Gitleaks on every release.
 
 ## Testing and release engineering
 
-The test suite is ~11,100 methods across 545 files, and the real gate runs the
+The test suite is ~20,000 methods across ~1,100 files, and the real gate runs the
 *entire* suite three times — on the JSON backend, on SQLite, and against a real
 PostgreSQL — because the cross-backend bugs are the ones that reach production.
 Postgres is the enterprise default and was once run by no gate at

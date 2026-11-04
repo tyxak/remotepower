@@ -24,24 +24,32 @@ A window has a scope, a schedule and, optionally, a list of events.
   `monitor_down`, `monitor_up`, `service_down`, `service_up`, `patch_alert`,
   `cve_found` and `log_alert`. A narrowed window holds only what you tick, so tick
   the recovery event too (for example `device_online` with `device_offline`).
+  Through the API a window can name any other event it can hold, such as
+  `metric_warning` or `container_stopped`, up to ten per window.
 - A smart-group window follows the group's rules, so a host that starts matching
   is covered from its next check-in without anyone editing the window. If the
   smart group is deleted the window covers nothing, rather than everything.
+- The list marks a window **covers nothing** when it matches no host you can see.
+  A renamed group or tag is the usual cause: the window keeps its old name and
+  stops applying.
 
 While a matching window is active, events for the hosts in scope are **held back
-from webhooks, e-mail and push**. By default the alert is still raised, so the
-[Alerts](alerts.md) inbox keeps a record and nothing is lost. A window can also
-be set to [raise no alerts at all](#raise-no-alerts-at-all).
+from webhooks and e-mail**, including the personal notifications people set up
+under **My Account → My notifications**. Browser push is not held. By default the
+alert is still raised, so the [Alerts](alerts.md) inbox keeps a record and nothing
+is lost. A window can also be set to [raise no alerts at all](#raise-no-alerts-at-all).
 
 ### Writing the cron expression
 
 The cron expression has five fields: minute, hour, day of month, month and day of
 week. It is read in the **server timezone**, and the dialog shows which one that
 is. Each field understands `*`, a number, a list (`1,15`), a range (`1-5`) and a
-step (`*/15`). **Use numbers for days and months.** Sunday is `0` or `7`. Names
-such as `SUN` or `JAN` are not understood: the window saves, but it never opens.
-For example, `0 3 * * 0` is Sundays at 03:00 and `0 22 * * 1-5` is weeknights at
-22:00.
+step (`*/15`). Months and days of the week can also be three-letter names, in any
+case, alone or in a list or range: `SUN`, `mon-fri`, `JAN,JUL`. Sunday is `0` or
+`7`. The server refuses a field it cannot read when you save. It does not refuse
+an expression that never comes up, such as the 31st of February. For example,
+`0 3 * * 0` (or `0 3 * * SUN`) is Sundays at 03:00 and `0 22 * * 1-5` is weeknights
+at 22:00.
 
 ## What it does and doesn't do
 
@@ -80,7 +88,10 @@ window:
   button, or `GET /api/maintenance/suppressions`), so you can see what the window
   kept out. The activity feed on Home also still records it: that feed is the log
   of what happened on the fleet, and the suppression log is where "held" is told
-  apart from "did not happen".
+  apart from "did not happen". The log lists what the window kept from being sent,
+  so an event that would not have been sent anyway (switched off, muted, or from
+  an unmonitored host) is not in it. It keeps the last 500 entries and shows the
+  newest 100.
 - "Covered" is the same as for a notification: the hosts the window applies to and,
   if you ticked events, only those events. An event the window does not cover, such
   as a disk that fills up during the backup, still raises its alert.
@@ -96,11 +107,15 @@ window:
 Tick **Gate command/upgrade execution to this window** to turn the window into a
 change window. A command queued for a covered host, such as an upgrade, a reboot
 or a script, **waits in the queue** until a gating window that covers the host is
-open, and runs then. Changes to the host's poll interval are never held.
+open, and runs then. A change to the host's poll interval is not held, but like
+every command it waits its turn: it stays behind a held command that was queued
+before it.
 
 - A host that no gating window covers is never held.
-- A window that never opens holds its commands for ever. Check the cron
-  expression: a name such as `SUN` means the window never opens.
+- A gating window holds the commands of its hosts whenever it is closed. A
+  one-shot window that has ended therefore holds them for ever, so delete a change
+  window when the work is done. A recurring window needs a cron expression that
+  comes up: the server refuses one it cannot read, but not one that never matches.
 - Auto-patch, scheduled commands and rollouts queue commands the same way, so a
   gating window holds them too.
 
@@ -108,7 +123,8 @@ open, and runs then. Changes to the host's poll interval are never held.
 
 - **Calendar.** Active and upcoming windows show on the [Calendar](calendar.md).
 - **Uptime and SLA.** Time inside a **one-shot** window does not count as downtime
-  in the [SLA](sla.md) figures. Recurring windows are not subtracted.
+  in the [SLA](sla.md) figures. Recurring windows and windows that follow a time
+  period are not subtracted.
 - **Integrity Guard.** A host that is inside a window is in report-only mode, so a
   planned deploy does not quarantine a file. See
   [Integrity Guard](integrity-guard.md).
@@ -118,20 +134,31 @@ open, and runs then. Changes to the host's poll interval are never held.
 - **Auto-patch.** Each enabled auto-patch policy keeps a window of its own
   (**Auto-patch: …**, one hour long, notifications only) so the patch run and
   its reboot do not page anyone. You can see it in the list, but the policy owns
-  it. Change the policy, not the window.
-- **Public status page.** A component whose hosts are inside an active window
-  shows as under maintenance on the [status page](status-board.md). The
-  announcement is off unless the window sets `public` and a `public_title`
-  through the API. Only the title and the times are published, never the reason
-  or the host names.
+  it. Change the policy, not the window. A policy aimed at one host or one group
+  gets a window for that host or group. A policy aimed at a tag, a site or every
+  host gets a window for the whole fleet (for the whole tenant under
+  multi-tenancy).
+- **Public status page.** A host that is not reporting while a window covers it
+  counts as in maintenance instead of down, so a component with nothing else
+  wrong shows as under maintenance on the [status page](status-board.md). Every
+  active window does this. The announcement is separate and off by default: it
+  shows only while the window is active, and only when the window sets `public`
+  and a `public_title` through the API. It carries the title (up to 80
+  characters, *Scheduled maintenance* if blank) and, for a one-shot window, the
+  start and end, never the reason or the host names. The dialog does not show
+  these two fields, and saving a window in the dialog clears them.
 
 ## Maintenance mode is something else
 
 **Settings → Security → Maintenance mode** is a single switch for the whole
-server. While it is on, new commands to hosts are refused with a message and a
-banner is shown to everyone. Heartbeats and browsing keep working, so hosts do
-not flip to offline. Use it while you upgrade the RemotePower server itself.
-It is not a window: it has no schedule, and it does not hold alerts.
+server. While it is on, new commands to hosts are refused with a 503 message and
+a banner is shown to everyone. Both carry the optional reason you entered.
+Heartbeats and browsing keep working, so hosts do not flip to offline. Commands
+that are already queued still go out, and a change to a host's poll interval is
+still accepted. Use it while you upgrade the RemotePower server itself. It is
+not a window: it has no schedule, and it does not hold alerts. The API is
+`GET /api/maintenance-mode` and `POST /api/maintenance-mode` with `enabled` and
+`reason`.
 
 ## Related
 
@@ -147,4 +174,20 @@ Everyone who is signed in can see the windows. Creating, editing and deleting
 them is admin-only and audit-logged.
 
 Under multi-tenancy a window belongs to the tenant that created it and only
-covers that tenant's hosts.
+covers that tenant's hosts. Maintenance mode is a switch for the whole
+installation, so with tenant isolation on only the platform operator can set it.
+
+## API
+
+- `GET /api/maintenance` lists the windows. Each has `active`, and `covers`, the
+  number of hosts it covers now.
+- `POST /api/maintenance` creates a window, `PUT /api/maintenance/{id}` replaces
+  one and `DELETE /api/maintenance/{id}` removes one. The body takes `reason`,
+  `scope` (`device`, `group`, `site`, `tag`, `smart` or `global`), `target` (a
+  host id, a group, site or tag name, or a smart group id; empty for `global`),
+  `events`, `gate_exec` and `suppress` (`notifications` or `alerts`), and then one
+  of: `start` and `end` (ISO 8601), `cron` and `duration` in **seconds** (60 to
+  604,800), or `period`, the id of a time period. `public` and `public_title`
+  announce the window on the status page. A `PUT` replaces every field, so send
+  them all again.
+- `GET /api/maintenance/suppressions` returns the newest 100 held events.

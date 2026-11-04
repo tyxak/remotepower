@@ -34,7 +34,7 @@ Press `g`, then one more key, within 1.5 seconds:
 
 | Sequence | Destination |
 |---|---|
-| `g h` | Home |
+| `g h` | Dashboard |
 | `g d` | Hosts |
 | `g l` | Logs |
 | `g s` | Settings |

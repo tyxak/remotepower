@@ -68,20 +68,29 @@ tracked as a batch job with per-host status on the Rollouts page.
 
 - **Install:** `POST /api/install`. **Uninstall:** `POST /api/uninstall` (removes
   the named packages only — no dependency auto-removal or config purge).
-- Gated on the `exec` permission, and honours host quarantine and maintenance
+- Gated on the `packages` permission, and honours host quarantine and maintenance
   change-windows like any queued command.
 
 ## Reboot, shutdown, Wake-on-LAN
 
-Per-host actions from the host drawer / Hosts page. Reboot and shutdown are
-power actions gated on the `reboot` permission and (for `require_confirmation`
-hosts) queued for human approval. Wake-on-LAN sends a magic packet to the
-host's recorded MAC.
+Per-host actions from the host drawer / Hosts page. Reboot needs the `reboot`
+permission and shutdown needs the `shutdown` permission. When change approval is
+on (see [settings.md](settings.md)), a second administrator has to approve them
+first. Wake-on-LAN sends a magic packet to the host's recorded MAC and needs an
+administrator.
+
+**Blast-radius guardrail.** A reboot or shutdown sent to several hosts at once is
+refused when it would hit more than the limit you set under **Settings →
+Notifications → Reboot / shutdown blast-radius guardrail**: **Max hosts per
+batch** or **Max % of fleet per batch**. Both start at 0, which means no limit.
+The refusal says how many hosts the request would hit, and the dashboard asks
+**Proceed anyway?** before it sends the request again with the confirmation
+(`confirm_blast` in the API). Single-host actions are never refused this way.
 
 ## Enrolment auto-placement rules
 
-New agents don't have to land ungrouped. Under **Fleet → Sites →
-Auto-placement rules**, define rules that stamp a host's **group**, **site**
+New agents don't have to land ungrouped. Under **Fleet → Sites → Groups**, in the
+**Auto-placement rules** card, define rules that stamp a host's **group**, **site**
 and **tags** the moment it enrols, matched by either:
 
 - **Hostname** — a regex tested against the reported hostname (`^web-`,
@@ -101,14 +110,16 @@ you save.
 
 A per-host switch that disables exec / reboot / all actions, enforced
 server-side at the command-dispatch chokepoint and audited — isolate a suspect
-host in one click. Quarantined hosts drop queued commands rather than running
+host in one click. It is the **Quarantine** row on the host drawer's **Actions &
+settings** tab, and only administrators can change it. Quarantined hosts drop queued commands rather than running
 them when quarantine lifts.
 
 ## SLA targets
 
 On the **Business → Reports** page, in the **Uptime (SLA)** card you can set a target uptime % per host,
-tag, group, or a fleet default (most specific wins); each row shows whether it's
-met or breached. `GET`/`PUT /api/fleet/sla-targets`.
+tag, group, or a fleet default (most specific wins), with the **SLA targets**
+button; each row shows whether it's met or breached.
+`GET`/`PUT /api/fleet/sla-targets`.
 
 ## OpenSCAP compliance scans
 
@@ -122,8 +133,8 @@ no applicable rules reports why and what to install.
 
 Items in Needs Attention that have a mitigation playbook show an **Investigate**
 button: it queues a read-only diagnostic on the host, then runs an AI analysis
-that proposes a fix command (which you confirm before it runs). Roughly 21 kinds
-are covered: disk, memory, swap, cpu, pending patches, config drift, service
+that proposes a fix command (which you confirm before it runs). There are 21
+playbooks, covering: disk, memory, swap, cpu, pending patches, config drift, service
 down, reboot required, brute-force attempts, CVE findings, and stopped/restarting
 containers — plus malware / antivirus posture, stale agent version, end-of-life
 OS, hardware health, stale/missing backup, a new SSH key, a new listening port,

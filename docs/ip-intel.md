@@ -144,6 +144,13 @@ RemotePower)`, so it says "brute force" only when that is what happened. You can
 write your own (see [The report message](#the-report-message)). For a report
 built from the logs, AbuseIPDB also gets the time the attack happened.
 
+Each sweep that reports addresses raises one **Addresses Reported** alert
+(`ip_reported`) that names up to five of them and counts the rest, so a busy hour
+is one line and not one message per address. It is news, not a fault: it goes to the
+inbox and the activity feed, and to Needs Attention and webhooks only if you turn
+those on for the **Threat Intel reports** kind under **Settings → Alerting → Channel
+routing**. It is not sent when tenant isolation is on.
+
 An address is reported once per service per sweep, however many hosts or logs
 saw it. If a service answers that it was reported moments ago, RemotePower
 counts it as reported instead of retrying. **Evidence → Details** on the
@@ -256,7 +263,7 @@ rules or Cloudflare's already made. A host's WAF works the same way with **Repor
 after WAF refusals**, also 1 by default. A weaker mechanism
 (Bot Fight Mode, Browser Integrity Check, a user-agent rule) only counts towards
 **Report after attempts**. The reason an address has not been reported yet names
-the nearest route, for example `1 of 3 Cloudflare refusals so far`. When you
+the nearest route, for example `1 / 3 Cloudflare refusals so far`. When you
 lower the number, addresses counted in the last day are reported on the next
 sweep.
 
@@ -280,7 +287,11 @@ files and admin pages: 8 attempts within 10 minutes, seen by Cloudflare WAF
 (reported by RemotePower)`.
 
 The Worker's own ban counts as a decision, like fail2ban's. An address it banned
-is reported at once. Hits it only counted wait for **Report after attempts**.
+is reported at once. Hits it only counted wait for **Report after attempts**, with
+two exceptions you control on the Edge sources card: one hit on a bait path decides
+by default (**Count one hit on a bait path as decided**), and a planted credential or
+a decoy sign-in decides once you tick **Count a planted credential or decoy sign-in
+as decided** ([the settings](edge-sources.md#step-3-enter-it-in-remotepower)).
 Addresses the Worker never bans (yours, Cloudflare's shared ones, countries you
 exempt) are not reported on its word alone. Lines it logs only to be read, such
 as a self-test, are not evidence.

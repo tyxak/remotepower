@@ -28,8 +28,9 @@ storage and the UI all live in the app server — the daemon is a thin shim.
 1. **Enrol the exporter** as an agentless host in RemotePower with its **`ip`
    set to the address the flow packets will come from** (the router's source
    IP). The daemon maps datagrams to hosts by that IP.
-2. **Create a flow token**: Settings → Integrations → Inbound webhooks → add a
-   token with **kind = `flow`**, scoped to that host.
+2. **Create a flow token**: Settings → Integrations → Inbound webhooks & syslog →
+   **New token**, with Type **NetFlow/IPFIX receiver** (`kind = flow`), pinned to
+   that host.
 3. **Install + run the receiver** (bundled with the server install; the
    `deploy-server.sh` refresh copies it):
    ```bash
@@ -100,8 +101,8 @@ links that were fine.
   while you are still configuring the router is a setup in progress, not an
   outage.
 - The window defaults to **3 hours**, tunable under *Settings → Alert
-  parameters → Flow export silence*. It does not minutes: the daemon
-  skips empty windows, so a standby link that only carries traffic during a
+  parameters → Flow export silence (seconds)*. It is hours, not minutes: the
+  daemon skips empty windows, so a standby link that only carries traffic during a
   failover is indistinguishable on the wire from a dead exporter.
 
 Server Status counts silent exporters separately, so one healthy router no
@@ -120,7 +121,7 @@ router is configured:
 | What Server Status says | What it means |
 | --- | --- |
 | `no IP on the host, so the receiver cannot map its packets` | The host this token is scoped to has an empty `ip`. The receiver has nothing to match the datagram's source address against. Set the host's IP to the address the flow packets come *from*. |
-| `token disabled` | The token exists but is switched off under Settings → Integrations → Inbound webhooks. |
+| `token disabled` | The token exists but is switched off under Settings → Integrations → Inbound webhooks & syslog. |
 | `the host it is scoped to no longer exists` | The host was deleted and the token outlived it. Revoke the token or re-scope it. |
 | `never exported` (no reason given) | The mapping is sound, so the silence is upstream: the router isn't sending, or udp/2055 is blocked between it and the receiver. |
 

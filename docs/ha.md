@@ -17,14 +17,14 @@ RPO ≈ 0** (synchronous replication) or **RPO ≤ seconds** (asynchronous).
 | --- | --- | --- |
 | Every logical store (hosts, alerts, config, tickets, …) | PostgreSQL | Streaming replication — this is the whole ballgame |
 | App workers (gunicorn) | Stateless | Run on both nodes; only the active one receives traffic |
-| Maintenance sweeps | The out-of-band scheduler | **Singleton** — must run on the active node ONLY (two schedulers double-fire webhooks and races) |
+| Maintenance sweeps | The out-of-band scheduler | **Leader-elected** — a file lock on one host and, on PostgreSQL, an advisory lock across nodes, so only one scheduler runs the sweeps even if you start it on both nodes. This guide starts it on the active node only, which is the easiest to reason about |
 | Sidecars (webterm, scanner, push, syslogd, flowd, kmipd) | Per-node daemons | Installed on both; enabled with the active role |
 | Agent enrolment tokens / TLS | In Postgres + nginx certs | Certs deployed to both nodes; agents follow the floating IP/DNS name |
 | Signing keys (`signing-gpg/`), backups passphrase, `api.env` | Files under `DATA_DIR` / `/etc/remotepower` | **Not in Postgres** — sync once at setup and after key changes (they change rarely; a root-only rsync or config management) |
 
 **Hard requirement: the PostgreSQL backend.** The flat-JSON/SQLite backends
 keep state on one node's disk and have no replication story — fine for
-homelab/dev, not for HA. `docs/scaling.md` Step 1 covers the migration.
+homelab/dev, not for HA. [scaling.md](scaling.md) Step 1 covers the migration.
 
 ## The topology
 
@@ -49,16 +49,22 @@ homelab/dev, not for HA. `docs/scaling.md` Step 1 covers the migration.
   environments, replace with the provider's floating/elastic IP or a DNS
   failover with a short TTL (agents re-resolve on every poll cycle).
 - **PostgreSQL**: standard streaming replication (`primary_conninfo` on the
-  standby). `synchronous_commit = on` with a synchronous standby gives RPO 0
+  standby; `packaging/postgres-ha-primary.sh` and `packaging/postgres-ha-standby.sh`
+  set up a plain pair). Give each node a DSN that lists both servers, such as
+  `postgresql://rp:pw@node-a,node-b:5432/remotepower`: RemotePower connects to
+  whichever one is the writable primary, so the app tier finds the new primary
+  after a promote without a restart ([scaling.md](scaling.md), "Database HA"). `synchronous_commit = on` with a synchronous standby gives RPO 0
   at a small write-latency cost; async is fine when losing the last seconds
   of telemetry on failover is acceptable (heartbeats re-report within a
   minute anyway — the stores that matter for RPO are config, tickets and the
   audit log).
-- **Scheduler singleton**: `remotepower-scheduler.service` enabled on the
-  active node only. The simplest robust arrangement is to let keepalived's
-  transition scripts start/stop it (`notify_master` / `notify_backup`); the
-  alternative (running it everywhere behind a Postgres advisory lock) is not
-  currently supported — don't run two.
+- **Scheduler**: `remotepower-scheduler.service` enabled on the active node.
+  The simplest robust arrangement is to let keepalived's transition scripts
+  start/stop it (`notify_master` / `notify_backup`). The scheduler is
+  leader-elected, so a copy that runs on the standby too stays idle until it
+  holds the lock (see the scheduler section of [scaling.md](scaling.md)). The
+  lock is best effort: a node that cannot reach PostgreSQL falls back to its
+  host lock alone, so do not rely on it as the only fence.
 - **App servers on both nodes, always up**: gunicorn is stateless (all state
   goes through the storage backend), so the standby's app tier can stay
   running — failover is then purely "move the VIP + promote Postgres +
@@ -90,7 +96,7 @@ Rehearse this until it's boring — it is the whole point of the setup:
    or simply leave B active; the nodes are identical by design.
 
 Agents need nothing: they retry failed heartbeats, spool metrics while the
-server is unreachable (v6.2.x), and follow the same URL.
+server is unreachable, and follow the same URL.
 
 ## Backups are not HA (do both)
 
@@ -112,7 +118,7 @@ verify on your hardware rather than trusting ours:
   batch (`ab`/`wrk`/a 20-line Python loop against `POST /api/heartbeat`)
   against a **staging copy** — never the live control plane. Watch: p95
   heartbeat latency (< 250 ms is healthy), gunicorn worker saturation
-  (`docs/scaling.md` Step 3), Postgres write throughput, and the Server-status
+  ([scaling.md](scaling.md) Step 3), Postgres write throughput, and the Server-status
   self-observability page for sweeps starting to lag.
 - Beyond ~1–2k hosts: raise the poll interval (Step 2), add relay
   satellites for remote segments (Step 5), and consult `scaling.md` Step 4

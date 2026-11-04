@@ -12,8 +12,8 @@ You need:
 
 - RemotePower 7.4.0 or later, and an administrator account. The card is hidden
   from everyone else.
-- AbuseIPDB or SniffCat keys saved under **Security → Threat Intel → Providers**,
-  with **Report attackers back to both services** ticked (see
+- AbuseIPDB or SniffCat keys saved on **Security → Threat Intel → Settings** (the
+  **Providers** card), with **Report attackers back to both services** ticked (see
   [Set it up](ip-intel.md#set-it-up)). Without them RemotePower still reads the
   logs and shows what it found, but it reports nothing.
 - The firewall's syslog arriving at RemotePower. That takes a host record whose
@@ -90,8 +90,8 @@ none of them.
 
 ## Turn it on
 
-Open **Security → Threat Intel** and scroll to the **Firewalls and routers**
-card.
+Open **Security → Threat Intel**, go to the **Settings** tab and scroll to the
+**Firewalls and routers** card.
 
 1. Tick **Read the syslog of firewalls and routers**.
 2. Press **Save**.
@@ -191,7 +191,7 @@ CrowdSec on OPNsense does not use syslog for this. It posts its alerts over HTTP
 and the token goes into its configuration file.
 
 1. In RemotePower, create a **Syslog** token pinned to the firewall under
-   **Settings → Integrations → Inbound webhooks**, and copy its URL from the
+   **Settings → Integrations → Inbound webhooks & syslog**, and copy its URL from the
    dialog. The dialog says not to enter the token on the host; that holds for
    the UDP path, and CrowdSec is the exception. A token is shown once, so make a
    new one if you did not keep the first. Two syslog tokens on one host do no
@@ -298,8 +298,8 @@ rule above the rules that accept traffic. Its log prefix must contain `rp-trap`:
 
 Pick a port that none of your services uses; the example uses 2222. If you have
 no interface list called `WAN`, name the interface with `in-interface=` instead.
-Only a plain SYN counts, so a stray ACK to the port does not, and only from a
-public address. The logged packet looks like this:
+Only a probe packet counts (a SYN, a FIN, or the Xmas combination, as for refused
+packets), so a stray ACK to the port does not, and only from a public address. The logged packet looks like this:
 
 ```
 firewall,info rp-trap input: in:ether1 out:(unknown 0), src-mac 00:11:22:33:44:55, proto TCP (SYN), 203.0.113.9:51234->192.0.2.1:2222, len 60
@@ -317,7 +317,7 @@ Both products log a failed sign-in with the address it came from:
 
 These go through the same brute-force counter as failed SSH logins on your hosts.
 It counts failures per address, raises an alert when the threshold is crossed
-(**Settings → Alert parameters**, 20 failures in 5 minutes by default), and
+(**Settings → Alerting → Brute-force detection**, 20 failures in 5 minutes by default), and
 queues the address for Threat Intel. A failed SSH login keeps its SSH category;
 the others are reported as failed logins.
 

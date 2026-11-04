@@ -5,16 +5,21 @@ hashes of a list of watched config files and reports them. The server compares t
 stored baseline and fires a `drift_detected` event when a hash diverges.
 
 The Drift page lists every host with its number of **Files watched**, **Drift**, **Missing** files and
-**Last check**. Click a host for the per-file detail. The toolbar has **AI triage** (asks your AI
+**Last check**. Click **Detail** on a host for the per-file detail. The toolbar has **AI triage** (asks your AI
 provider whether a drift looks benign, a mistake or a compromise), **Collect all host configs** and
 **Export all host configs** (see [host-config.md](host-config.md)).
 
 **Hash-only by design.** The contents of `/etc/sudoers`,
 `/etc/ssh/sshd_config`, etc. never cross the wire on routine
-polling. To see what actually changed, the operator triggers a
-separate "fetch contents" action that queues a `cat` command
-through the existing exec mechanism (subject to the same audit and
-permission checks as any other command).
+polling. To see what actually changed, click **Show diff** on a drifted
+file, then **Fetch current content**. That queues a `cat` command through
+the existing exec mechanism (subject to the same audit and permission checks
+as any other command, so it needs the `command` permission), and the text
+arrives on the agent's next heartbeat. RemotePower keeps the last two
+captures of a file (up to 256 KB each) and the diff compares those two: the
+first fetch is your reference, and a fetch after the next change shows what
+moved. `/etc/shadow`, `/etc/gshadow` and their rotated copies are never
+fetched. Only files on the host's watch list can be fetched.
 
 ## What gets watched
 
@@ -156,6 +161,20 @@ dormant. Only a file that was there and left does.
 5. Operator sees the drift on the Drift page, can drill into the
    host-detail modal to see when each file changed.
 
+## Ignoring a file
+
+A watched file can be missing on purpose on one host, such as
+`/etc/pam.d/common-auth` on a host that does not use that PAM stack. Click
+**Ignore** on its row in the host's drift detail and, if you like, give a
+reason. An ignored file no longer counts in the **Drift** and **Missing**
+columns and no longer turns the host red. It stays in the list, greyed out,
+with the state it is really in and your reason. **Un-ignore** puts it back.
+Ignoring takes an administrator.
+
+A file the agent cannot find for three reports in a row goes **Dormant** by
+itself, which also takes it out of the counts. Ignoring is your decision;
+dormancy is automatic and clears when the file comes back.
+
 ## "Drift" vs "drift count"
 
 A file is **drifted** if `current_hash != baseline_hash`.
@@ -178,6 +197,18 @@ future changes are measured from the new baseline.
 **Accept all current as new baseline** on the host modal does
 this for every drifted file on that host in one click — useful
 after a planned config change rollout.
+
+## Enforcement policy
+
+The **Enforcement policy** panel on the Drift page is for
+[host configuration](host-config.md), not for the watched-file list. It
+makes every host that carries a tag, or sits in a group, apply its desired
+host config. Pick **Tag** or **Group**, type its name, choose **Correct on
+drift** or **Apply every poll**, and click **Add policy**. Only hosts that
+already have a desired host config are affected. A host's own **Enforce on
+host** and **Correct on drift** boxes add to the policy, and the stronger
+setting applies. Changing the list takes an administrator. See
+[Enforcement](host-config.md#enforcement) for what each setting does.
 
 ## Webhook payload
 
@@ -234,12 +265,23 @@ GET    /api/drift                          — fleet-wide overview
 GET    /api/devices/<id>/drift             — full drift state for one host
 POST   /api/devices/<id>/drift/baseline    — accept current as new baseline
                                               body: {paths: [...]} or {all: true}
+POST   /api/devices/<id>/drift/ignore      — ignore or un-ignore one file
+                                              body: {path, ignored, reason}
 POST   /api/devices/<id>/drift/fetch_content — queue a read of a watched file's current text
-                                              (for Show diff; denied for secret files)
+                                              body: {paths: [...]} (for Show diff; denied for secret files)
+GET    /api/devices/<id>/drift/content?path=…  — the stored text of a file, up to two captures
 DELETE /api/devices/<id>/drift             — wipe drift state (re-bootstrap)
+GET    /api/drift-policies                 — enforcement policies
+PUT    /api/drift-policies                 — replace the policy list
+                                              body: {policies: [{scope: tag|group, value, mode: apply|enforce}]}
 ```
 
-All require authentication. Baseline-acceptance is audit-logged.
+All require authentication. Accepting a baseline and wiping a host's drift
+state need the `mitigate` permission, fetching text needs `command`, and
+ignoring a file or changing profiles, assignments and policies needs an
+administrator. With tenant isolation on, only the platform operator can
+change profiles, assignments and policies. Baseline acceptance is
+audit-logged (`drift_baseline`).
 
 ## Watching Compose files
 

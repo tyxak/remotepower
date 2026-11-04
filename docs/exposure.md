@@ -31,7 +31,8 @@ firewall with no port forwards, nothing outside your network can reach those ser
 warning is not an exposure.
 
 Mark such a host **internal**. Click **Treat as internal** beside one of its world sockets on the
-Exposure page, or on the Ports card of the host. Only administrators can. Its services that listen
+Exposure page, or on the **Listening ports** card in the host's drawer (**Audit** tab). Only
+administrators can. **Not internal** turns it off again. Its services that listen
 on every address are then graded **assumed internal**, which counts as LAN: they no longer raise the
 *World-exposed ports* check, a *World-exposed service* alert or risk-score points. The Checks row
 says how many services it is not warning about.
@@ -42,12 +43,13 @@ and fe80::/10. A public IPv4 address, or any IPv6 address that is not local, put
 to **world**, because a NAT does not protect IPv6. The page then names the address. An agent that
 does not report its addresses keeps the grade at world too, and the page says so: the Linux agent
 reports them from 7.4.6 with its system information, about every ten minutes, and the Windows and
-macOS agents do not yet.
+macOS agents do not yet. A host that holds more than 64 addresses counts as one that does not
+report them.
 
 A new listener is still reported, because *New listening port* does not depend on the grade. When
-you turn the mark off, or a marked host gains a public address, the page changes at once. The
-alerts follow at the host's next report, and each service that is world again raises *World-exposed
-service* as if it had just been opened.
+you turn the mark off, the page changes at once. When a marked host gains a public address, the page
+changes with the report that carries the address. The alerts follow at the host's next report, and
+each service that is world again raises *World-exposed service* as if it had just been opened.
 
 ## See also
 

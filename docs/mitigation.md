@@ -10,12 +10,15 @@ flow from any of these:
 ## Three-tab flow
 
 1. **1 · Diagnostic**: the server queues a read-only command on the agent. The
-   output comes back and the page polls it every 2 seconds.
+   output comes back and the page polls it every 2 seconds, for up to 6 minutes.
 2. **2 · AI analysis**: when the diagnostic completes, the AI runs automatically
    with a prompt written for that kind of alert. It returns a root cause (one or
    two sentences) and one specific fix command wrapped in `BEGIN_FIX` /
    `END_FIX` markers. **Re-run AI** asks again, and **Use this as fix command**
-   copies the suggestion to the next tab.
+   copies the suggestion to the next tab. This step needs the AI assistant to be
+   switched on under **Settings → AI assistant**. Without it the tab shows an
+   error, and you can still write your own fix on the next tab. The page waits up
+   to 4 minutes for the model and offers **Abort** after 30 seconds.
 3. **3 · Apply fix**: choose the pre-approved playbook fix, the AI-suggested fix,
    or your own command. A safety check runs before anything is queued.
 
@@ -24,13 +27,14 @@ flow from any of these:
 Playbooks exist for these alert kinds: `patches`, `disk`, `drift`,
 `service_down`, `failed_units`, `reboot`, `brute_force`, `memory`, `swap`, `cpu`,
 `cve`, `container`, `av_posture`, `agent_version`, `os_eol`, `hardware`,
-`backup`, `ssh_key`, `new_port`, `agent_integrity` and `log_alert`. A few
-examples:
+`backup`, `ssh_key`, `new_port`, `agent_integrity` and `log_alert`. An alert in
+the inbox shows **Fix** when its event maps to one of these kinds and it names a
+host. A few examples:
 
 | Kind | Diagnostic | Pre-approved fix |
 |---|---|---|
 | `patches` | `apt list --upgradable` / `dnf check-update` / `pacman -Qu` + reboot flag + kernel | (use the existing upgrade action) |
-| `disk` | `df -h`, top 20 dirs (`du --max-depth=2 /`), files >500MB, journal disk usage | (none, the AI suggests) |
+| `disk` | `df -h` and inode use, the 20 largest top-level directories, `/var`, `/home` and `/opt` two levels deep, files >500MB, journal disk usage | (none, the AI suggests) |
 | `drift` | `/etc` git status, files modified in last 7 days | (none) |
 | `service_down` | `systemctl status` + last 100 journal lines for the unit | `systemctl restart <unit>` |
 | `failed_units` | `systemctl --failed` + recent journal lines for the failed units | (none, the AI suggests) |
@@ -40,8 +44,8 @@ examples:
 Diagnostics are **server-defined**: user input never flows into the shell. For
 `service_down`, the unit name comes from the attention item's `target` field but
 goes through a strict regex (`^[a-zA-Z0-9._@-]+$`) before template substitution.
-Shell metacharacters (`;`, backticks, `$()`, pipes, redirects, `..`, newlines)
-are rejected.
+Anything else, such as `;`, backticks, `$()`, pipes, redirects and spaces, is
+rejected and no diagnostic is queued.
 
 ## Safety model
 
@@ -97,7 +101,9 @@ authoritative**. Bypassing the page check just gets you a 400 with
 
 When you start a fix from an alert, RemotePower remembers which alert it was for.
 About five minutes later it checks whether that alert has closed and records the
-answer with the run. A fix that worked is kept as precedent, which
+answer with the run. If the alert is still open, you get a **Fix Did Not Work**
+alert (`mitigation_unverified`) that names the host, the kind and who ran the
+fix. A fix that worked is kept as precedent, which
 [Autonomy](autonomy.md) can use as evidence when it decides what to do about the
 same problem. Logs and run records older than 30 days are deleted.
 
@@ -109,6 +115,9 @@ one per playbook category (`mitigate_cpu`, `mitigate_memory`, `mitigate_disk`,
 `mitigate_cve`, `mitigate_container`, `mitigate_av`, `mitigate_agent_version`,
 `mitigate_os_eol`, `mitigate_hardware`, `mitigate_backup`, `mitigate_ssh_key`,
 `mitigate_new_port`, `mitigate_agent_integrity`, `mitigate_log`).
+
+Some kinds share a prompt: `swap` uses `mitigate_memory`, `drift` uses
+`mitigate_disk`, and `reboot` and `brute_force` use `mitigate_service`.
 
 Each ships with a conservative default prompt that tells the model to propose
 exactly one shell command, marked between `BEGIN_FIX` / `END_FIX`, and to never
@@ -133,9 +142,10 @@ output must not leave your network, use a local model (Ollama or LocalAI) as the
   (256 KB cap).
 - Meta sidecars: `<host id>__<action id>.meta.json` with `kind`, `target`, `phase`
   (`investigate` or `fix`), `destructive`, `queued_at`, `actor`, the alert it was
-  for, and on completion `rc` and `done_at`. The AI summary is kept as
-  `ai_summary` and `ai_suggested_fix`, so reopening the dialog doesn't spend
-  tokens again.
+  for, and on completion `rc` and `done_at`. A fix started from an alert gets
+  `verified` after the five-minute check. The AI summary is kept as `ai_summary`
+  and `ai_suggested_fix`, and the status endpoint returns them. Opening the dialog
+  again queues a new diagnostic and asks the model again.
 
 ## Endpoints
 
@@ -146,8 +156,8 @@ output must not leave your network, use a local model (Ollama or LocalAI) as the
 | GET | `/api/mitigate/<dev_id>/status/<action_id>` | Poll the captured output and meta |
 | POST | `/api/mitigate/<dev_id>/ai/<action_id>` | Run the AI analysis on the captured output |
 
-All audit-logged as `mitigate_investigate` / `mitigate_fix` with the action id
-and target.
+Queuing a diagnostic or a fix is audit-logged as `mitigate_investigate` or
+`mitigate_fix`, with the action id and target.
 
 ## See also
 

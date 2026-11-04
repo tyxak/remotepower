@@ -235,7 +235,7 @@ the browser, on purpose, so a stolen session cannot add code. See
   `github_new_issue` alert in the Alerts inbox. Pull requests are ignored, and the first poll only
   sets a baseline, so attaching a repository never floods you with its backlog. At most 10 issues
   alert per poll, and a summary line covers the rest. The **GitHub new issues** channel kind sends to
-  the inbox and activity feed only by default. Enable webhook or push routing under Settings →
+  the inbox and activity feed only by default. Tick its **Webhook** column under Settings →
   Alerting → Channel routing if you want to be paged.
 
 ## What you see

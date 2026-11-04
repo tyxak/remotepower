@@ -2,7 +2,7 @@
 
 An inbound token lets one sender, or one host, send data to RemotePower
 without logging in. You create them under **Settings → Integrations →
-Inbound webhooks**, and they all start with `rpwi_`.
+Inbound webhooks & syslog**, and they all start with `rpwi_`.
 
 There are five kinds. Three work the way you would expect: the sender gets a
 URL and posts to it. **Syslog** and **NetFlow/IPFIX** from a firewall, switch or
@@ -21,9 +21,10 @@ why you could not find one.
 | SNMP traps | SNMP trap receiver | the URL `/api/snmp/trap/<token>`, called by a handler script you write | your dashboard's HTTPS port | required |
 | Closing an alert when a ticket closes in Jira, ServiceNow or Zendesk | ITSM callback | the URL `/api/itsm/in/<token>` | your dashboard's HTTPS port | no |
 
-Alert and SNMP trap tokens are covered in [monitors.md](monitors.md), and ITSM
-callbacks in [webhooks.md](webhooks.md). The rest of this page is about the two
-that use UDP.
+Alert and SNMP trap tokens are covered in [monitors.md](monitors.md), and the
+ITSM callback [further down this page](#itsm-callback). The outbound half of the
+ticket loop, where an acknowledged alert opens a ticket, is in
+[webhooks.md](webhooks.md). Most of this page is about the two kinds that use UDP.
 
 ## Syslog and NetFlow: where the token goes
 
@@ -61,7 +62,7 @@ That gives you four things that all have to be right:
 4. **The sender points at the receiver.** The server's address, the receiver's
    UDP port, and UDP rather than TCP.
 
-The table on the Inbound webhooks page shows the host's name and IP next to
+The token table under **Inbound webhooks & syslog** shows the host's name and IP next to
 each token, and says so in amber when a syslog or flow token's host has no IP. The
 **Server Status** page has a *Syslog receiver* and a *Flow receiver* row that
 say whether the receiver is running and how many of its sources can receive.
@@ -117,6 +118,29 @@ sudo ufw allow from 192.0.2.1 to any port 5514 proto udp
 The receivers drop packets from any address that is not on a host record, and
 they cap how much they remember about unknown senders, so a flood of forged
 addresses costs bandwidth and not memory.
+
+## ITSM callback
+
+An ITSM token closes the loop the other way. When RemotePower opens a ticket in
+Jira, ServiceNow or Zendesk for an acknowledged alert ([webhooks.md](webhooks.md)), it
+keeps the ticket's reference on the alert. Point that product's issue-updated
+webhook at `POST /api/itsm/in/<token>`, and closing the ticket resolves the alert.
+The token needs no host pin: **New token**, Type **ITSM callback**.
+
+The call has to name the ticket. Send `{"ticket_ref": "OPS-123"}`, or let the
+product send its own payload: RemotePower looks for `ticket_ref`, Jira's
+`issue.key` or `key`, Zendesk's `ticket.id`, and ServiceNow's `number` (then
+`sys_id`). It reads the status from `status`, `issue.fields.status.name`,
+`ticket.status` or `state`.
+
+- A status of closed, resolved, solved, done, complete, completed or fixed (or
+  ServiceNow's `6` and `7`) resolves every open alert with that reference. The
+  alert shows who closed it as `itsm:<ticket>`.
+- Any other status is ignored, and the call answers `200` with `resolved: 0`.
+- A call with no status at all counts as closed, for webhooks that only fire
+  when a ticket reaches its done state.
+- An unknown or disabled token answers `401`, and a token of another kind on
+  this URL answers `400`. The audit log records each callback as `itsm_callback`.
 
 ## Managing tokens
 

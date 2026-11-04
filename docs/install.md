@@ -222,7 +222,7 @@ sudo bash packaging/install-demo.sh demoremote.example.com
 sudo certbot --nginx -d demoremote.example.com
 ```
 
-This creates a separate vhost with its own data directory (`/var/lib/remotepower-demo/`) and its own `remotepower-wsgi-demo` gunicorn process on a second port, sharing the app code. `RP_READ_ONLY=1` is set per vhost. Visitors log in as `demo` / `demo` and can browse everything, but changes get a friendly 403 message. Your production install is untouched. The vhost seeds a set of fake homelab hosts that use the unallocated `.lab` TLD, and refreshes them on a timer. Add `--postgres` to give the demo its own PostgreSQL database; without it the demo uses flat JSON.
+This creates a separate vhost with its own data directory (`/var/lib/remotepower-demo/`) and its own `remotepower-wsgi-demo` gunicorn process on a second port, sharing the app code. `RP_READ_ONLY=1` is set per vhost. Visitors log in as `demo` / `demo` and can browse everything, but changes get a friendly 403 message. Your production install is untouched. The vhost seeds a set of fake homelab hosts that use the unallocated `.lab` TLD, and refreshes them on a timer. Add `--postgres` to give the demo its own PostgreSQL database; without it the demo uses flat JSON. With `--postgres` the refresh timer has nothing to write to, so the hosts are seeded once and read as offline about half an hour later.
 
 ### Docker (one-liner alternative)
 

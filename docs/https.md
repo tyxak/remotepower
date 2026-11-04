@@ -54,12 +54,17 @@ the HTTP vhost sets, so copy those too. A server block that does not repeat them
   so the `/api/exec/wait` long poll is not cut at nginx's default 60 seconds.
 - `/api/login` has a stricter 30-second timeout and accepts only `POST`.
 - `/api/push/connect` and `/api/sshgw/tunnel` are the two WebSocket routes (the agent push channel and
-  the SSH gateway).
+  the SSH gateway). They go to their own daemons on `127.0.0.1:8766` and `127.0.0.1:8767`, not to the app
+  server, and they need the `$connection_upgrade` map that the installer puts in
+  `/etc/nginx/conf.d/remotepower-ws-map.conf`. If you write your own server block without the shared
+  file, define that map once in the `http` block.
 - `/install` and `/install.ps1` serve the agent installers, and `/api/agent/download` serves the agent.
 - `/ca.crt` serves the CA of a self-signed install. Keep it reachable over plain HTTP on port 80,
   because a host fetches it before it trusts the server.
-- `/static/`, `/sw.js` and `/manifest.json` serve the dashboard. Everything else falls back to
-  `index.html`.
+- `/static/`, `/sw.js` and `/manifest.json` serve the dashboard, and `/portal` serves the customer
+  portal. Any other path is looked up as a file in the web root, and an unknown path answers 404 (it
+  does not fall back to `index.html`). The file also refuses `/cgi-bin/` and any stray `.json` or
+  `.tmp` file outside `/api/`, `/static/` and `/manifest.json`.
 
 ## Behind a load balancer or another proxy
 

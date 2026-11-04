@@ -17,7 +17,7 @@ quarantined hosts on its own would be its own incident.
 Queued commands are dropped server-side while quarantined and no new action can
 be dispatched — but the agent keeps checking in, so you keep telemetry and do not
 have to choose between containment and visibility. Poll-interval changes still
-apply,, so you can slow a noisy host down. The toggle is admin-only
+apply, so you can slow a noisy host down. The toggle is admin-only
 and audited.
 
 Quarantine is **not** network isolation. It stops RemotePower from acting on the
@@ -47,9 +47,11 @@ would reach for lives on the box in question.
 
 **1. Preserve the evidence before you change anything.**
 
-- Turn on **litigation hold** (Settings → Advanced → Maintenance) — one switch, stops every
-  age-based purge across the audit log and all seven retention windows so that a
-  scheduled sweep does not delete the window you care about while you work.
+- Turn on **litigation hold** (Settings → Advanced → Litigation hold) — one switch, stops every
+  age-based purge (the audit log's and the other six age settings) so that a
+  scheduled sweep does not delete the window you care about while you work. It does not stop
+  the row caps or an operator deleting a host, a ticket or a user. See
+  [data-retention.md](data-retention.md#litigation-hold--suspending-all-of-it-at-once).
 - Take a **full DR backup** (Settings → Backups) *before* remediating, and store
   it off the host. It contains the vault and integration secrets — treat it as
   the sensitive artifact it is.

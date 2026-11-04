@@ -444,7 +444,12 @@ A `GET` is logged as `decoy` and a `POST` as `decoy_login`. Either shows the fak
 
 RemotePower files each line by its `kind`, as the first table says, and reports an address when its hits reach **Report after attempts**, which is 10 unless you changed it ([Limits on API use](ip-intel.md#limits-on-api-use)).
 
-RemotePower reports an address at once only when the Worker banned it, and this Worker never bans. So a use of the planted password or a sign-in to a decoy host counts as one hit, like a visit to `/.env`. To block one of those addresses now, press **Ban** on its row ([Ban an address by hand](edge-sources.md#ban-an-address-by-hand)). [Block what it finds](honeypot-worker.md#block-what-it-finds) says how reports become blocks.
+RemotePower reports an address at once when the Worker banned it, and this Worker never bans. Two settings on the Edge sources card let a single hit decide instead:
+
+- **Count one hit on a bait path as decided** is ticked by default. It covers `bait`, `gitdump`, `wpprobe`, `wpenum` and `decoy`, so one visit to `/.env` or to a decoy host is enough.
+- **Count a planted credential or decoy sign-in as decided** is unticked by default. It covers `canary_use` and `decoy_login`. Until you tick it, a use of the planted password or a sign-in to a decoy host counts as one hit towards **Report after attempts**.
+
+Every other kind (`login`, `robots`, and the fake backup directory) counts as one attempt. To block an address now, press **Ban** on its row ([Ban an address by hand](edge-sources.md#ban-an-address-by-hand)). [Block what it finds](honeypot-worker.md#block-what-it-finds) says how reports become blocks.
 
 ## What this page leaves out
 

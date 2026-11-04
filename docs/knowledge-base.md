@@ -16,7 +16,7 @@ path-like folder such as `network/vpn`, up to eight levels deep), optional
 **body** of up to 100,000 characters. An install holds up to 5,000 articles.
 
 The list on the left groups articles by category. Pinned articles float to a
-"★ Pinned" group at the top. The search box above it filters the list by title,
+**Pinned** group, marked with a star, at the top. The search box above it filters the list by title,
 category and tags. Click an article to read it on the right. The article view
 renders headings, bold and italic text, lists, tables, code blocks and quotes.
 It shows a Markdown link as plain text, so write out an address in full where a
@@ -64,7 +64,9 @@ Links only appear while the KB is enabled, and only admins see the card.
 | `DELETE /api/kb/{id}` | Delete an article (admin) |
 
 Articles are stored in `kb.json`. Empty, `.` and `..` segments are dropped from a
-category path before it is saved.
+category path before it is saved. Create and update also accept `linked_devices`, a list
+of up to 50 host ids. The page has no field for it, and a reader only ever sees the
+linked hosts they are allowed to see.
 
 ## With multi-tenancy
 

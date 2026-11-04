@@ -22,6 +22,8 @@ An install holds up to 500 links.
   can tell at a glance whether a link will work from outside the network.
 - The filter box matches the title, URL, description and category. The scope
   menu limits the grid to **Internal only** or **External only**.
+- The [Dashboard](dashboard.md) shows the links as a compact **Quick links**
+  card, which stays hidden while there are none. **Manage →** on the card opens this page.
 
 ## Adding and editing
 

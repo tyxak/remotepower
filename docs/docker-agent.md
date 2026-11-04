@@ -30,7 +30,8 @@ persists its credentials to the `rp-agent-creds` volume, and reports from then o
 Restarts reuse the saved credentials. There's no PIN to type.
 
 Prefer not to use the UI? Mint a token through the API (`POST /api/enrollment-tokens`,
-admin) and use [`docker/docker-compose.agent.yml`](../docker/docker-compose.agent.yml)
+admin; it lasts 24 hours unless you send `expires_in` in seconds, at most 7 days) and use
+[`docker/docker-compose.agent.yml`](../docker/docker-compose.agent.yml)
 from the repo, setting `RP_SERVER` and `RP_ENROLL_TOKEN`.
 
 The enrolment window also shows the **Windows and Linux/macOS** one-liners. Use the compose
@@ -60,13 +61,13 @@ host` and a read-only host rootfs. This covers the large majority of telemetry:
 - Resource usage (CPU, memory, disk, load, uptime)
 - Listening ports, network connections, interfaces, routes, gateway reachability
 - Host processes / top talkers
-- **Host package inventory + CVE scanning** (read directly from the host's package DB)
+- **Host package inventory + CVE scanning** on Debian, Ubuntu and Arch hosts (read directly from the host's package DB; see the RHEL and Fedora note below)
 - Disk usage, RAID/ZFS/Btrfs health, mounts
 - Local accounts, SSH authorized_keys
 - Firewall rules, config/drift inventory (fstab, sysctl, cron, repos, netplan, …)
 - Docker/Podman container inventory (**opt-in** — see the Docker-socket warning below)
 
-> ### ⚠ Docker socket = effective host root
+> ### Warning: Docker socket = effective host root
 > Container inventory needs the Docker socket, which is **commented out by
 > default**. Mounting `/var/run/docker.sock` — **even with `:ro`** — grants
 > anything that can talk to this container **full control of the Docker daemon**,
@@ -95,9 +96,15 @@ It reports "not available" instead of misleading host data for:
 - **Self-update** — the binary is baked into the image; upgrade by pulling a
   newer image tag, never in place.
 - **Pending-update count on non-Debian hosts** — the installed-package inventory works on
-  Debian/Ubuntu, Arch and RHEL/Fedora hosts, but the "updates available" count is computed for
+  Debian/Ubuntu and Arch hosts, but the "updates available" count is computed for
   apt hosts only. For dnf and pacman hosts it stays *unknown*, never a false `0`. CVE scanning
   needs the package inventory and the OSV ecosystems described in [cve.md](cve.md).
+- **Package inventory on RHEL and Fedora hosts** — the rpm database is a binary store, and the
+  agent image does not ship the `rpm` tool. The agent sends no package list for such a host, so
+  CVE scanning has nothing to check. Install the native agent there.
+- **SSH Gateway and applying host config** — the agent refuses the gateway tunnel when it runs in a
+  container (see [sshgw.md](sshgw.md)), and it does not apply a [host config](host-config.md)
+  push.
 
 For full host coverage (including systemd and compliance scans), install the
 native agent with `install-client.sh`. The containerized agent is the

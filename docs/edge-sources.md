@@ -13,11 +13,11 @@ On this page: [Before you start](#before-you-start) · [How it works](#how-it-wo
 You need:
 
 - RemotePower 7.3.0 or later, and an administrator account. The card is hidden
-  from everyone else.
+  from everyone else. With tenant isolation on, only the platform operator sees it.
 - A Cloudflare account that holds your domains, and the right to create API
   tokens in it.
-- AbuseIPDB or SniffCat keys saved under **Security → Threat Intel → Providers**,
-  with **Report attackers back to both services** ticked (see
+- AbuseIPDB or SniffCat keys saved on **Security → Threat Intel → Settings** (the
+  **Providers** card), with **Report attackers back to both services** ticked (see
   [Set it up](ip-intel.md#set-it-up)). Without them RemotePower still reads and
   shows what Cloudflare refused, but it reports nothing.
 
@@ -94,7 +94,7 @@ The id is 32 hexadecimal digits (0 to 9, a to f). RemotePower refuses anything e
 
 ## Step 3: Enter it in RemotePower
 
-Open **Security → Threat Intel** and scroll to the **Edge sources** card.
+Open **Security → Threat Intel**, go to the **Settings** tab and scroll to the **Edge sources** card.
 
 | Field | What to enter | Default |
 |---|---|---|
@@ -147,13 +147,13 @@ Each line starts with one of these states:
 
 ## Step 5: Switch it on
 
-Tick the switch at the top of the card and press **Save**. The first read happens within one read interval. The **Edge feeds** card, further down, shows `Waiting for the first read` and then `Reading`.
+Tick the switch at the top of the card and press **Save**. The first read happens within one read interval. The **Edge feeds** card on the **Log sources** tab shows `Waiting for the first read` and then `Reading`.
 
 ## What you see
 
 ### The Edge feeds card
 
-One row for each feed.
+On the **Log sources** tab. One row for each feed.
 
 | Column | What it shows |
 |---|---|
@@ -229,7 +229,7 @@ Edge evidence takes the same report path as your hosts' logs.
 - An address your honeypot Worker banned, or that fail2ban or CrowdSec decided
   on, is reported at once.
 - An address that has not qualified yet shows the nearest route in its status,
-  for example `not reported: 1 of 3 Cloudflare refusals so far`. When you lower
+  for example `not reported: 1 / 3 Cloudflare refusals so far`. When you lower
   the number, addresses counted in the last day are reported on the next sweep.
 - The daily limits and the wording of the report are the ones on the Providers
   card: see [Limits on API use](ip-intel.md#limits-on-api-use) and
@@ -247,7 +247,7 @@ If a script of yours already reports Cloudflare events to AbuseIPDB or SniffCat,
 |---|---|
 | How often it reads | Every 10 minutes by default. You can set 5 to 1,440. |
 | How far back one read goes | Six hours. After a longer pause, what happened before that is not read. |
-| Delay | Each read stops 90 seconds short of the present, because events take a moment to show up in Cloudflare's analytics. |
+| Delay | A firewall read stops 90 seconds short of the present, because events take a moment to show up in Cloudflare's analytics. A Worker log read stops 5 seconds short. |
 | Zones | Up to 50. |
 | Single events (Free plans) | 2,500 for each zone in a read. |
 | Custom rules | Read once an hour, for the first 12 zones and up to 60 rules in each. A zone beyond the twelfth is counted, but its list rules cannot be told apart. |
@@ -358,7 +358,7 @@ A leaked list token can change your lists: it can take an attacker off your bloc
 
 ### Step 2: Enter it in RemotePower
 
-Open **Security → Threat Intel** and scroll to the **Edge blocklist** card. The account id is the one under **Edge sources**, so set it there first.
+Open **Security → Threat Intel**, go to the **Settings** tab and scroll to the **Edge blocklist** card. The account id is the one under **Edge sources**, so set it there first.
 
 | Field | What to enter | Default |
 |---|---|---|
@@ -398,7 +398,7 @@ If another tool updates that list, such as a script on a schedule, stop it first
 
 ### Ban an address by hand
 
-The Attackers table on **Security → Threat Intel** has a **Ban** button on every row. It opens a dialog with two separate choices.
+The Attackers table on the **Attackers** tab of **Security → Threat Intel** has a **Ban** button on every row. It opens a dialog with two separate choices.
 
 | Choice | What it does |
 |---|---|
@@ -431,7 +431,7 @@ An address that the list holds is not shown as `not blocked`, because the edge i
 | More entries than there is room for | The list is cut at **Most entries in the list**, less what your account's other lists use. The card says how many were left out. |
 | Downloads | Each blacklist is downloaded at most four times a day, and its last copy is reused in between. |
 | One change at a time | Cloudflare applies a change in the background and takes one at a time. RemotePower waits up to 20 seconds and then looks again every five minutes. |
-| A ban by hand | Needs the platform operator for the edge and the **command** permission on each host. The never-block rules apply to both halves. |
+| A ban by hand | Needs the platform operator for the edge and the **command** permission on each host. The never-block rules apply to both halves. One ban reaches at most 500 hosts. |
 
 ### What the card shows
 

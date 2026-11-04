@@ -21,18 +21,22 @@ each check remembers (300 by default).
 | --- | --- | --- |
 | `ping` / `icmp` | host or IP | ICMP reachability (icmp adds loss/latency stats) |
 | `tcp` | `host:port` | TCP connect |
-| `http` / `https` | full URL | HTTP request + expected status/latency, body contains/regex, JSON dot-path assertions |
+| `http` | full `http://` or `https://` URL | HTTP request + expected status/latency, body contains/regex, JSON dot-path assertions |
 | `http_flow` | first step's URL | multi-step HTTP transaction — up to 5 ordered steps sharing a cookie jar, per-step expect-status/contains and `extract` → `${var}` reuse |
 | `dns` | name (+ optional expected record) | resolves to an answer |
 | `db` | `host:port` | database liveness (PostgreSQL / MySQL / Redis protocol probe, credential-less) |
 | `path` | host or IP | network path (traceroute) — fires `path_changed` when the route's hop set moves vs the baseline |
 
-Targets are validated on the server so a check can't be pointed at a
-private/rebound address. Each check raises **`monitor_down`** when it fails and
-**`monitor_up`** when it recovers. Two more options in the dialog help with noise:
-**Alert after consecutive failures** (2 to 10) waits for several failed checks in
-a row before it alerts, and **Max latency ms** (HTTP and ICMP) and **Max packet
-loss %** (ICMP) turn a slow answer into a failure.
+The server validates every target. Addresses on your LAN are allowed. A loopback
+address is refused unless you tick **Settings → General → Allow monitoring of
+internal / loopback targets**, and link-local and cloud metadata addresses are
+always refused. The check runs again when the probe connects, so a name that later
+resolves to a refused address is stopped. Each check raises **`monitor_down`** when
+it fails and **`monitor_up`** when it recovers. Two more options in the dialog help
+with noise: **Alert after consecutive failures** (1 to 10, where 1 alerts on the
+first failure) waits for several failed checks in a row before it alerts, and
+**Max latency ms** (HTTP and ICMP) and **Max packet loss %** (ICMP) turn a slow
+answer into a failure.
 
 A `ping`, `icmp` or `tcp` check can target **every host with a tag** or **every
 host in a group** instead of one address. The server fans it out into one check
@@ -69,7 +73,10 @@ deleting it — config, history and uptime % survive, no alerts fire, and the
 row stays visible (badged *PAUSED*) until you Resume. **Clone** prefills the
 create form from an existing monitor. **Export** downloads the definitions as
 JSON the **Import** box accepts (which also takes Nagios/Icinga configs,
-Uptime Kuma backups and Zabbix XML exports). A monitor can be probed **from a
+Uptime Kuma backups and Zabbix XML exports). Import shows a preview first, skips a
+check whose type and target you already have, and is for admins. Export leaves out
+the satellite or host a check probes from, since those ids only exist on your
+install. A monitor can be probed **from a
 relay satellite** instead of the server (`via_satellite` — reaches
 segmented/private space the server can't; the row shows a *via satellite*
 badge). Every probe is timed, so the History modal shows **response-time
@@ -83,7 +90,10 @@ database on a private network, a port on the host's own loopback (`127.0.0.1:543
 Pick the host under **Probe from** in the check dialog. The row then carries a *via host* badge that names the host.
 
 - The host has to run the **Linux agent**. The Windows and macOS agents and agentless hosts do not probe, and neither does a host in
-  audit mode (read-only), since an audited host does not act on what the server tells it. The row says so.
+  audit mode (read-only), since an audited host does not act on what the server tells it. The row says so. A host with
+  `require-signed-commands` set does not probe either, because the checks are a setting and not a signed command. The server
+  cannot see that marker, so those checks read WAITING.
+- A host is sent at most 20 checks. A twenty-first is saved but never sent, and it stays at WAITING.
 - The check is `tcp`, `http` or `ping`, and it names one address, not a tag or a group.
 - An HTTP check can use **Expected HTTP status**, **Body must contain**, **Method** and **Verify TLS**. A regex, a *must not
   contain* text, a JSON field, a latency limit and a packet loss limit are only available from the server. Saving one with a
@@ -99,8 +109,8 @@ failures** applies. A paused check is not sent.
 
 A row that is not a reading says so. A check that has not reported yet reads **WAITING** with *awaiting first probe from the host*,
 which is also what a host that has not updated its agent shows. If a host stops reporting, its checks stop with it. After the longest
-a result should take to arrive, which is twice the monitor check interval plus the host's own report interval, the row reads **NO
-DATA** instead of up or down. The detail keeps the last result and the age column keeps the time it was taken. No alert is raised
+a result should take to arrive, which is twice the sum of the monitor check interval and the host's own report interval, the row
+reads **NO DATA** instead of up or down. The detail keeps the last result and the age column keeps the time it was taken. No alert is raised
 for a row with no data: the host's own offline alert tells you why. The same holds for a check a satellite probes. When you move a
 check to another host or to a satellite, the row shows nothing of the old prober's result and waits for the new one.
 
@@ -111,7 +121,8 @@ that host's own checks only.
 ## SLA / SLO objects
 
 Named availability targets that remote probes attach to. Define an object —
-name, target % (say 99.9), rolling window in days — in the **SLA / SLO objects**
+name, target % (say 99.9, above 0 and below 100), rolling window in days (1 to 365,
+30 by default) — in the **SLA / SLO objects**
 card on **Monitoring → Live Monitor**, then tick it on each probe whose checks should count toward it
 (checkboxes in the probe editor; any type, and a tag/group probe's fanned-out
 per-host checks all count). The panel shows each object's check-weighted
@@ -121,7 +132,11 @@ data), sortable on every column. An object with no measured checks reads *no
 data*, never a fake breach; deleting one detaches its probes and keeps their
 history.
 
-Availability is a ratio of stored checks, so a window of N checks can only
+Availability is a ratio of stored checks, and the window in days only counts the
+checks still stored. Each check keeps its last 300 results by default, which at the
+default five-minute interval is about a day, and at most 5,000, about 17 days. So an
+object with a 30-day window needs **Monitor checks kept** raised before it sees 30
+days. A window of N checks can only
 resolve steps of 100/N percentage points. When that step is coarser than the
 error budget itself — a 99.9% target leaves 0.1 pp, so it needs at least 1,000
 checks in the window — the budget could only ever read 100% or 0%, and one
@@ -155,11 +170,17 @@ must be set up) to a probe address, then looks for it in that mailbox over IMAP.
 It deletes the probe message once it finds it.
 
 Fill in the probe address, the IMAP host, port, user, password and folder, and
-tick **Enabled**. **Max round-trip latency** is how long a probe may take, 30
-seconds or more and 300 by default. A new probe goes out every five minutes. If
-one has not arrived in time, RemotePower raises **`mailflow_delayed`**, and
-**`mailflow_ok`** when a probe gets through again. The IMAP password is write-only
-and an empty field keeps the stored one. Only admins can change these settings.
+tick **Enabled**. **Use SSL/TLS** and **Verify TLS certificate** are on by default;
+untick the second for an internal IMAP server with a self-signed certificate.
+**Max round-trip latency** is how long a probe may take, 30 seconds or more and 300
+by default. RemotePower checks about every five minutes: one check sends a probe and
+the next looks for it in the mailbox, so a probe goes out about every ten minutes
+and the latency it records is the time up to the check that found the mail, never
+less than five minutes. A probe that is still missing at the first check after the
+limit raises **`mailflow_delayed`**. With the default of 300 seconds that is ten
+minutes after it was sent. **`mailflow_ok`** follows when a probe gets through
+again. The IMAP password is write-only and an empty field keeps the stored one.
+Only admins can change these settings.
 
 ## Log-tail alerts
 
@@ -265,6 +286,11 @@ dashboard can slice by host or by group without a join.
 | --- | --- |
 | `remotepower_info`, `remotepower_devices_total`, `remotepower_devices_online`, `remotepower_device_online`, `remotepower_device_last_seen_timestamp_seconds` | Build version and fleet reachability |
 | `remotepower_device_cpu_percent`, `…_mem_percent`, `…_disk_percent` | Per-host resource utilisation |
+| `remotepower_device_swap_percent`, `…_fd_percent`, `…_conntrack_percent`, `…_cpu_iowait_percent`, `…_cpu_steal_percent`, `…_loadavg_1m` | More resource gauges: swap, open file descriptors and connection tracking as a share of their limit, CPU time spent waiting for I/O or taken by the hypervisor, and the one-minute load average |
+| `remotepower_device_cpu_count`, `…_memory_total_bytes`, `…_disk_total_bytes` | Logical CPUs, physical memory and root filesystem size |
+| `remotepower_device_failed_units`, `remotepower_device_mount_issues` | systemd units in a failed state and mount points reporting a problem |
+| `remotepower_device_custom_metric` | The operator-defined metrics an agent reports |
+| `remotepower_scrape_error` | 1 when the last scrape hit an internal error and returned a reduced exposition, otherwise 0 |
 | `remotepower_device_upgradable_packages`, `remotepower_device_cve_findings`, `remotepower_cve_fixable_total` | Patch backlog and vulnerability findings (by `severity`) |
 | `remotepower_monitor_up`, `remotepower_monitor_last_check_timestamp_seconds`, `remotepower_monitor_availability_percent` | The remote checks above |
 | `remotepower_slo_target_percent`, `remotepower_monitor_slo_budget_remaining_percent`, `remotepower_monitor_slo_burn_rate`, `remotepower_slo_object_*` | SLO targets, error budgets and burn rate |
@@ -300,6 +326,7 @@ has data.
 | `remotepower_compliance_pass_ratio`, `remotepower_compliance_devices_evaluated` | — | Fleet baseline compliance, severity-weighted, as a 0–1 ratio |
 | `remotepower_device_compliance_pass_ratio` | — | Per-host, omitted when no check applied (a 0 would read as total failure) |
 | `remotepower_compliance_check_devices` | `check`, `severity`, `result` | Host counts per outcome for one baseline control, so a panel can name the failing check — see [compliance.md](compliance.md) |
+| `remotepower_compliance_framework_score`, `remotepower_compliance_framework_controls` | `framework`, plus `status` (pass, fail or na) on the controls | Score (0–100) and control counts for one compliance framework |
 | `remotepower_device_bruteforce_sources` | — | Sources currently over the brute-force threshold on the host; quiet hosts are omitted |
 | `remotepower_device_known_attackers_unblocked`, `remotepower_device_ip_blocks_active` | — | Known-abusive sources that attacked the host this week and are not blocked, and blocks in place — see [ip-intel.md](ip-intel.md) |
 | `remotepower_sshgw_devices_opted_in`, `remotepower_sshgw_tunnels_connected`, `remotepower_sshgw_sessions_24h` | — | SSH gateway reach, live agent tunnels and recent sessions, emitted only when the module is on — see [sshgw.md](sshgw.md) |
@@ -320,8 +347,9 @@ distinction the product makes everywhere else.
 - Adding/editing checks, log rules, inbound tokens and resolver-health targets is
   **admin-only**; inbound receiver endpoints authenticate by their `rpwi_` token,
   not a session.
-- All targets/URLs are SSRF-guarded (loopback, link-local and cloud-metadata
-  addresses are refused), and inbound endpoints are rate-limited.
+- Pausing and resuming a check needs an admin or a role that can run actions.
+- All targets/URLs are SSRF-guarded (link-local and cloud-metadata addresses are
+  always refused, loopback unless you allow it).
 
 ## With multi-tenancy
 
