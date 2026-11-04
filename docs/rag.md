@@ -54,7 +54,7 @@ never indexed by any of them.
 | **Container-image CVEs** | Per host: per-image critical/high counts from the image scanner, so "prioritise my CVEs" sees the container layer and not just host packages | counts + image names |
 | **OpenSCAP results** | Per-host baseline scan score, profile, pass/fail counts and the failing rule ids | grounds the compliance/hardening advisors |
 | **Security findings** | On-disk secret findings (rule + path + count), the PII inventory (kind counts + paths) and AV/EDR tool state | **value-free by construction** — never a preview, fingerprint or matched value |
-| **Hardware inventory** | Per host: SMART disk health, GPU telemetry, UPS/power, kernel/livepatch reboot-needed, board temperature and privileged-account posture | models, states and counts — no secrets |
+| **Hardware inventory** | Per host: SMART disk health, GPU telemetry, UPS/power, kernel/livepatch reboot-needed, board temperature and privileged-account posture, plus what the host is: the system maker and model and its installed memory (module count, total, kind and speed) *(7.5.0)* | models, states and counts — no secrets, and no serial numbers |
 | **Incident memory** | Resolved-incident outcomes — what actually fixed similar incidents on *this* fleet | event names + resolution summaries, already value-free |
 | **Automation rules** | Existing automation rules: name, trigger and action **type**, enabled state — so the rule-suggestion advisor stops proposing what you already have | never action bodies (a webhook URL or command can embed a credential) |
 | **Applied remediations** | The auto-remediation ledger: what the guarded executor tried and whether it cleared the alert | rule + host + status, no action bodies |

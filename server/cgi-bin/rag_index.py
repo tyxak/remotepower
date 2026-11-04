@@ -2552,6 +2552,70 @@ def build_automation_rules_corpus(store, now=0):
     return docs
 
 
+_DIMM_SIZE_RE = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*(kb|mb|gb|tb)\b', re.I)
+_DIMM_UNIT_MB = {'kb': 1 / 1024.0, 'mb': 1.0, 'gb': 1024.0, 'tb': 1024.0 * 1024.0}
+
+
+def _dimm_mb(size):
+    """A module size such as "32 GB" or "32768 MB" in megabytes, or None when the
+    string is not one. dmidecode prints it in whichever unit the firmware used."""
+    m = _DIMM_SIZE_RE.match(str(size or ''))
+    if not m:
+        return None
+    return float(m.group(1)) * _DIMM_UNIT_MB[m.group(2).lower()]
+
+
+def _gb_text(mb):
+    gb = mb / 1024.0
+    return f"{gb:g} GB" if gb >= 1 else f"{mb:g} MB"
+
+
+def hardware_inventory_lines(hw):
+    """What a host IS, from the agent's DMI read: the system maker and model, and the
+    installed memory modules grouped by kind with the total.
+
+    v7.5.0. The agent has reported this since v3.4.0 and the drawer shows it, and the
+    AI index did not know it ("what servers do I have", "which hosts run 2133 MT/s
+    memory", "how much RAM does db01 have installed"). Serial numbers are left out on
+    purpose: they identify the exact unit, and the index can be sent to a hosted
+    embedding model. `hw` is the stored record's `hardware` sub-dict.
+    """
+    if not isinstance(hw, dict):
+        return []
+    lines = []
+    sysd = hw.get('system')
+    if isinstance(sysd, dict):
+        maker = str(sysd.get('manufacturer') or '').strip()
+        product = str(sysd.get('product') or '').strip()
+        label = ' '.join(x for x in (maker, product) if x)
+        if label:
+            lines.append(f"system: {label}")
+    mem = hw.get('memory')
+    if isinstance(mem, list):
+        mods = [d for d in mem if isinstance(d, dict) and d.get('size')]
+        if mods:
+            groups = {}
+            total, countable = 0.0, True
+            for d in mods:
+                mb = _dimm_mb(d.get('size'))
+                if mb is None:
+                    countable = False
+                else:
+                    total += mb
+                key = (str(d.get('size')).strip(), str(d.get('type') or '').strip(),
+                       str(d.get('speed') or '').strip(), str(d.get('manufacturer') or '').strip())
+                groups[key] = groups.get(key, 0) + 1
+            parts = []
+            for (size, mtype, speed, maker), n in sorted(groups.items(), key=lambda kv: (-kv[1], kv[0]))[:6]:
+                what = ' '.join(x for x in (size, mtype, speed) if x)
+                parts.append(f"{n} x {what}" + (f" ({maker})" if maker else ''))
+            head = f"memory: {len(mods)} module{'s' if len(mods) != 1 else ''}"
+            if countable:
+                head += f", {_gb_text(total)} installed"
+            lines.append(head + ' - ' + '; '.join(parts))
+    return lines
+
+
 def build_hardware_corpus(store, devices=None, now=0):
     """v6.4.0: per-device hardware health for the RAG — SMART disk health, GPU
     telemetry, UPS/power, kernel/livepatch (reboot-needed), board temperature,
@@ -2700,6 +2764,15 @@ def build_hardware_corpus(store, devices=None, now=0):
                 f"live/{dev_id}#hardware", 'live_state', 'device_hardware',
                 f"Hardware health for {dname}:\n" + '\n'.join(lines),
                 title=f"{dname} hardware", device=dev_id, ts=int(rec.get('collected_at') or now)))
+        # v7.5.0: what the host is. A chunk of its own, not more lines in the one above:
+        # that one is "notable signals only" and exists for a host with something wrong.
+        inv = hardware_inventory_lines(rec.get('hardware'))
+        if inv:
+            docs.append(make_doc(
+                f"live/{dev_id}#inventory", 'live_state', 'device_inventory',
+                f"Hardware inventory for {dname}:\n" + '\n'.join(inv),
+                title=f"{dname} hardware inventory", device=dev_id,
+                ts=int(rec.get('collected_at') or now)))
     return docs
 
 
