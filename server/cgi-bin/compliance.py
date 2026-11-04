@@ -117,11 +117,19 @@ def _eol_control(facts):
 
 
 def _tls_control(facts):
+    """Certificates are valid: the endpoints the TLS monitor probes and, since 7.5.0, the certificate files hosts report for their
+    own services (`host:path`, marked when already expired). Either source assesses the control; with neither it is Not assessed."""
     exp = facts.get('tls_expiring') or []
     if exp:
         return FAIL, f"{plural(len(exp), 'certificate', 'certificates')} expiring soon: " + ", ".join(exp[:10])
-    if facts.get('tls_monitored', 0) == 0:
-        return NOT_ASSESSED, "No TLS endpoints are being monitored."
+    monitored = facts.get('tls_monitored', 0) > 0
+    files = facts.get('tls_file_hosts', 0) > 0
+    if not monitored and not files:
+        return NOT_ASSESSED, "No TLS endpoints are being monitored and no host reports a certificate file."
+    if monitored and files:
+        return PASS, "All monitored certificates and the certificate files that hosts report are within their validity window."
+    if files:
+        return PASS, "The certificate files that hosts report are within their validity window."
     return PASS, "All monitored certificates are within their validity window."
 
 

@@ -10167,6 +10167,7 @@ const _RISK_KIND_LABEL = {
   security_updates: 'Security updates waiting', mac_protection_off: 'macOS protection off',
   win_protection_off: 'Windows protection off', container_crashloop: 'Container restart loop',
   risky_accounts: 'Account with no password',
+  cert_file_expired: 'Expired certificate file',
 };
 function _riskLevel(s) {
   const c = _RISK_CUTS;
@@ -20606,6 +20607,7 @@ const PAGE_FOR = {
   // v3.4.0: hardware health (SMART / kernel). Disk-fill forecast cards use
   // the existing 'disk' kind, already routed to devices above.
   hardware:           'devices',
+  cert_files:         'devices',   // 7.5.0: a host's certificate files; the drawer lists them
   // v6.4.2: nine kinds _compute_attention has been emitting with no route at
   // all — every one of them fell through to the dashboard, so clicking the
   // item landed back where you started. Found by asserting this table covers
@@ -23472,7 +23474,7 @@ const _SCORE_WEIGHT_DEFAULTS = [
     timer_failed: 3, custom_check_failed: 5,
     brute_force: 4, known_attacker: 8,
     security_updates: 3, mac_protection_off: 6, win_protection_off: 5,
-    container_crashloop: 4, risky_accounts: 12,
+    container_crashloop: 4, risky_accounts: 12, cert_file_expired: 10,
   }],
   ['ap-lw-', 'reliability_weight_', {
     smart_failing: 40, realloc_growing: 25, pending_sectors: 20, wear_high: 15,

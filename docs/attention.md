@@ -130,6 +130,7 @@ active. Anything else in `fleet_events` is past-tense only.
 | `disk` | metric overrides per mount | warning / critical |
 | `cpu` | the share of the CPU time spent waiting for storage (I/O wait) or taken by the hypervisor (steal) is over its line | warning / critical |
 | `tls` | TLS expiry watchlist | warning / critical |
+| `cert_files` | the certificate files a host's services read: one item per host, critical when a file has expired, a warning when one expires inside the window *(7.5.0)* | warning / critical |
 | `reboot` | `/run/reboot-required` exists in sysinfo | warning |
 | `agent_version` | agent version ≠ server version | info |
 | `service_down` | systemd unit in `services.json` not active | warning / critical |

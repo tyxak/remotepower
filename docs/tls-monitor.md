@@ -236,6 +236,31 @@ one of these:
 
 ---
 
+## Certificate files on your hosts
+
+The TLS monitor probes endpoints from the server. The agent on a Linux host also reads the certificate files its own services use
+(`/etc/letsencrypt/live/*`, `/etc/nginx/ssl`, `/etc/apache2/ssl`, `/etc/ssl/*.crt`) and reports their expiry. The system CA bundle is
+never read, and the server drops it again if an older agent sends it. The Hosts drawer lists the files.
+
+One setting, **Certificate file expiry** (on by default), and one window, **Cert-file expiring (days)** under Settings → Alert
+parameters (21 days by default), decide everything below:
+
+- **Alert** — *A local certificate file is expiring soon*, one per host, naming the soonest file. It clears when the file is renewed.
+- **Checks** — a *Certificate files* row: critical when a file has expired, a warning when one expires inside the window, green
+  otherwise. A host that reported no files shows no row.
+- **Needs attention** — one item per host with a lapsed or expiring file. You can mute it with the alert's mute.
+- **Risk** — an expired file scores per file, capped, with the paths in the detail. A file that is only expiring soon is the alert's
+  business and does not score.
+- **Compliance** — the TLS control lists `host:path` for each file inside the report's own window (Settings → Alert parameters →
+  *Compliance TLS expiring (days)*), and marks the ones that have already expired. A host that reported a file counts as assessed.
+- **Security Advisory** — *certificate files expired* (high) and *certificate files expiring* (medium, high at three days or fewer),
+  per host. A file on disk does not prove a service presents it, so the wording says "if a service still reads it".
+- **Dashboard** — the *Expiring certificates* widget looks 30 days ahead and shows the six soonest, for the hosts you can see.
+
+Turn the setting off and all of these go quiet together *(7.5.0; before this the alert was the only reader)*.
+
+---
+
 ## Troubleshooting
 
 **"DNS lookup failed."** Check from the server's command line:

@@ -21,7 +21,7 @@ it is cheap to run on demand at any scope and never scans or contacts anything.
 | Layer | Sources |
 |---|---|
 | **Application** | Findings from the pentest scanners (Security → Pentest) with severity critical, high or medium: a vulnerable CMS plugin, an exposed admin panel. Informational findings are left out. |
-| **Exposure** | World-reachable listening ports (ports you muted on the Exposure page are skipped), host firewall posture, and TLS certificates from the TLS monitor that are expired or expire within 14 days |
+| **Exposure** | World-reachable listening ports (ports you muted on the Exposure page are skipped), host firewall posture, TLS certificates from the TLS monitor that are expired or expire within 14 days, and the certificate files a host reports for its own services that have expired or expire inside your window *(7.5.0)* |
 | **OS** | Package CVEs rated critical or high (the ignore list is applied, KEV-listed ones come first), pending updates and whether the host auto-patches, pending reboot (including a newer kernel installed and not running *(7.5.0)*), end-of-life releases, failing OpenSCAP benchmark rules, and Secure Boot when the Secure Boot check is switched on |
 | **Identity** | sshd settings (root login, password login, empty passwords), brute-force pressure, authorized SSH keys on deprecated algorithms, local accounts with an empty password or one older than a year, and on Windows Defender tamper protection, UAC and Secure Boot |
 | **Integrity** | Failing protect checks, Integrity Guard quarantine, tracked config files that drifted from their baseline, an agent binary whose hash does not match, a refused unsigned agent update, and the host's malware scanner: an active detection (critical) or real-time protection switched off *(7.5.0)* |
@@ -56,7 +56,7 @@ click **Build advisory**. The scope is always cut down to what your role and
 tenant can see. Asking for a host you cannot see returns "not found", not
 "forbidden", so the advisory never reveals that a host exists.
 
-TLS certificate findings do not belong to a host, so they appear at every scope.
+TLS certificate findings from the TLS monitor do not belong to a host, so they appear at every scope. Certificate-file findings belong to the host and follow the host's scope.
 
 ## Reading the list
 

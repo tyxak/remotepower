@@ -60,6 +60,9 @@ custom checks, and whether the host is being attacked right now.
   Containers page agree on what a loop is. It clears with the alert *(7.5.0)*.
 - **A login account with no password, or a second UID 0, scores per account** (capped), with the account names in the detail, the
   same ones the Checks page lists for the host. It needs the agent to run as root, because the answer is in `/etc/shadow` *(7.5.0)*.
+- **An expired certificate file scores per file** (capped), with the paths in the detail. Only files that have already expired
+  count; one that is merely expiring soon is the *certificate file expiring* alert's. The **Certificate file expiry** setting turns it
+  off *(7.5.0)*.
 - **ECC memory errors and NIC errors are not in this score.** The
   [reliability score](disk-health.md#host-reliability-prediction) weighs them as failing hardware, and a
   fault counted in both scores makes both wrong.

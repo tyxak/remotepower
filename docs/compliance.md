@@ -159,7 +159,7 @@ run as root, since the answer is in `/etc/shadow`; a host whose agent does not i
 **v7.5.0 reads what is behind on patching, not only how much.** The patch control (PCI DSS 6.3.3, SOC 2 CC6.7, Essential Eight
 E8-2, SMB1001 S-patch) used to compare the total number of pending updates with one threshold, so a host with 30 security updates
 waiting passed. It now also fails for a host that **does not patch itself** and has **ten or more security updates** waiting (the
-count your distribution flags as security fixes), and for a host in breach of **your own patch SLA** (Settings → Patching). A host
+count your distribution flags as security fixes), and for a host in breach of **your own patch SLA** (the **Patch SLA** card on the Patches page). A host
 that patches itself is not an offender for the updates that are about to apply, a few waiting is a normal cycle, and a host that
 reports no security count (Windows, a package manager that does not flag them) is not counted as zero. The reboot control (SOC 2
 CC7.4, E8-6b) lists a host with a newer kernel installed and not running, which has no `/run/reboot-required` to say so. These
@@ -169,6 +169,12 @@ turn some existing passes into fails, which is the point; the evidence names the
 freshness only, so a backup that was a day old and corrupt passed. It now also fails for a backup whose integrity check or restore
 drill is failing, the same statuses that raise the *backup verify failed* and *restore drill failed* alerts. A check that never ran is
 not a failure.
+
+**v7.5.0 reads the certificate files hosts report.** The TLS control used to look at the endpoints the TLS monitor probes and nothing
+else, so an expired `/etc/nginx/ssl/site.pem` raised one alert and never reached the report. It now also lists each certificate file
+that has expired or expires inside the report's window (**Compliance TLS expiring (days)**), as `host:path`, and a host that reported
+a file counts as assessed. With neither a monitored endpoint nor a reporting host the control reads **Not assessed**. The
+**Certificate file expiry** setting turns the files out of the report with the alert.
 
 **v7.5.0 adds clock synchronisation (PCI DSS 10.6.1).** The Linux agent has reported
 whether the clock is synchronised, and how far it is off, for several releases. The control

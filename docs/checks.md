@@ -72,6 +72,11 @@ sortable, filterable table.
     container, a virtual machine without UEFI firmware — stays silent whichever
     way the setting is left. The state still appears on the host drawer as a
     plain fact; the setting controls the check and the advisory finding.
+- **Certificate files** — the certificate files the host's own services read. The `cert_files` row is critical when a file has
+  expired, a warning when one expires inside the window (**Cert-file expiring (days)**, 21 by default) and green otherwise. A host
+  that reported no files shows no row, and the system CA bundle is left out. The **Certificate file expiry** setting turns the row
+  off with the alert, the risk factor and the rest; see [certificate files](tls-monitor.md#certificate-files-on-your-hosts)
+  *(7.5.0)*.
 - **Custom checks** — server-side process/port checks and agent-side
   file/journal/log checks defined in the Check catalog.
 - **Custom scripts** — a [custom script](custom-scripts.md) whose exit code

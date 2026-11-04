@@ -47989,6 +47989,25 @@ def _compliance_facts(devices=None):
         facts['tls_expiring'] = []
         facts['tls_monitored'] = 0
 
+    # 7.5.0: the certificate files hosts report for their own services. The control read the TLS monitor's targets alone, so an
+    # expired /etc/nginx/ssl/site.pem raised one alert and never reached the report. The switch and the CA-bundle rule are the
+    # alert's (posture_signals); the window is this report's own. A host counts as assessed when it reported at least one file.
+    try:
+        _file_labels, _file_hosts = [], 0
+        if posture_signals.cert_file_days(cfg) is not None:
+            for did, dev in devices.items():
+                if not isinstance(dev, dict) or dev.get('monitored') is False:
+                    continue
+                _certs = (_hw_all.get(did) or {}).get('cert_files')
+                if posture_signals.service_cert_files(_certs):
+                    _file_hosts += 1
+                for r in posture_signals.expiring_cert_files(_certs, now, _compliance_tls_days):
+                    _file_labels.append(f"{dev.get('name') or did}:{r['path']}" + (' (expired)' if r['expired'] else ''))
+        facts['tls_expiring'] = list(facts['tls_expiring']) + _file_labels
+        facts['tls_file_hosts'] = _file_hosts
+    except Exception:
+        facts['tls_file_hosts'] = 0
+
     # Backups.
     try:
         bak = load(DATA_DIR / 'backup_state.json') if backend_exists(DATA_DIR / 'backup_state.json') else {}
@@ -49712,23 +49731,21 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
         # and auto-resolving on renewal — the original "noisy" rationale predated
         # that coalescing. Still only the host's OWN service certs, never the CA
         # trust bundle. An operator who explicitly turned it off keeps it off.
-        if _config_ro().get('cert_expiry_alerts_enabled', True):
-            # v6.2.2: expiry window is operator-configurable (Settings → Alert
-            # parameters → Certificates); 21 days stays the default.
-            soon = now + int(_config_ro().get('cert_file_expiring_days', 21)) * 86400
-            _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
-                   '/usr/share/ca-certificates', '/etc/ca-certificates')
-            expiring = sorted((c for c in certs
-                               if 0 < c['not_after'] <= soon
-                               and not str(c['path']).startswith(_ca)),
-                              key=lambda c: c['not_after'])
+        # v6.2.2: expiry window is operator-configurable (Settings → Alert
+        # parameters → Certificates); 21 days stays the default. 7.5.0: the switch,
+        # the window and the CA-bundle rule are posture_signals' one copy, which the
+        # Checks row, the Needs-attention item, the risk score, the compliance
+        # control and the advisory read as well.
+        _cf_days = posture_signals.cert_file_days(_config_ro())
+        if _cf_days is not None:
+            expiring = posture_signals.expiring_cert_files(certs, now, _cf_days)
             paths = [c['path'] for c in expiring]
             prev_cert = set(rec.get('_cert_alerted') or [])
             if expiring and any(p not in prev_cert for p in paths):
                 s = expiring[0]
                 events.append(('cert_file_expiring', {
                     'device_id': dev_id, 'name': dev_name, 'path': s['path'],
-                    'days': max(0, int((s['not_after'] - now) / 86400)),
+                    'days': s['days_left'],
                     'count': len(expiring)}))
             elif prev_cert and not paths:
                 # v5.6.x: no host cert is expiring any more (renewed) —
@@ -51629,6 +51646,10 @@ def _checks_threshold_kwargs(cfg):
         # floor is not threaded in: the row warns on any error, and only the alert
         # and the reliability score use that floor.
         'nic_drop_min':              _nic_fleet_floors(cfg)[1],
+        # 7.5.0: the window for a host's certificate files, or None when the operator switched certificate-file expiry off.
+        # The alert, the Checks row, the Needs-attention item, the risk score, the compliance control and the advisory all
+        # read this one answer (posture_signals).
+        'cert_file_days':            posture_signals.cert_file_days(cfg),
     }
 
 
@@ -53153,6 +53174,7 @@ def _compute_attention():
     # agentless devices), so iterate `monitored`.
     try:
         hw_all = load(HARDWARE_FILE) or {}
+        _cf_days = posture_signals.cert_file_days(cfg)
         for dev_id, dev in monitored.items():
             rec = hw_all.get(dev_id) or {}
             bad = [d for d in (rec.get('smart') or []) if _smart_disk_failed(d)]
@@ -53176,6 +53198,20 @@ def _compute_attention():
                     'summary':  f'Newer kernel installed ({kern.get("latest_installed", "?")}) '
                                 f'— reboot to apply',
                 })
+            # 7.5.0: certificate files that have lapsed or are about to. The alert named the soonest one and nothing kept it on
+            # the host's score. The summary carries no day count, so one "ignore" holds from day to day (the key is its text).
+            if _cf_days is not None:
+                _cf = posture_signals.expiring_cert_files(rec.get('cert_files'), now, _cf_days)
+                if _cf:
+                    _lapsed = [r for r in _cf if r['expired']]
+                    _pick = _lapsed or _cf
+                    items.append({
+                        'severity': 'critical' if _lapsed else 'warning', 'kind': 'cert_files',
+                        'device':   dev.get('name', dev_id),
+                        'summary':  f'{plural(len(_pick), "certificate file", "certificate files")} '
+                                    f'{"expired" if _lapsed else "expiring soon"}: '
+                                    + ', '.join(r['path'] for r in _pick[:3]),
+                    })
     except Exception:
         pass
 
@@ -53358,6 +53394,10 @@ _NA_MUTE_EVENTS = {
     # it depressing the host's and the fleet's health score.
     ('ssh_key',            'critical'): ('ssh_key_added', 'hostkey_changed'),
     ('ssh_key',            'warning'):  ('ssh_key_added', 'hostkey_changed'),
+    # 7.5.0: a host's certificate files. The item is emitted per host and decorated with a device_id, and its event is alertable,
+    # so by this map's own rule it needed a row or no operator could stop it depressing the score.
+    ('cert_files',         'critical'): ('cert_file_expiring',),
+    ('cert_files',         'warning'):  ('cert_file_expiring',),
 }
 
 
@@ -53649,6 +53689,9 @@ _RISK_WEIGHTS = {
     'container_crashloop': 4,  # per container with an open restart-loop alert
     # A login account with no password, or a second UID 0, is a way in that needs no exploit. Counted per account.
     'risky_accounts': 12,
+    # A certificate file a host's service reads that has expired: clients get a certificate error until it is renewed. Counted per
+    # file, like an expired contract (expiry_expired); the alert says "soon", this scores the ones that are already past.
+    'cert_file_expired': 10,
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
@@ -53662,7 +53705,8 @@ _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'brute_force': 12, 'known_attacker': 24,
               # v7.5.0
               'security_updates': 18, 'mac_protection_off': 12,
-              'win_protection_off': 15, 'container_crashloop': 12, 'risky_accounts': 24}
+              'win_protection_off': 15, 'container_crashloop': 12, 'risky_accounts': 24,
+              'cert_file_expired': 20}
 # states (substring match) that mean a storage pool / RAID array is unhealthy
 _RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
                      'suspended', 'error', 'fail')
@@ -54054,6 +54098,14 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         if _au:
             _what.append(f'{plural(len(_au), "extra UID 0 account", "extra UID 0 accounts")} ({", ".join(_au[:3])})')
         _add('risky_accounts', min(_RISK_CAPS['risky_accounts'], (len(_ab) + len(_au)) * w['risky_accounts']), '; '.join(_what))
+
+    # 7.5.0: certificate files that have expired. Only the alert read them ("expiring soon"), so a lapsed /etc/nginx/ssl/site.pem
+    # cost the host nothing here. Same switch and CA-bundle rule as the alert; the paths are what the Checks row lists.
+    if posture_signals.cert_file_days(_config_ro()) is not None:
+        _ce = posture_signals.expired_cert_files((hw_rec or {}).get('cert_files'), now)
+        if _ce:
+            _add('cert_file_expired', min(_RISK_CAPS['cert_file_expired'], len(_ce) * w['cert_file_expired']),
+                 f'{plural(len(_ce), "certificate file", "certificate files")} expired ({", ".join(r["path"] for r in _ce[:3])})')
 
     # Backup freshness. Keyed `<device>:<path>`, so filter to this host.
     if backup_stale:
@@ -55225,8 +55277,10 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     # Load the hardware record once and share it across the smart/ups/temp, tls
     # and checks-roll-up widgets — avoids re-deep-copying hardware.json per
     # consumer. Only read it at all when one of those widgets is enabled.
-    hw_all = (load(HARDWARE_FILE) or {}) \
-        if any(_g(k) for k in ('smart', 'ups', 'temp', 'tls', 'checksrollup')) else {}
+    # 7.5.0 (SECURITY): only the hosts in `devices_raw`, the caller's own view. The whole store was shared, so the three counts
+    # added up other tenants' hosts and the certificate rows named a host this caller cannot see by its device id.
+    hw_all = ({d: r for d, r in (load(HARDWARE_FILE) or {}).items() if d in devices_raw}
+              if any(_g(k) for k in ('smart', 'ups', 'temp', 'tls', 'checksrollup')) else {})
     # Open alerts by severity
     try:
         sev = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
@@ -55391,21 +55445,19 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     except Exception:
         out['backups'] = {}
     # ── wave 5: data-backed widgets ───────────────────────────────────────────
-    # TLS / cert expiry (from the hardware record's cert_files inventory; non-CA)
+    # TLS / cert expiry (from the hardware record's cert_files inventory; non-CA). The widget looks 30 days ahead; the switch and
+    # the CA-bundle rule are the alert's (posture_signals), so a host's certificate files mean the same thing here as on the Checks
+    # page. Turned off, the widget is empty.
     if _g('tls'):
         try:
-            soon = now + 30 * 86400
-            _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
-                   '/usr/share/ca-certificates', '/etc/ca-certificates')
             rows = []
-            for did, rec in hw_all.items():
-                if not isinstance(rec, dict):
-                    continue
-                nm = (devices_raw.get(did) or {}).get('name', did)
-                for c in (rec.get('cert_files') or []):
-                    na = c.get('not_after') or 0
-                    if 0 < na <= soon and not str(c.get('path', '')).startswith(_ca):
-                        rows.append({'name': nm, 'days': max(0, int((na - now) / 86400))})
+            if posture_signals.cert_file_days(cfg) is not None:
+                for did, rec in hw_all.items():
+                    if not isinstance(rec, dict):
+                        continue
+                    nm = (devices_raw.get(did) or {}).get('name', did)
+                    for c in posture_signals.expiring_cert_files(rec.get('cert_files'), now, 30):
+                        rows.append({'name': nm, 'days': c['days_left']})
             rows.sort(key=lambda r: r['days'])
             out['tls'] = rows[:6]
         except Exception:

@@ -323,6 +323,42 @@ def _tls_findings(tls_expiring):
     return out
 
 
+def _cert_file_findings(dev_id, name, hw_rec, now, days):
+    """Certificate files on a host that have expired or are about to.
+
+    7.5.0. `_tls_findings` reads the TLS monitor's targets. The agent also inventories the certificate files a host's own
+    services read and only the `cert_file_expiring` alert looked at them, so a lapsed /etc/nginx/ssl/site.pem was missing from the
+    list of what to fix. `days` is the operator's window, or None when they switched certificate-file expiry off. A file on disk is
+    not proof a service presents it, so the wording says "if a service still reads it" and the severity stays at high."""
+    if days is None:
+        return []
+    due = posture_signals.expiring_cert_files(hw_rec.get("cert_files") if isinstance(hw_rec, dict) else None, now, days)
+    lapsed = [r for r in due if r["expired"]]
+    soon = [r for r in due if not r["expired"]]
+    out = []
+    if lapsed:
+        out.append(_finding(
+            'exp.certfile.expired', 'exposure', 'high',
+            f'{plural(len(lapsed), "certificate file", "certificate files")} expired',
+            'If a service still reads an expired certificate file, every client sees an invalid certificate: the handshake fails, '
+            'or people learn to click through the warning, which is worse. If nothing reads it, it is clutter that hides the '
+            'file that matters.',
+            'Renew the certificate, or remove the file if nothing uses it. If ACME issued it, find out why the renewal stopped '
+            'rather than renewing by hand.',
+            device_id=dev_id, device=name, evidence=[r["path"] for r in lapsed[:6]],
+            source='certificate files', doc='docs/tls-monitor.md'))
+    if soon:
+        out.append(_finding(
+            'exp.certfile', 'exposure', 'high' if soon[0]["days_left"] <= 3 else 'medium',
+            f'{plural(len(soon), "certificate file", "certificate files")} expiring within {plural(days, "day", "days")}',
+            'An expired certificate breaks the service that reads it and trains users to click through certificate warnings.',
+            'Renew it. If ACME is configured, check why the renewal did not run rather than renewing by hand.',
+            device_id=dev_id, device=name, evidence=[r["path"] for r in soon[:6]],
+            source='certificate files', doc='docs/tls-monitor.md',
+            ai_title=f'{plural(len(soon), "certificate file", "certificate files")} expiring soon'))
+    return out
+
+
 def _identity_findings(dev_id, name, dev, bf_sources=None,
                        weak_ssh_keys=None, risky_accounts=None):
     """Who can get in, and how."""
@@ -843,7 +879,8 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None, backup_checks_by_dev=None,
           tls_expiring=None, scap_by_dev=None, agent_tamper_by_dev=None,
           weak_keys_by_dev=None, accounts_by_dev=None, secure_boot_checks=False,
-          drift_by_dev=None, now=None, disk_encryption_checks=False, hw_by_dev=None, av_by_dev=None, av_tools=()):
+          drift_by_dev=None, now=None, disk_encryption_checks=False, hw_by_dev=None, av_by_dev=None, av_tools=(),
+          cert_file_days=None):
     """Assemble the advisory for a set of devices.
 
     Everything is passed in, so the caller controls scope (one host, a tag, the
@@ -892,6 +929,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
                                    backups_by_dev.get(dev_id), disk_encryption_checks=disk_encryption_checks,
                                    backup_checks=backup_checks_by_dev.get(dev_id))
         findings += _hardware_findings(dev_id, name, dev, hw_by_dev.get(dev_id), av_by_dev.get(dev_id), av_tools)
+        findings += _cert_file_findings(dev_id, name, hw_by_dev.get(dev_id), now, cert_file_days)
         findings += _application_findings(dev_id, name, scans_by_dev.get(dev_id))
     # Fleet-level: the TLS monitor probes targets, not devices.
     findings += _tls_findings(tls_expiring)

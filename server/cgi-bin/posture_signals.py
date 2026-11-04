@@ -20,6 +20,8 @@ plain data both callers can map their own way. Nothing in here imports api —
 the callers pass the stores in, same contract as advisory.py.
 """
 
+import math
+
 
 def decorated_cve_findings(
     cve_rec, dev_id, ignore_data=None, kev=None, epss=None, scanner=None, enrich=None
@@ -157,6 +159,69 @@ def risky_accounts(hw_rec):
             if "uid0" in flags:
                 uid0.append(user)
     return blank, uid0
+
+
+# The certificate files a host reports are the ones its own services use. The system CA bundle holds hundreds of certificates
+# nobody renews: the agent does not scan those directories, and these prefixes drop them again for an older agent.
+CA_BUNDLE_PREFIXES = ("/etc/ssl/certs/", "/etc/pki/ca-trust", "/usr/share/ca-certificates", "/etc/ca-certificates")
+CERT_FILE_DEFAULT_DAYS = 21
+
+
+def cert_file_days(cfg):
+    """The warning window for a host's certificate files in days, or None when the operator turned certificate-file expiry off.
+
+    7.5.0. One switch and one window (Settings, Alert parameters) for the alert, the Checks row, the Needs-attention item, the
+    risk factor, the compliance control and the advisory. Before this the alert was the only reader: an expired
+    /etc/nginx/ssl/site.pem raised one event and showed up nowhere else."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    if not cfg.get("cert_expiry_alerts_enabled", True):
+        return None
+    try:
+        days = int(cfg.get("cert_file_expiring_days", CERT_FILE_DEFAULT_DAYS) or CERT_FILE_DEFAULT_DAYS)
+    except (TypeError, ValueError, OverflowError):
+        return CERT_FILE_DEFAULT_DAYS
+    return days if days > 0 else CERT_FILE_DEFAULT_DAYS
+
+
+def service_cert_files(certs):
+    """The certificate files in a host's stored list that name a path and a real expiry, the system CA bundle left out."""
+    if not isinstance(certs, list):
+        return []
+    out = []
+    for c in certs[:500]:
+        if not isinstance(c, dict):
+            continue
+        path, na = c.get("path"), c.get("not_after")
+        if not isinstance(path, str) or not path or isinstance(na, bool) or not isinstance(na, (int, float)):
+            continue
+        if not (0 < na < math.inf) or path.startswith(CA_BUNDLE_PREFIXES):
+            continue
+        out.append(c)
+    return out
+
+
+def expiring_cert_files(certs, now, days):
+    """[{path, not_after, days_left, expired}] for the service certificate files that expire within `days` days of `now` or
+    already have, soonest first. `days_left` is whole days to the expiry and 0 for a file that has expired; read `expired` for
+    that. `days` None (the signal is off) gives nothing."""
+    if days is None:
+        return []
+    soon = now + days * 86400
+    out = []
+    for c in service_cert_files(certs):
+        try:
+            na = int(c["not_after"])
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if na <= soon:
+            out.append({"path": c["path"], "not_after": na, "days_left": max(0, (na - now) // 86400), "expired": na <= now})
+    out.sort(key=lambda r: (r["not_after"], r["path"]))
+    return out
+
+
+def expired_cert_files(certs, now):
+    """The service certificate files whose expiry has passed, soonest first (a window of no days)."""
+    return expiring_cert_files(certs, now, 0)
 
 
 def live_secret_findings(secrets_rec):

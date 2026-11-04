@@ -375,6 +375,7 @@ def _host_checks(
     secure_boot=False,
     drift_rec=None,
     nic_drop_min=None,
+    cert_file_days=posture_signals.CERT_FILE_DEFAULT_DAYS,
 ):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
@@ -825,6 +826,43 @@ def _host_checks(
                     if stale
                     else f"{plural(len(accts), 'account', 'accounts')}, none blank or stale"
                 ),
+            )
+
+    # ── 7.5.0: the certificate files the host's services read ─────────
+    # The agent has inventoried them since v3.14.0 and the alert names the soonest ("expiring soon"), but nothing showed the state
+    # on the host itself: a lapsed /etc/nginx/ssl/site.pem was a drawer table and one event. Renders only when the agent reported
+    # service certificate files (the system CA bundle is left out) and the operator has not switched the signal off
+    # (`cert_file_days` None), so a host with none shows no row rather than a green one.
+    _svc_certs = posture_signals.service_cert_files(hw_rec.get("cert_files")) if cert_file_days is not None else []
+    if _svc_certs:
+        _due = posture_signals.expiring_cert_files(_svc_certs, now, cert_file_days)
+        _lapsed = [r for r in _due if r["expired"]]
+        if _lapsed:
+            add(
+                "cert_files",
+                "Certificate files",
+                "security",
+                "critical",
+                f"{plural(len(_lapsed), 'certificate file', 'certificate files')} expired: "
+                + ", ".join(r["path"] for r in _lapsed[:3]),
+            )
+        elif _due:
+            add(
+                "cert_files",
+                "Certificate files",
+                "security",
+                "warning",
+                f"{plural(len(_due), 'certificate file', 'certificate files')} expiring within "
+                f"{plural(cert_file_days, 'day', 'days')}: " + ", ".join(r["path"] for r in _due[:3]),
+            )
+        else:
+            add(
+                "cert_files",
+                "Certificate files",
+                "security",
+                "ok",
+                f"{plural(len(_svc_certs), 'certificate file', 'certificate files')}, none expiring within "
+                f"{plural(cert_file_days, 'day', 'days')}",
             )
 
     # ── v6.2.0: Windows security-posture checks (from sysinfo.win_posture) ──
