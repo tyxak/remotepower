@@ -8,6 +8,15 @@ properly on the next update.
 
 ## v7.4.9 — 2026-11-02
 
+- **B612 5.3.0 added (2026-11-04), for the Typeface option.** From the npm `@fontsource/b612@5.3.0` tarball: its sha512 and sha1
+  matched the registry's `dist` before anything was unpacked, it holds 28 files and no install script, and it was unpacked into a
+  fresh directory. Two files were copied unchanged into `fonts/files/`: `b612-latin-400-normal.woff2` (Regular) and
+  `b612-latin-700-normal.woff2` (Bold), the Latin subset (U+0000-00FF and the usual punctuation). The licence text is
+  `fonts/b612-OFL.txt` (SIL Open Font License 1.1, copyright The B612 Project Authors, no reserved font name); the font's own name
+  table carries the same copyright line and the licence address. B612 was drawn by Airbus and ENAC for aircraft cockpit screens.
+  Nothing loads it until a person picks it under My Account → Appearance → Typeface: the `@font-face` rules are in `styles.css`, and a
+  browser fetches a face only when text on the page uses it. The package's italic files and `.woff` copies were not taken, and neither
+  was B612 Mono. `tests/test_v749_typeface_font.py` pins the sha256 of both files.
 - **swagger-ui 5.34.0 → 5.34.1 — DONE.** A bug-fix release (a non-Map value in a response no longer breaks the
   panel); no advisory. From the npm `swagger-ui-dist@5.34.1` tarball, its sha512 integrity checked against the registry.
   `swagger-ui-bundle.js` was copied as `swagger-ui-bundle.min.js`; `swagger-ui.css` is byte-identical to 5.34.0's, so only
@@ -186,7 +195,7 @@ the same reason the AUR publication now has `tools/aur-status.sh`.
 | `qrcode-generator/` | qrcode-generator | 2.0.4 (minified from `dist/qrcode.js`; SRI-pinned in `app.js`) | https://github.com/kazuhikoarase/qrcode-generator | 2FA enrollment QR |
 | `xterm/` | xterm.js | 6.0.0 (`@xterm/xterm@6.0.0`; SRI-pinned in `app-remote.js`) | https://github.com/xtermjs/xterm.js | Web terminal |
 | `xterm-addon-fit/` | xterm fit addon | 0.11.0 (`@xterm/addon-fit@0.11.0`) | https://github.com/xtermjs/xterm.js | Web terminal resize |
-| `fonts/` | Inter + JetBrains Mono | `@fontsource/inter` 5.3.0, `@fontsource/jetbrains-mono` 5.3.0 | https://rsms.me/inter/ · https://www.jetbrains.com/lp/mono/ | UI / mono typography |
+| `fonts/` | Inter + JetBrains Mono + B612 | `@fontsource/inter` 5.3.0, `@fontsource/jetbrains-mono` 5.3.0, `@fontsource/b612` 5.3.0 (Regular and Bold, Latin; licence in `fonts/b612-OFL.txt`) | https://rsms.me/inter/ · https://www.jetbrains.com/lp/mono/ · https://github.com/polarsys/b612 | UI / mono typography; B612 for the Typeface option |
 
 ## Optional Python dependencies (server)
 
