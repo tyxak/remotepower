@@ -15,9 +15,9 @@ below says so.
 
 ## What changed that a reviewer should look at
 
-**Added after the review, in three batches.** Six features were built once the sweep was done and the gates had run, eight more after
+**Added after the review, in four batches.** Six features were built once the sweep was done and the gates had run, eight more after
 them, and eight items of the open list after the second gates (a ninth, a test of the S3 copy against an independent implementation,
-could not run: none is installed here). None loosens a permission, and each was checked with the same instruments. The matrix, run on the
+could not run: none is installed here); the fourth batch is one option, described after the third batch's notes. None loosens a permission, and each was checked with the same instruments. The matrix, run on the
 tree after the first batch, found one defect in them, fixed before release (S32). It ran again on the finished tree: 1,090 routed
 operations (the fifteen new routes of the three batches included), 85,422 requests in 60 runs, and no answer to a tenant user held another
 tenant's id, name or object. The 59 operations that answered some caller with a marker it should not hold fall in the same groups as
@@ -79,6 +79,21 @@ host profile dropped 16 of the 30 lines a single host can be given without a wor
 through the API with the four it shows. A check probed by a host or a satellite went on showing its last result as current after the host
 had stopped reporting, or after the check had been moved to another prober. They are not in the counts above, which are the review's; S34,
 which the tests found too, is.
+
+**The fourth batch: an option for a second look.** My Account → Appearance can draw the interface in a second look, Pilot; Classic, the
+interface as it has been, stays the default, so nothing changes for anyone who does not choose. It adds no route, no dependency and no
+permission. The server stores two words in an account's UI prefs (`look`: classic or pilot; `effects`: full or reduced) and two settings
+(`brand_look`, `brand_look_locked`) that only an administrator can change; each value is checked against a fixed list and anything else is
+dropped, which the tests drive through the real handlers and, for the administrator-only setting, through the real gate and not a stub
+of it (a viewer's attempt is refused and stores nothing). `/api/me` returns the default and the lock under `brand`; a tenant does not brand
+a layout, so the default is the installation's. The change to the page is one block of the stylesheet, in which every selector starts with
+`body[data-look="pilot"]` and no palette colour is set (a test reads the block), and one lazy script that draws its dots with
+`createElement` and `textContent`, never puts a host name through `innerHTML` (a test reads that too), and makes no request of its own: it
+draws what Home already holds, so what a person may see is unchanged. The tests stopped two things before they shipped. `i18n.js`
+translates by exact text, so an option called *Full* would have read as the disk-usage column in German and French. And the accessibility
+sweep (axe) cannot judge text over the hero's dot texture (it reports it as incomplete, not as a failure): a dark-grey caption put there
+to test it passed it, so the browser test measures that text itself. The matrix was not run again: no route was added or changed, and the new values
+are fixed words.
 
 - **Routes.** One route is new: `POST /api/logout`. Two others are new for one feature: `POST /api/scap/{id}/report-ticket`, and
   the SCAP report route now also accepts a one-minute link. No permission was loosened. A permission check was added to one
@@ -426,11 +441,29 @@ tree changed in documents only. The matrix ran on `8a2a08ad`; the commits after 
 | semgrep (python, javascript and security-audit rule sets) over the 41 code files changed since the first batch, and again over the four largest with 240 seconds a rule | 23 findings, 21 of them in code from before 7.4.8. One of the two added since is the mode of the macOS agent's new binary (0755 on purpose, it is a public file, see S28); the other was an MD5 in the demo seeder, which says now that it is not for security. Two taint rules still time out on `api.py`; no subprocess call was added to it since the first batch. A control file produced its 5 |
 | `tools/release-prep.py verify` (`5019ac88`) | 0 failures |
 
+The fourth batch (the look switch) ran its gates on `2d074ed0`, the last code commit; what came after is documents:
+
+| Check | Result |
+|---|---|
+| Test suite, JSON storage | 19,555 tests, 57 skipped. Red: the two AUR subtests |
+| Test suite, SQLite | 19,117 tests, 149 skipped. Red: the two AUR subtests |
+| `make ci-parity` | 19,203 tests, 383 skipped. Red: the two AUR subtests |
+| PostgreSQL tests | 28 tests, none skipped (server 18.6) |
+| CodeQL 2.27.3, Python and JavaScript, the repository's configuration | no result |
+| bandit against its baseline (`make bandit`), a full scan against the full baseline, `make lint` (also cold) | no new finding; 0 results beyond the full baseline |
+| gitleaks over the 10 commits of the batch | no leak (a planted token was found by the same command) |
+| semgrep (python, javascript and security-audit rule sets) over the six code files the batch changed, 240 seconds a rule | 12 findings, none on a line the batch wrote (11 in `api.py` and one in `app.js`, all older). Two taint rules timed out on `api.py`; the batch's changes to it contain no subprocess or system call |
+| `tools/release-prep.py verify` | 0 failures |
+| The authorization matrix | not run again, see above |
+
 The two AUR subtests check that the Arch packages are on the last shipped release. They are on 7.4.0 and the last shipped release is
 7.4.8, so they stay red until the packages are bumped. They were red in the gates of the earlier 7.4 releases too.
 
 ## Not run for this review
 
+- The fourth batch in browsers other than Chromium. The Pilot look uses `color-mix()`, `mask-image` and logical CSS properties, which
+  current Firefox and Safari support; it was driven in Chromium only. The authorization matrix was not run again for it, because no
+  route was added or changed.
 - A live probe of a running installation: none was available for this release, so every probe ran against a seeded copy.
 - SQLite and PostgreSQL under the hostile-input sweep, and browsers other than Chromium (Safari and Firefox treat a `blob:`
   address's policy differently, which matters for S14).
