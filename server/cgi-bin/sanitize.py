@@ -221,6 +221,36 @@ CANARY_DENY_SUFFIXES = (
 )
 
 
+# 7.5.0: more places the agents refuse, kept in a second tuple so the three mirrored ones above stay equal in all five copies. The
+# macOS places (a plist in LaunchDaemons is run by launchd as root at the next boot), the drop-in directories that Linux programs
+# read and run (sshd's AuthorizedKeysCommand, logrotate's postrotate, rsyslog, fail2ban, snmpd, modprobe, tmpfiles, supervisor,
+# kernel and initramfs hooks) and the library trees. The Linux agent holds its own list inline in _plant_canaries and the Windows
+# and macOS agents in _canary_path_ok. They refuse a path silently; refusing it here too tells the operator why at save time.
+# The broad '/usr/', '/bin/' and '/sbin/' of the macOS and Windows agents are not repeated here: a decoy under /usr/local is
+# fine on Linux, and the agent of a Mac or a Windows host refuses it anyway.
+# tests/test_v750_canary_paths_server.py reads the agents' lists and fails if one of them refuses a place this does not.
+CANARY_DENY_DIRS_MORE = (
+    '/etc/ssh/', '/etc/logrotate.d/', '/etc/rsyslog.d/', '/etc/modprobe.d/', '/etc/modules-load.d/',
+    '/etc/tmpfiles.d/', '/etc/sysctl.d/', '/etc/udev/', '/etc/security/', '/etc/default/',
+    '/etc/sysconfig/', '/etc/fail2ban/', '/etc/xinetd.d/', '/etc/audit/', '/etc/dbus-1/',
+    '/etc/snmp/', '/etc/supervisor/', '/etc/openvpn/', '/etc/zabbix/', '/etc/nrpe.d/',
+    '/etc/ca-certificates/', '/etc/kernel/', '/etc/initramfs-tools/', '/etc/dracut.conf.d/',
+    '/etc/grub.d/', '/etc/dhcp/', '/etc/network/', '/etc/apparmor.d/', '/etc/environment.d/',
+    '/etc/pam.conf', '/etc/anacrontab', '/usr/lib/', '/usr/libexec/', '/usr/share/',
+    '/lib/', '/lib64/', '/var/spool/',
+    # macOS
+    '/library/launchdaemons/', '/library/launchagents/', '/library/startupitems/',
+    '/library/privilegedhelpertools/', '/library/preferences/', '/library/scripting additions/',
+    '/system/', '/etc/periodic/', '/etc/paths.d/', '/etc/newsyslog.d/', '/etc/cups/', '/etc/sudoers',
+    '/private/etc/',
+    # Windows
+    '/windows/', '/program files/', '/program files (x86)/', '/programdata/microsoft/', '/users/default/',
+)
+CANARY_DENY_SUFFIXES_MORE = (
+    '.plist', '.pkg', '.dylib', '.kext', '.app', '.command', '.workflow', '.scpt', '.applescript',
+)
+
+
 def canary_path_safe(p):
     """(ok, reason) for a canary path that has already passed _canary_path_ok.
 
@@ -233,6 +263,12 @@ def canary_path_safe(p):
     for d in CANARY_DENY_DIRS:
         if d in q:
             return False, f'a decoy cannot live in {d.strip("/")}'
+    for d in CANARY_DENY_DIRS_MORE:
+        if d in q:
+            return False, f'a decoy cannot live in {d.strip("/")}'
+    for suf in CANARY_DENY_SUFFIXES_MORE:
+        if q.endswith(suf):
+            return False, f'{suf} is a file type the system runs'
     for e in CANARY_DENY_ENDINGS:
         if q.endswith(e):
             return False, f'{e.rsplit("/", 1)[-1]} names code to run'

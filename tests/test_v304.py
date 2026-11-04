@@ -61,6 +61,7 @@ class _ApiTestBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_v304_')
+        cls._prev_data_dir = os.environ.get('RP_DATA_DIR')   # put back at the end: a module that unsets it breaks every later one
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         for mod in ('api',):
             if mod in sys.modules:
@@ -71,7 +72,10 @@ class _ApiTestBase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        _clear_env('RP_DATA_DIR')
+        if cls._prev_data_dir is None:
+            _clear_env('RP_DATA_DIR')
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_data_dir
 
     def _seed_admin_session(self, username='admin'):
         users = self.api.load(self.api.USERS_FILE)
@@ -167,6 +171,7 @@ class TestCallAiWithPromptsArgumentShape(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_v304_ai_args_')
+        cls._prev_data_dir = os.environ.get('RP_DATA_DIR')   # put back at the end: a module that unsets it breaks every later one
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         for mod in ('api', 'ai_provider'):
             if mod in sys.modules:
@@ -178,7 +183,10 @@ class TestCallAiWithPromptsArgumentShape(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        _clear_env('RP_DATA_DIR')
+        if cls._prev_data_dir is None:
+            _clear_env('RP_DATA_DIR')
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_data_dir
 
     def setUp(self):
         # Seed an Ollama-shaped config so the OpenAI-compat path is taken
@@ -412,6 +420,7 @@ class TestMitigationPlaybooksCoverage(unittest.TestCase):
     def setUpClass(cls):
         # Need a real api import; reuse the same tmpdir mechanism
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_v310_mit_')
+        cls._prev_data_dir = os.environ.get('RP_DATA_DIR')   # put back at the end: a module that unsets it breaks every later one
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         for mod in ('api',):
             if mod in sys.modules:
@@ -422,7 +431,10 @@ class TestMitigationPlaybooksCoverage(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        _clear_env('RP_DATA_DIR')
+        if cls._prev_data_dir is None:
+            _clear_env('RP_DATA_DIR')
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_data_dir
 
     def test_memory_swap_cpu_playbooks_registered(self):
         for kind in ('memory', 'swap', 'cpu'):

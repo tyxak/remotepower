@@ -24609,7 +24609,9 @@ def handle_heartbeat():
         # v5.5.0: the agent watches the device's own list UNION any service-baseline
         # units whose scope covers it (so a baseline like sshd/remotepower-agent is
         # enforced fleet-wide without touching each device's per-host config).
-        'services_watched': sorted(set(saved_dev.get('services_watched', []))
+        # 7.5.0: only the names. A list or a map in this field (a hand-edited store, an old restore) is not hashable and made the
+        # whole heartbeat answer 500 for this host; store_shapes types it too, this is the reader not trusting it.
+        'services_watched': sorted({u for u in (saved_dev.get('services_watched') or []) if isinstance(u, str)}
                                    | _service_baseline_units_for(saved_dev)),
         'log_watch':        saved_dev.get('log_watch', []),
         'watched_files':    watched_files,
