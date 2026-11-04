@@ -154,6 +154,14 @@ function _pilotHeroRender(host, devs, health) {
   host.replaceChildren(hero);
   host.hidden = false;
   host.classList.add('is-ready');
+  // A field that is taller than its box scrolls. It is a picture for the eye and hidden from a screen reader, but a region that
+  // scrolls has to be reachable from the keyboard and to have a name, so it becomes a labelled, focusable group only when it overflows.
+  if (matrix.scrollHeight > matrix.clientHeight + 1) {
+    matrix.removeAttribute('aria-hidden');
+    matrix.setAttribute('role', 'group');
+    matrix.setAttribute('aria-label', 'Fleet');
+    matrix.setAttribute('tabindex', '0');
+  }
 
   // a click on a dot opens that host; bound once, however often the hero is drawn again
   if (!host.dataset.pilotBound) {
