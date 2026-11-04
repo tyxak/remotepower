@@ -25446,6 +25446,15 @@ def _approval_gated_kinds(cfg):
     return _APPROVAL_GATED_KINDS
 
 
+def _normalized_gated_kinds(raw):
+    """What a saved `approval_gated_kinds` becomes: the offerable kinds in the list, or the default set when none are left (a bad
+    value must not switch the gate off). None when `raw` is not a list. The save and the step-up check both use it."""
+    if not isinstance(raw, list):
+        return None
+    kinds = [k for k in raw if isinstance(k, str) and k in _APPROVAL_KINDS_ALL]
+    return kinds if kinds else list(_APPROVAL_GATED_KINDS)
+
+
 def _needs_approval(kind, cfg=None):
     cfg = cfg if cfg is not None else (load(CONFIG_FILE) or {})
     return bool(cfg.get('change_approval_enabled')) and kind in _approval_gated_kinds(cfg)
@@ -29691,7 +29700,7 @@ _DECLARATIVE_SETTING_KEYS = frozenset({
     # batch safety rails
     'batch_max_devices', 'batch_max_fleet_percent',
     # behavioural switches an operator tunes and would expect to survive
-    'external_scheduler', 'approval_gated_kinds', 'viewers_can_ack_alerts',
+    'external_scheduler', 'viewers_can_ack_alerts',      # approval_gated_kinds is a governance key (7.5.0): not settable here
     'incident_auto_promote_enabled', 'incident_device_threshold',
     'quiet_hours', 'show_homelab', 'notifications_test_mode',
     # v6.4.2 (audit): change_approval_enabled, change_approval_no_self and
@@ -30668,6 +30677,7 @@ _GOVERNANCE_CONFIG_KEYS = (
     'audit_log_retention_days',     # how long the evidence survives
     'audit_forward_enabled',        # whether the SIEM keeps getting it
     'tenancy_enforced',             # the hard multi-tenancy boundary
+    'approval_gated_kinds',         # which command kinds the four-eyes control covers (7.5.0: a narrowing asks)
     # v6.4.2 (audit): read_only_mode was listed but is NOT a config key —
     # read-only is the RP_READ_ONLY env var with no API to toggle it, so that
     # entry could never match. Dropped. `litigation_hold` IS a config key but
@@ -30693,7 +30703,15 @@ def _governance_keys_touched(body, cfg):
     for k in _GOVERNANCE_CONFIG_KEYS:
         if k not in body:
             continue
-        if body.get(k) != cfg.get(k):
+        if k == 'approval_gated_kinds':
+            # The stored value is empty until the first save and the gate uses the default set then, so a plain compare would
+            # ask for a re-auth when the form posts the unchanged default. Compare what the gate uses, and ask only when a kind
+            # that is gated now would stop being gated: adding a kind makes the control stricter. A value that is not a list is
+            # refused by the save itself.
+            after = _normalized_gated_kinds(body.get(k))
+            if after is not None and set(_approval_gated_kinds(cfg)) - set(after):
+                out.append(k)
+        elif body.get(k) != cfg.get(k):
             out.append(k)
     return out
 
@@ -32615,12 +32633,10 @@ def handle_config_save():
     # subset of the offerable set; an empty/invalid list falls back to the default
     # (a bad value must not silently disable the gate).
     if 'approval_gated_kinds' in body:
-        raw = body['approval_gated_kinds']
-        if isinstance(raw, list):
-            kinds = [k for k in raw if isinstance(k, str) and k in _APPROVAL_KINDS_ALL]
-            cfg['approval_gated_kinds'] = kinds if kinds else list(_APPROVAL_GATED_KINDS)
-        else:
+        kinds = _normalized_gated_kinds(body['approval_gated_kinds'])
+        if kinds is None:
             respond(400, {'error': 'approval_gated_kinds must be a list'})
+        cfg['approval_gated_kinds'] = kinds
     # v3.14.0: cert-expiry alerts (opt-in — noisy on hosts with many service certs)
     if 'cert_expiry_alerts_enabled' in body:
         cfg['cert_expiry_alerts_enabled'] = bool(body['cert_expiry_alerts_enabled'])
