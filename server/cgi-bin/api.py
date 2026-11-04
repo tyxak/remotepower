@@ -47745,6 +47745,11 @@ def _compliance_facts(devices=None):
     # was even evidenced by PATCH counts. Present-and-off only; absence is NA.
     encryption_off = []
     encryption_data_devices = 0
+    # v7.5.0: clock synchronisation (PCI 10.6.1). The agent's reading is turned
+    # into a verdict at ingest with the operator's offset limit (clock.skewed),
+    # the same one the Checks row and the clock_skew alert read. Not decided again.
+    clock_off = []
+    clock_data_devices = 0
     av_all = (load(AV_FILE) or {}) if backend_exists(AV_FILE) else {}
     av_bad = []
     av_data_devices = 0
@@ -47821,6 +47826,21 @@ def _compliance_facts(devices=None):
                        and str(v.get('status', '')).lower() not in ('on', 'encrypted')
                        for v in bl):
                     encryption_off.append(nm)
+        # clock: present-and-bad only. A host that never reported its clock is not
+        # counted, and one whose record carries no verdict is not a finding.
+        ck = si.get('clock')
+        if isinstance(ck, dict) and isinstance(ck.get('skewed'), bool):
+            clock_data_devices += 1
+            if ck['skewed']:
+                _co = ck.get('offset_ms')
+                if ck.get('synced') is False:
+                    _why = 'not synchronised'
+                elif isinstance(_co, (int, float)) and not isinstance(_co, bool):
+                    _why = (f'{abs(_co) / 1000:.1f} s off' if abs(_co) >= 1000
+                            else f'{abs(_co):.0f} ms off')
+                else:
+                    _why = 'drifting'
+                clock_off.append(f'{nm} ({_why})')
         # AV/malware posture from av_status.json (the same verdict the risk score
         # and the av_infected/av_realtime_off alerts use). A host with an AV
         # record is "reporting"; infection or real-time-protection-off is bad.
@@ -47842,6 +47862,8 @@ def _compliance_facts(devices=None):
     facts['ssh_data_devices'] = ssh_data_devices
     facts['encryption_off'] = encryption_off
     facts['encryption_data_devices'] = encryption_data_devices
+    facts['clock_off'] = clock_off
+    facts['clock_data_devices'] = clock_data_devices
     facts['av_bad'] = av_bad
     facts['av_data_devices'] = av_data_devices
 

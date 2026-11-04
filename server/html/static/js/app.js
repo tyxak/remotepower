@@ -27650,6 +27650,8 @@ const _COMPLIANCE_FIX_PAGE = {
   // are on purpose absent: their cards are on the Compliance page itself, and
   // a Fix link that navigates you to where you already are is worse than none.
   sudo: 'audit', dmarc: 'dmarc',
+  // v7.5.0: the time-synchronisation control; the per-host Clock / NTP row is on Checks
+  clock: 'checks',
 };
 
 function complianceFix(topic) {

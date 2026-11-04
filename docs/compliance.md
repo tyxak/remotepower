@@ -151,6 +151,13 @@ an alert path for several releases and reached the checklist nowhere:
 | The regulated-data inventory | Data minimisation — PCI 3.2.1, SOC 2 C1.1, SMB1001 S-data |
 | DMARC / SPF / DKIM posture | Anti-phishing — PCI 5.4.1, SMB1001 S-email |
 
+**v7.5.0 adds clock synchronisation (PCI DSS 10.6.1).** The Linux agent has reported
+whether the clock is synchronised, and how far it is off, for several releases. The control
+reads the same verdict as the **Clock / NTP** check and the `clock_skew` alert, so the offset
+you set under **Settings → Alert parameters** decides all three. A host that does not report
+its clock (Windows and macOS hosts do not yet) is not counted, and a fleet in which no host
+reported reads **Not assessed**, not Pass.
+
 Two of these are worth reading closely. The privileged-command control attests
 that sudo and doas use is being **recorded**, which is what an audit-trail
 requirement asks for — it is not a judgement about whether a given command was

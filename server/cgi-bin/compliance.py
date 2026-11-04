@@ -246,6 +246,34 @@ def _encryption_at_rest_control(facts):
                           "(BitLocker / FileVault / LUKS).")
 
 
+def _time_sync_control(facts):
+    """System clocks are synchronised (PCI DSS 4.0 requirement 10.6.1).
+
+    v7.5.0. The Linux agent has reported whether the clock is synchronised, and by
+    how much it is off, since v4.1.0. The server turns that into one verdict per
+    host with the operator's own offset limit (Settings -> Alert parameters), and
+    the Checks row, the clock_skew alert and the risk score read it. No control
+    did, so a fleet of drifting clocks passed the one requirement that is about
+    clocks, and the log lines an auditor correlates were the ones it could not.
+
+    This reads the stored verdict instead of deciding again, so the report cannot
+    disagree with the Checks page. Present-and-bad only: a host that never
+    reported its clock is not a finding (Windows and macOS hosts do not report it
+    yet, and a Linux host with neither timedatectl nor chrony sends nothing), and
+    a fleet in which nobody reported reads Not assessed, never Pass."""
+    off = facts.get('clock_off') or []
+    if off:
+        return FAIL, (f"{plural(len(off), 'host', 'hosts')} with an unsynchronised or drifting clock: "
+                      + ", ".join(str(h) for h in off[:10])
+                      + ". Enable chrony or systemd-timesyncd and check its time sources.")
+    if facts.get('clock_data_devices'):
+        return PASS, ("Every host that reported its clock is synchronised within the "
+                      "allowed offset. Hosts that do not report a clock (Windows, "
+                      "macOS) are not covered — verify their time source separately.")
+    return NOT_ASSESSED, ("No host has reported its clock yet (timedatectl or chrony "
+                          "on a Linux host).")
+
+
 def _access_review_control(facts):
     changes = facts.get('ssh_key_changes') or []
     if changes:
@@ -447,6 +475,9 @@ _CONTROLS = [
      'Publish an enforcing DMARC policy (p=quarantine or p=reject) with SPF and DKIM.'),
     ('pci', '10.2.1.2', 'Log all actions taken by privileged users', _privileged_command_control,
      'Enable the privileged-command trail on the agent so sudo/doas use is recorded.'),
+    # v7.5.0: the clock is what makes the audit trail correlate across hosts.
+    ('pci', '10.6.1', 'System clocks and time are synchronized',   _time_sync_control,
+     'Enable chrony or systemd-timesyncd on the listed hosts and check the time sources.'),
 
     # HIPAA Security Rule
     # v6.4.2 (audit): "Protection from malicious software" is now evidenced by
@@ -593,6 +624,8 @@ _TOPICS = {
     _privileged_command_control: 'sudo',
     _regulated_data_control:    'pii',
     _email_auth_control:        'dmarc',
+    # v7.5.0: the per-host Clock / NTP row on the Checks page
+    _time_sync_control:         'clock',
 }
 
 
