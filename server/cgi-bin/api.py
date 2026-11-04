@@ -24010,6 +24010,24 @@ def handle_heartbeat():
                     })
                 except Exception:
                     pass
+    elif body.get('docker_df'):
+        # v7.5.0: `docker system df` on its own. The agent sends it on its first
+        # poll after a start (so a host that restarts its agent more often than the
+        # hourly cadence still reports it, the 6.2.2 requirement) and that poll
+        # carries no container list. This branch only ran with one, so the figures
+        # were dropped and the panel waited for the next hourly report.
+        #
+        # Only a host that already has a container entry takes it: a new entry
+        # would need a time, and a made-up one would age into a containers_stale
+        # alert for a host that never reported containers. A host with no entry
+        # yet gets its figures with its first full report.
+        _df_only = _sanitize_docker_df(body.get('docker_df'))
+        if _df_only:
+            _held = _entity_read_one(CONTAINERS_FILE, dev_id, None)
+            if isinstance(_held, dict) and _held.get('ts'):
+                _held = dict(_held)
+                _held['df'] = _df_only
+                _entity_write_one(CONTAINERS_FILE, dev_id, _held)
 
     # v2.1.0 compose_projects update was previously here as a separate
     # save. v2.1.2 moved it inside the _locked_update block above so it
