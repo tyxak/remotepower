@@ -508,7 +508,7 @@ async function rdpConnect() {
     + `  --ssh-host '${host}' --ssh-port ${sshPort} --ssh-user '${user}' \\\n`
     + `  --rdp-port ${rdpPort} --local-port ${localPort}`;
   resEl.innerHTML = `<div class="c-green fs-14 mb-6">Session ready (expires shortly). Do these two steps on your own machine:</div>`
-    + `<ol class="fs-13 pl-16"><li>Run the bridge (it opens <code>localhost:${localPort}</code> and pumps it over the authenticated SSH tunnel):`
+    + `<ol class="fs-13 pl-16"><li>Run a local bridge that takes these values. RemotePower does not include one: <code>remotepower-rdp-bridge</code> is the name used here for yours. It opens <code>localhost:${localPort}</code> and pumps it over the authenticated SSH tunnel:`
     + `<pre class="ff-mono fs-12 code-block mt-4">${escHtml(bridge)}</pre></li>`
     + `<li>Point your RDP client at it: <code>mstsc /v:localhost:${localPort}</code> (Windows) or Remmina → <code>localhost:${localPort}</code>. Enter the Windows host's own credentials in the RDP client.</li></ol>`
     + `<div class="hint mt-4">The RDP port stays loopback-only on the host; the SSH tunnel is the sole path. The session ticket is single-use and short-lived.</div>`;

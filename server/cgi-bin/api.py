@@ -49200,7 +49200,7 @@ HOST_CONFIG_TEXT_SECTIONS = [
 HOST_CONFIG_STRUCT_SECTIONS = ['services', 'users', 'groups']
 HOST_CONFIG_ALL_SECTIONS    = HOST_CONFIG_TEXT_SECTIONS + HOST_CONFIG_STRUCT_SECTIONS
 MAX_HOST_CONFIG_SECTION_SIZE = 65536   # 64 KB per text section
-HOST_CONFIG_AUDIT_EVERY      = 15      # drift audit cadence in polls (~15 min)
+HOST_CONFIG_AUDIT_EVERY      = 15      # not used: drift is checked when an agent sends its state, which it does when asked
 # Current state is stored in separate per-device files, NOT in devices.json,
 # to keep devices.json small and fast to read on every API call.
 HOST_CONFIG_CURRENT_DIR = DATA_DIR / 'host_config_current'

@@ -85,8 +85,11 @@ class TestTheIntegrationSurfaceIsDocumented(unittest.TestCase):
                 op = self.paths[p]['post']
                 names = [q['name'] for q in op.get('parameters', [])]
                 self.assertIn('token', names)
-                self.assertIn('403', op['responses'],
+                # 7.5.0: the handlers answer 401 for an unknown, disabled or revoked token (and 400 for a token of another kind);
+                # the spec said 403, which no ingest handler ever returns
+                self.assertIn('401', op['responses'],
                               'an unknown ingest token must be a documented outcome')
+                self.assertNotIn('403', op['responses'])
 
     def test_the_bare_array_ingest_shapes_are_documented(self):
         """CLAUDE.md carves these out of the get_json_obj() sweep because they

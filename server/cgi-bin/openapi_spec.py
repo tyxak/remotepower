@@ -12,10 +12,11 @@ when an endpoint changes, the spec changes with it. We also enforce a
 keep-it-current discipline by including the spec in the test suite.
 
 The spec covers the public-facing handlers: device CRUD, command queueing,
-auth, CMDB, vault, update logs, and the various reporting endpoints. It
- does not document the agent-only endpoints (``/api/heartbeat``,
-``/api/enroll``) because users of the Swagger UI are humans, not agents,
-and exposing them just adds noise.
+auth, CMDB, vault, update logs, and the various reporting endpoints. 7.5.0:
+it also documents the endpoints agents and ingest sources call (``/api/heartbeat``,
+``/api/enroll/*``, the syslog, SNMP-trap and webhook ingest URLs), under the
+Agents and Ingest tags, because a spec that leaves out the surface people write
+integrations against is incomplete exactly where it is read.
 """
 
 from __future__ import annotations
@@ -43,6 +44,15 @@ def _security_schemes() -> dict[str, Any]:
             "description": (
                 "API key created in the API Keys tab. Same header as session "
                 "tokens — the server distinguishes by lookup."
+            ),
+        },
+        "DeviceToken": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-Token",
+            "description": (
+                "The host token issued at enrolment. It is the credential of "
+                "``POST /api/heartbeat`` and the other calls an agent makes."
             ),
         },
         "VaultKey": {
@@ -1380,8 +1390,8 @@ def _path_ingest() -> dict[str, Any]:
     }
     _ok = {
         "200": {"description": "Accepted."},
-        "400": {"description": "Malformed body."},
-        "403": {"description": "Unknown or revoked ingest token."},
+        "400": {"description": "Malformed body, a token of another kind (use the URL for its own kind), or a syslog token that is not pinned to a host."},
+        "401": {"description": "Unknown, disabled or revoked ingest token."},
     }
     return {
         "/heartbeat": {

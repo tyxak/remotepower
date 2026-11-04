@@ -502,7 +502,7 @@ MAX_MAILBOX_PATHS   = 20          # matches the server-side cap
 SERVICE_CHECK_EVERY = 1           # every poll — cheap
 # v2.5.0: custom monitoring scripts run every 5 polls (5 minutes at default 60s)
 SCRIPT_CHECK_EVERY  = 5
-HOST_CONFIG_COLLECT_EVERY = 15  # v2.6.0: collect+report host config state every 15 polls
+HOST_CONFIG_COLLECT_EVERY = 15  # not used: the state is collected when the server asks for it (send_current_configs), not on a cadence
 LOG_SUBMIT_EVERY    = 5           # every 5 polls — batches a few minutes of logs
 MAX_LOG_LINES_PER_UNIT = 100      # matches server-side cap
 LOG_LOOKBACK_SECONDS   = 360      # capture the last 6 minutes on each submission

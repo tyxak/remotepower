@@ -5349,7 +5349,7 @@ async function loadSettings() {
   { const _lb = document.getElementById('cfg-login-banner'); if (_lb) _lb.value = data.login_banner || ''; }
   { const _fn = document.getElementById('cfg-fleet-note'); if (_fn) _fn.value = data.fleet_note || ''; }
   document.getElementById('cfg-default-poll').value = data.default_poll_interval || 60;
-  document.getElementById('cfg-online-ttl').value = data.online_ttl || 180;
+  document.getElementById('cfg-online-ttl').value = data.online_ttl || 300;
   document.getElementById('cfg-monitor-interval').value = data.monitor_interval || 300;
   { const e = document.getElementById('cfg-allow-internal-monitors'); if (e) e.checked = !!data.allow_internal_monitors; }
   document.getElementById('cfg-cve-cache-days').value = data.cve_cache_days || 7;
@@ -5693,7 +5693,7 @@ async function loadSettings() {
 
   const meta = data._meta || {};
   if (meta.min_online_ttl) {
-    document.getElementById('cfg-online-ttl-hint').textContent = `${meta.min_online_ttl}–7200 (default 180)`;
+    document.getElementById('cfg-online-ttl-hint').textContent = `${meta.min_online_ttl}–7200 (default 300)`;
   }
   // Notifications. The legacy webhook URL embeds a secret token in its path, so
   // GET /api/config never returns it (like the AI key). Show a "configured"
@@ -5923,7 +5923,7 @@ async function saveSettings(btn) {
     login_banner:          document.getElementById('cfg-login-banner')?.value.trim() || '',
     fleet_note:            document.getElementById('cfg-fleet-note')?.value.trim() || '',
     default_poll_interval: parseInt(document.getElementById('cfg-default-poll').value) || 60,
-    online_ttl:            parseInt(document.getElementById('cfg-online-ttl').value) || 180,
+    online_ttl:            parseInt(document.getElementById('cfg-online-ttl').value) || 300,
     monitor_interval:      parseInt(document.getElementById('cfg-monitor-interval').value) || 300,
     allow_internal_monitors: (document.getElementById('cfg-allow-internal-monitors') || {}).checked || false,
     cve_cache_days:        parseInt(document.getElementById('cfg-cve-cache-days').value) || 7,

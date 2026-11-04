@@ -639,7 +639,7 @@ async function hcFetchCurrent(section) {
   const current = data.current || {};
   const val = current[section];
   if (val === undefined || val === null) {
-    toast(`No current ${section} data yet — agent reports every 15 min`, 'info');
+    toast(`No current ${section} data yet — press Collect all current and try again in a minute`, 'info');
     return;
   }
   // Populate the appropriate editor

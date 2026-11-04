@@ -1707,9 +1707,9 @@
             <div class="settings-row">
               <div class="form-group mw-160">
                 <label for="cfg-online-ttl" class="form-label">Seconds</label>
-                <input type="number" id="cfg-online-ttl" class="form-input" min="90" max="7200" placeholder="180" title="Offline window in seconds. A host with no heartbeat for this long is marked offline. Keep it ≥ 2× the agent poll interval to avoid false offline alerts.">
+                <input type="number" id="cfg-online-ttl" class="form-input" min="150" max="7200" placeholder="300" title="Offline window in seconds. A host with no heartbeat for this long is marked offline. Keep it ≥ 2× the agent poll interval to avoid false offline alerts.">
               </div>
-              <div id="cfg-online-ttl-hint" class="isl-22">90–7200 (default 180)</div>
+              <div id="cfg-online-ttl-hint" class="isl-22">150–7200 (default 300)</div>
             </div>
           </div>
 
@@ -5195,7 +5195,7 @@
             <summary><strong>Status endpoint</strong> — for external dashboards</summary>
             <div class="doc-body">
               <p>RemotePower can expose a small machine-readable fleet summary at <code>/api/status</code> for external dashboard tools — Uptime Kuma, Homepage, a Grafana panel.</p>
-              <p>Generate a <strong>status token</strong> under Settings → Advanced → Status endpoint. The endpoint then answers at <code>/api/status?token=YOUR_TOKEN</code> — reachable by a polling tool, but not public. It returns a rolled-up health word (ok / warning / critical), host online/offline counts, and attention counts by severity. Rotate or disable the token any time from the same place.</p>
+              <p>Generate a <strong>status token</strong> under Settings → Integrations → Status endpoint. The endpoint then answers at <code>/api/status?token=YOUR_TOKEN</code> — reachable by a polling tool, but not public. It returns a rolled-up health word (ok / warning / critical), host online/offline counts, and attention counts by severity. Rotate or disable the token any time from the same place.</p>
             </div>
           </details>
 
@@ -5412,7 +5412,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="host config configuration repos netplan nmcli resolv.conf hosts services users groups sudoers motd drift 2.6">
             <summary><strong>Host Configuration</strong> — declare and enforce host state from the server</summary>
             <div class="doc-body">
-              <p>Define the desired state of each Linux host server-side. The agent applies it on the next heartbeat (~60 s) and reports current state every 15 minutes so the server can detect drift.</p>
+              <p>Define the desired state of each Linux host server-side. By default the config is a baseline: the server compares it with the state the agent reports and shows drift. With <em>Enforce on host</em> ticked, the agent also applies it on its next heartbeat (about a minute).</p>
               <p><strong>Open the editor:</strong> Hosts page → host dropdown → <em>Host Config</em>. A modal opens with one tab per section.</p>
               <p><strong>Sections managed:</strong></p>
               <ul class="isl-104">
@@ -5428,7 +5428,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <li><strong>MOTD</strong> — login banner written to <code>/etc/motd</code></li>
               </ul>
               <p><strong>Fetch current:</strong> Each tab has a "Fetch current" button that loads the live state last reported by the agent. Use it to pre-fill a section before editing, or to inspect what's actually running.</p>
-              <p><strong>Drift detection:</strong> The agent reports current state every 15 minutes. The server compares it against the desired config. If any section diverges, an amber banner appears on the modal and a <code>config_drift</code> webhook fires — once on first detection, not on every heartbeat. Drift is audit-only; the agent does not auto-remediate.</p>
+              <p><strong>Drift detection:</strong> The agent sends its current state when you ask for it (<em>Collect all current</em>). The server compares it against the desired config. If any section diverges, an amber banner appears on the modal and a <code>config_drift</code> webhook fires — once on first detection, not on every report. Unless you tick <em>Enforce on host</em> or <em>Correct on drift</em> (or a fleet policy does), drift is audit-only and nothing is written to the host.</p>
               <p><strong>Security:</strong> Only admins can write host config. Sudoers content is syntax-checked before writing. authorized_keys are written with mode 0600 and correct ownership. No passwords are ever stored — SSH keys only.</p>
             </div>
           </details>
@@ -6370,7 +6370,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-secondary" data-action="downloadEvidencePack"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Evidence pack</button>
           </div>
 
-          <p class="hint mt-8">The evidence pack bundles this posture report with the 90-day compliance-baseline trend and an audit-log excerpt for the period into one JSON document — the artifact auditors ask for. Admin only; generating it is itself audit-logged.</p>
+          <p class="hint mt-8">The evidence pack bundles this posture report with the 90-day compliance-baseline trend and an audit-log excerpt for the period into one JSON document — the artifact auditors ask for. Admins and auditors only; generating it is itself audit-logged.</p>
         </div>
         <div class="dash-card mb-16" data-pg-tab="reports">
           <div class="section-title">Delivered report archive</div>
@@ -6928,7 +6928,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- v6.1.1: package-repo snapshot & promotion ledger -->
       <div id="page-patchsnapshots" class="page">
         <div class="page-title">Package Snapshots</div>
-        <div class="page-subtitle">Freeze the fleet's current package versions into a named snapshot, diff two snapshots, promote one as a tag's reference state, and see which hosts have drifted from it. Read-only reporting — does not change what auto-patch installs. <a href="docs/patch-snapshots.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Freeze the fleet's current package versions into a named snapshot, diff two snapshots, promote one as a tag's reference state, and see which hosts have drifted from it. Snapshots are reporting only, except that promoting one pauses auto-patch for the hosts with that tag. <a href="docs/patch-snapshots.md" class="c-accent">Documentation</a></div>
         <div class="dash-card">
           <div class="section-title">Snapshots</div>
           <div class="settings-row">
@@ -8874,7 +8874,7 @@ nextcloud mem=95 sustain=6</pre>
       <!-- ── v5.1.0: Web file manager (browse/view/edit, allowlisted) ────── -->
       <div id="page-files" class="page">
         <div class="page-title">File manager</div>
-        <div class="page-subtitle">Browse, view and edit files on a host without SSH. Confined to <span class="fw-600">allowlisted roots</span>, gated on the <span class="fw-600">command</span> permission, and fully audited. Reads work on quarantined / audit-mode hosts; writes do not. Enable per-server under Settings → Advanced. <a href="docs/host-config.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Browse, view and edit files on a host without SSH. Confined to <span class="fw-600">allowlisted roots</span>, gated on the <span class="fw-600">command</span> permission, and fully audited. Reads work on quarantined / audit-mode hosts; writes do not. <a href="docs/host-config.md" class="c-accent">Documentation</a></div>
         <div class="dash-card mb-16">
           <div class="section-title">Host</div>
           <input type="text" id="fm-device-search" class="form-input" placeholder="Search a host by name / IP / tag…" data-input="_renderFmDeviceResults" data-input-value="1" data-input-debounce="150" aria-label="Search host">
@@ -12437,7 +12437,7 @@ nextcloud mem=95 sustain=6</pre>
   </div>
   <div class="form-group"><label>Verify window per ring (minutes)</label><input type="number" id="ro-verify" min="1" max="1440" value="30" aria-label="Verify window per ring (minutes)"></div>
   <div class="form-group"><label class="row-8-center"><input type="checkbox" id="ro-auto"> <span>Auto-promote to the next ring when the current one verifies</span></label></div>
-  <div class="form-group"><label class="row-8-center"><input type="checkbox" id="ro-health-gate"> <span>Auto-halt if a dispatched host's health drops below</span> <input type="number" id="ro-health-threshold" class="form-input mw-200" min="1" max="100" value="70"> <span>during the verify window</span></label><p class="hint mt-4">A safety net: if a host's health score falls under the floor after the action (and wasn't already below it), the rollout pauses and fires <code>rollout_halted</code>. You resume or cancel — it never rolls back on its own.</p></div>
+  <div class="form-group"><label class="row-8-center"><input type="checkbox" id="ro-health-gate"> <span>Auto-halt if a dispatched host's health drops below</span> <input type="number" id="ro-health-threshold" class="form-input mw-200" min="1" max="100" value="70"> <span>during the verify window</span></label><p class="hint mt-4">A safety net: if a host's health score falls under the floor after the action (and wasn't already below it), the rollout halts (it ends as failed) and fires <code>rollout_halted</code>. It never rolls back on its own: cancel it, fix the cause and start a new rollout.</p></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="new-rollout-modal">Cancel</button><button class="btn-primary" data-action="saveRollout">Create</button></div>
 </div></div>
 
@@ -12769,7 +12769,7 @@ nextcloud mem=95 sustain=6</pre>
 
     <!-- Info banner: shown when no desired config exists yet -->
     <div id="hc-info-banner" class="isl-295">
-      ℹ Showing live data from agent (collected <span id="hc-info-ts"></span>) — no desired config saved yet. Edit any section and click <strong>Save & push to agent</strong> to set it as desired.
+      ℹ Showing live data from agent (collected <span id="hc-info-ts"></span>) — no desired config saved yet. Edit any section and click <strong>Save</strong> to set it as desired.
     </div>
 
     <!-- Drift banner: shown only when desired ≠ current -->

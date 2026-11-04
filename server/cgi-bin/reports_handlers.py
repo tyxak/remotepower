@@ -803,7 +803,7 @@ def handle_site_report(site_id):
 
 
 def handle_evidence_pack():
-    """GET /api/report/evidence?days=N — a compliance EVIDENCE PACK (admin-only).
+    """GET /api/report/evidence?days=N — a compliance EVIDENCE PACK (an administrator or an auditor).
 
     Bundles the data an auditor asks for into one downloadable JSON document: the
     current fleet posture report (health, patches, CVE, CIS compliance, uptime),
