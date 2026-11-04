@@ -189,7 +189,7 @@ class TestAvVerdict(unittest.TestCase):
         # Absent means "this tool has no realtime concept", not "disabled".
         self.assertFalse(ps.av_verdict({'clamav': {}}, self.TOOLS)['realtime_off'])
         self.assertTrue(
-            ps.av_verdict({'defender': {'realtime': False}}, self.TOOLS)['realtime_off'])
+            ps.av_verdict({'defender': {'realtime_enabled': False}}, self.TOOLS)['realtime_off'])
 
     def test_garbage_counts_do_not_raise(self):
         self.assertEqual(

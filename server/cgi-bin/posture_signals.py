@@ -110,7 +110,10 @@ def av_verdict(av_rec, tools):
             infected += int((av_rec.get(t) or {}).get("infected") or 0)
         except (TypeError, ValueError):
             pass
-    off = any(isinstance(av_rec.get(t), dict) and av_rec[t].get("realtime") is False for t in tools)
+    # 7.5.0: the store's key is `realtime_enabled` (what the Windows agent's parser writes and _ingest_av keeps). This read
+    # `realtime`, which nothing writes, so Defender switched off was invisible to the risk score and to the compliance AV control
+    # while the alert, the Checks row and the AI index all saw it. Three test fixtures carried the same wrong key.
+    off = any(isinstance(av_rec.get(t), dict) and av_rec[t].get("realtime_enabled") is False for t in tools)
     return {"infected": infected, "realtime_off": off}
 
 

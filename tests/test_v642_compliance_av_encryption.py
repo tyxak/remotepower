@@ -70,7 +70,7 @@ class TestFactsAndWiring(unittest.TestCase):
             "m1": {"name": "m1", "monitored": True,
                    "sysinfo": {"mac_posture": {"filevault": True}}},
         })
-        api.save(api.AV_FILE, {"w1": {"defender": {"infected": 1, "realtime": True}}})
+        api.save(api.AV_FILE, {"w1": {"defender": {"infected": 1, "realtime_enabled": True}}})
         for f in (api.DEVICES_FILE, api.AV_FILE):
             api._invalidate_load_cache(f)
 

@@ -129,13 +129,13 @@ class TestAvPosture(_RiskCase):
         self.assertIn('2 active malware', f['av_bad']['detail'])
 
     def test_realtime_off_scores_less_than_an_infection(self):
-        self._seed(api.AV_FILE, {'defender': {'infected': 0, 'realtime': False}})
+        self._seed(api.AV_FILE, {'defender': {'infected': 0, 'realtime_enabled': False}})
         f, _ = self._factors()
         self.assertIn('av_bad', f)
         self.assertLess(f['av_bad']['points'], api._RISK_WEIGHTS['av_bad'])
 
     def test_a_clean_host_scores_nothing(self):
-        self._seed(api.AV_FILE, {'clamav': {'infected': 0, 'realtime': True}})
+        self._seed(api.AV_FILE, {'clamav': {'infected': 0, 'realtime_enabled': True}})
         f, _ = self._factors()
         self.assertNotIn('av_bad', f)
 
