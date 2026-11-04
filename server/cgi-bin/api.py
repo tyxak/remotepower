@@ -1049,7 +1049,7 @@ for _pv_name in (
         '_blueprints_load', '_provisioning_enabled', '_rollout_advance',
         '_rollout_dispatch_ring', '_rollout_log', '_rollout_public',
         '_rollout_resolve_ring', '_rollout_ring_coverage', '_rollout_ring_ids',
-        '_rollout_ring_progress', '_rollout_script_body',
+        '_rollout_ring_progress', '_rollout_script_body', '_rollout_kind', '_rollout_start_approved',
         '_rollout_tick', '_rollout_tick_if_due', '_terraform_available', '_terraform_run',
         'handle_blueprint_create', 'handle_blueprint_delete', 'handle_blueprint_render',
         'handle_blueprint_run', 'handle_blueprint_update', 'handle_blueprints_list',
@@ -19747,6 +19747,10 @@ def handle_device_files(dev_id):
         parts.append(_base64.urlsafe_b64encode(raw).decode())
         parts.append('1' if _fm_overwrite else '0')
     command = ':'.join(parts)
+    if op in _FILE_MGR_OPS_WRITE:
+        # 7.5.0: a write is a change made as root. It is parked for a second admin when `exec` is among the gated kinds (see
+        # _command_kind), and refused in maintenance mode like every other command. Nothing waits for the agent when it is parked.
+        _preflight_command(dev_id, devices[dev_id], command, actor, body=body)
     audit_log(actor, 'file_manager', detail=f'device={dev_id} op={op} path={path}'[:200])
     lp = load(LONGPOLL_FILE)
     lp[dev_id] = {'cmd': command, 'ready': False, 'output': None, 'ts': int(time.time())}
@@ -25415,6 +25419,11 @@ def _command_kind(command):
     # arbitrary exec would expect.
     if s.startswith(('ps:', 'cmd:')):
         return 'exec'
+    # 7.5.0: the file manager's writes (write, create folder, delete, upload) are changes made as root: a file written into a
+    # cron directory or an init script is code that runs. They map onto 'exec' for the same reason `ps:` and `cmd:` do, so a
+    # gated `exec` covers them. Listing and reading stay 'other' (nothing changes).
+    if s.startswith(('files:write:', 'files:mkdir:', 'files:delete:', 'files:upload:')):
+        return 'exec'
     # v6.2.0 (SECURITY): the Windows/macOS agents take a BARE `upgrade` /
     # `upgrade:<pkg>` (the Linux path sends `exec:<bash>` instead). Without these
     # two branches a bare `upgrade` classified as 'other' — which is NOT in
@@ -25475,14 +25484,46 @@ def _approval_context(body):
             body.get('ticket_ref') or body.get('ticket') or None)
 
 
-def _park_for_approval(dev_id, command, actor, kind, reason=None, ticket_ref=None):
+def _command_summary(command):
+    """A readable line for the admin who is asked to approve `command`. The wire form is not: a file write is three base64 fields and a
+    script run is its whole body. Nothing here is executed or trusted; it is only shown."""
+    s = str(command or '')
+    if s.startswith('files:'):
+        parts = s.split(':')
+        op = parts[1] if len(parts) > 1 else ''
+        def _b64(i):
+            try:
+                raw = parts[i].encode()
+                return _base64.urlsafe_b64decode(raw + b'=' * (-len(raw) % 4))
+            except (IndexError, ValueError):
+                return b''
+        path = _b64(2).decode('utf-8', 'replace')
+        what = {'write': 'write file', 'mkdir': 'create folder', 'delete': 'delete',
+                'upload': 'upload file'}.get(op, 'file ' + op)
+        size = f' ({len(_b64(3))} bytes)' if op in ('write', 'upload') else ''
+        return f'{what} {path}{size}'
+    if s.startswith('exec:'):
+        body = s[5:]
+        if body.startswith('to=') and ':' in body[:12]:
+            body = body.split(':', 1)[1]           # the per-command timeout prefix is not part of the script
+        lines = [ln for ln in body.strip().splitlines() if ln.strip()]
+        return 'run: ' + (lines[0].strip()[:150] if lines else '') + (' …' if len(lines) > 1 else '')
+    return s
+
+
+def _park_for_approval(dev_id, command, actor, kind, reason=None, ticket_ref=None, summary=None):
     """Park a queued command as a 4-eyes confirmation; returns the confirmation id.
 
     v6.4.2: `reason` / `ticket_ref` ride through so the approving admin can see
     WHY. Both come from the request body where the caller offers them; a caller
-    that does not is unchanged."""
-    return _create_confirmation('queue_command', dev_id,
-                                {'command': command, 'kind': kind}, actor,
+    that does not is unchanged. 7.5.0: the confirmation also carries a readable
+    `summary` of what the command does (the caller's, else one derived from the
+    command), because the Confirmations table showed only `queue_command`."""
+    params = {'command': command, 'kind': kind}
+    shown = _sanitize_str(summary if summary is not None else _command_summary(command), 200, allow_empty=True)
+    if shown:
+        params['summary'] = shown
+    return _create_confirmation('queue_command', dev_id, params, actor,
                                 None, None, reason=reason, ticket_ref=ticket_ref)
 
 
@@ -25587,24 +25628,50 @@ def handle_device_power_control(dev_id):
     pdu = dev.get('pdu') or {}
     if not (pdu.get('kind') and pdu.get('host')):
         respond(400, {'error': 'No PDU configured for this host — set one first'})
+    # 7.5.0: cutting a host's power is a shutdown, and a hard cycle a reboot, whichever way it is done. With change approval on and
+    # that kind among the gated ones, the request is parked for a second admin like the shut-down and reboot buttons, and runs when
+    # it is approved (_mcp_execute, action `pdu_power`). Switching ON is never gated. Quarantine and audit mode do not apply: they
+    # stop commands to the agent, and a plug acts outside it (cutting the power is how you stop a host you no longer trust).
+    _kind = {'off': 'shutdown', 'cycle': 'reboot'}.get(action)
+    if _kind and _needs_approval(_kind):
+        _why, _tkt = _approval_context(body)
+        cid = _create_confirmation(
+            'pdu_power', dev_id,
+            {'action': action, 'kind': _kind,
+             'summary': 'smart plug: power ' + ('off' if action == 'off' else 'cycle (off, then on)')},
+            actor, None, None, reason=_why, ticket_ref=_tkt)
+        respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid,
+                      'detail': 'Parked — a second admin must approve it.'})
+    results, blocked = _pdu_power_run(pdu, action)
+    if blocked:
+        respond(400, {'error': blocked})
+    audit_log(actor, 'device_power_control', f'device={dev_id} action={action} pdu={pdu.get("kind")}')
+    respond(200, {'ok': True, 'action': action, 'results': results})
+
+
+def _pdu_power_run(pdu, action):
+    """Drive the mapped smart plug for `action` (on, off or cycle). Returns (results, blocked): one entry per step, and a message when
+    the plug's address is one the server will not call (loopback, link-local, metadata) -- in which case nothing was sent for that step.
+
+    Shared by the handler and by the executor of an approved request. (The refusal used to be a respond(400) inside the try, which
+    the `except Exception` below caught and turned into one more result row, so a blocked address answered 200.)"""
     steps = ['off', 'on'] if action == 'cycle' else [action]
     results = []
     for i, step in enumerate(steps):
         if i > 0:
             time.sleep(5)   # brief off-time so a cycle is a real power cycle
         for url in _pdu_action_urls(pdu, step):
+            parsed = urllib.parse.urlparse(url)
+            if _url_targets_local_or_meta(parsed, allow_loopback=False):
+                return results, 'PDU host resolves to a blocked (loopback/metadata) address'
             try:
-                parsed = urllib.parse.urlparse(url)
-                if _url_targets_local_or_meta(parsed, allow_loopback=False):
-                    respond(400, {'error': 'PDU host resolves to a blocked (loopback/metadata) address'})
                 ctx = _get_ssl_context() if parsed.scheme == 'https' else None
                 opener = _ssrf_safe_opener(allow_loopback=False, ssl_ctx=ctx, no_redirect=True)
                 r = opener.open(url, timeout=8)
                 results.append({'step': step, 'status': getattr(r, 'status', 200)})
             except Exception as e:
                 results.append({'step': step, 'error': str(e)[:120]})
-    audit_log(actor, 'device_power_control', f'device={dev_id} action={action} pdu={pdu.get("kind")}')
-    respond(200, {'ok': True, 'action': action, 'results': results})
+    return results, ''
 
 
 def _valid_service_unit(u):
@@ -25783,31 +25850,57 @@ def _command_block_reason(dev, command):
     return None
 
 
-def _queue_command(dev_id, command, actor, force_approval=False,
-                   reason=None, ticket_ref=None):
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Host not found'})
-    _blocked = _command_block_reason(devices[dev_id], command)
+def _preflight_command(dev_id, dev, command, actor, body=None, reason=None, ticket_ref=None,
+                       force_approval=False, summary=None):
+    """What every path that puts a command on a host's queue does first. Answers (and so does not return) when the command must not be
+    queued now, or has to wait for a second admin; returns when it may go on.
+
+    1. The shared block predicate (`_command_block_reason`): server maintenance mode, a quarantined host, an audit-mode agent, an
+       agent that does not implement the verb.
+    2. Change approval (v3.14.0 four-eyes): when the command's kind is among the gated ones, it is parked as a confirmation and the
+       caller gets 202 `approval_required`. W2-39: `force_approval` makes a caller (guided CIS remediation) REQUIRE a second admin
+       whenever change approval is on at all, even for a kind outside the gated set, since a fix mutates a host's hardened state.
+
+    7.5.0: this was the body of `_queue_command`, and the paths that write the queue themselves (script runs, the file manager, the
+    compose action, Docker clean-up, package install and remove) each had a copy of the first half or none. `body` is the request
+    body when there is one: the operator's reason and ticket reference ride onto the parked change (v6.4.2)."""
+    _blocked = _command_block_reason(dev, command)
     if _blocked:
         _status, _msg = _blocked
         _extra = {'maintenance': True} if _status == 503 else {}
         respond(_status, dict({'error': _msg}, **_extra))
-    # v3.14.0: 4-eyes — park risky actions for a second admin when enabled.
-    # W2-39: `force_approval` makes a caller (guided CIS remediation) REQUIRE
-    # a second admin whenever change-approval is on at all — even for a kind
-    # not in the gated set — since a fix mutates a host's hardened state.
     _kind = _command_kind(command)
     _cfg_appr = load(CONFIG_FILE) or {}
     _gate = _needs_approval(_kind, _cfg_appr) or (
         force_approval and bool(_cfg_appr.get('change_approval_enabled')))
     if _gate:
+        if body is not None:
+            reason, ticket_ref = _approval_context(body)
         # v6.4.2: carry the operator's justification onto the parked change so
         # the approving admin sees WHY, not just what and when.
         cid = _park_for_approval(dev_id, command, actor, _kind,
-                                 reason=reason, ticket_ref=ticket_ref)
+                                 reason=reason, ticket_ref=ticket_ref, summary=summary)
         respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid,
                       'detail': 'Parked — a second admin must approve it.'})
+
+
+def _batch_reason(error):
+    """The short reason code a batch job record keeps for a host that was not queued, from the gateway's message."""
+    e = str(error or '')
+    for needle, code in (('not found', 'not_found'), ('Invalid host', 'not_found'), ('quarantined', 'quarantined'),
+                         ('audit', 'audit_mode'), ('Queue full', 'queue_full'), ('Not implemented', 'unsupported')):
+        if needle in e:
+            return code
+    return e[:60] or 'refused'
+
+
+def _queue_command(dev_id, command, actor, force_approval=False,
+                   reason=None, ticket_ref=None):
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Host not found'})
+    _preflight_command(dev_id, devices[dev_id], command, actor, reason=reason, ticket_ref=ticket_ref,
+                       force_approval=force_approval)
     # v3.4.2: locked read-modify-write so a concurrent enqueue or a heartbeat
     # dispatch can't clobber this append (lost-update race). log_command /
     # fire_webhook / respond run AFTER the lock commits — never hold the queue
@@ -25915,7 +26008,7 @@ def _record_batch_job(kind, label, command, actor, results):
     return job_id
 
 
-def _queue_command_batch(dev_ids, command, actor):
+def _queue_command_batch(dev_ids, command, actor, reason=None, ticket_ref=None, summary=None):
     _block_if_maintenance(command)  # v5.0.0 #R3
     devices = load(DEVICES_FILE); results = {}
     # v3.14.0: 4-eyes — park each target as its own confirmation when enabled.
@@ -25925,7 +26018,8 @@ def _queue_command_batch(dev_ids, command, actor):
             if not _validate_id(dev_id) or dev_id not in devices:
                 results[dev_id] = {'ok': False, 'error': 'Host not found'}
                 continue
-            cid = _park_for_approval(dev_id, command, actor, _kind)
+            cid = _park_for_approval(dev_id, command, actor, _kind,
+                                     reason=reason, ticket_ref=ticket_ref, summary=summary)
             results[dev_id] = {'ok': True, 'approval_required': True, 'confirmation_id': cid}
         return results
     # v3.4.2: do the queue mutations under one CMDS_FILE lock (atomic
@@ -26902,28 +26996,31 @@ def _handle_pkg_action(kind):
         cmd_body = _build_install_cmd(names)
     queued = f'exec:{cmd_body}'
     devices = load(DEVICES_FILE)
-    # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
-    # command queue did load/mutate/save with nothing held across the pair,
-    # while the heartbeat's drain pops under this same lock — its comment
-    # already records that the unlocked form 'had a lost-update race ...
-    # (double execution)'. Racing a drain, a stale snapshot written back put
-    # a command the agent had ALREADY run back in the queue, to be handed
-    # out and executed again: a second reboot, a second upgrade.
-    with _LockedUpdate(CMDS_FILE) as cmds:
-        now = int(time.time())
-        per_device = {}
-        for dev_id in ids:
-            dev = devices.get(dev_id)
-            if not dev:
-                per_device[dev_id] = {'queued': False, 'reason': 'not_found'}; continue
-            if _device_quarantined(dev):
-                per_device[dev_id] = {'queued': False, 'reason': 'quarantined',
-                                      'name': dev.get('name', dev_id)}; continue
-            cmds.setdefault(dev_id, [])
-            if queued not in cmds[dev_id]:
-                cmds[dev_id].append(queued)
-            log_command(actor, dev_id, dev.get('name', dev_id), f'{verb} {" ".join(names)[:60]}')
-            per_device[dev_id] = {'queued': True, 'name': dev.get('name', dev_id), 'queued_at': now}
+    now = int(time.time())
+    per_device = {}
+    queueable = []
+    for dev_id in ids:
+        if dev_id not in devices:
+            per_device[dev_id] = {'queued': False, 'reason': 'not_found'}
+        else:
+            queueable.append(dev_id)
+    # 7.5.0: through the gateway every other bulk command uses. This path wrote the queue itself and checked only quarantine, so
+    # installing or removing a package skipped change approval (it runs as root, an `exec` kind), audit mode, maintenance mode and the
+    # per-host queue limit.
+    _why, _tkt = _approval_context(body)
+    results = _queue_command_batch(queueable, queued, actor, reason=_why, ticket_ref=_tkt,
+                                   summary=f'{verb} packages: {" ".join(names)[:120]}') if queueable else {}
+    for dev_id in queueable:
+        r = results.get(dev_id) or {}
+        nm = devices[dev_id].get('name', dev_id)
+        if r.get('approval_required'):
+            per_device[dev_id] = {'queued': False, 'reason': 'approval_required', 'name': nm,
+                                  'confirmation_id': r.get('confirmation_id')}
+        elif r.get('ok'):
+            per_device[dev_id] = {'queued': True, 'name': nm, 'queued_at': now}
+        else:
+            per_device[dev_id] = {'queued': False, 'reason': _batch_reason(r.get('error')), 'name': nm}
+    parked = sum(1 for p in per_device.values() if p.get('reason') == 'approval_required')
     jobs_data = load(BATCH_JOBS_FILE)
     _purge_expired_batch_jobs(jobs_data)
     jobs = jobs_data.setdefault('jobs', {})
@@ -26939,7 +27036,8 @@ def _handle_pkg_action(kind):
               f'job={job_id} pkgs={",".join(names)} targets={len(ids)}')
     respond(202, {'ok': True, 'packages': names, 'job_id': job_id,
                   'queued': sum(1 for p in per_device.values() if p.get('queued')),
-                  'total': len(ids), 'per_device': per_device})
+                  'total': len(ids), 'per_device': per_device,
+                  'approval_required': bool(parked), 'parked': parked})
 
 
 def handle_install_packages():
@@ -39508,21 +39606,34 @@ def process_schedule():
                     else:
                         queued = command
                     _sched_adds = []
-                    if queued not in cmds[dev_id]:
-                        cmds[dev_id].append(queued)
-                        _sched_adds.append(queued)
-                    # v6.2.0: the Windows/macOS reboot half of upgrade_and_reboot,
+                    _sched_parked = []
+                    # v6.2.0: the Windows/macOS reboot half of upgrade_and_reboot is
                     # appended AFTER the upgrade so it runs in the right order.
-                    if _queue_after and _queue_after not in cmds[dev_id]:
-                        cmds[dev_id].append(_queue_after)
-                        _sched_adds.append(_queue_after)
+                    # 7.5.0: change approval is asked when the job FIRES (docs/schedule.md has always said a scheduled command rides
+                    # the approval controls of any other host command; the sweep queued it directly). A due command of a gated kind
+                    # is parked for a second admin in the name of whoever scheduled it, and the no-self rule counts that person as
+                    # the requester. Auto-patch policies already work this way.
+                    _appr_cfg = _config_ro()
+                    for _c in (queued, _queue_after):
+                        if not _c:
+                            continue
+                        _ck = _command_kind(_c)
+                        if _needs_approval(_ck, _appr_cfg):
+                            _sched_parked.append((_c, _ck))
+                        elif _c not in cmds[dev_id]:
+                            cmds[dev_id].append(_c)
+                            _sched_adds.append(_c)
                     if _sched_adds:
                         with _LockedUpdate(CMDS_FILE) as _cq:
                             _slot = _cq.setdefault(dev_id, [])
                             for _c in _sched_adds:
                                 if _c not in _slot:
                                     _slot.append(_c)
-                    log_command(f"scheduler({job['actor']})", dev_id, job['device_name'], command)
+                    for _c, _ck in _sched_parked:
+                        _park_for_approval(dev_id, _c, f"scheduler({job['actor']})", _ck,
+                                           reason=f"scheduled job {job.get('id', '')} ({command}) came due")
+                    log_command(f"scheduler({job['actor']})", dev_id, job['device_name'],
+                                command + (' (parked for approval)' if _sched_parked else ''))
             if job.get('recurring'):
                 job['last_fired_minute'] = current_minute
                 remaining.append(job)
@@ -42141,6 +42252,11 @@ def handle_device_docker_prune(dev_id):
     shell_cmd = '; '.join(f'echo @@RP:{t}; {cmd}' for t, cmd in marker_cmds)
     cmd_payload = 'exec:' + shell_cmd
     wait = bool(body.get('wait'))
+    # 7.5.0: the docstring promised that quarantine, audit mode and change approval apply "exactly as they do to any other exec",
+    # and none of them did: the command went straight into the queue. A clean-up that removes volumes deletes data, so the approver
+    # is told which one it is.
+    _preflight_command(dev_id, dev, cmd_payload, actor, body=body,
+                       summary='docker clean-up (' + label + ')' + (', DELETES VOLUME DATA' if destructive else ''))
 
     audit_log(actor, 'docker_prune',
               detail=f'device={dev_id} {label}'
@@ -42239,6 +42355,9 @@ def handle_device_compose_action(dev_id):
 
     # Queue the command. The agent re-validates everything when it dequeues.
     cmd_payload = f'compose:{action}:{project_dir}'
+    # 7.5.0: the same pre-flight as a container action: quarantine, audit mode and maintenance mode refuse it, and change approval
+    # parks it when `compose` is among the gated kinds (Settings -> Security lists it, and it did nothing here before).
+    _preflight_command(dev_id, dev, cmd_payload, actor, body=body)
     # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
     # command queue did load/mutate/save with nothing held across the pair,
     # while the heartbeat's drain pops under this same lock — its comment
@@ -45113,33 +45232,34 @@ def handle_exec_batch():
     actor = require_perm('command', targets)   # v3.4.2 RBAC: scoped batch exec
 
     devices = _load_ro(DEVICES_FILE)
-    # v7.0.2: the read-modify-write is under ONE lock. Nine writers to the
-    # command queue did load/mutate/save with nothing held across the pair,
-    # while the heartbeat's drain pops under this same lock — its comment
-    # already records that the unlocked form 'had a lost-update race ...
-    # (double execution)'. Racing a drain, a stale snapshot written back put
-    # a command the agent had ALREADY run back in the queue, to be handed
-    # out and executed again: a second reboot, a second upgrade.
-    with _LockedUpdate(CMDS_FILE) as cmds:
-        now = int(time.time())
-        exec_payload = 'exec:' + script.get('body', '')
-
-        per_device = {}
-        for dev_id in targets:
-            if dev_id not in devices:
-                per_device[dev_id] = {'queued': False, 'reason': 'not_found'}
-                continue
-            if devices[dev_id].get('agentless'):
-                per_device[dev_id] = {'queued': False, 'reason': 'agentless'}
-                continue
-            cmds.setdefault(dev_id, [])
-            if exec_payload not in cmds[dev_id]:
-                cmds[dev_id].append(exec_payload)
-            per_device[dev_id] = {
-                'queued': True,
-                'name':   devices[dev_id].get('name', dev_id),
-                'queued_at': now,
-            }
+    now = int(time.time())
+    exec_payload = 'exec:' + script.get('body', '')
+    per_device = {}
+    queueable = []
+    for dev_id in targets:
+        if dev_id not in devices:
+            per_device[dev_id] = {'queued': False, 'reason': 'not_found'}
+        elif devices[dev_id].get('agentless'):
+            per_device[dev_id] = {'queued': False, 'reason': 'agentless'}
+        else:
+            queueable.append(dev_id)
+    # 7.5.0: through the same gateway as every other bulk command (it takes the queue lock itself). This path used to append to the
+    # queue on its own, so a script run skipped change approval (an `exec` kind a second admin was meant to sign off), the
+    # quarantine and audit-mode refusals, maintenance mode and the per-host queue limit. A parked host is recorded as such.
+    _why, _tkt = _approval_context(body)
+    results = _queue_command_batch(queueable, exec_payload, actor, reason=_why, ticket_ref=_tkt,
+                                   summary=f'run script "{script.get("name", "")}"') if queueable else {}
+    for dev_id in queueable:
+        r = results.get(dev_id) or {}
+        nm = devices[dev_id].get('name', dev_id)
+        if r.get('approval_required'):
+            per_device[dev_id] = {'queued': False, 'reason': 'approval_required', 'name': nm,
+                                  'confirmation_id': r.get('confirmation_id')}
+        elif r.get('ok'):
+            per_device[dev_id] = {'queued': True, 'name': nm, 'queued_at': now}
+        else:
+            per_device[dev_id] = {'queued': False, 'reason': _batch_reason(r.get('error')), 'name': nm}
+    parked = sum(1 for p in per_device.values() if p.get('reason') == 'approval_required')
 
     # Persist the job record. Pruned on every access.
     jobs_data = load(BATCH_JOBS_FILE)
@@ -45167,7 +45287,8 @@ def handle_exec_batch():
     log_command(actor, 'batch', f'script:{script.get("name", "")}',
                 f'batch_exec:{job_id}')
     respond(202, {'ok': True, 'job_id': job_id, 'queued': queued_count,
-                  'total': len(targets), 'per_device': per_device})
+                  'total': len(targets), 'per_device': per_device,
+                  'approval_required': bool(parked), 'parked': parked})
 
 
 def _batch_match_record(dev_outputs, match_key, created, still_queued):
@@ -65957,6 +66078,28 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
             return {'ok': False, 'error': str(e)}
         return {'ok': True, 'task': upid, 'detail': p.get('label', '')}
 
+    elif action == 'rollout_start':
+        # 7.5.0: the start of a draft rollout approved by a second admin (see handle_rollout_action).
+        _rs = _rollout_start_approved((params or {}).get('rollout_id'), actor)
+        if not _rs.get('ok'):
+            return _rs
+
+    elif action == 'pdu_power':
+        # 7.5.0: a smart-plug power-off or cycle approved by a second admin (see handle_device_power_control). The plug mapping is
+        # read now, not carried in the request: what runs is what the host is mapped to at approval time.
+        p = params or {}
+        if p.get('action') not in ('off', 'cycle'):
+            return {'ok': False, 'error': 'not a power-off or cycle'}
+        pdu = (devs.get(device_id) or {}).get('pdu') or {}
+        if not (pdu.get('kind') and pdu.get('host')):
+            return {'ok': False, 'error': 'No PDU is configured for this host any more'}
+        results, blocked = _pdu_power_run(pdu, p['action'])
+        if blocked:
+            return {'ok': False, 'error': blocked}
+        if not any('status' in r for r in results):
+            return {'ok': False, 'error': 'the plug did not answer: ' + '; '.join(str(r.get('error', '')) for r in results)[:200]}
+        # falls through to the audit entry below, like every other executed action
+
     elif action == 'queue_command':
         # v3.14.0: a risky queued command (reboot/shutdown/update/upgrade/
         # container/uninstall) approved by a second admin. params['command'] is
@@ -66340,7 +66483,10 @@ def handle_confirmation_approve(conf_id):
         # cannot sign off their own change unless the operator disables the
         # separation-of-duties guard.
         _cfg_app = load(CONFIG_FILE) or {}
-        if _cfg_app.get('change_approval_no_self', True) and entry.get('requested_by') == actor:
+        # 7.5.0: a scheduled command that came due is parked in the name `scheduler(<who scheduled it>)`; that person is the
+        # requester for the separation-of-duties rule, or they could approve their own schedule.
+        _requester = re.sub(r'^scheduler\((.+)\)$', r'\1', str(entry.get('requested_by') or ''))
+        if _cfg_app.get('change_approval_no_self', True) and _requester == actor:
             respond(403, {'error': 'You requested this change; a different admin must approve it.'})
         entry['status'] = 'approved'
         entry['decided_by'] = actor

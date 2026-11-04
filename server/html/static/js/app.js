@@ -4966,6 +4966,14 @@ async function withStepUp(callFn) {
   }
   return data;
 }
+// 7.5.0: a change that change approval holds for a second admin answers 202 {approval_required: true}. Say so, once and in the same
+// words everywhere (the string is the one the Proxmox page already uses), and tell the caller it was handled so it does not also
+// report a success. Returns true when the answer was a parked change.
+function parkedForApproval(r) {
+  if (!r || !r.approval_required) return false;
+  toast('Parked — a second admin must approve it', 'info');
+  return true;
+}
 // 7.5.0: a restore replaces the users, the tokens and the settings, so the server asks for a fresh step-up before it reads the
 // upload. The two restores that send a file use fetch (api() sends JSON), so this is withStepUp for a fetch: it asks for the
 // password when the answer is step_up_required and sends the same request again. Resolves to the JSON answer with `_ok` and
@@ -14543,6 +14551,10 @@ function _renderConfirmations(arr) {
       const what = _p.label || _p.catalog_id || '';
       const why = _p.reason ? ` — ${_escapeHtml(_p.reason)}` : '';
       actionLabel = `AI remediation <span class="hint">(${_escapeHtml(what)})${why}</span>`;
+    } else if (_p.summary) {
+      // 7.5.0: what the parked change does, in words. The command itself is not readable (a file write is three base64 fields),
+      // and the row showed only `queue_command`, so the second admin signed off on the action name alone.
+      actionLabel = `${_escapeHtml(c.action || '')} <span class="hint">(${_escapeHtml(String(_p.summary).slice(0, 200))})</span>`;
     } else {
       actionLabel = _escapeHtml(c.action || '');
     }
@@ -16457,7 +16469,9 @@ async function confirmScriptRun() {
   }
   closeModal('script-run-modal');
   if (mode === 'batch') clearSelection();
-  toast(`Queued on ${resp.queued}/${resp.total} host${resp.total===1?'':'s'}`, 'success');
+  // 7.5.0: with change approval on, hosts the run is held for are parked, not queued; the others (if any) are queued
+  if (resp.parked) toast(`${resp.parked} host${resp.parked===1?'':'s'}: parked — a second admin must approve it`, 'info');
+  if (resp.queued || !resp.parked) toast(`Queued on ${resp.queued}/${resp.total} host${resp.total===1?'':'s'}`, 'success');
   if (resp.job_id) openBatchJobModal(resp.job_id);
 }
 
@@ -16564,6 +16578,7 @@ async function runCompose(action) {
   const resp = await api('POST', '/devices/' + encodeURIComponent(deviceId) + '/compose/action',
                          {action, dir});
   if (!resp || resp.error) { failToast(resp); return; }
+  if (parkedForApproval(resp)) return;
   toast(`compose ${action} queued — output arrives on next heartbeat`, 'success');
   document.getElementById('compose-result').textContent =
     `Queued: ${resp.queued}\nWaiting for the agent's next heartbeat (~60s)…\nResults appear on the host's System info → Command output panel.`;
@@ -18524,6 +18539,7 @@ async function swPolFixViolation(devArg, pkg, type) {
   if (!ok) return;
   const r = await api('POST', remove ? '/uninstall' : '/install',
                       {device_ids: [devId], packages: pkgName});
+  if (parkedForApproval(r)) return;
   if (r && r.ok) {
     toast('Queued — follow it on Rollouts → Recent jobs', 'success');
   } else {
@@ -29090,6 +29106,7 @@ async function pduControl(action) {
   const r = await api('POST', `/devices/${devId}/power-control`, { action });
   if (!r) { toast('Failed (no response)', 'error'); return; }
   if (r.error) { toast(r.error, 'error'); return; }
+  if (parkedForApproval(r)) return;
   const errs = (r.results || []).filter(x => x.error);
   if (errs.length) toast(`PDU ${action}: ${errs.map(e => e.error).join('; ')}`, 'error');
   else toast(`PDU ${action} sent`, 'success');

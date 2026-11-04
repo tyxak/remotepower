@@ -15,12 +15,18 @@ keeping the history.
   which keys changed, up to 50 keys per revision), newest first.
 - `POST /api/config/revisions/restore` swaps the live configuration for a picked
   revision. The state being replaced is itself saved as a new revision first, so
-  a restore is always reversible — you can roll a rollback back.
+  a restore is always reversible — you can roll a rollback back. If the revision
+  would change one of the switches that ask for a step-up (change approval, the
+  roles that need MFA, SSO-only, the IP allowlist, the audit sink, retention or
+  forwarding, tenancy, the litigation hold), the restore asks you to confirm your
+  password or a one-time code first, and the audit log names those switches. A
+  revision that differs only in ordinary settings restores without a prompt.
 
 In the UI the history lives under **Settings → Advanced → Configuration
 history**. Each row shows when it was saved, who changed the configuration and which
 keys changed. **Restore** swaps the live configuration for that revision after you
-confirm, and the page reloads the new values.
+confirm (and asks for your password when the revision changes one of those
+switches), and the page reloads the new values.
 
 Reading the history and restoring from it are instance-admin actions. On an install
 with tenants, a tenant admin cannot do either, because the configuration belongs to

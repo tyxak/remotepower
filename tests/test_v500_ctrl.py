@@ -590,7 +590,9 @@ class TestMaintenanceMode(unittest.TestCase):
     def test_queue_command_paths_all_route_through_the_gate(self):
         """Every path that queues a command must consult the gate — the single
         predicate, not its own subset (the bug this factoring fixed)."""
-        self.assertIn("_command_block_reason(", py_function(API_SRC, "_queue_command"))
+        # 7.5.0: the block check and the approval gate moved into _preflight_command, which the single-host gateway calls
+        self.assertIn("_preflight_command(", py_function(API_SRC, "_queue_command"))
+        self.assertIn("_command_block_reason(", py_function(API_SRC, "_preflight_command"))
         self.assertIn("_command_block_reason(", py_function(API_SRC, "_mcp_execute"))
         self.assertIn("_block_if_maintenance(command)",
                       py_function(API_SRC, "_queue_command_batch"))

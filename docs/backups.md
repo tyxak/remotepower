@@ -127,7 +127,10 @@ RemotePower can back up **itself** so you can rebuild the server after a loss.
   backup result and Server Status report how many stores were written (`stores`).
 - **Restore.** **Settings → Backups → Restore…** (or `POST /api/backup/restore`)
   accepts both archive shapes: the download stream, and the scheduled archive whose
-  members sit under a `remotepower/` folder. It is admin-only. For an encrypted
+  members sit under a `remotepower/` folder. It is admin-only, and it asks you to
+  confirm your password or a one-time code first (a "step-up"), because a restore
+  replaces the users and the settings. An API key cannot step up, so it cannot
+  restore. For an encrypted
   archive the page asks for the passphrase, which reaches the server as the
   `X-RP-Backup-Passphrase` header; leave it blank to use the server's own. A restore:
   - saves a snapshot of the current state first, in the data directory's

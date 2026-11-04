@@ -744,12 +744,57 @@ def handle_blueprints_list():
                   'terraform_available': A._terraform_available()})
 
 
+# 7.5.0: what a rollout dispatches, as the command kind change approval knows it. An upgrade, a reboot or an agent update are
+# gated by default; a script is an `exec`, which an operator can add to the gated kinds.
+_ROLLOUT_KINDS = {'upgrade': 'upgrade', 'reboot': 'reboot', 'self-update': 'update', 'script': 'exec'}
+
+
+def _rollout_kind(roll):
+    return _ROLLOUT_KINDS.get(roll.get('action'), 'upgrade')
+
+
+def _rollout_park_start(roll, actor, body=None, extra=None):
+    """Park the start of a draft rollout for a second admin and answer 202. Must be called outside the rollouts lock: the confirmation
+    takes its own, and two stores locked at once is an error on the SQL backends. The confirmation names no host (a rollout picks its
+    hosts when each ring is dispatched), so the summary says what it will do and to how many rings."""
+    kind = _rollout_kind(roll)
+    why, tkt = A._approval_context(body or {})
+    rings = len(roll.get('rings') or [])
+    cid = A._create_confirmation(
+        'rollout_start', '',
+        {'rollout_id': roll.get('id'), 'kind': kind,
+         'summary': f'start rollout "{str(roll.get("name", ""))[:60]}" ({roll.get("action")}, {A.plural(rings, "ring", "rings")})'},
+        actor, None, None, reason=why, ticket_ref=tkt)
+    A.respond(202, dict({'ok': True, 'approval_required': True, 'confirmation_id': cid,
+                         'detail': 'Parked — a second admin must approve it.'}, **(extra or {})))
+
+
+def _rollout_start_approved(roll_id, actor):
+    """Start a draft rollout whose start a second admin has approved (the executor of the `rollout_start` confirmation)."""
+    with A._LockedUpdate(A.ROLLOUTS_FILE) as store:
+        roll = next((r for r in (store.get('rollouts') or []) if r.get('id') == roll_id), None)
+        if not roll:
+            return {'ok': False, 'error': 'the rollout no longer exists'}
+        if roll.get('state') != 'draft':
+            return {'ok': False, 'error': f'the rollout is {roll.get("state")}, not waiting to start'}
+        roll['state'] = 'running'
+        A._rollout_log(roll, f'started (approved: {actor})')
+    A._rollout_tick()
+    return {'ok': True}
+
+
 def handle_rollout_action(roll_id, action):
     """POST /api/rollouts/<id>/<start|pause|resume|cancel|promote>."""
     actor = A.require_admin_auth()
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
-    err_box = [None, None]   # [error, new_rollback_id]  (v5.0.0 #F5)
+    if action == 'start':
+        # 7.5.0: starting a rollout that has never run is the change change approval is for (an upgrade or a reboot of whole rings),
+        # and it ran at once. A paused rollout was approved when it first started, so resuming it asks nothing.
+        _r0 = next((r for r in ((A.load(A.ROLLOUTS_FILE) or {}).get('rollouts') or []) if r.get('id') == roll_id), None)
+        if _r0 and _rollout_visible(_r0) and _r0.get('state') == 'draft' and A._needs_approval(_rollout_kind(_r0)):
+            _rollout_park_start(_r0, actor, A.get_json_obj())
+    err_box = [None, None, None]   # [error, new_rollback_id, rollback to park]  (v5.0.0 #F5)
     with A._LockedUpdate(A.ROLLOUTS_FILE) as store:
         rolls = store.get('rollouts') or []
         roll = next((r for r in rolls if r.get('id') == roll_id), None)
@@ -819,7 +864,9 @@ def handle_rollout_action(roll_id, action):
                         'auto_promote': True,
                         'verify_minutes': roll.get('verify_minutes', A._ROLLOUT_VERIFY_MIN_DEFAULT),
                         'health_gate': {'enabled': False, 'threshold': 70},
-                        'state': 'running',
+                        # 7.5.0: a rollback runs a script on every host the rollout reached, so it waits for a second admin
+                        # when `exec` is among the gated kinds (it is parked below, outside this lock)
+                        'state': 'draft' if A._needs_approval('exec') else 'running',
                         'current_ring': 0,
                         'history': [],
                         'rolled_back_from': roll_id,
@@ -832,11 +879,16 @@ def handle_rollout_action(roll_id, action):
                     roll['rolled_back_by'] = rb['id']
                     A._rollout_log(roll, f'rolled back via {rb["id"]}')
                     err_box[1] = rb['id']  # carry the new id out for the response
+                    if rb['state'] == 'draft':
+                        err_box[2] = rb
         else:
             err_box[0] = 'unknown action'
         store['rollouts'] = rolls
     if err_box[0]:
         A.respond(400, {'error': err_box[0]})
+    if err_box[2]:
+        A.audit_log(actor, f'rollout_{action}', f'id={roll_id} rollback={err_box[1]} (start parked for approval)')
+        _rollout_park_start(err_box[2], actor, extra={'rollback_id': err_box[1]})
     A.audit_log(actor, f'rollout_{action}', f'id={roll_id}')
     A._rollout_tick()   # dispatch/advance immediately so the UI reflects it
     rolls = (A.load(A.ROLLOUTS_FILE) or {}).get('rollouts') or []

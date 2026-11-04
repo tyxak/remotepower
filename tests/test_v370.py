@@ -144,7 +144,9 @@ class TestV370MakerChecker(unittest.TestCase):
     def test_backend(self):
         self.assertIn("elif action == 'exec_command'", API)
         # self-approval guard
-        self.assertIn("entry.get('requested_by') == actor", API)
+        # 7.5.0: the requester is read through `scheduler(<name>)` (a scheduled command is parked in that name), then compared
+        self.assertIn("_requester == actor", API)
+        self.assertIn("str(entry.get('requested_by') or '')", API)
         self.assertIn("change_approval_enabled", API)
     def test_exec_path_gated(self):
         self.assertIn("get('change_approval_enabled')", API)

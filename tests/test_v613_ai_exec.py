@@ -303,8 +303,11 @@ class TestTheSharedCommandGate(_Case):
         """Not a second chokepoint — the same function, rendered two ways."""
         src = (_CGI / "api.py").read_text()
         self.assertIn("def _command_block_reason(", src)
+        # 7.5.0: _queue_command hands the block check and the approval gate to _preflight_command (the same predicate)
         qc = src[src.index("def _queue_command(dev_id"):]
-        self.assertIn("_command_block_reason(", qc[:900])
+        self.assertIn("_preflight_command(", qc[:900])
+        pf = src[src.index("def _preflight_command("):]
+        self.assertIn("_command_block_reason(", pf[:1800])
         mc = src[src.index("def _mcp_execute("):]
         self.assertIn("_command_block_reason(", mc[:1200])
 

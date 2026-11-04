@@ -85,8 +85,11 @@ carries no password, so a plug that asks for one cannot be used.
 
 Using it needs the `command` permission for the host, and every use is audited
 (`device_power_control`; saving the mapping is `device_pdu_config`). The request goes
-from the server to the plug, not through the agent. Quarantine, audit mode and
-change approval (Settings → Security) do not apply to it.
+from the server to the plug, not through the agent. Quarantine and audit mode do not
+apply to it: they stop commands to the agent, and cutting the power is still how you
+stop a host you no longer trust. Change approval (**Settings → Security**) does apply:
+with **Shut down** among the actions that require approval, **Power off** is parked for
+a second admin, and with **Reboot** gated so is **Power cycle**. **Power on** is never held.
 
 ## API
 

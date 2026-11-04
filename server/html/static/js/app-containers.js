@@ -173,12 +173,14 @@ async function updateImageNow(ref) {
   }
   const names = [...new Set(list.map(h => h.device_name))].join(', ');
   if (!await uiConfirm(`Update "${ref}" on ${plural(list.length, 'host', 'hosts')} (${names})?\n\nThis runs "docker compose pull" then "up -d" to pull the new image and recreate the containers — expect a brief restart. Output arrives on the next heartbeat.`)) return;
-  let ok = 0, fail = 0;
+  let ok = 0, fail = 0, parked = 0;
   for (const h of list) {
     const r = await api('POST', `/devices/${encodeURIComponent(h.device_id)}/compose/action`,
       { action: 'update', dir: h.compose_dir }).catch(() => null);
-    if (r && r.ok) ok++; else fail++;
+    if (r && r.approval_required) parked++;       // 7.5.0: held for a second admin when change approval gates `compose`
+    else if (r && r.ok) ok++; else fail++;
   }
+  if (parked) toast(`${plural(parked, 'host', 'hosts')}: parked — a second admin must approve it`, 'info');
   if (ok) toast(`Update queued on ${plural(ok, 'host', 'hosts')}${fail ? ` (${fail} failed)` : ''} — recreated containers report on the next heartbeat (~60s).`, fail ? 'info' : 'success');
   else toast('Failed to queue the update.', 'error');
   loadImageUpdates();
@@ -684,6 +686,12 @@ async function dockerPruneRun() {
   if (!r || r.error) {
     res.innerHTML = `<div class="c-red mt-8">${escHtml((r && r.error) || 'Prune failed')}</div>`;
     runBtn.disabled = false; runBtn.textContent = 'Prune';
+    return;
+  }
+  if (parkedForApproval(r)) {      // 7.5.0: nothing ran; a second admin has to approve it first
+    res.innerHTML = '<div class="c-amber mt-8">Parked — a second admin must approve the clean-up before it runs.</div>';
+    runBtn.classList.add('d-none');
+    document.getElementById('docker-prune-cancel').textContent = 'Close';
     return;
   }
   // Done — swap the primary button out, turn Cancel into Close.

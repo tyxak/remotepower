@@ -165,6 +165,7 @@ async function rolloutAction(id, action) {
   if (action === 'cancel' && !await uiConfirm('Cancel this rollout? Already-dispatched rings keep running on their hosts.')) return;
   if (action === 'rollback' && !await uiConfirm('Roll back? This starts a NEW rollout running the rollback script on every host this rollout reached.')) return;
   const r = await api('POST', `/rollouts/${id}/${action}`, {}).catch(() => null);
+  if (parkedForApproval(r)) { loadRollouts(); return; }    // 7.5.0: starting waits for a second admin when change approval gates the action
   if (r?.ok) { toast(action === 'rollback' ? 'Rollback started' : `Rollout ${action} ok`, 'success'); loadRollouts(); }
   else toast(r?.error || `Failed to ${action}`, 'error');
 }

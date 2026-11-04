@@ -295,6 +295,7 @@ async function runInstall() {
   if (body.device_ids && !body.device_ids.length) { toast('No matching hosts', 'error'); return; }
   body.packages = pkgs;
   const r = await api('POST', '/install', body).catch(() => null);
+  if (parkedForApproval(r)) return;
   if (r?.ok) toast(`Install queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow progress on Rollouts → Recent jobs`, 'success');
   else toast(r?.error || 'Failed to queue install', 'error');
 }
@@ -311,6 +312,7 @@ async function runUninstall() {
   if (body.device_ids && !body.device_ids.length) { toast('No matching hosts', 'error'); return; }
   body.packages = pkgs;
   const r = await api('POST', '/uninstall', body).catch(() => null);
+  if (parkedForApproval(r)) return;
   if (r?.ok) toast(`Uninstall queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow progress on Rollouts → Recent jobs`, 'success');
   else toast(r?.error || 'Failed to queue uninstall', 'error');
 }
@@ -329,6 +331,7 @@ async function _runHold(hold) {
   if (body.device_ids && !body.device_ids.length) { toast('No matching hosts', 'error'); return; }
   body.packages = pkgs;
   const r = await api('POST', hold ? '/packages/hold' : '/packages/unhold', body).catch(() => null);
+  if (parkedForApproval(r)) return;
   if (r?.ok) toast(`${verb} queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow progress on Rollouts → Recent jobs`, 'success');
   else toast(r?.error || `Failed to queue ${verb.toLowerCase()}`, 'error');
 }
@@ -373,6 +376,7 @@ async function runOneTimeInstall() {
   if (!await uiConfirm(`Install "${pkgs}" now on ${scope}?`)) return;
   body.packages = pkgs;
   const r = await api('POST', '/install', body).catch(() => null);
+  if (parkedForApproval(r)) return;
   if (r?.ok) {
     toast(`Install queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow it below`, 'success');
     closeModal('one-time-install-modal');

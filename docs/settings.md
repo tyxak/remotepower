@@ -19,8 +19,9 @@ tabs, grouped into four sections: **Setup**, **Monitoring**, **Connections** and
 - A few switches decide who can do what. Changing change approval, the roles that
   need MFA, SSO-only sign-in, the IP allowlist, the audit-log sink, retention or
   forwarding, tenancy enforcement or the litigation hold asks you to confirm your
-  password or a one-time code first (a "step-up"). The confirmation stays valid for
-  ten minutes.
+  password or a one-time code first (a "step-up"). So does restoring a backup, and
+  restoring a configuration revision that changes one of these. The confirmation
+  stays valid for ten minutes.
 - Blank a threshold field to go back to its default.
 - Every tab has an address you can bookmark: `#settings/general`,
   `#settings/install`, `#settings/dashboard` (Alerting), `#settings/alertparams`,

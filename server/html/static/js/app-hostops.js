@@ -481,6 +481,7 @@ function fmUpload() {
       const base = _fmCwd.endsWith('/') ? _fmCwd : _fmCwd + '/';
       const dest = base + file.name;
       const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'upload', path: dest, content: b64 });
+      if (parkedForApproval(r)) return;   // 7.5.0: a write waits for a second admin when change approval holds `exec`
       if (r.ok && !(r.result && r.result.error)) { toast('Uploaded ' + file.name, 'success'); fmListPath(_fmCwd); }
       else toast((r.result && r.result.error) || r.error || 'Upload failed', 'error');
     };
@@ -495,6 +496,7 @@ async function fmSave() {
   if (ta.readOnly) { toast('File was truncated on read — refusing to overwrite', 'error'); return; }
   try {
     const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'write', path: _fmEditing, content: ta.value });
+    if (parkedForApproval(r)) return;
     if (r.ok) toast('Saved', 'success');
     else toast((r.result && r.result.error) || r.error || r.message || 'Save failed', 'error');
   } catch (e) { toast(String(e), 'error'); }
@@ -505,6 +507,7 @@ async function fmDelete() {
   if (!await uiConfirm({ message: `Delete ${_fmEditing}?`, danger: true, confirmText: 'Delete' })) return;
   try {
     const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'delete', path: _fmEditing });
+    if (parkedForApproval(r)) return;
     if (r.ok) { toast('Deleted', 'success'); fmCloseEditor(); fmListPath(_fmCwd); }
     else toast((r.result && r.result.error) || r.error || r.message || 'Delete failed', 'error');
   } catch (e) { toast(String(e), 'error'); }
@@ -523,6 +526,7 @@ async function fmMkdir() {
   const base = _fmCwd.endsWith('/') ? _fmCwd : _fmCwd + '/';
   try {
     const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'mkdir', path: base + name });
+    if (parkedForApproval(r)) return;
     if (r.ok) { toast('Created', 'success'); fmListPath(_fmCwd); }
     else toast((r.result && r.result.error) || r.error || r.message || 'mkdir failed', 'error');
   } catch (e) { toast(String(e), 'error'); }

@@ -33,8 +33,12 @@ assistant to be set up.
 - At the scheduled moment the command is placed on the host's normal
   [command queue](agent-commands.md) and delivered on the agent's next
   heartbeat, so it rides the same audit log, quarantine and approval controls as
-  any other host command. If the server was down at the time, a repeating job
-  catches up on what it missed in the last hour, and no more.
+  any other host command. With change approval on, a command of a gated kind (a
+  reboot or shutdown, by default) is not queued when it comes due: it is parked for a
+  second admin in your name, and you cannot approve your own job. A request that
+  nobody approves within an hour expires, and a one-time job is then gone; a repeating
+  job is parked again at its next time. If the server was down at the time, a
+  repeating job catches up on what it missed in the last hour, and no more.
 - An upgrade follows the host's [upgrade mode](patches.md#upgrade-mode), so a
   host set to Extended installs the new packages an update needs.
 - Scheduling a **shutdown** or **suspend** on a host with no MAC address on record

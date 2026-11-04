@@ -64,7 +64,8 @@ obvious:
   rule that the requester cannot approve their own change), MFA-required roles,
   SSO-only sign-in, the IP allowlist, the WORM sink, audit retention or
   forwarding, or tenancy. These need a fresh password or code (step-up) and are
-  logged by name, and they are the changes an access review should notice even
+  logged by name (restoring an older configuration revision that changes one of
+  them is logged the same way), and they are the changes an access review should notice even
   when the account is legitimate. A litigation hold is logged on its own, as
   `litigation_hold`.
 

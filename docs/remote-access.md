@@ -138,9 +138,12 @@ strict public-key pattern before anything is queued.
   host** (writes) and refused by an **audit-mode** agent. Change approval
   (**Settings → Security**) parks Users & keys and Firewall changes for a second
   admin when **Run command** is among the actions that require approval, and parks
-  every Agent console command whenever change approval is on. It does not park
-  File manager page writes: they run as soon as the agent collects them, within the
-  allowed roots.
+  every Agent console command whenever change approval is on. File manager page
+  writes (write, create folder, delete, upload) are parked the same way when **Run
+  command** is among those actions, because a file written into a cron directory is
+  code that runs; the Confirmations page shows the path and size, for example
+  `write file /etc/hosts (212 bytes)`. Listing and reading are never held. Writes
+  that are not parked run as soon as the agent collects them, within the allowed roots.
 - The agent always dials out to the server over HTTPS, so the agent-based actions
   need no inbound firewall rule on the host. The web terminal, the SFTP browser,
   the remote desktop and the RDP tunnel are different: the server's daemon opens an

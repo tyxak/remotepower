@@ -261,9 +261,11 @@ default 300s. See [agent-commands.md](agent-commands.md).
 - **Admin-only** for every change to the library and for dry-run. Listing and
  read are session-auth. **Running** a script needs the `command` permission on
  every target host (an admin always has it), within the role's host scope.
-- **Change approval does not park a library run.** Even with change approval on
- and **Run command** ticked, a script run is queued at once; only a command
- typed into **Run command** is held for a second admin.
+- **Change approval parks a library run** when **Run command** is among the actions
+ that require approval (**Settings → Security**). Each host the run was meant for
+ waits for a second admin, the same as for a command typed into **Run command**,
+ and the Confirmations page shows `run script "<name>"`. The run is also refused
+ on a quarantined or audit-mode host and while the server is in maintenance mode.
 - **No shell interpolation** of the script body. It goes unchanged into
  the agent's `exec:` channel, which runs it through `subprocess.run(…,
  shell=True)` on the agent. That's the same execution surface the

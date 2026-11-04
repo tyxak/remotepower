@@ -9,7 +9,11 @@ it reaches everything. A rollout does one of four things:
 - a **saved script** (*Run a saved script*), or
 - a **reboot**, from the *Rolling reboot* panel (see [Rolling reboot](#rolling-reboot)).
 
-A new rollout is a draft until you press **Start**.
+A new rollout is a draft until you press **Start**. With change approval on and the
+rollout's action among the kinds that need approval (upgrade, reboot and agent update
+by default; a script is **Run command**), **Start** parks the rollout for a second admin
+and it stays a draft until they approve it. Resuming a paused rollout asks nothing, and
+a rollback that runs a script waits the same way when **Run command** is gated.
 
 ## Ring model
 
