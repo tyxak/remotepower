@@ -88,7 +88,8 @@ Two credentials enroll a host; **don't mix up the flags**:
 - **Enrollment token** — a long (16–256 char) one-time string, e.g. the `t=…`
   value baked into the one-liner. Pass with **`--token`** / `-Token`.
 - **PIN** — a **6-digit** code from **Enroll host**. Pass with **`--pin`** /
-  `-Pin`.
+  `-Pin`. The agent also reads `REMOTEPOWER_ENROLL_PIN` and `REMOTEPOWER_ENROLL_TOKEN` from the
+  environment, and the installers use them, so neither shows up in the process list *(7.5.0)*.
 
 A 6-digit value passed to `--token` is rejected by the server (tokens must be
 ≥16 chars); the agent catches this and tells you to use `--pin` instead.

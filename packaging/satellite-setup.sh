@@ -22,7 +22,7 @@
 #   RP_LISTEN            listen addr (default 0.0.0.0:8800)
 #   RP_TLS_CERT/RP_TLS_KEY  PEM cert+key → HTTPS on the agent hop
 #   RP_UPSTREAM_INSECURE 1 to skip upstream TLS verify (self-signed server)
-#   --self-signed CN     generate a self-signed cert for CN into /etc/remotepower/
+#   --self-signed CN     generate a self-signed cert for CN into /etc/remotepower-satellite/
 
 # -h / --help prints the comment block above and exits, before anything is checked or changed (so it needs no root).
 for _a in "$@"; do case "$_a" in -h|--help) [ -r "$0" ] && awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac; done
@@ -56,12 +56,17 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)/client/remotepower-satellite.py"
 
 install -d -m 0755 /opt/remotepower
 install -m 0755 "$SRC" /opt/remotepower/remotepower-satellite.py
-install -d -m 0750 /etc/remotepower
+
+# The relay runs as its own account, so its settings, key and certificate live in a directory that account can reach. They used to
+# go into /etc/remotepower (root:root 0750, and the host agent resets it to 0700), where the service could not read its own key.
+id remotepower-sat >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin remotepower-sat
+CONF=/etc/remotepower-satellite
+install -d -m 0750 -o root -g remotepower-sat "$CONF"
 
 # ── optional self-signed cert ───────────────────────────────────────────────────
 if [ -n "$SELF_SIGNED_CN" ]; then
-  RP_TLS_CERT=/etc/remotepower/satellite.crt
-  RP_TLS_KEY=/etc/remotepower/satellite.key
+  RP_TLS_CERT="$CONF/satellite.crt"
+  RP_TLS_KEY="$CONF/satellite.key"
   if [ ! -f "$RP_TLS_CERT" ]; then
     log "Generating self-signed cert for CN=${SELF_SIGNED_CN}"
     openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
@@ -69,12 +74,13 @@ if [ -n "$SELF_SIGNED_CN" ]; then
       -subj "/CN=${SELF_SIGNED_CN}" \
       -addext "subjectAltName=DNS:${SELF_SIGNED_CN}" >/dev/null 2>&1
     chmod 640 "$RP_TLS_KEY"
+    chgrp remotepower-sat "$RP_TLS_KEY"
     echo "   → distribute ${RP_TLS_CERT} to agents as RP_CA_BUNDLE (they must trust it)."
   fi
 fi
 
 # ── systemd unit + env file ──────────────────────────────────────────────────────
-ENVF=/etc/remotepower/satellite.env
+ENVF="$CONF/satellite.env"
 log "Writing ${ENVF} (0640)."
 {
   echo "RP_UPSTREAM=${RP_UPSTREAM}"
@@ -85,10 +91,11 @@ log "Writing ${ENVF} (0640)."
   [ -n "$RP_UPSTREAM_INSECURE" ] && echo "RP_UPSTREAM_INSECURE=${RP_UPSTREAM_INSECURE}"
 } > "$ENVF"
 chmod 640 "$ENVF"
+chgrp remotepower-sat "$ENVF"
 
-# dedicated unprivileged user
-id remotepower-sat >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin remotepower-sat
-chgrp remotepower-sat "$ENVF" "$RP_TLS_KEY" 2>/dev/null || true
+# No capabilities, except the one that lets an unprivileged account listen below port 1024 when you asked for one.
+CAPS=""
+[ "${RP_LISTEN##*:}" -lt 1024 ] 2>/dev/null && CAPS="CAP_NET_BIND_SERVICE"
 
 log "Installing systemd unit remotepower-satellite.service"
 cat > /etc/systemd/system/remotepower-satellite.service <<EOF
@@ -107,7 +114,18 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadOnlyPaths=/etc/remotepower
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=${CAPS}
+AmbientCapabilities=${CAPS}
+ReadOnlyPaths=${CONF}
 
 [Install]
 WantedBy=multi-user.target

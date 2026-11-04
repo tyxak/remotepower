@@ -4383,6 +4383,10 @@ def main(argv=None):
                     help='install and start the Windows service (run from an elevated prompt)')
     ap.add_argument('--uninstall-service', action='store_true', help='stop and remove the Windows service')
     a = ap.parse_args(argv)
+    # 7.5.0: the PIN and the token may come from the environment, so an installer need not put them on a command line, where any
+    # local account can read them in the process list for the seconds enrolment takes. An argument still wins.
+    a.pin = a.pin or os.environ.get('REMOTEPOWER_ENROLL_PIN', '').strip() or None
+    a.token = a.token or os.environ.get('REMOTEPOWER_ENROLL_TOKEN', '').strip() or None
     if a.version:
         print(VERSION)
         return 0

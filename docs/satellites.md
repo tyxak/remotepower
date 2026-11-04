@@ -49,6 +49,11 @@ sudo RP_UPSTREAM=https://remote.example.com RP_SATELLITE_TOKEN='…' \
      bash packaging/satellite-setup.sh --self-signed satellite.internal
 ```
 
+The script keeps the relay's settings, key and certificate in `/etc/remotepower-satellite` (owned by root, readable by the
+relay's own account) and starts it as an unprivileged account under a restricted systemd unit. Earlier versions used
+`/etc/remotepower`, which that account could not enter, so a self-signed relay did not start *(7.5.0)*. To move an existing relay,
+run the script again with the same settings.
+
 Manual run (no systemd) is just the env + the script:
 ```bash
 RP_UPSTREAM=https://remote.example.com RP_SATELLITE_TOKEN='…' \

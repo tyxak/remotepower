@@ -26,8 +26,35 @@ APP_DROP=(env HOME=/var/www setpriv --reuid="$APP_USER" --regid="$APP_USER" --in
 
 chmod 700 "$DATA_DIR"
 
+# The data volume belongs to the app account, so it can leave a symbolic link behind, and this script writes into the volume as root:
+# Python's write_text() would follow the link and overwrite whatever it points at. Every read and write of a volume file below goes
+# through these two functions, which open the final path component with O_NOFOLLOW and stop with a message instead (7.5.0).
+RP_SAFE_IO='
+import os, sys
+
+def safe_read(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        sys.exit("[!] %s cannot be opened without following a link (%s). Remove it and start again." % (path, e.strerror))
+    with os.fdopen(fd) as f:
+        return f.read()
+
+def safe_write(path, text, mode=0o644):
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
+    except OSError as e:
+        sys.exit("[!] %s cannot be written without following a link (%s). Remove it and start again." % (path, e.strerror))
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+'
+# python3 - reads the script from stdin: the shared functions first, then the heredoc that follows the call
+rp_py() { { printf '%s\n' "$RP_SAFE_IO"; cat; } | python3 -; }
+
 # Write agent version into config.json
-python3 - <<'PYEOF'
+rp_py <<'PYEOF'
 import json, re
 from pathlib import Path
 
@@ -39,11 +66,11 @@ api = Path('/var/www/remotepower/cgi-bin/api.py').read_text()
 m = re.search(r"SERVER_VERSION\s*=\s*['\"]([^'\"]+)['\"]", api)
 server_v = m.group(1) if m else agent_v
 
-cfg_path = Path('/var/lib/remotepower/config.json')
-cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+cfg_path = '/var/lib/remotepower/config.json'
+cfg = json.loads(safe_read(cfg_path) or '{}')
 cfg['agent_version'] = agent_v
 cfg['server_version'] = server_v
-cfg_path.write_text(json.dumps(cfg, indent=2))
+safe_write(cfg_path, json.dumps(cfg, indent=2))
 PYEOF
 
 # ── Does Postgres already have real bootstrap data? ──────────────────────────
@@ -106,9 +133,8 @@ if [ ! -f "$USERS_FILE" ] && [ "$PG_HAS_USERS" != "yes" ]; then
     # otherwise break the literal (container fails to start) or inject Python.
     # The quoted heredoc delimiter ('PYEOF') disables all shell expansion.
     RP_ADMIN_USER="$RP_ADMIN_USER" RP_ADMIN_PASS="$RP_ADMIN_PASS" USERS_FILE="$USERS_FILE" \
-        python3 - <<'PYEOF'
+        rp_py <<'PYEOF'
 import json, time, hashlib, os
-from pathlib import Path
 user = os.environ['RP_ADMIN_USER']
 pw   = os.environ['RP_ADMIN_PASS']
 try:
@@ -116,7 +142,7 @@ try:
     pw_hash = bcrypt.hashpw(pw.encode(), bcrypt.gensalt(12)).decode()
 except ImportError:
     pw_hash = hashlib.sha256(pw.encode()).hexdigest()
-path = Path(os.environ['USERS_FILE'])
+path = os.environ['USERS_FILE']
 users = {
     user: {
         'password_hash': pw_hash,
@@ -124,7 +150,7 @@ users = {
         'created': int(time.time())
     }
 }
-path.write_text(json.dumps(users, indent=2))
+safe_write(path, json.dumps(users, indent=2))
 PYEOF
     chown www-data:www-data "$USERS_FILE"
     echo "[+] Admin user created"
@@ -158,13 +184,12 @@ SCANNER_TOKEN_FILE="$DATA_DIR/.scanner-token"
 if { [ "${RP_WITH_SCANNER:-1}" = "1" ] || [ "${RP_WITH_SCANNER:-1}" = "true" ]; } \
         && [ ! -f "$SCANNER_TOKEN_FILE" ]; then
     echo "[*] RP_WITH_SCANNER set — minting a local scanner satellite token"
-    RP_DATA_DIR="$DATA_DIR" python3 - <<'PYEOF'
+    RP_DATA_DIR="$DATA_DIR" rp_py <<'PYEOF'
 import json, os, time, secrets, hashlib
-from pathlib import Path
 
-data_dir = Path(os.environ['RP_DATA_DIR'])
-sats_path = data_dir / 'satellites.json'
-sats = json.loads(sats_path.read_text()) if sats_path.exists() else {}
+data_dir = os.environ['RP_DATA_DIR']
+sats_path = os.path.join(data_dir, 'satellites.json')
+sats = json.loads(safe_read(sats_path) or '{}')
 
 token = secrets.token_urlsafe(32)
 sid = secrets.token_hex(8)
@@ -176,8 +201,8 @@ sats[sid] = {
     'last_ip': '',
     'scanner': True,
 }
-sats_path.write_text(json.dumps(sats, indent=2))
-(data_dir / '.scanner-token').write_text(token)
+safe_write(sats_path, json.dumps(sats, indent=2))
+safe_write(os.path.join(data_dir, '.scanner-token'), token, 0o600)
 PYEOF
     chown www-data:www-data "$DATA_DIR/satellites.json" "$SCANNER_TOKEN_FILE"
     chmod 600 "$SCANNER_TOKEN_FILE"

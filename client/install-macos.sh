@@ -135,7 +135,8 @@ if [ "$AGENT_DIR" != /usr/local/bin ] && [ -f /usr/local/bin/remotepower-agent-m
 fi
 
 info "Enrolling…"
-RP_CA_BUNDLE=/etc/remotepower/ca.crt /usr/bin/env python3 "$AGENT_BIN" --enroll --server "$SERVER" --pin "$PIN"
+# The PIN goes in the environment, not on the command line, where any local account would read it in the process list.
+REMOTEPOWER_ENROLL_PIN="$PIN" RP_CA_BUNDLE=/etc/remotepower/ca.crt /usr/bin/env python3 "$AGENT_BIN" --enroll --server "$SERVER"
 
 # Point the daemon at the CA via the launchd EnvironmentVariables dict when set.
 PLIST_ENV=""

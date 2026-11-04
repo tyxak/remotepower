@@ -21,7 +21,7 @@ systemctl restart remotepower-agent
 | Option | Used by | Meaning |
 |---|---|---|
 | `--server URL` | `enroll`, `re-enroll`, `enroll-token` | The server's address. The agent only speaks HTTPS and adds `https://` when you leave it out. |
-| `--pin PIN` | `enroll`, `re-enroll` | The 6-digit PIN from **Hosts → Enroll host**. Skips the prompt. |
+| `--pin PIN` | `enroll`, `re-enroll` | The 6-digit PIN from **Hosts → Enroll host**. Skips the prompt. It can also come from `$REMOTEPOWER_ENROLL_PIN`, which keeps it out of the process list *(7.5.0)*. |
 | `--token TOKEN` | `enroll-token` | A one-time enrollment token. It can also come from `$REMOTEPOWER_ENROLL_TOKEN` or the file `/etc/remotepower/enroll-token`. |
 | `--name NAME` | `enroll-token` | The host's display name. Defaults to its hostname. |
 | `--interval SECONDS` | `run` | Poll interval. Defaults to 60. |
@@ -118,7 +118,10 @@ On Windows and macOS, patch paths (auto-patch policies, rollout rings, scheduled
 `upgrade_and_reboot` jobs) queue this command instead of a plain `reboot` when the
 policy's "Reboot after upgrade if required" box is ticked. The Windows agent checks its
 pending-reboot signals and reboots only when one is set. The macOS agent reports "no
-reboot required" because Homebrew upgrades never need one, and skips it. Linux hosts do
+reboot required" because Homebrew upgrades never need one, and skips it. The macOS agent runs
+as root and starts Homebrew (`brew outdated`, `brew upgrade`) as the account that owns Homebrew, with a small
+environment, because a root process must not run a file another account can rewrite *(7.5.0)*. If it cannot work
+out the owner it does not run Homebrew. Linux hosts do
 the check inline in the upgrade shell (the reboot-required marker, `needs-restarting -r`,
 or a newer installed kernel). An older agent answers "unsupported command" and stays up,
 which is the safe outcome. The command counts as a reboot for four-eyes approval. The

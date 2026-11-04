@@ -2429,6 +2429,34 @@ def _brew_path():
     return shutil.which('brew') or ''
 
 
+def _brew_run_kwargs(brew):
+    """subprocess.run keywords that run Homebrew as the account that owns it. {} when nothing needs dropping; None when the owner
+    cannot be worked out (the caller does not run brew then).
+
+    7.5.0. Homebrew's files belong to the account that installed it, and the daemon runs as root. A root process that runs a file
+    another account can rewrite hands that account root at the next patch check, and Homebrew refuses to run as root anyway
+    ("Running Homebrew as root is extremely unsafe"). So the child takes the owner's uid, the file's group and a small
+    environment, and none of root's supplementary groups."""
+    try:
+        if os.geteuid() != 0:
+            return {}                      # not root: nothing to hand over, and no way to change account
+        st = os.stat(brew)                 # follows a link: /usr/local/bin/brew points into the Homebrew tree
+        if st.st_uid == 0:
+            return {}                      # root's own install
+        if sys.version_info < (3, 9):
+            return None                    # subprocess has no user= before 3.9: do not run it as root instead
+        import pwd
+        pw = pwd.getpwuid(st.st_uid)
+    except (OSError, KeyError, ImportError):
+        return None
+    return {
+        'user': st.st_uid, 'group': st.st_gid, 'extra_groups': [st.st_gid],
+        'env': {'HOME': pw.pw_dir, 'USER': pw.pw_name, 'LOGNAME': pw.pw_name, 'LANG': 'C',
+                'PATH': '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin',
+                'HOMEBREW_NO_ANALYTICS': '1', 'HOMEBREW_NO_ENV_HINTS': '1'},
+    }
+
+
 def brew_outdated():
     """W6-32: outdated Homebrew formulae as a packages entry (mirrors the Linux
     apt/dnf shape) so macOS hosts surface on the Patches page. None when brew
@@ -2436,9 +2464,12 @@ def brew_outdated():
     brew = _brew_path()
     if not brew:
         return None
+    run_as = _brew_run_kwargs(brew)
+    if run_as is None:
+        return None
     try:
         r = subprocess.run([brew, 'outdated', '--formula', '--json=v2'],
-                           capture_output=True, text=True, timeout=60)
+                           capture_output=True, text=True, timeout=60, **run_as)
         if r.returncode != 0 or not r.stdout.strip():
             return {'manager': 'brew', 'upgradable': 0, 'upgradable_names': []}
         data = json.loads(r.stdout)
@@ -2643,8 +2674,14 @@ def handle_command(cmd):
         is_exec = cmd.startswith('exec:')
         is_upgrade = cmd == 'upgrade' or cmd.startswith('upgrade:')   # W6-32: slow
         _to = _exec_timeout_override(cmd) if is_exec else (1800 if is_upgrade else None)
+        run_as = {}
+        if is_upgrade:
+            run_as = _brew_run_kwargs(argv[0])      # 7.5.0: Homebrew runs as its owner, not as root
+            if run_as is None:
+                return {'cmd': cmd, 'rc': 1,
+                        'output': 'cannot tell which account owns Homebrew, so it was not run as root'}
         r = subprocess.run(argv, capture_output=True, text=True,
-                           timeout=_to or (EXEC_TIMEOUT if is_exec else 30))
+                           timeout=_to or (EXEC_TIMEOUT if is_exec else 30), **run_as)
         out = ((r.stdout or '') + (r.stderr or '')).strip()[:MAX_OUTPUT]
         return {'cmd': cmd, 'output': out or '(no output)', 'rc': r.returncode}
     except subprocess.TimeoutExpired:
@@ -3078,6 +3115,10 @@ def main(argv=None):
     ap.add_argument('--once', action='store_true', help="send one heartbeat, print the server's answer and exit")
     ap.add_argument('--version', action='store_true', help='print the agent version and exit')
     a = ap.parse_args(argv)
+    # 7.5.0: the PIN and the token may come from the environment, so an installer need not put them on a command line, where any
+    # local account can read them in the process list for the seconds enrolment takes. An argument still wins.
+    a.pin = a.pin or os.environ.get('REMOTEPOWER_ENROLL_PIN', '').strip() or None
+    a.token = a.token or os.environ.get('REMOTEPOWER_ENROLL_TOKEN', '').strip() or None
     if a.version:
         print(VERSION)
         return 0

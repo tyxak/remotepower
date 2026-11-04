@@ -15987,7 +15987,7 @@ def main():
     # v1.11.10: token-based enrollment for non-interactive use
     parser.add_argument('--server', help='Server URL for enroll / enroll-token (e.g. https://remote.example.com)')
     parser.add_argument('--token', help='Enrollment token (or use $REMOTEPOWER_ENROLL_TOKEN, or /etc/remotepower/enroll-token)')
-    parser.add_argument('--pin', help='Enrollment PIN for a non-interactive `enroll` (skips the prompt)')
+    parser.add_argument('--pin', help='Enrollment PIN for a non-interactive `enroll` (skips the prompt); or $REMOTEPOWER_ENROLL_PIN')
     parser.add_argument('--name', help='Host display name (defaults to hostname)')
     args = parser.parse_args()
 
@@ -15996,11 +15996,15 @@ def main():
         print("Use sudo or the systemd unit (runs as root).")
         print()
 
+    # 7.5.0: the PIN may come from the environment, so nothing has to put it on a command line, where any local account can read it
+    # in the process list for the seconds enrolment takes (the token already could: REMOTEPOWER_ENROLL_TOKEN). An argument wins.
+    pin_given = args.pin or os.environ.get('REMOTEPOWER_ENROLL_PIN', '').strip() or None
+
     if args.action == 'enroll':
-        enroll_interactive(re_enroll=False, server_url=args.server, pin=args.pin); return
+        enroll_interactive(re_enroll=False, server_url=args.server, pin=pin_given); return
 
     if args.action == 're-enroll':
-        enroll_interactive(re_enroll=True, server_url=args.server, pin=args.pin); return
+        enroll_interactive(re_enroll=True, server_url=args.server, pin=pin_given); return
 
     if args.action == 'enroll-token':
         # Server URL: --server flag, or existing creds (re-enrollment), or

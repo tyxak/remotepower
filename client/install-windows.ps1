@@ -183,11 +183,18 @@ try {
 } catch {}
 
 # ── Enroll ────────────────────────────────────────────────────────────────────
+# The PIN and the token go in the environment, not on the command line, where any local account would read them in the process list.
 $enrollArgs = @($agent, '--enroll', '--server', $Server, '--name', $Name)
-if ($Pin)   { $enrollArgs += @('--pin', $Pin) }
-if ($Token) { $enrollArgs += @('--token', $Token) }
-& python @enrollArgs
-if ($LASTEXITCODE -ne 0) { throw 'Enrollment failed.' }
+try {
+  if ($Pin)   { $env:REMOTEPOWER_ENROLL_PIN = $Pin }
+  if ($Token) { $env:REMOTEPOWER_ENROLL_TOKEN = $Token }
+  & python @enrollArgs
+  $enrollExit = $LASTEXITCODE
+} finally {
+  Remove-Item Env:REMOTEPOWER_ENROLL_PIN -ErrorAction SilentlyContinue
+  Remove-Item Env:REMOTEPOWER_ENROLL_TOKEN -ErrorAction SilentlyContinue
+}
+if ($enrollExit -ne 0) { throw 'Enrollment failed.' }
 
 # ── Persistence: a real Windows service (preferred), else a SYSTEM task ────────
 schtasks /delete /tn RemotePowerAgent /f 2>$null | Out-Null
