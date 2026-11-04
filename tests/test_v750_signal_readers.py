@@ -175,5 +175,49 @@ class TestTheRunbookSnapshot(_Base):
         json.dumps(self.snap({"sysinfo": {"reboot_required": True}}, [{"name": "w", "status": "Up"}]))
 
 
+class TestTheAnomalyScanSeesThePorts(_Base):
+    """G04: the prompt asks about suspicious ports and the snapshot carried none."""
+
+    def lines(self, ports):
+        devs = api.load(api.DEVICES_FILE)
+        devs["devB"]["sysinfo"] = {"cpu_percent": 5, "listening_ports": ports}
+        api.save(api.DEVICES_FILE, devs)
+        api._LOAD_CACHE.clear()
+        seen = {}
+        real_prompt, real_run = api.ai_insights.anomaly_prompt, api._ai_run
+        api.ai_insights.anomaly_prompt = lambda summary: (seen.setdefault("s", summary), ("sys", []))[1]
+        api._ai_run = lambda *a, **k: ({"text": "[]"}, 0, 100)
+        try:
+            st, d = self.call(api.handle_ai_anomaly)
+        finally:
+            api.ai_insights.anomaly_prompt, api._ai_run = real_prompt, real_run
+        self.assertEqual(st, 200, d)
+        return [ln for ln in seen["s"].splitlines() if "name=b1" in ln]
+
+    def test_world_reachable_ports_are_in_the_line_by_number_and_protocol_only(self):
+        got = self.lines([{"port": 22, "proto": "tcp", "process": "sshd", "scope": "world"},
+                          {"port": 5432, "proto": "tcp", "process": "postgres", "scope": "lan"},
+                          {"port": 53, "proto": "udp", "process": "dnsmasq", "scope": "world"}])
+        self.assertEqual(len(got), 1)
+        self.assertIn("world_ports=22/tcp,53/udp", got[0])
+        self.assertNotIn("5432", got[0])
+        for secret in ("sshd", "postgres", "dnsmasq"):
+            self.assertNotIn(secret, got[0])
+
+    def test_none_reachable_adds_nothing_and_junk_is_skipped(self):
+        self.assertNotIn("world_ports", self.lines([{"port": 5432, "proto": "tcp", "scope": "lan"}])[0])
+        got = self.lines([None, "x", {"port": "22", "scope": "world"}, {"port": True, "scope": "world"}, {"port": 80, "scope": "world"}])
+        self.assertIn("world_ports=80/tcp", got[0])
+
+    def test_at_most_eight(self):
+        got = self.lines([{"port": 1000 + i, "proto": "tcp", "scope": "world"} for i in range(12)])[0]
+        self.assertEqual(len(got.split("world_ports=")[1].split(",")), 8)
+
+    def test_a_port_listed_twice_is_named_once(self):
+        got = self.lines([{"port": 1000, "proto": "tcp", "scope": "world"}, {"port": 1000, "proto": "tcp", "scope": "world"},
+                          {"port": 1001, "proto": "tcp", "scope": "world"}])[0]
+        self.assertIn("world_ports=1000/tcp,1001/tcp", got)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -86,7 +86,9 @@ def _clean(v: Any, cap: int) -> str:
 # the proxy), and a mirror can ask for a token in the query of its URL. Judging a repository needs the scheme, the host and the path
 # and none of this. The agent takes it out before it sends (7.5.0); the server does it again, because a host on an older agent has
 # not, and because what is stored ends up in every backup.
-_SECRET_KEY_RE = re.compile(r"(?i)^\s*[\w.\-]*(?:pass(?:word|wd|phrase)?|secret|token|api[_\-]?key|credential|user(?:name)?)\s*[=:]")
+_SECRET_KEY_RE = re.compile(
+    r"(?i)^\s*[\w.\-]*(?:pass(?:word|wd|phrase)?|secret|token|api[_\-]?key|credential|user(?:name)?)\s*[=:]"
+)
 _SECRET_PARAM = ("pass", "secret", "token", "key", "auth", "sig", "cred", "session", "user")
 _URL_END = frozenset(" \t\r\n'\"<>")
 
@@ -109,7 +111,7 @@ def redact_line(line: str) -> str:
     costs no more than its length."""
     m = _SECRET_KEY_RE.match(line)
     if m:
-        rest = line[m.end():]
+        rest = line[m.end() :]
         return line[: m.end()] + rest[: len(rest) - len(rest.lstrip())] + "***"
     out: list[str] = []
     i, n = 0, len(line)
@@ -133,12 +135,19 @@ def redact_line(line: str) -> str:
         auth = head if slash < 0 else head[:slash]
         at = auth.rfind("@")
         if at >= 0:
-            head = head[at + 1:]  # user:password@host
-        elif slash >= 0 and ":" in auth and not auth.rsplit(":", 1)[1].isdigit() and "@" in head[slash:]:
-            head = head[head.rfind("@") + 1:]  # a password with a raw `/` in it: `user:pa/ss@host/path`
+            head = head[at + 1 :]  # user:password@host
+        elif (
+            slash >= 0
+            and ":" in auth
+            and not auth.rsplit(":", 1)[1].isdigit()
+            and "@" in head[slash:]
+        ):
+            head = head[
+                head.rfind("@") + 1 :
+            ]  # a password with a raw `/` in it: `user:pa/ss@host/path`
         q = tail.find("?")
         if q >= 0:
-            tail = tail[: q + 1] + _mask_query(tail[q + 1:])
+            tail = tail[: q + 1] + _mask_query(tail[q + 1 :])
         out.append(line[i:a] + head + tail)
         i = e
     return "".join(out)
@@ -146,7 +155,9 @@ def redact_line(line: str) -> str:
 
 def redact(text: str) -> str:
     """Repository text, or one URL, without credentials. See redact_line."""
-    return "\n".join(redact_line(line) for line in text.split("\n")) if isinstance(text, str) else ""
+    return (
+        "\n".join(redact_line(line) for line in text.split("\n")) if isinstance(text, str) else ""
+    )
 
 
 def clean_files(raw: Any) -> dict[str, str]:

@@ -109,7 +109,9 @@ def _leaf(value: Any, kind: str) -> Any:
         if _INT_TEXT.match(value):
             try:
                 n = int(value)
-            except ValueError:  # more digits than int() reads (4,300): not a number a store can hold, and not a reason to skip the repair
+            except (
+                ValueError
+            ):  # more digits than int() reads (4,300): not a number a store can hold, and not a reason to skip the repair
                 return value, False
             return (n, True) if abs(n) < _NUM_LIMIT else (value, False)
         try:

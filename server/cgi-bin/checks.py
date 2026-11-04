@@ -833,7 +833,11 @@ def _host_checks(
     # on the host itself: a lapsed /etc/nginx/ssl/site.pem was a drawer table and one event. Renders only when the agent reported
     # service certificate files (the system CA bundle is left out) and the operator has not switched the signal off
     # (`cert_file_days` None), so a host with none shows no row rather than a green one.
-    _svc_certs = posture_signals.service_cert_files(hw_rec.get("cert_files")) if cert_file_days is not None else []
+    _svc_certs = (
+        posture_signals.service_cert_files(hw_rec.get("cert_files"))
+        if cert_file_days is not None
+        else []
+    )
     if _svc_certs:
         _due = posture_signals.expiring_cert_files(_svc_certs, now, cert_file_days)
         _lapsed = [r for r in _due if r["expired"]]
@@ -853,7 +857,8 @@ def _host_checks(
                 "security",
                 "warning",
                 f"{plural(len(_due), 'certificate file', 'certificate files')} expiring within "
-                f"{plural(cert_file_days, 'day', 'days')}: " + ", ".join(r["path"] for r in _due[:3]),
+                f"{plural(cert_file_days, 'day', 'days')}: "
+                + ", ".join(r["path"] for r in _due[:3]),
             )
         else:
             add(

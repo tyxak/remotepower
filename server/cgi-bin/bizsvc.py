@@ -146,7 +146,10 @@ def member_key(m):
     """A stable text for a part, to tell two apart and to key a state on."""
     # '|' and the backslash are escaped in each field, so a unit named `x|y` on host `a` and one named `y` on host `a|x` are two keys;
     # a key without either character is what it always was, so stored state keeps matching.
-    return "|".join(str(p).replace("\\", "\\\\").replace("|", "\\|") for p in [m["kind"]] + [m[f] for f in _FIELDS[m["kind"]]])
+    return "|".join(
+        str(p).replace("\\", "\\\\").replace("|", "\\|")
+        for p in [m["kind"]] + [m[f] for f in _FIELDS[m["kind"]]]
+    )
 
 
 def device_ids(members):
@@ -193,7 +196,8 @@ def find_cycle(services):
 
 def depth(services, sid, _seen=None, _memo=None):
     """How many levels of services below ``sid`` there are, counting itself as 1. A cycle counts as MAX_DEPTH + 1.
-    Each service is worked out once (``_memo``), so the cost is the size of the graph and not its number of paths."""
+    Each service is worked out once (``_memo``), so the cost is the size of the graph and not its number of paths.
+    """
     memo = {} if _memo is None else _memo
     seen = _seen or frozenset()
     if sid in seen:

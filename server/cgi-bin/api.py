@@ -47739,6 +47739,14 @@ def handle_ai_anomaly():
         pend = (si.get('packages') or {}).get('upgradable')
         if isinstance(pend, int):
             parts.append(f"pending_updates={pend}")
+        # 7.5.0: the prompt asks the model about suspicious ports and the snapshot carried none. The ports reachable from outside the
+        # host's network, as number/protocol only (no process names, no addresses), eight at most so a host with many cannot crowd out
+        # the others.
+        _wp = [f"{p.get('port')}/{str(p.get('proto') or 'tcp')[:4]}" for p in (si.get('listening_ports') or [])
+               if isinstance(p, dict) and p.get('scope') == 'world' and isinstance(p.get('port'), int)
+               and not isinstance(p.get('port'), bool)]
+        if _wp:
+            parts.append('world_ports=' + ','.join(dict.fromkeys(_wp[:8])))
         lines.append(' '.join(parts))
     summary = '\n'.join(lines) if lines else 'No hosts.'
     system, messages = ai_insights.anomaly_prompt(summary)

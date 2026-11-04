@@ -132,7 +132,10 @@ def failed_backup_checks_by_device(backup_state, monitors=None):
         label = (mons.get(path) or {}).get("label") or path
         if entry.get("verify_status") in VERIFY_BAD:
             tool = str(entry.get("verify_tool") or "").strip()[:24]
-            out.setdefault(did, []).append(f"{label} — integrity check {entry['verify_status']}" + (f" ({tool})" if tool else ""))
+            out.setdefault(did, []).append(
+                f"{label} — integrity check {entry['verify_status']}"
+                + (f" ({tool})" if tool else "")
+            )
         if entry.get("drill_status") in DRILL_BAD:
             out.setdefault(did, []).append(f"{label} — restore drill {entry['drill_status']}")
     return out
@@ -145,7 +148,8 @@ def risky_accounts(hw_rec):
     7.5.0. The Linux agent tags these (`empty_password`, `uid0`) on every account it reads and the server keeps the list; they
     raise events (empty_password_account, rogue_uid0) and a Checks row, and counted for nothing in the risk score and nowhere in
     the compliance report, which said it held no inventory of standing privilege. This is that inventory's two worst lines.
-    Note `empty_password` needs the agent to run as root (it reads /etc/shadow), so a host whose agent does not is silent here."""
+    Note `empty_password` needs the agent to run as root (it reads /etc/shadow), so a host whose agent does not is silent here.
+    """
     acc = hw_rec.get("accounts") if isinstance(hw_rec, dict) else None
     blank, uid0 = [], []
     if isinstance(acc, list):
@@ -163,7 +167,12 @@ def risky_accounts(hw_rec):
 
 # The certificate files a host reports are the ones its own services use. The system CA bundle holds hundreds of certificates
 # nobody renews: the agent does not scan those directories, and these prefixes drop them again for an older agent.
-CA_BUNDLE_PREFIXES = ("/etc/ssl/certs/", "/etc/pki/ca-trust", "/usr/share/ca-certificates", "/etc/ca-certificates")
+CA_BUNDLE_PREFIXES = (
+    "/etc/ssl/certs/",
+    "/etc/pki/ca-trust",
+    "/usr/share/ca-certificates",
+    "/etc/ca-certificates",
+)
 CERT_FILE_DEFAULT_DAYS = 21
 
 
@@ -177,7 +186,9 @@ def cert_file_days(cfg):
     if not cfg.get("cert_expiry_alerts_enabled", True):
         return None
     try:
-        days = int(cfg.get("cert_file_expiring_days", CERT_FILE_DEFAULT_DAYS) or CERT_FILE_DEFAULT_DAYS)
+        days = int(
+            cfg.get("cert_file_expiring_days", CERT_FILE_DEFAULT_DAYS) or CERT_FILE_DEFAULT_DAYS
+        )
     except (TypeError, ValueError, OverflowError):
         return CERT_FILE_DEFAULT_DAYS
     return days if days > 0 else CERT_FILE_DEFAULT_DAYS
@@ -192,7 +203,12 @@ def service_cert_files(certs):
         if not isinstance(c, dict):
             continue
         path, na = c.get("path"), c.get("not_after")
-        if not isinstance(path, str) or not path or isinstance(na, bool) or not isinstance(na, (int, float)):
+        if (
+            not isinstance(path, str)
+            or not path
+            or isinstance(na, bool)
+            or not isinstance(na, (int, float))
+        ):
             continue
         if not (0 < na < math.inf) or path.startswith(CA_BUNDLE_PREFIXES):
             continue
@@ -214,7 +230,14 @@ def expiring_cert_files(certs, now, days):
         except (TypeError, ValueError, OverflowError):
             continue
         if na <= soon:
-            out.append({"path": c["path"], "not_after": na, "days_left": max(0, (na - now) // 86400), "expired": na <= now})
+            out.append(
+                {
+                    "path": c["path"],
+                    "not_after": na,
+                    "days_left": max(0, (na - now) // 86400),
+                    "expired": na <= now,
+                }
+            )
     out.sort(key=lambda r: (r["not_after"], r["path"]))
     return out
 
@@ -251,7 +274,10 @@ def av_verdict(av_rec, tools):
     # 7.5.0: the store's key is `realtime_enabled` (what the Windows agent's parser writes and _ingest_av keeps). This read
     # `realtime`, which nothing writes, so Defender switched off was invisible to the risk score and to the compliance AV control
     # while the alert, the Checks row and the AI index all saw it. Three test fixtures carried the same wrong key.
-    off = any(isinstance(av_rec.get(t), dict) and av_rec[t].get("realtime_enabled") is False for t in tools)
+    off = any(
+        isinstance(av_rec.get(t), dict) and av_rec[t].get("realtime_enabled") is False
+        for t in tools
+    )
     return {"infected": infected, "realtime_off": off}
 
 

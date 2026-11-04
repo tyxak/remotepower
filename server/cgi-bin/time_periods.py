@@ -264,7 +264,9 @@ def clean_period(
     the shape ours are; a missing one is `new_id` (the caller makes it)."""
     if not isinstance(raw, dict):
         raise ValueError("a time period must be an object")
-    name = re.sub(r"[\x00-\x1f\x7f]", " ", str(raw.get("name") or "")).strip()[:64].strip()   # cut, then strip: a second clean changes nothing
+    name = (
+        re.sub(r"[\x00-\x1f\x7f]", " ", str(raw.get("name") or "")).strip()[:64].strip()
+    )  # cut, then strip: a second clean changes nothing
     if not name:
         raise ValueError("a time period needs a name")
     pid = str(raw.get("id") or "").strip() or new_id
