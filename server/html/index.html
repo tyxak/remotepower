@@ -1392,6 +1392,15 @@
               <p class="hint">Reduced effects turn off the glow and the dot texture. No colour changes.</p>
             </div>
           </div>
+          <!-- 7.4.9: the typeface. Saved to the account like the look. The system font is the default; B612 is fetched only when picked. -->
+          <div class="mb-16">
+            <div class="form-label mb-6">Typeface</div>
+            <select id="acct-typeface" class="form-input input-auto" data-change="setTypefaceUI" aria-label="Typeface">
+              <option value="system">System font</option>
+              <option value="b612">B612</option>
+            </select>
+            <p class="hint">B612 was drawn for aircraft cockpit screens, with letters that are easy to tell apart. It loads only when you pick it, and it covers Latin letters; other scripts use your system font. Saved to your account, so it follows you to other browsers.</p>
+          </div>
           <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting; <strong>Time of day</strong> switches on the clock instead — which is what you want when the OS is pinned to dark, as it is on most servers and kiosks. The accent tints buttons and highlights on top of any theme.</p>
           <div class="form-label mb-6">Theme</div>
           <div id="acct-theme-grid" class="theme-grid mb-16"></div>

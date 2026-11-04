@@ -88,6 +88,7 @@ async function loadUiPrefs() {
   }
   _uiPrefsLoaded = true;
   try { applyLook(); applyTheme(); } catch (_) {}   // 7.4.9: the account's look replaces the browser's copy
+  try { applyTypeface(); } catch (_) {}             // and so does its typeface
 }
 
 function _scheduleFlushUiPrefs() {
@@ -1372,6 +1373,26 @@ function applyLook() {
   try { localStorage.setItem('rp_look', look); localStorage.setItem('rp_fx', fx); } catch (_) {}
   return changed;
 }
+// ── 7.4.9: the typeface ───────────────────────────────────────────────────────────────────────────────────────────────────
+// The system font stack is what the interface has always used and stays the default; B612, a face drawn for aircraft cockpit
+// screens, is an option. Like the look it is a reading preference, so it follows the ACCOUNT (ui_prefs.typeface) and the browser keeps
+// only a copy of the last one it drew, so the first paint matches while the prefs are on their way. An administrator has no default
+// or lock for it: a font is not branding. The face itself is declared in styles.css and a browser fetches it only when text is drawn
+// with it, so the default costs nothing. Mirrors UI_TYPEFACES in api.py.
+const TYPEFACES = ['system', 'b612'];
+const TYPEFACE_DEFAULT = 'system';
+function _typefaceChoice() {
+  if (_uiPrefsLoaded) return TYPEFACES.includes(_uiPrefs.typeface) ? _uiPrefs.typeface : TYPEFACE_DEFAULT;
+  let copy = ''; try { copy = localStorage.getItem('rp_typeface') || ''; } catch (_) {}
+  return TYPEFACES.includes(copy) ? copy : TYPEFACE_DEFAULT;   // the prefs are not here yet: the browser's copy stands in
+}
+// Sets the attribute the stylesheet reads. The system font is the page with no attribute at all, so the default is exactly what
+// it was before the option existed.
+function applyTypeface() {
+  const face = _typefaceChoice();
+  if (face === TYPEFACE_DEFAULT) delete document.body.dataset.typeface; else document.body.dataset.typeface = face;
+  try { localStorage.setItem('rp_typeface', face); } catch (_) {}
+}
 // The palette used when none was chosen: Classic keeps Midnight and Daylight, the Pilot look brings its own pair.
 function _defaultTheme(light) {
   const pilot = _lookChoice() === 'pilot';
@@ -1557,6 +1578,18 @@ function setFxUI() {
   _scheduleFlushUiPrefs();
   applyLook();
 }
+function setTypefaceUI() {
+  const el = document.getElementById('acct-typeface');
+  const v = el ? el.value : TYPEFACE_DEFAULT;
+  if (!TYPEFACES.includes(v)) return;
+  _uiPrefs.typeface = v;
+  _scheduleFlushUiPrefs();
+  applyTypeface();
+}
+function _buildTypefacePicker() {
+  const el = document.getElementById('acct-typeface');
+  if (el) el.value = _typefaceChoice();
+}
 function _buildLookPicker() {
   const wrap = document.getElementById('acct-look');
   if (!wrap) return;
@@ -1587,6 +1620,7 @@ function _buildLookPicker() {
 }
 function _buildAppearancePicker() {
   _buildLookPicker();
+  _buildTypefacePicker();
   _buildThemeGrid();
   _buildBgGrid();
   _buildThemeSchedule();   // v6.1.2 (#44)
@@ -1712,9 +1746,11 @@ function setAccentUI(name) {
 window.setThemeUI = setThemeUI;
 window.setLookUI = setLookUI;
 window.setFxUI = setFxUI;
+window.setTypefaceUI = setTypefaceUI;
 // 7.4.9: paint the look and the palette as soon as the script runs, from the browser's copy. showApp shows the shell first and
 // asks for the prefs after, so waiting for that answer drew the shell in the default colours for the length of a request.
 try { applyLook(); applyTheme(); } catch (_) {}
+try { applyTypeface(); } catch (_) {}   // and the typeface, for the same reason
 // Live-update when the OS theme flips and we're in 'auto'.
 try {
   window.matchMedia && window.matchMedia('(prefers-color-scheme: light)')
