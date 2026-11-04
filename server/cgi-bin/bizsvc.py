@@ -111,7 +111,7 @@ def clean_member(raw):
     if not isinstance(raw, dict):
         return None
     kind = raw.get("kind")
-    if kind not in _FIELDS:
+    if not isinstance(kind, str) or kind not in _FIELDS:
         return None
     out = {"kind": kind}
     for f in _FIELDS[kind]:
@@ -189,18 +189,23 @@ def find_cycle(services):
     return None
 
 
-def depth(services, sid, _seen=None):
-    """How many levels of services below ``sid`` there are, counting itself as 1. A cycle counts as MAX_DEPTH + 1."""
-    seen = _seen or set()
+def depth(services, sid, _seen=None, _memo=None):
+    """How many levels of services below ``sid`` there are, counting itself as 1. A cycle counts as MAX_DEPTH + 1.
+    Each service is worked out once (``_memo``), so the cost is the size of the graph and not its number of paths."""
+    memo = {} if _memo is None else _memo
+    seen = _seen or frozenset()
     if sid in seen:
         return MAX_DEPTH + 1
+    if sid in memo:
+        return memo[sid]
     seen = seen | {sid}
     below = [
-        depth(services, m["service_id"], seen)
+        depth(services, m["service_id"], seen, memo)
         for m in services.get(sid) or []
         if m.get("kind") == KIND_SERVICE and m.get("service_id") in services
     ]
-    return 1 + (max(below) if below else 0)
+    memo[sid] = 1 + (max(below) if below else 0)
+    return memo[sid]
 
 
 def availability(transitions, now, window, current):

@@ -339,7 +339,9 @@ def _clean_body(body, defs, sid=None):
     cycle = bizsvc.find_cycle(trial)
     if cycle:
         return None, "services contain each other"
-    if bizsvc.depth(trial, sid or "_new") > bizsvc.MAX_DEPTH:
+    memo = {}
+    # every service that can reach the one being saved is judged too: editing a service changes how deep the ones that hold it go
+    if any(bizsvc.depth(trial, k, None, memo) > bizsvc.MAX_DEPTH for k in trial):
         return None, "services are nested too deep"
     return {
         "name": name,

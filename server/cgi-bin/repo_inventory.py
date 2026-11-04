@@ -81,6 +81,74 @@ def _clean(v: Any, cap: int) -> str:
     return _CTRL_RE.sub(" ", v)[:cap].strip() if isinstance(v, str) else ""
 
 
+# A repository definition can hold a credential, and the inventory shows these URLs to every signed-in user: apt and pacman take
+# `https://user:password@host/` in the line itself, a dnf or yum .repo file takes `username=` and `password=` (and the same for
+# the proxy), and a mirror can ask for a token in the query of its URL. Judging a repository needs the scheme, the host and the path
+# and none of this. The agent takes it out before it sends (7.5.0); the server does it again, because a host on an older agent has
+# not, and because what is stored ends up in every backup.
+_SECRET_KEY_RE = re.compile(r"(?i)^\s*[\w.\-]*(?:pass(?:word|wd|phrase)?|secret|token|api[_\-]?key|credential|user(?:name)?)\s*[=:]")
+_SECRET_PARAM = ("pass", "secret", "token", "key", "auth", "sig", "cred", "session", "user")
+_URL_END = frozenset(" \t\r\n'\"<>")
+
+
+def _mask_query(query: str) -> str:
+    """`query` with the value of every parameter whose name says it is a credential replaced by ***."""
+    parts = []
+    for seg in re.split(r"([&;])", query):
+        name, eq, _val = seg.partition("=")
+        if eq and any(w in name.lower() for w in _SECRET_PARAM):
+            parts.append(name + "=***")
+        else:
+            parts.append(seg)
+    return "".join(parts)
+
+
+def redact_line(line: str) -> str:
+    """One line of a repository definition without the credentials in it: the user name and password before the `@` of a URL's
+    address (and a token in its query), and the value of a `password=`-style setting. One pass from left to right, so a long line
+    costs no more than its length."""
+    m = _SECRET_KEY_RE.match(line)
+    if m:
+        rest = line[m.end():]
+        return line[: m.end()] + rest[: len(rest) - len(rest.lstrip())] + "***"
+    out: list[str] = []
+    i, n = 0, len(line)
+    while True:
+        j = line.find("://", i)
+        if j < 0:
+            out.append(line[i:])
+            break
+        a = j + 3
+        e = a
+        while e < n and line[e] not in _URL_END:
+            e += 1
+        token = line[a:e]  # address, path and query of this URL
+        end = len(token)
+        for ch in "?#":
+            k = token.find(ch)
+            if k >= 0:
+                end = min(end, k)
+        head, tail = token[:end], token[end:]
+        slash = head.find("/")
+        auth = head if slash < 0 else head[:slash]
+        at = auth.rfind("@")
+        if at >= 0:
+            head = head[at + 1:]  # user:password@host
+        elif slash >= 0 and ":" in auth and not auth.rsplit(":", 1)[1].isdigit() and "@" in head[slash:]:
+            head = head[head.rfind("@") + 1:]  # a password with a raw `/` in it: `user:pa/ss@host/path`
+        q = tail.find("?")
+        if q >= 0:
+            tail = tail[: q + 1] + _mask_query(tail[q + 1:])
+        out.append(line[i:a] + head + tail)
+        i = e
+    return "".join(out)
+
+
+def redact(text: str) -> str:
+    """Repository text, or one URL, without credentials. See redact_line."""
+    return "\n".join(redact_line(line) for line in text.split("\n")) if isinstance(text, str) else ""
+
+
 def clean_files(raw: Any) -> dict[str, str]:
     """The files a host reported, kept when the path is one a repository definition lives at, with each text and the total
     capped. {} for anything else."""
@@ -92,7 +160,7 @@ def clean_files(raw: Any) -> dict[str, str]:
         text = raw[path]
         if not _PATH_RE.fullmatch(path) or not isinstance(text, str):
             continue
-        text = _CTRL_RE.sub(" ", text)[:MAX_FILE_BYTES]
+        text = redact(_CTRL_RE.sub(" ", text))[:MAX_FILE_BYTES]
         if total + len(text) > MAX_TOTAL_BYTES:
             break
         total += len(text)
@@ -118,7 +186,7 @@ def _row(file: str, kind: str, url: str, **kw: Any) -> dict[str, Any]:
         "file": file,
         "kind": kind,
         "id": "",
-        "url": _clean(url, 300),
+        "url": _clean(redact(url), 300),
         "scheme": scheme,
         "host": host,
         "suite": "",

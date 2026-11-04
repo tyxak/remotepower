@@ -244,7 +244,7 @@ def evaluate(item: Any) -> list[dict[str, str]] | None:
     if sens:
         rw_root = any(s == "/" and rw for s, rw in sens)
         any_rw = any(rw for _s, rw in sens)
-        only_root_ro = all(s == "/" for s, _rw in sens) and not any_rw
+        only_root_ro = any(s == "/" for s, _rw in sens) and not any_rw
         sev = "critical" if rw_root else "high" if any_rw else "medium" if only_root_ro else "low"
         out.append(
             _finding(

@@ -21835,11 +21835,15 @@ def handle_enroll_register():
             # copy used from the wrong place does not use up the one meant for the right place.
             # A limit that is stored in a shape nobody can read refuses, it does not open the token to everyone.
             _only = meta.get('allowed_cidrs')
-            if _only not in (None, '', []) and not (isinstance(_only, list) and _ip_in_cidrs(_get_client_ip(), _only)):
-                audit_log('enroll', 'enrollment_token_refused_source',
-                          f'prefix={str(meta.get("prefix") or "")[:8]} from={_sanitize_str(_get_client_ip(), 64)}')
-                respond(403, {'error': 'This enrollment token cannot be used from this address'})
-            del tokens[_ekey]
+            _refused = _only not in (None, '', []) and not (isinstance(_only, list) and _ip_in_cidrs(_get_client_ip(), _only))
+            if _refused:
+                _refused_prefix = str(meta.get("prefix") or "")[:8]
+            else:
+                del tokens[_ekey]
+        if _refused:      # outside the lock: an audit entry queued inside a scope that then raises is discarded with it
+            audit_log('enroll', 'enrollment_token_refused_source',
+                      f'prefix={_refused_prefix} from={_sanitize_str(_get_client_ip(), 64)}')
+            respond(403, {'error': 'This enrollment token cannot be used from this address'})
         default_group = meta.get('default_group', '') or ''
         default_tags = meta.get('default_tags', []) or []
         enrol_tenant = str(meta.get('tenant') or '')
@@ -29957,6 +29961,13 @@ def _declarative_apply(doc, actor, dry_run=True):
             continue
         import copy as _copy
         inc = _copy.deepcopy(incoming)
+        if name == 'time_periods':
+            # the same cleaner the Settings save uses: ids of our shape, unique names, ranges inside the day, a zone the server knows
+            try:
+                inc = time_periods_mod.clean_periods(inc, lambda: 'tp-' + secrets.token_hex(4))
+            except ValueError as _tpe:
+                report[name] = {'skipped': str(_tpe)}
+                continue
         _rehydrate_secrets(inc, current.get(name), m.get('id'))
         report[name] = _declarative_diff(current.get(name), inc, m.get('id'))
         if not dry_run:
@@ -32061,7 +32072,7 @@ def handle_config_save():
                 _fv = float(_raw)
             except (TypeError, ValueError, OverflowError):
                 respond(400, {'error': f'{_tk} must be a number'})
-            if _fv < _lo or _fv > _hi:
+            if not (_lo <= _fv <= _hi):      # False for NaN, which float('nan') parses from the text "nan"
                 respond(400, {'error': f'{_tk} must be {_lo}..{_hi}'})
             cfg[_tk] = _fv
 
@@ -49605,10 +49616,10 @@ def _ingest_hardware(dev_id, dev_name, body, now, dev=None):
                   if isinstance(t.get('current_c'), (int, float))
                   and str(t.get('label') or '') not in _t_ign]
         for _sd in as_list(body.get('smart')):
-            if isinstance(_sd, dict) and isinstance(_sd.get('temperature_c'), (int, float)):
+            if isinstance(_sd, dict) and _temp_is_measurement(_sd.get('temperature_c')):
                 _tvals.append(_sd['temperature_c'])
         for _gg in as_list(body.get('gpus')):
-            if isinstance(_gg, dict) and isinstance(_gg.get('temp_c'), (int, float)):
+            if isinstance(_gg, dict) and _temp_is_measurement(_gg.get('temp_c')):
                 _tvals.append(_gg['temp_c'])
         if _tvals:
             temp_sample = max(_tvals)
@@ -78625,7 +78636,7 @@ def handle_ai_params_save():
             return  # unset
         try:
             f = float(v)
-            if f < lo or f > hi:
+            if not (lo <= f <= hi):
                 respond(400, {'error': f'{name} must be {lo}..{hi}'}); return
             out[name] = f
         except (TypeError, ValueError, OverflowError):

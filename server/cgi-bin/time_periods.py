@@ -77,7 +77,8 @@ def _ranges(period: dict[str, Any], weekday: int) -> list[tuple[int, int]]:
     out: list[tuple[int, int]] = []
     if not isinstance(weekly, dict):
         return out
-    for win in weekly.get(str(weekday)) or []:
+    wins = weekly.get(str(weekday))
+    for win in wins if isinstance(wins, list) else []:
         try:
             s, e = int(win[0]), int(win[1])
         except _NOT_A_PAIR:
@@ -243,7 +244,7 @@ def clean_weekly(raw: Any) -> dict[str, list[list[int]]]:
             else:
                 merged.append([s, e])
         if merged:
-            out[str(d)] = merged[: MAX_RANGES_PER_DAY * 2]
+            out[str(d)] = merged[:MAX_RANGES_PER_DAY]
     return out
 
 

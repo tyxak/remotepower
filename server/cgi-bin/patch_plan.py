@@ -26,6 +26,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from repo_inventory import redact as _redact
+
 MODES = ("standard", "extended")
 
 # The agent cuts a command's output at 32 KB and ends it with this line; seeing it means the plan below is the first part.
@@ -557,7 +559,9 @@ def parse(output: Any) -> dict[str, Any]:
     mode = (sec.get("mode") or [""])[0].strip()
     out["mode"] = mode if mode in MODES else ""
     plan_lines = sec.get("plan") or []
-    out["raw"] = "\n".join(plan_lines)[:RAW_KEEP]
+    # A package manager prints the repository addresses it could not reach, and a repository can carry user:password@ in its URL.
+    # The raw text and the first error are shown to every signed-in user, so they go through the same redaction as the inventory.
+    out["raw"] = _redact("\n".join(plan_lines))[:RAW_KEEP]
     if manager not in ("apt", "dnf", "pacman"):
         out["error"] = (
             "The host has no package manager the preview reads"
@@ -585,7 +589,7 @@ def parse(output: Any) -> dict[str, Any]:
     elif manager == "pacman":
         answered = "plan" in sec  # pacman -Qu prints nothing when the host is up to date
     if not answered:
-        out["error"] = (
+        out["error"] = _redact(
             r["errors"][0] if r.get("errors") else "The package manager did not give a plan"
         )
         return out
