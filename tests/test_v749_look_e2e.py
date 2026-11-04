@@ -76,8 +76,8 @@ SHADOWS = """(sel) => {
 
 # axe cannot judge text that sits over the hero's dot texture (it reports such text as incomplete, not as a failure: a mutation that
 # painted the captions dark grey passed the axe sweep), so the contrast of the hero's own text is measured here, with the WCAG
-# formula, against the first opaque background above it. The last lines are the control: the same measure on a caption forced to
-# a dark grey has to come back under 4.5.
+# formula, against the first opaque background above it. The last lines are the control: the same measure on a caption forced to the
+# colour of its own background (invisible text, in any palette) has to come back under 4.5.
 HERO_CONTRAST = """() => {
   const chan = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
   const parse = c => (c.match(/[\\d.]+/g) || []).map(Number);
@@ -89,7 +89,7 @@ HERO_CONTRAST = """() => {
   const rows = [...document.querySelectorAll(sel)].map(e => ({ text: e.textContent.trim().slice(0, 30), fg: getComputedStyle(e).color,
     bg: bgOf(e), ratio: ratio(getComputedStyle(e).color, bgOf(e)) }));
   const cap = document.querySelector('#home-hero .pilot-cap'); let forced = null;
-  if (cap) { const old = cap.style.color; cap.style.setProperty('color', '#555'); forced = ratio(getComputedStyle(cap).color, bgOf(cap)); cap.style.color = old; }
+  if (cap) { const old = cap.style.color; cap.style.setProperty('color', bgOf(cap)); forced = ratio(getComputedStyle(cap).color, bgOf(cap)); cap.style.color = old; }
   return { rows, forced };
 }"""
 
@@ -407,7 +407,7 @@ class TestTheLookSwitchInABrowser(unittest.TestCase):
                 self.assertGreater(len(got["rows"]), 6, "the measure looked at almost nothing: %s" % got["rows"])
                 self.assertEqual([r for r in got["rows"] if r["ratio"] < 4.5], [], theme)
                 self.assertIsNotNone(got["forced"])
-                self.assertLess(got["forced"], 4.5, "the measure cannot fail: a dark grey caption came back at %s" % got["forced"])
+                self.assertLess(got["forced"], 4.5, "the measure cannot fail: a caption in its own background colour came back at %s" % got["forced"])
 
     def test_the_hero_stays_inside_the_page_on_a_phone_and_with_a_huge_fleet(self):
         from test_a11y_axe import _SERIOUS_IMPACTS
