@@ -663,6 +663,7 @@ def _demo_enrich_sysinfo(dev, rng, si):
             {'name': 'tank', 'kind': 'zfs',
              'state': rng.choice(['ONLINE', 'ONLINE', 'DEGRADED']),
              'capacity': rng.randint(55, 92),
+             'last_snapshot': now() - 5400,          # 7.5.0: the Storage page shows it; recent, so no stale-snapshot alert opens
              'scrub': rng.choice(['scrub repaired 0B', 'none requested',
                                   'scrub in progress'])},
             {'name': 'md0', 'kind': 'mdadm',
@@ -671,7 +672,7 @@ def _demo_enrich_sysinfo(dev, rng, si):
             # btrfs carries a mountpoint so the Storage page's "Maintain…"
             # actions (scrub / balance / snapshots) have a target.
             {'name': 'btrfs:data', 'kind': 'btrfs', 'state': 'online',
-             'mount': '/mnt/vault', 'capacity': rng.randint(45, 88)},
+             'mount': '/mnt/vault', 'capacity': rng.randint(45, 88), 'last_snapshot': now() - 3 * 3600},
         ]
         # 7.4.9: the ZFS cache and the datasets that hold the most space, as zfs_stats keeps them. Drawn from a
         # generator of its own so the draws above, and every host after this one, are unchanged.
@@ -6787,6 +6788,9 @@ def build_backup_state() -> dict:
             'size_anom': False, 'verify_status': 'ok',
             'verify_output': 'zfs receive: resilvered clean', 'verify_at': now() - 3600 * 5,
             'verify_tool': 'auto',
+            # 7.5.0: the monitor above has a restore drill; a drill that passed a day ago, so the drawer shows how old the result is.
+            'drill_status': 'ok', 'drill_output': 'restored /tank/backups/latest and compared its checksum',
+            'drill_at': now() - 3600 * 30, 'drill_bytes': 52_428_800,
         },
     }
 

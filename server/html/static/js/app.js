@@ -26989,14 +26989,15 @@ async function _loadAuditSection(key) {
               const vs = b.verify_status || 'unknown';
               const vcls = vs === 'ok' ? 'c-green' : (vs === 'failed' || vs === 'timeout' || vs === 'error' || vs === 'unreachable') ? 'c-red' : (vs === 'tool_missing' ? 'c-amber' : 'c-muted');
               const vlbl = vs === 'ok' ? 'verified' : vs;
-              vcell = `<td class="${vcls}" title="${escAttr(((b.verify_tool || '') + ' ' + (b.verify_output || '')).trim())}">${escHtml(vlbl)}</td>`;
+              // 7.5.0: when it was checked. A weekly result looked as fresh as one a minute old; the time is stored and was not shown.
+              vcell = `<td class="${vcls}" title="${escAttr(((b.verify_tool || '') + ' ' + (b.verify_output || '')).trim())}">${escHtml(vlbl)}${b.verify_at ? ` <span class="fs-11 c-muted">${timeAgoHtml(b.verify_at)}</span>` : ''}</td>`;
             }
             let dcell = '<td class="fs-11 c-muted">—</td>';
             if (b.restore_drill_enabled) {
               const ds = b.drill_status || 'unknown';
               const dcls = ds === 'ok' ? 'c-green' : (ds === 'failed' || ds === 'timeout' || ds === 'error') ? 'c-red' : (ds === 'tool_missing' ? 'c-amber' : 'c-muted');
               const dlbl = ds === 'ok' ? `restored (${_fmtBytes ? _fmtBytes(b.drill_bytes) : b.drill_bytes + 'B'})` : ds;
-              dcell = `<td class="${dcls}" title="${escAttr(b.drill_output || '')}">${escHtml(dlbl)}</td>`;
+              dcell = `<td class="${dcls}" title="${escAttr(b.drill_output || '')}">${escHtml(dlbl)}${b.drill_at ? ` <span class="fs-11 c-muted">${timeAgoHtml(b.drill_at)}</span>` : ''}</td>`;
             }
             return `<tr>
               <td><code>${escHtml(b.label)}</code>${b.label !== b.path ? `<div class="fs-11 c-muted">${escHtml(b.path)}</div>` : ''}</td>

@@ -7028,6 +7028,7 @@
     "Last run": { "fr": "Dernière exécution", "de": "Letzte Ausführung", "zh": "上次运行", "hi": "अंतिम बार चला", "es": "Última ejecución", "ar": "آخر تشغيل" },
     "Last scan": { "fr": "Dernière analyse", "de": "Letzter Scan", "zh": "上次扫描", "hi": "अंतिम scan", "es": "Último escaneo", "ar": "آخر مسح" },
     "Last scrub": { "fr": "Dernier nettoyage", "de": "Letztes Scrubbing", "zh": "上次清理", "hi": "अंतिम scrub", "es": "Último scrub", "ar": "آخر تنظيف" },
+    "Last snapshot": { "fr": "Dernier instantané", "de": "Letzter Snapshot", "zh": "最近快照", "hi": "अंतिम स्नैपशॉट", "es": "Última instantánea", "ar": "آخر لقطة" },
     "Last seen": { "fr": "Dernier contact", "de": "Zuletzt gesehen", "zh": "上次出现", "hi": "अंतिम बार देखा गया", "es": "Última conexión", "ar": "آخر ظهور" },
     "Latest poll": { "fr": "Dernière interrogation", "de": "Letzte Abfrage", "zh": "最近轮询", "hi": "नवीनतम poll", "es": "Último sondeo", "ar": "آخر استطلاع" },
     "Leave blank to keep existing": { "fr": "Laisser vide pour conserver l'existant", "de": "Leer lassen, um den bestehenden Wert zu behalten", "zh": "留空以保留现有值", "hi": "मौजूदा रखने हेतु खाली छोड़ें", "es": "Déjelo en blanco para mantener el existente", "ar": "اتركه فارغًا للإبقاء على الموجود" },

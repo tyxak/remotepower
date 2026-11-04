@@ -68889,6 +68889,10 @@ def handle_storage_overview():
                 'pool': p.get('name'), 'kind': kind,
                 'state': p.get('state', ''), 'capacity': p.get('capacity'),
                 'scrub': p.get('scrub', ''), 'degraded': bad,
+                # 7.5.0: the epoch of the newest ZFS or btrfs snapshot (0 = the pool has none, null = the pool kind or the agent says
+                # nothing). It drove the snapshot_stale alert and the AI index and no page showed it.
+                'last_snapshot': (p['last_snapshot'] if isinstance(p.get('last_snapshot'), int)
+                                  and not isinstance(p.get('last_snapshot'), bool) and p['last_snapshot'] >= 0 else None),
                 'target': target, 'online': (int(time.time()) - d.get('last_seen', 0)) < get_online_ttl(),
             })
     rows.sort(key=lambda r: (0 if r['degraded'] else 1, r['device'], r['pool'] or ''))

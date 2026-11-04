@@ -20,7 +20,7 @@ async function loadStorage() {
     _renderStorage();
     _renderStorageZfs();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state-error">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state-error">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
 
@@ -35,12 +35,13 @@ function _renderStorage() {
     state:    r.state || '',
     capacity: r.capacity || 0,
     scrub:    r.scrub || '',
+    snapshot: r.last_snapshot == null ? -1 : r.last_snapshot,
   }));
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="isl-534">No ZFS / mdadm / btrfs pools reported. Agents must be on v3.11.0+.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="isl-534">No ZFS / mdadm / btrfs pools reported. Agents must be on v3.11.0+.</td></tr>';
     return;
   }
-  const { rows: shown, note } = _capFleetRows(rows, 7, 'pools');
+  const { rows: shown, note } = _capFleetRows(rows, 8, 'pools');
   tbody.innerHTML = shown.map(r => {
     const color = r.degraded ? 'var(--red)' : 'var(--green)';
     const cap = (r.capacity || r.capacity === 0) && r.capacity !== null ? `${r.capacity}%` : '—';
@@ -57,6 +58,7 @@ function _renderStorage() {
       <td class="${r.degraded ? 'fw-600' : ''}" data-color="${color}">${escHtml(r.state || '—')}</td>
       <td>${cap}</td>
       <td class="hint">${escHtml(r.scrub || '—')}</td>
+      <td class="hint">${r.last_snapshot == null ? '—' : timeAgoHtml(r.last_snapshot)}</td>
       <td class="nowrap">${maintBtn}</td>
     </tr>`;
   }).join('') + note;

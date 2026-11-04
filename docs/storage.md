@@ -8,9 +8,13 @@ appear, flagged, so nothing hides.
 ## Storage health (ZFS / mdadm / btrfs)
 
 **Hardware → Storage** lists every pool or array with its Host, Pool, Type, State,
-Capacity and Last scrub, with **degraded or faulted pools first**. The line above
+Capacity, Last scrub and Last snapshot, with **degraded or faulted pools first**. The line above
 the table counts pools and degraded ones. If the table is empty, no agent has
 reported a ZFS, mdadm or btrfs pool yet.
+
+**Last snapshot** is the time of the newest snapshot on a ZFS pool or a btrfs file system. It reads
+*never* for a pool that has none, and a dash for an mdadm array, which has no snapshots. The same
+figure raises the stale-snapshot alert (*(7.5.0)* the page shows it too).
 
 - `storage_degraded` fires when a pool goes bad, and `storage_recovered` when it
   heals.

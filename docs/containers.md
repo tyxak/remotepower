@@ -211,6 +211,8 @@ passed a check yet.
 - The exclude list, a per-container mute and maintenance windows apply as they do to the other container alerts, and the
   host's row on **Needs attention** says how many containers are unhealthy.
 - An agent older than 7.4.9 still raises the alert; it just has no output text to show.
+- The **unhealthy** badge on a container in the host's container list carries the same text as a tooltip,
+  with the number of failed checks in a row *(7.5.0)*.
 
 Webhook payload of `container_unhealthy` (`container_healthy` carries the same keys without `output` and `health_streak`):
 

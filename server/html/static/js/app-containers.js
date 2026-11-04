@@ -531,7 +531,10 @@ async function containersOpen(deviceId, name) {
     if (c.health === 'healthy') {
       healthBadge = '<span class="status-pill ok isl-455">healthy</span>';
     } else if (c.health === 'unhealthy') {
-      healthBadge = '<span class="status-pill critical isl-455">unhealthy</span>';
+      // 7.5.0: why. The agent keeps the last output of the health check and how many checks in a row failed; both were stored, put in
+      // the alert and not shown here. The output is the container's own text, so it goes in as an attribute value, escaped.
+      const _why = [c.health_streak > 0 ? `${c.health_streak} in a row` : '', c.health_output || ''].filter(Boolean).join(': ');
+      healthBadge = `<span class="status-pill critical isl-455"${_why ? ` title="${escAttr(_why)}"` : ''}>unhealthy</span>`;
     } else if (c.health === 'starting') {
       healthBadge = '<span class="status-pill warn isl-455">starting</span>';
     }

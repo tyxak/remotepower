@@ -86,7 +86,8 @@ restore-drill result: open the drawer's **Audit** tab and expand **System → Ba
   in the agent's environment, for example `RESTIC_PASSWORD_FILE` or `BORG_PASSPHRASE`.
 - **Restore drill.** With **Restore drill** on, the agent restores a sample path from
   the backup into a sandbox and checks it. A failure raises **`restore_drill_failed`**
-  and the next pass raises **`restore_drill_ok`**.
+  and the next pass raises **`restore_drill_ok`**. The host drawer's backup table shows how
+  long ago the last integrity check and the last drill ran, next to their results *(7.5.0)*.
 - **3-2-1 rule.** The same section scores each host against the 3-2-1 rule (three fresh
   copies, two kinds of target, one off-site) from what the monitors report. The score
   is a guide, not an alert. "Targets" and "off-site" are inferred from each monitor's
