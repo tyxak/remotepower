@@ -10020,7 +10020,11 @@ def _record_fleet_event(event, payload):
                     'dep_edge', 'upstream_id', 'upstream_name',
                     # 7.4.9: a business service's entry says which service and which hosts it names, so a reader
                     # who cannot see one of them is not shown it (business_service_event_visible)
-                    'service_id', 'host_ids'):
+                    'service_id', 'host_ids',
+                    # 7.5.0: what the 7.4.9 events carry beyond a name: a service's state and parts, an unhealthy
+                    # container's output and failed checks, the runtime. The feed copy dropped them, so a degraded
+                    # service read like a down one.
+                    'state', 'parts_ok', 'parts', 'output', 'health_streak', 'runtime'):
             if key == 'sample':
                 # ONE matched line, bounded: the feed is evidence, not a log
                 # shipper. The alerts inbox keeps up to three.
@@ -12503,6 +12507,8 @@ def _record_alert(event, payload):
                     'container', 'script_name', 'value', 'source',
                     # 7.4.9: a business service's alert: which one (the recovery's match key), and what is wrong
                     'service_id', 'service_name', 'parts_ok', 'parts',
+                    # 7.5.0: a container's health alert (how many checks in a row, which runtime)
+                    'health_streak', 'runtime',
                     # 7.4.9: the hosts its detail names; who may read the row is decided on these
                     'host_ids',
                     # v6.2.0: dead-man's-switch job id — the ping_missed alert's
@@ -57937,7 +57943,7 @@ def handle_satellite_monitor_results():
              for m in (cfg.get('monitors') or [])
              if isinstance(m, dict) and m.get('via_satellite') == sid}
     now = int(time.time())
-    results, store = [], (load(SATELLITE_MON_FILE) or {})
+    results = []
     for r in raw[:200]:
         if not isinstance(r, dict):
             continue
@@ -57957,10 +57963,12 @@ def handle_satellite_monitor_results():
         if _lat is not None:
             res['latency_ms'] = _lat
         results.append(res)
-        store[label] = res
     if results:
+        # 7.5.0: under the store's lock, as a host's results are (two reporters at once lost one).
+        with _LockedUpdate(SATELLITE_MON_FILE) as store:
+            for res in results:
+                store[res['label']] = res
         _persist_monitor_results(results)     # history + monitor_down/up transitions
-        save(SATELLITE_MON_FILE, store)
     respond(200, {'ok': True, 'accepted': len(results)})
 
 
@@ -72693,6 +72701,8 @@ def _record_container_stats(dev_id, samples, running_names, now):
         out = {}
         for name in running_names:
             rows = hist.get(name) if isinstance(hist.get(name), list) else []
+            # 7.5.0: a row that is not a sample is dropped here; `rows[-1][0]` below raised on one and the history stopped for the host
+            rows = [r for r in rows if isinstance(r, list) and r and _finite_number(r[0])]
             s = samples.get(name)
             if s and (not rows or now - rows[-1][0] >= _CTR_HIST_MIN_GAP):
                 rows = rows + [s]
@@ -72805,11 +72815,22 @@ def _evaluate_container_health(dev_id, running_now, prev_entry, excluded, state)
                 and not excluded(name, cur.get('image', ''), cur.get('tag', '')):
             still.append(name)
             continue
+        # 7.5.0: why it closes. "Passes its health check again" is true only of a container that now reports healthy; one that
+        # stopped, left the list or was excluded is no longer being looked at, and the notice must not say it recovered.
+        if not cur:
+            why = 'gone'
+        elif excluded(name, cur.get('image', ''), cur.get('tag', '')):
+            why = 'excluded'
+        elif cur.get('health') == 'healthy':
+            why = 'healthy'
+        else:
+            why = 'unchecked'
         cur = cur or {}
         _fire_container_webhook('container_healthy', dev_id, name, {
             'runtime':   cur.get('runtime', 'unknown'),
             'namespace': cur.get('namespace', ''),
             'image':     cur.get('image', ''),
+            'reason':    why,
         })
     for name, c in running_now.items():
         if c.get('health') != 'unhealthy' or name in still:

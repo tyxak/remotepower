@@ -85,7 +85,16 @@ def _ranges(period: dict[str, Any], weekday: int) -> list[tuple[int, int]]:
             continue
         if 0 <= s < e <= 1440:
             out.append((s, e))
-    return out
+    # 7.5.0: sorted and merged. Ranges that overlap (or touch) counted their shared minutes twice in business_deadline, so asking for
+    # more time moved the deadline earlier. A calendar saved before the cleaner merged them is read as stored.
+    out.sort()
+    merged: list[tuple[int, int]] = []
+    for s, e in out:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+    return merged
 
 
 def _is_holiday(period: dict[str, Any], day: datetime) -> bool:
@@ -255,7 +264,7 @@ def clean_period(
     the shape ours are; a missing one is `new_id` (the caller makes it)."""
     if not isinstance(raw, dict):
         raise ValueError("a time period must be an object")
-    name = re.sub(r"[\x00-\x1f\x7f]", " ", str(raw.get("name") or "")).strip()[:64]
+    name = re.sub(r"[\x00-\x1f\x7f]", " ", str(raw.get("name") or "")).strip()[:64].strip()   # cut, then strip: a second clean changes nothing
     if not name:
         raise ValueError("a time period needs a name")
     pid = str(raw.get("id") or "").strip() or new_id

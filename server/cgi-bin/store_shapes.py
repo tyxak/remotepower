@@ -107,7 +107,10 @@ def _leaf(value: Any, kind: str) -> Any:
         return value, _finite(value) and abs(value) < _NUM_LIMIT
     if isinstance(value, str):
         if _INT_TEXT.match(value):
-            n = int(value)
+            try:
+                n = int(value)
+            except ValueError:  # more digits than int() reads (4,300): not a number a store can hold, and not a reason to skip the repair
+                return value, False
             return (n, True) if abs(n) < _NUM_LIMIT else (value, False)
         try:
             f = float(value)
@@ -427,6 +430,10 @@ SHAPES: dict = {
     'av_status.json': dict_of(fields(clamav=DICT, rkhunter=DICT)),
     'cmdb.json': dict_of(fields(docs=list_of(), credentials=list_of(), rack_id=SCALAR, server_function=OPT_STR)),
     'containers.json': dict_of(fields(items=list_of(fields(restart_count=NUM, runtime=SCALAR, tag=OPT_STR)))),
+    # 7.5.0: the two stores of 7.4.3 that were never registered. The names {host: {serial: name}}; the samples {host: {container:
+    # [[ts, cpu, mem%, MiB], ...]}}, whose reader subtracts the first element of the last row.
+    'disk_names.json': dict_of(dict_of(STR)),
+    'container_stats_hist.json': dict_of(dict_of(list_of(LIST))),
     'cve_findings.json': dict_of(fields(findings=list_of(fields(aliases=LIST, package=OPT_STR, severity=OPT_STR,
                                                                 summary=OPT_STR, version=OPT_STR, vuln_id=OPT_STR)))),
     'discovery.json': dict_of(fields(hosts=list_of(fields(need=('ip',), ip=STR, mac=OPT_STR, hostname=OPT_STR)))),

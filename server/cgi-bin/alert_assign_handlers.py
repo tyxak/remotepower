@@ -91,6 +91,10 @@ def handle_alert_assign(alert_id):
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A._read_valid(A.request_models.AlertAssignRequest)
+    # 7.5.0: a request that does not say who must not change the assignment. An empty body, a list, `null` or a misspelt key used to
+    # take it back, by a viewer too. Taking it back is `{"user": ""}`, which the page sends.
+    if not isinstance(body.get('user'), str):
+        A.respond(400, {'error': 'user must be an account name, or an empty string to take the assignment back'})
     target = A._sanitize_str(body.get('user') or '', 64).strip()
     users = A.load(A.USERS_FILE) or {}
     rec = users.get(target) if target else None

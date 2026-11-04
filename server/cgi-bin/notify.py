@@ -17,6 +17,7 @@ LINT + TYPECHECK baseline.
 """
 
 import json
+import math
 import re
 import time
 import urllib.parse
@@ -753,7 +754,9 @@ def _num(v):
     """A figure as a person writes it: 100.0 is 100, 412.5 stays, 1536.0 is 1,536."""
     try:
         f = float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        return str(v)
+    if not math.isfinite(f):
         return str(v)
     return f"{f:,.0f}" if f == int(f) else f"{f:,.1f}"
 
@@ -926,14 +929,23 @@ def _webhook_message(event, payload):
             head += f"\n→ {why[:240]}"
         return head
     elif event == "container_healthy":
-        return f'{name}: container "{payload.get("container", "?")}" passes its health check again'
+        c = f'{name}: container "{payload.get("container", "?")}"'
+        return {
+            "gone": f"{c} is no longer running, so its health alert is closed",
+            "excluded": f"{c} is excluded from monitoring, so its health alert is closed",
+            "unchecked": f"{c} no longer reports a health check, so its alert is closed",
+        }.get(payload.get("reason"), f"{c} passes its health check again")
     elif event == "container_resource_high":
         return f'{name}: container "{payload.get("container", "?")}" {container_resource_phrase(payload)}'
     elif event == "container_resource_ok":
         res = {"cpu": "CPU", "memory": "memory", "memory_mb": "memory"}.get(
             payload.get("metric"), "resource"
         )
-        return f'{name}: container "{payload.get("container", "?")}" back under its {res} line'
+        c = f'{name}: container "{payload.get("container", "?")}"'
+        return {
+            "gone": f"{c} is no longer running (or is excluded), so its {res} alert is closed",
+            "off": f"{c} has its {res} line switched off, so the alert is closed",
+        }.get(payload.get("reason"), f"{c} back under its {res} line")
     elif event == "containers_stale":
         return (
             f'{name}: no container report for {payload.get("age_minutes", "?")} '

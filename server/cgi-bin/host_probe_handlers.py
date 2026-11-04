@@ -198,9 +198,10 @@ def host_probe_ingest(dev_id, raw):
         results.append(res)
     if not results:
         return 0
-    store = A.load(A.SATELLITE_MON_FILE) or {}
-    for res in results:
-        store[res['label']] = res          # the last result of each monitor, like a satellite's
+    # 7.5.0: under the store's lock. Two hosts reporting in the same moment each read the whole document and wrote it back, and the
+    # second write took the first host's result with it. The history and the transitions below take their own locks.
+    with A._LockedUpdate(A.SATELLITE_MON_FILE) as store:
+        for res in results:
+            store[res['label']] = res      # the last result of each monitor, like a satellite's
     A._persist_monitor_results(results)    # history, and the monitor_down and monitor_up transitions
-    A.save(A.SATELLITE_MON_FILE, store)
     return len(results)

@@ -54,7 +54,10 @@ def _ratio(v: Any) -> float:
         return 1.0
     if isinstance(v, int):
         return float(v) if 0 < v < 1000 else 1.0
-    return round(v, 2) if math.isfinite(v) and 0 < v < 1000 else 1.0
+    if not (math.isfinite(v) and 0 < v < 1000):
+        return 1.0
+    r = round(v, 2)
+    return r if r > 0 else 1.0       # 0.0039 rounds to 0.0, which the next clean reads as unknown
 
 
 def clean_arc(raw: Any) -> dict[str, Any]:

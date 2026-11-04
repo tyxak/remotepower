@@ -170,7 +170,9 @@ RemotePower can back up **itself** so you can rebuild the server after a loss.
     not followed. For a store with a self-signed certificate, untick *Verify the TLS certificate*.
   - An archive up to 5 GiB goes up in one request. A larger one goes up in parts of at least 64 MiB (up to 1 TiB), each part tried
     three times, and the upload is cancelled in the store when a part cannot be sent, so no half-finished upload is left behind.
-    The SHA-256 is stored beside the archive either way.
+    The SHA-256 is stored beside the archive either way. Run the copy from the scheduler, which is the default install. On a server
+    installed with `--no-scheduler` a backup runs inside a web request, and a large upload can outlast the web worker's time limit
+    (120 seconds), and the worker is stopped in the middle of it.
     Copies older than **Retain (days)** are deleted, never the newest and never more than 50 in one run, and only files named
     like the archives in your folder.
   - The restore drill reads the newest copy back, compares it with the digest stored at upload, and runs the same decrypt, unpack

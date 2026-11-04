@@ -522,12 +522,15 @@ def run_business_services_if_due():
     goes down, gets better or worse, or comes back. A change has to hold for two reads before anyone is told, so one
     missed report does not page. A service whose parts report nothing (unknown) changes no one's mind: what was last
     known stays the state of record until something definite replaces it."""
-    defs = _definitions()
     now = _now()
-    state_doc = A.load(A.BUSINESS_SERVICE_STATE_FILE) or {}
-    last = state_doc.get("last_run")
+    # 7.5.0: the gate reads the shared cached document, and the definitions and a mutable copy are loaded once it is due (this runs on
+    # the request path of an install without the scheduler, so a request that is not due used to copy two stores for nothing).
+    peek = A._load_ro(A.BUSINESS_SERVICE_STATE_FILE)
+    last = peek.get("last_run") if isinstance(peek, dict) else None
     if isinstance(last, (int, float)) and now - last < SWEEP_EVERY_S:
         return
+    defs = _definitions()
+    state_doc = A.load(A.BUSINESS_SERVICE_STATE_FILE) or {}
     if not defs and not (state_doc.get("services") or {}):
         return
     ev = _evaluate_all(defs, _context(defs))

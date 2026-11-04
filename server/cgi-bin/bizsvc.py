@@ -144,7 +144,9 @@ def clean_members(raw):
 
 def member_key(m):
     """A stable text for a part, to tell two apart and to key a state on."""
-    return "|".join([m["kind"]] + [m[f] for f in _FIELDS[m["kind"]]])
+    # '|' and the backslash are escaped in each field, so a unit named `x|y` on host `a` and one named `y` on host `a|x` are two keys;
+    # a key without either character is what it always was, so stored state keeps matching.
+    return "|".join(str(p).replace("\\", "\\\\").replace("|", "\\|") for p in [m["kind"]] + [m[f] for f in _FIELDS[m["kind"]]])
 
 
 def device_ids(members):

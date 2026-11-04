@@ -47,7 +47,8 @@ VER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._:~^-]{0,95}$")
 
 # ── the script ───────────────────────────────────────────────────────────────
 # POSIX sh (the agent hands it to /bin/sh, which is dash on Debian and Ubuntu). Marked sections, each capped with head, and a
-# final ##end so a reader can tell a finished answer from one that was cut. Nothing is installed, removed or refreshed.
+# final ##end so a reader can tell a finished answer from one that was cut. Nothing is installed or removed. dnf refreshes its metadata cache when
+# that is older than metadata_expire (it writes the cache and changes no package); apt reads the lists as they are.
 _SCRIPT = r"""#patchplan:@ID@#
 LC_ALL=C; export LC_ALL
 T=$(mktemp 2>/dev/null) || exit 3
