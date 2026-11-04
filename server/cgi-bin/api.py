@@ -1904,7 +1904,8 @@ _hp_spec = _tk_ilu.spec_from_file_location(
 host_probe_handlers_mod = _tk_ilu.module_from_spec(_hp_spec)
 _hp_spec.loader.exec_module(host_probe_handlers_mod)
 host_probe_handlers_mod.bind(globals())
-for _hp_name in ('host_probe_validate', 'host_monitors_for', 'host_probe_ingest', 'clean_latency'):
+for _hp_name in ('host_probe_validate', 'host_monitors_for', 'host_probe_ingest', 'clean_latency',
+                 'satellite_probe_validate', 'monitor_spec'):
     globals()[_hp_name] = getattr(host_probe_handlers_mod, _hp_name)
 del _hp_name
 from checks import (  # noqa: F401  (test_checks_module pins api._custom_checks_for)
@@ -31615,7 +31616,8 @@ def handle_config_save():
                 # 7.4.9: a monitor that a host's agent probes may name that host's own loopback
                 target, _why = _sanitize_monitor_target(
                     mtype, raw_target, with_reason=True,
-                    allow_loopback=True if _sanitize_str(str(m.get('via_host', '')), 64) else None)
+                    allow_loopback=True if (_sanitize_str(str(m.get('via_host', '')), 64)
+                                            or _sanitize_str(str(m.get('via_satellite', '')), 32)) else None)
                 if target is None:
                     _mon_reject(_mon_name,
                                 _why or f'invalid target {raw_target[:80]!r}', m)
@@ -31729,6 +31731,12 @@ def handle_config_save():
                     _mon_reject(_mon_name,
                                 f'it probes via satellite {vs!r}, which is no '
                                 'longer registered', m)
+                    continue
+                # 7.5.0: a satellite runs the engine an agent does, so it takes the monitors an agent takes. Without this a
+                # type or a check it does not run was stored and never probed.
+                _why = satellite_probe_validate(mtype, dict(m, target=target, target_kind=tkind))
+                if _why:
+                    _mon_reject(_mon_name, _why, m)
                     continue
                 entry['via_satellite'] = vs
             # 7.4.9: or probe it from the agent of a host (a service on the host's own loopback, a network only that host
@@ -58189,15 +58197,12 @@ def handle_satellite_monitor_work():
             continue
         if m.get('paused'):
             continue   # v6.1.2: don't hand a paused monitor to the satellite either
-        jobs.append({
-            'label':  _sanitize_str(m.get('label', m.get('target', '')), 128),
-            'type':   m.get('type', 'ping'),
-            'target': m.get('target', ''),
-            'port':   m.get('port'),
-            'expect_status': m.get('expect_status'),
-            'expect_contains': m.get('body_value') if m.get('body_mode') == 'contains' else None,
-            'timeout': 10,
-        })
+        # 7.5.0: the same spec an agent gets for a monitor assigned to its host (this one read `body_value` and `body_mode`, keys
+        # no monitor has, and nothing on the satellite side ever asked for the list). A type or a check the satellite's engine does
+        # not run is left out: the save refuses to assign one, but a monitor stored before that existed may still name one.
+        if m.get('type', 'ping') not in host_probe_handlers_mod.SUPPORTED:
+            continue
+        jobs.append(monitor_spec(m))
     respond(200, {'satellite_id': sid, 'monitors': jobs,
                   'interval': max(60, int(cfg.get('monitor_interval', 300) or 300))})
 

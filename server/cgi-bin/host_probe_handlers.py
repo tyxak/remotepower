@@ -134,6 +134,33 @@ def host_probe_validate(dev_id, mtype, m):
     return _unsupported(mtype, m) or _target_problem(mtype, m.get('target', ''))
 
 
+def satellite_probe_validate(mtype, m):
+    """'' when the monitor `m` of type `mtype` may be probed by a relay satellite, otherwise the reason it may not. A satellite runs the
+    same engine an agent does, so it takes the same monitors: tcp, http and ping, one address (not a tag or a group), only the checks
+    that engine makes, and an address a probe may reach (the loopback is the satellite's own; a cloud metadata or link-local address
+    never is). 7.5.0: nothing checked this, and nothing probed the monitor either."""
+    if mtype not in SUPPORTED:
+        return 'a satellite probes tcp, http and ping monitors'
+    if m.get('target_kind', 'host') not in ('host', None, ''):
+        return 'a monitor that runs from a satellite names one address, not a tag or a group'
+    return _unsupported(mtype, m) or _target_problem(mtype, m.get('target', ''))
+
+
+def monitor_spec(m):
+    """The monitor `m` as the spec a prober runs (an agent for a host, a satellite for a satellite): the same shape for both, which
+    the prober validates again whatever it is sent."""
+    bm = m.get('body_match') if isinstance(m.get('body_match'), dict) else None
+    return {
+        'label': A._sanitize_str(m.get('label', m.get('target', '')), 128),
+        'type': m.get('type', 'ping'),
+        'target': A._sanitize_str(m.get('target', ''), 512),
+        'expect_status': m.get('expect_status'),
+        'expect_contains': bm.get('value') if bm and bm.get('mode') == 'contains' else None,
+        'method': m.get('method'),
+        'verify_tls': m.get('verify_tls'),
+    }
+
+
 def host_monitors_for(dev_id, dev):
     """The monitors assigned to this host, as the specs its agent runs, or None for a host that is not a Linux agent host (the
     key is then left out of its heartbeat response). An empty list is sent when there are none, so a monitor that was removed
@@ -144,16 +171,7 @@ def host_monitors_for(dev_id, dev):
     for m in (A._config_ro().get('monitors') or []):
         if not isinstance(m, dict) or m.get('via_host') != dev_id or m.get('paused'):
             continue
-        bm = m.get('body_match') if isinstance(m.get('body_match'), dict) else None
-        out.append({
-            'label': A._sanitize_str(m.get('label', m.get('target', '')), 128),
-            'type': m.get('type', 'ping'),
-            'target': A._sanitize_str(m.get('target', ''), 512),
-            'expect_status': m.get('expect_status'),
-            'expect_contains': bm.get('value') if bm and bm.get('mode') == 'contains' else None,
-            'method': m.get('method'),
-            'verify_tls': m.get('verify_tls'),
-        })
+        out.append(monitor_spec(m))
         if len(out) >= MAX_PER_HOST:
             break
     return out

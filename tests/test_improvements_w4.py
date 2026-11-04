@@ -580,13 +580,15 @@ class TestProbeFromSatellite(_HandlerBase):
 
     def test_work_queue_returns_assigned(self):
         self._set_monitors([
-            {'type': 'tcp', 'label': 'db', 'target': '10.0.0.5', 'port': 5432, 'via_satellite': self.sid},
+            {'type': 'tcp', 'label': 'db', 'target': '10.0.0.5:5432', 'via_satellite': self.sid},
             {'type': 'ping', 'label': 'other', 'target': '10.0.0.9', 'via_satellite': 'zzzz'},
         ])
         out = self.call(api.handle_satellite_monitor_work)
         self.assertEqual(out['satellite_id'], self.sid)
         self.assertEqual([j['label'] for j in out['monitors']], ['db'])
-        self.assertEqual(out['monitors'][0]['port'], 5432)
+        # 7.5.0: a single host's tcp monitor is stored as host:port (the save never writes a separate port for it), and the
+        # work list carries the same spec an agent gets, so the port rides in the target
+        self.assertEqual(out['monitors'][0]['target'], '10.0.0.5:5432')
 
     def test_results_accepted_only_for_owned(self):
         self._set_monitors([

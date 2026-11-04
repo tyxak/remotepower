@@ -25,6 +25,24 @@ dependencies.
 
 ---
 
+## Checks that run from a satellite
+
+A monitor can be assigned to a satellite, and the satellite then probes it from its own side of the network. That is how you watch
+a service in a segment the server cannot reach. The satellite asks the server for its checks every **Monitor check interval** (60
+seconds at the least), runs them side by side and reports the results. It needs no setting on the satellite.
+
+- The check is `tcp`, `http` or `ping`, and it names one address. An HTTP check can use **Expected HTTP status**, **Body must
+  contain**, **Method** and **Verify TLS**. A regex, a *must not contain* text, a JSON field and a latency limit are only
+  available from the server; saving one with a satellite tells you which one to take out.
+- The satellite follows no redirect and never connects to a link-local or cloud metadata address. The loopback and the private
+  ranges are allowed, since they are the point.
+- `ping` needs permission to send ICMP echo. An unprivileged account may do that where the system allows it
+  (`net.ipv4.ping_group_range`); where it may not, the check reads *ping could not run here* and not *unreachable*, so a satellite
+  that cannot ping does not raise an alert for every host.
+- Set `RP_SATELLITE_PROBES=0` on the satellite to stop it running checks. It then only relays.
+- A check that has not reported yet reads **WAITING**. If the satellite stops reporting, the row reads **NO DATA** once its last
+  result is older than it should be, and no alert is raised for it. See [monitors.md](monitors.md).
+
 ## Add a satellite
 
 ### 1. Mint a satellite token (on the server UI)

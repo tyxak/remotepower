@@ -79,7 +79,10 @@ the satellite or host a check probes from, since those ids only exist on your
 install. A monitor can be probed **from a
 relay satellite** instead of the server (`via_satellite` — reaches
 segmented/private space the server can't; the row shows a *via satellite*
-badge). Every probe is timed, so the History modal shows **response-time
+badge). The satellite takes `tcp`, `http` and `ping` checks, with the same limits as a
+check that runs from a host (see below); saving anything else with a satellite
+tells you which part to take out. See [satellites.md](satellites.md#checks-that-run-from-a-satellite).
+Every probe is timed, so the History modal shows **response-time
 percentiles** (p50/p95/p99 over the window, successful checks only).
 
 ### Probe from a host

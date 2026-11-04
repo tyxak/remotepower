@@ -643,6 +643,7 @@ builtins = [
     "ip_intel_policy",
     "listed_for",
     "merge_listed",
+    "monitor_spec",
     "patch_preview_ingest",
     "process_backup_jobs",
     "record_config_revision",
@@ -671,5 +672,6 @@ builtins = [
     "run_ticket_sla_if_due",
     "run_tls_scan_if_due",
     "run_vpn_stats_if_due",
+    "satellite_probe_validate",
     "threat_sensor_config_for",
 ]
