@@ -273,6 +273,13 @@ class TestCoverage(unittest.TestCase):
         self.assertTrue(row["stale"])
         self.assertEqual(1, d["summary"]["stale"])
 
+    def test_the_summary_adds_up_and_does_not_count_a_stale_agent_as_covered(self):
+        """7.5.0: the page prints "covered/total protected", so `covered` is the hosts with an active agent. Here: web01 is active,
+        db01 is stale, mail01 has none."""
+        s = self._get()["summary"]
+        self.assertEqual({"total": 3, "covered": 1, "stale": 1, "uncovered": 1}, s)
+        self.assertEqual(s["total"], s["covered"] + s["stale"] + s["uncovered"])
+
     def test_decommissioned_hosts_are_excluded(self):
         """A retired asset with no EDR is not a finding; leaving it in trains
         operators to ignore the list."""

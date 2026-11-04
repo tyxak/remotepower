@@ -44,7 +44,7 @@ for every connector. It is left out on purpose.
 ## API
 
 `GET /api/edr/coverage` — per-host coverage, with a summary (covered / uncovered /
-stale) and the vendors protecting each host.
+stale, which add up to the total; *covered* means an active agent) and the vendors protecting each host.
 
 ## Troubleshooting
 

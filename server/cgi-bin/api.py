@@ -29050,8 +29050,12 @@ def handle_edr_coverage():
         'configured': [{'id': i.get('id'), 'type': i.get('type'),
                         'label': i.get('label') or i.get('type')}
                        for i in configured],
+        # 7.5.0: `covered` is the hosts with an ACTIVE agent, so covered + stale + uncovered is the total. It was every host with any
+        # agent, a stale one included, which put the page's "N/M protected" above the truth by exactly the hosts the card exists to
+        # show, and contradicted the guide ("never folded into the covered count"). A row's own `covered` flag still means "an agent
+        # is known", with `stale` beside it, because the page badges and sorts on the pair.
         'summary': {'total': len(rows), 'uncovered': uncovered, 'stale': stale,
-                    'covered': len(rows) - uncovered},
+                    'covered': len(rows) - uncovered - stale},
     })
 
 
