@@ -8727,7 +8727,8 @@ body[data-look="pilot"] .pilot-hero::before {
 }
 body[data-look="pilot"] .pilot-hero > * { position: relative; }
 body[data-look="pilot"] .pilot-eyebrow { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
-body[data-look="pilot"] .pilot-readout { display: flex; flex-direction: column; justify-content: space-between; gap: 14px; padding-inline-end: 30px; border-inline-end: 1px solid var(--hair); text-align: start; }
+body[data-look="pilot"] .pilot-readout { display: flex; flex-direction: column; justify-content: space-between; gap: 14px; padding-inline-end: 30px; border-inline-end: 1px solid var(--hair); text-align: start; cursor: pointer; }
+body[data-look="pilot"] .pilot-count { font-family: var(--font-mono); color: var(--text); }
 body[data-look="pilot"] .pilot-num { height: 68px; }
 body[data-look="pilot"] .pilot-num .dm { display: block; height: 100%; width: auto; overflow: visible; }
 body[data-look="pilot"] .pilot-num .dm .on { fill: currentColor; filter: drop-shadow(0 0 4px color-mix(in srgb, currentColor var(--glow-a), transparent)); }

@@ -2854,7 +2854,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js'];   // 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js'];   // 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -19452,6 +19452,7 @@ async function loadHome() {
   // it directly without re-fetching /api/attention.
   _setHealthCuts(home.health && home.health.grades);   // config cutoffs for every grade/colour below
   _renderHomeTiles(devs, drift, cves, mailwatch);
+  _renderHomeHero(devs, home.health);   // 7.4.9: the Pilot look's hero; Classic draws none
   _renderHomeHealth(home.health, home.health_history);
   _renderHomeHeatmap(home.health);
   _renderHomeAttention(home.attention);
@@ -20333,6 +20334,22 @@ function _renderHomeLinks(links) {
       <div class="isl-769">${cards}</div>
     </div>`;
   }).join('');
+}
+
+// 7.4.9: the Pilot look's hero on Home (app-pilot.js, lazy: Classic never fetches it). Under Classic, or on a page with no hero
+// element, nothing is drawn, and a hero left over from a look change is taken away.
+async function _renderHomeHero(devs, health) {
+  const host = document.getElementById('home-hero');
+  if (!host) return;
+  if (document.body.dataset.look !== 'pilot') {
+    host.replaceChildren();
+    host.hidden = true;
+    host.classList.remove('is-ready');
+    return;
+  }
+  try { await _loadJsModule('app-pilot.js'); } catch (_) { return; }
+  if (document.body.dataset.look !== 'pilot') return;   // the look changed while the module was on its way
+  _pilotHeroRender(host, devs, health);
 }
 
 function _renderHomeTiles(devs, drift, cves, mailwatch) {
