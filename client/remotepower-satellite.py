@@ -41,7 +41,7 @@ import shutil
 import socket
 import re
 import ssl
-import subprocess
+import subprocess  # nosec B404 - the ping probe runs the system ping with a fixed argument list, never a shell
 import sys
 import threading
 import time
@@ -444,7 +444,7 @@ def _probe_ping(spec):
         raise _ProbeBlocked(target)
     if not shutil.which('ping'):
         return False, 'ping is not installed on this satellite'
-    r = subprocess.run(['ping', '-c', '1', '-W', '2', '--', target], capture_output=True, text=True, timeout=6)
+    r = subprocess.run(['ping', '-c', '1', '-W', '2', '--', target], capture_output=True, text=True, timeout=6)  # nosec B603 B607 - fixed argv, no shell; the target passed _probe_spec and follows `--`, so it is never an option
     if r.returncode == 2:
         # ping exits 1 when nothing answered and 2 when it could not run (an unprivileged account that may not send ICMP, a name
         # that does not resolve). Calling the second "unreachable" would raise an alert for a satellite that cannot ping.

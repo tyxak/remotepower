@@ -1390,7 +1390,9 @@ def _path_ingest() -> dict[str, Any]:
     }
     _ok = {
         "200": {"description": "Accepted."},
-        "400": {"description": "Malformed body, a token of another kind (use the URL for its own kind), or a syslog token that is not pinned to a host."},
+        "400": {
+            "description": "Malformed body, a token of another kind (use the URL for its own kind), or a syslog token that is not pinned to a host."
+        },
         "401": {"description": "Unknown, disabled or revoked ingest token."},
     }
     return {
