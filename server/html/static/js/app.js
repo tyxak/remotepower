@@ -12555,6 +12555,15 @@ function exportPatchPdf() {
     setTimeout(() => { rep.innerHTML = ''; }, 500);
   }));
 }
+// What apt keeps back on a host and what the mode does about it, as the Patch Report and the host drawer both say it. `open` and `close` are the
+// element the caller wants it in; nothing is drawn when nothing is kept back.
+function _keptBackNote(kept, ext, open, close) {
+  if (!kept.length) return '';
+  return `${open}<span>Packages apt keeps back:</span> <code>${escHtml(kept.slice(0, 12).join(', '))}${kept.length > 12 ? ', …' : ''}</code> `
+    + `<span>${ext ? 'The next upgrade installs them.' : 'The standard upgrade leaves them. Switch to Extended to install them.'}</span>${close}`;
+}
+// 7.4.9: the same sentences under the Patch Report's select and under the host drawer's checkbox: one wording, one translation.
+const _UPGRADE_MODE_HINT = 'Standard runs apt-get upgrade, which keeps back an update that needs a package that is not installed yet, such as a new kernel image. Extended runs apt-get upgrade --with-new-pkgs, which installs those packages as well and removes nothing. The mode applies to the patch button, auto-patch, scheduled upgrades and rollouts.';
 // Discussion #30: how the upgrade runs on a host that uses apt, and what apt keeps back. `data` is the host's patch report.
 // The host id goes into the change handler as "host:<id>", so an id that looks like a number is never turned into one.
 function _upgradeModeBlock(id, data) {
@@ -12564,12 +12573,38 @@ function _upgradeModeBlock(id, data) {
   const select = `<select class="form-input" id="device-patch-mode" data-change="setHostUpgradeMode" data-change-arg="host:${escAttr(id)}" aria-label="Upgrade mode">`
     + `<option value="standard"${ext ? '' : ' selected'}>Standard — apt-get upgrade, as before</option>`
     + `<option value="extended"${ext ? ' selected' : ''}>Extended — also installs the new packages an update needs</option></select>`;
-  const keptLine = kept.length
-    ? `<div class="hint-mb"><span>Packages apt keeps back:</span> <code>${escHtml(kept.slice(0, 12).join(', '))}${kept.length > 12 ? ', …' : ''}</code> `
-      + `<span>${ext ? 'The next upgrade installs them.' : 'The standard upgrade leaves them. Switch to Extended to install them.'}</span></div>`
-    : '';
-  const hint = 'Standard runs apt-get upgrade, which keeps back an update that needs a package that is not installed yet, such as a new kernel image. Extended runs apt-get upgrade --with-new-pkgs, which installs those packages as well and removes nothing. The mode applies to the patch button, auto-patch, scheduled upgrades and rollouts.';
+  const keptLine = _keptBackNote(kept, ext, '<div class="hint-mb">', '</div>');
+  const hint = _UPGRADE_MODE_HINT;
   return `<div id="upgrade-mode-block" class="mb-16"><div class="section-title">Upgrade mode</div>${select}<div class="hint">${hint}</div>${keptLine}</div>`;
+}
+// 7.4.9: the upgrade mode as a checkbox under Host settings in the host drawer, beside the Upgrade packages button; it is the same setting as the
+// Patch Report's select. The drawer holds the host's sysinfo, so what apt keeps back is named here too.
+function _drawerUpgradeRow(d, id) {
+  if (!d || !d.upgrade_mode_applies) return '';
+  const ext = d.upgrade_mode === 'extended', pk = d.sysinfo && d.sysinfo.packages;
+  const kept = (pk && Array.isArray(pk.kept_back) ? pk.kept_back : []).filter(n => typeof n === 'string');
+  const keptLine = _keptBackNote(kept, ext, '<span class="hint">', '</span>');
+  return `<div class="drawer-setting-row" id="ds-upgrade-row"><span class="drawer-setting-label">Upgrade mode</span>`
+    + `<label class="click-row-6"><input type="checkbox" id="ds-upgrade-extended"${ext ? ' checked' : ''} data-change="setDrawerUpgradeMode" data-change-arg="host:${escAttr(id)}">`
+    + `<span class="fs-12">Extended — also installs the new packages an update needs</span></label>`
+    + `<span class="hint">${_UPGRADE_MODE_HINT}</span>${keptLine}</div>`;
+}
+async function setDrawerUpgradeMode(arg) {
+  const id = String(arg).replace(/^host:/, ''), box = document.getElementById('ds-upgrade-extended');
+  if (!box) return;
+  const r = await api('PUT', `/devices/${encodeURIComponent(id)}/upgrade-mode`, { mode: box.checked ? 'extended' : 'standard' });
+  if (!r || r.error || !r.ok) { box.checked = !box.checked; toast((r && r.error) || 'Could not save the upgrade mode', 'error'); return; }
+  toast('Upgrade mode saved', 'success');
+  const mine = _drawerDeviceData && _drawerDeviceId === id;
+  if (mine) _drawerDeviceData.upgrade_mode = r.mode;
+  const prow = patchReportData && Array.isArray(patchReportData.devices) && patchReportData.devices.find(x => x.device_id === id);
+  if (prow) { prow.upgrade_mode = r.mode; renderPatchTable(); }          // the Patches page marks an Extended host
+  const row = document.getElementById('ds-upgrade-row');
+  if (row && mine) {                                                      // the line about what apt keeps back follows the mode
+    row.outerHTML = _drawerUpgradeRow(_drawerDeviceData, id);
+    const again = document.getElementById('ds-upgrade-extended');
+    if (again) again.focus();                                             // the row was drawn again: keep the keyboard where it was
+  }
 }
 // 7.4.9: the patch preview (app-patchplan.js, lazy) opens from here and from a parked upgrade on the Approvals page.
 function _patchPlanButton(id, name, data) {
@@ -24842,6 +24877,7 @@ function _renderDrawerSettings() {
       </label>
       <span class="hint">Enforced server-side: queued commands are dropped while quarantined (poll-interval changes still apply). Admin only.</span>
     </div>
+    ${isAgentless ? '' : _drawerUpgradeRow(d, id)}
     ${isAgentless ? `
     <div class="drawer-setting-row">
       <label class="drawer-setting-label" for="ds-reachability">Reachability</label>

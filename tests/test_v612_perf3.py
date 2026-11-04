@@ -269,7 +269,10 @@ class TestEagerJsPayload(unittest.TestCase):
         # add about 6.2 KB to app.js, and the Home hero about 0.8 KB more. The hero itself, its dot-matrix digits and the fleet
         # field are app-pilot.js, which is lazy and is fetched only when the look is Pilot; the translations are in i18n.js, which
         # is not eager. The resolution has to be eager: the look must be on the page before the shell is drawn.
-        self.assertLess(total, 2_670_000,
+        # 7.4.9 upgrade mode in the host drawer: 2_680_000. The sweep before it ended at 2_668_230, 1,770 under the budget. The checkbox row under
+        # Host settings (beside the Upgrade packages button), its save and the one shared hint are about 2.9 KB of app.js. They are in the eager core
+        # because the drawer's Host settings form is drawn there, and the strings are translations the Patch Report already has, so i18n.js is unchanged.
+        self.assertLess(total, 2_680_000,
                         'the eager JS payload regressed past its budget')
 
 

@@ -38,8 +38,9 @@ Discussion #30 asked for after 7.4.8 is in here, and so is the pre-release sweep
 - **An upgrade mode for each host: Standard or Extended (Discussion #30).** `apt-get upgrade` keeps back an update that
   needs a package that is not installed yet (a new kernel image, the split `linux-firmware`), installs nothing for it
   and exits 0. A host can now run `apt-get upgrade --with-new-pkgs` instead, which installs those packages too and
-  removes nothing. Standard stays the default. Choose it in the host's Patch Report, which also names the packages apt
-  keeps back, or for many hosts in Bulk actions; `GET` and `PUT /api/devices/{id}/upgrade-mode` (administrators, and a
+  removes nothing. Standard stays the default. Tick **Extended** under **Upgrade mode** in the host's drawer (**Host settings**,
+  below the action buttons and beside the host's other checks, where **Upgrade packages** is), which also names the packages apt
+  keeps back; the host's Patch Report has the same setting, and Bulk actions sets many hosts; `GET` and `PUT /api/devices/{id}/upgrade-mode` (administrators, and a
   change is audited as `upgrade_mode_set`). The mode applies to every upgrade RemotePower runs on the host: the patch
   button, flat and staged auto-patch, scheduled upgrades, rollouts, the compliance fix for pending updates and the
   autonomy loop. A host that does not use apt ignores it, and the API refuses it there. The agents have to be updated

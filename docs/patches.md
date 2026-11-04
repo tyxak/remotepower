@@ -52,9 +52,10 @@ A host that uses apt runs its upgrades in one of two modes:
 - **Extended** runs `apt-get upgrade --with-new-pkgs`. It installs the new packages such an update needs, so
   a kept-back kernel or `linux-firmware` update is installed by the next upgrade. It removes nothing.
 
-Standard is the default. Choose the mode for a host in its **Patch Report** (the host's row on the Patches
-page), which also lists the packages apt keeps back on that host. To change many hosts at once, use
-**Bulk actions → Upgrade mode: Extended (apt hosts)**. Hosts in Extended mode carry an **Extended** badge on
+Standard is the default. To change a host, open it (click it on the Hosts page) and tick **Extended** under **Upgrade mode** in
+**Host settings**, below the action buttons and next to the host's other checks. It saves as you tick it, and it names the packages
+apt keeps back on that host. The host's **Patch Report** (its row on the Patches page) has the same setting. To change many hosts at
+once, use **Bulk actions → Upgrade mode: Extended (apt hosts)**. Hosts in Extended mode carry an **Extended** badge on
 the Patches page.
 
 The mode applies to every upgrade RemotePower runs on the host: the patch button (one host or many),

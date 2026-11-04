@@ -15775,6 +15775,11 @@ def handle_devices_list():
                                if k not in _ROSTER_SYSINFO_OMIT}
                               if isinstance(_si, dict) else {})
             row['metrics_ts'] = dev.get('metrics_ts', 0)   # when the figures in `sysinfo` were last reported
+            # 7.4.9: the host drawer shows the upgrade mode as a checkbox under Host settings, beside the Upgrade packages button.
+            # Whether the mode applies to a host is decided by the same function the PUT route uses, so the two cannot disagree.
+            _um = upgrade_mode_handlers_mod._state(dev)
+            row['upgrade_mode'] = _um['mode']
+            row['upgrade_mode_applies'] = _um['applies']
             row['brute_force_active'] = _bf_active(bf_data.get(dev_id, {}), bf_cutoff, _bf_thresh)
             row['listening_ports']    = pb_data.get(dev_id) or dev.get('sysinfo', {}).get('listening_ports') or []
             # v3.4.0: hardware-health badge flags (best-effort; absent for

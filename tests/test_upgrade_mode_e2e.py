@@ -3,7 +3,9 @@
 The server side is held by test_upgrade_mode and the page functions run under node in test_upgrade_mode_pages. What
 neither shows is the real thing: that the Patch Report dialog of an apt host draws the select, that choosing Extended
 reaches the server and changes the dialog and the table, that a Windows host gets no select, and that the bulk action
-sets the mode on the apt hosts and counts the others as skipped. Self-skips without playwright/chromium/gunicorn.
+sets the mode on the apt hosts and counts the others as skipped. 7.4.9 added the checkbox under Host settings in the host's own drawer,
+beside the Upgrade packages button: it is drawn from the real roster, a tick reaches the server and the Patch Report shows the same mode,
+a refused save puts the box back, and a Windows host has none. Self-skips without playwright/chromium/gunicorn.
 """
 import json
 import os
@@ -201,6 +203,88 @@ class TestTheUpgradeModeInTheBrowser(unittest.TestCase):
         self.assertIn("skipped (not apt)", text)
         self.assertEqual(self.api("GET", f"/devices/{self.apt_id}/upgrade-mode")["mode"], "extended")
         self.assertEqual(self.api("GET", f"/devices/{self.win_id}/upgrade-mode")["mode"], "standard")
+
+    # ── 7.4.9: the checkbox in the host's own drawer ─────────────────────────────────────────────────────────────────────────
+    def open_drawer(self, dev_id, name):
+        self.addCleanup(lambda: self.page.evaluate("() => { try { closeDeviceDrawer(); } catch (e) {} }"))
+        self.page.evaluate("([id, n]) => openDeviceDrawer(id, n)", [dev_id, name])
+        self.page.wait_for_selector("#drawer-settings-form #ds-name", timeout=30000)
+
+    def test_the_drawer_of_an_apt_host_has_the_checkbox_with_the_hosts_other_checks(self):
+        self.open_drawer(self.apt_id, self.apt_name)
+        self.page.wait_for_selector("#ds-upgrade-extended", timeout=15000)
+        self.assertFalse(self.page.is_checked("#ds-upgrade-extended"))
+        text = self.page.inner_text("#ds-upgrade-row")
+        self.assertIn("Upgrade mode", text)
+        self.assertIn("Extended", text)
+        for name in KEPT:
+            self.assertIn(name, text)
+        self.assertIn("The standard upgrade leaves them. Switch to Extended to install them.", text)
+        # it sits with the other checks of the host: after Quarantine, before the poll interval
+        order = self.page.evaluate("""() => { const q = id => document.getElementById(id), after = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+            return [after(q('ds-quarantine'), q('ds-upgrade-extended')), after(q('ds-upgrade-extended'), q('ds-poll')), !!q('ds-upgrade-extended').closest('#drawer-settings-form')]; }""")
+        self.assertEqual(order, [True, True, True])
+        # the box has a name for a screen reader: its own visible label
+        self.assertIn("Extended", self.page.evaluate("() => document.getElementById('ds-upgrade-extended').labels[0].textContent"))
+
+    def test_ticking_it_saves_and_the_patch_report_shows_the_same_mode(self):
+        self.open_drawer(self.apt_id, self.apt_name)
+        self.page.check("#ds-upgrade-extended")
+        self.toast_has("Upgrade mode saved")
+        self.assertEqual(self.api("GET", f"/devices/{self.apt_id}/upgrade-mode")["mode"], "extended")
+        self.page.wait_for_function("() => document.getElementById('ds-upgrade-row').innerText.includes('The next upgrade installs them.')", timeout=15000)
+        self.assertTrue(self.page.is_checked("#ds-upgrade-extended"))
+        self.assertEqual(self.page.evaluate("() => document.activeElement && document.activeElement.id"), "ds-upgrade-extended",
+                         "the row is drawn again after a save, and the keyboard stays on the box")
+        # the same setting, seen from the Patch Report
+        self.page.evaluate("() => closeDeviceDrawer()")
+        self.open_dialog(self.apt_id, self.apt_name)
+        self.page.wait_for_selector("#device-patch-mode", timeout=15000)
+        self.assertEqual(self.page.input_value("#device-patch-mode"), "extended")
+        # and the drawer opened again says so too
+        self.page.evaluate("() => { document.querySelectorAll('.modal-overlay.open, .modal-overlay.active').forEach(m => m.classList.remove('open', 'active')); }")
+        self.open_drawer(self.apt_id, self.apt_name)
+        self.page.wait_for_selector("#ds-upgrade-extended", timeout=15000)
+        self.assertTrue(self.page.is_checked("#ds-upgrade-extended"))
+
+    def test_the_patch_report_changes_what_the_drawer_shows(self):
+        self.api("PUT", f"/devices/{self.apt_id}/upgrade-mode", {"mode": "extended"})
+        self.open_drawer(self.apt_id, self.apt_name)
+        self.page.wait_for_selector("#ds-upgrade-extended", timeout=15000)
+        self.assertTrue(self.page.is_checked("#ds-upgrade-extended"))
+        self.assertIn("The next upgrade installs them.", self.page.inner_text("#ds-upgrade-row"))
+
+    def test_unticking_it_goes_back_to_standard(self):
+        self.api("PUT", f"/devices/{self.apt_id}/upgrade-mode", {"mode": "extended"})
+        self.open_drawer(self.apt_id, self.apt_name)
+        self.page.wait_for_selector("#ds-upgrade-extended", timeout=15000)
+        self.page.uncheck("#ds-upgrade-extended")
+        self.toast_has("Upgrade mode saved")
+        self.assertEqual(self.api("GET", f"/devices/{self.apt_id}/upgrade-mode")["mode"], "standard")
+        self.page.wait_for_function("() => document.getElementById('ds-upgrade-row').innerText.includes('Switch to Extended')", timeout=15000)
+
+    def test_a_refused_save_puts_the_box_back(self):
+        self.open_drawer(self.apt_id, self.apt_name)
+        self.page.wait_for_selector("#ds-upgrade-extended", timeout=15000)
+        self.page.route("**/upgrade-mode", lambda r: r.fulfill(status=403, content_type="application/json", body='{"error": "Admin access required"}')
+                        if r.request.method == "PUT" else r.continue_())
+        self.addCleanup(lambda: self.page.unroute("**/upgrade-mode"))
+        self.page.check("#ds-upgrade-extended", force=True)
+        self.toast_has("Admin access required")
+        self.page.wait_for_function("() => !document.getElementById('ds-upgrade-extended').checked", timeout=15000)
+        self.page.unroute("**/upgrade-mode")
+        self.assertEqual(self.api("GET", f"/devices/{self.apt_id}/upgrade-mode")["mode"], "standard", "nothing reached the host record")
+
+    def test_a_windows_host_has_no_checkbox_in_its_drawer(self):
+        self.open_drawer(self.win_id, self.win_name)
+        self.assertEqual(self.page.locator("#ds-upgrade-row").count(), 0)
+        self.assertEqual(self.page.locator("#ds-upgrade-extended").count(), 0)
+        self.assertGreater(self.page.locator("#drawer-settings-form .drawer-setting-row").count(), 5, "the rest of the form is there")
+
+    def test_the_host_list_the_drawer_reads_carries_the_mode(self):
+        rows = {r["id"]: r for r in self.api("GET", "/devices")}
+        self.assertEqual((rows[self.apt_id]["upgrade_mode"], rows[self.apt_id]["upgrade_mode_applies"]), ("standard", True))
+        self.assertIs(rows[self.win_id]["upgrade_mode_applies"], False)
 
 
 if __name__ == "__main__":

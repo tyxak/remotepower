@@ -7,6 +7,7 @@ not claim success. The two functions are taken out of the file and run under nod
 Self-skips without node.
 """
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -44,7 +45,10 @@ class TestTheDialogBlock(unittest.TestCase):
         block = srcpin.js_function(src, "_upgradeModeBlock")
         save = srcpin.js_function(src, "setHostUpgradeMode")
         assert "async function setHostUpgradeMode" in src, "the save is an async function"   # srcpin starts at the word `function`
-        cls.fns = block + "\nasync " + save + "\n"
+        # the hint is one constant, shared with the host drawer's checkbox (test_v749_upgrade_mode_drawer): take it from the file too
+        hint = re.search(r"^const _UPGRADE_MODE_HINT = .*?;\n", src, re.M).group(0)
+        note = srcpin.js_function(src, "_keptBackNote")
+        cls.fns = hint + note + "\n" + block + "\nasync " + save + "\n"
 
     def js(self, body):
         script = PRELUDE + self.fns + "\n(async () => {\n" + body + "\n})().catch(e => { console.error(e); process.exit(1); });"
