@@ -32,8 +32,12 @@ jobs:
     # suite grew it blew the 20-min ceiling (the v6.4.2 release push timed out at
     # 20m4s during the dist step). The staged-tree run now lives in its own
     # parallel `dist` job below, so neither re-runs the other's suite inside one
-    # budget; each keeps a full 30-min ceiling with headroom.
-    timeout-minutes: 30
+    # budget; each keeps its own ceiling.
+    # v7.5.0: was 30. The 7.4.0 push took 22 minutes in both jobs; the suite runs 20,239 tests on
+    # CI now, and the 7.5.0 push hit "exceeded the maximum execution time of 30m0s" in both. A
+    # cancelled run shows nothing (the suite's output goes through `tail -40`), so the ceiling is
+    # the only warning: 60 minutes, so the next release does not meet it again.
+    timeout-minutes: 60
 
     # Postgres is the ENTERPRISE DEFAULT backend (v6.1.0), and until this job
     # existed no gate ran a line of it: `make check` covers JSON + SQLite, and
@@ -111,7 +115,7 @@ jobs:
   dist:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    timeout-minutes: 30
+    timeout-minutes: 60  # the same ceiling as `test`, which runs the same suite in parallel
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
