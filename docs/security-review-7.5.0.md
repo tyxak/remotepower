@@ -211,6 +211,7 @@ fixed tree.
 | Test suite, JSON storage (`c6bb971a`) | 20,598 tests, 57 skipped. Red: the two AUR subtests, the stubs, the two skip-guard tests, the print walk of the Home page and the placeholder test |
 | Test suite, SQLite (`c6bb971a`) | 20,135 tests, 152 skipped. Red: the two AUR subtests, the stubs, the two skip-guard tests, three subtests of the new AI flags test and the placeholder test |
 | `make ci-parity` (`c6bb971a`): Python 3.14, the workflow's dependency list, the workflow's runner | 20,233 tests, 399 skipped. Red: the two AUR subtests, the stubs, the two skip-guard tests, the three psutil tests and the placeholder test |
+| Test suite, JSON storage, again as the first step of `make pre-release` (`e66ef776`, the last code and test commit) | 20,598 tests, 18 skipped, one error: a browser test (`test_buttons_in_one_action_row_render_the_same_height`) waited 90 seconds for the page after sign-in and gave up, once. The module passes when run again, three copies at once. `make` stops at the first red step, so the rest of `make pre-release` did not run on this commit |
 | `make ci-parity` again (`a0f7add0`, after the test and stylesheet fixes) | 20,239 tests, 416 skipped. Red: the two AUR subtests and the placeholder test, which this commit fills in |
 | PostgreSQL tests | 28 tests, none skipped (the server was PostgreSQL 18.6; CI runs 16) |
 | `make dist` on an export of `c6bb971a`: the tarball and the suite on the staged tree | 20,598 tests, 88 skipped. Red: the two AUR subtests, the stubs, the two skip-guard tests, the print walk, the placeholder test, and the 7.4.9 browser test above |
@@ -230,7 +231,8 @@ turns red again when the 7.5.0 header gets its date at promotion, until the pack
 
 The serial JSON and SQLite suites were not repeated end to end after the fixes, because the JSON one takes more than an hour and a half. The
 fixes touch tests, one stylesheet rule and the page stamp, the modules that were red ran again on both backends, and the CI-parity suite ran
-again on the fixed commit. The prod pre-push hook asks for `make pre-release` on the commit that is pushed, and that has not been run.
+again on the fixed commit. The prod pre-push hook asks for a complete `make pre-release` on the commit that is pushed. That has not completed on this release: the
+run above stopped at its first suite, and the commit to push will also be a different one, because the CHANGELOG header gets its date first.
 
 ## Not run for this review
 
