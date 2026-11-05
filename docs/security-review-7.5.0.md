@@ -198,7 +198,26 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 
 ## The release gate
 
-The suites ran on `c6bb971a`, the commit that carries the version bump, the release notes and the pins. Besides the AUR check (below) they
+The release gate is one complete `make pre-release` on `146a4b94`, the last commit before the release date went into the CHANGELOG. It ran
+from 05:11 to 09:08 on 2026-11-05, and every step passed:
+
+| Step | Result |
+|---|---|
+| Test suite, JSON storage | 20,598 tests, 18 skipped, all pass |
+| Test suite, SQLite | 20,135 tests, 116 skipped, all pass |
+| `make lint`: isort, black and mypy over 40 source files, ruff in two passes | no finding |
+| PostgreSQL tests (the server was PostgreSQL 18.6; CI runs 16) | 28 tests, none skipped, all pass |
+| `make dist`: the tarball, its leak check, and the suite on the staged tree | 1,895 entries (1,840 files), no forbidden path; the suite passes, 49 skipped |
+| `make ci-parity`: Python 3.14, the workflow's dependency list, the workflow's runner | 20,239 tests, 378 skipped, all pass |
+| bandit against its baseline | no issue outside the baseline, and none rated High |
+| CodeQL 2.27.4, Python and JavaScript, the repository's configuration | no result in either language |
+| A data directory written by 7.4.0 and then served by 7.5.0: the 300 `GET` operations of the OpenAPI description that take no path parameter, on a seeded installation | both servers gave the same answers (260 successful, 38 client errors, 2 server errors), none got worse, and the new server logged no traceback. The two server errors are the SAML endpoints, which answer 503 on an installation without SAML, on both versions |
+
+The target turns a missing browser or database into a failure, so the browser and PostgreSQL tests ran. Of the 18 skips in the JSON run,
+eight need `dpkg` (this machine runs Arch; CI runs them), seven are retired by the keep-three policy for old release documents, two belong
+to the SQLite backend and one needs `dash`.
+
+Before that, the suites ran on `c6bb971a`, the commit that carries the version bump, the release notes and the pins. Besides the AUR check (below) they
 were red on seven things, none a way in: two test stubs that did not take a keyword the local-model fix added, two browser test files and
 one control class that were not behind the shared skip guard, three subtests that save a store the SQLite backend refuses by design, three
 tests that need psutil (the CI dependency list has none), the Home "why" list that printed clipped, one browser test of 7.4.9 that read the
@@ -215,7 +234,7 @@ fixed tree.
 | `make ci-parity` again (`a0f7add0`, after the test and stylesheet fixes) | 20,239 tests, 416 skipped. Red: the two AUR subtests and the placeholder test, which this commit fills in |
 | PostgreSQL tests | 28 tests, none skipped (the server was PostgreSQL 18.6; CI runs 16) |
 | `make dist` on an export of `c6bb971a`: the tarball and the suite on the staged tree | 20,598 tests, 88 skipped. Red: the two AUR subtests, the stubs, the two skip-guard tests, the print walk, the placeholder test, and the 7.4.9 browser test above |
-| The tarball built from the working tree, and its leak check | 1,895 files, no forbidden path |
+| The tarball built from the working tree, and its leak check | 1,895 entries (1,840 files), no forbidden path |
 | The four test modules that need a real nginx (1.30.6, extracted from the distribution package), which skip on a machine without one | 32 tests pass: the security headers once per response, the host and port, the location precedence, the WebSocket upgrade map |
 | The modules that were red, on the fixed tree | JSON: 90 tests, including the print walk, the typeface comparison and the two new browser files, all pass; the typeface account test passes six times at once, and fails when the client is made to ignore the account. SQLite: 49 tests, 3 skipped by design, pass. With psutil blocked, the listening-ports tests skip (3) where the committed file errored (3) |
 | Authorization matrix (the tree of `c6bb971a`) | 1,090 operations, 85,422 requests, 60 runs; no answer to a tenant user held another tenant's id, name or object (see "How it was done") |
@@ -224,15 +243,15 @@ fixed tree.
 | semgrep (python, javascript and security-audit rule sets) | 26 results, none on a line this release wrote |
 | `tools/release-prep.py verify` | 0 failures |
 
-The two AUR subtests check that the Arch packages are on the newest dated CHANGELOG entry that is not folded into another. In the runs
-above that was 7.4.8, a pre-release on the dev branch, against packages on the production 7.4.0, which is why they were red in the gates of
-every 7.4 release. The entries of 7.4.1 to 7.4.8 now say they ship within 7.5.0 (`8b7ee28d`), the check reads 7.4.0 and passes, and it
-turns red again when the 7.5.0 header gets its date at promotion, until the packages are bumped.
+The two AUR subtests check that the Arch packages are on the newest dated CHANGELOG entry that is not folded into another. In the first
+runs above that was 7.4.8, a pre-release on the dev branch, against packages on the production 7.4.0, which is why they were red in the gates of
+every 7.4 release. The entries of 7.4.1 to 7.4.8 now say they ship within 7.5.0 (`8b7ee28d`), so the check read 7.4.0 and passed in the
+complete run. It turns red when the 7.5.0 header gets its date, and stays red until the two packages are bumped to the published tarball,
+whose checksum they carry and which does not exist before the tag does.
 
-The serial JSON and SQLite suites were not repeated end to end after the fixes, because the JSON one takes more than an hour and a half. The
-fixes touch tests, one stylesheet rule and the page stamp, the modules that were red ran again on both backends, and the CI-parity suite ran
-again on the fixed commit. The prod pre-push hook asks for a complete `make pre-release` on the commit that is pushed. That has not completed on this release: the
-run above stopped at its first suite, and the commit to push will also be a different one, because the CHANGELOG header gets its date first.
+The commit that carries the release date, and is tagged, differs from `146a4b94` in documentation only: the date in the CHANGELOG header,
+three sentences that called 7.4.0 the production release and now call it the last one, and this section. The test modules that read those
+files ran again on it, and the two AUR subtests are the only red result.
 
 ## Not run for this review
 

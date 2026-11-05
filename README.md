@@ -200,7 +200,7 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 ### Recent releases
 
 - **v7.5.0 "Wh0leMatters"** — finishing what was started, with everything from 7.4.1 to 7.4.9 on top of
-  the production 7.4.0. A second read of the whole product found fifteen Medium issues, twenty-one Low or hardening
+  7.4.0. A second read of the whole product found fifteen Medium issues, twenty-one Low or hardening
   items and three informational ones, and fixed every one; one of the Medium issues is High on a Mac that
   asks for signed commands. Four-eyes approval now holds a command in
   every place that puts one on a host: library scripts, package actions, file writes, the compose

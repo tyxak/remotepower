@@ -5,9 +5,9 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v7.5.0 — "Wh0leMatters" — unreleased (test)
+## v7.5.0 — "Wh0leMatters" — 2026-11-05
 
-A release about finishing what was started. The production installation is on 7.4.0, so this release carries everything from 7.4.1
+A release about finishing what was started. The last production release was 7.4.0, so this release carries everything from 7.4.1
 to 7.4.9 as well (their entries follow, unchanged), and then closes the gaps that a read of the whole product found: rules that
 the code applied in most places and missed in one or two, data the agents send that no page used, and statements in the guides and
 in the interface that the code did not keep. The release page is [docs/v7.5.0.md](docs/v7.5.0.md) and the review is
