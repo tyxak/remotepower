@@ -223,8 +223,10 @@ fixed tree.
 | semgrep (python, javascript and security-audit rule sets) | 26 results, none on a line this release wrote |
 | `tools/release-prep.py verify` | 0 failures |
 
-The two AUR subtests check that the Arch packages are on the last dated CHANGELOG entry. That is 7.4.8 and the packages are on 7.4.0, so they
-stay red until the packages are bumped at promotion. They were red in the gates of every 7.4 release.
+The two AUR subtests check that the Arch packages are on the newest dated CHANGELOG entry that is not folded into another. In the runs
+above that was 7.4.8, a pre-release on the dev branch, against packages on the production 7.4.0, which is why they were red in the gates of
+every 7.4 release. The entries of 7.4.1 to 7.4.8 now say they ship within 7.5.0 (`8b7ee28d`), the check reads 7.4.0 and passes, and it
+turns red again when the 7.5.0 header gets its date at promotion, until the packages are bumped.
 
 The serial JSON and SQLite suites were not repeated end to end after the fixes, because the JSON one takes more than an hour and a half. The
 fixes touch tests, one stylesheet rule and the page stamp, the modules that were red ran again on both backends, and the CI-parity suite ran
