@@ -150,6 +150,8 @@ credentials, the self-update and the agents is a finding of the review; the rest
   my-account, patch-snapshots to wsgi), and the six in between by hand. 86 guides needed a correction: a count, a role, a default, a
   menu path or a promise the code did not keep. The corrections that were bugs in the product are listed above.
 - `docs/security-review-7.5.0.md` and `docs/v7.5.0.md` are new. `docs/v7.4.7.md` and its review are gone with the keep-three rule.
+- The entries of 7.4.1 to 7.4.8 below say what they were: pre-releases on the dev branch, with no standalone release, that ship within 7.5.0
+  (as 7.2.0 shipped within 7.3.0). Their dates and notes are unchanged.
 
 ## v7.4.9 — "Ch0iceMatters" — folded into v7.5.0 (no standalone release)
 
@@ -803,7 +805,7 @@ and missing it in two or three. These are the cheap ones:
   that name their disk, one of them not identified. Every demo host now reports the package manager its agent would send;
   it was left out, so every Patch Report row said *unknown*.
 
-## v7.4.8 — "Hon3stMatters" — 2026-11-01
+## v7.4.8 — "Hon3stMatters" — 2026-11-01 (pre-release on dev; no standalone release — ships within v7.5.0)
 
 Three screens said something that was not true: a Problems row that read "never" under Updated, a sensor limit of 65261.8 °C,
 and a host that read "Fully Patched" with a kernel update waiting. They came from the replies to #54 and #56 and from a
@@ -859,7 +861,7 @@ The review of this release found one issue, low. It is fixed. See `docs/security
 
 This release adds no text to translate.
 
-## v7.4.7 — "0nceMatters" — 2026-11-01
+## v7.4.7 — "0nceMatters" — 2026-11-01 (pre-release on dev; no standalone release — ships within v7.5.0)
 
 Two reports from the same Docker install, filed on tyxak/remotepower as #56 and #57, and the Thermal, Disk and Host
 metrics work that followed 7.4.6. The release page is [docs/v7.4.7.md](docs/v7.4.7.md).
@@ -1021,7 +1023,7 @@ The review of this release found one issue, low. It is fixed. See `docs/security
 - **The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French.** A native
   speaker has not read it yet; if a line reads wrong, tell us.
 
-## v7.4.6 — "F1xableMatters" — 2026-10-30
+## v7.4.6 — "F1xableMatters" — 2026-10-30 (pre-release on dev; no standalone release — ships within v7.5.0)
 
 Four reports from the same Docker install, filed on tyxak/remotepower as #55, #56, #57 and #58, and a
 follow-up on #54. The first was built as v7.4.5 and folded into this release before it was released, so
@@ -1146,7 +1148,7 @@ fixed. See `docs/security-review-7.4.5.md`.
 - **The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and
   French.** A native speaker has not read it yet; if a line reads wrong, tell us.
 
-## v7.4.4 — "Spec1ficMatters" — 2026-10-29
+## v7.4.4 — "Spec1ficMatters" — 2026-10-29 (pre-release on dev; no standalone release — ships within v7.5.0)
 
 The next request from the same Docker install, filed on tyxak/remotepower as #54:
 temperature lines for each drive, because a hard disk and an NVMe drive should not be
@@ -1201,7 +1203,7 @@ The review of this release found one issue. It was caught before release and is 
 - **The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and
   French.** A native speaker has not read it yet; if a line reads wrong, tell us.
 
-## v7.4.3 — "M3asureMatters" — 2026-10-28
+## v7.4.3 — "M3asureMatters" — 2026-10-28 (pre-release on dev; no standalone release — ships within v7.5.0)
 
 The next batch of requests from the same Docker install, filed on tyxak/remotepower
 as #46 to #52: more of what the fleet already knows measured and alerted on, and a few
@@ -1404,7 +1406,7 @@ fixed. See `docs/security-review-7.4.3.md`.
   editing a window said only the scope, the target and the reason. It says `suppress=alerts` or
   `suppress=notifications`.
 
-## v7.4.2 — "Re4lMatters" — 2026-10-27
+## v7.4.2 — "Re4lMatters" — 2026-10-27 (pre-release on dev; no standalone release — ships within v7.5.0)
 
 A patch release for four reports from a Docker install of 7.4.1. In each, the
 dashboard says one thing and the host is doing another.
@@ -1548,7 +1550,7 @@ and all three are fixed. See `docs/security-review-7.4.2.md`.
   fingerprint now. The line the dashboard prints and the script the server serves
   were already right.
 
-## v7.4.1 — "Al1gnMatters" — 2026-10-26
+## v7.4.1 — "Al1gnMatters" — 2026-10-26 (pre-release on dev; no standalone release — ships within v7.5.0)
 
 A patch release for what a Docker install of 7.4.0 ran into. Most of it is one
 mistake: two places that should agree about one thing, and do not.
