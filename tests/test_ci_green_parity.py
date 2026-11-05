@@ -363,5 +363,62 @@ class TestE2eSuiteCannotRedTheGate(unittest.TestCase):
         self.assertRegex(mk, r'E2E_TESTS\s*:?=\s*\$\(wildcard tests/\*e2e\*\.py\)')
 
 
+class TestTheCiTestJobCanFail(unittest.TestCase):
+    """`python -m unittest discover ... | tail -40` in a step without `shell:` runs under `bash -e`, which has no pipefail. The
+    pipeline then reports tail's exit status and the job is green whatever the suite said. It was that way from v3.0.6: the 7.5.0
+    push printed "FAILED (failures=3)" in the test job and finished green, and only the dist job, whose make recipe keeps the
+    status, went red. `make ci-parity` uses unittest's own exit code, so it could never show the difference."""
+
+    @staticmethod
+    def _swallows_the_status(step):
+        """True when the step pipes unittest into another command and neither sets pipefail nor asks for a shell that does."""
+        code = [line for line in step.splitlines() if 'unittest' in line and not line.lstrip().startswith('#')]
+        if not any('|' in line for line in code):
+            return False
+        has_pipefail = re.search(r'^\s*set\s+-[A-Za-z]*o\s+pipefail\b', step, re.M) is not None
+        has_shell = re.search(r'^\s*shell:\s*bash\b', step, re.M) is not None
+        return not (has_pipefail or has_shell)
+
+    @staticmethod
+    def _steps():
+        """(name, text) for every `- name:` step of ci.yml; a step ends at the next line indented no deeper than its dash."""
+        lines = CI_YML.read_text().splitlines()
+        out = []
+        for i, line in enumerate(lines):
+            m = re.match(r'^(\s*)- name:\s*(.+?)\s*$', line)
+            if not m:
+                continue
+            block = [line]
+            for nxt in lines[i + 1:]:
+                if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= len(m.group(1)):
+                    break
+                block.append(nxt)
+            out.append((m.group(2), '\n'.join(block)))
+        return out
+
+    def test_no_step_hides_the_exit_status_of_the_suite(self):
+        _require_sources(self)
+        runs_the_suite = [(name, text) for name, text in self._steps() if 'unittest' in text]
+        self.assertTrue(runs_the_suite, 'no step of ci.yml mentions unittest: the check below would look at nothing')
+        bad = [name for name, text in runs_the_suite if self._swallows_the_status(text)]
+        self.assertEqual(bad, [], f'{bad}: the suite is piped into another command under a shell without pipefail, so the job '
+                                  'cannot fail. Put `set -o pipefail` before the pipe, or `shell: bash` on the step.')
+
+    def test_the_rule_catches_the_shape_it_is_meant_to_catch(self):
+        """Control on the rule: the old step reads as a swallow; the fixed ones, a plain call and a commented line do not."""
+        old = '- name: Run test suite\n  run: |\n    mkdir -p "$D"\n    python -m unittest discover -s tests -v 2>&1 | tail -40\n'
+        self.assertTrue(self._swallows_the_status(old))
+        self.assertFalse(self._swallows_the_status(old.replace('    mkdir', '    set -o pipefail\n    mkdir')))
+        self.assertFalse(self._swallows_the_status(old.replace('  run:', '  shell: bash\n  run:')))
+        self.assertFalse(self._swallows_the_status('- name: x\n  run: python -m unittest discover -s tests\n'))
+        self.assertFalse(self._swallows_the_status(old.replace('python -m unittest', '# python -m unittest')))
+
+    def test_the_step_the_rule_is_about_is_in_the_population(self):
+        """The population is not empty by accident: the step that runs the suite is among the steps it looked at."""
+        _require_sources(self)
+        names = [name for name, text in self._steps() if 'unittest discover' in text and '|' in text]
+        self.assertIn('Run test suite', names)
+
+
 if __name__ == '__main__':
     unittest.main()

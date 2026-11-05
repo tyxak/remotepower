@@ -33,10 +33,10 @@ jobs:
     # 20m4s during the dist step). The staged-tree run now lives in its own
     # parallel `dist` job below, so neither re-runs the other's suite inside one
     # budget; each keeps its own ceiling.
-    # v7.5.0: was 30. The 7.4.0 push took 22 minutes in both jobs; the suite runs 20,239 tests on
-    # CI now, and the 7.5.0 push hit "exceeded the maximum execution time of 30m0s" in both. A
-    # cancelled run shows nothing (the suite's output goes through `tail -40`), so the ceiling is
-    # the only warning: 60 minutes, so the next release does not meet it again.
+    # v7.5.0: was 30. The 7.4.0 push ran 15,492 tests in 22 minutes in each job; the 7.5.0 push runs
+    # 20,234 and needs about 34, so the 30-minute limit cancelled both ("exceeded the maximum execution
+    # time of 30m0s"). A cancelled run shows nothing (the suite's output goes through `tail -40`), so
+    # the ceiling is the only warning: 60 minutes, so the next release does not meet it again.
     timeout-minutes: 60
 
     # Postgres is the ENTERPRISE DEFAULT backend (v6.1.0), and until this job
@@ -106,6 +106,10 @@ jobs:
           RP_PG_REQUIRE: "1"
         run: |
           mkdir -p "$RP_DATA_DIR"
+          # A step without `shell:` runs under `bash -e`, which has no pipefail, so the pipe below reported tail's
+          # exit status and this job could not fail: the 7.5.0 push printed "FAILED (failures=3)" here and finished
+          # green. With pipefail the step fails when unittest does.
+          set -o pipefail
           python -m unittest discover -s tests -v 2>&1 | tail -40
 
   # Release-push only: build the tarball and run the suite against the EXTRACTED

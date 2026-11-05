@@ -458,9 +458,20 @@ class TestCommand(unittest.TestCase):
 class _Shims:
     """A directory of fake package managers that print recorded output, and a log of how each was called."""
 
+    # What the script and the fakes call besides the shell's builtins. They are linked into a directory of their own, and that
+    # directory is the whole of PATH after the fakes. With /usr/bin on it, a machine that has a real apt-get (every Ubuntu
+    # runner does) is asked about apt before the dnf, yum or pacman that a test fakes, and those tests fail there only.
+    TOOLS = ("sh", "mktemp", "rm", "date", "stat", "head", "grep", "awk", "cat")
+
     def __init__(self, tmp):
         self.bin = Path(tmp) / "bin"
         self.bin.mkdir()
+        self.tools = Path(tmp) / "tools"
+        self.tools.mkdir()
+        for tool in self.TOOLS:
+            found = shutil.which(tool)
+            if found:
+                (self.tools / tool).symlink_to(found)
         self.log = Path(tmp) / "calls.log"
         self.tmp = Path(tmp) / "tmp"
         self.tmp.mkdir()
@@ -471,7 +482,7 @@ class _Shims:
         f.chmod(f.stat().st_mode | stat.S_IEXEC)
 
     def run(self, script, extra_path=True):
-        env = {"PATH": f"{self.bin}:/usr/bin:/bin" if extra_path else str(self.bin), "TMPDIR": str(self.tmp), "HOME": str(self.tmp)}
+        env = {"PATH": f"{self.bin}:{self.tools}" if extra_path else str(self.bin), "TMPDIR": str(self.tmp), "HOME": str(self.tmp)}
         p = subprocess.run(["sh", "-c", script], capture_output=True, text=True, env=env, timeout=60)
         return p
 
@@ -577,6 +588,18 @@ class TestScriptRun(unittest.TestCase):
         self.assertEqual(names(p["installs"]), ["libnew"])
         for c in self.s.calls():
             self.assertRegex(c, r"^pacman (-Qu|-Sup --print-format)")
+
+    def test_the_script_cannot_reach_the_machines_own_package_managers(self):
+        """The three tests that fake dnf, yum or pacman failed on the CI runners, which have a real /usr/bin/apt-get, and passed on
+        a machine without one. The script must see the fakes and the few tools it needs, and no system directory."""
+        seen = self.s.run('echo "$PATH"').stdout.strip().split(":")
+        self.assertEqual(seen, [str(self.s.bin), str(self.s.tools)])
+        for system_dir in ("/usr/bin", "/bin", "/usr/local/bin", "/usr/sbin", "/sbin"):
+            self.assertNotIn(system_dir, seen)
+        looked = self.s.run('for m in apt-get apt-mark dnf yum pacman; do command -v "$m" && echo "found $m"; done; echo end').stdout
+        self.assertEqual(looked.strip(), "end", looked)
+        for tool in ("mktemp", "rm", "date", "stat", "head", "grep", "awk", "cat"):
+            self.assertTrue((self.s.tools / tool).exists(), f"{tool} is needed by the script and is not on this machine")
 
     def test_a_host_with_no_package_manager_says_so(self):
         # only the tools the script needs before it knows the manager
