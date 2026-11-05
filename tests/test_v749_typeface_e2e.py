@@ -365,10 +365,21 @@ class TestTheTypefaceInABrowser(unittest.TestCase):
         self.addCleanup(lambda: self.reset(first))
         self.api(first, "POST", "/ui-prefs", {"typeface": "b612"})
         second = self.login()                                    # no copy, no session: only the account knows
-        self.assertEqual(self.state(second)["face"], "b612")
+        s2 = self.state(second)
+        for _ in range(60):                                      # the account's answer arrives after the page is up; under load that takes longer than a fixed wait
+            if s2["face"] == "b612":
+                break
+            second.wait_for_timeout(250)
+            s2 = self.state(second)
+        self.assertEqual(s2["face"], "b612")
         # a browser the last person left on B612: the next person has not chosen, so they get the system font, and the copy is corrected
         third = self.login(user="bob", init="localStorage.setItem('rp_typeface', 'b612');")
         s = self.state(third)
+        for _ in range(60):                                      # the same wait for the correction; a real bug still fails after fifteen seconds
+            if s["copy"] == "system":
+                break
+            third.wait_for_timeout(250)
+            s = self.state(third)
         self.assertEqual((s["face"], s["copy"], s["family"]), (None, "system", SYSTEM_STACK))
 
     # ── with either look ─────────────────────────────────────────────────────────────────────────────────────────────────────

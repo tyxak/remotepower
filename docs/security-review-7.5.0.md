@@ -198,7 +198,37 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 
 ## The release gate
 
-@@GATE@@
+The suites ran on `c6bb971a`, the commit that carries the version bump, the release notes and the pins. Besides the AUR check (below) they
+were red on seven things, none a way in: two test stubs that did not take a keyword the local-model fix added, two browser test files and
+one control class that were not behind the shared skip guard, three subtests that save a store the SQLite backend refuses by design, three
+tests that need psutil (the CI dependency list has none), the Home "why" list that printed clipped, one browser test of 7.4.9 that read the
+page before the account's answer had arrived (once, while the machine was busy), and this review's own placeholders, which were not
+filled in yet. They were fixed in `17f69eaa`, `a0f7add0` and the commit that wrote this section, and the modules concerned ran again on the
+fixed tree.
+
+| Check | Result |
+|---|---|
+| Test suite, JSON storage (`c6bb971a`) | 20,598 tests, 57 skipped. Red: the two AUR subtests, the stubs, the two skip-guard tests, the print walk of the Home page and the placeholder test |
+| Test suite, SQLite (`c6bb971a`) | 20,135 tests, 152 skipped. Red: the two AUR subtests, the stubs, the two skip-guard tests, three subtests of the new AI flags test and the placeholder test |
+| `make ci-parity` (`c6bb971a`): Python 3.14, the workflow's dependency list, the workflow's runner | 20,233 tests, 399 skipped. Red: the two AUR subtests, the stubs, the two skip-guard tests, the three psutil tests and the placeholder test |
+| `make ci-parity` again (`a0f7add0`, after the test and stylesheet fixes) | 20,239 tests, 416 skipped. Red: the two AUR subtests and the placeholder test, which this commit fills in |
+| PostgreSQL tests | 28 tests, none skipped (the server was PostgreSQL 18.6; CI runs 16) |
+| `make dist` on an export of `c6bb971a`: the tarball and the suite on the staged tree | 20,598 tests, 88 skipped. Red: the two AUR subtests, the stubs, the two skip-guard tests, the print walk, the placeholder test, and the 7.4.9 browser test above |
+| The tarball built from the working tree, and its leak check | 1,895 files, no forbidden path |
+| The four test modules that need a real nginx (1.30.6, extracted from the distribution package), which skip on a machine without one | 32 tests pass: the security headers once per response, the host and port, the location precedence, the WebSocket upgrade map |
+| The modules that were red, on the fixed tree | JSON: 90 tests, including the print walk, the typeface comparison and the two new browser files, all pass; the typeface account test passes six times at once, and fails when the client is made to ignore the account. SQLite: 49 tests, 3 skipped by design, pass. With psutil blocked, the listening-ports tests skip (3) where the committed file errored (3) |
+| Authorization matrix (the tree of `c6bb971a`) | 1,090 operations, 85,422 requests, 60 runs; no answer to a tenant user held another tenant's id, name or object (see "How it was done") |
+| CodeQL 2.27.4, Python and JavaScript, the repository's configuration | no result |
+| bandit against its baseline, `make lint` with the pinned tools, gitleaks over the history and the tree | no new finding; lint green; no leak |
+| semgrep (python, javascript and security-audit rule sets) | 26 results, none on a line this release wrote |
+| `tools/release-prep.py verify` | 0 failures |
+
+The two AUR subtests check that the Arch packages are on the last dated CHANGELOG entry. That is 7.4.8 and the packages are on 7.4.0, so they
+stay red until the packages are bumped at promotion. They were red in the gates of every 7.4 release.
+
+The serial JSON and SQLite suites were not repeated end to end after the fixes, because the JSON one takes more than an hour and a half. The
+fixes touch tests, one stylesheet rule and the page stamp, the modules that were red ran again on both backends, and the CI-parity suite ran
+again on the fixed commit. The prod pre-push hook asks for `make pre-release` on the commit that is pushed, and that has not been run.
 
 ## Not run for this review
 
