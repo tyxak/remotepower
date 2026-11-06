@@ -100,6 +100,14 @@ _MEASURE = r"""(name) => {
   const lg = root.querySelector('#links-grid');
   out.linksGridMax = lg ? parseFloat(getComputedStyle(lg).maxHeight) || 0 : null;
   out.innerHeight = window.innerHeight;
+  // a control smaller than 24 x 24 px (WCAG 2.2, 2.5.8). SVG parts are not controls of the page's own.
+  out.targets = {measured: 0, small: []};
+  for (const e of root.querySelectorAll('button, input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, [role=button], summary')) {
+    if (e instanceof SVGElement || getComputedStyle(e).pointerEvents === 'none') continue;   // a native select kept for a combo box is not pressed
+    const r = e.getBoundingClientRect(); if (!r.width || !r.height) continue;
+    out.targets.measured++;
+    if (r.width < 24 || r.height < 24) out.targets.small.push((e.tagName.toLowerCase() + '.' + String(e.className || '').split(' ').slice(0, 2).join('.')) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+  }
   const heads = [...root.querySelectorAll('.page-title, .section-title')].filter(vis);
   out.headings = {pageTitles: heads.filter(h => h.classList.contains('page-title')).length,
                   pageTitlesMarked: heads.filter(h => h.classList.contains('page-title') && h.getAttribute('role') === 'heading' && h.getAttribute('aria-level') === '1').length,
@@ -154,6 +162,10 @@ def clipped_placeholders(page_name, items):
 
 def wrapped_action_cells(page_name, cells):
     return [c for c in cells if c['lines'] > 1 and page_name not in ACTION_WRAP_ALLOWED]
+
+
+# Controls under 24 x 24 px that are left on the demo's pages (see test_controls_are_at_least_24_pixels_across). Shrink only.
+SMALL_TARGET_CEILING = 14
 
 
 class TestEverySidebarPageRendered(unittest.TestCase):
@@ -308,6 +320,15 @@ class TestEverySidebarPageRendered(unittest.TestCase):
         unmarked = {n: (r['headings']['cardTitles'], r['headings']['cardTitlesMarked']) for n, r in self.rendered.items()
                     if r['headings']['cardTitlesMarked'] != r['headings']['cardTitles']}
         self.assertEqual(unmarked, {}, 'a card title that is not a heading is invisible to a screen reader\'s heading list')
+
+    def test_controls_are_at_least_24_pixels_across(self):
+        measured = sum(r['targets']['measured'] for r in self.rendered.values())
+        small = {n: r['targets']['small'] for n, r in self.rendered.items() if r['targets']['small']}
+        if not _SUBSET:
+            self.assertGreater(measured, 3500, 'control: the walk measured the controls of the pages')
+        # 1,742 of 4,284 were under it when this was written. What is left is listed, and the number only goes down: a control that sets
+        # its own size under 24 px (a tag's x, the ticket icon in the host list, a select with a fixed small width) is the way back.
+        self.assertLessEqual(sum(len(v) for v in small.values()), SMALL_TARGET_CEILING, small)
 
     def test_the_links_grid_may_use_most_of_the_window(self):
         if _SUBSET and 'links' not in self.rendered:

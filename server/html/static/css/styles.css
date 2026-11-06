@@ -25,6 +25,9 @@
    length below is divided by the same factor; without that a dialog of 88vh was taller than
    the window at 150%. Paper is not zoomed. */
 html { zoom: var(--rp-zoom, 1); }
+/* WCAG 2.2 target size (2.5.8): a control is at least 24 px tall. :where() has no weight, so a rule that sets its own height wins; it is
+   the floor under the ones that never set one. 1,742 of the 4,284 buttons and selects on the demo's pages were under it. */
+:where(button, select, summary) { min-height: 24px; }
 @media print { html { zoom: 1 !important; } }
 
   /* v6.0.0 "ClarityMatters" — THE palette (chosen-design tokens). Dark is the
@@ -1517,7 +1520,7 @@ html { zoom: var(--rp-zoom, 1); }
   .modal-actions > .btn-icon { justify-content: center; }
   /* v6.0.1 (item 10): compact button size for dense rows / table action cells. */
   .btn-sm { padding: 5px 16px; font-size: 12px; min-height: 0; }
-  .btn-xs { padding: 3px 13px; font-size: 11px; min-height: 0; }
+  .btn-xs { padding: 3px 13px; font-size: 11px; min-height: 24px; }   /* 24px: WCAG 2.2 target size (2.5.8); it was 21 */
   .enroll-btn {
     background: var(--accent);
     color: var(--accent-contrast, #fff);
@@ -6682,7 +6685,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .hh-trend { margin-top: 12px; }
 /* v3.4.2: fleet heat map */
 .heatmap-grid { display: flex; flex-wrap: wrap; gap: 4px; }
-.heatmap-cell { width: 22px; height: 22px; border-radius: 4px; border: none; cursor: pointer; opacity: 0.85; padding: 0; }
+.heatmap-cell { width: 24px; height: 24px; border-radius: 4px; border: none; cursor: pointer; opacity: 0.85; padding: 0; }
 .heatmap-cell:hover { opacity: 1; outline: 2px solid var(--text); }
 .hh-spark { display: block; width: 120px; height: 32px; opacity: 0.9; }
 @media (max-width: 600px) {
@@ -6889,6 +6892,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   #main-content .scrollable-table-wrap thead th { position: static !important; }
   /* Panels that carry their own cap instead of one of the shared classes above. A new one belongs here or on a
      shared class: tests/test_v740_print_e2e.py prints every page and fails on a box that still clips. */
+  #main-content #adv-findings,    /* the Advisory builds itself now, so it has findings to print */
   #main-content .integ-tiles,
   #main-content .board-prob-chips,
   #main-content #timeline-kinds,
@@ -6905,6 +6909,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
     min-width: 0 !important;       /* tables carry min-width: 600px for the screen, wider than a portrait sheet */
     max-width: 100% !important;
   }
+  #main-content td.ipi-evidence-cell, #main-content td.ipi-status-cell { min-width: 0 !important; }   /* the screen's room for them, not the sheet's */
   #main-content th, #main-content td,
   .modal-overlay.active th, .modal-overlay.active td,
   #device-drawer.open th, #device-drawer.open td {
@@ -7169,7 +7174,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .dev-combo { position: relative; display: block; }
 .dev-combo .dev-combo-input { width: 100%; }
 .dev-combo-native {
-  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  position: absolute !important; width: 1px; height: 1px; min-height: 0; padding: 0; margin: -1px;   /* min-height 0: the 24px floor is for what you can press */
   opacity: 0; pointer-events: none; overflow: hidden; clip: rect(0 0 0 0); border: 0;
 }
 .dev-combo-list {
@@ -7460,7 +7465,8 @@ body.density-compact .section-title { margin-bottom: 6px; }
 .segmented.textsize-seg { flex-wrap: wrap; overflow-x: visible; }
 .segmented.textsize-seg button[disabled] { opacity: 0.4; cursor: default; }
 /* Hidden element app.js measures to learn how much the page is zoomed (see uiZoomRatio). */
-.zoom-probe { position: absolute; left: -9999px; top: 0; width: 100px; height: 1px; visibility: hidden; pointer-events: none; }
+/* Fixed, not parked off to the left: an absolute box at -9999px made every right-to-left page scroll sideways by 9,989 px. */
+.zoom-probe { position: fixed; left: 0; top: 0; width: 100px; height: 1px; visibility: hidden; pointer-events: none; }
 /* The bar under the title of Alerts, Needs Attention and Checks (#56): the four views of the one problems list. */
 .problem-views { margin-bottom: 8px; }
 
