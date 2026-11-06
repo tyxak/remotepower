@@ -670,6 +670,15 @@ html { zoom: var(--rp-zoom, 1); }
     gap: 10px;
     flex-shrink: 0;
   }
+  /* Desktop layout only (the phone layout has its own, held by test_v710_topbar_fits_phone). The crumb keeps room for "Dashboard" and
+     ellipsizes past half the bar; it was 6 px wide at 200% text size, where the refresh label and the buttons left it nothing. The
+     "Auto-refresh · 54s" label gives way first: it ellipsizes, to nothing if it must, before the crumb or a button loses room. */
+  @media (min-width: 721px) {
+    .crumb { flex-shrink: 0; min-width: 9ch; max-width: 50%; }
+    .header-right { flex-shrink: 1; min-width: 0; }
+    .header-right > .status-bar { flex-shrink: 1; min-width: 0; overflow: hidden; }
+    .header-right > .status-bar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  }
   /* A 390px phone shares the bar with the menu button and the breadcrumb. The
      control cluster is six 46px buttons (seven when quiet hours are on) and a
      10px gap, 320-376px, so the whole document scrolled sideways on every page.

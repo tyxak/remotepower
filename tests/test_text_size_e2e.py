@@ -132,6 +132,17 @@ class TestTextSizeRendered(unittest.TestCase):
                 # 8 page pixels between the control and the tip, which is 8 * zoom screen pixels
                 self.assertAlmostEqual(gap, 8 * stored / 100, delta=2.5)
 
+    def test_the_top_bar_keeps_the_page_name_at_the_largest_step(self):
+        # at 200% on a 1440 window the bar is 467 page pixels wide; the crumb was squeezed to 6 px by the refresh label and the buttons
+        page = self._open(stored=200)
+        for name, text in (('home', 'Dashboard'), ('checks', 'Checks')):
+            page.evaluate("n => showPage(n)", name)
+            page.wait_for_timeout(700)
+            m = page.evaluate("() => { const c = document.getElementById('topbar-crumb'); return {text: c.textContent, w: c.getBoundingClientRect().width, clipped: c.scrollWidth > c.clientWidth + 1}; }")
+            self.assertIn(text, m['text'])
+            self.assertFalse(m['clipped'], m)
+            self.assertGreater(m['w'], 100, m)      # page pixels * 2 at this size: Dashboard is 63 at 100%
+
     def test_a_narrow_window_is_held_to_the_sizes_that_fit(self):
         for width, want in ((390, '110%'), (1000, '125%'), (1440, '200%')):
             with self.subTest(width=width):
