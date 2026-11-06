@@ -1459,6 +1459,25 @@ function applyTheme() {
 // gone. CSS still hides .page-subtitle until this adds .subtitle-shown (avoids
 // a flash of untranslated text on first paint). Idempotent; runs on load and
 // on every showPage (lazy pages clone in new subtitles).
+// Headings. The page title and every card title are divs, so a screen reader's list of headings was empty on all 85 pages (four headings
+// in all of them) and "next heading" went nowhere. They are marked as headings here, with no change to how they look: the page title is
+// level 1, a card title level 2. Run on every navigation, and on what the page draws after it loads (a short wait batches the draws).
+function _markHeadings(root) {
+  (root || document).querySelectorAll('.page-title:not([role]), .section-title:not([role])').forEach(el => {
+    el.setAttribute('role', 'heading');
+    el.setAttribute('aria-level', el.classList.contains('page-title') ? '1' : '2');
+  });
+}
+(function _watchHeadings() {
+  let timer = null;
+  const later = () => { timer = null; try { _markHeadings(document.getElementById('main-content')); } catch (_) {} };
+  const start = () => {
+    try { _markHeadings(); } catch (_) {}
+    const main = document.getElementById('main-content');
+    if (main && window.MutationObserver) new MutationObserver(() => { if (!timer) timer = setTimeout(later, 250); }).observe(main, { childList: true, subtree: true });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();
 function _applyPageSubtitleInfo() {
   document.querySelectorAll('.page-subtitle').forEach(sub => {
     sub.classList.add('subtitle-shown');
@@ -3199,6 +3218,7 @@ function showPage(name, btn, opts) {
   try { _paintCrumb(_navBtn, name); } catch (_) {}   // v6.0.0: topbar breadcrumb
   try { _setPageWatermark(name, _navBtn); } catch (_) {}   // faint page-icon watermark
   try { _applyPageSubtitleInfo(); } catch (_) {}   // v4.6.0: fold the page subtitle into its info icon
+  try { _markHeadings(el); } catch (_) {}
   // v3.0.2: keep the URL bar in sync with the visible page. Without this, the
   // hash sticks at whatever switchSettingsTab last wrote (e.g. #settings/notifs)
   // and stays there as you click through Home, Devices, Logs etc. v7.4.0: a new

@@ -100,6 +100,12 @@ _MEASURE = r"""(name) => {
   const lg = root.querySelector('#links-grid');
   out.linksGridMax = lg ? parseFloat(getComputedStyle(lg).maxHeight) || 0 : null;
   out.innerHeight = window.innerHeight;
+  const heads = [...root.querySelectorAll('.page-title, .section-title')].filter(vis);
+  out.headings = {pageTitles: heads.filter(h => h.classList.contains('page-title')).length,
+                  pageTitlesMarked: heads.filter(h => h.classList.contains('page-title') && h.getAttribute('role') === 'heading' && h.getAttribute('aria-level') === '1').length,
+                  cardTitles: heads.filter(h => h.classList.contains('section-title')).length,
+                  cardTitlesMarked: heads.filter(h => h.classList.contains('section-title') && h.getAttribute('role') === 'heading').length,
+                  levelOnes: [...root.querySelectorAll('[role=heading][aria-level="1"], h1')].filter(vis).length};
   out.netmapNodes = [...root.querySelectorAll('.netmap-node')].map(g => { const t = g.querySelector(':scope > title'); return {name: (g.querySelector('text:nth-of-type(2)') || {}).textContent || '', title: t ? t.textContent : ''}; });
   // a card title that sits flush against the card's own edge (a .table-card has no padding unless it is .card-padded)
   out.flushTitles = [...root.querySelectorAll('.table-card > .section-title')].filter(vis)
@@ -293,6 +299,15 @@ class TestEverySidebarPageRendered(unittest.TestCase):
         for n, t in titles.items():
             seen.setdefault(t, []).append(n)
         self.assertEqual({t: ns for t, ns in seen.items() if len(ns) > 1}, {}, 'two pages share a tab title')
+
+    def test_every_page_has_one_level_one_heading_and_its_card_titles_are_headings(self):
+        if not _SUBSET:
+            self.assertGreater(sum(r['headings']['cardTitles'] for r in self.rendered.values()), 100, 'control: the walk saw the card titles')
+        no_title = {n: r['headings'] for n, r in self.rendered.items() if r['headings']['pageTitlesMarked'] < 1 or r['headings']['levelOnes'] != 1}
+        self.assertEqual(no_title, {}, 'a page needs exactly one visible level-1 heading (.page-title marked by _markHeadings)')
+        unmarked = {n: (r['headings']['cardTitles'], r['headings']['cardTitlesMarked']) for n, r in self.rendered.items()
+                    if r['headings']['cardTitlesMarked'] != r['headings']['cardTitles']}
+        self.assertEqual(unmarked, {}, 'a card title that is not a heading is invisible to a screen reader\'s heading list')
 
     def test_the_links_grid_may_use_most_of_the_window(self):
         if _SUBSET and 'links' not in self.rendered:

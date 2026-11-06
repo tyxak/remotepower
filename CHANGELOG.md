@@ -56,6 +56,11 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
 
 ### The tab names the page
 
+- **Every page has a heading a screen reader can find.** The page title and every card title were divs: four headings in all of the 85 pages,
+  so "next heading" went nowhere and a page had no outline. The page title is a level 1 heading and a card title a level 2 now (`role` and
+  `aria-level`, nothing changes in how they look), also for what a page draws after it loads. The walk holds exactly one level 1 on
+  every page and a heading role on every visible card title, and the axe sweeps still pass.
+
 - **The browser tab and history say which page you are on.** The title was the site's name on all 85 pages, so ten open tabs, the history menu
   and a screen reader's announcement of a new page all read the same words. It reads `Alerts — RemotePower` now (the label the sidebar and the
   top bar use, in your language), and `(3) Alerts — RemotePower` while alerts are open. The walk holds a distinct title on every page.
