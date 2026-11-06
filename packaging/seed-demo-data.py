@@ -2415,7 +2415,7 @@ def build_history() -> dict:
     for hours_ago, dev_id, command in plan:
         entries.append({
             'ts': now() - 3600 * hours_ago, 'actor': 'demo',
-            'device_id': dev_id or '', 'device_name': name_of.get(dev_id, 'all devices'),
+            'device_id': dev_id or '', 'device_name': name_of.get(dev_id, 'all hosts'),
             'command': command,
         })
     return {'entries': entries}

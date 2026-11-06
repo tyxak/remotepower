@@ -4963,6 +4963,11 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .input-wide { max-width: 400px; padding: 8px 12px; font-size: 13px; }
 .input-wide-sm { max-width: 380px; padding: 8px 12px; font-size: 13px; }
 .input-auto { width: auto; min-width: 160px; padding: 8px 12px; font-size: 13px; }
+/* A filter whose placeholder is longer than the default box: wide enough for it in English, with room for a longer translation. */
+.input-filter { min-width: 260px; }
+#ports-filter { width: 220px; }
+/* A search box with its magnifier: .input-search leaves 34px for the icon, which this wrapper draws. */
+.search-box { position: relative; flex: 1 1 100%; min-width: 0; }
 .input-search { padding: 8px 12px 8px 34px; font-size: 13px; }
 .select-sm { padding: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; min-width: 160px; }
 .icon-btn { width: 14px; height: 14px; margin-right: 4px; display: inline-block; vertical-align: -2px; }
@@ -5013,7 +5018,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-8 { font-size:13px; color:var(--accent-ink); font-weight:600 }
 .isl-9 { padding:7px 14px }
 .isl-10 { margin-bottom:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap }
-.isl-11 { position:relative; flex:1; max-width:300px }
+.isl-11 { position:relative; flex:1 1 220px; min-width:200px; max-width:300px }   /* Hosts search: wraps to its own line before it is squeezed to two letters */
 .isl-12 { margin-left:auto }
 .isl-13 { color:var(--muted); font-size:13px; padding:16px 0 }
 .isl-14 { position:relative }
@@ -8638,12 +8643,14 @@ td > .btn-icon + .btn-icon { margin-left: 0; margin-inline-start: 6px; }
    gave the row `flex: 0 0 auto`, so it could not shrink below its one-line width and the Monitor header's buttons ended 27 and 150 px
    past the edge (print relaxes the same rule). Table action cells stay on one row (the table scrolls inside its
    wrapper), a list row wraps, the dialog footer wraps its buttons and lets one grow with its label. */
+/* Table action cells stay on one row at every width (the table scrolls inside its wrapper). At desktop width the cell was only as wide as
+   its narrowest button, so the Live Monitor rows, the Exposure rows and the TLS rows put their 3 to 5 buttons on two lines. */
+td.row-6, td.exposure-actions { flex-wrap: nowrap; }
+td .btn-icon, td .btn-xs, td .cell-sm, td .btn-sm { white-space: nowrap; }
+td:has(> .btn-icon + .btn-icon) { white-space: nowrap; }
 @media (max-width: 720px) {
   .section-header { flex-wrap: wrap; gap: 8px; }
   .section-header > .row-8, .section-header > .row-8-center { flex: 0 1 auto; max-width: 100%; flex-wrap: wrap; }
-  td.row-6, td.exposure-actions { flex-wrap: nowrap; }
-  td .btn-icon, td .btn-xs, td .cell-sm, td .btn-sm { white-space: nowrap; }
-  td:has(> .btn-icon + .btn-icon) { white-space: nowrap; }
   .bp-item { flex-wrap: wrap; }
   .bp-item-name { flex: 1 1 100%; }
   .modal-actions { flex-wrap: wrap; }

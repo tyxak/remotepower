@@ -6321,7 +6321,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Per-mount disk-fill projection across the fleet, from each host's daily metrics history, plus memory, swap and CPU-load headroom from the same samples. A least-squares trend on observed usage, extrapolated to capacity — lead time, not a guarantee. Ephemeral mounts (<code>/tmp</code>, <code>/run</code>, <code>/dev/shm</code>, …) are excluded, and a heavily-fluctuating mount shows <em>fluctuating</em> instead of a misleading date. <a href="docs/forecast.md" class="c-accent">Documentation</a>.</div>
         <div class="mb-16 row-8-center">
           <button class="btn-secondary" data-action="loadForecast"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><use href="#ic-ce8e1447"/></svg> Refresh</button>
-          <input type="text" id="forecast-filter" class="form-input input-auto" placeholder="Filter host, mount or resource…" data-input="renderForecastTable" data-input-value="1" data-input-debounce="180" autocomplete="off" aria-label="Filter host, mount or resource">
+          <input type="text" id="forecast-filter" class="form-input input-auto input-filter" placeholder="Filter host, mount or resource…" data-input="renderForecastTable" data-input-value="1" data-input-debounce="180" autocomplete="off" aria-label="Filter host, mount or resource">
           <label class="form-label fs-12"><input type="checkbox" id="forecast-atrisk" data-change="renderForecastTable"> At-risk only</label>
           <span id="forecast-summary" class="fs-12 c-muted"></span>
         </div>
@@ -7857,7 +7857,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <select id="scan-tool" class="form-input input-auto" title="Scan tool" aria-label="Scan tool"><option value="nuclei">nuclei</option><option value="nikto">nikto</option><option value="nmap">nmap</option><option value="wpscan">wpscan (WordPress)</option><option value="zap">zap (active)</option><option value="wapiti">wapiti (active)</option><option value="all">All tools</option><option value="lynis">lynis (on-host audit)</option></select>
           <select id="scan-profile" class="form-input input-auto" title="Passive = safe. Active = intrusive (sends attack traffic)." aria-label="Passive = safe. Active = intrusive (sends attack traffic)"><option value="passive">passive</option><option value="active">active (intrusive)</option></select>
           <select id="scan-intensity" class="form-input input-auto" title="Quick = fast/shallow. Full = thorough (all ports/severities, slower)." aria-label="Quick = fast/shallow. Full = thorough (all ports/severities, slower)"><option value="quick">quick</option><option value="full">full</option></select>
-          <input type="text" id="scan-vhost" class="form-input input-auto" list="scan-vhost-verified" placeholder="vhost (optional)" title="Scan a specific hostname/vhost on this host instead of its IP. It must be an ownership-verified web target — add it under External targets below, publish the proof, then Verify." aria-label="vhost (optional)"><datalist id="scan-vhost-verified"></datalist>
+          <input type="text" id="scan-vhost" class="form-input input-auto input-filter" list="scan-vhost-verified" placeholder="vhost (optional)" title="Scan a specific hostname/vhost on this host instead of its IP. It must be an ownership-verified web target — add it under External targets below, publish the proof, then Verify." aria-label="vhost (optional)"><datalist id="scan-vhost-verified"></datalist>
           <select id="scan-satellite" class="form-input input-auto" title="Which scanner satellite runs network scans. Pick the one that can reach the target (e.g. on its network segment)." aria-label="Scan satellite"><option value="">Any scanner satellite</option></select>
           <div id="scan-sat-hint" class="hint c-amber"></div>
           <button class="btn-primary mw-200" data-action="queueScan"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><path d="M12 2a10 10 0 1 0 10 10"/><line x1="12" y1="12" x2="22" y2="2"/></svg> Queue scan</button>
@@ -8393,7 +8393,7 @@ nextcloud mem=95 sustain=6</pre>
               <option value="group">Group</option>
               <option value="tag">Tag</option>
             </select>
-            <input type="text" id="scoped-cred-scope-value" class="form-input input-auto" placeholder="Scope value (site id / group / tag)" aria-label="Scope value">
+            <input type="text" id="scoped-cred-scope-value" class="form-input input-auto input-filter" placeholder="Scope value (site id / group / tag)" aria-label="Scope value">
             <input type="text" id="scoped-cred-label" class="form-input input-auto" placeholder="Label" aria-label="Label">
             <input type="text" id="scoped-cred-username" class="form-input input-auto" placeholder="Username" autocomplete="off" aria-label="Username">
             <input type="password" id="scoped-cred-password" class="form-input input-auto" placeholder="Password" autocomplete="new-password" aria-label="Password">
@@ -9426,7 +9426,7 @@ nextcloud mem=95 sustain=6</pre>
         <div class="dash-card">
           <div class="section-title">Software center</div>
           <p class="hint">Every package installed across the fleet, with the versions in use and how many hosts run each. Type to filter; click a row to see which hosts (and versions) on the Patches → inventory search.</p>
-          <input type="text" id="swcatalog-q" class="form-input page-filter mb-8" placeholder="Filter package name (e.g. openssl)…" data-input="_swCatalogFilter" data-input-debounce="180" aria-label="Filter package name (e.g. openssl)">
+          <input type="text" id="swcatalog-q" class="form-input page-filter mb-8 input-filter" placeholder="Filter package name (e.g. openssl)…" data-input="_swCatalogFilter" data-input-debounce="180" aria-label="Filter package name (e.g. openssl)">
           <span id="swcatalog-summary" class="isl-100"></span>
           <div id="swcatalog-body" class="scroll-cap"><div class="c-muted fs-13">Loading…</div></div>
         </div>
@@ -9720,7 +9720,7 @@ nextcloud mem=95 sustain=6</pre>
           <button class="btn-icon isl-12" data-action="linkAddOpen">+ Add link</button>
           <button class="btn-icon" id="links-edit-toggle" data-action="linksToggleEditMode" title="Toggle edit/delete buttons on each card">Edit mode</button>
         </div>
-        <div id="links-grid" class="isl-185 scroll-cap"></div>
+        <div id="links-grid" class="isl-185 scroll-cap-lg"></div>
         <datalist id="links-category-datalist"></datalist>
       </div>
 
@@ -9729,7 +9729,7 @@ nextcloud mem=95 sustain=6</pre>
         <div class="page-title-row"><div class="page-title">Tickets</div></div>
         <div class="page-subtitle">Helpdesk — incidents, requests and changes, linked to alerts and hosts. <a href="docs/ticket-system.md" class="c-accent">Documentation</a></div>
         <div class="row-8-center mb-12">
-          <input type="text" id="tk-search" class="form-input input-search" placeholder="Search by #number, subject, host, group, assignee…" data-input="loadTickets" data-input-debounce="220" aria-label="Search tickets">
+          <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs" aria-hidden="true"><use href="#ic-99336aa6"/></svg><input type="text" id="tk-search" class="form-input input-search" placeholder="Search by #number, subject, host, group, assignee…" data-input="loadTickets" data-input-debounce="220" aria-label="Search tickets"></div>
           <select id="tk-type-filter" class="form-input input-auto" data-change="loadTickets" aria-label="Filter by type">
             <option value="">All types</option>
             <option value="incident">Incident</option>
@@ -9782,7 +9782,7 @@ nextcloud mem=95 sustain=6</pre>
         <div class="page-title-row"><div class="page-title">Contacts</div></div>
         <div class="page-subtitle">Internal contact directory — your team's shared phonebook of people, roles and companies. <a href="docs/contacts.md" class="c-accent">Documentation</a></div>
         <div class="row-8-center mb-12">
-          <input type="text" id="ct-search" class="form-input input-search" placeholder="Search by name, role, company, email…" data-input="loadContacts" data-input-debounce="220" aria-label="Search contacts">
+          <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs" aria-hidden="true"><use href="#ic-99336aa6"/></svg><input type="text" id="ct-search" class="form-input input-search" placeholder="Search by name, role, company, email…" data-input="loadContacts" data-input-debounce="220" aria-label="Search contacts"></div>
           <button class="enroll-btn" data-action="openContactCreate">Add contact</button>
         </div>
         <div class="table-card"><table>
@@ -9949,7 +9949,7 @@ nextcloud mem=95 sustain=6</pre>
           <div class="section-title">Privileged commands</div>
           <p class="hint">Search every <code>sudo</code> invocation the fleet has reported, across all hosts at once. Admin and auditor roles only, and scoped to the hosts you can see. Per-host history also lives in each host's drawer. <a href="docs/security.md" class="c-accent">Documentation</a></p>
           <div class="row-8-center mb-8">
-            <input type="text" id="sudo-search-q" class="form-input input-auto" placeholder="Command contains… e.g. firewalld" aria-label="Command contains" data-enter="runSudoSearch" autocomplete="off">
+            <input type="text" id="sudo-search-q" class="form-input input-auto input-filter" placeholder="Command contains… e.g. firewalld" aria-label="Command contains" data-enter="runSudoSearch" autocomplete="off">
             <input type="text" id="sudo-search-user" class="form-input input-narrow" placeholder="User (exact)" aria-label="Filter by user" data-enter="runSudoSearch" autocomplete="off">
             <button class="btn-secondary" data-action="runSudoSearch">Search</button>
             <span id="sudo-search-summary" class="fs-12 c-muted"></span>

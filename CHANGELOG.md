@@ -20,6 +20,22 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   its top was cut off; the 67 `vh` and `vw` lengths are divided by the zoom now. And menus and tooltips placed from a measured position
   landed too far from their control; the seven places that place a popup convert what they measure, and the zoom is measured, not assumed.
   `tests/test_text_size.py` holds both, `tests/test_text_size_e2e.py` measures them in a browser, and 13 of 13 mutations of the fix are caught.
+- **A walk over every sidebar page, and what it found.** `tests/test_sidebar_pages_rendered_e2e.py` logs in on the demo data, opens all 85
+  sidebar pages at 1440 × 900 and reads what is on them: the words, the size of every placeholder against its box, the lines a table
+  row's buttons sit on, the search boxes. A source scan could not see any of these, because the markup was right. Four things came out of
+  it, each held by the walk (7 of 7 mutations of the fixes are caught):
+  - **`device` for a host, from a stored token.** Seven pages built a word from a token: the Timeline's filter chips read `device offline`
+    and `Cve found`, Home's activity feed read `device offline`, a Drift assignment read `device: nc01`, Data Explorer listed the
+    entity `devices`, a Maintenance window's scope read `device`, and the demo's fleet-wide commands named their target `all devices`.
+    The Timeline now takes the registry's translated title for an event kind (`Host Offline`, `SNMP Host Recovered`), and the other places
+    word the token (`hostWord`, `kindWords`). Option values, data arguments and request bodies keep the token.
+  - **Placeholders cut off by their own box.** The Hosts search showed `Search` for `Search hosts…` (it was squeezed to 74 px beside five
+    filters; it wraps to its own line now), and six other filters were 7 to 40 px too narrow for their placeholder: the forecast, port
+    and package filters, the audit command search, the scan vhost and the CMDB scope value.
+  - **Table action buttons on two lines.** The Live Monitor, Exposure and TLS rows put their three to five buttons on two lines at desktop
+    width, which doubled the row height for every host. The rule that keeps them on one row applied at phone width only; it applies at every width.
+  - **Search boxes without a magnifier.** Tickets and Contacts reserved room for an icon and drew none. And the Links page held its cards in
+    a 340 px box under a 900 px window; it uses 62% of the window now.
 
 ## v7.5.0 — "Wh0leMatters" — 2026-11-05
 

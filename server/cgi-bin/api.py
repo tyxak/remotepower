@@ -68130,6 +68130,19 @@ def _timeline_collect(include_ids, name_map):
     return items
 
 
+def _timeline_kind_labels(kinds):
+    """{kind: words} for the kinds of a timeline that are events: the registry's short title ("Host Offline"), else its
+    label, both of which the six languages translate. A kind that is not an event (a command run, an audit row) has
+    none, and the page words it itself. Before this the chips read `device offline`, straight from the token."""
+    out = {}
+    for k in kinds:
+        spec = EVENT_REGISTRY.get(k)
+        words = (spec.get('title') or spec.get('label')) if isinstance(spec, dict) else None
+        if words:
+            out[k] = words
+    return out
+
+
 def _timeline_etag_source(*extra):
     """v6.1.1 (#10): conditional-GET freshness marker for the timeline
     endpoints, mirroring GET /api/risk's pattern. Keyed off every store
@@ -68261,6 +68274,7 @@ def handle_device_timeline(dev_id):
         'device_name': dev.get('name', dev_id),
         'items':       items[:limit],
         'kinds':       kinds_present,
+        'kind_labels': _timeline_kind_labels(kinds_present),
         'total':       len(items),
         'since':       since,
         'until':       until,
@@ -68317,6 +68331,7 @@ def handle_fleet_timeline():
     out = {
         'items':   items[:limit],
         'kinds':   kinds_present,
+        'kind_labels': _timeline_kind_labels(kinds_present),
         'devices': [{'id': did, 'name': nm} for did, nm in sorted(
                         name_map.items(), key=lambda kv: kv[1].lower())],
         'total':   len(items),

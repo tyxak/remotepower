@@ -65,7 +65,7 @@ async function loadDriftProfiles() {
     body.innerHTML = '<div class="c-muted fs-14">No drift profiles yet. Create one to apply a reusable watched-file set to a host, tag, or group.</div>';
     return;
   }
-  const scopeChip = (a) => `<span class="tag-pill">${escHtml(a.scope_type)}: ${escHtml(a.scope_value)}` +
+  const scopeChip = (a) => `<span class="tag-pill">${escHtml(hostWord(a.scope_type))}: ${escHtml(a.scope_value)}` +
     `<button class="tag-x" title="Unassign" data-action="unassignDriftProfile" data-arg="${escAttr(a.scope_type)}" data-arg2="${escAttr(a.scope_value)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`;
   body.innerHTML = _driftProfiles.map(p => {
     const files = p.files || [];

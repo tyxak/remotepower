@@ -1973,6 +1973,23 @@ function _cloneBody(v) { return _canClone ? structuredClone(v) : v; }
 function plural(n, one, other) {
   return n + ' ' + (Number(n) === 1 ? one : (other === undefined ? one + 's' : other));
 }
+// A stored or machine-read token worded for a person. The product says host, never device (v7.4.0), but a scope
+// type, a query entity or an event name is stored as `device`, `devices` or `device_offline` and a program reads it.
+// Option values, data-args and request bodies keep the token; what a person reads goes through here.
+function hostWord(token) {
+  return String(token == null ? '' : token).replace(/\bdevices\b/g, 'hosts').replace(/\bdevice\b/g, 'host');
+}
+// Words for an event or timeline kind. The server sends the registry label for a kind that is an event (what
+// Settings -> Notifications shows, and what the six languages translate); any other kind is worded here:
+// underscores to spaces, host for device, acronyms in capitals, a capital first letter.
+const _KIND_ACRONYMS = { cve: 'CVE', cves: 'CVEs', ssh: 'SSH', snmp: 'SNMP', mcp: 'MCP', tls: 'TLS', dns: 'DNS',
+  ups: 'UPS', oom: 'OOM', ntp: 'NTP', mfa: 'MFA', api: 'API', ip: 'IP', sla: 'SLA', smart: 'SMART', kmip: 'KMIP' };
+function kindWords(kind, labels) {
+  const k = String(kind == null ? '' : kind);
+  if (labels && labels[k]) return String(labels[k]);
+  const words = k.split('_').map(w => _KIND_ACRONYMS[w] || hostWord(w)).join(' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 // v7.4.0: what api() last said about a failed request, so failToast() does not say it again.
 // `body` is the value the caller got back (an object, or null); a 401 is recorded apart, because
 // the login page that replaces the app is the message.
@@ -10700,7 +10717,7 @@ async function loadQueryPage() {
   _qeFieldsByEntity = (r && r.entities) || {};
   const sel = document.getElementById('qe-entity');
   if (sel) sel.innerHTML = Object.keys(_qeFieldsByEntity)
-    .map(e => `<option value="${escAttr(e)}">${escHtml(e)}</option>`).join('');
+    .map(e => `<option value="${escAttr(e)}">${escHtml(hostWord(e))}</option>`).join('');
   qeEntityChanged();
   await qeLoadTemplates();
 }
@@ -10822,7 +10839,7 @@ async function qeLoadTemplates() {
     const mine = t.owner === me || isAdmin;
     const badge = t.visibility === 'shared'
       ? '<span class="hint">shared</span>' : '<span class="hint">private</span>';
-    return `<div class="settings-row"><strong>${escHtml(t.name)}</strong> <span class="hint">(${escHtml(t.entity)})</span> ${badge} ` +
+    return `<div class="settings-row"><strong>${escHtml(t.name)}</strong> <span class="hint">(${escHtml(hostWord(t.entity))})</span> ${badge} ` +
       `<button class="btn-icon" data-action="qeRunTemplate" data-arg="${escAttr(t.id)}">Run</button> ` +
       (mine ? `<button class="btn-icon c-danger-outline" data-action="qeDeleteTemplate" data-arg="${escAttr(t.id)}">Delete</button>` : '') +
       `</div>`;
@@ -13209,7 +13226,7 @@ function _registerMaintTable() {
       const winKey = _storeEvtData(w);
       return `<tr>
         <td class="fw-500">${escHtml(w.reason || '(no reason)')}</td>
-        <td><span class="group-badge">${escHtml(w.scope)}</span></td>
+        <td><span class="group-badge">${escHtml(hostWord(w.scope))}</span></td>
         <td class="isl-415">${target}</td>
         <td class="fs-12">${when}</td>
         <td class="meta-sm-nm">${events}${noAlerts}</td>
@@ -21626,7 +21643,7 @@ function _renderHomeActivity(fleetEvents) {
   target.innerHTML = entries.map(ev => {
     const ts = ev.ts ? timeAgo(ev.ts) : '—';
     const cls = EVENT_CLASS[ev.event] || 'info';
-    const label = (ev.event || '').replace(/_/g, ' ');
+    const label = kindWords(ev.event, (fleetEvents && fleetEvents.labels) || null);
     const p = ev.payload || {};
     const dev = p.device_name || p.name || p.host || '';
     // v2.8.1: show rich detail for security and monitoring events
@@ -27874,6 +27891,7 @@ function forecastSelect(idx) {
 // stream by GET /api/devices/<id>/timeline. The device <select> drives it; the
 // kind chips filter the already-fetched rows client-side (no re-fetch).
 let _timelineItems = [];
+let _timelineKindLabels = {};   // kind -> the registry's label, from the response (kindWords words the rest)
 let _timelineKindFilter = new Set();
 let _timelineFleet = true;   // '*' scope (whole fleet) vs a single device
 const _TIMELINE_PAGE = 50;   // rows rendered per page (Load more reveals more)
@@ -27969,6 +27987,7 @@ async function loadTimeline() {
     return;
   }
   _timelineItems = r.items;
+  _timelineKindLabels = r.kind_labels || {};
   // Drop active filters that don't apply to this scope's kind set.
   _timelineKindFilter = new Set([..._timelineKindFilter].filter(k => (r.kinds || []).includes(k)));
   // `total` is the pre-window count; when a window is set the honest number is
@@ -27996,7 +28015,7 @@ function _renderTimelineKinds(kinds) {
   const chip = (k, label, active) =>
     `<button class="tl-chip${active ? ' active' : ''}" data-action="timelineToggleKind" data-arg="${_escapeHtml(k)}">${_escapeHtml(label)}</button>`;
   const parts = [chip('', 'All', _timelineKindFilter.size === 0)];
-  kinds.forEach(k => parts.push(chip(k, k.replace(/_/g, ' '), _timelineKindFilter.has(k))));
+  kinds.forEach(k => parts.push(chip(k, kindWords(k, _timelineKindLabels), _timelineKindFilter.has(k))));
   wrap.innerHTML = parts.join('');
 }
 
@@ -28035,7 +28054,7 @@ function _renderTimeline() {
       + `<div class="tl-main">`
       +   `<div class="tl-head">${devChip}<span class="tl-title">${_escapeHtml(it.title || it.kind)}</span>`
       +   `<span class="sev-pill ${sev}">${_escapeHtml(it.severity)}</span>`
-      +   `<span class="tl-kind">${_escapeHtml((it.kind || '').replace(/_/g, ' '))}</span></div>`
+      +   `<span class="tl-kind">${_escapeHtml(kindWords(it.kind, _timelineKindLabels))}</span></div>`
       +   (it.detail ? `<div class="tl-detail">${_escapeHtml(it.detail)}</div>` : '')
       + `</div>`
       + `<div class="tl-time" title="${_escapeHtml(whenAbs)}">${timeAgoHtml(it.ts)}</div>`
