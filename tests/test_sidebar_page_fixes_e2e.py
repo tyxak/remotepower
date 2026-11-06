@@ -382,23 +382,37 @@ class TestSidebarPageFixes(unittest.TestCase):
 
     # ── Schedules in words ──────────────────────────────────────────────────
     def test_the_four_tables_that_show_a_schedule_show_it_in_words(self):
-        for page, body in (('autopatch', '#autopatch-tbody'), ('schedule', '#schedule-tbody'), ('maintenance', '#maint-tbody'), ('backups', '#backups-tbody')):
-            self._show(page, 2500)
-            got = self.page.evaluate("""(body) => [...document.querySelectorAll(body + ' tr')].map(tr => {
+        read = """(body) => [...document.querySelectorAll(body + ' tr')].map(tr => {
                     const raw = tr.querySelector('div.hint.mono-12'); if (!raw) return null;
                     const words = raw.previousElementSibling ? raw.previousElementSibling.textContent : '';
-                    return {raw: raw.textContent, words, expected: cronWords(raw.textContent)}; }).filter(Boolean)""", body)
-            self.assertGreaterEqual(len(got), 3, page + ': control: the demo has scheduled rows')
+                    return {raw: raw.textContent, words, expected: cronWords(raw.textContent)}; }).filter(Boolean)"""
+        for page, body in (('autopatch', '#autopatch-tbody'), ('schedule', '#schedule-tbody'), ('maintenance', '#maint-tbody'), ('backups', '#backups-tbody')):
+            self._show(page, 800)
+            # a page fetches its words module and its data before it draws: poll until the rows are there
+            got = []
+            for _ in range(40):
+                self.page.mouse.move(1, 1)
+                got = self.page.evaluate(read, body)
+                if len(got) >= 3:
+                    break
+                self.page.wait_for_timeout(300)
+            seen = self.page.evaluate("(b) => [typeof cronWords, (document.querySelector(b) || {innerText: 'no table body'}).innerText.slice(0, 240)]", body)
+            self.assertGreaterEqual(len(got), 3, f'{page}: control: the demo has scheduled rows; saw {seen}')
             for g in got:
                 self.assertTrue(g['words'], g)
                 self.assertEqual(g['words'], g['expected'], g)
                 self.assertRegex(g['raw'], r'^\S+( \S+){4}$', 'the expression itself stays under the words')
 
     def test_the_scheduled_scans_of_pentest_show_their_schedule_in_words_with_the_expression_on_hover(self):
-        self._show('scans', 2600)
-        self.page.mouse.move(1, 1)                  # the tooltip script takes the title off the element under the pointer
-        got = self.page.evaluate("""() => [...document.querySelectorAll('#scan-schedules-list .hint > span[title]')]
-                .map(s => ({words: s.textContent, raw: s.title, expected: cronWords(s.title)}))""")
+        self._show('scans', 800)
+        got = []
+        for _ in range(40):                         # the page fetches its modules and the list before it draws
+            self.page.mouse.move(1, 1)              # the tooltip script takes the title off the element under the pointer
+            got = self.page.evaluate("""() => [...document.querySelectorAll('#scan-schedules-list .hint > span[title]')]
+                    .map(s => ({words: s.textContent, raw: s.title, expected: cronWords(s.title)}))""")
+            if len(got) >= 2:
+                break
+            self.page.wait_for_timeout(300)
         self.assertGreaterEqual(len(got), 2, 'control: the demo has two scheduled scans')
         for g in got:
             self.assertTrue(g['words'], g)
@@ -459,9 +473,14 @@ class TestSidebarPageFixes(unittest.TestCase):
             ctx.close()
 
     def test_maintenance_keeps_its_length_on_the_first_line_of_the_words(self):
-        self._show('maintenance', 2500)
-        text = self.page.evaluate("""() => { const raw = [...document.querySelectorAll('#maint-tbody div.hint.mono-12')].find(d => d.textContent === '0 1 1 * *');
-            return raw ? raw.parentElement.innerText.replace(/\\s+/g, ' ').trim() : null; }""")
+        self._show('maintenance', 800)
+        text = None
+        for _ in range(40):                         # the page fetches its modules and the windows before it draws
+            text = self.page.evaluate("""() => { const raw = [...document.querySelectorAll('#maint-tbody div.hint.mono-12')].find(d => d.textContent === '0 1 1 * *');
+                return raw ? raw.parentElement.innerText.replace(/\\s+/g, ' ').trim() : null; }""")
+            if text:
+                break
+            self.page.wait_for_timeout(300)
         self.assertEqual(text, 'Monthly on day 1 at 01:00 for 180min 0 1 1 * *')
 
     # ── The Time display setting reaches the table cells ────────────────────
