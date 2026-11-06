@@ -2151,6 +2151,13 @@ function cronHtml(expr, wordsClass, suffix) {
   if (!words) return `<span class="mono-12">${escHtml(raw)}</span>${tail}`;
   return `<span${wordsClass ? ` class="${escAttr(wordsClass)}"` : ''}>${escHtml(words)}</span>${tail}<div class="hint mono-12">${escHtml(raw)}</div>`;
 }
+// The same for a sentence or a chip: the words, with the expression on hover, or the expression alone when it has no words.
+function cronInline(expr, hoverPrefix) {
+  const raw = String(expr == null ? '' : expr).trim();
+  if (!raw) return '';
+  const words = cronWords(raw);
+  return words ? `<span title="${escAttr((hoverPrefix || '') + raw)}">${escHtml(words)}</span>` : escHtml(raw);
+}
 // v7.4.0: what api() last said about a failed request, so failToast() does not say it again.
 // `body` is the value the caller got back (an object, or null); a 401 is recorded apart, because
 // the login page that replaces the app is the message.
@@ -29774,7 +29781,7 @@ async function loadReportDefs() {
   // Render the saved-definitions list.
   if (!_reportDefs.length) { wrap.innerHTML = '<div class="hint">No custom reports yet.</div>'; return; }
   wrap.innerHTML = _reportDefs.map(d => {
-    const sched = d.enabled && d.cron ? `<span class="epss-chip" title="Scheduled">${escHtml(d.cron)}</span>` : '';
+    const sched = d.enabled && d.cron ? `<span class="epss-chip">${cronInline(d.cron, 'Scheduled: ')}</span>` : '';
     // A scheduled report that silently covers the whole fleet when the operator
     // meant one customer is the failure this field exists to prevent — so say
     // which it is on the saved row, not only in the editor.

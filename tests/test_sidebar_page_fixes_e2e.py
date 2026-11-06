@@ -373,6 +373,17 @@ class TestSidebarPageFixes(unittest.TestCase):
                 self.assertEqual(g['words'], g['expected'], g)
                 self.assertRegex(g['raw'], r'^\S+( \S+){4}$', 'the expression itself stays under the words')
 
+    def test_the_scheduled_scans_of_pentest_show_their_schedule_in_words_with_the_expression_on_hover(self):
+        self._show('scans', 2600)
+        self.page.mouse.move(1, 1)                  # the tooltip script takes the title off the element under the pointer
+        got = self.page.evaluate("""() => [...document.querySelectorAll('#scan-schedules-list .hint > span[title]')]
+                .map(s => ({words: s.textContent, raw: s.title, expected: cronWords(s.title)}))""")
+        self.assertGreaterEqual(len(got), 2, 'control: the demo has two scheduled scans')
+        for g in got:
+            self.assertTrue(g['words'], g)
+            self.assertEqual(g['words'], g['expected'], g)
+            self.assertRegex(g['raw'], r'^\S+( \S+){4}$')
+
     def test_maintenance_keeps_its_length_on_the_first_line_of_the_words(self):
         self._show('maintenance', 2500)
         text = self.page.evaluate("""() => { const raw = [...document.querySelectorAll('#maint-tbody div.hint.mono-12')].find(d => d.textContent === '0 1 1 * *');
@@ -411,6 +422,8 @@ class TestSidebarPageFixes(unittest.TestCase):
                     # a page fetches before it draws: poll from here until the cells show the setting, then assert what is there
                     cells = []
                     for _ in range(40):
+                        # the tooltip script takes the title off the element under the pointer: park it in a corner first
+                        self.page.mouse.move(1, 1)
                         cells = self.page.evaluate(read, sel)
                         if flipped(cells, mode, at_least):
                             break

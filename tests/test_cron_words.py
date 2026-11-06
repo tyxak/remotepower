@@ -238,7 +238,7 @@ class TestTheWordsFollowTheSchedule(unittest.TestCase):
 class TestTheCell(unittest.TestCase):
 
     def _cells(self, calls):
-        script = srcpin.js_function(_APP, 'cronWords') + '\n' + srcpin.js_function(_APP, 'cronHtml') + \
+        script = srcpin.js_function(_APP, 'cronWords') + '\n' + srcpin.js_function(_APP, 'cronHtml') + '\n' + srcpin.js_function(_APP, 'cronInline') + \
             '\nfunction escHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }\nconst escAttr = escHtml;'
         return _run_node(script, 'console.log(JSON.stringify([' + ','.join(calls) + ']));')
 
@@ -254,6 +254,11 @@ class TestTheCell(unittest.TestCase):
         self.assertEqual(got, ['<span>Monthly on day 1 at 01:00</span> for 180min<div class="hint mono-12">0 1 1 * *</div>',
                                '<span class="mono-12">0 3 15 * 1</span> for 60min'])
 
+    def test_a_sentence_gets_the_words_with_the_expression_on_hover(self):
+        got = self._cells(["cronInline('0 4 * * 1')", "cronInline('0 4 * * 1', 'Scheduled: ')", "cronInline('0 3 15 * 1')", "cronInline('<b>')", "cronInline('')"])
+        self.assertEqual(got, ['<span title="0 4 * * 1">Mondays at 04:00</span>', '<span title="Scheduled: 0 4 * * 1">Mondays at 04:00</span>',
+                               '0 3 15 * 1', '&lt;b&gt;', ''])
+
     def test_the_expression_is_escaped(self):
         got = self._cells(["cronHtml('<img src=x onerror=1>')", "cronHtml('0 3 * * 0 <b>')"])
         self.assertEqual(got, ['<span class="mono-12">&lt;img src=x onerror=1&gt;</span>', '<span class="mono-12">0 3 * * 0 &lt;b&gt;</span>'])
@@ -266,6 +271,13 @@ class TestTheFourSitesUseTheHelper(unittest.TestCase):
         self.assertIn('cronHtml(p.cron)', _APP)                                     # Auto-patch
         self.assertIn("cronHtml(w.cron, '', ` for ${Math.round((w.duration||0)/60)}min`)", _APP)   # Maintenance
         self.assertIn('cronHtml(j.cron)', _BACKUPS)                                 # Backups
+
+    def test_the_scan_schedules_and_the_report_chip_use_the_inline_form(self):
+        scans = (_JS / 'app-scans.js').read_text(encoding='utf-8')
+        self.assertIn('cronInline(s.cron)', scans)                                  # Pentest, scheduled scans
+        self.assertNotIn('escHtml(s.cron)', scans)
+        self.assertIn("cronInline(d.cron, 'Scheduled: ')", _APP)                    # Reports, a scheduled definition
+        self.assertNotIn('escHtml(d.cron)', _APP)
 
     def test_none_of_them_prints_the_raw_expression_on_its_own_any_more(self):
         self.assertNotIn('escHtml(p.cron)', _APP)

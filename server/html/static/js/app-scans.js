@@ -532,7 +532,7 @@ async function loadScanSchedules() {
     const paused = s.enabled === false;
     const stateBadge = paused ? ' <span class="patch-badge warn fs-11">paused</span>' : '';
     const nextStr = paused ? '' : ` · next ${escHtml(when)}`;
-    return `<div class="mb-8"><strong>${escHtml(s.name)}</strong>${stateBadge} <span class="hint">${escHtml(s.cron)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity)} · ${escHtml(tgt)} · last ${last}${nextStr}</span> <button class="btn-icon cell-sm" data-action="runScanSchedule" data-arg="${escAttr(s.id)}" title="Fire this schedule now">Run now</button> <button class="btn-icon cell-sm" data-action="toggleScanSchedule" data-arg="${escAttr(s.id)}" title="${paused ? 'Resume the cron' : 'Pause without deleting'}">${paused ? 'Resume' : 'Pause'}</button> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deleteScanSchedule" data-arg="${escAttr(s.id)}">${_icon('trash',14)}</button></div>`;
+    return `<div class="mb-8"><strong>${escHtml(s.name)}</strong>${stateBadge} <span class="hint">${cronInline(s.cron)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity)} · ${escHtml(tgt)} · last ${last}${nextStr}</span> <button class="btn-icon cell-sm" data-action="runScanSchedule" data-arg="${escAttr(s.id)}" title="Fire this schedule now">Run now</button> <button class="btn-icon cell-sm" data-action="toggleScanSchedule" data-arg="${escAttr(s.id)}" title="${paused ? 'Resume the cron' : 'Pause without deleting'}">${paused ? 'Resume' : 'Pause'}</button> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deleteScanSchedule" data-arg="${escAttr(s.id)}">${_icon('trash',14)}</button></div>`;
   }).join('');
 }
 
