@@ -37,6 +37,8 @@ import srcpin  # noqa: E402
 
 _NODE = shutil.which('node')
 _APP = (_JS / 'app.js').read_text(encoding='utf-8')
+_WORDS = (_JS / 'app-cronwords.js').read_text(encoding='utf-8')        # cronWords is a lazy module
+_INDEX = (_JS.parent.parent / 'index.html').read_text(encoding='utf-8')
 _BACKUPS = (_JS / 'app-backups.js').read_text(encoding='utf-8')
 
 
@@ -50,7 +52,7 @@ def _run_node(script, driver):
 
 
 def words_of(exprs, fn_name='cronWords', extra=''):
-    script = srcpin.js_function(_APP, 'cronWords') + '\n' + extra
+    script = srcpin.js_function(_WORDS, 'cronWords') + '\n' + extra
     return _run_node(script, f'console.log(JSON.stringify({json.dumps(list(exprs))}.map(e => {fn_name}(e))));')
 
 
@@ -239,7 +241,7 @@ class TestTheWordsFollowTheSchedule(unittest.TestCase):
 class TestTheCell(unittest.TestCase):
 
     def _cells(self, calls):
-        script = srcpin.js_function(_APP, 'cronWords') + '\n' + srcpin.js_function(_APP, 'cronHtml') + '\n' + srcpin.js_function(_APP, 'cronInline') + \
+        script = srcpin.js_function(_WORDS, 'cronWords') + '\n' + srcpin.js_function(_APP, 'cronHtml') + '\n' + srcpin.js_function(_APP, 'cronInline') + \
             '\nfunction escHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }\nconst escAttr = escHtml;'
         return _run_node(script, 'console.log(JSON.stringify([' + ','.join(calls) + ']));')
 
@@ -285,6 +287,53 @@ class TestTheFourSitesUseTheHelper(unittest.TestCase):
         self.assertNotIn('escHtml(w.cron)', _APP)
         self.assertNotIn('escHtml(j.cron)', _APP)
         self.assertNotIn('escHtml(j.cron)', _BACKUPS)
+
+
+@unittest.skipUnless(_NODE, 'node not installed')
+class TestTheWordsAreALazyModule(unittest.TestCase):
+    """cronWords is 6.7 KB that only the pages drawing a schedule need, so it is app-cronwords.js, fetched with them.
+
+    cronHtml() and cronInline() stay in the eager core and call it only when it is there; a schedule drawn before it has loaded shows
+    the expression alone, as a schedule with no words always did."""
+
+    PAGES = ('schedule', 'autopatch', 'maintenance', 'backups', 'scans', 'reports')       # where a schedule is drawn
+
+    @staticmethod
+    def lazy_map():
+        block = _APP[_APP.index('const _LAZY_PAGE_MODULES = {'):]
+        block = block[:block.index('\n};')]
+        out = {}
+        for m in re.finditer(r"^\s+(?:'([a-z0-9-]+)'|([a-z0-9-]+)):\s*\[([^\]]*)\]", block, re.M):
+            out[m.group(1) or m.group(2)] = re.findall(r"'([^']+)'", m.group(3))
+        return out
+
+    def test_every_page_that_draws_a_schedule_loads_the_module_first(self):
+        lazy = self.lazy_map()
+        self.assertGreater(len(lazy), 30, 'control: the map was read')
+        self.assertEqual([p for p in self.PAGES if 'app-cronwords.js' not in lazy.get(p, [])], [])
+
+    def test_a_new_call_site_has_to_be_a_page_in_that_list(self):
+        calls = 0
+        for p in sorted(_JS.glob('app*.js')):
+            for line in p.read_text(encoding='utf-8').split('\n'):
+                if line.lstrip().startswith('//') or re.search(r'function (?:cronHtml|cronInline)\(', line):
+                    continue
+                calls += len(re.findall(r'(?<![\w.])(?:cronHtml|cronInline)\(', line))
+        self.assertEqual(calls, len(self.PAGES), 'a new place draws a schedule: add its page to PAGES and to _LAZY_PAGE_MODULES')
+
+    def test_the_module_is_not_an_eager_script_and_defines_the_function_once(self):
+        self.assertNotIn('app-cronwords.js', _INDEX)
+        self.assertEqual(len(re.findall(r'function cronWords\(', _WORDS)), 1)
+        self.assertNotIn('function cronWords(', _APP, 'the function moved: it must not be defined twice')
+
+    def test_the_eager_helpers_guard_the_call(self):
+        self.assertEqual(_APP.count("typeof cronWords === 'function' ? cronWords(raw) : ''"), 2)
+
+    def test_before_the_module_has_loaded_a_schedule_shows_the_expression_alone(self):
+        script = srcpin.js_function(_APP, 'cronHtml') + '\n' + srcpin.js_function(_APP, 'cronInline') + \
+            '\nfunction escHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }\nconst escAttr = escHtml;'
+        got = _run_node(script, "console.log(JSON.stringify([cronHtml('0 3 * * 0'), cronHtml('0 3 * * 0', '', ' for 60min'), cronInline('0 3 * * 0'), cronInline('')]));")
+        self.assertEqual(got, ['<span class="mono-12">0 3 * * 0</span>', '<span class="mono-12">0 3 * * 0</span> for 60min', '0 3 * * 0', ''])
 
 
 if __name__ == '__main__':

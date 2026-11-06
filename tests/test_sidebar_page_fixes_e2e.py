@@ -432,6 +432,32 @@ class TestSidebarPageFixes(unittest.TestCase):
                                 {'name': 'Odd day', 'chip': '0 3 15 * 1', 'title': None},
                                 {'name': 'Paused', 'chip': None, 'title': None}])
 
+    def test_the_cron_words_are_fetched_with_the_first_page_that_draws_a_schedule_and_before_it_draws(self):
+        # a session of its own: the shared page has long since visited these pages
+        ctx = self._browser.new_context(viewport={'width': 1440, 'height': 900}, service_workers='block')
+        ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
+        page = ctx.new_page()
+        try:
+            page.goto(self._base + '/index.html')
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(3000)
+            self.assertEqual(page.evaluate("() => [typeof cronWords, _loadedJsModules.has('app-cronwords.js')]"), ['undefined', False],
+                             'a lazy module: a new session has not fetched it')
+            page.evaluate("() => showPage('schedule')")
+            page.wait_for_selector('#schedule-tbody tr', timeout=15000)
+            page.wait_for_timeout(1200)
+            self.assertEqual(page.evaluate("() => [typeof cronWords, _loadedJsModules.has('app-cronwords.js')]"), ['function', True])
+            # loaded BEFORE the table drew: a row has the words and the expression under them, not the expression alone
+            rows = page.evaluate("""() => [...document.querySelectorAll('#schedule-tbody tr')].map(tr => !!tr.querySelector('div.hint.mono-12'))""")
+            self.assertTrue(any(rows), 'control: the demo has a recurring job')
+            self.assertTrue(page.evaluate("() => [...document.querySelectorAll('#schedule-tbody span.c-accent')].every(s => !/^\\S+( \\S+){4}$/.test(s.textContent))"),
+                            'a recurring job shows its expression where the words should be')
+        finally:
+            ctx.close()
+
     def test_maintenance_keeps_its_length_on_the_first_line_of_the_words(self):
         self._show('maintenance', 2500)
         text = self.page.evaluate("""() => { const raw = [...document.querySelectorAll('#maint-tbody div.hint.mono-12')].find(d => d.textContent === '0 1 1 * *');

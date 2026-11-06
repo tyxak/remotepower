@@ -272,14 +272,15 @@ class TestEagerJsPayload(unittest.TestCase):
         # 7.4.9 upgrade mode in the host drawer: 2_680_000. The sweep before it ended at 2_668_230, 1,770 under the budget. The checkbox row under
         # Host settings (beside the Upgrade packages button), its save and the one shared hint are about 2.9 KB of app.js. They are in the eager core
         # because the drawer's Host settings form is drawn there, and the strings are translations the Patch Report already has, so i18n.js is unchanged.
-        # 8.0.0 sidebar sweep: 2_700_000. At the 7.5.0 release the payload was 2_676_850, 3,150 under the budget; the sweep ends at
-        # 2_697_884, so it adds 21,034 bytes, 19,769 of them in app.js. The pieces: a schedule in words (cronWords, cronHtml and cronInline,
-        # 7.4 KB; the Schedule, Auto-patch and Maintenance tables are drawn from this file and the Backups table calls it), the text size setting
-        # (2.3 KB of functions and the popup placements that convert measured coordinates), the headings and tab titles (1.0 KB), the
-        # Fleet Query group counts (0.7 KB) and the word helpers (0.8 KB), plus the wiring in the code that draws the user menu, the top
-        # bar and the popups. The text size has to be eager: it is applied before the shell is drawn. cronWords is the one piece that
-        # could move to a lazy module (about 7.4 KB); the translations are in i18n.js, which is not eager.
-        self.assertLess(total, 2_700_000,
+        # 8.0.0 sidebar sweep: 2_694_000. At the 7.5.0 release the payload was 2_676_850, 3,150 under the budget. The sweep first took it to
+        # 2_697_884 and the budget to 2_700_000; then the words for a cron expression (cronWords, 6.3 KB) moved to app-cronwords.js, which
+        # the pages that draw a schedule fetch before they draw, and the budget came back down. The payload is 2_691_604 now: 14,754 bytes
+        # more than at 7.5.0, 13,489 of them in app.js, 2,396 under the budget. The pieces: the text size setting (2.3 KB of functions
+        # and the popup placements that convert measured coordinates), the headings and tab titles (1.0 KB), the Fleet Query group counts
+        # and Clear criteria (0.9 KB), the word helpers (0.6 KB), the two schedule cell helpers that stay (cronHtml and cronInline, 0.8 KB,
+        # guarded for a missing cronWords), plus the wiring in the code that draws the user menu, the top bar and the popups. The text
+        # size has to be eager: it is applied before the shell is drawn. The translations are in i18n.js, which is not eager.
+        self.assertLess(total, 2_694_000,
                         'the eager JS payload regressed past its budget')
 
 
