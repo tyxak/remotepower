@@ -65,6 +65,10 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   sign-out clears it with the rest of what the browser kept of the fleet. A host that was deleted, or is outside your scope, is not offered
   (11 of 11 mutations caught). `docs/cron.md` said the Cron page lists every host when none is picked; that is the API's answer (`GET /api/cron`),
   and the guide says so now.
+- **Pentest** puts the form that queues a scan in a card of its own, `New scan`: the host box, tool, profile, intensity, vhost, scanner satellite, the two
+  authorization boxes and `Queue scan`. Twelve controls shared one toolbar, and the table's filter sat between `Queue scan` and the authorization boxes, so
+  it read as part of the form. The `Scans` card keeps `Refresh`, `Clear finished` and the filter. The host list opens right under the host box and pushes
+  the rest of the form down. `docs/security-scans.md` follows (5 of 5 mutations caught).
 
 ### Controls you can hit
 

@@ -10430,6 +10430,8 @@
     "About profiles and content": { "zh": "关于配置和内容", "hi": "प्रोफ़ाइल और सामग्री के बारे में", "es": "Sobre los perfiles y el contenido", "ar": "حول الملفات والمحتوى", "de": "Zu Profilen und Inhalt", "fr": "À propos des profils et du contenu" },
     // the recently used hosts on the Cron, File manager and App Catalog pickers
     "Recent hosts": { "zh": "近期主机", "hi": "हाल के होस्ट", "es": "Hosts recientes", "ar": "المضيفات الأخيرة", "de": "Zuletzt verwendete Hosts", "fr": "Hôtes récents" },
+    // the Pentest page: the form that queues a scan is its own card
+    "New scan": { "zh": "新建扫描", "hi": "नया स्कैन", "es": "Nuevo análisis", "ar": "فحص جديد", "de": "Neuer Scan", "fr": "Nouvelle analyse" },
   };
 
   // v4.2: page-subtitle translations keyed by normalized English innerHTML

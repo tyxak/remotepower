@@ -7852,23 +7852,32 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ea455fa1"/></svg></div><div><div class="stat-value isl-137" id="scan-stat-high">0</div><div class="stat-label">High findings</div></div></div>
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-99336aa6"/></svg></div><div><div class="stat-value" id="scan-stat-total">0</div><div class="stat-label">Scans</div></div></div>
         </div>
+        <div class="dash-card mb-16">
+        <div class="section-title">New scan</div>
+        <div class="toolbar">
+          <input type="text" id="scan-device-search" class="form-input input-auto" placeholder="Search a host…" autocomplete="off" aria-label="Search a host">
+          <select id="scan-tool" class="form-input input-auto" title="Scan tool" aria-label="Scan tool"><option value="nuclei">nuclei</option><option value="nikto">nikto</option><option value="nmap">nmap</option><option value="wpscan">wpscan (WordPress)</option><option value="zap">zap (active)</option><option value="wapiti">wapiti (active)</option><option value="all">All tools</option><option value="lynis">lynis (on-host audit)</option></select>
+          <select id="scan-profile" class="form-input input-auto" title="Passive = safe. Active = intrusive (sends attack traffic)." aria-label="Passive = safe. Active = intrusive (sends attack traffic)"><option value="passive">passive</option><option value="active">active (intrusive)</option></select>
+          <select id="scan-intensity" class="form-input input-auto" title="Quick = fast/shallow. Full = thorough (all ports/severities, slower)." aria-label="Quick = fast/shallow. Full = thorough (all ports/severities, slower)"><option value="quick">quick</option><option value="full">full</option></select>
+        </div>
+        <div id="scan-device-results" class="scroll-cap hidden mb-16"></div>
+        <div class="toolbar">
+          <input type="text" id="scan-vhost" class="form-input input-auto input-filter" list="scan-vhost-verified" placeholder="vhost (optional)" title="Scan a specific hostname/vhost on this host instead of its IP. It must be an ownership-verified web target — add it under External targets below, publish the proof, then Verify." aria-label="vhost (optional)"><datalist id="scan-vhost-verified"></datalist>
+          <select id="scan-satellite" class="form-input input-auto" title="Which scanner satellite runs network scans. Pick the one that can reach the target (e.g. on its network segment)." aria-label="Scan satellite"><option value="">Any scanner satellite</option></select>
+          <div id="scan-sat-hint" class="hint c-amber"></div>
+        </div>
+        <div class="toolbar">
+          <label class="hint" id="scan-active-controls"><input type="checkbox" id="scan-attest"> I'm authorized to actively scan this target &nbsp; <input type="checkbox" id="scan-override"> run now (override maintenance window)</label>
+          <button class="btn-primary mw-200" data-action="queueScan"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><path d="M12 2a10 10 0 1 0 10 10"/><line x1="12" y1="12" x2="22" y2="2"/></svg> Queue scan</button>
+        </div>
+        </div><!-- /new scan card -->
         <div class="dash-card">
         <div class="section-title">Scans</div>
         <div class="toolbar-mb24">
           <button class="btn-icon" data-action="loadScans"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <button class="btn-icon" data-action="clearScans" title="Remove all finished scans (done/failed/cancelled) and their findings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Clear finished</button>
-          <input type="text" id="scan-device-search" class="form-input input-auto" placeholder="Search a host…" autocomplete="off" aria-label="Search a host">
-          <select id="scan-tool" class="form-input input-auto" title="Scan tool" aria-label="Scan tool"><option value="nuclei">nuclei</option><option value="nikto">nikto</option><option value="nmap">nmap</option><option value="wpscan">wpscan (WordPress)</option><option value="zap">zap (active)</option><option value="wapiti">wapiti (active)</option><option value="all">All tools</option><option value="lynis">lynis (on-host audit)</option></select>
-          <select id="scan-profile" class="form-input input-auto" title="Passive = safe. Active = intrusive (sends attack traffic)." aria-label="Passive = safe. Active = intrusive (sends attack traffic)"><option value="passive">passive</option><option value="active">active (intrusive)</option></select>
-          <select id="scan-intensity" class="form-input input-auto" title="Quick = fast/shallow. Full = thorough (all ports/severities, slower)." aria-label="Quick = fast/shallow. Full = thorough (all ports/severities, slower)"><option value="quick">quick</option><option value="full">full</option></select>
-          <input type="text" id="scan-vhost" class="form-input input-auto input-filter" list="scan-vhost-verified" placeholder="vhost (optional)" title="Scan a specific hostname/vhost on this host instead of its IP. It must be an ownership-verified web target — add it under External targets below, publish the proof, then Verify." aria-label="vhost (optional)"><datalist id="scan-vhost-verified"></datalist>
-          <select id="scan-satellite" class="form-input input-auto" title="Which scanner satellite runs network scans. Pick the one that can reach the target (e.g. on its network segment)." aria-label="Scan satellite"><option value="">Any scanner satellite</option></select>
-          <div id="scan-sat-hint" class="hint c-amber"></div>
-          <button class="btn-primary mw-200" data-action="queueScan"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><path d="M12 2a10 10 0 1 0 10 10"/><line x1="12" y1="12" x2="22" y2="2"/></svg> Queue scan</button>
           <input type="text" id="scans-filter" class="form-input input-auto" placeholder="Filter by target, status…" aria-label="Filter by target, status">
-          <label class="hint" id="scan-active-controls"><input type="checkbox" id="scan-attest"> I'm authorized to actively scan this target &nbsp; <input type="checkbox" id="scan-override"> run now (override maintenance window)</label>
         </div>
-        <div id="scan-device-results" class="scroll-cap hidden mb-16"></div>
         <div class="table-card mb-16"><table><thead id="scans-thead"><tr><th scope="col" data-col="target">Target</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="critical" class="ta-center">Crit</th><th scope="col" data-col="high" class="ta-center">High</th><th scope="col" data-col="medium" class="ta-center">Med</th><th scope="col" data-col="low" class="ta-center">Low</th><th scope="col" data-col="info" class="ta-center" title="Informational findings — wpscan's interesting-findings, nmap's open services. Not flaws, but they are what the scan actually saw.">Info</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead><tbody id="scans-tbody"><tr><td colspan="9" class="empty-state">No scans yet. Select an enrolled host and queue one. </td></tr></tbody></table></div>
         </div><!-- /scans card -->
         <div id="scan-detail" class="dash-card mb-16 hidden">

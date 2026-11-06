@@ -275,6 +275,37 @@ class TestSidebarPageFixes(unittest.TestCase):
             self.page.evaluate("""() => { window.cronRefresh = window.__orig.cronRefresh; window.fmListPath = window.__orig.fmListPath;
                 _cronDev = null; _fmDev = null; _catalogDev = null; }""")
 
+    # ── Pentest ─────────────────────────────────────────────────────────────
+    def test_the_new_scan_form_is_its_own_card_apart_from_the_table_controls(self):
+        self._show('scans', 2200)
+        m = self.page.evaluate("""() => {
+            const title = el => { const c = el && el.closest('.dash-card'); const t = c && c.querySelector(':scope > .section-title'); return t ? t.textContent.trim() : null; };
+            const q = s => document.querySelector('#page-scans ' + s);
+            const form = ['#scan-device-search', '#scan-tool', '#scan-profile', '#scan-intensity', '#scan-vhost', '#scan-satellite', '#scan-attest', '#scan-override',
+                          '[data-action="queueScan"]'].map(s => title(q(s)));
+            const table = ['#scans-filter', '[data-action="loadScans"]', '[data-action="clearScans"]', '#scans-thead'].map(s => title(q(s)));
+            const a = q('#scan-tool').closest('.dash-card'), b = q('#scans-filter').closest('.dash-card');
+            return {form, table, distinct: a !== b, above: a.getBoundingClientRect().bottom <= b.getBoundingClientRect().top + 1}; }""")
+        self.assertEqual(len(m['form']), 9, 'control: the form has nine controls')
+        self.assertEqual(set(m['form']), {'New scan'}, m)
+        self.assertEqual(set(m['table']), {'Scans'}, m)
+        self.assertTrue(m['distinct'])
+        self.assertTrue(m['above'], 'the form is above the table it adds to')
+
+    def test_the_host_search_results_open_under_the_search_and_push_the_rest_down(self):
+        self._show('scans', 2200)
+        self.page.fill('#scan-device-search', 'a')
+        self.page.wait_for_selector('#scan-device-results:not(.hidden)', timeout=5000)
+        self.page.wait_for_timeout(300)
+        r = self.page.evaluate("""() => { const b = id => document.getElementById(id).getBoundingClientRect();
+            return {search: b('scan-device-search'), results: b('scan-device-results'), vhost: b('scan-vhost'),
+                    rows: document.querySelectorAll('#scan-device-results > *').length}; }""")
+        self.assertGreater(r['rows'], 0, 'control: the demo fleet has hosts with an a in the name')
+        self.assertGreaterEqual(r['results']['top'], r['search']['bottom'] - 1, 'the list starts under the field it belongs to')
+        self.assertGreaterEqual(r['vhost']['top'], r['results']['bottom'] - 1, 'the next row moves down instead of sitting under the list')
+        self.page.fill('#scan-device-search', '')
+        self.page.evaluate("() => document.getElementById('scan-device-results').classList.add('hidden')")
+
     # ── The tab title ───────────────────────────────────────────────────────
     def test_the_tab_title_keeps_the_alert_count_and_the_page(self):
         self._show('cve', 600)

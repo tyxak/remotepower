@@ -20,6 +20,8 @@ NEW_STRINGS = [
     "About profiles and content",
     # the picker of Cron, File manager and App Catalog
     "Recent hosts",
+    # the Pentest page
+    "New scan",
 ]
 
 

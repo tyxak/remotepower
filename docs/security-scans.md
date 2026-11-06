@@ -94,13 +94,13 @@ in the reference below.
 3. **Pick a tool**. `nuclei` is the default and a good first choice.
 4. Click **Queue scan**.
 
-A row appears in the table with status **queued**. Within about 15 seconds the
+A row appears in the **Scans** card with status **queued**. Within about 15 seconds the
 scanner picks it up (**running**). When it finishes the status becomes **done**,
 with finding counts per severity (Crit, High, Med, Low, Info).
 
 5. Click the row (or **View**) to read the findings.
 
-That is the whole loop. The other controls in the toolbar:
+That is the whole loop. The other controls of the **New scan** card:
 
 | Control | What it does |
 |---|---|
@@ -109,7 +109,9 @@ That is the whole loop. The other controls in the toolbar:
 | **Intensity** | **quick** is fast and shallow (nuclei reports medium and above, nmap checks the top 100 ports, nikto and wapiti stop after 3 minutes, zap runs its baseline). **full** is thorough (every severity, every port, the whole time budget, zap's full scan). |
 | **vhost** | Scan a hostname on this host instead of its bare IP. It must be a verified web target (see Part 3). |
 | **Any scanner satellite** | Pin the scan to one scanner, for example the one on the target's network segment. |
-| **Clear** | Removes every finished scan (done, failed, cancelled) and its findings. Queued and running scans stay. |
+
+**Clear finished**, in the **Scans** card, removes every finished scan (done, failed,
+cancelled) and its findings. Queued and running scans stay.
 
 The scan runs against the address the host last reported. A host with no known
 address, or one whose address is loopback, link-local or a cloud-metadata
@@ -176,7 +178,7 @@ Advisory](security-advisory.md), together with medium ones.
 
 The **Scheduled scans** box on the Pentest page repeats a scan on a cron. Pick
 the host (or use a verified target's **Schedule** button), choose the tool,
-profile and intensity in the toolbar, enter a five-field cron such as
+profile and intensity in the **New scan** card, enter a five-field cron such as
 `0 3 * * *` (daily at 03:00), and click **Add schedule**. Each schedule has
 **Run now**, **Pause** or **Resume**, and a delete button. You can keep up to
 100. A scheduled **active** scan needs the authorization tick when you create
@@ -186,7 +188,7 @@ it.
 
 The **Scheduled LAN discovery** box repeats a LAN scan from an enrolled host on
 an interval, so the list of unmanaged hosts stays current. Pick the host in the
-toolbar above, enter a subnet such as `192.168.1.0/24` and an interval (15 to
+**New scan** card above, enter a subnet such as `192.168.1.0/24` and an interval (15 to
 10080 minutes, default 60), and click **Add schedule**. Only admins can add or
 remove these schedules, and you can keep up to 100. The hosts it finds appear
 under **Fleet → Network → Unmanaged hosts on the LAN**, where **Add as host**
