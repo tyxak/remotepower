@@ -59,7 +59,8 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
 - **Controls are at least 24 pixels across.** 1,742 of the 4,284 buttons, selects and summaries on the demo's pages were smaller than the 24 px
   that WCAG 2.2 asks of a target (2.5.8), and 1,281 of them were the small action buttons on the rows of Alerts and Problems. A rule gives every
   button, select and summary a 24 px height (a rule that sets its own height still wins), the small action button goes from 21 to 24 px and the
-  heatmap cells from 22 to 24. Thirteen are left, and the walk holds that number down. Found on the way, by the layout gates: the new Advisory
+  heatmap cells from 22 to 24; the ticket icon in the host list and the x of a tag keep their size on screen and get a 24 px box. None are left,
+  and the walk holds that at zero. Found on the way, by the layout gates: the new Advisory
   prints in full (it had findings to clip once it built itself), and the Threat Intel columns are narrow again on paper.
 
 ### The tab names the page

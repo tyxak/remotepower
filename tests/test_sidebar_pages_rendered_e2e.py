@@ -164,8 +164,8 @@ def wrapped_action_cells(page_name, cells):
     return [c for c in cells if c['lines'] > 1 and page_name not in ACTION_WRAP_ALLOWED]
 
 
-# Controls under 24 x 24 px that are left on the demo's pages (see test_controls_are_at_least_24_pixels_across). Shrink only.
-SMALL_TARGET_CEILING = 14
+# Controls under 24 x 24 px on the demo's pages (see test_controls_are_at_least_24_pixels_across): none.
+SMALL_TARGET_CEILING = 0
 
 
 class TestEverySidebarPageRendered(unittest.TestCase):
@@ -326,8 +326,8 @@ class TestEverySidebarPageRendered(unittest.TestCase):
         small = {n: r['targets']['small'] for n, r in self.rendered.items() if r['targets']['small']}
         if not _SUBSET:
             self.assertGreater(measured, 3500, 'control: the walk measured the controls of the pages')
-        # 1,742 of 4,284 were under it when this was written. What is left is listed, and the number only goes down: a control that sets
-        # its own size under 24 px (a tag's x, the ticket icon in the host list, a select with a fixed small width) is the way back.
+        # 1,742 of 4,284 were under it when this was written, and none are now. A control that sets
+        # its own size under 24 px is the way back: give it the box (negative margin returns the room) rather than a number here.
         self.assertLessEqual(sum(len(v) for v in small.values()), SMALL_TARGET_CEILING, small)
 
     def test_the_links_grid_may_use_most_of_the_window(self):

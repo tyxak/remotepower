@@ -1217,7 +1217,8 @@ html { zoom: var(--rp-zoom, 1); }
     background: rgba(127,127,127,0.08); max-width: 100%; }
   .tk-att-chip .tk-att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
   /* v5.4.1: small ticket marker before a device hostname (Devices page). */
-  .dev-ticket-ic { display: inline-flex; vertical-align: middle; margin-right: 4px; color: var(--accent-ink); }
+  /* The icon is 13 px; its box is 24 px (WCAG 2.2 target size), and the negative margin takes the extra room back so the row does not grow. */
+  .dev-ticket-ic { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; min-width: 24px; min-height: 24px; margin: -6px -2px -6px -6px; color: var(--accent-ink); }
   /* v5.4.1 (H6): first-run onboarding tour (CSP-safe; built via DOM + .style). */
   .tour-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1200; }
   .tour-target { position: relative; z-index: 1201; box-shadow: 0 0 0 3px var(--accent); border-radius: 6px; }
@@ -6070,7 +6071,8 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .drift-prof-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .drift-prof-files { margin-top: 4px; font-size: 11px; word-break: break-all; }
 .drift-prof-assigns { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; max-height: 132px; overflow-y: auto; }
-.tag-x { background: none; border: none; color: inherit; cursor: pointer; margin-left: 4px; padding: 0 2px; font-size: 13px; opacity: 0.7; }
+/* 24 px box for the 13 px x, given back as negative margin so the tag pill keeps its height */
+.tag-x { background: none; border: none; color: inherit; cursor: pointer; margin: -4px -6px -4px 0; padding: 0 2px; font-size: 13px; opacity: 0.7; display: inline-flex; align-items: center; justify-content: center; min-width: 24px; min-height: 24px; }
 .tag-x:hover { opacity: 1; }
 .isl-655 { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border) }
 .isl-656 { flex: 1; font-size: 12px }
