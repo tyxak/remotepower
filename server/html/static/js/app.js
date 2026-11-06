@@ -2734,7 +2734,11 @@ function _paintCrumb(navBtn, name) {
     const sp = navBtn.querySelector('span:not(.nav-badge)');
     page = sp ? sp.textContent.trim() : '';
   }
-  if (!page) page = name || '';
+  if (!page) {
+    // a page reached outside the sidebar (My Account) has no nav entry to read: its own title is the crumb
+    const t = name ? document.querySelector('#page-' + name + ' .page-title') : null;
+    page = (t && t.textContent.trim()) || name || '';
+  }
   el.textContent = '';
   const group = navBtn && navBtn.closest('.sidebar-group');
   const gl = group && group.querySelector('.sidebar-group-toggle span:not(.nav-group-badge)');
@@ -3122,6 +3126,18 @@ function pgTiles(elId, page, tiles) {
     `<span class="pg-tile-n">${escHtml(String(n))}</span><span class="pg-tile-l"><span>${escHtml(label)}</span></span></button>`).join('');
 }
 
+// Documentation opens with the newest release's "What's new" card unfolded the first time in this browser, and folded after that:
+// twelve paragraphs of release notes led the page on every visit and pushed the quick reference off the screen. The card is the
+// first one on the page (newest first); its version is in its search keywords, which are not translated.
+function _docsWhatsNew() {
+  const card = document.querySelector('#page-docs details.doc-card');
+  const m = card && /^release notes\b.*?\b(v\d+\.\d+\.\d+)/.exec(card.dataset.keywords || '');
+  if (!m) return;
+  let seen = '';
+  try { seen = localStorage.getItem('rp_whatsnew_seen') || ''; } catch (_) {}
+  card.open = seen !== m[1];
+  if (seen !== m[1]) { try { localStorage.setItem('rp_whatsnew_seen', m[1]); } catch (_) {} }
+}
 function showPage(name, btn, opts) {
   // A disabled module's page must not be reachable by deep link / bookmark /
   // command palette either — the nav entry is gone, but the route isn't.
@@ -3208,6 +3224,7 @@ function showPage(name, btn, opts) {
   if (name === 'risk')     loadRisk();
   if (name === 'ai') { loadAIPage(); }
   if (name === 'about')    loadAbout();
+  if (name === 'docs')     _docsWhatsNew();
   if (name === 'apikeys')  loadApiKeys();
   if (name === 'sites')    loadSites();
   if (name === 'attention') loadAttentionPage();   // v6.4.2: the Needs Attention drilldown
@@ -3260,7 +3277,9 @@ function showPage(name, btn, opts) {
   if (name === 'trends')   { loadTrends(); mountMetricExplorer(); }
   if (name === 'exposure')   loadExposure();
   if (name === 'protect')  { loadProtectChecks(); loadGuardVault(); }
-  if (name === 'advisory')   advScopeChanged();   // wire the picker; build on demand
+  // wire the picker, and build the whole-fleet advisory the first time: it reads data already collected (about 100 ms for 18 hosts), and a page
+  // that asked you to press Build before it showed anything was a page about nothing
+  if (name === 'advisory')   { advScopeChanged(); if (typeof _advLast !== 'undefined' && !_advLast) loadAdvisory(); }
   if (name === 'autonomy')   loadAutonomy();      // v7.0.0 remediation receipts
   if (name === 'firewall')   loadFirewall();
   if (name === 'kmip')       loadKmip();
@@ -18604,8 +18623,8 @@ function _renderSwRules() {
   box.innerHTML = rules.map((r, i) => {
     const scope = (r.tags && r.tags.length) ? ` [tags: ${escHtml(r.tags.join(', '))}]` : ' [fleet-wide]';
     const ver = r.type === 'min_version' ? ` ≥ ${escHtml(r.version || '?')}` : '';
-    return `<div class="row-flex">
-      <span><span class="pill">${escHtml(r.type)}</span> <span class="fw-500">${escHtml(r.package)}</span>${ver}<span class="hint">${scope}</span></span>
+    return `<div class="row-between swpol-rule">
+      <span><span class="group-badge">${escHtml(r.type)}</span> <span class="fw-500">${escHtml(r.package)}</span>${ver}<span class="hint">${scope}</span></span>
       <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="swPolDeleteRule" data-arg="${i}">${_icon('trash',14)}</button>
     </div>`;
   }).join('');

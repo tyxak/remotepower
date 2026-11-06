@@ -37,6 +37,21 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   - **Search boxes without a magnifier.** Tickets and Contacts reserved room for an icon and drew none. And the Links page held its cards in
     a 340 px box under a 900 px window; it uses 62% of the window now.
 
+### Single pages
+
+Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).
+
+- **Logs** said `none match the current filter` with no filter set. The live tail asks for the last ten minutes and the lines in the buffer were
+  older; it says so now, and keeps the old words for a filter that is set.
+- **Documentation** folds the release notes after the first visit to a version. Twelve paragraphs led the page on every visit and pushed the quick
+  reference off the screen.
+- **Advisory** builds the whole-fleet advisory the first time you open it (about 100 ms for 18 hosts, from data already collected). It used to show
+  `Choose a scope and build the advisory` until you pressed Build.
+- **Power** shows a UPS's state in words: NUT's `OB DISCHRG` reads `On battery, discharging` and the code stays in the hover.
+- **Software Policy** puts each rule and its remove button on one line (the class it used had no style), **Threat Intel** gives the Evidence and Status
+  columns room (a row ran to five lines), the **Timesheet** shows an entry's Edit and Delete side by side, **Storage** pads the ZFS cache and dataset
+  titles off their card border (the walk holds that for every card), and **My Account** names itself in the top bar instead of `account`.
+
 ### Failures in words
 
 - **A call that fails over the network says why.** `integrations.describe_network_error` has put a failure in words since 6.4.2 and 7.4.0

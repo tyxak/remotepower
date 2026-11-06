@@ -100,6 +100,9 @@ _MEASURE = r"""(name) => {
   const lg = root.querySelector('#links-grid');
   out.linksGridMax = lg ? parseFloat(getComputedStyle(lg).maxHeight) || 0 : null;
   out.innerHeight = window.innerHeight;
+  // a card title that sits flush against the card's own edge (a .table-card has no padding unless it is .card-padded)
+  out.flushTitles = [...root.querySelectorAll('.table-card > .section-title')].filter(vis)
+    .filter(t => t.getBoundingClientRect().left - t.parentElement.getBoundingClientRect().left < 8).map(t => t.textContent.trim().slice(0, 40));
   return out;
 }"""
 
@@ -266,6 +269,10 @@ class TestEverySidebarPageRendered(unittest.TestCase):
             self.assertGreaterEqual(len(boxes), 3, 'control: the walk found few input-search boxes (hosts, patches, tickets, contacts)')
         self.assertEqual([(n, b['id']) for n, b in boxes if not b['icon']], [],
                          '.input-search reserves 34px on the left for an icon: wrap the input with .search-box and the icon')
+
+    def test_no_card_title_sits_against_the_edge_of_its_card(self):
+        found = {n: r['flushTitles'] for n, r in self.rendered.items() if r.get('flushTitles')}
+        self.assertEqual(found, {}, 'a .section-title directly inside a .table-card needs .card-padded, or it sits on the card border')
 
     def test_the_links_grid_may_use_most_of_the_window(self):
         if _SUBSET and 'links' not in self.rendered:

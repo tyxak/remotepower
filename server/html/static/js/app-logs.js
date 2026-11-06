@@ -96,10 +96,16 @@ async function pollLogsTail(initial) {
       msg = `<div class="empty-state">`
           + `${plural(data.stats.devices_reporting, 'host', 'hosts')} are reporting, but watched units have been quiet.<br>`
           + `<span class="fs-11">This is normal for stable services. Logs appear here when agents capture something.</span></div>`;
-    } else {
+    } else if (dev || unit) {
       msg = `<div class="empty-state">`
           + `${plural(data.stats.total_lines, 'line', 'lines')} in the buffer, but none match the current filter.<br>`
           + `<span class="fs-11">Try clearing the host/unit filters above.</span></div>`;
+    } else {
+      // No filter is set: the tail asks for the last ten minutes only, and the lines in the buffer are older. It used to say
+      // "none match the current filter" here, which sent people to clear a filter that was not there.
+      msg = `<div class="empty-state">`
+          + `${plural(data.stats.total_lines, 'line', 'lines')} in the buffer, but none from the last 10 minutes.<br>`
+          + `<span class="fs-11">The live tail shows the last 10 minutes. Search looks further back.</span></div>`;
     }
     document.getElementById('logs-viewer').innerHTML = msg;
   }

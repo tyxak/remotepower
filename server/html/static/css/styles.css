@@ -5413,6 +5413,9 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .ipi-detail > td { background: var(--hair-2); padding: 10px 14px; }
 /* v7.3.0: the row's buttons (Block, Ban, Unban) wrap instead of overflowing the cell. */
 .ipi-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* The two text columns of the attackers table keep room for their words: the table gave them 100 px and each row grew to five lines. */
+.ipi-evidence-cell { min-width: 220px; }
+.ipi-status-cell { min-width: 150px; }
 .ipi-ignore-classes { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 16px; }
 .ipi-ignore-class { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .ipi-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 12px; }
@@ -7917,6 +7920,11 @@ option, optgroup{ background:var(--surface2); color:var(--text); }
   border-top: 1px solid var(--border); font-size: 13px;
 }
 .ts-entry:first-child, .tk-hours-row:first-child { border-top: none; }
+/* Edit and delete sit side by side at the end of an entry, not one above the other. */
+.ts-entry > .ml-auto { display: inline-flex; gap: 4px; flex: 0 0 auto; }
+/* Software Policy: one rule per line with its remove button at the end of it. */
+.swpol-rule { gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--hair); }
+.swpol-rule:last-child { border-bottom: 0; }
 .ws-totals { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-size: 13px; }
 .ws-grand { font-size: 16px; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px; }
 #billing-host .num, #invoice-view-body .num, #ws-result .num { text-align: right; }

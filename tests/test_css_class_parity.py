@@ -34,7 +34,7 @@ LEGACY_UNSTYLED = {
     "journal-line", "log-unit-badge", "meta-item", "modal-header", "mw-140",
     "mw-300", "netmap-scope-wrap", "noprint", "os-icon", "pad-4", "pad-6",
     "pill", "pl-16", "prompt-maxtok", "prompt-numctx", "prompt-temp",
-    "prompt-topp", "recovery-code", "row-16-wrap", "row-flex", "rp-tag",
+    "prompt-topp", "recovery-code", "row-16-wrap", "rp-tag",
     "settings-filter-row", "th-actions", "theme-card-name",
     "tk-th-cb",
     # v6.4.3: surfaced when this gate stopped counting classes named in

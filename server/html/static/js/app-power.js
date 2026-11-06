@@ -497,6 +497,20 @@ function _thermalDrawChart(devId) {
   _thermalNote(devId, _thermalNoteText(def, shown, folded, null, null, sensor));
 }
 
+// A UPS reports its state as codes: NUT's `OB DISCHRG`, apcupsd's `ONBATT`. The table words them ("On battery, discharging") and keeps the
+// code in the hover, for the operator who knows it. A code this does not know is shown as it came.
+const _UPS_WORDS = { OL: 'Online', OB: 'On battery', LB: 'Low battery', HB: 'High battery', RB: 'Replace battery', CHRG: 'Charging',
+  DISCHRG: 'Discharging', BYPASS: 'Bypass', OVER: 'Overload', TRIM: 'Trimming', BOOST: 'Boosting', FSD: 'Shutdown pending',
+  ALARM: 'Alarm', CAL: 'Calibrating', OFF: 'Off', ONLINE: 'Online', ONBATT: 'On battery', LOWBATT: 'Low battery',
+  COMMLOST: 'Communication lost', SHUTTING: 'Shutting down' };
+function upsStatusWords(code) {
+  const parts = String(code == null ? '' : code).trim().split(/\s+/).filter(Boolean);
+  return parts.map((c, i) => {
+    const word = _UPS_WORDS[c.toUpperCase()];
+    if (!word) return c;                                  // a code this does not know is shown as it came
+    return i === 0 ? word : word.charAt(0).toLowerCase() + word.slice(1);
+  }).join(', ');
+}
 async function loadPower() {
   const tbody = document.getElementById('power-tbody');
   if (!tbody) return;
@@ -556,7 +570,7 @@ function _renderPower() {
   tbody.innerHTML = shown.map(r => {
     const rt = (typeof r.runtime_s === 'number' && r.runtime_s) ? `${Math.round(r.runtime_s / 60)} min` : '—';
     const statusCell = r.ups
-      ? `<span class="${r.on_battery ? 'c-red fw-600' : 'c-green'}">${escHtml(r.status || '—')}</span>`
+      ? `<span class="${r.on_battery ? 'c-red fw-600' : 'c-green'}" title="${escAttr(r.status || '')}">${escHtml(upsStatusWords(r.status) || '—')}</span>`
       : '<span class="hint">no UPS</span>';
     const wattsCell = r.watts != null
       ? `${r.watts} W${r.watts_source === 'gpu' ? ' <span class="hint">(GPU)</span>' : ''}`

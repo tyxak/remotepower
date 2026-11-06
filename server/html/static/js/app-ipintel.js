@@ -653,9 +653,9 @@ function _ipiRenderAttackers() {
       <td>${escHtml(a.country || '')}</td>
       <td>${escHtml(a.isp || '')}</td>
       <td>${hosts}</td>
-      <td>${_ipiEvidenceHtml(a)}</td>
+      <td class="ipi-evidence-cell">${_ipiEvidenceHtml(a)}</td>
       <td>${timeAgoHtml(a.last_seen)}</td>
-      <td class="hint fs-11">${_ipiStatusHtml(a)}</td>
+      <td class="hint fs-11 ipi-status-cell">${_ipiStatusHtml(a)}</td>
       <td><div class="ipi-actions">${btn}${banBtn}${unbanBtn}${ignoreBtn}</div></td>
     </tr>${_ipiOpen.has(a.ip) ? `<tr class="ipi-detail"><td colspan="10">${_ipiDetailHtml(a)}</td></tr>` : ''}`;
   }).join('');
