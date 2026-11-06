@@ -162,6 +162,19 @@ class TestSidebarPageFixes(unittest.TestCase):
             self.assertLess(abs(top1 - top2), 3, 'edit above delete')
             self.assertLess(left1, left2)
 
+    # ── Compliance ──────────────────────────────────────────────────────────
+    def test_the_openscap_notes_are_folded_behind_a_short_lead(self):
+        self._show('compliance', 2500)
+        m = self.page.evaluate("""() => { const card = document.getElementById('scap-card'); const d = card.querySelector('details');
+            const lead = card.querySelector(':scope > .hint'); return {open: d.open, leadH: lead.getBoundingClientRect().height, cardH: card.getBoundingClientRect().height,
+              leadText: lead.textContent.slice(0, 40)}; }""")
+        self.assertFalse(m['open'], 'the notes start folded')
+        self.assertLess(m['leadH'], 50, 'the lead is a line or two, not nine')
+        self.assertTrue(m['leadText'].startswith('Scores a host'), m)
+        self.page.click('#scap-card details > summary')
+        self.assertTrue(self.page.evaluate("document.querySelector('#scap-card details').open"))
+        self.assertIn('oscap xccdf eval', self.page.inner_text('#scap-card details'))
+
     # ── The tab title ───────────────────────────────────────────────────────
     def test_the_tab_title_keeps_the_alert_count_and_the_page(self):
         self._show('cve', 600)

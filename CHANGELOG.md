@@ -56,6 +56,9 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   layout only; the phone layout is as it was).
 - **Network** gives each node its words on hover and to a screen reader (`web1 — agentless host, offline`; the circle itself carries only `HOS`, `OTH` or
   `UNM`), and the **Forecast** chart's word `projected` sits at the foot of its region, where the projection line no longer crosses it.
+- **Compliance** opens the OpenSCAP card with one line (`Scores a host against an OpenSCAP profile and lists the rules it fails`) and folds the
+  paragraph about profiles and content, eight lines at 1440 px, behind `About profiles and content`. The text is unchanged; the scan form is no longer
+  pushed down by it (3 of 3 mutations caught).
 
 ### Controls you can hit
 

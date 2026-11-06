@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Every visible string the sidebar sweep added has all six languages in the dictionary.
+
+The key is the English text exactly as it is written in index.html or a script, so a reworded sentence drops out of the dictionary
+without any other test noticing: this lists the strings by the sentence and checks each is a key with zh, hi, es, ar, de and fr.
+Add a string here when you add one to the interface (the gates in test_v430_i18n_gate only see some kinds of text).
+"""
+import pathlib
+import re
+import unittest
+
+_ROOT = pathlib.Path(__file__).resolve().parent.parent
+_I18N = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'i18n.js').read_text(encoding='utf-8')
+_HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text(encoding='utf-8')
+_JS = '\n'.join(p.read_text(encoding='utf-8') for p in sorted((_ROOT / 'server' / 'html' / 'static' / 'js').glob('app*.js')))
+
+NEW_STRINGS = [
+    # the OpenSCAP card of Compliance
+    "Scores a host against an OpenSCAP profile and lists the rules it fails. It needs the OpenSCAP scanner and the SCAP Security Guide content on the host.",
+    "About profiles and content",
+]
+
+
+def entry_languages(text):
+    """The languages of the DICT entry whose key is exactly `text`, or None when there is none."""
+    import json
+    m = re.search(r'^    ' + re.escape(json.dumps(text, ensure_ascii=False)) + r': \{(.*)\},?$', _I18N, re.M)
+    if not m:
+        return None
+    return set(re.findall(r'"(zh|hi|es|ar|de|fr)": "[^"]+"', m.group(1)))
+
+
+class TestNewStringsAreTranslated(unittest.TestCase):
+
+    def test_each_string_has_all_six_languages(self):
+        missing = {s[:60]: entry_languages(s) for s in NEW_STRINGS if entry_languages(s) != {'zh', 'hi', 'es', 'ar', 'de', 'fr'}}
+        self.assertEqual(missing, {})
+
+    def test_each_string_is_still_in_the_interface(self):
+        # a string nobody shows any more is a dictionary entry to delete, and a reworded one has left its translation behind
+        gone = [s[:60] for s in NEW_STRINGS if s not in _HTML and s not in _JS]
+        self.assertEqual(gone, [])
+
+    def test_the_check_sees_a_missing_entry_and_a_partial_one(self):
+        self.assertIsNone(entry_languages('A sentence nobody wrote'))
+        self.assertEqual(entry_languages('About profiles and content'), {'zh', 'hi', 'es', 'ar', 'de', 'fr'})
+
+
+if __name__ == '__main__':
+    unittest.main()
