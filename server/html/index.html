@@ -693,6 +693,15 @@
         </button>
         <div id="acct-dropdown" class="acct-dropdown hidden">
           <button class="acct-dropdown-item" data-action="openAccount"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-c3af51fd"/></svg> My Account</button>
+          <!-- Text size, one tap away in the user menu; the full set of steps is under My Account → Appearance. -->
+          <div class="acct-dropdown-row" role="group" aria-labelledby="acct-textsize-menu-label">
+            <span id="acct-textsize-menu-label">Text size</span>
+            <span class="textsize-ctl">
+              <button type="button" class="textsize-btn" id="acct-textsize-down" data-action="uiScaleStep" data-arg="-1" aria-label="Smaller text" title="Smaller text"><span class="textsize-a textsize-a-sm" aria-hidden="true">A</span></button>
+              <span class="textsize-val" id="acct-textsize-val" aria-live="polite">100%</span>
+              <button type="button" class="textsize-btn" id="acct-textsize-up" data-action="uiScaleStep" data-arg="1" aria-label="Larger text" title="Larger text"><span class="textsize-a textsize-a-lg" aria-hidden="true">A</span></button>
+            </span>
+          </div>
           <button class="acct-dropdown-item logout-btn"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Sign out</button>
         </div>
       </div>
@@ -1401,6 +1410,12 @@
             </select>
             <p class="hint">B612 was drawn for aircraft cockpit screens, with letters that are easy to tell apart. It loads only when you pick it, and it covers Latin letters; other scripts use your system font. Saved to your account, so it follows you to other browsers.</p>
           </div>
+          <!-- Text size. The page is zoomed and the choice is kept in this browser; the user menu has the same control. -->
+          <div class="mb-16">
+            <div class="form-label mb-6" id="acct-textsize-label">Text size</div>
+            <div class="segmented textsize-seg" id="cfg-ui-scale" role="group" aria-labelledby="acct-textsize-label"></div>
+            <p class="hint">Makes everything on the page larger or smaller, buttons and tables included. It applies to this browser only. A narrow window limits the largest sizes so the layout stays usable.</p>
+          </div>
           <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting; <strong>Time of day</strong> switches on the clock instead — which is what you want when the OS is pinned to dark, as it is on most servers and kiosks. The accent tints buttons and highlights on top of any theme.</p>
           <div class="form-label mb-6">Theme</div>
           <div id="acct-theme-grid" class="theme-grid mb-16"></div>
@@ -1519,15 +1534,6 @@
               <select id="cfg-temp-unit" class="form-input">
                 <option value="c">Celsius (°C)</option>
                 <option value="f">Fahrenheit (°F)</option>
-              </select>
-            </div>
-            <!-- v6.3.0 (UX wave 9): S/M/L interface scale — per browser, like the theme -->
-            <div class="form-group isl-49">
-              <label for="cfg-ui-scale" class="form-label">Interface size</label>
-              <select id="cfg-ui-scale" class="form-input" data-change="setUiScale">
-                <option value="s">Small</option>
-                <option value="m" selected>Default</option>
-                <option value="l">Large</option>
               </select>
             </div>
           </div>

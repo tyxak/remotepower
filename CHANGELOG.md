@@ -5,6 +5,22 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
+## Unreleased (test)
+
+What has changed since 7.5.0, on the way to 8.0.0. The release has no codename yet, so the changes collect here until the version is opened.
+
+### Interface
+
+- **Text size, in the user menu.** The user menu at the bottom of the sidebar has a *Text size* row with a smaller and a larger button, and
+  My Account → Appearance has the ten steps, 80% to 300%, as buttons. The setting was called *Interface size*, sat under Display units and
+  had three steps (90, 100 and 110%), which is why it went unnoticed. It keeps its stored value, so a browser that had *Small* or *Large*
+  keeps it. A window too narrow for a step holds the largest steps back so the layout keeps its room: 200% at most on a window 1440 pixels
+  wide, 110% on a phone, and a 4K screen at its native size has room for 300%. Two things made a larger size look broken, and both are
+  fixed. Zoom scaled the stylesheet's viewport units too, so a dialog capped at 90% of the window was taller than the window above 100% and
+  its top was cut off; the 67 `vh` and `vw` lengths are divided by the zoom now. And menus and tooltips placed from a measured position
+  landed too far from their control; the seven places that place a popup convert what they measure, and the zoom is measured, not assumed.
+  `tests/test_text_size.py` holds both, `tests/test_text_size_e2e.py` measures them in a browser, and 13 of 13 mutations of the fix are caught.
+
 ## v7.5.0 — "Wh0leMatters" — 2026-11-05
 
 A release about finishing what was started. The last production release was 7.4.0, so this release carries everything from 7.4.1

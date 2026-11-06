@@ -693,9 +693,9 @@ const tableCtl = (() => {
       // v6.3.0 (wave 9): one-click reset of every stored view pref for this table
       + `<button class="btn-icon tbl-reset-view" data-action="tblResetView" data-arg="${escAttr(name)}">${_icon('refresh', 11)} Reset view</button>`;
     pop.classList.remove('hidden');
-    const r = btn.getBoundingClientRect();
+    const r = uiRectCss(btn), vp = uiViewportCss();
     pop.style.top = Math.round(r.bottom + 6) + 'px';
-    pop.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - 228, r.left - 180))) + 'px';
+    pop.style.left = Math.round(Math.max(8, Math.min(vp.w - 228, r.left - 180))) + 'px';
   }
 
   function toggleCol(arg, checked) {
@@ -879,11 +879,11 @@ function rowMoreMenu(btn) {
   pop._owner = btn;
   document.body.appendChild(pop);
   btn.setAttribute('aria-expanded', 'true');
-  const r = btn.getBoundingClientRect();
+  const r = uiRectCss(btn), vp = uiViewportCss();
   const w = pop.offsetWidth, h = pop.offsetHeight;
-  const top = (r.bottom + 4 + h > window.innerHeight - 8) ? Math.max(8, r.top - h - 4) : r.bottom + 4;
+  const top = (r.bottom + 4 + h > vp.h - 8) ? Math.max(8, r.top - h - 4) : r.bottom + 4;
   pop.style.top = Math.round(top) + 'px';
-  pop.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))) + 'px';
+  pop.style.left = Math.round(Math.max(8, Math.min(vp.w - w - 8, r.right - w))) + 'px';
   const first = pop.querySelector('button, a[href]');
   if (first) first.focus();
 }
@@ -1481,24 +1481,123 @@ function setAccent(name) {
   try { localStorage.setItem('rp_accent', name); } catch (_) {}
   applyAccent();
 }
-// v6.3.0 (UX wave 9): interface scale — S/M/L, per browser (like the theme).
-// zoom scales the whole layout uniformly, so the typography scale's px stops
-// keep their RELATIVE design; complements density (rows) rather than
-// replacing it (glyph size).
-function applyUiScale() {
-  let v = 'm';
-  try { v = localStorage.getItem('rp_uiscale') || 'm'; } catch (_) {}
-  document.documentElement.style.zoom = v === 's' ? '0.9' : v === 'l' ? '1.1' : '';
-  const sel = document.getElementById('cfg-ui-scale');
-  if (sel && sel.value !== v) sel.value = v;
+// Text size (6.3.0 had three steps; the user menu and ten steps came after): the whole page is
+// zoomed, per browser like the theme. CSS zoom scales every px of the layout together, so the
+// type scale keeps its proportions. The stylesheet reads one variable, --rp-zoom, on <html>
+// (`html { zoom: var(--rp-zoom, 1) }`), and divides its vh/vw lengths by it.
+const UI_SCALE_PRESETS = [80, 90, 100, 110, 125, 150, 175, 200, 250, 300];
+// Zoom does not trigger the narrow media queries, so a window that would be left with less room
+// than its layout was drawn for is held to the sizes that still fit. The layout is drawn for
+// 720 page pixels across (where the app's own narrow layout starts), the narrow layout for 340.
+const UI_SCALE_MIN_PAGE_WIDTH = 720;
+const UI_SCALE_MIN_NARROW_PAGE_WIDTH = 340;
+const UI_NARROW_LAYOUT_MAX_WIDTH = 720;
+// The stored choice, in percent. 's' and 'l' are what 6.3.0 wrote.
+function _uiScaleChosen() {
+  let raw = null;
+  try { raw = localStorage.getItem('rp_uiscale'); } catch (_) {}
+  if (raw === 's') return 90;
+  if (raw === 'l') return 110;
+  const n = parseInt(raw, 10);
+  return UI_SCALE_PRESETS.includes(n) ? n : 100;
 }
-function setUiScale() {
-  const sel = document.getElementById('cfg-ui-scale');
-  if (!sel) return;
-  try { localStorage.setItem('rp_uiscale', sel.value); } catch (_) {}
+// The largest step this window can show. Never below 100: a narrow window is not made smaller.
+function _uiScaleMax() {
+  const w = window.innerWidth;
+  const room = w <= UI_NARROW_LAYOUT_MAX_WIDTH ? UI_SCALE_MIN_NARROW_PAGE_WIDTH : UI_SCALE_MIN_PAGE_WIDTH;
+  return Math.max(100, Math.floor(w / room * 100));
+}
+// What is on screen: the choice, held to the largest step that fits.
+function _uiScaleShown() {
+  const cap = Math.min(_uiScaleChosen(), _uiScaleMax());
+  return Math.max(...UI_SCALE_PRESETS.filter(p => p <= cap));
+}
+let _uiZoomCache = null;
+// How much the page is zoomed, measured. Under zoom getBoundingClientRect(), pointer
+// coordinates and innerWidth are screen pixels while left/top/width are page pixels, so a popup
+// placed from a measured rect landed `zoom` times too far from its anchor. A hidden 100px box is
+// compared with what it reports; an engine that reports unzoomed rects measures 1 and nothing
+// below changes.
+function uiZoomRatio() {
+  if (_uiZoomCache !== null) return _uiZoomCache;
+  if (!document.body) return 1;
+  let probe = document.getElementById('rp-zoom-probe');
+  if (!probe) {
+    probe = document.createElement('div');
+    probe.id = 'rp-zoom-probe';
+    probe.className = 'zoom-probe';
+    probe.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(probe);
+  }
+  const w = probe.offsetWidth;
+  const k = w ? probe.getBoundingClientRect().width / w : 1;
+  _uiZoomCache = (k > 0.2 && k < 8) ? k : 1;
+  return _uiZoomCache;
+}
+// An element's rect in page pixels, the unit left/top/width take.
+function uiRectCss(el) {
+  const r = el.getBoundingClientRect(), k = uiZoomRatio();
+  return k === 1 ? r : { left: r.left / k, top: r.top / k, right: r.right / k, bottom: r.bottom / k, width: r.width / k, height: r.height / k };
+}
+// The window's size in page pixels.
+function uiViewportCss() {
+  const k = uiZoomRatio();
+  return { w: window.innerWidth / k, h: window.innerHeight / k };
+}
+function _paintUiScaleControls(shown) {
+  const max = _uiScaleMax();
+  const val = document.getElementById('acct-textsize-val');
+  if (val) val.textContent = shown + '%';
+  const up = document.getElementById('acct-textsize-up');
+  if (up) up.disabled = !UI_SCALE_PRESETS.some(p => p > shown && p <= max);
+  const down = document.getElementById('acct-textsize-down');
+  if (down) down.disabled = !UI_SCALE_PRESETS.some(p => p < shown);
+  const seg = document.getElementById('cfg-ui-scale');
+  if (seg) {
+    if (!seg.firstElementChild) {
+      seg.innerHTML = UI_SCALE_PRESETS.map(p => `<button type="button" data-action="setUiScale" data-arg="${p}">${p}%</button>`).join('');
+    }
+    seg.querySelectorAll('button').forEach(b => {
+      const p = Number(b.dataset.arg);
+      b.classList.toggle('active', p === shown);
+      b.setAttribute('aria-pressed', p === shown ? 'true' : 'false');
+      b.disabled = p > max;
+    });
+  }
+}
+function applyUiScale() {
+  const shown = _uiScaleShown();
+  const root = document.documentElement;
+  if (shown === 100) root.style.removeProperty('--rp-zoom');
+  else root.style.setProperty('--rp-zoom', String(shown / 100));
+  _uiZoomCache = null;
+  _paintUiScaleControls(shown);
+}
+// One of the presets, from the user menu's chips or My Account → Appearance.
+function setUiScale(pct) {
+  const n = parseInt(pct, 10);
+  if (!UI_SCALE_PRESETS.includes(n)) return;
+  try { localStorage.setItem('rp_uiscale', String(n)); } catch (_) {}
   applyUiScale();
 }
+// The user menu's smaller / larger buttons: the next step from what is on screen.
+function uiScaleStep(dir) {
+  const shown = _uiScaleShown(), max = _uiScaleMax();
+  const next = Number(dir) < 0
+    ? [...UI_SCALE_PRESETS].reverse().find(p => p < shown)
+    : UI_SCALE_PRESETS.find(p => p > shown && p <= max);
+  if (next !== undefined) setUiScale(next);
+}
 applyUiScale();
+// A window resize can change what fits, so the shown size follows it.
+(() => {
+  let queued = false;
+  window.addEventListener('resize', () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; applyUiScale(); });
+  });
+})();
 
 // v6.3.0 (UX wave 9): pull-to-refresh on touch devices — a >110px downward
 // pull at the very top of the page re-runs the current page's loader
@@ -2416,7 +2515,7 @@ function _tourStep(i) {
   const step = _TOUR_STEPS[i];
   const target = document.querySelector(step.sel);
   target.classList.add('tour-target');
-  const r = target.getBoundingClientRect();
+  const r = uiRectCss(target), vp = uiViewportCss();
   const back = document.createElement('div');
   back.id = 'tour-backdrop'; back.className = 'tour-backdrop';
   back.setAttribute('role', 'dialog'); back.setAttribute('aria-modal', 'true'); back.setAttribute('aria-labelledby', 'tour-title');
@@ -2436,8 +2535,8 @@ function _tourStep(i) {
   _adoptOverlay(back, opener);
   next.focus();
   // position the popover beside the target (clamped to the viewport)
-  pop.style.left = Math.max(12, Math.min(window.innerWidth - 320, r.right + 12)) + 'px';
-  pop.style.top = Math.max(12, Math.min(window.innerHeight - 180, r.top)) + 'px';
+  pop.style.left = Math.max(12, Math.min(vp.w - 320, r.right + 12)) + 'px';
+  pop.style.top = Math.max(12, Math.min(vp.h - 180, r.top)) + 'px';
 }
 function _maybeStartTour() {
   // Once per account, after the first authenticated dashboard render; the delay
@@ -7849,8 +7948,10 @@ function _undoHistoryMenu(x, y) {
     + labels.map((l, i) =>
         `<button class="undo-hist-row" data-action="uiUndoTo" data-arg="u${i + 1}">${_icon('undo', 11)} ${escHtml(l)}</button>`).join('');
   document.body.appendChild(pop);
-  pop.style.top = Math.round(y + 6) + 'px';
-  pop.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - 260, x - 200))) + 'px';
+  // x and y are pointer coordinates (screen pixels); left and top take page pixels.
+  const k = uiZoomRatio(), vp = uiViewportCss();
+  pop.style.top = Math.round(y / k + 6) + 'px';
+  pop.style.left = Math.round(Math.max(8, Math.min(vp.w - 260, x / k - 200))) + 'px';
 }
 function uiUndoTo(arg) {
   const n = parseInt(String(arg).replace(/^u/, ''), 10) || 1;
@@ -12207,13 +12308,13 @@ async function _showDevHoverCard(anchor) {
   hint.className = 'dev-hovercard-hint';
   hint.textContent = '#device/' + id;
   card.appendChild(hint);
-  const r = anchor.getBoundingClientRect();
+  const r = uiRectCss(anchor), vp = uiViewportCss();
   card.hidden = false;
   const cw = card.offsetWidth || 240;
   const ch = card.offsetHeight || 120;
-  let left = Math.min(r.left, window.innerWidth - cw - 12);
+  let left = Math.min(r.left, vp.w - cw - 12);
   let top = r.bottom + 8;
-  if (top + ch > window.innerHeight - 8) top = r.top - ch - 8;
+  if (top + ch > vp.h - 8) top = r.top - ch - 8;
   card.style.left = Math.max(8, left) + 'px';
   card.style.top = Math.max(8, top) + 'px';
 }
@@ -13747,11 +13848,13 @@ function renderTimeSeries(elId, series, opts) {
       }).join('');
       tip.innerHTML = `<div class="ts-tip-t">${escHtml(fmtFull(anchor.x))}</div>` + rows;
       tip.classList.remove('d-none');
-      const er = el.getBoundingClientRect();
-      let lx = ev.clientX - er.left + 12;
-      if (lx + 150 > er.width) lx = Math.max(0, ev.clientX - er.left - 162);
+      // The pointer and the rect are screen pixels; the tip's left/top take page pixels.
+      const er = uiRectCss(el), k = uiZoomRatio();
+      const tipX = ev.clientX / k - er.left, tipY = ev.clientY / k - er.top;
+      let lx = tipX + 12;
+      if (lx + 150 > er.width) lx = Math.max(0, tipX - 162);
       tip.style.left = lx + 'px';
-      tip.style.top = (ev.clientY - er.top + 12) + 'px';
+      tip.style.top = (tipY + 12) + 'px';
     });
     svgEl.addEventListener('mouseleave', () => {
       vline.setAttribute('visibility', 'hidden'); tip.classList.add('d-none');

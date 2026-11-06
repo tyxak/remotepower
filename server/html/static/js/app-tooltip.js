@@ -140,10 +140,14 @@
     t.hidden = false;
     t.style.left = '0px';
     t.style.top = '0px';
-    var r = anchor.getBoundingClientRect();
+    // On a zoomed page (Text size) the rects and the window are screen pixels and left/top take
+    // page pixels, so everything is divided by the zoom first. app.js measures it; 1 without.
+    var k = window.uiZoomRatio ? window.uiZoomRatio() : 1;
+    var rr = anchor.getBoundingClientRect();
+    var r = { left: rr.left / k, top: rr.top / k, right: rr.right / k, bottom: rr.bottom / k, width: rr.width / k, height: rr.height / k };
     var size = t.getBoundingClientRect();
-    var at = place(r, { w: size.width, h: size.height },
-      { w: document.documentElement.clientWidth, h: document.documentElement.clientHeight },
+    var at = place(r, { w: size.width / k, h: size.height / k },
+      { w: document.documentElement.clientWidth / k, h: document.documentElement.clientHeight / k },
       anchor.closest('.sidebar') ? (document.documentElement.dir === 'rtl' ? 'left' : 'right') : 'below');
     t.style.left = at.left + 'px';
     t.style.top = at.top + 'px';
