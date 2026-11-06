@@ -15,7 +15,8 @@ Three kinds of test:
   rule worded as "both";
 * the cell markup, and the four sites that use it.
 
-The rendered half (the four pages of the seeded demo) is in test_sidebar_page_fixes_e2e.py.
+The rendered half is in test_sidebar_page_fixes_e2e.py: the four pages and the Pentest list of the seeded demo, and the report
+chip, which the demo never draws (its report definitions stay paused so it never mails anybody), fed three definitions through the network.
 """
 import functools
 import itertools

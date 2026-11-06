@@ -405,6 +405,33 @@ class TestSidebarPageFixes(unittest.TestCase):
             self.assertEqual(g['words'], g['expected'], g)
             self.assertRegex(g['raw'], r'^\S+( \S+){4}$')
 
+    def test_a_scheduled_report_definition_shows_its_schedule_in_words_and_a_paused_one_shows_none(self):
+        # The seeder keeps every report definition disabled so the demo never tries to mail anybody, which leaves the chip undrawn. So the
+        # network answers with three definitions and the page's own loader and renderer draw them: an enabled schedule the words cover,
+        # an enabled one they do not, and a paused one.
+        import json
+        base = {'sections': ['devices'], 'format': 'json', 'recipients': [], 'destinations': [], 'site': ''}
+        defs = [dict(base, id='t1', name='Weekly check', cron='0 6 * * 1', enabled=True),
+                dict(base, id='t2', name='Odd day', cron='0 3 15 * 1', enabled=True),
+                dict(base, id='t3', name='Paused', cron='0 6 * * 1', enabled=False)]
+        self.page.route('**/api/report/definitions', lambda route: route.fulfill(
+            status=200, content_type='application/json', body=json.dumps({'definitions': defs})))
+        try:
+            self._show('reports', 1500)
+            self.page.evaluate("() => loadReportDefs()")
+            self.page.wait_for_selector('#report-defs-list .rdef-row', timeout=8000)
+            self.page.mouse.move(1, 1)               # the tooltip script takes the title off the element under the pointer
+            rows = self.page.evaluate("""() => [...document.querySelectorAll('#report-defs-list .rdef-row')].map(r => {
+                const chip = r.querySelector('.epss-chip'); const inner = chip && chip.querySelector('span[title]');
+                return {name: r.querySelector('.rdef-row-name').childNodes[0].textContent.trim(), chip: chip ? chip.textContent.trim() : null,
+                        title: inner ? inner.title : null}; })""")
+        finally:
+            self.page.unroute('**/api/report/definitions')
+            self._show('reports', 800)               # draw the real list again: the next test finds the page as it was
+        self.assertEqual(rows, [{'name': 'Weekly check', 'chip': 'Mondays at 06:00', 'title': 'Scheduled: 0 6 * * 1'},
+                                {'name': 'Odd day', 'chip': '0 3 15 * 1', 'title': None},
+                                {'name': 'Paused', 'chip': None, 'title': None}])
+
     def test_maintenance_keeps_its_length_on_the_first_line_of_the_words(self):
         self._show('maintenance', 2500)
         text = self.page.evaluate("""() => { const raw = [...document.querySelectorAll('#maint-tbody div.hint.mono-12')].find(d => d.textContent === '0 1 1 * *');

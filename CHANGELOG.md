@@ -80,7 +80,7 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   expression alone, because wrong words are worse than none. Three shapes are left alone on purpose: a day of the month together with a weekday (cron runs
   on either, which no short phrase says), a step that does not divide its field (`*/7` minutes starts again every hour) and a day past the 28th (the short
   months skip it). A test works out when 63,360 expressions fire with a second implementation of cron's rules and fails when two schedules share words or
-  one schedule has two readings; it found two slips in the first version (hours `0-23`, and `*/30` against `0,30`). 27 of 27 mutations caught.
+  one schedule has two readings; it found two slips in the first version (hours `0-23`, and `*/30` against `0,30`). 30 of 30 mutations caught; the report chip, which the demo never draws because its report definitions stay paused, is held by a rendered test that answers the page's request with three definitions.
 - **The Time display setting reaches the tables.** 32 places printed an exact stamp straight from the formatter, so one page showed `3h ago` in one
   column and `11/5/2026, 4:08:25 PM` in the next, whatever you had chosen. The `last run`, `created`, `last seen`, `checked` and `since` cells (Pentest,
   Backups, API Keys, Sites, Business Services, DMARC, DNS, TLS, Drift, Services, Patch snapshots, Server Status, Containers, Host config, sessions, CVEs
