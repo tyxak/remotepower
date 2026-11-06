@@ -738,7 +738,7 @@ function _acmeRenderTable() {
     const altLabel = altCount ? `<span class="meta-sm-nm"> +${altCount} SAN</span>` : '';
     const challengeLabel = r.is_dns_challenge ? 'DNS-01' : escHtml(r.challenge || '—');
     const providerLabel  = r.dns_provider_label || (r.is_dns_challenge ? r.dns_provider : '—');
-    const createdStr = r.created_ts ? _fmtAbsDate(r.created_ts) : '—';
+    const createdStr = timeAgoHtml(r.created_ts, {empty: '—'});
     const renewStr   = r.next_renew_ts ? _fmtAbsDate(r.next_renew_ts) : '—';
     return `<tr class="acme-row" data-action="acmeOpenDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}"  tabindex="0">
       <td>${escHtml(r.device_name)}</td>

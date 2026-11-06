@@ -561,7 +561,7 @@ async function openHostConfigModal(devId, devName) {
   const hasAnyDesired = Object.keys(desired).length > 0;
   if (!hasAnyDesired && Object.keys(current).length > 0) {
     const ts = data.current_collected_at
-      ? _fmtAbsTs(data.current_collected_at)
+      ? timeAgo(data.current_collected_at)
       : 'unknown time';
     const infoBanner = document.getElementById('hc-info-banner');
     if (infoBanner) {

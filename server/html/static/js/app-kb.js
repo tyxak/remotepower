@@ -138,11 +138,11 @@ async function openKbArticle(id) {
     return;
   }
   const a = d.article;
-  const when = a.updated_at ? _fmtAbsTs(a.updated_at) : '';
+  const when = a.updated_at ? timeAgoHtml(a.updated_at) : '';
   const meta = [
     a.category ? escHtml(a.category) : '',
     a.author ? 'by ' + escHtml(a.author) : '',
-    when ? 'updated ' + escHtml(when) : '',
+    when ? 'updated ' + when : '',
   ].filter(Boolean).join(' · ');
   const tags = (a.tags || []).map(t => `<span class="chip chip-sm">${escHtml(t)}</span>`).join(' ');
   view.innerHTML =

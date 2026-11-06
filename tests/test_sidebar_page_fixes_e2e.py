@@ -472,7 +472,7 @@ class TestSidebarPageFixes(unittest.TestCase):
         ('business-services', '#page-business-services td.meta-sm-nm time', 5), ('dmarc', '#page-dmarc td.meta-sm-nm time', 8),
         ('drift', '#page-drift td.hint time', 5), ('dns', '#page-dns td.meta-sm-nm time', 3), ('tls', '#page-tls td.hint-nowrap time', 3),
         ('services', '#page-services td.meta-sm-nm time', 12), ('patchsnapshots', '#page-patchsnapshots span.hint time', 3),
-        ('self', '#page-self time', 1),
+        ('self', '#page-self time', 1), ('containers', '#page-containers td.hint-nowrap time', 12), ('logs', '#page-logs td.meta-sm-nm time', 3),
     )
 
     def test_the_time_display_setting_flips_the_converted_table_cells(self):

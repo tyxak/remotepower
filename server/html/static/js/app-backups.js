@@ -437,7 +437,7 @@ async function loadProxmoxBackups() {
     const age = g.age_days == null ? '—' : `${g.age_days}d`;
     return `<tr><td class="fw-500">${escHtml(g.name || ('VM ' + g.vmid))}</td><td class="hint">${g.vmid}</td><td class="hint">${last}</td><td>${age}</td><td><span class="patch-badge ${cls[g.status] || 'c-muted'}">${label[g.status] || g.status}</span></td></tr>`;
   }).join('');
-  const updated = d.updated_at ? _fmtAbsTs(d.updated_at) : '';
+  const updated = d.updated_at ? timeAgoHtml(d.updated_at) : '';
   body.innerHTML = `<div class="table-card"><table><thead id="pmbackup-thead"><tr><th data-col="name">Guest</th><th data-col="vmid">VMID</th><th data-col="last">Last backup</th><th data-col="age">Age</th><th data-col="status">Status</th></tr></thead><tbody>${rows}</tbody></table></div>${updated ? `<div class="meta-sm-nm mt-6">Node ${escHtml(d.node)} · refreshed ${updated}</div>` : ''}`;
   tableCtl.wireSortOnly('pmbackup-thead', 'pmbackup', loadProxmoxBackups);
 }

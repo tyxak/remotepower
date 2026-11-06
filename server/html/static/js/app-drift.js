@@ -363,7 +363,7 @@ async function openDriftDetail(devId, devName) {
       const missing = !f.exists;
       const ignored = !!f.ignored;          // v2.3.4
       const dormant = !!f.dormant;
-      const lastCheck = f.last_check ? _fmtAbsTs(f.last_check) : '—';
+      const lastCheck = timeAgoHtml(f.last_check, {empty: '—'});
 
       // v2.3.4: an ignored file renders muted regardless of its
       // underlying drift/missing state — it's been explicitly marked

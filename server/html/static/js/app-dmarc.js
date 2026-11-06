@@ -130,7 +130,7 @@ async function loadDmarcReports() {
   const mbEl = document.getElementById('dmarc-mailbox');
   if (mbEl) {
     if (mb.error) mbEl.textContent = 'Mailbox: ' + mb.error;
-    else if (mb.checked_at) mbEl.textContent = `Mailbox: ${mb.messages || 0} messages, ${mb.unseen || 0} unseen — checked ${_fmtAbsTs(mb.checked_at)}`;
+    else if (mb.checked_at) mbEl.textContent = `Mailbox: ${mb.messages || 0} messages, ${mb.unseen || 0} unseen — checked ${timeAgo(mb.checked_at)}`;
     else mbEl.textContent = 'Mailbox: not polled yet — configure IMAP and fetch.';
   }
   _renderDmarcReports();

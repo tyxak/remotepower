@@ -353,7 +353,7 @@ async function loadGlobalLogRules() {
     created:         r.created_at || 0,
   }));
   tbody.innerHTML = rules.map(r => {
-    const created = r.created_at ? _fmtAbsDate(r.created_at) : '—';
+    const created = timeAgoHtml(r.created_at, {empty: '—'});
     const unitDisplay = r.unit === '*'
       ? '<code class="isl-426">* (any unit)</code>'
       : `<code class="fs-12">${escHtml(r.unit)}</code>`;

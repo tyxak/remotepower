@@ -375,10 +375,10 @@ async function openTaskModal(taskId) {
     document.getElementById('task-description').value = t.description || '';
     document.getElementById('task-state').value = t.state || 'upcoming';
     document.getElementById('task-device').value = t.device_id || '';
-    const created = t.created_at ? _fmtAbsTs(t.created_at) : '?';
-    const updated = t.updated_at ? _fmtAbsTs(t.updated_at) : created;
+    const created = timeAgoHtml(t.created_at, {empty: '?'});
+    const updated = t.updated_at ? timeAgoHtml(t.updated_at) : created;
     meta.style.display = 'block';
-    meta.innerHTML = `Created ${escHtml(created)} by ${escHtml(t.created_by||'?')} · Updated ${escHtml(updated)}`;
+    meta.innerHTML = `Created ${created} by ${escHtml(t.created_by||'?')} · Updated ${updated}`;
   } else {
     document.getElementById('task-title').value = '';
     document.getElementById('task-description').value = '';

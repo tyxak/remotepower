@@ -71,7 +71,7 @@ async function loadBreakGlass() {
   if (!reqs.length) { card.classList.add('d-none'); return; }
   card.classList.remove('d-none');
   body.innerHTML = reqs.map(r => {
-    const when = r.created ? _fmtAbsTs(r.created) : '—';
+    const when = timeAgoHtml(r.created, {empty: '—'});
     const status = r.status === 'approved'
       ? `<span class="patch-badge ok">approved by ${_cmdbEsc(r.approved_by || '')}</span>`
       : '<span class="patch-badge warn">awaiting approval</span>';
@@ -81,7 +81,7 @@ async function loadBreakGlass() {
     return `<div class="isl-444">
       <div class="isl-445">
         <div class="fw-600">${_cmdbEsc(r.label || r.cred_id)} ${status}</div>
-        <div class="isl-328">requested by ${_cmdbEsc(r.requester || '')} · ${_cmdbEsc(when)}${r.reason ? ' · ' + _cmdbEsc(r.reason) : ''}</div>
+        <div class="isl-328">requested by ${_cmdbEsc(r.requester || '')} · ${when}${r.reason ? ' · ' + _cmdbEsc(r.reason) : ''}</div>
       </div>
       <div class="isl-446">${approve}</div>
     </div>`;

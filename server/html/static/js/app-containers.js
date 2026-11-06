@@ -60,7 +60,7 @@ function _renderImageUpdatesMeta(summary) {
   if (summary.local) bits.push(`${summary.local} local`);
   if (summary.ignored) bits.push(`${summary.ignored} ignored`);
   if (!summary.enabled) bits.push('detection disabled');
-  if (summary.last_full_scan) bits.push(`last scan ${_fmtAbsTs(summary.last_full_scan)}`);
+  if (summary.last_full_scan) bits.push(`last scan ${timeAgo(summary.last_full_scan)}`);
   el.textContent = bits.length ? `— ${bits.join(' · ')}` : '';
 }
 
@@ -246,7 +246,7 @@ function _registerComposeStacksTable() {
       };
       const statusCell = statusMap[s.status] || `<span class="c-muted">${escHtml(s.status || '?')}</span>`;
       const last = s.last_action_ts
-        ? `${escHtml(s.last_action || '')} · ${_fmtAbsTs(s.last_action_ts)}`
+        ? `${escHtml(s.last_action || '')} · ${timeAgoHtml(s.last_action_ts)}`
         : '—';
       const view = `<button class="btn-icon btn-xs" data-action="viewComposeStack" data-arg="${escAttr(s.id)}">View</button>`;
       const del = `<button class="btn-icon btn-xs c-danger-outline" data-action="deleteComposeStack" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">Delete</button>`;
@@ -423,7 +423,7 @@ function _registerContainersOverviewTable() {
       const runtimes = Object.entries(s.by_runtime || {})
         .map(([rt, n]) => `${escHtml(rt)}: ${n}`)
         .join(', ') || '—';
-      const reported = r.reported_at ? _fmtAbsTs(r.reported_at) : '—';
+      const reported = timeAgoHtml(r.reported_at, {empty: '—'});
       const staleBadge = r.is_stale
         ? '<span class="isl-450">STALE</span>'
         : '';
@@ -496,10 +496,10 @@ async function containersOpen(deviceId, name) {
   if (!data) return;
   const items = data.items || [];
   // v1.11.4: stale-data warning at the top of the modal.
-  const reportedHuman = data.reported_at ? _fmtAbsTs(data.reported_at) : 'never';
+  const reportedHuman = timeAgoHtml(data.reported_at, {empty: 'never'});
   const staleBanner = data.is_stale
     ? `<div class="isl-452">
-         Container data is stale (last reported: ${escHtml(reportedHuman)}).
+         Container data is stale (last reported: ${reportedHuman}).
          Agent reports every ~5 min when a runtime is installed; check
          <code>journalctl -u remotepower-agent</code> on the host.
        </div>`
