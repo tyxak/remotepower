@@ -358,6 +358,26 @@ class TestSidebarPageFixes(unittest.TestCase):
         self.assertEqual((security['n'], security['open']), ('1', True))
         self.assertEqual((patching['n'], patching['hidden']), ('', True), 'the earlier criteria are gone, so is their count')
 
+    # ── Schedules in words ──────────────────────────────────────────────────
+    def test_the_four_tables_that_show_a_schedule_show_it_in_words(self):
+        for page, body in (('autopatch', '#autopatch-tbody'), ('schedule', '#schedule-tbody'), ('maintenance', '#maint-tbody'), ('backups', '#backups-tbody')):
+            self._show(page, 2500)
+            got = self.page.evaluate("""(body) => [...document.querySelectorAll(body + ' tr')].map(tr => {
+                    const raw = tr.querySelector('div.hint.mono-12'); if (!raw) return null;
+                    const words = raw.previousElementSibling ? raw.previousElementSibling.textContent : '';
+                    return {raw: raw.textContent, words, expected: cronWords(raw.textContent)}; }).filter(Boolean)""", body)
+            self.assertGreaterEqual(len(got), 3, page + ': control: the demo has scheduled rows')
+            for g in got:
+                self.assertTrue(g['words'], g)
+                self.assertEqual(g['words'], g['expected'], g)
+                self.assertRegex(g['raw'], r'^\S+( \S+){4}$', 'the expression itself stays under the words')
+
+    def test_maintenance_keeps_its_length_on_the_first_line_of_the_words(self):
+        self._show('maintenance', 2500)
+        text = self.page.evaluate("""() => { const raw = [...document.querySelectorAll('#maint-tbody div.hint.mono-12')].find(d => d.textContent === '0 1 1 * *');
+            return raw ? raw.parentElement.innerText.replace(/\\s+/g, ' ').trim() : null; }""")
+        self.assertEqual(text, 'Monthly on day 1 at 01:00 for 180min 0 1 1 * *')
+
     # ── The tab title ───────────────────────────────────────────────────────
     def test_the_tab_title_keeps_the_alert_count_and_the_page(self):
         self._show('cve', 600)

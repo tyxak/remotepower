@@ -74,6 +74,12 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   criteria hold a value, so a closed group does not hide a filter that is on, and applying a saved query opens the groups it fills. Run and Save
   read the fields whether their group is open or not. A group's last row keeps its column width instead of stretching across the card (8 of 8
   mutations caught).
+- **Auto-patch, Schedule, Maintenance and Backups** show a schedule in words, with the cron expression under it: `Sundays at 03:00`, `Weekdays at 06:00`,
+  `Every 15 minutes from 09:00 to 17:59, weekdays`, `Monthly on day 1 at 01:00 for 180min`. The words cover the common shapes; anything else stays as the
+  expression alone, because wrong words are worse than none. Three shapes are left alone on purpose: a day of the month together with a weekday (cron runs
+  on either, which no short phrase says), a step that does not divide its field (`*/7` minutes starts again every hour) and a day past the 28th (the short
+  months skip it). A test works out when 63,360 expressions fire with a second implementation of cron's rules and fails when two schedules share words or
+  one schedule has two readings; it found two slips in the first version (hours `0-23`, and `*/30` against `0,30`). 22 of 22 mutations caught.
 
 ### Controls you can hit
 
