@@ -501,7 +501,12 @@ function renderNetmap() {
     const stroke = isUnmanaged ? 'var(--muted)' : (n.agentless ? 'var(--amber)' : 'var(--accent)');
     const dash   = isUnmanaged ? ' stroke-dasharray="3 2"' : '';
     const r = 14;
+    // The circle carries the first three letters of the node's type (HOS, OTH, UNM) and a colour; the hover and a screen
+    // reader get the words.
+    const what = isUnmanaged ? 'seen by a network scan, not managed'
+      : (n.agentless ? 'agentless host' : 'host') + (n.online ? ', online' : ', offline');
     return `<g class="netmap-node isl-467" data-node-id="${escHtml(n.id)}" transform="translate(${n.x}, ${n.y})">
+      <title>${escHtml(n.name)} — ${escHtml(what)}</title>
       <circle cx="0" cy="0" r="${r}" fill="${fill}" fill-opacity="0.18" stroke="${stroke}" stroke-width="2"${dash}/>
       <text x="0" y="4" font-size="10" fill="currentColor" text-anchor="middle" font-weight="600" pointer-events="none">${escHtml((n.type || '?').slice(0,3).toUpperCase())}</text>
       <text x="0" y="${r + 14}" font-size="11" fill="currentColor" text-anchor="middle" pointer-events="none">${escHtml(n.name)}</text>

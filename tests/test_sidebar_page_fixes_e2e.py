@@ -162,6 +162,30 @@ class TestSidebarPageFixes(unittest.TestCase):
             self.assertLess(abs(top1 - top2), 3, 'edit above delete')
             self.assertLess(left1, left2)
 
+    # ── Forecast ────────────────────────────────────────────────────────────
+    def test_the_word_projected_is_not_struck_through_by_the_projection(self):
+        self._show('forecast', 2500)
+        m = self.page.evaluate("""() => {
+            const svg = [...document.querySelectorAll('#page-forecast svg')].find(s => [...s.querySelectorAll('text')].some(t => t.textContent === 'projected'));
+            if (!svg) return null;
+            const word = [...svg.querySelectorAll('text')].find(t => t.textContent === 'projected').getBoundingClientRect();
+            const line = svg.querySelector('line[stroke-dasharray="6 5"]');
+            if (!line) return {word: [word.left, word.top, word.bottom], line: null};
+            const l = line.getBoundingClientRect();
+            return {word: [word.left, word.top, word.bottom], line: [l.left, l.top, l.right, l.bottom], x1: +line.getAttribute('x1'), y1: +line.getAttribute('y1'),
+                    x2: +line.getAttribute('x2'), y2: +line.getAttribute('y2')}; }""")
+        self.assertIsNotNone(m, 'control: the seeded forecast draws a chart with a projected region')
+        self.assertIsNotNone(m['line'], 'control: and a projection line')
+        # the line's own y at the word's x, in screen coordinates (the box of a diagonal says nothing about where it passes)
+        l_left, l_top, l_right, l_bottom = m['line']
+        w_left, w_top, w_bottom = m['word']
+        w_mid_x, w_mid_y = w_left + 20, (w_top + w_bottom) / 2
+        if l_right > l_left:
+            frac = min(1, max(0, (w_mid_x - l_left) / (l_right - l_left)))
+            rising = m['y2'] < m['y1']
+            y_at = (l_bottom - frac * (l_bottom - l_top)) if rising else (l_top + frac * (l_bottom - l_top))
+            self.assertGreater(abs(w_mid_y - y_at), 10, 'the projection line passes through the word')
+
     # ── Advisory ────────────────────────────────────────────────────────────
     def test_the_advisory_builds_itself_the_first_time(self):
         self.page.evaluate("_advLast = null")

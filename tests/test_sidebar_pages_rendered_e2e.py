@@ -100,6 +100,7 @@ _MEASURE = r"""(name) => {
   const lg = root.querySelector('#links-grid');
   out.linksGridMax = lg ? parseFloat(getComputedStyle(lg).maxHeight) || 0 : null;
   out.innerHeight = window.innerHeight;
+  out.netmapNodes = [...root.querySelectorAll('.netmap-node')].map(g => { const t = g.querySelector(':scope > title'); return {name: (g.querySelector('text:nth-of-type(2)') || {}).textContent || '', title: t ? t.textContent : ''}; });
   // a card title that sits flush against the card's own edge (a .table-card has no padding unless it is .card-padded)
   out.flushTitles = [...root.querySelectorAll('.table-card > .section-title')].filter(vis)
     .filter(t => t.getBoundingClientRect().left - t.parentElement.getBoundingClientRect().left < 8).map(t => t.textContent.trim().slice(0, 40));
@@ -273,6 +274,12 @@ class TestEverySidebarPageRendered(unittest.TestCase):
     def test_no_card_title_sits_against_the_edge_of_its_card(self):
         found = {n: r['flushTitles'] for n, r in self.rendered.items() if r.get('flushTitles')}
         self.assertEqual(found, {}, 'a .section-title directly inside a .table-card needs .card-padded, or it sits on the card border')
+
+    def test_every_network_map_node_has_its_words_on_hover(self):
+        nodes = self.rendered['netmap']['netmapNodes'] if 'netmap' in self.rendered else []
+        if not _SUBSET:
+            self.assertGreaterEqual(len(nodes), 10, 'control: the seeded map has nodes')
+        self.assertEqual([n['name'] for n in nodes if not n['title'] or ' — ' not in n['title']], [])
 
     def test_the_links_grid_may_use_most_of_the_window(self):
         if _SUBSET and 'links' not in self.rendered:

@@ -29905,7 +29905,8 @@ function _renderForecastChart() {
   let projRegion = '';
   if (tMax > tLast) {
     projRegion = `<rect x="${X(tLast).toFixed(1)}" y="${padT}" width="${(X(tMax) - X(tLast)).toFixed(1)}" height="${plotH}" fill="var(--muted)" fill-opacity="0.05"/>`
-      + `<text x="${((X(tLast) + X(tMax)) / 2).toFixed(1)}" y="${padT + 12}" fill="var(--muted)" font-size="9.5" text-anchor="middle">projected</text>`;
+      // at the foot of the region: the projection climbs towards the capacity line at the top and crossed the word there
+      + `<text x="${((X(tLast) + X(tMax)) / 2).toFixed(1)}" y="${(padT + plotH - 8).toFixed(1)}" fill="var(--muted)" font-size="9.5" text-anchor="middle">projected</text>`;
   }
 
   // Observed usage: gradient area under a connected line, plus sample dots

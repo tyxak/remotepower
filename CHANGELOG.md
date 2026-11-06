@@ -51,6 +51,8 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
 - **Software Policy** puts each rule and its remove button on one line (the class it used had no style), **Threat Intel** gives the Evidence and Status
   columns room (a row ran to five lines), the **Timesheet** shows an entry's Edit and Delete side by side, **Storage** pads the ZFS cache and dataset
   titles off their card border (the walk holds that for every card), and **My Account** names itself in the top bar instead of `account`.
+- **Network** gives each node its words on hover and to a screen reader (`web1 — agentless host, offline`; the circle itself carries only `HOS`, `OTH` or
+  `UNM`), and the **Forecast** chart's word `projected` sits at the foot of its region, where the projection line no longer crosses it.
 
 ### Failures in words
 
