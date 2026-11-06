@@ -18,6 +18,8 @@ NEW_STRINGS = [
     # the OpenSCAP card of Compliance
     "Scores a host against an OpenSCAP profile and lists the rules it fails. It needs the OpenSCAP scanner and the SCAP Security Guide content on the host.",
     "About profiles and content",
+    # the picker of Cron, File manager and App Catalog
+    "Recent hosts",
 ]
 
 

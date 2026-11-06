@@ -59,6 +59,12 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
 - **Compliance** opens the OpenSCAP card with one line (`Scores a host against an OpenSCAP profile and lists the rules it fails`) and folds the
   paragraph about profiles and content, eight lines at 1440 px, behind `About profiles and content`. The text is unchanged; the scan form is no longer
   pushed down by it (3 of 3 mutations caught).
+- **Cron & timers, File manager and App Catalog** offer the last three hosts you used as buttons under the search box (`Recent hosts`); the pages
+  opened on an empty box, so the usual case took typing a name. A click does what picking the host from the search results does. The list is the one the
+  command palette already keeps: a host drawer records into it and so does a pick on these pages, so a host picked on Cron leads on the other two, and
+  sign-out clears it with the rest of what the browser kept of the fleet. A host that was deleted, or is outside your scope, is not offered
+  (11 of 11 mutations caught). `docs/cron.md` said the Cron page lists every host when none is picked; that is the API's answer (`GET /api/cron`),
+  and the guide says so now.
 
 ### Controls you can hit
 

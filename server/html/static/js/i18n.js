@@ -10428,6 +10428,8 @@
     // the OpenSCAP card of Compliance: a short lead and the long notes folded
     "Scores a host against an OpenSCAP profile and lists the rules it fails. It needs the OpenSCAP scanner and the SCAP Security Guide content on the host.": { "zh": "按 OpenSCAP 配置为主机评分，并列出未通过的规则。主机上需要 OpenSCAP 扫描器和 SCAP Security Guide 内容。", "hi": "OpenSCAP प्रोफ़ाइल के आधार पर किसी होस्ट को स्कोर करता है और विफल नियमों की सूची देता है। होस्ट पर OpenSCAP स्कैनर और SCAP Security Guide सामग्री होनी चाहिए।", "es": "Puntúa un host según un perfil de OpenSCAP y lista las reglas que incumple. Necesita el escáner de OpenSCAP y el contenido de SCAP Security Guide en el host.", "ar": "يقيّم المضيف وفق ملف OpenSCAP ويسرد القواعد التي يخفق فيها. يحتاج إلى ماسح OpenSCAP ومحتوى SCAP Security Guide على المضيف.", "de": "Bewertet einen Host anhand eines OpenSCAP-Profils und listet die Regeln auf, die er nicht erfüllt. Auf dem Host werden der OpenSCAP-Scanner und der Inhalt des SCAP Security Guide benötigt.", "fr": "Évalue un hôte selon un profil OpenSCAP et liste les règles qu'il ne respecte pas. Nécessite le scanner OpenSCAP et le contenu SCAP Security Guide sur l'hôte." },
     "About profiles and content": { "zh": "关于配置和内容", "hi": "प्रोफ़ाइल और सामग्री के बारे में", "es": "Sobre los perfiles y el contenido", "ar": "حول الملفات والمحتوى", "de": "Zu Profilen und Inhalt", "fr": "À propos des profils et du contenu" },
+    // the recently used hosts on the Cron, File manager and App Catalog pickers
+    "Recent hosts": { "zh": "近期主机", "hi": "हाल के होस्ट", "es": "Hosts recientes", "ar": "المضيفات الأخيرة", "de": "Zuletzt verwendete Hosts", "fr": "Hôtes récents" },
   };
 
   // v4.2: page-subtitle translations keyed by normalized English innerHTML

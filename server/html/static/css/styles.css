@@ -6594,6 +6594,15 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 }
 .tl-chip:hover { border-color: var(--accent); color: var(--accent-ink); }
 .tl-chip.active { background: var(--accent); color: var(--accent-contrast, #fff); border-color: var(--accent); }
+/* A recently used host on the Cron, File manager and App Catalog pickers. Not .tl-chip: that one capitalises its text,
+   which would change a host's name. The pressed one is the host that is picked now. */
+.host-chip {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 14px;
+  padding: 3px 12px; font-size: 12px; cursor: pointer;
+}
+.host-chip:hover { border-color: var(--accent); color: var(--accent-ink); }
+.host-chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-contrast, #fff); border-color: var(--accent); }
 .tl-list { position: relative; }
 .tl-row {
   display: grid; grid-template-columns: 14px 1fr auto; gap: 12px;

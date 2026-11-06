@@ -6,7 +6,8 @@ self-contained applications to a host via **Docker Compose**.
 ## How it works
 
 - Pick an app from the catalog and a target host; RemotePower renders its
-  compose stack and deploys it over the host's existing compose path.
+  compose stack and deploys it over the host's existing compose path. The last
+  three hosts you used are offered as buttons under the search box.
 - The target host must have **compose deploys enabled**, a per-host opt-in
   set from the host drawer. Hosts without it are not eligible.
 - An admin can add **custom apps** to the shared catalog: a name, a compose

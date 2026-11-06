@@ -6,8 +6,9 @@ timers** directly from RemotePower.
 ## How it works
 
 - Pick a host to see the crontabs, `cron.d` entries and systemd timers its agent
-  reports. Timers show their unit, what they activate, and their state. Without a
-  host selected, the page lists every host with its job and timer counts.
+  reports. Timers show their unit, what they activate, and their state. The last
+  three hosts you used are offered as buttons under the search box. Without a host,
+  `GET /api/cron` returns every host with its job and timer counts.
 - **Save crontab** replaces a user's crontab (root by default, up to 64 KB), and
   **Remove crontab** deletes it. You can also apply an action to a timer unit.
   Changes run through the **audited, permission-gated

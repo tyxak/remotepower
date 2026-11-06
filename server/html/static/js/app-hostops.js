@@ -3,6 +3,42 @@
 // Three sibling host-operation pages that share only the device
 // picker: App Catalog, Cron/timers, and the File manager.
 
+// ── Recent hosts on the three pickers ───────────────────────────────────────
+// Each page opens on an empty search box, so the usual case (the host you were just working on) took typing a name.
+// The picker now offers the last few hosts as buttons. A click picks the host exactly as a click on a search result does.
+// The names come from the app's recent-hosts list: a host drawer records into it and so does a pick here, which means
+// sign-out clears it with the rest of what this browser kept of the fleet. A host that was deleted, or is outside this
+// account's scope, is not in the live list and is left out.
+const _RECENT_HOST_CHIPS = 3;
+const _recentChipIds = {};          // per page: the ids on show, kept in order so the buttons do not jump under the pointer
+
+async function _paintRecentHosts(prefix, pickAction, currentId, fromStore) {
+  const row = document.getElementById(prefix + '-device-recent');
+  const box = document.getElementById(prefix + '-device-recent-chips');
+  if (!row || !box) return;
+  let devs = [];
+  try { devs = await _scanDeviceList(); } catch (_) { /* the search box reports a failed list; the buttons stay hidden */ }
+  const live = new Map((devs || []).map(d => [String(d.id), d]));
+  if (fromStore || !_recentChipIds[prefix]) {
+    const ids = [];
+    for (const r of _recentDevices()) {
+      const id = r && String(r.id);
+      if (id && live.has(id) && !ids.includes(id)) ids.push(id);
+    }
+    _recentChipIds[prefix] = ids.slice(0, _RECENT_HOST_CHIPS);
+  }
+  const cur = currentId == null ? '' : String(currentId);
+  if (cur && live.has(cur) && !_recentChipIds[prefix].includes(cur)) {
+    _recentChipIds[prefix] = [cur, ..._recentChipIds[prefix]].slice(0, _RECENT_HOST_CHIPS);
+  }
+  const shown = _recentChipIds[prefix].filter(id => live.has(id));
+  box.innerHTML = shown.map(id => {
+    const d = live.get(id), name = d.name || id;
+    return `<button type="button" class="host-chip" data-action="${pickAction}" data-arg="${escAttr(id)}" data-arg2="${escAttr(name)}" aria-pressed="${id === cur}">${escHtml(name)}</button>`;
+  }).join('');
+  row.classList.toggle('hidden', !shown.length);
+}
+
 // ── v5.1.0: app catalog (one-click compose deploy) ──────────────────────────
 let _catalogDev = null, _catalogApps = [];
 
@@ -12,6 +48,7 @@ async function loadCatalog() {
     catch (e) { /* render handles empty */ }
   }
   _renderCatalog();
+  _paintRecentHosts('catalog', 'pickCatalogDevice', _catalogDev && _catalogDev.id, true);
 }
 
 async function _renderCatalogDeviceResults(term) {
@@ -39,6 +76,8 @@ function pickCatalogDevice(id, name) {
   document.getElementById('catalog-device-search').value = name;
   const cur = document.getElementById('catalog-device-current');
   if (cur) cur.textContent = 'Target: ' + name;
+  _recordRecentDevice(String(id), name);
+  _paintRecentHosts('catalog', 'pickCatalogDevice', id);
   _renderCatalog();
 }
 // v6.0.1: the table's "Pick a host" button focuses the target-host search so the
@@ -152,6 +191,7 @@ let _cronDev = null, _cronData = null;
 async function loadCron() {
   const t = document.getElementById('cron-timers-tbody');
   if (t && !_cronDev) t.innerHTML = '<tr><td colspan="4" class="hint">Pick a host.</td></tr>';
+  _paintRecentHosts('cron', 'pickCronDevice', _cronDev && _cronDev.id, true);
 }
 
 async function _renderCronDeviceResults(term) {
@@ -178,6 +218,8 @@ function pickCronDevice(id, name) {
   const cur = document.getElementById('cron-device-current');
   if (cur) cur.textContent = 'Host: ' + name;
   document.getElementById('cron-body').classList.remove('hidden');
+  _recordRecentDevice(String(id), name);
+  _paintRecentHosts('cron', 'pickCronDevice', id);
   cronRefresh();
 }
 
@@ -266,6 +308,7 @@ let _fmArchiveTimer = null;
 async function loadFileMgr() {
   const tbody = document.getElementById('fm-tbody');
   if (tbody && !_fmDev) tbody.innerHTML = '<tr><td colspan="6" class="hint">Pick a host, then Open a path.</td></tr>';
+  _paintRecentHosts('fm', 'pickFmDevice', _fmDev && _fmDev.id, true);
 }
 
 async function _renderFmDeviceResults(term) {
@@ -295,6 +338,8 @@ function pickFmDevice(id, name) {
   const cur = document.getElementById('fm-device-current');
   if (cur) cur.textContent = 'Host: ' + name;
   document.getElementById('fm-browser').classList.remove('hidden');
+  _recordRecentDevice(String(id), name);
+  _paintRecentHosts('fm', 'pickFmDevice', id);
   fmListPath('/etc');
 }
 

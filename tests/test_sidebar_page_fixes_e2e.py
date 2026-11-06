@@ -175,6 +175,106 @@ class TestSidebarPageFixes(unittest.TestCase):
         self.assertTrue(self.page.evaluate("document.querySelector('#scap-card details').open"))
         self.assertIn('oscap xccdf eval', self.page.inner_text('#scap-card details'))
 
+    # ── Cron, File manager and App Catalog: the hosts used last ─────────────
+    _PICKERS = (('cron', 'cron'), ('files', 'fm'), ('catalog', 'catalog'))   # (page, id prefix)
+
+    def _recent_hosts_reset(self, entries):
+        """The state of a first visit: nothing picked, and the recent-hosts list as given.
+
+        An entry that is a number is the demo host at that index; a string is an id no host has (a host that was deleted)."""
+        for page, _ in self._PICKERS:
+            self._show(page, 900)                    # the three page scripts load on the first visit
+        return self.page.evaluate("""async (entries) => {
+            _cronDev = null; _fmDev = null; _catalogDev = null;
+            for (const k of Object.keys(_recentChipIds)) delete _recentChipIds[k];
+            const hosts = (await _scanDeviceList()).slice(0, 4).map(d => ({id: String(d.id), name: d.name || String(d.id)}));
+            localStorage.setItem('rp_recent_devices', JSON.stringify(entries.map(e => typeof e === 'number' ? hosts[e] : {id: e, name: e})));
+            return hosts; }""", entries)
+
+    def _recent_row(self, prefix):
+        return self.page.evaluate("""(p) => { const row = document.getElementById(p + '-device-recent');
+            return {hidden: row.classList.contains('hidden'), label: row.querySelector('.hint').textContent, role: row.getAttribute('role'),
+                    labelledby: row.getAttribute('aria-labelledby'), labelId: row.querySelector('.hint').id,
+                    chips: [...row.querySelectorAll('button.host-chip')].map(b => [b.textContent, b.getAttribute('aria-pressed'), b.getBoundingClientRect().height])}; }""", prefix)
+
+    def test_each_picker_offers_the_last_three_hosts_that_still_exist(self):
+        hosts = self._recent_hosts_reset([0, 'gone-host', 1, 0, 2, 3])
+        self.assertGreaterEqual(len(hosts), 4, 'control: the demo fleet has hosts to offer')
+        for page, prefix in self._PICKERS:
+            self._show(page, 1200)
+            got = self._recent_row(prefix)
+            self.assertFalse(got['hidden'], page)
+            self.assertEqual(got['label'], 'Recent hosts')
+            self.assertEqual((got['role'], got['labelledby']), ('group', got['labelId']), 'a screen reader reads the label with the buttons')
+            # the host that is gone and the repeat are skipped, the cap is three, so the fourth host is left out
+            self.assertEqual([c[0] for c in got['chips']], [h['name'] for h in hosts[:3]], page)
+            self.assertEqual({c[1] for c in got['chips']}, {'false'}, 'nothing is picked yet')
+            self.assertGreaterEqual(min(c[2] for c in got['chips']), 24, 'a button the pointer can hit')
+
+    def test_with_no_recent_hosts_the_row_is_not_drawn(self):
+        self._recent_hosts_reset([])
+        for page, prefix in self._PICKERS:
+            self._show(page, 1200)
+            got = self._recent_row(prefix)
+            self.assertTrue(got['hidden'], page)
+            self.assertEqual(got['chips'], [], page)
+
+    def test_a_click_on_a_recent_host_picks_it_like_a_search_result(self):
+        hosts = self._recent_hosts_reset([0, 1, 2])
+        names = [h['name'] for h in hosts]
+        # a pick can ask the host for something (the crontab, a directory listing): the test is about which host is picked
+        self.page.evaluate("""() => { window.__calls = []; window.__orig = {cronRefresh: window.cronRefresh, fmListPath: window.fmListPath};
+            window.cronRefresh = () => window.__calls.push('cron'); window.fmListPath = (p) => window.__calls.push('fm:' + p); }""")
+        first_id = lambda: self.page.evaluate("() => (JSON.parse(localStorage.getItem('rp_recent_devices')) || [])[0].id")
+        try:
+            # Cron: the second button
+            self._show('cron', 1200)
+            self.page.click('#cron-device-recent-chips button:nth-child(2)')
+            self.page.wait_for_timeout(400)
+            self.assertEqual(self.page.inner_text('#cron-device-current'), 'Host: ' + names[1])
+            self.assertFalse(self.page.evaluate("document.getElementById('cron-body').classList.contains('hidden')"))
+            self.assertEqual(self.page.evaluate("String(_cronDev.id)"), hosts[1]['id'])
+            got = self._recent_row('cron')
+            self.assertEqual([c[0] for c in got['chips']], names[:3], 'the buttons do not jump under the pointer')
+            self.assertEqual([c[1] for c in got['chips']], ['false', 'true', 'false'])
+            self.assertEqual(first_id(), hosts[1]['id'], 'a pick is remembered')
+            self.assertEqual(self.page.evaluate("window.__calls"), ['cron'])
+            # a host picked from the search results comes first, and the oldest button gives way
+            hit = '#cron-device-results [data-action="pickCronDevice"][data-arg="%s"]' % hosts[3]['id']   # the name may match other hosts too
+            self.page.fill('#cron-device-search', names[3])
+            self.page.wait_for_selector(hit, timeout=5000)
+            self.page.click(hit)
+            self.page.wait_for_timeout(400)
+            got = self._recent_row('cron')
+            self.assertEqual([c[0] for c in got['chips']], [names[3], names[0], names[1]])
+            self.assertEqual([c[1] for c in got['chips']], ['true', 'false', 'false'])
+            # File manager: the list is shared, so the host picked on Cron leads; the second button lists /etc as a search result does
+            self._show('files', 1200)
+            got = self._recent_row('fm')
+            self.assertEqual([c[0] for c in got['chips']][:2], [names[3], names[1]])
+            self.page.click('#fm-device-recent-chips button:nth-child(2)')
+            self.page.wait_for_timeout(400)
+            self.assertEqual(self.page.inner_text('#fm-device-current'), 'Host: ' + names[1])
+            self.assertFalse(self.page.evaluate("document.getElementById('fm-browser').classList.contains('hidden')"))
+            self.assertEqual(self.page.evaluate("String(_fmDev.id)"), hosts[1]['id'])
+            self.assertEqual(self.page.evaluate("window.__calls"), ['cron', 'cron', 'fm:/etc'])
+            self.assertEqual(first_id(), hosts[1]['id'])
+            # App Catalog: the id stays a string (the page's own rule), and the target line names the host
+            self._show('catalog', 1200)
+            got = self._recent_row('catalog')
+            self.assertEqual(len(got['chips']), 3)
+            self.page.click('#catalog-device-recent-chips button:nth-child(3)')
+            self.page.wait_for_timeout(400)
+            third = got['chips'][2][0]
+            self.assertEqual(self.page.inner_text('#catalog-device-current'), 'Target: ' + third)
+            self.assertEqual(self.page.evaluate("typeof _catalogDev.id"), 'string')
+            self.assertEqual(self.page.evaluate("_catalogDev.name"), third)
+            self.assertEqual(self.page.evaluate("(JSON.parse(localStorage.getItem('rp_recent_devices')) || [])[0].name"), third)
+            self.assertEqual([c[1] for c in self._recent_row('catalog')['chips']], ['false', 'false', 'true'])
+        finally:
+            self.page.evaluate("""() => { window.cronRefresh = window.__orig.cronRefresh; window.fmListPath = window.__orig.fmListPath;
+                _cronDev = null; _fmDev = null; _catalogDev = null; }""")
+
     # ── The tab title ───────────────────────────────────────────────────────
     def test_the_tab_title_keeps_the_alert_count_and_the_page(self):
         self._show('cve', 600)
