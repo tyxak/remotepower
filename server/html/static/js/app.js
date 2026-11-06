@@ -2746,6 +2746,11 @@ function _paintCrumb(navBtn, name) {
   const b = document.createElement('b');
   b.textContent = page;
   el.appendChild(b);
+  try {
+    _docTitlePage = page;
+    if (_tabBaseTitle === null) _tabBaseTitle = document.title;
+    document.title = _docTitleFor(_tabBadgeN);
+  } catch (_) { /* the title state is declared further down: a call before it is set up changes nothing */ }
 }
 // v6.1.2: optional modules → nav visibility. Each module owns exactly one
 // `data-page`, so hiding is a one-liner per module. The server independently
@@ -9506,6 +9511,7 @@ async function loadMe() {
       const _n = _tabBadgeN;
       _tabBadgeN = -1;              // force a repaint against the new base
       if (_n > 0) _paintTabAlertBadge(_n);
+      document.title = _docTitleFor(Math.max(0, _n));   // and the page, which the brand title just wiped
     }
     window._brandAccent = me.brand.accent || '';
     if (typeof applyAccent === 'function') applyAccent();
@@ -14549,6 +14555,13 @@ function _announceNewAlerts(n) {
 // count still works, so this degrades rather than breaks.
 let _tabBadgeN = -1;
 let _tabBaseTitle = null;
+// The tab names the page you are on ("Alerts — RemotePower"): a single-page app gets no new title from the browser when it moves between
+// pages, so every tab, history entry and screen-reader announcement read the same words on all 85 pages (WCAG 2.4.2).
+let _docTitlePage = '';
+function _docTitleFor(n) {
+  const page = _docTitlePage ? `${_docTitlePage} — ` : '';
+  return (n > 0 ? `(${n > 99 ? '99+' : n}) ` : '') + page + _tabBaseTitle;
+}
 let _tabFaviconImg = null;
 let _tabFaviconOriginal = null;
 
@@ -14563,7 +14576,7 @@ function _paintTabAlertBadge(n) {
   // Title: "(3) RemotePower — …". Capture the clean title once, so repeated
   // paints can't stack "(1) (2) (3)" prefixes.
   if (_tabBaseTitle === null) _tabBaseTitle = document.title;
-  document.title = n > 0 ? `(${n > 99 ? '99+' : n}) ${_tabBaseTitle}` : _tabBaseTitle;
+  document.title = _docTitleFor(n);
 
   const link = _tabFaviconLink();
   if (!link) return;

@@ -162,6 +162,20 @@ class TestSidebarPageFixes(unittest.TestCase):
             self.assertLess(abs(top1 - top2), 3, 'edit above delete')
             self.assertLess(left1, left2)
 
+    # ── The tab title ───────────────────────────────────────────────────────
+    def test_the_tab_title_keeps_the_alert_count_and_the_page(self):
+        self._show('cve', 600)
+        base = self.page.title()
+        self.assertIn(' — ', base)
+        page_label = base.split(' — ')[0].lstrip('0123456789() ')
+        self.page.evaluate("() => { _tabBadgeN = -1; _paintTabAlertBadge(7); }")
+        with_count = self.page.title()
+        self.assertTrue(with_count.startswith('(7) '), with_count)
+        self.assertIn(page_label, with_count)
+        self.page.evaluate("() => { _paintTabAlertBadge(0); }")
+        self.assertFalse(self.page.title().startswith('('), 'the count is gone with the alerts')
+        self.assertIn(page_label, self.page.title())
+
     # ── Forecast ────────────────────────────────────────────────────────────
     def test_the_word_projected_is_not_struck_through_by_the_projection(self):
         self._show('forecast', 2500)

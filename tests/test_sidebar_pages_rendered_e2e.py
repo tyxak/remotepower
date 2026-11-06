@@ -214,6 +214,7 @@ class TestEverySidebarPageRendered(unittest.TestCase):
                 page.evaluate("n => { try { showPage(n) } catch (e) {} }", name)
                 page.wait_for_timeout(1500)
                 cls.rendered[name] = page.evaluate(_MEASURE, name)
+                cls.rendered[name]['docTitle'] = page.title()
         finally:
             page.close()
             ctx.close()
@@ -280,6 +281,18 @@ class TestEverySidebarPageRendered(unittest.TestCase):
         if not _SUBSET:
             self.assertGreaterEqual(len(nodes), 10, 'control: the seeded map has nodes')
         self.assertEqual([n['name'] for n in nodes if not n['title'] or ' — ' not in n['title']], [])
+
+    def test_the_tab_names_the_page(self):
+        titles = {n: r.get('docTitle', '') for n, r in self.rendered.items()}
+        if not _SUBSET:
+            self.assertGreaterEqual(len(set(titles.values())), 80, 'control: the walk read the tab title of every page')
+        # every page has a title of its own, and it is not the bare site title every page used to have
+        bare = [n for n, t in titles.items() if ' — ' not in t]
+        self.assertEqual(bare, [], 'the tab title does not name the page')
+        seen = {}
+        for n, t in titles.items():
+            seen.setdefault(t, []).append(n)
+        self.assertEqual({t: ns for t, ns in seen.items() if len(ns) > 1}, {}, 'two pages share a tab title')
 
     def test_the_links_grid_may_use_most_of_the_window(self):
         if _SUBSET and 'links' not in self.rendered:

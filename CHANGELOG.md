@@ -54,6 +54,12 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
 - **Network** gives each node its words on hover and to a screen reader (`web1 — agentless host, offline`; the circle itself carries only `HOS`, `OTH` or
   `UNM`), and the **Forecast** chart's word `projected` sits at the foot of its region, where the projection line no longer crosses it.
 
+### The tab names the page
+
+- **The browser tab and history say which page you are on.** The title was the site's name on all 85 pages, so ten open tabs, the history menu
+  and a screen reader's announcement of a new page all read the same words. It reads `Alerts — RemotePower` now (the label the sidebar and the
+  top bar use, in your language), and `(3) Alerts — RemotePower` while alerts are open. The walk holds a distinct title on every page.
+
 ### Failures in words
 
 - **A call that fails over the network says why.** `integrations.describe_network_error` has put a failure in words since 6.4.2 and 7.4.0
