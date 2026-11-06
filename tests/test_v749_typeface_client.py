@@ -287,7 +287,8 @@ class TestTheTranslations(unittest.TestCase):
             self.assertEqual(sorted(langs), ["ar", "de", "es", "fr", "hi", "zh"], key)
 
     def test_every_string_the_row_shows_is_in_the_list(self):
-        row = _HTML[_HTML.index("<!-- 7.4.9: the typeface."):_HTML.index('<p class="hint">Pick a theme for this browser.')]
+        # the row ends where the next one starts: the Text size row (8.0.0) sits between this one and the theme hint
+        row = _HTML[_HTML.index("<!-- 7.4.9: the typeface."):_HTML.index("<!-- Text size. The page is zoomed")]
         shown = re.findall(r'class="form-label mb-6">([^<]+)<', row)
         shown += re.findall(r"<option[^>]*>([^<]+)</option>", row)
         shown += re.findall(r'<p class="hint">([^<]+)</p>', row)
