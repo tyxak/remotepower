@@ -15,6 +15,7 @@ page-specific ones found by looking at every page of the seeded demo:
 Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -377,6 +378,46 @@ class TestSidebarPageFixes(unittest.TestCase):
         text = self.page.evaluate("""() => { const raw = [...document.querySelectorAll('#maint-tbody div.hint.mono-12')].find(d => d.textContent === '0 1 1 * *');
             return raw ? raw.parentElement.innerText.replace(/\\s+/g, ' ').trim() : null; }""")
         self.assertEqual(text, 'Monthly on day 1 at 01:00 for 180min 0 1 1 * *')
+
+    # ── The Time display setting reaches the table cells ────────────────────
+    # (page, selector of the converted cells, how many the seeded demo draws today)
+    _TIME_CELLS = (
+        ('scans', '#scans-tbody td.meta-sm-nm time', 6), ('backups', '#backups-tbody td.hint time', 4),
+        ('apikeys', '#apikeys-tbody td.hint time', 4), ('sites', '#sites-tbody td.hint time', 3),
+        ('business-services', '#page-business-services td.meta-sm-nm time', 5), ('dmarc', '#page-dmarc td.meta-sm-nm time', 8),
+        ('drift', '#page-drift td.hint time', 5), ('dns', '#page-dns td.meta-sm-nm time', 3), ('tls', '#page-tls td.hint-nowrap time', 3),
+        ('services', '#page-services td.meta-sm-nm time', 12), ('patchsnapshots', '#page-patchsnapshots span.hint time', 3),
+        ('self', '#page-self time', 1),
+    )
+
+    def test_the_time_display_setting_flips_the_converted_table_cells(self):
+        read = """(sel) => [...document.querySelectorAll(sel)].map(t => [t.textContent, t.title, t.getAttribute('datetime')])"""
+        relative = re.compile(r'^(?:\d+\w* ago|just now)$')
+
+        def flipped(cells, mode, at_least):
+            """Do these cells read as the setting says? Relative in place and exact on hover; the setting swaps them."""
+            if len(cells) < at_least:
+                return False
+            for text, title, iso in cells:
+                rel, exact = (text, title) if mode == 'relative' else (title, text)
+                if not (relative.match(rel) and not re.search(r'\bago$', exact) and re.match(r'^\d{4}-\d\d-\d\dT', iso or '')):
+                    return False
+            return True
+        try:
+            for mode in ('relative', 'absolute'):
+                self.page.evaluate("(m) => { _uiPrefs.time_display = m; }", mode)
+                for page, sel, at_least in self._TIME_CELLS:
+                    self._show(page, 800)
+                    # a page fetches before it draws: poll from here until the cells show the setting, then assert what is there
+                    cells = []
+                    for _ in range(40):
+                        cells = self.page.evaluate(read, sel)
+                        if flipped(cells, mode, at_least):
+                            break
+                        self.page.wait_for_timeout(300)
+                    self.assertTrue(flipped(cells, mode, at_least), f'{page} ({mode}): wanted at least {at_least} cells in the setting, saw {cells[:3]}')
+        finally:
+            self.page.evaluate("() => { _uiPrefs.time_display = 'relative'; }")
 
     # ── The tab title ───────────────────────────────────────────────────────
     def test_the_tab_title_keeps_the_alert_count_and_the_page(self):

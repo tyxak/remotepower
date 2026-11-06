@@ -898,7 +898,7 @@ function _registerTlsTable() {
         return `<span class="isl-472" data-color="${colours[s] || 'var(--muted)'}">${labels[s] || s}</span>`;
       })();
       const expires = t.expires_at ? _fmtAbsDate(t.expires_at) : '—';
-      const lastChk = t.last_check ? _fmtAbsTs(t.last_check) : '—';
+      const lastChk = timeAgoHtml(t.last_check, {empty: '—'});
       const days = (t.status === 'ok' || t.status === 'warning' || t.status === 'critical')
         ? `${t.days_left}d` : (t.dns_error ? 'DNS' : t.tls_error ? 'TLS' : '—');
       const issuer = (t.issuer || '').replace(/CN=/, '').split(',')[0] || '—';

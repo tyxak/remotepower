@@ -550,7 +550,7 @@ async function clearClientErrors() {
 // where an operator is already looking at the server.
 function _versionSinceHtml(s) {
   return s.version_since
-    ? ` <span class="hint">since ${escHtml(_fmtAbsTs(s.version_since))}</span>`
+    ? ` <span class="hint">since ${timeAgoHtml(s.version_since)}</span>`
     : '';
 }
 

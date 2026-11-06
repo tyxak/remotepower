@@ -5050,7 +5050,7 @@ function _registerUsersTable() {
         : '<span class="patch-badge crit fs-11">none</span>';
       const srcBadge = `<span class="patch-badge fs-11">${escHtml(u.source || 'local')}</span>`
         + (u.disabled ? ' <span class="patch-badge crit fs-11">disabled</span>' : '');
-      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${u.created ? _fmtAbsDate(u.created) : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td>${mfaBadge}</td><td>${srcBadge}</td><td><div class="user-actions"><button class="btn-icon" title="Change password" data-action="openPasswd" data-arg="${escAttr(u.username)}" >${_icon('lock',14)}</button><button class="btn-icon" title="Edit role" data-action="editUserRole" data-arg="${escAttr(u.username)}" data-arg2="${escAttr(u.role||'admin')}">${_icon('edit',14)}</button><button class="btn-icon c-danger-outline" title="Delete user" data-action="deleteUser" data-arg="${escAttr(u.username)}" >${_icon('trash',14)}</button></div></td></tr>`;
+      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${timeAgoHtml(u.created, {empty: '—'})}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td>${mfaBadge}</td><td>${srcBadge}</td><td><div class="user-actions"><button class="btn-icon" title="Change password" data-action="openPasswd" data-arg="${escAttr(u.username)}" >${_icon('lock',14)}</button><button class="btn-icon" title="Edit role" data-action="editUserRole" data-arg="${escAttr(u.username)}" data-arg2="${escAttr(u.role||'admin')}">${_icon('edit',14)}</button><button class="btn-icon c-danger-outline" title="Delete user" data-action="deleteUser" data-arg="${escAttr(u.username)}" >${_icon('trash',14)}</button></div></td></tr>`;
     },
     emptyMsg: 'No users.',
     emptyMsgFiltered: 'No users match the filter.',
@@ -9466,8 +9466,8 @@ async function loadSatellites() {
   if (!Array.isArray(data)) { el.textContent = 'Could not load satellites.'; return; }
   if (!data.length) { el.textContent = 'No satellites yet.'; return; }
   el.innerHTML = data.map(s => {
-    const seen = s.last_seen ? _fmtAbsTs(s.last_seen) : 'never connected';
-    return `<div class="sb-controls"><span><strong>${escHtml(s.name)}</strong> <span class="hint">· last seen ${escHtml(seen)}${s.last_ip ? ' · ' + escHtml(s.last_ip) : ''}</span></span><button class="btn-icon cell-sm" data-action="deleteSatellite" data-arg="${escAttr(s.id)}">Revoke</button></div>`;
+    const seen = timeAgoHtml(s.last_seen, {empty: 'never connected'});
+    return `<div class="sb-controls"><span><strong>${escHtml(s.name)}</strong> <span class="hint">· last seen ${seen}${s.last_ip ? ' · ' + escHtml(s.last_ip) : ''}</span></span><button class="btn-icon cell-sm" data-action="deleteSatellite" data-arg="${escAttr(s.id)}">Revoke</button></div>`;
   }).join('');
 }
 async function createSatellite() {
@@ -9924,7 +9924,7 @@ async function loadSessions() {
   const data = await api('GET', '/me/sessions');
   const sessions = (data && data.sessions) || [];
   if (!sessions.length) { el.textContent = 'No active sessions.'; return; }
-  const _ago = (ts) => ts ? _fmtAbsTs(ts) : '—';
+  const _ago = (ts) => timeAgoHtml(ts, {empty: '—'});
   el.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
     <thead><tr class="c-muted"><th>Session</th><th>IP</th><th>Signed in</th><th>Last active</th><th></th></tr></thead>
     <tbody>${sessions.map(s => {
@@ -9936,8 +9936,8 @@ async function loadSessions() {
       return `<tr>
         <td>${ua}${here}</td>
         <td class="hint mono-12">${escHtml(s.ip || '—')}</td>
-        <td class="hint">${escHtml(_ago(s.created))}</td>
-        <td class="hint">${escHtml(_ago(s.last_seen))}</td>
+        <td class="hint">${_ago(s.created)}</td>
+        <td class="hint">${_ago(s.last_seen)}</td>
         <td>${revoke}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
@@ -9966,8 +9966,8 @@ async function loadMyAckedAlerts() {
   el.innerHTML = alerts.map(a => {
     const sev = a.severity || '';
     const color = sev === 'critical' ? 'var(--red)' : sev === 'high' ? 'var(--amber)' : 'var(--muted)';
-    const when = a.acknowledged_at ? _fmtAbsTs(a.acknowledged_at) : '';
-    return `<div class="sb-controls"><span><span class="pill" data-color="${color}">${escHtml(sev || '—')}</span> ${escHtml(a.title || a.event || a.id)} <span class="hint">· acked ${escHtml(when)}</span></span></div>`;
+    const when = a.acknowledged_at ? timeAgoHtml(a.acknowledged_at) : '';
+    return `<div class="sb-controls"><span><span class="pill" data-color="${color}">${escHtml(sev || '—')}</span> ${escHtml(a.title || a.event || a.id)} <span class="hint">· acked ${when}</span></span></div>`;
   }).join('');
 }
 
@@ -10749,7 +10749,7 @@ function _registerApiKeysTable() {
       // this one; hidden for an already-rotated-out (inactive) key.
       const rotateBtn = k.active === false ? '' :
         `<button class="btn-icon" data-action="rotateApiKey" data-arg="${escAttr(k.id)}" data-arg2="${escAttr(k.name)}" title="Rotate: mint a replacement key and deactivate this one">${_icon('refresh',14)}</button>`;
-      return `<tr><td class="fw-600">${escHtml(k.name)}${k.active === false ? ' <span class="hint">(rotated out)</span>' : ''}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${k.created ? _fmtAbsDate(k.created) : '—'}</td><td>${exp}</td><td><div class="user-actions">${editBtn}${rotateBtn}<button class="btn-icon c-danger-outline" title="Delete" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >${_icon('trash',14)}</button></div></td></tr>`;
+      return `<tr><td class="fw-600">${escHtml(k.name)}${k.active === false ? ' <span class="hint">(rotated out)</span>' : ''}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${timeAgoHtml(k.created, {empty: '—'})}</td><td>${exp}</td><td><div class="user-actions">${editBtn}${rotateBtn}<button class="btn-icon c-danger-outline" title="Delete" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >${_icon('trash',14)}</button></div></td></tr>`;
     },
     emptyMsg: 'No API keys. Create one for scripting access.',
     emptyMsgFiltered: 'No keys match the filter.',
@@ -10837,7 +10837,7 @@ function _renderCommandQueue() {
   if (recentTotal) {
     const recentPage = recent.slice(0, _cmdqRecentShown);
     const rows = recentPage.map(e =>
-      `<tr><td class="c-muted fs-12">${e.ts ? _fmtAbsTs(e.ts) : '—'}</td>`
+      `<tr><td class="c-muted fs-12">${timeAgoHtml(e.ts, {empty: '—'})}</td>`
       + `<td class="fw-500">${escHtml(e.device_name || e.device_id || '—')}</td>`
       + `<td class="hint">${escHtml(e.actor || '—')}</td>`
       + `<td class="ff-mono fs-12">${escHtml(e.command || '')}</td></tr>`
@@ -11096,7 +11096,7 @@ function _psRenderList() {
       : `<button class="btn-icon" data-action="psPromote" data-arg="${escAttr(s.id)}">Promote to tag…</button> ` +
         `<button class="btn-icon" data-action="psDrift" data-arg="${escAttr(s.id)}">Drift (whole fleet)</button>`;
     return `<div class="settings-row"><strong>${escHtml(s.name)}</strong> ` +
-      `<span class="hint">${_fmtAbsTs(s.created)} · ${plural(s.entry_count, 'package', 'packages')} · by ${escHtml(s.created_by || '?')}</span> ` +
+      `<span class="hint">${timeAgoHtml(s.created)} · ${plural(s.entry_count, 'package', 'packages')} · by ${escHtml(s.created_by || '?')}</span> ` +
       tag + ` <button class="btn-icon c-danger-outline" data-action="psDelete" data-arg="${escAttr(s.id)}">Delete</button></div>`;
   }).join('') : '<div class="empty-state">No snapshots yet.</div>';
 }
@@ -11315,7 +11315,7 @@ function _registerSitesTable() {
       device_count: s.device_count || 0,
       created:      s.created || 0,
     }),
-    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? _fmtAbsDate(s.created) : '—'}</td><td><div class="user-actions"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" data-arg3="csv" title="Download this site's posture report as CSV (hosts, patches, SLA, CVEs, health)">Report (CSV)</button><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" data-arg3="json" title="Download this site's posture report as raw JSON">JSON</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></div></td></tr>`,
+    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${timeAgoHtml(s.created, {empty: '—'})}</td><td><div class="user-actions"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" data-arg3="csv" title="Download this site's posture report as CSV (hosts, patches, SLA, CVEs, health)">Report (CSV)</button><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" data-arg3="json" title="Download this site's posture report as raw JSON">JSON</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></div></td></tr>`,
     emptyMsg: 'No sites yet. Create one to organise the fleet.',
     emptyMsgFiltered: 'No sites match the filter.',
   });
@@ -12990,7 +12990,7 @@ function _registerCveTable() {
         'no_packages': '<span class="c-muted">●</span> no package list',
         'unsupported': '<span class="c-amber">●</span> unsupported',
       }[d.status] || d.status;
-      const scanText = d.scanned_at ? _fmtAbsTs(d.scanned_at) : statusBadge;
+      const scanText = d.scanned_at ? timeAgoHtml(d.scanned_at) : statusBadge;
       const cell = (n, color) => n > 0 ? `<td class="isl-384" data-color="${color}">${n}</td>` : '<td class="isl-385">0</td>';
       const cveTotal = (d.counts.critical||0) + (d.counts.high||0) + (d.counts.medium||0) + (d.counts.low||0);
       const prioBtn = cveTotal > 0
@@ -13065,7 +13065,7 @@ function _registerServicesTable() {
       return false;
     },
     row: (d) => {
-      const reportText = d.updated_at ? _fmtAbsTs(d.updated_at) : '<span class="meta-sm-nm">never</span>';
+      const reportText = d.updated_at ? timeAgoHtml(d.updated_at) : '<span class="meta-sm-nm">never</span>';
       const unitList = (d.services || []).map(s => {
         const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
         // Show the canonical unit systemd resolved an alias to (e.g. you watch
@@ -13134,14 +13134,14 @@ async function openServiceDetail(devId, devName) {
   openModal('service-detail-modal');
   const data = await api('GET', `/devices/${devId}/services`);
   if (!data) return;
-  const updated = data.updated_at ? _fmtAbsTs(data.updated_at) : 'never';
+  const updated = timeAgoHtml(data.updated_at, {empty: 'never'});
   let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Units watched</div><div class="value">${data.services.length}</div></div><div class="sysinfo-pill"><div class="label">Last report</div><div class="value fs-11">${updated}</div></div></div>`;
   if (!data.services.length) {
     html += '<div class="empty-state">No services configured. Click "Edit watched units" below.</div>';
   } else {
     html += data.services.map(s => {
       const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
-      const sinceText = s.since ? _fmtAbsTs(s.since) : '—';
+      const sinceText = timeAgoHtml(s.since, {empty: '—'});
       const histItems = (s.history || []).slice().reverse();
       const logItems  = (s.log_tail || []).slice(-20);
 
@@ -14350,7 +14350,7 @@ async function loadActiveSessions() {
       <td class="hint">${escHtml(s.role || '')}</td>
       <td class="hint">${escHtml(s.source || '')}</td>
       <td class="hint mono-12">${escHtml(s.ip || '—')}</td>
-      <td class="hint">${escHtml(_ago(s.last_seen))}</td>
+      <td class="hint">${timeAgoHtml(s.last_seen, {empty: '—'})}</td>
       <td class="hint">${escHtml(_ago(s.expires_at))}</td>
       <td>${revoke}</td>
     </tr>`;
@@ -14500,7 +14500,7 @@ async function loadPasskeys() {
   const d = await api('GET', '/webauthn/credentials');
   const creds = (d && d.credentials) || [];
   box.innerHTML = creds.length
-    ? creds.map(c => `<div class="mb-8"><strong>${escHtml(c.name || 'passkey')}</strong> <span class="hint">added ${c.created ? _fmtAbsDate(c.created) : '—'}</span> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deletePasskey" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name || 'passkey')}">${_icon('trash',14)}</button></div>`).join('')
+    ? creds.map(c => `<div class="mb-8"><strong>${escHtml(c.name || 'passkey')}</strong> <span class="hint">added ${timeAgoHtml(c.created, {empty: '—'})}</span> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deletePasskey" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name || 'passkey')}">${_icon('trash',14)}</button></div>`).join('')
     : '<div class="hint">No passkeys yet.</div>';
 }
 
@@ -18610,7 +18610,7 @@ function _renderUnstableHosts() {
   }));
   tbody.innerHTML = sorted.map(r => {
     const reason = r.last_boot_reason
-      ? `${escHtml(r.last_boot_reason)}${r.last_boot_reason_at ? ` <span class="hint">· ${escHtml(_fmtAbsTs(r.last_boot_reason_at))}</span>` : ''}`
+      ? `${escHtml(r.last_boot_reason)}${r.last_boot_reason_at ? ` <span class="hint">· ${timeAgoHtml(r.last_boot_reason_at)}</span>` : ''}`
       : '<span class="hint">—</span>';
     return `<tr>
       <td class="fw-500">${escHtml(r.device)}</td>
@@ -22739,7 +22739,7 @@ async function loadSnapshots() {
       <th class="cell-pad">Name</th><th class="cell-pad">Taken</th>
       <th class="cell-pad">Description</th><th></th></tr></thead><tbody>` +
     snaps.map(s => {
-      const taken = s.snaptime ? _fmtAbsTs(s.snaptime) : '—';
+      const taken = timeAgoHtml(s.snaptime, {empty: '—'});
       return `<tr class="border-bottom">
         <td class="isl-587">${escHtml(s.name)}${s.vmstate ? ' <span class="isl-588">+RAM</span>' : ''}</td>
         <td class="isl-545">${taken}</td>
@@ -26343,7 +26343,7 @@ async function _loadAuditSection(key) {
             <tbody>` + [...byUser.entries()].map(([u,rec])=>
               `<tr><td class="isl-629"><code>${escHtml(u)}</code></td>
                    <td class="fs-11">${rec.srcs.length ? rec.srcs.map(s=>`<span class="cmd-badge fs-11">${escHtml(s)}</span>`).join(' ') : '<span class="c-muted">—</span>'}</td>
-                   <td class="fs-11">${rec.lastTs ? escHtml(_fmtAbsTs(rec.lastTs)) : '<span class="c-muted">—</span>'}</td></tr>`
+                   <td class="fs-11">${rec.lastTs ? timeAgoHtml(rec.lastTs) : '<span class="c-muted">—</span>'}</td></tr>`
             ).join('') + `</tbody></table></div>`;
         }
         // W3-19: live high-res view (opt-in button; polls a burst channel).

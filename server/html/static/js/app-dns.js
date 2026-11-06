@@ -317,10 +317,10 @@ async function loadResolverHealth() {
       const title = `${r.resolver} (${r.ip}): ${r.status}${r.error ? ' — ' + r.error : ''} · ${r.latency_ms}ms`;
       return `<span class="${dot}" title="${escAttr(title)}">●</span>`;
     }).join(' ') || '<span class="hint">—</span>';
-    const when = t.checked_at ? _fmtAbsTs(t.checked_at) : 'never';
+    const when = timeAgoHtml(t.checked_at, {empty: 'never'});
     return `<tr><td class="fw-500">${escHtml(t.name)}${t.label ? `<div class="hint">${escHtml(t.label)}</div>` : ''}</td>`
       + `<td>${escHtml(t.type || 'A')}</td><td class="${cls}">${status}</td>`
-      + `<td class="meta-sm-nm">${lat}</td><td>${per}</td><td class="meta-sm-nm">${escHtml(when)}</td>`
+      + `<td class="meta-sm-nm">${lat}</td><td>${per}</td><td class="meta-sm-nm">${when}</td>`
       + `<td><button class="btn-icon cell-sm" data-action="resolverHealthDelete" data-arg="${escAttr(t.id)}" title="Stop monitoring this name">Remove</button></td></tr>`;
   }).join('') : '<tr><td colspan="7" class="hint">No names monitored yet. Add one to watch its resolution health.</td></tr>';
 }

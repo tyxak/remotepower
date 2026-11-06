@@ -80,6 +80,13 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   on either, which no short phrase says), a step that does not divide its field (`*/7` minutes starts again every hour) and a day past the 28th (the short
   months skip it). A test works out when 63,360 expressions fire with a second implementation of cron's rules and fails when two schedules share words or
   one schedule has two readings; it found two slips in the first version (hours `0-23`, and `*/30` against `0,30`). 22 of 22 mutations caught.
+- **The Time display setting reaches the tables.** 32 places printed an exact stamp straight from the formatter, so one page showed `3h ago` in one
+  column and `11/5/2026, 4:08:25 PM` in the next, whatever you had chosen. The `last run`, `created`, `last seen`, `checked` and `since` cells (Pentest,
+  Backups, API Keys, Sites, Business Services, DMARC, DNS, TLS, Drift, Services, Patch snapshots, Server Status, Containers, Host config, sessions, CVEs
+  and a few more) go through the one rule now: the time you picked in place, the other on hover. What stays exact is listed in
+  `tests/test_time_cells.py` with its reason: logs and the audit trail (a row is read by its exact time), expiry and scheduled times (the relative form
+  counts from the past) and a file's own modified time. That test lists every exact time inside a table cell and fails on a new one, and on a listed one
+  that is gone. 13 of 13 mutations caught; the rendered test flips the setting on twelve pages of the demo.
 
 ### Controls you can hit
 

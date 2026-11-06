@@ -257,7 +257,7 @@ function _renderDrift(rows) {
     return;
   }
   tbody.innerHTML = visible.map(r => {
-    const lastCheck = r.last_check ? _fmtAbsTs(r.last_check) : '—';
+    const lastCheck = timeAgoHtml(r.last_check, {empty: '—'});
     const driftColor = r.drifted > 0 ? 'var(--amber)' : 'var(--muted)';
     const missingColor = r.missing > 0 ? 'var(--red)' : 'var(--muted)';
     return `<tr>

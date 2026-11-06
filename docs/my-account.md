@@ -20,7 +20,7 @@ browser they follow you. The ones marked *this browser only* below do not.
 | **Text size** | Under **Appearance**, and in the user menu at the bottom of the sidebar (**A** smaller, **A** larger). Makes everything on the page larger or smaller, buttons and tables included, in steps from 80% to 300%. 100% is what you get until you choose. It is saved in *this browser only*, because the right size depends on the screen. A narrow window holds the largest steps back so the layout keeps room: on a 1440 pixel wide window the top step is 200%, on a phone 110%. A 4K screen at its native size has room for 300%. |
 | **Email signature** | An HTML block appended to ticket emails you send. It goes out as a rich HTML part with a plain-text fallback, so paste your normal contact block with links. See [ticket-system.md](ticket-system.md). |
 | **SSH preferences** | Your default SSH username, used by the quick-SSH link on the Hosts page so you don't retype it. |
-| **Display units** | Whether timestamps read as *3d ago* or as an absolute time, whether temperatures are shown in Celsius or Fahrenheit. Readings are stored and alerted on in Celsius either way, so switching the unit cannot move a threshold. |
+| **Display units** | Whether timestamps read as *3d ago* or as an absolute time, whether temperatures are shown in Celsius or Fahrenheit. The time setting covers the "last run", "created", "last seen" and "checked" columns: you see the form you picked, and the other one when you point at it. Logs and the audit trail always show the exact time, and so do expiry dates and the time of something that has not happened yet. Readings are stored and alerted on in Celsius either way, so switching the unit cannot move a threshold. |
 
 ## Security
 

@@ -106,7 +106,7 @@ function _registerImageUpdatesTable() {
       }
       const hosts = (r.hosts || []);
       const hostTitle = hosts.map(h => `${h.device_name}${h.container ? ' · ' + h.container : ''}${h.stale ? ' (stale)' : ''}`).join(', ');
-      const checked = (r.local || !r.last_checked) ? '—' : _fmtAbsTs(r.last_checked);
+      const checked = (r.local || !r.last_checked) ? '—' : timeAgoHtml(r.last_checked);
       // Container name(s) running this image — the only identifier when the
       // image itself is an untagged bare ID (e.g. right after a compose pull
       // that hasn't recreated the container yet, so `docker ps` shows sha256:…).

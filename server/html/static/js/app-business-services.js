@@ -82,7 +82,7 @@ function renderBusinessServices() {
       <td>${_bsStateBadge(r.state)}</td>
       <td class="meta-sm-nm">${escHtml(_bsRuleText(r.rule))}</td>
       <td>${r.parts_ok} of ${r.parts}${bad ? ` <span class="meta-sm-nm">(${bad} not up)</span>` : ''}</td>
-      <td class="meta-sm-nm">${r.since ? _fmtAbsTs(r.since) : '—'}</td>
+      <td class="meta-sm-nm">${timeAgoHtml(r.since, {empty: '—'})}</td>
       <td class="meta-sm-nm">${r.availability_30d == null ? '—' : r.availability_30d.toFixed(2) + ' %'}</td>
       <td class="nowrap">
         <button class="btn-icon isl-600" data-action="openBusinessServiceModal" data-arg="${sid}">Edit</button>

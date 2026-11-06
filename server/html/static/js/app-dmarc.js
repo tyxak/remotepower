@@ -23,7 +23,7 @@ function _registerDmarcTable() {
       const spf = (d.spf && d.spf.all) ? escHtml(d.spf.all + 'all') : '—';
       const dkim = d.dkim_selector ? (d.dkim && d.dkim.present ? 'ok' : 'missing') : '—';
       const reasons = (d.reasons || []).map(escHtml).join('; ') || (d.status === 'ok' ? 'enforcing + reporting' : '');
-      const when = d.checked_at ? _fmtAbsTs(d.checked_at) : 'never';
+      const when = timeAgoHtml(d.checked_at, {empty: 'never'});
       return `<tr><td class="fw-500">${escHtml(d.domain)}</td><td class="${cls}">${escHtml(d.status)}</td><td>${pol}</td><td>${spf}</td><td>${dkim}</td><td class="hint">${reasons}</td><td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-action="deleteDmarc" data-arg="${escAttr(d.id)}" title="Remove domain">Remove</button></td></tr>`;
     },
     emptyMsg: 'No domains yet. Add one to monitor its SPF / DKIM / DMARC posture.',
@@ -88,7 +88,7 @@ function _renderReputation() {
       listed.push(`<span class="c-amber" title="${escAttr(detail)}">${errCount} unreachable</span>`);
     }
     const lists = listed.join(', ') || '<span class="c-muted">—</span>';
-    const when = t.checked_at ? _fmtAbsTs(t.checked_at) : 'never';
+    const when = timeAgoHtml(t.checked_at, {empty: 'never'});
     return `<tr><td class="ff-mono fw-500">${escHtml(t.ip)}</td><td>${escHtml(t.label || '')}</td><td class="${cls}">${status}</td><td class="hint">${lists}</td><td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-action="deleteReputation" data-arg="${escAttr(t.id)}" title="Stop monitoring this IP">Remove</button></td></tr>`;
   }).join('') : '<tr><td colspan="6" class="hint">No IPs monitored yet. Add one to watch its blocklist status.</td></tr>';
 }
@@ -176,7 +176,7 @@ function _renderDmarcSources() {
   }));
   stb.innerHTML = rows.length ? rows.map(s => {
     const fail = s.fail || 0;
-    return `<tr><td class="ff-mono">${escHtml(s.ip || '')}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td><td class="hint">${escHtml((s.domains || []).join(', '))}</td><td class="meta-sm-nm">${s.last_seen ? _fmtAbsDate(s.last_seen) : '—'}</td></tr>`;
+    return `<tr><td class="ff-mono">${escHtml(s.ip || '')}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td><td class="hint">${escHtml((s.domains || []).join(', '))}</td><td class="meta-sm-nm">${timeAgoHtml(s.last_seen, {empty: '—'})}</td></tr>`;
   }).join('') : '<tr><td colspan="5" class="hint">No sending sources seen yet.</td></tr>';
 }
 

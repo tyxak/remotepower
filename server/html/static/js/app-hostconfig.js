@@ -211,7 +211,7 @@ function renderCustomScriptsPage() {
     const outputSnippet = (shown.length > 80
       ? escHtml(shown.slice(0, 80)) + '<span class="c-muted">…</span>'
       : escHtml(shown || '—')) + _csPerfHtml(r);
-    const ranAt = r.ran_at ? _fmtAbsTs(r.ran_at) : '—';
+    const ranAt = timeAgoHtml(r.ran_at, {empty: '—'});
     const dur   = r.duration_ms ? `${r.duration_ms} ms` : '—';
     const changedAgo = r.changed_at
       ? `<span title="Status changed ${_fmtAbsTs(r.changed_at)}" class="isl-602">changed ${_reltime(r.changed_at)}</span>`
