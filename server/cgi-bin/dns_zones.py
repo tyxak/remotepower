@@ -26,6 +26,8 @@ dashboard.
 import urllib.parse
 import json
 
+import integrations   # network_error_reason: a failed call in words, not 'URLError: <urlopen error ...>'
+
 
 def _seg(v):
     """URL-quote an id as a single path segment (SSRF/path-injection safe)."""
@@ -126,7 +128,7 @@ class DNSProvider:
         except DNSError:
             raise
         except Exception as e:  # network / SSRF guard / timeout
-            raise DNSError(f'{e.__class__.__name__}: {e}'[:200])
+            raise DNSError((integrations.network_error_reason(e) or f'{e.__class__.__name__}: {e}')[:200])
         return r
 
     def _json(self, r, ctx=''):

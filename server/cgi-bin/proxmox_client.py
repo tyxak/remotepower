@@ -36,6 +36,7 @@ import urllib.request
 import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
 import urllib.error
 import urllib.parse
+import integrations   # network_error_reason: a failed call in words
 
 
 # v2.3.1: the token secret may be supplied via an environment variable
@@ -254,9 +255,9 @@ def _request(pc: dict, path: str, method: str = 'GET',
                 'self-signed certificate by default — either install a '
                 'trusted cert or turn off "Verify TLS" for this '
                 'connection.') from None
-        raise ProxmoxError(f'Could not reach Proxmox: {reason}') from None
+        raise ProxmoxError(f'Could not reach Proxmox: {integrations.network_error_reason(e) or reason}') from None
     except (TimeoutError, OSError) as e:
-        raise ProxmoxError(f'Proxmox connection failed: {e}') from None
+        raise ProxmoxError(f'Proxmox connection failed: {integrations.network_error_reason(e) or e}') from None
 
     try:
         parsed = json.loads(raw)

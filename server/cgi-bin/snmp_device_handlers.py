@@ -396,7 +396,7 @@ def handle_device_snmp_walk(dev_id):
         A.respond(502, {'error': f'SNMP walk failed: {str(e)[:200]}'})
         return
     except Exception as e:
-        A.respond(502, {'error': f'{type(e).__name__}: {str(e)[:200]}'})
+        A.respond(502, {'error': A.integrations_mod.network_error_reason(e) or f'{type(e).__name__}: {str(e)[:200]}'})
         return
     rows = []
     for k, v in raw.items():

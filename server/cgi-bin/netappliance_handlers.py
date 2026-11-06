@@ -162,7 +162,7 @@ def handle_device_routeros_firewall(dev_id):
     try:
         fw = routeros_mod.firewall(host, user, password, verify=verify)
     except Exception as e:
-        A.respond(502, {'error': str(e)[:200]})
+        A.respond(502, {'error': A.integrations_mod.explain_failure(e)})
     fw['enabled'] = True
     A.respond(200, fw)
 
@@ -181,7 +181,7 @@ def handle_device_routeros_qos(dev_id):
     try:
         q = routeros_mod.qos(host, user, password, verify=verify)
     except Exception as e:
-        A.respond(502, {'error': str(e)[:200]})
+        A.respond(502, {'error': A.integrations_mod.explain_failure(e)})
     q['enabled'] = True
     A.respond(200, q)
 
@@ -200,7 +200,7 @@ def handle_device_routeros_traffic(dev_id):
     try:
         rates = routeros_mod.traffic(host, user, password, verify=verify)
     except Exception as e:
-        A.respond(502, {'error': str(e)[:200]})
+        A.respond(502, {'error': A.integrations_mod.explain_failure(e)})
     A.respond(200, {'interfaces': rates})
 
 
@@ -228,7 +228,7 @@ def handle_device_routeros_action(dev_id):
         res = routeros_mod.action(host, user, password, act, arg=arg, rule=rule,
                                   verify=verify)
     except Exception as e:
-        A.respond(502, {'error': str(e)[:200]})
+        A.respond(502, {'error': A.integrations_mod.explain_failure(e)})
     # v3.3.4: cache the update state so the Patches page can show RouterOS
     # firmware alongside Linux package updates without a live fetch.
     if act == 'check_update' and isinstance(res, dict) and res.get('update'):
@@ -392,7 +392,7 @@ def handle_device_opnsense_firewall(dev_id):
     try:
         fw = opn_mod.firewall(host, key, secret, verify=verify)
     except Exception as e:
-        A.respond(502, {'error': str(e)[:200]})
+        A.respond(502, {'error': A.integrations_mod.explain_failure(e)})
     fw['enabled'] = True
     A.respond(200, fw)
 
@@ -420,7 +420,7 @@ def handle_device_opnsense_action(dev_id):
     try:
         res = opn_mod.action(host, key, secret, act, arg=arg, rule=rule, verify=verify)
     except Exception as e:
-        A.respond(502, {'error': str(e)[:200]})
+        A.respond(502, {'error': A.integrations_mod.explain_failure(e)})
     # Cache the firmware verdict from a check so the Patches report stays fresh.
     if act == 'check_update' and isinstance(res, dict) and isinstance(res.get('update'), dict):
         A._opnsense_cache_update(dev_id, res['update'])
@@ -571,7 +571,7 @@ def handle_device_netconfig(dev_id):
     try:
         text = A._netconf_fetch(dev_id, dev)
     except Exception as e:
-        A.respond(502, {'error': str(e)[:200]})
+        A.respond(502, {'error': A.integrations_mod.explain_failure(e)})
     if not text:
         A.respond(502, {'error': 'the appliance returned an empty configuration'})
     rev, changed = A._netconf_store_revision(dev_id, text, actor)

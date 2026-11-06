@@ -445,7 +445,7 @@ def handle_dns_resolve():
         authoritative = A.dns_resolve_mod.resolve_authoritative(name, rtype)
         public = A.dns_resolve_mod.resolve_public(name, rtype)
     except Exception as e:                       # noqa: BLE001 — never 500 the page
-        A.respond(502, {'error': f'resolution failed: {str(e)[:120]}'})
+        A.respond(502, {'error': f'resolution failed: {A.integrations_mod.explain_failure(e, 120)}'})
     A.respond(200, {'name': name, 'type': rtype,
                     'authoritative': authoritative, 'public': public})
 
@@ -460,7 +460,7 @@ def handle_dns_propagation():
     try:
         result = A.dns_resolve_mod.propagation(name, rtype, expected)
     except Exception as e:                       # noqa: BLE001
-        A.respond(502, {'error': f'propagation check failed: {str(e)[:120]}'})
+        A.respond(502, {'error': f'propagation check failed: {A.integrations_mod.explain_failure(e, 120)}'})
     A.respond(200, {'name': name, 'type': rtype, 'expected': expected, **result})
 
 

@@ -36,7 +36,7 @@ BACKLOG = ROOT / 'tests' / 'data' / 'server_message_i18n_backlog.txt'
 
 # respond() calls whose 'error' is an f-string. It is a ratchet in both directions: lower it in the
 # same commit that removes one, so it can never creep back up unseen.
-F_STRING_SITES = 305
+F_STRING_SITES = 304
 
 # Messages whose translation is the English itself in a language (a protocol name, a loan word). The
 # engine hands them back unchanged and that is correct. An entry that stops being identical is stale.

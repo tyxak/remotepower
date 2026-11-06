@@ -15422,8 +15422,16 @@ function _dnsControlRow(item, dnsCtl) {
 
   // Repaint from the server's own view of the state — never from what we just
   // asked for. A blocker that ignored the call must not look like it obeyed.
-  const paint = (st) => {
-    if (!st) { state.className = 'patch-badge'; state.textContent = 'unknown'; return; }
+  const paint = (st, why) => {
+    if (!st) {
+      // The blocker did not answer. Say why where its state would be, and offer no Pause or Resume it cannot carry out:
+      // the tile used to read "unknown" with both buttons showing, and a toast for the 502 that outlived the page.
+      state.className = 'patch-badge warn';
+      state.textContent = why || 'unknown';
+      off.classList.add('hidden'); on.classList.add('hidden'); sel.classList.add('hidden');
+      checkNow.classList.remove('hidden');
+      return;
+    }
     if (st.blocking) {
       state.className = 'patch-badge ok';
       state.textContent = 'Blocking on';
@@ -15441,9 +15449,10 @@ function _dnsControlRow(item, dnsCtl) {
 
   const refresh = async () => {
     try {
-      const st = await api('GET', '/dns-control/' + encodeURIComponent(item.id) + '/blocking');
-      paint(st && st.ok ? st : null);
-    } catch (e) { paint(null); }
+      // quiet: a blocker that does not answer is an expected result here, shown in the tile, not a failure to announce
+      const st = await api('GET', '/dns-control/' + encodeURIComponent(item.id) + '/blocking', undefined, {quiet: true});
+      paint(st && st.ok ? st : null, st && st.error ? String(st.error) : '');
+    } catch (e) { paint(null, ''); }
   };
 
   // v7.0.2: this probe is a live outbound call to the operator's DNS appliance,

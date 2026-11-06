@@ -8837,7 +8837,7 @@ def handle_audit_forward_test():
     try:
         why = _forward_audit(test_entry, cfg)
     except Exception as e:
-        respond(502, {'error': f'Forward failed: {str(e)[:200]}'})
+        respond(502, {'error': f'Forward failed: {integrations_mod.explain_failure(e)}'})
     # v6.4.2: the decline paths (no target, SSRF-blocked, DNS failure) returned
     # silently, so this reported "Test entry sent" for a forward that never
     # left the box — the test button an operator uses precisely to prove the
@@ -8963,7 +8963,7 @@ def handle_siem_test():
         _forward_siem('siem_test', {'name': 'remotepower-selftest',
                                     'detail': 'RemotePower SIEM streaming test'}, cfg)
     except Exception as e:
-        respond(502, {'error': f'Forward failed: {str(e)[:200]}'})
+        respond(502, {'error': f'Forward failed: {integrations_mod.explain_failure(e)}'})
     respond(200, {'ok': True, 'message': 'Test event sent to the configured SIEM.'})
 
 
@@ -9262,7 +9262,7 @@ def handle_otlp_traces_test():
     try:
         _export_otlp_traces(batch, cfg)
     except Exception as e:
-        respond(502, {'error': f'Export failed: {str(e)[:200]}'})
+        respond(502, {'error': f'Export failed: {integrations_mod.explain_failure(e)}'})
     respond(200, {'ok': True, 'message': f'{plural(len(batch), "span", "spans")} pushed to the OTLP collector.'})
 
 
@@ -9280,7 +9280,7 @@ def handle_otlp_test():
     try:
         _export_otlp(cfg)
     except Exception as e:
-        respond(502, {'error': f'Export failed: {str(e)[:200]}'})
+        respond(502, {'error': f'Export failed: {integrations_mod.explain_failure(e)}'})
     respond(200, {'ok': True, 'message': 'Metrics pushed to the OTLP collector.'})
 
 
@@ -27604,10 +27604,10 @@ def _run_one_monitor_check(mtype, target, label, m):
                 if ok:
                     detail += f' · GET (HEAD answered {head_status})'
         except Exception as e:
-            # 'error' named nothing at all. The exception class separates a DNS
-            # failure from a refused connection from a timeout, which is the
-            # first question an operator asks.
-            detail = f'error: {_sanitize_str(type(e).__name__, 40)}'
+            # 'error' named nothing at all, and the class name is no better: urllib wraps a DNS failure, a refused
+            # connection and a timeout in the same URLError. The reason in words answers the first question an
+            # operator asks; an exception that is not a network failure keeps its class name.
+            detail = 'error: ' + (integrations_mod.network_error_reason(e) or _sanitize_str(type(e).__name__, 40))
     elif mtype == 'http_flow':
         # W4-13: multi-step HTTP transaction — run ordered steps sharing one
         # cookie jar; a step can `extract` a regex capture into a variable for
@@ -27725,7 +27725,7 @@ def _run_http_flow(m):
             status = e.code
             body_txt = ''
         except Exception as e:
-            return False, f'step {i}: {type(e).__name__}'
+            return False, f'step {i}: ' + (integrations_mod.network_error_reason(e) or type(e).__name__)
         want = step.get('expect_status')
         if isinstance(want, int):
             if status != want:
@@ -28197,6 +28197,12 @@ class _SSRFIntegrationClient(integrations_mod.HTTPClient):
         except integrations_mod.IntegrationError:
             raise
         except Exception as e:
+            # A network failure says what failed and where, in words; the class name and the errno
+            # ("URLError: <urlopen error [Errno -2] ...>") are for a developer. Any other exception keeps its text.
+            why = integrations_mod.network_error_reason(e)
+            if why:
+                raise integrations_mod.IntegrationError(
+                    ('Could not reach %s: %s' % (urllib.parse.urlparse(self.base).netloc or 'the target', why))[:160])
             raise integrations_mod.IntegrationError(f'{e.__class__.__name__}: {e}'[:160])
 
 
@@ -66920,7 +66926,7 @@ def handle_oidc_callback():
     try:
         meta = _oidc_discover(cfg['oidc_issuer'])
     except Exception as e:
-        respond(502, {'error': 'OIDC issuer unreachable', 'detail': str(e)[:240]})
+        respond(502, {'error': 'OIDC issuer unreachable', 'detail': integrations_mod.explain_failure(e, 240)})
 
     token_endpoint = meta.get('token_endpoint')
     if not token_endpoint:

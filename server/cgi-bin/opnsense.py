@@ -40,6 +40,7 @@ import urllib.parse
 import urllib.request
 
 import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
+import integrations   # network_error_reason: a failed call in words
 
 DEFAULT_TIMEOUT = 6.0
 # A quick TCP reachability check runs before the real (TLS) requests so an
@@ -167,7 +168,7 @@ def _request(host, key, secret, method, path, body=None,
             raise OPNsenseError("authentication failed (check API key/secret)")
         raise OPNsenseError(f"HTTP {e.code}: {detail or e.reason}")
     except (urllib.error.URLError, socket.timeout, ssl.SSLError, OSError) as e:
-        raise OPNsenseError(str(e))
+        raise OPNsenseError(integrations.network_error_reason(e) or str(e))
     if not raw:
         return None
     try:

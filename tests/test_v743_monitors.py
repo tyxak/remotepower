@@ -463,7 +463,8 @@ class TestTheCertificateCheck(_Base):
             with self.subTest(monitor=monitor):
                 r = self.probe(**monitor)
                 self.assertFalse(r["ok"], r)
-                self.assertEqual(r["detail"], "error: URLError")
+                # it said "error: URLError", which a refused connection and a dead name say as well
+                self.assertEqual(r["detail"], "error: its certificate was not accepted")
 
     def test_the_check_can_be_turned_off_for_one_monitor(self):
         r = self.probe(verify_tls=False)

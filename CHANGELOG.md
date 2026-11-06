@@ -37,6 +37,21 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   - **Search boxes without a magnifier.** Tickets and Contacts reserved room for an icon and drew none. And the Links page held its cards in
     a 340 px box under a 900 px window; it uses 62% of the window now.
 
+### Failures in words
+
+- **A call that fails over the network says why.** `integrations.describe_network_error` has put a failure in words since 6.4.2 and 7.4.0
+  used it for a platform that cannot be reached, but only in one place, and driving the demo showed where it was missing. The
+  Virtualization page read `URLError: <urlopen error [Errno -2] Name or service not known>`, because the real integration client turns
+  every failure into an error with that text (the 7.4.0 test gave the handler a client that raised a bare URLError, which the real one never
+  does). It reads `Could not reach vc.lab: the host name does not resolve` now, and so do the other pages that talk to a platform. A monitor
+  that is down said `error: URLError` whether the name was dead, the connection refused or the certificate wrong; it says
+  `error: the host name does not resolve`, `the connection was refused` or `its certificate was not accepted`. The DNS, Proxmox, OPNsense and
+  RouterOS clients, the log forwarder and export, the CVE feed refresh and the OIDC check use the same words, and a ratchet holds every
+  generic 502 to them. An exception that is not a network failure keeps its own text.
+- **A DNS blocker that does not answer shows why in its tile.** The Pi-hole tile read `unknown` with both Pause and Resume showing, and a red
+  toast for the 502 that stayed on screen after you left the page. The probe is quiet now, the tile says why, and it offers only
+  Check now.
+
 ## v7.5.0 — "Wh0leMatters" — 2026-11-05
 
 A release about finishing what was started. The last production release was 7.4.0, so this release carries everything from 7.4.1

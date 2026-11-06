@@ -56,8 +56,10 @@ _NAME_FAILURES = (
 )
 
 
-def describe_network_error(e: BaseException) -> str:
-    """Why a target could not be reached, in words an operator can act on."""
+def network_error_reason(e: BaseException):
+    """Why a call over the network failed, in words an operator can act on, or None for an exception that is not a
+    recognised network failure (a bug, a bad value, a message somebody wrote for a person). urllib wraps nearly every
+    failure in URLError, so `type(e).__name__` says "URLError" for a DNS failure, a refused connection and a timeout alike."""
     if isinstance(e, urllib.error.HTTPError):
         return "it answered HTTP %d" % e.code
     reason = getattr(e, "reason", None)
@@ -80,7 +82,22 @@ def describe_network_error(e: BaseException) -> str:
         return "the connection was dropped"
     if "network is unreachable" in text or "no route to host" in text:
         return "the network is unreachable"
-    return raw[:120] or "the request failed"
+    return None
+
+
+def describe_network_error(e: BaseException) -> str:
+    """Why a target could not be reached, in words an operator can act on."""
+    reason = network_error_reason(e)
+    if reason:
+        return reason
+    r = getattr(e, "reason", None)
+    return str(r if r is not None else e).strip()[:120] or "the request failed"
+
+
+def explain_failure(e: BaseException, limit: int = 200) -> str:
+    """The text of a 502 for a failed call to another system: a network failure in words, anything else as the exception said it.
+    A 502 used to carry `URLError: <urlopen error [Errno -2] Name or service not known>`."""
+    return (network_error_reason(e) or str(e))[:limit]
 
 
 # v6.4.2: the transport's per-response read budget, declared HERE so the cap and

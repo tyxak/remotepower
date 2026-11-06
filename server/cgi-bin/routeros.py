@@ -35,6 +35,7 @@ import urllib.parse
 import urllib.request
 
 import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
+import integrations   # network_error_reason: a failed call in words
 
 DEFAULT_TIMEOUT = 6.0
 
@@ -134,7 +135,7 @@ def _request(host, user, password, method, path, body=None,
             pass
         raise RouterOSError(f"HTTP {e.code}: {detail or e.reason}")
     except (urllib.error.URLError, socket.timeout, ssl.SSLError, OSError) as e:
-        raise RouterOSError(str(e))
+        raise RouterOSError(integrations.network_error_reason(e) or str(e))
     if not raw:
         return None
     try:

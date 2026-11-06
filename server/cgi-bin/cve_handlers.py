@@ -424,7 +424,7 @@ def handle_cve_refresh_feeds():
     try:
         A.refresh_kev_epss_if_due(force=True)
     except Exception as e:
-        A.respond(502, {'error': f'Feed refresh failed: {str(e)[:200]}'})
+        A.respond(502, {'error': f'Feed refresh failed: {A.integrations_mod.explain_failure(e)}'})
     s = A.load(A.KEV_EPSS_FILE) or {}
     A.respond(200, {'ok': True, 'kev_count': len(s.get('kev') or []),
                   'epss_count': len(s.get('epss') or {}),
