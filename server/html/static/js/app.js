@@ -28880,6 +28880,14 @@ function _fqRefreshCounts(openFilled) {
     if (openFilled && n) d.open = true;
   });
 }
+// Empties every criterion, and with them the count on each heading. The groups stay as they are, and so do the results until the next Run.
+function clearFleetQuery() {
+  for (const id of Object.values(_FQ_FIELDS)) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+  _fqRefreshCounts(false);
+}
 function _fqWireCounts() {
   const box = document.getElementById('fq-groups');
   if (!box || box.dataset.countsWired) return;

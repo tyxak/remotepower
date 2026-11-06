@@ -334,10 +334,14 @@ class TestSidebarPageFixes(unittest.TestCase):
         self.assertEqual(len(opens), 6, 'control: six groups in the markup')
         self.assertEqual([bool(o) for o in opens], [True, False, False, False, False, False])
 
-    def test_a_group_counts_the_criteria_set_in_it_and_opens_when_a_saved_query_fills_it(self):
+    def _fq_reset(self):
+        """First-visit state: no criterion has a value, Identity is open and the other groups are closed."""
         self._show('query', 1500)
         self.page.evaluate("""() => { document.querySelectorAll('#fq-groups input, #fq-groups select').forEach(el => { el.value = ''; });
             document.querySelectorAll('#fq-groups details').forEach((d, i) => { d.open = (i === 0); }); _fqRefreshCounts(false); }""")
+
+    def test_a_group_counts_the_criteria_set_in_it_and_opens_when_a_saved_query_fills_it(self):
+        self._fq_reset()
         self.assertEqual(self._fq_group('Patching'), {'n': '', 'hidden': True, 'open': False, 'title': 'Criteria set in this group'})
         # open a group by its heading as a person would, and type into two of its criteria
         heading = '#fq-groups details.fq-group:nth-of-type(3) > summary'
@@ -358,6 +362,23 @@ class TestSidebarPageFixes(unittest.TestCase):
         self.assertEqual((usage['n'], usage['open']), ('1', True))
         self.assertEqual((security['n'], security['open']), ('1', True))
         self.assertEqual((patching['n'], patching['hidden']), ('', True), 'the earlier criteria are gone, so is their count')
+
+    def test_clear_criteria_empties_every_field_and_every_count_and_leaves_the_groups_alone(self):
+        self._fq_reset()
+        self.page.click('#fq-groups details.fq-group:nth-of-type(3) > summary')        # Patching
+        self.page.fill('#fq-pending', '3')
+        self.page.click('#fq-groups details.fq-group:nth-of-type(6) > summary')        # Security posture
+        self.page.select_option('#fq-brute', '1')
+        self.assertEqual((self._fq_group('Patching')['n'], self._fq_group('Security posture')['n']), ('1', '1'), 'control: two criteria are set')
+        self.page.click('[data-action="clearFleetQuery"]')
+        left = self.page.evaluate("""() => [...document.querySelectorAll('#fq-groups input, #fq-groups select')].filter(el => (el.value || '') !== '').length""")
+        self.assertEqual(left, 0, 'a field kept its value')
+        self.assertEqual(self.page.evaluate("Object.values(_fqFields()).filter(v => v !== '').length"), 0, 'Run and Save would still send one')
+        for title in ('Identity', 'State', 'Patching', 'Resources', 'Problems', 'Security posture'):
+            got = self._fq_group(title)
+            self.assertEqual((got['n'], got['hidden']), ('', True), title)
+        # the groups stay as they were: the two the person opened are still open
+        self.assertTrue(self._fq_group('Patching')['open'] and self._fq_group('Security posture')['open'])
 
     # ── Schedules in words ──────────────────────────────────────────────────
     def test_the_four_tables_that_show_a_schedule_show_it_in_words(self):

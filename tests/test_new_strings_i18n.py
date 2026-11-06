@@ -26,6 +26,7 @@ NEW_STRINGS = [
     "Criteria set in this group",
     "Identity",
     "Resources",
+    "Clear criteria",
 ]
 
 

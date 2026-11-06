@@ -10436,6 +10436,7 @@
     "Criteria set in this group": { "zh": "此组中已设置的条件", "hi": "इस समूह में सेट किए गए मानदंड", "es": "Criterios definidos en este grupo", "ar": "المعايير المحددة في هذه المجموعة", "de": "In dieser Gruppe festgelegte Kriterien", "fr": "Critères définis dans ce groupe" },
     "Identity": { "zh": "标识", "hi": "पहचान", "es": "Identidad", "ar": "الهوية", "de": "Identität", "fr": "Identité" },
     "Resources": { "zh": "资源", "hi": "संसाधन", "es": "Recursos", "ar": "الموارد", "de": "Ressourcen", "fr": "Ressources" },
+    "Clear criteria": { "zh": "清除条件", "hi": "मानदंड साफ़ करें", "es": "Limpiar criterios", "ar": "مسح المعايير", "de": "Kriterien zurücksetzen", "fr": "Effacer les critères" },
   };
 
   // v4.2: page-subtitle translations keyed by normalized English innerHTML

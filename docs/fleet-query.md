@@ -9,7 +9,8 @@ name to open its timeline.
 
 The criteria sit in the six groups of the table below. **Identity** is open when you arrive. A group
 that holds a value shows how many next to its name, so a closed group does not hide a filter that is
-on, and applying a saved query opens the groups it fills.
+on, and applying a saved query opens the groups it fills. **Clear criteria** empties every box and
+leaves the groups as they are.
 
 ## What you can filter on
 

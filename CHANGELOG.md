@@ -72,8 +72,8 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
 - **Fleet Query** sorts its 51 criteria into the six families the guide already named (`Identity`, `State`, `Patching`, `Resources`, `Problems`,
   `Security posture`) as groups you open and close. They were one wall of fields. Identity is open when you arrive. A heading shows how many of its
   criteria hold a value, so a closed group does not hide a filter that is on, and applying a saved query opens the groups it fills. Run and Save
-  read the fields whether their group is open or not. A group's last row keeps its column width instead of stretching across the card (8 of 8
-  mutations caught).
+  read the fields whether their group is open or not. A group's last row keeps its column width instead of stretching across the card. `Clear criteria`
+  empties every box and every count and leaves the groups as they are (13 of 13 mutations caught).
 - **Auto-patch, Schedule, Maintenance and Backups** show a schedule in words, with the cron expression under it: `Sundays at 03:00`, `Weekdays at 06:00`,
   `Every 15 minutes from 09:00 to 17:59, weekdays`, `Monthly on day 1 at 01:00 for 180min`. The scheduled scans of Pentest and a scheduled report
   definition use the same words inline, with the expression on hover. The words cover the common shapes; anything else stays as the
