@@ -306,6 +306,58 @@ class TestSidebarPageFixes(unittest.TestCase):
         self.page.fill('#scan-device-search', '')
         self.page.evaluate("() => document.getElementById('scan-device-results').classList.add('hidden')")
 
+    # ── Fleet Query ─────────────────────────────────────────────────────────
+    def _fq_group(self, title):
+        return self.page.evaluate("""(t) => { const d = [...document.querySelectorAll('#fq-groups details.fq-group')]
+                .find(x => x.querySelector('summary').childNodes[0].textContent.trim() === t);
+            const b = d.querySelector('.fq-count'); return {n: b.textContent, hidden: b.classList.contains('d-none'), open: d.open, title: b.getAttribute('title')}; }""", title)
+
+    def test_the_fleet_query_criteria_sit_in_six_groups_each_in_exactly_one(self):
+        self._show('query', 1500)
+        m = self.page.evaluate("""() => { const groups = [...document.querySelectorAll('#fq-groups details.fq-group')];
+            const ids = Object.values(_FQ_FIELDS);
+            return {groups: groups.map(d => d.querySelector('summary').childNodes[0].textContent.trim()),
+                    per: ids.map(id => groups.filter(d => d.querySelector('#' + id)).length),
+                    ids: ids.length, fields: document.querySelectorAll('#fq-groups .form-group').length,
+                    loose: document.querySelectorAll('#page-query .settings-section > .settings-row').length}; }""")
+        self.assertEqual(m['groups'], ['Identity', 'State', 'Patching', 'Resources', 'Problems', 'Security posture'])
+        self.assertGreaterEqual(m['ids'], 50, 'control: the page filters on some fifty criteria')
+        self.assertEqual(set(m['per']), {1}, 'every criterion is in exactly one group')
+        self.assertEqual(m['fields'], m['ids'], 'no field outside _FQ_FIELDS, none missing from it')
+        self.assertEqual(m['loose'], 0, 'no criteria outside a group')
+
+    def test_the_identity_group_starts_open_and_the_others_closed(self):
+        import re
+        html = (_ROOT / 'server' / 'html' / 'index.html').read_text(encoding='utf-8')
+        opens = re.findall(r'<details class="fq-group"( open)?>', html)
+        self.assertEqual(len(opens), 6, 'control: six groups in the markup')
+        self.assertEqual([bool(o) for o in opens], [True, False, False, False, False, False])
+
+    def test_a_group_counts_the_criteria_set_in_it_and_opens_when_a_saved_query_fills_it(self):
+        self._show('query', 1500)
+        self.page.evaluate("""() => { document.querySelectorAll('#fq-groups input, #fq-groups select').forEach(el => { el.value = ''; });
+            document.querySelectorAll('#fq-groups details').forEach((d, i) => { d.open = (i === 0); }); _fqRefreshCounts(false); }""")
+        self.assertEqual(self._fq_group('Patching'), {'n': '', 'hidden': True, 'open': False, 'title': 'Criteria set in this group'})
+        # open a group by its heading as a person would, and type into two of its criteria
+        heading = '#fq-groups details.fq-group:nth-of-type(3) > summary'
+        self.page.click(heading)
+        self.page.fill('#fq-pending', '3')
+        self.page.fill('#fq-cve', '5')
+        got = self._fq_group('Patching')
+        self.assertEqual((got['n'], got['hidden'], got['open']), ('2', False, True))
+        # closing the group forgets nothing: the count stays and Run and Save still send the values
+        self.page.click(heading)
+        got = self._fq_group('Patching')
+        self.assertEqual((got['n'], got['hidden'], got['open']), ('2', False, False))
+        self.assertEqual(self.page.evaluate("[_fqFields().pending_gt, _fqFields().cve_min]"), ['3', '5'])
+        # a saved query replaces every criterion and opens the groups it fills; a select counts like a field
+        self.page.evaluate("() => { _fqSaved = [{id: 'zz9', name: 'sweep', params: {cpu_gt: '90', brute_force: '1'}}]; applyFleetQuery('q-zz9'); }")
+        self.page.wait_for_timeout(600)
+        usage, security, patching = self._fq_group('Resources'), self._fq_group('Security posture'), self._fq_group('Patching')
+        self.assertEqual((usage['n'], usage['open']), ('1', True))
+        self.assertEqual((security['n'], security['open']), ('1', True))
+        self.assertEqual((patching['n'], patching['hidden']), ('', True), 'the earlier criteria are gone, so is their count')
+
     # ── The tab title ───────────────────────────────────────────────────────
     def test_the_tab_title_keeps_the_alert_count_and_the_page(self):
         self._show('cve', 600)

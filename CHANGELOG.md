@@ -69,6 +69,11 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   authorization boxes and `Queue scan`. Twelve controls shared one toolbar, and the table's filter sat between `Queue scan` and the authorization boxes, so
   it read as part of the form. The `Scans` card keeps `Refresh`, `Clear finished` and the filter. The host list opens right under the host box and pushes
   the rest of the form down. `docs/security-scans.md` follows (5 of 5 mutations caught).
+- **Fleet Query** sorts its 51 criteria into the six families the guide already named (`Identity`, `State`, `Patching`, `Resources`, `Problems`,
+  `Security posture`) as groups you open and close. They were one wall of fields. Identity is open when you arrive. A heading shows how many of its
+  criteria hold a value, so a closed group does not hide a filter that is on, and applying a saved query opens the groups it fills. Run and Save
+  read the fields whether their group is open or not. A group's last row keeps its column width instead of stretching across the card (8 of 8
+  mutations caught).
 
 ### Controls you can hit
 

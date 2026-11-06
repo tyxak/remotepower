@@ -10432,6 +10432,10 @@
     "Recent hosts": { "zh": "近期主机", "hi": "हाल के होस्ट", "es": "Hosts recientes", "ar": "المضيفات الأخيرة", "de": "Zuletzt verwendete Hosts", "fr": "Hôtes récents" },
     // the Pentest page: the form that queues a scan is its own card
     "New scan": { "zh": "新建扫描", "hi": "नया स्कैन", "es": "Nuevo análisis", "ar": "فحص جديد", "de": "Neuer Scan", "fr": "Nouvelle analyse" },
+    // Fleet Query: the badge on a group heading
+    "Criteria set in this group": { "zh": "此组中已设置的条件", "hi": "इस समूह में सेट किए गए मानदंड", "es": "Criterios definidos en este grupo", "ar": "المعايير المحددة في هذه المجموعة", "de": "In dieser Gruppe festgelegte Kriterien", "fr": "Critères définis dans ce groupe" },
+    "Identity": { "zh": "标识", "hi": "पहचान", "es": "Identidad", "ar": "الهوية", "de": "Identität", "fr": "Identité" },
+    "Resources": { "zh": "资源", "hi": "संसाधन", "es": "Recursos", "ar": "الموارد", "de": "Ressourcen", "fr": "Ressources" },
   };
 
   // v4.2: page-subtitle translations keyed by normalized English innerHTML

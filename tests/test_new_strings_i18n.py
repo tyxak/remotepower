@@ -22,6 +22,10 @@ NEW_STRINGS = [
     "Recent hosts",
     # the Pentest page
     "New scan",
+    # Fleet Query
+    "Criteria set in this group",
+    "Identity",
+    "Resources",
 ]
 
 

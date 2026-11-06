@@ -7,6 +7,10 @@ leave empty are ignored.
 Fill in the criteria, click **Run**, and read the table. Click a column heading to sort. Click a host
 name to open its timeline.
 
+The criteria sit in the six groups of the table below. **Identity** is open when you arrive. A group
+that holds a value shows how many next to its name, so a closed group does not hide a filter that is
+on, and applying a saved query opens the groups it fills.
+
 ## What you can filter on
 
 | Family | Criteria |

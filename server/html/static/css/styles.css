@@ -6603,6 +6603,16 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 }
 .host-chip:hover { border-color: var(--accent); color: var(--accent-ink); }
 .host-chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-contrast, #fff); border-color: var(--accent); }
+/* Fleet Query: the 51 criteria sit in six groups. A heading shows how many of its criteria are set, so a closed group
+   does not hide a filter that is on. The summary keeps its default marker (display: list-item), which a flex summary loses. */
+.fq-group { border-top: 1px solid var(--border); padding: 6px 0; }
+.fq-group:first-child { border-top: 0; padding-top: 0; }
+.fq-group > summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.fq-group[open] > summary { margin-bottom: 8px; }
+/* a grid, not the flex row the settings pages use: a last row of two criteria keeps the column width instead of stretching across the card */
+.fq-group > .settings-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; align-items: start; }
+.fq-count { display: inline-block; margin-left: 8px; min-width: 18px; padding: 0 7px; border-radius: 10px; text-align: center;
+  font-size: 11px; font-weight: 600; background: var(--accent); color: var(--accent-contrast, #fff); }
 .tl-list { position: relative; }
 .tl-row {
   display: grid; grid-template-columns: 14px 1fr auto; gap: 12px;

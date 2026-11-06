@@ -28719,6 +28719,25 @@ function _fqFields() {
   }
   return out;
 }
+// The criteria sit in groups (details elements). A group's heading shows how many of its criteria hold a value, so a closed group
+// does not hide a filter that is on, and a group with a value opens by itself when a saved query fills it or you come back to the page.
+// Run and Save read the fields by id, whether their group is open or not.
+function _fqRefreshCounts(openFilled) {
+  document.querySelectorAll('#fq-groups details.fq-group').forEach(d => {
+    let n = 0;
+    d.querySelectorAll('input, select').forEach(el => { if ((el.value || '').trim() !== '') n++; });
+    const badge = d.querySelector('.fq-count');
+    if (badge) { badge.textContent = n ? String(n) : ''; badge.classList.toggle('d-none', !n); }
+    if (openFilled && n) d.open = true;
+  });
+}
+function _fqWireCounts() {
+  const box = document.getElementById('fq-groups');
+  if (!box || box.dataset.countsWired) return;
+  box.dataset.countsWired = '1';
+  box.addEventListener('input', () => _fqRefreshCounts(false));
+  box.addEventListener('change', () => _fqRefreshCounts(false));
+}
 // v5.0.0 (#U1): one generic copy-to-clipboard action used across the UI
 // (device IDs, API keys, command output, enrolment commands). CSP-safe.
 function copyText(text) {
@@ -28746,6 +28765,8 @@ function copyApiKeyValue() { copyText(document.getElementById('apikey-value-disp
 let _fqSaved = [];
 
 async function loadFleetQuery() {
+  _fqWireCounts();
+  _fqRefreshCounts(true);
   const r = await api('GET', '/query/templates?kind=fleet').catch(() => null);
   _fqSaved = (r && Array.isArray(r.templates)) ? r.templates : [];
   _renderSavedQueries();
@@ -28876,6 +28897,7 @@ function applyFleetQuery(arg) {
     const el = document.getElementById(id);
     if (el) el.value = f[param] != null ? f[param] : '';
   }
+  _fqRefreshCounts(true);
   runFleetQuery();
 }
 
