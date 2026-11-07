@@ -303,10 +303,58 @@ def classify_ids(signature, classification=""):
     return None
 
 
+_EVE_DECODER = json.JSONDecoder()
+_EVE_ALERT = re.compile(r'"event_type"\s*:\s*"alert"')
+
+
+def _eve_value(msg, key, start=0):
+    """(value, where the key is) for the JSON value that follows `"key":` in a record that
+    may be cut short, or (None, -1). Plain str.find and the decoder's own raw_decode, so a
+    hostile line costs one pass and no backtracking."""
+    n, quoted = len(msg), '"%s"' % key
+    i = msg.find(quoted, start)
+    while i >= 0:
+        j = i + len(quoted)
+        while j < n and msg[j] in " \t":
+            j += 1
+        if j < n and msg[j] == ":":          # a key; the same word as a value ("event_type":"alert") is passed over
+            j += 1
+            while j < n and msg[j] in " \t":
+                j += 1
+            try:
+                return _EVE_DECODER.raw_decode(msg, j)[0], i
+            except ValueError:
+                return None, -1
+        i = msg.find(quoted, i + 1)
+    return None, -1
+
+
+def _eve_head(msg):
+    """The fields of an EVE alert that a record cut short still holds, shaped like the record, or
+    None. The syslog intake keeps 2,048 characters of a line and an alert with a payload is longer,
+    so the end is gone. The fields that matter come first (the address, the protocol, the port, then
+    the alert's signature and category), ahead of the payload and the packet."""
+    if not _EVE_ALERT.search(msg, 0, 600):
+        return None
+    src, _ = _eve_value(msg, "src_ip")
+    proto, _ = _eve_value(msg, "proto")
+    dport, _ = _eve_value(msg, "dest_port")
+    _, at = _eve_value(msg, "alert")
+    if not isinstance(src, str) or at < 0:
+        return None
+    sig, _ = _eve_value(msg, "signature", at)
+    cat, _ = _eve_value(msg, "category", at)
+    if not isinstance(sig, str):
+        return None
+    return {"event_type": "alert", "src_ip": src, "proto": proto if isinstance(proto, str) else "",
+            "dest_port": dport if isinstance(dport, int) else 0,
+            "alert": {"signature": sig, "category": cat if isinstance(cat, str) else ""}}
+
+
 def parse_suricata(msg):
-    """One Suricata alert, as the syslog alert line or as an EVE JSON object, or
-    None. `cls` is already the RemotePower class, and `cves` the CVE ids the
-    signature names."""
+    """One Suricata alert, as the syslog alert line or as an EVE JSON object (whole, or cut
+    short at the intake's line limit), or None. `cls` is already the RemotePower class, and
+    `cves` the CVE ids the signature names."""
     msg = str(msg or "").strip()
     sig = cls_name = ""
     src = proto = ""
@@ -314,7 +362,9 @@ def parse_suricata(msg):
         try:
             ev = json.loads(msg)
         except ValueError:
-            return None
+            ev = _eve_head(msg)
+            if ev is None:
+                return None
         if not isinstance(ev, dict) or ev.get("event_type") != "alert":
             return None
         a = ev.get("alert") if isinstance(ev.get("alert"), dict) else {}
@@ -412,27 +462,35 @@ LOGIN_PATTERNS = {
 
 # ── reading a batch ────────────────────────────────────────────────────────────
 
+def _read(line):
+    """(kind, record, own): `read_line`, and `own` is True for a message Suricata writes about
+    itself (its engine log, or an EVE event that is not an alert). Those are not alerts and not
+    unreadable ones, so they are no line of the source, but they show that Suricata is running and
+    what it sends."""
+    app, msg = split_line(line)
+    if app == "filterlog":
+        return "fw", parse_pf(msg), False
+    if app == "suricata":
+        if _SURI_ENGINE.match(msg) or _SURI_EVE_OTHER.match(msg):
+            return None, None, True
+        return "ids", parse_suricata(msg), False
+    if app == "routeros":
+        t = _TOPICS.match(msg)
+        if t and "firewall" in t.group("topics").split(","):
+            return "fw", parse_routeros_firewall(msg), False
+        return None, None, False
+    if app in ("crowdsec", "crowdsec-agent") or msg.startswith("crowdsec alert "):
+        return "cs", parse_crowdsec(msg), False
+    return None, None, False
+
+
 def read_line(line):
     """(kind, record) for one stored syslog line. `kind` is the source the line
     belongs to ('fw', 'ids' or 'cs'), or None when it is none of them. `record` is what
     was read from it, or None when the line belongs to a source but is not one the
     reader understands. One pass, and cheap: the program name decides which reader
     runs, and most lines are none of these."""
-    app, msg = split_line(line)
-    if app == "filterlog":
-        return "fw", parse_pf(msg)
-    if app == "suricata":
-        if _SURI_ENGINE.match(msg) or _SURI_EVE_OTHER.match(msg):
-            return None, None
-        return "ids", parse_suricata(msg)
-    if app == "routeros":
-        t = _TOPICS.match(msg)
-        if t and "firewall" in t.group("topics").split(","):
-            return "fw", parse_routeros_firewall(msg)
-        return None, None
-    if app in ("crowdsec", "crowdsec-agent") or msg.startswith("crowdsec alert "):
-        return "cs", parse_crowdsec(msg)
-    return None, None
+    return _read(line)[:2]
 
 
 def parse(line):
@@ -508,7 +566,8 @@ def scan(lines, listed=None):
     evidence a batch settles by itself: intrusion detection and CrowdSec alerts, in the
     shape threat_evidence.normalize_event reads (the caller normalizes them, with
     threat_evidence.APPLIANCE_SOURCES). `stats` is {kind: {'lines': n, 'parsed': n,
-    'events': n}} for the sources the batch touched."""
+    'events': n}} for the sources the batch touched. 'ids' also carries 'own', the number of
+    Suricata's own messages, when the batch held any."""
     stats = {}
 
     def bump(kind, key, n=1):
@@ -518,7 +577,12 @@ def scan(lines, listed=None):
     ids, cs = {}, {}
     now = 0
     for line in lines:
-        kind, rec = read_line(line)
+        kind, rec, own = _read(line)
+        if own:
+            # Suricata's own message: not a line of the source, but the count says it is running
+            bump("ids", "lines", 0)
+            stats["ids"]["own"] = stats["ids"].get("own", 0) + 1
+            continue
         if not kind:
             continue
         bump(kind, "lines")

@@ -434,6 +434,88 @@ class TestIds(_Fw):
         self.assertEqual((src['kind'], src['lines'], src['parsed'], src['state']), ('ids', 1, 0, 'unparsed'))
 
 
+class TestIdsThatSendsNoAlerts(_Fw):
+    """Suricata writes its own log to syslog under the same program name as its alerts. That is no alert and no
+    unreadable alert, but it is the only sign that Suricata is running: opnsense01's Log sources row read "Not
+    understood" for 13,852 of those lines, then, once they stopped counting, kept that verdict for a fortnight."""
+
+    def engine(self, n):
+        return [wire("[100662] <Warning> -- flowbit 'x' is checked but not set. Checked in 2023711 and 0 other sigs",
+                     app='suricata', n=i) for i in range(n)]
+
+    def sources(self, role='admin'):
+        d = self.view(role)
+        return {s['name']: s['sources'] for s in d['sensors']}
+
+    def test_only_its_own_messages_read_as_running_and_sending_no_alerts(self):
+        self.post(self.engine(30))
+        src = self.row()['sources']
+        self.assertEqual(src, [{'kind': 'ids', 'path': 'syslog', 'lines': 0, 'parsed': 0, 'events': 0,
+                                'state': 'engine', 'own': 30}])
+        self.assertEqual(self.queue(), [])
+
+    def test_the_count_adds_up_across_requests_of_a_day(self):
+        self.post(self.engine(10))
+        # the sensor writes a device's counts once a minute when nothing else settles; the next request is a minute on
+        self.api.appliance_sensor_ingest.__globals__['_noted'].clear()
+        self.post(self.engine(7))
+        self.assertEqual(self.row()['sources'][0]['own'], 17)
+
+    def test_a_days_counts_written_before_the_fourth_number_existed_still_add_up(self):
+        api = self.api
+        api.save(api.IPINTEL_SCAN_FILE, {'fw1': {'day': time.strftime('%Y-%m-%d', time.gmtime()), 'at': int(time.time()),
+                                                 'scan': {}, 'n': {'ids': [5, 5, 1], 'fw': [9, 9, 0]}}})
+        api._LOAD_CACHE.clear()
+        self.post(self.engine(3))
+        by_kind = {r['kind']: r for r in self.row()['sources']}
+        self.assertEqual((by_kind['ids']['lines'], by_kind['ids']['parsed'], by_kind['ids']['own'], by_kind['ids']['state']),
+                         (5, 5, 3, 'ok'))
+        self.assertEqual((by_kind['fw']['lines'], by_kind['fw']['state']), (9, 'ok'))
+        self.assertNotIn('own', by_kind['fw'])
+
+    def test_an_alert_beside_them_makes_the_source_read_ok_and_keeps_the_count(self):
+        alerts = [wire(suricata_fast('ET SCAN Potential SSH Scan', 'Attempted Information Leak', src=ATTACKER),
+                       app='suricata', n=i) for i in range(3)]
+        self.post(self.engine(5) + alerts)
+        src = self.row()['sources'][0]
+        self.assertEqual((src['state'], src['lines'], src['parsed'], src['own']), ('ok', 3, 3, 5))
+
+    def test_an_alert_that_cannot_be_read_is_still_not_understood_beside_them(self):
+        broken = wire('[1:2001219:20] ET SCAN broken, no tail', app='suricata')
+        self.post(self.engine(5) + [broken])
+        src = self.row()['sources'][0]
+        self.assertEqual((src['state'], src['lines'], src['parsed'], src['own']), ('unparsed', 1, 0, 5))
+
+    def test_an_eve_alert_cut_short_that_still_holds_its_signature_is_evidence(self):
+        cut = ('{"timestamp":"2026-11-07T12:00:00.123456+0100","flow_id":1,"in_iface":"igb0","event_type":"alert",'
+               f'"src_ip":"{ATTACKER}","src_port":40222,"dest_ip":"{FIREWALL}","dest_port":22,"proto":"TCP",'
+               '"alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":20,"signature":"ET SCAN Potential SSH Scan",'
+               '"category":"Attempted Information Leak","severity":2},"payload":"' + 'A' * 1900)
+        self.assertGreater(len(cut), 2048 - 100)
+        self.post([wire(cut, app='suricata', n=i) for i in range(10)])
+        self.assertEqual([x['ip'] for x in self.queue()], [ATTACKER])
+        self.assertEqual(self.row()['sources'][0]['state'], 'ok')
+
+    def test_the_page_shows_a_syslog_row_a_day_old_as_quiet_and_an_agents_row_as_it_is(self):
+        self.post(self.engine(4))
+        api = self.api
+        st = self.store()
+        st['sensors']['fw1']['at'] = int(time.time()) - 2 * 86400
+        st['sensors']['d1'] = {'at': int(time.time()) - 2 * 86400, 'events': 0, 'dropped': 0, 'throttled': 0, 'ignored': {},
+                               'sources': [{'kind': 'web', 'path': '/var/log/nginx/access.log', 'state': 'unparsed',
+                                            'lines': 9, 'parsed': 0, 'events': 0}]}
+        ipintel_store.write(api, st)
+        api._LOAD_CACHE.clear()
+        shown = self.sources()
+        self.assertEqual([x['state'] for x in shown['opnsense01']], ['idle'])
+        self.assertEqual([x['state'] for x in shown['web01']], ['unparsed'], 'what an agent sent is rewritten every pass')
+        self.assertEqual(self.row()['sources'][0]['state'], 'engine', 'the stored row is not changed, only what is shown')
+
+    def test_a_fresh_syslog_row_is_shown_as_it_was_written(self):
+        self.post(self.engine(4))
+        self.assertEqual([x['state'] for x in self.sources()['opnsense01']], ['engine'])
+
+
 # ── CrowdSec ──────────────────────────────────────────────────────────────────
 
 class TestCrowdSec(_Fw):

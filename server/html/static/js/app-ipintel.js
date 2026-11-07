@@ -196,10 +196,11 @@ const _IPI_LIST_WHY = [
 const _IPI_STATE = {
   ok: 'Reading', idle: 'Quiet', missing: 'File missing', denied: 'No permission',
   unparsed: 'Not understood', unsupported: 'Cannot be read', error: 'Error',
+  engine: 'No alerts sent',
 };
 const _IPI_STATE_CLASS = {
   ok: 'c-green', idle: 'hint', missing: 'c-amber', denied: 'c-red',
-  unparsed: 'c-amber', unsupported: 'c-amber', error: 'c-red',
+  unparsed: 'c-amber', unsupported: 'c-amber', error: 'c-red', engine: 'c-amber',
 };
 const _IPI_FMT = {
   combined: 'Standard', custom: "From the server's config", json: 'JSON',
@@ -707,6 +708,10 @@ function _ipiRenderSources() {
     }
     if (h.throttled) {
       out.push(`<p class="hint">${escHtml(h.name)}: ${_ipiPhrase('over the hourly limit, some addresses were skipped')} (${escHtml(String(h.throttled))})</p>`);
+    }
+    // Suricata's own messages arrive and no alert does: it runs, and its syslog alerts are probably off.
+    if ((h.sources || []).some(s => s.kind === 'ids' && s.state === 'engine')) {
+      out.push(`<p class="hint c-amber">${escHtml(h.name)}: ${_ipiPhrase('Suricata is running, but no alerts arrive, only its own messages. If you expect alerts, tick Enable syslog alerts in its settings (OPNsense: Services → Intrusion Detection → Settings).')}</p>`);
     }
     // fail2ban sends its own reports and the sensor reads the same bans from its log.
     const told = new Set();

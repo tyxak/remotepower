@@ -379,12 +379,72 @@ class TestSuricata(unittest.TestCase):
                  pre + '{"event_type":"stats","stats":{}}']
         for ln in lines:
             self.assertEqual(ae.read_line(ln), (None, None), ln)
-        self.assertEqual(ae.scan(lines)[2], {})
+        # they are no line of the source, but they are counted apart: Suricata is running, and says nothing about an attack
+        self.assertEqual(ae.scan(lines)[2], {'ids': {'lines': 0, 'parsed': 0, 'events': 0, 'own': 4}})
         # an alert beside them still counts, as parsed
         alert = pre + '[Drop] [1:2001219:20] ET SCAN Potential SSH Scan [Classification: Attempted Information Leak] [Priority: 2] {TCP} ' + SCANNER + ':4444 -> 10.0.0.5:22'
-        self.assertEqual(ae.scan(lines + [alert])[2], {'ids': {'lines': 1, 'parsed': 1, 'events': 1}})
+        self.assertEqual(ae.scan(lines + [alert])[2], {'ids': {'lines': 1, 'parsed': 1, 'events': 1, 'own': 4}})
         # an alert that cannot be read is still a line that was not understood
         self.assertEqual(ae.scan([pre + '[1:2001219:20] ET SCAN broken, no tail'])[2]['ids']['parsed'], 0)
+
+    def test_an_engine_message_is_counted_whether_or_not_an_alert_ever_comes(self):
+        # the count is what says "Suricata is running" when nothing else does; it must not come from a line that is none of its own
+        pre = '1 2026-11-07T12:02:55+01:00 OPNsense01.example suricata 25582 - [meta sequenceId="212238"] '
+        stats = ae.scan([pre + '[100662] <Notice> -- rule reload complete', 'Nov  7 12:03:00 host sshd[1]: Accepted publickey',
+                         '1 2026-11-07T12:03:57+01:00 OPNsense01.example unbound 1 - - no suricata here'])[2]
+        self.assertEqual(stats, {'ids': {'lines': 0, 'parsed': 0, 'events': 0, 'own': 1}})
+        self.assertEqual(ae.scan(['Nov  7 12:03:00 host sshd[1]: Accepted publickey'])[2], {})
+
+    def _eve(self, sig='ET SCAN Potential SSH Scan', cat='Attempted Information Leak', src=SCANNER, tail='"payload":"AAAA'):
+        return ('{"timestamp":"2026-11-07T12:00:00.123456+0100","flow_id":1234567890,"in_iface":"igb0","event_type":"alert",'
+                '"src_ip":"%s","src_port":40222,"dest_ip":"192.0.2.1","dest_port":22,"proto":"TCP","pkt_src":"wire/pcap",'
+                '"alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":20,"signature":"%s","category":"%s","severity":2,'
+                '"metadata":{"created_at":["2010_07_30"]}},"app_proto":"failed","direction":"to_server","flow":{"pkts_toserver":1},%s'
+                % (src, sig, cat, tail))
+
+    def test_an_eve_alert_cut_at_the_line_limit_is_read_from_its_head(self):
+        # the syslog intake keeps 2,048 characters, and an alert with a payload is longer: the end is gone, the head is not
+        cut = self._eve()
+        self.assertRaises(ValueError, __import__('json').loads, cut)
+        r = ae.parse_suricata(cut)
+        self.assertEqual((r['src'], r['proto'], r['dport'], r['cls']), (SCANNER, 'tcp', 22, 'port_scan'))
+        rce = ae.parse_suricata(self._eve('ET EXPLOIT Apache Log4j RCE Attempt (CVE-2021-44228)', 'Attempted Administrator Privilege Gain'))
+        self.assertEqual((rce['cls'], rce['cves']), ('rce', ['CVE-2021-44228']))
+        # through the whole pass it is evidence, as the whole line would be
+        pre = '1 2026-11-07T12:00:00+01:00 OPNsense01.example suricata 25582 - - '
+        _hits, events, stats = ae.scan([pre + cut])
+        self.assertEqual(stats, {'ids': {'lines': 1, 'parsed': 1, 'events': 1}})
+        self.assertEqual(events[0]['ip'], SCANNER)
+
+    def test_a_cut_alert_whose_signature_is_cut_is_still_unreadable(self):
+        cut = self._eve()
+        cut = cut[:cut.index('Potential') + 4]
+        self.assertIsNone(ae.parse_suricata(cut))
+        self.assertEqual(ae.scan(['1 2026-11-07T12:00:00+01:00 OPNsense01.example suricata 1 - - ' + cut])[2]['ids']['parsed'], 0)
+
+    def test_an_eve_record_that_is_not_an_alert_is_not_read_as_one(self):
+        flow = '{"event_type":"flow","src_ip":"%s","alert":{"signature":"ET SCAN x","category":"x"},"flow":{' % SCANNER
+        self.assertIsNone(ae.parse_suricata(flow))
+        # the word "alert" as a value is not the alert object: a record that has no object of its own is not an alert
+        self.assertIsNone(ae.parse_suricata('{"event_type":"alert","src_ip":"%s","note":"alert","dest_port":22,"proto":"TCP"' % SCANNER))
+
+    def test_a_key_is_told_from_the_same_word_as_a_value(self):
+        # "alert" is the value of event_type before it is the name of the object that follows
+        msg = '{"event_type":"alert","src_ip":"%s","alert":{"signature":"ET SCAN x","category":"y"},"app_proto":"' % SCANNER
+        val, at = ae._eve_value(msg, 'alert')
+        self.assertEqual(val, {'signature': 'ET SCAN x', 'category': 'y'})
+        self.assertEqual(msg[at:at + 8], '"alert":')
+        self.assertEqual(ae._eve_value(msg, 'src_ip')[0], SCANNER)
+        self.assertEqual(ae._eve_value(msg, 'dest_port'), (None, -1))
+        self.assertEqual(ae._eve_value('{"a": "b", "k" :   7, ', 'k')[0], 7, 'spaces around the colon are allowed')
+
+    def test_a_hostile_cut_record_is_cheap(self):
+        for hostile in ('{"event_type":"alert","src_ip":"%s","alert":{' % SCANNER + ' ' * 3500 + '"signature":"x',
+                        '{"alert"' * 600, '{"event_type":"alert","alert":' + '"signature":' * 300,
+                        '{"event_type":"alert","src_ip":"%s","alert":{"signature":"%s' % (SCANNER, 'a\\' * 1500)):
+            t = time.time()
+            ae.parse_suricata(hostile)
+            self.assertLess(time.time() - t, 0.5, hostile[:40])
 
     def test_a_fast_log_alert(self):
         r = ae.parse_suricata(suricata_fast('ET SCAN Potential SSH Scan', 'Attempted Information Leak'))

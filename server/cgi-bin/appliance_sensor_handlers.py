@@ -56,7 +56,7 @@ LISTED_MAX = 2000          # addresses remembered per device; the oldest go firs
 # The day's line counts per device, kept in this process and written with the scan
 # state. A batch that settles nothing (a pass, a line nobody reads) would otherwise
 # cost a write of the whole scan document for a number.
-_pending = {}              # device id -> {kind: [lines, parsed, events]}
+_pending = {}              # device id -> {kind: [lines, parsed, events, own]}
 _noted = {}                # device id -> when this process last wrote the device's status
 _lock = threading.Lock()
 
@@ -70,10 +70,11 @@ def _remember(dev_id, stats):
     with _lock:
         row = _pending.setdefault(dev_id, {})
         for kind, d in stats.items():
-            c = row.setdefault(kind, [0, 0, 0])
+            c = row.setdefault(kind, [0, 0, 0, 0])
             c[0] += d['lines']
             c[1] += d['parsed']
             c[2] += d['events']
+            c[3] += d.get('own', 0)
 
 
 def _take(dev_id):
@@ -222,11 +223,12 @@ def appliance_sensor_ingest(dev_id, dev, lines, now=None):
         table = rec.get('scan') if isinstance(rec.get('scan'), dict) else {}
         fresh = appliance_evidence.track(table, hits, now)
         if fresh:
-            counts.setdefault('fw', [0, 0, 0])[2] += len(fresh)
+            counts.setdefault('fw', [0, 0, 0, 0])[2] += len(fresh)
         today = rec.get('n') if rec.get('day') == day and isinstance(rec.get('n'), dict) else {}
         for kind, c in counts.items():
-            row = today.setdefault(kind, [0, 0, 0])
-            for i in range(3):
+            row = today.setdefault(kind, [0, 0, 0, 0])
+            row.extend([0] * (4 - len(row)))             # a day's counts written before the fourth number existed
+            for i in range(4):
                 row[i] += c[i]
         if listed or rec.get('listed'):
             before = rec.get('listed')
@@ -236,9 +238,17 @@ def appliance_sensor_ingest(dev_id, dev, lines, now=None):
         st[dev_id] = rec
         for d in [d for d, r in st.items() if isinstance(r, dict) and now - int(r.get('at') or 0) > KEEP_DEVICE_S]:
             st.pop(d, None)
-        rows = [{'kind': k, 'path': 'syslog', 'lines': c[0], 'parsed': c[1], 'events': c[2],
-                 'state': 'ok' if c[1] else 'unparsed'}
-                for k, c in sorted(today.items()) if c[0]]
+        rows = []
+        for k, c in sorted(today.items()):
+            c = list(c) + [0] * (4 - len(c))
+            if not (c[0] or c[3]):
+                continue
+            # alert lines were seen: read, or not understood. Only Suricata's own messages: it is running and sends no alerts
+            row = {'kind': k, 'path': 'syslog', 'lines': c[0], 'parsed': c[1], 'events': c[2],
+                   'state': ('ok' if c[1] else 'unparsed') if c[0] else 'engine'}
+            if c[3]:
+                row['own'] = c[3]
+            rows.append(row)
     ignored, evs = {}, []
     for raw in events + fresh + repeats:
         ev = threat_evidence.normalize_event(raw, now=now, families=threat_evidence.APPLIANCE_SOURCES)

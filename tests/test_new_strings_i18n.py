@@ -194,6 +194,9 @@ NEW_STRINGS = [
     "Notification destination added",
     "Saved, but switched off. Turn it on under Settings, Notifications.",
     "Safety",
+    # Threat Intel: a firewall whose Suricata sends its own messages and no alerts
+    "No alerts sent",
+    "Suricata is running, but no alerts arrive, only its own messages. If you expect alerts, tick Enable syslog alerts in its settings (OPNsense: Services → Intrusion Detection → Settings).",
 ]
 
 

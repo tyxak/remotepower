@@ -145,7 +145,10 @@ OPNsense release.
 
 Prefer this to **Enable eve syslog output**. The syslog intake keeps 2,048
 characters of a line, and an EVE record with a payload is longer, so it arrives
-cut off and shows as not understood on the Log sources card.
+cut off. RemotePower reads an alert from the part that arrives, because the address,
+the protocol and the alert's signature and category come first. An alert whose
+signature is cut off as well is not understood and shows as such on the Log sources
+card. The alert lines above are short and always whole.
 
 RemotePower keeps an alert when its signature or classification names an attack,
 and files it under the class the words point to. The first row that matches
@@ -380,6 +383,10 @@ read** counts every line of that kind, **Understood** those the reader could
 parse, and **Hostile** the scans, decoy hits and alerts it found. **Reading**
 means lines were understood. **Not understood** means lines of that kind arrived
 and none could be read, which is the sign of a format the reader does not know.
+**No alerts sent** is for intrusion detection: Suricata's own messages arrive (rule
+reloads, rule errors), so it is running, and no alert has come today. The page says
+what to tick under the table. A firewall's row that has had no line for a day reads
+**Quiet** with the time of the last one, instead of repeating what it said then.
 
 To test each source:
 
@@ -458,8 +465,8 @@ signature names can appear in the text.
 | Firewall log: **Reading**, but no attackers | Normal on a quiet network. A scan needs 10 ports or 25 refused packets within 30 minutes. |
 | Nothing from a RouterOS rule | The rule needs `log=yes`, a prefix with a refusing word or `rp-trap`, and a place above the rule that accepts the traffic. |
 | No refused packets from OPNsense | The rule that refused the packet does not have **Log** ticked. |
-| Intrusion detection: **Not understood** | The alerts are EVE records cut at 2,048 characters, or not alert lines. Use **Enable syslog alerts**. |
-| Suricata's own messages arrive ("rule reload", rule errors) but no alerts | Press **Apply** after ticking **Enable syslog alerts**, because Suricata reads it when it starts. Then wait for a rule to fire, or add a test rule under **User defined** with the action **Alert** between one host and an address outside your network. Traffic between two hosts on the same network never crosses the firewall, so Suricata does not see it. |
+| Intrusion detection: **Not understood** | The alerts are EVE records cut off before their signature, or lines in a form the reader does not know. Use **Enable syslog alerts**. |
+| Intrusion detection: **No alerts sent** | Suricata's own messages arrive ("rule reload", rule errors) but no alerts. Press **Apply** after ticking **Enable syslog alerts**, because Suricata reads it when it starts. Then wait for a rule to fire, or add a test rule under **User defined** with the action **Alert** between one host and an address outside your network. Traffic between two hosts on the same network never crosses the firewall, so Suricata does not see it. |
 | No CrowdSec row | The notification is not arriving. The test command should raise the token's **Hits** by one. If it does not, check the URL, the `Content-Type` header and that the firewall trusts RemotePower's certificate. |
 | `not blocked: host is not a Linux agent` | Expected. RemotePower does not block on a firewall or router. |
 | The same address again the next day | A persistent scanner is queued for each 30-minute window and reported at most once a day to each service. |

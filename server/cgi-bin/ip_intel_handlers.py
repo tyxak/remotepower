@@ -1210,16 +1210,30 @@ def _evidence_view(att):
     }
 
 
+SYSLOG_ROW_FRESH_S = 86400   # a firewall's source row is written when its lines arrive; after a day without one it says "quiet"
+
+
+def _aged(src, at, now):
+    """A source row as the page should show it. What an agent reports is rewritten every pass, so it is
+    always current. What the server read from a firewall's syslog is written only when a line arrives, so
+    a row from last week still said "Not understood" and read like today's verdict."""
+    if (isinstance(src, dict) and src.get('path') == 'syslog' and now - int(at or 0) > SYSLOG_ROW_FRESH_S
+            and src.get('state') in ('ok', 'unparsed', 'engine')):
+        return dict(src, state='idle')
+    return src
+
+
 def _sensor_rows(intake, visible):
     """Each visible host's sensor health: what its agent reads, or what the server
     read from its syslog, and whether it could. Hosts the caller cannot see are not
     listed."""
     rows = []
+    now = int(time.time())
     for dev_id, rec in (intake.get('sensors') if isinstance(intake.get('sensors'), dict) else {}).items():
         if dev_id not in visible or not isinstance(rec, dict):
             continue
         rows.append({'device_id': dev_id, 'name': (visible[dev_id] or {}).get('name') or dev_id,
-                     'at': rec.get('at'), 'sources': list(rec.get('sources') or []),
+                     'at': rec.get('at'), 'sources': [_aged(x, rec.get('at'), now) for x in (rec.get('sources') or [])],
                      'events': rec.get('events'), 'dropped': rec.get('dropped'),
                      'throttled': rec.get('throttled'), 'ignored': dict(rec.get('ignored') or {})})
     rows.sort(key=lambda r: str(r['name']).lower())

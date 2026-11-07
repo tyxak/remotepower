@@ -216,6 +216,14 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   them on the host's Log sources row. The built-in range list was compared with Cloudflare's own (15 IPv4 and 7 IPv6 ranges) and is the same. The guide says
   that the rule holds for every source and that the ranges do not need to go on the never-report list. Held by two new tests and three mutations, all caught.
 
+- **A firewall whose Suricata sends no alerts says so, and an old verdict stops being repeated.** The Log sources row of a firewall read **Not understood**
+  with 13,852 lines for a fortnight. Those lines were Suricata's own messages (rule reloads, rule errors), which stopped counting as unreadable alerts on
+  2026-10-25, and the row was written only when a line arrived, so nothing replaced it. Suricata's own messages are now counted apart. A firewall that sends
+  them and no alert reads **No alerts sent**, and the page says to tick **Enable syslog alerts** (the count shows Suricata is running, which nothing showed
+  before). A firewall's row with no line for a day reads **Quiet** with the time of the last one. An EVE alert cut at the intake's 2,048-character limit is
+  read from the part that arrives (the address, the protocol, the port, the signature and the category come before the payload), so **Enable eve syslog
+  output** works too; an alert cut before its signature is still not understood. Held by 14 new tests and ten mutations, all caught.
+
 ## v7.5.0 — "Wh0leMatters" — 2026-11-05
 
 A release about finishing what was started. The last production release was 7.4.0, so this release carries everything from 7.4.1
