@@ -63,6 +63,7 @@ class TestARefusalReadsInYourLanguage(unittest.TestCase):
 
     def _open_app(self):
         page = self.browser.new_page()
+        page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this test
         self.addCleanup(page.close)
         page.goto(self.base + '/index.html')
         page.fill('#login-user', 'admin')

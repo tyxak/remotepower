@@ -80,6 +80,7 @@ class TestSidebarOnATouchScreen(unittest.TestCase):
         """A logged-in page in a fresh context. `storage` is localStorage set
         before the app's own script runs, i.e. what an earlier visit left."""
         ctx = self.browser.new_context(**device)
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this test
         self.addCleanup(ctx.close)
         if storage:
             ctx.add_init_script(

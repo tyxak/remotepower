@@ -146,6 +146,7 @@ class TestTheAutonomyPageRenders(unittest.TestCase):
 
     def setUp(self):
         self.ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        self.ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this test
         # Auto-hide OFF for this file. It is a per-browser preference that
         # defaults ON, and it turns the sidebar into a 56px rail that expands to
         # 248px as an OVERLAY — which covers the first 248px of content,

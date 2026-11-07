@@ -9,7 +9,7 @@ the page sections change, so every whole-page walker sets `rp_pagetabs` to `stac
 The population is derived, not listed: a test module that loops over pages (a `for` whose body shows a page) and opens a browser.
 A new walker that forgets the line fails here. The control is that the derivation finds the walkers there are.
 
-The same choice is made by every other browser test that signs in to the app (they all set `rp_tour_done`): a feature test that
+The same choice is made by every other browser test that signs in to the app (they all fill `#login-user`): a feature test that
 clicks a card on a page whose cards are now behind tabs would otherwise find it hidden, and the next page to gain tabs would break
 tests nobody expected. They test features, not layout; the two tests of the tabs themselves are the exceptions.
 """
@@ -53,12 +53,12 @@ def walkers(root=_TESTS):
 
 
 def app_tests(root=_TESTS):
-    """Browser tests that sign in to the app: they use playwright and set rp_tour_done so the tour does not cover the page.
-    (A source test that only looks for the string in app.js, test_v541, is not one.)"""
+    """Browser tests that sign in to the app: they use playwright and fill the sign-in form (#login-user).
+    A source test that only mentions the tour flag in a string it looks for in app.js, test_v541, is not one."""
     out = {}
     for p in sorted(root.glob('*.py')):
         src = p.read_text(encoding='utf-8')
-        if 'rp_tour_done' in src and 'playwright' in src:
+        if 'login-user' in src and 'playwright' in src:
             out[p.name] = src
     return out
 

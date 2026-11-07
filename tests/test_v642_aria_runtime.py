@@ -67,6 +67,7 @@ class _Base(unittest.TestCase):
 
     def setUp(self):
         self.page = self.browser.new_page()
+        self.page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this test
         self.page.goto(self.base + '/index.html')
         self.page.fill('#login-user', 'admin')
         self.page.fill('#login-pass', 'remotepower')
@@ -335,6 +336,7 @@ class TestLoginErrorsAreAnnounced(_Base):
     def setUp(self):
         # Deliberately NOT logged in — that is the state under test.
         self.page = self.browser.new_page()
+        self.page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this test
         self.page.goto(self.base + '/index.html')
         self.page.wait_for_selector('#login-user', timeout=15000)
 

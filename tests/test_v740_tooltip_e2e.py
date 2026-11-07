@@ -84,6 +84,7 @@ class TestTheTooltip(unittest.TestCase):
 
     def open_app(self, touch=False):
         ctx = self.browser.new_context(has_touch=touch, viewport={'width': 1200, 'height': 800})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this test
         self.addCleanup(ctx.close)
         page = ctx.new_page()
         page.goto(self.base + '/index.html')

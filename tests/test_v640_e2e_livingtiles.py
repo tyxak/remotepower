@@ -54,6 +54,7 @@ class TestLivingTilesRender(unittest.TestCase):
 
     def _login_page(self):
         pg = self.browser.new_page()
+        pg.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this test
         pg.goto(self.base + '/index.html')
         pg.fill('#login-user', 'admin')
         pg.fill('#login-pass', 'remotepower')

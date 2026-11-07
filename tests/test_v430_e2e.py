@@ -75,6 +75,7 @@ class TestSmoke(unittest.TestCase):
 
     def setUp(self):
         self.page = self.browser.new_page()
+        self.page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this test
         self.errors = []
         self.page.on('pageerror', lambda e: self.errors.append(str(e)))
 

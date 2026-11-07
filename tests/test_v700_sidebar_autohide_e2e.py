@@ -72,6 +72,7 @@ class TestSidebarAutohideRendered(unittest.TestCase):
 
     def setUp(self):
         self.page = self.browser.new_page(viewport={'width': 1280, 'height': 800})
+        self.page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this test
         self.errors = []
         self.page.on('pageerror', lambda e: self.errors.append(str(e)))
         self.page.goto(self.base + '/index.html')

@@ -60,6 +60,7 @@ class TestHiddenNavEntryLeavesNoRow(unittest.TestCase):
 
     def test_switching_modules_off_removes_their_rows(self):
         page = self.browser.new_page(viewport={'width': 1440, 'height': 900})
+        page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this test
         try:
             page.goto(self.base + '/index.html')
             page.fill('#login-user', 'alice'); page.fill('#login-pass', 'demo')
