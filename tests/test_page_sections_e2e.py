@@ -41,7 +41,7 @@ _HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text(encoding='utf-8')
 PAGES = sorted(set(re.findall(r'<nav class="pg-tabs"[^>]*\bdata-pg="([a-z0-9-]+)"', _HTML)))
 OLD_PAGES = ('account', 'ipintel', 'reports', 'sites')                 # tabs since 7.4.0
 # The pages this change added. Each must still have its strip: the list is the control that the population cannot shrink quietly.
-NEW_PAGES = ('kmip', 'autonomy', 'sshgw', 'tuning', 'tickets')
+NEW_PAGES = ('kmip', 'autonomy', 'sshgw', 'tuning', 'tickets', 'scans')
 
 
 class TestPageSections(unittest.TestCase):
@@ -116,7 +116,8 @@ class TestPageSections(unittest.TestCase):
         return self.page.evaluate("""(name) => {
             const out = [];
             document.querySelectorAll('#page-' + name + ' [data-pg-tab]').forEach(c => {
-              if (c.hidden) return;
+              // a card the page hides for its own reasons (the hidden attribute, or the .hidden / .d-none class its scripts toggle)
+              if (c.hidden || c.classList.contains('hidden') || c.classList.contains('d-none')) return;
               const r = c.getBoundingClientRect();
               out.push({tabs: c.dataset.pgTab.split(/\\s+/), shown: getComputedStyle(c).display !== 'none', h: r.height});
             });
@@ -153,6 +154,16 @@ class TestPageSections(unittest.TestCase):
                     self.page.click(f'#page-{name} [data-pg-tab-btn="{tab}"]')
                     boxes = [c for c in self._cards(name) if c['shown'] and tab in c['tabs'] and c['h'] > 20]
                     self.assertTrue(boxes, f'{name}/{tab} shows nothing')
+
+    def test_a_card_two_tabs_share_shows_on_both_and_on_no_other(self):
+        # Pentest: the New scan card holds the host, tool and profile that the scans and the schedules both use
+        self._open('scans')
+        seen = {}
+        for tab in self._tabs('scans'):
+            self.page.click(f'#page-scans [data-pg-tab-btn="{tab}"]')
+            seen[tab] = self.page.evaluate("""() => { const c = document.querySelector('#page-scans [data-pg-tab="scans schedules"]');
+                return c ? getComputedStyle(c).display !== 'none' : null; }""")
+        self.assertEqual(seen, {'scans': True, 'targets': False, 'schedules': True})
 
     # ── one long page ────────────────────────────────────────────────────────
     def test_one_long_page_shows_every_card_and_hides_the_strip(self):

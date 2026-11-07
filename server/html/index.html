@@ -7888,7 +7888,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v4.2.0 (B5): Security Scans page ─────────────────────────────────── -->
       <div id="page-scans" class="page">
-        <div class="page-title">Pentest</div>
+        <div class="page-title" id="scans-page-title">Pentest</div>
         <div class="page-subtitle">Authorized vulnerability scans against <strong>enrolled hosts you manage</strong> and ownership-verified domains. The target is derived server-side — you can only scan assets you own. Network scans run on a <strong>scanner satellite</strong>; on-host audits run on the host's agent. <a href="docs/security-scans.md" target="_blank" rel="noopener" class="c-accent">Documentation →</a></div>
         <div class="stats-row">
           <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b2898196"/></svg></div><div><div class="stat-value" id="scan-stat-running">0</div><div class="stat-label">Running / queued</div></div></div>
@@ -7896,7 +7896,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ea455fa1"/></svg></div><div><div class="stat-value isl-137" id="scan-stat-high">0</div><div class="stat-label">High findings</div></div></div>
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-99336aa6"/></svg></div><div><div class="stat-value" id="scan-stat-total">0</div><div class="stat-label">Scans</div></div></div>
         </div>
-        <div class="dash-card mb-16">
+        <nav class="pg-tabs" aria-labelledby="scans-page-title" data-pg="scans" data-default="scans">
+          <button class="pg-tab" data-pg-tab-btn="scans" data-action="pgTab" data-arg="scans:scans">Scans</button>
+          <button class="pg-tab" data-pg-tab-btn="targets" data-action="pgTab" data-arg="scans:targets">Targets</button>
+          <button class="pg-tab" data-pg-tab-btn="schedules" data-action="pgTab" data-arg="scans:schedules">Schedules</button>
+        </nav>
+        <div class="dash-card mb-16" data-pg-tab="scans schedules">
         <div class="section-title">New scan</div>
         <div class="toolbar">
           <input type="text" id="scan-device-search" class="form-input input-auto" placeholder="Search a host…" autocomplete="off" aria-label="Search a host">
@@ -7915,7 +7920,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-primary mw-200" data-action="queueScan"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><path d="M12 2a10 10 0 1 0 10 10"/><line x1="12" y1="12" x2="22" y2="2"/></svg> Queue scan</button>
         </div>
         </div><!-- /new scan card -->
-        <div class="dash-card">
+        <div class="dash-card" data-pg-tab="scans">
         <div class="section-title">Scans</div>
         <div class="toolbar-mb24">
           <button class="btn-icon" data-action="loadScans"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -7924,11 +7929,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="table-card mb-16"><table><thead id="scans-thead"><tr><th scope="col" data-col="target">Target</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="critical" class="ta-center">Crit</th><th scope="col" data-col="high" class="ta-center">High</th><th scope="col" data-col="medium" class="ta-center">Med</th><th scope="col" data-col="low" class="ta-center">Low</th><th scope="col" data-col="info" class="ta-center" title="Informational findings — wpscan's interesting-findings, nmap's open services. Not flaws, but they are what the scan actually saw.">Info</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead><tbody id="scans-tbody"><tr><td colspan="9" class="empty-state">No scans yet. Select an enrolled host and queue one. </td></tr></tbody></table></div>
         </div><!-- /scans card -->
-        <div id="scan-detail" class="dash-card mb-16 hidden">
+        <div id="scan-detail" class="dash-card mb-16 hidden" data-pg-tab="scans">
           <div class="section-title">Findings — <span id="scan-detail-target"></span></div>
           <div id="scan-detail-body" class="scroll-cap"></div>
         </div>
-        <div class="dash-card mb-16">
+        <div class="dash-card mb-16" data-pg-tab="targets">
           <div class="section-title">Verified web targets <span class="hint">— scan domains / IPs you own that aren't enrolled hosts. Prove ownership once, then scan.</span></div>
           <div class="toolbar-mb24">
             <input type="text" id="scan-target-input" class="form-input" placeholder="example.com or 203.0.113.5" aria-label="example.com or 203.0.113.5">
@@ -7936,7 +7941,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div id="scan-targets-list" class="scroll-cap"></div>
         </div>
-        <div class="dash-card mb-16">
+        <div class="dash-card mb-16" data-pg-tab="schedules">
           <div class="section-title">Scheduled scans <span class="hint">— recurring scans on a cron. They use the host/target + tool/profile/intensity selected in the toolbar above. High/critical findings raise an alert.</span></div>
           <div class="toolbar-mb24">
             <input type="text" id="scan-sched-cron" class="form-input" placeholder="cron, e.g. 0 3 * * * (daily 03:00)" title="5-field cron: minute hour day-of-month month day-of-week" aria-label="cron, e.g. 0 3 * * * (daily 03:00)">
@@ -7944,7 +7949,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div id="scan-schedules-list" class="scroll-cap"></div>
         </div>
-        <div class="dash-card mb-16">
+        <div class="dash-card mb-16" data-pg-tab="schedules">
           <div class="section-title">Scheduled LAN discovery <span class="hint">— recurring subnet netscan from the host selected above, turning unmanaged-host discovery into a living list instead of a one-off snapshot.</span></div>
           <div class="toolbar-mb24">
             <input type="text" id="netscan-sched-subnet" class="form-input" placeholder="subnet, e.g. 192.168.1.0/24" title="CIDR subnet to scan from the selected host" aria-label="subnet, e.g. 192.168.1.0/24">

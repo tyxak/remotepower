@@ -40,6 +40,7 @@ NEW_STRINGS = [
     "Silenced",
     "Needs triage",              # Tickets
     "My tickets",
+    "Schedules",                 # Pentest
 ]
 
 
