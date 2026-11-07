@@ -62,7 +62,7 @@ def setUpModule():
         pw.stop()
         raise unittest.SkipTest(f"app stack not available: {exc}")
     page = browser.new_page(viewport={"width": 1440, "height": 900})
-    page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); } catch (e) {}")
+    page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")
     page.goto(base + "/index.html")
     page.fill("#login-user", "alice")
     page.fill("#login-pass", "demo")

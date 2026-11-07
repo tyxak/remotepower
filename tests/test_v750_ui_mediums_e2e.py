@@ -102,7 +102,7 @@ class TestThreeMediums(unittest.TestCase):
 
     def signed_in(self, width, height, theme="dark"):
         ctx = self.browser.new_context(viewport={"width": width, "height": height})
-        ctx.add_init_script("try { localStorage.setItem('rp_theme', %r); localStorage.setItem('rp_tour_done', '1'); } catch (e) {}" % theme)
+        ctx.add_init_script("try { localStorage.setItem('rp_theme', %r); localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}" % theme)
         page = ctx.new_page()
         page.goto(self.base + "/index.html")
         page.fill("#login-user", "alice")

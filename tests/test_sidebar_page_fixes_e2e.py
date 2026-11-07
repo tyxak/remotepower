@@ -67,7 +67,7 @@ class TestSidebarPageFixes(unittest.TestCase):
             cls._pw.stop()
             raise unittest.SkipTest(f'app stack not available: {exc}')
         cls._ctx = cls._browser.new_context(viewport={'width': 1440, 'height': 900}, service_workers='block')
-        cls._ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
+        cls._ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_pagetabs', 'stacked'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
         cls.page = cls._ctx.new_page()
         cls.page.goto(cls._base + '/index.html')
         cls.page.fill('#login-user', 'alice')            # the seeder builds its own operator accounts: there is no 'admin'
@@ -449,7 +449,7 @@ class TestSidebarPageFixes(unittest.TestCase):
     def test_the_cron_words_are_fetched_with_the_first_page_that_draws_a_schedule_and_before_it_draws(self):
         # a session of its own: the shared page has long since visited these pages
         ctx = self._browser.new_context(viewport={'width': 1440, 'height': 900}, service_workers='block')
-        ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
+        ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_pagetabs', 'stacked'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
         page = ctx.new_page()
         try:
             page.goto(self._base + '/index.html')

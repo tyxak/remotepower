@@ -88,7 +88,7 @@ def setUpModule():
     # that never fires reads as "the card is broken". Blocked, the canned answer is the answer.
     context = browser.new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
     page = context.new_page()
-    page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); } catch (e) {}")
+    page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(base + "/index.html")

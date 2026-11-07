@@ -280,7 +280,7 @@ class TestPlantedTextInABrowser(unittest.TestCase):
             raise unittest.SkipTest(f"app stack not available: {exc}")
         ctx = cls.browser.new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
         cls.page = ctx.new_page()
-        cls.page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); } catch (e) {}")
+        cls.page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")
         cls.errors, cls.dialogs = [], []
         cls.page.on("pageerror", lambda e: cls.errors.append(str(e)))
         cls.page.on("dialog", lambda d: (cls.dialogs.append(d.message), d.dismiss()) and None)

@@ -8,6 +8,10 @@ the page sections change, so every whole-page walker sets `rp_pagetabs` to `stac
 
 The population is derived, not listed: a test module that loops over pages (a `for` whose body shows a page) and opens a browser.
 A new walker that forgets the line fails here. The control is that the derivation finds the walkers there are.
+
+The same choice is made by every other browser test that signs in to the app (they all set `rp_tour_done`): a feature test that
+clicks a card on a page whose cards are now behind tabs would otherwise find it hidden, and the next page to gain tabs would break
+tests nobody expected. They test features, not layout; the two tests of the tabs themselves are the exceptions.
 """
 import ast
 import re
@@ -48,6 +52,12 @@ def walkers(root=_TESTS):
     return out
 
 
+def app_tests(root=_TESTS):
+    """Browser tests that sign in to the app: they all set rp_tour_done so the tour does not cover the page."""
+    return {p.name: p.read_text(encoding='utf-8') for p in sorted(root.glob('*.py'))
+            if 'rp_tour_done' in p.read_text(encoding='utf-8')}
+
+
 def short_of_the_line(src):
     """How many browser contexts or pages the source opens beyond the number of times it sets the preference."""
     return max(0, len(_OPEN.findall(src)) - len(re.findall(r"rp_pagetabs", src)))
@@ -59,6 +69,13 @@ class TestEveryWalkerSeesEveryCard(unittest.TestCase):
         bad = {n: short_of_the_line(s) for n, s in found.items() if n not in EXEMPT and short_of_the_line(s)}
         self.assertEqual(bad, {}, 'a walker opens a browser without choosing One long page: add '
                                   "ctx.add_init_script(\"try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}\")")
+
+    def test_every_browser_test_of_the_app_chooses_one_long_page(self):
+        found = app_tests()
+        bad = sorted(n for n, src in found.items() if n not in EXEMPT and 'rp_pagetabs' not in src)
+        self.assertEqual(bad, [], "a browser test that signs in opens the app with tabs on: add localStorage.setItem('rp_pagetabs', 'stacked') "
+                                  "beside rp_tour_done, or list it in EXEMPT if it tests the tabs")
+        self.assertGreaterEqual(len(found), 35, 'control: the derivation found the browser tests there are')
 
     def test_the_derivation_finds_the_walkers_there_are(self):
         found = walkers()

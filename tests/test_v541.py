@@ -945,7 +945,7 @@ class TestH6OnboardingTour(unittest.TestCase):
         self.assertIn('const _TOUR_STEPS = [', js)
         self.assertIn('function startTour()', js)
         self.assertIn('function _maybeStartTour()', js)
-        self.assertIn("localStorage.setItem('rp_tour_done', '1')", js)   # persisted
+        self.assertIn("localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_pagetabs', 'stacked')", js)   # persisted
         self.assertIn('_maybeStartTour();', js)                          # fired on home
         # CSP-safe: built via DOM, no runtime <style>, no inline handler strings
         self.assertNotIn("createElement('style')", js[js.find('const _TOUR_STEPS'):js.find('const _TOUR_STEPS') + 3000])

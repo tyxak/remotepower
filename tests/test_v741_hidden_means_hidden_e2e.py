@@ -101,7 +101,7 @@ def setUpModule():
         raise unittest.SkipTest(f'app stack not available: {exc}')
     page = browser.new_page(viewport={'width': 1440, 'height': 900})
     page.set_default_timeout(15000)
-    page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); } catch (e) {}")
+    page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")
     page.goto(base + '/index.html')
     page.wait_for_selector('#login-form', state='visible', timeout=90000)
     page.wait_for_timeout(2500)            # the sign-in page asks which methods are on, then reveals them

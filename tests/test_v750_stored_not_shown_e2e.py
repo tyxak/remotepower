@@ -67,7 +67,7 @@ class TestStoredFieldsAreShown(unittest.TestCase):
             cls._pw.stop()
             raise unittest.SkipTest(f"app stack not available: {exc}")
         cls.ctx = cls.browser.new_context(viewport={"width": 1440, "height": 900})
-        cls.ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); } catch (e) {}")
+        cls.ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")
         cls.page = cls.ctx.new_page()
         cls.page.goto(cls.base + "/index.html")
         cls.page.fill("#login-user", "alice")
