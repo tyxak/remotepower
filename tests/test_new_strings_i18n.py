@@ -46,6 +46,9 @@ NEW_STRINGS = [
     "Dependencies",
     "Discovery",
     "Watches",
+    "Frameworks",                # Compliance
+    "Baseline and scans",
+    "Personal data",
 ]
 
 
