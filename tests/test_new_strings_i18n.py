@@ -194,9 +194,6 @@ NEW_STRINGS = [
     "Notification destination added",
     "Saved, but switched off. Turn it on under Settings, Notifications.",
     "Safety",
-    # step by step: the rollout and the host profile
-    "Rings",
-    "Thresholds",
     # the Threat Intel widget on Home
     "addresses seen in the last 24 hours",
     "Reported in 24 hours",
