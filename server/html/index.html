@@ -7602,9 +7602,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="site-map-empty" class="meta-sm-nm mt-8 hidden">No sites have coordinates yet — add latitude/longitude to a site below.</div>
         </div>
 
-        <div class="section-header"><div class="section-title">Sites</div><button class="enroll-btn" data-action="openSiteCreate" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-8a2aac00"/></svg> New site</button></div>
-        <div class="mb-16"><input type="text" id="sites-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
-        <div class="table-card"><table><thead id="sites-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="slug">Slug</th><th scope="col" data-col="device_count">Hosts</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead><tbody id="sites-tbody"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody></table></div>
+        <div data-pg-tab="map" class="section-header"><div class="section-title">Sites</div><button class="enroll-btn" data-action="openSiteCreate" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-8a2aac00"/></svg> New site</button></div>
+        <div data-pg-tab="map" class="mb-16"><input type="text" id="sites-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
+        <div data-pg-tab="map" class="table-card"><table><thead id="sites-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="slug">Slug</th><th scope="col" data-col="device_count">Hosts</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead><tbody id="sites-tbody"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody></table></div>
 
         <!-- W1-9: enrolment auto-placement rules -->
         <div class="dash-card mt-16" data-pg-tab="groups">
@@ -8506,15 +8506,15 @@ nextcloud mem=95 sustain=6</pre>
       <!-- ── v1.11.0: Containers ────────────────────────────────────────── -->
       <div id="page-containers" class="page">
         <div class="page-title" id="containers-page-title">Containers</div>
-        <nav class="pg-tabs" aria-labelledby="containers-page-title" data-pg="containers" data-default="containers">
-          <button class="pg-tab" data-pg-tab-btn="containers" data-action="pgTab" data-arg="containers:containers">Containers</button>
-          <button class="pg-tab" data-pg-tab-btn="audit" data-action="pgTab" data-arg="containers:audit">Hardening audit</button>
-          <button class="pg-tab" data-pg-tab-btn="images" data-action="pgTab" data-arg="containers:images">Image updates</button>
-          <button class="pg-tab" data-pg-tab-btn="compose" data-action="pgTab" data-arg="containers:compose">Compose stacks</button>
-        </nav>
         <div id="containers-panel-agent">
-          <div data-pg-tab="containers">
           <div class="page-subtitle">Docker / Podman / Kubernetes pods reported by enrolled agents. For Docker/Podman you can start, stop, restart, and pull logs — and deploy compose stacks (below). Actions queue to the agent and run on its next heartbeat. <a href="docs/containers.md" class="c-accent">Documentation</a></div>
+          <nav class="pg-tabs" aria-labelledby="containers-page-title" data-pg="containers" data-default="containers">
+            <button class="pg-tab" data-pg-tab-btn="containers" data-action="pgTab" data-arg="containers:containers">Containers</button>
+            <button class="pg-tab" data-pg-tab-btn="audit" data-action="pgTab" data-arg="containers:audit">Hardening audit</button>
+            <button class="pg-tab" data-pg-tab-btn="images" data-action="pgTab" data-arg="containers:images">Image updates</button>
+            <button class="pg-tab" data-pg-tab-btn="compose" data-action="pgTab" data-arg="containers:compose">Compose stacks</button>
+          </nav>
+          <div data-pg-tab="containers">
           <div class="toolbar">
             <input type="text" id="containers-search" class="form-input isl-170" placeholder="Filter by host or container name…" aria-label="Filter by host or container name">
             <button class="btn-icon" data-action="loadContainersOverview" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>

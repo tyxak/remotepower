@@ -158,6 +158,42 @@ class TestPageSections(unittest.TestCase):
                         self.assertEqual(c['shown'], tab in c['tabs'], f'{name}/{tab}: a card of {c["tabs"]} is {"shown" if c["shown"] else "off"}')
                     self.assertEqual(self.page.get_attribute(f'#page-{name} [data-pg-tab-btn="{tab}"]', 'aria-current'), 'true')
 
+    def test_a_page_opens_on_one_group_before_anything_is_clicked(self):
+        # a script-built page (Server Status) draws its cards after showPage has applied the tab: it must apply it again
+        for name in PAGES:
+            with self.subTest(page=name):
+                self._open(name)
+                current = self.page.evaluate(f"document.querySelector('#page-{name} [data-pg-tab-btn].active').dataset.pgTabBtn")
+                cards = self._cards(name)
+                self.assertTrue(cards, name)
+                for c in cards:
+                    self.assertEqual(c['shown'], current in c['tabs'], f'{name}: opened on {current}, and a card of {c["tabs"]} is '
+                                                                      f'{"shown" if c["shown"] else "off"}')
+
+    # A card with no tab shows on every tab, and the tests above never see it (they look at the tagged cards). So the population here is
+    # every card-like box of the page, read from the DOM, and the rule is that each is on a tab. A box that answers the toolbar above
+    # the strip (a result that appears after a button press) is listed with its reason.
+    ALWAYS_SHOWN = {
+        '#self-test-result': 'the answer to the Run diagnostics button in the toolbar above the strip, whichever tab is open',
+    }
+
+    def test_no_card_is_left_without_a_tab(self):
+        seen = 0
+        for name in PAGES:
+            with self.subTest(page=name):
+                self._open(name)
+                found = self.page.evaluate("""([n, allowed]) => {
+                    const root = document.getElementById('page-' + n);
+                    const sel = '.dash-card, .table-card, .doc-card, .card-padded, .settings-section';
+                    const all = [...root.querySelectorAll(sel)];
+                    const left = all.filter(c => !c.closest('[data-pg-tab]') && !(c.parentElement && c.parentElement.closest(sel))
+                                                 && !allowed.some(a => c.closest(a)))
+                      .map(c => (c.id ? '#' + c.id : '') + '.' + String(c.className).split(' ').filter(Boolean).slice(0, 3).join('.'));
+                    return {total: all.length, left: left}; }""", [name, list(self.ALWAYS_SHOWN)])
+                seen += found['total']
+                self.assertEqual(found['left'], [], f'{name}: a card with no tab shows on every tab')
+        self.assertGreater(seen, 80, 'control: the population of cards was read')
+
     def test_every_tab_shows_something(self):
         for name in PAGES:
             with self.subTest(page=name):
