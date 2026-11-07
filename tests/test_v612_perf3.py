@@ -280,7 +280,12 @@ class TestEagerJsPayload(unittest.TestCase):
         # and Clear criteria (0.9 KB), the word helpers (0.6 KB), the two schedule cell helpers that stay (cronHtml and cronInline, 0.8 KB,
         # guarded for a missing cronWords), plus the wiring in the code that draws the user menu, the top bar and the popups. The text
         # size has to be eager: it is applied before the shell is drawn. The translations are in i18n.js, which is not eager.
-        self.assertLess(total, 2_694_000,
+        # 8.0.0 page sections: 2_697_000. The payload was 2_691_492 after the sweep, 2,508 under the budget, and is 2_694_157 now: 2,665
+        # bytes more, 2,279 of them in app.js (the One long page choice and its picker, a card that belongs to two tabs, the link from Live
+        # Monitor's panels to their tab, the scroll to a group) and 386 in app-self.js (the tags on the 14 cards Server Status draws and the
+        # call that applies the tab after it draws them). The tabs are in the eager core because showPage applies them before any loader
+        # runs. The translations are in i18n.js, which is not eager.
+        self.assertLess(total, 2_697_000,
                         'the eager JS payload regressed past its budget')
 
 

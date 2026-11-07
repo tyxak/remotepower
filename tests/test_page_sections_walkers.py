@@ -53,9 +53,14 @@ def walkers(root=_TESTS):
 
 
 def app_tests(root=_TESTS):
-    """Browser tests that sign in to the app: they all set rp_tour_done so the tour does not cover the page."""
-    return {p.name: p.read_text(encoding='utf-8') for p in sorted(root.glob('*.py'))
-            if 'rp_tour_done' in p.read_text(encoding='utf-8')}
+    """Browser tests that sign in to the app: they use playwright and set rp_tour_done so the tour does not cover the page.
+    (A source test that only looks for the string in app.js, test_v541, is not one.)"""
+    out = {}
+    for p in sorted(root.glob('*.py')):
+        src = p.read_text(encoding='utf-8')
+        if 'rp_tour_done' in src and 'playwright' in src:
+            out[p.name] = src
+    return out
 
 
 def short_of_the_line(src):
