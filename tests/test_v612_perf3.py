@@ -285,7 +285,14 @@ class TestEagerJsPayload(unittest.TestCase):
         # Monitor's panels to their tab, the scroll to a group) and 386 in app-self.js (the tags on the 14 cards Server Status draws and the
         # call that applies the tab after it draws them). The tabs are in the eager core because showPage applies them before any loader
         # runs. The translations are in i18n.js, which is not eager.
-        self.assertLess(total, 2_697_000,
+        # 8.0.0 Home layouts: 2_712_000. The payload was 2_694_258 before the heat map and the layouts, 2,742 under the budget, and is
+        # 2_708_708 now: 14,450 bytes more, all of it in app.js. The heat map's Group by and Colour by (the block a host falls in, the colour
+        # and hover text of four choices, the legend, the stored choice) are 7,026 bytes. The layouts are 7,424: the layout read and written
+        # through the one in use, the switcher in the title row, the limits the server keeps, the wall display rotation in the kiosk and the
+        # two fixes beside it (a cycle that sees the pages that load on demand, a refused fullscreen request). It all runs when Home is
+        # drawn, before any loader could fetch it. The manager (create, rename, delete, the four ready-made layouts) is app-dashsets.js, 8,975
+        # bytes, which is lazy and is fetched when the Customize panel opens. The translations are in i18n.js, which is not eager.
+        self.assertLess(total, 2_712_000,
                         'the eager JS payload regressed past its budget')
 
 

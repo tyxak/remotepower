@@ -737,6 +737,10 @@
       <div id="page-home" class="page active">
         <div class="page-title-row">
           <div class="page-title">Fleet at a glance</div>
+          <!-- 8.0.0: shown once the account has a named layout (Customize > Layouts); its first entry is the saved layout -->
+          <span id="dash-set-bar" class="dash-set-bar d-none">
+            <select id="dash-set-select" class="form-input input-auto" data-change="setDashSetUI" aria-label="Dashboard layout"></select>
+          </span>
           <button class="btn-icon dash-customize-btn" data-action="toggleDashEdit" title="Show, hide, resize and reorder dashboard widgets">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-8cda0690"/></svg>
             Customize

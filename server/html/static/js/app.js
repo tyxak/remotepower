@@ -87,6 +87,7 @@ async function loadUiPrefs() {
     _uiPrefs = {};
   }
   _uiPrefsLoaded = true;
+  try { _renderDashSetBar(); } catch (_) {}   // 8.0.0: the layout switcher shows as soon as the account's layouts are known, not when Home's data arrives
   try { applyLook(); applyTheme(); } catch (_) {}   // 7.4.9: the account's look replaces the browser's copy
   try { applyTypeface(); _buildTypefacePicker(); } catch (_) {}   // and so does its typeface; the select is right before the page opens
 }
@@ -2864,29 +2865,53 @@ let _kioskCycleTimer = null;
 function _kioskPages(raw) {
   // Only real, module-enabled pages: a cycle that lands on a disabled module's
   // page would toast an error at the wall every N seconds, forever.
+  // The nine pages that are templates (Alerts among them) have no element until they have been shown once, so a template counts too.
+  const templates = new Set([...document.querySelectorAll('template[data-page-tpl]')].map(t => t.dataset.pageTpl));
   return String(raw || '').split(',').map(s => s.trim()).filter(
-    p => p && document.getElementById('page-' + p) && !_moduleOffFor(p));
+    p => p && (document.getElementById('page-' + p) || templates.has(p)) && !_moduleOffFor(p));
 }
 
 function enterKiosk(opts) {
   const o = opts || {};
   document.body.classList.add('kiosk');
-  try { if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); }
+  try { if (document.documentElement.requestFullscreen) Promise.resolve(document.documentElement.requestFullscreen()).catch(() => {}); }
   catch (_) { /* fullscreen needs a user gesture; the layout still applies */ }
 
   const pages = _kioskPages(o.pages);
   const every = Math.max(5, parseInt(o.cycle, 10) || 0);
+  // 8.0.0: with sets=all the Home page comes up once per layout (the saved one first, then each named one) before the cycle moves on
+  // to the next page. The layouts are read at every tick, because this runs from the address before the account's preferences arrive.
+  const wantSets = o.sets === 'all' && pages.includes('home');
+  const stepsNow = () => {
+    const steps = [];
+    for (const p of pages) {
+      if (p === 'home' && wantSets && _dashSets().length) {
+        steps.push({ page: 'home', set: '' });
+        _dashSets().forEach(s => steps.push({ page: 'home', set: s.id }));
+      } else steps.push({ page: p });
+    }
+    return steps;
+  };
+  const onPage = () => ((document.querySelector('.page.active') || {}).id || '').replace(/^page-/, '');
   clearInterval(_kioskCycleTimer);
   _kioskCycleTimer = null;
-  if (pages.length > 1 && o.cycle) {
+  if ((pages.length > 1 || wantSets) && o.cycle) {
     // The active page lives in the DOM (.page.active), not in a variable — start
     // the rotation from wherever we already are so the first tick advances rather
     // than re-showing the current page.
-    const active = (document.querySelector('.page.active') || {}).id || '';
-    let i = Math.max(0, pages.indexOf(active.replace(/^page-/, '')));
+    const active = onPage();
+    let i = null;
     _kioskCycleTimer = setInterval(() => {
-      i = (i + 1) % pages.length;
-      showPage(pages[i]);
+      const steps = stepsNow();
+      if (steps.length < 2) return;                 // one page and no named layout: nothing to rotate through
+      if (i === null) i = Math.max(0, steps.findIndex(s => s.page === active && (s.set === undefined || s.set === _dashSetId())));
+      i = (i + 1) % steps.length;
+      const st = steps[i];
+      if (st.set !== undefined) {
+        if (onPage() === 'home') setDashSet(st.set, { transient: true });
+        else _dashSetOverride = st.set;             // Home draws it when the cycle gets there
+      }
+      if (st.page !== onPage()) showPage(st.page);
     }, every * 1000);
   }
 }
@@ -2918,7 +2943,7 @@ function enterAlertWall() {
   }
   showPage('alerts');
   document.body.classList.add('alertwall');
-  try { if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); }
+  try { if (document.documentElement.requestFullscreen) Promise.resolve(document.documentElement.requestFullscreen()).catch(() => {}); }
   catch (_) { /* needs a user gesture; the layout still applies without it */ }
   // No explicit reload: showPage('alerts') already calls loadAlerts(), and
   // calling it again here fetched the inbox twice on every open.
@@ -2981,6 +3006,7 @@ function exitKiosk() {
   document.body.classList.remove('kiosk');
   clearInterval(_kioskCycleTimer);
   _kioskCycleTimer = null;
+  if (_dashSetOverride !== null) { _dashSetOverride = null; applyDashboardLayout(); }   // back to the layout the account has chosen
   try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); }
   catch (_) {}
 }
@@ -3060,7 +3086,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js'];   // 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js'];   // 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens).
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -20560,8 +20586,7 @@ const _SVG_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 // Normalised layout: saved order/visibility first, then any widget the user has
 // never seen appended (visible), with unknown keys dropped. So shipping a new
 // widget later shows it by default without resetting anyone's saved prefs.
-function _dashLayout() {
-  const saved = Array.isArray(_uiPrefs.dashboard) ? _uiPrefs.dashboard : [];
+function _dashBaseLayout(saved) {
   const out = [];
   const seen = new Set();
   for (const e of saved) {
@@ -20583,6 +20608,80 @@ function _dashLayout() {
   return out;
 }
 
+// 8.0.0: named layouts ("sets"). _uiPrefs.dashboard_sets is a list of {id, name, w}; w holds only the widgets the set shows, in
+// order, each as 'key' or 'key:size' (the size only when it is not the widget's default), and _uiPrefs.dashboard_set names the one in
+// use. With none in use the layout is the saved one in _uiPrefs.dashboard, which is all anyone had before. The functions that read and
+// write the layout (_dashLayout, _dashWrite) go through the set in use, so the Customize panel, the share code and the undo arrows
+// work on it without knowing that sets exist. The limits are the server's (MAX_UI_PREFS_DASH_SET*): a set the server would not keep
+// is refused here, because the server drops it without a word at the next save.
+const _DASH_SET_MAX = 8, _DASH_SET_NAME = 40, _DASH_SET_CHARS = 3000;
+let _dashSetOverride = null;   // a wall display that rotates through the layouts shows one without saving it; null means "the saved choice"
+function _dashSets() { return Array.isArray(_uiPrefs.dashboard_sets) ? _uiPrefs.dashboard_sets : []; }
+function _dashSetById(id) { return id ? (_dashSets().find(s => s && s.id === id) || null) : null; }
+function _dashSetId() {
+  const id = _dashSetOverride !== null ? _dashSetOverride : _uiPrefs.dashboard_set;
+  return _dashSetById(id) ? id : '';
+}
+// The full list of widgets the rest of this file works on: the ones the set shows first, in its order, then every other widget, off.
+function _dashSetToLayout(set) {
+  const out = [];
+  const seen = new Set();
+  for (const item of (Array.isArray(set.w) ? set.w : [])) {
+    const [key, size] = String(item).split(':');
+    if (!_DASH_KEYS.includes(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, on: true, size: _DASH_SIZES.includes(size) ? size : _dashDefaultSize(key) });
+  }
+  for (const k of _DASH_KEYS) if (!seen.has(k)) out.push({ key: k, on: false, size: _dashDefaultSize(k) });
+  return _showHomelab ? out : out.filter(e => e.key !== 'integrations');
+}
+function _dashLayoutToSet(layout) {
+  return layout.filter(e => e.on).map(e => e.size === _dashDefaultSize(e.key) ? e.key : e.key + ':' + e.size);
+}
+function _dashSetsFit(sets) {
+  return sets.length <= _DASH_SET_MAX
+    && sets.reduce((n, s) => n + JSON.stringify({ id: s.id, name: s.name, w: s.w }).length, 0) <= _DASH_SET_CHARS;
+}
+function _dashLayout(id) {
+  const set = _dashSetById(id === undefined ? _dashSetId() : id);
+  return set ? _dashSetToLayout(set) : _dashBaseLayout(Array.isArray(_uiPrefs.dashboard) ? _uiPrefs.dashboard : []);
+}
+
+// The switcher in the Home title row: shown once there is a named layout to switch to. The options are rebuilt only when the list
+// changed, so the 60 s refresh does not close a list the person has open.
+function _renderDashSetBar() {
+  const bar = document.getElementById('dash-set-bar'), sel = document.getElementById('dash-set-select');
+  if (!bar || !sel) return;
+  const sets = _dashSets();
+  bar.classList.toggle('d-none', !sets.length);
+  if (!sets.length) return;
+  const sig = sets.map(s => s.id + '\u0001' + s.name).join('\u0002');
+  if (sel.dataset.sig !== sig) {
+    sel.innerHTML = '<option value="">My layout</option>'
+      + sets.map(s => '<option value="' + escAttr(s.id) + '">' + escHtml(s.name) + '</option>').join('');
+    sel.dataset.sig = sig;
+  }
+  const cur = _dashSetId();
+  if (sel.value !== cur) sel.value = cur;
+}
+function setDashSetUI() {
+  const sel = document.getElementById('dash-set-select');
+  if (sel) setDashSet(sel.value);
+}
+function setDashSet(id, opts) {
+  const sid = _dashSetById(id) ? id : '';
+  if (opts && opts.transient) {
+    _dashSetOverride = sid;
+  } else {
+    _dashSetOverride = null;
+    if (sid) _uiPrefs.dashboard_set = sid; else delete _uiPrefs.dashboard_set;
+    _scheduleFlushUiPrefs();
+  }
+  applyDashboardLayout();
+  _renderDashEditPanel();
+  loadHome();   // the layout decides which widgets the server works out: ask for the data of the ones that just came on
+}
+
 function applyDashboardLayout() {
   const home = document.getElementById('page-home');
   if (!home) return;
@@ -20600,6 +20699,7 @@ function applyDashboardLayout() {
   // v4.1.0: keep the Ask-AI + Customize footer pinned below the grid.
   const footer = document.getElementById('home-footer-controls');
   if (footer) home.appendChild(footer);
+  _renderDashSetBar();
 }
 
 function toggleDashEdit() {
@@ -20607,7 +20707,11 @@ function toggleDashEdit() {
   if (!panel) return;
   const willOpen = panel.classList.contains('hidden');
   panel.classList.toggle('hidden', !willOpen);
-  if (willOpen) _renderDashEditPanel();
+  if (willOpen) {
+    _renderDashEditPanel();
+    // the layouts manager is a lazy module (app-dashsets.js): fetched when the panel opens, drawn when it has arrived
+    _loadJsModule('app-dashsets.js').then(() => _renderDashEditPanel());
+  }
 }
 
 function _renderDashEditPanel() {
@@ -20622,7 +20726,8 @@ function _renderDashEditPanel() {
     + ' data-action="dashSize" data-arg="' + escAttr(e.key) + '" data-arg2="' + s + '"'
     + ' title="' + ({ sm: 'Small', md: 'Medium', lg: 'Large' }[s]) + '">' + s.toUpperCase() + '</button>';
   let html =
-    '<div class="dash-edit-hint hint">Resize, reorder, show/hide your dashboard. Saved to your account.</div>'
+    '<div id="dash-set-manage" class="dash-set-manage"></div>'
+    + '<div class="dash-edit-hint hint">Resize, reorder, show/hide your dashboard. Saved to your account.</div>'
     + '<div class="dash-edit-actions">'
     + '<button class="btn-icon" data-action="dashReset" title="Restore the default layout">Reset</button>'
     + '<button class="btn-icon" data-action="dashAlign" title="Make every widget the same width">Align</button>'
@@ -20653,7 +20758,11 @@ function _renderDashEditPanel() {
       + offSorted.map(e => '<option value="' + escAttr(e.key) + '">' + lbl(e.key) + '</option>').join('')
       + '</select>';
   }
+  // any change of the layout draws the panel again: what was typed in the new-layout row must survive that
+  const typedName = document.getElementById('dash-set-name'), typedFrom = document.getElementById('dash-set-from');
+  const keep = { name: typedName ? typedName.value : '', from: typedFrom ? typedFrom.value : '' };
   panel.innerHTML = html;
+  if (typeof renderDashSetManage === 'function') renderDashSetManage(keep);   // app-dashsets.js, once it has loaded
 }
 
 function dashAddSelected() {
@@ -20661,23 +20770,43 @@ function dashAddSelected() {
   if (sel && sel.value) dashToggle(sel.value);   // toggles the picked widget on
 }
 
+// Every change of the layout lands here. sid is the layout it belongs to: a named layout is written back as its own short list, the
+// saved layout as it always was. false means nothing was changed (the layout was deleted since, or the change would not fit).
+function _dashWrite(sid, layout) {
+  if (sid) {
+    const set = _dashSetById(sid);
+    if (!set) return false;
+    const w = _dashLayoutToSet(layout);
+    if (!_dashSetsFit(_dashSets().map(s => s === set ? { id: s.id, name: s.name, w } : s))) {
+      toast('This layout is full: take a widget out or delete a layout first', 'warning');
+      return false;
+    }
+    set.w = w;
+  } else {
+    _uiPrefs.dashboard = layout;
+  }
+  applyDashboardLayout();
+  _renderDashEditPanel();
+  _scheduleFlushUiPrefs();
+  return true;
+}
+
 function _dashSave(layout, opts) {
   // v6.3.0 (UX wave 4): every layout change (toggle/move/size/align) is
   // undoable from the topbar arrows — _dashLayout() still reflects the
   // PRE-change state here (callers mutate a fresh normalized copy, which
-  // only lands in _uiPrefs on the assignment below).
+  // only lands in _uiPrefs on the write below). 8.0.0: the undo belongs to
+  // the layout that was changed, so it still works after a switch to another.
+  const sid = _dashSetId();
+  const prev = _dashLayout();
+  if (!_dashWrite(sid, layout)) return;
   if (!opts || !opts.noUndo) {
-    const prev = _dashLayout();
     uiUndoCtl.push({
       label: 'Dashboard layout change',
-      undo: () => _dashSave(prev, { noUndo: true }),
-      redo: () => _dashSave(layout, { noUndo: true }),
+      undo: () => _dashWrite(sid, prev),
+      redo: () => _dashWrite(sid, layout),
     });
   }
-  _uiPrefs.dashboard = layout;
-  applyDashboardLayout();
-  _renderDashEditPanel();
-  _scheduleFlushUiPrefs();
 }
 
 function dashToggle(key) {
@@ -20709,16 +20838,15 @@ function dashSize(key, size) {
 }
 
 async function dashReset() {
-  if (!await uiConfirm({ message: 'Reset the dashboard to its default layout?', confirmText: 'Reset', danger: true })) return;
+  const sid = _dashSetId();
+  if (!await uiConfirm({ message: sid ? 'Reset this layout to the default widgets?' : 'Reset the dashboard to its default layout?', confirmText: 'Reset', danger: true })) return;
   // v6.3.0 (UX wave 4): the reset itself is undoable (topbar arrow / toast).
   const prev = _dashLayout();
-  const restore = () => _dashSave(prev, { noUndo: true });
-  uiUndoCtl.push({ label: 'Dashboard reset', undo: restore,
-                   redo: () => { _uiPrefs.dashboard = []; applyDashboardLayout(); _renderDashEditPanel(); _scheduleFlushUiPrefs(); } });
-  _uiPrefs.dashboard = [];          // empty → _dashLayout() rebuilds defaults
-  applyDashboardLayout();
-  _renderDashEditPanel();
-  _scheduleFlushUiPrefs();
+  const restore = () => _dashWrite(sid, prev);
+  // an empty saved layout → _dashBaseLayout rebuilds the defaults; a named layout takes the default widgets as its own list
+  const reset = () => _dashWrite(sid, sid ? _dashBaseLayout([]) : []);
+  uiUndoCtl.push({ label: 'Dashboard reset', undo: restore, redo: reset });
+  reset();
   toast('Dashboard reset', 'info', { action: { label: 'Undo', icon: 'undo', fn: restore } });
 }
 
@@ -33708,7 +33836,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // configured by giving the browser a start URL, not by clicking a button.
     if (q.get('alertwall') === '1') { enterAlertWall(); return; }
     if (q.get('kiosk') !== '1') return;
-    enterKiosk({ cycle: q.get('cycle'), pages: q.get('pages') });
+    enterKiosk({ cycle: q.get('cycle'), pages: q.get('pages'), sets: q.get('sets') });
   } catch (_) {}
 });
 

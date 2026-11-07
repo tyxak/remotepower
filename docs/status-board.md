@@ -44,6 +44,11 @@ hides the sidebar and fills the screen. To rotate through several pages every 30
 seconds, use `https://YOUR-SERVER/?kiosk=1&cycle=30&pages=board,home,alerts`
 instead. Press **Esc** to leave.
 
+The dashboard can rotate through its [layouts](dashboard.md#layouts) too: add `&sets=all` to a link
+with `pages=home`, for example `https://YOUR-SERVER/?kiosk=1&cycle=30&pages=home&sets=all`, and it
+shows your saved layout and each named one in turn. The cycle also visits pages that load on
+demand, such as Alerts.
+
 Kiosk mode only changes what is shown. The API still enforces the role of whoever
 is signed in, so sign the display in with a **viewer** account if it should stay
 read-only. See [alerts.md](alerts.md).

@@ -918,6 +918,10 @@ html { zoom: var(--rp-zoom, 1); }
   .page-title-row + .page-subtitle { margin-top: -13px; }
   .page-title-row .page-title { margin: 0; }
   .dash-customize-btn { margin-left: auto; flex: none; font-size: 12px; padding: 4px 10px; }
+  /* 8.0.0: the layout switcher sits before Customize once the account has a named layout */
+  .dash-set-bar { margin-left: auto; }
+  .dash-set-bar:not(.d-none) + .dash-customize-btn { margin-left: 0; }
+  .dash-set-bar select { max-width: 220px; }
 
   /* ── v4.1.0: collapse/hide the top bar ────────────────────────────────── */
   body.banner-collapsed header { display: none; }
@@ -6424,6 +6428,17 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .dash-mini-row .dm-r { flex: none; font-variant-numeric: tabular-nums; }
 /* customize panel: size buttons + add-widget catalog */
 .dash-edit-actions { display: flex; gap: 6px; margin: 8px 0 12px; flex-wrap: wrap; }
+/* 8.0.0: the layouts manager at the top of the Customize panel (app-dashsets.js) */
+.dash-set-manage { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.dash-set-list { display: flex; flex-direction: column; margin: 8px 0; }
+.dash-set-item { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 5px 0; }
+.dash-set-item + .dash-set-item { border-top: 1px solid var(--border); }
+.dash-set-name { flex: 1 1 140px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-set-item.on .dash-set-name { font-weight: 600; }
+.dash-set-state { font-size: 12px; color: var(--muted); }
+.dash-set-new { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.dash-set-new input { flex: 1 1 180px; min-width: 0; }
+.dash-set-wall { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .dash-edit-row { display: flex; align-items: center; gap: 8px; }
 .dash-edit-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
                   white-space: nowrap; }

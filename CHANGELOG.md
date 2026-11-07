@@ -11,6 +11,19 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
 
 ### Interface
 
+- **The dashboard keeps named layouts.** Under **Customize → Layouts** you can keep up to 8 layouts next to the one you have, each a name and the
+  widgets it shows. Make one from a copy of the layout you are looking at, from one of four ready-made ones (Fleet overview, Security, Patching and
+  Capacity) or from an empty one. Once you have one, a switcher appears next to Customize. The panel, the share code and the undo arrows work on the
+  layout in use, and your own layout (**My layout**) stays exactly as it was, so nothing changes until you make a layout. Layouts belong to the
+  account and follow you to another browser. They are stored as short lists, a few hundred bytes each, and the page refuses a layout that would not
+  fit instead of losing it at the next save (the server drops the whole preferences document past 16 KB, so the layouts have a cap of their own).
+  **Copy wall display link** gives a link that shows each layout in turn: `?kiosk=1&cycle=30&pages=home&sets=all`. Two things beside it, found while
+  testing it: the kiosk's page cycle now also visits the pages that load on demand, such as Alerts, which it dropped without a word (the example
+  `pages=home,alerts,devices` in its own comment never reached Alerts), and a kiosk started from a link no longer logs a refused fullscreen request
+  as an error. **Held by** `tests/test_dashboard_sets_prefs.py` (what the server keeps, the byte budget, 3,000 random documents) and
+  `tests/test_home_layouts_e2e.py` (making, switching, editing only that layout, a reload, rename, delete with undo, the limits, escaped names, the
+  rotation, the lazy manager).
+
 - **The fleet heat map can group its cells and colour them by more than the health score.** Two choices sit in the card header and are kept in this
   browser. **Group by** cuts the grid into labelled blocks, each with its host count: group, site, OS, host type, agent version or status (the default is
   no grouping). **Colour by** picks what the colour means: health score (the default), worst finding, pending updates or last check-in; a choice other than

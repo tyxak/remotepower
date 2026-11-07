@@ -15,7 +15,11 @@ These are on by default:
 - **Alerts**: open alerts, and the ones you recently acknowledged.
 - **Fleet health**: the 0–100 score explained in [health-score.md](health-score.md). The coloured
   bar splits critical, warning and info counts.
-- **Fleet heat map**: one cell per host, from green (healthy) to red (needs attention).
+- **Fleet heat map**: one cell per host, from green (healthy) to red (needs attention). Two choices in
+  the card header change it. **Group by** cuts the grid into labelled blocks by group, site, OS, host
+  type, agent version or status. **Colour by** colours the cells by the health score (the default),
+  the worst open finding, the pending updates or the time since the last check-in, and adds a legend.
+  Both are remembered in the browser you use.
 - **Needs attention** and **Recent activity**, side by side (see below).
 - **Fleet roster**: up to 15 hosts with a 7-day status stripe, the worst first (offline hosts, then
   hosts with the most down days).
@@ -38,6 +42,26 @@ on-call, a post-it note and many more) start hidden.
 The layout belongs to your account, so it follows you to another browser. Every change can be
 undone with the arrows in the top bar. Two widgets (the checks roll-up and the disk-fill ETA)
 are heavy, so the server only computes them while they are on your dashboard.
+
+## Layouts
+
+A layout is a name and the widgets it shows. You start with one, **My layout**, which is the
+dashboard you had before. Open **Customize → Layouts** to keep more: make a new one from a copy of
+the layout you are looking at, from a ready-made one (Fleet overview, Security, Patching or
+Capacity) or from an empty one, and give it a name. Once you have a named layout, a switcher
+appears next to **Customize**, and your choice is remembered.
+
+- Changes in the Customize panel go to the layout you are looking at and to no other. The undo
+  arrows in the top bar work in the layout that was changed.
+- **Rename** and **Delete** are there for the layouts you made, and deleting one can be undone.
+  **My layout** can be neither renamed nor deleted.
+- You can keep up to 8 layouts, and all of them together have to fit in a few kilobytes of your
+  account's settings. The page tells you when one does not fit instead of losing it.
+- **Reset** in a named layout gives it the default widgets.
+- **Copy wall display link** (shown once you have a named layout) copies a link that opens the
+  dashboard as a wall display and shows each layout in turn, 30 seconds each:
+  `https://YOUR-SERVER/?kiosk=1&cycle=30&pages=home&sets=all`. The rotation is not saved to your
+  account, and **Esc** leaves it.
 
 ## Reading it
 
@@ -67,7 +91,8 @@ as the tiles and changes nothing else.
 | Give a teammate your layout | **Customize → Share**, send the code, and they use **Import**. |
 | Undo a layout change | Use the undo arrow in the top bar. |
 | Mute an alert from the dashboard | Add the **Alerts (ack / resolve)** widget; it has **Mute** and **Resolve** on each row. |
-| Show the dashboard on a wall screen | Use the [Status Board](status-board.md) instead. |
+| Keep one dashboard for security and another for patching | **Customize → Layouts**, make a layout from **Security** or **Patching**, and switch between them at the top of the page. |
+| Show the dashboard on a wall screen | Use the [Status Board](status-board.md), or copy the wall display link from **Customize → Layouts** to rotate through your layouts. |
 
 ## See also
 

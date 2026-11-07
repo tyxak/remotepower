@@ -8,6 +8,12 @@ by default) picks what the colour means. The tests read the data the card was dr
 colour in Python, a second implementation of `_heatBucket` / `_heatLook`, so a wrong join between the health rows and the host rows
 fails by name. With the defaults the card is the grid of 7.5.0: one grid, no blocks, no legend.
 
+Layouts (8.0.0). The dashboard keeps named layouts next to the saved one: a layout is a name and the widgets it shows, made from the
+current layout, a ready-made one (Fleet overview, Security, Patching, Capacity) or empty, switched from the top of Home, edited in the
+Customize panel without touching the saved layout, kept in the account (ui_prefs, so a reload and another browser see it), renamed,
+deleted with an undo, and rotated through by a wall display (`?kiosk=1&cycle=30&pages=home&sets=all`) without saving the rotation.
+The page and the server share the limits (8 layouts, 3,000 characters together): what the page accepts, the server keeps.
+
 Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
 """
 import collections
@@ -362,6 +368,374 @@ class TestHeatmapNarrow(unittest.TestCase):
         tops = self.page.eval_on_selector_all('#heat-group, #heat-color', 'els => els.map(e => Math.round(e.getBoundingClientRect().top))')
         self.assertEqual(len(tops), 2)
         self.assertLess(abs(tops[0] - tops[1]), 4, f'the selects are on different lines: {tops}')
+
+
+# ── the layouts ──────────────────────────────────────────────────────────────
+GRID_WIDGETS = "() => [...document.querySelectorAll('#dash-grid [data-widget]')].filter(n => !n.classList.contains('dash-off')).map(n => n.dataset.widget)"
+
+
+class _LayoutsBase(unittest.TestCase):
+    """One signed-in page; every test starts from an account that has no layouts and the default saved one."""
+
+    RESET = """async () => {
+        _uiPrefs = {}; _dashSetOverride = null; await flushUiPrefs(); applyDashboardLayout();
+        const p = document.getElementById('dash-edit-panel'); if (p) p.classList.add('hidden');
+    }"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ctx, cls.page, cls.errors = _signed_in_context()
+        cls.page.wait_for_function("() => typeof flushUiPrefs === 'function' && _uiPrefsLoaded")
+        cls.page.evaluate(cls.RESET)           # the account is shared by every class: start from no layouts and the default saved one
+        cls.page.wait_for_selector('#home-heatmap .heatmap-cell', timeout=60000)
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.page.evaluate(cls.RESET)       # and leave it that way for the next class
+        finally:
+            cls.ctx.close()
+
+    def setUp(self):
+        self._errors_before = len(self.errors)
+        self.addCleanup(lambda: self.assertEqual(self.errors[self._errors_before:], [], 'a page error came up in this test'))
+        self.page.evaluate(self.RESET)
+
+    # helpers
+    def _open_panel(self):
+        if self.page.locator('#dash-edit-panel.hidden').count():
+            self.page.click('.dash-customize-btn')
+        self.page.wait_for_selector('#dash-set-manage .dash-set-new', timeout=15000)      # the manager is a lazy module: it has arrived
+
+    def _create(self, name='', start='copy'):
+        self._open_panel()
+        self.page.fill('#dash-set-name', name)
+        self.page.select_option('#dash-set-from', start)
+        self.page.click('#dash-set-manage [data-action="dashSetCreate"]')
+
+    def _stored(self):
+        return self.page.evaluate("async () => { await flushUiPrefs(); return await api('GET', '/ui-prefs'); }")
+
+    def _widgets(self):
+        return self.page.evaluate(GRID_WIDGETS)
+
+    def _set_in_use(self):
+        return self.page.evaluate("() => _dashSetId()")
+
+    def _sets(self):
+        return self.page.evaluate("() => JSON.parse(JSON.stringify(_dashSets()))")
+
+    def _bar_options(self):
+        return self.page.eval_on_selector_all('#dash-set-select option', 'els => els.map(e => e.textContent)')
+
+    def _toast(self, text):
+        return self.page.locator('#toast-container .toast', has_text=text).count() > 0
+
+    def _make(self, name, start='empty'):
+        """A layout, made through the panel, and wait until it is the one in use."""
+        before = len(self._sets())
+        self._create(name, start)
+        self.assertTrue(_until(lambda: len(self._sets()) == before + 1 and self._set_in_use() == self._sets()[-1]['id']), f'layout {name} was not made')
+        return self._sets()[-1]['id']
+
+
+class TestLayouts(_LayoutsBase):
+    def test_nothing_changes_until_a_layout_is_made(self):
+        self.assertTrue(self.page.eval_on_selector('#dash-set-bar', 'e => e.classList.contains("d-none")'), 'no switcher without a named layout')
+        self._open_panel()
+        self.assertEqual(self.page.locator('#dash-set-manage .dash-set-list').count(), 0, 'no list: there is only the saved layout')
+        want = self.page.evaluate("() => _dashBaseLayout([]).filter(e => e.on && e.key !== 'askai').map(e => e.key)")
+        self.assertEqual(self._widgets(), want, 'the default widgets, as before')
+        self.assertNotIn('dashboard_sets', self._stored())
+
+    def test_a_ready_made_layout_shows_its_widgets_and_leaves_the_saved_layout_alone(self):
+        self.page.evaluate("() => dashToggle('offline')")                       # a change to the saved layout
+        saved = self.page.evaluate("() => JSON.parse(JSON.stringify(_uiPrefs.dashboard))")
+        self.assertTrue(any(e['key'] == 'offline' and e['on'] for e in saved))
+        sid = self._make('', 'security')                                        # no name typed: the ready-made layout's own name
+        presets = {p['id']: p for p in self.page.evaluate("() => _DASH_PRESETS.map(p => ({id: p.id, label: p.label, w: p.w}))")}
+        want = [k for k in presets['security']['w'] if k != 'askai']
+        self.assertTrue(_until(lambda: self._widgets() == want), f'shown: {self._widgets()}')
+        self.assertEqual(self._bar_options(), ['My layout', 'Security'])
+        self.assertEqual(self.page.eval_on_selector('#dash-set-select', 'e => e.value'), sid)
+        self.assertEqual(self.page.evaluate("() => JSON.parse(JSON.stringify(_uiPrefs.dashboard))"), saved, 'the saved layout was not touched')
+        stored = self._stored()
+        self.assertEqual(stored['dashboard_sets'], [{'id': sid, 'name': 'Security', 'w': presets['security']['w']}])
+        self.assertEqual(stored['dashboard_set'], sid)
+        self.assertEqual(stored['dashboard'], saved)
+
+    def test_switching_back_restores_the_saved_layout(self):
+        self.page.evaluate("() => dashToggle('offline')")
+        classic = self.page.evaluate("() => _dashBaseLayout(_uiPrefs.dashboard).filter(e => e.on && e.key !== 'askai').map(e => e.key)")
+        self._make('Night', 'empty')
+        self.assertTrue(_until(lambda: self._widgets() == []), 'an empty layout shows no widget')
+        self.page.select_option('#dash-set-select', '')
+        self.assertTrue(_until(lambda: self._widgets() == classic), f'shown: {self._widgets()}')
+        stored = self._stored()
+        self.assertNotIn('dashboard_set', stored, 'My layout is "no layout in use"')
+        self.assertEqual(len(stored['dashboard_sets']), 1, 'switching does not delete anything')
+
+    def test_every_ready_made_layout_is_made_of_widgets_the_page_has(self):
+        self._open_panel()
+        info = self.page.evaluate("() => ({presets: _DASH_PRESETS.map(p => ({id: p.id, w: p.w})), keys: _DASH_KEYS})")
+        self.assertEqual([p['id'] for p in info['presets']], ['fleet', 'security', 'patching', 'capacity'])
+        for p in info['presets']:
+            with self.subTest(preset=p['id']):
+                self.assertEqual(len(p['w']), len(set(p['w'])), 'a widget twice')
+                self.assertTrue(set(p['w']) <= set(info['keys']), sorted(set(p['w']) - set(info['keys'])))
+                self.assertTrue(8 <= len(p['w']) <= 16, len(p['w']))
+        # and each one can be made and shows exactly its widgets, in its order
+        for p in info['presets']:
+            with self.subTest(made=p['id']):
+                self._make('Layout ' + p['id'], p['id'])
+                want = [k for k in p['w'] if k != 'askai']
+                self.assertTrue(_until(lambda: self._widgets() == want), f'{p["id"]}: {self._widgets()}')
+
+    def test_editing_a_layout_changes_only_that_layout(self):
+        saved = self.page.evaluate("() => JSON.parse(JSON.stringify(_uiPrefs.dashboard || null))")
+        sid = self._make('Security', 'security')
+        self._open_panel()
+        self.page.click('#dash-edit-panel [data-action="dashSize"][data-arg="crittotal"][data-arg2="lg"]')
+        self.assertTrue(_until(lambda: 'crittotal:lg' in self._sets()[0]['w']), 'a size that is not the default is kept as key:size')
+        self.assertTrue(self.page.eval_on_selector('#page-home [data-widget="crittotal"]', 'e => e.classList.contains("dash-w-lg")'))
+        self.page.click('#dash-edit-panel [data-action="dashToggle"][data-arg="tls"]')
+        self.assertTrue(_until(lambda: 'tls' not in [x.split(':')[0] for x in self._sets()[0]['w']]), 'a widget taken out leaves the list')
+        self.page.select_option('#dash-add-select', 'monitors')
+        self.assertTrue(_until(lambda: 'monitors' in self._sets()[0]['w']), 'a widget added joins it')
+        self.assertEqual(self.page.evaluate("() => JSON.parse(JSON.stringify(_uiPrefs.dashboard || null))"), saved, 'the saved layout was not touched')
+        self.assertEqual(self._stored()['dashboard_sets'][0]['w'], self._sets()[0]['w'])
+        # the undo arrow takes the last change back
+        self.page.click('#topbar-undo')
+        self.assertTrue(_until(lambda: 'monitors' not in self._sets()[0]['w']))
+        # My layout still has the widget at its own size
+        self.page.select_option('#dash-set-select', '')
+        self.assertTrue(_until(lambda: self._set_in_use() == ''))
+        self.assertTrue(self.page.eval_on_selector('#page-home [data-widget="crittotal"]', 'e => e.classList.contains("dash-w-sm")'))
+        self.assertEqual(sid, self._sets()[0]['id'])
+
+    def test_an_undo_goes_to_the_layout_that_was_changed(self):
+        a = self._make('Alpha', 'copy')
+        self._open_panel()
+        self.page.click('#dash-edit-panel [data-action="dashToggle"][data-arg="tickets"]')
+        self.assertTrue(_until(lambda: 'tickets' not in self._sets()[0]['w']))
+        b = self._make('Beta', 'copy')
+        beta_before = self._sets()[1]['w']
+        self.page.click('#topbar-undo')
+        self.assertTrue(_until(lambda: 'tickets' in self._sets()[0]['w']), 'the change was taken back in Alpha')
+        self.assertEqual(self._sets()[1]['w'], beta_before, 'Beta, the layout in use, was not touched')
+        self.assertEqual(self._set_in_use(), b)
+        self.assertNotEqual(a, b)
+
+    def test_a_layout_survives_a_reload_and_is_still_in_use(self):
+        sid = self._make('Patching', 'patching')
+        want = self._widgets()
+        self.page.evaluate("async () => { await flushUiPrefs(); }")
+        self.page.reload()
+        # the heat map is not in the Patching layout, so wait for the account's preferences, not for a card
+        self.page.wait_for_function("() => typeof _uiPrefsLoaded !== 'undefined' && _uiPrefsLoaded", timeout=60000)
+        self.assertTrue(_until(lambda: self._set_in_use() == sid), 'the layout in use came back')
+        self.assertTrue(_until(lambda: not self.page.eval_on_selector('#dash-set-bar', 'e => e.classList.contains("d-none")')), 'the switcher is shown')
+        self.assertEqual(self.page.eval_on_selector('#dash-set-select', 'e => e.value'), sid)
+        self.assertTrue(_until(lambda: self._widgets() == want), f'shown: {self._widgets()}')
+
+    def test_rename_and_delete_with_an_undo(self):
+        sid = self._make('Plan', 'empty')
+        self._make('Other', 'empty')
+        self.page.click(f'#dash-set-manage [data-action="dashSetRename"][data-arg="{sid}"]')
+        self.page.wait_for_selector('#ui-prompt-modal.active')
+        self.assertEqual(self.page.eval_on_selector('#ui-prompt-input', 'e => e.value'), 'Plan', 'the prompt starts from the current name')
+        self.page.fill('#ui-prompt-input', 'Other')
+        self.page.click('#ui-prompt-confirm')
+        self.assertTrue(_until(lambda: self._toast('A layout with that name already exists')), 'a name that is taken is refused')
+        self.assertEqual([s['name'] for s in self._sets()], ['Plan', 'Other'])
+        self.page.click(f'#dash-set-manage [data-action="dashSetRename"][data-arg="{sid}"]')
+        self.page.wait_for_selector('#ui-prompt-modal.active')
+        self.page.fill('#ui-prompt-input', 'Day shift')
+        self.page.click('#ui-prompt-confirm')
+        self.assertTrue(_until(lambda: self._sets()[0]['name'] == 'Day shift'))
+        self.assertIn('Day shift', self._bar_options(), 'the switcher shows the new name')
+        # delete the one in use (Other), then take it back
+        other = self._sets()[1]['id']
+        self.assertEqual(self._set_in_use(), other)
+        self.page.click(f'#dash-set-manage [data-action="dashSetDelete"][data-arg="{other}"]')
+        self.page.wait_for_selector('#ui-prompt-modal.active')
+        self.page.click('#ui-prompt-confirm')
+        self.assertTrue(_until(lambda: [s['name'] for s in self._sets()] == ['Day shift']))
+        self.assertEqual(self._set_in_use(), '', 'deleting the layout in use goes back to the saved one')
+        self.page.click('#topbar-undo')
+        self.assertTrue(_until(lambda: [s['name'] for s in self._sets()] == ['Day shift', 'Other']), 'the layout is back, where it was')
+        self.assertEqual(self._set_in_use(), other, 'and in use again')
+        stored = self._stored()
+        self.assertEqual([s['name'] for s in stored['dashboard_sets']], ['Day shift', 'Other'])
+        self.assertEqual(stored['dashboard_set'], other)
+
+    def test_the_new_layout_row_is_empty_again_after_a_layout_is_made(self):
+        self._make('Typed', 'empty')
+        self.assertEqual(self.page.eval_on_selector('#dash-set-name', 'e => e.value'), '', 'the name that was used is not left in the box')
+
+    def test_what_is_typed_in_the_new_layout_row_survives_a_redraw_of_the_panel(self):
+        self._open_panel()
+        self.page.fill('#dash-set-name', 'Half typed')
+        self.page.select_option('#dash-set-from', 'patching')
+        self.page.click('#dash-edit-panel [data-action="dashToggle"][data-arg="tickets"]')     # any change of the layout redraws the panel
+        self.assertTrue(_until(lambda: 'tickets' not in [x.split(':')[0] for x in self.page.evaluate("() => _dashLayoutToSet(_dashLayout())")]))
+        self.assertEqual(self.page.eval_on_selector('#dash-set-name', 'e => e.value'), 'Half typed')
+        self.assertEqual(self.page.eval_on_selector('#dash-set-from', 'e => e.value'), 'patching')
+
+    def test_a_name_is_needed_and_must_be_new(self):
+        self._open_panel()
+        self.page.fill('#dash-set-name', '')
+        self.page.select_option('#dash-set-from', 'copy')
+        self.page.click('#dash-set-manage [data-action="dashSetCreate"]')
+        self.assertTrue(_until(lambda: self._toast('Give the layout a name')))
+        self.assertEqual(self._sets(), [])
+        self._make('Same', 'empty')
+        self._create('same', 'empty')
+        self.assertTrue(_until(lambda: self._toast('A layout with that name already exists')), 'names are compared without case')
+        self.assertEqual(len(self._sets()), 1)
+
+    def test_a_name_reaches_the_page_as_text(self):
+        evil = '<img src=x data-probe=1>'
+        self._make(evil, 'empty')
+        self.assertEqual(self.page.locator('#dash-set-bar img, #dash-set-manage img').count(), 0, 'no element was made from a name')
+        self.assertIn(evil, self._bar_options())
+        self.assertEqual(self._stored()['dashboard_sets'][0]['name'], evil)
+
+    def test_a_long_name_is_cut_where_the_server_cuts_it(self):
+        self._make('N' * 80, 'empty')
+        self.assertEqual(len(self._sets()[0]['name']), 40)
+        self.assertEqual(self._stored()['dashboard_sets'][0]['name'], 'N' * 40)
+
+    def test_what_the_page_accepts_the_server_keeps(self):
+        # eight layouts is the most: the ninth is refused with the reason, and the server holds exactly what the page shows
+        for i in range(8):
+            self._make(f'L{i}', 'empty')
+        self._create('L8', 'empty')
+        self.assertTrue(_until(lambda: self._toast('You can keep up to 8 layouts')), 'the ninth is refused')
+        self.assertEqual(len(self._sets()), 8)
+        self.assertEqual(len(self._stored()['dashboard_sets']), 8, 'nothing was dropped on the way to the server')
+
+    def test_a_layout_that_would_not_fit_is_refused_instead_of_lost(self):
+        # every widget on in the saved layout, then copies of it: about 900 characters each, so the third is the last that fits
+        self.page.evaluate("""() => { _uiPrefs.dashboard = _DASH_KEYS.map(k => ({key: k, on: true, size: _dashDefaultSize(k)})); applyDashboardLayout(); }""")
+        made = 0
+        for i in range(6):
+            before = len(self._sets())
+            self._create(f'Full {i}', 'copy')
+            _until(lambda: len(self._sets()) > before or self._toast('There is no room for another layout'), seconds=6)
+            if len(self._sets()) == before:
+                break
+            made += 1
+            self.page.select_option('#dash-set-select', '')       # copy the saved layout again, not the one just made
+            _until(lambda: self._set_in_use() == '')
+        self.assertTrue(2 <= made < 6, f'{made} full layouts fit')
+        self.assertTrue(self._toast('There is no room for another layout'), 'the one that does not fit is refused with the reason')
+        stored = self._stored()
+        self.assertEqual(len(stored['dashboard_sets']), made, 'the server keeps every layout the page accepted')
+        size = len(self.page.evaluate("() => JSON.stringify(_dashSets())"))
+        self.assertLessEqual(size, 3000)
+
+    def test_a_change_that_would_not_fit_is_refused_and_leaves_the_layout_as_it_was(self):
+        # three layouts of every widget fit (about 830 characters each); a fourth of them does not, so growing a small one to every
+        # widget is the change that is refused
+        self.page.evaluate("""() => { _uiPrefs.dashboard = _DASH_KEYS.map(k => ({key: k, on: true, size: _dashDefaultSize(k)})); applyDashboardLayout(); }""")
+        for name in ('Full one', 'Full two', 'Full three'):
+            self._make(name, 'copy')
+            self.page.select_option('#dash-set-select', '')
+            self.assertTrue(_until(lambda: self._set_in_use() == ''))
+        self._make('Small', 'empty')
+        small = self._sets()[3]
+        before = small['w']
+        self.page.evaluate("() => { const all = _DASH_KEYS.map(k => ({key: k, on: true, size: _dashDefaultSize(k)})); _dashSave(all); }")
+        self.assertTrue(_until(lambda: self._toast('This layout is full')), 'the change is refused with the reason')
+        self.assertEqual(self._sets()[3]['w'], before, 'the layout is as it was')
+        self.assertEqual(len(self._stored()['dashboard_sets']), 4, 'and the server kept all four')
+
+    def test_reset_in_a_layout_gives_it_the_default_widgets(self):
+        self._make('Mine', 'empty')
+        self._open_panel()
+        self.page.click('#dash-edit-panel [data-action="dashReset"]')
+        self.page.wait_for_selector('#ui-prompt-modal.active')
+        self.page.click('#ui-prompt-confirm')
+        default_on = self.page.evaluate("() => _dashBaseLayout([]).filter(e => e.on).map(e => e.key)")
+        self.assertTrue(_until(lambda: [x.split(':')[0] for x in self._sets()[0]['w']] == default_on), self._sets()[0]['w'])
+        self.assertEqual(self._set_in_use(), self._sets()[0]['id'], 'the reset stays in the layout')
+
+
+class TestLayoutsLoadOnDemand(unittest.TestCase):
+    """The manager is a lazy module: nobody who never opens Customize downloads it."""
+
+    def test_the_manager_arrives_with_the_panel(self):
+        ctx, page, errors = _signed_in_context()
+        try:
+            page.wait_for_selector('#home-heatmap .heatmap-cell', timeout=60000)
+            self.assertEqual(page.evaluate("() => [typeof renderDashSetManage, _loadedJsModules.has('app-dashsets.js')]"), ['undefined', False])
+            page.click('.dash-customize-btn')
+            page.wait_for_selector('#dash-set-manage .dash-set-new', timeout=15000)
+            self.assertEqual(page.evaluate("() => [typeof renderDashSetManage, _loadedJsModules.has('app-dashsets.js')]"), ['function', True])
+            self.assertEqual(errors, [])
+        finally:
+            ctx.close()
+
+
+class TestWallRotation(_LayoutsBase):
+    """A wall display with sets=all shows the saved layout and each named one in turn, and does not save what it showed."""
+
+    def test_the_kiosk_rotates_through_the_layouts_without_saving_the_rotation(self):
+        self._make('Alpha', 'security')
+        self._make('Beta', 'capacity')
+        self.page.select_option('#dash-set-select', '')
+        saved = self._stored()
+        ids = {s['id'] for s in saved['dashboard_sets']}
+        ctx, page, errors = _signed_in_context()
+        try:
+            page.goto(_STATE['base'] + '/index.html?kiosk=1&cycle=5&pages=home&sets=all')
+            page.wait_for_selector('#home-heatmap .heatmap-cell', timeout=60000)
+            seen, shown = [], []
+            deadline = time.time() + 26
+            while time.time() < deadline and len(set(seen)) < 3:
+                cur = page.evaluate("() => _dashSetId()")
+                if not seen or seen[-1] != cur:
+                    seen.append(cur)
+                    shown.append(page.evaluate(GRID_WIDGETS))
+                time.sleep(0.5)
+            self.assertEqual(set(seen), ids | {''}, f'every layout, and the saved one, came up: {seen}')
+            self.assertEqual(len({tuple(w) for w in shown}), len(shown), 'each layout showed different widgets')
+            self.assertEqual(page.evaluate("async () => { await flushUiPrefs(); return await api('GET', '/ui-prefs'); }").get('dashboard_set'), None,
+                             'the rotation was not saved to the account')
+            page.evaluate("() => exitKiosk()")
+            self.assertTrue(_until(lambda: page.evaluate("() => _dashSetId()") == '' and page.evaluate("() => _dashSetOverride") is None),
+                            'leaving the kiosk goes back to the layout the account chose')
+            self.assertEqual(errors, [])
+        finally:
+            ctx.close()
+
+    def test_without_sets_the_cycle_is_what_it_was(self):
+        ctx, page, errors = _signed_in_context()
+        try:
+            page.goto(_STATE['base'] + '/index.html?kiosk=1&cycle=5&pages=home,alerts')
+            page.wait_for_selector('#home-heatmap .heatmap-cell', timeout=60000)
+            seen = set()
+            deadline = time.time() + 14
+            while time.time() < deadline and len(seen) < 2:
+                seen.add(page.evaluate("() => (document.querySelector('.page.active') || {}).id"))
+                time.sleep(0.5)
+            self.assertEqual(seen, {'page-home', 'page-alerts'}, 'two pages still rotate')
+            self.assertEqual(errors, [])
+        finally:
+            ctx.close()
+
+    def test_the_wall_link_names_the_kiosk_and_the_rotation(self):
+        self._make('Alpha', 'empty')
+        self._make('Beta', 'empty')
+        self._open_panel()
+        self.assertEqual(self.page.locator('#dash-set-manage [data-action="dashSetWallLink"]').count(), 1, 'offered once there is a layout to rotate to')
+        self.page.evaluate("() => { window._copied = null; Object.defineProperty(navigator, 'clipboard', {value: {writeText: t => { window._copied = t; return Promise.resolve(); }}, configurable: true}); }")
+        self.page.click('#dash-set-manage [data-action="dashSetWallLink"]')
+        self.assertTrue(_until(lambda: self.page.evaluate("() => window._copied")))
+        link = self.page.evaluate("() => window._copied")
+        self.assertIn('?kiosk=1&cycle=30&pages=home&sets=all', link)
+        self.assertTrue(link.startswith('http'))
 
 
 if __name__ == '__main__':
