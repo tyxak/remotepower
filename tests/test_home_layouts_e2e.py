@@ -385,6 +385,8 @@ class _LayoutsBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.ctx, cls.page, cls.errors = _signed_in_context()
+        cls.home_urls = []
+        cls.page.on('request', lambda r: cls.home_urls.append(r.url) if '/api/home' in r.url else None)
         cls.page.wait_for_function("() => typeof flushUiPrefs === 'function' && _uiPrefsLoaded")
         cls.page.evaluate(cls.RESET)           # the account is shared by every class: start from no layouts and the default saved one
         cls.page.wait_for_selector('#home-heatmap .heatmap-cell', timeout=60000)
@@ -414,7 +416,9 @@ class _LayoutsBase(unittest.TestCase):
         self.page.click('#dash-set-manage [data-action="dashSetCreate"]')
 
     def _stored(self):
-        return self.page.evaluate("async () => { await flushUiPrefs(); return await api('GET', '/ui-prefs'); }")
+        """What the server holds, read after the 600 ms debounce and without forcing a flush: a change that forgot to schedule one is seen."""
+        time.sleep(1.0)
+        return self.page.evaluate("async () => await api('GET', '/ui-prefs')")
 
     def _widgets(self):
         return self.page.evaluate(GRID_WIDGETS)
@@ -427,6 +431,18 @@ class _LayoutsBase(unittest.TestCase):
 
     def _bar_options(self):
         return self.page.eval_on_selector_all('#dash-set-select option', 'els => els.map(e => e.textContent)')
+
+    def _layout_on(self):
+        return self.page.evaluate("() => _dashLayout().filter(e => e.on).map(e => e.key)")
+
+    def _last_home_widgets(self):
+        """The widgets the last /api/home request asked the server to work out (its w parameter)."""
+        import urllib.parse
+        for url in reversed(self.home_urls):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if 'w' in q:
+                return q['w'][0].split(',') if q['w'][0] else []
+        return None
 
     def _toast(self, text):
         return self.page.locator('#toast-container .toast', has_text=text).count() > 0
@@ -474,6 +490,44 @@ class TestLayouts(_LayoutsBase):
         stored = self._stored()
         self.assertNotIn('dashboard_set', stored, 'My layout is "no layout in use"')
         self.assertEqual(len(stored['dashboard_sets']), 1, 'switching does not delete anything')
+
+    def test_a_switch_asks_the_server_for_the_widgets_of_the_layout_it_switches_to(self):
+        # the server only works out the widgets that are on: a layout that brings new ones on needs their data now, not at the next refresh
+        self._make('Alpha', 'security')
+        self.assertTrue(_until(lambda: self._last_home_widgets() == self._layout_on()), f'asked for {self._last_home_widgets()}')
+        self.page.select_option('#dash-set-select', '')
+        self.assertTrue(_until(lambda: self._set_in_use() == '' and self._last_home_widgets() == self._layout_on()), f'asked for {self._last_home_widgets()}')
+        self.assertNotEqual(self._layout_on(), self.page.evaluate("() => _dashLayoutToSet(_dashLayout(_dashSets()[0].id)).map(k => k.split(':')[0])"))
+
+    def test_deleting_the_layout_in_use_asks_the_server_for_the_saved_layouts_widgets(self):
+        self._make('Only', 'security')
+        only = self._sets()[0]['id']
+        self.assertTrue(_until(lambda: self._last_home_widgets() == self._layout_on()))
+        self.page.click(f'#dash-set-manage [data-action="dashSetDelete"][data-arg="{only}"]')
+        self.page.wait_for_selector('#ui-prompt-modal.active')
+        self.page.click('#ui-prompt-confirm')
+        self.assertTrue(_until(lambda: self._sets() == [] and self._set_in_use() == ''))
+        self.assertTrue(_until(lambda: self._last_home_widgets() == self._layout_on()),
+                        f'the saved layout shows {self._layout_on()} but the server was last asked for {self._last_home_widgets()}')
+
+    def test_the_manager_marks_the_layout_in_use_and_each_other_one_can_be_used_from_it(self):
+        a = self._make('Alpha', 'empty')
+        b = self._make('Beta', 'empty')
+        self.assertEqual(self.page.eval_on_selector_all('#dash-set-manage .dash-set-item', 'els => els.map(e => e.querySelector(".dash-set-name").textContent)'),
+                         ['My layout', 'Alpha', 'Beta'])
+        self.assertEqual(self.page.eval_on_selector('#dash-set-manage .dash-set-item.on .dash-set-name', 'e => e.textContent'), 'Beta')
+        self.assertEqual(self.page.locator('#dash-set-manage .dash-set-item.on [data-action="dashSetUse"]').count(), 0, 'the one in use has no Use button')
+        # Use on a named layout, then Use on My layout (its button carries an empty argument)
+        self.page.click(f'#dash-set-manage [data-action="dashSetUse"][data-arg="{a}"]')
+        self.assertTrue(_until(lambda: self._set_in_use() == a))
+        self.assertEqual(self.page.eval_on_selector('#dash-set-select', 'e => e.value'), a, 'the switcher follows the manager')
+        self.page.click('#dash-set-manage [data-action="dashSetUse"][data-arg=""]')
+        self.assertTrue(_until(lambda: self._set_in_use() == ''), 'My layout can be used from the manager too')
+        self.assertEqual(self.page.eval_on_selector('#dash-set-select', 'e => e.value'), '')
+        self.assertEqual(self.page.locator('#dash-set-manage .dash-set-item.on [data-action="dashSetRename"]').count(), 0,
+                         'My layout has no Rename and no Delete')
+        self.assertEqual(self.page.locator('#dash-set-manage [data-action="dashSetDelete"]').count(), 2, 'only the two named layouts can be deleted')
+        self.assertNotEqual(a, b)
 
     def test_every_ready_made_layout_is_made_of_widgets_the_page_has(self):
         self._open_panel()
@@ -529,7 +583,7 @@ class TestLayouts(_LayoutsBase):
     def test_a_layout_survives_a_reload_and_is_still_in_use(self):
         sid = self._make('Patching', 'patching')
         want = self._widgets()
-        self.page.evaluate("async () => { await flushUiPrefs(); }")
+        time.sleep(1.2)          # the page saves 600 ms after the last change, as it does for a person who closes the tab
         self.page.reload()
         # the heat map is not in the Patching layout, so wait for the account's preferences, not for a card
         self.page.wait_for_function("() => typeof _uiPrefsLoaded !== 'undefined' && _uiPrefsLoaded", timeout=60000)
@@ -602,7 +656,13 @@ class TestLayouts(_LayoutsBase):
         self.assertEqual(self._stored()['dashboard_sets'][0]['name'], evil)
 
     def test_a_long_name_is_cut_where_the_server_cuts_it(self):
-        self._make('N' * 80, 'empty')
+        self._open_panel()
+        self.assertEqual(self.page.eval_on_selector('#dash-set-name', 'e => e.maxLength'), 40, 'the box stops typing at the length the server keeps')
+        # set past the box's own limit (a paste into a browser that ignores it, a script): the page cuts it too
+        self.page.evaluate("() => { document.getElementById('dash-set-name').value = 'N'.repeat(80); }")
+        self.page.select_option('#dash-set-from', 'empty')
+        self.page.click('#dash-set-manage [data-action="dashSetCreate"]')
+        self.assertTrue(_until(lambda: len(self._sets()) == 1))
         self.assertEqual(len(self._sets()[0]['name']), 40)
         self.assertEqual(self._stored()['dashboard_sets'][0]['name'], 'N' * 40)
 

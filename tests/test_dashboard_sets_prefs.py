@@ -120,6 +120,28 @@ class TestBudget(unittest.TestCase):
         self.assertEqual([s["id"] for s in out], ["s%d" % i for i in range(len(out))])
         self.assertLessEqual(len(json.dumps(out, ensure_ascii=False, separators=(',', ':'))), api.MAX_UI_PREFS_DASH_SET_CHARS)
 
+    def test_a_list_that_fits_by_the_pages_count_is_kept_whole(self):
+        # The page counts compact JSON (JSON.stringify) and refuses what does not fit, so the server must count the same way: a list that
+        # the page accepted and the server dropped would be lost at the next save. Build one that fits with a few characters to spare.
+        def compact(s):
+            return len(json.dumps({"id": s["id"], "name": s["name"], "w": s["w"]}, ensure_ascii=False, separators=(",", ":")))
+        sets = [_set("s%d" % i, "N" * 40, KEYS[:]) for i in range(3)]
+        used = sum(compact(s) for s in sets)
+        filler = _set("s3", "Filler", [])
+        k = 0
+        while used + compact(_set("s3", "Filler", KEYS[:k + 1])) <= api.MAX_UI_PREFS_DASH_SET_CHARS and k < len(KEYS):
+            k += 1
+        filler["w"] = KEYS[:k]
+        sets.append(filler)
+        total = sum(compact(s) for s in sets)
+        self.assertLessEqual(total, api.MAX_UI_PREFS_DASH_SET_CHARS)
+        self.assertGreater(total, api.MAX_UI_PREFS_DASH_SET_CHARS - 20, 'control: the list sits right at the limit')
+        spaced = sum(len(json.dumps(s, ensure_ascii=False)) for s in sets)
+        self.assertGreater(spaced, api.MAX_UI_PREFS_DASH_SET_CHARS, 'control: counted with the spaces json.dumps adds, the same list would not fit')
+        out = S({"dashboard_sets": sets})["dashboard_sets"]
+        self.assertEqual([s["id"] for s in out], ["s0", "s1", "s2", "s3"], 'every layout the page accepted is kept')
+        self.assertEqual(out[3]["w"], filler["w"])
+
     def test_eight_sets_of_a_realistic_size_all_fit(self):
         realistic = [_set("s%d" % i, "Layout number %d" % i, KEYS[i:i + 18]) for i in range(8)]
         out = S({"dashboard_sets": realistic})["dashboard_sets"]
