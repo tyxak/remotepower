@@ -8297,6 +8297,20 @@ image:ghcr.io/getarcaneapp/tools</pre>
           <div class="row-6 mt-8"><button class="btn-primary" id="container-excludes-save" data-action="saveContainerExcludes" disabled>Save exclude list</button></div>
           <div id="container-excludes-status" class="hint mt-6" role="status" aria-live="polite"></div>
         </div>
+        <!-- 8.0.0: log lines in an unhealthy container's alert. Off until an administrator turns it on. Disabled until the number has been read,
+             so a save cannot send one the page never saw. -->
+        <div class="dash-card mt-16" data-pg-tab="containers" id="container-log-lines-card">
+          <div class="section-header"><div class="section-title" id="container-log-lines-title">Log lines in an unhealthy container's alert</div></div>
+          <p class="hint">0 sends none. A number from 1 to 10 sends that many of the container's last log lines with the notification. Obvious passwords and tokens are masked, but a log can hold other private text, and the lines go wherever the notification goes (chat, e-mail, webhooks). They are not kept in the Alerts list.</p>
+          <div class="settings-row">
+            <div class="form-group mw-200">
+              <label for="container-log-lines" class="form-label">Lines</label>
+              <input type="number" id="container-log-lines" class="form-input" min="0" max="10" step="1" value="0" disabled>
+            </div>
+          </div>
+          <div class="row-6 mt-8"><button class="btn-primary" id="container-log-lines-save" data-action="saveContainerLogLines" disabled>Save</button></div>
+          <div id="container-log-lines-status" class="hint mt-6" role="status" aria-live="polite"></div>
+        </div>
         <!-- v7.4.3 (#50): the fleet's CPU and memory lines for containers. Disabled until the lines have been
              read, for the reason the exclude list is: saving a form that never received them would clear them.
              The examples sit in a <pre> (the translator skips it, and they are data). -->

@@ -4419,6 +4419,48 @@ def _docker_inspect_meta(cmd_path, ids):
 _HEALTH_DETAIL_MAX = 8
 _HEALTH_OUTPUT_CAP = 240
 
+# 8.0.0: the container's own last log lines, sent with an unhealthy report when the administrator turned that on (the heartbeat answer
+# carries `container_log_lines`, 0 = none, the default). Cut to a line length and a total so a noisy container cannot fill a heartbeat; the
+# server masks passwords and tokens and trusts none of these limits.
+_LOG_LINE_CAP = 200
+_LOG_TOTAL_CAP = 2000
+_CONTAINER_LOG_LINES = 0
+_ANSI_RX = re.compile(r'\x1b\[[0-9;?]*[ -/]*[@-~]')
+
+
+def _set_container_log_lines(value):
+    """How many of an unhealthy container's last log lines to send. Anything that is not a whole number from 1 to 10 is 0, which sends
+    none and never runs `docker logs`."""
+    global _CONTAINER_LOG_LINES
+    _CONTAINER_LOG_LINES = value if isinstance(value, int) and not isinstance(value, bool) and 0 < value <= 10 else 0
+
+
+def _docker_log_tail(cmd_path, cid, n):
+    """The last `n` non-empty lines a container wrote, newest last, each cut to a length and all of them to a total. Best effort: [] when the
+    runtime does not answer or the container has no log."""
+    if not cid or isinstance(n, bool) or not isinstance(n, int) or n <= 0:
+        return []
+    n = min(n, 10)
+    try:
+        r = subprocess.run([cmd_path, 'logs', '--tail', str(n), cid], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           text=True, errors='replace', timeout=CONTAINER_CMD_TIMEOUT)
+    except Exception:
+        return []
+    if r.returncode != 0:
+        return []
+    lines = []
+    for raw in (r.stdout or '').splitlines():
+        s = re.sub(r'[\x00-\x1f\x7f]+', ' ', _ANSI_RX.sub('', raw)).strip()
+        if s:
+            lines.append(s[:_LOG_LINE_CAP])
+    out, used = [], 0
+    for s in reversed(lines[-n:]):          # the newest lines win the total
+        if used + len(s) > _LOG_TOTAL_CAP:
+            break
+        out.append(s)
+        used += len(s)
+    return list(reversed(out))
+
 
 def _docker_health_detail(cmd_path, cid):
     """Why an unhealthy container is unhealthy: the output of its latest failing health check and the
@@ -4625,6 +4667,7 @@ def _docker_listing(cmd_path, runtime_name):
 
     items = []
     health_asked = 0
+    log_asked = 0
     for d in parsed:
         # Image splits as 'nginx:1.25-alpine' or 'nginx' (no tag = latest)
         image_full = d.get('Image', '')
@@ -4663,6 +4706,11 @@ def _docker_listing(cmd_path, runtime_name):
             health_asked += 1
             health_output, health_streak = _docker_health_detail(
                 cmd_path, d.get('ID', '') or name)
+        # 8.0.0: and, when asked for, the container's last log lines (unhealthy only, the same budget per report)
+        health_log = []
+        if health == 'unhealthy' and _CONTAINER_LOG_LINES and log_asked < _HEALTH_DETAIL_MAX:
+            log_asked += 1
+            health_log = _docker_log_tail(cmd_path, d.get('ID', '') or name, _CONTAINER_LOG_LINES)
         items.append({
             'name':           name,
             'image':          image,
@@ -4694,6 +4742,8 @@ def _docker_listing(cmd_path, runtime_name):
             # 7.4.9: how the container was started (None when it could not be inspected)
             'audit':          audit_facts.get(d.get('ID', '')),
         })
+        if health_log:
+            items[-1]['health_log'] = health_log
     return items
 
 
@@ -15998,6 +16048,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     if [c.get('id') for c in new_ac] != [c.get('id') for c in agent_checks]:
                         log.info(f'Config updated: agent_checks = {len(new_ac)} check(s)')
                     agent_checks = new_ac
+            # 8.0.0: how many log lines of an unhealthy container ride with its report (0 = none)
+            if 'container_log_lines' in resp:
+                _set_container_log_lines(resp.get('container_log_lines'))
             # v2.6.0: receive desired host config from server
             if 'backup_monitors' in resp:
                 _backup_monitors = resp.get('backup_monitors')

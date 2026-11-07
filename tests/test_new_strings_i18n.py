@@ -210,6 +210,11 @@ NEW_STRINGS = [
     "Suricata is running, but no alerts arrive, only its own messages. If you expect alerts, tick Enable syslog alerts in its settings (OPNsense: Services → Intrusion Detection → Settings).",
     # 8.0.0: the Apprise destination in the notification wizard
     "The key is part of the address. Set up the services behind it in Apprise itself.",
+    # 8.0.0: log lines in an unhealthy container's alert
+    "Log lines in an unhealthy container's alert",
+    "0 sends none. A number from 1 to 10 sends that many of the container's last log lines with the notification. Obvious passwords and tokens are masked, but a log can hold other private text, and the lines go wherever the notification goes (chat, e-mail, webhooks). They are not kept in the Alerts list.",
+    "Only an administrator can change this.",
+    "Enter a whole number from 0 to 10.",
 ]
 
 

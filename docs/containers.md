@@ -214,6 +214,30 @@ passed a check yet.
 - The **unhealthy** badge on a container in the host's container list carries the same text as a tooltip,
   with the number of failed checks in a row *(7.5.0)*.
 
+**Log lines in the alert** *(8.0.0)* are off by default. The failing check says why the check failed; the container's own log often says
+why the program did. Under **Monitoring → Tuning → Log lines in an unhealthy container's alert** (or the config key
+`container_alert_log_lines`, a whole number from 0 to 10) you choose how many of the container's last log lines ride with the alert:
+
+```text
+serverbox: container "web" (docker) is unhealthy (3 failed checks in a row)
+→ curl: (7) Failed to connect to localhost port 8080
+Last 3 log lines:
+2026-11-07T10:01:02Z error: upstream connect refused 10.0.0.5:5432
+2026-11-07T10:01:07Z error: upstream connect refused 10.0.0.5:5432
+2026-11-07T10:01:12Z warn: giving up after 3 retries
+```
+
+- With 0 the agent runs no `docker logs` and nothing is sent. With a number, the agent reads the lines of an unhealthy container only,
+  for eight containers per report at most, with `docker logs --tail`. Podman works the same way.
+- Lines of 200 characters at most, 1,500 characters in all. Obvious passwords and tokens (`password=…`, `Authorization: Bearer …`,
+  the password in a URL) are masked on the server. That is a help, not a guarantee: a log can hold other private text, and the lines go
+  wherever the notification goes (the chat message, the e-mail, the webhook body, push), so look at what your containers log before you turn
+  this on. They are not kept in the Alerts list or the activity feed.
+- The number comes from the server's setting, not from what an agent sends. An agent that sends lines while the setting is 0 has them
+  dropped. Only a Linux agent reads the setting; the key is `container_log_lines` in the heartbeat answer.
+- The webhook payload of `container_unhealthy` gains `log`, a list of the lines, when the setting is above 0. The alert row in the Alerts
+  list keeps `output` and the rest as before, and no `log`.
+
 Webhook payload of `container_unhealthy` (`container_healthy` carries the same keys without `output` and `health_streak`):
 
 ```json

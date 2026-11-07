@@ -111,6 +111,9 @@ DECLARED = {
     # (host_monitors_for returns None for the rest).
     'host_monitors':        ('linux',),
     'host_monitor_interval': ('linux',),
+    # 8.0.0: how many of an unhealthy container's last log lines the agent sends (0 = none). Only the Linux agent reads a container's health
+    # check and log, and only it reads the key; the server sends it to Linux agents alone (a Windows or macOS heartbeat is answered without it).
+    'container_log_lines':  ('linux',),
     # v7.0.2: the eight keys from the `common_resp = { ... }` literal. They
     # were outside the extraction above, so none of them had a row here.
     'poll_interval':        _ALL,

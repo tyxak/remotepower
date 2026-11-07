@@ -951,6 +951,11 @@ def _webhook_message(event, payload):
         why = str(payload.get("output") or "").strip()
         if why:
             head += f"\n→ {why[:240]}"
+        # 8.0.0: the container's own last log lines, when the administrator asked for them (the server has already masked and capped them)
+        log = payload.get("log")
+        shown = [str(x)[:200] for x in log[-10:] if str(x).strip()] if isinstance(log, list) else []
+        if shown:
+            head += f"\nLast {plural(len(shown), 'log line', 'log lines')}:\n" + "\n".join(shown)
         return head
     elif event == "container_healthy":
         c = f'{name}: container "{payload.get("container", "?")}"'

@@ -15,6 +15,7 @@ async function loadTuning() {
     });
     loadSuppressions();   // its table has its own placeholder and its own error text
     loadContainerExcludes();
+    loadContainerLogLines();
     loadContainerLimits();
     return;
   }
@@ -26,6 +27,7 @@ async function loadTuning() {
   // endpoint, fire-and-forget — a failure there must not blank the Tuning page.
   loadSuppressions();
   loadContainerExcludes();
+  loadContainerLogLines();
   loadContainerLimits();
 }
 
@@ -215,6 +217,49 @@ async function saveContainerExcludes() {
     // Not when the reload after a save could not read the list: that left the box locked, and a
     // usable-looking button beside a locked box does nothing.
     if (btn && !ta.disabled) btn.disabled = false;
+  }
+}
+
+// ── 8.0.0: log lines in an unhealthy container's alert ───────────────────────
+//
+// `container_alert_log_lines` (0 to 10, 0 = none) is read from GET /api/config and written back with a one-key POST /api/config, like the
+// exclude list above. The box starts disabled and is enabled once the number has been read, so a save cannot send one the page never saw.
+async function loadContainerLogLines() {
+  const inp = document.getElementById('container-log-lines');
+  if (!inp) return;
+  const btn = document.getElementById('container-log-lines-save');
+  const st = document.getElementById('container-log-lines-status');
+  const cfg = await api('GET', '/config').catch(() => null);
+  if (!cfg || cfg.error) {
+    inp.disabled = true;
+    if (btn) btn.disabled = true;
+    _errorState(st, loadContainerLogLines);
+    return;
+  }
+  inp.value = String(Number.isInteger(cfg.container_alert_log_lines) ? cfg.container_alert_log_lines : 0);
+  const admin = !!(_meCache && _meCache.admin);
+  inp.disabled = false;
+  inp.readOnly = !admin;
+  if (btn) { btn.disabled = false; btn.classList.toggle('hidden', !admin); }
+  if (st) st.textContent = admin ? '' : 'Only an administrator can change this.';
+}
+
+async function saveContainerLogLines() {
+  const inp = document.getElementById('container-log-lines');
+  const btn = document.getElementById('container-log-lines-save');
+  if (!inp || inp.disabled || inp.readOnly) return;
+  const raw = inp.value.trim();
+  const n = /^\d{1,2}$/.test(raw) ? parseInt(raw, 10) : -1;
+  if (n < 0 || n > 10) { toast('Enter a whole number from 0 to 10.', 'error'); inp.focus(); return; }
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api('POST', '/config', { container_alert_log_lines: n });
+    if (r && r.ok) {
+      toast('Settings saved', 'success');
+      await loadContainerLogLines();   // the box shows what the server kept
+    } else failToast(r);
+  } finally {
+    if (btn && !inp.disabled) btn.disabled = false;
   }
 }
 

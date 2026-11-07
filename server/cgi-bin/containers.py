@@ -53,6 +53,10 @@ MAX_PORT_STRING_LEN = 128
 MAX_PORTS_PER_CONTAINER = 20
 # What an unhealthy container's failing health check printed (7.4.9). The agent cuts it at 240 as well.
 MAX_HEALTH_OUTPUT_LEN = 240
+# 8.0.0: a container's own last log lines, sent for an unhealthy one when the administrator asked for them. The agent cuts to these
+# limits and they are enforced again here, since the agent's own are not trusted.
+MAX_HEALTH_LOG_LINES = 10
+MAX_HEALTH_LOG_LINE_LEN = 200
 
 # Allowed runtime tags. Anything else falls through to 'unknown'.
 ALLOWED_RUNTIMES = ("docker", "podman", "kubernetes", "unknown")
@@ -100,6 +104,15 @@ def _clean_text(value: Any, cap: int) -> str:
     s = "".join(" " if (ord(ch) < 32 or ord(ch) == 127) else ch for ch in str(value))
     s = " ".join(s.split())
     return s[:cap] if len(s) > cap else s
+
+
+def _clean_lines(value: Any, max_lines: int, cap: int) -> list:
+    """A list of short single-line strings: the last `max_lines` non-empty ones, each cleaned like any other text from an agent and cut to
+    `cap`. Anything that is not a list is no lines."""
+    if not isinstance(value, list):
+        return []
+    out = [s for s in (_clean_text(v, cap) for v in value if isinstance(v, str)) if s]
+    return out[-max_lines:]
 
 
 def _int_or_zero(value: Any) -> int:
@@ -223,6 +236,7 @@ def normalize_container(item: Any) -> dict | None:
         # alert inbox, e-mail and webhook bodies, and a hostile agent could put anything in it.
         "health_output": _clean_text(item.get("health_output"), MAX_HEALTH_OUTPUT_LEN),
         "health_streak": min(_int_or_zero(item.get("health_streak")), 100000),
+        "health_log": _clean_lines(item.get("health_log"), MAX_HEALTH_LOG_LINES, MAX_HEALTH_LOG_LINE_LEN),
         "cpu_percent": _pct_or_none(item.get("cpu_percent"), _CPU_PCT_TOP),
         "mem_percent": _pct_or_none(item.get("mem_percent")),
         "mem_usage": _str(item.get("mem_usage"), 48),

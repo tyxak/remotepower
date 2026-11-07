@@ -24824,6 +24824,13 @@ def handle_heartbeat():
             common_resp['host_monitor_interval'] = max(60, int(_config_ro().get('monitor_interval', 300) or 300))
     except Exception as _hme:
         sys.stderr.write(f"[remotepower] host monitors dispatch failed: {type(_hme).__name__}: {_hme}\n")
+    # 8.0.0: how many of an unhealthy container's last log lines ride with its report. Always sent to a Linux agent, even 0, so that turning it
+    # off reaches an agent that was told a number before; the other agents collect no container logs and never see the key.
+    try:
+        if _device_os_family(saved_dev) == 'linux':
+            common_resp['container_log_lines'] = _container_log_setting()
+    except Exception as _cle:
+        sys.stderr.write(f"[remotepower] container log setting dispatch failed: {type(_cle).__name__}: {_cle}\n")
 
     # v4.9.0: one-shot directive — tell the agent to harvest its acme.sh DNS
     # credentials on the next poll (admin clicked "Import from agent"). Cleared
@@ -33323,6 +33330,12 @@ def handle_config_save():
             cfg['container_thresholds'] = _ctl
         else:
             cfg.pop('container_thresholds', None)
+    if 'container_alert_log_lines' in body:
+        # 8.0.0: how many of an unhealthy container's last log lines go into its alert; 0 (the default) sends none
+        _cll = body['container_alert_log_lines']
+        if isinstance(_cll, bool) or not isinstance(_cll, int) or not 0 <= _cll <= 10:
+            respond(400, {'error': 'container_alert_log_lines must be a whole number from 0 to 10'})
+        cfg['container_alert_log_lines'] = _cll
     for _wk in ('webterm_daemon_url', 'webterm_daemon_secret'):
         if _wk in body:
             _wv = _sanitize_str(str(body[_wk] or ''), 512)
@@ -73194,6 +73207,30 @@ def _open_container_stopped_names(dev_id):
     return names
 
 
+_ALERT_LOG_LINE_CAP = 200
+_ALERT_LOG_TOTAL_CAP = 1500
+
+
+def _container_log_setting():
+    """8.0.0: how many of an unhealthy container's last log lines go into its alert: a whole number from 1 to 10, or 0 for none (the
+    default, and what anything else in the stored configuration is)."""
+    v = (_config_ro() or {}).get('container_alert_log_lines')
+    return v if isinstance(v, int) and not isinstance(v, bool) and 0 < v <= 10 else 0
+
+
+def _redacted_container_log(lines, n):
+    """The newest `n` of an agent's log lines, with obvious credentials masked and a cap on the length of a line and on the total. Not a
+    guarantee that nothing private is left, which is why the setting is off until an administrator turns it on."""
+    out, used = [], 0
+    for raw in reversed([str(x) for x in (lines or []) if str(x).strip()][-n:]):
+        s = _redact_log_line(raw)[:_ALERT_LOG_LINE_CAP]
+        if used + len(s) > _ALERT_LOG_TOTAL_CAP:
+            break
+        out.append(s)
+        used += len(s)
+    return list(reversed(out))
+
+
 def _fire_container_webhook(event, dev_id, container_name, payload_extra=None):
     """Wrapper that fires container_stopped / container_restarting via fire_webhook."""
     dev = device_get(dev_id) or {}
@@ -73302,6 +73339,11 @@ def _evaluate_container_health(dev_id, running_now, prev_entry, excluded, state)
             extra['output'] = c['health_output']
         if c.get('health_streak'):
             extra['health_streak'] = c['health_streak']
+        # 8.0.0: the container's own last log lines, only when the administrator asked for them (the server's setting decides, not what an
+        # agent chose to send), with obvious passwords and tokens masked
+        _n_log = _container_log_setting()
+        if _n_log and c.get('health_log'):
+            extra['log'] = _redacted_container_log(c['health_log'], _n_log)
         _fire_container_webhook('container_unhealthy', dev_id, name, extra)
         still.append(name)
     if state is not None:
