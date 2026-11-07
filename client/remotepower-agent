@@ -13267,6 +13267,9 @@ _TS_DEFAULT_AUDIT = (
 # host that has both is not read twice.
 _TS_DEFAULT_FW = ('/var/log/ufw.log',)
 _TS_FALLBACK_FW = ('/var/log/kern.log',)
+# Suricata's alerts: eve.json and fast.log in its log directory. Both are read when both are there: the aggregate keeps
+# the larger count of the two files for an address, so an alert written to both is counted once.
+_TS_SURICATA_FILES = ('eve.json', 'fast.log')
 
 
 def _ts_exists(path):
@@ -13298,9 +13301,17 @@ def _ts_kind_of(path):
         return 'f2b'
     if any(w in n for w in ('ufw', 'kern', 'firewall', 'iptables', 'netfilter', 'nftables')):
         return 'fw'
+    if (n.startswith('eve') and n.endswith('.json')) or (n.startswith('fast') and n.endswith('.log')):
+        return 'ids'
     if 'error' in n:
         return 'err'
     return 'web'
+
+
+def _ts_suricata_dir():
+    """Where Suricata writes its logs: the `default-log-dir` of its configuration, else /var/log/suricata."""
+    m = re.search(r'^\s*default-log-dir:\s*["\']?(/[^\s"\']+)', _safe_read('/etc/suricata/suricata.yaml', 400_000), re.M)
+    return m.group(1).rstrip('/') if m else '/var/log/suricata'
 
 
 def _ts_f2b_logtarget():
@@ -13362,7 +13373,7 @@ def _ts_discover(cfg, now):
             roots.append((p, 'apache', '/etc/nginx'))
     specs, errors, audit, proxied = _ts_log_sources(_ts_conf_statements(roots), apache_root)
 
-    web, err, waf, f2b, fw, seen = [], [], [], [], [], set()
+    web, err, waf, f2b, fw, ids, seen = [], [], [], [], [], [], set()
 
     def add(bucket, entry):
         key = os.path.realpath(host_path(entry['path']))
@@ -13397,6 +13408,10 @@ def _ts_discover(cfg, now):
         for p in _TS_FALLBACK_FW:
             if _ts_exists(p):
                 add(fw, {'path': p, 'configured': False})
+    sdir = _ts_suricata_dir()
+    for name in _TS_SURICATA_FILES:
+        if _ts_exists(sdir + '/' + name):
+            add(ids, {'path': sdir + '/' + name, 'configured': False})
     target = _ts_f2b_logtarget()
     told = {'self_reports': _ts_f2b_self_reports()} if (target or _which('fail2ban-client')) else {}
     if not told.get('self_reports'):
@@ -13419,9 +13434,11 @@ def _ts_discover(cfg, now):
             add(waf, {'path': real, 'configured': True})
         elif kind == 'fw':
             add(fw, {'path': real, 'configured': True})
+        elif kind == 'ids':
+            add(ids, {'path': real, 'configured': True})
         else:
             add(f2b, {'path': real, 'configured': True})
-    return {'at': int(now), 'web': web, 'err': err, 'waf': waf, 'f2b': f2b, 'fw': fw,
+    return {'at': int(now), 'web': web, 'err': err, 'waf': waf, 'f2b': f2b, 'fw': fw, 'ids': ids,
             'cs': bool(_which('cscli')) and not IN_CONTAINER, 'proxied': bool(proxied)}
 
 
@@ -14170,6 +14187,182 @@ def _ts_scan_firewall(lines, agg, fkey, now):
     return n, parsed
 
 
+# ── Suricata (the alerts of an IDS that runs on this host) ────────────────────
+#
+# Suricata is set up to write each alert twice: as an EVE JSON record in eve.json (beside every other event it logs: flows,
+# DNS, TLS, stats) and as one line in fast.log. Either file is read when it is there. An address is counted once however many
+# of the two name it, because the aggregate keeps the larger number of its files, never the sum.
+#
+# Only an alert whose signature or classification names an attack counts, in the classes the server uses for the Suricata of
+# a firewall (server/cgi-bin/appliance_evidence.py; tests/test_v800_agent_suricata.py holds the two copies of these patterns
+# equal). The reputation lists, the policy and information rules, the malware and command-and-control rules (which fire on
+# traffic from your own network) and anything outbound name no attack: they are read and dropped. The signature is a rule
+# author's text, and a line is cut to THREAT_MAX_LINE before it is read; no field is parsed by a pattern that can backtrack.
+
+_TS_IDS_SKIP = re.compile('^surica|\\bsuricata\\b|\\bet (?:drop|dshield|cins|compromised|tor|info|policy|chat|games|p2p|dns|mobile_malware|malware|trojan|cnc|phishing|current_events|adware_pup|user_agents|hunting|ja3|scada|voip)\\b|\\b(?:outbound|to_client)\\b|\\bfrom home_net\\b')
+_TS_IDS_RULES = tuple(
+    (cls, re.compile(rx))
+    for cls, rx in (
+    ('rce',
+     '\\blog4|\\bspring4shell|\\bshellshock|\\bstruts|\\brce\\b|remote code|command inject|code exec|webshell|\\bcve-'),
+    ('sqli',
+     'sql ?inject|\\bsqli\\b'),
+    ('xss',
+     '\\bxss\\b|cross.?site script'),
+    ('traversal',
+     'travers|\\blfi\\b|\\brfi\\b|/etc/passwd|\\.\\./'),
+    ('flood',
+     '\\bdos\\b|denial of service|flood'),
+    ('scanner',
+     'nmap|nikto|sqlmap|masscan|zmap|acunetix|nessus|openvas|wpscan|dirbuster|gobuster|havij|netsparker|appscan|nuclei|zgrab|sipvicious|friendly-scanner'),
+    ('ftp_brute',
+     '\\bftp\\b.*(?:brute|login|auth)'),
+    ('mail_brute',
+     '\\b(?:smtp|imap|pop3)\\b.*(?:brute|login|auth)'),
+    ('service_brute',
+     '\\b(?:telnet|rdp|vnc|mssql|mysql|postgres)\\b.*(?:brute|login|auth)'),
+    ('port_scan',
+     '\\bet scan\\b|detection of a network scan|network scan|port scan|\\bscan\\b'),
+    ('probe',
+     'attempted information leak'),
+    )
+)
+_TS_EVE_ALERT_RE = re.compile(r'"event_type"\s*:\s*"alert"')
+_TS_JSON_DEC = json.JSONDecoder()
+_TS_FAST_STAMP_RE = re.compile(r'(\d\d)/(\d\d)/(\d{4})-(\d\d):(\d\d):(\d\d)')
+_TS_FAST_TAG_RE = re.compile(r'\[\d+:\d+:\d+\]\s*')
+_TS_FAST_TAIL_RE = re.compile(r'\{(?P<proto>[A-Za-z0-9_-]+)\}\s+(?P<src>\S+)\s+->\s+(?P<dst>\S+)')
+_TS_EVE_HEAD = 800                # an EVE record names its event type within this many characters
+
+
+def _ts_ids_class(signature, classification=''):
+    """The attack class a Suricata alert stands for ('rce', 'sqli', 'port_scan', ...), or None for one that names no
+    attack."""
+    hay = (str(signature or '')[:300] + ' | ' + str(classification or '')[:100]).lower()
+    if _TS_IDS_SKIP.search(hay):
+        return None
+    for cls, rx in _TS_IDS_RULES:
+        if rx.search(hay):
+            return cls
+    return None
+
+
+def _ts_json_field(msg, key, start=0):
+    """(value, where the key is) for the JSON value that follows `"key":` in a record that may be cut short, or
+    (None, -1). Plain str.find and the decoder's own raw_decode: no pattern, so no backtracking. The same word as a
+    value (`"event_type":"alert"`) is passed over until a key is found."""
+    n, quoted = len(msg), '"%s"' % key
+    i = msg.find(quoted, start)
+    while i >= 0:
+        j = i + len(quoted)
+        while j < n and msg[j] in ' \t':
+            j += 1
+        if j < n and msg[j] == ':':
+            j += 1
+            while j < n and msg[j] in ' \t':
+                j += 1
+            try:
+                return _TS_JSON_DEC.raw_decode(msg, j)[0], i
+            except ValueError:
+                return None, -1
+        i = msg.find(quoted, i + 1)
+    return None, -1
+
+
+def _ts_add_alert(agg, fkey, ip, ts, sig, cat):
+    """Count one alert for an address when its signature or classification names an attack."""
+    cls = _ts_ids_class(sig, cat)
+    if not cls:
+        return False
+    agg.hit('ids', fkey, ip, ts, ['ids:' + cls], 1)
+    cves = [c.upper() for c in _TS_CVE_RE.findall(str(sig)[:300])][:2]
+    if cves:
+        agg.add_cves(ip, cves)
+    return True
+
+
+def _ts_scan_eve(lines, agg, fkey, now):
+    """(lines, parsed) for Suricata's EVE log. One JSON record per line; an alert is the record whose event_type is
+    `alert`, and the address, the protocol, the signature and the category come before its payload and its packet, so they
+    are read from the head of the line and a record longer than THREAT_MAX_LINE costs nothing more. A record of any other
+    type (flow, dns, http, tls, stats) is a line this reader understands and has no use for."""
+    n = parsed = 0
+    floor, ceil = now - THREAT_LOOKBACK_S, now + 300
+    for line in lines:
+        if not line:
+            continue
+        n += 1
+        head = line[:THREAT_MAX_LINE]
+        if head[:1] != '{' or '"event_type"' not in head[:_TS_EVE_HEAD]:
+            continue
+        parsed += 1
+        if not _TS_EVE_ALERT_RE.search(head, 0, _TS_EVE_HEAD):
+            continue
+        src, _ = _ts_json_field(head, 'src_ip')
+        ip = _ts_ip(src) if isinstance(src, str) else None
+        _, at = _ts_json_field(head, 'alert')
+        if not ip or at < 0:
+            continue
+        sig, _ = _ts_json_field(head, 'signature', at)
+        cat, _ = _ts_json_field(head, 'category', at)
+        if not isinstance(sig, str):
+            continue
+        stamp, _ = _ts_json_field(head, 'timestamp')
+        ts = min(_ts_time_iso(stamp) if isinstance(stamp, str) else 0, ceil) or now
+        if ts < floor:
+            continue
+        _ts_add_alert(agg, fkey, ip, ts, sig, cat if isinstance(cat, str) else '')
+    return n, parsed
+
+
+def _ts_split_host_port(s):
+    """The address of `203.0.113.9:443`, `[2001:db8::1]:443` or Suricata's unbracketed `2001:db8::1:443`: the last colon
+    is a port only when what is left of it is an address."""
+    s = str(s or '').strip().rstrip(',')
+    if s.startswith('[') and ']' in s:
+        return s[1:].partition(']')[0]
+    head, sep, tail = s.rpartition(':')
+    if sep and tail.isdigit():
+        try:
+            ipaddress.ip_address(head)
+            return head
+        except ValueError:
+            pass
+    return s
+
+
+def _ts_scan_fastlog(lines, agg, fkey, now):
+    """(lines, parsed) for Suricata's fast.log: `11/07/2026-12:00:00.123456  [**] [1:2001219:20] ET SCAN Potential SSH
+    Scan [**] [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.9:40222 -> 192.0.2.1:22`. An IPS
+    rule that dropped the packet has `[Drop]` before the `[**]`. The time is the host's local time, as in the file."""
+    n = parsed = 0
+    floor, ceil = now - THREAT_LOOKBACK_S, now + 300
+    for line in lines:
+        if not line:
+            continue
+        n += 1
+        parts = line[:THREAT_MAX_LINE].split('[**]', 3)
+        if len(parts) < 3:
+            continue
+        stamp = _TS_FAST_STAMP_RE.match(parts[0].lstrip())
+        tag = _TS_FAST_TAG_RE.match(parts[1].lstrip())
+        tail = _TS_FAST_TAIL_RE.search(parts[2])
+        if not (stamp and tag and tail):
+            continue
+        parsed += 1
+        sig = parts[1].lstrip()[tag.end():].strip()
+        ci = parts[2].find('[Classification:')
+        cj = parts[2].find(']', ci) if ci >= 0 else -1
+        cat = parts[2][ci + 16:cj].strip() if cj >= 0 else ''
+        ip = _ts_ip(_ts_split_host_port(tail.group('src')))
+        mo, d, y, hh, mi, ss = stamp.groups()
+        ts = min(_ts_mktime(y, int(mo), d, hh, mi, ss) or now, ceil)
+        if not ip or ts < floor:
+            continue
+        _ts_add_alert(agg, fkey, ip, ts, sig, cat)
+    return n, parsed
+
+
 _TS_JAIL_NAME_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,39}')
 
 
@@ -14424,6 +14617,13 @@ def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
             n, parsed = _ts_scan_firewall(lines, agg, fkey, now)
             return n, parsed, ''
         one('fw', e, ('fw',), scan_fw)
+
+    for e in disc.get('ids') or []:
+        def scan_ids(lines, fkey):
+            scan = _ts_scan_eve if os.path.basename(fkey).lower().endswith('.json') else _ts_scan_fastlog
+            n, parsed = scan(lines, agg, fkey, now)
+            return n, parsed, ''
+        one('ids', e, ('ids',), scan_ids)
 
     cs_last = int(state.get('cs_last_id') or 0)
     if disc.get('cs'):

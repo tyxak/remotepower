@@ -762,16 +762,22 @@ class TestVocabulary(unittest.TestCase):
     def test_the_families_and_who_may_claim_them(self):
         self.assertEqual(te.APPLIANCE_SOURCES, ('fw', 'cs', 'ids', 'dp'))
         self.assertTrue({'ids', 'dp'} <= set(te.SOURCES))
-        self.assertFalse({'ids', 'dp'} & set(te.AGENT_SOURCES), 'an agent can claim neither')
+        self.assertEqual({'ids', 'dp'} & set(te.AGENT_SOURCES), {'ids'},
+                         'an agent can say what the Suricata on its own host alerted on, and cannot claim a decoy port')
         self.assertFalse({'ids', 'dp'} & set(te.EDGE_SOURCES))
 
-    def test_an_agent_cannot_say_a_decoy_port_or_an_ids_decided(self):
+    def test_an_agent_cannot_say_a_decoy_port_or_a_reputation_list_decided(self):
+        # its own IDS counts like its own WAF (an address needs the same number of hostile alerts as of hostile requests);
+        # a decoy port, and the repeat count of a reputation list, are the appliance reader's own
         raw = {'ip': SCANNER, 'first': 1, 'last': 2, 'src': {'web': 4, 'dp': 9, 'ids': 9},
-               'tok': {'web': {'req:sqli': 4}, 'dp': {'dp:hit': 9}, 'ids': {'ids:rce': 9}}, 'trp': 1}
+               'tok': {'web': {'req:sqli': 4}, 'dp': {'dp:hit': 9}, 'ids': {'ids:rce': 9}}, 'trp': 1, 'rep': 5}
         ev = te.normalize_event(raw, now=10)
-        self.assertEqual(ev['src'], {'web': 4})
-        self.assertEqual(ev['tok'], {'web': {'req:sqli': 4}})
+        self.assertEqual(ev['src'], {'web': 4, 'ids': 9})
+        self.assertEqual(ev['tok'], {'web': {'req:sqli': 4}, 'ids': {'ids:rce': 9}})
         self.assertEqual(ev['trp'], 0, 'only a reader that knows the decoy port may say it decided')
+        self.assertEqual(ev['rep'], 0, 'an agent has no reputation list to count blocked hits against')
+        self.assertEqual(te.qualifies(ev, 10)[0], False, 'nine alerts are under the default count of ten')
+        self.assertEqual(te.confirmed_by(ev), '')
 
     def test_the_server_reads_them_with_the_appliance_families(self):
         raw = {'ip': SCANNER, 'first': 1, 'last': 2, 'src': {'dp': 2}, 'tok': {'dp': {'dp:hit': 2}}, 'trp': 1}

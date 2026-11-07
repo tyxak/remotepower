@@ -156,6 +156,18 @@ class TestWhatIsLetThrough(_Intake):
             self.assertEqual(res['queued'], 0, edge)
             self.assertEqual(self.queue(), [], edge)
 
+    def test_a_hosts_suricata_alerts_are_let_in_and_what_only_a_firewall_may_say_is_not(self):
+        """The Linux agent reads eve.json and fast.log of a Suricata on its own host. Its alerts weigh what its own WAF's
+        refusals do, and the reputation-list repeat count, which a firewall's reader keeps itself, stays out."""
+        ev = raw_event(src={'ids': 12}, tok={'ids': {'ids:rce': 12, 'ids:nonsense': 3}}, rep=40, trp=2)
+        src = {'kind': 'ids', 'path': '/var/log/suricata/eve.json', 'state': 'ok', 'lines': 400, 'parsed': 400, 'events': 12}
+        st, d = self.post([ev], sources=[src])
+        self.assertEqual(d['accepted'], 1)
+        got = self.queue()[0]['evidence']
+        self.assertEqual((got['src'], got['tok']), ({'ids': 12}, {'ids': {'ids:rce': 12}}))
+        self.assertEqual((got['rep'], got['trp']), (0, 0))
+        self.assertEqual(self.store()['sensors']['d1']['sources'], [src])
+
     def test_the_vocabulary_is_enforced(self):
         ev = raw_event(tok={'web': {'req:probe': 4, 'req:drop table': 9, 'jail:x\ny': 3, 'req:probe\n': 2}},
                        ban=['sshd', 'bad jail;'], cve=['CVE-2021-44228', '<script>'])

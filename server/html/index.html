@@ -7203,7 +7203,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card mt-16" data-pg-tab="settings" id="ipintel-sensor-card" hidden>
           <div class="section-title">Log sensor</div>
           <p class="hint mb-12">Linux agents can read your web server, WAF, fail2ban and CrowdSec logs and tell RemotePower what they say about each address: what it tried, how often, and who already banned it. Reports are then worded from that evidence. Only counts and attack types leave the host, never log lines, paths or host names. Off until you turn it on.</p>
-          <div class="settings-row mb-12"><label class="form-label"><input type="checkbox" id="ipintel-sensor"> Read web server, WAF, fail2ban and CrowdSec logs on Linux hosts</label></div>
+          <div class="settings-row mb-12"><label class="form-label"><input type="checkbox" id="ipintel-sensor"> Read web server, WAF, firewall, fail2ban, CrowdSec and Suricata logs on Linux hosts</label></div>
           <div class="form-group">
             <label class="form-label" for="ipintel-sensor-paths">Extra log files (one path per line, under /var/log)</label>
             <textarea id="ipintel-sensor-paths" class="form-input ff-mono" rows="3" spellcheck="false"></textarea>

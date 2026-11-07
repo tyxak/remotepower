@@ -66,6 +66,7 @@ host reads these, read-only, once a minute:
 | fail2ban's log | Which addresses it saw failing, which it banned, and in which jail |
 | CrowdSec | The alerts its own scenarios raised on this host, including AppSec |
 | Firewall log (UFW, kernel `LOG` records) | Addresses the firewall refused on several ports, or many times, within a minute |
+| Suricata (`eve.json`, `fast.log`) | The alerts of an intrusion detection system on this host that name an attack |
 
 The agent finds the files from the web server's own configuration (nginx
 `access_log` and `error_log`, Apache `CustomLog` and `ErrorLog`, ModSecurity's
@@ -89,6 +90,31 @@ victim.
 The firewall has to log for this to see anything. With UFW that is `ufw logging
 low`. A host whose firewall is off, or does not log, shows its log as quiet on
 the **Log sources** card, which is true.
+
+### Suricata on the host
+
+If Suricata runs on the host, the agent reads the logs it writes, `eve.json` and
+`fast.log` in its log directory (`/var/log/suricata`, or the `default-log-dir` in
+`/etc/suricata/suricata.yaml`). Either file is enough and both can be read: an alert
+that is in both is counted once. Add a file of another name under **Extra log files**
+(a name that starts with `eve` and ends in `.json`, or starts with `fast` and ends in
+`.log`).
+
+An alert counts when its signature or classification names an attack, in the same
+classes and by the same rules as the alerts of a firewall's Suricata (see
+[Firewall sources](firewall-sources.md#suricata)): remote code execution, SQL
+injection, a scan and so on. The reputation lists, the policy and information rules,
+the malware rules and anything outbound name no attack and are read and dropped. The
+other events in `eve.json` (flows, DNS, TLS, statistics) are read and not used. A
+record that is longer than the agent keeps is read from its start, where the address,
+the signature and the category are.
+
+An address is sent once it has three alerts, counted across minutes, and is reported
+when the count reaches **Report after attempts**, like a web address. Private and
+reserved addresses, and Cloudflare's, are dropped. The agent has to be able to read the
+files, which Suricata usually makes readable by root only. On the **Log sources**
+card the host shows `Intrusion detection alerts` with the path, and `No permission`
+when the agent cannot read it.
 
 The sensor is off by default and works on Linux agents only. It does nothing
 to the logs it reads and runs in its own thread, so a slow or broken log can

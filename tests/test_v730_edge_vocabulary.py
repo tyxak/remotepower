@@ -29,14 +29,16 @@ def edge(**kw):
 
 class TestFamilies(unittest.TestCase):
     def test_the_three_sets_do_not_overlap_and_make_up_the_whole(self):
-        # v7.4.0: what only the server's reading of a firewall's syslog can say is a third set.
+        # v7.4.0: what only the server's reading of a firewall's syslog can say is a third set. 8.0.0: an agent reads the
+        # alerts of a Suricata on its own host too, so `ids` moved to the agent's set and the third set holds the decoy port.
         agent, edge, appliance = set(te.AGENT_SOURCES), set(te.EDGE_SOURCES), set(te.APPLIANCE_ONLY_SOURCES)
         self.assertEqual(agent & edge, set())
         self.assertEqual(agent & appliance, set())
         self.assertEqual(edge & appliance, set())
         self.assertEqual(set(te.SOURCES), agent | edge | appliance)
         self.assertEqual(edge, {'cf', 'trap'})
-        self.assertEqual(appliance, {'ids', 'dp'})
+        self.assertEqual(appliance, {'dp'})
+        self.assertEqual(agent, {'web', 'err', 'waf', 'f2b', 'cs', 'fw', 'ids'})
 
     def test_every_family_has_words(self):
         for fam in te.SOURCES:

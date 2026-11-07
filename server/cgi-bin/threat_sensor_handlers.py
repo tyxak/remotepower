@@ -49,7 +49,7 @@ import threat_evidence
 
 MAX_EVENTS = 300
 MAX_SOURCES = 40
-_SOURCE_KINDS = ('web', 'err', 'waf', 'f2b', 'cs', 'fw')
+_SOURCE_KINDS = ('web', 'err', 'waf', 'f2b', 'cs', 'fw', 'ids')
 # `engine` is the appliance sensor's: only Suricata's own messages arrive. An agent has no use for it, and the page needs the label
 _SOURCE_STATES = ('ok', 'idle', 'missing', 'denied', 'unparsed', 'unsupported', 'error', 'engine')
 _SELF_REPORTS = ('abuseipdb', 'sniffcat')    # services fail2ban reports to by itself

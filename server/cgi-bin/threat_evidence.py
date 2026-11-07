@@ -35,13 +35,16 @@ Evidence shape (all keys optional on input, always present on output):
      'cve': ['CVE-2021-44228']}
 
 Source families are `web` (access logs), `err` (web server error logs),
-`waf` (ModSecurity), `f2b` (fail2ban), `cs` (CrowdSec) and `fw` (the host's
-firewall log); these come from an agent. `cf` (Cloudflare's own firewall events)
+`waf` (ModSecurity), `f2b` (fail2ban), `cs` (CrowdSec), `fw` (the host's
+firewall log) and `ids` (Suricata's alerts on the host, from eve.json or fast.log);
+these come from an agent. `cf` (Cloudflare's own firewall events)
 and `trap` (the edge honeypot's hits) come from the server's edge feeds and are
-never accepted from an agent. `ids` (an intrusion detection system's alerts) and
-`dp` (hits on a decoy port) come from the server's own reading of a firewall's or
-router's syslog (appliance_evidence), which also reads `fw` and `cs`, and are never
-accepted from an agent either. The same hostile request shows up in several of
+never accepted from an agent. `ids` is also what the server reads from a firewall's
+or router's syslog (appliance_evidence), which also reads `fw`, `cs` and `dp` (hits
+on a decoy port). `dp` is never accepted from an agent, and neither is the
+reputation-list repeat count (`rep`) that goes with an appliance's `ids`: an agent
+may say what its own IDS alerted on, as it may say what its own WAF refused, and not
+that a reputation list or a decoy port decided. The same hostile request shows up in several of
 them, so the number used in a report is the LARGEST family count, never the sum.
 The honeypot's own decision (it banned the address) rides in `trp`, and so does a
 decoy port's (the address hit it twice: nothing innocent connects to it).
@@ -54,12 +57,12 @@ import time
 # What an agent may send, and what the server's edge feeds may produce. The two
 # sets do not overlap: an agent is root on a machine an attacker may already be
 # on, so it cannot claim that Cloudflare or the honeypot decided anything.
-AGENT_SOURCES = ("web", "err", "waf", "f2b", "cs", "fw")
+AGENT_SOURCES = ("web", "err", "waf", "f2b", "cs", "fw", "ids")
 EDGE_SOURCES = ("cf", "trap")
 # What only the server's own reading of a firewall's or router's syslog produces,
-# and what it may speak for: it reads firewall and CrowdSec lines as well.
-APPLIANCE_ONLY_SOURCES = ("ids", "dp")
-APPLIANCE_SOURCES = ("fw", "cs") + APPLIANCE_ONLY_SOURCES
+# and what it may speak for: it reads firewall, CrowdSec and intrusion detection lines as well.
+APPLIANCE_ONLY_SOURCES = ("dp",)
+APPLIANCE_SOURCES = ("fw", "cs", "ids") + APPLIANCE_ONLY_SOURCES
 SOURCES = AGENT_SOURCES + EDGE_SOURCES + APPLIANCE_ONLY_SOURCES
 
 # Words for "seen by ...". The access log and the error log are both "the web
@@ -579,7 +582,8 @@ def normalize_event(raw, now=None, families=AGENT_SOURCES):
         ]
     if "trap" in families or "dp" in families:
         ev["trp"] = _count(raw.get("trp"))
-    if "ids" in families:
+    if "dp" in families:
+        # the reputation-list repeat count is the appliance reader's: it counts blocked hits itself. An agent has no such list
         ev["rep"] = _count(raw.get("rep"))
     cves = raw.get("cve") if isinstance(raw.get("cve"), list) else []
     ev["cve"] = _uniq(c for c in cves if isinstance(c, str) and _CVE_RE.fullmatch(c))[:_MAX_CVES]

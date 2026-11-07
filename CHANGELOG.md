@@ -224,6 +224,16 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   read from the part that arrives (the address, the protocol, the port, the signature and the category come before the payload), so **Enable eve syslog
   output** works too; an alert cut before its signature is still not understood. Held by 14 new tests and ten mutations, all caught.
 
+- **A host that runs Suricata is monitored through its logs.** The Linux agent's log sensor read web, WAF, fail2ban, CrowdSec and firewall logs and had no reader
+  for Suricata, so a host with `/var/log/suricata` showed no intrusion detection source at all. It now reads `eve.json` and `fast.log` (in the log directory
+  of `/etc/suricata/suricata.yaml`, else `/var/log/suricata`), counts each alert that names an attack in the same classes and by the same rules as the alerts of a
+  firewall's Suricata, and shows the files on the Log sources card as `Intrusion detection alerts` with their state. An alert in both files counts once; the other
+  events of `eve.json` are read and not used; a record longer than the agent keeps is read from its start. Private, reserved and Cloudflare addresses are dropped, as
+  everywhere. The server takes the `ids` family from an agent as it takes `waf`: an address needs the same count of alerts as of hostile requests, and the repeat
+  count of a reputation list and a decoy port's decision stay the firewall reader's own. The two copies of the signature patterns are held equal by a test. The Log
+  sensor switch names what it reads (and the firewall log, which it did not). Held by 50 new tests in `tests/test_v800_agent_suricata.py` and sixteen mutations, all
+  caught.
+
 ## v7.5.0 — "Wh0leMatters" — 2026-11-05
 
 A release about finishing what was started. The last production release was 7.4.0, so this release carries everything from 7.4.1

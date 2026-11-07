@@ -131,7 +131,7 @@ class TestEveryPhraseIsTranslated(unittest.TestCase):
     def test_the_new_static_labels_have_them_too(self):
         rows = dict_rows()
         for key in ('Evidence', 'Log sources', 'Log sensor', 'Log', 'Lines read', 'Understood', 'Hostile', 'Format',
-                    'Source', 'Host', 'State', 'Last report', 'Read web server, WAF, fail2ban and CrowdSec logs on Linux hosts',
+                    'Source', 'Host', 'State', 'Last report', 'Read web server, WAF, firewall, fail2ban, CrowdSec and Suricata logs on Linux hosts',
                     'Extra log files (one path per line, under /var/log)'):
             self.assertTrue(rows.get(key) and all(rows[key].get(l) for l in _LANGS), key)
 
