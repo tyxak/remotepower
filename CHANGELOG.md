@@ -268,6 +268,15 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   first pass missed 14, two of them dead code that is gone now and twelve that got a test. **Held by** `tests/test_v800_compose_rollback.py` (40 tests: the agent's own functions against
   the stand-in, a stand-in that is shown to say no, and a whole round with the real server code), the extended `tests/test_v800_image_autoupdate.py` (35 new tests) and
   `test_v800_image_autoupdate_e2e.py` (4 new), and one in `test_v800_protocol_monitors.py` for the heartbeat flag.
+- **Two checks against software that is not ours.** The hosted MCP endpoint was only ever called by a client written for its tests. `tests/test_v800_mcp_real_client_e2e.py` runs the
+  official MCP Python client (the `mcp` package, 1.23.3, when it is installed: the test skips otherwise) against a stack on the demo seed: it negotiates `2025-06-18`, lists the sixteen
+  read tools with the bridge's schemas, reads the same hosts the dashboard shows the same key (the whole fleet, and a key confined to a group), gets a tool error for a missing host and a
+  protocol error for an unknown tool, and fails at the first message with a 401 for a wrong or revoked key. With the module off the endpoint answers 404 and that client reports it as
+  `Session terminated`, which the guide now says. Three mutations of the answers (no tool schema, no server info, no content type) each fail it. `tests/test_v800_real_sshd.py` starts the
+  OpenSSH server installed on the machine, as the user running the tests on a loopback port, and probes it with the SSH monitor's three engines (the server's, the agent's and the
+  satellite's): all three read `SSH-2.0-OpenSSH_10.6` and say the same, and a closed port is refused in the same words; breaking the banner check in any one engine fails it. **Not run
+  against a real service:** the SMTP, IMAP and NTP monitors and the container runtime. No mail server or NTP server is installed on the development machine, and the Docker client is
+  installed but its daemon is not running and the compose plugin is missing. Nothing was downloaded or started as root to change that.
 
 ### Single pages
 

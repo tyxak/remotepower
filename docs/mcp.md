@@ -163,6 +163,10 @@ no session, streams nothing and sends nothing on its own, so `GET /api/mcp` and 
 `2025-06-18`, `2025-03-26` and `2024-11-05`. A request that comes from another web page (it carries an `Origin` that is not this server's) is refused
 by the same check that guards every other POST.
 
+**What it was checked with.** The official Python client (the `mcp` package, 1.23.3) against the demo data: it negotiates `2025-06-18`, lists the sixteen tools and
+reads hosts, with the whole fleet and with a key confined to a group. No other AI host was connected. While the module is off the address answers 404, and that client
+reports it as `Session terminated`.
+
 **What is recorded.** Each `tools/call` is a line in the audit log (`mcp_http_call`) with the tool and its arguments, under the name of the key's
 user. The key itself is not written anywhere.
 
