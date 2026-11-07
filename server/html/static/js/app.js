@@ -3438,10 +3438,14 @@ const _MON_PANELS =['mon-panel-targets', 'mon-panel-slo', 'mon-panel-metrics', '
 function _showAllMonPanels() {
   _MON_PANELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; });
 }
+// The tab each panel is on (page sections): a link to one panel opens the tab that holds it, for this visit only.
+const _MON_PANEL_TAB = {'mon-panel-targets': 'checks', 'mon-panel-slo': 'checks', 'mon-panel-metrics': 'hosts',
+                        'mon-panel-ports': 'hosts', 'mon-panel-processes': 'hosts', 'mon-panel-scripts': 'setup'};
 function showMonitorSection(sectionId, btn) {
   // sectionId is e.g. 'section-targets' → panel is 'mon-panel-targets'
   const panelId = 'mon-panel-' + sectionId.replace('section-', '');
   showPage('monitor', btn);
+  if (_MON_PANEL_TAB[panelId]) pgTabsApply('monitor', _MON_PANEL_TAB[panelId]);
   _MON_PANELS.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = (id === panelId) ? 'block' : 'none';

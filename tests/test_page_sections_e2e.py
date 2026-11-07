@@ -41,7 +41,7 @@ _HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text(encoding='utf-8')
 PAGES = sorted(set(re.findall(r'<nav class="pg-tabs"[^>]*\bdata-pg="([a-z0-9-]+)"', _HTML)))
 OLD_PAGES = ('account', 'ipintel', 'reports', 'sites')                 # tabs since 7.4.0
 # The pages this change added. Each must still have its strip: the list is the control that the population cannot shrink quietly.
-NEW_PAGES = ('kmip', 'autonomy', 'sshgw', 'tuning', 'tickets', 'scans')
+NEW_PAGES = ('kmip', 'autonomy', 'sshgw', 'tuning', 'tickets', 'scans', 'patches', 'monitor')
 
 
 class TestPageSections(unittest.TestCase):
@@ -164,6 +164,19 @@ class TestPageSections(unittest.TestCase):
             seen[tab] = self.page.evaluate("""() => { const c = document.querySelector('#page-scans [data-pg-tab="scans schedules"]');
                 return c ? getComputedStyle(c).display !== 'none' : null; }""")
         self.assertEqual(seen, {'scans': True, 'targets': False, 'schedules': True})
+
+    def test_a_link_to_one_monitoring_panel_opens_the_tab_that_holds_it(self):
+        # the Scripts page links to the Monitoring page's custom scripts panel with showMonitorSection
+        for section, panel, tab in (('section-scripts', 'mon-panel-scripts', 'setup'), ('section-ports', 'mon-panel-ports', 'hosts'),
+                                    ('section-slo', 'mon-panel-slo', 'checks')):
+            with self.subTest(section=section):
+                self._open('monitor')
+                self.page.evaluate("s => showMonitorSection(s)", section)
+                self.page.wait_for_timeout(300)
+                shown = self.page.evaluate("p => getComputedStyle(document.getElementById(p)).display", panel)
+                self.assertNotEqual(shown, 'none', f'{panel} is not showing')
+                self.assertEqual(self.page.get_attribute(f'#page-monitor [data-pg-tab-btn="{tab}"]', 'aria-current'), 'true')
+        self._open('monitor')       # leave the panel filter the way a normal visit does
 
     # ── one long page ────────────────────────────────────────────────────────
     def test_one_long_page_shows_every_card_and_hides_the_strip(self):

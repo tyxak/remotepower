@@ -1048,9 +1048,14 @@
 
       <!-- ── Monitor page (unchanged) ─────────────────────────────────────── -->
       <div id="page-monitor" class="page">
-        <div class="page-title">Monitoring</div>
+        <div class="page-title" id="monitor-page-title">Monitoring</div>
         <div class="page-subtitle">Probes, host metrics, ports, and custom health checks <a href="docs/monitors.md" class="c-accent">Documentation</a></div>
-        <div id="mon-panel-targets" class="dash-card">
+        <nav class="pg-tabs" aria-labelledby="monitor-page-title" data-pg="monitor" data-default="checks">
+          <button class="pg-tab" data-pg-tab-btn="checks" data-action="pgTab" data-arg="monitor:checks">Checks</button>
+          <button class="pg-tab" data-pg-tab-btn="hosts" data-action="pgTab" data-arg="monitor:hosts">Hosts</button>
+          <button class="pg-tab" data-pg-tab-btn="setup" data-action="pgTab" data-arg="monitor:setup">Setup</button>
+        </nav>
+        <div data-pg-tab="checks" id="mon-panel-targets" class="dash-card">
         <div id="section-targets" class="section-header">
           <div class="section-title">Remote checks</div>
           <div class="row-8">
@@ -1085,7 +1090,7 @@
              probes attach to (checkboxes in the monitor editor). Compliance is
              computed from each attached probe's check history over the
              object's window. -->
-        <div id="mon-panel-slo" class="dash-card">
+        <div data-pg-tab="checks" id="mon-panel-slo" class="dash-card">
         <div id="section-slo" class="section-header">
           <div class="section-title">SLA / SLO objects</div>
           <div class="row-8">
@@ -1105,7 +1110,7 @@
         <div class="table-card"><table><thead id="slo-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="target">Target</th><th scope="col" data-col="window">Window</th><th scope="col" data-col="probes">Probes</th><th scope="col" data-col="availability">Availability</th><th scope="col" data-col="budget">Error budget left</th><th scope="col" data-col="status">Status</th><th scope="col"></th></tr></thead><tbody id="slo-tbody"><tr><td colspan="8" class="empty-state">No SLO objects yet — define an availability target (e.g. 99.9% over 30 days), then tick it on the probes that should count toward it.</td></tr></tbody></table></div>
         </div><!-- /mon-panel-slo -->
 
-        <div id="mon-panel-metrics" class="dash-card">
+        <div data-pg-tab="hosts" id="mon-panel-metrics" class="dash-card">
         <!-- v1.12.0: live device metrics. The Monitor page used to only
              show external probes (ping/tcp/http). Now also surfaces the
              current sysinfo state of every enrolled device — disk, memory,
@@ -1176,7 +1181,7 @@
         </div>
 
         </div><!-- /mon-panel-metrics -->
-        <div id="mon-panel-ports" class="dash-card">
+        <div data-pg-tab="hosts" id="mon-panel-ports" class="dash-card">
         <!-- v2.8.1: Listening ports section -->
         <div id="section-ports" class="section-header">
           <div class="row-8-center">
@@ -1195,7 +1200,7 @@
         </div>
 
         </div><!-- /mon-panel-ports -->
-        <div id="mon-panel-scripts" class="dash-card">
+        <div data-pg-tab="setup" id="mon-panel-scripts" class="dash-card">
         <!-- v2.6.0: Custom monitoring scripts section -->
         <div id="section-scripts" class="section-header">
           <div class="row-8-center">
@@ -1255,7 +1260,7 @@
         </div>
         </div><!-- /mon-panel-scripts -->
 
-        <div id="mon-panel-processes" class="dash-card">
+        <div data-pg-tab="hosts" id="mon-panel-processes" class="dash-card">
         <div id="section-processes" class="section-header">
           <div class="row-8-center">
             <div class="section-title">Top processes</div>
@@ -7724,14 +7729,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── Patches page (unchanged) ─────────────────────────────────────── -->
       <div id="page-patches" class="page">
-        <div class="page-title">Patch Report</div><div class="page-subtitle">Overview of pending system updates across all hosts — percentage only counts online hosts with data <a href="docs/patches.md" class="c-accent">Documentation</a></div>
-        <div class="toolbar"><div class="isl-132"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs"><use href="#ic-99336aa6"/></svg><input type="text" id="patch-search-input" class="form-input input-search" placeholder="Search patches…" data-input="renderPatchTable" data-input-debounce="180" aria-label="Search patches"></div><select id="patch-group-filter" class="form-input input-auto" data-change="renderPatchTable" aria-label="Patch group filter"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input isl-133 device-combo" data-change="renderPatchTable" aria-label="Patch host filter"><option value="all">All hosts</option></select><button class="btn-icon" data-action="loadPatchReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
-        <div class="toolbar-mb24"><span class="hint">Export (filtered):</span><button class="btn-icon" data-action="exportPatchFiltered" data-arg="csv" >CSV</button><button class="btn-icon" data-action="exportPatchFiltered" data-arg="xml" >XML</button><button class="btn-icon" data-action="exportPatchPdf" title="Render a printable report and save it as PDF">PDF</button></div>
-        <div class="stats-row isl-134" id="patch-summary"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-db2610fe"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card" data-stat-tone="good"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b2898196"/></svg></div><div><div class="stat-value c-green" id="patch-patched">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-amber" id="patch-pending">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card" data-stat-tone="bad"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6ccc3e4e"/></svg></div><div><div class="stat-value c-red" id="patch-count">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card" data-stat-tone="good"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value c-green" id="patch-pct">—</div><div class="stat-label">Patch Rate</div></div></div></div>
-        <div class="table-card"><table><thead id="patch-thead"><tr><th scope="col" data-col="name">Host</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="os">OS</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="pkg_manager">Pkg Manager</th><th scope="col" data-col="upgradable">Pending</th><th scope="col" data-col="patch_status">Patch Status</th><th scope="col">Recent Patch Cmds</th><th scope="col"></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" class="empty-state">Click Refresh to load patch report. </td></tr></tbody></table></div>
+        <div class="page-title" id="patches-page-title">Patch Report</div><div class="page-subtitle">Overview of pending system updates across all hosts — percentage only counts online hosts with data <a href="docs/patches.md" class="c-accent">Documentation</a></div>
+        <nav class="pg-tabs" aria-labelledby="patches-page-title" data-pg="patches" data-default="pending">
+          <button class="pg-tab" data-pg-tab-btn="pending" data-action="pgTab" data-arg="patches:pending">Pending</button>
+          <button class="pg-tab" data-pg-tab-btn="catalog" data-action="pgTab" data-arg="patches:catalog">Catalog and SLA</button>
+          <button class="pg-tab" data-pg-tab-btn="software" data-action="pgTab" data-arg="patches:software">Software</button>
+        </nav>
+        <div data-pg-tab="pending" class="toolbar"><div class="isl-132"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs"><use href="#ic-99336aa6"/></svg><input type="text" id="patch-search-input" class="form-input input-search" placeholder="Search patches…" data-input="renderPatchTable" data-input-debounce="180" aria-label="Search patches"></div><select id="patch-group-filter" class="form-input input-auto" data-change="renderPatchTable" aria-label="Patch group filter"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input isl-133 device-combo" data-change="renderPatchTable" aria-label="Patch host filter"><option value="all">All hosts</option></select><button class="btn-icon" data-action="loadPatchReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
+        <div data-pg-tab="pending" class="toolbar-mb24"><span class="hint">Export (filtered):</span><button class="btn-icon" data-action="exportPatchFiltered" data-arg="csv" >CSV</button><button class="btn-icon" data-action="exportPatchFiltered" data-arg="xml" >XML</button><button class="btn-icon" data-action="exportPatchPdf" title="Render a printable report and save it as PDF">PDF</button></div>
+        <div data-pg-tab="pending" class="stats-row isl-134" id="patch-summary"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-db2610fe"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card" data-stat-tone="good"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b2898196"/></svg></div><div><div class="stat-value c-green" id="patch-patched">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-amber" id="patch-pending">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card" data-stat-tone="bad"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6ccc3e4e"/></svg></div><div><div class="stat-value c-red" id="patch-count">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card" data-stat-tone="good"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value c-green" id="patch-pct">—</div><div class="stat-label">Patch Rate</div></div></div></div>
+        <div data-pg-tab="pending" class="table-card"><table><thead id="patch-thead"><tr><th scope="col" data-col="name">Host</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="os">OS</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="pkg_manager">Pkg Manager</th><th scope="col" data-col="upgradable">Pending</th><th scope="col" data-col="patch_status">Patch Status</th><th scope="col">Recent Patch Cmds</th><th scope="col"></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" class="empty-state">Click Refresh to load patch report. </td></tr></tbody></table></div>
 
         <!-- W1-33: patch-compliance SLA -->
-        <div class="dash-card mt-16">
+        <div data-pg-tab="catalog" class="dash-card mt-16">
           <div class="section-title">Patch SLA</div>
           <p class="hint">Flag hosts whose pending updates have gone unpatched too long. Set a maximum age (days) for <strong>security</strong> and/or <strong>all</strong> updates, scoped to a group, tag, or the whole fleet — first matching rule wins. Breaches raise a <code>patch_sla_violation</code> alert. Reporting only; nothing is auto-installed.</p>
           <div id="patch-sla-rules" class="scroll-cap-sm mt-8"></div>
@@ -7746,7 +7756,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <!-- v3.4.1: software inventory search -->
-        <div class="dash-card mt-16">
+        <div data-pg-tab="software" class="dash-card mt-16">
           <div class="section-title">Software inventory search</div>
           <div class="page-subtitle mb-12">Find which hosts have a package — e.g. <span class="ff-mono">openssl</span> older than a version. Searches the collected package inventory.</div>
           <div class="row-8-center mb-12">
@@ -7767,7 +7777,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <!-- v3.4.2: fleet-wide patch catalog (by package) -->
-        <div class="dash-card mt-16">
+        <div data-pg-tab="catalog" class="dash-card mt-16">
           <div class="section-header mb-6">
             <div class="row-8-center"><div class="section-title">Patch catalog</div><span id="patch-catalog-summary" class="fs-12 c-muted"></span></div>
             <button class="btn-icon" data-action="loadPatchCatalog"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -7777,7 +7787,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <!-- 7.4.9: the package repositories the hosts use (app-repos.js, lazy) -->
-        <div class="dash-card mt-16" id="repo-card">
+        <div data-pg-tab="software" class="dash-card mt-16" id="repo-card">
           <div class="section-header mb-6">
             <div class="row-8-center"><div class="section-title">Package repositories</div><span id="repo-summary" class="fs-12 c-muted"></span></div>
             <button class="btn-icon" data-action="loadRepositories"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -7800,7 +7810,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <!-- v3.4.2: install software from repos, targeted at a host or tag/group -->
-        <div class="dash-card mt-16" id="install-card">
+        <div data-pg-tab="software" class="dash-card mt-16" id="install-card">
           <div class="section-title">Install software</div>
           <div class="page-subtitle mb-12">Install one or more packages from the host's own repositories — on a single host, or across a whole group or tag. Detects the package manager (apt / dnf / yum / zypper / pacman / apk). Requires the <code>exec</code> permission; honours quarantine and change-windows.</div>
           <div class="row-8-center mb-8">

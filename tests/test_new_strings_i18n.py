@@ -41,6 +41,7 @@ NEW_STRINGS = [
     "Needs triage",              # Tickets
     "My tickets",
     "Schedules",                 # Pentest
+    "Catalog and SLA",           # Patches
 ]
 
 
