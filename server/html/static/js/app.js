@@ -20486,6 +20486,14 @@ function _renderHomeWidgets(home) {
     _setWidget('home-w-vpn-body',
       '<div class="hint">Requires the admin or auditor role.</div>');
   }
+  // 8.0.0: Threat Intel in brief. {on: false} is "switched off"; no datum at all is a server that could not build it.
+  const ti = W.threatintel || {};
+  _setWidget('home-w-threatintel-body', ti.on
+    ? `<div class="dash-big">${escHtml(String(ti.seen || 0))}</div><div class="hint">addresses seen in the last 24 hours</div>`
+      + _miniRows([{ l: 'Reported in 24 hours', r: String(ti.reported || 0) }, { l: 'Blocked now', r: String(ti.blocked || 0) }]
+        .concat(ti.problems ? [{ l: 'Sources in trouble', r: String(ti.problems), cls: 'c-amber' }] : []))
+      + '<div class="hint pointer" data-action="showPage" data-arg="ipintel" tabindex="0">Open Threat Intel →</div>'
+    : ti.on === false ? '<div class="hint">Threat Intel is off.</div>' : _miniRows([]));
   // Actionable alerts feed — open alerts with inline ack / resolve / investigate.
   const af = (home.tickets && home.tickets.open) || [];
   _setWidget('home-w-alertsfeed-body', af.length
@@ -20599,6 +20607,7 @@ const DASH_WIDGETS = [
   // api.DASHBOARD_WIDGETS — a guardrail test pins the two lists equal.
   { key: 'uptimetop', label: 'Longest uptime',                  opt: true, size: 'sm' },
   { key: 'helpdesk', label: 'Helpdesk tickets open',  opt: true, size: 'sm' },
+  { key: 'threatintel', label: 'Threat Intel',           opt: true, size: 'sm' },
   // v6.4.2: onboarding checklist. NOT `opt` — a new operator must not have to
   // discover it to see it, which was the whole finding. Same order as
   // api.DASHBOARD_WIDGETS (a guardrail test pins the two lists equal).

@@ -45,7 +45,7 @@ class TestShape(unittest.TestCase):
     def test_every_widget_the_page_has_is_accepted(self):
         out = S({"dashboard_sets": [_set(w=KEYS)]})
         self.assertEqual(out["dashboard_sets"][0]["w"], KEYS)
-        self.assertEqual(len(KEYS), 71, 'the catalog this was written against; a new widget changes the byte budget below')
+        self.assertEqual(len(KEYS), 72, 'the catalog this was written against; a new widget changes the byte budget below')
 
     def test_ids_must_be_short_lower_case_and_unique(self):
         # "123", "1e5" and "0x1f" start with a digit: the click dispatcher passes data-arg through Number() when it can, so an id

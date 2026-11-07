@@ -641,6 +641,7 @@ builtins = [
     "ip_intel_note_attacks",
     "ip_intel_note_evidence",
     "ip_intel_policy",
+    "ip_intel_widget",
     "listed_for",
     "merge_listed",
     "monitor_spec",

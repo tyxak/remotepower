@@ -292,7 +292,12 @@ class TestEagerJsPayload(unittest.TestCase):
         # two fixes beside it (a cycle that sees the pages that load on demand, a refused fullscreen request). It all runs when Home is
         # drawn, before any loader could fetch it. The manager (create, rename, delete, the four ready-made layouts) is app-dashsets.js, 8,975
         # bytes, which is lazy and is fetched when the Customize panel opens. The translations are in i18n.js, which is not eager.
-        self.assertLess(total, 2_712_000,
+        # 8.0.0 Threat Intel widget: 2_714_000. The payload was 2_711_541 after the wizards, 459 under the budget, and is 2_712_394
+        # now: 853 bytes more, all of it in app.js. The widget's entry in the list of widgets is 90 bytes; the rest draws its body
+        # (the count of addresses seen in a day, three rows and the link to the page) when Home is drawn with the widget on, so
+        # it is in the eager core beside the other widgets' renderers. The numbers come from the server (ip_intel_widget). The
+        # translations are in i18n.js, which is not eager.
+        self.assertLess(total, 2_714_000,
                         'the eager JS payload regressed past its budget')
 
 

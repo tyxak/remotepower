@@ -1251,6 +1251,51 @@ def _is_operator():
         not A._tenancy_enforced() or A._caller_is_superadmin())
 
 
+WIDGET_WINDOW_S = 86400
+WIDGET_PROBLEM_STATES = ('missing', 'denied', 'unparsed', 'unsupported', 'error')
+WIDGET_FEED_PROBLEMS = ('no_access', 'refused', 'error', 'no_account', 'no_zones')
+
+
+def ip_intel_widget(visible, now=None):
+    """The numbers of the small Threat Intel widget on Home, for the hosts `visible` (the caller's own view, so another
+    tenant's addresses and sources are not in them): addresses seen in the last day, how many were reported in that day,
+    blocks in force, and how many hosts have a log source in trouble. The edge feeds are the operator's and count only
+    for the operator. {'on': False} when nothing of Threat Intel is switched on. Never raises: a widget must not take the
+    dashboard down."""
+    try:
+        now = int(now or time.time())
+        pol = _policy()
+        if not (_any_enabled(pol) or pol.get('sensor_enabled') or pol.get('appliance_enabled') or pol.get('edge_enabled')):
+            return {'on': False}
+        operator = _is_operator()
+        ids = set(visible or {})
+        if operator:
+            ids |= set(ip_intel.EDGE_DEVICES)
+        st, since = _store_ro(), now - WIDGET_WINDOW_S
+        seen = reported = 0
+        for a in (st.get('attackers') or {}).values():
+            devs = a.get('devices') if isinstance(a, dict) and isinstance(a.get('devices'), dict) else {}
+            if not any(d in ids for d in devs):
+                continue
+            seen += 1 if int(a.get('last_seen') or 0) >= since else 0
+            told = a.get('reported') if isinstance(a.get('reported'), dict) else {}
+            reported += 1 if any(isinstance(t, (int, float)) and int(t) >= since for t in told.values()) else 0
+        blocked = sum(1 for dev, per in (st.get('blocks') or {}).items() if dev in ids and isinstance(per, dict)
+                      for b in per.values() if isinstance(b, dict) and int(b.get('until') or 0) > now)
+        problems = 0
+        for dev_id, rec in ((_intake_ro().get('sensors') if isinstance(_intake_ro().get('sensors'), dict) else {}).items()):
+            if dev_id in (visible or {}) and isinstance(rec, dict) and any(
+                    isinstance(x, dict) and _aged(x, rec.get('at'), now).get('state') in WIDGET_PROBLEM_STATES
+                    for x in (rec.get('sources') or [])):
+                problems += 1
+        if operator and pol.get('edge_enabled'):
+            edge = A.edge_intel_status(st, pol)
+            problems += sum(1 for k in ('cf', 'trap') if (edge.get(k) or {}).get('state') in WIDGET_FEED_PROBLEMS)
+        return {'on': True, 'seen': seen, 'reported': reported, 'blocked': blocked, 'problems': problems}
+    except Exception:
+        return {}
+
+
 def edge_metrics(now=None):
     """Instance-level numbers for the metrics export: whether each edge feed's last
     read worked and how long ago it was, what the Cloudflare list holds and whether

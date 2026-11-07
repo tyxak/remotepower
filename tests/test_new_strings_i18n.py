@@ -194,6 +194,13 @@ NEW_STRINGS = [
     "Notification destination added",
     "Saved, but switched off. Turn it on under Settings, Notifications.",
     "Safety",
+    # the Threat Intel widget on Home
+    "addresses seen in the last 24 hours",
+    "Reported in 24 hours",
+    "Blocked now",
+    "Sources in trouble",
+    "Threat Intel is off.",
+    "Open Threat Intel →",
     # Threat Intel: a firewall whose Suricata sends its own messages and no alerts
     "No alerts sent",
     "Suricata is running, but no alerts arrive, only its own messages. If you expect alerts, tick Enable syslog alerts in its settings (OPNsense: Services → Intrusion Detection → Settings).",

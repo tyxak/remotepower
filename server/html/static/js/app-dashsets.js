@@ -11,7 +11,7 @@ const _DASH_PRESETS = [
     w: ['health', 'heatmap', 'fleettotal', 'healthscore', 'offline', 'stale', 'neverseen', 'groups', 'os', 'devtypes', 'agentver', 'recentonline',
         'overview', 'roster'] },
   { id: 'security', label: 'Security',
-    w: ['heatmap', 'attseverity', 'alertsev', 'crittotal', 'cves', 'bruteforce', 'worldports', 'newports', 'fwchanges', 'sshkeys', 'tls', 'drift',
+    w: ['heatmap', 'attseverity', 'alertsev', 'crittotal', 'cves', 'bruteforce', 'threatintel', 'worldports', 'newports', 'fwchanges', 'sshkeys', 'tls', 'drift',
         'atttop', 'tickets'] },
   { id: 'patching', label: 'Patching',
     w: ['patchpct', 'updatestotal', 'updates', 'rebootreq', 'crittotal', 'cves', 'versionskew', 'agentver', 'os', 'maintenance', 'atttop'] },

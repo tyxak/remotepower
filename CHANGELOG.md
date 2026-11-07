@@ -234,6 +234,13 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   sensor switch names what it reads (and the firewall log, which it did not). Held by 50 new tests in `tests/test_v800_agent_suricata.py` and sixteen mutations, all
   caught.
 
+- **A small Threat Intel widget for Home.** It shows the addresses Threat Intel saw in the last 24 hours, how many were reported in that time, the blocks in force and
+  the hosts that have a log source in trouble, with a link to the page. The numbers are for the hosts the viewer can see (the edge feeds count only for the operator,
+  and a firewall's source row that has been quiet for a day is not a trouble), they carry nothing but counts, and the server reads the table of addresses only while
+  the widget is on a dashboard. It is off until it is added; the **Security** layout has it; when nothing of Threat Intel is switched on it says so. The eager script
+  budget goes from 2,712,000 to 2,714,000 bytes (the widget is 853). Held by 15 tests of the numbers and the wiring, 6 browser tests on the demo data (the numbers are
+  recounted from the page's own answer, the link, six languages, and that it is not on until added) and 19 mutations, all caught.
+
 ## v7.5.0 — "Wh0leMatters" — 2026-11-05
 
 A release about finishing what was started. The last production release was 7.4.0, so this release carries everything from 7.4.1

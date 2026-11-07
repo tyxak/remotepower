@@ -794,6 +794,8 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               # v6.2.2: helpdesk open-ticket count (distinct from the
                               # 'tickets' widget, which is actually the Alerts inbox)
                               'helpdesk',
+                              # 8.0.0: Threat Intel in brief (addresses seen, reported, blocked, sources in trouble)
+                              'threatintel',
                               # v4.1.0: Ask-AI box — toggleable, but pinned in the footer
                               'askai')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
@@ -1263,7 +1265,7 @@ for _ii_name in (
         'handle_ip_intel', 'handle_ip_intel_settings', 'handle_ip_intel_lookup',
         'handle_ip_intel_block', 'handle_ip_intel_unblock', 'handle_ip_intel_clear',
         'handle_ip_intel_ignore',
-        'ip_intel_annotate', 'ip_intel_by_device',
+        'ip_intel_annotate', 'ip_intel_by_device', 'ip_intel_widget',
         'ip_intel_policy', 'ip_intel_note_evidence', '_note_evidence_into',
         '_intake_ro', '_intake_adopt',
 ):
@@ -55715,6 +55717,9 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
                               'tunnels': len(_tuns)}
         except Exception:
             pass
+    # 8.0.0: Threat Intel in brief, for the caller's own hosts. Gated: it reads the store of addresses.
+    if _g('threatintel'):
+        out['threatintel'] = ip_intel_widget(devices_raw, now)
     _oom_win = _oom_recent_window()   # hoisted: read config once per widget build
     # Load the hardware record once and share it across the smart/ups/temp, tls
     # and checks-roll-up widgets — avoids re-deep-copying hardware.json per

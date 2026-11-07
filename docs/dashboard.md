@@ -43,6 +43,12 @@ The layout belongs to your account, so it follows you to another browser. Every 
 undone with the arrows in the top bar. Two widgets (the checks roll-up and the disk-fill ETA)
 are heavy, so the server only computes them while they are on your dashboard.
 
+The **Threat Intel** widget is small. It counts the addresses Threat Intel saw in the last 24
+hours, how many of them were reported in that time, the blocks in force and the hosts that have
+a log source in trouble, for the hosts you can see, and links to the page. It is off until you
+add it, and the **Security** layout includes it. When nothing of Threat Intel is switched on it
+says so.
+
 ## Layouts
 
 A layout is a name and the widgets it shows. You start with one, **My layout**, which is the
