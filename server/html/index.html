@@ -8668,15 +8668,19 @@ nextcloud mem=95 sustain=6</pre>
               <button class="btn-primary" id="iau-save" data-action="saveImageAutoupdate">Save</button>
               <span id="iau-result" class="hint" role="status"></span>
             </div>
-            <div class="section-title mt-16">What it would do now</div>
-            <div id="iau-preview" class="meta-sm"></div>
-            <div id="iau-lastrun" class="meta-sm mt-8"></div>
-            <div class="section-title mt-16">Recent updates</div>
-            <div class="table-card">
+            <div id="iau-plan">
+              <div class="section-title mt-16">What it would do now</div>
+              <div id="iau-preview" class="meta-sm scroll-cap"></div>
+              <div id="iau-lastrun" class="meta-sm mt-8"></div>
+            </div>
+            <div id="iau-recent">
+              <div class="section-title mt-16">Recent updates</div>
+              <div class="table-card">
               <table>
                 <thead id="iau-receipts-thead"><tr><th scope="col" data-col="when">When</th><th scope="col" data-col="host">Host</th><th scope="col" data-col="images">Images</th><th scope="col" data-col="state">State</th><th scope="col" data-col="detail">Detail</th></tr></thead>
                 <tbody id="iau-receipts-tbody"></tbody>
               </table>
+              </div>
             </div>
           </div>
 
