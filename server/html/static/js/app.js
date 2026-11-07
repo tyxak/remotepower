@@ -87,9 +87,11 @@ async function loadUiPrefs() {
     _uiPrefs = {};
   }
   _uiPrefsLoaded = true;
-  try { _renderDashSetBar(); } catch (_) {}   // 8.0.0: the layout switcher shows as soon as the account's layouts are known, not when Home's data arrives
   try { applyLook(); applyTheme(); } catch (_) {}   // 7.4.9: the account's look replaces the browser's copy
   try { applyTypeface(); _buildTypefacePicker(); } catch (_) {}   // and so does its typeface; the select is right before the page opens
+  // 8.0.0: the layout switcher shows as soon as the account's layouts are known, not when Home's data arrives. After the look, whose lines
+  // are pinned in order by the look tests.
+  try { _renderDashSetBar(); } catch (_) {}
 }
 
 function _scheduleFlushUiPrefs() {

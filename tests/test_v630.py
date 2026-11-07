@@ -473,8 +473,11 @@ class TestWave4(unittest.TestCase):
         app = _js("app.js")
         fn = srcpin.js_function(app, "_dashSave")
         self.assertIn("uiUndoCtl.push", fn)
-        # the snapshot must be taken BEFORE _uiPrefs.dashboard is assigned
-        self.assertLess(fn.index("uiUndoCtl.push"), fn.index("_uiPrefs.dashboard = layout"))
+        # the snapshot must be taken BEFORE the layout is written (8.0.0: the write is _dashWrite, which puts it in the saved layout
+        # or in the named layout in use; the undo is pushed once it went through, and closes over the layout that was changed)
+        self.assertLess(fn.index("const prev = _dashLayout();"), fn.index("_dashWrite(sid, layout)"))
+        self.assertIn("_uiPrefs.dashboard = layout", srcpin.js_function(app, "_dashWrite"))
+        self.assertIn("undo: () => _dashWrite(sid, prev)", fn)
         reset = srcpin.js_function(app, "dashReset")
         self.assertIn("uiUndoCtl.push", reset)
         self.assertIn("'Undo'", reset)
