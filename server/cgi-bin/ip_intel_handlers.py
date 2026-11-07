@@ -1283,7 +1283,8 @@ def ip_intel_widget(visible, now=None):
         blocked = sum(1 for dev, per in (st.get('blocks') or {}).items() if dev in ids and isinstance(per, dict)
                       for b in per.values() if isinstance(b, dict) and int(b.get('until') or 0) > now)
         problems = 0
-        for dev_id, rec in ((_intake_ro().get('sensors') if isinstance(_intake_ro().get('sensors'), dict) else {}).items()):
+        sensors = _intake_ro().get('sensors')
+        for dev_id, rec in (sensors.items() if isinstance(sensors, dict) else ()):
             if dev_id in (visible or {}) and isinstance(rec, dict) and any(
                     isinstance(x, dict) and _aged(x, rec.get('at'), now).get('state') in WIDGET_PROBLEM_STATES
                     for x in (rec.get('sources') or [])):
