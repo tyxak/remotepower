@@ -614,6 +614,9 @@ settings or run a manual lookup, which spends the install's daily quota.
 | Log sources: `Not understood` | Most lines did not match the log's format. Check the `log_format` and that it prints the address, the request and the status. |
 | Log sources: `Cannot be read` | fail2ban logs to syslog or the journal, or ModSecurity writes one file per transaction. Log to a single file. |
 | Log sources: a firewall or router, `Not understood` | Its syslog lines arrived and none could be read. See [Troubleshooting](firewall-sources.md#troubleshooting) in the firewall guide. |
+| Log sources: a firewall, `No alerts sent` | Suricata is running and sends only its own messages. Tick **Enable syslog alerts** on the firewall. See [Suricata](firewall-sources.md#suricata). |
+| Log sources: a firewall, `Quiet` with an old time | No line of that kind has arrived for a day. The row says what it last saw, and when. |
+| Log sources: a host's `Intrusion detection alerts`, `No permission` | The agent cannot read Suricata's `eve.json` or `fast.log`, which Suricata usually makes readable by root only. See [Suricata on the host](#suricata-on-the-host). |
 | Edge feeds: `Refused by Cloudflare` | Cloudflare refused the firewall events for a zone, grouped and one by one. The line names the zone. Check that the token has **Zone → Analytics → Read** and that its zone list includes that zone. |
 | Edge feeds: `Reading`, with a note that the events are read one at a time | Expected on a Free plan. The grouped view is refused, so each event is read and grouped here. A read carries up to 2,500 events per zone. |
 | Edge feeds: `No permission` | The token cannot read that. **Test connection** shows which check failed; add the permission listed under [Set up the edge feeds](#set-up-the-edge-feeds). |
