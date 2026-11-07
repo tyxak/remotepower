@@ -41,7 +41,7 @@ _HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text(encoding='utf-8')
 PAGES = sorted(set(re.findall(r'<nav class="pg-tabs"[^>]*\bdata-pg="([a-z0-9-]+)"', _HTML)))
 OLD_PAGES = ('account', 'ipintel', 'reports', 'sites')                 # tabs since 7.4.0
 # The pages this change added. Each must still have its strip: the list is the control that the population cannot shrink quietly.
-NEW_PAGES = ('kmip',)
+NEW_PAGES = ('kmip', 'autonomy', 'sshgw', 'tuning', 'tickets')
 
 
 class TestPageSections(unittest.TestCase):

@@ -10459,6 +10459,7 @@
     "Clients and keys": { "zh": "客户端与密钥", "hi": "क्लाइंट और कुंजियाँ", "es": "Clientes y claves", "ar": "العملاء والمفاتيح", "de": "Clients und Schlüssel", "fr": "Clients et clés" },
     "My tickets": { "zh": "我的工单", "hi": "मेरे टिकट", "es": "Mis tickets", "ar": "تذاكري", "de": "Meine Tickets", "fr": "Mes tickets" },
     "Needs triage": { "zh": "待分诊", "hi": "ट्राइएज चाहिए", "es": "Requiere triaje", "ar": "يحتاج إلى فرز", "de": "Triage nötig", "fr": "Triage requis" },
+    "Servers and sessions": { "zh": "服务器与会话", "hi": "सर्वर और सत्र", "es": "Servidores y sesiones", "ar": "الخوادم والجلسات", "de": "Server und Sitzungen", "fr": "Serveurs et sessions" },
   };
 
   // v4.2: page-subtitle translations keyed by normalized English innerHTML

@@ -32,6 +32,14 @@ NEW_STRINGS = [
     "Tabs",
     "One long page",
     "Pages with many cards, such as Server Status and Compliance, show one group at a time under tabs. Choose one long page to see every card at once. It applies to this browser only.",
+    # the tab labels of the pages that gained tabs (a label the dictionary already had is not listed)
+    "Clients and keys",          # KMIP
+    "Decisions",                 # Autonomy
+    "Servers and sessions",      # SSH Gateway
+    "Noise",                     # Tuning
+    "Silenced",
+    "Needs triage",              # Tickets
+    "My tickets",
 ]
 
 

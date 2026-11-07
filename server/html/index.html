@@ -7361,10 +7361,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div>
 
       <div id="page-sshgw" class="page">
-        <div class="page-title">SSH Gateway</div>
+        <div class="page-title" id="sshgw-page-title">SSH Gateway</div>
         <div class="page-subtitle">Reach your servers with your own SSH client through one gateway. Agents dial out, so no server needs an open port, and every session is checked against your role and recorded. <a href="docs/sshgw.md" class="c-accent">Documentation</a></div>
 
-        <div class="dash-card">
+        <nav class="pg-tabs" aria-labelledby="sshgw-page-title" data-pg="sshgw" data-default="connect">
+          <button class="pg-tab" data-pg-tab-btn="connect" data-action="pgTab" data-arg="sshgw:connect">Connect</button>
+          <button class="pg-tab" data-pg-tab-btn="servers" data-action="pgTab" data-arg="sshgw:servers">Servers and sessions</button>
+        </nav>
+        <div class="dash-card" data-pg-tab="connect">
           <div class="section-title">Connect</div>
           <div id="sshgw-state" class="hint mb-8" role="status"></div>
           <p class="hint">Add this to <code>~/.ssh/config</code>, then connect with <code>ssh root@&lt;name&gt;.rp</code>. Names are a server's RemotePower name, hostname or host id.</p>
@@ -7374,7 +7378,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
-        <div class="dash-card mt-16">
+        <div class="dash-card mt-16" data-pg-tab="connect">
           <div class="section-title">Your keys</div>
           <p class="hint">Paste a public key such as <code>~/.ssh/id_ed25519.pub</code>. Adding a key asks for your password, because the key keeps working after you sign out.</p>
           <div class="form-group">
@@ -7409,7 +7413,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
-        <div class="dash-card mt-16" id="sshgw-admin-card" hidden>
+        <div class="dash-card mt-16" data-pg-tab="connect" id="sshgw-admin-card" hidden>
           <div class="section-title">Gateway address</div>
           <p class="hint">The hostname and port people connect to. Port 2222 unless you changed the service.</p>
           <div class="settings-row isl-57">
@@ -7427,7 +7431,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
-        <div class="dash-card mt-16">
+        <div class="dash-card mt-16" data-pg-tab="servers">
           <div class="section-title">Servers</div>
           <p class="hint">Only servers turned on here can be reached, and only by people whose role has the <strong>ssh</strong> permission. Linux agents only for now.</p>
           <div class="toolbar">
@@ -7449,7 +7453,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
-        <div class="dash-card mt-16" id="sshgw-sessions-card" hidden>
+        <div class="dash-card mt-16" data-pg-tab="servers" id="sshgw-sessions-card" hidden>
           <div class="section-title">Sessions</div>
           <div class="toolbar" id="sshgw-sess-tools" hidden>
             <button class="btn-icon" data-action="clearSshgwSessions"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Clear sessions</button>
@@ -8168,12 +8172,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v5.6.0: Alert tuning ────────────────────────────────────────── -->
       <div id="page-tuning" class="page">
-        <div class="page-title">Tuning</div>
+        <div class="page-title" id="tuning-page-title">Tuning</div>
         <div class="page-subtitle">Find your noisiest alerts and silence them at the source — per <strong>host + alert type</strong>. A silenced alert stops reaching the inbox, webhooks and the needs-attention card, but history keeps recording so you can always lift it. Counts are over the last 30 days. <a href="docs/alert-tuning.md" class="c-accent">Documentation</a></div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadTuning"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
         </div>
-        <div class="hc-grid-2">
+        <nav class="pg-tabs" aria-labelledby="tuning-page-title" data-pg="tuning" data-default="noise">
+          <button class="pg-tab" data-pg-tab-btn="noise" data-action="pgTab" data-arg="tuning:noise">Noise</button>
+          <button class="pg-tab" data-pg-tab-btn="silenced" data-action="pgTab" data-arg="tuning:silenced">Silenced</button>
+          <button class="pg-tab" data-pg-tab-btn="containers" data-action="pgTab" data-arg="tuning:containers">Containers</button>
+        </nav>
+        <div class="hc-grid-2" data-pg-tab="noise">
           <div class="dash-card">
             <div class="section-header"><div class="section-title">Noisiest alerts</div></div>
             <div id="tuning-noisy" class="scroll-cap"><div class="empty-state">Loading…</div></div>
@@ -8183,7 +8192,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div id="tuning-sources" class="scroll-cap"><div class="empty-state">Loading…</div></div>
           </div>
         </div>
-        <div class="dash-card mt-16">
+        <div class="dash-card mt-16" data-pg-tab="silenced">
           <div class="section-header"><div class="section-title">Active mutes</div></div>
           <div class="mb-8">
             <input type="text" id="tuning-mutes-filter" class="form-input input-wide"
@@ -8201,7 +8210,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
              The box starts disabled and is enabled by loadContainerExcludes once the list has
              been read: saving a box that never received the list would replace it with nothing.
              The examples sit in a <pre> (the translator skips it, and they are data). -->
-        <div class="dash-card mt-16" id="container-excludes-card">
+        <div class="dash-card mt-16" data-pg-tab="containers" id="container-excludes-card">
           <div class="section-header"><div class="section-title" id="container-excludes-title">Container exclude list</div></div>
           <p class="hint">Containers that match an entry raise no stopped or restart alert, and stay out of Needs attention and the stopped-containers widget.</p>
           <p class="hint">One entry per line, up to 200 entries of 128 characters. An entry matches part of a container's name. Start it with image: to match part of the image instead, which suits helper containers that exit by design and get a random name each run.</p>
@@ -8215,7 +8224,7 @@ image:ghcr.io/getarcaneapp/tools</pre>
         <!-- v7.4.3 (#50): the fleet's CPU and memory lines for containers. Disabled until the lines have been
              read, for the reason the exclude list is: saving a form that never received them would clear them.
              The examples sit in a <pre> (the translator skips it, and they are data). -->
-        <div class="dash-card mt-16" id="container-limits-card">
+        <div class="dash-card mt-16" data-pg-tab="containers" id="container-limits-card">
           <div class="section-header"><div class="section-title" id="container-limits-title">Container CPU and memory lines</div></div>
           <p class="hint">A container that stays at or over a line for several reports in a row raises one alert, which closes when the container drops under the line, stops or is excluded. A line left empty or at 0 keeps that resource off, so nothing alerts until you set one.</p>
           <div class="settings-row"><label class="form-label" for="ctl-cpu">CPU %</label><input type="number" id="ctl-cpu" class="form-input mw-100" min="0" max="6400" step="any" placeholder="off" disabled><span class="hint">Docker's figure: 100 is one core.</span></div>
@@ -8236,7 +8245,7 @@ nextcloud mem=95 sustain=6</pre>
              maintenance windows, quiet hours and (v7.4.2) the container exclude
              list — each with its own UI home across four accordion groups, and
              only maintenance had a rollup. -->
-        <div class="dash-card mt-16" id="suppressions-card">
+        <div class="dash-card mt-16" data-pg-tab="silenced" id="suppressions-card">
           <div class="section-header"><div class="section-title">Everything currently silenced</div></div>
           <p class="hint">Every active suppression in one place, from all eight mechanisms — alert mutes, Needs-attention ignores and class rules, accepted-risk CVEs, exposure mutes, active maintenance windows, quiet hours and the container exclude list. Read-only: each row links to the page that can lift it. <a href="docs/alert-tuning.md" class="c-accent">Documentation</a></p>
           <div class="row-8-center mb-8">
@@ -8715,9 +8724,13 @@ nextcloud mem=95 sustain=6</pre>
 
       <!-- ── v7.0.0: Autonomous remediation — receipts + the safety envelope -->
       <div id="page-autonomy" class="page">
-        <div class="page-title">Autonomy</div>
+        <div class="page-title" id="autonomy-page-title">Autonomy</div>
         <div class="page-subtitle">Every decision the remediation loop reached, and why. In <strong>shadow</strong> it changes nothing — the receipts are there so you can grade it before granting it anything. <a href="docs/autonomy.md" class="c-accent">Documentation</a></div>
 
+        <nav class="pg-tabs" aria-labelledby="autonomy-page-title" data-pg="autonomy" data-default="decisions">
+          <button class="pg-tab" data-pg-tab-btn="decisions" data-action="pgTab" data-arg="autonomy:decisions">Decisions</button>
+          <button class="pg-tab" data-pg-tab-btn="rules" data-action="pgTab" data-arg="autonomy:rules">Rules</button>
+        </nav>
         <!-- v7.0.2: the blast-radius pre-flight. POST /api/autonomy/preview has
              existed since v7.0.0 and had no surface at all, though its own
              docstring names the human use case: "what breaks if I reboot this
@@ -8725,7 +8738,7 @@ nextcloud mem=95 sustain=6</pre>
              or not the loop is ever switched on. Reads only — it computes the
              radius and compares it with the tenant's policy limit; it queues
              nothing. -->
-        <div class="dash-card">
+        <div class="dash-card" data-pg-tab="rules">
           <div class="section-title">Blast radius pre-flight</div>
           <p class="hint">What goes dark if this host is acted on — monitors, containers, watched services and network neighbours, discounted where the host is one of several doing the same job. Nothing is queued or changed. <a href="docs/autonomy.md" class="c-accent">Documentation</a></p>
           <div class="field-bar">
@@ -8742,13 +8755,13 @@ nextcloud mem=95 sustain=6</pre>
           <div id="autonomy-preview-result" class="mt-8 scroll-cap" role="status" aria-live="polite"></div>
         </div>
 
-        <div class="dash-card">
+        <div class="dash-card" data-pg-tab="decisions">
           <div class="section-title">Why it decided that</div>
           <p class="hint">Every refusal carries a machine-readable reason, so a pattern is visible rather than buried in prose.</p>
           <div id="autonomy-reasons" class="scroll-cap-sm"></div>
         </div>
 
-        <div class="dash-card">
+        <div class="dash-card" data-pg-tab="decisions">
           <div class="section-title">Receipts</div>
           <div class="toolbar">
             <button class="btn-icon" data-action="loadAutonomy" title="Re-read the receipts ledger"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -8773,7 +8786,7 @@ nextcloud mem=95 sustain=6</pre>
           </div>
         </div>
 
-        <div class="dash-card">
+        <div class="dash-card" data-pg-tab="rules">
           <div class="section-title">Safety envelope</div>
           <p class="hint">Per tenant. A tenant starts at <strong>off</strong> and records nothing at all; <strong>shadow</strong> records what it would have done; <strong>enabled</strong> lets it act inside every limit below. <span id="autonomy-mode-pill"></span></p>
           <div class="settings-row">
@@ -8802,7 +8815,7 @@ nextcloud mem=95 sustain=6</pre>
             <span class="hint">On by default, and the usual reason a new install records nothing but refusals: two prior fixes with the same signature have to exist first. A fix an operator ran, an automation rule that verified, or one of this loop's own verified actions all count. Turn it off to accept the curated command catalog as the plan instead. <a href="docs/autonomy.md" class="c-accent">Documentation</a></span></div>
         </div>
 
-        <div class="dash-card">
+        <div class="dash-card" data-pg-tab="rules">
           <div class="section-title">Permitted actions</div>
           <p class="hint">Nothing happens unless it is ticked here. Each row says which platforms can carry it out, whether it is destructive, and whether it needs a proven-recoverable backup first.</p>
           <div class="settings-row">
@@ -9787,7 +9800,7 @@ nextcloud mem=95 sustain=6</pre>
 
       <!-- v3.2.0 (B1): Alerts inbox -->
       <div id="page-tickets" class="page">
-        <div class="page-title-row"><div class="page-title">Tickets</div></div>
+        <div class="page-title-row"><div class="page-title" id="tickets-page-title">Tickets</div></div>
         <div class="page-subtitle">Helpdesk — incidents, requests and changes, linked to alerts and hosts. <a href="docs/ticket-system.md" class="c-accent">Documentation</a></div>
         <div class="row-8-center mb-12">
           <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs" aria-hidden="true"><use href="#ic-99336aa6"/></svg><input type="text" id="tk-search" class="form-input input-search" placeholder="Search by #number, subject, host, group, assignee…" data-input="loadTickets" data-input-debounce="220" aria-label="Search tickets"></div>
@@ -9805,32 +9818,38 @@ nextcloud mem=95 sustain=6</pre>
           <button class="btn-icon" data-action="bulkAssignTicketsMe"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Assign to me</button>
           <button class="btn-icon c-success" data-action="bulkResolveTickets"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Resolve selected</button>
         </div>
-        <div class="dash-card mb-16 hidden" id="tk-portal-queue-card">
+        <nav class="pg-tabs" aria-labelledby="tickets-page-title" data-pg="tickets" data-default="triage">
+          <button class="pg-tab" data-pg-tab-btn="triage" data-action="pgTab" data-arg="tickets:triage">Needs triage</button>
+          <button class="pg-tab" data-pg-tab-btn="mine" data-action="pgTab" data-arg="tickets:mine">My tickets</button>
+          <button class="pg-tab" data-pg-tab-btn="team" data-action="pgTab" data-arg="tickets:team">Team</button>
+          <button class="pg-tab" data-pg-tab-btn="other" data-action="pgTab" data-arg="tickets:other">Other</button>
+        </nav>
+        <div class="dash-card mb-16 hidden" data-pg-tab="triage" id="tk-portal-queue-card">
           <div class="section-title">Portal submissions awaiting approval <span class="fs-12 c-muted" id="tk-portal-queue-count"></span></div>
           <div id="tk-portal-queue-list" class="scroll-cap"></div>
         </div>
-        <div class="dash-card mb-16">
+        <div class="dash-card mb-16" data-pg-tab="triage">
           <div class="section-title">New tickets <span class="fs-12 c-muted" id="tk-count-new"></span></div>
           <div class="table-card"><table>
             <thead id="tk-thead-new"><tr><th class="tk-th-cb"></th><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="sla">SLA</th><th data-col="assignee">Assignee</th><th data-col="device">Host</th><th data-col="updated">Updated</th></tr></thead>
             <tbody id="tk-tbody-new"><tr><td colspan="9" class="empty-state-sm">Loading…</td></tr></tbody>
           </table></div>
         </div>
-        <div class="dash-card mb-16">
+        <div class="dash-card mb-16" data-pg-tab="mine">
           <div class="section-title">My open tickets <span class="fs-12 c-muted" id="tk-count-mine"></span></div>
           <div class="table-card"><table>
             <thead id="tk-thead-mine"><tr><th class="tk-th-cb"></th><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="sla">SLA</th><th data-col="assignee">Assignee</th><th data-col="device">Host</th><th data-col="updated">Updated</th></tr></thead>
             <tbody id="tk-tbody-mine"><tr><td colspan="9" class="empty-state-sm">Loading…</td></tr></tbody>
           </table></div>
         </div>
-        <div class="dash-card mb-16">
+        <div class="dash-card mb-16" data-pg-tab="team">
           <div class="section-title">My team's open tickets <span class="fs-12 c-muted" id="tk-count-team"></span></div>
           <div class="table-card"><table>
             <thead id="tk-thead-team"><tr><th class="tk-th-cb"></th><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="sla">SLA</th><th data-col="assignee">Assignee</th><th data-col="device">Host</th><th data-col="updated">Updated</th></tr></thead>
             <tbody id="tk-tbody-team"><tr><td colspan="9" class="empty-state-sm">Set your team under Profile to use this view.</td></tr></tbody>
           </table></div>
         </div>
-        <div class="dash-card mb-16">
+        <div class="dash-card mb-16" data-pg-tab="other">
           <div class="section-title">Other tickets (open &amp; closed) <span class="fs-12 c-muted" id="tk-count-other"></span></div>
           <div class="table-card"><table>
             <thead id="tk-thead-other"><tr><th class="tk-th-cb"></th><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="sla">SLA</th><th data-col="assignee">Assignee</th><th data-col="device">Host</th><th data-col="updated">Updated</th></tr></thead>
