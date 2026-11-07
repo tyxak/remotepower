@@ -33,6 +33,12 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   only the boxes on screen, so a host that was ticked and then filtered out of the list with the box above it was left out of the job without a word.
   The save now reads the ticks. A host that is no longer in the fleet is left out, as before.
 
+- **The README screenshots and the tour are drawn again.** The sixteen pages in the README and the tour GIF show the interface as it is now, in the
+  **Pilot** look with the **B612** typeface. Both stay options under My Account → Appearance; Classic and the system font are what you get until you
+  choose, and the README says so under the tour. The pictures come from the demo data on a test install, 1912 x 960 each. The tour holds six pages
+  for five seconds apiece (Dashboard, Hosts, Host metrics, Check catalog, Patches, Settings) and fades from one to the next. The browser terminal and
+  `rp` pictures are unchanged: the first is a live session on a real host and the second is the `rp` terminal program, and the demo data gives neither.
+
 - **The dashboard keeps named layouts.** Under **Customize → Layouts** you can keep up to 8 layouts next to the one you have, each a name and the
   widgets it shows. Make one from a copy of the layout you are looking at, from one of four ready-made ones (Fleet overview, Security, Patching and
   Capacity) or from an empty one. Once you have one, a switcher appears next to Customize. The panel, the share code and the undo arrows work on the

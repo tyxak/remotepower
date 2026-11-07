@@ -29,6 +29,8 @@ listens on the managed host.
 
 <a href="https://demoremote.tvipper.com"><img src="docs/screenshots/RemotePower.gif" alt="RemotePower — live dashboard tour" width="900"></a>
 
+<sub>The screenshots and the tour show the <b>Pilot</b> look with the <b>B612</b> typeface. Both are options under <a href="docs/my-account.md">My Account → Appearance</a>. <b>Classic</b> and the system font are what you get until you choose.</sub>
+
 <details>
 <summary><b>Screenshots</b></summary>
 <br>
