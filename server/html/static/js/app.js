@@ -33428,6 +33428,7 @@ const _WEBHOOK_FORMATS = [
   ['rocketchat','Rocket.Chat',    'https://your-rocketchat.example.com/hooks/<id>/<token>'],
   ['googlechat','Google Chat',    'https://chat.googleapis.com/v1/spaces/<space>/messages?key=...&token=...'],
   ['gotify',    'Gotify',         'https://your-gotify.example.com/message?token=<app token>'],
+  ['apprise',   'Apprise',        'https://your-apprise.example.com/notify/<key>'],
   ['pushover',  'Pushover',       'https://api.pushover.net/1/messages.json'],
   ['ntfy',      'ntfy.sh',        'https://ntfy.sh/your-topic'],
   ['teams',     'Microsoft Teams','https://outlook.office.com/webhook/...'],

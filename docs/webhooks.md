@@ -18,6 +18,7 @@ The legacy single `webhook_url` field is still honoured — operators with one D
 | `rocketchat` | `*.rocket.chat` | Incoming webhook: a bold title and a coloured attachment with the message *(7.4.9)* |
 | `googlechat` | `chat.googleapis.com` | A Google Chat space webhook: one text message with a bold title, cut at 4,000 characters *(7.4.9)* |
 | `gotify` | explicit | `POST /message?token=<app token>` with title, message and priority. RemotePower's normal, high and urgent go out as Gotify 5, 8 and 10, so an urgent alert rings *(7.4.9)* |
+| `apprise` | explicit | `POST /notify/<key>` on an Apprise API server with title, body, type and format. A normal alert goes out as `info`, a high one as `warning`, an urgent one as `failure` and a recovery as `success`; Apprise passes it on to whichever services you set up behind the key *(8.0.0)* |
 | `pushover` | `api.pushover.net` | Form-encoded with `token`, `user`, `title`, `message`, `priority` |
 | `teams` | `outlook.office.com`, `webhook.office.com` | MessageCard schema with theme colour |
 | `ntfy` | `ntfy.sh` | Plain-text body + `Title`/`Priority`/`Tags` headers. Normal, high and urgent alerts go out as ntfy priority 3, 4 and 5 *(before 7.4.9 every alert went out as 3)* |

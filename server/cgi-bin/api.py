@@ -1933,6 +1933,7 @@ from notify import (  # noqa: F401  (test_notify_module pins api._ts_fmt)
     _build_servicenow_body, _build_zendesk_body, _build_generic_body,
     _build_telegram_body, _build_matrix_body, _webhook_message, _ts_fmt,
     _build_mattermost_body, _build_rocketchat_body, _build_googlechat_body, _build_gotify_body,
+    _build_apprise_body,   # 8.0.0
 )
 import dns_zones as dns_zones_mod
 # v4.9.0 ResolutionMatters: live resolve/dig + propagation over public +
@@ -14472,7 +14473,8 @@ _WEBHOOK_FORMATS = ('generic', 'discord', 'slack', 'ntfy', 'pushover', 'teams',
                     'github', 'pagerduty', 'opsgenie',
                     'jira', 'servicenow', 'zendesk',   # v5.0.0 ITSM
                     'telegram', 'matrix',              # Telegram / Matrix
-                    'mattermost', 'rocketchat', 'googlechat', 'gotify')   # 7.4.9
+                    'mattermost', 'rocketchat', 'googlechat', 'gotify',   # 7.4.9
+                    'apprise')                                            # 8.0.0
 
 
 def _webhook_rate_limit_ok():
@@ -14574,6 +14576,8 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority,
         body, headers, content_type = _build_googlechat_body(event, title, message)
     elif fmt == 'gotify':
         body, headers, content_type = _build_gotify_body(event, title, message, priority)
+    elif fmt == 'apprise':
+        body, headers, content_type = _build_apprise_body(event, title, message, priority)
     elif fmt == 'pushover':
         body, headers, content_type = _build_pushover_body(
             event, title, message, priority, dest)

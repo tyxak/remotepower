@@ -39,8 +39,8 @@ Going back and forward with the same settings does not make a second token. The 
 **Settings → Notifications** has one card for destinations with every service's fields on it. The wizard asks for what the service needs and
 shows you the answer to a test before anything real is sent.
 
-1. **Service.** Eighteen services in five groups: chat (Discord, Slack, Mattermost, Rocket.Chat, Google Chat, Microsoft Teams, Telegram, Matrix),
-   push (ntfy.sh, Pushover, Gotify), on-call (PagerDuty, Opsgenie), tickets (GitHub issues, Jira, ServiceNow, Zendesk) and a generic JSON receiver.
+1. **Service.** Nineteen services in five groups: chat (Discord, Slack, Mattermost, Rocket.Chat, Google Chat, Microsoft Teams, Telegram, Matrix),
+   push (ntfy.sh, Pushover, Gotify), on-call (PagerDuty, Opsgenie), tickets (GitHub issues, Jira, ServiceNow, Zendesk), an Apprise API server and a generic JSON receiver.
 2. **Connection.** A name, the URL, and what that service needs beyond them: a Pushover app token and user key, a GitHub, PagerDuty or Opsgenie
    key, an account and token for the ticket services, a Telegram chat ID, a Matrix access token, an optional signing secret for the generic receiver.
    A service with one fixed address has it filled in.

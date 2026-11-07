@@ -636,7 +636,7 @@ class TestNotifyWizard(_Base):
         page = self.page
         _open_wizard(page, 'notify')
         formats = page.evaluate("() => _WEBHOOK_FORMATS.map(f => [f[0], f[1]])")
-        self.assertEqual(len(formats), 18, 'the editor offers 18 services')
+        self.assertEqual(len(formats), 19, 'the editor offers 19 services')
         shown = page.eval_on_selector_all('#wizard-modal input[name=wiz-fmt]',
                                           "els => els.map(e => [e.value, e.closest('label').querySelector('.wiz-choice-t').textContent])")
         self.assertEqual(sorted(shown), sorted(formats), 'every service the editor knows, once, under its own name')

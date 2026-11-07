@@ -208,6 +208,8 @@ NEW_STRINGS = [
     # Threat Intel: a firewall whose Suricata sends its own messages and no alerts
     "No alerts sent",
     "Suricata is running, but no alerts arrive, only its own messages. If you expect alerts, tick Enable syslog alerts in its settings (OPNsense: Services → Intrusion Detection → Settings).",
+    # 8.0.0: the Apprise destination in the notification wizard
+    "The key is part of the address. Set up the services behind it in Apprise itself.",
 ]
 
 

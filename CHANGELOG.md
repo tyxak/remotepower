@@ -17,7 +17,7 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   that cannot run the agent, which goes to the agentless form), then what the host gets when it joins: a group, tags, the networks the install may
   connect from and how long the command lives. The token endpoint has taken all four since 7.4.9 and no page used them. It then shows the command, waits
   for the host and says what the host got (name, group, tags, OS, address) with **Open host** and **Add another host**. **Add a notification
-  destination** (Settings → Notifications → **Guide me**, and Getting started) asks for one of the 18 services, what that service needs beyond a
+  destination** (Settings → Notifications → **Guide me**, and Getting started) asks for one of the 19 services, what that service needs beyond a
   name and a URL, and then sends a test message and shows the answer in the dialog (**Delivered** with the code, or **Not delivered** with the code and
   what it usually means) instead of "check the log below". The destination is a draft that is switched off until the last step, so nothing real reaches
   the channel before you say so. Closing the wizard removes a draft that never delivered. Destinations that were there before are kept, secrets

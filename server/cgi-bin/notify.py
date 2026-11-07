@@ -139,6 +139,7 @@ def defuse(text, fmt):
     <url|label>. googlechat: <users/all> and <url|label> are written with a "<". mattermost, rocketchat and github: a
     mention is an "@" that opens a word, a link is Markdown. discord and teams: Markdown links (Discord's mentions are
     switched off in the body instead, see _build_discord_body). telegram: an "@name" in a message pings that user.
+    apprise: whatever sits behind the key, so every one of the above at once: mentions, Markdown links and "<" are all made inert.
     """
     s = "" if text is None else str(text)
     if fmt == "slack":
@@ -155,6 +156,8 @@ def defuse(text, fmt):
         return _MD_LINK.sub("]" + _ZWSP, s)
     if fmt == "telegram":
         return _MENTION.sub("@" + _ZWSP, s)
+    if fmt == "apprise":
+        return _MD_LINK.sub("]" + _ZWSP, _MENTION.sub("@" + _ZWSP, s)).replace("<", "<" + _ZWSP)
     return s
 
 
@@ -238,6 +241,25 @@ def _build_gotify_body(event, title, message, priority):
     """Gotify: POST /message?token=<app token> with title, message and priority. The token is in the URL."""
     gp = _GOTIFY_PRIORITY.get(priority, 3 if isinstance(priority, int) and priority < 3 else 5)
     body = json.dumps({"title": title, "message": (message or "")[:4000], "priority": gp}).encode()
+    return body, {}, "application/json"
+
+
+# Apprise puts one URL scheme in front of ninety-odd services and runs as an API server: POST <server>/notify/<key> takes a title, a body and a
+# type (info, success, warning or failure) that the receiving service turns into a colour or an icon. RemotePower's three levels (3 normal, 4 high,
+# 5 urgent) become info, warning and failure, and the recovery of an alert is a success.
+_APPRISE_TYPE = {3: "info", 4: "warning", 5: "failure"}
+
+
+def _build_apprise_body(event, title, message, priority):
+    """Apprise API: POST /notify/<key> with title, body, type and format. The key is in the URL, like a Slack webhook's token."""
+    if event in _RECOVER_EVENTS:
+        kind = "success"
+    else:
+        kind = _APPRISE_TYPE.get(priority, "info") if isinstance(priority, int) and not isinstance(priority, bool) else "info"
+    # Apprise forwards the text to whichever services were set up behind the key (Slack, Discord, Telegram, Matrix...), and each of those
+    # acts on some words, so the text goes through the strictest cleaning: see defuse()
+    title, message = defuse(title, "apprise"), defuse(message, "apprise")
+    body = json.dumps({"title": title[:250], "body": message[:4000], "type": kind, "format": "text"}).encode()
     return body, {}, "application/json"
 
 

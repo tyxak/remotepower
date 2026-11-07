@@ -551,6 +551,7 @@ const _WIZ_NOTIFY = {
   generic:    { hint: 'Optional: each message is signed with a secret so the receiver can check where it came from.',
                 fields: [['hmac_secret', 'Signing secret (optional)', 'password', 'Optional HMAC signing secret', false]] },
   ntfy:       { hint: 'The topic name is part of the address. Pick one nobody else will guess.' },
+  apprise:    { hint: 'The key is part of the address. Set up the services behind it in Apprise itself.' },
 };
 // Where each service sits on the first step.
 const _WIZ_NOTIFY_GROUPS = [
@@ -558,7 +559,7 @@ const _WIZ_NOTIFY_GROUPS = [
   ['Push', ['ntfy', 'pushover', 'gotify']],
   ['On-call', ['pagerduty', 'opsgenie']],
   ['Tickets', ['github', 'jira', 'servicenow', 'zendesk']],
-  ['Anything else', ['generic']],
+  ['Anything else', ['apprise', 'generic']],
 ];
 const _WIZ_NOTIFY_PRIO = [['', 'any'], ['3', 'normal and up'], ['4', 'high and up'], ['5', 'urgent only']];
 

@@ -96,7 +96,7 @@ Where alerts go:
 
 - **Webhook destinations**, any number at once, each with its own format
   (Slack, Mattermost, Rocket.Chat, Google Chat, Discord, Microsoft Teams, Telegram, Matrix, ntfy, Gotify,
-  Pushover, PagerDuty, Opsgenie, GitHub, Jira, ServiceNow, Zendesk or generic JSON) and an optional
+  Pushover, Apprise, PagerDuty, Opsgenie, GitHub, Jira, ServiceNow, Zendesk or generic JSON) and an optional
   event filter. The older single **Legacy webhook URL** still works.
 - **Email (SMTP)** and **additional email routes**, each list with its own scope.
 - **Per-event toggles** that switch each event kind on or off.

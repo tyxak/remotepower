@@ -32,7 +32,7 @@ ZW = "\u200b"
 
 # what a chat service reads the text for. A format is on the first list when it does either, and the second when it does
 # neither, with the reason.
-DEFUSED = ("slack", "discord", "teams", "googlechat", "mattermost", "rocketchat", "telegram", "matrix", "github")
+DEFUSED = ("slack", "discord", "teams", "googlechat", "mattermost", "rocketchat", "telegram", "matrix", "github", "apprise")
 PLAIN = {
     "generic": "a JSON body for a program; the receiver decides what a name means (docs/webhooks.md says so)",
     "ntfy": "plain text, and Markdown is off unless the sender asks for it, which RemotePower does not",
@@ -128,6 +128,11 @@ def active(fmt, s):
         out += _MD_LINK.findall(s)
     if fmt in ("github", "teams"):
         out += _GCHAT_CONTROL.findall(s)
+    if fmt == "apprise":
+        # what sits behind the key is not known, so it is everything the others would act on, except the raw "&" and ">" that Slack asks
+        # for: Apprise's own Slack plugin escapes those (nothing it sends starts a Slack control without the "<"), and writing "&amp;" into
+        # the text would show up as "&amp;" in Telegram and Discord
+        out += _GCHAT_CONTROL.findall(s) + _AT_WORD.findall(s) + _MD_LINK.findall(s)
     return out
 
 
@@ -223,6 +228,7 @@ class TestTheBuilders(unittest.TestCase):
             "telegram": lambda: notify._build_telegram_body("device_offline", title, message, dest),
             "matrix": lambda: notify._build_matrix_body("device_offline", title, message, dest),
             "github": lambda: notify._build_github_body("device_offline", title, message, {"token": "t"}, {}),
+            "apprise": lambda: notify._build_apprise_body("device_offline", title, message, 4),
         }[fmt]
         return json.loads(fn()[0])
 
