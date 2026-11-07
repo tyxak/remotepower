@@ -27,6 +27,11 @@ NEW_STRINGS = [
     "Identity",
     "Resources",
     "Clear criteria",
+    # My Account > Appearance > Page sections
+    "Page sections",
+    "Tabs",
+    "One long page",
+    "Pages with many cards, such as Server Status and Compliance, show one group at a time under tabs. Choose one long page to see every card at once. It applies to this browser only.",
 ]
 
 

@@ -1739,6 +1739,7 @@ function _buildLookPicker() {
 function _buildAppearancePicker() {
   _buildLookPicker();
   _buildTypefacePicker();
+  _buildPageSectionsPicker();
   _buildThemeGrid();
   _buildBgGrid();
   _buildThemeSchedule();   // v6.1.2 (#44)
@@ -3141,18 +3142,26 @@ function _visiblePageHash() {
   return (name === 'settings' && location.hash.startsWith('#settings')) ? location.hash : '#' + name;
 }
 
-// Page sections. A long page is a stack of cards; tag each card `data-pg-tab="<tab>"` and put a
-// `.pg-tabs[data-pg="<page>"][data-default="<tab>"]` bar of `data-action="pgTab" data-arg="<page>:<tab>"`
-// buttons above them, and only the chosen group shows. The choice is kept per browser. A card keeps its
-// own `hidden`; the tab only adds a class on top of it. showPage re-applies it on every visit.
+// Page sections. A long page is a stack of cards; tag each card `data-pg-tab="<tab>"` (a card that two tabs share
+// lists both, separated by a space) and put a `.pg-tabs[data-pg="<page>"][data-default="<tab>"]` bar of
+// `data-action="pgTab" data-arg="<page>:<tab>"` buttons above them, and only the chosen group shows. The choice is kept
+// per browser. A card keeps its own `hidden`; the tab only adds a class on top of it. showPage re-applies it on every
+// visit. My Account > Appearance > Page sections switches the tabs off for this browser: every card shows and the bar
+// is hidden. The walks that measure whole pages run that way, so no card drops out of what they look at.
+function _pageSectionsStacked() {
+  try { return localStorage.getItem('rp_pagetabs') === 'stacked'; } catch (_) { return false; }
+}
+function _pgTabIn(card, tab) { return String(card.dataset.pgTab || '').split(/\s+/).includes(tab); }
 function pgTabsApply(page, tab) {
   const bar = document.querySelector(`.pg-tabs[data-pg="${page}"]`);
   if (!bar) return;
   const names = [...bar.querySelectorAll('[data-pg-tab-btn]')].map(b => b.dataset.pgTabBtn);
   if (tab === undefined) { try { tab = localStorage.getItem('pgtab.' + page); } catch (_) { tab = null; } }
   if (!names.includes(tab)) tab = names.includes(bar.dataset.default) ? bar.dataset.default : names[0];
+  const stacked = _pageSectionsStacked();
   const root = bar.closest('.page') || document;
-  root.querySelectorAll('[data-pg-tab]').forEach(c => c.classList.toggle('pg-off', c.dataset.pgTab !== tab));
+  root.querySelectorAll('[data-pg-tab]').forEach(c => c.classList.toggle('pg-off', !stacked && !_pgTabIn(c, tab)));
+  bar.classList.toggle('pg-off', stacked);
   bar.querySelectorAll('[data-pg-tab-btn]').forEach(b => {
     const on = b.dataset.pgTabBtn === tab;
     b.classList.toggle('active', on);
@@ -3164,7 +3173,28 @@ function pgTab(arg) {
   const [page, tab] = String(arg).split(':');
   try { localStorage.setItem('pgtab.' + page, tab); } catch (_) { /* private window */ }
   pgTabsApply(page, tab);
+  if (_pageSectionsStacked()) {
+    // Every card is showing, so a tile or a link goes to the group instead of swapping it in.
+    const root = document.getElementById('page-' + page);
+    const first = root && [...root.querySelectorAll('[data-pg-tab]')].find(c => !c.hidden && _pgTabIn(c, tab));
+    if (first) first.scrollIntoView({block: 'start'});
+  }
 }
+
+// My Account > Appearance > Page sections: 'tabs' (the default) or 'stacked' (one long page). Kept in this browser, like the
+// text size. The page that is open is redone at once; every other page is redone when it is next shown.
+function setPageSectionsUI() {
+  const el = document.getElementById('acct-page-sections');
+  const v = el && el.value === 'stacked' ? 'stacked' : 'tabs';
+  try { if (v === 'stacked') localStorage.setItem('rp_pagetabs', 'stacked'); else localStorage.removeItem('rp_pagetabs'); } catch (_) { /* private window */ }
+  const cur = document.querySelector('.page.active');
+  if (cur) pgTabsApply(cur.id.replace(/^page-/, ''));
+}
+function _buildPageSectionsPicker() {
+  const el = document.getElementById('acct-page-sections');
+  if (el) el.value = _pageSectionsStacked() ? 'stacked' : 'tabs';
+}
+window.setPageSectionsUI = setPageSectionsUI;
 
 // A strip of counts above the tabs: [[n, label, tab, warn], ...]. A tile opens the tab that explains it.
 function pgTiles(elId, page, tiles) {

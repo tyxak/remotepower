@@ -229,6 +229,7 @@ class TestNoDialogBoxGrowsUnbounded(_ModalBase):
                            f'found only {len(ids)} dialogs — the id/class regex '
                            'missed most of the 138 that exist')
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         findings, opened = {}, 0
         try:
@@ -272,6 +273,7 @@ class TestNoDialogBoxGrowsUnbounded(_ModalBase):
         uncapped box into a real open dialog and require it to be reported."""
         ids = _modal_ids()
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         try:
             self._login(page)
@@ -460,6 +462,7 @@ class TestDialogsOpenedByRealClicksAreCapped(_ModalBase):
             'the sources — the derivation is broken, so this sweep would click '
             'almost nothing and pass while measuring almost nothing')
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         page.add_init_script(self._INSTRUMENT)
         findings, opened, clicked = {}, 0, 0

@@ -1416,6 +1416,15 @@
             <div class="segmented textsize-seg" id="cfg-ui-scale" role="group" aria-labelledby="acct-textsize-label"></div>
             <p class="hint">Makes everything on the page larger or smaller, buttons and tables included. It applies to this browser only. A narrow window limits the largest sizes so the layout stays usable.</p>
           </div>
+          <!-- Page sections. Pages with many cards show one group at a time under tabs; this browser can show every card on one long page instead. -->
+          <div class="mb-16">
+            <div class="form-label mb-6">Page sections</div>
+            <select id="acct-page-sections" class="form-input input-auto" data-change="setPageSectionsUI" aria-label="Page sections">
+              <option value="tabs">Tabs</option>
+              <option value="stacked">One long page</option>
+            </select>
+            <p class="hint">Pages with many cards, such as Server Status and Compliance, show one group at a time under tabs. Choose one long page to see every card at once. It applies to this browser only.</p>
+          </div>
           <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting; <strong>Time of day</strong> switches on the clock instead — which is what you want when the OS is pinned to dark, as it is on most servers and kiosks. The accent tints buttons and highlights on top of any theme.</p>
           <div class="form-label mb-6">Theme</div>
           <div id="acct-theme-grid" class="theme-grid mb-16"></div>
@@ -9086,7 +9095,7 @@ nextcloud mem=95 sustain=6</pre>
 
       <!-- ── v6.4.0: KMIP key-management server ─────────────────────────── -->
       <div id="page-kmip" class="page">
-        <div class="page-title">KMIP</div>
+        <div class="page-title" id="kmip-page-title">KMIP</div>
         <div class="page-subtitle">A built-in KMIP key server: Synology DSM, TrueNAS and VMware vSphere store their encryption keys <span class="fw-600">here</span> instead of on the appliance that holds the encrypted data. Clients authenticate with mutual TLS; every connection and key operation lands in the activity log. Do not run this server on a machine that depends on it to unlock. <a href="docs/kmip.md" class="c-accent">Documentation</a></div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadKmip"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -9095,7 +9104,12 @@ nextcloud mem=95 sustain=6</pre>
           <button class="btn-primary" data-action="kmipOpenWizard"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add client</button>
         </div>
 
-        <div class="hc-grid-2">
+        <nav class="pg-tabs" aria-labelledby="kmip-page-title" data-pg="kmip" data-default="server">
+          <button class="pg-tab" data-pg-tab-btn="server" data-action="pgTab" data-arg="kmip:server">Server</button>
+          <button class="pg-tab" data-pg-tab-btn="clients" data-action="pgTab" data-arg="kmip:clients">Clients and keys</button>
+          <button class="pg-tab" data-pg-tab-btn="activity" data-action="pgTab" data-arg="kmip:activity">Activity</button>
+        </nav>
+        <div class="hc-grid-2" data-pg-tab="server">
           <div class="dash-card">
             <div class="section-title">Server</div>
             <div id="kmip-server-status"><div class="empty-state">Loading…</div></div>
@@ -9114,7 +9128,7 @@ nextcloud mem=95 sustain=6</pre>
           </div>
         </div>
 
-        <div class="dash-card mt-16">
+        <div class="dash-card mt-16" data-pg-tab="clients">
           <div class="section-title">Clients</div>
           <p class="hint">Appliances allowed to talk to this KMIP server. Each holds a client certificate issued here; revoke to cut an appliance off, re-issue to replace a lost certificate without losing its keys.</p>
           <div class="table-card">
@@ -9131,7 +9145,7 @@ nextcloud mem=95 sustain=6</pre>
           </div>
         </div>
 
-        <div class="dash-card mt-16">
+        <div class="dash-card mt-16" data-pg-tab="clients">
           <div class="section-title">Stored keys</div>
           <p class="hint">Managed objects held for the clients above — metadata only; key material is never shown. Destroying a key that an appliance still needs makes its encrypted data permanently unrecoverable. A destroyed key stays listed as a record until you remove it.</p>
           <div class="toolbar">
@@ -9152,7 +9166,7 @@ nextcloud mem=95 sustain=6</pre>
           </div>
         </div>
 
-        <div class="dash-card mt-16">
+        <div class="dash-card mt-16" data-pg-tab="activity">
           <div class="section-title">Activity log</div>
           <div class="toolbar">
             <button class="btn-icon" data-action="kmipLoadLog"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>

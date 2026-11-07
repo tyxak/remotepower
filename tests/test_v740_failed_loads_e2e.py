@@ -92,6 +92,7 @@ class TestNoPageStaysLoading(unittest.TestCase):
         """{page: [problems]} for every sidebar page, plus the count of pages visited."""
         # The service worker would answer some requests itself, past page.route().
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900}, service_workers='block')
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         refused = []
         page.on('response', lambda r: refused.append((r.status, r.url.split('/api/')[-1][:60]))
@@ -151,6 +152,7 @@ class TestNoPageStaysLoading(unittest.TestCase):
     def test_3_the_measurement_finds_a_placeholder(self):
         """Control: a "Loading…" cell added to the active page is reported."""
         ctx = self.browser.new_context(service_workers='block')
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         try:
             page.goto(self.base + '/index.html')

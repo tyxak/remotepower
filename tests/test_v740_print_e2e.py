@@ -121,6 +121,7 @@ class TestPrintShowsEverything(unittest.TestCase):
 
     def _walk(self, media):
         ctx = self.browser.new_context(viewport={'width': _SHEET_W if media == 'print' else 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         found, measured = {}, 0
         try:

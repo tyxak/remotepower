@@ -219,6 +219,7 @@ class TestEverySidebarPageRendered(unittest.TestCase):
         if _SUBSET:
             pages = [p for p in pages if p in _SUBSET]
         ctx = browser.new_context(viewport={'width': 1440, 'height': 900}, service_workers='block')
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
         page = ctx.new_page()
         try:

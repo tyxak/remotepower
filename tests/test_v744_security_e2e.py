@@ -110,6 +110,7 @@ def setUpModule():
         pw.stop()
         raise unittest.SkipTest(f"app stack not available: {exc}")
     context = browser.new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
+    context.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
     page = context.new_page()
     page.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); } catch (e) {}")
     errors, dialogs = [], []

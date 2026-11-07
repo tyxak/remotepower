@@ -107,6 +107,7 @@ class TestNoPageScrollsSidewaysOnAPhone(unittest.TestCase):
 
     def _login(self):
         ctx = self.browser.new_context(viewport={'width': WIDTH, 'height': 900}, service_workers='block')
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         page.goto(self.base + '/index.html')
         page.fill('#login-user', 'alice')

@@ -106,6 +106,7 @@ def _passed(res):
 
 async def _theme_walk(browser, base, theme, script, plant=False):
     ctx = await browser.new_context(viewport={'width': 1440, 'height': 900})
+    await ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
     await ctx.add_init_script(
         "try { localStorage.setItem('rp_theme', %s); localStorage.setItem('rp_tour_done', '1'); } catch (e) {}"
         % json.dumps(theme))

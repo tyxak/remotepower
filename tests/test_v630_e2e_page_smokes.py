@@ -103,6 +103,7 @@ class TestEveryPageOpensClean(unittest.TestCase):
         # real number to catch shrinkage.
         self.assertGreater(len(pages), 78, 'sidebar page enumeration broke')
         page = self.browser.new_page()
+        page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         errors = []   # (current_page, error)
         current = ['login']
         page.on('pageerror', lambda e: errors.append((current[0], str(e))))

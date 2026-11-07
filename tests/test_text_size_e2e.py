@@ -58,6 +58,7 @@ class TestTextSizeRendered(unittest.TestCase):
 
     def _open(self, width=1440, height=900, stored=None):
         ctx = self.browser.new_context(viewport={'width': width, 'height': height}, service_workers='block')
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         self.addCleanup(ctx.close)
         stored_js = f"localStorage.setItem('rp_uiscale', '{stored}');" if stored is not None else ''
         ctx.add_init_script(_INIT % stored_js)

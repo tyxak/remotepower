@@ -99,6 +99,7 @@ class TestAddressCellsCopy(unittest.TestCase):
 
     def test_every_address_and_id_cell_copies_and_a_click_copies_it(self):
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900}, service_workers='block')
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         marked, missing, copied = 0, {}, None
         try:

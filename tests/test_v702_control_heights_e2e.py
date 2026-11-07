@@ -184,6 +184,7 @@ class TestOneControlHeightPerRow(unittest.TestCase):
             f'broke, so an empty finding list proves nothing')
 
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         rows_seen, bad, ratio = 0, [], None
         try:

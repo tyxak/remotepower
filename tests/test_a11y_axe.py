@@ -182,6 +182,7 @@ class TestAccessibilityAxe(unittest.TestCase):
 
     def setUp(self):
         self.page = self.browser.new_page()
+        self.page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
 
     def tearDown(self):
         self.page.close()
@@ -254,6 +255,7 @@ class TestAccessibilityAxe(unittest.TestCase):
 
         async def _run_lane(browser, slice_):
             ctx = await browser.new_context()
+            await ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
             page = await ctx.new_page()
             out = []
             try:
@@ -622,6 +624,7 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
         the seeded pages."""
         self.detail = []
         page = self.browser.new_page()
+        page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         try:
             page.goto(self.base + '/index.html')
             # The seeder builds its own operator accounts; there is no 'admin'.
@@ -685,6 +688,7 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
                 panes.append(m.group(1))
         self.assertGreater(len(panes), 8, 'settings tabs not discovered')
         page = self.browser.new_page()
+        page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         totals, seen_cards = {}, 0
         try:
             page.goto(self.base + '/index.html')
@@ -722,6 +726,7 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
         """
         self.detail = []          # _walk() creates this; these methods do not call it
         page = self.browser.new_page()
+        page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         try:
             page.goto(self.base + '/index.html')
             page.evaluate("localStorage.setItem('rp_tour_done', '1')")
@@ -843,6 +848,7 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
         first real violation will trip it.
         """
         page = self.browser.new_page()
+        page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         try:
             page.goto(self.base + '/index.html')
             page.evaluate("localStorage.setItem('rp_tour_done', '1')")
@@ -870,6 +876,7 @@ class TestAccessibilityAxeSeeded(unittest.TestCase):
         degrades into a second copy of the empty-install sweep and reports
         success for testing nothing."""
         page = self.browser.new_page()
+        page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         try:
             page.goto(self.base + '/index.html')
             page.fill('#login-user', 'alice')

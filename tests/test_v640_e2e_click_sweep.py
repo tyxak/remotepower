@@ -91,6 +91,7 @@ class TestEveryButtonClicksClean(unittest.TestCase):
 
     def test_click_every_visible_action_on_every_page(self):
         page = self.browser.new_page()
+        page.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         errors = []          # (page, action, error)
         current = ["login", "-"]
         page.on("pageerror",

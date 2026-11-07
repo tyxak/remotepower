@@ -221,6 +221,7 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
         # added, and a silent drop fails here.
         self.assertGreaterEqual(len(pages), 80, 'page enumeration lost pages')
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         findings, measured, clicked = {}, 0, 0
         fixed_seen, fixed_long = 0, []
@@ -334,6 +335,7 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
         selector, a failed login, a page that never rendered. Force a tall
         uncapped box into a live page and require the measurement to report it."""
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         try:
             page.goto(self.base + '/index.html')
@@ -366,6 +368,7 @@ class TestNoBoxGrowsUnbounded(unittest.TestCase):
         zero-ceiling ratchet would let any variable table declare its way out of
         the cap."""
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         try:
             page.goto(self.base + '/index.html')

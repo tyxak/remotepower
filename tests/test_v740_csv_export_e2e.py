@@ -104,6 +104,7 @@ class TestEverySortableTableExports(unittest.TestCase):
     def test_every_sortable_table_with_rows_has_an_export_and_one_works(self):
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900}, service_workers='block',
                                        accept_downloads=True)
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         seen = withrows = 0
         missing = {}

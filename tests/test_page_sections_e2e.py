@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""Page sections: the pages with many cards show one group at a time under tabs (the shared `pgTab` strip).
+
+Threat Intel, My Account, Sites and Reports had the strip since 7.4.0. Server Status, Compliance, Live Monitor, Patches, Tuning,
+Network, Pentest, SSH Gateway, Autonomy, KMIP and Tickets stacked 5 to 17 titled cards on one scroll (measured on the demo seed:
+1,662 to 4,737 px), so they have it now. The population is read from index.html, so a page that gains or loses its strip changes
+what is asserted, and NEW_PAGES below says which pages must have it (a page that lost its strip fails, it does not just drop out).
+
+What is held, for every page with a strip:
+* one group of cards is displayed and a click swaps it; a card two tabs share shows on both and on no other;
+* every tab shows something (a tab whose cards are all hidden is an empty tab);
+* with My Account > Appearance > Page sections set to one long page, every card shows and the strip is hidden, and the switch
+  writes its choice to this browser and redoes the page that is open;
+* a tile or a link goes to the group when everything is showing.
+
+Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
+"""
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+_HERE = Path(__file__).resolve().parent
+_ROOT = _HERE.parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+
+import browser_required  # noqa: E402
+
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:                                     # pragma: no cover
+    sync_playwright = None
+
+_HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text(encoding='utf-8')
+
+# Every page with a strip, from the markup (lazy pages are templates in index.html, so they count too).
+PAGES = sorted(set(re.findall(r'<nav class="pg-tabs"[^>]*\bdata-pg="([a-z0-9-]+)"', _HTML)))
+OLD_PAGES = ('account', 'ipintel', 'reports', 'sites')                 # tabs since 7.4.0
+# The pages this change added. Each must still have its strip: the list is the control that the population cannot shrink quietly.
+NEW_PAGES = ('kmip',)
+
+
+class TestPageSections(unittest.TestCase):
+    page = None
+
+    @classmethod
+    def setUpClass(cls):
+        if sync_playwright is None:
+            browser_required.skip_or_fail('playwright not installed')
+        if os.environ.get('RP_STORAGE_BACKEND') == 'sqlite':
+            raise unittest.SkipTest('layout is backend-agnostic: measured once, under the default backend')
+        seeder = _ROOT / 'packaging' / 'seed-demo-data.py'
+        if not seeder.is_file():
+            raise unittest.SkipTest('demo seeder not in this tree')
+        data_dir = tempfile.mkdtemp(prefix='rp-sections-')
+        proc = subprocess.run([sys.executable, str(seeder), '--data-dir', data_dir, '--apply'],
+                              capture_output=True, cwd=str(_ROOT), timeout=900)
+        if proc.returncode != 0:
+            raise unittest.SkipTest('demo seeder failed: ' + proc.stderr.decode(errors='replace')[-300:])
+        from e2e_harness import start_stack
+        cls._pw = sync_playwright().start()
+        try:
+            cls._browser = cls._pw.chromium.launch()
+        except Exception as exc:
+            cls._pw.stop()
+            browser_required.skip_or_fail(f'chromium not available: {exc}')
+            return
+        try:
+            cls._base, cls._shutdown = start_stack(data_dir=data_dir)
+        except Exception as exc:
+            cls._browser.close()
+            cls._pw.stop()
+            raise unittest.SkipTest(f'app stack not available: {exc}')
+        cls._ctx = cls._browser.new_context(viewport={'width': 1440, 'height': 900}, service_workers='block')
+        cls._ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
+        cls.page = cls._ctx.new_page()
+        cls.errors = []
+        cls.page.on('pageerror', lambda e: cls.errors.append(str(e)))
+        cls.page.goto(cls._base + '/index.html')
+        cls.page.fill('#login-user', 'alice')            # the seeder builds its own operator accounts: there is no 'admin'
+        cls.page.fill('#login-pass', 'demo')
+        cls.page.click('#login-form button[type="submit"]')
+        cls.page.wait_for_selector('#app', state='visible', timeout=90000)
+        cls.page.wait_for_timeout(5000)
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls._ctx.close()
+            cls._browser.close()
+            cls._pw.stop()
+        finally:
+            cls._shutdown()
+
+    def setUp(self):
+        # one test must not leave the other's preference behind
+        self.page.evaluate("() => { localStorage.removeItem('rp_pagetabs'); }")
+        self._errors_before = len(self.errors)
+        self.addCleanup(lambda: self.assertEqual(self.errors[self._errors_before:], [], 'a page error came up in this test'))
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    def _open(self, name, stacked=False):
+        self.page.evaluate("""([n, stacked]) => {
+            if (stacked) localStorage.setItem('rp_pagetabs', 'stacked'); else localStorage.removeItem('rp_pagetabs');
+            localStorage.removeItem('pgtab.' + n);
+            showPage(n); }""", [name, stacked])
+        self.page.wait_for_selector(f'#page-{name}.active', timeout=20000)
+        self.page.wait_for_timeout(900)
+
+    def _cards(self, name):
+        """One entry per tagged element the page has not hidden itself: its tabs and whether it is displayed."""
+        return self.page.evaluate("""(name) => {
+            const out = [];
+            document.querySelectorAll('#page-' + name + ' [data-pg-tab]').forEach(c => {
+              if (c.hidden) return;
+              const r = c.getBoundingClientRect();
+              out.push({tabs: c.dataset.pgTab.split(/\\s+/), shown: getComputedStyle(c).display !== 'none', h: r.height});
+            });
+            return out; }""", name)
+
+    def _tabs(self, name):
+        return self.page.eval_on_selector_all(f'#page-{name} [data-pg-tab-btn]', 'els => els.map(e => e.dataset.pgTabBtn)')
+
+    # ── the population ───────────────────────────────────────────────────────
+    def test_the_pages_with_a_strip_are_the_old_four_and_the_new_ones(self):
+        self.assertEqual(set(PAGES), set(OLD_PAGES) | set(NEW_PAGES))
+        self.assertTrue(set(NEW_PAGES) <= set(PAGES), 'a page lost its strip')
+
+    # ── tabs ─────────────────────────────────────────────────────────────────
+    def test_one_group_shows_and_a_click_swaps_it(self):
+        for name in PAGES:
+            with self.subTest(page=name):
+                self._open(name)
+                tabs = self._tabs(name)
+                self.assertGreaterEqual(len(tabs), 2, name)
+                for tab in tabs:
+                    self.page.click(f'#page-{name} [data-pg-tab-btn="{tab}"]')
+                    cards = self._cards(name)
+                    self.assertTrue(cards, f'{name}: no tagged cards')
+                    for c in cards:
+                        self.assertEqual(c['shown'], tab in c['tabs'], f'{name}/{tab}: a card of {c["tabs"]} is {"shown" if c["shown"] else "off"}')
+                    self.assertEqual(self.page.get_attribute(f'#page-{name} [data-pg-tab-btn="{tab}"]', 'aria-current'), 'true')
+
+    def test_every_tab_shows_something(self):
+        for name in PAGES:
+            with self.subTest(page=name):
+                self._open(name)
+                for tab in self._tabs(name):
+                    self.page.click(f'#page-{name} [data-pg-tab-btn="{tab}"]')
+                    boxes = [c for c in self._cards(name) if c['shown'] and tab in c['tabs'] and c['h'] > 20]
+                    self.assertTrue(boxes, f'{name}/{tab} shows nothing')
+
+    # ── one long page ────────────────────────────────────────────────────────
+    def test_one_long_page_shows_every_card_and_hides_the_strip(self):
+        for name in PAGES:
+            with self.subTest(page=name):
+                self._open(name, stacked=True)
+                for c in self._cards(name):
+                    self.assertTrue(c['shown'], f'{name}: a card of {c["tabs"]} is off with one long page chosen')
+                strip = self.page.evaluate(f"getComputedStyle(document.querySelector('#page-{name} .pg-tabs')).display")
+                self.assertEqual(strip, 'none', name)
+
+    def test_tabs_come_back_when_the_choice_is_undone(self):
+        name = 'kmip'
+        self._open(name, stacked=True)
+        self.page.evaluate("() => { localStorage.removeItem('rp_pagetabs'); }")
+        self.page.evaluate("n => showPage(n)", 'sites')
+        self.page.wait_for_selector('#page-sites.active')
+        self.page.evaluate("n => showPage(n)", name)
+        self.page.wait_for_selector(f'#page-{name}.active')
+        self.page.wait_for_timeout(400)
+        self.assertNotEqual(self.page.evaluate(f"getComputedStyle(document.querySelector('#page-{name} .pg-tabs')).display"), 'none')
+        self.assertTrue(any(not c['shown'] for c in self._cards(name)), 'every card still shows with tabs chosen')
+
+    def test_the_appearance_switch_writes_the_choice_and_redoes_the_open_page(self):
+        self.page.evaluate("() => { localStorage.removeItem('pgtab.account'); showPage('account'); }")
+        self.page.wait_for_selector('#page-account.active')
+        self.page.wait_for_selector('#acct-page-sections', state='attached')
+        self.page.wait_for_timeout(600)
+        sel = self.page.locator('#acct-page-sections')
+        self.assertEqual(sel.input_value(), 'tabs')
+        self.assertTrue(any(not c['shown'] for c in self._cards('account')), 'tabs are on but every account card shows')
+        sel.select_option('stacked')
+        self.page.wait_for_timeout(300)
+        self.assertEqual(self.page.evaluate("localStorage.getItem('rp_pagetabs')"), 'stacked')
+        self.assertTrue(all(c['shown'] for c in self._cards('account')), 'the open page was not redone')
+        # the select shows the stored value the next time the page is built
+        self.page.evaluate("() => { showPage('sites'); showPage('account'); }")
+        self.page.wait_for_timeout(600)
+        self.assertEqual(self.page.locator('#acct-page-sections').input_value(), 'stacked')
+        self.page.locator('#acct-page-sections').select_option('tabs')
+        self.page.wait_for_timeout(300)
+        self.assertIsNone(self.page.evaluate("localStorage.getItem('rp_pagetabs')"))
+        self.assertTrue(any(not c['shown'] for c in self._cards('account')))
+
+    def test_a_tile_goes_to_its_group_when_everything_is_showing(self):
+        name = 'kmip'
+        self._open(name, stacked=True)
+        got = self.page.evaluate("""() => {
+            const seen = [];
+            const orig = Element.prototype.scrollIntoView;
+            Element.prototype.scrollIntoView = function () { seen.push(this.dataset.pgTab || ''); };
+            try { pgTab('kmip:activity'); } finally { Element.prototype.scrollIntoView = orig; }
+            return seen; }""")
+        self.assertEqual(got, ['activity'])
+        # with tabs it swaps the group in and does not scroll
+        self._open(name)
+        got = self.page.evaluate("""() => {
+            const seen = [];
+            const orig = Element.prototype.scrollIntoView;
+            Element.prototype.scrollIntoView = function () { seen.push(this.dataset.pgTab || ''); };
+            try { pgTab('kmip:activity'); } finally { Element.prototype.scrollIntoView = orig; }
+            return seen; }""")
+        self.assertEqual(got, [])
+
+
+if __name__ == '__main__':
+    unittest.main()

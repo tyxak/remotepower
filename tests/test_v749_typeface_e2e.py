@@ -196,6 +196,7 @@ class TestTheTypefaceInABrowser(unittest.TestCase):
 
     def login(self, user="alice", init="", size=(1440, 900), route=None):
         ctx = self.browser.new_context(viewport={"width": size[0], "height": size[1]}, service_workers="block")
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); %s } catch (e) {}" % init)
         self.addCleanup(ctx.close)
         page = ctx.new_page()

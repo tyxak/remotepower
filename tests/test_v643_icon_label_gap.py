@@ -188,6 +188,7 @@ class TestOneIconLabelGap(unittest.TestCase):
             if m.group(1) not in seen:
                 seen.add(m.group(1)); pages.append(m.group(1))
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         measured, bad = 0, {}
         try:
@@ -240,6 +241,7 @@ class TestOneIconLabelGap(unittest.TestCase):
             if m.group(1) not in seen:
                 seen.add(m.group(1)); pages.append(m.group(1))
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         rows_seen, bad = 0, []
         try:
@@ -283,6 +285,7 @@ class TestOneIconLabelGap(unittest.TestCase):
         pages = ['home', 'devices', 'alerts', 'ipintel', 'settings', 'compliance',
                  'patches', 'cve', 'monitor', 'scans', 'reports', 'users']
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         wide, rtl_applied = {}, False
         try:
@@ -325,6 +328,7 @@ class TestOneIconLabelGap(unittest.TestCase):
             if m.group(1) not in seen:
                 seen.add(m.group(1)); pages.append(m.group(1))
         ctx = self.browser.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_init_script("try { localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")  # one long page: every card is in this walk
         page = ctx.new_page()
         gaps, bad_rows, controls = {}, [], 0
         try:
