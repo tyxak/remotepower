@@ -7364,6 +7364,8 @@ def _render_response(status: int, data, headers=None) -> None:
     # json.dumps(data) would otherwise print a (small but real, and
     # spec-incorrect) body even for the empty/None data callers pass here.
     if status == 304:
+    if isinstance(headers, dict):          # pairs are the form HTTPError carries; a dict reads as pairs of nothing and raised below
+        headers = list(headers.items())
         print()
         return
     body = json.dumps(data)

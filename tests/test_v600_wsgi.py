@@ -149,6 +149,31 @@ class TestWsgiShim(unittest.TestCase):
         self.assertIn('rp_portal=abc', setc[0])
         self.assertIn('HttpOnly', setc[0])
 
+    def test_a_contended_lock_is_a_503_with_retry_after_and_not_the_servers_own_500(self):
+        # 6.1.2 meant a LockBusy that nothing caught to answer 503 + Retry-After. That arm passed its header as a dict, _render_response reads a
+        # list of pairs, and unpacking the key raised ValueError inside the handler of the exception, which no sibling `except` arm catches: the
+        # client got a bare 500 instead. test_lockbusy_renders_503_not_500 read the source for "503" and passed the whole time.
+        def _busy():
+            raise api.LockBusy('devices.json', 100)
+        orig = api.main
+        api.main = _busy
+        try:
+            r = _call('GET', '/api/anything')
+        finally:
+            api.main = orig
+        self.assertTrue(r['status'].startswith('503'), r['status'])
+        self.assertEqual(r['hdr'].get('retry-after'), '2')
+        self.assertIn(b'Storage busy', r['body'])
+
+    def test_extra_headers_may_come_as_a_dict_or_as_pairs(self):
+        import io
+        import contextlib
+        for headers in ({'Retry-After': '2'}, [('Retry-After', '2')]):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                api._render_response(503, {'error': 'x'}, headers)
+            self.assertIn('Retry-After: 2', buf.getvalue(), headers)
+
     def test_wsgi_systemd_unit_present_and_wired(self):
         unit = _ROOT / "server" / "conf" / "remotepower-wsgi.service"
         self.assertTrue(unit.exists(), "remotepower-wsgi.service missing")

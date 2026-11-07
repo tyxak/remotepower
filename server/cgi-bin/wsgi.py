@@ -206,7 +206,7 @@ def _run_request(environ):
             # returned in production while the detached scan runner was writing
             # cve_scan_status.json). 503 + Retry-After lets the client retry.
             api._render_response(503, {'error': 'Storage busy, retry shortly',
-                                       'busy': str(e)}, {'Retry-After': '2'})
+                                       'busy': str(e)}, [('Retry-After', '2')])
         except Exception:
             import traceback as _tb     # WSGI catches it → log the traceback ourselves
             _tb.print_exc(file=sys.stderr)

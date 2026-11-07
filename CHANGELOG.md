@@ -313,6 +313,11 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
 
 - **A firewall whose Suricata sends no alerts says so, and an old verdict stops being repeated.** The Log sources row of a firewall read **Not understood**
   with 13,852 lines for a fortnight. Those lines were Suricata's own messages (rule reloads, rule errors), which stopped counting as unreadable alerts on
+- **A busy store answers 503 and asks for a retry, as 6.1.2 meant it to.** A write that finds the store's lock held for longer than its short wait is
+  a passing condition, and the server was to answer `503` with `Retry-After: 2` so that a client tries again. The arm that renders it passed the header
+  as a dict, the renderer reads a list of pairs, and unpacking a key raised `ValueError` inside the handler of the exception, which no other arm
+  catches: the client got the server's own `500` instead. The renderer takes either form now and the arm passes pairs. The test that was to hold it
+  read the source for the text "503" and passed throughout; the new one drives the real WSGI path and fails with `500` on the old code.
   2026-10-25, and the row was written only when a line arrived, so nothing replaced it. Suricata's own messages are now counted apart. A firewall that sends
   them and no alert reads **No alerts sent**, and the page says to tick **Enable syslog alerts** (the count shows Suricata is running, which nothing showed
   before). A firewall's row with no line for a day reads **Quiet** with the time of the last one. An EVE alert cut at the intake's 2,048-character limit is
