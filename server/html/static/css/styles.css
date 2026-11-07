@@ -919,7 +919,7 @@ html { zoom: var(--rp-zoom, 1); }
   .page-title-row .page-title { margin: 0; }
   .dash-customize-btn { margin-left: auto; flex: none; font-size: 12px; padding: 4px 10px; }
   /* 8.0.0: the layout switcher sits before Customize once the account has a named layout */
-  .dash-set-bar { margin-left: auto; }
+  .dash-set-bar { margin-inline-start: auto; }   /* the end of the row in both directions: next to Customize, not next to the title */
   .dash-set-bar:not(.d-none) + .dash-customize-btn { margin-left: 0; }
   .dash-set-bar select { max-width: 220px; }
 
