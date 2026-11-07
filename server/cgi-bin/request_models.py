@@ -2232,6 +2232,7 @@ if _AVAILABLE:
     class SmtpTestRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         recipient: str = ''
+        settings: Any = None           # 8.0.0: settings typed in the e-mail guide and not saved yet; the handler checks them
         _v0 = field_validator('recipient', mode='before')(_coerce_str_loose)
 
     class LdapTestUserRequest(BaseModel):

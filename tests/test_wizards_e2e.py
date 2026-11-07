@@ -639,12 +639,13 @@ class TestNotifyWizard(_Base):
         self.assertEqual(len(formats), 19, 'the editor offers 19 services')
         shown = page.eval_on_selector_all('#wizard-modal input[name=wiz-fmt]',
                                           "els => els.map(e => [e.value, e.closest('label').querySelector('.wiz-choice-t').textContent])")
-        self.assertEqual(sorted(shown), sorted(formats), 'every service the editor knows, once, under its own name')
+        # email is not one of the editor's services: its card hands over to the email guide (tests/test_wizards_smtp_e2e.py)
+        self.assertEqual(sorted(shown), sorted(formats + [['email', 'Email (SMTP)']]), 'every service the editor knows, once, under its own name, and the email card')
         groups = page.eval_on_selector_all('#wizard-modal .wiz-grp', 'els => els.map(e => e.textContent)')
-        self.assertEqual(groups, ['Chat', 'Push', 'On-call', 'Tickets', 'Anything else'])
+        self.assertEqual(groups, ['Chat', 'Push', 'Email', 'On-call', 'Tickets', 'Anything else'])
         # a service sits under exactly one heading
         placed = page.evaluate("() => _WIZ_NOTIFY_GROUPS.flatMap(g => g[1])")
-        self.assertEqual(sorted(placed), sorted(f[0] for f in formats))
+        self.assertEqual(sorted(placed), sorted([f[0] for f in formats] + ['email']))
         self.assertEqual(page.input_value('#wizard-modal input[name=wiz-fmt]:checked'), 'discord')
 
     def test_the_connection_step_asks_for_what_the_editor_asks_for(self):

@@ -98,7 +98,8 @@ Where alerts go:
   (Slack, Mattermost, Rocket.Chat, Google Chat, Discord, Microsoft Teams, Telegram, Matrix, ntfy, Gotify,
   Pushover, Apprise, PagerDuty, Opsgenie, GitHub, Jira, ServiceNow, Zendesk or generic JSON) and an optional
   event filter. The older single **Legacy webhook URL** still works.
-- **Email (SMTP)** and **additional email routes**, each list with its own scope.
+- **Email (SMTP)** and **additional email routes**, each list with its own scope. **Guide me** beside the email form sets email up in steps, with
+  presets for ten services and a test that sends a real message before anything is saved. See [wizards.md](wizards.md).
 - **Per-event toggles** that switch each event kind on or off.
 - **Webhook log**, with recent deliveries and the dead-letter queue of deliveries
   that failed for good.

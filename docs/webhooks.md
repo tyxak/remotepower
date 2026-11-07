@@ -71,6 +71,15 @@ from the response and shows the **ticket link right on the alert row**, so you
 can jump straight to it. Credentials are stored encrypted and redacted from the
 config GET (`itsm_secret_set: true/false`).
 
+## Email
+
+Email is a second channel beside the webhooks, set up under **Settings → Notifications → Email notifications (SMTP)**, and it is opt-in per
+event: a saved server with recipients still sends nothing until events are ticked in the table. **Guide me** sets it all up in steps (the
+service, the connection, the recipients, a test and the events); see [wizards.md](wizards.md#set-up-email). `POST /api/smtp/test` sends a test
+message with the saved settings, and with a `settings` object (`smtp_host`, `smtp_port`, `smtp_tls`, `smtp_verify_tls`, `smtp_from`,
+`smtp_username`, `smtp_password`, `smtp_helo_name`) it sends through those instead, laid over a copy of the saved ones and stored nowhere. An
+empty or missing password keeps the saved one, and `RP_SMTP_PASSWORD` still wins. The route is the platform operator's, like the form.
+
 ### osTicket (and any email-to-ticket help-desk) — zero code
 
 The simplest, dependency-free path to a ticketing system like **osTicket**,

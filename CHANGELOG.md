@@ -165,6 +165,21 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   so the other integrations and their secrets stay as they were; an edit waiting on the Settings page is neither saved nor lost. **Held by**
   `tests/test_wizards_integration_e2e.py` (21 browser tests against a fake service on this machine's address).
 
+- **Set up email, in steps.** Email under **Settings → Notifications** is a form of about twenty boxes, and email is switched on per event, so a form that is
+  filled in and tested can still send nothing. **Guide me** beside it, and an **Email (SMTP)** card in the notification wizard, open a guide: ten choices
+  (Gmail or Google Workspace, Microsoft 365, Fastmail, Proton Mail Bridge, Brevo, Mailgun, SendGrid, Amazon SES, another mail server, a relay on this server)
+  that bring the server, port and TLS mode the service documents and a note on what to get ready (an app password, the SMTP key and not the API key, the word
+  `apikey`), the recipients, a test, and the events to send: only the serious ones (critical or high on the Alerts page, with their recoveries), every event the
+  webhooks send, or the ones you choose. The test sends a real message through what was typed: `POST /api/smtp/test` takes a `settings` object that lies over a
+  copy of the saved settings and is stored nowhere, so a wrong password never replaces working settings, and a refusal comes back with one line on what to
+  check (the login, the TLS mode against the port, the certificate, the server name, a closed port, a refused sender or recipient). Nothing is saved before
+  **Turn it on**, which saves what the form saves and puts it in the form's boxes, so a later **Save settings** does not put the old values back. A saved
+  password is kept only for the same server and user name. Two small fixes ride along: a password box in a wizard no longer lets the browser fill in this
+  site's own sign-in, and `send_email` closes its connection on every failure path. **Held by** `tests/test_v800_smtp_guide.py` (27 tests: the merge and the route,
+  against a fake mail server that records what it was sent) and `tests/test_wizards_smtp_e2e.py` (31 browser tests), with 53 mutations caught. Three of the browser
+  tests were passing for the wrong reason until the mutation round showed it: one pressed the Settings form's Save, which answered 403 for a step-up the test
+  never gave, so it checked nothing.
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).

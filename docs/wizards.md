@@ -8,6 +8,7 @@ turn the switch on, and the dialogs they sit next to are still there.
 | Add a host | **Hosts → Enroll host → Guide me**, the empty Hosts page, or **Settings → Install → Getting started** | A wizard in four steps |
 | Add a notification destination | **Settings → Notifications → Webhook destinations → Guide me**, or **Settings → Install → Getting started** | A wizard in four steps |
 | Add an integration | **Settings → Integrations → Guide me**, next to **Add** | A wizard in four steps |
+| Set up email | **Settings → Notifications → Email notifications (SMTP) → Guide me**, or the **Email (SMTP)** card of the notification wizard | A wizard in five steps |
 | Fill in a long form one part at a time | The **Step by step** switch at the top of a form | The same form, a few fields at a time |
 
 Only administrators can make install commands, PINs, notification destinations and integrations. Someone who cannot is shown the server's refusal.
@@ -52,8 +53,36 @@ shows you the answer to a test before anything real is sent.
 
 If you close the wizard before **Turn it on**, a draft that never delivered is removed. A draft that did deliver stays, switched off, and a
 message tells you where to turn it on. Destinations that were there before are kept as they were, secrets included, and a secret you typed
-is stored and never shown again. Events, scope, request headers, digests and e-mail stay in the editor on the same page. E-mail is not in the
-wizard.
+is stored and never shown again. Events, scope, request headers and digests stay in the editor on the same page. Email is not a webhook: the **Email (SMTP)** card on the first
+step opens the email guide below.
+
+## Set up email
+
+**Settings → Notifications → Email notifications (SMTP)** is a form of about twenty boxes, and email is switched on per event, so a form that is
+filled in and tested can still send nothing. The guide asks in order and ends with email on and the events chosen.
+
+1. **Service.** Ten choices in three groups. Mail accounts: Gmail or Google Workspace, Microsoft 365, Fastmail, Proton Mail Bridge. Sending
+   services: Brevo, Mailgun, SendGrid, Amazon SES. Your own server: another mail server, or a mail relay on this server. If email is set up already,
+   the choice that matches its server is selected and the guide says it replaces those settings.
+2. **Connection.** The server, the port and the TLS mode that service documents, then the user name, the password and the From address. A note at
+   the top says what to get ready first: an app password for Gmail and Fastmail, the SMTP key (not the API key) for Brevo, the word `apikey` for
+   SendGrid, SMTP credentials made in the SES console, the password Bridge shows for Proton. Choosing another TLS mode moves the port to its
+   usual one (587, 465, 25) while the port is still a usual one. A server that takes mail without a login leaves the user name empty. **Check the
+   TLS certificate** is on; turn it off for a server of your own with a self-signed certificate (Proton Mail Bridge starts with it off).
+3. **Recipients.** The addresses that get the alerts, separated by commas.
+4. **Test.** **Send test email** sends a real message to the first address through what you typed. The server tests these settings without
+   saving them, so a wrong password or port never replaces settings that work. **Sent** names the address. **Not sent** shows the server's own
+   words and one line on what to check: the login, the TLS mode against the port, the certificate, the server name, a closed port, a sender or
+   a recipient the server refuses.
+5. **Finish.** A summary, and which events are sent by email: **only the serious events** (what the Alerts page rates critical or high, with their
+   recoveries, so a host that went offline and came back both arrive), **every event the webhooks send**, or **only the events you choose in
+   Settings**. Events that are ticked already are kept in every case, and select the third choice when some are. **Turn it on** saves.
+
+Email is saved only at **Turn it on**, with the same settings the form saves and with email switched on, so closing the guide earlier changes
+nothing. The boxes of the Settings page show what was saved, so pressing **Save settings** there afterwards does not put the old values back.
+A password you typed is stored and never shown again. If one is saved, leave the box empty to keep it; it is only kept for the same server and
+user name, so a new server asks for the password again. If the server's environment holds `RP_SMTP_PASSWORD`, that password is used and the
+box is not needed. The guide is for the platform operator, like the form.
 
 ## Add an integration
 

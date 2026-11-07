@@ -57,6 +57,62 @@ class SmtpError(Exception):
     """Wraps any SMTP failure with a human-readable message."""
 
 
+_TLS_MODES = ('starttls', 'tls', 'plain')
+
+
+def merge_test_settings(cfg: dict, settings) -> tuple:
+    """Return (config, error): the saved settings with the ones in `settings` laid over them.
+
+    A test may take its settings from the request instead of the saved ones: the e-mail guide in Settings tests what a person typed before
+    it is saved, so a wrong password or port never replaces working settings. Any key that is not one of the eight below is ignored
+    (host, port, tls, verify_tls, from, username, password, helo_name, each with the smtp_ prefix).
+
+    The config is a copy, so nothing is stored. Each value is checked the way the settings page's save checks it, and a refused value
+    comes back as the message to show. A password that is empty or missing keeps the saved one, like the password box of the page; the
+    RP_SMTP_PASSWORD variable still wins over both, as it does for every mail.
+    """
+    if not isinstance(settings, dict):
+        return cfg, 'settings must be an object'
+    out = dict(cfg or {})
+    if 'smtp_host' in settings:
+        out['smtp_host'] = str(settings['smtp_host'] if settings['smtp_host'] is not None else '').strip()[:255]
+    if 'smtp_port' in settings:
+        v = settings['smtp_port']
+        try:
+            if isinstance(v, bool):
+                raise TypeError('a boolean is not a port')
+            port = int(v)
+        except (TypeError, ValueError, OverflowError):
+            return cfg, 'smtp_port must be an integer'
+        if not (1 <= port <= 65535):
+            return cfg, 'smtp_port must be 1–65535'
+        out['smtp_port'] = port
+    if 'smtp_tls' in settings:
+        mode = str(settings['smtp_tls'] if settings['smtp_tls'] is not None else '').strip().lower()
+        if mode not in _TLS_MODES:
+            return cfg, 'smtp_tls must be starttls, tls, or plain'
+        out['smtp_tls'] = mode
+    if 'smtp_verify_tls' in settings:
+        if not isinstance(settings['smtp_verify_tls'], bool):
+            return cfg, 'smtp_verify_tls must be true or false'
+        out['smtp_verify_tls'] = settings['smtp_verify_tls']
+    if 'smtp_from' in settings:
+        sender = str(settings['smtp_from'] if settings['smtp_from'] is not None else '').strip()[:255]
+        if sender and '@' not in sender:
+            return cfg, 'smtp_from must be a valid email address'
+        out['smtp_from'] = sender
+    for key in ('smtp_username', 'smtp_helo_name'):
+        if key in settings:
+            out[key] = str(settings[key] if settings[key] is not None else '').strip()[:255]
+    if 'smtp_password' in settings:
+        pw = settings['smtp_password']
+        if pw is not None and not isinstance(pw, str):
+            return cfg, 'smtp_password must be text'
+        if pw:
+            out['smtp_password'] = pw[:1024]
+    return out, None
+
+
 def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_headers: dict = None, html_body: str = None, attachments: list = None, force: bool = False) -> dict:
     """
     Send a plain-text email. cfg is the SMTP config dict from /api/config.
@@ -182,6 +238,7 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
         if _hk and _hk not in msg and _hv is not None:
             msg[_hdr_safe(_hk)] = _hdr_safe(_hv)
 
+    client = None
     try:
         if tls_mode == 'tls':
             client = smtplib.SMTP_SSL(host, port, timeout=SMTP_CONNECT_TIMEOUT,
@@ -218,6 +275,14 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
         raise
     except (smtplib.SMTPException, ssl.SSLError, socket.timeout, socket.gaierror, OSError) as e:
         raise SmtpError(f'{type(e).__name__}: {e}')
+    finally:
+        # Every way out closes the connection: a refused sender or a failed login used to leave it for the garbage collector, which a
+        # guide that tests again after each correction would make a habit of.
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 # v5.4.1 (H4): white-label accent name → hex (mirrors api.BRAND_ACCENTS).

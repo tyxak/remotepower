@@ -253,7 +253,7 @@ function _wizField(host, o) {
   if (o.placeholder) c.placeholder = o.placeholder;
   if (o.maxlength) c.maxLength = o.maxlength;
   if (o.list) c.setAttribute('list', o.list);
-  c.autocomplete = 'off';
+  c.autocomplete = o.type === 'password' ? 'new-password' : 'off';      // a password box that says 'off' is filled with this site's own sign-in by some browsers
   c.addEventListener(c.tagName === 'SELECT' ? 'change' : 'input', () => o.onInput(c.value));
   g.appendChild(c);
   if (o.hint) g.appendChild(_wizNode('div', 'meta-sm', o.hint));
@@ -557,6 +557,7 @@ const _WIZ_NOTIFY = {
 const _WIZ_NOTIFY_GROUPS = [
   ['Chat', ['discord', 'slack', 'mattermost', 'rocketchat', 'googlechat', 'teams', 'telegram', 'matrix']],
   ['Push', ['ntfy', 'pushover', 'gotify']],
+  ['Email', ['email']],
   ['On-call', ['pagerduty', 'opsgenie']],
   ['Tickets', ['github', 'jira', 'servicenow', 'zendesk']],
   ['Anything else', ['apprise', 'generic']],
@@ -571,7 +572,7 @@ function _wizNotifyDef() {
     init: () => ({ fmt: 'discord', name: '', url: '', vals: {}, id: 'wh_' + Math.random().toString(36).slice(2, 10), saved: false,
                    verdict: null, prio: '', named: false }),
     steps: [
-      { label: 'Service', render: _wizNotifyService },
+      { label: 'Service', render: _wizNotifyService, next: _wizNotifyHandOver },
       { label: 'Connection', render: _wizNotifyConnection, validate: _wizNotifyCheck },
       { label: 'Test', render: _wizNotifyTest },
       { label: 'Finish', render: _wizNotifyFinish, primary: 'Turn it on', next: _wizNotifyOn },
@@ -584,7 +585,7 @@ function _wizNotifyService(st, body) {
   const items = [];
   _WIZ_NOTIFY_GROUPS.forEach(([g, list]) => {
     items.push({ g });
-    list.forEach(v => items.push({ v, t: _wizNotifyFormat(v)[1] }));
+    list.forEach(v => items.push(v === 'email' ? { v, t: 'Email (SMTP)', d: 'Opens the email guide.' } : { v, t: _wizNotifyFormat(v)[1] }));
   });
   _wizChoices(body, {
     legend: 'Where should alerts go?', name: 'wiz-fmt', value: st.fmt, items,
@@ -596,6 +597,14 @@ function _wizNotifyService(st, body) {
       if (!st.named) st.name = '';
     },
   });
+}
+
+// Email is not a webhook: it has its own guide (the mail server, a login, who receives it), and the Service step goes there.
+function _wizNotifyHandOver(st) {
+  if (st.fmt !== 'email') return true;
+  closeModal('wizard-modal');
+  wizStart('smtp');
+  return false;
 }
 
 function _wizNotifyConnection(st, body) {
@@ -877,13 +886,18 @@ function _wizIntegConnection(st, body) {
       onInput: v => { st.vals[f.key] = v; st.verdict = null; },
     });
   });
+  _wizVerifyBox(st, body);
+}
+
+// The "check the certificate" box of a connection step: on unless it is turned off, and a change drops the answer of the last test.
+function _wizVerifyBox(st, body) {
   const g = _wizNode('div', 'form-group');
   const lab = _wizNode('label', 'form-label');
   const box = document.createElement('input');
   box.type = 'checkbox';
   box.id = 'wiz-verify';
   box.checked = st.verify;
-  box.addEventListener('change', () => { st.verify = box.checked; st.verdict = null; });
+  box.addEventListener('change', () => { st.verify = box.checked; st.verdict = null; if (st.touched) st.touched.verify = true; });
   lab.append(box, document.createTextNode(' Check the TLS certificate'));
   g.appendChild(lab);
   g.appendChild(_wizNode('div', 'meta-sm', 'Turn it off for a service with a self-signed certificate on your network.'));
@@ -1009,7 +1023,340 @@ async function _wizIntegAdd(st, w) {
   return true;
 }
 
-const _WIZARDS = { enroll: _wizEnrollDef, notify: _wizNotifyDef, integration: _wizIntegDef };
+// ── "Set up email" ────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Which mail service sends the alerts, its address and login, who receives them, a test that sends a real message with what was typed, and which
+// events are e-mailed. The server tests settings that are not saved, so nothing is stored before the last step: a wrong password or port never
+// replaces settings that work. The last step saves the keys the form in Settings saves and puts them in that form's boxes, so a later Save there
+// does not undo them. host, port and tls are what the service documents. `user` is a login that is the same for everyone, `auth: false` marks a
+// server that may take mail with no login, `verify: false` one whose certificate is its own, `match` how a saved host is recognised.
+const _WIZ_SMTP = {
+  gmail: { name: 'Gmail or Google Workspace', host: 'smtp.gmail.com', port: 587, tls: 'starttls', example: 'you@gmail.com', match: /^smtp\.gmail\.com$/i,
+    note: 'Google asks for an app password here, not your account password. Turn on 2-Step Verification for the account, then create an app password for mail. The user name is the full address.' },
+  microsoft: { name: 'Microsoft 365', host: 'smtp.office365.com', port: 587, tls: 'starttls', example: 'mailbox@your-company.com', match: /^smtp\.office365\.com$/i,
+    note: 'An administrator has to switch on SMTP sign-in for the mailbox, and Microsoft is turning off password sign-in for it, so it may stop working one day. The user name is the mailbox address, and the From address must be that mailbox.' },
+  fastmail: { name: 'Fastmail', host: 'smtp.fastmail.com', port: 587, tls: 'starttls', example: 'you@fastmail.com', match: /^smtp\.fastmail\.com$/i,
+    note: 'Create an app password with SMTP access under Settings, Privacy & Security. Your normal password does not work here. The user name is the full address.' },
+  proton: { name: 'Proton Mail Bridge', host: '127.0.0.1', port: 1025, tls: 'starttls', verify: false, example: 'you@proton.me', port_match: 1025,
+    note: 'Proton Mail Bridge has to run on the machine this server runs on. Use the user name and password that Bridge shows for the account, not your Proton password. If the connection fails, copy the host, port and security setting from Bridge.' },
+  brevo: { name: 'Brevo', host: 'smtp-relay.brevo.com', port: 587, tls: 'starttls', example: 'a1b2c3001@smtp-brevo.com', match: /^smtp-relay\.brevo\.com$/i,
+    note: "Use the SMTP login and an SMTP key from the SMTP tab of Brevo's SMTP & API settings. An API key does not work. The From address must be a sender you verified in Brevo." },
+  mailgun: { name: 'Mailgun', host: 'smtp.mailgun.org', port: 587, tls: 'starttls', example: 'postmaster@mg.example.com', match: /^smtp\.(eu\.)?mailgun\.org$/i,
+    note: 'Use the SMTP login of your sending domain, which looks like postmaster@your-domain, and its SMTP password. An API key does not work. An account in the EU region uses the server smtp.eu.mailgun.org.' },
+  sendgrid: { name: 'SendGrid', host: 'smtp.sendgrid.net', port: 587, tls: 'starttls', user: 'apikey', example: 'apikey', match: /^smtp\.sendgrid\.net$/i,
+    note: 'The user name is the word apikey. The password is an API key that may send mail. The From address must be a sender you verified in SendGrid.' },
+  ses: { name: 'Amazon SES', host: 'email-smtp.us-east-1.amazonaws.com', port: 587, tls: 'starttls', example: 'AKIAXXXXXXXXXXXXXXXX', match: /^email-smtp\.[a-z0-9-]+\.amazonaws\.com$/i,
+    note: 'Replace the region in the server name with yours. Use the SMTP credentials made in the SES console, not your AWS access keys. The From address has to be verified in SES, and a new account can only send to verified addresses until AWS lifts that limit.' },
+  own: { name: 'Another mail server', host: '', port: 587, tls: 'starttls', auth: false, example: 'ops@example.com',
+    note: 'Use the address of your mail server and the login it gave you. Leave the user name empty if it takes mail from this server without one. If its certificate is self-signed, turn the certificate check off.' },
+  local: { name: 'A mail relay on this server', host: '127.0.0.1', port: 25, tls: 'plain', auth: false, example: '', port_match: 25,
+    note: 'A mail server on this machine that takes local mail without a login, such as Postfix or Exim. Nothing is encrypted on the way, so use it only for the machine itself.' },
+};
+const _WIZ_SMTP_GROUPS = [
+  ['Mail accounts', ['gmail', 'microsoft', 'fastmail', 'proton']],
+  ['Sending services', ['brevo', 'mailgun', 'sendgrid', 'ses']],
+  ['Your own server', ['own', 'local']],
+];
+const _WIZ_SMTP_TLS = [['starttls', 'STARTTLS (587)'], ['tls', 'Implicit TLS (465)'], ['plain', 'Plain (25)']];
+const _WIZ_SMTP_PORT = { starttls: 587, tls: 465, plain: 25 };
+const _WIZ_SMTP_EVENTS = [
+  { v: 'serious', t: 'Only the serious events', d: 'The ones the Alerts page rates critical or high, such as a host offline or a service down, and their recoveries.' },
+  { v: 'all', t: 'Every event the webhooks send', d: 'A lot of mail: every event that goes to a webhook is sent by email too.' },
+  { v: 'keep', t: 'Only the events I choose in Settings', d: 'Nothing is sent until you tick events in the table under Settings, Notifications.' },
+];
+const _WIZ_SMTP_ADDR = /^[^\s@]+@[^\s@]+$/;
+
+function _wizSmtpDef() {
+  return {
+    title: 'Set up email',
+    init: () => ({ cfg: null, provider: '', host: '', port: 587, tls: 'starttls', verify: true, user: '', pass: '', from: '', rec: '', events: 'serious',
+                   touched: {}, saved: null, passSaved: false, passEnv: false, verdict: null, sending: false }),
+    steps: [
+      { label: 'Service', render: _wizSmtpService, validate: st => (st.provider ? null : { msg: 'Choose a service', focus: 'wiz-svc' }) },
+      { label: 'Connection', render: _wizSmtpConnection, validate: _wizSmtpCheck },
+      { label: 'Recipients', render: _wizSmtpRecipients, validate: _wizSmtpCheckRecipients },
+      { label: 'Test', render: _wizSmtpTest },
+      { label: 'Finish', render: _wizSmtpFinish, primary: 'Turn it on', next: _wizSmtpOn },
+    ],
+  };
+}
+
+// Which service a saved server belongs to: the one whose address it is, else "another mail server".
+function _wizSmtpGuess(host, port) {
+  const h = String(host || '').trim();
+  if (!h) return '';
+  for (const k of Object.keys(_WIZ_SMTP)) {
+    const p = _WIZ_SMTP[k];
+    if (p.match && p.match.test(h)) return k;
+    if (p.port_match && p.host === h.toLowerCase() && p.port_match === Number(port)) return k;
+  }
+  return 'own';
+}
+
+// The saved settings become the starting point, as values that were not typed: a service picked later replaces them.
+function _wizSmtpFill(st) {
+  const c = st.cfg || {};
+  st.passSaved = !!c.smtp_password_set;
+  st.passEnv = !!c.smtp_password_from_env;
+  if (Object.values(c.email_events || {}).some(Boolean)) st.events = 'keep';       // events that are ticked already are the person's choice
+  if (!String(c.smtp_host || '').trim()) return;
+  st.saved = { host: String(c.smtp_host).trim(), user: String(c.smtp_username || '').trim() };
+  st.host = st.saved.host;
+  st.port = Number(c.smtp_port) || 587;
+  st.tls = c.smtp_tls || 'starttls';
+  st.verify = c.smtp_verify_tls !== false;
+  st.user = st.saved.user;
+  st.from = String(c.smtp_from || '');
+  st.rec = String(c.smtp_recipients || '');
+  st.provider = _wizSmtpGuess(st.host, st.port);
+}
+
+function _wizSmtpService(st, body) {
+  if (!st.cfg) {
+    body.appendChild(_wizNode('div', 'hint', 'Loading…'));
+    api('GET', '/config').catch(() => null).then(c => {
+      st.cfg = (c && !c.error) ? c : {};
+      _wizSmtpFill(st);
+      if (_wiz && _wiz.st === st && _wiz.i === 0) _wizShow(0);
+    });
+    return;
+  }
+  if (st.saved) body.appendChild(_wizNode('div', 'hint mb-12', 'Email is already set up. This guide replaces those settings.'));
+  const items = [];
+  _WIZ_SMTP_GROUPS.forEach(([g, list]) => { items.push({ g }); list.forEach(k => items.push({ v: k, t: _WIZ_SMTP[k].name })); });
+  _wizChoices(body, {
+    legend: 'Which service sends the mail?', name: 'wiz-svc', value: st.provider, items,
+    onPick: v => {
+      if (v === st.provider) return;
+      st.provider = v;
+      st.verdict = null;
+      const p = _WIZ_SMTP[v], t = st.touched;      // what was typed on the next step stays
+      if (!t.host) st.host = p.host;
+      if (!t.port) st.port = p.port;
+      if (!t.tls) st.tls = p.tls;
+      if (!t.verify) st.verify = p.verify !== false;
+      if (!t.user) st.user = p.user || '';
+    },
+  });
+}
+
+// A password may be left empty when one is saved for this same server and user, or when the server's environment holds it.
+function _wizSmtpPassOk(st) {
+  if (st.pass !== '' || st.passEnv) return true;
+  return st.passSaved && !!st.saved && st.host.trim() === st.saved.host && st.user.trim() === st.saved.user;
+}
+
+function _wizSmtpConnection(st, body) {
+  const p = _WIZ_SMTP[st.provider];
+  body.appendChild(_wizNode('div', 'hint mb-12', p.note));
+  const typed = k => v => { st[k] = v; st.touched[k] = true; st.verdict = null; };
+  _wizField(body, { id: 'wiz-host', label: 'SMTP host', value: st.host, placeholder: 'smtp.example.com', maxlength: 255, onInput: typed('host') });
+  const row = _wizNode('div', 'settings-row');
+  const portBox = _wizField(row, { id: 'wiz-port', label: 'Port', type: 'number', value: String(st.port), onInput: typed('port') });
+  portBox.min = 1;
+  portBox.max = 65535;
+  _wizField(row, {
+    id: 'wiz-tls', label: 'TLS mode', value: st.tls, options: _WIZ_SMTP_TLS,
+    onInput: v => {
+      typed('tls')(v);
+      // the port follows the mode while it is still one of the usual ports, so 465 does not stay with STARTTLS
+      if (!st.touched.port || Object.values(_WIZ_SMTP_PORT).includes(Number(st.port))) { st.port = _WIZ_SMTP_PORT[v]; portBox.value = String(st.port); }
+    },
+  });
+  Array.from(row.children).forEach(g => g.classList.add('flex-1'));
+  body.appendChild(row);
+  _wizField(body, {
+    id: 'wiz-user', label: 'Username', value: st.user, placeholder: p.example, maxlength: 255, onInput: typed('user'),
+    hint: p.auth === false ? 'Leave empty if the server needs no login.' : '',
+  });
+  const hint = st.passEnv ? "The password is read from the server's environment (RP_SMTP_PASSWORD), so this box is not used."
+    : (st.passSaved ? 'Leave empty to keep the saved password. Type it again if you change the server or the user name.' : '');
+  _wizField(body, { id: 'wiz-pass', label: 'Password', type: 'password', value: st.pass, maxlength: 1024, onInput: typed('pass'), hint });
+  _wizField(body, { id: 'wiz-from', label: 'From address', type: 'email', value: st.from, placeholder: 'remotepower@example.com', maxlength: 255, onInput: typed('from') });
+  _wizVerifyBox(st, body);
+}
+
+function _wizSmtpCheck(st) {
+  const p = _WIZ_SMTP[st.provider] || {};
+  if (!st.host.trim()) return { msg: 'Set the server first', focus: 'wiz-host' };
+  const port = Number(st.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return { msg: 'Set a port from 1 to 65535', focus: 'wiz-port' };
+  const user = st.user.trim();
+  if (p.auth !== false && !user) return { msg: 'This field is needed', focus: 'wiz-user' };
+  if (user && !_wizSmtpPassOk(st)) return { msg: 'This field is needed', focus: 'wiz-pass' };
+  const from = st.from.trim();
+  if (!from) return { msg: 'Set the From address first', focus: 'wiz-from' };
+  if (!_WIZ_SMTP_ADDR.test(from)) return { msg: 'That is not an address', focus: 'wiz-from' };
+  return null;
+}
+
+function _wizSmtpList(st) { return String(st.rec || '').split(/[,;\s]+/).map(x => x.trim()).filter(Boolean); }
+
+function _wizSmtpRecipients(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'Who should get the alerts?'));
+  _wizField(body, {
+    id: 'wiz-rec', label: 'Recipients', value: st.rec, placeholder: 'ops@example.com, admin@example.com', maxlength: 2000,
+    hint: 'Separate addresses with a comma. The test message goes to the first one.', onInput: v => { st.rec = v; st.verdict = null; },
+  });
+}
+
+function _wizSmtpCheckRecipients(st) {
+  const list = _wizSmtpList(st);
+  if (!list.length) return { msg: 'Add an address to send alerts to', focus: 'wiz-rec' };
+  if (list.some(a => !_WIZ_SMTP_ADDR.test(a))) return { msg: 'That is not an address', focus: 'wiz-rec' };
+  return null;
+}
+
+// The connection as the settings form keeps it. A password that was not typed is not sent, so the saved one stays.
+function _wizSmtpSettings(st) {
+  const o = { smtp_host: st.host.trim(), smtp_port: Number(st.port), smtp_tls: st.tls, smtp_verify_tls: !!st.verify, smtp_from: st.from.trim(), smtp_username: st.user.trim() };
+  if (o.smtp_username && st.pass !== '') o.smtp_password = st.pass;
+  return o;
+}
+
+function _wizSmtpTest(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'Send a real message to the first address to check that the settings work.'));
+  const row = _wizNode('div', 'row-8');
+  const b = _wizNode('button', 'btn-primary', 'Send test email');
+  b.type = 'button';
+  b.id = 'wiz-test';
+  b.setAttribute('data-action', 'wizSmtpTest');
+  row.appendChild(b);
+  body.appendChild(row);
+  const out = _wizNode('div', 'wiz-result');
+  out.id = 'wiz-result';
+  out.setAttribute('role', 'status');
+  body.appendChild(out);
+  _wizSmtpPaint();
+}
+
+// What the server said, as one hint. A message that two causes can produce names neither: a timeout and a closed connection are both what a
+// port with the wrong TLS mode looks like, so those hints list what to check.
+function _wizSmtpHint(detail) {
+  const t = String(detail || '').toLowerCase();
+  if (/auth failed|authentication|\b53[045]\b|username and password/.test(t) && !/starttls/.test(t)) return 'The server refused the user name or password, or wants one. Check them against the note on the Connection step.';
+  if (/auth extension not supported/.test(t)) return 'The server offers no login on this connection. Try STARTTLS or Implicit TLS, or leave the user name empty.';
+  if (/does not advertise starttls/.test(t)) return 'The server does not offer STARTTLS on this port. Try Implicit TLS on port 465, or check the port.';
+  if (/certificate|verify failed|self.signed/.test(t)) return "The server's certificate is not trusted. If the server is your own, turn off the certificate check.";
+  if (/timed out|timeout/.test(t)) return 'No answer in time. Check the server name and the port, that a firewall does not block the port from this server (many hosting providers block port 25), and that the TLS mode fits the port.';
+  if (/wrong_version_number|wrong version number|eof occurred|unexpectedly closed|sslerror|ssl:/.test(t)) return 'The connection was closed or the TLS handshake failed. Check that the TLS mode fits the port: 587 usually takes STARTTLS and 465 Implicit TLS.';
+  if (/gaierror|name or service not known|nodename nor servname|name resolution|getaddrinfo/.test(t)) return 'The server name was not found from this server. Check how it is spelled.';
+  if (/connection refused|errno 111|connectionrefused/.test(t)) return 'Nothing answered on that port. Check the port, and that the mail server is running.';
+  if (/senderrefused|sender address|sender not|not authori[sz]ed to send|from address/.test(t)) return 'The server did not accept the From address. Use an address this account may send from.';
+  if (/recipientsrefused|relay access denied|recipient/.test(t)) return 'The server did not accept the recipient. It may not relay mail for this account or this address.';
+  return 'Check the settings, and that this server can reach the mail server.';
+}
+
+function _wizSmtpPaint() {
+  const out = document.getElementById('wiz-result');
+  const w = _wiz;
+  if (!out || !w) return;
+  const v = w.st.verdict;
+  out.textContent = '';
+  if (w.st.sending) { out.className = 'wiz-result c-muted'; out.textContent = 'Sending…'; return; }
+  if (!v) { out.className = 'wiz-result'; return; }
+  const top = (cls, state, chip) => {
+    out.className = 'wiz-result ' + cls;
+    const row = _wizNode('div', 'row-8-center');
+    row.appendChild(_wizNode('span', 'wiz-state', state));
+    if (chip) row.appendChild(_wizNode('span', 'wiz-chip ff-mono', chip));
+    out.appendChild(row);
+  };
+  if (v.kind === 'ok') {
+    top('c-green', 'Sent', v.to);
+    out.appendChild(_wizNode('div', 'hint mt-6', 'The server accepted the message. Check the inbox, and the spam folder.'));
+  } else if (v.kind === 'fail') {
+    top('c-red', 'Not sent', '');
+    out.appendChild(_wizNode('div', 'hint mt-6', _wizSmtpHint(v.detail)));
+    if (v.detail) out.appendChild(_wizNode('div', 'hint ff-mono', v.detail));
+  } else {
+    top('c-red', 'Not sent', '');
+    out.appendChild(_wizNode('div', 'hint mt-6', 'The test could not be run. Try again.'));
+  }
+}
+
+// Sends one message through what was typed. The server lays the settings over a copy of the saved ones and stores nothing.
+async function wizSmtpTest() {
+  const w = _wiz;
+  if (!w || w.busy) return;
+  const st = w.st;
+  const to = _wizSmtpList(st)[0];
+  st.verdict = null;                      // the answer of the last test goes, so a new one is not mistaken for it
+  st.sending = true;
+  _wizSmtpPaint();
+  const btn = document.getElementById('wiz-test');
+  if (btn) btn.disabled = true;
+  _wizBusy(true);
+  let r = null;
+  try {
+    r = await api('POST', '/smtp/test', { recipient: to, settings: _wizSmtpSettings(st) });
+  } catch (_) {
+    r = null;
+  } finally {
+    st.sending = false;
+    if (_wiz === w) _wizBusy(false);
+    const again = document.getElementById('wiz-test');
+    if (again) again.disabled = false;
+  }
+  if (_wiz !== w) return;
+  if (r && r.ok === true) st.verdict = { kind: 'ok', to };
+  else if (r && (r.error || r.ok === false)) st.verdict = { kind: 'fail', detail: String(r.error || '') };
+  else st.verdict = { kind: 'none' };
+  _wizSmtpPaint();
+}
+
+function _wizSmtpFinish(st, body) {
+  _wizChoices(body, { legend: 'What should be sent by email?', name: 'wiz-ev', value: st.events, items: _WIZ_SMTP_EVENTS, onPick: v => { st.events = v; } });
+  const ok = st.verdict && st.verdict.kind === 'ok';
+  _wizList(body, [
+    ['Service', _WIZ_SMTP[st.provider].name],
+    ['Server', st.host.trim() + ':' + st.port],
+    ['From address', st.from.trim()],
+    ['Recipients', _wizSmtpList(st).join(', ')],
+    ['Test', ok ? 'Sent' : 'Not tested'],
+  ]);
+  if (!ok) body.appendChild(_wizNode('div', 'hint mt-8', 'It was not tested. A wrong setting goes unnoticed until the first alert needs it.'));
+}
+
+// Saves what the form in Settings saves for email, with email switched on, and the events that were asked for.
+async function _wizSmtpOn(st, w) {
+  const cfg = await api('GET', '/config');
+  if (!cfg || cfg.error) { _wizMsg('Save failed', ''); return false; }
+  const body = Object.assign({ smtp_enabled: true, smtp_recipients: _wizSmtpList(st).join(', ') }, _wizSmtpSettings(st));
+  let events = null;
+  if (st.events !== 'keep') {
+    events = Object.assign({}, cfg.email_events || {});
+    const meta = cfg._meta || {};
+    const pick = st.events === 'all' ? Object.keys(cfg.webhook_events || {}).filter(ev => cfg.webhook_events[ev]) : (meta.serious_events || []);
+    pick.forEach(ev => { events[ev] = true; });
+    body.email_events = events;
+  }
+  const r = await api('POST', '/config', body);
+  if (!r || r.error || r.ok === false) { _wizMsg((r && r.error) || 'Save failed', ''); return false; }
+  w.finished = true;
+  _wizSmtpSync(st, events);
+  toast('Email turned on', 'success');
+  return true;
+}
+
+// The boxes of the Settings form take what was saved, so a later Save of that form writes the same values and not the ones it showed before.
+function _wizSmtpSync(st, events) {
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+  const on = (id, v) => { const e = document.getElementById(id); if (e) e.checked = !!v; };
+  on('cfg-smtp-enabled', true);
+  set('cfg-smtp-host', st.host.trim());
+  set('cfg-smtp-port', String(Number(st.port)));
+  set('cfg-smtp-tls', st.tls);
+  on('cfg-smtp-verify-tls', st.verify);
+  set('cfg-smtp-from', st.from.trim());
+  set('cfg-smtp-username', st.user.trim());
+  set('cfg-smtp-password', '');
+  set('cfg-smtp-recipients', _wizSmtpList(st).join(', '));
+  const badge = document.getElementById('cfg-smtp-pw-set-badge');
+  if (badge && (st.pass !== '' || st.passSaved)) badge.classList.remove('d-none');
+  if (events) document.querySelectorAll('#event-toggle-table .toggle-email').forEach(cb => { cb.checked = events[cb.dataset.event] === true; });
+}
+
+const _WIZARDS = { enroll: _wizEnrollDef, notify: _wizNotifyDef, integration: _wizIntegDef, smtp: _wizSmtpDef };
 
 // ── step-by-step mode of the long forms ──────────────────────────────────────────────────────────────────────────────────
 // Each form lists its steps. A step names the controls (or the blocks of the form) it holds by id; the block of the form that holds the

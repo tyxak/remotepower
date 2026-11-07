@@ -9695,6 +9695,14 @@ def is_email_event_enabled(event, cfg=None):
     return False
 
 
+def _serious_email_events():
+    """The events the e-mail guide offers as the serious ones: what the Alerts page rates critical or high, and the recoveries that close
+    them (a host offline and the same host back). The registry holds both facts, so a new event is classed by its own entry."""
+    firing = {ev for ev, d in EVENT_REGISTRY.items() if d.get('severity') in ('critical', 'high')}
+    closing = {ev for ev, d in EVENT_REGISTRY.items() if firing & set(d.get('resolves') or ())}
+    return sorted(ev for ev in firing | closing if any(ev == w[0] for w in WEBHOOK_EVENTS))
+
+
 def _smtp_recipients_list(cfg):
     """Parse the comma/semicolon/whitespace-separated recipients string."""
     raw = (cfg.get('smtp_recipients') or '')
@@ -30834,6 +30842,7 @@ def handle_config_get():
         'cve_severities':             list(CVE_SEVERITIES_ALL),
         'min_online_ttl':             MIN_ONLINE_TTL,
         'smtp_tls_modes':             ['starttls', 'tls', 'plain'],
+        'serious_events':             _serious_email_events(),   # 8.0.0: what the e-mail guide turns on for "only the serious ones"
     }
     # 7.4.9: the settings document is the installation's. The secrets were withheld from a tenant (v6.4.3) and the rest was not: the
     # monitors with their target addresses, the integrations, the backup monitors, the drift profiles that name hosts, the custom
@@ -68489,8 +68498,9 @@ def handle_fleet_timeline():
 def handle_smtp_test():
     """
     POST /api/smtp/test
-    Sends a test email using current settings (or override config in body).
-    Body may include 'recipient' to override the configured recipient list.
+    Sends a test email using current settings.
+    Body may include 'recipient' to override the configured recipient list, and 'settings' (the eight smtp_ keys of
+    smtp_notifier.merge_test_settings) to test what the e-mail guide collected before anything is saved.
     """
     actor = require_admin_auth()
     # Takes its recipient from the request and sends from the platform's own mail identity, so it is
@@ -68502,6 +68512,13 @@ def handle_smtp_test():
     body = _read_valid(request_models.SmtpTestRequest)
     body = get_json_obj() if _env('CONTENT_LENGTH', '0') != '0' else {}
     cfg = load(CONFIG_FILE)
+    # The e-mail guide tests what was typed before it saves anything. The object lays over a copy of the saved settings and is never stored.
+    unsaved = body.get('settings') is not None
+    if unsaved:
+        cfg, bad = smtp_notifier.merge_test_settings(cfg, body.get('settings'))
+        if bad:
+            respond(400, {'error': bad})
+    through = (f' through {_sanitize_str(cfg.get("smtp_host"), 120)}:{cfg.get("smtp_port")}, settings not saved' if unsaved else '')
     override_recipient = _sanitize_str(body.get('recipient', ''), 320)
 
     if override_recipient:
@@ -68531,11 +68548,11 @@ def handle_smtp_test():
             force=True,   # v5.4.1 (E6): an explicit connectivity test bypasses sandbox mode
         )
         _log_email('test', recipients, 'ok', f'test sent to {plural(len(recipients), "recipient", "recipients")}')
-        audit_log(actor, 'smtp_test', f'test email sent to {plural(len(recipients), "recipient", "recipients")}')
+        audit_log(actor, 'smtp_test', f'test email sent to {plural(len(recipients), "recipient", "recipients")}{through}')
         respond(200, {'ok': True, 'recipients': recipients, 'result': result})
     except smtp_notifier.SmtpError as e:
         _log_email('test', recipients, 'error', str(e))
-        audit_log(actor, 'smtp_test_failed', str(e))
+        audit_log(actor, 'smtp_test_failed', f'{e}{through}')
         respond(200, {'ok': False, 'error': str(e), 'recipients': recipients})
 
 
