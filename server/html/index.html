@@ -12587,7 +12587,8 @@ nextcloud mem=95 sustain=6</pre>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="new-maint-modal" >Cancel</button><button class="btn-primary" data-action="saveMaintenance" >Create</button></div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="new-rollout-modal-title" id="new-rollout-modal"><div class="modal"><div class="modal-title" id="new-rollout-modal-title">New rollout</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="new-rollout-modal-title" id="new-rollout-modal" data-wiz-steps><div class="modal"><div class="modal-title" id="new-rollout-modal-title">New rollout</div>
+    <label class="wiz-switch"><input type="checkbox" data-change="wizFormToggle" data-change-arg="new-rollout-modal"> <span>Step by step</span></label>
   <div class="form-group"><label>Name</label><input type="text" id="ro-name" placeholder="May security patches" maxlength="80" aria-label="Name"></div>
   <div class="form-group"><label>Action</label>
     <select id="ro-action" data-change="onRolloutActionChange" aria-label="Action">
@@ -12670,8 +12671,9 @@ nextcloud mem=95 sustain=6</pre>
 </div></div>
 
 <!-- W5-7: device profile create / edit modal -->
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-profile-modal-title" id="device-profile-modal"><div class="modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-profile-modal-title" id="device-profile-modal" data-wiz-steps><div class="modal">
   <div class="modal-title" id="device-profile-modal-title">New host profile</div>
+    <label class="wiz-switch"><input type="checkbox" data-change="wizFormToggle" data-change-arg="device-profile-modal"> <span>Step by step</span></label>
   <div class="modal-subtitle">Leave a field blank to omit it — applying a profile only stamps the fields it defines.</div>
   <div class="form-group"><label class="form-label" for="dp-name">Profile name</label><input type="text" id="dp-name" class="form-input" placeholder="Web tier" maxlength="64"></div>
   <div class="form-group"><label class="form-label" for="dp-poll">Poll interval (seconds)</label><input type="number" id="dp-poll" class="form-input" min="10" max="3600" placeholder="(leave blank to omit)"></div>

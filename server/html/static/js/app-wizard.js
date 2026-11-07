@@ -864,6 +864,39 @@ const _WIZ_FORMS = {
       return null;
     },
   },
+  'new-rollout-modal': {
+    steps: [
+      { label: 'What', ids: ['ro-name', 'ro-action', 'ro-script-row'] },
+      { label: 'Rings', ids: ['ro-rings'] },
+      { label: 'Safety', ids: ['ro-verify', 'ro-auto', 'ro-health-gate'] },
+    ],
+    check(n, q, panel) {
+      if (n === 0) {
+        if (!q('ro-name').value.trim()) return { msg: 'Name is required', focus: q('ro-name') };
+        if (q('ro-action').value === 'script' && !q('ro-script').value) return { msg: 'Pick a saved script', focus: q('ro-script') };
+      }
+      if (n === 1) {
+        // the rows the form's own save keeps: a value to resolve, or the ring that takes whatever the others left
+        const rows = [...panel.querySelectorAll('#ro-rings .ro-ring')];
+        if (!rows.some(r => r.querySelector('.ro-ring-value').value.trim() || r.querySelector('.ro-ring-type').value === 'remaining')) {
+          const first = rows.find(r => r.querySelector('.ro-ring-type').value !== 'remaining');
+          return { msg: 'Add at least one ring with a target', focus: first ? first.querySelector('.ro-ring-value') : null };
+        }
+      }
+      return null;
+    },
+  },
+  'device-profile-modal': {
+    steps: [
+      { label: 'What', ids: ['dp-name', 'dp-poll'] },
+      { label: 'Watches', ids: ['dp-units', 'dp-logs', 'dp-drift'] },
+      { label: 'Thresholds', ids: ['dp-mem-warn', 'dp-disk-warn', 'dp-diskio-warn', 'dp-iowait-warn', 'dp-steal-warn'] },
+    ],
+    check(n, q) {
+      if (n === 0 && !q('dp-name').value.trim()) return { msg: 'Name required', focus: q('dp-name') };
+      return null;
+    },
+  },
 };
 
 const _wizForms = new Map();       // modal id -> the state of the form that is in steps

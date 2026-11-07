@@ -889,6 +889,8 @@ FORMS = {
     'monitor-add-modal': ('monitor', 'openMonitorAdd()', 'addMonitor', ['What', 'Target', 'Alerting', 'Review']),
     'backupjob-modal': ('backups', 'openBackupJobCreate()', 'saveBackupJob', ['What', 'How', 'When', 'Review']),
     'autopatch-modal': ('autopatch', 'openAutopatchCreate()', 'saveAutopatch', ['What', 'When', 'Safety', 'Review']),
+    'new-rollout-modal': ('rollouts', 'openRolloutModal()', 'saveRollout', ['What', 'Rings', 'Safety', 'Review']),
+    'device-profile-modal': ('sites', 'openDeviceProfileCreate()', 'saveDeviceProfile', ['What', 'Watches', 'Thresholds', 'Review']),
 }
 
 _SET = """([sel, v]) => { const e = document.getElementById(sel) || document.querySelector(sel); e.value = v;
@@ -950,6 +952,10 @@ def _fill_valid(page, modal_id):
         _apply(page, [('set', 'backupjob-name', 'wiz walk'), ('check', '.backupjob-devchk', True), ('set', 'backupjob-command', 'echo hi')])
     elif modal_id == 'autopatch-modal':
         _apply(page, [('set', 'autopatch-name', 'wiz walk')])
+    elif modal_id == 'new-rollout-modal':
+        _apply(page, [('set', 'ro-name', 'wiz walk'), ('set', '#ro-rings .ro-ring-value', 'staging')])
+    elif modal_id == 'device-profile-modal':
+        _apply(page, [('set', 'dp-name', 'wiz walk')])
 
 
 class TestFormSteps(_Base):
@@ -1160,6 +1166,12 @@ class TestFormSteps(_Base):
              'Pick a host for this policy', 'What'),
             ('autopatch-modal', [('set', 'autopatch-name', 'x'), ('check', 'autopatch-staged', True), ('set', 'autopatch-rings', '')],
              'Staged rollout needs at least one ring (e.g. "canary = tag:canary")', 'Safety'),
+            ('new-rollout-modal', [('set', 'ro-name', '')], 'Name is required', 'What'),
+            # a ring needs a value to resolve; the three the form starts with have none
+            ('new-rollout-modal', [('set', 'ro-name', 'x')], 'Add at least one ring with a target', 'Rings'),
+            ('new-rollout-modal', [('set', 'ro-name', 'x'), ('set', '#ro-rings .ro-ring-value', 'staging'), ('set', 'ro-action', 'script'),
+                                   ('set', 'ro-script', '')], 'Pick a saved script', 'What'),
+            ('device-profile-modal', [('set', 'dp-name', '')], 'Name required', 'What'),
         ]
         for mid, ops, message, at in scenarios:
             # in steps: the message of the step, with the step that holds it still showing
@@ -1191,6 +1203,22 @@ class TestFormSteps(_Base):
                 page.evaluate("() => { window.toast = window.__toastWas; }")
             self.assertEqual(form_said, message, '%s: the form itself refuses with the same words' % mid)
             page.keyboard.press('Escape')
+
+    def test_a_ring_that_takes_whatever_is_left_needs_no_value(self):
+        """The rollout's own save keeps a ring with nothing typed when its type is `remaining`: it exists to catch what the others missed."""
+        page = self.page
+        _set_steps(page, True)
+        _open_form(page, 'new-rollout-modal', steps=True)
+        _apply(page, [('set', 'ro-name', 'x')])
+        _next(page, 'new-rollout-modal')
+        self.assertEqual(_active(page, '#new-rollout-modal'), 'Rings')
+        _next(page, 'new-rollout-modal')
+        self.assertEqual(page.inner_text('#new-rollout-modal .wiz-msg'), 'Add at least one ring with a target')
+        page.evaluate("""() => { const t = document.querySelector('#ro-rings .ro-ring-type'); t.value = 'remaining';
+                                 t.dispatchEvent(new Event('change', {bubbles: true})); }""")
+        _next(page, 'new-rollout-modal')
+        self.assertEqual((_active(page, '#new-rollout-modal'), page.inner_text('#new-rollout-modal .wiz-msg')), ('Safety', ''))
+        page.keyboard.press('Escape')
 
     def test_create_in_steps_saves_what_the_form_saves(self):
         page = self.page
@@ -1238,6 +1266,21 @@ class TestFormSteps(_Base):
             mon = [m for m in after if m['label'] == 'wiz-steps-monitor'][0]
             self.assertEqual((mon['type'], mon['target']), ('tcp', '192.0.2.10:22'))
             _api(page, 'POST', '/config', {'monitors': before})
+            walk_and_save('new-rollout-modal', [('set', 'ro-name', 'wiz-steps-rollout'), ('set', '#ro-rings .ro-ring-value', 'staging'),
+                                                ('set', 'ro-verify', '45'), ('check', 'ro-auto', True)])
+            roll = [r for r in _api(page, 'GET', '/rollouts')['rollouts'] if r['name'] == 'wiz-steps-rollout']
+            self.assertEqual(len(roll), 1)
+            created.append('/rollouts/%s' % roll[0]['id'])
+            self.assertEqual((roll[0]['action'], roll[0]['verify_minutes'], roll[0]['auto_promote']), ('upgrade', 45, True))
+            self.assertEqual(roll[0]['rings'][0]['selector'], {'type': 'group', 'value': 'staging'})
+            walk_and_save('device-profile-modal', [('set', 'dp-name', 'wiz-steps-profile'), ('set', 'dp-poll', '120'),
+                                                   ('set', 'dp-units', 'nginx.service\nphp-fpm.service'), ('set', 'dp-mem-warn', '80'),
+                                                   ('set', 'dp-mem-crit', '95')])
+            prof = [x for x in _api(page, 'GET', '/device-profiles')['profiles'] if x['name'] == 'wiz-steps-profile']
+            self.assertEqual(len(prof), 1)
+            created.append('/device-profiles/%s' % prof[0]['id'])
+            self.assertEqual((prof[0]['poll_interval'], prof[0]['services_watched']), (120, ['nginx.service', 'php-fpm.service']))
+            self.assertEqual((prof[0]['metric_thresholds']['mem_warn_percent'], prof[0]['metric_thresholds']['mem_crit_percent']), (80, 95))
         finally:
             for path in created:
                 _api(page, 'DELETE', path)

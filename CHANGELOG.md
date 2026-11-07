@@ -21,10 +21,10 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   name and a URL, and then sends a test message and shows the answer in the dialog (**Delivered** with the code, or **Not delivered** with the code and
   what it usually means) instead of "check the log below". The destination is a draft that is switched off until the last step, so nothing real reaches
   the channel before you say so. Closing the wizard removes a draft that never delivered. Destinations that were there before are kept, secrets
-  included. The **Step by step** switch at the top of **New maintenance window**, **Add monitor target**, **New backup job** and **New auto-patch
-  policy** (kept in this browser, off by default) shows the same form under a list of steps, skips a step the chosen type has nothing for, says at each
+  included. The **Step by step** switch at the top of **New maintenance window**, **Add monitor target**, **New backup job**, **New auto-patch
+  policy**, **New rollout** and **New host profile** (kept in this browser, off by default) shows the same form under a list of steps, skips a step the chosen type has nothing for, says at each
   step what the form would refuse at the end (in the form's own words) and ends in a review of your choices. The form's own button saves. When a wizard closes, the Getting started checklist is drawn again if it is on screen. The code is one
-  lazy module, `app-wizard.js`, fetched when one of these is used. See `docs/wizards.md`. **Held by** `tests/test_wizards_e2e.py` (49 browser tests: the
+  lazy module, `app-wizard.js`, fetched when one of these is used. See `docs/wizards.md`. **Held by** `tests/test_wizards_e2e.py` (50 browser tests: the
   token read back from the server's own list, hosts enrolled through the public endpoint and noticed by the page, the services checked against the
   fields the editor draws, drafts and secrets, every block of every form owned by a step, each refusal compared with the form's own save, a phone,
   right-to-left and all six languages).

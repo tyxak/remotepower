@@ -56,8 +56,10 @@ wizard.
 
 ## Step by step
 
-The **Step by step** switch sits at the top of four forms: **New maintenance window**, **Add monitor target**, **New backup job** and
-**New auto-patch policy**. It is off until you turn it on. The choice is kept in this browser and applies to all four.
+The **Step by step** switch sits at the top of six forms: **New maintenance window**, **Add monitor target**, **New backup job**,
+**New auto-patch policy**, **New rollout** and **New host profile**. It is off until you turn it on. The choice is kept in this browser and
+applies to all six. The shorter dialogs (a custom role, a scheduled command, an agentless host) show a handful of controls at a time and have
+no switch.
 
 With it on, the form is the same form, shown a part at a time under a list of steps:
 
@@ -67,11 +69,13 @@ With it on, the form is the same form, shown a part at a time under a list of st
 | Add monitor target | What, Target, Checks, Alerting, Review |
 | New backup job | What, How, When, Review |
 | New auto-patch policy | What, When, Safety, Review |
+| New rollout | What, Rings, Safety, Review |
+| New host profile | What, Watches, Thresholds, Review |
 
 - **Next** goes on, **Back** goes back, and a step that is done in the list goes back to it. Enter in a text box goes on.
 - A step with nothing to show is left out. A ping monitor has no checks to set, so it has no **Checks** step; an HTTP monitor has one.
 - A step says what the form itself would refuse, before the last step instead of after: no start time on a one-shot window, a monitor with no
-  target, a backup job with no host. The words are the form's own.
+  target, a backup job with no host, a rollout with no ring that has a target. The words are the form's own.
 - **Review** lists the choices you made, step by step, and the form's own button (**Create**, **Add** or **Save**) is shown there. It saves exactly
   what the form saves. Editing an existing item opens the same way.
 - Turning the switch off puts the form back as it was, with every field showing.
