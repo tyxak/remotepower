@@ -525,6 +525,30 @@ def _blocks_last_hour(blocks, dev_id, now):
                if isinstance(b, dict) and now - int(b.get('at') or 0) < 3600)
 
 
+def _agent_online(dev, now, ttl):
+    """True when an agent host has checked in within the online window. A command queued
+    for a host that has not waits there until it comes back, so a block meant for every
+    host is only sent to the ones that can run it now: a host that is off for a month would
+    otherwise collect a block for every address the edge saw in that time."""
+    try:
+        return now - int((dev or {}).get('last_seen') or 0) < ttl
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _drop_unrun_block(dev_id, ip):
+    """True when the block for `ip` was still waiting in the host's command queue and is
+    gone from it now. A block that never ran has nothing to lift, so the expiry takes the
+    command out of the queue instead of queueing an unblock behind it."""
+    cmd = 'exec:' + ip_intel.block_command(ip)
+    with A._LockedUpdate(A.CMDS_FILE) as cmds:
+        queue = cmds.get(dev_id)
+        if isinstance(queue, list) and any(c == cmd for c in queue):
+            queue[:] = [c for c in queue if c != cmd]
+            return True
+    return False
+
+
 def _store_ro():
     return (A._load_ro(A.IPINTEL_FILE) or {}) if A.backend_exists(A.IPINTEL_FILE) else {}
 
@@ -735,7 +759,9 @@ def run_ip_intel_if_due():
         return
 
     edge_fanout = 0      # host blocks queued this sweep for edge-found addresses
+    online_ttl = A.get_online_ttl()
     commands = []        # (dev_id or None, command or None, audit action, detail)
+    expired = []         # (dev_id, ip) of the blocks whose time ran out this sweep
     newly_reported = []  # (address, services told) for the ip_reported event
 
     # ── phase 1 ──
@@ -766,8 +792,7 @@ def run_ip_intel_if_due():
             for ip, b in list(per.items()):
                 if isinstance(b, dict) and int(b.get('until') or 0) <= now:
                     per.pop(ip, None)
-                    commands.append((dev_id, 'exec:' + ip_intel.unblock_command(ip),
-                                     'ip_intel_unblock', f'device={dev_id} ip={ip} reason=expired'))
+                    expired.append((dev_id, ip))
             if not per:
                 blocks.pop(dev_id, None)
         st['blocks'] = blocks
@@ -981,6 +1006,7 @@ def run_ip_intel_if_due():
                                 break
                             if (not isinstance(hd, dict) or hd.get('agentless')
                                     or A._device_os_family(hd) != 'linux'
+                                    or not _agent_online(hd, now, online_ttl)
                                     or ip in (blocks.get(hid) or {})
                                     or _blocks_last_hour(blocks, hid, now) >= int(pol['block_max_per_hour'])):
                                 continue
@@ -992,7 +1018,7 @@ def run_ip_intel_if_due():
                             edge_fanout += 1
                             reached += 1
                         fanned = True
-                        why = '' if reached else 'already blocked on every host, or the hourly limit was reached'
+                        why = '' if reached else 'already blocked on every host that is online, or the hourly limit was reached'
             dev = devices.get(dev_id)
             if ok and (not isinstance(dev, dict) or dev.get('agentless')
                        or A._device_os_family(dev) != 'linux'):
@@ -1026,6 +1052,21 @@ def run_ip_intel_if_due():
 
     if newly_reported:
         _announce_reports(newly_reported)
+
+    # An expired block is lifted on the host. When the block is still waiting in the host's queue (the host has
+    # been off since it was sent), it never ran, so it is taken out and no unblock is queued behind it.
+    lifts = []
+    for dev_id, ip in expired:
+        try:
+            if _drop_unrun_block(dev_id, ip):
+                A.audit_log('ip-intel', 'ip_intel_unblock',
+                            f'device={dev_id} ip={ip} reason=expired, the block had not run and was taken out of the queue')
+                continue
+        except Exception:  # nosec B110
+            pass           # a queue that cannot be read gets the unblock below, as it did before
+        lifts.append((dev_id, 'exec:' + ip_intel.unblock_command(ip),
+                      'ip_intel_unblock', f'device={dev_id} ip={ip} reason=expired'))
+    commands[:0] = lifts
 
     for dev_id, cmd, action, detail in commands:
         if cmd:

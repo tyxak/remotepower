@@ -201,6 +201,15 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   toast for the 502 that stayed on screen after you left the page. The probe is quiet now, the tile says why, and it offers only
   Check now.
 
+### Threat Intel
+
+- **An address the edge found is blocked only on the Linux agents that are online.** The setting **Also block addresses found at the edge on every Linux
+  agent** queued the block for every Linux agent, off or not, and a host that was off for a week came back to a command for every address the edge had
+  seen in that time, with the expiry's unblock queued behind each one. The sweep now leaves a host out when it has not checked in within the online
+  window, and says `already blocked on every host that is online` when none was left to reach. A block that is still in a host's queue when its time
+  runs out never ran, so the sweep takes it out of the queue and queues no unblock; one that ran is lifted as before. Held by five new tests in
+  `tests/test_v730_edge_intel.py` and seven mutations of the code, all caught.
+
 ## v7.5.0 — "Wh0leMatters" — 2026-11-05
 
 A release about finishing what was started. The last production release was 7.4.0, so this release carries everything from 7.4.1

@@ -484,7 +484,7 @@ blocking blocks is also banned at the edge for the same time, so a visitor who
 arrives through Cloudflare is stopped as well (at most 50 automatic edge bans
 an hour). **Also block addresses found at the edge on every Linux agent** goes
 the other way: an address that only Cloudflare or the honeypot saw gets the
-block on every Linux agent, up to 100 hosts a sweep. It needs automatic
+block on every Linux agent that is online, up to 100 hosts a sweep. A host that is off is left out, so nothing piles up in its queue. It needs automatic
 blocking and stays off on a multi-tenant install. The details are in
 [Edge sources: Cloudflare](edge-sources.md#the-attackers-list).
 

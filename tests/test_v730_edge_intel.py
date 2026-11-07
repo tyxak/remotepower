@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -132,6 +133,16 @@ class _Edge(_Case):
         if url.endswith('/telemetry/query'):
             return 200, self.trap
         return 404, {'success': False}
+
+    def online(self, *devs, ago=0):
+        """Host ids that checked in `ago` seconds ago. The fixture's hosts have never reported, and a host that has not is
+        off as far as the fan-out is concerned."""
+        api = self.api
+        found = api.load(api.DEVICES_FILE) or {}
+        for d in devs:
+            found[d]['last_seen'] = int(time.time()) - ago
+        api.save(api.DEVICES_FILE, found)
+        api._LOAD_CACHE.clear()
 
     def poll(self, at=T, due=True):
         """One run of the edge sweep at a fixed time."""
@@ -286,6 +297,7 @@ class TestTheSweep(_Edge):
 
     def test_the_fleet_switch_blocks_an_edge_address_on_every_linux_agent(self):
         self.policy(block_enabled=True, block_edge_hosts=True, block_min_score=1, report_enabled=False)
+        self.online('d1', 'd2', 'd3')
         self.poll()
         st = self.sweep()
         api = self.api
@@ -296,6 +308,80 @@ class TestTheSweep(_Edge):
             self.assertTrue([c for c in self.queued(dev) if 'rp-ipintel' in c], dev)
             self.assertEqual(st['blocks'][dev][SECOND]['kind'], 'edge')
         self.assertNotIn('not_blocked', st['attackers'][SECOND]['devices']['edge:trap'])
+
+    def test_the_fleet_switch_leaves_a_host_that_is_off_alone(self):
+        """The block is queued for a host that can run it. A host that has not checked in for days would keep every
+        command until it came back, one per address the edge saw meanwhile, and its list of active blocks would show
+        blocks that never ran."""
+        self.policy(block_enabled=True, block_edge_hosts=True, block_min_score=1, report_enabled=False)
+        self.online('d1', 'd2')
+        self.online('d3', ago=3 * 86400)
+        self.poll()
+        st = self.sweep()
+        self.assertTrue([c for c in self.queued('d1') if 'rp-ipintel' in c], 'the host that is online is reached')
+        self.assertIn(SECOND, st['blocks']['d1'])
+        self.assertEqual(self.queued('d3'), [], 'nothing waits for the host that is off')
+        self.assertNotIn('d3', st.get('blocks') or {}, 'and no block is recorded for it')
+
+    def test_a_host_that_never_checked_in_is_left_alone_too(self):
+        self.policy(block_enabled=True, block_edge_hosts=True, block_min_score=1, report_enabled=False)
+        self.poll()
+        st = self.sweep()                       # the fixture's hosts have no last_seen at all
+        for dev in ('d1', 'd3'):
+            self.assertEqual(self.queued(dev), [], dev)
+        self.assertEqual(st.get('blocks') or {}, {})
+        why = st['attackers'][SECOND]['devices']['edge:trap']['not_blocked']
+        self.assertIn('online', why)
+
+    def test_a_host_that_comes_back_is_reached_by_the_next_sighting(self):
+        self.policy(block_enabled=True, block_edge_hosts=True, block_min_score=1, report_enabled=False)
+        self.online('d1', 'd2')
+        self.online('d3', ago=3 * 86400)
+        self.poll()
+        self.sweep()
+        self.assertEqual(self.queued('d3'), [])
+        self.online('d3')
+        self.poll(at=T + 4000)                  # the edge sees the address again, a new window
+        st = self.sweep()
+        self.assertTrue(any(ip in (st.get('blocks') or {}).get('d3', {}) for ip in (ATTACKER, SECOND, THIRD)),
+                        'a host that is back gets the blocks the edge finds from then on')
+
+    def _expire(self, dev, ip):
+        api = self.api
+        st = ipintel_store.read(api)
+        st['blocks'][dev][ip]['until'] = 1
+        ipintel_store.write(api, st)
+        api._LOAD_CACHE.clear()
+
+    def test_an_expired_block_that_never_ran_leaves_the_queue_without_an_unblock(self):
+        self.policy(block_enabled=True, block_edge_hosts=True, block_min_score=1, report_enabled=False)
+        self.online('d1', 'd2', 'd3')
+        self.poll()
+        st = self.sweep()
+        block = 'exec:' + ip_intel.block_command(SECOND)
+        self.assertIn(block, self.queued('d1'), 'the block is waiting: the host has not run it')
+        self._expire('d1', SECOND)
+        st = self.sweep()
+        self.assertNotIn(block, self.queued('d1'))
+        self.assertNotIn('exec:' + ip_intel.unblock_command(SECOND), self.queued('d1'),
+                         'there is nothing to lift on a host the block never reached')
+        self.assertNotIn(SECOND, (st.get('blocks') or {}).get('d1', {}))
+        self.assertTrue([a for a in self.audit if a[1] == 'ip_intel_unblock' and 'had not run' in a[2]])
+
+    def test_an_expired_block_that_ran_is_lifted_as_before(self):
+        self.policy(block_enabled=True, block_edge_hosts=True, block_min_score=1, report_enabled=False)
+        self.online('d1', 'd2', 'd3')
+        self.poll()
+        self.sweep()
+        api = self.api
+        block = 'exec:' + ip_intel.block_command(SECOND)
+        cmds = api.load(api.CMDS_FILE) or {}
+        cmds['d1'] = [c for c in cmds.get('d1', []) if c != block]        # the host ran it and took it from the queue
+        api.save(api.CMDS_FILE, cmds)
+        api._LOAD_CACHE.clear()
+        self._expire('d1', SECOND)
+        self.sweep()
+        self.assertIn('exec:' + ip_intel.unblock_command(SECOND), self.queued('d1'))
 
     def test_an_automatic_block_is_banned_at_the_edge_too(self):
         self.policy(block_enabled=True, block_min_score=1, report_enabled=False, edgelist_enabled=True,
