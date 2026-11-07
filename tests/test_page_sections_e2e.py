@@ -202,6 +202,22 @@ class TestPageSections(unittest.TestCase):
         self.assertFalse(got['nan'], got)
         self.assertGreater(got['width'], 300, got)
 
+    def test_a_printed_page_shows_every_group_and_not_the_strip(self):
+        # a printed page shows everything the screen could show (test_v740_print_e2e): the tabs are for the screen
+        for name in PAGES:
+            with self.subTest(page=name):
+                self._open(name)
+                self.page.emulate_media(media='print')
+                try:
+                    cards = self._cards(name)
+                    self.assertTrue(cards, name)
+                    for c in cards:
+                        self.assertTrue(c['shown'], f'{name}: a card of {c["tabs"]} is left out of the print')
+                    strip = self.page.evaluate(f"getComputedStyle(document.querySelector('#page-{name} .pg-tabs')).display")
+                    self.assertEqual(strip, 'none', f'{name}: the strip would print')
+                finally:
+                    self.page.emulate_media(media='screen')
+
     # ── one long page ────────────────────────────────────────────────────────
     def test_one_long_page_shows_every_card_and_hides_the_strip(self):
         for name in PAGES:

@@ -5420,7 +5420,10 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .pg-tab:hover { color: var(--text); }
 .pg-tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .pg-tab:focus-visible, .pg-tile:focus-visible { outline: 2px solid var(--accent-ink, var(--accent)); outline-offset: 2px; }
-.pg-off { display: none !important; }
+/* A tab that is not chosen, and the strip itself when One long page is chosen. Screen only: a printed page shows every group, as it
+   did before the tabs (test_v740_print_e2e), and the strip is not printed. */
+@media screen { .pg-off { display: none !important; } }
+@media print { .pg-tabs { display: none !important; } }
 .ipi-chip { display: inline-block; font-size: 11px; padding: 2px 8px; margin: 0 4px 4px 0;
   border: 1px solid var(--hair); border-radius: 0; background: var(--surface2); color: var(--text); }
 .ipi-detail > td { background: var(--hair-2); padding: 10px 14px; }
