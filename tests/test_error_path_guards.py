@@ -252,6 +252,9 @@ class TestBareRequireAuthMutations(unittest.TestCase):
         # 7.5.0: the playbook list reads the caller's role to decide whether the YAML goes with it (admin or the `script`
         # permission). Flagged for the same verify_token reason; it writes nothing.
         "handle_ansible_playbooks_list",
+        # 8.0.0: the hosted MCP endpoint. Flagged for the rate-limit bucket and the audit line it writes; it changes no fleet state: every read
+        # a tool makes is a GET run as the caller (tests/test_v800_mcp_http.py), and the module that serves it is off until it is switched on.
+        "handle_mcp",
     }
 
     def test_new_bare_auth_mutating_handlers_get_reviewed(self):

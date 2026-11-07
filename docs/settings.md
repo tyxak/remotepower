@@ -200,10 +200,12 @@ Instance-wide switches. Read the hint before you change anything here.
 
 - **Configuration history.** The last 10 states, with restore.
 - **Optional modules.** Turn off what you do not use: Alerts, Tickets, Billing,
-  Knowledge base, Compliance, Pentest, AI executor, Autonomous remediation and SSH
-  Gateway. A disabled module disappears from the sidebar and its API stops
-  answering. Nothing is deleted, and switching it back on restores your data.
-  Billing, Knowledge base, AI executor and SSH Gateway start off.
+  Knowledge base, Compliance, Pentest, AI executor, Autonomous remediation, SSH
+  Gateway and the MCP endpoint. A disabled module disappears from the sidebar and its
+  API stops answering. Nothing is deleted, and switching it back on restores your data.
+  Billing, Knowledge base, AI executor, SSH Gateway and the MCP endpoint start off.
+  The MCP endpoint lets an AI host ask this server about the fleet over HTTP, read-only,
+  with the permissions of the API key it uses: see [mcp.md](mcp.md).
 - **Provisioning, server-side execution**, the **agent push channel**,
   **white-label branding** (the product name, the default accent, a default
   look, which you can lock so that everyone uses it, and a default typeface),

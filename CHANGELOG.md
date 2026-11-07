@@ -193,6 +193,19 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   scheme), since that is the address the provider must hold. A saved secret is kept only for the same issuer and client ID, and the group map that SAML shares is kept as it
   is. **Held by** `tests/test_v800_oidc_guide.py` (18 tests against a fake provider that records what it was asked) and `tests/test_wizards_oidc_e2e.py` (25 browser tests).
 
+- **A hosted, read-only MCP endpoint.** The MCP server in `mcp/` runs on your laptop and needs a file copied there. `POST /api/mcp` now answers the Model Context Protocol on the
+  server itself, so a host that can send a header (Claude Code, Cursor, VS Code) connects straight to it. It is **off** until **Settings → Advanced → Optional modules → MCP endpoint**
+  is ticked, and answers 404 until then. It offers eight of the bridge's read tools with the same descriptions (`list_alerts`, `get_attention`, `list_devices`, `get_device`,
+  `get_services`, `get_containers`, `get_cves`, `get_patches`) and none of the five write tools. It holds no permission of its own: each question a tool asks runs as an ordinary read
+  of the REST API, as the calling key, in this process, through the same chain of checks that main() runs for the dashboard (read-only mode, same-origin, the IP allowlist, password
+  and MFA enrolment, host scope, the module gate, the platform and tenant routes) and the real handler of that path, so a key's host scope, its allowed addresses, its expiry and its
+  rate limit, a tenant's limits and a switched-off module all apply to it with no second copy of any rule. A read is always a GET under `/api/`, never carries the caller's body,
+  Origin or gzip, and a host id goes into a path only after it matches a plain pattern. A ratchet compares the endpoint's gate list with the `_enforce_*` calls in `main()`, so a gate
+  added there and not here fails the build. No session, no stream and no OAuth: `GET` and `DELETE` answer 405, and a host that only offers a sign-in screen for connectors uses the local
+  bridge. Each tool call is a line in the audit log. **Held by** `tests/test_v800_mcp_http.py` (49 tests, including the comparison of what the endpoint returns with the dashboard's own
+  handler for the same caller, per tenant, and of the tool text word for word with the bridge's), `tests/test_v800_mcp_http_e2e.py` (16 tests over HTTP against a real stack with API
+  keys of each kind), and 28 mutations caught.
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).

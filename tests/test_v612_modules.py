@@ -59,6 +59,8 @@ class TestModuleDefaults(unittest.TestCase):
                 # The SSH gateway ships OFF: on is what makes an opted-in host
                 # reachable at all, so an install must choose it.
                 "sshgw": False,
+                # 8.0.0: the hosted MCP endpoint ships OFF. A server that never opts in answers 404 at /api/mcp.
+                "mcp": False,
             },
         )
 

@@ -123,6 +123,42 @@ Open a chat and ask: *"What hosts are in my RemotePower fleet?"*
 
 The host should show a "tool use" indicator and return a list of your hosts.
 
+## The hosted endpoint (read-only, off by default)
+
+The local bridge above runs on your laptop. RemotePower can also answer the Model Context Protocol itself, at `POST /api/mcp`, so an AI host that
+can send a custom header connects straight to the server with no file to copy. It is **read-only**, and it is **off** until you switch it on:
+**Settings → Advanced → Optional modules → MCP endpoint**. While it is off the address answers 404.
+
+Make an API key as in step 1 and give it the role `Viewer`. The key's own limits apply to the endpoint exactly as they apply to the dashboard:
+its host scope, its allowed addresses, its expiry and its rate limit, and a tenant sees only its own hosts. The endpoint holds no permission of
+its own. Each question a tool asks runs as an ordinary read of the REST API, as that key, in the same checks that serve the dashboard. Every
+message counts against the key's rate limit, and a tool that reads a host's page counts the read as well.
+
+| Host | How to connect |
+|---|---|
+| Claude Code | `claude mcp add --transport http remotepower https://your-server/api/mcp --header "Authorization: Bearer YOUR-KEY"` |
+| Cursor | In `mcp.json`: `{"mcpServers": {"remotepower": {"url": "https://your-server/api/mcp", "headers": {"Authorization": "Bearer YOUR-KEY"}}}}` |
+| VS Code | In `.vscode/mcp.json`: `{"servers": {"remotepower": {"type": "http", "url": "https://your-server/api/mcp", "headers": {"Authorization": "Bearer YOUR-KEY"}}}}` |
+
+A host that only offers a sign-in screen for connectors (the connector lists of Claude.ai and of Claude Desktop expect OAuth) cannot use it, because the
+endpoint takes a key and offers no OAuth. Use the local bridge there.
+
+**What it offers.** Eight tools with the same names, descriptions and arguments as the bridge: `list_alerts`, `get_attention`, `list_devices`,
+`get_device`, `get_services`, `get_containers`, `get_cves` and `get_patches`. The five write tools are not offered over HTTP: they act on the fleet, and
+the confirmation and attribution they carry belong to the local bridge. The other read tools of the bridge (`get_journal`, `get_drift`,
+`get_recent_commands`, `get_runbook`, `get_tls`, `get_snmp_data`, `search_devices` and `search_fleet`) are left for a later release. A tool answer is
+cut when it is longer than 60,000 characters, from the end, and says so.
+
+**What it does and does not do.** It answers one JSON-RPC message with one JSON answer (the plain form of the streamable HTTP transport). It issues
+no session, streams nothing and sends nothing on its own, so `GET /api/mcp` and `DELETE /api/mcp` answer 405. It speaks protocol versions
+`2025-06-18`, `2025-03-26` and `2024-11-05`. A request that comes from another web page (it carries an `Origin` that is not this server's) is refused
+by the same check that guards every other POST.
+
+**What is recorded.** Each `tools/call` is a line in the audit log (`mcp_http_call`) with the tool and its arguments, under the name of the key's
+user. The key itself is not written anywhere.
+
+**Behind a proxy.** The proxy must pass the `Authorization` header on. The shipped nginx configuration does.
+
 ## Available tools
 
 **21 tools — 16 read, 5 guarded write.** Each takes a small JSON arguments
@@ -316,7 +352,7 @@ logs.
 
 ## A note on the protocol
 
-The server speaks MCP version **`2024-11-05`** over stdio. It offers tools only,
+The local bridge speaks MCP version **`2024-11-05`** over stdio. The hosted endpoint is described above. It offers tools only,
 not resources or prompts. The server will move to a newer version when a host
 needs one.
 

@@ -1161,6 +1161,20 @@ for _pr_name in (
     globals()[_pr_name] = getattr(problems_handlers_mod, _pr_name)
 del _pr_name
 
+# 8.0.0: the hosted, read-only MCP endpoint (POST /api/mcp). Off until the `mcp` optional module is on. The protocol and the tools
+# are the pure mcp_http.py; the module here authenticates the caller and answers every read a tool makes by running the real request as
+# the caller, so the endpoint adds no authority and no second copy of a permission rule.
+_mc_spec = _tk_ilu.spec_from_file_location(
+    'mcp_http_handlers', Path(__file__).parent / 'mcp_http_handlers.py')
+mcp_http_handlers_mod = _tk_ilu.module_from_spec(_mc_spec)
+_mc_spec.loader.exec_module(mcp_http_handlers_mod)
+mcp_http_handlers_mod.bind(globals())
+for _mc_name in (
+        'handle_mcp', '_mcp_get', '_mcp_gates',
+):
+    globals()[_mc_name] = getattr(mcp_http_handlers_mod, _mc_name)
+del _mc_name
+
 # v7.4.2 (#44): the integrations bound to a host, for the host drawer. A new route, so a
 # bound module rather than another inline handler.
 _di_spec = _tk_ilu.spec_from_file_location(
@@ -11478,6 +11492,10 @@ _MODULES = {
     # host be reached at all, and off makes the daemon's authorize endpoint 404,
     # which the daemon treats as a refusal for every connection.
     'sshgw':      ('sshgw_enabled',          False, ('/api/sshgw',)),
+    # 8.0.0: the hosted, read-only MCP endpoint. DEFAULT OFF, and off means 404, so a server that never switches it on answers
+    # nothing at /api/mcp. On, it lets a caller's API token ask an AI host about the fleet over HTTP, read-only, with that
+    # token's own permissions.
+    'mcp':        ('mcp_module_enabled',     False, ('/api/mcp',)),
 }
 
 
@@ -76099,6 +76117,9 @@ def _build_exact_routes():
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
         ('GET', '/api/problems'): handle_problems,                   # #56 one list of problems
         ('GET', '/api/problems/history'): handle_problems_history,   # #56 what happened to one problem
+        ('POST', '/api/mcp'): handle_mcp,                            # 8.0.0 hosted read-only MCP endpoint
+        ('GET', '/api/mcp'): handle_mcp,                             # answers 405 and says POST: the transport allows a server to offer no stream
+        ('DELETE', '/api/mcp'): handle_mcp,                          # likewise: this server keeps no session to end
         ('GET', '/api/nav-counts'): handle_nav_counts,
         ('GET', '/api/board'): handle_board,                         # v5.0.0 T6 NOC board
         ('GET', '/api/network-metrics'): handle_network_metrics,     # v5.0.0 net metrics

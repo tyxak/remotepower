@@ -96,3 +96,9 @@ GET /api/openapi.json handle_openapi_spec
 GET /api/saml/available handle_saml_available
 GET /api/saml/metadata handle_saml_metadata
 GET /api/sshgw/status handle_sshgw_status
+
+# the hosted MCP endpoint holds no tenant or scope rule of its own: every read it makes runs as the caller through main()'s gate chain and the real handler of
+# that path, so the rule is the one the dashboard's own request meets (8.0.0; tests/test_v800_mcp_http.py compares what it returns with the dashboard's handler per tenant)
+DELETE /api/mcp handle_mcp
+GET /api/mcp handle_mcp
+POST /api/mcp handle_mcp

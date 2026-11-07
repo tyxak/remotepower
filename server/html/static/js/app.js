@@ -2822,6 +2822,8 @@ const MODULE_PAGES = {
   ai_exec:    null,
   autonomy:   'autonomy',
   sshgw:      'sshgw',
+  // 8.0.0: the hosted MCP endpoint is an API prefix with no page of its own, like the AI executor.
+  mcp:        null,
 };
 
 // [checkbox id, config key, default] — defaults MUST mirror api._MODULES, or a
@@ -2837,6 +2839,7 @@ const MODULE_SETTINGS = [
   ['cfg-mod-ai_exec',    'ai_exec_enabled',    false],
   ['cfg-mod-autonomy',   'autonomy_enabled',   true],
   ['cfg-mod-sshgw',      'sshgw_enabled',      false],
+  ['cfg-mod-mcp',        'mcp_module_enabled', false],
 ];
 
 function _applyModuleNavGates(modules) {
