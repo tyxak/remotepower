@@ -304,7 +304,6 @@ NEW_STRINGS = [
     "The server accepted the message. Check the inbox, and the spam folder.",
     "Not sent",
     "What should be sent by email?",
-    "Server",
     "It was not tested. A wrong setting goes unnoticed until the first alert needs it.",
     "Email turned on",
     "Email (SMTP)",
