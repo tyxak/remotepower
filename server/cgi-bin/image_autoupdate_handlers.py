@@ -9,6 +9,11 @@ the agent's support for the verb and change approval, so a refusal here is the o
 parked as a confirmation and followed until it is decided. Nothing is updated unless its image is on the policy's list, the policy is off by default,
 and shadow mode records what it would have done without queueing anything.
 
+With the policy's `rollback` on (off by default), an update that was verified as unhealthy is followed by `compose:rollback:<dir>`, which the agent runs
+from the note it made of the images the update replaced. That is queued through the same helper, so it needs the same approval, and it is followed and
+verified the same way: rolled back, or a rollback that failed, which is an alert. Hosts whose agent does not say it can roll back are not updated at all
+while the policy promises one.
+
 A bound-module carve-out following the tls_ct_handlers / dmarc_handlers / rack_ipam_handlers pattern: api.py execs a PRIVATE instance and binds its own
 ``globals()`` here, so every api service is reached as ``A.<name>``.
 """
@@ -92,7 +97,7 @@ def run_image_autoupdate_if_due():
     """Follow what was queued, then queue what the policy allows now. Cheap when nothing is configured and nothing is waiting."""
     ro = A._config_ro()
     policy = _policy(ro)
-    waiting = any(r.get('state') in ('queued', 'awaiting_approval') for r in _receipts(A._load_ro(A.IMAGE_UPDATES_FILE)))
+    waiting = any(r.get('state') in IA.WAITING for r in _receipts(A._load_ro(A.IMAGE_UPDATES_FILE)))
     if policy['mode'] not in ('shadow', 'on') and not waiting:
         return
     now = int(time.time())
@@ -104,28 +109,63 @@ def run_image_autoupdate_if_due():
         _apply(policy, now)
 
 
+def _start_rollback(r, why, policy, now, devices):
+    """The receipt fields for an update that was verified as unhealthy under a policy that rolls back: the rollback queued, parked for a second
+    admin, or the reason there is none. `why` is what was wrong with the update; it stays on the receipt, because `detail` moves on."""
+    base = {'verified_at': now, 'unhealthy_detail': why}
+    if not IA.can_roll_back(devices.get(r.get('device_id'))):
+        return dict(base, state='rollback_failed', detail='%s; no rollback: the agent on this host cannot roll back an update' % why)
+    state, detail, cid = _queue(r.get('device_id'), 'compose:rollback:' + str(r.get('dir')))
+    if state == 'refused':
+        return dict(base, state='rollback_failed', detail='%s; no rollback: %s' % (why, detail.replace('refused: ', '', 1)))
+    if state == 'awaiting_approval':
+        return dict(base, state='rollback_awaiting_approval', rollback_confirmation_id=cid, detail='%s; a rollback waits for a second admin' % why)
+    return dict(base, state='rolling_back', rollback_queued_at=now, rollback_verify_at=now + policy['verify_after_min'] * 60,
+                detail='%s; rolling back to the previous image' % why)
+
+
 def _follow(policy, now):
-    """Decide the parked changes, then read the host's report for each update that was queued."""
+    """Decide the parked changes, then read the host's report for each update or rollback that was queued. An update that was verified as unhealthy is
+    rolled back when the policy says so."""
     store = A.load(A.IMAGE_UPDATES_FILE) or {}
     receipts = _receipts(store)
-    if not any(r.get('state') in ('queued', 'awaiting_approval') for r in receipts):
+    if not any(r.get('state') in IA.WAITING for r in receipts):
         return
     A._invalidate_load_cache(A.CONFIRMATIONS_FILE)
     parked = {str(c.get('id')): c for c in ((A.load(A.CONFIRMATIONS_FILE) or {}).get('confirmations') or []) if isinstance(c, dict)}
     containers = A.load(A.CONTAINERS_FILE) or {}
+    devices = A.load(A.DEVICES_FILE) or {}
+    minutes = policy['verify_after_min'] * 60
     changes = {}                                     # receipt id -> fields to set
     for r in receipts:
-        rid = r.get('id')
-        if r.get('state') == 'awaiting_approval':
+        rid, state0 = r.get('id'), r.get('state')
+        before = r.get('unhealthy_detail') or ''
+        if state0 == 'awaiting_approval':
             status = (parked.get(str(r.get('confirmation_id'))) or {}).get('status')
             if status == 'approved':
-                changes[rid] = {'state': 'queued', 'queued_at': now, 'verify_at': now + policy['verify_after_min'] * 60, 'detail': ''}
+                changes[rid] = {'state': 'queued', 'queued_at': now, 'verify_at': now + minutes, 'detail': ''}
             elif status in ('rejected', 'expired', 'failed') or status is None:
                 changes[rid] = {'state': 'declined', 'detail': 'the approval request was %s' % (status or 'removed'), 'verified_at': now}
-        elif r.get('state') == 'queued':
+        elif state0 == 'queued':
             state, detail = IA.verify(r, containers.get(r.get('device_id')), now)
-            if state != 'pending':
+            if state == 'unhealthy' and policy.get('rollback'):
+                changes[rid] = _start_rollback(r, detail, policy, now, devices)
+            elif state != 'pending':
                 changes[rid] = {'state': state, 'detail': detail, 'verified_at': now}
+        elif state0 == 'rollback_awaiting_approval':
+            status = (parked.get(str(r.get('rollback_confirmation_id'))) or {}).get('status')
+            if status == 'approved':
+                changes[rid] = {'state': 'rolling_back', 'rollback_queued_at': now, 'rollback_verify_at': now + minutes,
+                                'detail': '%s; rolling back to the previous image' % before}
+            elif status in ('rejected', 'expired', 'failed') or status is None:
+                changes[rid] = {'state': 'rollback_failed', 'verified_at': now,
+                                'detail': '%s; no rollback: the approval request was %s' % (before, status or 'removed')}
+        elif state0 == 'rolling_back':
+            state, detail = IA.verify_rollback(r, containers.get(r.get('device_id')), now)
+            if state == 'ok':
+                changes[rid] = {'state': 'rolled_back', 'verified_at': now, 'detail': '%s; rolled back to the previous image' % before}
+            elif state in ('failed', 'unverified'):
+                changes[rid] = {'state': 'rollback_failed', 'verified_at': now, 'detail': '%s; the rollback did not work: %s' % (before, detail)}
     if not changes:
         return
     with A._LockedUpdate(A.IMAGE_UPDATES_FILE) as st:
@@ -134,10 +174,24 @@ def _follow(policy, now):
                 r.update(changes[r['id']])
     for r in receipts:
         ch = changes.get(r.get('id'))
-        if ch and ch['state'] in ('not_updated', 'unhealthy', 'unverified'):
-            A.audit_log(ACTOR, 'image_autoupdate_failed', 'host=%s dir=%s %s: %s' % (r.get('device_id'), r.get('dir'), ch['state'], ch['detail']))
-            A.fire_webhook('image_autoupdate_failed', {'name': r.get('device_name') or r.get('device_id'), 'device_id': r.get('device_id'),
-                                                       'label': ', '.join(str(x) for x in (r.get('refs') or []))[:300], 'detail': ch['detail'] or ch['state']})
+        if not ch:
+            continue
+        old, new = r.get('state'), ch['state']
+        who = 'host=%s dir=%s' % (r.get('device_id'), r.get('dir'))
+        if new == 'rolled_back':                      # good news: in the audit trail and on the card, not an alert
+            A.audit_log(ACTOR, 'image_autoupdate_rolled_back', '%s images=%s' % (who, ', '.join(str(x) for x in (r.get('refs') or []))[:300]))
+            continue
+        if new in ('rolling_back', 'rollback_awaiting_approval'):
+            if old != 'queued':
+                continue                              # a rollback that was approved: the alert was the failed update, a while ago
+            A.audit_log(ACTOR, 'image_autoupdate_failed', '%s %s: %s' % (who, new, ch['detail']))
+            A.audit_log(ACTOR, 'image_autoupdate_rollback_' + ('queued' if new == 'rolling_back' else 'awaiting_approval'), who)
+        elif new in ('not_updated', 'unhealthy', 'unverified', 'rollback_failed'):
+            A.audit_log(ACTOR, 'image_autoupdate_failed', '%s %s: %s' % (who, new, ch['detail']))
+        else:
+            continue
+        A.fire_webhook('image_autoupdate_failed', {'name': r.get('device_name') or r.get('device_id'), 'device_id': r.get('device_id'),
+                                                   'label': ', '.join(str(x) for x in (r.get('refs') or []))[:300], 'detail': ch['detail'] or new})
 
 
 def _apply(policy, now):
@@ -154,8 +208,11 @@ def _apply(policy, now):
         items = [c for c in ((containers.get(d['device_id']) or {}).get('items') or []) if isinstance(c, dict) and c.get('compose_dir') == d['dir']]
         receipt = {'id': uuid.uuid4().hex[:12], 'ts': now, 'device_id': d['device_id'], 'device_name': d['device_name'], 'dir': d['dir'], 'refs': d['refs'],
                    'digests': d['digests'], 'fingerprint': d['fingerprint'], 'command': 'compose:update:' + d['dir'], 'mode': policy['mode'],
-                   'before': {c.get('name'): int(c.get('restart_count') or 0) for c in items if c.get('name')}, 'queued_at': 0, 'verify_at': 0,
-                   'state': 'shadow', 'detail': 'shadow mode: nothing was queued', 'confirmation_id': ''}
+                   'before': {c.get('name'): int(c.get('restart_count') or 0) for c in items if c.get('name')},
+                   # the digest each updated image had on this host, so a rollback can be checked against what it should be back on
+                   'previous': {'%s:%s' % (c.get('image') or '', c.get('tag') or 'latest'): str(c.get('repo_digest') or '') for c in items
+                                if '%s:%s' % (c.get('image') or '', c.get('tag') or 'latest') in d['digests'] and c.get('repo_digest')},
+                   'queued_at': 0, 'verify_at': 0, 'state': 'shadow', 'detail': 'shadow mode: nothing was queued', 'confirmation_id': ''}
         if policy['mode'] == 'on':
             state, detail, cid = _queue(d['device_id'], receipt['command'])
             if state == 'refused':
@@ -218,6 +275,7 @@ def handle_image_autoupdate_set():
     actor = A.require_step_up() if policy['mode'] == 'on' else A.require_admin_auth()
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         cfg['image_autoupdate'] = policy
-    A.audit_log(actor, 'image_autoupdate_set', 'mode=%s include=%d exclude=%d period=%s max_hosts=%d verify_after_min=%d' % (
-        policy['mode'], len(policy['include']), len(policy['exclude']), policy['period'] or '-', policy['max_hosts_per_run'], policy['verify_after_min']))
+    A.audit_log(actor, 'image_autoupdate_set', 'mode=%s include=%d exclude=%d period=%s max_hosts=%d verify_after_min=%d rollback=%s' % (
+        policy['mode'], len(policy['include']), len(policy['exclude']), policy['period'] or '-', policy['max_hosts_per_run'], policy['verify_after_min'],
+        'on' if policy['rollback'] else 'off'))
     A.respond(200, {'ok': True, 'policy': policy})

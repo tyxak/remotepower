@@ -201,6 +201,17 @@ class TestTheAutomaticUpdatesCard(unittest.TestCase):
     def message(self):
         return self.page.inner_text("#iau-result").strip()
 
+    def rollback(self):
+        return self.page.evaluate("() => document.getElementById('iau-rollback').checked")
+
+    def wait_rollback_stored(self, want):
+        for _ in range(80):
+            got = self.policy() or {}
+            if got.get("rollback") is want:
+                return got
+            self.page.wait_for_timeout(250)
+        self.fail("the policy never stored rollback=%r: %r" % (want, self.policy()))
+
     # ── the card ────────────────────────────────────────────────────────────────────────────────────────────────────────────
     def test_it_is_on_the_image_updates_tab_off_with_its_words_and_the_subtitle_no_longer_says_notify_only_alone(self):
         self.open_card()
@@ -210,7 +221,7 @@ class TestTheAutomaticUpdatesCard(unittest.TestCase):
         self.assertEqual((self.page.input_value("#iau-max"), self.page.input_value("#iau-verify")), ("2", "10"))
         text = self.page.inner_text("#image-autoupdate-card")
         self.assertIn("Off by default.", text)
-        self.assertIn("It does not roll back.", text)
+        self.assertIn("It rolls back only if you switch that on below.", text)
         self.assertIn("so maintenance mode, quarantine and change approval apply to it", text)
         self.assertIn("unless you switch on automatic updates below", self.page.inner_text("#page-containers"))
         self.assertNotIn("Notify-only", self.page.content())
@@ -439,12 +450,85 @@ class TestTheAutomaticUpdatesCard(unittest.TestCase):
         self.assertFalse(self.page.is_disabled("#iau-save"))
 
     # ── words ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    def test_the_rollback_box_is_off_by_default_with_its_words_and_is_saved_and_read_back(self):
+        self.open_card()
+        self.assertFalse(self.rollback())
+        self.assertEqual(self.page.inner_text("label:has(#iau-rollback)").strip(), "Roll back an update that leaves a container unhealthy")
+        self.assertIn("Data is not rolled back: a database the new version changed stays changed.", self.page.inner_text("#image-autoupdate-card"))
+        sent = []
+        self.page.on("request", lambda r: sent.append(r.post_data) if r.method == "POST" and r.url.endswith("/api/image-updates/auto") else None)
+        self.page.check("#iau-rollback")
+        self.fill_card(mode="shadow", include="ghcr.io/acme/*")
+        self.page.click("#iau-save")
+        self.wait_rollback_stored(True)
+        self.assertIs(json.loads(sent[0])["rollback"], True, "the request carried the box")
+        self.open_card()
+        self.assertTrue(self.rollback(), "entering the page again shows what is stored")
+        self.page.uncheck("#iau-rollback")
+        self.page.click("#iau-save")
+        self.wait_rollback_stored(False)
+        self.assertIs(json.loads(sent[-1])["rollback"], False, "an unticked box is sent as false, not left out")
+        self.open_card()
+        self.assertFalse(self.rollback())
+
+    def test_a_box_that_was_ticked_is_kept_when_a_slow_answer_lands_and_one_nobody_touched_is_filled_by_it(self):
+        cfg = read("config.json")
+        cfg["image_autoupdate"] = {"mode": "shadow", "include": ["stored/*"], "rollback": False}
+        write("config.json", cfg)
+        self.open_card()
+        self.hold_answers()
+        self.page.evaluate("() => { window.__load = loadImageAutoupdate(true); }")
+        self.wait_held(1)
+        self.page.check("#iau-rollback")
+        self.page.evaluate("async () => { window.__held.shift()(); await window.__within(window.__load); }")
+        self.assertTrue(self.rollback(), "the tick of the operator was kept")
+        self.page.evaluate("() => { window.__hold = false; }")
+        cfg = read("config.json")
+        cfg["image_autoupdate"] = {"mode": "shadow", "include": ["stored/*"], "rollback": True}
+        write("config.json", cfg)
+        self.open_card()
+        self.assertTrue(self.rollback(), "the control: untouched, it shows what is stored")
+        self.hold_answers()
+        cfg["image_autoupdate"]["rollback"] = False
+        write("config.json", cfg)
+        self.page.evaluate("() => { window.__load = loadImageAutoupdate(true); }")
+        self.wait_held(1)
+        self.assertTrue(self.rollback(), "while the answer is on its way the box still shows the earlier one")
+        self.page.evaluate("async () => { window.__held.shift()(); await window.__within(window.__load); }")
+        self.assertFalse(self.rollback(), "an untouched box is filled by the answer")
+
+    def test_the_states_of_a_rollback_are_listed_with_their_words_and_colours(self):
+        dev_id, name = self.stale_project()
+        images = read("image_updates.json")
+        now = int(time.time())
+        states = (("rollback_awaiting_approval", "Waiting for approval to roll back", "warn"), ("rolling_back", "Rolling back", "warn"),
+                  ("rolled_back", "Rolled back", "ok"), ("rollback_failed", "Rollback failed", "crit"))
+        images["autoupdate"] = {"receipts": [{"id": "r%d" % i, "ts": now - 1000 + i, "device_id": dev_id, "device_name": name, "dir": "/srv/web", "refs": ["x/y:%d" % i],
+                                              "state": st, "detail": "web is not running (Exited); rolling back to the previous image"} for i, (st, _, _) in enumerate(states)]}
+        write("image_updates.json", images)
+        self.open_card()
+        got = {}
+        for i, (_, label, cls) in enumerate(states):
+            row = "#iau-receipts-tbody tr:has(td:text-is('x/y:%d'))" % i
+            got[label] = (self.page.inner_text(row + " .patch-badge").strip(), cls in self.page.eval_on_selector(row + " .patch-badge", "e => e.className"))
+        self.assertEqual(got, {label: (label, True) for _, label, _ in states})
+
+    def test_a_project_held_back_because_its_agent_cannot_roll_back_says_so_in_the_preview(self):
+        dev_id, name = self.stale_project()
+        cfg = read("config.json")
+        cfg["image_autoupdate"] = {"mode": "shadow", "include": ["ghcr.io/acme/*"], "rollback": True}
+        write("config.json", cfg)
+        self.open_card()
+        self.page.wait_for_function("(n) => document.getElementById('iau-preview').textContent.indexOf(n) >= 0", arg=name, timeout=20000)
+        self.assertIn("the agent on this host cannot roll back an update", self.page.inner_text("#iau-preview"))
+
     def test_every_word_of_the_card_has_a_translation_in_all_six_languages(self):
         dev_id, name = self.stale_project(other="docker.io/other/cache")
         images = read("image_updates.json")
         now = int(time.time())
         images["autoupdate"] = {"receipts": [{"id": "r%d" % i, "ts": now - i, "device_id": dev_id, "device_name": name, "dir": "/srv/web", "refs": ["x/y:%d" % i], "state": st, "detail": ""}
-                                             for i, st in enumerate(("shadow", "queued", "awaiting_approval", "ok", "not_updated", "unhealthy", "unverified", "declined"))],
+                                             for i, st in enumerate(("shadow", "queued", "awaiting_approval", "ok", "not_updated", "unhealthy", "unverified", "declined",
+                                                                     "rollback_awaiting_approval", "rolling_back", "rolled_back", "rollback_failed"))],
                                 "last_run": {"ts": now - 60, "made": 1, "held": []}}
         write("image_updates.json", images)
         self.open_card()

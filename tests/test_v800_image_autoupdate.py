@@ -154,6 +154,22 @@ class TestThePolicy(unittest.TestCase):
         self.assertFalse(IA.match("a:b", None))
         self.assertTrue(IA.match("anything:at-all", ["*"]))
 
+    def test_rollback_is_off_by_default_and_takes_only_a_boolean(self):
+        self.assertIs(IA.DEFAULT_POLICY["rollback"], False)
+        self.assertIs(IA.stored_policy(None)["rollback"], False)
+        self.assertIs(IA.clean_policy({"rollback": True})[0]["rollback"], True)
+        self.assertIs(IA.clean_policy({"rollback": False}, base={"rollback": True})[0]["rollback"], False)
+        for bad in ("yes", "true", 1, 0, None, [True], {"a": 1}):
+            policy, err = IA.clean_policy({"rollback": bad})
+            self.assertIsNone(policy, repr(bad))
+            self.assertEqual(err, "rollback must be true or false")
+        self.assertIs(IA.clean_policy({"mode": "shadow"}, base={"rollback": True})[0]["rollback"], True, "a key that is not sent keeps its value")
+
+    def test_a_stored_rollback_that_is_not_the_boolean_true_reads_as_off(self):
+        self.assertIs(IA.stored_policy({"mode": "shadow", "rollback": True})["rollback"], True)
+        for bad in ("yes", "true", 1, [True], None, {"a": 1}):
+            self.assertIs(IA.stored_policy({"mode": "shadow", "rollback": bad})["rollback"], False, repr(bad))
+
     def test_the_fingerprint_depends_on_the_images_and_their_digests_and_not_on_their_order(self):
         a = IA.fingerprint({"x:1": REG, "y:1": OLD})
         self.assertEqual(a, IA.fingerprint({"y:1": OLD, "x:1": REG}))
@@ -230,6 +246,26 @@ class TestThePlan(unittest.TestCase):
     def test_shadow_plans_like_on(self):
         self.assertEqual([d["action"] for d in self.plan([row()], dict(POLICY_ON, mode="shadow"))], ["queue"])
 
+    def test_while_the_policy_rolls_back_a_host_whose_agent_cannot_is_not_updated_and_the_reason_says_so(self):
+        on = dict(POLICY_ON, rollback=True)
+        cannot = {"d1": {"sysinfo": {}}}
+        can = {"d1": {"sysinfo": {"compose_rollback": True}}}
+        d = self.plan([row()], on, devices=cannot)[0]
+        self.assertEqual((d["action"], d["reason"]), ("skip", "the agent on this host cannot roll back an update"))
+        self.assertEqual(self.plan([row()], on, devices=can)[0]["action"], "queue")
+        self.assertEqual(self.plan([row()], POLICY_ON, devices=cannot)[0]["action"], "queue", "with rollback off the agent need not be able to")
+        self.assertEqual(self.plan([row()], dict(POLICY_ON, rollback=False), devices=cannot)[0]["action"], "queue")
+        self.assertEqual(self.plan([row()], on, devices={"d1": {"sysinfo": {"compose_rollback": "yes"}}})[0]["action"], "skip", "only the boolean true counts")
+
+    def test_the_reasons_come_in_an_order_a_person_can_act_on(self):
+        on = dict(POLICY_ON, rollback=True)
+        cannot = {"d1": {"sysinfo": {}}}
+        self.assertEqual(self.plan([row()], dict(on, exclude=["*:1"]), devices=cannot)[0]["reason"], "excluded: ghcr.io/acme/web:1")
+        self.assertEqual(self.plan([row()], dict(on, include=["x/*"]), devices=cannot)[0]["reason"], "not on the list: ghcr.io/acme/web:1")
+        self.assertEqual(self.plan([row()], on, devices={"d1": {"agentless": True, "sysinfo": {}}})[0]["reason"], "agentless host")
+        self.assertEqual(self.plan([row()], on, devices=cannot, period_active=False, online=lambda dev: False)[0]["reason"],
+                         "the agent on this host cannot roll back an update", "the host cannot be fixed by waiting for the time period")
+
 
 def receipt(**kw):
     r = {"id": "r1", "device_id": "d1", "dir": "/srv/web", "digests": {"ghcr.io/acme/web:1": REG}, "before": {"web": 0}, "queued_at": NOW, "verify_at": NOW + 600, "state": "queued"}
@@ -300,6 +336,68 @@ class TestTheVerification(unittest.TestCase):
     def test_a_missing_digest_on_either_side_is_not_stale(self):
         self.assertEqual(self.v(report([box(digest="")]))[0], "ok")
         self.assertEqual(IA.verify(receipt(digests={"ghcr.io/acme/web:1": ""}), report([box(digest=OLD)]), NOW + 800)[0], "ok")
+
+
+class TestTheRollbackVerification(unittest.TestCase):
+
+    def v(self, rec, now=NOW + 800, **kw):
+        r = receipt(rollback_queued_at=NOW, rollback_verify_at=NOW + 600, previous={"ghcr.io/acme/web:1": OLD})
+        r.update(kw)
+        return IA.verify_rollback(r, rec, now)
+
+    def test_it_waits_until_the_time_to_look(self):
+        self.assertEqual(self.v(report([box(digest=OLD)]), now=NOW + 599), ("pending", ""))
+
+    def test_a_container_back_on_the_image_it_ran_before_that_runs_is_rolled_back(self):
+        self.assertEqual(self.v(report([box(digest=OLD)])), ("ok", ""))
+        self.assertEqual(self.v(report([box(digest=OLD, status="running", health="healthy")])), ("ok", ""))
+
+    def test_a_report_from_before_the_rollback_was_queued_is_not_evidence(self):
+        self.assertEqual(self.v(report([box(digest=OLD)], at=NOW - 5)), ("pending", ""))
+        self.assertEqual(self.v(report([box(digest=OLD)], at=NOW)), ("pending", ""), "at the moment it was queued is not after")
+        state, detail = self.v(report([box(digest=OLD)], at=NOW - 5), now=NOW + 600 + IA.VERIFY_GRACE_S)
+        self.assertEqual(state, "unverified")
+        self.assertIn("reported nothing after the rollback", detail)
+        self.assertEqual(self.v(None)[0], "pending")
+
+    def test_a_container_that_still_runs_the_new_image_did_not_roll_back(self):
+        state, detail = self.v(report([box(digest=REG)]))
+        self.assertEqual(state, "failed")
+        self.assertIn("web still runs the new image of ghcr.io/acme/web:1", detail)
+
+    def test_a_container_on_an_image_that_is_neither_is_not_a_rollback_either(self):
+        state, detail = self.v(report([box(digest=OLD2)]))
+        self.assertEqual(state, "failed")
+        self.assertIn("runs neither the new image nor the one before it", detail)
+
+    def test_the_previous_image_failing_too_is_said_in_those_words(self):
+        for status, words in (("Exited (1) 2 seconds ago", "is not running"), ("Created", "is not running")):
+            state, detail = self.v(report([box(digest=OLD, status=status)]))
+            self.assertEqual(state, "failed", status)
+            self.assertIn("the previous image fails as well", detail)
+            self.assertIn(words, detail)
+        self.assertIn("health check", self.v(report([box(digest=OLD, health="unhealthy")]))[1])
+        state, detail = self.v(report([box(digest=OLD, restarts=2)]))
+        self.assertEqual((state, "keeps restarting" in detail), ("failed", True))
+        self.assertEqual(self.v(report([box(digest=OLD, restarts=1)]))[0], "ok", "one restart is not a loop")
+
+    def test_restarts_are_counted_from_the_rollback_because_the_container_was_made_again(self):
+        self.assertEqual(self.v(report([box(digest=OLD, restarts=1)]), before={"web": 0})[0], "ok")
+        self.assertEqual(self.v(report([box(digest=OLD, restarts=2)]), before={"web": 9})[0], "failed", "the count before the update is not a credit")
+
+    def test_a_health_check_that_is_still_starting_settles_or_fails_after_the_grace(self):
+        self.assertEqual(self.v(report([box(digest=OLD, health="starting")]))[0], "pending")
+        state, detail = self.v(report([box(digest=OLD, health="starting")]), now=NOW + 600 + IA.VERIFY_GRACE_S)
+        self.assertEqual((state, "never settled" in detail), ("failed", True))
+
+    def test_the_rolled_back_containers_must_be_in_the_report(self):
+        self.assertEqual(self.v(report([box(cdir="/srv/other", digest=OLD)]))[0], "pending")
+        self.assertEqual(self.v(report([box(cdir="/srv/other", digest=OLD)]), now=NOW + 600 + IA.VERIFY_GRACE_S)[0], "unverified")
+
+    def test_a_missing_digest_is_judged_only_by_not_being_the_new_image(self):
+        self.assertEqual(self.v(report([box(digest="")]))[0], "ok")
+        self.assertEqual(self.v(report([box(digest=OLD2)]), previous={})[0], "ok", "no digest on record from before: only the new one is ruled out")
+        self.assertEqual(self.v(report([box(digest=REG)]), previous={})[0], "failed")
 
 
 # ── the server part ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -663,6 +761,317 @@ class TestFollowingWhatWasQueued(_Sweep):
         self.assertEqual(kept[0]["id"], "old1", "the oldest went")
 
 
+class TestRollingBack(_Sweep):
+    """An update that was verified as unhealthy is put back, when the policy says so and the host's agent can: the command is queued the way the update
+    was (so approval and maintenance mode apply), followed, and judged from the host's next report."""
+
+    def setUp(self):
+        super().setUp()
+        devs = api.load(api.DEVICES_FILE)
+        devs["d1"]["sysinfo"] = {"compose_rollback": True}
+        api.save(api.DEVICES_FILE, devs)
+        self.set_policy(rollback=True)
+
+    def queued(self):
+        self.sweep()
+        rows = self.receipts()
+        self.assertEqual([r["state"] for r in rows], ["queued"])
+        return rows[0]
+
+    def host_reports(self, items):
+        cstore = api.load(api.CONTAINERS_FILE)
+        cstore["d1"] = {"reported_at": int(time.time()) + 5, "items": items}
+        api.save(api.CONTAINERS_FILE, cstore)
+        api._LOAD_CACHE.clear()
+
+    def due(self, *, rollback=False, grace=0):
+        store = api.load(api.IMAGE_UPDATES_FILE)
+        r = store["autoupdate"]["receipts"][0]
+        key_at, key_queued = ("rollback_verify_at", "rollback_queued_at") if rollback else ("verify_at", "queued_at")
+        r[key_at], r[key_queued] = int(time.time()) - 1 - grace, int(time.time()) - 400 - grace
+        api.save(api.IMAGE_UPDATES_FILE, store)
+        api._LOAD_CACHE.clear()
+
+    def unhealthy(self):
+        """The update was queued, the host reports the new image failing its health check, and the sweep has looked."""
+        self.queued()
+        self.due()
+        self.host_reports([box(digest=REG, health="unhealthy")])
+        self.sweep()
+        return self.receipts()[0]
+
+    def rollbacks(self):
+        return [c for c in self.queue().get("d1", []) if c.startswith("compose:rollback:")]
+
+    def audit_names(self):
+        return [a[1] for a in self.audits]
+
+    def test_an_unhealthy_update_is_followed_by_a_rollback_command_and_one_alert_that_says_so(self):
+        r = self.unhealthy()
+        self.assertEqual(r["state"], "rolling_back", r)
+        self.assertEqual(self.rollbacks(), ["compose:rollback:/srv/web"])
+        self.assertIn("web is failing its health check", r["unhealthy_detail"])
+        self.assertTrue(r["detail"].endswith("; rolling back to the previous image"), r["detail"])
+        self.assertEqual(r["rollback_verify_at"] - r["rollback_queued_at"], 600, "the same time to look as for the update")
+        self.assertAlmostEqual(r["rollback_queued_at"], time.time(), delta=30)
+        self.assertEqual(len(self.failures()), 1)
+        self.assertEqual(self.failures()[0][1]["label"], "ghcr.io/acme/web:1")
+        self.assertIn("rolling back", self.failures()[0][1]["detail"])
+        self.assertIn("image_autoupdate_rollback_queued", self.audit_names())
+        self.assertIn("image_autoupdate_failed", self.audit_names())
+
+    def test_the_receipt_remembers_the_digests_the_project_ran_before_the_update(self):
+        r = self.queued()
+        self.assertEqual(r["previous"], {"ghcr.io/acme/web:1": OLD})
+
+    def test_only_the_images_that_are_updated_are_remembered_not_every_container_of_the_project(self):
+        cstore = api.load(api.CONTAINERS_FILE)
+        cstore["d1"]["items"] = [box(digest=OLD), box(digest=OLD2, name="cache", image="docker.io/other/cache", tag="7")]
+        api.save(api.CONTAINERS_FILE, cstore)
+        store = api.load(api.IMAGE_UPDATES_FILE)
+        store["images"]["docker.io/other/cache:7"] = {"registry_digest": OLD2, "last_checked": int(time.time()), "registry": "docker.io"}      # current: not part of the update
+        api.save(api.IMAGE_UPDATES_FILE, store)
+        api._LOAD_CACHE.clear()
+        self.sweep()
+        rows = self.receipts()
+        self.assertEqual((len(rows), rows[0]["refs"], rows[0]["previous"]), (1, ["ghcr.io/acme/web:1"], {"ghcr.io/acme/web:1": OLD}))
+
+    def test_a_container_with_no_digest_on_record_does_not_blank_the_digest_of_one_that_has_it(self):
+        cstore = api.load(api.CONTAINERS_FILE)
+        cstore["d1"]["items"] = [box(digest=OLD), box(digest="", name="web2")]          # two containers of one image, one of them never reported a digest
+        api.save(api.CONTAINERS_FILE, cstore)
+        api._LOAD_CACHE.clear()
+        self.sweep()
+        rows = self.receipts()
+        self.assertEqual((len(rows), rows[0].get("previous")), (1, {"ghcr.io/acme/web:1": OLD}))
+
+    def test_with_rollback_off_an_unhealthy_update_stays_unhealthy_and_nothing_is_queued(self):
+        self.set_policy(rollback=False)
+        devs = api.load(api.DEVICES_FILE)
+        devs["d1"]["sysinfo"] = {}
+        api.save(api.DEVICES_FILE, devs)
+        api._LOAD_CACHE.clear()
+        r = self.unhealthy()
+        self.assertEqual(r["state"], "unhealthy")
+        self.assertEqual(self.rollbacks(), [])
+        self.assertNotIn("unhealthy_detail", r)
+        self.assertEqual(len(self.failures()), 1)
+
+    def test_an_update_that_did_not_change_the_image_or_was_never_confirmed_is_not_rolled_back(self):
+        self.queued()
+        self.due()
+        self.host_reports([box(digest=OLD)])
+        self.sweep()
+        self.assertEqual(self.receipts()[0]["state"], "not_updated")
+        self.assertEqual(self.rollbacks(), [], "nothing changed, so there is nothing to put back")
+        _seed()
+        self.set_policy(rollback=True)
+        devs = api.load(api.DEVICES_FILE)
+        devs["d1"]["sysinfo"] = {"compose_rollback": True}
+        api.save(api.DEVICES_FILE, devs)
+        self.queued()
+        store = api.load(api.IMAGE_UPDATES_FILE)
+        store["autoupdate"]["receipts"][0].update(verify_at=int(time.time()) - IA.VERIFY_GRACE_S - 1, queued_at=int(time.time()) - IA.VERIFY_GRACE_S - 700)
+        api.save(api.IMAGE_UPDATES_FILE, store)
+        cstore = api.load(api.CONTAINERS_FILE)
+        cstore["d1"]["reported_at"] = 1
+        api.save(api.CONTAINERS_FILE, cstore)
+        api._LOAD_CACHE.clear()
+        self.sweep()
+        self.assertEqual(self.receipts()[0]["state"], "unverified")
+        self.assertEqual(self.rollbacks(), [], "not knowing is not a reason to change a host")
+
+    def test_a_host_whose_agent_cannot_roll_back_is_not_updated_while_the_policy_promises_one(self):
+        devs = api.load(api.DEVICES_FILE)
+        devs["d1"]["sysinfo"] = {}
+        api.save(api.DEVICES_FILE, devs)
+        api._LOAD_CACHE.clear()
+        self.sweep()
+        self.assertEqual((self.queue(), self.receipts()), ({}, []))
+        self.assertTrue(any("cannot roll back" in h["reason"] for h in self.last_run()["held"]), self.last_run())
+        self.set_policy(rollback=False)
+        self.sweep()
+        self.assertEqual(len(self.receipts()), 1, "the control: without the promise it is updated")
+
+    def test_the_agent_is_asked_again_when_the_update_fails_and_one_that_cannot_makes_a_failed_rollback_with_one_alert(self):
+        self.set_policy(rollback=False)
+        self.queued()
+        self.set_policy(rollback=True)                        # switched on while the update was running
+        devs = api.load(api.DEVICES_FILE)
+        devs["d1"]["sysinfo"] = {}
+        api.save(api.DEVICES_FILE, devs)
+        self.due()
+        self.host_reports([box(digest=REG, health="unhealthy")])
+        self.sweep()
+        r = self.receipts()[0]
+        self.assertEqual(r["state"], "rollback_failed", r)
+        self.assertIn("no rollback: the agent on this host cannot roll back an update", r["detail"])
+        self.assertEqual(self.rollbacks(), [])
+        self.assertEqual(len(self.failures()), 1)
+        self.sweep()
+        self.assertEqual(len(self.failures()), 1, "decided once")
+
+    def test_a_refusal_to_queue_the_rollback_is_a_failed_rollback_with_the_reason_and_one_alert(self):
+        self.queued()
+        self.due()
+        self.host_reports([box(digest=REG, health="unhealthy")])
+        self.sweep(maintenance_mode=True, maintenance_reason="upgrade")
+        r = self.receipts()[0]
+        self.assertEqual(r["state"], "rollback_failed", r)
+        self.assertIn("no rollback:", r["detail"])
+        self.assertIn("maintenance", r["detail"].lower())
+        self.assertNotIn("no rollback: refused", r["detail"], "the reason is the reason, not the word refused in front of it")
+        self.assertEqual(self.rollbacks(), [])
+        self.assertEqual(len(self.failures()), 1)
+        self.sweep(maintenance_mode=False)
+        self.assertEqual((self.receipts()[0]["state"], self.rollbacks(), len(self.failures())), ("rollback_failed", [], 1), "a refused rollback is recorded, not retried")
+
+    def test_a_rollback_that_needs_a_second_admin_is_parked_once_and_followed(self):
+        self.queued()
+        self.due()
+        self.host_reports([box(digest=REG, health="unhealthy")])
+        self.sweep(change_approval_enabled=True, approval_gated_kinds=["compose"])
+        r = self.receipts()[0]
+        self.assertEqual(r["state"], "rollback_awaiting_approval", r)
+        self.assertEqual(self.rollbacks(), [], "nothing is queued before it is approved")
+        confs = api.load(api.CONFIRMATIONS_FILE)["confirmations"]
+        self.assertEqual([(c["id"], c["status"], c.get("params", {}).get("command")) for c in confs], [(r["rollback_confirmation_id"], "pending", "compose:rollback:/srv/web")])
+        self.assertIn("waits for a second admin", r["detail"])
+        self.assertEqual(len(self.failures()), 1, "the failed update is the alert; the rollback waiting is not another one")
+        self.sweep(change_approval_enabled=True, approval_gated_kinds=["compose"])
+        self.assertEqual(len(api.load(api.CONFIRMATIONS_FILE)["confirmations"]), 1, "a pending approval is not asked for again")
+        self.assertEqual(self.receipts()[0]["state"], "rollback_awaiting_approval")
+        api._LOAD_CACHE.clear()
+        store = api.load(api.CONFIRMATIONS_FILE)
+        store["confirmations"][0]["status"] = "approved"
+        api.save(api.CONFIRMATIONS_FILE, store)
+        self.sweep()
+        r = self.receipts()[0]
+        self.assertEqual(r["state"], "rolling_back", r)
+        self.assertEqual(r["rollback_verify_at"] - r["rollback_queued_at"], 600, "the clock starts when it was approved")
+        self.assertAlmostEqual(r["rollback_queued_at"], time.time(), delta=30)
+        self.assertEqual(len(self.failures()), 1, "approving it is not a new alert")
+
+    def test_a_rollback_whose_approval_was_rejected_expired_or_removed_is_a_failed_rollback_with_one_alert_of_its_own(self):
+        for status in ("rejected", "expired", "failed", None):
+            _seed()
+            devs = api.load(api.DEVICES_FILE)
+            devs["d1"]["sysinfo"] = {"compose_rollback": True}
+            api.save(api.DEVICES_FILE, devs)
+            self.set_policy(rollback=True)
+            self.fired.clear()
+            self.queued()
+            self.due()
+            self.host_reports([box(digest=REG, health="unhealthy")])
+            self.sweep(change_approval_enabled=True, approval_gated_kinds=["compose"])
+            self.assertEqual(self.receipts()[0]["state"], "rollback_awaiting_approval", status)
+            store = api.load(api.CONFIRMATIONS_FILE)
+            if status is None:
+                store["confirmations"] = []
+            else:
+                store["confirmations"][0]["status"] = status
+            api.save(api.CONFIRMATIONS_FILE, store)
+            api._LOAD_CACHE.clear()
+            self.sweep()
+            r = self.receipts()[0]
+            self.assertEqual(r["state"], "rollback_failed", status)
+            self.assertIn("the approval request was %s" % (status or "removed"), r["detail"])
+            self.assertEqual(len(self.failures()), 2, "the failed update, and then the rollback that was refused")
+            self.sweep()
+            self.assertEqual(len(self.failures()), 2, status)
+
+    def test_a_rollback_that_took_is_rolled_back_with_no_alert_and_a_line_in_the_audit_trail(self):
+        self.unhealthy()
+        self.due(rollback=True)
+        self.host_reports([box(digest=OLD, status="Up 1 minute")])
+        self.sweep()
+        r = self.receipts()[0]
+        self.assertEqual(r["state"], "rolled_back", r)
+        self.assertTrue(r["detail"].endswith("; rolled back to the previous image"), r["detail"])
+        self.assertIn("web is failing its health check", r["detail"], "what was wrong with the update stays in the record")
+        self.assertEqual(len(self.failures()), 1, "good news is not an alert")
+        self.assertIn("image_autoupdate_rolled_back", self.audit_names())
+        self.sweep()
+        self.assertEqual((self.receipts()[0]["state"], len(self.failures()), len(self.rollbacks())), ("rolled_back", 1, 1), "a decided receipt is not looked at again")
+
+    def test_a_rollback_that_did_not_take_is_an_alert_of_its_own_with_the_reason(self):
+        for items, words in (([box(digest=REG)], "still runs the new image"),
+                             ([box(digest=OLD, status="Exited (1) 3 seconds ago")], "the previous image fails as well"),
+                             ([box(digest=OLD2)], "runs neither the new image nor the one before it")):
+            _seed()
+            devs = api.load(api.DEVICES_FILE)
+            devs["d1"]["sysinfo"] = {"compose_rollback": True}
+            api.save(api.DEVICES_FILE, devs)
+            self.set_policy(rollback=True)
+            self.fired.clear()
+            self.unhealthy()
+            self.due(rollback=True)
+            self.host_reports(items)
+            self.sweep()
+            r = self.receipts()[0]
+            self.assertEqual(r["state"], "rollback_failed", words)
+            self.assertIn("the rollback did not work: ", r["detail"])
+            self.assertIn(words, r["detail"])
+            self.assertEqual(len(self.failures()), 2, words)
+            self.assertIn(words, self.failures()[1][1]["detail"])
+
+    def test_a_host_that_never_reports_after_the_rollback_is_unverified_after_the_grace_and_is_an_alert(self):
+        self.unhealthy()
+        self.due(rollback=True, grace=IA.VERIFY_GRACE_S)
+        cstore = api.load(api.CONTAINERS_FILE)
+        cstore["d1"]["reported_at"] = 1
+        api.save(api.CONTAINERS_FILE, cstore)
+        api._LOAD_CACHE.clear()
+        self.sweep()
+        r = self.receipts()[0]
+        self.assertEqual(r["state"], "rollback_failed", r)
+        self.assertIn("reported nothing after the rollback", r["detail"])
+        self.assertEqual(len(self.failures()), 2)
+
+    def test_nothing_is_decided_before_the_time_to_look_and_the_rollback_is_queued_once(self):
+        self.unhealthy()
+        for _ in range(3):
+            self.host_reports([box(digest=OLD)])
+            self.sweep()
+        self.assertEqual(self.receipts()[0]["state"], "rolling_back")
+        self.assertEqual(self.rollbacks(), ["compose:rollback:/srv/web"])
+        self.assertEqual(len(self.failures()), 1)
+
+    def test_following_a_rollback_goes_on_after_the_policy_is_switched_off(self):
+        self.unhealthy()
+        self.due(rollback=True)
+        self.host_reports([box(digest=OLD)])
+        self.set_policy(mode="off", rollback=True)
+        self.sweep()
+        self.assertEqual(self.receipts()[0]["state"], "rolled_back", "a rollback that was queued is still checked")
+
+    def test_a_rollback_in_the_sweep_is_not_started_by_a_policy_that_is_shadow(self):
+        self.queued()
+        self.due()
+        self.host_reports([box(digest=REG, health="unhealthy")])
+        self.set_policy(mode="shadow", rollback=True)
+        self.sweep()
+        self.assertEqual(self.receipts()[0]["state"], "rolling_back", "an update that was queued is followed whatever the mode is now, and it is the policy's rollback flag that decides")
+
+    def test_an_update_that_was_rolled_back_is_not_tried_again_for_that_release_and_is_for_the_next_one(self):
+        self.unhealthy()
+        self.due(rollback=True)
+        self.host_reports([box(digest=OLD)])
+        self.sweep()
+        self.assertEqual(self.receipts()[0]["state"], "rolled_back")
+        before = (len(self.receipts()), self.queue().get("d1"))
+        self.sweep()
+        self.sweep()
+        self.assertEqual((len(self.receipts()), self.queue().get("d1")), before, "the bad release is not pulled again")
+        store = api.load(api.IMAGE_UPDATES_FILE)
+        store["images"]["ghcr.io/acme/web:1"]["registry_digest"] = "sha256:" + "e" * 64
+        api.save(api.IMAGE_UPDATES_FILE, store)
+        api._LOAD_CACHE.clear()
+        self.sweep()
+        self.assertEqual(len(self.receipts()), 2, "a newer release starts a new attempt")
+        self.assertEqual(self.receipts()[-1]["state"], "queued")
+
+
 # ── the routes ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 class _Routes(unittest.TestCase):
 
@@ -764,6 +1173,33 @@ class TestSavingThePolicy(_Routes):
         self.assertIn("image_autoupdate_set", line)
         self.assertIn("mode=shadow include=2 exclude=1", line)
         self.assertIsNone(self.get().get("audit"))
+
+    def test_rollback_is_saved_read_back_and_in_the_audit_trail(self):
+        self.step_up = False
+        box_ = self.post({"mode": "shadow", "rollback": True})
+        self.assertEqual(box_["status"], 200, box_)
+        self.assertIs(self.stored()["rollback"], True)
+        self.assertIn("rollback=on", json.dumps(box_["audit"]))
+        self.assertIs(self.get()["body"]["policy"]["rollback"], True)
+        self.assertIs(box_["body"]["policy"]["rollback"], True)
+        self.post({"verify_after_min": 40})
+        self.assertIs(self.stored()["rollback"], True, "a key that is not sent keeps its value")
+        box_ = self.post({"rollback": False})
+        self.assertIn("rollback=off", json.dumps(box_["audit"]))
+        self.assertIs(self.stored()["rollback"], False)
+
+    def test_rollback_takes_only_a_boolean_and_nothing_is_stored_for_anything_else(self):
+        for bad in ("yes", "true", 1, None, [True], {"a": 1}):
+            box_ = self.post({"rollback": bad})
+            self.assertEqual(box_["status"], 400, repr(bad))
+            self.assertEqual(box_["body"]["error"], "rollback must be true or false")
+        self.assertEqual(self.stored(), IA.DEFAULT_POLICY)
+
+    def test_changing_rollback_on_a_policy_that_is_on_asks_for_a_fresh_sign_in_like_any_other_change(self):
+        self.post({"mode": "on", "include": ["a/*"]})
+        self.step_up = False
+        self.assertEqual(self.post({"rollback": True})["status"], 403, "what an unattended loop may do to a host is the same question")
+        self.assertIs(self.stored()["rollback"], False)
 
     def test_keys_that_are_not_sent_keep_what_they_had(self):
         self.post({"mode": "shadow", "include": ["a/*"], "max_hosts_per_run": 5})

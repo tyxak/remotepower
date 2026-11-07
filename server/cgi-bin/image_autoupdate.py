@@ -18,7 +18,9 @@ import hashlib
 import re
 
 MODES = ('off', 'shadow', 'on')
-DEFAULT_POLICY = {'mode': 'off', 'include': [], 'exclude': [], 'period': '', 'max_hosts_per_run': 2, 'verify_after_min': 10}
+DEFAULT_POLICY = {'mode': 'off', 'include': [], 'exclude': [], 'period': '', 'max_hosts_per_run': 2, 'verify_after_min': 10, 'rollback': False}
+# The states in which a receipt is still being followed: an update or a rollback that was queued or parked for a second admin.
+WAITING = ('queued', 'awaiting_approval', 'rolling_back', 'rollback_awaiting_approval')
 MAX_PATTERNS = 50
 MAX_PATTERN_LEN = 200
 MAX_RECEIPTS = 200
@@ -90,6 +92,10 @@ def clean_policy(raw, base=None, period_exists=None):
             if not lo <= n <= hi:
                 return None, '%s must be a whole number from %d to %d' % (key, lo, hi)
             policy[key] = n
+    if 'rollback' in raw:
+        if not isinstance(raw['rollback'], bool):
+            return None, 'rollback must be true or false'
+        policy['rollback'] = raw['rollback']
     if policy['mode'] == 'on' and not policy['include']:
         return None, 'on needs at least one image pattern in include: nothing is updated that is not on the list'
     return policy, None
@@ -101,7 +107,7 @@ def stored_policy(raw):
     policy = dict(DEFAULT_POLICY)
     if not isinstance(raw, dict):
         return policy
-    for key in ('include', 'exclude', 'period', 'max_hosts_per_run', 'verify_after_min'):
+    for key in ('include', 'exclude', 'period', 'max_hosts_per_run', 'verify_after_min', 'rollback'):
         if key in raw:
             one, err = clean_policy({key: raw[key]}, base=policy)
             if one is not None and err is None:
@@ -126,6 +132,11 @@ def fingerprint(refs_digests):
 def _stale(local, registry):
     local, registry = str(local or '').strip(), str(registry or '').strip()
     return bool(registry and local and local != registry)
+
+
+def can_roll_back(dev):
+    """Whether the agent of this host says it notes the images an update replaces and can put them back (its heartbeat carries sysinfo.compose_rollback)."""
+    return ((dev or {}).get('sysinfo') or {}).get('compose_rollback') is True
 
 
 def plan(rows, devices, policy, receipts, period_active=True, online=None):
@@ -170,6 +181,8 @@ def plan(rows, devices, policy, receipts, period_active=True, online=None):
             d['reason'] = 'excluded: %s' % blocked
         elif unlisted:
             d['reason'] = 'not on the list: %s' % unlisted
+        elif policy.get('rollback') and not can_roll_back(dev):
+            d['reason'] = 'the agent on this host cannot roll back an update'
         elif not period_active:
             d['reason'] = 'outside the time period'
         elif online is not None and not online(dev):
@@ -220,4 +233,53 @@ def verify(receipt, rec, now):
             settling = True
     if settling:
         return ('unhealthy', 'a health check never settled') if late else ('pending', '')
+    return 'ok', ''
+
+
+def verify_rollback(receipt, rec, now):
+    """Whether a rollback that was queued put the host back, from what it reported since. Returns (state, detail).
+
+    state is 'pending' (look again later), 'ok' (the containers of the update run the image they ran before it, and run), 'failed' (a container still
+    runs the new image, or the previous image fails as well) or 'unverified' (no usable report in the grace period). The images before the update are
+    the receipt's `previous` digests; a container with no digest on record is judged only by not being on the new image.
+    """
+    at = int(receipt.get('rollback_verify_at') or 0)
+    if now < at:
+        return 'pending', ''
+    late = now >= at + VERIFY_GRACE_S
+    rec = rec if isinstance(rec, dict) else {}
+    if int(rec.get('reported_at') or 0) <= int(receipt.get('rollback_queued_at') or 0):
+        return ('unverified', 'the host reported nothing after the rollback was queued') if late else ('pending', '')
+    digests = receipt.get('digests') or {}
+    previous = receipt.get('previous') or {}
+    mine = []
+    for c in rec.get('items') or []:
+        if not isinstance(c, dict) or c.get('compose_dir') != receipt.get('dir'):
+            continue
+        ref = '%s:%s' % (c.get('image') or '', c.get('tag') or 'latest')
+        if ref in digests:
+            mine.append((c, ref))
+    if not mine:
+        return ('unverified', 'none of the rolled back containers was in the next report') if late else ('pending', '')
+    for c, ref in mine:
+        local, new = str(c.get('repo_digest') or '').strip(), str(digests[ref] or '').strip()
+        old = str(previous.get(ref) or '').strip()
+        if local and new and local == new:
+            return 'failed', '%s still runs the new image of %s' % (c.get('name'), ref)
+        if local and old and local != old:
+            return 'failed', '%s runs neither the new image nor the one before it (%s)' % (c.get('name'), ref)
+    settling = False
+    for c, ref in mine:
+        status = str(c.get('status') or '').lower()
+        health = str(c.get('health') or '').lower()
+        if any(t in status for t in _STOPPED) or not any(t in status for t in _RUNNING):
+            return 'failed', 'the previous image fails as well: %s is not running (%s)' % (c.get('name'), c.get('status') or 'no status')
+        if health == 'unhealthy':
+            return 'failed', 'the previous image fails as well: %s is failing its health check' % c.get('name')
+        if int(c.get('restart_count') or 0) >= RESTART_LOOP:
+            return 'failed', 'the previous image fails as well: %s keeps restarting' % c.get('name')
+        if health == 'starting':
+            settling = True
+    if settling:
+        return ('failed', 'a health check never settled after the rollback') if late else ('pending', '')
     return 'ok', ''

@@ -11793,9 +11793,156 @@ def execute_command(cmd):
 # directory is verified to exist and contain a compose file before any
 # docker invocation. Output (capped) is returned via the existing exec
 # channel so the dashboard sees results the same way it does for `exec:`.
-COMPOSE_ALLOWED_ACTIONS = {'up', 'down', 'restart', 'pull', 'logs', 'update'}
+COMPOSE_ALLOWED_ACTIONS = {'up', 'down', 'restart', 'pull', 'logs', 'update', 'rollback'}
 COMPOSE_ACTION_TIMEOUT_S = 180  # pull + up can be slow on cold caches
 COMPOSE_OUT_CAP          = 64 * 1024
+
+
+# 8.0.0: rollback of a compose update. `compose:update` notes, for the project, the image every service ran before and after it, but only when the
+# update changed something. `compose:rollback` points each changed reference back at the image it had and brings the project up without pulling.
+# It refuses, and changes nothing, when there is no note, when the project no longer runs what the note says it ran after that update (something
+# else changed it since) or when a previous image is gone from the host. Data is not rolled back: volumes keep whatever the newer version wrote.
+_COMPOSE_IMAGE_ID_RE = re.compile(r'^sha256:[0-9a-f]{64}$')
+_COMPOSE_CONTAINER_ID_RE = re.compile(r'^[0-9a-f]{12,64}$')
+_COMPOSE_REF_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._/:-]{0,254}$')      # a reference that can move: no digest (there is no @ in it), and never a leading dash
+
+
+def _docker_out(argv, cwd=None, timeout=60):
+    """(returncode, stdout) of one docker call, argv only. The returncode is -1 when it could not run at all."""
+    try:
+        r = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout
+    except Exception:
+        return -1, ''
+
+
+def _compose_images(project_dirs):
+    """The image each service container of a compose project runs, as a sorted list of {service, ref, id}, or None when docker could not say.
+    The project is found by the working-directory label compose puts on its containers, which is how the server groups them. One-off containers
+    (`docker compose run`) are left out."""
+    found = []
+    for d in project_dirs:
+        rc, out = _docker_out(['docker', 'ps', '-a', '-q', '--no-trunc', '--filter', 'label=com.docker.compose.project.working_dir=' + d,
+                               '--filter', 'label=com.docker.compose.oneoff=False'])
+        if rc != 0:
+            return None
+        found += [c for c in out.split() if _COMPOSE_CONTAINER_ID_RE.match(c) and c not in found]
+    if not found:
+        return []
+    rc, out = _docker_out(['docker', 'inspect', '--format', '{{.Image}}|{{.Config.Image}}|{{index .Config.Labels "com.docker.compose.service"}}'] + found)
+    if rc != 0:
+        return None
+    rows = set()
+    for line in out.splitlines():
+        parts = line.strip().split('|', 2)
+        if len(parts) == 3 and _COMPOSE_IMAGE_ID_RE.match(parts[0]) and parts[1] and parts[2]:
+            rows.add((parts[2], parts[1], parts[0]))
+    return [{'service': svc, 'ref': ref, 'id': iid} for svc, ref, iid in sorted(rows)]
+
+
+def _compose_rows_key(rows):
+    return sorted((r['service'], r['ref'], r['id']) for r in rows)
+
+
+def _compose_record_path(project_dir):
+    return STATE_DIR / 'compose-previous' / (hashlib.sha256(str(project_dir).encode('utf-8')).hexdigest()[:24] + '.json')
+
+
+def _compose_record_write(project_dir, before, after):
+    path = _compose_record_path(project_dir)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tmp = path.with_suffix('.tmp')
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as fh:
+        json.dump({'dir': str(project_dir), 'taken_at': int(time.time()), 'before': before, 'after': after}, fh)
+    os.replace(str(tmp), str(path))
+
+
+def _compose_record_read(project_dir):
+    """The note of the last update that changed something, read defensively, or None."""
+    try:
+        rec = json.loads(_compose_record_path(project_dir).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(rec, dict) or rec.get('dir') != str(project_dir):
+        return None
+
+    def rows(value):
+        return [{k: r[k] for k in ('service', 'ref', 'id')} for r in (value if isinstance(value, list) else [])
+                if isinstance(r, dict) and all(isinstance(r.get(k), str) for k in ('service', 'ref', 'id'))]
+    return {'before': rows(rec.get('before')), 'after': rows(rec.get('after'))}
+
+
+def _compose_note_update(p, dirs, before):
+    """After an update that went through: keep the images from before and after it when it changed some, so a rollback has something to go back to.
+    An update that changed nothing leaves the earlier note alone, which is the one that still describes a change."""
+    try:
+        after = _compose_images(dirs)
+        if after is not None and _compose_rows_key(after) != _compose_rows_key(before):
+            _compose_record_write(p, before, after)
+    except Exception as e:      # the update worked; a missing note only means a later rollback is refused
+        log.warning(f'could not note the images of {p} for a rollback: {e}')
+
+
+def _compose_rollback(cmd, p, dirs):
+    """compose:rollback:<dir> — see the note above. Returns the exec-channel result dict."""
+    def refuse(message):
+        return {'cmd': cmd, 'output': message, 'rc': 1}
+
+    rec = _compose_record_read(p)
+    if not rec or not rec['before']:
+        return refuse('no note of the images this project ran before its last update: there is nothing to roll back to')
+    now = _compose_images(dirs)
+    if now is None:
+        return refuse('docker could not say which containers this project runs')
+    if _compose_rows_key(now) != _compose_rows_key(rec['after']):
+        return refuse('this project does not run what it ran after its last update (something changed it since): nothing was rolled back')
+    after = set(_compose_rows_key(rec['after']))
+    moves, left = [], []
+    for r in rec['before']:
+        if (r['service'], r['ref'], r['id']) in after:
+            continue
+        ref = r['ref']
+        if (_COMPOSE_REF_RE.match(ref) and not ref.startswith('sha256:') and not _COMPOSE_CONTAINER_ID_RE.match(ref)
+                and _COMPOSE_IMAGE_ID_RE.match(r['id'])):
+            if (ref, r['id']) not in moves:
+                moves.append((ref, r['id']))
+        else:
+            left.append(ref)
+    if not moves:
+        return refuse('nothing to roll back: %s is pinned by digest or id, so the last update did not move it' % (', '.join(left) or 'no image'))
+    gone = []
+    for ref, iid in moves:
+        rc, _ = _docker_out(['docker', 'image', 'inspect', '--format', '{{.Id}}', iid])
+        if rc == -1:
+            return refuse('docker did not answer')
+        if rc != 0:
+            gone.append(ref)
+    if gone:
+        return refuse('the previous image of %s is no longer on this host (it was removed): nothing was rolled back' % ', '.join(gone))
+    steps = [['docker', 'tag', iid, ref] for ref, iid in moves] + [['docker', 'compose', 'up', '-d', '--pull', 'never']]
+    log.info(f'compose rollback in {p}: {len(moves)} image(s)')
+    chunks, rc = [], 0
+    try:
+        for argv in steps:
+            result = subprocess.run(argv, cwd=str(p), capture_output=True, text=True, timeout=COMPOSE_ACTION_TIMEOUT_S)
+            shown = ' '.join(a[:19] if a.startswith('sha256:') else a for a in argv[1:])
+            chunks.append(f'$ docker {shown}\n' + (result.stdout + result.stderr).strip())
+            rc = result.returncode
+            if rc != 0:
+                break
+        if rc == 0:
+            try:
+                _compose_record_path(p).unlink()
+            except OSError:
+                pass
+        if left:
+            chunks.append('left as they are (pinned by digest or id): ' + ', '.join(left))
+        return {'cmd': cmd, 'output': '\n\n'.join(chunks).strip()[:COMPOSE_OUT_CAP], 'rc': rc}
+    except subprocess.TimeoutExpired:
+        return {'cmd': cmd, 'output': 'TIMEOUT', 'rc': -1}
+    except Exception as e:
+        return {'cmd': cmd, 'output': f'compose rollback failed: {e}', 'rc': -1}
 
 
 def _run_compose(cmd):
@@ -11833,9 +11980,14 @@ def _run_compose(cmd):
     if not _which('docker'):
         return {'cmd': cmd, 'output': 'docker not installed on this host', 'rc': -1}
 
+    # 8.0.0: the project's containers are found by the directory as the server reported it, and by its resolved path when that differs.
+    dirs = [project_dir] + ([str(p)] if str(p) != project_dir else [])
+    if action == 'rollback':
+        return _compose_rollback(cmd, p, dirs)
     # 'update' = pull the newest images then recreate (up -d) so the running
     # containers actually move onto them — the canonical "update my stack"
     # flow. It's a two-step sequence; the rest are single argv runs.
+    before = _compose_images(dirs) if action == 'update' else None
     if action == 'update':
         step_argvs = [['docker', 'compose', 'pull'],
                       ['docker', 'compose', 'up', '-d']]
@@ -11871,6 +12023,8 @@ def _run_compose(cmd):
                 break
         output = '\n\n'.join(chunks).strip()[:COMPOSE_OUT_CAP]
         log.info(f"compose {action} rc={rc} output_len={len(output)}")
+        if action == 'update' and rc == 0 and before is not None:
+            _compose_note_update(p, dirs, before)
         return {'cmd': cmd, 'output': output, 'rc': rc}
     except subprocess.TimeoutExpired:
         return {'cmd': cmd, 'output': 'TIMEOUT', 'rc': -1}
@@ -15809,6 +15963,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 'disk_io': collect_disk_io(),     # v7.4.3 #49: per-disk busy share, throughput, IOPS, wait
                 'audit_mode': _audit_mode(),      # v4.11.0: observe-only (read-only) agent
                 'probe_types': _probe_types(),    # 8.0.0: the monitor types this agent runs, so the server assigns it no other
+                'compose_rollback': True,         # 8.0.0: `compose:update` notes the images it replaced and `compose:rollback` can put them back
             }
             # Merge metrics if psutil available
             sysinfo.update(get_metrics())

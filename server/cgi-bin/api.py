@@ -22975,6 +22975,10 @@ def handle_heartbeat():
             # 8.0.0: the monitor types the agent runs. host_probe_validate assigns it no other (an older agent drops one without a word).
             if isinstance(si.get('probe_types'), list):
                 safe_si['probe_types'] = host_probe_handlers_mod.clean_types(si['probe_types'])
+            # 8.0.0: the agent notes the images a compose update replaces and can put them back. The automatic image updates ask for this before they
+            # update a host under a policy that promises a rollback. Only the JSON true counts; anything else says nothing.
+            if 'compose_rollback' in si:
+                safe_si['compose_rollback'] = si['compose_rollback'] is True
             # v4.1.0: clock skew (NTP). Skewed = unsynchronised OR |offset| over
             # threshold. Edge-triggered both ways (clock_synced auto-resolves).
             if isinstance(si.get('clock'), dict):

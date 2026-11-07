@@ -304,6 +304,20 @@ class TestAssigningToAProber(cfgkeys._Base):
         self.assertEqual(st, 400)
         self.assertIn("that satellite does not say it runs smtp monitors", json.dumps(self.captured[-1][1]))
 
+    def test_only_the_json_true_says_the_agent_can_roll_back_a_compose_update(self):
+        api.save(api.DEVICES_FILE, {"d1": {"id": "d1", "name": "box", "os": "Ubuntu 24.04", "token": "tok", "last_seen": 0, "sysinfo": {}}})
+        api._LOAD_CACHE.clear()
+
+        def beat(**si):
+            st, _ = _run(api.handle_heartbeat, {"device_id": "d1", "token": "tok", "version": "8.0.0", "sysinfo": dict({"hostname": "box"}, **si)})
+            self.assertEqual(st, 200)
+            api._LOAD_CACHE.clear()
+            return api.load(api.DEVICES_FILE)["d1"]["sysinfo"]
+        self.assertNotIn("compose_rollback", beat())
+        self.assertIs(beat(compose_rollback=True)["compose_rollback"], True)
+        for said in (False, "true", "yes", 1, [True], {"a": 1}, None):
+            self.assertIs(beat(compose_rollback=said)["compose_rollback"], False, said)
+
     def test_a_heartbeat_keeps_the_types_the_agent_says_in_a_fixed_order_and_nothing_it_does_not_know(self):
         api.save(api.DEVICES_FILE, {"d1": {"id": "d1", "name": "box", "os": "Ubuntu 24.04", "token": "tok", "last_seen": 0, "sysinfo": {}}})
         api._LOAD_CACHE.clear()

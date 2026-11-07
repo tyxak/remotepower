@@ -246,12 +246,28 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   at most N hosts per sweep, inside an optional time period (a deleted period counts as closed), and never on an offline or agentless host. Some minutes later the sweep reads what the host
   reported since the command was queued: new image, running, no failing health check and no restart loop is **Updated**; otherwise the receipt says **Not updated**, **Unhealthy** or **Not
   verified** and a new `image_autoupdate_failed` event goes out once with the host, the images and the reason, because a failed unattended change has to be loud (the container alerts say a
-  container is unwell, and cannot see an image that never changed). It does not roll back: that needs the previous digest to be pinned on the host, which no test here can drive without a
-  Docker daemon, so the receipt records the containers' state before and the docs say so. The policy is the platform operator's and switching it on asks for a fresh sign-in; the receipts
+  container is unwell, and cannot see an image that never changed). Rolling back is a separate option (the next entry). The policy is the platform operator's and switching it on asks for a fresh sign-in; the receipts
   ride in the image-updates document and a tenant sees the receipts of its own hosts only. The Image updates subtitle no longer says "Notify-only" without the exception. **Held by**
   `tests/test_v800_image_autoupdate.py` (68 tests: the policy, the plan, the verification, and the sweep and routes against the real handlers and stores) and
   `tests/test_v800_image_autoupdate_e2e.py` (the card in a browser on the demo seed, including a slow answer that lands while you are typing: the first version of the card
   refilled the form with the stored policy and the next Save sent `off` and said it had worked, so the card keeps what you typed and only the newest answer is used).
+- **An automatic image update can be rolled back** (an option on the Automatic updates card, off by default). When the check after an update finds a container that is not
+  running, fails its health check or keeps restarting, and **Roll back an update that leaves a container unhealthy** is on, the agent puts the project back on the images it ran before
+  and starts it without pulling. The receipt goes **Rolling back**, then **Rolled back** or **Rollback failed**, and the policy is a boolean `rollback` in `POST /api/image-updates/auto`.
+  Each time the agent runs `compose:update` it notes the image of every service before and after, in a private file under its state directory, and only when the update changed
+  something; the new verb `compose:rollback:<dir>` points the references that moved back at the old images and runs `docker compose up -d --pull never`. It refuses, changes nothing and
+  says why when there is no note, when the project runs something else than the note says it ran after that update, when a previous image was removed from the host (all of them are
+  looked for before the first is moved), or when only images pinned by digest moved; nothing in a note or in a container's reference can become an option of `docker tag`. The command
+  goes through the queue the update uses, so change approval and maintenance mode apply to it, and a refused one is recorded as failed and not retried. A host whose agent does not say
+  it can roll back (the heartbeat's `compose_rollback`, which only the JSON `true` sets) is not updated at all while the option is on, because the policy would promise what the host
+  cannot do. The failed update is one `image_autoupdate_failed` alert that says a rollback follows, a rollback that did not take is a second one, and one that did is a line in the audit
+  trail (`image_autoupdate_rolled_back`) and on the card. The update is not tried again until the registry ships a newer image. Data is not rolled back, and the tag is pointed back
+  for every project on the host that uses it. **Checked with a stand-in for the docker command line** (`tests/fake_docker.py`), not with Docker: the client is installed on the
+  development machine, its daemon is not running and the compose plugin is not installed. The stand-in encodes one rule that a real daemon has not confirmed, that `docker compose up -d`
+  recreates a container whose image is not the one its reference now points at, and that is the rule a rollback depends on. 101 mutations of the new server and agent code were run: the
+  first pass missed 14, two of them dead code that is gone now and twelve that got a test. **Held by** `tests/test_v800_compose_rollback.py` (40 tests: the agent's own functions against
+  the stand-in, a stand-in that is shown to say no, and a whole round with the real server code), the extended `tests/test_v800_image_autoupdate.py` (35 new tests) and
+  `test_v800_image_autoupdate_e2e.py` (4 new), and one in `test_v800_protocol_monitors.py` for the heartbeat flag.
 
 ### Single pages
 

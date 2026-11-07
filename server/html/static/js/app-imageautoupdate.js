@@ -18,6 +18,10 @@ const _IAU_STATE = {
   unhealthy:         ['Unhealthy', 'crit'],
   unverified:        ['Not verified', 'warn'],
   declined:          ['Declined', 'warn'],
+  rollback_awaiting_approval: ['Waiting for approval to roll back', 'warn'],
+  rolling_back:      ['Rolling back', 'warn'],
+  rolled_back:       ['Rolled back', 'ok'],
+  rollback_failed:   ['Rollback failed', 'crit'],
 };
 
 function _iauRegister() {
@@ -46,7 +50,7 @@ function _iauRegister() {
 }
 
 // The first part of a reason from the server is a fixed phrase and the rest is an image: only the phrase is translated.
-const _IAU_REASONS = ['not on the list', 'excluded', 'agentless host', 'host offline', 'outside the time period'];
+const _IAU_REASONS = ['not on the list', 'excluded', 'agentless host', 'host offline', 'outside the time period', 'the agent on this host cannot roll back an update'];
 
 function _iauReason(reason) {
   const text = String(reason || '');
@@ -117,6 +121,8 @@ function _iauFill(d, keep) {
   set('iau-exclude', (p.exclude || []).join('\n'));
   set('iau-max', p.max_hosts_per_run || 2);
   set('iau-verify', p.verify_after_min || 10);
+  const rb = document.getElementById('iau-rollback');
+  if (rb && !keep) rb.checked = !!p.rollback;
   const sel = document.getElementById('iau-period');
   if (sel) {
     const chosen = keep ? sel.value : (p.period || '');
@@ -141,7 +147,7 @@ function _iauFill(d, keep) {
 function _iauWatchForm(card) {
   if (_iauWatched) return;
   _iauWatched = true;
-  const mark = e => { if (e.target && /^iau-(mode|period|include|exclude|max|verify)$/.test(e.target.id || '')) _iauDirty = true; };
+  const mark = e => { if (e.target && /^iau-(mode|period|include|exclude|max|verify|rollback)$/.test(e.target.id || '')) _iauDirty = true; };
   card.addEventListener('input', mark);
   card.addEventListener('change', mark);
 }
@@ -181,6 +187,7 @@ async function saveImageAutoupdate() {
     period: document.getElementById('iau-period').value,
     max_hosts_per_run: num('iau-max'),
     verify_after_min: num('iau-verify'),
+    rollback: !!(document.getElementById('iau-rollback') || {}).checked,
   };
   const out = document.getElementById('iau-result');
   if (out) out.textContent = '';

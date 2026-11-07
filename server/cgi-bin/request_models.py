@@ -2244,6 +2244,7 @@ if _AVAILABLE:
         period: Any = None
         max_hosts_per_run: Any = None
         verify_after_min: Any = None
+        rollback: Any = None
 
     class LdapTestUserRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

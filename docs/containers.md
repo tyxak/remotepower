@@ -542,10 +542,20 @@ The **Automatic updates** card under the table can do that for you, for the imag
 - **The check.** After **Check the result after** minutes (5 to 120, default 10), and only from a container report that came after the update was queued,
   the sweep looks at the containers of the project. **Updated** means they run the new image, are running and are not failing a health check or restarting
   in a loop. Otherwise the receipt says **Not updated** (a container still runs the old image), **Unhealthy**, or **Not verified** (no usable report after 30
-  more minutes), and an `image_autoupdate_failed` alert is raised, once, with the host, the images and the reason. It does not roll back. The container
+  more minutes), and an `image_autoupdate_failed` alert is raised, once, with the host, the images and the reason. The container
   alerts that already exist say that a container is unwell; this one says why it happened now.
+- **Rolling back** *(a separate option, off by default)*. **Roll back an update that leaves a container unhealthy** acts when the check finds the receipt **Unhealthy**: the
+  agent puts the project back on the images it ran before and starts it without pulling. The agent notes those images each time it runs an update that changes something,
+  so while the option is on, only a host whose agent says it can do this is updated, and the card says so for the others. The rollback is a command like the update: it
+  waits for a second admin when change approval holds `compose`, and maintenance mode and quarantine refuse it. A refused rollback is not tried again: the receipt says
+  **Rollback failed** and an alert is raised. After the same wait as for the update, the sweep reads the host's report. **Rolled back** means the containers run the image
+  they ran before and are running; **Rollback failed** means they still run the new image, the old image fails as well, or the host reported nothing. The update is not tried
+  again until the registry ships a newer image. What it cannot do: the old image has to still be on the host (`docker image prune` removes it, and the agent then refuses and
+  says so), it does nothing when anything else changed the project after the update, it leaves an image pinned by digest alone, and it does not roll data back, so a database
+  the new version changed stays changed. It points the image's tag back at the old image, so another project on the same host that uses that tag gets the old image the next
+  time it is recreated.
 - **Who.** The policy is the platform operator's, because it decides what an unattended loop may do to every host. Switching it on, or changing a policy that
-  is on, asks for a fresh sign-in. Every save and every update is a line in the audit log (`image_autoupdate_set`, `image_autoupdate_queued`).
+  is on, asks for a fresh sign-in. Every save and every update is a line in the audit log (`image_autoupdate_set`, `image_autoupdate_queued`, and for a rollback `image_autoupdate_rollback_queued` and `image_autoupdate_rolled_back`).
 
 `GET /api/image-updates/auto` returns the policy, the recent receipts (newest first), what the policy would do now and the time periods; `POST` saves the policy.
 

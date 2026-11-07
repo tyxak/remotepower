@@ -8629,7 +8629,7 @@ nextcloud mem=95 sustain=6</pre>
 
           <div class="settings-section mt-16" id="image-autoupdate-card">
             <div class="section-title">Automatic updates</div>
-            <p class="hint">Off by default. RemotePower can pull and recreate the compose projects that run an image you list when the registry has a newer one. It queues the same command as the Update button above, so maintenance mode, quarantine and change approval apply to it. Some minutes later it checks what the host reports, and raises an alert if the image was not replaced or the containers are not healthy. It does not roll back.</p>
+            <p class="hint">Off by default. RemotePower can pull and recreate the compose projects that run an image you list when the registry has a newer one. It queues the same command as the Update button above, so maintenance mode, quarantine and change approval apply to it. Some minutes later it checks what the host reports, and raises an alert if the image was not replaced or the containers are not healthy. It rolls back only if you switch that on below.</p>
             <div class="settings-row">
               <div class="form-group flex-1">
                 <label for="iau-mode" class="form-label">Mode</label>
@@ -8663,6 +8663,10 @@ nextcloud mem=95 sustain=6</pre>
                 <label for="iau-verify" class="form-label">Check the result after (minutes)</label>
                 <input type="number" id="iau-verify" class="form-input" min="5" max="120">
               </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label"><input type="checkbox" id="iau-rollback"> Roll back an update that leaves a container unhealthy</label>
+              <div class="meta-sm">If the check after an update finds a container that is not running, fails its health check or keeps restarting, the agent puts the project back on the images it ran before and starts it without pulling. While this is on, only hosts whose agent can do that are updated. The previous image must still be on the host. Data is not rolled back: a database the new version changed stays changed.</div>
             </div>
             <div class="row-8">
               <button class="btn-primary" id="iau-save" data-action="saveImageAutoupdate">Save</button>
