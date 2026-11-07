@@ -48,12 +48,21 @@ class TestShape(unittest.TestCase):
         self.assertEqual(len(KEYS), 71, 'the catalog this was written against; a new widget changes the byte budget below')
 
     def test_ids_must_be_short_lower_case_and_unique(self):
-        bad = ["", "A1", "a b", "a-b", "a_b", "x" * 13, "é", "a1\n", None, 5, ["a1"], {"id": "a1"}]
+        # "123", "1e5" and "0x1f" start with a digit: the click dispatcher passes data-arg through Number() when it can, so an id
+        # like that would reach the handler as a number and never match the layout
+        bad = ["", "A1", "a b", "a-b", "a_b", "x" * 13, "é", "a1\n", None, 5, ["a1"], {"id": "a1"}, "1a", "123", "0", "1e5", "0x1f", "9" * 12]
         for sid in bad:
             with self.subTest(id=sid):
                 self.assertNotIn("dashboard_sets", S({"dashboard_sets": [_set(sid=sid)]}))
         out = S({"dashboard_sets": [_set("a1", "One"), _set("a1", "Two"), _set("b2", "Three")]})
         self.assertEqual([s["id"] for s in out["dashboard_sets"]], ["a1", "b2"], 'the second set with the same id is dropped')
+
+    def test_an_id_the_page_makes_is_one_the_server_keeps(self):
+        # app-dashsets.js: 's' + the first six characters of a random base-36 string
+        rnd = random.Random(1)
+        for _ in range(500):
+            sid = "s" + "".join(rnd.choice("0123456789abcdefghijklmnopqrstuvwxyz") for _ in range(rnd.randint(0, 6)))
+            self.assertEqual(S({"dashboard_sets": [_set(sid=sid)]})["dashboard_sets"][0]["id"], sid)
 
     def test_names_are_trimmed_cut_and_required(self):
         out = S({"dashboard_sets": [_set("a1", "  Night shift  "), _set("b2", "x" * 100), _set("c3", "   "), _set("d4", ""), _set("e5", None)]})
@@ -162,7 +171,7 @@ class TestHostileDocuments(unittest.TestCase):
             out = S(doc)
             for s in out.get("dashboard_sets", []):
                 seen_sets += 1
-                self.assertRegex(s["id"], r"^[a-z0-9]{1,12}$")
+                self.assertRegex(s["id"], r"^[a-z][a-z0-9]{0,11}$")
                 self.assertTrue(s["name"] and len(s["name"]) <= api.MAX_UI_PREFS_DASH_SET_NAME)
                 keys = [item.partition(":")[0] for item in s["w"]]
                 self.assertEqual(len(keys), len(set(keys)), 'no widget twice')

@@ -35398,7 +35398,8 @@ def _sanitise_ui_prefs(raw):
             out['dashboard'] = dash
 
     # 8.0.0: named dashboard layouts. The saved layout above stays the one a user who never makes a set keeps using. A set is
-    # {id, name, w}: w lists the widgets it shows, in order, each as 'key' or 'key:size' (the size only when it is not the
+    # {id, name, w}: the id starts with a letter (an id travels through data-arg, and the click dispatcher turns "123" into a number),
+    # and w lists the widgets it shows, in order, each as 'key' or 'key:size' (the size only when it is not the
     # widget's own default, which the client knows). Keys are checked against the known widget set like the layout above; an
     # unknown key, a repeat or a size that is not one of the three is dropped. dashboard_set names the set in use and must be one
     # of the sets that survived, otherwise the saved layout applies.
@@ -35410,7 +35411,7 @@ def _sanitise_ui_prefs(raw):
                 continue
             sid = s.get('id')
             name = _sanitize_str(str(s.get('name', '')), MAX_UI_PREFS_DASH_SET_NAME).strip()
-            if not isinstance(sid, str) or not re.fullmatch(r'[a-z0-9]{1,12}', sid) or sid in set_ids or not name:
+            if not isinstance(sid, str) or not re.fullmatch(r'[a-z][a-z0-9]{0,11}', sid) or sid in set_ids or not name:
                 continue
             widgets, seen_keys = [], set()
             raw_w = s.get('w') if isinstance(s.get('w'), list) else []
