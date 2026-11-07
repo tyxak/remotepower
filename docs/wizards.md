@@ -9,7 +9,7 @@ turn the switch on, and the dialogs they sit next to are still there.
 | Add a notification destination | **Settings → Notifications → Webhook destinations → Guide me**, or **Settings → Install → Getting started** | A wizard in four steps |
 | Fill in a long form one part at a time | The **Step by step** switch at the top of a form | The same form, a few fields at a time |
 
-Only administrators can make install commands, PINs and notification destinations. Someone who cannot gets the server's refusal in the dialog.
+Only administrators can make install commands, PINs and notification destinations. Someone who cannot is shown the server's refusal.
 
 ## Add a host
 

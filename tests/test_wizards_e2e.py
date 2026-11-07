@@ -854,6 +854,20 @@ class TestNotifyWizard(_Base):
                          'the editor kept its edit and learned of the new destination')
         self.assertEqual(page.eval_on_selector_all('#webhook-dests [data-field=name]', 'els => els.map(e => e.value)'), ['edited-not-saved', 'wiz-new'])
 
+    def test_the_checklist_is_drawn_again_when_the_wizard_closes(self):
+        page = self.page
+        page.evaluate("showPage('settings')")
+        page.evaluate("switchSettingsTab('install')")
+        page.evaluate("loadSetup()")
+        page.wait_for_selector('#setup-steps .setup-step')
+        asked = []
+        page.on('request', lambda r: asked.append(r.url) if r.url.endswith('/api/setup-status') else None)
+        _open_wizard(page, 'notify')
+        page.keyboard.press('Escape')
+        page.wait_for_function("() => !document.getElementById('wizard-modal')")
+        _until(lambda: asked, seconds=5)
+        self.assertEqual(len(asked), 1, 'the checklist asked the server again when the wizard closed')
+
     def test_it_opens_from_the_destinations_card_in_settings(self):
         page = self.page
         page.click('#settings-pane-notifs [data-action="wizOpen"][data-arg="notify"]')
@@ -1444,6 +1458,9 @@ class TestWizardsTranslated(_Base):
             except Exception:
                 self.fail('%s: the title is drawn as %r, not %r' % (lang, page.inner_text('#wizard-modal .modal-title'), title))
             self.assertEqual(self._untranslated(page, '#wizard-modal'), [], '%s: step 1' % lang)
+            steps_label = page.evaluate("() => [document.querySelector('#wizard-modal .wiz-steps').getAttribute('aria-label'), RPi18n.t('Steps')]")
+            self.assertNotEqual(steps_label[1], 'Steps', '%s: the dictionary has the name of the step list' % lang)
+            self.assertEqual(steps_label[0], steps_label[1], '%s: a screen reader hears the step list in the language' % lang)
             page.click('#wiz-next')
             page.wait_for_selector('#wiz-group')
             self.assertEqual(self._untranslated(page, '#wizard-modal'), [], '%s: step 2' % lang)

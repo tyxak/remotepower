@@ -195,6 +195,8 @@ function _wizOnClose() {
   if (!w) return;
   w.timers.forEach(t => { clearInterval(t); clearTimeout(t); });
   if (w.def.onClose) w.def.onClose(w.st, w.finished);
+  // the Getting started checklist, if it is on screen, shows what the wizard did (a host that joined, a destination that delivered)
+  if (document.getElementById('setup-steps') && typeof loadSetup === 'function') loadSetup();
 }
 
 // ── building blocks ─────────────────────────────────────────────────────────────────────────────────────────────────────────
