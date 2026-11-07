@@ -49,6 +49,9 @@ NEW_STRINGS = [
     "Frameworks",                # Compliance
     "Baseline and scans",
     "Personal data",
+    "Traffic",                   # Server Status
+    "Diagnostics",
+    "Data and upkeep",
 ]
 
 

@@ -6174,7 +6174,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v3.0.2: Self-monitoring page — RemotePower watching itself ───── -->
       <div id="page-self" class="page">
-        <div class="page-title">Server Status</div>
+        <div class="page-title" id="self-page-title">Server Status</div>
         <div class="page-subtitle">RemotePower watching itself — disk, hosts, webhooks, audit, backups. <a href="docs/self-monitoring.md" class="c-accent">Documentation</a>.</div>
         <div class="isl-122">
           <button class="btn-secondary" data-action="loadSelfStatus" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -6184,22 +6184,28 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-secondary isl-760" data-action="clearBackupState" id="self-backup-clear-btn"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><use href="#ic-b4990b7e"/></svg> Clear backup archives</button>
         </div>
         <div id="self-test-result" class="d-none mb-12"></div>
+        <nav class="pg-tabs" aria-labelledby="self-page-title" data-pg="self" data-default="health">
+          <button class="pg-tab" data-pg-tab-btn="health" data-action="pgTab" data-arg="self:health">Health</button>
+          <button class="pg-tab" data-pg-tab-btn="diagnostics" data-action="pgTab" data-arg="self:diagnostics">Diagnostics</button>
+          <button class="pg-tab" data-pg-tab-btn="traffic" data-action="pgTab" data-arg="self:traffic">Traffic</button>
+          <button class="pg-tab" data-pg-tab-btn="upkeep" data-action="pgTab" data-arg="self:upkeep">Data and upkeep</button>
+        </nav>
         <div id="self-status-body" class="isl-123"><div class="c-muted">Loading…</div></div>
         <!-- v6.2.3: self-observability — maintenance-sweep health -->
-        <div class="dash-card mt-16" id="self-obs-card">
+        <div data-pg-tab="diagnostics" class="dash-card mt-16" id="self-obs-card">
           <div class="section-title">Internal health — maintenance sweeps</div>
           <p class="hint">Each background maintenance sweep's last successful run and any recent error. A sweep that silently stops running or starts failing shows up here instead of quietly taking a feature down with it.</p>
           <div id="self-obs-body"><div class="c-muted">Loading…</div></div>
         </div>
         <!-- v6.4.0: the frontend error beacon's ring, finally rendered — it had
              been collected since v5.4.1 with no UI consumer. -->
-        <div class="dash-card mt-16 d-none" id="client-errors-card">
+        <div data-pg-tab="diagnostics" class="dash-card mt-16 d-none" id="client-errors-card">
           <div class="section-header"><div class="section-title">Client-side JS errors</div><button class="btn-icon c-warn-outline" data-action="clearClientErrors"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-a93e5032"/></svg> Clear</button></div>
           <p class="hint">Uncaught browser-side errors reported by operators' sessions (<code>window.onerror</code> beacon). A JS failure dies silently in the user's console otherwise — anything listed here is a bug worth a look. Newest first, ring capped at 200.</p>
           <div id="client-errors-body"><div class="c-muted">Loading…</div></div>
         </div>
         <!-- v6.3.1: detection self-test — prove the alert chain is wired -->
-        <div class="dash-card mt-16" id="detection-selftest-card">
+        <div data-pg-tab="diagnostics" class="dash-card mt-16" id="detection-selftest-card">
           <div class="section-header"><div class="section-title">Detection self-test</div><button class="btn-icon" data-action="loadDetectionSelftest"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Run</button></div>
           <p class="hint">Silence isn't clearance: a green dashboard proves the monitoring found nothing, not that it <em>would</em>. This verifies every alertable event type routes to at least one channel that reaches a human, and flags the silent gaps — an alert kind you've muted on every channel, sandbox mode left on, or a recover event that can never close its alert. <a href="docs/detection-selftest.md" class="c-accent">Documentation</a></p>
           <div id="detection-selftest-body"><div class="c-muted">Click Run.</div></div>

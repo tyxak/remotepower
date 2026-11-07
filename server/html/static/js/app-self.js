@@ -635,7 +635,7 @@ async function loadSelfStatus() {
   const tier = _tierMap[rt.server_tier] || [rt.server_tier || 'unknown', '', 'warn'];
   const sched = _selfSchedulerState(rt);
   const runtimeCard = `
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="health">
       <div class="section-title">Serving &amp; runtime</div>
       <table data-rows="fixed" class="fs-13">
         ${_selfInfoRow('Storage backend', be[0], be[1], be[2])}
@@ -651,7 +651,7 @@ async function loadSelfStatus() {
   // never disagree about a sidecar's state.
   const sub = s.subsystems || {};
   const subsystemsCard = `
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="health">
       <div class="section-title">Distributed subsystems</div>
       ${sub.error ? `<div class="c-red fs-12 mb-8">Subsystem probe failed: ${escHtml(String(sub.error))}</div>` : ''}
       <table data-rows="fixed" class="fs-13">
@@ -670,7 +670,7 @@ async function loadSelfStatus() {
   const _restartCmd = `sudo systemctl restart remotepower-wsgi remotepower-scheduler${_scannerSvc}${_pushSvc}${_syslogSvc}${_flowSvc}`;
   const restartAvail = _selfRestartAvailability(ver);
   const restartCard = `
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="upkeep">
       <div class="section-title">Restart the stack</div>
       <div class="hint mb-8">RemotePower runs as an unprivileged service, so restarting it is a host action (needs root on the server). This cleanly restarts the app workers and the out-of-band scheduler${_scannerSvc ? ', the scan worker' : ''}${_pushSvc ? ', the push daemon' : ''} — workers cycle with no dropped requests behind nginx and agents reconnect on their own:</div>
       <div class="row-8-mb8"><code class="self-restart-cmd">${escHtml(_restartCmd)}</code><button class="btn-icon" data-action="copyText" data-arg="${escAttr(_restartCmd)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button></div>
@@ -682,7 +682,7 @@ async function loadSelfStatus() {
   // a dead sidecar or a hollow DR archive fires nothing, so this table is the
   // only place they are visible.
   const readinessCard = `
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="health">
       <div class="section-title">Control-plane readiness</div>
       <p class="hint">Every part of RemotePower itself that can fail without paging anyone: storage, the request tier, the maintenance scheduler and its sweeps, the recurring jobs, the DR archive and each co-located sidecar. A degraded row here is a fault in the monitoring, not in the fleet. <a href="docs/self-monitoring.md" class="c-accent">Documentation</a></p>
       <div id="self-readiness-summary" class="fs-12 mb-8"></div>
@@ -699,7 +699,7 @@ async function loadSelfStatus() {
       </div>
     </div>`;
   body.innerHTML = readinessCard + runtimeCard + subsystemsCard + restartCard + `
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="health">
       <div class="section-title">Site health ${healthPill}</div>
       <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Server version</td><td>${escHtml(s.server_version || '?')}${_versionSinceHtml(s)}</td></tr>
@@ -714,7 +714,7 @@ async function loadSelfStatus() {
       ${flagsHtml}
     </div>
 
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="upkeep">
       <div class="section-title">Hosts</div>
       <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Monitored</td><td>${dev.monitored ?? '—'}</td></tr>
@@ -725,7 +725,7 @@ async function loadSelfStatus() {
       </table>
     </div>
 
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="traffic">
       <div class="section-title">Webhook delivery — outbound</div>
       <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Last 24h</td><td>${_whHtml(w24)}</td></tr>
@@ -747,7 +747,7 @@ async function loadSelfStatus() {
         return `<strong>${w.success}</strong> / ${w.attempts} <span class="${pctCls}">(${pct}%)</span>` +
                (kindsTxt ? ` <span class="hint">[${kindsTxt}]</span>` : '');
       };
-      return `<div class="dash-card">
+      return `<div class="dash-card" data-pg-tab="traffic">
         <div class="section-title">Inbound webhooks &amp; syslog</div>
         <table data-rows="fixed" class="fs-13">
           <tr><td class="c-muted-padded">Last 24h</td><td>${_iwHtml(i24)}</td></tr>
@@ -757,7 +757,7 @@ async function loadSelfStatus() {
       </div>`;
     })()}
 
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="diagnostics">
       <div class="section-title">Disk — <code>${escHtml(dd.path || '/var/lib/remotepower')}</code></div>
       <table data-rows="fixed" class="isl-714">
         <tr><td class="c-muted-padded">RemotePower data</td><td>${_selfFmtBytes(dd.total_bytes)}</td></tr>
@@ -766,7 +766,7 @@ async function loadSelfStatus() {
       ${bigFiles ? `<details><summary class="isl-715">Largest files (>100KB)</summary><div class="mt-8">${bigFiles}</div></details>` : ''}
     </div>
 
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="upkeep">
       <div class="section-title">Audit log</div>
       <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Active entries</td><td>${(s.audit_log || {}).entries ?? '—'}</td></tr>
@@ -775,7 +775,7 @@ async function loadSelfStatus() {
       </table>
     </div>
 
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="upkeep">
       <div class="section-title">Backup</div>
       <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Encryption</td><td>${bk.encryption_armed
@@ -844,7 +844,7 @@ sudo systemctl restart remotepower-api</pre>
 
     ${_slowHandlersCard(s.slow_handlers)}
 
-    <div class="dash-card">
+    <div class="dash-card" data-pg-tab="traffic">
       <div class="section-title">Fleet events</div>
       <table data-rows="fixed" class="fs-13">
         <tr><td class="c-muted-padded">Current log</td><td>${_selfFmtBytes((s.fleet_events || {}).bytes)}</td></tr>
@@ -852,6 +852,7 @@ sudo systemctl restart remotepower-api</pre>
       </table>
     </div>
   `;
+  pgTabsApply('self');   // the cards were just built: show the chosen tab's group
   _renderSelfReadiness();
 }
 
@@ -950,7 +951,7 @@ function _slowHandlersCard(sh) {
     return `<tr><td class="c-muted-padded">${escHtml(r.method || '')} <code class="fs-11">${escHtml(r.path || '')}</code></td>`
       + `<td class="${cls}">${r.ms} ms</td><td class="hint">${_selfFmtAgo(r.ts)}</td></tr>`;
   }).join('');
-  return `<div class="dash-card">
+  return `<div class="dash-card" data-pg-tab="traffic">
       <div class="section-title">Slow requests <span class="hint">(> ${sh.threshold_ms} ms; last ${sh.count})</span></div>
       <div class="scrollable-table-wrap audit-scroll"><table>${rows}</table></div>
     </div>`;
@@ -978,7 +979,7 @@ function _cadenceJobsCard(jobs) {
   if (!rows) return '';
   // v6.4.2: the scheduler's job list grows every release (~30 rows now) — cap
   // it and scroll, like the self-test table below and the box-overflow rule.
-  return `<div class="dash-card">
+  return `<div class="dash-card" data-pg-tab="upkeep">
       <div class="section-title">Recurring jobs</div>
       <div class="scrollable-table-wrap audit-scroll"><table class="fs-13">${rows}</table></div>
     </div>`;

@@ -14,6 +14,9 @@ _ROOT = Path(__file__).resolve().parent.parent
 _HTML = (_ROOT / 'server/html/index.html').read_text()
 PAGES = tuple(sorted(set(re.findall(r'<nav class="pg-tabs"[^>]*\bdata-pg="([a-z0-9-]+)"', _HTML))))
 OLD_PAGES = ('ipintel', 'account', 'sites', 'reports')
+# Pages whose cards a script builds: the tags are in the script's template strings, not in the page markup. Server Status draws
+# fourteen of its seventeen cards from app-self.js (the other three are in index.html).
+DYNAMIC = {'self': 'app-self.js'}
 
 
 def _page_source(name):
@@ -40,6 +43,11 @@ class TestMarkup(unittest.TestCase):
             src = _page_source(name)
             buttons = set(re.findall(r'data-pg-tab-btn="([a-z]+)"', src))
             cards = card_tabs(src)
+            if name in DYNAMIC:
+                built = card_tabs((_ROOT / 'server/html/static/js' / DYNAMIC[name]).read_text())
+                self.assertTrue(built, f'{name}: the script that builds its cards tags none')
+                self.assertTrue(built <= buttons, f'{name}: the script tags a tab with no button: {sorted(built - buttons)}')
+                cards |= built
             self.assertGreaterEqual(len(buttons), 2, name)
             self.assertEqual(buttons, cards, name)
             self.assertIn('<nav class="pg-tabs" aria-labelledby=', src, name)

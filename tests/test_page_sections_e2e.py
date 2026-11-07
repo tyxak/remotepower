@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -41,7 +42,7 @@ _HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text(encoding='utf-8')
 PAGES = sorted(set(re.findall(r'<nav class="pg-tabs"[^>]*\bdata-pg="([a-z0-9-]+)"', _HTML)))
 OLD_PAGES = ('account', 'ipintel', 'reports', 'sites')                 # tabs since 7.4.0
 # The pages this change added. Each must still have its strip: the list is the control that the population cannot shrink quietly.
-NEW_PAGES = ('kmip', 'autonomy', 'sshgw', 'tuning', 'tickets', 'scans', 'patches', 'monitor', 'netmap', 'compliance')
+NEW_PAGES = ('kmip', 'autonomy', 'sshgw', 'tuning', 'tickets', 'scans', 'patches', 'monitor', 'netmap', 'compliance', 'self')
 
 
 class TestPageSections(unittest.TestCase):
@@ -110,6 +111,13 @@ class TestPageSections(unittest.TestCase):
             showPage(n); }""", [name, stacked])
         self.page.wait_for_selector(f'#page-{name}.active', timeout=20000)
         self.page.wait_for_timeout(900)
+        # a page whose cards a script builds (Server Status) is asked again until the number of tagged elements stops changing
+        last, same, t0 = -1, 0, time.time()
+        while same < 3 and time.time() - t0 < 12:
+            n = self.page.evaluate("n => document.querySelectorAll('#page-' + n + ' [data-pg-tab]').length", name)
+            same = same + 1 if n == last else 0
+            last = n
+            self.page.wait_for_timeout(300)
 
     def _cards(self, name):
         """One entry per tagged element the page has not hidden itself: its tabs and whether it is displayed."""
