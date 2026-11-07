@@ -194,6 +194,10 @@ NEW_STRINGS = [
     "Notification destination added",
     "Saved, but switched off. Turn it on under Settings, Notifications.",
     "Safety",
+    # Settings > Branding: the default typeface
+    "Default typeface",
+    "No default (System font)",
+    "People get the default typeface until they choose their own in My Account.",
     # the Threat Intel widget on Home
     "addresses seen in the last 24 hours",
     "Reported in 24 hours",

@@ -4,7 +4,8 @@
 A typeface is a reading preference, like the look: it lives in the account's `ui_prefs`, so a change on one browser reaches the
 others. The server's part is small and has one job, the same as for the look: the client posts the whole prefs document on every
 save, so `_sanitise_ui_prefs` keeps `typeface` only when it is one of the known words, and drops anything else without costing the
-other prefs. It has no instance default and no lock: a font is not branding, and `/api/me` hands the page no typeface.
+other prefs. Since 8.0.0 it has an instance default (test_v800_brand_typeface) and still no lock: nobody should be made to read in a face
+they cannot read, and a lock on it does not exist.
 """
 import os
 import sys
@@ -85,19 +86,20 @@ class TestUiPrefsKeepTheTypeface(_Base):
         self.assertEqual(api.load(api.USERS_FILE)["bob"]["ui_prefs"]["typeface"], "b612")
 
 
-class TestTheTypefaceIsNotBranding(_Base):
-    """A font is a reading preference: there is no instance default and no lock, so the page is told neither."""
+class TestTheTypefaceHasADefaultButNoLock(_Base):
+    """A font is a reading preference: an administrator can set a default (8.0.0), and there is no lock, so the page is told of the one
+    and never of the other."""
 
-    def test_me_carries_no_typeface(self):
+    def test_me_carries_the_default_and_no_lock(self):
         status, body = self.call(api.handle_me, method="GET")
         self.assertEqual(status, 200, body)
-        self.assertEqual(sorted(body["brand"]), ["accent", "look", "look_locked", "name"])
+        self.assertEqual(sorted(body["brand"]), ["accent", "look", "look_locked", "name", "typeface"])
 
-    def test_a_config_save_does_not_keep_one(self):
+    def test_a_config_save_keeps_the_default_and_no_lock(self):
         status, _body = self.call(api.handle_config_save, body={"brand_typeface": "b612", "brand_typeface_locked": True})
         self.assertEqual(status, 200)
         stored = self.cfg()
-        self.assertNotIn("brand_typeface", stored)
+        self.assertEqual(stored.get("brand_typeface"), "b612")
         self.assertNotIn("brand_typeface_locked", stored)
 
 

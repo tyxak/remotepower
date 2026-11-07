@@ -204,8 +204,9 @@ Instance-wide switches. Read the hint before you change anything here.
   answering. Nothing is deleted, and switching it back on restores your data.
   Billing, Knowledge base, AI executor and SSH Gateway start off.
 - **Provisioning, server-side execution**, the **agent push channel**,
-  **white-label branding** (the product name, the default accent, and a default
-  look, which you can lock so that everyone uses it), **audit-log retention**,
+  **white-label branding** (the product name, the default accent, a default
+  look, which you can lock so that everyone uses it, and a default typeface),
+  **audit-log retention**,
   the **storage backend**
   (JSON files, SQLite or PostgreSQL), **data retention and maintenance** and the
   **litigation hold**.

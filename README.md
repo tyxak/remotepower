@@ -152,7 +152,8 @@ macOS agents, the demo vhost, advanced TLS and uninstall are covered in
 
 **Try it first.** A read-only demo runs at
 [demoremote.tvipper.com](https://demoremote.tvipper.com), seeded with synthetic
-hosts, alerts and CVEs. Log in with `demo` / `demo`. It resets every few
+hosts, alerts and CVEs. Log in with `demo` / `demo`. It opens in the Pilot
+look with the B612 typeface, as in the tour above, and it resets every few
 hours.
 
 ## What you can do with it

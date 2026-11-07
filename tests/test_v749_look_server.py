@@ -215,7 +215,8 @@ class TestMeCarriesTheDefault(_Base):
         api.save(api.CONFIG_FILE, {"brand_name": "Acme", "brand_accent": "violet", "brand_look": "classic", "brand_look_locked": True})
         status, me = self.call(api.handle_me, method="GET")
         self.assertEqual(status, 200)
-        self.assertEqual(me["brand"], {"name": "Acme", "accent": "violet", "look": "classic", "look_locked": True})
+        # the typeface joined the look as an instance default in 8.0.0 (test_v800_brand_typeface); none is set here
+        self.assertEqual(me["brand"], {"name": "Acme", "accent": "violet", "look": "classic", "look_locked": True, "typeface": ""})
 
     def test_no_default_means_none(self):
         _s, me = self.call(api.handle_me, method="GET")

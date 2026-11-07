@@ -1442,7 +1442,7 @@
               <option value="system">System font</option>
               <option value="b612">B612</option>
             </select>
-            <p class="hint">B612 was drawn for aircraft cockpit screens, with letters that are easy to tell apart. It loads only when you pick it, and it covers Latin letters; other scripts use your system font. Saved to your account, so it follows you to other browsers.</p>
+            <p class="hint">B612 was drawn for aircraft cockpit screens, with letters that are easy to tell apart. It loads only when it is in use, and it covers Latin letters; other scripts use your system font. Saved to your account, so it follows you to other browsers.</p>
           </div>
           <!-- Text size. The page is zoomed and the choice is kept in this browser; the user menu has the same control. -->
           <div class="mb-16">
@@ -3063,6 +3063,18 @@
               </div>
             </div>
             <p class="hint">People get the default look until they choose their own in My Account. With the box ticked they cannot.</p>
+            <!-- 8.0.0: the default typeface -->
+            <div class="settings-row">
+              <div class="form-group mw-200">
+                <label for="cfg-brand-typeface" class="form-label">Default typeface</label>
+                <select id="cfg-brand-typeface" class="form-input">
+                  <option value="">No default (System font)</option>
+                  <option value="system">System font</option>
+                  <option value="b612">B612</option>
+                </select>
+              </div>
+            </div>
+            <p class="hint">People get the default typeface until they choose their own in My Account.</p>
             <button class="btn-primary mt-12" data-action="saveBranding">Save branding</button>
             <span id="branding-status" class="fs-12 c-muted ml-8"></span>
           </div>

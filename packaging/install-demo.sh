@@ -37,6 +37,10 @@ NGINX_SITES_ENABL="/etc/nginx/sites-enabled"
 DRY_RUN=0
 SKIP_RESEED=0
 WITH_POSTGRES=0
+# The public demo shows the new look and typeface (Pilot, B612) unless asked not to: both are the instance's default, not a lock, and
+# the re-seed unit below carries the same flags, because it rewrites the configuration every two minutes.
+DEMO_LOOK="pilot"
+DEMO_TYPEFACE="b612"
 
 # ─── Args ────────────────────────────────────────────────────────────────────
 
@@ -58,6 +62,9 @@ Options:
                        Don't change unless your install is non-standard.
   --skip-reseed        Don't re-run the seed script. Useful if you've
                        customised the demo data and don't want it overwritten.
+  --classic            Keep the Classic look and the system font as the demo's
+                       default. Without it the demo defaults to the Pilot look
+                       with the B612 typeface (a visitor's own choice still wins).
   --postgres           Provision a SEPARATE PostgreSQL database + role for the
                        demo (packaging/postgres-setup.sh, database
                        remotepower_demo / role rp_demo by default) and migrate
@@ -118,6 +125,7 @@ while [[ $# -gt 0 ]]; do
     --data-dir)    DEMO_DATA_DIR="$2"; shift 2 ;;
     --htdocs)      PROD_HTDOCS="$2"; shift 2 ;;
     --skip-reseed) SKIP_RESEED=1; shift ;;
+    --classic)     DEMO_LOOK="classic"; DEMO_TYPEFACE="system"; shift ;;
     --postgres)    WITH_POSTGRES=1; shift ;;
     --dry-run)     DRY_RUN=1; shift ;;
     -h|--help)     usage; exit 0 ;;
@@ -221,9 +229,9 @@ if [[ "$SKIP_RESEED" -eq 1 ]]; then
 else
   echo "── Seeding fake homelab data…"
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    echo "DRY-RUN: would run: sudo -u $CGI_USER python3 $SEED_SCRIPT --data-dir $DEMO_DATA_DIR --apply"
+    echo "DRY-RUN: would run: sudo -u $CGI_USER python3 $SEED_SCRIPT --data-dir $DEMO_DATA_DIR --apply --look $DEMO_LOOK --typeface $DEMO_TYPEFACE"
   else
-    sudo -u "$CGI_USER" python3 "$SEED_SCRIPT" --data-dir "$DEMO_DATA_DIR" --apply
+    sudo -u "$CGI_USER" python3 "$SEED_SCRIPT" --data-dir "$DEMO_DATA_DIR" --apply --look "$DEMO_LOOK" --typeface "$DEMO_TYPEFACE"
   fi
 fi
 
@@ -378,7 +386,7 @@ After=network.target
 Type=oneshot
 User=$CGI_USER
 Group=$CGI_GROUP
-ExecStart=/usr/bin/python3 $SEED_SCRIPT --data-dir $DEMO_DATA_DIR --apply --quiet
+ExecStart=/usr/bin/python3 $SEED_SCRIPT --data-dir $DEMO_DATA_DIR --apply --quiet --look $DEMO_LOOK --typeface $DEMO_TYPEFACE
 NoNewPrivileges=true
 # read-only rather than true: ExecStart runs \$SEED_SCRIPT from wherever this
 # installer was invoked, which can be a home directory. ProtectHome=true hides

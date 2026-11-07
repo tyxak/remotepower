@@ -1355,10 +1355,16 @@ const LOOK_CARDS = [
   { id: 'classic', name: 'Classic', desc: 'The familiar layout, unchanged.' },
   { id: 'pilot',   name: 'Pilot',   desc: 'Calm panels, status shown as lights, dot readouts.' },
 ];
+// True when this browser holds a session. Without one the page is the sign-in page, where the copy of the last look drawn is nobody's
+// choice (on a first visit it is the fallback written before the default arrived), so the instance's default is used instead (8.0.0).
+function _hasSession() {
+  try { return !!getToken(); } catch (_) { return false; }
+}
 function _lookChoice() {
   const dflt = LOOKS.includes(window._brandLook) ? window._brandLook : '';
   if (dflt && window._brandLookLocked) return dflt;                    // the administrator's lock beats everything
   if (_uiPrefsLoaded) return LOOKS.includes(_uiPrefs.look) ? _uiPrefs.look : (dflt || LOOK_DEFAULT);
+  if (dflt && !_hasSession()) return dflt;                             // the sign-in page: the instance's default, not the browser's copy
   let copy = ''; try { copy = localStorage.getItem('rp_look') || ''; } catch (_) {}
   return LOOKS.includes(copy) ? copy : (dflt || LOOK_DEFAULT);         // the prefs are not here yet: the browser's copy stands in
 }
@@ -1379,15 +1385,18 @@ function applyLook() {
 // ── 7.4.9: the typeface ───────────────────────────────────────────────────────────────────────────────────────────────────
 // The system font stack is what the interface has always used and stays the default; B612, a face drawn for aircraft cockpit
 // screens, is an option. Like the look it is a reading preference, so it follows the ACCOUNT (ui_prefs.typeface) and the browser keeps
-// only a copy of the last one it drew, so the first paint matches while the prefs are on their way. An administrator has no default
-// or lock for it: a font is not branding. The face itself is declared in styles.css and a browser fetches it only when text is drawn
-// with it, so the default costs nothing. Mirrors UI_TYPEFACES in api.py.
+// only a copy of the last one it drew, so the first paint matches while the prefs are on their way. Since 8.0.0 an administrator can set
+// a default for it (the demo uses B612) but not lock it. The face itself is declared in styles.css and a browser fetches it only when
+// text is drawn with it, so the default costs nothing. Mirrors UI_TYPEFACES in api.py.
 const TYPEFACES = ['system', 'b612'];
 const TYPEFACE_DEFAULT = 'system';
 function _typefaceChoice() {
-  if (_uiPrefsLoaded) return TYPEFACES.includes(_uiPrefs.typeface) ? _uiPrefs.typeface : TYPEFACE_DEFAULT;
+  const admin = TYPEFACES.includes(window._brandTypeface) ? window._brandTypeface : '';   // the administrator's default
+  const dflt = admin || TYPEFACE_DEFAULT;
+  if (_uiPrefsLoaded) return TYPEFACES.includes(_uiPrefs.typeface) ? _uiPrefs.typeface : dflt;
+  if (admin && !_hasSession()) return admin;       // the sign-in page (see _lookChoice)
   let copy = ''; try { copy = localStorage.getItem('rp_typeface') || ''; } catch (_) {}
-  return TYPEFACES.includes(copy) ? copy : TYPEFACE_DEFAULT;   // the prefs are not here yet: the browser's copy stands in
+  return TYPEFACES.includes(copy) ? copy : dflt;   // the prefs are not here yet: the browser's copy stands in
 }
 // Sets the attribute the stylesheet reads. The system font is the page with no attribute at all, so the default is exactly what
 // it was before the option existed.
@@ -5923,6 +5932,8 @@ async function loadSettings() {
   if (_bl) _bl.value = data.brand_look || '';
   const _bll = document.getElementById('cfg-brand-look-locked');
   if (_bll) _bll.checked = !!data.brand_look_locked;
+  const _bt = document.getElementById('cfg-brand-typeface');
+  if (_bt) _bt.value = data.brand_typeface || '';
   _renderExposureMutes(data.exposure_mutes);
   const _bk = data.backup || {};
   const _be = document.getElementById('backup-enabled');
@@ -9658,8 +9669,10 @@ async function loadMe() {
     // 7.4.9: the administrator's default look, and whether it is the only one
     window._brandLook = LOOKS.includes(me.brand.look) ? me.brand.look : '';
     window._brandLookLocked = !!me.brand.look_locked && !!window._brandLook;
+    window._brandTypeface = TYPEFACES.includes(me.brand.typeface) ? me.brand.typeface : '';
+    applyTypeface();
     if (applyLook()) _lookChanged();
-    try { _buildLookPicker(); } catch (_) {}
+    try { _buildLookPicker(); _buildTypefacePicker(); } catch (_) {}
   }
   return me;
 }
@@ -23125,6 +23138,7 @@ async function saveBranding() {
     brand_accent: document.getElementById('cfg-brand-accent').value,
     brand_look: document.getElementById('cfg-brand-look').value,
     brand_look_locked: document.getElementById('cfg-brand-look-locked').checked,
+    brand_typeface: document.getElementById('cfg-brand-typeface').value,
   };
   const r = await api('POST', '/config', payload).catch(() => null);
   if (r && r.ok) {

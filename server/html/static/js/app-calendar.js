@@ -452,6 +452,17 @@ async function loadPublicInfo() {
     }
     const rememberCb = document.getElementById('login-remember');
     if (rememberCb) rememberCb.checked = !!info.remember_me_default;
+    // 8.0.0: the instance's default look and typeface for the sign-in page. Taste, not function: a failure here must not take the
+    // sign-in buttons below with it.
+    try {
+      window._brandLook = LOOKS.includes(info.look) ? info.look : '';
+      window._brandLookLocked = !!info.look_locked && !!window._brandLook;
+      window._brandTypeface = TYPEFACES.includes(info.typeface) ? info.typeface : '';
+      // signed in already (this runs beside /api/me): a look that moves here is redrawn as /api/me's would be, or Home keeps the old hero
+      const lookMoved = applyLook();
+      applyTypeface();
+      if (lookMoved && _uiPrefsLoaded) _lookChanged(); else applyTheme();
+    } catch (_) { /* the page keeps the look it has */ }
     // v5.0.0: optional login banner / security notice (plain text).
     const lb = document.getElementById('login-banner');
     if (lb) {

@@ -15192,6 +15192,11 @@ def handle_public_info():
         # v5.0.0: optional login banner / security notice (e.g. "Authorized use
         # only"). Plain text, shown above the sign-in form. Non-sensitive.
         'login_banner':        str(cfg.get('login_banner') or ''),
+        # 8.0.0: the instance's default look and typeface, so the sign-in page is drawn the way the page behind it will be. Words from
+        # a fixed list (or empty): a taste, not data, like the server's name above.
+        'look':                cfg.get('brand_look') if cfg.get('brand_look') in UI_LOOKS else '',
+        'look_locked':         bool(cfg.get('brand_look_locked')) and cfg.get('brand_look') in UI_LOOKS,
+        'typeface':            cfg.get('brand_typeface') if cfg.get('brand_typeface') in UI_TYPEFACES else '',
     })
 
 
@@ -30695,6 +30700,7 @@ def handle_config_get():
     # 7.4.9: the instance default look, and whether it is the only one (hides the choice in My Account).
     safe['brand_look']        = cfg.get('brand_look') if cfg.get('brand_look') in UI_LOOKS else ''
     safe['brand_look_locked'] = bool(cfg.get('brand_look_locked')) and bool(safe['brand_look'])
+    safe['brand_typeface']    = cfg.get('brand_typeface') if cfg.get('brand_typeface') in UI_TYPEFACES else ''
 
     # v3.14.0 (#27): GitOps manifest auth header is a credential (e.g. a Git PAT);
     # expose only whether it's set and strip the raw value.
@@ -32879,6 +32885,9 @@ def handle_config_save():
         cfg['brand_look'] = _bl if _bl in UI_LOOKS else ''
     if 'brand_look_locked' in body:
         cfg['brand_look_locked'] = body.get('brand_look_locked') is True
+    if 'brand_typeface' in body:
+        _bt = str(body.get('brand_typeface') or '').strip().lower()
+        cfg['brand_typeface'] = _bt if _bt in UI_TYPEFACES else ''
     # v3.12.0: host-audit toggle. Off by default; gates new_port_detected,
     # port_exposed_world and firewall_changed fleet-wide (opt-in). Turning it
     # OFF resolves the open backlog for those events in one action.
@@ -63391,6 +63400,7 @@ def handle_me():
     # 7.4.9: the default look is instance-wide (a tenant brands a name and an accent, not a layout).
     _brand_look = _cfg.get('brand_look') if _cfg.get('brand_look') in UI_LOOKS else ''
     _brand_look_locked = bool(_cfg.get('brand_look_locked')) and bool(_brand_look)
+    _brand_typeface = _cfg.get('brand_typeface') if _cfg.get('brand_typeface') in UI_TYPEFACES else ''     # 8.0.0, instance-wide like the look
     respond(200, {
         'username':             user,
         'role':                 role,
@@ -63418,7 +63428,7 @@ def handle_me():
         # first (see above) -- the pre-auth login page has no tenant to
         # resolve yet, so it always shows the instance-wide brand.
         'brand':                {'name': _brand_name, 'accent': _brand_accent,
-                                 'look': _brand_look, 'look_locked': _brand_look_locked},
+                                 'look': _brand_look, 'look_locked': _brand_look_locked, 'typeface': _brand_typeface},
     })
 
 

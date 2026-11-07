@@ -35,7 +35,7 @@ _APP = (_JS / "app.js").read_text()
 _HTML = (_ROOT / "server" / "html" / "index.html").read_text()
 _I18N = (_JS / "i18n.js").read_text()
 
-FUNCS = ("_lookChoice", "_fxChoice", "applyLook", "_defaultTheme")
+FUNCS = ("_hasSession", "_lookChoice", "_fxChoice", "applyLook", "_defaultTheme")
 
 
 def _const(name):
@@ -51,13 +51,14 @@ def _script(cases):
         "const store = new Map();\n"
         "const localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) };\n"
         "const document = { body: { dataset: {} } };\n"
-        "const window = {};\n"
+        "const window = {}; let session = true;\n"
+        "function getToken() { return session ? 'token' : ''; }\n"
         "let _uiPrefs = {}; let _uiPrefsLoaded = false;\n"
         + "\n".join(src)
         + "\nconst cases = " + json.dumps(cases) + ";\n"
         "const out = cases.map(c => {\n"
         "  store.clear(); document.body.dataset = {};\n"
-        "  window._brandLook = c.brand; window._brandLookLocked = !!c.locked;\n"
+        "  window._brandLook = c.brand; window._brandLookLocked = !!c.locked; session = !c.signedout;   // a page with an account unless a case says it is the sign-in page\n"
         "  _uiPrefs = c.prefs || {}; _uiPrefsLoaded = !!c.loaded;\n"
         "  if (c.copy !== undefined) store.set('rp_look', c.copy);\n"
         "  if (c.fxcopy !== undefined) store.set('rp_fx', c.fxcopy);\n"

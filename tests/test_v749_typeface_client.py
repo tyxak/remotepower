@@ -35,7 +35,7 @@ _HTML = (_ROOT / "server" / "html" / "index.html").read_text()
 _I18N = (_JS / "i18n.js").read_text()
 _CSS = (_ROOT / "server" / "html" / "static" / "css" / "styles.css").read_text()
 
-FUNCS = ("_typefaceChoice", "applyTypeface", "setTypefaceUI", "_buildTypefacePicker")
+FUNCS = ("_hasSession", "_typefaceChoice", "applyTypeface", "setTypefaceUI", "_buildTypefacePicker")
 
 
 def _const(name):
@@ -52,6 +52,8 @@ def _script(cases):
         "const localStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) };\n"
         "const select = { value: '' };\n"
         "const document = { body: { dataset: {} }, getElementById: id => (id === 'acct-typeface' ? select : null) };\n"
+        "const window = {}; let session = true;\n"
+        "function getToken() { return session ? 'token' : ''; }\n"
         "let _uiPrefs = {}; let _uiPrefsLoaded = false; let flushes = 0;\n"
         "function _scheduleFlushUiPrefs() { flushes += 1; }\n"
         + "\n".join(src)
@@ -60,6 +62,7 @@ def _script(cases):
         "const out = cases.map(c => {\n"
         "  store.clear(); document.body.dataset = {}; flushes = 0; select.value = '';\n"
         "  _uiPrefs = c.prefs || {}; _uiPrefsLoaded = !!c.loaded;\n"
+        "  window._brandTypeface = c.brand; session = !c.signedout;   // a page with an account unless a case says it is the sign-in page\n"
         "  if (c.copy !== undefined) store.set('rp_typeface', c.copy);\n"
         "  if (c.attr !== undefined) document.body.dataset.typeface = c.attr;\n"
         "  if (c.look !== undefined) document.body.dataset.look = c.look;\n"
@@ -256,10 +259,12 @@ class TestTheWiring(unittest.TestCase):
         # showApp shows the shell before it asks for the prefs; a top-level statement (the one in loadUiPrefs is indented)
         self.assertIn("\ntry { applyTypeface(); } catch (_) {}", _APP)
 
-    def test_the_typeface_is_not_branding(self):
+    def test_the_typeface_has_an_instance_default_and_no_lock(self):
+        # 8.0.0 gave it a default (test_v800_brand_typeface*); it still has no lock, because nobody should be made to read in a face they cannot read
         for text in (_APP, _HTML):
-            self.assertNotIn("brand_typeface", text)
-            self.assertNotIn("_brandTypeface", text)
+            self.assertNotIn("brand_typeface_locked", text)
+            self.assertNotIn("_brandTypefaceLocked", text)
+        self.assertIn("cfg-brand-typeface", _HTML)
 
     def test_the_look_code_is_untouched(self):
         # the existing look contract is held by test_v749_look_client; these call sites keep their exact form
@@ -271,7 +276,7 @@ class TestTheWiring(unittest.TestCase):
 class TestTheTranslations(unittest.TestCase):
     """Every string the typeface row adds, in all six languages. The dictionary gates hold the categories; this holds the list."""
 
-    HINT = ("B612 was drawn for aircraft cockpit screens, with letters that are easy to tell apart. It loads only when you pick it, "
+    HINT = ("B612 was drawn for aircraft cockpit screens, with letters that are easy to tell apart. It loads only when it is in use, "
             "and it covers Latin letters; other scripts use your system font. Saved to your account, so it follows you to other "
             "browsers.")
     KEYS = ["Typeface", "System font", "B612", HINT]

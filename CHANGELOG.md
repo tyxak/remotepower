@@ -39,6 +39,25 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   for five seconds apiece (Dashboard, Hosts, Host metrics, Check catalog, Patches, Settings) and fades from one to the next. The browser terminal and
   `rp` pictures are unchanged: the first is a live session on a real host and the second is the `rp` terminal program, and the demo data gives neither.
 
+- **The public demo opens in the new look and typeface.** The demo asks for **Pilot** and **B612** as the instance defaults, so a visitor gets
+  them on the sign-in page and everywhere after it, and can still choose Classic and the system font in My Account (the demo is read-only, so a
+  choice lasts until the page is reloaded). `seed-demo-data.py` has two new flags, `--look` and `--typeface`, because it rewrites the whole
+  configuration every time it runs. `install-demo.sh` passes them to the first seed and to the timer that refreshes the demo; `--classic` turns
+  both off. A plain seed writes neither, so the tests and the screenshots that run on the seed are unchanged. An existing demo changes when you run
+  the installer again. Three things came with it. **Settings → Branding** has a **Default typeface** row beside the default look. 7.4.9 gave an
+  administrator no say over the typeface; the demo needs one typeface for everybody, including a visitor who has not signed in. It has no lock:
+  nobody should be made to read in a face they cannot read. The hint under the typeface in My Account now says B612 loads when it is in use, not
+  only when you pick it. And the sign-in page follows the default look and typeface, which it could not before: only `/api/me` carried them,
+  and nobody has signed in yet. `/api/public-info` now also returns `look`, `look_locked` and `typeface`, three words from fixed lists and nothing
+  else. A browser test found a slip on the way: a browser keeps a copy of the look it last drew, so that the next page is painted right away, and on
+  a first visit that copy was the Classic fallback the script had written a moment before the answer arrived, so the copy beat the default and
+  the sign-in page stayed Classic. A page with no session now takes the instance's default before the copy; a signed-in reload keeps the copy
+  until its preferences arrive, as it did. **Held by** `tests/test_v800_brand_typeface.py` (what the server keeps and hands out, who may set it,
+  the keys of the open endpoint), `tests/test_v800_brand_typeface_client.py` (the order the page uses, run from the page's own functions, and
+  `loadPublicInfo` itself), `tests/test_v800_demo_look.py` (the flags, that a plain seed writes nothing, that the installer passes both to the
+  seed and to the timer) and `tests/test_v800_brand_typeface_e2e.py` (a first visit, a repeat visit with the endpoint refused, signed in, an
+  account's own choice, Settings → Branding).
+
 - **The dashboard keeps named layouts.** Under **Customize → Layouts** you can keep up to 8 layouts next to the one you have, each a name and the
   widgets it shows. Make one from a copy of the layout you are looking at, from one of four ready-made ones (Fleet overview, Security, Patching and
   Capacity) or from an empty one. Once you have one, a switcher appears next to Customize. The panel, the share code and the undo arrows work on the

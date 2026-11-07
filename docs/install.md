@@ -228,6 +228,8 @@ sudo certbot --nginx -d demoremote.example.com
 
 This creates a separate vhost with its own data directory (`/var/lib/remotepower-demo/`) and its own `remotepower-wsgi-demo` gunicorn process on a second port, sharing the app code. `RP_READ_ONLY=1` is set per vhost. Visitors log in as `demo` / `demo` and can browse everything, but changes get a friendly 403 message. Your production install is untouched. The vhost seeds a set of fake homelab hosts that use the unallocated `.lab` TLD, and refreshes them on a timer. Add `--postgres` to give the demo its own PostgreSQL database; without it the demo uses flat JSON. With `--postgres` the refresh timer has nothing to write to, so the hosts are seeded once and read as offline about half an hour later.
 
+The demo opens in the Pilot look with the B612 typeface, so a visitor sees the newer interface first, on the sign-in page too. Visitors can still pick Classic and the system font in My Account, but the demo is read-only, so a choice lasts only until the page is reloaded. Add `--classic` to leave both defaults off. The refresh timer sets the defaults each time it runs, so to change them on a demo that is already installed, run the installer again.
+
 ### Docker (one-liner alternative)
 
 **Pull the prebuilt image** (published to the GitHub Container Registry on every release; multi-arch — `amd64` and `arm64`, so it runs on x86 servers and ARM SBCs alike):

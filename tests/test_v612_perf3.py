@@ -297,7 +297,13 @@ class TestEagerJsPayload(unittest.TestCase):
         # (the count of addresses seen in a day, three rows and the link to the page) when Home is drawn with the widget on, so
         # it is in the eager core beside the other widgets' renderers. The numbers come from the server (ip_intel_widget). The
         # translations are in i18n.js, which is not eager.
-        self.assertLess(total, 2_714_000,
+        # 8.0.0 demo look and typeface: 2_715_000. The payload was 2_712_394 after the Threat Intel widget, 1,606 under the budget, and is
+        # 2_714_198 now: 1,804 bytes more, 1,064 in app.js and 740 in app-calendar.js. The administrator's default typeface (the choice
+        # function, the Branding row's load and save and the page taking the brand from /api/me, about 0.6 KB), the test for a session
+        # that lets the sign-in page use the instance's default instead of the browser's copy (0.35 KB) and the sign-in page taking the
+        # default look and typeface from /api/public-info (0.74 KB, inside the try that keeps the sign-in buttons working). The sign-in page is
+        # drawn before any loader runs, so all of it is in the eager core. The translations are in i18n.js, which is not eager.
+        self.assertLess(total, 2_715_000,
                         'the eager JS payload regressed past its budget')
 
 

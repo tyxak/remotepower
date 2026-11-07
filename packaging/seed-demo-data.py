@@ -29,6 +29,11 @@ hosts. install-demo.sh installs ``remotepower-demo-seed.timer`` for this, which
 fires every 2 minutes. A cron entry works too:
 
     */5 * * * * www-data python3 /opt/remotepower/packaging/seed-demo-data.py --apply --quiet
+
+The demo opens in the Pilot look with the B612 typeface. ``--look pilot --typeface b612`` write them as the instance's defaults (never a
+lock, so a visitor can still choose). The seeder rewrites the whole configuration on every run, so a run without the flags takes the
+defaults away again: give the timer or cron line the same flags, as install-demo.sh does. Without them nothing is written and the
+instance is Classic with the system font, which is what the tests and the screenshots seed.
 """
 
 import math as _math
@@ -161,6 +166,12 @@ def _cadence_markers():
 # before calling the builders, so path-bearing config (backup_path) points into
 # the demo data dir rather than at the production install.
 TARGET_DIR = DEFAULT_DATA_DIR
+
+# The look and the typeface the seeded instance offers by default (Settings > Branding; a person's own choice still wins). Classic
+# with the system font is the product's own default and what the tests and the pictures were measured on, so the seed keeps it unless
+# asked: install-demo.sh asks for Pilot and B612, which is what the public demo shows.
+DEMO_LOOK = 'classic'
+DEMO_TYPEFACE = 'system'
 
 # A dir is treated as a sanctioned demo target if it contains this marker file.
 # The script drops it automatically after a successful seed of an empty dir, so
@@ -3310,6 +3321,11 @@ def build_config() -> dict:
         'proxmox_token_secret':       '',
         'proxmox_verify_tls':         True,
     }
+    # The administrator's defaults (not a lock): see DEMO_LOOK. Nothing is written for the product's own, so a plain seed is what it was.
+    if DEMO_LOOK != 'classic':
+        cfg['brand_look'] = DEMO_LOOK
+    if DEMO_TYPEFACE != 'system':
+        cfg['brand_typeface'] = DEMO_TYPEFACE
     # Every maintenance sweep is "already run" as of this seed — see
     # _cadence_markers() for why an unstamped demo repaints itself the moment
     # somebody loads a page.
@@ -8114,6 +8130,10 @@ def main():
                    help='Actually write the files (default is dry-run)')
     p.add_argument('--quiet', action='store_true',
                    help='Suppress per-file output (useful for cron)')
+    p.add_argument('--look', choices=('classic', 'pilot'), default='classic',
+                   help="The default look of the seeded instance (default: classic). The public demo uses pilot.")
+    p.add_argument('--typeface', choices=('system', 'b612'), default='system',
+                   help="The default typeface of the seeded instance (default: system). The public demo uses b612.")
     # Undocumented escape hatch for the rare empty-but-protected-path case.
     # It can NEVER bypass the real-accounts check — see _guard_demo_target.
     p.add_argument('--i-know-this-is-not-a-demo-dir', dest='override',
@@ -8123,8 +8143,9 @@ def main():
     target = Path(args.data_dir)
     # Let path-bearing builders (build_config's backup_path) point into the
     # dir actually being seeded, not the compile-time default.
-    global TARGET_DIR
+    global TARGET_DIR, DEMO_LOOK, DEMO_TYPEFACE
     TARGET_DIR = target
+    DEMO_LOOK, DEMO_TYPEFACE = args.look, args.typeface
     print(f"Target data dir: {target.resolve() if target.exists() else target}")
     if not args.apply:
         print(f"Dry-run. Would write {len(BUILDERS)} files to {target}/")
