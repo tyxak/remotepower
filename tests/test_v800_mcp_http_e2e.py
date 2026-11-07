@@ -7,8 +7,9 @@ holds: the endpoint answers 404 until the module is switched on; a caller sees t
 key (the whole fleet, a host-scoped subset, nothing for a revoked or address-limited key); the key's own rate limit counts; a write tool does not
 exist; a cross-origin POST is refused by the gate main() runs; and a tool call leaves a line in the audit log.
 
-Self-skips without gunicorn. No browser is involved, so the file is not in the e2e-only exclusion of make test-fast by name alone: it carries
-'e2e' in its name because it boots a stack.
+Self-skips without gunicorn, and under the shared guard of the other e2e files (playwright, Chromium and gunicorn present, or RP_BROWSER_REQUIRE
+set so that an absence fails). No browser is driven: the file carries 'e2e' in its name because it boots a stack, which keeps it out of
+make test-fast, and the guard that every e2e file shares is checked by tests/test_ci_green_parity.py.
 """
 import http.client
 import json
@@ -21,12 +22,17 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import browser_required  # noqa: E402
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent
+_GATE = browser_available() or browser_required.required()
 _STATE = {}
 
 
 def setUpModule():
+    if not _GATE:
+        raise unittest.SkipTest(SKIP_REASON)
     if os.environ.get("RP_STORAGE_BACKEND") == "sqlite":
         raise unittest.SkipTest("the endpoint is backend-agnostic: measured once, under the default backend")
     seeder = _ROOT / "packaging" / "seed-demo-data.py"
@@ -80,6 +86,7 @@ def rpc(method, params=None, msg_id=1):
     return m
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestTheHostedEndpointOverHttp(unittest.TestCase):
 
     @classmethod
