@@ -6702,7 +6702,8 @@ def collect_firewall_detail():
 
 
 # ─── 7.4.9: probes run from this host ───────────────────────────────────────
-# The server probes from where it is, and a satellite from its own network. A monitor can also be assigned to a host, and its agent
+# The server probes from where it is, and a satellite from its own network. A monitor can also be assigned to a host (tcp, http, ping, and
+# since 8.0.0 smtp, imap, ssh and ntp), and its agent
 # then probes from there: a database on a private network, a service on the host's own loopback. The server sends the monitors
 # in the heartbeat response, this host runs them on the monitor interval and reports the results with a later heartbeat. Each
 # spec is checked here again, whatever the server sent.
@@ -6727,10 +6728,27 @@ def _probe_spec(raw):
     label = _PROBE_CTRL_RE.sub(' ', str(raw.get('label') or '')).strip()[:128]
     mtype = raw.get('type')
     target = _PROBE_CTRL_RE.sub('', str(raw.get('target') or '')).strip()[:512]
-    if not label or mtype not in ('tcp', 'http', 'ping') or not target:
+    if not label or mtype not in _probe_types() or not target:
         return None
     spec = {'label': label, 'type': mtype, 'target': target}
-    if mtype == 'ping':
+    if mtype in _pp_TYPES:
+        # 8.0.0: smtp, imap, ssh and ntp. host or host:port, the protocol's own port when none is given
+        host, _, port_s = target.partition(':')
+        try:
+            port = int(port_s) if port_s.strip() else _pp_DEFAULT_PORTS[mtype]
+        except ValueError:
+            return None
+        if not _probe_host_ok(host) or not 0 < port < 65536:
+            return None
+        spec['host'], spec['port'] = host, port
+        if raw.get('tls') in _pp_TLS_MODES:
+            spec['tls'] = raw['tls']
+        mo = raw.get('max_offset_ms')
+        if isinstance(mo, (int, float)) and not isinstance(mo, bool) and 0 < mo <= _pp_MAX_OFFSET_MS:
+            spec['max_offset_ms'] = mo
+        if raw.get('verify_tls') is False:
+            spec['verify_tls'] = False
+    elif mtype == 'ping':
         if not _probe_host_ok(target.strip('[]')) or target.startswith('-'):
             return None
     elif mtype == 'tcp':
@@ -6886,10 +6904,358 @@ def _probe_http(spec):
     return ok, detail
 
 
+def _probe_types():
+    """The monitor types this agent runs. The heartbeat says so (sysinfo.probe_types), and the server assigns no other type to this host:
+    an agent from before a type existed would drop the monitor without a word, and its row would wait for a first result for ever."""
+    return ['tcp', 'http', 'ping'] + list(_pp_TYPES)
+
+
+def _probe_protocol(spec):
+    """An smtp, imap, ssh or ntp monitor: the server's own handshake (the block above), with this host's address rule, the loopback allowed."""
+    ctx = _ssl.create_default_context()
+    if spec.get('verify_tls') is False:
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
+    ok, detail = _pp_run(spec['type'], spec['host'], spec['port'], spec, peer_ok=lambda ip: not _probe_addr_blocked(ip), ssl_ctx=ctx, timeout=5)
+    if detail == 'blocked':
+        raise _ProbeBlocked(spec['host'])
+    return ok, detail
+
+
+# BEGIN protocol_probes: generated from server/cgi-bin/protocol_probes.py by tools/sync-protocol-probes.py, do not edit by hand
+# the probes run from this client: tcp, http and ping above, and the four below
+import socket as _pp_socket
+import ssl as _pp_ssl
+import struct as _pp_struct
+import time as _pp_time
+_pp_DEFAULT_PORTS = {"smtp": 25, "imap": 143, "ssh": 22, "ntp": 123}
+_pp_TYPES = tuple(_pp_DEFAULT_PORTS)
+_pp_TLS_MODES = ("none", "starttls", "tls")
+_pp_MAX_OFFSET_MS = 3_600_000          # an hour: past that the clock is not "a little off"
+_pp_NTP_EPOCH = 2208988800            # seconds from 1900-01-01 to 1970-01-01
+_pp_LINE_MAX = 1024
+_pp_REPLY_LINES_MAX = 40
+
+
+class _pp_ProbeError(Exception):
+    """A probe that failed in a way worth saying in words."""
+
+
+def _pp_clean(text, limit=60):
+    """One printable line, cut: what a server said, safe to show in a table and to put in a message."""
+    s = "".join(ch if 32 <= ord(ch) < 127 else " " for ch in str(text))
+    return " ".join(s.split())[:limit]
+
+
+def _pp_connect(host, port, timeout, peer_ok):
+    """Resolve the name once, refuse it when any address it resolves to is one the check will not allow, and connect to an address that
+    was checked, so a name cannot answer one thing to the check and another to the connection and nothing is connected to that should not
+    be. The peer is checked again once connected, which costs nothing."""
+    infos = _pp_socket.getaddrinfo(host, port, type=_pp_socket.SOCK_STREAM)
+    if peer_ok is not None:
+        for info in infos:
+            if not peer_ok(info[4][0]):
+                raise _pp_ProbeError("blocked")
+    err = None
+    for info in infos:
+        try:
+            s = _pp_socket.create_connection((info[4][0], info[4][1]), timeout=timeout)
+        except OSError as e:
+            err = e
+            continue
+        try:
+            peer = s.getpeername()[0]
+        except (OSError, IndexError):
+            peer = None
+        if peer_ok is not None and peer and not peer_ok(peer):
+            s.close()
+            raise _pp_ProbeError("blocked")
+        s.settimeout(timeout)
+        return s
+    raise err or OSError("no address to connect to")
+
+
+def _pp_wrap(sock, host, ctx):
+    ctx = ctx or _pp_ssl.create_default_context()
+    try:
+        return ctx.wrap_socket(sock, server_hostname=host)
+    except _pp_ssl.SSLCertVerificationError:
+        sock.close()
+        raise _pp_ProbeError("TLS: the certificate was not accepted") from None
+    except _pp_ssl.SSLError as e:
+        sock.close()
+        raise _pp_ProbeError("TLS: " + _pp_clean(getattr(e, "reason", None) or "handshake failed", 40)) from None
+
+
+class _pp_Conn:
+    """A socket and the bytes read from it but not yet used, so a line is read whole whatever way the segments fall."""
+
+    def __init__(self, sock):
+        self.sock = sock
+        self.buf = b""
+
+    def send(self, data):
+        self.sock.sendall(data)
+
+    def readline(self, limit=_pp_LINE_MAX):
+        while b"\n" not in self.buf:
+            if len(self.buf) >= limit:
+                break
+            chunk = self.sock.recv(512)
+            if not chunk:
+                if not self.buf:
+                    raise _pp_ProbeError("the connection closed with no answer")
+                break
+            self.buf += chunk
+        line, sep, rest = self.buf.partition(b"\n")
+        if not sep and len(line) > limit:
+            line, rest = line[:limit], line[limit:]
+        self.buf = rest
+        return line.rstrip(b"\r").decode("latin-1")
+
+    def close(self):
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+def _pp_smtp_reply(c):
+    """(code, lines) of one SMTP reply. A line 'ddd-text' continues it, 'ddd text' or 'ddd' ends it."""
+    lines = []
+    for _ in range(_pp_REPLY_LINES_MAX):
+        line = c.readline()
+        lines.append(line)
+        if len(line) < 3 or not line[:3].isdigit():
+            raise _pp_ProbeError("not SMTP: " + _pp_clean(line, 40))
+        if len(line) == 3 or line[3] == " ":
+            return int(line[:3]), lines
+    raise _pp_ProbeError("an SMTP reply that does not end")
+
+
+def _pp_smtp_probe(host, port, tls="none", ctx=None, timeout=5, peer_ok=None):
+    t0 = _pp_time.monotonic()
+    sock = _pp_connect(host, port, timeout, peer_ok)
+    if tls == "tls":
+        sock = _pp_wrap(sock, host, ctx)
+    c = _pp_Conn(sock)
+    try:
+        code, lines = _pp_smtp_reply(c)
+        if code != 220:
+            return False, "greeting %d %s" % (code, _pp_clean(lines[0][4:], 40))
+        greeting = _pp_clean(lines[0][4:], 50)
+        c.send(b"EHLO remotepower\r\n")
+        code, ehlo = _pp_smtp_reply(c)
+        if code != 250:
+            return False, "EHLO refused (%d)" % code
+        used = "TLS" if tls == "tls" else ""
+        if tls == "starttls":
+            if not any(ln[4:].strip().upper().startswith("STARTTLS") for ln in ehlo[1:]):
+                return False, "STARTTLS is not offered"
+            c.send(b"STARTTLS\r\n")
+            code, _ = _pp_smtp_reply(c)
+            if code != 220:
+                return False, "STARTTLS refused (%d)" % code
+            c.sock = _pp_wrap(c.sock, host, ctx)
+            c.buf = b""
+            # the server forgets everything said before the upgrade: a second EHLO is what shows the encrypted session works
+            c.send(b"EHLO remotepower\r\n")
+            code, _ = _pp_smtp_reply(c)
+            if code != 250:
+                return False, "no answer inside STARTTLS (%d)" % code
+            used = "STARTTLS"
+        try:
+            c.send(b"QUIT\r\n")
+        except OSError:
+            pass
+        return True, " · ".join(x for x in (greeting, used, "%dms" % int((_pp_time.monotonic() - t0) * 1000)) if x)
+    finally:
+        c.close()
+
+
+def _pp_imap_until(c, tag):
+    """Lines of an IMAP answer up to and including the tagged completion; returns (ok, untagged_lines)."""
+    untagged = []
+    for _ in range(_pp_REPLY_LINES_MAX):
+        line = c.readline()
+        if line.startswith(tag + " "):
+            return line[len(tag) + 1:].upper().startswith("OK"), untagged
+        untagged.append(line)
+    raise _pp_ProbeError("an IMAP answer that does not end")
+
+
+def _pp_imap_probe(host, port, tls="none", ctx=None, timeout=5, peer_ok=None):
+    t0 = _pp_time.monotonic()
+    sock = _pp_connect(host, port, timeout, peer_ok)
+    if tls == "tls":
+        sock = _pp_wrap(sock, host, ctx)
+    c = _pp_Conn(sock)
+    try:
+        greeting = c.readline()
+        if greeting.upper().startswith("* BYE"):
+            return False, "refused: " + _pp_clean(greeting[5:], 40)
+        if not greeting.upper().startswith("* OK"):
+            return False, "not IMAP: " + _pp_clean(greeting, 40)
+        c.send(b"a1 CAPABILITY\r\n")
+        ok, untagged = _pp_imap_until(c, "a1")
+        caps = []
+        for ln in untagged:
+            if ln.upper().startswith("* CAPABILITY"):
+                caps = ln.split()[2:]
+        if not ok:
+            return False, "CAPABILITY refused"
+        used = "TLS" if tls == "tls" else ""
+        if tls == "starttls":
+            if not any(x.upper() == "STARTTLS" for x in caps):
+                return False, "STARTTLS is not offered"
+            c.send(b"a2 STARTTLS\r\n")
+            ok, _ = _pp_imap_until(c, "a2")
+            if not ok:
+                return False, "STARTTLS refused"
+            c.sock = _pp_wrap(c.sock, host, ctx)
+            c.buf = b""
+            c.send(b"a3 CAPABILITY\r\n")
+            ok, _ = _pp_imap_until(c, "a3")
+            if not ok:
+                return False, "no answer inside STARTTLS"
+            used = "STARTTLS"
+        try:
+            c.send(b"a9 LOGOUT\r\n")
+        except OSError:
+            pass
+        proto = next((_pp_clean(x, 12) for x in caps if x.upper().startswith("IMAP4")), "IMAP")
+        return True, " · ".join(x for x in (proto, used, "%dms" % int((_pp_time.monotonic() - t0) * 1000)) if x)
+    finally:
+        c.close()
+
+
+def _pp_ssh_banner_probe(host, port, timeout=5, peer_ok=None):
+    t0 = _pp_time.monotonic()
+    c = _pp_Conn(_pp_connect(host, port, timeout, peer_ok))
+    try:
+        for _ in range(8):      # a server may send other lines before its identification
+            line = c.readline(255)
+            if line.startswith("SSH-"):
+                banner = _pp_clean(line, 80)
+                if not (banner.startswith("SSH-2.0-") or banner.startswith("SSH-1.99-")):
+                    return False, "not SSH 2: " + banner
+                return True, "%s · %dms" % (banner, int((_pp_time.monotonic() - t0) * 1000))
+        return False, "no SSH banner"
+    finally:
+        c.close()
+
+
+def _pp_to_ntp(ts):
+    secs = int(ts)
+    # the seconds field is 32 bits and wraps in February 2036 (and every 136 years after): the wrapped value is what goes on the wire
+    return _pp_struct.pack(">II", (secs + _pp_NTP_EPOCH) & 0xFFFFFFFF, int((ts - secs) * (1 << 32)) & 0xFFFFFFFF)
+
+
+def _pp_from_ntp(b, ref=None):
+    """Seconds since 1970 for an NTP timestamp. The field wraps every 136 years, so with `ref` (a time known to be near, which is this
+    machine's own clock) the era is the one that puts the result closest to it; without it the first era is assumed."""
+    secs, frac = _pp_struct.unpack(">II", b)
+    unix = secs - _pp_NTP_EPOCH + frac / float(1 << 32)
+    if ref is not None:
+        unix += round((ref - unix) / float(1 << 32)) * float(1 << 32)
+    return unix
+
+
+def _pp_ntp_probe(host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=_pp_time.time, sock_factory=None):
+    infos = _pp_socket.getaddrinfo(host, port, 0, _pp_socket.SOCK_DGRAM)
+    chosen = None
+    for family, _t, _p, _c, sa in infos:
+        if peer_ok is None or peer_ok(sa[0]):
+            chosen = (family, sa)
+            break
+    if chosen is None:
+        return False, "blocked"
+    family, sa = chosen
+    sock = sock_factory(family) if sock_factory else _pp_socket.socket(family, _pp_socket.SOCK_DGRAM)
+    try:
+        sock.settimeout(timeout)
+        t1 = now()
+        req = bytearray(48)
+        req[0] = 0x23                      # leap indicator 0, version 4, mode 3 (client)
+        req[40:48] = _pp_to_ntp(t1)
+        sock.sendto(bytes(req), sa)
+        data = None
+        for _ in range(4):                 # a stray datagram from somewhere else is not the answer
+            d, addr = sock.recvfrom(1024)
+            if addr[0] == sa[0] and len(d) >= 48:
+                data = d
+                break
+        t4 = now()
+    finally:
+        sock.close()
+    if data is None:
+        return False, "no answer"
+    if data[24:32] != bytes(req[40:48]):
+        return False, "the reply does not match the request"
+    mode, li, stratum = data[0] & 7, data[0] >> 6, data[1]
+    if mode != 4:
+        return False, "not a server reply (mode %d)" % mode
+    if stratum == 0:
+        return False, "kiss-of-death %s" % (_pp_clean(data[12:16].decode("ascii", "replace"), 8) or "?")
+    if li == 3 or stratum >= 16:
+        return False, "not synchronised (stratum %d)" % stratum
+    if data[40:48] == b"\0" * 8:
+        return False, "the reply carries no time"
+    t2, t3 = _pp_from_ntp(data[32:40], t1), _pp_from_ntp(data[40:48], t1)
+    offset = ((t2 - t1) + (t3 - t4)) / 2.0
+    delay = (t4 - t1) - (t3 - t2)
+    detail = "stratum %d · offset %+.1f ms · delay %.0f ms" % (stratum, offset * 1000, max(delay, 0.0) * 1000)
+    if max_offset_ms is not None and abs(offset * 1000) > max_offset_ms:
+        return False, "%s (limit %d ms)" % (detail, int(max_offset_ms))
+    return True, detail
+
+
+def _pp_why(e):
+    """A network failure in words an operator can act on."""
+    if isinstance(e, _pp_socket.gaierror):
+        return "the host name does not resolve"
+    if isinstance(e, ConnectionRefusedError):
+        return "the connection was refused"
+    if isinstance(e, (_pp_socket.timeout, TimeoutError)):
+        return "it did not answer in time"
+    if isinstance(e, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+        return "the connection was dropped"
+    text = str(e).lower()
+    if "unreachable" in text or "no route" in text:
+        return "the network is unreachable"
+    return "the connection failed"
+
+
+def _pp_run(mtype, host, port, m, peer_ok=None, ssl_ctx=None, timeout=5):
+    """``(ok, detail)`` for a monitor `m` of one of TYPES. Never raises: every failure is a result."""
+    tls = m.get("tls") if m.get("tls") in _pp_TLS_MODES else "none"
+    try:
+        if mtype == "smtp":
+            return _pp_smtp_probe(host, port, tls, ssl_ctx, timeout, peer_ok)
+        if mtype == "imap":
+            return _pp_imap_probe(host, port, tls, ssl_ctx, timeout, peer_ok)
+        if mtype == "ssh":
+            return _pp_ssh_banner_probe(host, port, timeout, peer_ok)
+        if mtype == "ntp":
+            limit = m.get("max_offset_ms")
+            limit = limit if isinstance(limit, (int, float)) and not isinstance(limit, bool) and 0 < limit <= _pp_MAX_OFFSET_MS else None
+            return _pp_ntp_probe(host, port, limit, timeout, peer_ok)
+        return False, "unknown protocol check"
+    except _pp_ProbeError as e:
+        return False, str(e)
+    except _pp_ssl.SSLError as e:
+        return False, "TLS: " + _pp_clean(getattr(e, "reason", None) or "handshake failed", 40)
+    except OSError as e:
+        return False, _pp_why(e)
+    except Exception:
+        return False, "error"
+# END protocol_probes
+
+
 def _probe_run_one(spec):
     t0 = time.monotonic()
     try:
-        ok, detail = {'tcp': _probe_tcp, 'ping': _probe_ping, 'http': _probe_http}[spec['type']](spec)
+        ok, detail = dict({'tcp': _probe_tcp, 'ping': _probe_ping, 'http': _probe_http}, **{k: _probe_protocol for k in _pp_TYPES})[spec['type']](spec)
     except _ProbeBlocked:
         ok, detail = False, 'that address is not allowed (link-local or cloud metadata)'
     except Exception as e:
@@ -15442,6 +15808,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 'network_io': collect_net_io(),   # v3.14.0 #37: per-iface bandwidth
                 'disk_io': collect_disk_io(),     # v7.4.3 #49: per-disk busy share, throughput, IOPS, wait
                 'audit_mode': _audit_mode(),      # v4.11.0: observe-only (read-only) agent
+                'probe_types': _probe_types(),    # 8.0.0: the monitor types this agent runs, so the server assigns it no other
             }
             # Merge metrics if psutil available
             sysinfo.update(get_metrics())

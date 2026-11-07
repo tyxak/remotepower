@@ -11,6 +11,9 @@ test_v800_protocol_probes holds the handshakes themselves against real sockets. 
 * the runner reaches the probe with the address check wired to the server's setting, and a monitor is a result with the same keys as any other;
 * the form has the four types, shows each type's own fields, and the step-by-step form owns them.
 """
+import io
+import json
+import os
 import re
 import sys
 import time
@@ -154,23 +157,198 @@ class TestTheSave(cfgkeys._Base):
         self.assertEqual((st, cfg.get("monitors")), (200, []))
 
 
-class TestTheyRunFromTheServerOnly(unittest.TestCase):
+class TestWhereTheyMayRun(unittest.TestCase):
+    """The four handshakes run from the server, and from a host's agent or a satellite that says it runs them: an older one drops a type it does
+    not know without a word, and its monitor would wait for a first result for ever, so the server assigns it none and says why."""
 
-    def test_a_host_and_a_satellite_refuse_every_one_of_them_with_the_reason(self):
-        for mtype in pp.P.TYPES:
-            why = api.satellite_probe_validate(mtype, {"target": "h:1", "target_kind": "host"})
-            self.assertIn("tcp, http and ping", why, mtype)
+    ALL = ["tcp", "http", "ping", "smtp", "imap", "ssh", "ntp"]
 
-    def test_a_host_that_is_enrolled_refuses_them_too(self):
-        api.save(api.DEVICES_FILE, {"d1": {"id": "d1", "name": "box", "os": "Ubuntu 24.04", "sysinfo": {}, "tags": []}})
+    def setUp(self):
+        api.save(api.DEVICES_FILE, {"old": {"id": "old", "name": "old", "os": "Ubuntu 24.04", "sysinfo": {}, "tags": []},
+                                    "new": {"id": "new", "name": "new", "os": "Ubuntu 24.04", "sysinfo": {"probe_types": self.ALL}, "tags": []},
+                                    "some": {"id": "some", "name": "some", "os": "Ubuntu 24.04", "sysinfo": {"probe_types": ["tcp", "http", "ping", "ntp"]}, "tags": []},
+                                    "junk": {"id": "junk", "name": "junk", "os": "Ubuntu 24.04", "sysinfo": {"probe_types": "smtp"}, "tags": []}})
+        api.save(api.SATELLITES_FILE, {"sat-old": {"name": "old"}, "sat-new": {"name": "new", "probe_types": self.ALL}, "sat-junk": {"name": "junk", "probe_types": "smtp"}})
         api._LOAD_CACHE.clear()
+
+    def sat(self, sid, mtype):
+        return api.satellite_probe_validate(mtype, {"target": "h" if mtype == "ping" else "h:1", "target_kind": "host", "via_satellite": sid})
+
+    def test_a_satellite_that_does_not_say_it_runs_a_type_is_refused_with_the_reason_and_one_that_does_is_not(self):
         for mtype in pp.P.TYPES:
-            self.assertIn("tcp, http and ping", api.host_probe_validate("d1", mtype, {"target": "h:1"}), mtype)
-        for mtype in ("tcp", "http", "ping"):
-            self.assertNotIn("tcp, http and ping", api.host_probe_validate("d1", mtype, {"target": "http://h/" if mtype == "http" else "h:1"}) or "")
+            why = self.sat("sat-old", mtype)
+            self.assertIn("does not say it runs %s monitors" % mtype, why, mtype)
+            self.assertEqual(self.sat("sat-new", mtype), "", mtype)
+        for mtype in ("tcp", "ping"):
+            self.assertEqual(self.sat("sat-old", mtype), "", "the three it has always run need no word: " + mtype)
+        self.assertIn("does not say it runs smtp", self.sat("sat-junk", "smtp"), "a declaration that is not a list says nothing")
+        self.assertIn("tcp, http, ping, smtp, imap, ssh and ntp", self.sat("sat-new", "dns"))
+        self.assertIn("does not say it runs", self.sat("sat-gone", "smtp"), "a satellite that is not registered says nothing")
+
+    def test_an_agent_that_does_not_say_it_runs_a_type_is_refused_with_the_reason_and_one_that_does_is_not(self):
+        for mtype in pp.P.TYPES:
+            self.assertIn("does not say it runs %s monitors" % mtype, api.host_probe_validate("old", mtype, {"target": "h:1"}), mtype)
+            self.assertEqual(api.host_probe_validate("new", mtype, {"target": "h:1"}), "", mtype)
+        self.assertEqual(api.host_probe_validate("some", "ntp", {"target": "pool.ntp.org"}), "")
+        self.assertIn("does not say it runs smtp", api.host_probe_validate("some", "smtp", {"target": "h:1"}))
+        for mtype in ("tcp", "ping"):
+            self.assertEqual(api.host_probe_validate("old", mtype, {"target": "h" if mtype == "ping" else "h:1"}), "")
+        self.assertIn("does not say it runs smtp", api.host_probe_validate("junk", "smtp", {"target": "h:1"}), "a declaration that is not a list says nothing")
+        self.assertIn("a host probes tcp, http, ping, smtp, imap, ssh and ntp", api.host_probe_validate("new", "dns", {"target": "h:1"}),
+                      "a type no prober runs is refused as that, and not as one this host has not said")
+
+    def test_the_target_of_a_handshake_is_a_host_or_host_and_port_and_the_metadata_address_is_never_probed(self):
+        for target in ("mail.lan", "mail.lan:587", "10.0.0.5:25", "127.0.0.1:2525"):
+            self.assertEqual(api.host_probe_validate("new", "smtp", {"target": target}), "", target)
+        for target, words in (("", "expected host"), ("mail.lan:0", "port"), ("mail.lan:70000", "port"), ("mail.lan:abc", "expected host"), ("bad host:25", "expected host"),
+                              ("169.254.169.254:25", "not allowed"), ("-x:25", "expected host")):
+            self.assertIn(words, api.host_probe_validate("new", "smtp", {"target": target}), target)
+
+    def test_the_spec_a_prober_gets_carries_the_tls_mode_and_the_offset_and_nothing_it_would_run_wrongly(self):
+        spec = api.monitor_spec({"label": "mail", "type": "smtp", "target": "mail.lan:587", "tls": "starttls", "verify_tls": False})
+        self.assertEqual((spec["type"], spec["target"], spec["tls"], spec["verify_tls"], spec["max_offset_ms"]), ("smtp", "mail.lan:587", "starttls", False, None))
+        spec = api.monitor_spec({"label": "clock", "type": "ntp", "target": "pool.ntp.org", "max_offset_ms": 250})
+        self.assertEqual((spec["max_offset_ms"], spec["tls"]), (250, None))
+        spec = api.monitor_spec({"label": "x", "type": "smtp", "target": "h", "tls": "rot13", "max_offset_ms": True})
+        self.assertEqual((spec["tls"], spec["max_offset_ms"]), (None, None), "a TLS mode that is not one of the three and a boolean are left out")
+
+    def test_a_host_is_sent_the_monitors_of_the_types_its_agent_runs_and_a_satellite_those_it_says_on_the_call(self):
+        cfg = {"monitors": [{"label": "a", "type": "smtp", "target": "h:25", "via_host": "old"}, {"label": "b", "type": "tcp", "target": "h:25", "via_host": "old"},
+                            {"label": "c", "type": "smtp", "target": "h:25", "via_host": "new"},
+                            {"label": "d", "type": "imap", "target": "h:143", "via_satellite": "sat-new"}, {"label": "e", "type": "ssh", "target": "h:22", "via_satellite": "sat-new"}]}
+        api.save(api.CONFIG_FILE, cfg)
+        api._LOAD_CACHE.clear()
+        devs = api.load(api.DEVICES_FILE)
+        self.assertEqual([m["label"] for m in api.host_monitors_for("old", devs["old"])], ["b"], "an older agent is sent the type it runs and not the one it would drop")
+        self.assertEqual([m["label"] for m in api.host_monitors_for("new", devs["new"])], ["c"])
+        self.assertEqual(api.host_probe_handlers_mod.clean_types("tcp, SMTP ,ssh,rot13,"), ["tcp", "smtp", "ssh"])
+        self.assertEqual(api.host_probe_handlers_mod.clean_types(""), ["tcp", "http", "ping"])
+        self.assertEqual(api.host_probe_handlers_mod.clean_types(["smtp"] * 50 + [5, None]), ["smtp"])
+        self.assertEqual(api.host_probe_handlers_mod.clean_types(["rot13"]), ["tcp", "http", "ping"], "nothing it knows is what an older prober says")
 
     def test_a_host_and_a_satellite_still_run_the_three_they_always_did(self):
         self.assertEqual(api.host_probe_handlers_mod.SUPPORTED, ("tcp", "http", "ping"))
+        self.assertEqual(api.host_probe_handlers_mod.known_types(), ("tcp", "http", "ping", "smtp", "imap", "ssh", "ntp"))
+
+
+class _Captured(Exception):
+    def __init__(self, status, body):
+        self.status, self.body = status, body
+
+
+class _Stdin:
+    def __init__(self, raw):
+        self.buffer = io.BytesIO(raw)
+
+
+def _run(fn, body=None, env=None, method="POST"):
+    """A handler run as a request: (status, body) of what it answered, or (None, None) when it returned."""
+    names = ("REQUEST_METHOD", "PATH_INFO", "REMOTE_ADDR", "CONTENT_LENGTH", "HTTP_X_RP_SATELLITE", "HTTP_X_RP_PROBES")
+    saved_env = {n: os.environ.get(n) for n in names}
+    api._begin_request()
+    raw = b"" if body is None else json.dumps(body).encode()
+    os.environ.update(REQUEST_METHOD=method, PATH_INFO="/api/x", REMOTE_ADDR="203.0.113.50", CONTENT_LENGTH=str(len(raw)))
+    for k in ("HTTP_X_RP_SATELLITE", "HTTP_X_RP_PROBES"):
+        os.environ.pop(k, None)
+    os.environ.update(env or {})
+    saved_stdin, saved_respond = sys.stdin, api.respond
+
+    def fake(status, data=None, *a, **k):
+        raise _Captured(status, data)
+    sys.stdin, api.respond = _Stdin(raw), fake
+    try:
+        try:
+            fn()
+            return None, None
+        except _Captured as c:
+            return c.status, c.body
+    finally:
+        sys.stdin, api.respond = saved_stdin, saved_respond
+        for n, v in saved_env.items():
+            if v is None:
+                os.environ.pop(n, None)
+            else:
+                os.environ[n] = v
+        api._LOAD_CACHE.clear()
+
+
+class TestAssigningToAProber(cfgkeys._Base):
+    """The monitor dialog offers every host and satellite for every type. The server decides: it takes a handshake monitor for a prober that says it
+    runs the type and refuses it, in words, for one that does not."""
+
+    ALL = ["tcp", "http", "ping", "smtp", "imap", "ssh", "ntp"]
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.DEVICES_FILE, {"old": {"id": "old", "name": "old", "os": "Ubuntu 24.04", "sysinfo": {}, "tags": []},
+                                    "new": {"id": "new", "name": "new", "os": "Ubuntu 24.04", "sysinfo": {"probe_types": self.ALL}, "tags": []}})
+        api.save(api.SATELLITES_FILE, {"sat-old": {"name": "o", "token_hash": "x"}, "sat-new": {"name": "n", "token_hash": "y", "probe_types": self.ALL}})
+        api._LOAD_CACHE.clear()
+
+    def mon(self, **kw):
+        return dict({"label": "mail", "type": "smtp", "target": "mail.lan:25"}, **kw)
+
+    def test_a_host_whose_agent_runs_the_type_is_assigned_it_and_one_that_does_not_is_refused_in_words(self):
+        st, cfg = self.save({"monitors": [self.mon(via_host="new")]})
+        self.assertEqual((st, cfg["monitors"][0].get("via_host")), (200, "new"))
+        st, _ = self.save({"monitors": [self.mon(via_host="old")]})
+        self.assertEqual(st, 400)
+        self.assertIn("the agent on that host does not say it runs smtp monitors", json.dumps(self.captured[-1][1]))
+        st, cfg = self.save({"monitors": [self.mon(via_host="old", type="tcp", target="mail.lan:25")]})
+        self.assertEqual((st, cfg["monitors"][0].get("via_host")), (200, "old"), "the three it has always run need no word")
+
+    def test_a_satellite_that_runs_the_type_is_assigned_it_and_one_that_does_not_is_refused_in_words(self):
+        st, cfg = self.save({"monitors": [self.mon(via_satellite="sat-new", type="ntp", target="pool.ntp.org", max_offset_ms=500)]})
+        self.assertEqual((st, cfg["monitors"][0].get("via_satellite")), (200, "sat-new"))
+        st, _ = self.save({"monitors": [self.mon(via_satellite="sat-old")]})
+        self.assertEqual(st, 400)
+        self.assertIn("that satellite does not say it runs smtp monitors", json.dumps(self.captured[-1][1]))
+
+    def test_a_heartbeat_keeps_the_types_the_agent_says_in_a_fixed_order_and_nothing_it_does_not_know(self):
+        api.save(api.DEVICES_FILE, {"d1": {"id": "d1", "name": "box", "os": "Ubuntu 24.04", "token": "tok", "last_seen": 0, "sysinfo": {}}})
+        api._LOAD_CACHE.clear()
+        for said, kept in ((["ntp", "tcp", "smtp", "rot13", 5, None], ["tcp", "smtp", "ntp"]), (list(self.ALL) * 3, self.ALL), ([], ["tcp", "http", "ping"]),
+                           (["rot13"], ["tcp", "http", "ping"])):
+            st, _ = _run(api.handle_heartbeat, {"device_id": "d1", "token": "tok", "version": "8.0.0", "sysinfo": {"hostname": "box", "probe_types": said}})
+            self.assertEqual(st, 200)
+            self.assertEqual(api.load(api.DEVICES_FILE)["d1"]["sysinfo"].get("probe_types"), kept, said)
+        for not_a_list in ("smtp", 5, {"smtp": True}, None):
+            _run(api.handle_heartbeat, {"device_id": "d1", "token": "tok", "version": "8.0.0", "sysinfo": {"hostname": "box", "probe_types": not_a_list}})
+            self.assertNotIn("probe_types", api.load(api.DEVICES_FILE)["d1"]["sysinfo"], "a value that is not a list is not kept: %r" % (not_a_list,))
+
+    def test_a_call_a_satellite_makes_says_what_it_runs_and_a_relayed_agent_call_leaves_it_alone(self):
+        tok = "sat-secret-token"
+        api.save(api.SATELLITES_FILE, {"sat-1": {"name": "s1", "token_hash": api._satellite_token_hash(tok), "probe_types": ["tcp", "http", "ping"]}})
+        api._LOAD_CACHE.clear()
+        _run(api._record_satellite, env={"HTTP_X_RP_SATELLITE": tok, "HTTP_X_RP_PROBES": "tcp, http, ping, smtp, bogus"})
+        self.assertEqual(api.load(api.SATELLITES_FILE)["sat-1"]["probe_types"], ["tcp", "http", "ping", "smtp"])
+        _run(api._record_satellite, env={"HTTP_X_RP_SATELLITE": tok})
+        self.assertEqual(api.load(api.SATELLITES_FILE)["sat-1"]["probe_types"], ["tcp", "http", "ping", "smtp"], "an agent behind the satellite says nothing, so nothing changes")
+        _run(api._record_satellite, env={"HTTP_X_RP_SATELLITE": tok, "HTTP_X_RP_PROBES": "tcp,http,ping"})
+        self.assertEqual(api.load(api.SATELLITES_FILE)["sat-1"]["probe_types"], ["tcp", "http", "ping"], "a satellite that was replaced by an older one is believed again")
+        st, _ = _run(api._record_satellite, env={"HTTP_X_RP_SATELLITE": "wrong", "HTTP_X_RP_PROBES": "smtp"})
+        self.assertEqual(st, 401)
+        self.assertEqual(api.load(api.SATELLITES_FILE)["sat-1"]["probe_types"], ["tcp", "http", "ping"], "a call with a token that is not a satellite's records nothing")
+
+    def test_the_work_a_satellite_is_handed_is_the_types_it_says_on_that_call(self):
+        tok = "sat-secret-token"
+        api.save(api.SATELLITES_FILE, {"sat-1": {"name": "s1", "token_hash": api._satellite_token_hash(tok)}})
+        api.save(api.CONFIG_FILE, {"monitors": [
+            {"label": "a", "type": "smtp", "target": "mail.lan:587", "tls": "starttls", "verify_tls": False, "via_satellite": "sat-1"},
+            {"label": "b", "type": "tcp", "target": "h:22", "via_satellite": "sat-1"},
+            {"label": "c", "type": "ntp", "target": "pool.ntp.org:123", "max_offset_ms": 250, "via_satellite": "sat-1"},
+            {"label": "d", "type": "imap", "target": "h:143", "via_satellite": "sat-1", "paused": True},
+            {"label": "e", "type": "ssh", "target": "h:22", "via_satellite": "sat-other"}]})
+        api._LOAD_CACHE.clear()
+        st, body = _run(api.handle_satellite_monitor_work, env={"HTTP_X_RP_SATELLITE": tok, "HTTP_X_RP_PROBES": ",".join(self.ALL)}, method="GET")
+        self.assertEqual(st, 200)
+        self.assertEqual([m["label"] for m in body["monitors"]], ["a", "b", "c"], "its own, not paused, of the types it says")
+        spec = {m["label"]: m for m in body["monitors"]}
+        self.assertEqual((spec["a"]["tls"], spec["a"]["verify_tls"], spec["c"]["max_offset_ms"]), ("starttls", False, 250))
+        st, body = _run(api.handle_satellite_monitor_work, env={"HTTP_X_RP_SATELLITE": tok}, method="GET")
+        self.assertEqual([m["label"] for m in body["monitors"]], ["b"], "a satellite that says nothing is handed the three it has always run")
+        st, body = _run(api.handle_satellite_monitor_work, env={"HTTP_X_RP_SATELLITE": tok, "HTTP_X_RP_PROBES": "tcp,smtp"}, method="GET")
+        self.assertEqual([m["label"] for m in body["monitors"]], ["a", "b"])
 
 
 class TestTheRunner(unittest.TestCase):

@@ -22972,6 +22972,9 @@ def handle_heartbeat():
             # the host and _queue_command can refuse to enqueue actions for it.
             if 'audit_mode' in si:
                 safe_si['audit_mode'] = bool(si['audit_mode'])
+            # 8.0.0: the monitor types the agent runs. host_probe_validate assigns it no other (an older agent drops one without a word).
+            if isinstance(si.get('probe_types'), list):
+                safe_si['probe_types'] = host_probe_handlers_mod.clean_types(si['probe_types'])
             # v4.1.0: clock skew (NTP). Skewed = unsynchronised OR |offset| over
             # threshold. Edge-triggered both ways (clock_synced auto-resolves).
             if isinstance(si.get('clock'), dict):
@@ -31895,7 +31898,7 @@ def handle_config_save():
                     continue
                 # 7.5.0: a satellite runs the engine an agent does, so it takes the monitors an agent takes. Without this a
                 # type or a check it does not run was stored and never probed.
-                _why = satellite_probe_validate(mtype, dict(m, target=target, target_kind=tkind))
+                _why = satellite_probe_validate(mtype, dict(m, target=target, target_kind=tkind, via_satellite=vs))
                 if _why:
                     _mon_reject(_mon_name, _why, m)
                     continue
@@ -58270,6 +58273,10 @@ def _record_satellite():
                 ip = _get_client_ip()
                 if ip:
                     st[matched]['last_ip'] = _sanitize_ip(ip)
+                # 8.0.0: the monitor types the satellite itself runs, said on every call it makes (an agent's relayed call says nothing)
+                _probes = _env('HTTP_X_RP_PROBES', '').strip()
+                if _probes:
+                    st[matched]['probe_types'] = host_probe_handlers_mod.clean_types(_probes)
     except Exception:
         pass
 
@@ -58431,6 +58438,7 @@ def handle_satellite_monitor_work():
     sid = require_satellite()
     cfg = _config_ro()
     jobs = []
+    runs = host_probe_handlers_mod.clean_types(_env('HTTP_X_RP_PROBES', ''))      # 8.0.0: what this satellite says it runs on this call
     for m in (cfg.get('monitors') or []):
         if not isinstance(m, dict) or m.get('via_satellite') != sid:
             continue
@@ -58439,7 +58447,7 @@ def handle_satellite_monitor_work():
         # 7.5.0: the same spec an agent gets for a monitor assigned to its host (this one read `body_value` and `body_mode`, keys
         # no monitor has, and nothing on the satellite side ever asked for the list). A type or a check the satellite's engine does
         # not run is left out: the save refuses to assign one, but a monitor stored before that existed may still name one.
-        if m.get('type', 'ping') not in host_probe_handlers_mod.SUPPORTED:
+        if m.get('type', 'ping') not in runs:
             continue
         jobs.append(monitor_spec(m))
     respond(200, {'satellite_id': sid, 'monitors': jobs,

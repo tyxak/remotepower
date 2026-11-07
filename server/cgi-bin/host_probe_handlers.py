@@ -26,6 +26,8 @@ transitions.
 
 import re
 
+import protocol_probes as protocol_probes_mod
+
 
 class _ApiNamespace:
     __slots__ = ('_g',)
@@ -50,11 +52,41 @@ def bind(api_globals):
     A = _ApiNamespace(api_globals)
 
 
-SUPPORTED = ('tcp', 'http', 'ping')
+SUPPORTED = ('tcp', 'http', 'ping')          # what every prober has run since 7.4.9
 MAX_PER_HOST = 20
 MAX_RESULTS = 200
 
 _HOST_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9.\-]{0,252}$')
+
+
+def known_types():
+    """Every monitor type a current prober can run: the three of 7.4.9 and the four handshakes of 8.0.0 (smtp, imap, ssh, ntp)."""
+    return SUPPORTED + tuple(protocol_probes_mod.TYPES)
+
+
+def clean_types(raw):
+    """The monitor types a prober says it runs, as the ones this server knows, in a fixed order. A prober that says nothing, or something that is
+    not a list of names, runs the three it has always run: an agent or a satellite from before a type existed does not know it and would drop
+    such a monitor without a word, so the server assigns it none. `raw` is a list, or the comma-separated text of a header."""
+    if isinstance(raw, str):
+        raw = raw.split(',')
+    if not isinstance(raw, (list, tuple)):
+        return list(SUPPORTED)
+    said = {str(t).strip().lower() for t in raw[:20] if isinstance(t, str)}
+    kept = [t for t in known_types() if t in said]
+    return kept or list(SUPPORTED)
+
+
+def host_types(dev):
+    """The monitor types the agent of this host says it runs (its heartbeat carries sysinfo.probe_types)."""
+    said = ((dev or {}).get('sysinfo') or {}).get('probe_types')
+    return clean_types(said if isinstance(said, list) else None)      # a stored value that is not a list says nothing
+
+
+def satellite_types(sat):
+    """The monitor types a satellite says it runs (every call it makes carries the X-RP-Probes header, and the server keeps the last one)."""
+    said = (sat or {}).get('probe_types')
+    return clean_types(said if isinstance(said, list) else None)      # a stored value that is not a list says nothing (text is only a header's form)
 
 
 def _target_problem(mtype, target):
@@ -77,6 +109,18 @@ def _target_problem(mtype, target):
             return 'the port must be 1–65535'
         if not (_HOST_RE.match(host) or re.fullmatch(r'[0-9A-Fa-f:.]{2,45}', host)):
             return 'expected host:port'
+    elif mtype in protocol_probes_mod.TYPES:
+        host, _, port_s = target.partition(':')
+        host = host.strip('[]')
+        if port_s.strip():
+            try:
+                port = int(port_s)
+            except (TypeError, ValueError):
+                return 'expected host or host:port'
+            if not 0 < port < 65536:
+                return 'the port must be 1–65535'
+        if not _HOST_RE.match(host):
+            return 'expected host or host:port'
     else:
         parsed = A.urllib.parse.urlparse(target)
         if parsed.scheme not in ('http', 'https') or not parsed.hostname:
@@ -127,8 +171,11 @@ def host_probe_validate(dev_id, mtype, m):
         return 'only the Linux agent probes: a Windows or macOS host cannot run it'
     if (dev.get('sysinfo') or {}).get('audit_mode'):
         return 'that host is in audit mode (read-only) and does not run probes'
-    if mtype not in SUPPORTED:
-        return 'a host probes tcp, http and ping monitors'
+    if mtype not in known_types():
+        return 'a host probes tcp, http, ping, smtp, imap, ssh and ntp monitors'
+    if mtype not in host_types(dev):
+        return ('the agent on that host does not say it runs %s monitors (an older agent, or one that has not reported since it was updated): '
+                'update it' % mtype)
     if m.get('target_kind', 'host') not in ('host', None, ''):
         return 'a monitor that runs from a host names one address, not a tag or a group'
     return _unsupported(mtype, m) or _target_problem(mtype, m.get('target', ''))
@@ -139,8 +186,12 @@ def satellite_probe_validate(mtype, m):
     same engine an agent does, so it takes the same monitors: tcp, http and ping, one address (not a tag or a group), only the checks
     that engine makes, and an address a probe may reach (the loopback is the satellite's own; a cloud metadata or link-local address
     never is). 7.5.0: nothing checked this, and nothing probed the monitor either."""
-    if mtype not in SUPPORTED:
-        return 'a satellite probes tcp, http and ping monitors'
+    if mtype not in known_types():
+        return 'a satellite probes tcp, http, ping, smtp, imap, ssh and ntp monitors'
+    sat = (A.load(A.SATELLITES_FILE) or {}).get(str(m.get('via_satellite') or ''))
+    if mtype not in satellite_types(sat):
+        return ('that satellite does not say it runs %s monitors (an older satellite, or one that has not connected since it was updated): '
+                'update it' % mtype)
     if m.get('target_kind', 'host') not in ('host', None, ''):
         return 'a monitor that runs from a satellite names one address, not a tag or a group'
     return _unsupported(mtype, m) or _target_problem(mtype, m.get('target', ''))
@@ -158,6 +209,9 @@ def monitor_spec(m):
         'expect_contains': bm.get('value') if bm and bm.get('mode') == 'contains' else None,
         'method': m.get('method'),
         'verify_tls': m.get('verify_tls'),
+        # the handshake monitors (smtp, imap, ssh, ntp): the TLS mode and the clock offset a monitor allows; the prober checks both again
+        'tls': m.get('tls') if m.get('tls') in protocol_probes_mod.TLS_MODES else None,
+        'max_offset_ms': m.get('max_offset_ms') if isinstance(m.get('max_offset_ms'), (int, float)) and not isinstance(m.get('max_offset_ms'), bool) else None,
     }
 
 
@@ -168,9 +222,12 @@ def host_monitors_for(dev_id, dev):
     if not isinstance(dev, dict) or dev.get('agentless') or A._device_os_family(dev) != 'linux':
         return None
     out = []
+    runs = host_types(dev)
     for m in (A._config_ro().get('monitors') or []):
         if not isinstance(m, dict) or m.get('via_host') != dev_id or m.get('paused'):
             continue
+        if m.get('type', 'ping') not in runs:
+            continue                    # a type this host's agent does not say it runs (an older agent drops it without a word)
         out.append(monitor_spec(m))
         if len(out) >= MAX_PER_HOST:
             break

@@ -68,8 +68,10 @@ or changes anything.
 
 The target is `host` or `host:port`. Leave the port out and the protocol's own is used. With STARTTLS or TLS the certificate is checked
 (untick **Verify TLS certificate** for a self-signed one). The same address rules apply as for a `tcp` check. These checks run from the
-RemotePower server. A host's agent and a satellite probe `tcp`, `http` and `ping` only, so choosing **Probe from** for one of these is refused
-with that reason.
+RemotePower server, or from a host's agent or a satellite that says it runs them (**Probe from**): they use the server's own handshake, so the
+answer is the same wherever it comes from. An agent or a satellite from before 8.0.0 does not run them and does not say so, and choosing it is
+refused with that reason: update it, and a satellite also has to connect once. The loopback is allowed from a host or a satellite, since it is
+their own; link-local and cloud metadata addresses are never probed, and nothing is connected to before that is checked.
 
 ### HTTP checks
 
@@ -122,7 +124,8 @@ Pick the host under **Probe from** in the check dialog. The row then carries a *
   `require-signed-commands` set does not probe either, because the checks are a setting and not a signed command. The server
   cannot see that marker, so those checks read WAITING.
 - A host is sent at most 20 checks. A twenty-first is saved but never sent, and it stays at WAITING.
-- The check is `tcp`, `http` or `ping`, and it names one address, not a tag or a group.
+- The check is `tcp`, `http`, `ping`, `smtp`, `imap`, `ssh` or `ntp` (the last four need an agent from 8.0.0), and it names one address, not a
+  tag or a group.
 - An HTTP check can use **Expected HTTP status**, **Body must contain**, **Method** and **Verify TLS**. A regex, a *must not
   contain* text, a JSON field, a latency limit and a packet loss limit are only available from the server. Saving one with a
   host tells you which one to take out.

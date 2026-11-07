@@ -85,6 +85,7 @@ class _Tcp(threading.Thread):
         self.sock.listen(8)
         self.port = self.sock.getsockname()[1]
         self.seen = []
+        self.accepts = 0
         self.start()
 
     def run(self):
@@ -93,6 +94,7 @@ class _Tcp(threading.Thread):
                 conn, _ = self.sock.accept()
             except OSError:
                 return
+            self.accepts += 1
             threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
 
     def _serve(self, conn):
@@ -213,12 +215,12 @@ def silent(conn, seen):
 class _Ntp(threading.Thread):
     """A UDP server that answers an SNTP request with the time plus a skew, or any lie told by the keyword arguments."""
 
-    def __init__(self, skew=0.0, stratum=2, li=0, mode=4, kod=b"", echo=True, zero_tx=False, reply=True):
+    def __init__(self, skew=0.0, stratum=2, li=0, mode=4, kod=b"", echo=True, zero_tx=False, reply=True, wait=5):
         super().__init__(daemon=True)
         self.__dict__.update(skew=skew, stratum=stratum, li=li, mode=mode, kod=kod, echo=echo, zero_tx=zero_tx, reply=reply)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("127.0.0.1", 0))
-        self.sock.settimeout(5)
+        self.sock.settimeout(wait)      # how long it waits for the one request; a satellite process asks seconds after it starts
         self.port = self.sock.getsockname()[1]
         self.start()
 
@@ -360,7 +362,7 @@ class TestSmtp(unittest.TestCase):
     def test_a_name_that_does_not_resolve_is_said_so(self):
         self.assertEqual(P.run("smtp", "no-such-host.invalid", 25, {}, timeout=2), (False, "the host name does not resolve"))
 
-    def test_the_address_check_is_called_with_the_peer_and_ends_the_probe_before_a_byte_is_read(self):
+    def test_the_address_check_is_called_with_the_address_and_ends_the_probe_before_anything_is_connected_to(self):
         s = self.serve()
         asked = []
         ok, detail = self.probe(s, peer_ok=lambda ip: asked.append(ip) or False)
@@ -368,6 +370,23 @@ class TestSmtp(unittest.TestCase):
         self.assertEqual(asked, ["127.0.0.1"])
         time.sleep(0.1)
         self.assertEqual(s.seen, [], "nothing was said to a blocked address")
+        self.assertEqual(s.accepts, 0, "and no connection was made to it: the check comes before the connect")
+
+    def test_a_name_with_one_blocked_address_among_its_answers_is_refused_and_a_checked_address_is_what_is_connected_to(self):
+        real = P.socket.getaddrinfo
+        connected = []
+        real_create = P.socket.create_connection
+        P.socket.getaddrinfo = lambda host, port, *a, **k: [(P.socket.AF_INET, P.socket.SOCK_STREAM, 6, "", ("203.0.113.5", port)),
+                                                           (P.socket.AF_INET, P.socket.SOCK_STREAM, 6, "", ("169.254.169.254", port))]
+        P.socket.create_connection = lambda addr, timeout=None, **k: connected.append(addr) or (_ for _ in ()).throw(OSError("not reached"))
+        try:
+            self.assertEqual(P.run("smtp", "twofaced.example", 25, {}, timeout=1, peer_ok=lambda ip: ip != "169.254.169.254"), (False, "blocked"))
+            self.assertEqual(connected, [], "one blocked address among the answers refuses the name before any connection")
+            P.run("smtp", "fine.example", 25, {}, timeout=1, peer_ok=lambda ip: True)
+            self.assertEqual(connected[0], ("203.0.113.5", 25), "the connection goes to the address that was checked, not to the name")
+        finally:
+            P.socket.getaddrinfo = real
+            P.socket.create_connection = real_create
 
 
 class TestImap(unittest.TestCase):

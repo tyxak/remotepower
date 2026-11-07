@@ -670,7 +670,7 @@ class TestSaving(_Save):
         for t, target in (("dns", "example.org"), ("icmp", "example.org"), ("db", "10.0.0.5:5432"), ("path", "example.org")):
             st, body = self.save([self.mon(type=t, target=target)])
             self.assertEqual(st, 400, t)
-            self.assertIn("tcp, http and ping", body["error"], t)
+            self.assertIn("tcp, http, ping, smtp, imap, ssh and ntp", body["error"], t)
 
     def test_one_address_not_a_group(self):
         for kind in ("tag", "group"):

@@ -41,16 +41,31 @@ def _clean(text, limit=60):
 
 
 def _connect(host, port, timeout, peer_ok):
-    s = socket.create_connection((host, port), timeout=timeout)
-    try:
-        peer = s.getpeername()[0]
-    except (OSError, IndexError):
-        peer = None
-    if peer_ok is not None and peer and not peer_ok(peer):
-        s.close()
-        raise ProbeError("blocked")
-    s.settimeout(timeout)
-    return s
+    """Resolve the name once, refuse it when any address it resolves to is one the check will not allow, and connect to an address that
+    was checked, so a name cannot answer one thing to the check and another to the connection and nothing is connected to that should not
+    be. The peer is checked again once connected, which costs nothing."""
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    if peer_ok is not None:
+        for info in infos:
+            if not peer_ok(info[4][0]):
+                raise ProbeError("blocked")
+    err = None
+    for info in infos:
+        try:
+            s = socket.create_connection((info[4][0], info[4][1]), timeout=timeout)
+        except OSError as e:
+            err = e
+            continue
+        try:
+            peer = s.getpeername()[0]
+        except (OSError, IndexError):
+            peer = None
+        if peer_ok is not None and peer and not peer_ok(peer):
+            s.close()
+            raise ProbeError("blocked")
+        s.settimeout(timeout)
+        return s
+    raise err or OSError("no address to connect to")
 
 
 def _wrap(sock, host, ctx):

@@ -203,7 +203,7 @@ class TestWhatMayBeAssigned(_ServerBase):
 
     def test_what_the_engine_cannot_run_is_refused_with_a_reason(self):
         refused = (
-            (self.mon(type="dns", target="example.org"), "tcp, http and ping"),
+            (self.mon(type="dns", target="example.org"), "tcp, http, ping, smtp, imap, ssh and ntp"),
             (self.mon(type="http", target="http://10.0.5.9/", body_match={"mode": "regex", "value": "a+"}), "regex"),
             (self.mon(type="http", target="http://10.0.5.9/", expect_json={"path": "status"}), "JSON"),
             (self.mon(type="http", target="http://10.0.5.9/", max_latency_ms=500), "latency"),

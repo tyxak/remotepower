@@ -161,8 +161,8 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
 - **Four monitor types that check a service answers the way it should: SMTP, IMAP, SSH banner and NTP.** A TCP check says a port accepts a connection. SMTP and IMAP
   read the greeting and ask for the server's abilities, and with STARTTLS or TLS check that the encrypted session works; no mail is sent and nobody logs in. SSH reads
   the identification line. NTP sends one SNTP request and reads the stratum, the offset of the server's clock from this one and the round trip; a largest allowed
-  offset turns a drifting clock into a failure. The timestamps are read with the year 2036 wrap in mind. They run from the server like the TCP and database checks; a
-  host's agent and a satellite probe TCP, HTTP and ping only, and say so when asked to run one of these. **Held by** `tests/test_v800_protocol_probes.py` (real servers on
+  offset turns a drifting clock into a failure. The timestamps are read with the year 2036 wrap in mind. They run from the server like the TCP and database checks, and
+  from a Linux host's agent or a satellite that says it runs them (see the entry on running them from there). **Held by** `tests/test_v800_protocol_probes.py` (real servers on
   the loopback, with TLS and STARTTLS) and `tests/test_v800_protocol_monitors.py`.
 
 - **Add an integration, in steps.** **Settings → Integrations** had a list of 51 connectors in one select. **Guide me**, beside **Add**, opens a wizard: a
@@ -208,6 +208,20 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   provider, which the note names because RemotePower reads the ID token. Pocket ID: a new client lets nobody in until you choose groups or **All Users** on its
   **Access** tab, and the `groups` claim carries group names, not display names. What Pocket ID's pages do not say is how it accepts the client secret; the guide
   does not claim it, and its issuer test still warns when a provider's discovery document does not list `client_secret_post`.
+
+- **The SMTP, IMAP, SSH and NTP monitors can run from a host or a satellite.** They ran from the server only, which cannot see a mail relay on a private
+  network. **Probe from** now takes them: a Linux host's agent or a satellite runs them with the server's own handshake. The code is not a second implementation:
+  `tools/sync-protocol-probes.py` writes the text of `protocol_probes.py` into the agent and the satellite between two marker lines, with every name prefixed
+  and nothing else changed, and a test fails when a copy is not what the tool writes. The three engines were driven over real sockets with the same services (a
+  refused greeting, STARTTLS and TLS with and without a certificate check, a banner that is not SSH, a server that is out of sync, a closed port, a name that does
+  not resolve) and give the same verdict and the same words. An agent or a satellite from before this release drops a type it does not know without a word, and its
+  row would wait for a first result for ever, so a prober now says what it runs (the agent in its heartbeat, `probe_types`; the satellite in an `X-RP-Probes`
+  header on every call) and the server assigns it nothing else: choosing an older one is refused with "does not say it runs smtp monitors". A prober checks
+  the address itself and the loopback is allowed, as for the other types. Found on the way, in the server's own module: `protocol_probes` connected first and
+  checked the peer afterwards, so a name that resolved to a cloud metadata address was connected to once before it was refused. It resolves and checks first now,
+  as the agents' engine does, and the check is repeated on the connected peer. **Held by** `tests/test_v800_client_protocol_probes.py` (20 tests), `tests/test_v800_probers_e2e.py`
+  (3 tests: a real satellite process against a real server, and the satellite of the commit before this change, run from the repository's history) and the
+  extended `tests/test_v800_protocol_monitors.py`, `test_v800_protocol_probes.py`, `test_v749_host_probes.py` and `test_v750_satellite_probes.py`.
 
 - **A hosted, read-only MCP endpoint.** The MCP server in `mcp/` runs on your laptop and needs a file copied there. `POST /api/mcp` now answers the Model Context Protocol on the
   server itself, so a host that can send a header (Claude Code, Cursor, VS Code) connects straight to it. It is **off** until **Settings → Advanced → Optional modules → MCP endpoint**
