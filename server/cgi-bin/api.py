@@ -747,6 +747,14 @@ MAX_UI_PREFS_FILTER_LEN    = 256           # per-filter string cap
 MAX_UI_PREFS_SORT_KEYS     = 5             # multi-column sort depth limit
 MAX_UI_PREFS_TABLES        = 50            # distinct tables we'll remember prefs for
 MAX_UI_PREFS_VIEWS         = 30            # v3.14.0: saved named views per user
+# 8.0.0: named dashboard layouts ("sets"). A set stores only the widgets it shows, so eight of them stay a few hundred bytes. The
+# cap is for all the sets together, counted as compact JSON (the length the browser's JSON.stringify gives, so the page can refuse a
+# layout that would not be kept instead of losing it at the next save). A document over MAX_UI_PREFS_BYTES is dropped whole, so the
+# sets must not be able to tip it: 3,000 characters is 3 sets of every widget or 8 typical ones, and with the signature and the
+# post-it at their largest and every name in Chinese the document is still under 16 KB (test_dashboard_sets_prefs holds that).
+MAX_UI_PREFS_DASH_SETS     = 8
+MAX_UI_PREFS_DASH_SET_NAME = 40
+MAX_UI_PREFS_DASH_SET_CHARS = 3000
 # v3.14.0 (#22): customizable dashboard — the widget keys the Home page exposes
 # for show/hide/reorder. Must mirror DASH_WIDGETS in app.js (a guardrail test
 # pins the two together).
@@ -35243,9 +35251,9 @@ def handle_user_passwd():
 #   sort      — list of {col: str, dir: 'asc'|'desc'}, in priority order
 #
 # Top-level (not per table) keys follow below: default_ssh_username, postit, temp_unit, time_display, alert_chime,
-# alert_notify, signature, team, pinned_devices, views and, since 7.4.9, look ('pilot'|'classic'), effects
-# ('full'|'reduced') and typeface ('system'|'b612'). A key that is not listed in _sanitise_ui_prefs is dropped on save, so a new
-# one is added there.
+# alert_notify, signature, team, pinned_devices, views, dashboard (the saved Home layout) and, since 7.4.9, look ('pilot'|'classic'),
+# effects ('full'|'reduced') and typeface ('system'|'b612'), and since 8.0.0 dashboard_sets (named Home layouts) with dashboard_set
+# (the one in use). A key that is not listed in _sanitise_ui_prefs is dropped on save, so a new one is added there.
 #
 # Schema enforced by :func:`_sanitise_ui_prefs` — the client can send anything,
 # but we strip everything we don't recognise so a future field rename or
@@ -35389,10 +35397,47 @@ def _sanitise_ui_prefs(raw):
         if dash:
             out['dashboard'] = dash
 
+    # 8.0.0: named dashboard layouts. The saved layout above stays the one a user who never makes a set keeps using. A set is
+    # {id, name, w}: w lists the widgets it shows, in order, each as 'key' or 'key:size' (the size only when it is not the
+    # widget's own default, which the client knows). Keys are checked against the known widget set like the layout above; an
+    # unknown key, a repeat or a size that is not one of the three is dropped. dashboard_set names the set in use and must be one
+    # of the sets that survived, otherwise the saved layout applies.
+    raw_sets = raw.get('dashboard_sets')
+    if isinstance(raw_sets, list):
+        sets, set_ids, used = [], set(), 0
+        for s in raw_sets[:MAX_UI_PREFS_DASH_SETS]:
+            if not isinstance(s, dict):
+                continue
+            sid = s.get('id')
+            name = _sanitize_str(str(s.get('name', '')), MAX_UI_PREFS_DASH_SET_NAME).strip()
+            if not isinstance(sid, str) or not re.fullmatch(r'[a-z0-9]{1,12}', sid) or sid in set_ids or not name:
+                continue
+            widgets, seen_keys = [], set()
+            raw_w = s.get('w') if isinstance(s.get('w'), list) else []
+            for item in raw_w[:len(DASHBOARD_WIDGETS)]:
+                if not isinstance(item, str):
+                    continue
+                key, _, size = item.partition(':')
+                if key not in DASHBOARD_WIDGETS or key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                widgets.append(key + (':' + size if size in DASHBOARD_WIDGET_SIZES else ''))
+            clean_set = {'id': sid, 'name': name, 'w': widgets}
+            used += len(json.dumps(clean_set, ensure_ascii=False, separators=(',', ':')))
+            if used > MAX_UI_PREFS_DASH_SET_CHARS:
+                break
+            set_ids.add(sid)
+            sets.append(clean_set)
+        if sets:
+            out['dashboard_sets'] = sets
+            active = raw.get('dashboard_set')
+            if isinstance(active, str) and active in set_ids:
+                out['dashboard_set'] = active
+
     # Cap how many distinct table prefs we'll persist for one user. Stops
     # a misbehaving client from filling users.json with junk keys.
     for table_name, prefs in list(raw.items())[:MAX_UI_PREFS_TABLES]:
-        if table_name in ('default_ssh_username', 'views', 'dashboard'):
+        if table_name in ('default_ssh_username', 'views', 'dashboard', 'dashboard_sets', 'dashboard_set'):
             continue   # handled above — not a table
         # Table names are short alphanumeric identifiers (e.g. 'devices',
         # 'cves_overview'). Strip anything not in that vocabulary.
