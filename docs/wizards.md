@@ -67,7 +67,7 @@ filled in and tested can still send nothing. The guide asks in order and ends wi
    the choice that matches its server is selected and the guide says it replaces those settings.
 2. **Connection.** The server, the port and the TLS mode that service documents, then the user name, the password and the From address. A note at
    the top says what to get ready first: an app password for Gmail and Fastmail, the SMTP key (not the API key) for Brevo, the word `apikey` for
-   SendGrid, SMTP credentials made in the SES console, the password Bridge shows for Proton. Choosing another TLS mode moves the port to its
+   SendGrid, SMTP credentials made in the SES console, the password Bridge shows for Proton. For Microsoft 365 it says what Microsoft announced on 27 January 2026: password sign-in for SMTP is switched off by default in existing tenants at the end of December 2026 (an administrator can switch it back on) and is not available by default in tenants created after that, where OAuth is the supported method; this server signs in with a password only. A final removal date is to be announced in the second half of 2027. Choosing another TLS mode moves the port to its
    usual one (587, 465, 25) while the port is still a usual one. A server that takes mail without a login leaves the user name empty. **Check the
    TLS certificate** is on; turn it off for a server of your own with a self-signed certificate (Proton Mail Bridge starts with it off).
 3. **Recipients.** The addresses that get the alerts, separated by commas.
@@ -96,7 +96,7 @@ guide follows that order. It covers OpenID Connect; SAML and LDAP keep their car
    address this page is open at) and the scopes (`openid profile email groups`). A note says what to create there and what that provider needs.
    RemotePower sends the client secret in the request body, which is `client_secret_post`, so Authelia is told to set it, Zitadel to choose
    Post, and Keycloak to add a Group Membership mapper with Add to ID token on, because RemotePower reads the groups from the ID token and nowhere
-   else. Zitadel sends no claim named `groups` or `roles` by itself, and the note says everyone stays a viewer until an Action adds one.
+   else. Zitadel sends no claim named `groups` or `roles` by itself, and the note says everyone stays a viewer until an Action adds one. authentik sends the groups with the `profile` scope and puts them in the ID token only when **Include claims in id_token** is on for the provider. Pocket ID lets nobody into a new client until you choose groups, or **All Users**, on its **Access** tab, and its `groups` claim holds the group names, not the display names.
 3. **Connection.** The issuer URL, the client ID, the client secret and the scopes (they must include `openid`). The issuer must be an
    `http://` or `https://` address, as the Settings save requires. If a secret is saved, leave the box empty to keep it; it is only kept for the same
    issuer and client ID, so a different provider asks for the secret again.

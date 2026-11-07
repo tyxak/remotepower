@@ -193,6 +193,15 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   scheme), since that is the address the provider must hold. A saved secret is kept only for the same issuer and client ID, and the group map that SAML shares is kept as it
   is. **Held by** `tests/test_v800_oidc_guide.py` (18 tests against a fake provider that records what it was asked) and `tests/test_wizards_oidc_e2e.py` (25 browser tests).
 
+- **The email and single sign-on guides say what the vendors' own pages say.** Three notes were unverified when they shipped, and each is now read from the vendor.
+  Microsoft 365: the Exchange Team's post of 27 January 2026 says SMTP password sign-in stays as it is until December 2026, is then switched off by default in
+  existing tenants (an administrator can switch it back on), is not available by default in tenants created after that, where OAuth is the supported method,
+  and gets a final removal date in the second half of 2027. This server signs in with a password only, so the note says so and gives the dates. authentik: the
+  groups come with the `profile` scope (there is no scope named `groups`) and are in the ID token only when **Include claims in id_token** is on for the
+  provider, which the note names because RemotePower reads the ID token. Pocket ID: a new client lets nobody in until you choose groups or **All Users** on its
+  **Access** tab, and the `groups` claim carries group names, not display names. What Pocket ID's pages do not say is how it accepts the client secret; the guide
+  does not claim it, and its issuer test still warns when a provider's discovery document does not list `client_secret_post`.
+
 - **A hosted, read-only MCP endpoint.** The MCP server in `mcp/` runs on your laptop and needs a file copied there. `POST /api/mcp` now answers the Model Context Protocol on the
   server itself, so a host that can send a header (Claude Code, Cursor, VS Code) connects straight to it. It is **off** until **Settings → Advanced → Optional modules → MCP endpoint**
   is ticked, and answers 404 until then. It offers eight of the bridge's read tools with the same descriptions (`list_alerts`, `get_attention`, `list_devices`, `get_device`,
