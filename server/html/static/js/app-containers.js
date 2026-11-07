@@ -29,6 +29,7 @@ async function enterContainers() {
   await loadContainersOverview();
   // v3.3.4: image-update freshness for the agent-reported containers.
   loadImageUpdates();
+  if (typeof loadImageAutoupdate === 'function') loadImageAutoupdate(true);   // 8.0.0, lazy module
   // v3.3.4: operator-uploaded compose stacks.
   loadComposeStacks();
   // v2.3.0: also pull Proxmox LXC containers (section self-hides if

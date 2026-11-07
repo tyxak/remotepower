@@ -303,7 +303,12 @@ class TestEagerJsPayload(unittest.TestCase):
         # that lets the sign-in page use the instance's default instead of the browser's copy (0.35 KB) and the sign-in page taking the
         # default look and typeface from /api/public-info (0.74 KB, inside the try that keeps the sign-in buttons working). The sign-in page is
         # drawn before any loader runs, so all of it is in the eager core. The translations are in i18n.js, which is not eager.
-        self.assertLess(total, 2_715_000,
+        # 8.0.0 automatic updates and the MCP switch: 2_717_000. The payload was 2_714_198 after the typeface, and is 2_715_640 now: 1,442 bytes more.
+        # The MCP module's two rows in the module tables (175 bytes), the three places the new image_autoupdate_failed event has to be named for the
+        # activity feed (about 190 bytes: the severity map, the feed's event list and the click-through), the step-up dialog settling the caller that
+        # waits for it when it is closed with Escape (about 330 bytes; a fix, because every step-up-gated button used to stay in flight for ever after
+        # that), and the one call that loads the Automatic updates card (95 bytes). The card itself is a lazy module.
+        self.assertLess(total, 2_717_000,
                         'the eager JS payload regressed past its budget')
 
 

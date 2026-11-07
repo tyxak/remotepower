@@ -552,7 +552,12 @@ SHAPES: dict = {
     'autonomy_policy.json': fields(tenants=dict_of(fields(allowed_actions=list_of(STR)))),
     'batch_jobs.json': fields(jobs=dict_of()),
     'flow_deps.json': fields(edges=dict_of(fields(last_observed=OPT_NUM)), last_run=NUM),
-    'image_updates.json': fields(images=dict_of(fields(last_checked=NUM)), last_full_scan=NUM),
+    # 8.0.0: the receipts of the automatic updates ride in this document (image_autoupdate_handlers). The sweep indexes none of them without a default,
+    # and turns the times into numbers, so a stamp stored as text is read as the number it holds and one that is not a number is dropped.
+    'image_updates.json': fields(images=dict_of(fields(last_checked=NUM)), last_full_scan=NUM,
+                                 autoupdate=fields(receipts=list_of(fields(need=('id', 'device_id'), ts=NUM, queued_at=NUM, verify_at=NUM, verified_at=NUM, state=STR, detail=STR,
+                                                                           dir=STR, refs=LIST, digests=DICT, before=DICT)),
+                                                   last_run=fields(ts=NUM, made=NUM, held=LIST))),
     'integrations_state.json': fields(latest=dict_of(fields(metrics=DICT, checked=NUM)), history=DICT),
     'ip_intel.json': fields(attackers=dict_of(fields(verdict=DICT, devices=DICT, last_seen=OPT_NUM, report_log=LIST)),
                             blocks=dict_of(dict_of(fields(until=NUM))), budget=fields(abuseipdb=NUM, sniffcat=NUM), last_sweep=NUM, edge=DICT, edgelist=DICT,

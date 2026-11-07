@@ -85,6 +85,7 @@ CADENCE = (
     'run_agentless_reachability_if_due',
     'run_routeros_update_check_if_due',
     'run_image_scan_if_due',
+    'run_image_autoupdate_if_due',
     'refresh_kev_epss_if_due',
     '_maybe_check_disk_predictions',
     '_maybe_push_metrics',

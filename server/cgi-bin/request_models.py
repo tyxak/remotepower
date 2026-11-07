@@ -2235,6 +2235,16 @@ if _AVAILABLE:
         settings: Any = None           # 8.0.0: settings typed in the e-mail guide and not saved yet; the handler checks them
         _v0 = field_validator('recipient', mode='before')(_coerce_str_loose)
 
+    class ImageAutoupdateRequest(BaseModel):
+        """8.0.0: the automatic image update policy. Every field is Any: image_autoupdate.clean_policy checks each one and says what is wrong."""
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        mode: Any = None
+        include: Any = None
+        exclude: Any = None
+        period: Any = None
+        max_hosts_per_run: Any = None
+        verify_after_min: Any = None
+
     class LdapTestUserRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         password: str = ''

@@ -8614,7 +8614,7 @@ nextcloud mem=95 sustain=6</pre>
           <div data-pg-tab="images">
           <!-- ── v3.3.4: container image updates ───────────────────────── -->
           <div class="subsection-title mt-32">Image updates</div>
-          <div class="page-subtitle">Containers whose pulled image is behind the registry's current digest for that tag. Notify-only — RemotePower flags staleness, you decide when to pull. <span id="image-updates-meta" class="hint" data-i18n-park></span></div>
+          <div class="page-subtitle">Containers whose pulled image is behind the registry's current digest for that tag. RemotePower flags staleness and you decide when to pull, unless you switch on automatic updates below. <span id="image-updates-meta" class="hint" data-i18n-park></span></div>
           <div class="toolbar">
             <input type="text" id="image-updates-search" class="form-input isl-170" placeholder="Filter by image, tag, or registry…" aria-label="Filter by image, tag, or registry">
             <button class="btn-icon" data-action="loadImageUpdates"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -8625,6 +8625,59 @@ nextcloud mem=95 sustain=6</pre>
               <thead id="image-updates-thead"><tr><th scope="col" data-col="image">Image</th><th scope="col" data-col="tag">Tag</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="registry">Registry</th><th scope="col" data-col="checked">Last checked</th><th scope="col"></th></tr></thead>
               <tbody id="image-updates-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr></tbody>
             </table>
+          </div>
+
+          <div class="settings-section mt-16" id="image-autoupdate-card">
+            <div class="section-title">Automatic updates</div>
+            <p class="hint">Off by default. RemotePower can pull and recreate the compose projects that run an image you list when the registry has a newer one. It queues the same command as the Update button above, so maintenance mode, quarantine and change approval apply to it. Some minutes later it checks what the host reports, and raises an alert if the image was not replaced or the containers are not healthy. It does not roll back.</p>
+            <div class="settings-row">
+              <div class="form-group flex-1">
+                <label for="iau-mode" class="form-label">Mode</label>
+                <select id="iau-mode" class="form-input">
+                  <option value="off">Off</option>
+                  <option value="shadow">Shadow: record what it would update, change nothing</option>
+                  <option value="on">On: update the images on the list</option>
+                </select>
+              </div>
+              <div class="form-group flex-1">
+                <label for="iau-period" class="form-label">Only start inside this time period</label>
+                <select id="iau-period" class="form-input"><option value="">Any time</option></select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="iau-include" class="form-label">Images that may be updated</label>
+              <textarea id="iau-include" class="form-input" rows="3"></textarea>
+              <div class="meta-sm">One pattern per line, matched against the image and tag as the table above lists them, for example ghcr.io/your-org/* or linuxserver/*. Nothing is updated unless it matches. A project is updated whole, so every outdated image in it has to match.</div>
+            </div>
+            <div class="form-group">
+              <label for="iau-exclude" class="form-label">Never update</label>
+              <textarea id="iau-exclude" class="form-input" rows="2"></textarea>
+              <div class="meta-sm">Patterns that win over the list above, for example *:latest.</div>
+            </div>
+            <div class="settings-row">
+              <div class="form-group flex-1">
+                <label for="iau-max" class="form-label">Hosts per run</label>
+                <input type="number" id="iau-max" class="form-input" min="1" max="10">
+              </div>
+              <div class="form-group flex-1">
+                <label for="iau-verify" class="form-label">Check the result after (minutes)</label>
+                <input type="number" id="iau-verify" class="form-input" min="5" max="120">
+              </div>
+            </div>
+            <div class="row-8">
+              <button class="btn-primary" id="iau-save" data-action="saveImageAutoupdate">Save</button>
+              <span id="iau-result" class="hint" role="status"></span>
+            </div>
+            <div class="section-title mt-16">What it would do now</div>
+            <div id="iau-preview" class="meta-sm"></div>
+            <div id="iau-lastrun" class="meta-sm mt-8"></div>
+            <div class="section-title mt-16">Recent updates</div>
+            <div class="table-card">
+              <table>
+                <thead id="iau-receipts-thead"><tr><th scope="col" data-col="when">When</th><th scope="col" data-col="host">Host</th><th scope="col" data-col="images">Images</th><th scope="col" data-col="state">State</th><th scope="col" data-col="detail">Detail</th></tr></thead>
+                <tbody id="iau-receipts-tbody"></tbody>
+              </table>
+            </div>
           </div>
 
           </div><!-- /images tab -->

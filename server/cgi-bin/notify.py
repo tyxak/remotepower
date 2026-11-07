@@ -104,6 +104,7 @@ _EVENT_COLORS = {
     "container_stopped": 0xEF4444,
     "container_restarting": 0xF59E0B,
     "container_unhealthy": 0xEF4444,
+    "image_autoupdate_failed": 0xEF4444,
     "containers_stale": 0xF59E0B,
     "cve_found": 0xEF4444,
     "log_alert": 0xF59E0B,
@@ -957,6 +958,9 @@ def _webhook_message(event, payload):
         if shown:
             head += f"\nLast {plural(len(shown), 'log line', 'log lines')}:\n" + "\n".join(shown)
         return head
+    elif event == "image_autoupdate_failed":
+        # 8.0.0: the sweep that follows an automatic image update says which update it was and what it found
+        return f'{name}: the automatic update of {payload.get("label", "?")} did not work: {payload.get("detail", "")}'
     elif event == "container_healthy":
         c = f'{name}: container "{payload.get("container", "?")}"'
         return {

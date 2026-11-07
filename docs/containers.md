@@ -521,6 +521,34 @@ keeps the answer for as long as the container is listed. It sends facts, not the
 labels or the command. A Kubernetes pod is not audited. `GET /api/containers/audit` lists the findings (`?min=critical|high|medium|low`,
 `?q=` to filter) and `PUT /api/devices/{id}/container-audit` accepts or takes back one (administrators).
 
+## Automatic image updates *(8.0.0, off by default)*
+
+The **Image updates** tab lists the images whose registry digest has moved, and its **Update** button pulls and recreates the compose project on a host.
+The **Automatic updates** card under the table can do that for you, for the images you list, and checks that it worked.
+
+- **Mode.** **Off** is the default and does nothing. **Shadow** records what it would have updated and queues nothing, so you can read the receipts for a
+  few days first. **On** queues the update.
+- **The list.** Nothing is updated unless it matches. **Images that may be updated** takes one pattern per line (`ghcr.io/your-org/*`, `linuxserver/*`),
+  compared with the image and tag as the table lists them; `*` and `?` match anything and the case does not matter. **Never update** wins over it. **On**
+  needs at least one pattern.
+- **A project is updated whole.** One compose project can hold several images, and the command pulls all of them. A project with an outdated image that is
+  not on your list is left alone, and the card says which image held it back.
+- **When.** The sweep looks every five minutes. **Only start inside this time period** takes one of the time periods of Settings (blank means any time; a
+  period that was deleted counts as closed). **Hosts per run** (1 to 10, default 2) limits how many projects one sweep starts, and a host that is offline,
+  an agentless host, and a host that is in maintenance mode or quarantined are skipped and tried again later.
+- **Once per release.** A project is updated once for each set of registry digests. If it fails, nothing retries it until the registry ships a newer image.
+- **Approval.** The command is the one the Update button queues, so it goes through the same checks. When change approval holds `compose`, the update is
+  parked as a confirmation for a second admin, asked for once, and followed: approval starts the clock, a rejection or an expiry ends it.
+- **The check.** After **Check the result after** minutes (5 to 120, default 10), and only from a container report that came after the update was queued,
+  the sweep looks at the containers of the project. **Updated** means they run the new image, are running and are not failing a health check or restarting
+  in a loop. Otherwise the receipt says **Not updated** (a container still runs the old image), **Unhealthy**, or **Not verified** (no usable report after 30
+  more minutes), and an `image_autoupdate_failed` alert is raised, once, with the host, the images and the reason. It does not roll back. The container
+  alerts that already exist say that a container is unwell; this one says why it happened now.
+- **Who.** The policy is the platform operator's, because it decides what an unattended loop may do to every host. Switching it on, or changing a policy that
+  is on, asks for a fresh sign-in. Every save and every update is a line in the audit log (`image_autoupdate_set`, `image_autoupdate_queued`).
+
+`GET /api/image-updates/auto` returns the policy, the recent receipts (newest first), what the policy would do now and the time periods; `POST` saves the policy.
+
 ## What's not captured
 
 - **No live state.** The list is overwritten on every heartbeat;

@@ -2822,8 +2822,7 @@ const MODULE_PAGES = {
   ai_exec:    null,
   autonomy:   'autonomy',
   sshgw:      'sshgw',
-  // 8.0.0: the hosted MCP endpoint is an API prefix with no page of its own, like the AI executor.
-  mcp:        null,
+  mcp:        null,   // 8.0.0: an API prefix with no page, like ai_exec
 };
 
 // [checkbox id, config key, default] — defaults MUST mirror api._MODULES, or a
@@ -3053,7 +3052,7 @@ const _LAZY_PAGE_MODULES = {
   checks: ['app-checks.js'],
   problems: ['app-problems.js'],   // #56 one list of problems (lazy)
   patches: ['app-repos.js'],   // 7.4.9 the repository inventory card (the page itself is eager)
-  containers: ['app-containeraudit.js'],   // 7.4.9 the hardening audit section (the page itself is eager)
+  containers: ['app-containeraudit.js', 'app-imageautoupdate.js'],   // 7.4.9 the hardening audit section (the page itself is eager); 8.0.0 the updates card
   'business-services': ['app-business-services.js'],   // 7.4.9 services made of hosts, monitors, units, containers and scripts (lazy)
   protect: ['app-checks.js'],   // Integrity Guard vault renderer
   advisory: ['app-checks.js'],  // Security Advisory renderer + host-list filter
@@ -5242,8 +5241,9 @@ async function stepUpSubmit() {
   if (!password && !totp_code) { toast('Enter your password or a 2FA code', 'error', {transient: true}); const _e = document.getElementById('step-up-password'); if (_e) { _e.setAttribute('aria-invalid', 'true'); _e.focus(); } return; }
   const data = await api('POST', '/auth/step-up', {password, totp_code});
   if (data?.ok) {
+    const done = _stepUpResolve; _stepUpResolve = null;   // a yes is settled before the dialog closes: closing settles a waiter as a no
     closeModal('step-up-modal');
-    if (_stepUpResolve) { _stepUpResolve(true); _stepUpResolve = null; }
+    if (done) done(true);
   } else {
     toast(data?.error || 'Verification failed', 'error');
   }
@@ -7211,6 +7211,8 @@ function closeModal(id) {
   // 7.4.9: a confirm or prompt dialog closed any way but its own buttons (Escape, the corner ×, a script) is a cancel, and the code
   // waiting for its answer has to be told: it was left waiting until the next dialog opened, which answered it with null.
   if (id === 'ui-prompt-modal' && _uiPromptResolve) { _uiPromptFinish(false); return; }
+  // the step-up dialog too: Escape used to leave its caller waiting for ever
+  if (id === 'step-up-modal' && _stepUpResolve) { const no = _stepUpResolve; _stepUpResolve = null; no(false); }
   // v6.4.2: stop the enrollment watcher immediately rather than on its next
   // tick — the modal is gone, so the poll is pure waste from here on.
   if (id === 'enroll-modal') _stopEnrollWatch();
@@ -19254,6 +19256,7 @@ const EVENT_CLASS = {
   'container_stopped': 'warn', 'container_recovered': 'ok', 'container_restarting': 'warn',
   'container_restarting_cleared': 'ok', 'unit_flapping_cleared': 'ok',
   'container_unhealthy': 'warn', 'container_healthy': 'ok',   // 7.4.9
+  'image_autoupdate_failed': 'warn',
   'business_service_down': 'critical', 'business_service_up': 'ok',   // 7.4.9
   'container_resource_high': 'warn', 'container_resource_ok': 'ok',   // v7.4.3 (#50)
   'containers_stale': 'warn',
@@ -21905,7 +21908,7 @@ function _renderHomeActivity(fleetEvents) {
     'container_unhealthy', 'container_healthy',   // 7.4.9
     'business_service_down', 'business_service_up',   // 7.4.9
     // v3.2.x: container image update tracking
-    'image_update_available', 'image_updated',
+    'image_update_available', 'image_updated', 'image_autoupdate_failed',
     'metric_warning', 'metric_critical', 'metric_recovered', 'custom_metric_alert', 'custom_metric_recover',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'mailbox_recovered', 'custom_script_fail', 'custom_script_recover',
@@ -22204,7 +22207,7 @@ function _homeActivityAttrs(event, p) {
     case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'container_restarting_cleared': case 'containers_stale': case 'containers_current':
     case 'container_resource_high': case 'container_resource_ok':   // v7.4.3 (#50)
     case 'container_unhealthy': case 'container_healthy':   // 7.4.9
-    case 'image_update_available': case 'image_updated':
+    case 'image_update_available': case 'image_updated': case 'image_autoupdate_failed':
       return `${base} data-home-act="containers"`;
     case 'business_service_down': case 'business_service_up':   // 7.4.9
       return `${base} data-home-act="business-services"`;

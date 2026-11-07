@@ -1175,6 +1175,19 @@ for _mc_name in (
     globals()[_mc_name] = getattr(mcp_http_handlers_mod, _mc_name)
 del _mc_name
 
+# 8.0.0: automatic container image updates (opt-in; off by default). The policy, the plan and the verification are the pure
+# image_autoupdate.py; the module here queues through _queue_command_batch like the autonomy loop and follows what it queued.
+_ia_spec = _tk_ilu.spec_from_file_location(
+    'image_autoupdate_handlers', Path(__file__).parent / 'image_autoupdate_handlers.py')
+image_autoupdate_handlers_mod = _tk_ilu.module_from_spec(_ia_spec)
+_ia_spec.loader.exec_module(image_autoupdate_handlers_mod)
+image_autoupdate_handlers_mod.bind(globals())
+for _ia_name in (
+        'handle_image_autoupdate_get', 'handle_image_autoupdate_set', 'run_image_autoupdate_if_due',
+):
+    globals()[_ia_name] = getattr(image_autoupdate_handlers_mod, _ia_name)
+del _ia_name
+
 # v7.4.2 (#44): the integrations bound to a host, for the host drawer. A new route, so a
 # bound module rather than another inline handler.
 _di_spec = _tk_ilu.spec_from_file_location(
@@ -2315,6 +2328,13 @@ EVENT_REGISTRY = {
         label='A container reports unhealthy (its own health check keeps failing)', kind='container',
         title='Container Unhealthy', severity='high', priority=4, tags='warning,whale',
         symptom=True),
+    # 8.0.0: an automatic image update that did not work: the image was not replaced, or the containers it recreated are not running or not
+    # healthy. Raised by the sweep that follows what it queued (image_autoupdate_handlers), once per update. The container alerts say
+    # the container is unwell; this one says why that happened now, and also covers the case they cannot see (the image never changed).
+    'image_autoupdate_failed': dict(
+        lifecycle='point',
+        label='An automatic container image update did not work (the image was not replaced, or the containers are not healthy)',
+        kind='container', title='Automatic Image Update Failed', severity='high', priority=4, tags='rotating_light,whale'),
     'container_healthy': dict(
         label='A container passes its health check again (or stopped, or left the list)',
         kind='container', title='Container Healthy',
@@ -7344,6 +7364,8 @@ def _render_response(status: int, data, headers=None) -> None:
     """Render an HTTP response to stdout. Used by main() — handlers should
     use respond()/HTTPError instead so the response is uniformly handled."""
     headers = headers or []
+    if isinstance(headers, dict):          # pairs are the form HTTPError carries; a dict reads as pairs of nothing and raised below
+        headers = list(headers.items())
     print(f"Status: {status} {_HTTP_STATUS_REASONS.get(status, '')}")
     print("Content-Type: application/json")
     # master-improvement-scoping #10: the default is unconditionally
@@ -7364,8 +7386,6 @@ def _render_response(status: int, data, headers=None) -> None:
     # json.dumps(data) would otherwise print a (small but real, and
     # spec-incorrect) body even for the empty/None data callers pass here.
     if status == 304:
-    if isinstance(headers, dict):          # pairs are the form HTTPError carries; a dict reads as pairs of nothing and raised below
-        headers = list(headers.items())
         print()
         return
     body = json.dumps(data)
@@ -76119,6 +76139,8 @@ def _build_exact_routes():
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
         ('GET', '/api/problems'): handle_problems,                   # #56 one list of problems
         ('GET', '/api/problems/history'): handle_problems_history,   # #56 what happened to one problem
+        ('GET', '/api/image-updates/auto'): handle_image_autoupdate_get,    # 8.0.0 automatic image updates: the policy, receipts and a preview
+        ('POST', '/api/image-updates/auto'): handle_image_autoupdate_set,
         ('POST', '/api/mcp'): handle_mcp,                            # 8.0.0 hosted read-only MCP endpoint
         ('GET', '/api/mcp'): handle_mcp,                             # answers 405 and says POST: the transport allows a server to offer no stream
         ('DELETE', '/api/mcp'): handle_mcp,                          # likewise: this server keeps no session to end
@@ -77970,6 +77992,7 @@ def main():
     # v3.3.4: refresh registry digests for container image-update detection.
     # Cheap-when-not-due (12h sweep), bounded per run, deduped across fleet.
     _safe(run_image_scan_if_due, 'run_image_scan_if_due')
+    _safe(run_image_autoupdate_if_due, 'run_image_autoupdate_if_due')   # 8.0.0 opt-in automatic image updates (off by default)
     # v3.14.0: daily refresh of CISA KEV + FIRST EPSS for CVE prioritization.
     _safe(refresh_kev_epss_if_due, 'refresh_kev_epss_if_due')
     # v3.14.0: predictive disk-failure alerting (edge-triggered, ~6h cadence).

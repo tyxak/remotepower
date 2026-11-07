@@ -206,6 +206,21 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   handler for the same caller, per tenant, and of the tool text word for word with the bridge's), `tests/test_v800_mcp_http_e2e.py` (16 tests over HTTP against a real stack with API
   keys of each kind), and 28 mutations caught.
 
+- **Automatic container image updates, opt-in.** The Image updates tab has flagged stale images and offered an Update button since 3.3.4. An **Automatic updates** card under its
+  table can do the update for the images you list. It is **off** by default; **shadow** mode records what it would have updated and queues nothing; **on** queues the same
+  `compose:update:<dir>` command as the button, through the helper a sweep may use (the autonomy loop uses it), so maintenance mode, quarantine, an audit-mode agent and change
+  approval apply, and a change that needs a second admin is parked once and followed. Nothing is updated unless its image matches the list and no `Never update` pattern; one compose
+  project is updated whole, so a project with an outdated image that is not on the list is left alone and the card says which; a project is updated once for each set of registry digests,
+  at most N hosts per sweep, inside an optional time period (a deleted period counts as closed), and never on an offline or agentless host. Some minutes later the sweep reads what the host
+  reported since the command was queued: new image, running, no failing health check and no restart loop is **Updated**; otherwise the receipt says **Not updated**, **Unhealthy** or **Not
+  verified** and a new `image_autoupdate_failed` event goes out once with the host, the images and the reason, because a failed unattended change has to be loud (the container alerts say a
+  container is unwell, and cannot see an image that never changed). It does not roll back: that needs the previous digest to be pinned on the host, which no test here can drive without a
+  Docker daemon, so the receipt records the containers' state before and the docs say so. The policy is the platform operator's and switching it on asks for a fresh sign-in; the receipts
+  ride in the image-updates document and a tenant sees the receipts of its own hosts only. The Image updates subtitle no longer says "Notify-only" without the exception. **Held by**
+  `tests/test_v800_image_autoupdate.py` (68 tests: the policy, the plan, the verification, and the sweep and routes against the real handlers and stores) and
+  `tests/test_v800_image_autoupdate_e2e.py` (the card in a browser on the demo seed, including a slow answer that lands while you are typing: the first version of the card
+  refilled the form with the stored policy and the next Save sent `off` and said it had worked, so the card keeps what you typed and only the newest answer is used).
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).
@@ -270,6 +285,12 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   and the walk holds that at zero. Found on the way, by the layout gates: the new Advisory
   prints in full (it had findings to clip once it built itself), and the Threat Intel columns are narrow again on paper.
 
+- **Closing the password question no longer leaves the Save button hanging.** A change that needs a fresh sign-in opens the "confirm it is you"
+  dialog and waits for the answer. Escape and the corner x closed the dialog without telling the save that was waiting, so its button kept
+  the busy state for good and ignored the next press (only Cancel settled it). Closing it any way now counts as "no": the button is free,
+  nothing is stored and the next press asks again. Found while testing the Automatic updates card; held by
+  `test_on_asks_for_the_password_first_and_stores_nothing_if_it_is_not_given` in `tests/test_v800_image_autoupdate_e2e.py`.
+
 ### The tab names the page
 
 - **Every page has a heading a screen reader can find.** The page title and every card title were divs: four headings in all of the 85 pages,
@@ -292,6 +313,11 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   `error: the host name does not resolve`, `the connection was refused` or `its certificate was not accepted`. The DNS, Proxmox, OPNsense and
   RouterOS clients, the log forwarder and export, the CVE feed refresh and the OIDC check use the same words, and a ratchet holds every
   generic 502 to them. An exception that is not a network failure keeps its own text.
+- **A busy store answers 503 and asks for a retry, as 6.1.2 meant it to.** A write that finds the store's lock held for longer than its short wait is
+  a passing condition, and the server was to answer `503` with `Retry-After: 2` so that a client tries again. The arm that renders it passed the header
+  as a dict, the renderer reads a list of pairs, and unpacking a key raised `ValueError` inside the handler of the exception, which no other arm
+  catches: the client got the server's own `500` instead. The renderer takes either form now and the arm passes pairs. The test that was to hold it
+  read the source for the text "503" and passed throughout; the new one drives the real WSGI path and fails with `500` on the old code.
 - **A DNS blocker that does not answer shows why in its tile.** The Pi-hole tile read `unknown` with both Pause and Resume showing, and a red
   toast for the 502 that stayed on screen after you left the page. The probe is quiet now, the tile says why, and it offers only
   Check now.
@@ -313,11 +339,6 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
 
 - **A firewall whose Suricata sends no alerts says so, and an old verdict stops being repeated.** The Log sources row of a firewall read **Not understood**
   with 13,852 lines for a fortnight. Those lines were Suricata's own messages (rule reloads, rule errors), which stopped counting as unreadable alerts on
-- **A busy store answers 503 and asks for a retry, as 6.1.2 meant it to.** A write that finds the store's lock held for longer than its short wait is
-  a passing condition, and the server was to answer `503` with `Retry-After: 2` so that a client tries again. The arm that renders it passed the header
-  as a dict, the renderer reads a list of pairs, and unpacking a key raised `ValueError` inside the handler of the exception, which no other arm
-  catches: the client got the server's own `500` instead. The renderer takes either form now and the arm passes pairs. The test that was to hold it
-  read the source for the text "503" and passed throughout; the new one drives the real WSGI path and fails with `500` on the old code.
   2026-10-25, and the row was written only when a line arrived, so nothing replaced it. Suricata's own messages are now counted apart. A firewall that sends
   them and no alert reads **No alerts sent**, and the page says to tick **Enable syslog alerts** (the count shows Suricata is running, which nothing showed
   before). A firewall's row with no line for a day reads **Quiet** with the time of the last one. An EVE alert cut at the intake's 2,048-character limit is
