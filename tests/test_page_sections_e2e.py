@@ -41,7 +41,7 @@ _HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text(encoding='utf-8')
 PAGES = sorted(set(re.findall(r'<nav class="pg-tabs"[^>]*\bdata-pg="([a-z0-9-]+)"', _HTML)))
 OLD_PAGES = ('account', 'ipintel', 'reports', 'sites')                 # tabs since 7.4.0
 # The pages this change added. Each must still have its strip: the list is the control that the population cannot shrink quietly.
-NEW_PAGES = ('kmip', 'autonomy', 'sshgw', 'tuning', 'tickets', 'scans', 'patches', 'monitor')
+NEW_PAGES = ('kmip', 'autonomy', 'sshgw', 'tuning', 'tickets', 'scans', 'patches', 'monitor', 'netmap')
 
 
 class TestPageSections(unittest.TestCase):
@@ -177,6 +177,18 @@ class TestPageSections(unittest.TestCase):
                 self.assertNotEqual(shown, 'none', f'{panel} is not showing')
                 self.assertEqual(self.page.get_attribute(f'#page-monitor [data-pg-tab-btn="{tab}"]', 'aria-current'), 'true')
         self._open('monitor')       # leave the panel filter the way a normal visit does
+
+    def test_the_network_map_is_drawn_when_the_page_opens_on_another_tab(self):
+        # the map reads its container's width while it lays out; with its tab hidden that width is 0, and it must still come out whole
+        self.page.evaluate("() => { localStorage.setItem('pgtab.netmap', 'watches'); showPage('netmap'); }")
+        self.page.wait_for_selector('#page-netmap.active')
+        self.page.wait_for_timeout(2500)
+        self.page.click('#page-netmap [data-pg-tab-btn="map"]')
+        got = self.page.evaluate("""() => { const svg = document.getElementById('netmap-svg');
+            return {nodes: svg.querySelectorAll('.netmap-node').length, nan: svg.outerHTML.includes('NaN'), width: svg.getBoundingClientRect().width}; }""")
+        self.assertGreater(got['nodes'], 0, got)
+        self.assertFalse(got['nan'], got)
+        self.assertGreater(got['width'], 300, got)
 
     # ── one long page ────────────────────────────────────────────────────────
     def test_one_long_page_shows_every_card_and_hides_the_strip(self):

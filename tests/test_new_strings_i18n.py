@@ -42,6 +42,10 @@ NEW_STRINGS = [
     "My tickets",
     "Schedules",                 # Pentest
     "Catalog and SLA",           # Patches
+    "Map",                       # Network
+    "Dependencies",
+    "Discovery",
+    "Watches",
 ]
 
 

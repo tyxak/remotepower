@@ -8586,10 +8586,16 @@ nextcloud mem=95 sustain=6</pre>
 
       <!-- ── v1.11.0: Network map ───────────────────────────────────────── -->
       <div id="page-netmap" class="page">
-        <div class="page-title">Network map</div>
+        <div class="page-title" id="netmap-page-title">Network map</div>
         <div class="page-subtitle">Topology view from manually-set <code>connected_to</code> links and tunnels (peer links). Drag nodes to reposition — positions persist across refresh. Add agentless hosts on the Hosts page. <a href="docs/network-map.md" class="c-accent">Documentation</a></div>
 
-        <div class="isl-173">
+        <nav class="pg-tabs" aria-labelledby="netmap-page-title" data-pg="netmap" data-default="map">
+          <button class="pg-tab" data-pg-tab-btn="map" data-action="pgTab" data-arg="netmap:map">Map</button>
+          <button class="pg-tab" data-pg-tab-btn="dependencies" data-action="pgTab" data-arg="netmap:dependencies">Dependencies</button>
+          <button class="pg-tab" data-pg-tab-btn="discovery" data-action="pgTab" data-arg="netmap:discovery">Discovery</button>
+          <button class="pg-tab" data-pg-tab-btn="watches" data-action="pgTab" data-arg="netmap:watches">Watches</button>
+        </nav>
+        <div data-pg-tab="map" class="isl-173">
           <button class="btn-icon" data-action="loadNetmap" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <button class="btn-icon" data-action="aiInsight" data-arg="network_review" title="AI: network dependency review — single points of failure, unmanaged hosts"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI review</button>
           <button class="btn-icon" data-action="netmapEditOpen" >Edit links</button>
@@ -8603,20 +8609,20 @@ nextcloud mem=95 sustain=6</pre>
           </span>
           <span id="netmap-stats" class="isl-174"></span>
         </div>
-        <div class="table-card isl-175">
+        <div data-pg-tab="map" class="table-card isl-175">
           <svg id="netmap-svg" width="100%" height="600" class="isl-176"></svg>
         </div>
 
         <!-- v6.1.2: internet (WAN) watch — public IP, outage log, DDNS
              (v6.2.2: moved below the topology per operator feedback — the map
              is the page's headline; these are supporting cards) -->
-        <div class="dash-card mt-16" id="wan-card">
+        <div data-pg-tab="watches" class="dash-card mt-16" id="wan-card">
           <div class="section-header"><div class="section-title">Internet (WAN)</div><button class="btn-icon" data-action="loadWan">Refresh</button></div>
           <div id="wan-body"><div class="hint">Loading…</div></div>
         </div>
 
         <!-- v6.1.2: inbound dead-man's-switch pings for OFF-fleet jobs -->
-        <details class="dash-card mt-16">
+        <details data-pg-tab="watches" class="dash-card mt-16">
           <summary class="section-title">Job check-ins (dead-man's switch)</summary>
           <p class="hint mt-8">For cron jobs on things that <strong>aren't in the fleet</strong> — the router's backup script, a VPS, a task on the NAS. Those fail silently and you find out months later. Give the job a URL, have it <code>curl</code> that URL when it finishes, and if a check-in doesn't arrive within its period + grace, RemotePower alerts. (This is the inverse of the outbound healthchecks.io pinger, which watches <em>RemotePower</em>.)</p>
           <div class="row-6-center mt-8">
@@ -8629,35 +8635,35 @@ nextcloud mem=95 sustain=6</pre>
         </details>
 
         <!-- v6.1.2: mDNS — what is ADVERTISING itself on the LAN -->
-        <details class="dash-card mt-16">
+        <details data-pg-tab="discovery" class="dash-card mt-16">
           <summary class="section-title">LAN services (mDNS)</summary>
           <p class="hint mt-8">The netscan finds <em>hosts</em> — it tells you an IP is alive, not what it is. mDNS is how the rest of a homelab announces itself: Chromecasts, AirPlay speakers, printers, HomeKit bridges, NAS boxes. Those are exactly the hosts nobody enrols an agent on, so without this they're just anonymous IPs on the map. Enable under <strong>Settings → Security</strong>; needs <code>avahi-browse</code> on at least one agent per segment.</p>
           <div id="mdns-list" class="mt-8 scroll-cap"><div class="hint">Loading…</div></div>
         </details>
 
         <!-- W3-8: dependency auto-suggestions from observed traffic -->
-        <div class="dash-card mt-16">
+        <div data-pg-tab="dependencies" class="dash-card mt-16">
           <div class="section-header"><div class="section-title">Suggested dependencies</div><button class="btn-icon" data-action="loadDepSuggestions"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
           <p class="hint">Edges inferred from actual outbound connections between your hosts (private IPs only). Accept adds a real <code>depends_on</code> link (used for downstream alert suppression); dismiss hides it.</p>
           <div id="dep-suggestions"><div class="c-muted">Click Refresh.</div></div>
         </div>
 
         <!-- v6.3.1: flow-verified dependency link health -->
-        <div class="dash-card mt-16">
+        <div data-pg-tab="dependencies" class="dash-card mt-16">
           <div class="section-header"><div class="section-title">Dependency link health</div><button class="btn-icon" data-action="loadDepHealth"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
           <p class="hint">Verifies each declared <code>depends_on</code> edge against observed traffic (agent peer-conns and the NetFlow/IPFIX receiver). A <strong>Broken</strong> edge carried traffic before and went silent while both hosts stayed online — a firewall/route/service break the offline alert never catches. Enable alerting under <strong>Settings → Alerting</strong>.</p>
           <div id="dep-health"><div class="c-muted">Click Refresh.</div></div>
         </div>
 
         <!-- W5-1: LLDP physical topology suggestions -->
-        <div class="dash-card mt-16">
+        <div data-pg-tab="dependencies" class="dash-card mt-16">
           <div class="section-header"><div class="section-title">Suggested physical links (LLDP)</div><button class="btn-icon" data-action="loadLldpSuggestions"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
           <p class="hint">Physical neighbor links discovered via LLDP (needs <code>lldpd</code> on the hosts). Accept sets a <code>connected_to</code> edge (a manual/physical link that always wins over inferred ones); dismiss hides it.</p>
           <div id="lldp-suggestions"><div class="c-muted">Click Refresh.</div></div>
         </div>
 
         <!-- v3.4.0: LAN discovery — unmanaged hosts agents found on their subnet -->
-        <div class="dash-card mt-16">
+        <div data-pg-tab="discovery" class="dash-card mt-16">
           <div class="section-header">
             <div class="section-title">Unmanaged hosts on the LAN</div>
             <button class="btn-icon" data-action="loadDiscovery"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
