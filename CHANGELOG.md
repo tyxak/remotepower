@@ -11,6 +11,30 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
 
 ### Interface
 
+- **Pages with many cards show one group at a time.** Threat Intel, My Account, Sites and Reports have had tabs since 7.4.0. Thirteen more pages
+  stacked three to seventeen blocks on one scroll, 1,662 to 4,737 px tall on the demo data, and they have the same strip now: Server Status (Health,
+  Diagnostics, Traffic, Data and upkeep), Compliance (Frameworks, Baseline and scans, Personal data), Live Monitor (Checks, Hosts, Setup), Patches
+  (Pending, Catalog and SLA, Software), Tuning (Noise, Silenced, Containers), Network (Map, Dependencies, Discovery, Watches), Pentest (Scans, Targets,
+  Schedules), SSH Gateway (Connect, Servers and sessions), Autonomy (Decisions, Rules), KMIP (Server, Clients and keys, Activity), Tickets (Needs
+  triage, My tickets, Team, Other), CVE Findings (Packages, Container images, Remediation) and Containers (Containers, Hardening audit, Image updates,
+  Compose stacks). Measured at 1440 × 900 on the demo data, the 13 pages are 35,701 px tall as one long page and 16,917 px added up over their tallest
+  tab. No tab is empty for a role that may not see one of its cards: SSH Gateway's Sessions and Gateway address sit beside a card that always shows.
+  - **Not every page.** All 85 pages were measured: the median page has two titled cards and is 938 px tall, and 41 pages have one or none, where a
+    strip would be noise. A page with five or more titled cards, or taller than 1,800 px with every card showing, gets tabs. Four pages meet that
+    without a strip, each with its reason in the walk: Home (a dashboard of 71 widgets you arrange), Documentation (89 folded cards, which needs an
+    outline, not tabs), Advisory (27 findings, each folded) and Settings (its own left navigation). Five tabs are still taller than 1,800 px:
+    Compliance's Frameworks (2,163 px) and Baseline and scans (1,982 px), Reports' Reports (1,891 px) and Capacity (2,155 px), and Threat Intel's
+    Settings (3,734 px).
+  - **My Account → Appearance → Page sections** chooses **Tabs** (the default) or **One long page**, for this browser. A printed page shows every group
+    either way, and the strip is not printed.
+  - A card can belong to two tabs: Pentest's New scan card holds the host, tool and profile that both the scans and the schedules use. A link to one
+    panel of Live Monitor opens the tab that holds it. On Sites & teams the list of sites, its filter and the Create site button sat under no tab and
+    showed under all three; they are on the Site map tab now.
+  - **Held by** `tests/test_page_sections_e2e.py` (the tabs, the shared card, a page that opens on one group, no card left without a tab, one long page,
+    the switch, print, the Monitor links, the Network map drawn from a hidden tab), by the walk (the rule above, with its four exemptions) and by
+    `tests/test_page_sections_walkers.py`, which derives every browser test that signs in and fails one that opens the app with tabs on: 48 modules carry
+    the choice in 63 places. 27 of 27 mutations of the new code and tests are caught. Cards a script builds (Server Status draws 14 of its 17) carry their
+    tags in the script.
 - **Text size, in the user menu.** The user menu at the bottom of the sidebar has a *Text size* row with a smaller and a larger button, and
   My Account → Appearance has the ten steps, 80% to 300%, as buttons. The setting was called *Interface size*, sat under Display units and
   had three steps (90, 100 and 110%), which is why it went unnoticed. It keeps its stored value, so a browser that had *Small* or *Large*
