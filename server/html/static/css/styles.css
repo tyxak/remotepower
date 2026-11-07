@@ -8769,6 +8769,57 @@ td:has(> .btn-icon + .btn-icon) { white-space: nowrap; }
 .audit-section summary > span, .board-tile-name, .meta-label, .drawer-setting-label, a.compliance-fix { display: inline-flex; align-items: center; gap: 5px; }
 .audit-section summary .audit-section-badge { margin-left: 0; }
 
+/* ═══ WIZARDS (8.0.0) ═══ the Add a host and Add a notification destination wizards (app-wizard.js) and the step-by-step mode of the long forms.
+   A step list, a body, a message line and the dialog's own buttons. The step list and `.wiz-off` are shared by both: the wizards build their
+   own dialog, the long forms keep theirs and hide the blocks that are not on the step. Logical properties, so right-to-left follows. */
+.wiz-off { display: none !important; }
+.wiz-steps { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; margin: 0 0 14px; padding: 0; }
+.wiz-step { display: flex; align-items: center; color: var(--muted); font-size: 12px; }
+.wiz-jump, .wiz-jump-off { display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; background: none; border: 0; color: inherit; font: inherit; }
+.wiz-jump { cursor: pointer; }
+.wiz-jump:hover .wiz-lbl { text-decoration: underline; }
+.wiz-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 50%; font-size: 11px; line-height: 1; }
+.wiz-step.done { color: var(--green-ink); }
+.wiz-step.done .wiz-num { border-color: var(--green); }
+.wiz-step.active { color: var(--text); font-weight: 600; }
+.wiz-step.active .wiz-num { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast, #fff); }
+.wiz-body { min-height: 150px; }
+.wiz-set { border: 0; margin: 0; padding: 0; min-width: 0; }
+.wiz-q { font-size: 13px; font-weight: 600; margin: 0 0 10px; padding: 0; }
+.wiz-grp { font-size: 11px; color: var(--muted); margin: 12px 0 6px; }
+.wiz-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.wiz-choice { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; background: var(--surface); }
+.wiz-choice:hover { border-color: var(--accent); }
+.wiz-choice.on { border-color: var(--accent); background: var(--surface2); }
+.wiz-choice input { margin: 2px 0 0; }
+.wiz-choice-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wiz-choice-t { font-size: 13px; font-weight: 600; }
+.wiz-choice-d { font-size: 12px; color: var(--muted); }
+.wiz-msg { margin-top: 10px; font-size: 12px; color: var(--red-ink); }
+.wiz-msg:empty { display: none; }
+.wiz-watch { margin-top: 12px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.wiz-state { font-weight: 600; }
+.wiz-chip { padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; overflow-wrap: anywhere; }
+.wiz-pin { margin: 6px 0 10px; }
+.wiz-result { margin-top: 12px; min-height: 20px; }
+.wiz-result:empty { display: none; }
+.wiz-list { display: grid; grid-template-columns: minmax(90px, 150px) 1fr; gap: 6px 14px; margin: 0; font-size: 13px; }
+.wiz-list dt { color: var(--muted); }
+.wiz-list dd { margin: 0; overflow-wrap: anywhere; }
+.wiz-review { margin-top: 4px; }
+.wiz-review-h { font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 6px; }
+.wiz-review-h:first-child { margin-top: 0; }
+.wiz-switch { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: -6px 0 10px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.wiz-guide-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; }
+.setup-step .row-8 { flex: 0 0 auto; align-items: center; }
+@media (max-width: 720px) {
+  .wiz-step:not(.active) .wiz-lbl { display: none; }
+  .wiz-choices { grid-template-columns: 1fr; }
+  .wiz-list { grid-template-columns: 1fr; gap: 0; }
+  .wiz-list dd { margin-bottom: 8px; }
+}
+/* ═══ WIZARDS (8.0.0) ═══ END ═════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
 /* ═══ PILOT LOOK (7.4.9) ═══ BEGIN ═════════════════════════════════════════════════════════════════════════════════════════════════
    The second look, chosen under My Account → Appearance (body[data-look]). Classic is the stylesheet above this block, unchanged:
    every selector below starts with body[data-look="pilot"], so nothing here can reach it (tests/test_v749_look_css.py holds that).

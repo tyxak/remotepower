@@ -11,6 +11,28 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
 
 ### Interface
 
+- **Two wizards, and a switch that shows a long form a few fields at a time.** All three sit beside the dialogs that were already there, and
+  nothing changes until you press a button or turn the switch on. **Add a host** (Hosts → Enroll host → **Guide me**, the empty Hosts page, and
+  Settings → Install → Getting started) asks for the type of host (Linux or macOS, Windows, Docker, an interactive install with a PIN, or a host
+  that cannot run the agent, which goes to the agentless form), then what the host gets when it joins: a group, tags, the networks the install may
+  connect from and how long the command lives. The token endpoint has taken all four since 7.4.9 and no page used them. It then shows the command, waits
+  for the host and says what the host got (name, group, tags, OS, address) with **Open host** and **Add another host**. **Add a notification
+  destination** (Settings → Notifications → **Guide me**, and Getting started) asks for one of the 18 services, what that service needs beyond a
+  name and a URL, and then sends a test message and shows the answer in the dialog (**Delivered** with the code, or **Not delivered** with the code and
+  what it usually means) instead of "check the log below". The destination is a draft that is switched off until the last step, so nothing real reaches
+  the channel before you say so. Closing the wizard removes a draft that never delivered. Destinations that were there before are kept, secrets
+  included. The **Step by step** switch at the top of **New maintenance window**, **Add monitor target**, **New backup job** and **New auto-patch
+  policy** (kept in this browser, off by default) shows the same form under a list of steps, skips a step the chosen type has nothing for, says at each
+  step what the form would refuse at the end (in the form's own words) and ends in a review of your choices. The form's own button saves. The code is one
+  lazy module, `app-wizard.js`, fetched when one of these is used. See `docs/wizards.md`. **Held by** `tests/test_wizards_e2e.py` (47 browser tests: the
+  token read back from the server's own list, hosts enrolled through the public endpoint and noticed by the page, the services checked against the
+  fields the editor draws, drafts and secrets, every block of every form owned by a step, each refusal compared with the form's own save, a phone,
+  right-to-left and all six languages).
+
+- **A backup job keeps every host you ticked.** Found while testing the step-by-step form. The New backup job dialog remembers the ticks, but its save read
+  only the boxes on screen, so a host that was ticked and then filtered out of the list with the box above it was left out of the job without a word.
+  The save now reads the ticks. A host that is no longer in the fleet is left out, as before.
+
 - **The dashboard keeps named layouts.** Under **Customize → Layouts** you can keep up to 8 layouts next to the one you have, each a name and the
   widgets it shows. Make one from a copy of the layout you are looking at, from one of four ready-made ones (Fleet overview, Security, Patching and
   Capacity) or from an empty one. Once you have one, a switcher appears next to Customize. The panel, the share code and the undo arrows work on the

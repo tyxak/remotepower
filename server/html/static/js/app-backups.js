@@ -110,6 +110,13 @@ function _backupRenderDeviceChecks(filter) {
     `<label class="click-row"><input type="checkbox" class="backupjob-devchk" value="${escAttr(dv.id)}"${_backupSelDevs.has(dv.id) ? ' checked' : ''}> <span>${escHtml(dv.name)}</span> <span class="meta-sm-nm">${escHtml(dv.group || '')}</span></label>`
   ).join('') : '<div class="empty-state">No hosts match.</div>';
 }
+// The hosts that are ticked, including the ones the filter above the list hides: the boxes on screen are only those that match it, so
+// reading them dropped a host that was ticked before the filter was typed. A host no longer in the fleet is left out.
+function _backupSelectedIds() {
+  const known = new Set((typeof devices !== 'undefined' ? devices : []).map(d => d.id));
+  const ids = [..._backupSelDevs];
+  return known.size ? ids.filter(id => known.has(id)) : ids;
+}
 function _backupWireDeviceFilter() {
   const box = document.getElementById('backupjob-devices');
   const flt = document.getElementById('backupjob-devfilter');
@@ -235,7 +242,7 @@ function _backupBuildSpec() {
 async function saveBackupJob() {
   const id = document.getElementById('backupjob-edit-id').value;
   const type = document.getElementById('backupjob-type').value;
-  const deviceIds = [...document.querySelectorAll('.backupjob-devchk:checked')].map(c => c.value);
+  const deviceIds = _backupSelectedIds();
   const body = {
     name: document.getElementById('backupjob-name').value.trim(),
     cron: document.getElementById('backupjob-cron').value.trim(),

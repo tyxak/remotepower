@@ -43,6 +43,10 @@ hours. The **Enroll host** window also shows a 6-digit PIN that expires after 10
 for installers that ask for one. (Windows details, service control, and the offline
 `install-windows.ps1` script: [windows-client.md](windows-client.md).)
 
+**Guide me.** The **Enroll host** window has a **Guide me** button that asks one thing at a time: the type of host, then a group, tags and the
+networks the install may come from, then the command, and it tells you when the host has checked in and what it got. See
+[wizards.md](wizards.md).
+
 **A server with its own certificate authority** (the Docker default) has a
 certificate no host trusts on its own, and `wget -q` fails without a word. When
 the server has its own CA, **Quick install command** adds a second line for Linux

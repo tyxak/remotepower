@@ -7,6 +7,8 @@ holds long-form docs that don't fit there.
 
 - **[install.md](install.md)** — Server install (Linux + Docker), client
  enrolment, optional webterm, demo vhost.
+- **[wizards.md](wizards.md)** — The Add a host and Add a notification
+ destination wizards, and the Step by step switch of the long forms.
 - **[requirements.md](requirements.md)** — Minimum/recommended server
  hardware (cores, RAM, disk) by fleet size, plus agent/client footprint.
 - **[admin-guide.md](admin-guide.md)** — Full install & operations guide:

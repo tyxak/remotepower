@@ -3088,7 +3088,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js'];   // 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens).
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js'];   // 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used).
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -3677,7 +3677,7 @@ function renderDevices() {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">${devIcon}</div>`
         + `<div class="empty-title">Add your first host</div>`
         + `<div class="empty-text">Enroll a machine to start monitoring it — generate a PIN or a one-line install command, then run it on the target host. It appears here within ~60 seconds.</div>`
-        + `<div class="empty-actions mt-12"><button class="btn-primary" data-action="openEnrollModal">${_icon('plus',14)} Enroll host</button></div></div>`;
+        + `<div class="empty-actions mt-12"><button class="btn-primary" data-action="openEnrollModal">${_icon('plus',14)} Enroll host</button> <button class="btn-secondary" data-action="wizOpen" data-arg="enroll">Guide me</button></div></div>`;
     } else {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">${devIcon}</div>`
         + `<div class="empty-title">No hosts match your filters</div>`
@@ -4103,6 +4103,31 @@ function openDetail(id, name) {
   // v2.9.0: replaced by device drawer
   openDeviceDrawer(id, name, 'audit');
 }function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
+// 8.0.0: the wizards and the step-by-step forms are app-wizard.js, fetched on first use; these are the entry points index.html names.
+function wizOpen(name) {
+  _loadJsModule('app-wizard.js').then(() => { if (typeof wizStart === 'function') wizStart(name); });
+}
+function wizOpenFrom(name, modalId) {
+  closeModal(modalId);
+  wizOpen(name);
+}
+function _wizFormWanted() {
+  try { return localStorage.getItem('rp_formsteps') === '1'; } catch (_) { return false; }
+}
+// The Step by step switch of a long form: one choice for every form that has it, kept in this browser.
+function wizFormToggle(id, on) {
+  try { if (on) localStorage.setItem('rp_formsteps', '1'); else localStorage.removeItem('rp_formsteps'); } catch (_) { /* private window */ }
+  _loadJsModule('app-wizard.js').then(() => { if (typeof _wizFormSync === 'function') _wizFormSync(id); });
+}
+// A form with the switch is opening: the switch shows the choice and the form goes into steps if that is the choice.
+if (_wizFormWanted()) setTimeout(() => _loadJsModule('app-wizard.js'), 2000);   // chose steps: have the module before a form opens
+function _wizFormOpened(el) {
+  const sw = el.querySelector('.wiz-switch input');
+  const want = _wizFormWanted();
+  if (sw) sw.checked = want;
+  if (typeof _wizFormSync === 'function') { _wizFormSync(el.id); return; }
+  if (want) _loadJsModule('app-wizard.js').then(() => { if (typeof _wizFormSync === 'function' && el.classList.contains('active')) _wizFormSync(el.id); });
+}
 async function generateNewPin() {
   const el = document.getElementById('pin-code');
   el.textContent = '……';
@@ -4119,29 +4144,9 @@ async function generateNewPin() {
     startPinCountdown(600);
   } catch (e) { el.textContent = 'ERROR'; }
 }
-// v4.7.0: one-click Docker-host enrollment. Mints a one-time enrollment token
-// and renders a ready-to-run compose file with this server's URL + the token
-// pre-filled. Built with createElement/textContent (never innerHTML string
-// interpolation) so the token can't break out — CSP-safe by construction.
-async function generateDockerEnroll() {
-  const box = document.getElementById('enroll-docker-result');
-  if (!box) return;
-  box.textContent = '';
-  const minting = document.createElement('div');
-  minting.className = 'c-muted'; minting.textContent = 'Minting one-time token…';
-  box.appendChild(minting);
-  let data;
-  try {
-    data = await api('POST', '/enrollment-tokens', { label: 'docker-host', expires_in: 86400 });
-  } catch (e) {
-    box.textContent = '';
-    toast('Could not mint enrollment token (admin only)', 'error');
-    return;
-  }
-  const token = (data && data.token) || '';
-  const server = window.location.origin;
-  const compose =
-`services:
+// The compose file of a Docker host; the Enroll dialog and the Add a host wizard print the same text.
+function dockerComposeText(server, token) {
+  return `services:
   remotepower-agent:
     image: ghcr.io/tyxak/remotepower-agent:latest
     container_name: remotepower-agent
@@ -4165,6 +4170,29 @@ async function generateDockerEnroll() {
       # - /var/run/docker.sock:/var/run/docker.sock:ro
 volumes:
   rp-agent-creds:`;
+}
+// v4.7.0: one-click Docker-host enrollment. Mints a one-time enrollment token
+// and renders a ready-to-run compose file with this server's URL + the token
+// pre-filled. Built with createElement/textContent (never innerHTML string
+// interpolation) so the token can't break out — CSP-safe by construction.
+async function generateDockerEnroll() {
+  const box = document.getElementById('enroll-docker-result');
+  if (!box) return;
+  box.textContent = '';
+  const minting = document.createElement('div');
+  minting.className = 'c-muted'; minting.textContent = 'Minting one-time token…';
+  box.appendChild(minting);
+  let data;
+  try {
+    data = await api('POST', '/enrollment-tokens', { label: 'docker-host', expires_in: 86400 });
+  } catch (e) {
+    box.textContent = '';
+    toast('Could not mint enrollment token (admin only)', 'error');
+    return;
+  }
+  const token = (data && data.token) || '';
+  const server = window.location.origin;
+  const compose = dockerComposeText(server, token);
   box.textContent = '';
   const hint = document.createElement('div');
   hint.className = 'hint mb-6';
@@ -5289,13 +5317,15 @@ async function loadSetup() {
       : s.required ? '<span class="ro-badge rs-failed">required</span>'
       : '<span class="ro-badge rs-paused">recommended</span>';
     const cnt = (s.id === 'first-device' && s.count != null) ? ` <span class="c-muted">(${s.count})</span>` : '';
+    const wiz = { 'first-device': 'enroll', 'notifications': 'notify' }[s.id];
+    const guide = (wiz && !s.done) ? `<button class="btn-primary" data-action="wizOpen" data-arg="${wiz}">Guide me</button>` : '';
     return `<div class="setup-step${s.done ? ' done' : ''}">
       <div class="setup-step-ico">${s.done ? check : circ}</div>
       <div class="setup-step-body">
         <div class="row-8-center"><strong>${escHtml(s.title)}</strong>${cnt} ${tag}</div>
         <div class="hint">${escHtml(s.detail)}</div>
       </div>
-      <button class="btn-secondary" data-action="gotoSetupStep" data-arg="${escAttr(s.page)}" data-arg2="${escAttr(s.tab || '')}">${s.done ? 'Review' : 'Set up'}</button>
+      <div class="row-8">${guide}<button class="btn-secondary" data-action="gotoSetupStep" data-arg="${escAttr(s.page)}" data-arg2="${escAttr(s.tab || '')}">${s.done ? 'Review' : 'Set up'}</button></div>
     </div>`;
   }).join('');
 }
@@ -7036,7 +7066,7 @@ function _isCloseControl(n) {
 // opening one dismissed it. Close is the fallback for a dialog that has nothing else.
 function _focusFirstIn(el) {
   const f = _modalFocusable(el);
-  const start = f.find(n => n.hasAttribute('autofocus')) || f.find(n => !_isCloseControl(n)) || f[0];
+  const start = f.find(n => n.hasAttribute('autofocus')) || f.find(n => !_isCloseControl(n) && !n.closest('.wiz-switch')) || f[0];
   if (start) { try { start.focus(); } catch (_) {} }
 }
 function _modalStackTop() {
@@ -7134,6 +7164,7 @@ function openModal(id) {
   const el = document.getElementById(id);
   if (!el) return;
   _ensureModalClose(el);
+  if (el.hasAttribute('data-wiz-steps')) _wizFormOpened(el);   // a long form can open in steps
   document.body.classList.remove('mobile-nav-open');
   // Remember what to restore focus to, and track open order for Escape/trap.
   _modalReturnFocus.set(el, _focusOpener());
@@ -7162,6 +7193,7 @@ function closeModal(id) {
   // v6.4.2: stop the enrollment watcher immediately rather than on its next
   // tick — the modal is gone, so the poll is pure waste from here on.
   if (id === 'enroll-modal') _stopEnrollWatch();
+  if (id === 'wizard-modal' && typeof _wizOnClose === 'function') _wizOnClose();   // stop the waits, clean up a draft
   if (id === 'tour-backdrop') _tourFinish();   // Escape ends the tour like Skip does
   const el = document.getElementById(id);
   if (el) { el.classList.remove('active'); el.style.zIndex = ''; }  // drop the stacked-modal raise
