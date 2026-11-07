@@ -11,6 +11,13 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
 
 ### Interface
 
+- **The fleet heat map can group its cells and colour them by more than the health score.** Two choices sit in the card header and are kept in this
+  browser. **Group by** cuts the grid into labelled blocks, each with its host count: group, site, OS, host type, agent version or status (the default is
+  no grouping). **Colour by** picks what the colour means: health score (the default), worst finding, pending updates or last check-in; a choice other than
+  the health score has a legend under the card. With the defaults the card draws the same grid as before. The Home data now carries each host's site, so
+  the site grouping needs nothing else. **Held by** `tests/test_home_layouts_e2e.py`, which recomputes every block and every cell colour in Python from the
+  data the card was drawn from.
+
 - **Pages with many cards show one group at a time.** Threat Intel, My Account, Sites and Reports have had tabs since 7.4.0. Thirteen more pages
   stacked three to seventeen blocks on one scroll, 1,662 to 4,737 px tall on the demo data, and they have the same strip now: Server Status (Health,
   Diagnostics, Traffic, Data and upkeep), Compliance (Frameworks, Baseline and scans, Personal data), Live Monitor (Checks, Hosts, Setup), Patches

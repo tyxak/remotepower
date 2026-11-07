@@ -6720,6 +6720,22 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .heatmap-grid { display: flex; flex-wrap: wrap; gap: 4px; }
 .heatmap-cell { width: 24px; height: 24px; border-radius: 4px; border: none; cursor: pointer; opacity: 0.85; padding: 0; }
 .heatmap-cell:hover { opacity: 1; outline: 2px solid var(--text); }
+/* 8.0.0: Group by and Colour by on the fleet heat map, the blocks a grouping draws, and the legend of a colour choice */
+.heatmap-opts { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin-inline-start: auto; }
+.heatmap-opt { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+.heatmap-opt select { max-width: 160px; }
+.heatmap-blocks { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 28px; }
+.heatmap-block { min-width: 0; max-width: 100%; }
+.heatmap-block-head { display: flex; align-items: center; gap: 4px; max-width: 24em; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.heatmap-block-head > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.heatmap-block-n { flex: none; font-size: 10px; padding: 0 6px; border: 1px solid var(--hair); border-radius: 8px; }
+.heatmap-legend { margin-top: 8px; }
+@media (max-width: 720px) {
+  /* a phone: the two choices share one row, each caption above its select, instead of stacking four lines */
+  .heatmap-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; width: 100%; margin-inline-start: 0; }
+  .heatmap-opt { flex-direction: column; align-items: stretch; gap: 2px; }
+  .heatmap-opt select { max-width: none; width: 100%; min-width: 0; }
+}
 .hh-spark { display: block; width: 120px; height: 32px; opacity: 0.9; }
 @media (max-width: 600px) {
   .hh-wrap { grid-template-columns: 1fr; gap: 12px; }

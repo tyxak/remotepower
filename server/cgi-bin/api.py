@@ -56016,6 +56016,7 @@ def handle_home():
             'os': dev.get('os', ''), 'ip': dev.get('ip', ''),
             'version': dev.get('version', ''), 'tags': dev.get('tags', []),
             'group': dev.get('group', ''), 'icon': dev.get('icon', ''),
+            'site': dev.get('site', ''),   # 8.0.0: the fleet heat map can group by site
             'monitored': dev.get('monitored', True),
             'metric_state': dev.get('metric_state') or {},
             'last_seen': last_ping, 'online': is_online,

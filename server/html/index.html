@@ -797,8 +797,32 @@
 
         <!-- Fleet heat map (v3.4.2) -->
         <div class="dash-card mb-16" id="home-heatmap-card" data-widget="heatmap">
-          <div class="row-8-center mb-6"><div class="section-title">Fleet heat map</div><span class="fs-12 c-muted">health score per host — green healthy, red needs attention</span></div>
+          <div class="row-8-center mb-6">
+            <div class="section-title">Fleet heat map</div>
+            <span id="home-heatmap-note" class="fs-12 c-muted">health score per host — green healthy, red needs attention</span>
+            <!-- 8.0.0: both choices are kept in this browser; the defaults draw the grid of 7.5.0 -->
+            <span class="heatmap-opts">
+              <span class="heatmap-opt"><span>Group by</span>
+                <select id="heat-group" class="form-input input-auto" data-change="setHeatmapUI" aria-label="Group by">
+                  <option value="none">No grouping</option>
+                  <option value="group">Group</option>
+                  <option value="site">Site</option>
+                  <option value="os">OS</option>
+                  <option value="type">Host type</option>
+                  <option value="agent">Agent version</option>
+                  <option value="status">Status</option>
+                </select></span>
+              <span class="heatmap-opt"><span>Colour by</span>
+                <select id="heat-color" class="form-input input-auto" data-change="setHeatmapUI" aria-label="Colour by">
+                  <option value="score">Health score</option>
+                  <option value="finding">Worst finding</option>
+                  <option value="updates">Pending updates</option>
+                  <option value="seen">Last check-in</option>
+                </select></span>
+            </span>
+          </div>
           <div id="home-heatmap" class="scroll-cap"></div>
+          <div id="home-heatmap-legend"></div>
         </div>
 
         <!-- Two-column: needs attention | recent activity -->

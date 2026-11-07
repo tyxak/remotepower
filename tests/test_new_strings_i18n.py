@@ -53,6 +53,25 @@ NEW_STRINGS = [
     "Diagnostics",
     "Data and upkeep",
     "Container images",         # CVEs
+    # the fleet heat map: Group by and Colour by, its blocks, legends and notes (a label the dictionary already had is not listed)
+    "No grouping",
+    "Host type",
+    "Worst finding",
+    "Colour by",
+    "Nothing open",
+    "None",
+    "Not reported",
+    "No group",
+    "No site",
+    "No agent",
+    "Under 5 minutes",
+    "Under an hour",
+    "Under a day",
+    "A day or more",
+    "Never or no agent",
+    "worst open finding per host — red critical, amber warning",
+    "pending updates per host — green none, red the most",
+    "time since each host last checked in — green recent, red long ago",
 ]
 
 

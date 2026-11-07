@@ -19277,22 +19277,150 @@ function _renderHomeHealth(health, history) {
     + `</div>`;
 }
 
-// v3.4.2: fleet heat map — one cell per device, coloured by health score.
-function _renderHomeHeatmap(health) {
+// v3.4.2: fleet heat map — one cell per host, coloured by health score.
+// 8.0.0: two choices on the card, both kept in this browser. Group by (none by default) cuts the grid into labelled blocks and
+// Colour by (health score by default) picks what the colour means. With the defaults the card draws the grid of 7.5.0.
+const _HEAT_GROUP_BY = ['none', 'group', 'site', 'os', 'type', 'agent', 'status'];   // the first value is the default
+const _HEAT_COLOR_BY = ['score', 'finding', 'updates', 'seen'];
+const _HEAT_NONE = { group: 'No group', site: 'No site', os: 'Unknown OS', type: 'Unknown', agent: 'No agent', status: 'Unknown' };
+const _HEAT_NOTE = {
+  score: 'health score per host — green healthy, red needs attention',
+  finding: 'worst open finding per host — red critical, amber warning',
+  updates: 'pending updates per host — green none, red the most',
+  seen: 'time since each host last checked in — green recent, red long ago',
+};
+const _heatMem = {};      // the choice for this page load, so a browser that refuses storage still keeps it until a reload
+let _heatData = null;     // the last payload: a change of choice redraws from it without asking the server again
+
+function _heatPref(name, allowed) {
+  let v = _heatMem[name];
+  if (v === undefined) {
+    try { v = localStorage.getItem('rp_heat_' + name); } catch (_) { v = null; }
+  }
+  return allowed.includes(v) ? v : allowed[0];
+}
+
+// The block a host falls in for a Group by choice. '' means "not set" and sorts last.
+function _heatBucket(by, h) {
+  if (!h) return '';
+  switch (by) {
+    case 'group':  return String(h.group || '').trim();
+    case 'site':   return String(h.site || '').trim();
+    case 'os':     return String(h.os || '').trim();
+    case 'type':   return String(h.device_type || (h.agentless ? 'agentless' : 'agent')).trim();
+    case 'agent':  return h.agentless ? '' : String(h.version || '').trim();
+    case 'status': return h.online ? 'Online' : 'Offline';
+    default:       return '';
+  }
+}
+
+// What one cell looks like for a Colour by choice: [colour, slot in that choice's legend, hover text].
+// Info is grey like the low severity pill: the accent colour is the user's own choice and cannot stand for a severity.
+function _heatLook(by, row, h, cuts) {
+  const name = row.device_name || row.device_id;
+  if (by === 'finding') {
+    const parts = [];
+    if (row.critical) parts.push(row.critical + ' critical');
+    if (row.warning) parts.push(row.warning + ' warning');
+    if (row.info) parts.push(row.info + ' info');
+    const slot = row.critical ? 0 : row.warning ? 1 : row.info ? 2 : 3;
+    return [['var(--red)', 'var(--amber)', 'var(--muted)', 'var(--green)'][slot], slot, name + ' — ' + (parts.join(' · ') || 'nothing open')];
+  }
+  if (by === 'updates') {
+    const n = h && !h.agentless && h.sysinfo && h.sysinfo.packages ? h.sysinfo.packages.upgradable : null;
+    if (typeof n !== 'number') return ['var(--muted)', 4, name + ' — no package data'];
+    const slot = n === 0 ? 0 : n < 10 ? 1 : n < 30 ? 2 : 3;
+    return [['var(--green)', 'var(--amber)', 'var(--orange)', 'var(--red)'][slot], slot, name + ' — ' + n + (n === 1 ? ' update' : ' updates') + ' pending'];
+  }
+  if (by === 'seen') {
+    if (!h || h.agentless || !h.last_seen) return ['var(--muted)', 4, name + (h && h.agentless ? ' — no agent' : ' — never checked in')];
+    const age = Math.max(0, Date.now() / 1000 - h.last_seen);
+    const slot = age < 300 ? 0 : age < 3600 ? 1 : age < 86400 ? 2 : 3;
+    return [['var(--green)', 'var(--amber)', 'var(--orange)', 'var(--red)'][slot], slot, name + ' — last check-in ' + timeAgo(h.last_seen)];
+  }
+  // Health score: the colours and the hover text of 7.5.0, at the operator's own cutoffs.
+  const s = row.score;
+  const slot = s >= cuts.good ? 0 : s >= cuts.fair ? 1 : s >= cuts.poor ? 2 : 3;
+  return [['var(--green)', '#d4a017', '#ff8c00', 'var(--red)'][slot], slot,
+    name + ' — health ' + s + '/100' + (row.critical ? ' · ' + row.critical + ' critical' : '') + (row.warning ? ' · ' + row.warning + ' warning' : '')];
+}
+
+// The legend of a Colour by choice other than the health score (the score keeps the sentence in the card header).
+function _heatLegend(by) {
+  const G = 'var(--green)', A = 'var(--amber)', O = 'var(--orange)', R = 'var(--red)', M = 'var(--muted)';
+  const items = by === 'finding' ? [[R, 'Critical'], [A, 'Warning'], [M, 'Info'], [G, 'Nothing open']]
+    : by === 'updates' ? [[G, 'None'], [A, '1–9'], [O, '10–29'], [R, '30+'], [M, 'Not reported']]
+    : [[G, 'Under 5 minutes'], [A, 'Under an hour'], [O, 'Under a day'], [R, 'A day or more'], [M, 'Never or no agent']];
+  return '<div class="ts-legend heatmap-legend">' + items.map(([c, l]) =>
+    '<span class="ts-leg"><span class="ts-dot" data-bg="' + c + '"></span>' + escHtml(l) + '</span>').join('') + '</div>';
+}
+
+function _renderHomeHeatmap(health, hosts) {
   const wrap = document.getElementById('home-heatmap');
   const card = document.getElementById('home-heatmap-card');
   if (!wrap) return;
-  const devs = (health && health.devices) || [];
-  if (devs.length < 2) { if (card) card.classList.add('d-none'); return; }
+  const rows = (health && health.devices) || [];
+  if (rows.length < 2) { if (card) card.classList.add('d-none'); return; }
   if (card) card.classList.remove('d-none');
-  // Colour per-device cells at the SAME operator-configured cutoffs the grade
-  // uses (delivered as health.grades from the server — one source of truth).
-  const _g = (health && health.grades) || {};
-  const _gGood = _g.good ?? 90, _gFair = _g.fair ?? 70, _gPoor = _g.poor ?? 40;
-  const color = s => s >= _gGood ? 'var(--green)' : s >= _gFair ? '#d4a017' : s >= _gPoor ? '#ff8c00' : 'var(--red)';
-  wrap.innerHTML = '<div class="heatmap-grid">' + devs.map(d =>
-    `<button class="heatmap-cell" data-bg="${color(d.score)}" data-action="openDeviceTimeline" data-arg="${escAttr(d.device_id)}" title="${escAttr(d.device_name)} — health ${d.score}/100${d.critical ? ` · ${d.critical} critical` : ''}${d.warning ? ` · ${d.warning} warning` : ''}"></button>`
-  ).join('') + '</div>';
+  _heatData = { health, hosts: hosts || [] };
+  _paintHeatmap();
+}
+
+function _paintHeatmap() {
+  const wrap = document.getElementById('home-heatmap');
+  if (!wrap || !_heatData) return;
+  const { health, hosts } = _heatData;
+  const rows = health.devices || [];
+  const by = _heatPref('group', _HEAT_GROUP_BY), colorBy = _heatPref('color', _HEAT_COLOR_BY);
+  const gSel = document.getElementById('heat-group'), cSel = document.getElementById('heat-color');
+  if (gSel && gSel.value !== by) gSel.value = by;
+  if (cSel && cSel.value !== colorBy) cSel.value = colorBy;
+  const note = document.getElementById('home-heatmap-note');
+  if (note && note.dataset.mode !== colorBy) { note.textContent = _HEAT_NOTE[colorBy]; note.dataset.mode = colorBy; }
+  // Colour the score cells at the SAME operator-configured cutoffs the grade uses
+  // (delivered as health.grades from the server — one source of truth).
+  const g = health.grades || {};
+  const cuts = { good: g.good ?? 90, fair: g.fair ?? 70, poor: g.poor ?? 40 };
+  const byId = new Map(hosts.map(h => [h.id, h]));
+  const cell = d => {
+    const look = _heatLook(colorBy, d, byId.get(d.device_id), cuts);
+    return '<button class="heatmap-cell" data-bg="' + look[0] + '" data-action="openDeviceTimeline" data-arg="' + escAttr(d.device_id)
+      + '" title="' + escAttr(look[2]) + '"></button>';
+  };
+  let html;
+  if (by === 'none') {
+    html = '<div class="heatmap-grid">' + rows.map(cell).join('') + '</div>';
+  } else {
+    const blocks = new Map();
+    rows.forEach(d => {
+      const k = _heatBucket(by, byId.get(d.device_id));
+      if (!blocks.has(k)) blocks.set(k, []);
+      blocks.get(k).push(d);
+    });
+    const keys = [...blocks.keys()].sort((a, b) =>
+      (a === '') - (b === '') || a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    html = '<div class="heatmap-blocks">' + keys.map(k => {
+      const label = k || _HEAT_NONE[by], list = blocks.get(k);
+      return '<div class="heatmap-block" role="group" aria-label="' + escAttr(label) + '">'
+        + '<div class="heatmap-block-head" title="' + escAttr(label) + '"><span>' + escHtml(label) + '</span> <span class="heatmap-block-n">' + list.length + '</span></div>'
+        + '<div class="heatmap-grid">' + list.map(cell).join('') + '</div></div>';
+    }).join('') + '</div>';
+  }
+  wrap.innerHTML = html;
+  // The legend sits under the scrolling area, not in it, so a long grouping never pushes it out of sight.
+  const legend = document.getElementById('home-heatmap-legend');
+  if (legend) legend.innerHTML = colorBy === 'score' ? '' : _heatLegend(colorBy);
+}
+
+function setHeatmapUI() {
+  const g = document.getElementById('heat-group'), c = document.getElementById('heat-color');
+  if (g) _heatMem.group = g.value;
+  if (c) _heatMem.color = c.value;
+  try {
+    if (g) localStorage.setItem('rp_heat_group', g.value);
+    if (c) localStorage.setItem('rp_heat_color', c.value);
+  } catch (_) { /* the choice then lasts until the page is reloaded */ }
+  _paintHeatmap();
 }
 
 function _gradeFor(score) { return _healthGrade(score); }   // uses config cutoffs
@@ -19797,7 +19925,7 @@ async function loadHome() {
   _renderHomeTiles(devs, drift, cves, mailwatch);
   _renderHomeHero(devs, home.health);   // 7.4.9: the Pilot look's hero; Classic draws none
   _renderHomeHealth(home.health, home.health_history);
-  _renderHomeHeatmap(home.health);
+  _renderHomeHeatmap(home.health, devs);
   _renderHomeAttention(home.attention);
   _renderHomeActivity(fleetEvents);
   _renderHomeFleet(devs);
