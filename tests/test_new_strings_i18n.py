@@ -52,6 +52,7 @@ NEW_STRINGS = [
     "Traffic",                   # Server Status
     "Diagnostics",
     "Data and upkeep",
+    "Container images",         # CVEs
 ]
 
 

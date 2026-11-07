@@ -100,6 +100,10 @@ _MEASURE = r"""(name) => {
   const lg = root.querySelector('#links-grid');
   out.linksGridMax = lg ? parseFloat(getComputedStyle(lg).maxHeight) || 0 : null;
   out.innerHeight = window.innerHeight;
+  // page sections: how many titled cards the page has and how tall it is with every card showing (this walk runs with One long
+  // page chosen), and whether it has a tab strip. The strip is hidden in this mode, not absent.
+  out.sections = {titled: [...root.querySelectorAll('.section-title')].filter(vis).length,
+                  height: Math.round(root.getBoundingClientRect().height), strip: !!root.querySelector('nav.pg-tabs[data-pg]')};
   // a control smaller than 24 x 24 px (WCAG 2.2, 2.5.8). SVG parts are not controls of the page's own.
   out.targets = {measured: 0, small: []};
   for (const e of root.querySelectorAll('button, input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, [role=button], summary')) {
@@ -133,6 +137,20 @@ DEVICE_ALLOWED = [
      'and a program that reads device= must keep reading it'),
 ]
 _DEVICE = re.compile(r'\bdevices?\b', re.I)
+
+# Page sections. A page with this many titled cards, or this tall with every card showing, has the tab strip (pgTab in app.js), so it
+# does not stack five cards or more on one scroll. Measured on the demo seed at 1440 x 900: the median page has 2 titled cards and is
+# 938 px tall, 41 of 85 have one or none. The rule is not "every page": a strip with one tab is noise.
+SECTIONS_MAX_CARDS = 5
+SECTIONS_MAX_PX = 1800
+# Pages that meet the rule and have no strip, each with the reason. A listed page that gets tabs or shrinks fails the walk until it
+# is taken off the list, so the list only gets shorter.
+SECTIONS_EXEMPT = {
+    'home': 'a dashboard the user arranges from 71 widgets: several named dashboards would be the answer there, not tabs over a fixed set',
+    'docs': 'reference text: 89 cards, each folded, with a search over them; it needs an outline, not tabs',
+    'advisory': 'one list of findings, each folded to a line: 27 titles in 865 px',
+    'settings': 'has its own left navigation and shows one pane at a time',
+}
 
 
 def device_words(page_name, texts):
@@ -321,6 +339,29 @@ class TestEverySidebarPageRendered(unittest.TestCase):
         unmarked = {n: (r['headings']['cardTitles'], r['headings']['cardTitlesMarked']) for n, r in self.rendered.items()
                     if r['headings']['cardTitlesMarked'] != r['headings']['cardTitles']}
         self.assertEqual(unmarked, {}, 'a card title that is not a heading is invisible to a screen reader\'s heading list')
+
+    def test_a_page_with_many_cards_or_a_long_scroll_has_tabs(self):
+        if _SUBSET:
+            self.skipTest('RP_SWEEP_PAGES: a subset walk')
+        long_page = lambda r: r['sections']['titled'] >= SECTIONS_MAX_CARDS or r['sections']['height'] > SECTIONS_MAX_PX   # noqa: E731
+        needs = {n: r['sections'] for n, r in self.rendered.items() if long_page(r) and not r['sections']['strip']}
+        unexplained = {n: s for n, s in needs.items() if n not in SECTIONS_EXEMPT}
+        self.assertEqual(unexplained, {}, f'a page with {SECTIONS_MAX_CARDS}+ titled cards or taller than {SECTIONS_MAX_PX} px (every card '
+                                          'showing) needs tabs: tag its cards with data-pg-tab and add a .pg-tabs strip, or list it in '
+                                          'SECTIONS_EXEMPT with the reason')
+        # control: the walk measured the pages, and found the ones that have the strip (3 of the old four are sidebar pages, and 11 gained it)
+        self.assertGreaterEqual(sum(1 for r in self.rendered.values() if r['sections']['strip']), 14)
+        self.assertGreater(sum(r['sections']['titled'] for r in self.rendered.values()), 150, 'control: the walk counted the card titles')
+        # an exemption has an expiry date: a listed page that grew tabs or got short comes off the list
+        for name, why in SECTIONS_EXEMPT.items():
+            self.assertGreater(len(why), 25, name)
+            self.assertIn(name, needs, f'{name} no longer needs its exemption: remove it from SECTIONS_EXEMPT')
+
+    def test_the_tabs_rule_sees_a_long_page_and_a_short_one(self):
+        long_page = lambda s: s['titled'] >= SECTIONS_MAX_CARDS or s['height'] > SECTIONS_MAX_PX   # noqa: E731
+        self.assertTrue(long_page({'titled': 5, 'height': 900}))
+        self.assertTrue(long_page({'titled': 1, 'height': 1801}))
+        self.assertFalse(long_page({'titled': 4, 'height': 1800}))
 
     def test_controls_are_at_least_24_pixels_across(self):
         measured = sum(r['targets']['measured'] for r in self.rendered.values())
