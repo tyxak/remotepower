@@ -444,13 +444,14 @@ class TestTheSweep(_Sweep):
         self.assertEqual((self.queue(), self.receipts()), ({}, []), "a request a moment later does not sweep")
 
     def test_an_offline_host_is_not_sent_a_command_that_would_wait_for_it(self):
-        devs = json.loads((Path(api.DEVICES_FILE)).read_text())
-        devs["d1"]["last_seen"] = 1                 # save() refuses to move last_seen back, so the file is written directly
-        Path(api.DEVICES_FILE).write_text(json.dumps(devs))
-        api._LOAD_CACHE.clear()
+        # save() refuses to move a stored last_seen back, and writing the JSON file directly only works on that backend. A host that is new to the
+        # store has nothing to move back from, so the offline host is a new one, seeded with an old last_seen: the same on every backend.
+        now = int(time.time())
+        _seed(containers={"d9": {"reported_at": now, "items": [box(digest=OLD)]}},
+              devices={"d9": {"id": "d9", "name": "web09", "last_seen": 1, "token": "t9", "sysinfo": {}}})
         self.sweep()
         self.assertEqual(self.queue(), {})
-        self.assertEqual([h["reason"] for h in self.last_run()["held"] if h["device"] == "web01"], ["host offline"])
+        self.assertEqual([h["reason"] for h in self.last_run()["held"] if h["device"] == "web09"], ["host offline"])
 
     def test_a_closed_time_period_holds_it_and_an_open_one_lets_it_go(self):
         always = {"id": "always", "name": "Always", "weekly": {str(d): [[0, 1440]] for d in range(7)}}
