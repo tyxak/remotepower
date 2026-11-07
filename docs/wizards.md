@@ -9,6 +9,7 @@ turn the switch on, and the dialogs they sit next to are still there.
 | Add a notification destination | **Settings → Notifications → Webhook destinations → Guide me**, or **Settings → Install → Getting started** | A wizard in four steps |
 | Add an integration | **Settings → Integrations → Guide me**, next to **Add** | A wizard in four steps |
 | Set up email | **Settings → Notifications → Email notifications (SMTP) → Guide me**, or the **Email (SMTP)** card of the notification wizard | A wizard in five steps |
+| Set up single sign-on | **Settings → Integrations → OIDC / OpenID Connect → Guide me** | A wizard in six steps |
 | Fill in a long form one part at a time | The **Step by step** switch at the top of a form | The same form, a few fields at a time |
 
 Only administrators can make install commands, PINs, notification destinations and integrations. Someone who cannot is shown the server's refusal.
@@ -83,6 +84,37 @@ nothing. The boxes of the Settings page show what was saved, so pressing **Save 
 A password you typed is stored and never shown again. If one is saved, leave the box empty to keep it; it is only kept for the same server and
 user name, so a new server asks for the password again. If the server's environment holds `RP_SMTP_PASSWORD`, that password is used and the
 box is not needed. The guide is for the platform operator, like the form.
+
+## Set up single sign-on
+
+The OIDC card in **Settings → Integrations** is seven boxes, and what goes in them depends on what you created in your identity provider. The
+guide follows that order. It covers OpenID Connect; SAML and LDAP keep their cards.
+
+1. **Provider.** Authentik, Authelia, Keycloak, Pocket ID, Zitadel, or another OpenID Connect provider. If single sign-on is set up already, the
+   choice that matches its issuer is selected and the guide says it replaces those settings.
+2. **Register.** The values to copy into your provider, each with a **Copy** button: the **redirect address** (`/api/auth/oidc/callback` on the
+   address this page is open at) and the scopes (`openid profile email groups`). A note says what to create there and what that provider needs.
+   RemotePower sends the client secret in the request body, which is `client_secret_post`, so Authelia is told to set it, Zitadel to choose
+   Post, and Keycloak to add a Group Membership mapper with Add to ID token on, because RemotePower reads the groups from the ID token and nowhere
+   else. Zitadel sends no claim named `groups` or `roles` by itself, and the note says everyone stays a viewer until an Action adds one.
+3. **Connection.** The issuer URL, the client ID, the client secret and the scopes (they must include `openid`). The issuer must be an
+   `http://` or `https://` address, as the Settings save requires. If a secret is saved, leave the box empty to keep it; it is only kept for the same
+   issuer and client ID, so a different provider asks for the secret again.
+4. **Roles.** The admin group and the group → role map, one `group=role` per line. The map is the one SAML uses too, and it is kept as it is if you
+   do not touch it.
+5. **Test.** **Test discovery** asks the server to read the provider's discovery document for the issuer as typed, and saves nothing. **Reachable**
+   means the document was read. The test then names what the provider does not offer: scopes you asked for that it does not list (usually
+   `groups`), a token request that does not list `client_secret_post`, a missing authorization code flow. It also shows the callback address the
+   server itself will send to the provider when it differs from the one on this page, which is what to register if you sit behind a proxy that
+   changes the host or the scheme. **Not reachable** shows the server's own words.
+6. **Finish.** A summary and **Turn it on**. It saves what the card saves, with OIDC switched on, and puts the values in the card.
+
+Everyone the provider lets in gets an account here, as a viewer, the first time they sign in, and OIDC has no list of allowed groups of its own: limit
+who may use the application in the provider. The guide says so on the **Register** and **Finish** steps. Local accounts keep working. To try the
+sign-in, open the sign-in page in a private window and keep the window you are in signed in until it works: the session of a sign-in lands in the
+browser it happened in.
+
+Nothing is saved before **Turn it on**, so closing the guide earlier changes nothing. The settings are the platform operator's, like the card.
 
 ## Add an integration
 

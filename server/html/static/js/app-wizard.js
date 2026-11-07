@@ -1356,7 +1356,276 @@ function _wizSmtpSync(st, events) {
   if (events) document.querySelectorAll('#event-toggle-table .toggle-email').forEach(cb => { cb.checked = events[cb.dataset.event] === true; });
 }
 
-const _WIZARDS = { enroll: _wizEnrollDef, notify: _wizNotifyDef, integration: _wizIntegDef, smtp: _wizSmtpDef };
+// ── "Set up single sign-on" ───────────────────────────────────────────────────────────────────────────────────────────────
+// OpenID Connect against the identity provider the person runs: which one (a note on what to create there), the values to copy into it, the issuer
+// and the client, who is an administrator, and a check that this server can read the provider's settings. The server checks an issuer that is not
+// saved yet, so nothing is stored before the last step. RemotePower reads the user name, the email and the groups from the ID token, and sends the
+// client secret in the request body: the notes say what each provider needs for that. An account is made for everyone the provider lets in, as a
+// viewer, and the guide says so twice. `match` is how a saved issuer is recognised.
+const _WIZ_OIDC = {
+  authentik: { name: 'Authentik', issuer: 'https://authentik.example.com/application/o/remotepower/', match: /\/application\/o\//i,
+    note: 'In authentik, create an OAuth2/OpenID provider and an application that uses it, with client type Confidential and the redirect address below. The issuer is https://your-authentik/application/o/<slug>/ with the slash at the end.' },
+  authelia: { name: 'Authelia', issuer: 'https://auth.example.com',
+    note: 'In Authelia, add a client under identity_providers, oidc, clients with the redirect address below and token_endpoint_auth_method client_secret_post, because RemotePower sends the secret in the request body. Add a claims policy that puts the groups into the ID token. The issuer is the address of Authelia itself.' },
+  keycloak: { name: 'Keycloak', issuer: 'https://keycloak.example.com/realms/home', match: /\/realms\//i,
+    note: 'In Keycloak, create an OpenID Connect client with Client authentication on, the standard flow and the redirect address below. Add a Group Membership mapper to it with the claim name groups, full group path off and Add to ID token on. The issuer is https://your-keycloak/realms/<realm>.' },
+  pocketid: { name: 'Pocket ID', issuer: 'https://id.example.com',
+    note: 'In Pocket ID, add an OIDC client with the callback address below. The client secret is shown once, so copy it before you leave the page. The issuer is the address of Pocket ID itself.' },
+  zitadel: { name: 'Zitadel', issuer: 'https://your-instance.zitadel.cloud', match: /zitadel/i,
+    note: 'In Zitadel, create a Web application with the authorization code flow and the redirect address below, and choose Post as the authentication method, because RemotePower sends the secret in the request body. Zitadel does not send a claim named groups or roles by itself, so everyone stays a viewer here until an Action adds one. The issuer is the address of your Zitadel instance.' },
+  other: { name: 'Another OpenID Connect provider', issuer: 'https://auth.example.com',
+    note: 'Create a confidential client, a server-side web application with a client secret, that uses the authorization code flow with the redirect address below. RemotePower sends the secret in the request body and reads the user name, the email and the groups from the ID token. The issuer is the address that serves /.well-known/openid-configuration.' },
+};
+const _WIZ_OIDC_SCOPES = 'openid profile email groups';
+
+function _wizOidcDef() {
+  return {
+    title: 'Set up single sign-on',
+    init: () => ({ cfg: null, provider: '', issuer: '', cid: '', secret: '', scopes: _WIZ_OIDC_SCOPES, admin: '', map: '', saved: null, secretSaved: false,
+                   touched: {}, verdict: null, sending: false }),
+    steps: [
+      { label: 'Provider', render: _wizOidcProvider, validate: st => (st.provider ? null : { msg: 'Choose a service', focus: 'wiz-idp' }) },
+      { label: 'Register', render: _wizOidcRegister },
+      { label: 'Connection', render: _wizOidcConnection, validate: _wizOidcCheck },
+      { label: 'Roles', render: _wizOidcRoles, validate: _wizOidcCheckRoles },
+      { label: 'Test', render: _wizOidcTest },
+      { label: 'Finish', render: _wizOidcFinish, primary: 'Turn it on', next: _wizOidcOn },
+    ],
+  };
+}
+
+function _wizOidcGuess(issuer) {
+  const i = String(issuer || '').trim();
+  if (!i) return '';
+  for (const k of Object.keys(_WIZ_OIDC)) if (_WIZ_OIDC[k].match && _WIZ_OIDC[k].match.test(i)) return k;
+  return 'other';
+}
+
+// The saved settings become the starting point, as values that were not typed.
+function _wizOidcFill(st) {
+  const c = st.cfg || {};
+  st.secretSaved = !!c.oidc_client_secret_set;
+  const m = c.sso_group_roles && typeof c.sso_group_roles === 'object' ? c.sso_group_roles : {};
+  st.map = Object.keys(m).map(g => g + '=' + m[g]).join('\n');
+  if (!String(c.oidc_issuer || '').trim()) return;
+  st.saved = { issuer: String(c.oidc_issuer).trim(), cid: String(c.oidc_client_id || '').trim() };
+  st.issuer = st.saved.issuer;
+  st.cid = st.saved.cid;
+  st.scopes = String(c.oidc_scopes || '').trim() || _WIZ_OIDC_SCOPES;
+  st.admin = String(c.oidc_admin_group || '');
+  st.provider = _wizOidcGuess(st.issuer);
+}
+
+function _wizOidcProvider(st, body) {
+  if (!st.cfg) {
+    body.appendChild(_wizNode('div', 'hint', 'Loading…'));
+    api('GET', '/config').catch(() => null).then(c => {
+      st.cfg = (c && !c.error) ? c : {};
+      _wizOidcFill(st);
+      if (_wiz && _wiz.st === st && _wiz.i === 0) _wizShow(0);
+    });
+    return;
+  }
+  if (st.saved) body.appendChild(_wizNode('div', 'hint mb-12', 'Single sign-on is already set up. This guide replaces those settings.'));
+  _wizChoices(body, {
+    legend: 'Which identity provider do you use?', name: 'wiz-idp', value: st.provider,
+    items: Object.keys(_WIZ_OIDC).map(k => ({ v: k, t: _WIZ_OIDC[k].name })),
+    onPick: v => { if (v !== st.provider) { st.provider = v; st.verdict = null; } },
+  });
+}
+
+function _wizOidcRegister(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'Create an application for RemotePower in your identity provider with these values.'));
+  body.appendChild(_wizNode('div', 'hint mb-12', _WIZ_OIDC[st.provider].note));
+  _wizCommand(body, 'wiz-oidc-redirect', 'Redirect address', '', window.location.origin + '/api/auth/oidc/callback');
+  _wizCommand(body, 'wiz-oidc-scopes', 'Scopes', '', _WIZ_OIDC_SCOPES);
+  body.appendChild(_wizNode('div', 'hint', 'The client is confidential: it has a client secret that you copy into the next step.'));
+  body.appendChild(_wizNode('div', 'hint mt-8', 'Everyone the provider lets in gets a viewer account here. Limit who may use the application in the provider.'));
+}
+
+// The secret may stay empty when one is saved for this same issuer and client, so a secret is never sent to another provider by accident.
+function _wizOidcSecretOk(st) {
+  if (st.secret !== '') return true;
+  return st.secretSaved && !!st.saved && st.issuer.trim() === st.saved.issuer && st.cid.trim() === st.saved.cid;
+}
+
+function _wizOidcConnection(st, body) {
+  const p = _WIZ_OIDC[st.provider];
+  const typed = k => v => { st[k] = v; st.touched[k] = true; st.verdict = null; };
+  _wizField(body, { id: 'wiz-issuer', label: 'Issuer URL', value: st.issuer, placeholder: p.issuer, maxlength: 500, onInput: typed('issuer') });
+  _wizField(body, { id: 'wiz-cid', label: 'Client ID', value: st.cid, maxlength: 255, onInput: typed('cid') });
+  _wizField(body, {
+    id: 'wiz-secret', label: 'Client Secret', type: 'password', value: st.secret, maxlength: 1024, onInput: typed('secret'),
+    hint: st.secretSaved ? 'Leave empty to keep the saved secret. Type it again if you change the issuer or the client ID.' : '',
+  });
+  _wizField(body, { id: 'wiz-scopes', label: 'Scopes', value: st.scopes, placeholder: _WIZ_OIDC_SCOPES, maxlength: 255, onInput: typed('scopes') });
+}
+
+function _wizOidcCheck(st) {
+  const issuer = st.issuer.trim();
+  if (!issuer) return { msg: 'Set the issuer first', focus: 'wiz-issuer' };
+  if (!/^https?:\/\/[^\s/]+/i.test(issuer)) return { msg: 'The issuer must start with http:// or https://', focus: 'wiz-issuer' };
+  if (!st.cid.trim()) return { msg: 'Set the client ID first', focus: 'wiz-cid' };
+  if (!_wizOidcSecretOk(st)) return { msg: 'This field is needed', focus: 'wiz-secret' };
+  if (!st.scopes.split(/[\s,]+/).includes('openid')) return { msg: 'The scopes must include openid', focus: 'wiz-scopes' };
+  return null;
+}
+
+function _wizOidcRoles(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'Who is an administrator?'));
+  body.appendChild(_wizNode('div', 'hint mb-12', 'RemotePower reads the groups from the ID token, from a claim named groups or roles. Check in your provider that it puts them there.'));
+  _wizField(body, {
+    id: 'wiz-admin', label: 'Admin group (optional)', value: st.admin, placeholder: 'remotepower-admins', maxlength: 255, onInput: v => { st.admin = v; },
+    hint: 'Members of this group get the admin role. Everyone else gets viewer unless the map below says otherwise.',
+  });
+  _wizField(body, {
+    id: 'wiz-map', label: 'Group → role map (optional)', value: st.map, rows: 3, placeholder: 'sec-ops=auditor\nfinance-team=finance', onInput: v => { st.map = v; },
+    hint: 'One group=role per line, for example sec-ops=auditor. The same map is used for SAML.',
+  });
+}
+
+function _wizOidcCheckRoles(st) {
+  const bad = String(st.map || '').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#')).some(l => l.indexOf('=') <= 0 || l.slice(l.indexOf('=') + 1).trim() === '');
+  return bad ? { msg: 'Each line needs group=role', focus: 'wiz-map' } : null;
+}
+
+function _wizOidcTest(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'Check that this server can reach the provider and read its settings.'));
+  const row = _wizNode('div', 'row-8');
+  const b = _wizNode('button', 'btn-primary', 'Test discovery');
+  b.type = 'button';
+  b.id = 'wiz-test';
+  b.setAttribute('data-action', 'wizOidcTest');
+  row.appendChild(b);
+  body.appendChild(row);
+  const out = _wizNode('div', 'wiz-result');
+  out.id = 'wiz-result';
+  out.setAttribute('role', 'status');
+  body.appendChild(out);
+  _wizOidcPaint();
+}
+
+// What the discovery document says about the things RemotePower depends on, as lines to show. A list that the provider does not give says
+// nothing, so nothing is claimed about it.
+function _wizOidcChecks(st, r) {
+  const out = [];
+  const want = st.scopes.split(/[\s,]+/).filter(Boolean);
+  if (Array.isArray(r.scopes_supported)) {
+    const missing = want.filter(s => !r.scopes_supported.includes(s));
+    if (missing.length) out.push({ text: 'The provider does not list these scopes:', mono: missing.join(' ') });
+  }
+  const methods = r.token_endpoint_auth_methods_supported;
+  if (Array.isArray(methods) && methods.length && !methods.includes('client_secret_post')) {
+    out.push({ text: 'The provider does not list client_secret_post for the token request, and RemotePower sends the secret in the request body.' });
+  }
+  const grants = r.grant_types_supported;
+  if (Array.isArray(grants) && grants.length && !grants.includes('authorization_code')) out.push({ text: 'The provider does not list the authorization code flow.' });
+  const mine = window.location.origin + '/api/auth/oidc/callback';
+  if (r.redirect_uri_needed && r.redirect_uri_needed !== mine) {
+    out.push({ text: 'The server sees the callback address differently from this page. Register the one below if it is not the address on the second step.', mono: r.redirect_uri_needed });
+  }
+  return out;
+}
+
+function _wizOidcPaint() {
+  const out = document.getElementById('wiz-result');
+  const w = _wiz;
+  if (!out || !w) return;
+  const v = w.st.verdict;
+  out.textContent = '';
+  if (w.st.sending) { out.className = 'wiz-result c-muted'; out.textContent = 'Testing…'; return; }
+  if (!v) { out.className = 'wiz-result'; return; }
+  const top = (cls, state) => {
+    out.className = 'wiz-result ' + cls;
+    const row = _wizNode('div', 'row-8-center');
+    row.appendChild(_wizNode('span', 'wiz-state', state));
+    out.appendChild(row);
+  };
+  if (v.kind === 'ok') {
+    top(v.checks.length ? 'c-amber' : 'c-green', 'Reachable');
+    out.appendChild(_wizNode('div', 'hint mt-6', 'The provider answered and its settings were read.'));
+    v.checks.forEach(c => {
+      out.appendChild(_wizNode('div', 'hint mt-6', c.text));
+      if (c.mono) out.appendChild(_wizNode('div', 'hint ff-mono', c.mono));
+    });
+  } else {
+    top('c-red', 'Not reachable');
+    out.appendChild(_wizNode('div', 'hint mt-6', 'Check the issuer, and that this server can reach it.'));
+    if (v.detail) out.appendChild(_wizNode('div', 'hint ff-mono', v.detail));
+  }
+}
+
+// Asks the server to read the discovery document of the issuer as typed. Nothing is saved.
+async function wizOidcTest() {
+  const w = _wiz;
+  if (!w || w.busy) return;
+  const st = w.st;
+  st.verdict = null;
+  st.sending = true;
+  _wizOidcPaint();
+  const btn = document.getElementById('wiz-test');
+  if (btn) btn.disabled = true;
+  _wizBusy(true);
+  let r = null;
+  try {
+    r = await api('POST', '/auth/oidc/test', { issuer: st.issuer.trim() });
+  } catch (_) {
+    r = null;
+  } finally {
+    st.sending = false;
+    if (_wiz === w) _wizBusy(false);
+    const again = document.getElementById('wiz-test');
+    if (again) again.disabled = false;
+  }
+  if (_wiz !== w) return;
+  if (r && r.ok === true) st.verdict = { kind: 'ok', checks: _wizOidcChecks(st, r) };
+  else st.verdict = { kind: 'fail', detail: String((r && r.error) || '') };
+  _wizOidcPaint();
+}
+
+function _wizOidcFinish(st, body) {
+  const v = st.verdict;
+  const mapLines = String(st.map || '').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#')).length;
+  _wizList(body, [
+    ['Service', _WIZ_OIDC[st.provider].name],
+    ['Issuer URL', st.issuer.trim()],
+    ['Client ID', st.cid.trim()],
+    ['Admin group (optional)', st.admin.trim() || '—'],
+    ['Group → role map (optional)', String(mapLines)],
+    ['Test', v && v.kind === 'ok' ? 'Reachable' : 'Not tested'],
+  ]);
+  if (!(v && v.kind === 'ok')) body.appendChild(_wizNode('div', 'hint mt-8', 'It was not tested. A wrong issuer shows up as a failed sign-in.'));
+  body.appendChild(_wizNode('div', 'hint mt-8', 'Turning it on adds a Sign in with SSO button to the sign-in page. Local accounts keep working, and anyone the provider lets in gets a viewer account.'));
+  body.appendChild(_wizNode('div', 'hint mt-8', 'To try it, open the sign-in page in a private window. Keep this window signed in until it works.'));
+}
+
+// Saves what the OIDC card in Settings saves, with sign-in switched on. A secret that was not typed is not sent, so the saved one stays.
+async function _wizOidcOn(st, w) {
+  const body = { oidc_enabled: true, oidc_issuer: st.issuer.trim(), oidc_client_id: st.cid.trim(), oidc_scopes: st.scopes.trim() || _WIZ_OIDC_SCOPES,
+                 oidc_admin_group: st.admin.trim(), sso_group_roles: _parseGroupRoleMap(st.map) };
+  if (st.secret !== '') body.oidc_client_secret = st.secret;
+  const r = await api('POST', '/config', body);
+  if (!r || r.error || r.ok === false) { _wizMsg((r && r.error) || 'Save failed', ''); return false; }
+  w.finished = true;
+  _wizOidcSync(st, body);
+  toast('Single sign-on turned on', 'success');
+  return true;
+}
+
+// The OIDC card takes what was saved, so a later Save of that card writes the same values and not the ones it showed before.
+function _wizOidcSync(st, body) {
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+  const en = document.getElementById('oidc-enabled');
+  if (en) en.checked = true;
+  set('oidc-issuer', body.oidc_issuer);
+  set('oidc-client-id', body.oidc_client_id);
+  set('oidc-client-secret', '');
+  set('oidc-scopes', body.oidc_scopes);
+  set('oidc-admin-group', body.oidc_admin_group);
+  set('sso-group-roles', Object.keys(body.sso_group_roles).map(g => g + '=' + body.sso_group_roles[g]).join('\n'));
+}
+
+const _WIZARDS = { enroll: _wizEnrollDef, notify: _wizNotifyDef, integration: _wizIntegDef, smtp: _wizSmtpDef, oidc: _wizOidcDef };
 
 // ── step-by-step mode of the long forms ──────────────────────────────────────────────────────────────────────────────────
 // Each form lists its steps. A step names the controls (or the blocks of the form) it holds by id; the block of the form that holds the

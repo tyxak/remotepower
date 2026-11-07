@@ -82,7 +82,18 @@ and `X-Forwarded-Proto`).
 Use **Test discovery** (`POST /api/auth/oidc/test`, admin) after saving — it
 fetches the discovery document fresh and reports the four key endpoints plus
 warnings for the common misconfigurations (missing client id/secret, no
-`openid` scope, missing endpoints).
+`openid` scope, missing endpoints, a provider that lists token-request
+authentication methods and not `client_secret_post`, which is how RemotePower
+sends the secret). With an `issuer` in the body the server reads that provider's
+document instead and stores nothing; that is the platform operator's, because
+the server connects to an address from the request. **Guide me** on the card
+sets all of this up in steps, with a note per provider: see
+[wizards.md](wizards.md#set-up-single-sign-on).
+
+**Who gets in.** Once OIDC is on, everyone your provider lets sign in to the
+application gets an account here on their first sign-in, as a viewer unless a
+group maps to another role. There is no allowed-group setting on the OIDC side,
+so limit who may use the application in the provider.
 
 Flow details worth knowing:
 

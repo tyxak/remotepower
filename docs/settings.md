@@ -134,7 +134,7 @@ Everything that connects RemotePower to other systems:
   [status-board.md](status-board.md).
 - **Inbound webhooks and syslog** tokens, **SNMP trap rules** and **relay
   satellites**.
-- Identity: **OIDC**, **SAML 2.0**, **SCIM** provisioning and **LDAP/LDAPS**, see
+- Identity: **OIDC** (**Guide me** on its card sets it up in steps, with a note per provider), **SAML 2.0**, **SCIM** provisioning and **LDAP/LDAPS**, see
   [sso.md](sso.md).
 - **SIEM event streaming**, **OpenTelemetry (OTLP)** export and **browser push
   notifications**.

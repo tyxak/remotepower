@@ -2260,6 +2260,7 @@
           <div class="settings-section">
             <div class="section-title">OIDC / OpenID Connect</div>
             <p class="hint">Sign in via an external identity provider (Authelia, Authentik, Keycloak, Pocket-ID, Google, etc.). Users authenticate against your IdP and arrive with the role mapped from their group membership. Existing local users and LDAP keep working in parallel. <a href="docs/sso.md" class="c-accent">Documentation</a></p>
+            <button class="btn-secondary mb-8" data-action="wizOpen" data-arg="oidc">Guide me</button>
             <form id="oidc-config-form" data-submit="saveOidcConfig" data-prevent-default="1" class="form-stack">
               <label class="form-label">
                 <input type="checkbox" id="oidc-enabled">

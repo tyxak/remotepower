@@ -180,6 +180,19 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   tests were passing for the wrong reason until the mutation round showed it: one pressed the Settings form's Save, which answered 403 for a step-up the test
   never gave, so it checked nothing.
 
+- **Set up single sign-on, in steps.** The OIDC card in **Settings → Integrations** is seven boxes, and what goes in them depends on what you create in your identity
+  provider. **Guide me** opens a guide: Authentik, Authelia, Keycloak, Pocket ID, Zitadel or another provider; the values to copy into it (the redirect address and the
+  scopes, each with a **Copy** button) and a note on what that provider needs; the issuer, client and secret; who is an administrator; a test; and **Turn it on**. The
+  notes say what RemotePower needs and providers get wrong: the client secret goes in the request body (`client_secret_post`), the groups are read from the ID token and
+  nowhere else, Zitadel sends no `groups` claim by itself, and an account is made for everyone the provider lets in, as a viewer, so the access limit belongs in the
+  provider. `POST /api/auth/oidc/test` takes an optional `issuer`: the server reads that provider's discovery document and stores nothing, so the guide does not save an
+  issuer it has not checked. That is an address from the request, so it is the platform operator's like the mail, directory and Proxmox tests, and the 7.4.3 list of such
+  handlers moved the route from "takes nothing from the request" to gated; testing the saved issuer is still an admin's. The report now names the token-request
+  authentication methods the provider lists, and a provider that lists methods and not `client_secret_post` is warned about, because it would refuse every sign-in
+  without saying why. The test also shows the callback address the server itself builds when it differs from the one on the page (a proxy that changes the host or the
+  scheme), since that is the address the provider must hold. A saved secret is kept only for the same issuer and client ID, and the group map that SAML shares is kept as it
+  is. **Held by** `tests/test_v800_oidc_guide.py` (18 tests against a fake provider that records what it was asked) and `tests/test_wizards_oidc_e2e.py` (25 browser tests).
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).

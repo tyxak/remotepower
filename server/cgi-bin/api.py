@@ -66886,11 +66886,23 @@ def handle_oidc_test():
     and reporting the four key endpoints (authorize / token / userinfo /
     jwks) along with the issuer name. Bypasses the cache so the report
     always reflects what the server can reach RIGHT NOW.
+
+    8.0.0: a body with an `issuer` makes the server read THAT provider's document instead and store nothing, so the single
+    sign-on guide can check an issuer before it saves it. That is an address from the request which the server connects to, so
+    it is the platform operator's, like the mail, directory and Proxmox tests; testing the saved issuer stays an admin's.
     """
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj() if _env('CONTENT_LENGTH', '0') != '0' else {}
     cfg = load(CONFIG_FILE) or {}
-    issuer = str(cfg.get('oidc_issuer') or '').strip()
+    typed = _sanitize_str(body.get('issuer'), 500)
+    if typed:
+        _require_platform_operator('OIDC settings')
+        if not re.match(r'^https?://[^\s/]+', typed, re.I):
+            respond(400, {'ok': False, 'error': 'issuer must be an http(s) address'})
+        if re.search(r'\s', typed):
+            respond(400, {'ok': False, 'error': 'issuer must not contain whitespace'})
+    issuer = typed or str(cfg.get('oidc_issuer') or '').strip()
     if not issuer:
         respond(400, {'ok': False,
                       'error': 'oidc_issuer not set in config'})
@@ -66923,6 +66935,7 @@ def handle_oidc_test():
         'scopes_supported':         meta.get('scopes_supported'),
         'grant_types_supported':    meta.get('grant_types_supported'),
         'response_types_supported': meta.get('response_types_supported'),
+        'token_endpoint_auth_methods_supported': meta.get('token_endpoint_auth_methods_supported'),
         'redirect_uri_needed':      _oidc_redirect_uri(),
         'client_secret_set':        bool(cfg.get('oidc_client_secret')),
         'client_id_set':            bool(cfg.get('oidc_client_id')),
@@ -66939,8 +66952,13 @@ def handle_oidc_test():
         warnings.append('oidc_client_secret not configured')
     if report['scopes_supported'] and 'openid' not in report['scopes_supported']:
         warnings.append("issuer doesn't advertise the 'openid' scope")
+    # RemotePower sends the client secret in the request body (client_secret_post). A provider that lists methods and not that one
+    # refuses every sign-in, with an error that does not say why. A list that is missing says nothing.
+    _methods = report['token_endpoint_auth_methods_supported']
+    if isinstance(_methods, list) and _methods and 'client_secret_post' not in _methods:
+        warnings.append("issuer doesn't list client_secret_post, which is how RemotePower sends the client secret")
     report['warnings'] = warnings
-    audit_log(actor, 'oidc_test', f'issuer={issuer} ok=True')
+    audit_log(actor, 'oidc_test', f'issuer={issuer} ok=True' + (' (not saved)' if typed else ''))
     respond(200, report)
 
 

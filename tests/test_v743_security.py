@@ -193,6 +193,7 @@ class TestTheTestHandlersThatTakeADestinationFromTheRequest(_Tenancy):
         ("ldap user", "handle_ldap_test_user", {}),
         ("ticket mailbox", "handle_ticket_imap_test", {"host": ""}),
         ("proxmox", "handle_proxmox_test", {}),
+        ("oidc issuer", "handle_oidc_test", {"issuer": "no-scheme"}),
     )
 
     def test_a_tenant_admin_is_refused_by_each(self):
@@ -236,6 +237,7 @@ class TestEveryTestHandlerHasDecidedAboutTenants(unittest.TestCase):
         "handle_ldap_test_user": "a password oracle for the platform's directory",
         "handle_ticket_imap_test": "the host and port come from the request, with no address guard",
         "handle_proxmox_test": "a fresh host comes from the request",
+        "handle_oidc_test": "an issuer from the request is fetched by the server (8.0.0, for the sign-in guide); testing the saved issuer stays an admin's",
         "handle_ip_intel_edge_test": "already instance-gated in 7.3.0",
         "handle_backup_s3_test": "the endpoint comes from the request, and the server connects to it (loopback and private addresses are allowed for a store of the operator's own)",
     }
@@ -248,7 +250,6 @@ class TestEveryTestHandlerHasDecidedAboutTenants(unittest.TestCase):
         "handle_push_test": "sends to the caller's own push subscriptions",
         "handle_push_channel_test": "sends to a saved channel and takes no address from the request",
         "handle_ai_test": "calls the saved provider and takes nothing from the request",
-        "handle_oidc_test": "reads the saved issuer's discovery document and takes nothing from the request",
         "handle_posture_digest_test": "mails the saved recipients and takes nothing from the request",
         "handle_snmp_trap_rule_test": "matches a rule against sample text and makes no connection",
         "handle_backup_test_restore": "restores a saved backup into a scratch directory on this host",
