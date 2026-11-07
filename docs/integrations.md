@@ -142,6 +142,8 @@ RemotePower ships connectors for these. You can add your own (see below).
 | Requests | **Overseerr / Jellyseerr** |
 | Custom | **Custom HTTP probe**: no code, turns any endpoint's status code or JSON field into a health signal |
 
+**Guide me**, next to **Add** on Settings → Integrations, adds one in steps: pick the service from a searchable list, give the address and fields, test, and add it (see [wizards.md](wizards.md)).
+
 The *Connector plugins* section of Settings → Integrations lists every connector type, built in or
 third-party. A third-party connector is a Python file you drop into `connectors.d/` on the
 server, and the *Reload connectors* button picks it up without a restart. There is no upload from

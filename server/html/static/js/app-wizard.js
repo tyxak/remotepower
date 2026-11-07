@@ -777,7 +777,239 @@ function _wizNotifyClosed(st, finished) {
   _wizNotifySave({ id: st.id, _remove: true });
 }
 
-const _WIZARDS = { enroll: _wizEnrollDef, notify: _wizNotifyDef };
+// ── "Add an integration" ──────────────────────────────────────────────────────────────────────────────────────────────────
+// A service from the catalog the server holds (every connector it has, built in or a plugin, so a plugin shows up here without a change),
+// then the address and the credentials that connector asks for, a test, and the instance added to the list. The list of Settings,
+// Integrations is _integrations, edits that are not saved yet included. The server takes the whole list on a save, so the list that goes is
+// the server's own with the new instance in it, and the page's list gets the instance from the server's answer with nothing else of it
+// touched: an edit waiting in the page is neither saved by the wizard nor thrown away by it. Nothing is saved before the last step.
+const _WIZ_INTEG_GROUPS = [['apps', 'Apps'], ['media', 'Media'], ['download', 'Downloads'], ['request', 'Requests'], ['dns', 'DNS'], ['proxy', 'Proxies'],
+  ['network', 'Network'], ['observability', 'Monitoring'], ['orchestration', 'Orchestration'], ['storage', 'Storage'], ['backup', 'Backup'],
+  ['security', 'Security'], ['custom', 'Your own']];
+
+function _wizIntegCatalog(list) { return (Array.isArray(list) ? list : []).filter(c => c && c.category !== 'virtualization'); }   // those have their own page
+
+function _wizIntegDef() {
+  return {
+    title: 'Add an integration',
+    init: () => {
+      const known = _wizIntegCatalog(typeof _integrationCatalog !== 'undefined' ? _integrationCatalog : []);
+      return { type: '', name: '', named: false, url: '', urlSet: false, verify: true, vals: {}, verdict: null, testing: false, catalog: known, loaded: known.length > 0 };
+    },
+    steps: [
+      { label: 'Service', render: _wizIntegService, validate: st => (st.type ? null : { msg: 'Choose a service', focus: 'wiz-search' }) },
+      { label: 'Connection', render: _wizIntegConnection, validate: _wizIntegCheck },
+      { label: 'Test', render: _wizIntegTest },
+      { label: 'Finish', render: _wizIntegFinish, primary: 'Add it', next: _wizIntegAdd },
+    ],
+  };
+}
+
+function _wizIntegOf(st) { return st.catalog.find(x => x.type === st.type) || { fields: [], notes: '', default_url: '' }; }
+
+function _wizIntegService(st, body) {
+  if (!st.loaded) {
+    body.appendChild(_wizNode('div', 'hint', 'Loading…'));
+    api('GET', '/integrations').then(d => {
+      st.catalog = _wizIntegCatalog(d && d.catalog);
+      st.loaded = true;
+      if (_wiz && _wiz.st === st && _wiz.i === 0) _wizShow(0);
+    });
+    return;
+  }
+  const by = new Map();
+  st.catalog.forEach(c => { const k = c.category || 'other'; if (!by.has(k)) by.set(k, []); by.get(k).push(c); });
+  const known = _WIZ_INTEG_GROUPS.map(g => g[0]);
+  const order = known.filter(k => by.has(k)).concat([...by.keys()].filter(k => !known.includes(k)).sort());
+  const title = k => (_WIZ_INTEG_GROUPS.find(g => g[0] === k) || [k, k.charAt(0).toUpperCase() + k.slice(1)])[1];
+  const items = [];
+  order.forEach(k => {
+    items.push({ g: title(k) });
+    by.get(k).slice().sort((a, b) => String(a.label).localeCompare(String(b.label))).forEach(c => items.push({ v: c.type, t: c.label }));
+  });
+  _wizField(body, { id: 'wiz-search', label: 'Search', value: '', placeholder: 'Type a service name', onInput: _wizIntegFilter });
+  _wizChoices(body, {
+    legend: 'What do you want to connect?', name: 'wiz-type', value: st.type, items,
+    onPick: v => {
+      if (v === st.type) return;
+      st.type = v; st.vals = {}; st.verdict = null;
+      const c = _wizIntegOf(st);
+      if (!st.named) st.name = c.label || v;
+      if (!st.urlSet) st.url = c.default_url || '';
+    },
+  });
+  const none = _wizNode('div', 'hint mt-8 d-none', 'No service matches.');
+  none.id = 'wiz-nomatch';
+  body.appendChild(none);
+}
+
+// The search box hides what does not match, and a heading with nothing left under it.
+function _wizIntegFilter(q) {
+  const needle = String(q || '').trim().toLowerCase();
+  const fs = document.querySelector('#wiz-body fieldset.wiz-set');
+  if (!fs) return;
+  let shown = 0;
+  fs.querySelectorAll('.wiz-choices').forEach(grid => {
+    let here = 0;
+    grid.querySelectorAll('.wiz-choice').forEach(l => {
+      const hit = !needle || l.textContent.toLowerCase().includes(needle) || String(l.querySelector('input').value).toLowerCase().includes(needle);
+      l.hidden = !hit;
+      if (hit) here++;
+    });
+    grid.hidden = here === 0;
+    const head = grid.previousElementSibling;
+    if (head && head.classList.contains('wiz-grp')) head.hidden = here === 0;
+    shown += here;
+  });
+  const none = document.getElementById('wiz-nomatch');
+  if (none) none.classList.toggle('d-none', shown > 0);
+}
+
+function _wizIntegConnection(st, body) {
+  const c = _wizIntegOf(st);
+  if (c.notes) body.appendChild(_wizNode('div', 'hint mb-12', c.notes));
+  _wizField(body, { id: 'wiz-name', label: 'Name', value: st.name, maxlength: 80, onInput: v => { st.name = v; st.named = true; st.verdict = null; } });
+  _wizField(body, { id: 'wiz-url', label: 'URL', type: 'url', value: st.url, placeholder: c.default_url || 'https://', onInput: v => { st.url = v; st.urlSet = true; st.verdict = null; } });
+  (c.fields || []).forEach(f => {
+    _wizField(body, {
+      id: 'wiz-f-' + f.key, label: f.label, type: f.kind === 'password' ? 'password' : 'text', rows: f.kind === 'textarea' ? 4 : 0,
+      value: st.vals[f.key] || '', placeholder: f.placeholder || '', hint: f.optional ? 'Optional' : '',
+      onInput: v => { st.vals[f.key] = v; st.verdict = null; },
+    });
+  });
+  const g = _wizNode('div', 'form-group');
+  const lab = _wizNode('label', 'form-label');
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.id = 'wiz-verify';
+  box.checked = st.verify;
+  box.addEventListener('change', () => { st.verify = box.checked; st.verdict = null; });
+  lab.append(box, document.createTextNode(' Check the TLS certificate'));
+  g.appendChild(lab);
+  g.appendChild(_wizNode('div', 'meta-sm', 'Turn it off for a service with a self-signed certificate on your network.'));
+  body.appendChild(g);
+}
+
+function _wizIntegCheck(st) {
+  if (!st.name.trim()) return { msg: 'Name required', focus: 'wiz-name' };
+  const u = st.url.trim();
+  if (!u) return { msg: 'Set a URL first', focus: 'wiz-url' };
+  if (!/^https?:\/\//i.test(u)) return { msg: 'The URL must start with http:// or https://', focus: 'wiz-url' };
+  for (const f of (_wizIntegOf(st).fields || [])) {
+    if (!f.optional && !String(st.vals[f.key] || '').trim()) return { msg: 'This field is needed', focus: 'wiz-f-' + f.key };
+  }
+  return null;
+}
+
+// The instance as the page keeps it. A credential left empty is not sent.
+function _wizIntegInst(st) {
+  const inst = { type: st.type, label: st.name.trim(), url: st.url.trim(), enabled: true, verify_tls: st.verify };
+  (_wizIntegOf(st).fields || []).forEach(f => {
+    const v = String(st.vals[f.key] || '').trim();
+    if (v) inst[f.key] = v;
+  });
+  return inst;
+}
+
+function _wizIntegTest(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'Check that this server can reach it and that the key works.'));
+  const row = _wizNode('div', 'row-8');
+  const b = _wizNode('button', 'btn-primary', 'Test the connection');
+  b.type = 'button';
+  b.id = 'wiz-test';
+  b.setAttribute('data-action', 'wizIntegTest');
+  row.appendChild(b);
+  body.appendChild(row);
+  const out = _wizNode('div', 'wiz-result');
+  out.id = 'wiz-result';
+  out.setAttribute('role', 'status');
+  body.appendChild(out);
+  _wizIntegPaint();
+}
+
+function _wizIntegPaint() {
+  const out = document.getElementById('wiz-result');
+  const w = _wiz;
+  if (!out || !w) return;
+  const v = w.st.verdict;
+  out.textContent = '';
+  if (w.st.testing) { out.className = 'wiz-result c-muted'; out.textContent = 'Testing…'; return; }
+  if (!v) { out.className = 'wiz-result'; return; }
+  const top = _wizNode('div', 'row-8-center');
+  out.className = 'wiz-result ' + (!v.ok ? 'c-red' : v.problem ? 'c-amber' : 'c-green');
+  top.appendChild(_wizNode('span', 'wiz-state', v.ok ? 'Reachable' : 'Not reachable'));
+  if (v.version) top.appendChild(_wizNode('span', 'wiz-chip ff-mono', 'v' + v.version));
+  out.appendChild(top);
+  out.appendChild(_wizNode('div', 'hint mt-6', !v.ok ? 'Check the address and the key, and that this server can reach it.'
+    : v.problem ? 'The service answered and reports a problem. That is what its tile will show.' : 'The service answered.'));
+  if (v.detail) out.appendChild(_wizNode('div', 'hint ff-mono', v.detail));
+}
+
+// The test works on the instance as it stands in the form, and saves nothing.
+async function wizIntegTest() {
+  const w = _wiz;
+  if (!w || w.busy) return;
+  const st = w.st;
+  st.verdict = null;
+  st.testing = true;
+  _wizIntegPaint();
+  const btn = document.getElementById('wiz-test');
+  if (btn) btn.disabled = true;
+  _wizBusy(true);
+  let r = null;
+  try { r = await api('POST', '/integrations/test', _wizIntegInst(st)); } catch (_) { r = null; }
+  st.testing = false;
+  if (_wiz === w) _wizBusy(false);
+  const again = document.getElementById('wiz-test');
+  if (again) again.disabled = false;
+  if (_wiz !== w) return;
+  // "ok" is the connector's own verdict (its status is ok or warning). A service that answered and reports a problem of its own (an Uptime Kuma
+  // with a monitor down) is critical with its numbers in hand: it was reached, which is what the test is asking. One that was not reached says
+  // critical with no numbers, only why.
+  const reached = !!r && !r.error && (!!r.ok || (r.status === 'critical' && !!r.metrics && Object.keys(r.metrics).length > 0));
+  st.verdict = r && !r.error ? { ok: reached, problem: reached && !r.ok, detail: String(r.detail || r.status || ''), version: String(r.version || '') }
+    : { ok: false, problem: false, detail: String((r && r.error) || ''), version: '' };
+  _wizIntegPaint();
+}
+
+function _wizIntegFinish(st, body) {
+  const c = _wizIntegOf(st);
+  let host = '';
+  try { host = new URL(st.url).origin; } catch (_) { host = ''; }
+  const v = st.verdict;
+  _wizList(body, [
+    ['Service', c.label || st.type],
+    ['Name', st.name],
+    ['Address', host || '—'],
+    ['Test', v ? (v.ok ? 'Reachable' : 'Not reachable') : 'Not tested'],
+  ]);
+  if (!v) body.appendChild(_wizNode('div', 'hint mt-8', 'It was not tested. A wrong address shows up as a red tile at the first check.'));
+  else if (!v.ok) body.appendChild(_wizNode('div', 'hint mt-8', 'The test did not pass. You can still add it and fix it from its card.'));
+}
+
+async function _wizIntegAdd(st, w) {
+  const data = await api('GET', '/integrations');
+  if (!data || data.error) { _wizMsg('Save failed', ''); return false; }
+  const list = Array.isArray(data.integrations) ? data.integrations.slice() : [];
+  list.push(_wizIntegInst(st));
+  const r = await api('POST', '/integrations', { integrations: list });
+  if (!r || !r.ok) { _wizMsg((r && r.error) || 'Save failed', ''); return false; }
+  w.finished = true;
+  // the page's own list gets the instance the server made (it has its id now) and nothing else of it is touched
+  if (document.getElementById('integrations-list') && typeof _integrations !== 'undefined') {
+    try {
+      _readIntegrationCards();
+      const after = await api('GET', '/integrations');
+      const have = new Set(_integrations.map(x => x.id).filter(Boolean));
+      ((after && after.integrations) || []).forEach(x => { if (x && !have.has(x.id)) _integrations.push(x); });
+      renderIntegrations();
+    } catch (_) { /* the page shows it at the next load */ }
+  }
+  toast('Integration added', 'success');
+  return true;
+}
+
+const _WIZARDS = { enroll: _wizEnrollDef, notify: _wizNotifyDef, integration: _wizIntegDef };
 
 // ── step-by-step mode of the long forms ──────────────────────────────────────────────────────────────────────────────────
 // Each form lists its steps. A step names the controls (or the blocks of the form) it holds by id; the block of the form that holds the

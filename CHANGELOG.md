@@ -158,6 +158,13 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   host's agent and a satellite probe TCP, HTTP and ping only, and say so when asked to run one of these. **Held by** `tests/test_v800_protocol_probes.py` (real servers on
   the loopback, with TLS and STARTTLS) and `tests/test_v800_protocol_monitors.py`.
 
+- **Add an integration, in steps.** **Settings → Integrations** had a list of 51 connectors in one select. **Guide me**, beside **Add**, opens a wizard: a
+  searchable list of every connector the server has, grouped (a plugin shows up in it without a change), then the address and the fields that connector asks
+  for, a test that saves nothing, and **Add it**. A service that answers and reports a problem of its own is shown as reached, in amber, because the connector
+  calls an Uptime Kuma with a monitor down critical and that is not the same as not being there. The list that is saved is the server's own, read a moment before,
+  so the other integrations and their secrets stay as they were; an edit waiting on the Settings page is neither saved nor lost. **Held by**
+  `tests/test_wizards_integration_e2e.py` (21 browser tests against a fake service on this machine's address).
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).

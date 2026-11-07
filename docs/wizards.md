@@ -1,15 +1,16 @@
 # Wizards and step-by-step forms
 
-Two guided flows and one switch for long forms. They sit next to the dialogs you already use. Nothing changes until you press a button or
+Three guided flows and one switch for long forms. They sit next to the dialogs you already use. Nothing changes until you press a button or
 turn the switch on, and the dialogs they sit next to are still there.
 
 | You want to | Open | What you get |
 |---|---|---|
 | Add a host | **Hosts → Enroll host → Guide me**, the empty Hosts page, or **Settings → Install → Getting started** | A wizard in four steps |
 | Add a notification destination | **Settings → Notifications → Webhook destinations → Guide me**, or **Settings → Install → Getting started** | A wizard in four steps |
+| Add an integration | **Settings → Integrations → Guide me**, next to **Add** | A wizard in four steps |
 | Fill in a long form one part at a time | The **Step by step** switch at the top of a form | The same form, a few fields at a time |
 
-Only administrators can make install commands, PINs and notification destinations. Someone who cannot is shown the server's refusal.
+Only administrators can make install commands, PINs, notification destinations and integrations. Someone who cannot is shown the server's refusal.
 
 ## Add a host
 
@@ -53,6 +54,27 @@ If you close the wizard before **Turn it on**, a draft that never delivered is r
 message tells you where to turn it on. Destinations that were there before are kept as they were, secrets included, and a secret you typed
 is stored and never shown again. Events, scope, request headers, digests and e-mail stay in the editor on the same page. E-mail is not in the
 wizard.
+
+## Add an integration
+
+**Settings → Integrations** adds an integration with a list of every connector and a card to fill in. The wizard asks for the same things in
+order.
+
+1. **Service.** Every connector the server has, grouped (Apps, Media, Downloads, Requests, DNS, Proxies, Network, Monitoring, Orchestration,
+   Storage, Backup, Security, Your own), with a search box that finds a service by its name or its type. A connector you installed as a plugin is
+   in the list too. The virtualization platforms have their own page and are not here.
+2. **Connection.** A name and the address (the two cloud services, Tailscale and Cloudflare Tunnel, start with theirs), then the fields that
+   connector asks for: an API token, a username, a page name, up to the lines of a Prometheus check. A field that is optional says so. **Check the
+   TLS certificate** is on; turn it off for a service on your network with a self-signed certificate. The note of the connector is shown above the
+   fields.
+3. **Test.** **Test the connection** asks the server to reach the service with what you typed and shows what it said, and saves nothing. A
+   service that answers and reports a problem of its own (an Uptime Kuma with a monitor down) is reached, and says so in amber. One that
+   does not answer is **Not reachable**, with the reason the server gave.
+4. **Finish.** A summary and **Add it**. A test that did not pass does not stop you: the card is where you fix it.
+
+The wizard saves only at **Add it**, so closing it earlier leaves nothing. The list that is saved is the server's own, read a moment before, with
+the new integration in it, so the other integrations and their secrets stay as they were. If you have edits on the Settings page that you have not
+saved, they are still there afterwards, and the new integration is in the list beside them.
 
 ## Step by step
 
