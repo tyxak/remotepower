@@ -31,6 +31,8 @@ You see the result in two places:
    address guard still applies. Only certificate verification is relaxed.
 4. Click **Test** to probe it at once, then **Save integrations**.
 
+**Guide me**, next to **Add**, does the same in steps: pick the service from a searchable list, give the address and the fields, see it answer, and add it (see [wizards.md](wizards.md)).
+
 Saved secrets are never sent back to the browser. The form shows "set" and a blank
 box keeps the stored value. Only admins can change the configuration. The **Poll
 interval (s)** box sets the cadence (60 seconds at least, 300 by default), and the tick
@@ -141,8 +143,6 @@ RemotePower ships connectors for these. You can add your own (see below).
 | Media automation | **Sonarr**, **Radarr**, **Prowlarr**, **Lidarr**, **Readarr** (all on one Servarr connector), **Bazarr** |
 | Requests | **Overseerr / Jellyseerr** |
 | Custom | **Custom HTTP probe**: no code, turns any endpoint's status code or JSON field into a health signal |
-
-**Guide me**, next to **Add** on Settings → Integrations, adds one in steps: pick the service from a searchable list, give the address and fields, test, and add it (see [wizards.md](wizards.md)).
 
 The *Connector plugins* section of Settings → Integrations lists every connector type, built in or
 third-party. A third-party connector is a Python file you drop into `connectors.d/` on the

@@ -64,6 +64,8 @@ _COVERED_HERE = {
 _EXEMPT = {
     'DEFAULT_DNSBLS': 'DNSBL zone operators (Spamhaus, SORBS, SpamCop) — '
                       'proper nouns an operator matches against a log line',
+    'SPECS': 'the tool descriptions an AI host reads over the hosted MCP endpoint, in English and equal to the stdio '
+             "bridge's text (tests/test_v800_mcp_http.py holds them equal); no screen shows them",
 }
 
 # Individual strings inside a covered registry that stay English, with reasons.

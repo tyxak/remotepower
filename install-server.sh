@@ -36,7 +36,7 @@ RemotePower server installer
 
 Usage: sudo bash install-server.sh [options]
 
-  --with-scheduler      Run the ~77 maintenance sweeps out-of-band — installs
+  --with-scheduler      Run the ~78 maintenance sweeps out-of-band — installs
                         remotepower-scheduler.service and sets
                         RP_EXTERNAL_SCHEDULER=1 in /etc/remotepower/api.env
                         (default)

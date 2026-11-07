@@ -44,7 +44,7 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   choice lasts until the page is reloaded). `seed-demo-data.py` has two new flags, `--look` and `--typeface`, because it rewrites the whole
   configuration every time it runs. `install-demo.sh` passes them to the first seed and to the timer that refreshes the demo; `--classic` turns
   both off. A plain seed writes neither, so the tests and the screenshots that run on the seed are unchanged. An existing demo changes when you run
-  the installer again. Three things came with it. **Settings → Branding** has a **Default typeface** row beside the default look. 7.4.9 gave an
+  the installer again. Three things came with it. The Branding card under **Settings → Advanced** has a **Default typeface** row beside the default look. 7.4.9 gave an
   administrator no say over the typeface; the demo needs one typeface for everybody, including a visitor who has not signed in. It has no lock:
   nobody should be made to read in a face they cannot read. The hint under the typeface in My Account now says B612 loads when it is in use, not
   only when you pick it. And the sign-in page follows the default look and typeface, which it could not before: only `/api/me` carried them,
@@ -56,7 +56,7 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   the keys of the open endpoint), `tests/test_v800_brand_typeface_client.py` (the order the page uses, run from the page's own functions, and
   `loadPublicInfo` itself), `tests/test_v800_demo_look.py` (the flags, that a plain seed writes nothing, that the installer passes both to the
   seed and to the timer) and `tests/test_v800_brand_typeface_e2e.py` (a first visit, a repeat visit with the endpoint refused, signed in, an
-  account's own choice, Settings → Branding).
+  account's own choice, the Branding card under Settings → Advanced).
 
 - **The dashboard keeps named layouts.** Under **Customize → Layouts** you can keep up to 8 layouts next to the one you have, each a name and the
   widgets it shows. Make one from a copy of the layout you are looking at, from one of four ready-made ones (Fleet overview, Security, Patching and

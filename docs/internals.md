@@ -49,8 +49,8 @@ By the numbers:
 | Request handlers (`handle_*`) | ~900 |
 | Typed request-body models | ~280 |
 | Homelab integration connectors | 53 (+ a generic HTTP probe) |
-| Background maintenance sweeps | ~77 |
-| Frontend JS files (no bundler) | 58 |
+| Background maintenance sweeps | ~78 |
+| Frontend JS files (no bundler) | 62 |
 | Test methods across ~1,100 files | ~20,000 |
 
 ---
@@ -65,7 +65,7 @@ layer. What happens next is the interesting part.
 The Flask route does almost nothing: it copies the WSGI environ into a
 thread-local request context (`_RCTX`) and calls `api.main()` — the same
 `main()` that has existed since the project's CGI days. The whole dispatch table,
-the auth and CSRF enforcement, the read-only-role gate, the ~77 maintenance
+the auth and CSRF enforcement, the read-only-role gate, the ~78 maintenance
 sweeps: all unchanged. Only the shell around them changed.
 
 That's not an accident. Earlier releases ran the server as CGI behind fcgiwrap (one
@@ -175,7 +175,7 @@ backends and 500s on the third is the bug we design against.
 
 ## The maintenance sweeps
 
-RemotePower has ~77 periodic jobs: poll integrations, check disk headroom, expire
+RemotePower has ~78 periodic jobs: poll integrations, check disk headroom, expire
 confirmations, sample SMART/GPU history, run scheduled backups, re-scan for CVEs,
 and so on. There is no cron inside the app and no external job runner. Each sweep
 is a `run_<x>_if_due()` function with a cheap "is it time yet?" gate backed by a
@@ -245,8 +245,8 @@ the UI.
 
 ## The frontend: a framework you can read
 
-The dashboard is one `index.html` (~13,000 lines), one main `app.js` (~33,000
-lines), and ~57 supporting JS modules — all vanilla, all served as-is. No
+The dashboard is one `index.html` (~13,000 lines), one main `app.js` (~34,000
+lines), and ~61 supporting JS modules — all vanilla, all served as-is. No
 framework, no build, no bundler. State lives in a few module-scoped objects;
 rendering is `innerHTML` with escaped values plus targeted DOM updates.
 

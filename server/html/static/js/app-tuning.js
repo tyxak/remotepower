@@ -250,7 +250,7 @@ async function saveContainerLogLines() {
   if (!inp || inp.disabled || inp.readOnly) return;
   const raw = inp.value.trim();
   const n = /^\d{1,2}$/.test(raw) ? parseInt(raw, 10) : -1;
-  if (n < 0 || n > 10) { toast('Enter a whole number from 0 to 10.', 'error'); inp.focus(); return; }
+  if (n < 0 || n > 10) { toast('Enter a whole number from 0 to 10.', 'error', {transient: true}); inp.focus(); return; }
   if (btn) btn.disabled = true;
   try {
     const r = await api('POST', '/config', { container_alert_log_lines: n });

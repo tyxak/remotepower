@@ -360,7 +360,7 @@ class TestTheIntegrationWizard(unittest.TestCase):
         s.close()
         self.go_to_test("uptimekuma", "http://%s:%d" % (self.ip, port), slug="default")
         self.page.click("#wiz-test")
-        self.page.wait_for_selector("#wiz-result .wiz-state")
+        self.page.wait_for_selector("#wiz-result .wiz-state", timeout=60000)      # the default 30 s ran out once while another suite used the machine
         self.assertEqual(self.page.inner_text("#wiz-result .wiz-state"), "Not reachable")
         self.next()
         self.assertIn("The test did not pass", self.page.inner_text("#wiz-body"))

@@ -226,9 +226,13 @@ class TestTheSecurityReview(unittest.TestCase):
         section = changelog[changelog.index("## v7.5.0 \u2014 "):changelog.index("## v7.4.9 \u2014 ")]
         self.assertIn(self.HEADLINE, re.sub(r"\s+", " ", section))
 
-    def test_the_route_count_the_review_quotes_is_the_live_one(self):
-        """The review says no route was added and that the table has 981 entries before and after; the number is counted from the real
-        route tables (the exact table and the dispatcher chain), not remembered."""
+    REVIEWED_ROUTES = 981          # what the route tables held at the 7.5.0 tag, which is the code the review read
+
+    def test_the_route_count_the_review_quotes_is_the_one_it_counted(self):
+        """The review says no route was added and that the table has 981 entries before and after. 981 is the count at the 7.5.0 tag, counted from
+        the real route tables (the exact table and the dispatcher chain), and the review is a record of that release: the table grows with the next
+        version's work (8.0.0 added five), so what is held is that the review still says what it counted and that the live table has not shrunk below
+        it. A route that went missing since the review is worth a look; a route that arrived is in the CHANGELOG of its own version."""
         import importlib.util
         import os
         import sys
@@ -240,7 +244,8 @@ class TestTheSecurityReview(unittest.TestCase):
         spec.loader.exec_module(api)
         live = len(set(str(r) for r in list(api._build_exact_routes().keys()) + api._dispatcher_routes()))
         self.assertIn("No route was added", self.text())
-        self.assertIn(f"has {live} entries before and after", self.text())
+        self.assertIn(f"has {self.REVIEWED_ROUTES} entries before and after", self.text())
+        self.assertGreaterEqual(live, self.REVIEWED_ROUTES, "the route tables hold fewer entries than the 7.5.0 review counted")
 
     def test_no_placeholder_is_left(self):
         self.assertNotIn("@@", self.raw())
