@@ -143,7 +143,12 @@ def _register(token=None, pin=None, name=None):
             r = urllib.request.urlopen(req, timeout=30)
             return r.status, json.loads(r.read())
         except urllib.error.HTTPError as e:
-            data = json.loads(e.read() or b'{}')
+            raw = e.read() or b'{}'
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                # an answer that is not JSON (a proxy's error page under load) is shown as it came, so a failed assertion says what was received
+                data = {'raw': raw[:200].decode('utf-8', 'replace')}
             e.close()
             if e.code == 429 and attempt == 1:           # ten attempts a minute per address
                 time.sleep(62)
