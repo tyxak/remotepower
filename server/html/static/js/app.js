@@ -5132,6 +5132,7 @@ function openMyPasswd() {
 function gotoPasswordChange() {
   try { showPage('account'); } catch (_) { /* page may be gated/absent */ }
   setTimeout(() => {
+    try { pgTab('account:security'); } catch (_) {}   // the password section is on the Security tab
     const sec = document.getElementById('account-password-section');
     if (sec) {
       try { sec.scrollIntoView({ behavior: 'smooth', block: 'center' }); }

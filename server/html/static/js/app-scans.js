@@ -236,6 +236,7 @@ async function queueScan() {
       toast(`"${vhost}" is not an ownership-verified target yet — add it under `
             + `External targets below, publish the DNS TXT or file proof, then Verify.`,
             'error', {transient: true});
+      pgTab('scans:targets');   // the list is on the Targets tab
       document.getElementById('scan-targets-list')?.scrollIntoView({behavior: 'smooth', block: 'center'});
       return;
     }

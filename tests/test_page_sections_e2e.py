@@ -254,6 +254,41 @@ class TestPageSections(unittest.TestCase):
                 finally:
                     self.page.emulate_media(media='screen')
 
+    # ── links into a card that sits on another tab ────────────────────────────
+    # Code that scrolls to a card or focuses a box does nothing when the card is on a tab that is not showing. Found by listing the
+    # ids that sit on a tab that is not their page's default and reading every script line that scrolls to or focuses one.
+    def test_the_silenced_list_takes_you_to_the_container_exclude_list_on_its_own_tab(self):
+        self._open('tuning')
+        self.page.click('#page-tuning [data-pg-tab-btn="silenced"]')
+        self.page.evaluate("() => gotoSuppression('tuning', 'container-excludes')")
+        self.page.wait_for_timeout(300)
+        self.assertEqual(self.page.get_attribute('#page-tuning [data-pg-tab-btn="containers"]', 'aria-current'), 'true')
+        self.assertTrue(self.page.evaluate("document.getElementById('container-excludes').offsetParent !== null"))
+
+    def test_an_unverified_scan_target_opens_the_targets_tab(self):
+        self._open('scans')
+        self.page.evaluate("""async () => {
+            _scanSelectedDevice = {id: 'x', name: 'x'}; _scanVerifiedVhosts = ['verified.example'];
+            document.getElementById('scan-vhost').value = 'unverified.example';
+            await queueScan(); }""")
+        self.page.wait_for_timeout(300)
+        try:
+            self.assertEqual(self.page.get_attribute('#page-scans [data-pg-tab-btn="targets"]', 'aria-current'), 'true')
+            self.assertTrue(self.page.evaluate("document.getElementById('scan-targets-list').offsetParent !== null"))
+        finally:
+            self.page.evaluate("() => { _scanSelectedDevice = null; document.getElementById('scan-vhost').value = ''; }")
+
+    def test_the_password_nudge_opens_the_security_tab(self):
+        self.page.evaluate("() => { localStorage.setItem('pgtab.account', 'profile'); gotoPasswordChange(); }")
+        self.page.wait_for_selector('#page-account.active')
+        self.page.wait_for_timeout(700)
+        try:
+            self.assertEqual(self.page.get_attribute('#page-account [data-pg-tab-btn="security"]', 'aria-current'), 'true')
+            self.assertTrue(self.page.evaluate("document.getElementById('account-password-section').offsetParent !== null"))
+        finally:
+            self.page.keyboard.press('Escape')        # the nudge opens the change-password dialog
+            self.page.evaluate("() => localStorage.removeItem('pgtab.account')")
+
     # ── one long page ────────────────────────────────────────────────────────
     def test_one_long_page_shows_every_card_and_hides_the_strip(self):
         for name in PAGES:

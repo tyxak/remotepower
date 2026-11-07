@@ -359,6 +359,7 @@ function gotoSuppression(page, tab) {
   if (!page) return;
   // The exclude list is edited on this very page: take the reader to its box.
   if (page === 'tuning' && tab === 'container-excludes') {
+    pgTab('tuning:containers');   // the exclude list is on the Containers tab
     const box = document.getElementById('container-excludes');
     if (box) { box.scrollIntoView({block: 'center'}); box.focus(); return; }
   }
