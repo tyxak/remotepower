@@ -15268,7 +15268,7 @@ function addIntegration() {
   if (!type) return;
   const cat = _integrationCatalog.find(x => x.type === type);
   _readIntegrationCards();
-  _integrations.push({ type, label: cat ? cat.label : type, url: '', enabled: true, verify_tls: true });
+  _integrations.push({ type, label: cat ? cat.label : type, url: (cat && cat.default_url) || '', enabled: true, verify_tls: true });
   renderIntegrations();
 }
 

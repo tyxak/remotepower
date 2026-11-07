@@ -257,7 +257,7 @@ class HTTPClient:
 CONNECTORS: dict = {}
 
 
-def _register(type_, label, category, fields, notes="", version="", author="", homepage=""):
+def _register(type_, label, category, fields, notes="", version="", author="", homepage="", default_url=""):
     """Decorator registering a connector + its UI metadata.
 
     version/author/homepage (v6.1.1) are optional display metadata so the
@@ -275,6 +275,7 @@ def _register(type_, label, category, fields, notes="", version="", author="", h
             "version": version,
             "author": author,
             "homepage": homepage,
+            "default_url": default_url,
             "health": fn,
         }
         return fn
@@ -349,6 +350,7 @@ def list_connectors():
                 "version": c.get("version") or "",
                 "author": c.get("author") or "",
                 "homepage": c.get("homepage") or "",
+                "default_url": c.get("default_url") or "",
                 "plugin": c["type"] in PLUGIN_CONNECTORS,
             }
         )
@@ -2273,6 +2275,206 @@ def _sentinelone(inst, c):
     return out
 
 
+# ── 8.0.0: overlay networks and tunnels (Tailscale, Headscale, Cloudflare Tunnel) ──────────────────────────────────────────
+# A tailnet or a tunnel is what carries the remote access to the hosts, so the health that matters is "can it still reach
+# them": a key that has run out locks a host out of its tailnet, and a tunnel with no connection is a service nobody can open.
+# A host that is only offline is NOT a warning here: phones and laptops come and go, and a standing amber tile is the one
+# that gets ignored. The shapes below are the vendors' documented ones; every field is read defensively because a parser that
+# trusts one of them turns a changed API into a traceback instead of a tile.
+_OVERLAY_SOON_DAYS = 14        # a key that ends within this many days is a warning
+_OVERLAY_SEEN_DAYS = 30        # an expired key only matters for a host that was seen this recently (old ones are abandoned)
+_OVERLAY_ONLINE_S = 300        # a host seen this recently counts as online when the API has no live flag
+
+
+def _iso_epoch(value):
+    """Seconds since the epoch for an RFC 3339 timestamp ('2026-11-07T10:00:00Z', fractions and offsets allowed), or 0.
+    The zero time Go prints for 'never' ('0001-01-01T00:00:00Z') is 0 too: it is not a date a key can expire on."""
+    if not isinstance(value, str) or len(value) < 10:
+        return 0
+    s = value.strip()
+    if s.startswith("0001-01-01"):
+        return 0
+    try:
+        from datetime import datetime, timezone
+
+        s = s.replace("Z", "+00:00").replace("z", "+00:00")
+        # fromisoformat before 3.11 rejects more than six fraction digits; trim them
+        s = re.sub(r"(\.\d{6})\d+", r"\1", s)
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp())
+    except (ValueError, OverflowError):
+        return 0
+
+
+def _overlay_summary(rows, now=None):
+    """Counts for a list of {name, online, last_seen, expires, no_expiry, update, authorized} rows, and the verdict."""
+    now = int(now if now is not None else time.time())
+    total = online = expiring = expired = updates = unapproved = 0
+    for r in rows:
+        total += 1
+        seen = r.get("last_seen") or 0
+        live = r.get("online")
+        if live is None:
+            live = bool(seen and now - seen <= _OVERLAY_ONLINE_S)
+        online += 1 if live else 0
+        exp = r.get("expires") or 0
+        if exp and not r.get("no_expiry"):
+            if exp <= now:
+                if seen and now - seen <= _OVERLAY_SEEN_DAYS * 86400:
+                    expired += 1
+            elif exp - now <= _OVERLAY_SOON_DAYS * 86400:
+                expiring += 1
+        updates += 1 if r.get("update") else 0
+        unapproved += 1 if r.get("authorized") is False else 0
+    status = OK
+    bits = ["%s, %d online" % (plural(total, "host", "hosts"), online)]
+    if expired:
+        status = CRIT
+        bits.append("%d with a key that has run out" % expired)
+    if expiring:
+        status = status if status == CRIT else WARN
+        bits.append("%d keys end within %d days" % (expiring, _OVERLAY_SOON_DAYS))
+    if unapproved:
+        status = status if status == CRIT else WARN
+        bits.append("%d waiting for approval" % unapproved)
+    return {
+        "status": status,
+        "detail": ", ".join(bits),
+        "metrics": {
+            "devices": total,
+            "online": online,
+            "offline": total - online,
+            "keys_expiring": expiring,
+            "keys_expired": expired,
+            "updates": updates,
+            "unapproved": unapproved,
+        },
+    }
+
+
+@_register(
+    "tailscale",
+    "Tailscale",
+    "network",
+    [
+        _field("secret", "API access token", PASSWORD),
+        _field("slug", "Tailnet (blank = the token's own)", TEXT, optional=True),
+    ],
+    notes="Tailscale API. Reports the hosts of your tailnet, how many are online, and the keys that end soon or have run out. "
+    "Create the token under Settings, Keys in the Tailscale admin console.",
+    default_url="https://api.tailscale.com",
+)
+def _tailscale(inst, c):
+    tailnet = urllib.parse.quote(str(inst.get("slug") or "-").strip() or "-", safe="")
+    h = {"Authorization": "Bearer " + (inst.get("secret") or "")}
+    d = c.get_json("/api/v2/tailnet/%s/devices" % tailnet, headers=h)
+    items = (d or {}).get("devices") if isinstance(d, dict) else None
+    rows = []
+    for dev in items if isinstance(items, list) else []:
+        if not isinstance(dev, dict) or dev.get("isExternal"):
+            continue          # a host shared in from another tailnet is not this tailnet's to keep alive
+        live = dev.get("connectedToControl")
+        rows.append(
+            {
+                "online": live if isinstance(live, bool) else None,
+                "last_seen": _iso_epoch(dev.get("lastSeen")),
+                "expires": _iso_epoch(dev.get("expires")),
+                "no_expiry": bool(dev.get("keyExpiryDisabled")),
+                "update": bool(dev.get("updateAvailable")),
+                "authorized": dev.get("authorized") if isinstance(dev.get("authorized"), bool) else None,
+            }
+        )
+    return _overlay_summary(rows)
+
+
+@_register(
+    "headscale",
+    "Headscale",
+    "network",
+    [_field("secret", "API key", PASSWORD)],
+    notes="Headscale API. Reports the nodes of your server, how many are online, and the keys that end soon or have run out. "
+    "Create the key with `headscale apikeys create`.",
+)
+def _headscale(inst, c):
+    h = {"Authorization": "Bearer " + (inst.get("secret") or "")}
+    d = c.get_json("/api/v1/node", headers=h)
+    items = (d or {}).get("nodes") if isinstance(d, dict) else None
+    rows = []
+    for n in items if isinstance(items, list) else []:
+        if not isinstance(n, dict):
+            continue
+        live = n.get("online")
+        exp = _iso_epoch(n.get("expiry"))
+        rows.append(
+            {
+                "online": live if isinstance(live, bool) else None,
+                "last_seen": _iso_epoch(n.get("lastSeen")),
+                "expires": exp,
+                "no_expiry": not exp,
+            }
+        )
+    return _overlay_summary(rows)
+
+
+@_register(
+    "cloudflare_tunnel",
+    "Cloudflare Tunnel",
+    "network",
+    [
+        _field("secret", "API token", PASSWORD),
+        _field("slug", "Account ID", TEXT),
+    ],
+    notes="Cloudflare API. Reports the tunnels of an account: healthy, degraded (some connections are missing) or down "
+    "(none). The token needs the Cloudflare Tunnel read permission; the account ID is on the account's overview page.",
+    default_url="https://api.cloudflare.com",
+)
+def _cloudflare_tunnel(inst, c):
+    account = str(inst.get("slug") or "").strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", account):
+        raise IntegrationError("the account ID is the 32-character hex string on the account's overview page")
+    h = {"Authorization": "Bearer " + (inst.get("secret") or "")}
+    d = c.get_json("/client/v4/accounts/%s/cfd_tunnel" % account, headers=h, params={"is_deleted": "false", "per_page": 100})
+    if not isinstance(d, dict) or d.get("success") is False:
+        errs = d.get("errors") if isinstance(d, dict) else None
+        first = errs[0] if isinstance(errs, list) and errs and isinstance(errs[0], dict) else {}
+        raise IntegrationError("Cloudflare refused it: %s" % (str(first.get("message") or "no reason given")[:120]))
+    items = d.get("result")
+    counts = {"healthy": 0, "degraded": 0, "down": 0, "inactive": 0}
+    conns = 0
+    names_down = []
+    for t in items if isinstance(items, list) else []:
+        if not isinstance(t, dict):
+            continue
+        st = str(t.get("status") or "").lower()
+        if st in counts:
+            counts[st] += 1
+        if st == "down" and len(names_down) < 3:
+            names_down.append(str(t.get("name") or "")[:40])
+        cl = t.get("connections")
+        conns += len(cl) if isinstance(cl, list) else 0
+    total = sum(counts.values())
+    status = CRIT if counts["down"] else (WARN if counts["degraded"] else OK)
+    bits = ["%s" % plural(total, "tunnel", "tunnels"), "%d healthy" % counts["healthy"]]
+    if counts["degraded"]:
+        bits.append("%d degraded" % counts["degraded"])
+    if counts["down"]:
+        bits.append("%d down (%s)" % (counts["down"], ", ".join(n for n in names_down if n) or "unnamed"))
+    return {
+        "status": status,
+        "detail": ", ".join(bits),
+        "metrics": {
+            "tunnels": total,
+            "healthy": counts["healthy"],
+            "degraded": counts["degraded"],
+            "down": counts["down"],
+            "inactive": counts["inactive"],
+            "connections": conns,
+        },
+    }
+
+
 # ── per-connector headline stat chips (for the rich tiles) ─────────────────────
 # Map each connector type to a few (metric_key, label, kind) the UI shows as
 # labeled chips. kinds: int (humanized 12.3k), pct (18%), num (small count),
@@ -2295,6 +2497,24 @@ _STATS: dict = {
         ("agents_active", "Protected", "int"),
         ("agents_stale", "Stale", "int"),
         ("infected", "Infected", "int"),
+    ],
+    "tailscale": [
+        ("devices", "Hosts", "int"),
+        ("online", "Online", "num"),
+        ("keys_expiring", "Keys ending", "num"),
+        ("keys_expired", "Keys expired", "num"),
+    ],
+    "headscale": [
+        ("devices", "Nodes", "int"),
+        ("online", "Online", "num"),
+        ("keys_expiring", "Keys ending", "num"),
+        ("keys_expired", "Keys expired", "num"),
+    ],
+    "cloudflare_tunnel": [
+        ("tunnels", "Tunnels", "int"),
+        ("healthy", "Healthy", "num"),
+        ("degraded", "Degraded", "num"),
+        ("down", "Down", "num"),
     ],
     "github": [
         ("repos", "Repos", "int"),

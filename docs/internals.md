@@ -48,7 +48,7 @@ By the numbers:
 | HTTP routes (exact + templated) | ~535 exact, ~446 pattern |
 | Request handlers (`handle_*`) | ~900 |
 | Typed request-body models | ~280 |
-| Homelab integration connectors | 50 (+ a generic HTTP probe) |
+| Homelab integration connectors | 53 (+ a generic HTTP probe) |
 | Background maintenance sweeps | ~77 |
 | Frontend JS files (no bundler) | 58 |
 | Test methods across ~1,100 files | ~20,000 |

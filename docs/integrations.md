@@ -131,7 +131,7 @@ RemotePower ships connectors for these. You can add your own (see below).
 | DNS | **Pi-hole** (v6), **AdGuard Home** |
 | Storage and NAS | **TrueNAS** (CORE and SCALE), **Unraid** |
 | Virtualization and orchestration | **Kubernetes / k3s**, **VMware vSphere / ESXi / vCenter**, **Red Hat OpenShift**, **VMware Cloud Director**, **Proxmox Backup Server** |
-| Network | **UniFi Network** |
+| Network | **UniFi Network**, **Tailscale**, **Headscale**, **Cloudflare Tunnel** |
 | Reverse proxy and certificates | **Traefik**, **Nginx Proxy Manager**, **Caddy** |
 | Observability | **Netdata**, **Grafana**, **Uptime Kuma**, **RemotePower (peer instance)**, **Prometheus** (a PromQL query), **Prometheus exporter** (a `/metrics` scrape) |
 | Security and EDR | **Wazuh**, **CrowdStrike Falcon**, **SentinelOne**. Each reports the hosts it protects, and `GET /api/edr/coverage` cross-references them to name the hosts with no EDR at all (see [edr-coverage.md](edr-coverage.md)) |
@@ -153,7 +153,7 @@ the browser, on purpose, so a stolen session cannot add code. See
 - **API token or key** (bearer or header): TrueNAS, Unraid, Home Assistant,
   Kubernetes, OpenShift, Jellyfin, Plex, Immich, SABnzbd, Sonarr, Radarr, Prowlarr,
   Lidarr, Readarr (the Servarr entry too), Bazarr, Overseerr/Jellyseerr, Paperless-ngx,
-  Syncthing, OctoPrint, SentinelOne, the RemotePower peer. Optional for Netdata, Grafana,
+  Syncthing, OctoPrint, SentinelOne, Tailscale, Headscale, Cloudflare Tunnel, the RemotePower peer. Optional for Netdata, Grafana,
   Gitea/Forgejo and GitHub.
 - **Token ID and secret**: Proxmox Backup Server. **Client ID and secret**: CrowdStrike Falcon.
 - **Username and password** (Basic or a login): AdGuard Home, UniFi, vCenter, Cloud Director,
@@ -174,6 +174,19 @@ the browser, on purpose, so a stolen session cannot add code. See
   must be reachable from the RemotePower server for this to work.
 - **Uptime Kuma** has no official API, so this reads a **published status page**. Set the page
   slug instead of a token.
+- **Tailscale** reads your tailnet through the Tailscale API. The URL starts as `https://api.tailscale.com`.
+  Create an access token under *Settings → Keys* in the admin console and paste it as the secret. Leave
+  *Tailnet* blank to use the token's own tailnet. The tile is critical when a host's key has run out and the
+  host was seen in the last 30 days, a warning when a key ends within 14 days or a host waits for approval,
+  and OK otherwise. A host that is only offline is not a warning, because phones and laptops come and go.
+  Hosts shared in from another tailnet, and hosts with key expiry turned off, are left out of the key counts.
+- **Headscale** reads your own server through its API. Point the URL at the server and create a key with
+  `headscale apikeys create`. The verdicts are the same as for Tailscale: a key that has run out is critical,
+  one that ends within 14 days is a warning, an offline node is neither.
+- **Cloudflare Tunnel** reads the tunnels of one account. The URL starts as `https://api.cloudflare.com`. Give
+  it an API token that can read Cloudflare Tunnel and the **account ID** (the 32-character string on the
+  account's overview page). A tunnel with no connection is critical, one with some connections missing is a
+  warning, and a tunnel that has never run is counted and left alone.
 - **RemotePower (peer instance)** turns another, off-site RemotePower into a tile beside your
   homelab integrations. Point the URL at the peer's base (`https://peer.example.com`) and paste a
   **viewer-role API key** from that instance (Admin → API Keys) as the secret. It reads only the
