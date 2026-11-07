@@ -334,7 +334,10 @@ class TestSweep(_Case):
         self.assertIn(ATTACKER, st['blocks']['d1'])
         cmds = self.queued('d1')
         self.assertTrue(any(ATTACKER in c and 'deny from' in c for c in cmds), cmds)
-        # expire it
+        # the host ran the block (its heartbeat took the command from the queue), then the time runs out. A block that is
+        # still waiting in the queue when it expires never ran, and is taken out instead: see test_v730_edge_intel.
+        self.api.save(self.api.CMDS_FILE, {})
+        self.api._LOAD_CACHE.clear()
         st['blocks']['d1'][ATTACKER]['until'] = int(time.time()) - 1
         ipintel_store.write(self.api, st)
         st = self.sweep()

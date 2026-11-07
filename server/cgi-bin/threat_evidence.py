@@ -840,7 +840,7 @@ def web_only(ev):
 # ── addresses nobody should report or block ────────────────────────────────────
 
 # Cloudflare's published edge ranges (cloudflare.com/ips-v4 and /ips-v6, checked
-# 2026-10-06). A web server that does not restore the visitor's address logs
+# 2026-11-07: 15 IPv4 and 7 IPv6, the same as the API's /client/v4/ips). A web server that does not restore the visitor's address logs
 # these instead, and a report naming one would blame the proxy. The list is a
 # floor, not a promise: the operator's never-block list covers anything else.
 CLOUDFLARE_RANGES = (

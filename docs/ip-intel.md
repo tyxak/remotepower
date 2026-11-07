@@ -174,7 +174,17 @@ sources table naming the host and the services.
 If your web server logs the proxy's address instead of the visitor's, every
 request seems to come from the proxy. RemotePower ignores Cloudflare's
 published addresses and says so on the **Log sources** card, with how many it
-ignored. Restore the visitor's address (nginx `real_ip_header`, Apache
+ignored.
+
+This holds for every source, not only the web log: the WAF, fail2ban,
+CrowdSec, a firewall's refused packets, intrusion detection alerts, the edge
+feeds and a host's own brute-force counter. A Cloudflare address is dropped where
+each source is read and again at the intake they all share, so it is never
+looked up, reported, blocked or banned. If one still reaches the last step, the
+row says `not reported: a Cloudflare edge address`. You do not need to add
+Cloudflare's ranges to **Never report these addresses**. The list is the one
+Cloudflare publishes (15 IPv4 and 7 IPv6 ranges, compared with
+`cloudflare.com/ips-v4` and `/ips-v6` on 2026-11-07). Restore the visitor's address (nginx `real_ip_header`, Apache
 `mod_remoteip`) and the real addresses are counted. A web attack that arrives
 through a proxy is never blocked on the host, because a firewall rule on the
 host would not match it.

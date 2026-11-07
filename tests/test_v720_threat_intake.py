@@ -131,6 +131,31 @@ class TestWhatIsLetThrough(_Intake):
         self.assertEqual([x['ip'] for x in self.queue()], [ATTACKER])
         self.assertEqual(self.store()['sensors']['d1']['ignored'], {'invalid': 7, 'cloudflare': 2})
 
+    def test_the_door_every_feeder_uses_turns_a_cloudflare_address_away_too(self):
+        """Each feeder drops Cloudflare's own addresses before it queues, and a feeder written later could forget. The
+        intake they all go through drops them as well, counts them on the sensor's record and keeps what else came."""
+        import threat_evidence
+        now = int(time.time())
+        evs = [threat_evidence.normalize_event(raw_event(ip=ip, last=now), now=now, families=threat_evidence.AGENT_SOURCES)
+               for ip in (CLOUDFLARE, '2606:4700::1111', ATTACKER)]
+        self.assertTrue(all(evs), 'the fixture events are valid')
+        res = self.api.ip_intel_note_evidence('d1', evs, {'sources': [], 'ignored': {'invalid': 1}, 'dropped': 0}, now)
+        self.api._LOAD_CACHE.clear()
+        self.assertEqual(res['queued'], 1)
+        self.assertEqual([x['ip'] for x in self.queue()], [ATTACKER])
+        self.assertEqual(self.store()['sensors']['d1']['ignored'], {'invalid': 1, 'cloudflare': 2})
+
+    def test_the_edge_feeds_cannot_queue_a_cloudflare_address_either(self):
+        import threat_evidence
+        now = int(time.time())
+        ev = threat_evidence.normalize_event(raw_event(ip=CLOUDFLARE, last=now), now=now,
+                                             families=threat_evidence.AGENT_SOURCES)
+        for edge in ip_intel.EDGE_DEVICES:
+            res = self.api.ip_intel_note_evidence(edge, [ev], None, now)
+            self.api._LOAD_CACHE.clear()
+            self.assertEqual(res['queued'], 0, edge)
+            self.assertEqual(self.queue(), [], edge)
+
     def test_the_vocabulary_is_enforced(self):
         ev = raw_event(tok={'web': {'req:probe': 4, 'req:drop table': 9, 'jail:x\ny': 3, 'req:probe\n': 2}},
                        ban=['sshd', 'bad jail;'], cve=['CVE-2021-44228', '<script>'])

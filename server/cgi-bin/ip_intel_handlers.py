@@ -278,7 +278,11 @@ def _note_evidence_into(intake, dev_id, events, status=None, now=None):
     q = intake['queue']
     index = {(x.get('ip'), x.get('device_id')): i for i, x in enumerate(q)
              if isinstance(x, dict) and isinstance(x.get('evidence'), dict)}
+    infra = 0
     for ev in events:
+        if threat_evidence.infra_reason(ev.get('ip')):
+            infra += 1       # Cloudflare's own address: each feeder drops it, and so does the door they all come through
+            continue
         if not edge and used >= SENSOR_EVENTS_PER_HOUR:
             throttled += 1
             continue
@@ -298,12 +302,15 @@ def _note_evidence_into(intake, dev_id, events, status=None, now=None):
                       'window_s': threat_evidence.window_seconds(ev), 'at': now, 'evidence': ev})
             index[key] = len(q) - 1
     intake['queue'] = _trim_queue(q)
+    ignored = dict(status.get('ignored') or {})
+    if infra:
+        ignored['cloudflare'] = ignored.get('cloudflare', 0) + infra
     if not edge:
         sensors[dev_id] = {
             'at': now, 'sources': list(status.get('sources') or []),
             'events': queued, 'throttled': throttled,
             'dropped': int(status.get('dropped') or 0),
-            'ignored': dict(status.get('ignored') or {}),
+            'ignored': ignored,
             'hour': {'h': hour, 'n': used},
         }
         for d in [d for d, r in sensors.items()

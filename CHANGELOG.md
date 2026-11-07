@@ -210,6 +210,12 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   runs out never ran, so the sweep takes it out of the queue and queues no unblock; one that ran is lifted as before. Held by five new tests in
   `tests/test_v730_edge_intel.py` and seven mutations of the code, all caught.
 
+- **Cloudflare's own addresses are turned away at the intake as well.** Every source (the web log, the WAF, fail2ban, CrowdSec, a firewall's refused
+  packets and alerts, the edge feeds and the brute-force counter) already dropped Cloudflare's published addresses before it queued anything, and the report
+  and block steps refuse them again. The intake that all of them go through now drops them too, so a source written later cannot forget the rule, and counts
+  them on the host's Log sources row. The built-in range list was compared with Cloudflare's own (15 IPv4 and 7 IPv6 ranges) and is the same. The guide says
+  that the rule holds for every source and that the ranges do not need to go on the never-report list. Held by two new tests and three mutations, all caught.
+
 ## v7.5.0 — "Wh0leMatters" — 2026-11-05
 
 A release about finishing what was started. The last production release was 7.4.0, so this release carries everything from 7.4.1
