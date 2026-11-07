@@ -31,6 +31,11 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import browser_required  # noqa: E402
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+# RP_BROWSER_REQUIRE turns "no browser here" from a silent pass into a failure, so it is part of the class condition
+# (tests/test_ci_green_parity.py holds the shape).
+_GATE = browser_available() or browser_required.required()
 
 try:
     from playwright.sync_api import sync_playwright
@@ -152,6 +157,7 @@ def _colour(by, row, h, cuts, now):
     return 'var(--green)' if s >= cuts['good'] else '#d4a017' if s >= cuts['fair'] else '#ff8c00' if s >= cuts['poor'] else 'var(--red)'
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestHeatmap(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -343,6 +349,7 @@ class TestHeatmap(unittest.TestCase):
             self.page.evaluate("() => { delete _heatMem.group; }")
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestHeatmapNarrow(unittest.TestCase):
     """A phone: the two choices share a row and nothing runs off the card."""
 
@@ -374,6 +381,7 @@ class TestHeatmapNarrow(unittest.TestCase):
 GRID_WIDGETS = "() => [...document.querySelectorAll('#dash-grid [data-widget]')].filter(n => !n.classList.contains('dash-off')).map(n => n.dataset.widget)"
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class _LayoutsBase(unittest.TestCase):
     """One signed-in page; every test starts from an account that has no layouts and the default saved one."""
 
@@ -722,6 +730,7 @@ class TestLayouts(_LayoutsBase):
         self.assertEqual(self._set_in_use(), self._sets()[0]['id'], 'the reset stays in the layout')
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestLayoutsLoadOnDemand(unittest.TestCase):
     """The manager is a lazy module: nobody who never opens Customize downloads it."""
 

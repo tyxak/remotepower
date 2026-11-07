@@ -41,6 +41,11 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import browser_required  # noqa: E402
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+# RP_BROWSER_REQUIRE turns "no browser here" from a silent pass into a failure, so it is part of the class condition
+# (tests/test_ci_green_parity.py holds the shape).
+_GATE = browser_available() or browser_required.required()
 
 try:
     from playwright.sync_api import sync_playwright
@@ -182,6 +187,7 @@ def _closed_port_url():
     return 'http://127.0.0.1:%d/hook' % port
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class _Base(unittest.TestCase):
     width = 1440
     height = 900

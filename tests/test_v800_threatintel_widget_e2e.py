@@ -23,6 +23,11 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import browser_required  # noqa: E402
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+# RP_BROWSER_REQUIRE turns "no browser here" from a silent pass into a failure, so it is part of the class condition
+# (tests/test_ci_green_parity.py holds the shape).
+_GATE = browser_available() or browser_required.required()
 
 try:
     from playwright.sync_api import sync_playwright
@@ -84,6 +89,7 @@ def _until(fn, seconds=20, step=0.25):
     return last
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestTheWidget(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
