@@ -185,7 +185,7 @@ class TestTheHostedEndpointOverHttp(unittest.TestCase):
         status, _, body = self.ask(rpc("tools/list", msg_id=2))
         self.assertEqual(body["id"], 2)
         names = sorted(t["name"] for t in body["result"]["tools"])
-        self.assertEqual(len(names), 8)
+        self.assertEqual(len(names), 16)
         for write in ("reboot_device", "run_saved_script", "force_package_scan", "force_acme_rescan", "acknowledge_alert"):
             self.assertNotIn(write, names)
             body = self.ask(rpc("tools/call", {"name": write, "arguments": {"name": "x", "alert_id": "x"}}))[2]
@@ -231,6 +231,76 @@ class TestTheHostedEndpointOverHttp(unittest.TestCase):
         self.assertEqual(refused["result"]["content"][0]["text"], "No host named '%s'" % outside[0])
         found = self.tool("get_device", {"name": inside[0]}, token=key)
         self.assertFalse(found["result"]["isError"])
+
+    def rest(self, path, token=None):
+        status, _, body = http_call("GET", path, token=token or self.token)
+        self.assertEqual(status, 200, (path, body))
+        return body
+
+    def device_rows(self, token=None):
+        body = self.rest("/api/devices", token)
+        return body if isinstance(body, list) else body.get("devices", [])
+
+    def answer(self, name, arguments=None, token=None):
+        body = self.tool(name, arguments, token=token)
+        self.assertFalse(body["result"]["isError"], (name, body))
+        return json.loads(body["result"]["content"][0]["text"])
+
+    def test_the_other_read_tools_answer_with_what_the_dashboard_answers_for_the_same_key(self):
+        host = self.dashboard_names(self.token)[0]
+        dev_id = next(d["id"] for d in self.device_rows() if d["name"] == host)
+        self.assertEqual(self.answer("get_tls"), self.rest("/api/tls/targets"))
+        self.assertEqual(self.answer("get_drift"), self.rest("/api/drift"))
+        self.assertEqual(self.answer("get_runbook", {"name": host}), self.rest("/api/devices/%s/runbook" % dev_id))
+        sysinfo = self.rest("/api/devices/%s/sysinfo" % dev_id)
+        journal = self.answer("get_journal", {"name": host, "limit": 5})
+        self.assertEqual(journal["device"], host)
+        self.assertEqual(len(journal["journal"]), min(5, len(sysinfo.get("journal") or [])))
+        commands = self.answer("get_recent_commands", {"name": host})
+        self.assertEqual(commands["device"], host)
+        self.assertEqual(len(commands["commands"]), min(10, len(self.rest("/api/devices/%s/output" % dev_id).get("outputs") or [])))
+        found = self.answer("search_devices", {"query": host[:4].upper()})
+        self.assertIn(host, [m["name"] for m in found["matches"]])
+        self.assertEqual(found["count"], len(found["matches"]))
+        snmp = self.answer("get_snmp_data", {"name": host})
+        self.assertEqual(sorted(snmp), sorted(self.rest("/api/devices/%s/snmp" % dev_id)))
+
+    def test_a_key_confined_to_a_group_cannot_read_a_host_outside_it_through_any_of_the_host_tools(self):
+        devs = self.device_rows()
+        group = sorted({d.get("group") for d in devs if d.get("group")})[0]
+        outside = sorted(d["name"] for d in devs if d.get("group") != group)[0]
+        key, _ = self.key(role="viewer", scope={"type": "groups", "values": [group]})
+        for tool in ("get_journal", "get_recent_commands", "get_runbook", "get_drift", "get_services", "get_containers"):
+            body = self.tool(tool, {"name": outside}, token=key)
+            self.assertTrue(body["result"]["isError"], tool)
+            self.assertEqual(body["result"]["content"][0]["text"], "No host named '%s'" % outside, tool)
+        snmp = json.loads(self.tool("get_snmp_data", {"name": outside}, token=key)["result"]["content"][0]["text"])
+        self.assertEqual(snmp, {"ok": False, "error": 'No host matching "%s"' % outside})
+        search = json.loads(self.tool("search_devices", {"query": outside}, token=key)["result"]["content"][0]["text"])
+        self.assertEqual(search["matches"], [], "a search does not find a host the key cannot list")
+
+    def set_rag(self, on):
+        status, _, body = http_call("POST", "/api/ai/config", {"rag": {"enabled": on}}, token=self.token)
+        self.assertEqual(status, 200, body)
+
+    def test_search_fleet_is_the_real_search_for_the_administrator_and_refused_for_a_scoped_key_and_when_it_is_off(self):
+        group = sorted({d.get("group") for d in self.device_rows() if d.get("group")})[0]
+        key, _ = self.key(role="viewer", scope={"type": "groups", "values": [group]})
+        try:
+            self.set_rag(False)
+            body = self.tool("search_fleet", {"query": "which hosts are offline"})
+            self.assertEqual((body["result"]["isError"], body["result"]["content"][0]["text"]), (True, "HTTP 400: RAG is disabled. Enable it in Settings \u2192 AI assistant."))
+            self.set_rag(True)
+            direct = http_call("POST", "/api/ai/rag/search", {"query": "which hosts are offline"}, token=self.token)[2]
+            shown = self.answer("search_fleet", {"query": "which hosts are offline"})
+            self.assertEqual(shown["query"], "which hosts are offline")
+            self.assertEqual(shown["results"], direct["results"], "the endpoint's answer is the dashboard's own for the same question")
+            self.assertEqual(shown["semantic"], direct["semantic"])
+            body = self.tool("search_fleet", {"query": "which hosts are offline"}, token=key)
+            self.assertTrue(body["result"]["isError"])
+            self.assertTrue(body["result"]["content"][0]["text"].startswith("HTTP 403: RAG search is limited to full-access roles"), body)
+        finally:
+            self.set_rag(False)
 
     def test_a_key_limited_to_one_address_is_refused_from_any_other_through_the_endpoint_too(self):
         key, _ = self.key(role="viewer", ip_allow=["10.255.255.1/32"])

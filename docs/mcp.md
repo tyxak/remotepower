@@ -143,10 +143,19 @@ message counts against the key's rate limit, and a tool that reads a host's page
 A host that only offers a sign-in screen for connectors (the connector lists of Claude.ai and of Claude Desktop expect OAuth) cannot use it, because the
 endpoint takes a key and offers no OAuth. Use the local bridge there.
 
-**What it offers.** Eight tools with the same names, descriptions and arguments as the bridge: `list_alerts`, `get_attention`, `list_devices`,
-`get_device`, `get_services`, `get_containers`, `get_cves` and `get_patches`. The five write tools are not offered over HTTP: they act on the fleet, and
-the confirmation and attribution they carry belong to the local bridge. The other read tools of the bridge (`get_journal`, `get_drift`,
-`get_recent_commands`, `get_runbook`, `get_tls`, `get_snmp_data`, `search_devices` and `search_fleet`) are left for a later release. A tool answer is
+**What it offers.** Sixteen tools: every read tool of the bridge, with the same names, descriptions and arguments. `list_alerts`, `get_attention`,
+`list_devices`, `get_device`, `get_services`, `get_containers`, `get_cves` and `get_patches` answer the questions about the fleet; `get_journal`,
+`get_drift`, `get_recent_commands`, `get_runbook`, `get_tls` and `get_snmp_data` read one host's page or a list; `search_devices` filters the host
+list; `search_fleet` asks the knowledge index. The five write tools are not offered over HTTP: they act on the fleet, and the confirmation and
+attribution they carry belong to the local bridge.
+
+`search_fleet` is the one tool that makes a POST, because the knowledge-index search takes its question in a body. It only reads, the endpoint allows
+that one path and no other, and it is the caller's own request through the same checks as every other read. The index is not split by host or tenant,
+so it answers only a caller with full access (not a tenant's user, and not a key confined to some hosts) and only while the index is switched on under
+**Settings → AI assistant**; anyone else gets the search's own refusal as the tool's answer.
+
+Journal lines and command output go to a model, so a password or a token written as `name=value`, as an option (`--token abc`) or as a bearer header is
+masked as `***` before it leaves. This is best effort: free text can still hold other private data. A tool answer is
 cut when it is longer than 60,000 characters, from the end, and says so.
 
 **What it does and does not do.** It answers one JSON-RPC message with one JSON answer (the plain form of the streamable HTTP transport). It issues

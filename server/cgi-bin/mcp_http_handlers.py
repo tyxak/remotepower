@@ -38,6 +38,7 @@ A = None
 # applies as well, to every read a tool makes.
 MCP_PER_MINUTE = 300
 MAX_PATH_CHARS = 400
+MAX_READ_BODY = 4000            # what a read that needs a body may send: a question to the knowledge index, a few numbers
 
 
 def bind(api_globals):
@@ -74,30 +75,43 @@ def _parse_cgi(raw):
     return status, body
 
 
-def _mcp_get(path):
-    """One GET against this server, as the caller. Returns the parsed JSON of a success; raises mcp_http.FetchError for any other answer.
+def _mcp_get(path, method='GET', body=None):
+    """One read against this server, as the caller. Returns the parsed JSON of a success; raises mcp_http.FetchError for any other answer.
 
     The request is the caller's own: the token and the client address stay as they arrived, so a token's host scope, its allowed addresses,
-    its rate limit and a tenant's limits all apply to it. The method is always GET and the path must be under /api/; what changes in the
-    environment is only what a read must not carry (a body, an Origin, a conditional header, gzip)."""
+    its rate limit and a tenant's limits all apply to it. The method is GET and the path must be under /api/. The one other form is a POST that
+    only reads (the knowledge-index search takes its question in a body): it is allowed for the paths in mcp_http.READ_POSTS and no other, with a
+    body that is a small object, and it passes through the same gates. What changes in the environment is only what a read must not carry (the
+    outer body, an Origin, a conditional header, gzip)."""
+    if method not in ('GET', 'POST'):
+        raise mcp_http_mod.FetchError(400, 'a read is a GET')
     if not isinstance(path, str) or not path.startswith('/api/') or len(path) > MAX_PATH_CHARS or any(ord(c) < 33 or ord(c) == 127 for c in path):
         raise mcp_http_mod.FetchError(400, 'a read must be a path under /api/')
     pi, _, query = path.partition('?')
     if '..' in pi.split('/') or '//' in pi:
         raise mcp_http_mod.FetchError(400, 'a read must be a plain path')
+    payload = b''
+    if method == 'POST':
+        if pi not in mcp_http_mod.READ_POSTS or query or not isinstance(body, dict):
+            raise mcp_http_mod.FetchError(400, 'this path cannot be read with a POST')
+        payload = json.dumps(body, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+        if len(payload) > MAX_READ_BODY:
+            raise mcp_http_mod.FetchError(400, 'the question is too long')
     ctx = A._RCTX
     saved = {a: getattr(ctx, a, None) for a in ('environ', 'stdin', 'out', 'out_text')}
     env = dict(saved['environ'] or {})
-    env.update(REQUEST_METHOD='GET', PATH_INFO=pi, QUERY_STRING=query, REQUEST_URI=path, CONTENT_LENGTH='0', HTTP_X_MCP_CLIENT='mcp-http')
+    env.update(REQUEST_METHOD=method, PATH_INFO=pi, QUERY_STRING=query, REQUEST_URI=path, CONTENT_LENGTH=str(len(payload)), HTTP_X_MCP_CLIENT='mcp-http')
     for k in ('CONTENT_TYPE', 'HTTP_ORIGIN', 'HTTP_REFERER', 'HTTP_IF_NONE_MATCH', 'HTTP_IF_MODIFIED_SINCE', 'HTTP_ACCEPT_ENCODING'):
         env.pop(k, None)
+    if payload:
+        env['CONTENT_TYPE'] = 'application/json'
     out = io.BytesIO()
     out_text = io.TextIOWrapper(out, encoding='utf-8', write_through=True, newline='')
-    ctx.environ, ctx.stdin, ctx.out, ctx.out_text = env, b'', out, out_text
+    ctx.environ, ctx.stdin, ctx.out, ctx.out_text = env, payload, out, out_text
     try:
         try:
-            _mcp_gates(pi, 'GET')
-            A._dispatch(pi, 'GET')
+            _mcp_gates(pi, method)
+            A._dispatch(pi, method)
         except A.HTTPError as e:
             A._render_response(e.status, e.body, getattr(e, 'headers', None))
         except SystemExit:

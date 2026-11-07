@@ -5,10 +5,11 @@ The Model Context Protocol is JSON-RPC 2.0. This module answers one message at a
 that carries one request and gets one JSON answer, and a notification that gets nothing. It issues no session, streams nothing and offers no
 server-initiated message, which that transport allows.
 
-It holds no authority of its own. A tool names the GET paths it reads and asks fetch(path) for them; the host (mcp_http_handlers) answers
+It holds no authority of its own. A tool names the paths it reads and asks fetch(path) for them; the host (mcp_http_handlers) answers
 each through the same gates and handlers that serve the caller's own requests, as the caller, so a viewer's token sees what a viewer sees and a
 host scope or a tenant limit applies exactly as it does in the dashboard. A tool cannot name a method other than GET, a path outside /api/, or an
-id it did not read from the server first.
+id it did not read from the server first. The one exception is a POST that only reads: the knowledge-index search takes its question in a body, so
+fetch(path, 'POST', body) exists, and the host refuses every path that is not in READ_POSTS.
 
 Only read tools exist here. The five write tools of mcp/remotepower-mcp.py (reboot, run a script, force a scan, force an ACME rescan,
 acknowledge an alert) are not offered over HTTP: they act on the fleet, and the confirmation and attribution they carry belong to the local bridge.
@@ -30,7 +31,14 @@ MAX_ARGUMENT_CHARS = 200
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600, -32601, -32602
 
 _SAFE_ID = re.compile(r'^[A-Za-z0-9_.:-]{1,128}$')
-_SECRETISH = re.compile(r'(token|secret|password|passphrase)', re.I)
+_SECRETISH = re.compile(r'(token|secret|password|passphrase|community|api_?key)', re.I)
+READ_POSTS = ('/api/ai/rag/search',)    # the paths a tool may POST to: each only reads, and the host enforces this list, not the tool
+
+# What goes to a model is free text from the fleet (journal lines, command output). Passwords and tokens that are written as name=value, as
+# an option or as an Authorization header are masked; this is best effort, and text can still hold other private data (the docs say so).
+_MASK_PAIR = re.compile(r"""(\b[\w.-]*(?:token|secret|passw(?:or)?d|passphrase|api[_-]?key|community)[\w.-]*\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;]+)""", re.I)
+_MASK_FLAG = re.compile(r'(--?(?:token|secret|passw(?:or)?d|passphrase|api[_-]?key|community)\s+)\S+', re.I)
+_MASK_AUTH = re.compile(r'(authorization\s*:\s*(?:bearer|basic)\s+)[^\s"\']+', re.I)
 
 
 class ToolError(Exception):
@@ -100,6 +108,58 @@ SPECS = {
             'name returns all hosts with pending updates.',
         'inputSchema': {"type": "object", "properties": {"name": {"type": "string"}}},
     },
+    'get_journal': {
+        'description':
+            'Recent systemd journal entries from a host. Useful for debugging service issues or recent errors. The agent ships the '
+            'most recent journal lines on each heartbeat.',
+        'inputSchema': {"type": "object", "properties": {"name": {"type": "string", "description": "Host name"}, "limit": {"type": "integer", "description": "Max lines (default 30)"}}, "required": ["name"]},
+    },
+    'get_drift': {
+        'description':
+            'Configuration drift state for a host, or fleet-wide overview if no name is given. Returns the watched config files '
+            'whose current hash diverges from the stored baseline (potential unauthorised changes).',
+        'inputSchema': {"type": "object", "properties": {"name": {"type": "string", "description": "Host name; omit for fleet overview"}}},
+    },
+    'get_recent_commands': {
+        'description':
+            "Recent commands run on a host, with output and exit code. Useful for 'what was done on this host recently' questions.",
+        'inputSchema': {"type": "object", "properties": {"name": {"type": "string"}, "limit": {"type": "integer", "description": "Max entries (default 10)"}}, "required": ["name"]},
+    },
+    'get_runbook': {
+        'description':
+            'AI-generated operations runbook for a host (v2.1.7+). Describes purpose, services, exposure, recent activity, risks, '
+            'operating notes. Returns exists=false if no runbook has been generated for this host yet.',
+        'inputSchema': {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+    },
+    'get_tls': {
+        'description':
+            'TLS / DNS expiry watchlist status. Lists hosts being probed for certificate expiry and DNS resolution, with current '
+            'days-until-expiry and warning/critical state.',
+        'inputSchema': {"type": "object", "properties": {}},
+    },
+    'get_snmp_data': {
+        'description':
+            'Latest SNMP poll for an agentless host (switches, APs, IPMI, printers). Returns sysDescr / sysName / sysUpTime / '
+            'sysContact / sysLocation / sysObjectID. Includes last_ok / last_error so the AI can tell whether the box is currently '
+            "reachable. Returns ok=false if SNMP isn't enabled.",
+        'inputSchema': {"type": "object", "properties": {"name": {"type": "string", "description": "Host name (prefix/substring OK)"}}, "required": ["name"]},
+    },
+    'search_devices': {
+        'description':
+            'Search hosts by free-text query. Matches name, OS, group, tags, hostname, IP, and operator notes. Returns a compact '
+            'list of matches.',
+        'inputSchema': {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+    },
+    'search_fleet': {
+        'description':
+            'Search the RAG knowledge index across ALL fleet state, CMDB, runbooks, recent history, and product docs in one call. '
+            "Prefer this for broad or cross-host questions ('worst CVEs in the fleet', 'which hosts need a reboot', 'what ports "
+            "are listening on tviapp01', 'how do I configure X in RemotePower') instead of calling list_devices + several get_* "
+            'tools and aggregating yourself. Returns ranked chunks with citation ids and excerpts; fleet-wide rollups (worst CVEs, '
+            'pending updates/reboots, config drift, cert expiry) come back as single chunks. Use the granular get_* tools when you '
+            "need one host's complete structured record.",
+        'inputSchema': {"type": "object", "properties": {"query": {"type": "string", "description": "Natural-language question or keywords"}, "top_n": {"type": "integer", "description": "Max chunks to return (default 6)"}}, "required": ["query"]},
+    },
 }
 
 
@@ -126,6 +186,15 @@ def _limit(args, default=50):
         return max(1, min(MAX_ROWS, int(v)))
     except (TypeError, ValueError):
         return default
+
+
+def _mask_text(value, limit):
+    """Free text as a model may see it: passwords and tokens masked, then cut to `limit` characters."""
+    text = str(value if value is not None else '')
+    text = _MASK_PAIR.sub(lambda m: m.group(1) + '***', text)
+    text = _MASK_FLAG.sub(lambda m: m.group(1) + '***', text)
+    text = _MASK_AUTH.sub(lambda m: m.group(1) + '***', text)
+    return text[:limit]
 
 
 def _scrub(obj):
@@ -254,9 +323,78 @@ def tool_get_patches(args, fetch):
     return {'fleet': [{k: d.get(k) for k in keep} for d in rows if (d.get('upgradable') or 0) > 0][:MAX_ROWS], 'summary': data.get('summary')}
 
 
+def tool_get_journal(args, fetch):
+    dev = _find(fetch, _text(args, 'name', required=True))
+    journal = (fetch(_host_path(dev, 'sysinfo')) or {}).get('journal') or []
+    lines = [_mask_text(j, 400) if isinstance(j, str) else _scrub(j) for j in journal[-_limit(args, 30):]]
+    return {'device': dev.get('name'), 'journal': lines}
+
+
+def tool_get_drift(args, fetch):
+    name = _text(args, 'name')
+    if not name:
+        return _scrub(fetch('/api/drift') or {'devices': []})
+    return _scrub(fetch(_host_path(_find(fetch, name), 'drift')))
+
+
+def tool_get_recent_commands(args, fetch):
+    dev = _find(fetch, _text(args, 'name', required=True))
+    outputs = (fetch(_host_path(dev, 'output')) or {}).get('outputs') or []
+    # a command and what it printed can hold anything: trimmed so one dump cannot drown the answer, and masked where it names a credential
+    cmds = [{'ts': c.get('ts'), 'cmd': _mask_text(c.get('cmd'), 500), 'rc': c.get('rc'), 'output': _mask_text(c.get('output'), 2000)}
+            for c in outputs[-_limit(args, 10):] if isinstance(c, dict)]
+    return {'device': dev.get('name'), 'commands': cmds}
+
+
+def tool_get_runbook(args, fetch):
+    return _scrub(fetch(_host_path(_find(fetch, _text(args, 'name', required=True)), 'runbook')))
+
+
+def tool_get_tls(args, fetch):
+    return _scrub(fetch('/api/tls/targets') or {'targets': []})
+
+
+def tool_get_snmp_data(args, fetch):
+    name = _text(args, 'name') or _text(args, 'device')
+    if not name:
+        raise ToolError("'name' argument required")
+    devs = _devices(fetch)
+    target = next((d for d in devs if d.get('name') == name or d.get('id') == name), None)
+    if target is None:
+        hits = [d for d in devs if name in str(d.get('name') or '')]
+        target = hits[0] if len(hits) == 1 else None
+    if target is None:
+        return {'ok': False, 'error': 'No host matching "%s"' % name}
+    return _scrub(fetch(_host_path(target, 'snmp')))
+
+
+def tool_search_devices(args, fetch):
+    query = _text(args, 'query', required=True).lower()
+    matched = []
+    for d in _devices(fetch):
+        haystack = ' '.join([str(d.get('name') or ''), str(d.get('os') or ''), str(d.get('group') or ''), str(d.get('ip') or ''), str(d.get('hostname') or ''),
+                             ' '.join(str(t) for t in (d.get('tags') or [])), str(d.get('notes') or '')[:500]]).lower()
+        if query in haystack:
+            matched.append({'name': d.get('name'), 'os': d.get('os'), 'online': d.get('online', False), 'group': d.get('group', ''),
+                            'tags': d.get('tags', []), 'ip': d.get('ip', '')})
+    return {'query': query, 'matches': matched[:MAX_ROWS], 'count': len(matched)}
+
+
+def tool_search_fleet(args, fetch):
+    query = _text(args, 'query', required=True)
+    top_n = args.get('top_n')
+    body = {'query': query}
+    if isinstance(top_n, int) and not isinstance(top_n, bool):
+        body['top_n'] = top_n                    # the server keeps it between 1 and 30 and uses its own default for anything else
+    data = fetch('/api/ai/rag/search', 'POST', body) or {}
+    return {'query': query, 'semantic': data.get('semantic', False), 'results': (data.get('results') or [])[:30]}
+
+
 TOOLS = {n: dict(SPECS[n], run=f) for n, f in (
     ('list_alerts', tool_list_alerts), ('get_attention', tool_get_attention), ('list_devices', tool_list_devices), ('get_device', tool_get_device),
-    ('get_services', tool_get_services), ('get_containers', tool_get_containers), ('get_cves', tool_get_cves), ('get_patches', tool_get_patches))}
+    ('get_services', tool_get_services), ('get_containers', tool_get_containers), ('get_cves', tool_get_cves), ('get_patches', tool_get_patches),
+    ('get_journal', tool_get_journal), ('get_drift', tool_get_drift), ('get_recent_commands', tool_get_recent_commands), ('get_runbook', tool_get_runbook),
+    ('get_tls', tool_get_tls), ('get_snmp_data', tool_get_snmp_data), ('search_devices', tool_search_devices), ('search_fleet', tool_search_fleet))}
 
 
 # ── the protocol ─────────────────────────────────────────────────────────────────────────────────────────────────────────

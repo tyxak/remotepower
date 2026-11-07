@@ -211,16 +211,18 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
 
 - **A hosted, read-only MCP endpoint.** The MCP server in `mcp/` runs on your laptop and needs a file copied there. `POST /api/mcp` now answers the Model Context Protocol on the
   server itself, so a host that can send a header (Claude Code, Cursor, VS Code) connects straight to it. It is **off** until **Settings → Advanced → Optional modules → MCP endpoint**
-  is ticked, and answers 404 until then. It offers eight of the bridge's read tools with the same descriptions (`list_alerts`, `get_attention`, `list_devices`, `get_device`,
-  `get_services`, `get_containers`, `get_cves`, `get_patches`) and none of the five write tools. It holds no permission of its own: each question a tool asks runs as an ordinary read
+  is ticked, and answers 404 until then. It offers all sixteen read tools of the bridge with the same descriptions (the first eight in the first version, and `get_journal`, `get_drift`,
+  `get_recent_commands`, `get_runbook`, `get_tls`, `get_snmp_data`, `search_devices` and `search_fleet` after) and none of the five write tools. It holds no permission of its own: each question a tool asks runs as an ordinary read
   of the REST API, as the calling key, in this process, through the same chain of checks that main() runs for the dashboard (read-only mode, same-origin, the IP allowlist, password
   and MFA enrolment, host scope, the module gate, the platform and tenant routes) and the real handler of that path, so a key's host scope, its allowed addresses, its expiry and its
   rate limit, a tenant's limits and a switched-off module all apply to it with no second copy of any rule. A read is always a GET under `/api/`, never carries the caller's body,
-  Origin or gzip, and a host id goes into a path only after it matches a plain pattern. A ratchet compares the endpoint's gate list with the `_enforce_*` calls in `main()`, so a gate
+  Origin or gzip, and a host id goes into a path only after it matches a plain pattern. The one POST is `search_fleet`'s question to the knowledge index, which the host allows by path and
+  nothing else, and which the search's own rule limits to a caller with full access; journal lines and command output have a password or token masked where it is written as `name=value`, an option or
+  a bearer header. A ratchet compares the endpoint's gate list with the `_enforce_*` calls in `main()`, so a gate
   added there and not here fails the build. No session, no stream and no OAuth: `GET` and `DELETE` answer 405, and a host that only offers a sign-in screen for connectors uses the local
-  bridge. Each tool call is a line in the audit log. **Held by** `tests/test_v800_mcp_http.py` (49 tests, including the comparison of what the endpoint returns with the dashboard's own
-  handler for the same caller, per tenant, and of the tool text word for word with the bridge's), `tests/test_v800_mcp_http_e2e.py` (16 tests over HTTP against a real stack with API
-  keys of each kind), and 28 mutations caught.
+  bridge. Each tool call is a line in the audit log. **Held by** `tests/test_v800_mcp_http.py` (65 tests, including the comparison of what the endpoint returns with the dashboard's own
+  handler for the same caller, per tenant, and of the tool text word for word with the bridge's), `tests/test_v800_mcp_http_e2e.py` (19 tests over HTTP against a real stack with API
+  keys of each kind), and 72 mutations caught.
 
 - **Automatic container image updates, opt-in.** The Image updates tab has flagged stale images and offered an Update button since 3.3.4. An **Automatic updates** card under its
   table can do the update for the images you list. It is **off** by default; **shadow** mode records what it would have updated and queues nothing; **on** queues the same

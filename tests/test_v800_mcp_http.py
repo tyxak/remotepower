@@ -18,7 +18,6 @@ import ast
 import importlib.util
 import io
 import json
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -49,9 +48,17 @@ class _Fetch:
     """A fake of the host's read: answers from a table and remembers every path it was asked for."""
 
     def __init__(self, table):
-        self.table, self.paths = table, []
+        self.table, self.paths, self.posts = table, [], []
 
-    def __call__(self, path):
+    def __call__(self, path, method="GET", body=None):
+        if method == "POST":
+            self.posts.append((path, body))
+            value = self.table.get("POST " + path)
+            if isinstance(value, M.FetchError):
+                raise value
+            if value is None:
+                raise M.FetchError(404, "Not found")
+            return value
         self.paths.append(path)
         for key, value in self.table.items():
             if path == key or path.startswith(key + "?"):
@@ -112,9 +119,10 @@ class TestTheProtocol(unittest.TestCase):
         self.assertEqual((status, answer["error"]["code"]), (200, M.METHOD_NOT_FOUND))
         self.assertEqual(answer["id"], 1)
 
-    def test_tools_list_offers_eight_read_tools_each_marked_read_only(self):
+    def test_tools_list_offers_sixteen_read_tools_each_marked_read_only(self):
         tools = M.handle(rpc("tools/list"), None, "x")[1]["result"]["tools"]
-        self.assertEqual(sorted(t["name"] for t in tools), sorted(["list_alerts", "get_attention", "list_devices", "get_device", "get_services", "get_containers", "get_cves", "get_patches"]))
+        self.assertEqual(sorted(t["name"] for t in tools), sorted(["list_alerts", "get_attention", "list_devices", "get_device", "get_services", "get_containers", "get_cves", "get_patches",
+                                                                   "get_journal", "get_drift", "get_recent_commands", "get_runbook", "get_tls", "get_snmp_data", "search_devices", "search_fleet"]))
         for t in tools:
             self.assertTrue(t["annotations"]["readOnlyHint"], t["name"])
             self.assertFalse(t["annotations"]["destructiveHint"], t["name"])
@@ -145,15 +153,16 @@ class TestTheToolsAreTheBridgesTools(unittest.TestCase):
             src = ast.get_source_segment(BRIDGE.read_text(), next(n for n in ast.walk(ast.parse(BRIDGE.read_text())) if isinstance(n, ast.FunctionDef) and n.name == tool["handler"].__name__))
             if '"POST"' in src or "'POST'" in src or '"PUT"' in src or '"DELETE"' in src or '"PATCH"' in src:
                 writes.add(name)
-        # search_fleet POSTs a query to the knowledge index and changes nothing; it is left out here because a read over HTTP is a GET by construction
+        # search_fleet POSTs a question to the knowledge index and changes nothing: it is the one POST that is offered, through the host's own list
+        # of POST paths that read (mcp_http.READ_POSTS), which the tests of the host module hold to that one path
         self.assertEqual(writes, {"reboot_device", "run_saved_script", "force_package_scan", "force_acme_rescan", "acknowledge_alert", "search_fleet"},
                          "the population of tools that use a method other than GET was derived from the bridge")
-        self.assertEqual(writes & set(M.TOOLS), set())
+        self.assertEqual(writes & set(M.TOOLS), {"search_fleet"})
 
-    def test_the_bridge_tools_not_offered_here_are_all_reads_left_for_later(self):
+    def test_the_bridge_tools_not_offered_here_are_exactly_the_five_that_change_something(self):
         left = set(self.bridge.TOOLS) - set(M.TOOLS)
-        self.assertEqual(left, {"reboot_device", "run_saved_script", "force_package_scan", "force_acme_rescan", "acknowledge_alert", "get_journal", "get_drift",
-                                "get_recent_commands", "get_runbook", "get_tls", "get_snmp_data", "search_devices", "search_fleet"})
+        self.assertEqual(left, {"reboot_device", "run_saved_script", "force_package_scan", "force_acme_rescan", "acknowledge_alert"})
+        self.assertEqual(len(M.TOOLS), 16)
 
 
 class TestTheTools(unittest.TestCase):
@@ -207,7 +216,7 @@ class TestTheTools(unittest.TestCase):
 
     def test_the_arguments_are_checked(self):
         table = {"/api/devices": DEVS}
-        for tool in ("get_device", "get_services", "get_containers"):
+        for tool in ("get_device", "get_services", "get_containers", "get_journal", "get_recent_commands", "get_runbook", "get_snmp_data"):
             for args, words in (({}, "'name' argument required"), ({"name": 5}, "'name' must be text"), ({"name": "x" * 500}, "too long")):
                 with self.subTest(tool=tool, args=repr(args)[:30]):
                     answer, fetch = self.run_tool(tool, args, table)
@@ -218,10 +227,10 @@ class TestTheTools(unittest.TestCase):
     def test_an_id_that_is_not_plain_never_reaches_a_path(self):
         devs = [{"id": "../../etc/passwd", "name": "evil01"}, {"id": "ok space", "name": "evil02"}, {"id": "", "name": "evil03"}]
         for name in ("evil01", "evil02", "evil03"):
-            for tool in ("get_services", "get_containers", "get_cves"):
+            for tool in ("get_services", "get_containers", "get_cves", "get_journal", "get_recent_commands", "get_runbook", "get_drift", "get_snmp_data"):
                 answer, fetch = self.run_tool(tool, {"name": name}, {"/api/devices": devs})
                 self.assertTrue(answer["result"]["isError"], (tool, name))
-                self.assertEqual(fetch.paths, ["/api/devices"], "only the list was read")
+                self.assertEqual(fetch.paths, ["/api/devices"], "only the list was read: " + tool)
 
     def test_get_services_and_containers_read_the_hosts_own_page_and_trim(self):
         table = {"/api/devices": DEVS, "/api/devices/d1/services": {"updated_at": 9, "services": [{"unit": "nginx", "active": "active", "sub": "running", "restarts": 0, "log": "x" * 999}]},
@@ -293,6 +302,131 @@ class TestTheTools(unittest.TestCase):
         self.assertEqual(len(wrapped["services"]), wrapped["shown"])
         self.assertEqual(wrapped["device"], "x")
         self.assertTrue(json.loads(M._fit({"blob": "y" * (M.MAX_RESULT_CHARS + 10)}))["truncated"])
+
+
+class TestTheEightMoreTools(unittest.TestCase):
+    """The tools of the bridge that read and were left for later: each one's shape, its trimming, and that what a model is shown is masked."""
+
+    def run_tool(self, name, arguments, table):
+        fetch = _Fetch(table)
+        status, answer = M.handle(call_tool(name, arguments), fetch, "x")
+        self.assertEqual(status, 200)
+        return answer, fetch
+
+    def test_get_journal_gives_the_newest_lines_cuts_a_long_one_and_masks_credentials(self):
+        journal = ["line %d" % i for i in range(50)] + ["app: login password=hunter2 ok", 'curl -H "Authorization: Bearer abcdef123" https://x', "z" * 900]
+        table = {"/api/devices": DEVS, "/api/devices/d1/sysinfo": {"journal": journal}}
+        answer, fetch = self.run_tool("get_journal", {"name": "web01"}, table)
+        shown = json.loads(text_of(answer))
+        self.assertEqual(fetch.paths, ["/api/devices", "/api/devices/d1/sysinfo"])
+        self.assertEqual(len(shown["journal"]), 30, "the bridge's default")
+        self.assertEqual(shown["journal"][0], "line 23")
+        self.assertEqual(len(shown["journal"][-1]), 400, "a line is cut at 400 characters")
+        text = text_of(answer)
+        self.assertNotIn("hunter2", text)
+        self.assertNotIn("abcdef123", text)
+        self.assertIn("password=***", text)
+        self.assertIn("Bearer ***", text)
+        answer, _ = self.run_tool("get_journal", {"name": "web01", "limit": 3}, table)
+        self.assertEqual(len(json.loads(text_of(answer))["journal"]), 3)
+        answer, _ = self.run_tool("get_journal", {"name": "web01", "limit": 0}, table)
+        self.assertEqual(len(json.loads(text_of(answer))["journal"]), 1, "a limit of 0 is one line here; the bridge's journal[-0:] returned all of them")
+
+    def test_get_drift_is_a_fleet_overview_without_a_name_and_one_host_with_one(self):
+        table = {"/api/devices": DEVS, "/api/drift": {"devices": [{"name": "web01", "drifted": 1}], "api_token": "T"}, "/api/devices/d3/drift": {"files": ["/etc/ssh/sshd_config"], "secret": "S"}}
+        answer, fetch = self.run_tool("get_drift", {}, table)
+        self.assertEqual(fetch.paths, ["/api/drift"])
+        self.assertEqual(json.loads(text_of(answer)), {"devices": [{"name": "web01", "drifted": 1}]})
+        answer, _ = self.run_tool("get_drift", {"name": "db01"}, table)
+        self.assertEqual(json.loads(text_of(answer)), {"files": ["/etc/ssh/sshd_config"]})
+        answer, _ = self.run_tool("get_drift", {}, {"/api/drift": None})
+        self.assertEqual(json.loads(text_of(answer)), {"devices": []})
+
+    def test_get_recent_commands_keeps_the_newest_trims_and_masks(self):
+        outputs = [{"ts": i, "cmd": "cmd%d" % i, "rc": 0, "output": "out%d" % i, "actor": "alice", "token": "T"} for i in range(15)]
+        outputs[-1].update(cmd="deploy --token s3cr3t " + "c" * 600, output="DB_PASSWORD=hunter2\n" + "o" * 3000)
+        answer, fetch = self.run_tool("get_recent_commands", {"name": "web01"}, {"/api/devices": DEVS, "/api/devices/d1/output": {"outputs": outputs}})
+        shown = json.loads(text_of(answer))["commands"]
+        self.assertEqual(fetch.paths[-1], "/api/devices/d1/output")
+        self.assertEqual([c["ts"] for c in shown], list(range(5, 15)), "the last ten, oldest first")
+        self.assertEqual(set(shown[0]), {"ts", "cmd", "rc", "output"})
+        self.assertLessEqual(len(shown[-1]["cmd"]), 500)
+        self.assertLessEqual(len(shown[-1]["output"]), 2000)
+        self.assertNotIn("s3cr3t", text_of(answer))
+        self.assertNotIn("hunter2", text_of(answer))
+        self.assertIn("--token ***", shown[-1]["cmd"])
+
+    def test_runbook_tls_and_snmp_come_back_without_a_credential(self):
+        table = {"/api/devices": DEVS, "/api/devices/d1/runbook": {"exists": True, "text": "purpose", "api_key": "K"},
+                 "/api/tls/targets": {"targets": [{"host": "a.example", "days": 12, "secret": "S"}]},
+                 "/api/devices/d3/snmp": {"config": {"enabled": True, "community_preview": "pub…", "has_community": True, "has_v3_auth_secret": True, "version": "2c"},
+                                          "data": {"sysName": "sw1"}}}
+        answer, _ = self.run_tool("get_runbook", {"name": "web01"}, table)
+        self.assertEqual(json.loads(text_of(answer)), {"exists": True, "text": "purpose"})
+        answer, fetch = self.run_tool("get_tls", {}, table)
+        self.assertEqual(fetch.paths, ["/api/tls/targets"])
+        self.assertEqual(json.loads(text_of(answer)), {"targets": [{"host": "a.example", "days": 12}]})
+        answer, _ = self.run_tool("get_snmp_data", {"name": "db01"}, table)
+        shown = json.loads(text_of(answer))
+        self.assertEqual(shown["data"], {"sysName": "sw1"})
+        self.assertEqual(shown["config"], {"enabled": True, "version": "2c"}, "not even the first letters of a community string")
+        answer, _ = self.run_tool("get_tls", {}, {"/api/tls/targets": None})
+        self.assertEqual(json.loads(text_of(answer)), {"targets": []})
+
+    def test_get_snmp_data_finds_a_host_by_name_id_or_one_substring_and_says_when_it_cannot(self):
+        table = {"/api/devices": DEVS, "/api/devices/d1/snmp": {"config": {}}, "/api/devices/d2/snmp": {"config": {"enabled": False}}, "/api/devices/d3/snmp": {"config": {"enabled": True}}}
+        for args, path in (({"name": "web01"}, "/api/devices/d1/snmp"), ({"name": "d2"}, "/api/devices/d2/snmp"), ({"device": "db01"}, "/api/devices/d3/snmp"), ({"name": "db0"}, "/api/devices/d3/snmp")):
+            answer, fetch = self.run_tool("get_snmp_data", args, table)
+            self.assertEqual(fetch.paths[-1], path, args)
+        for args in ({"name": "web"}, {"name": "nothing"}):                  # two hosts contain it; none does
+            answer, fetch = self.run_tool("get_snmp_data", args, table)
+            self.assertEqual(json.loads(text_of(answer)), {"ok": False, "error": 'No host matching "%s"' % args["name"]})
+            self.assertFalse(answer["result"]["isError"], "the bridge answers this as data, not as a failure")
+            self.assertEqual(fetch.paths, ["/api/devices"])
+
+    def test_search_devices_matches_the_fields_the_bridge_matches_and_counts_past_the_cap(self):
+        devs = [{"id": "a", "name": "alpha", "os": "Debian", "group": "prod", "ip": "10.1.1.1", "hostname": "alpha.lan", "tags": ["rack7"], "notes": "owner: sam", "token": "T"},
+                {"id": "b", "name": "bravo", "os": "Alpine", "group": "lab", "ip": "10.2.2.2", "tags": [], "notes": ""}]
+        for q, names in (("ALPHA", ["alpha"]), ("debian", ["alpha"]), ("prod", ["alpha"]), ("10.2.", ["bravo"]), ("rack7", ["alpha"]), ("sam", ["alpha"]), ("alpha.lan", ["alpha"]), ("al", ["alpha", "bravo"]), ("zzz", [])):
+            answer, _ = self.run_tool("search_devices", {"query": q}, {"/api/devices": devs})
+            shown = json.loads(text_of(answer))
+            self.assertEqual([m["name"] for m in shown["matches"]], names, q)
+            self.assertEqual(shown["count"], len(names))
+        answer, _ = self.run_tool("search_devices", {"query": "T"}, {"/api/devices": devs})
+        self.assertNotIn("token", text_of(answer), "the token key of a host is not something a search returns")
+        many = [{"id": "h%d" % i, "name": "host%03d" % i} for i in range(250)]
+        shown = json.loads(text_of(self.run_tool("search_devices", {"query": "host"}, {"/api/devices": many})[0]))
+        self.assertEqual((len(shown["matches"]), shown["count"]), (M.MAX_ROWS, 250))
+        answer, _ = self.run_tool("search_devices", {}, {"/api/devices": devs})
+        self.assertIn("'query' argument required", text_of(answer))
+
+    def test_search_fleet_posts_one_question_to_the_index_and_nothing_else(self):
+        reply = {"ok": True, "semantic": True, "results": [{"id": "c%d" % i, "excerpt": "e"} for i in range(40)], "debug": "x"}
+        answer, fetch = self.run_tool("search_fleet", {"query": "worst cves in the fleet"}, {"POST /api/ai/rag/search": reply})
+        self.assertEqual(fetch.posts, [("/api/ai/rag/search", {"query": "worst cves in the fleet"})])
+        self.assertEqual(fetch.paths, [], "no GET")
+        shown = json.loads(text_of(answer))
+        self.assertEqual(set(shown), {"query", "semantic", "results"})
+        self.assertTrue(shown["semantic"])
+        self.assertEqual(len(shown["results"]), 30, "the index's own ceiling")
+        answer, fetch = self.run_tool("search_fleet", {"query": "q", "top_n": 5}, {"POST /api/ai/rag/search": {"results": []}})
+        self.assertEqual(fetch.posts[0][1], {"query": "q", "top_n": 5})
+        for bad in (True, "5", 5.5, None, [5]):
+            answer, fetch = self.run_tool("search_fleet", {"query": "q", "top_n": bad}, {"POST /api/ai/rag/search": {"results": []}})
+            self.assertEqual(fetch.posts[0][1], {"query": "q"}, "a top_n that is not an integer is left to the server's default: %r" % (bad,))
+        for args, words in (({}, "'query' argument required"), ({"query": 5}, "'query' must be text"), ({"query": "x" * 500}, "too long")):
+            answer, fetch = self.run_tool("search_fleet", args, {})
+            self.assertIn(words, text_of(answer))
+            self.assertEqual(fetch.posts, [], "a refused argument reaches no read")
+        answer, _ = self.run_tool("search_fleet", {"query": "q"}, {"POST /api/ai/rag/search": M.FetchError(403, "RAG search is limited to full-access roles")})
+        self.assertEqual((answer["result"]["isError"], text_of(answer)), (True, "HTTP 403: RAG search is limited to full-access roles"))
+
+    def test_the_only_post_any_tool_makes_is_the_one_on_the_list(self):
+        fetch = _Fetch({"/api/devices": DEVS, "POST /api/ai/rag/search": {"results": []}})
+        for name in M.TOOLS:
+            M.handle(call_tool(name, {"name": "web01", "query": "x"}), fetch, "x")
+        self.assertEqual({path for path, _ in fetch.posts}, set(M.READ_POSTS))
+        self.assertEqual(M.READ_POSTS, ("/api/ai/rag/search",))
 
 
 # ── the server part ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -580,6 +714,141 @@ class TestAReadIsAlwaysAGetUnderApi(_Served):
         self.assertEqual(self.outer["out"].getvalue(), b"", "the nested read wrote nothing into the outer response")
         self.assertEqual(self.outer["environ"]["REQUEST_METHOD"], "POST", "the borrowed environment was a copy")
         self.assertEqual(self.outer["environ"]["PATH_INFO"], "/api/mcp")
+
+
+class _FakeIndex:
+    """The knowledge index, as the search handler uses it, answering one chunk and remembering what it was asked."""
+
+    def __init__(self):
+        self.asked = []
+
+    def has_embeddings(self):
+        return False
+
+    def search(self, query, top_n=8, query_vec=None):
+        self.asked.append((query, top_n, query_vec))
+        return [{"id": "c1", "title": "T", "source": "cve", "type": "rollup", "device": "alpha01", "ts": 5, "text": "excerpt body"}]
+
+
+class TestAReadThatNeedsABody(_Served):
+    """search_fleet asks the knowledge index a question, which the REST API takes in a POST body. It is the one POST a tool may make: it only reads,
+    the host allows it by path, and it is the caller's own request through the same gates, so the handler's own refusals are the answer."""
+
+    def setUp(self):
+        super().setUp()
+        self.index = _FakeIndex()
+        self.saved_ai = {n: getattr(api, n) for n in ("_ai_cfg", "_rag_get_index", "_rag_embeddings_active", "_is_demo_read_only")}
+        api._ai_cfg = lambda: {"rag": {"enabled": True, "max_chunks": 8}}
+        api._rag_get_index = lambda cfg: self.index
+        api._rag_embeddings_active = lambda cfg: False
+
+    def tearDown(self):
+        for n, v in self.saved_ai.items():
+            setattr(api, n, v)
+
+    def test_the_search_runs_the_real_handler_as_the_caller_and_the_index_gets_the_question(self):
+        answer = self.tool("search_fleet", {"query": "which hosts need a reboot", "top_n": 3})
+        self.assertFalse(answer["result"]["isError"], text_of(answer))
+        shown = json.loads(text_of(answer))
+        self.assertEqual(shown["query"], "which hosts need a reboot")
+        self.assertFalse(shown["semantic"])
+        self.assertEqual([(r["id"], r["device"], r["excerpt"]) for r in shown["results"]], [("c1", "alpha01", "excerpt body")])
+        self.assertEqual(self.index.asked, [("which hosts need a reboot", 3, None)])
+        self.tool("search_fleet", {"query": "q"})
+        self.assertEqual(self.index.asked[-1][1], 8, "without top_n the handler uses its configured default")
+
+    def test_a_tenant_caller_is_refused_before_the_handler_by_the_gate_that_keeps_the_installation_to_its_operator(self):
+        for user in ("tadmin", "tviewer"):
+            answer = self.tool("search_fleet", {"query": "everything"}, user=user)
+            self.assertTrue(answer["result"]["isError"], user)
+            self.assertEqual(text_of(answer), "HTTP 403: This belongs to the whole installation and is managed by the platform operator.")
+        self.assertEqual(self.index.asked, [], "the knowledge index is not scoped per tenant, so it was never read for them")
+
+    def test_a_caller_whose_key_is_scoped_to_some_hosts_is_refused_by_the_handlers_own_rule(self):
+        api._RCTX.key_scope = {"type": "group", "value": "g"}
+        try:
+            answer = self.tool("search_fleet", {"query": "everything"}, user="alice")
+        finally:
+            api._RCTX.key_scope = None
+        self.assertTrue(answer["result"]["isError"])
+        self.assertEqual(text_of(answer), "HTTP 403: RAG search is limited to full-access roles \u2014 the knowledge index is not scoped per role or tenant.")
+        self.assertEqual(self.index.asked, [], "the index holds every host, so a caller who may see some of them is not answered from it")
+        answer = self.tool("search_fleet", {"query": "everything"}, user="alice")
+        self.assertFalse(answer["result"]["isError"], "control: the same caller without the scope is answered")
+
+    def test_rag_that_is_switched_off_is_the_handlers_own_400(self):
+        api._ai_cfg = lambda: {"rag": {"enabled": False}}
+        answer = self.tool("search_fleet", {"query": "q"})
+        self.assertEqual((answer["result"]["isError"], text_of(answer)), (True, "HTTP 400: RAG is disabled. Enable it in Settings \u2192 AI assistant."))
+        self.assertEqual(self.index.asked, [])
+
+    def test_the_post_is_the_callers_own_with_the_body_and_nothing_of_the_outer_request(self):
+        seen = []
+        saved = api._dispatch
+
+        def spy(pi, m):
+            seen.append((pi, m, api.method(), api._env("CONTENT_TYPE"), api._env("CONTENT_LENGTH"), api._RCTX.stdin, api._env("HTTP_AUTHORIZATION"),
+                         api._env("HTTP_ORIGIN"), api._env("HTTP_ACCEPT_ENCODING"), api._env("REMOTE_ADDR"), api._env("QUERY_STRING")))
+            api.respond(200, {"ok": True, "results": []})
+        api._dispatch = spy
+        try:
+            self.tool("search_fleet", {"query": "hello", "top_n": 3})
+        finally:
+            api._dispatch = saved
+        self.assertEqual(len(seen), 1)
+        pi, m, meth, ctype, clen, stdin, auth, origin, enc, addr, query = seen[0]
+        self.assertEqual((pi, m, meth, query), ("/api/ai/rag/search", "POST", "POST", ""))
+        self.assertEqual(json.loads(stdin), {"query": "hello", "top_n": 3})
+        self.assertEqual((ctype, clen), ("application/json", str(len(stdin))))
+        self.assertEqual((auth, addr), ("Bearer good", "127.0.0.1"), "the caller's token and address stay as they arrived")
+        self.assertEqual((origin, enc), (None, None))
+        for a in ("environ", "stdin", "out"):
+            self.assertIs(self.after[a], self.outer[a], a)
+        self.assertEqual(self.outer["environ"]["PATH_INFO"], "/api/mcp", "the borrowed environment was a copy")
+
+    def test_only_the_listed_path_can_be_read_with_a_post_and_only_with_a_small_object_and_only_by_get_or_post(self):
+        ran = []
+        saved = api._dispatch
+        api._dispatch = lambda pi, m: ran.append((pi, m))
+        try:
+            cases = [("/api/devices", "POST", {}), ("/api/mcp", "POST", {}), ("/api/devices/hostA/exec", "POST", {"cmd": "id"}), ("/api/ai/rag/search?x=1", "POST", {"query": "q"}),
+                     ("/api/ai/rag/search/", "POST", {"query": "q"}), ("/api/ai/rag/search", "POST", ["q"]), ("/api/ai/rag/search", "POST", "q"), ("/api/ai/rag/search", "POST", None),
+                     ("/api/ai/rag/search", "POST", {"query": "x" * 5000}), ("/api/ai/rag/search", "PUT", {"query": "q"}), ("/api/ai/rag/search", "DELETE", {}),
+                     ("/api/ai/rag/search", "get", {}), ("/api/devices", "PATCH", {})]
+            for path, method, body in cases:
+                with self.subTest(path=path, method=method, body=repr(body)[:20]):
+                    with self.assertRaises(M.FetchError) as c:
+                        api._mcp_get(path, method, body)
+                    self.assertEqual(c.exception.status, 400)
+        finally:
+            api._dispatch = saved
+        self.assertEqual(ran, [], "nothing ran for any of them")
+
+    def test_the_gates_of_the_chain_run_for_the_post_too_and_see_it_as_a_post(self):
+        order, methods = [], []
+        gates = ("_enforce_read_only", "_enforce_same_origin", "_enforce_ip_allowlist", "_enforce_password_change", "_enforce_mfa_enrollment", "_enforce_device_scope",
+                 "_enforce_module_gate", "_enforce_platform_routes", "_enforce_operator_org_routes")
+        saved = {g: getattr(api, g) for g in gates}
+        saved_dispatch = api._dispatch
+        for g in gates:
+            setattr(api, g, (lambda name: lambda *a: (order.append(name), methods.append(a[1] if len(a) > 1 else None)))(g))
+        api._dispatch = lambda pi, m: api.respond(200, {})
+        try:
+            api._mcp_get("/api/ai/rag/search", "POST", {"query": "q"})
+        finally:
+            for g, f in saved.items():
+                setattr(api, g, f)
+            api._dispatch = saved_dispatch
+        self.assertEqual(order, list(gates))
+        self.assertEqual([m for m in methods if m is not None], ["POST"], "_enforce_platform_routes is told the method")
+
+    def test_a_demo_server_refuses_the_post_by_the_same_gate_as_any_other_write(self):
+        api._is_demo_read_only = lambda: True
+        answer = self.tool("search_fleet", {"query": "q"})
+        self.assertTrue(answer["result"]["isError"])
+        self.assertIn("HTTP 403", text_of(answer))
+        self.assertIn("read-only sandbox", text_of(answer))
+        self.assertEqual(self.index.asked, [])
 
 
 class TestTheEnvelope(_Served):
