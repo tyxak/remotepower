@@ -8814,7 +8814,6 @@ td:has(> .btn-icon + .btn-icon) { white-space: nowrap; }
 .setup-step .row-8 { flex: 0 0 auto; align-items: center; }
 @media (max-width: 720px) {
   .wiz-step:not(.active) .wiz-lbl { display: none; }
-  .wiz-choices { grid-template-columns: 1fr; }
   .wiz-list { grid-template-columns: 1fr; gap: 0; }
   .wiz-list dd { margin-bottom: 8px; }
 }

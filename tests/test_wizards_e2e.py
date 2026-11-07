@@ -330,7 +330,12 @@ class TestEnrollWizard(_Base):
     def test_each_kind_gets_its_own_command_and_the_settings_ride_in_the_token(self):
         page = self.page
         before = len(_wizard_tokens(page))
+        sent = []
+        page.on('request', lambda r: sent.append(r.post_data_json) if r.method == 'POST' and r.url.endswith('/api/enrollment-tokens') else None)
         _to_install(page, 'linux', group='prod', tags='web, eu , ,db', cidrs='10.0.0.0/24 192.168.1.5', ttl='3600')
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]['default_tags'], ['web', 'eu', 'db'], 'the page sends no blank tag: the server would drop it, but the request says what was meant')
+        self.assertEqual((sent[0]['default_group'], sent[0]['expires_in']), ('prod', 3600))
         token = _token_of(page)
         origin = page.evaluate("() => location.origin")
         self.assertEqual(page.inner_text('#wiz-cmd-linux'), 'wget -qO- "%s/install?t=%s" | sudo sh' % (origin, token))
@@ -373,6 +378,9 @@ class TestEnrollWizard(_Base):
         token = _token_of(page)
         self.assertIn('Waiting for the host to check in', page.inner_text('#wiz-watch'))
         self.assertNotRegex(page.inner_text('#wiz-watch'), r'\d{6,} s', 'the time waited starts at zero, not at the epoch')
+        time.sleep(3.6)                                  # one poll has gone by (every 3 s) and no host has enrolled: nothing is said to have arrived
+        self.assertIn('Waiting for the host to check in', page.inner_text('#wiz-watch'), 'the hosts that were there before the token are not the one that arrived')
+        self.assertNotIn('Checked in', page.inner_text('#wiz-watch'))
         status, body = _register(token=token, name='wiz-arrival-host')
         self.assertEqual(status, 201, body)
         page.wait_for_function("() => /Checked in/.test((document.getElementById('wiz-watch') || {}).textContent || '')", timeout=20000)
@@ -532,8 +540,10 @@ class TestEnrollWizard(_Base):
     def test_keys_and_focus(self):
         page = self.page
         _open_wizard(page, 'enroll')
-        self.assertEqual(page.evaluate("() => document.activeElement.name + ':' + document.activeElement.value"), 'wiz-kind:linux',
-                         'focus starts on the chosen kind')
+        try:                                             # focus is given a frame after the step is drawn
+            page.wait_for_function("() => document.activeElement && document.activeElement.name === 'wiz-kind' && document.activeElement.value === 'linux'", timeout=5000)
+        except Exception:
+            self.fail('focus does not start on the chosen kind: %s' % page.evaluate("() => document.activeElement.tagName + '.' + document.activeElement.className"))
         page.keyboard.press('Enter')                     # Enter on a radio button keeps its own meaning: nothing moves
         self.assertEqual(_active(page), 'Type')
         page.click('#wiz-next')
@@ -784,6 +794,9 @@ class TestNotifyWizard(_Base):
         page.keyboard.press('Escape')
         page.wait_for_function("() => !document.getElementById('wizard-modal')")
         self.assertIn('Saved, but switched off', page.inner_text('#toast-container'))
+        # a removal would be asked of the server a moment after the dialog closes: look for it for three seconds before saying it is not coming
+        removed = _until(lambda: not _destinations(page), seconds=3, step=0.5)
+        self.assertFalse(removed, 'a draft that delivered is not removed')
         self.assertEqual([(d['name'], d['enabled']) for d in _destinations(page)], [('wiz-draft-good', False)])
 
     def test_destinations_that_were_there_are_kept_with_their_secrets(self):
@@ -1271,6 +1284,22 @@ class TestFormSteps(_Base):
         last = page.evaluate("""() => [...document.querySelectorAll('#new-maint-modal .btn-primary:not([disabled])')]
             .filter(b => b.offsetParent !== null).pop().dataset.action""")
         self.assertEqual(last, 'saveMaintenance', 'at the review Ctrl-Enter saves, with the form\'s own function')
+
+    def test_a_done_step_in_the_list_goes_back_to_it_and_a_step_ahead_is_not_a_button(self):
+        page = self.page
+        mid = 'new-maint-modal'
+        _set_steps(page, True)
+        _open_form(page, mid, steps=True)
+        self.assertEqual(page.eval_on_selector_all('#%s .wiz-step button' % mid, 'e => e.length'), 0, 'on the first step nothing is done yet')
+        _next(page, mid)
+        _next(page, mid)
+        self.assertEqual(_active(page, '#' + mid), 'Effects')
+        self.assertEqual(page.eval_on_selector_all('#%s .wiz-step button .wiz-lbl' % mid, 'e => e.map(x => x.textContent)'), ['What', 'When'],
+                         'the steps behind are buttons, the one on screen and the one ahead are not')
+        page.click('#%s .wiz-step button >> nth=0' % mid)
+        self.assertEqual(_active(page, '#' + mid), 'What')
+        shown = page.evaluate(_SHOWN, mid)
+        self.assertEqual((shown['steps'], shown['submit'], shown['back']), ([0], False, False))
 
     def test_a_form_that_is_closed_opens_again_at_the_first_step(self):
         page = self.page
