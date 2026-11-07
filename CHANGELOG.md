@@ -130,6 +130,34 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   - **Search boxes without a magnifier.** Tickets and Contacts reserved room for an icon and drew none. And the Links page held its cards in
     a 340 px box under a 900 px window; it uses 62% of the window now.
 
+### Connect and monitor more
+
+- **Connectors for the networks that carry remote access: Tailscale, Headscale and Cloudflare Tunnel.** Each reads one API and says whether the thing
+  can still reach your hosts. Tailscale and Headscale count the hosts and their keys: a key that has run out on a host seen in the last 30 days is
+  critical, one that ends within 14 days or a host waiting for approval is a warning, and a host that is only offline is neither, because phones and
+  laptops come and go and a standing amber tile is the one that gets ignored. Cloudflare Tunnel reads one account: a tunnel with no connection is
+  critical, one with some missing is a warning, one that never ran is counted and left alone. The two cloud connectors start with their address. That makes
+  53 connectors. **Held by** `tests/test_v800_overlay_connectors.py`, which runs against canned JSON of the shapes the vendors document, not a real tailnet
+  or account.
+
+- **Apprise is a destination of its own.** Apprise runs as an API server in front of ninety-odd services; point a destination at its `/notify/<key>` and every
+  alert goes there, with the type (info, warning, failure, success) it needs to colour the message. What sits behind the key is not known, so the text gets the
+  strictest cleaning of any destination (mentions, labelled links and `<` are made inert), and the 7.4.9 placement test failed the day the format was added,
+  which is what it is for. There are 19 services in the editor and in the notification wizard. **Held by** `tests/test_v800_apprise.py`.
+
+- **An unhealthy container's alert can carry the container's own last log lines.** Off by default. The alert has carried what the failing health check printed
+  since 7.4.9; the log often says why the program failed. Under **Monitoring → Tuning → Log lines in an unhealthy container's alert** (config key
+  `container_alert_log_lines`, 0 to 10) you choose how many. The Linux agent reads them only for an unhealthy container and only when the server says so;
+  the server masks passwords and tokens, caps the length and keeps the newest. The lines go out with the notification (chat, e-mail, webhook, push) and are not
+  stored in the Alerts list. **Held by** `tests/test_v800_container_log_lines.py` and its browser test.
+
+- **Four monitor types that check a service answers the way it should: SMTP, IMAP, SSH banner and NTP.** A TCP check says a port accepts a connection. SMTP and IMAP
+  read the greeting and ask for the server's abilities, and with STARTTLS or TLS check that the encrypted session works; no mail is sent and nobody logs in. SSH reads
+  the identification line. NTP sends one SNTP request and reads the stratum, the offset of the server's clock from this one and the round trip; a largest allowed
+  offset turns a drifting clock into a failure. The timestamps are read with the year 2036 wrap in mind. They run from the server like the TCP and database checks; a
+  host's agent and a satellite probe TCP, HTTP and ping only, and say so when asked to run one of these. **Held by** `tests/test_v800_protocol_probes.py` (real servers on
+  the loopback, with TLS and STARTTLS) and `tests/test_v800_protocol_monitors.py`.
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).

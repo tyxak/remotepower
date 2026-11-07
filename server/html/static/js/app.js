@@ -4499,7 +4499,7 @@ function _monClearFields() {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
   set('mon-label', ''); set('mon-type', 'ping'); set('mon-kind', 'host');
   set('mon-target', ''); set('mon-port', ''); set('mon-expect', '');
-  set('mon-dbkind', 'postgres');
+  set('mon-dbkind', 'postgres'); set('mon-mail-tls', 'none'); set('mon-ntp-offset', '');
   set('mon-status', ''); set('mon-latency', ''); set('mon-loss', '');
   set('mon-method', '');   // v7.4.3: Auto
   const tls = document.getElementById('mon-verify-tls'); if (tls) tls.checked = true;
@@ -4574,6 +4574,7 @@ async function editMonitor(idx) {
   set('mon-target', m.target || '');
   set('mon-port', m.port);
   set('mon-dbkind', m.db_kind || 'postgres');
+  set('mon-mail-tls', m.tls || 'none'); set('mon-ntp-offset', m.max_offset_ms);
   set('mon-expect', m.expect);
   set('mon-status', m.expect_status);
   set('mon-method', m.method || '');
@@ -4637,7 +4638,9 @@ function monTypeChanged() {
   show('mon-expect-grp', type === 'dns');
   show('mon-status-grp', type === 'http');
   show('mon-method-grp', type === 'http');
-  show('mon-tls-grp', type === 'http');
+  show('mon-tls-grp', type === 'http' || type === 'smtp' || type === 'imap');
+  show('mon-mailtls-grp', type === 'smtp' || type === 'imap');
+  show('mon-ntp-grp', type === 'ntp');
   show('mon-latency-grp', type === 'http' || type === 'icmp');
   show('mon-loss-grp', type === 'icmp');
   show('mon-body-grp', type === 'http');
@@ -4743,9 +4746,13 @@ async function addMonitor() {
   if (type === 'http') {   // v7.4.3: stored only when it differs from the default (Auto, certificate checked)
     const verb = document.getElementById('mon-method')?.value || '';
     if (verb) entry.method = verb;
+  }
+  if (type === 'http' || type === 'smtp' || type === 'imap') {   // 8.0.0: the certificate check applies to the mail handshakes too
     const tlsBox = document.getElementById('mon-verify-tls');
     if (tlsBox && !tlsBox.checked) entry.verify_tls = false;
   }
+  if (type === 'smtp' || type === 'imap') { const sec = document.getElementById('mon-mail-tls')?.value || 'none'; if (sec !== 'none') entry.tls = sec; }
+  if (type === 'ntp') { const o = numOf('mon-ntp-offset'); if (o !== null) entry.max_offset_ms = Math.round(o); }
   if (type === 'http' || type === 'icmp') { const l = numOf('mon-latency'); if (l !== null) entry.max_latency_ms = Math.round(l); }
   if (type === 'icmp') { const lp = numOf('mon-loss'); if (lp !== null) entry.max_loss_pct = lp; }
   // v4.3.0: flap dampening — alert only after N consecutive failures (1 = default).

@@ -805,7 +805,7 @@ const _WIZ_FORMS = {
     steps: [
       { label: 'What', ids: ['mon-label', 'mon-type', 'mon-flow-grp', 'mon-dbkind-grp'] },
       { label: 'Target', ids: ['mon-kind-grp', 'mon-target', 'mon-port-grp', 'mon-expect-grp'] },
-      { label: 'Checks', ids: ['mon-status-grp', 'mon-method-grp', 'mon-tls-grp', 'mon-latency-grp', 'mon-loss-grp', 'mon-body-grp', 'mon-json-grp'] },
+      { label: 'Checks', ids: ['mon-status-grp', 'mon-method-grp', 'mon-tls-grp', 'mon-latency-grp', 'mon-loss-grp', 'mon-body-grp', 'mon-json-grp', 'mon-mailtls-grp', 'mon-ntp-grp'] },
       { label: 'Alerting', ids: ['mon-failures-before-alert', 'mon-satellite', 'mon-slo-grp'] },
     ],
     check(n, q) {

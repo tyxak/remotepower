@@ -25,6 +25,10 @@ each check remembers (300 by default).
 | `http_flow` | first step's URL | multi-step HTTP transaction — up to 5 ordered steps sharing a cookie jar, per-step expect-status/contains and `extract` → `${var}` reuse |
 | `dns` | name (+ optional expected record) | resolves to an answer |
 | `db` | `host:port` | database liveness (PostgreSQL / MySQL / Redis protocol probe, credential-less) |
+| `smtp` | `host` or `host:port` (25) | the mail server answers its greeting and `EHLO`; with STARTTLS or TLS, the encrypted session works. No mail is sent and no password is used *(8.0.0)* |
+| `imap` | `host` or `host:port` (143) | the `* OK` greeting and `CAPABILITY`; with STARTTLS or TLS, the encrypted session works. No login *(8.0.0)* |
+| `ssh` | `host` or `host:port` (22) | the SSH identification line a server sends, such as `SSH-2.0-OpenSSH_9.6`. No login *(8.0.0)* |
+| `ntp` | `host` or `host:port` (123) | the server answers an SNTP request and is synchronised; an optional largest clock offset turns a drifting clock into a failure *(8.0.0)* |
 | `path` | host or IP | network path (traceroute) — fires `path_changed` when the route's hop set moves vs the baseline |
 
 The server validates every target. Addresses on your LAN are allowed. A loopback
@@ -45,6 +49,27 @@ per host. A tag or group `tcp` check needs a port.
 `GET /api/monitor` answers from the newest run when it is recent, and
 `GET /api/monitor?run=1` probes now. That is what **Check now** does. You must be
 signed in, and the call is limited to 30 a minute per user.
+
+### Mail, SSH and NTP checks *(8.0.0)*
+
+A `tcp` check says a port accepts a connection. These four say the service behind it answers the way it should, and none of them logs in
+or changes anything.
+
+- **SMTP** reads the greeting (it has to be `220`) and sends `EHLO`. **Connection security** is *None* for a plain connection, *STARTTLS*
+  to check that the server offers it and that the encrypted session then works (a second `EHLO` is sent inside it), or *TLS from the start*
+  for port 465. No mail is sent.
+- **IMAP** reads the `* OK` greeting and asks `CAPABILITY`, with the same three choices of connection security (port 993 for TLS from the
+  start). No login.
+- **SSH** reads the identification line and nothing else. The server has to speak SSH 2 (`SSH-2.0` or `SSH-1.99`).
+- **NTP** sends one SNTP request. The server is up when it answers, says it is synchronised (stratum 1 to 15, not an alarm and not a
+  kiss-of-death such as `RATE` or `DENY`) and its reply matches the request. The detail shows the stratum, the offset of its clock from
+  this server's and the round trip. **Largest allowed clock offset (ms)** turns a clock that is further away than that, ahead or behind, into a
+  failure. Leave it empty to check only that the server answers.
+
+The target is `host` or `host:port`. Leave the port out and the protocol's own is used. With STARTTLS or TLS the certificate is checked
+(untick **Verify TLS certificate** for a self-signed one). The same address rules apply as for a `tcp` check. These checks run from the
+RemotePower server. A host's agent and a satellite probe `tcp`, `http` and `ping` only, so choosing **Probe from** for one of these is refused
+with that reason.
 
 ### HTTP checks
 

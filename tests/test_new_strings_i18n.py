@@ -215,6 +215,17 @@ NEW_STRINGS = [
     "0 sends none. A number from 1 to 10 sends that many of the container's last log lines with the notification. Obvious passwords and tokens are masked, but a log can hold other private text, and the lines go wherever the notification goes (chat, e-mail, webhooks). They are not kept in the Alerts list.",
     "Only an administrator can change this.",
     "Enter a whole number from 0 to 10.",
+    # 8.0.0: the SMTP, IMAP, SSH banner and NTP monitor types
+    "SMTP handshake (no mail sent)",
+    "IMAP handshake (no login)",
+    "SSH banner (no login)",
+    "NTP clock offset",
+    "Connection security",
+    "None (plain connection)",
+    "TLS from the start (port 465 or 993)",
+    "Checks that the server answers and, with STARTTLS or TLS, that the encrypted session works. No mail is sent and no password is used. The port is 25 for SMTP and 143 for IMAP when you leave it out.",
+    "Largest allowed clock offset (ms)",
+    "An NTP server that answers and is synchronised is up. Set a limit to turn a clock that is further from this server's own than that into a failure. The port is 123 when you leave it out.",
 ]
 
 

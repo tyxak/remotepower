@@ -944,6 +944,7 @@ import appliance_evidence      # firewall and router syslog -> threat evidence (
 # v4.7.0: homelab software integrations — per-product API connectors. Pure
 # parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
 import integrations as integrations_mod
+import protocol_probes as protocol_probes_mod   # 8.0.0: the smtp, imap, ssh and ntp monitor types (pure handshakes)
 # v5.8.0 (B5.1): load any operator-installed connector plugins from
 # server/cgi-bin/connectors.d/*.py (root-owned, filesystem-only). Best-effort:
 # a bad plugin is logged + skipped inside load_plugins, never fatal.
@@ -8158,6 +8159,28 @@ def _sanitize_monitor_target(mtype, target, with_reason=False, allow_loopback=No
         # allow_internal_monitors opt-in. RFC1918 LAN is allowed by design;
         # metadata/link-local always blocked; loopback only when opted in. The
         # connect-time peer recheck in _execute_monitor_checks closes rebinding.
+        cfg = load(CONFIG_FILE)
+        allow_internal = (bool(cfg.get('allow_internal_monitors', False))
+                          if allow_loopback is None else bool(allow_loopback))
+        if _url_targets_local_or_meta(
+                urllib.parse.urlparse(f'//{host}', scheme='tcp'),
+                allow_loopback=allow_internal):
+            return _out(None, _monitor_host_block_reason(host, allow_internal))
+        return _out(f"{host}:{port}")
+    elif mtype in protocol_probes_mod.DEFAULT_PORTS:
+        # 8.0.0: smtp, imap, ssh and ntp. host or host:port, the protocol's own port when none is given. The same SSRF guard as tcp: a
+        # handshake monitor is as good an oracle for a port as a connect, so metadata and link-local addresses are always refused and
+        # loopback only when allow_internal_monitors is on (the connect-time peer check in the probe closes DNS rebinding).
+        host, _, port_s = target.partition(':')
+        host = re.sub(r'[^a-zA-Z0-9.\-]', '', host)
+        if not host or host.startswith('-'):
+            return _out(None, 'expected host or host:port')
+        try:
+            port = int(port_s) if port_s.strip() else protocol_probes_mod.DEFAULT_PORTS[mtype]
+            if not (1 <= port <= 65535):
+                return _out(None, f'port must be 1–65535 (got {port_s!r})')
+        except (ValueError, TypeError, OverflowError):
+            return _out(None, f'expected host:port — no valid port in {target!r}')
         cfg = load(CONFIG_FILE)
         allow_internal = (bool(cfg.get('allow_internal_monitors', False))
                           if allow_loopback is None else bool(allow_loopback))
@@ -27520,6 +27543,17 @@ def _run_one_monitor_check(mtype, target, label, m):
             ok, detail = _db_health_probe(host, port, m.get('db_kind', 'postgres'))
         except Exception:
             ok = False; detail = 'unreachable'
+    elif mtype in protocol_probes_mod.DEFAULT_PORTS:
+        # 8.0.0: smtp, imap, ssh and ntp handshakes, run from the server like tcp and db (a host's agent and a satellite do not run them).
+        host, _, port_s = target.partition(':')
+        try:
+            _allow_internal = _allow_internal_monitors()
+            ok, detail = protocol_probes_mod.run(
+                mtype, host, int(port_s), m,
+                peer_ok=lambda ip: not _ip_class_blocked(ip, allow_loopback=_allow_internal),
+                ssl_ctx=(_get_unverified_ssl_context() if m.get('verify_tls') is False else _get_ssl_context()))
+        except Exception:
+            ok = False; detail = 'error'
     elif mtype == 'dns':
         # v4.1.0: DNS resolution check (+ optional expected IP/substring).
         try:
@@ -31603,7 +31637,7 @@ def handle_config_save():
                 continue
             mtype = m.get('type', '')
             if mtype not in ('ping', 'tcp', 'http', 'dns', 'icmp', 'db',
-                             'http_flow', 'path'):   # W4-13/15
+                             'http_flow', 'path') + protocol_probes_mod.TYPES:   # W4-13/15; 8.0.0: smtp imap ssh ntp
                 continue
             _mon_name = _sanitize_str(str(m.get('label')
                                           or m.get('target') or mtype), 128)
@@ -31764,6 +31798,23 @@ def handle_config_save():
                     entry['method'] = _verb
                 if m.get('verify_tls') is False:
                     entry['verify_tls'] = False
+            # 8.0.0: the handshake monitors. `tls` (none, starttls, tls) for smtp and imap, `verify_tls` for the same two, `max_offset_ms` for
+            # ntp. Each is stored only when it differs from the default, so a config that never used them is unchanged.
+            if mtype in ('smtp', 'imap'):
+                _tls = m.get('tls', 'none')
+                if _tls not in protocol_probes_mod.TLS_MODES:
+                    _mon_reject(_mon_name, f'connection security must be one of none, starttls or tls (got {str(_tls)[:20]!r})', m)
+                    continue
+                if _tls != 'none':
+                    entry['tls'] = _tls
+                    if m.get('verify_tls') is False:
+                        entry['verify_tls'] = False
+            if mtype == 'ntp' and m.get('max_offset_ms') not in (None, ''):
+                _mo = m.get('max_offset_ms')
+                if isinstance(_mo, bool) or not isinstance(_mo, (int, float)) or not (0 < _mo <= protocol_probes_mod.MAX_OFFSET_MS):
+                    _mon_reject(_mon_name, f'the largest allowed offset must be from 1 to {protocol_probes_mod.MAX_OFFSET_MS} ms', m)
+                    continue
+                entry['max_offset_ms'] = int(_mo)
             if mtype in ('http', 'icmp'):
                 ml = m.get('max_latency_ms')
                 if isinstance(ml, (int, float)) and 0 < ml <= 600000:
