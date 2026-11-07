@@ -130,6 +130,13 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   - **Search boxes without a magnifier.** Tickets and Contacts reserved room for an icon and drew none. And the Links page held its cards in
     a 340 px box under a 900 px window; it uses 62% of the window now.
 
+- **A translation has to keep its names, numbers and placeholders.** Nobody here reads all six languages, and the existing gates ask only whether a translation
+  exists and differs from the English. `tests/test_v800_translation_tokens.py` reads the dictionary (8,408 entries with all six languages) and fails when a
+  translation drops or changes a setting name such as `oidc_issuer`, a `<slug>` placeholder or a `%s` field (287, 69 and 2 of them checked, none missing), and,
+  for the strings of this release, an address, a path, a number or an acronym. A language may use its own word for a feature (2-Step Verification, an
+  uninterruptible power supply, zero in words), so each of those exceptions is listed with its reason, and an exception that stops applying fails the gate. Its
+  first version matched "27" inside "2027", so a changed date passed; the mutation round showed it, and numbers and names now match as whole tokens.
+
 ### Connect and monitor more
 
 - **Connectors for the networks that carry remote access: Tailscale, Headscale and Cloudflare Tunnel.** Each reads one API and says whether the thing
