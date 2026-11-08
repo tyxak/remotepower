@@ -16,7 +16,6 @@ PAGES_NOT_ON_SCREEN lists the pages an empty install does not show (a module tha
 walk, so the list only gets shorter. The walk proves it sees: it finds the empty DNS message (a table it must read), and it flags a blank table planted on a page. Self-skips
 without playwright / Chromium / gunicorn.
 """
-import json
 import os
 import re
 import sys

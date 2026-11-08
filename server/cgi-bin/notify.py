@@ -256,11 +256,17 @@ def _build_apprise_body(event, title, message, priority):
     if event in _RECOVER_EVENTS:
         kind = "success"
     else:
-        kind = _APPRISE_TYPE.get(priority, "info") if isinstance(priority, int) and not isinstance(priority, bool) else "info"
+        kind = (
+            _APPRISE_TYPE.get(priority, "info")
+            if isinstance(priority, int) and not isinstance(priority, bool)
+            else "info"
+        )
     # Apprise forwards the text to whichever services were set up behind the key (Slack, Discord, Telegram, Matrix...), and each of those
     # acts on some words, so the text goes through the strictest cleaning: see defuse()
     title, message = defuse(title, "apprise"), defuse(message, "apprise")
-    body = json.dumps({"title": title[:250], "body": message[:4000], "type": kind, "format": "text"}).encode()
+    body = json.dumps(
+        {"title": title[:250], "body": message[:4000], "type": kind, "format": "text"}
+    ).encode()
     return body, {}, "application/json"
 
 

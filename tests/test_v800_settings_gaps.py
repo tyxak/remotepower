@@ -10,7 +10,6 @@ that belong in the configuration file, but two were options an operator is told 
 This file holds the server's half: the switch is on until it is turned off, a save without the key leaves it alone, and the entity ID is the one the SAML configuration is built
 with, falling back to the metadata URL when it is blank. tests/test_v800_settings_gaps_e2e.py presses the controls.
 """
-import importlib.util
 import os
 import re
 import sys

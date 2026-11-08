@@ -165,7 +165,7 @@ class TestPiHoleBlockingControlGivesTheSessionBack(unittest.TestCase):
 
     def test_changing_it_is_one_session_for_the_change_and_the_answer_and_it_is_ended(self):
         pihole = FakePiHole()
-        got = D.pihole_set_blocking({"secret": "pw"}, pihole, False, 300)
+        D.pihole_set_blocking({"secret": "pw"}, pihole, False, 300)
         self.assertEqual(pihole.taken, set())
         self.assertEqual(pihole.calls.count(("POST", "/api/auth")), 1, "it used to log in a second time to read the answer")
         self.assertEqual(pihole.calls.count(("DELETE", "/api/auth")), 1)

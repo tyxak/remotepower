@@ -12,7 +12,6 @@ that a tailnet name is quoted into the path, that a malformed answer is a tile a
 """
 import json
 import sys
-import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

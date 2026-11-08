@@ -80,7 +80,6 @@ class TestTheSeederStatesWhatItsAgentsFound(unittest.TestCase):
         cls.devices = seeded._seeded_devices()
 
     def test_every_linux_agent_says_what_it_found_and_the_windows_and_macos_agents_do_not(self):
-        import app_catalog
         linux = [d for d in self.devices.values() if isinstance(d.get("sysinfo"), dict) and d["sysinfo"] and not any(x in (d.get("os") or "").lower() for x in _NOT_LINUX)]
         other = [d for d in self.devices.values() if isinstance(d.get("sysinfo"), dict) and d["sysinfo"] and any(x in (d.get("os") or "").lower() for x in ("windows", "macos", "mac os"))]
         self.assertGreaterEqual(len(linux), 5)
