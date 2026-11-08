@@ -1785,7 +1785,7 @@ def _immich_jobs(c, h):
 
 
 def _paperless_problems(st):
-    """The problems GET /api/status/ names, worst first, as (status, text).
+    """The problems GET /api/status/ names, as (status, text), worst first: the critical checks are written before the warnings, so the order needs no sort.
 
     Read from Paperless-ngx's own SystemStatusView: database.status and the tasks' redis, celery, index, classifier, sanity-check and LLM-index statuses are OK, WARNING or ERROR, each
     with an *_error. A WARNING of the classifier, the sanity check or the LLM index is what an install that has not run one yet says ("No classifier training tasks found"), so only
@@ -1818,7 +1818,6 @@ def _paperless_problems(st):
     for key, label in (("index", "index"), ("classifier", "classifier"), ("sanity_check", "sanity check"), ("llmindex", "LLM index")):
         if word(tasks, key + "_status") == "ERROR":
             out.append((WARN, say(label, tasks.get(key + "_error"))))
-    out.sort(key=lambda row: 0 if row[0] == CRIT else 1)
     return out
 
 

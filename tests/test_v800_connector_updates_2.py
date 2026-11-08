@@ -204,7 +204,7 @@ class TestSyncthingSaysItsOwnErrors(unittest.TestCase):
         r, _ = syncthing([{"when": "2026-11-08T01:00:00+01:00", "message": "m" * 400}])
         self.assertIn("1 error", r["detail"])
         self.assertNotIn("1 errors", r["detail"])
-        self.assertLess(len(r["detail"]), 260)
+        self.assertEqual(max(len(part) for part in r["detail"].split(" ") if set(part) == {"m"}), 100, "the message is cut at 100 characters")
 
     def test_the_route_missing_or_refused_leaves_the_answer_it_had(self):
         for code in (403, 404, 500):
@@ -290,6 +290,7 @@ class TestEsphomeSaysWhichNodesAnswer(unittest.TestCase):
         self.assertEqual(sorted(fields), ["secret", "username"])
         self.assertTrue(all(f.get("optional") for f in fields.values()))
         self.assertIn("Device Builder", spec["notes"])
+        self.assertIn("keeps both routes", spec["notes"], "the reason /devices and /ping still work against it")
         self.assertIn(("offline", "Offline", "num"), I._STATS["esphome"])
 
 
