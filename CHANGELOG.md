@@ -164,6 +164,11 @@ and in the channels that reach a host over SSH; all are fixed. Production runs 7
   demo has no agents that hold a channel, so it shows no bolts. Found on the way: leaving `websockets.serve` waits for every connection to end and asyncio has waited for them
   since Python 3.12, so the daemon closes its clients itself first (it already did); a test that left them to the library passed by luck at the fifteenth second.
 
+- **The new places point to their guides.** The apps found on a host, the Automatic updates card, the layouts manager, the tenant branding dialog and every wizard have a
+  **Documentation** link to the page that explains them, as the older pages and Settings sections do. A page that opens without one was a gap in the rule; all 86 pages
+  already carried one, and these are the dialogs and cards the later rounds added. **Held by** `tests/test_v800_doc_pointers.py` (each link names a guide, and a heading,
+  that exist).
+
 ### Connect and monitor more
 
 - **Connectors for the networks that carry remote access: Tailscale, Headscale and Cloudflare Tunnel.** Each reads one API and says whether the thing

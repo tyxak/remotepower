@@ -54,7 +54,13 @@ function wizStart(name, arg) {
   const next = _wizNode('button', 'btn-primary', 'Next');
   next.id = 'wiz-next';
   [[cancel, 'wizCancel'], [back, 'wizBack'], [next, 'wizNext']].forEach(([b, action]) => { b.type = 'button'; b.setAttribute('data-action', action); acts.appendChild(b); });
-  panel.append(title, steps, body, msg, live, acts);
+  const doc = _wizNode('div', 'hint mt-8');
+  const docLink = _wizNode('a', 'c-accent', 'Documentation');
+  docLink.href = def.doc || 'docs/wizards.md';
+  docLink.target = '_blank';
+  docLink.rel = 'noopener';
+  doc.appendChild(docLink);
+  panel.append(title, steps, body, msg, live, doc, acts);
   o.appendChild(panel);
   o.addEventListener('keydown', _wizKey);
   document.body.appendChild(o);

@@ -8667,7 +8667,7 @@ nextcloud mem=95 sustain=6</pre>
 
           <div class="settings-section mt-16" id="image-autoupdate-card">
             <div class="section-title">Automatic updates</div>
-            <p class="hint">Off by default. RemotePower can pull and recreate the compose projects that run an image you list when the registry has a newer one. It queues the same command as the Update button above, so maintenance mode, quarantine and change approval apply to it. Some minutes later it checks what the host reports, and raises an alert if the image was not replaced or the containers are not healthy. It rolls back only if you switch that on below.</p>
+            <p class="hint">Off by default. RemotePower can pull and recreate the compose projects that run an image you list when the registry has a newer one. It queues the same command as the Update button above, so maintenance mode, quarantine and change approval apply to it. Some minutes later it checks what the host reports, and raises an alert if the image was not replaced or the containers are not healthy. It rolls back only if you switch that on below. <a href="docs/containers.md" class="c-accent" target="_blank" rel="noopener">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group flex-1">
                 <label for="iau-mode" class="form-label">Mode</label>
@@ -10406,7 +10406,7 @@ nextcloud mem=95 sustain=6</pre>
         <!-- 8.0.0: the apps the agent found on this host (app-appdiscovery.js fills it and shows it when there is one) -->
         <div class="drawer-section mt-16" id="drawer-apps-section" hidden>
           <div class="section-title">Discovered on this host</div>
-          <p class="hint">The agent found these apps running. Monitor one from this host, connect it to read its health, or hide it.</p>
+          <p class="hint">The agent found these apps running. Monitor one from this host, connect it to read its health, or hide it. <a href="docs/app-discovery.md" class="c-accent" target="_blank" rel="noopener">Documentation</a></p>
           <div id="drawer-apps-list" class="scroll-cap"><!-- rendered by JS --></div>
         </div>
 
@@ -10455,6 +10455,7 @@ nextcloud mem=95 sustain=6</pre>
   <div class="modal-title" id="tenant-branding-title">Branding</div>
   <div class="modal-subtitle">The name and accent colour this tenant's users see. Leave the name blank to use the installation's own.</div>
   <div class="hint mb-8" id="tenant-branding-who"></div>
+  <p class="hint mb-8"><a href="docs/scaling.md#onboarding-a-tenant-end-to-end" class="c-accent" target="_blank" rel="noopener">Documentation</a></p>
   <div class="form-group">
     <label for="tenant-branding-name" class="form-label">Product name</label>
     <input type="text" id="tenant-branding-name" class="form-input" maxlength="40" autocomplete="off">

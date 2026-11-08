@@ -59,6 +59,7 @@ function renderDashSetManage(keep) {
     h += '<div class="dash-set-wall"><button class="btn-icon" data-action="dashSetWallLink" title="Copy a link that opens the wall display">'
       + 'Copy wall display link</button><span class="hint">Opens the page as a wall display and shows each layout in turn, 30 seconds each.</span></div>';
   }
+  h += '<p class="hint"><a href="docs/dashboard.md#layouts" class="c-accent" target="_blank" rel="noopener">Documentation</a></p>';
   box.innerHTML = h;
   const nameEl = document.getElementById('dash-set-name'), fromEl = document.getElementById('dash-set-from');
   if (keep && nameEl) nameEl.value = keep.name || '';

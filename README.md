@@ -153,14 +153,14 @@ macOS agents, the demo vhost, advanced TLS and uninstall are covered in
 **Try it first.** A read-only demo runs at
 [demoremote.tvipper.com](https://demoremote.tvipper.com), seeded with synthetic
 hosts, alerts and CVEs. Log in with `demo` / `demo`. It opens in the Pilot
-look with the B612 typeface, as in the tour above, and it resets every few
-hours.
+look with the B612 typeface, as in the tour above. Nothing you click changes it, and
+its data is refreshed every two minutes so the hosts stay online.
 
 ## What you can do with it
 
 - **Monitor and alert** — live metrics, a CheckMK-style Checks page, active
-  monitors (HTTP, TCP, DNS, ICMP, traceroute, database liveness and multi-step
-  HTTP flows) with attachable SLA/SLO objects carrying availability targets and
+  monitors (HTTP, TCP, DNS, ICMP, traceroute, SMTP, IMAP, SSH banner, NTP, database
+  liveness and multi-step HTTP flows) with attachable SLA/SLO objects carrying availability targets and
   error budgets, an Alerts inbox with ack, auto-resolve and mute, and one
   filterable page to tune every alert threshold, grade and score weight.
 - **See every signal** — SMART and hardware health, CPU and board temperatures,
@@ -190,10 +190,12 @@ hours.
 - **Integrate** — 53 connectors (homelab apps, hypervisors, overlay networks and tunnels, and EDR — Wazuh,
   CrowdStrike, SentinelOne — cross-referenced to find hosts with no EDR at all),
   a custom HTTP probe that needs no code, Prometheus and Grafana endpoints,
-  webhooks, syslog, and an MCP server.
-- **Deploy and automate** — a one-click app catalog, auto-patch policies, drift
-  detection, ACME certificates, backups, and a Terraform/Ansible provisioning
-  catalog. Optional autonomous remediation sits on top: off for every tenant
+  webhooks, Apprise, syslog, and an MCP server that runs locally or, read-only, on the
+  server itself.
+- **Deploy and automate** — a one-click app catalog, the apps each host runs found by
+  its agent, auto-patch policies, container image updates you can switch on with a
+  rollback, drift detection, ACME certificates, backups, and a Terraform/Ansible
+  provisioning catalog. Optional autonomous remediation sits on top: off for every tenant
   until you switch it on, with a shadow mode that writes a receipt for what it
   would have done so you can grade it first.
 
