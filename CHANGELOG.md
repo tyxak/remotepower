@@ -587,6 +587,13 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
 - **`rp doctor` finds a SQLite data directory that holds more than one database file.** It tested for one with `[ -f "$dir"/*.db ]`, which answers no when two files match (shellcheck
   SC2144), so it printed the "(marker)" line for a healthy install. Both lines said ok, so nothing else changed. Reading every shipped script with shellcheck found this one error and
   four warnings, all fixed. **Held by** `tests/test_v800_shellcheck.py` (error level only, so a newer shellcheck cannot turn a release red; skipped where shellcheck is missing).
+- **The translations address you the same way on every page.** German, French and Spanish write to the reader formally (Sie, vous, usted) and Chinese with 您, and 94 entries had
+  slipped into the informal form: 29 of the ones this release added (the SSH gateway wizard, the tenant branding card and a few hints) and 65 older Spanish ones (`déjalo`,
+  `revísala`, `aplícalo`). A reader of the German page saw Sie in one box and deine in the next. All are formal now. The hint about the single sign-on button quoted its English
+  label ("Sign in with SSO") in five of the six languages and now quotes the translated one, and five German hints call an alert a Warnung, as the page title does, and not an
+  Alarm. The shape checks (placeholders, length, punctuation, missing languages) found nothing in the 632 entries this release added; reading a sample in German, French and Spanish
+  found all of this. **Held by** `tests/test_v800_translation_register.py`, which reads DICT and HTMLDICT as the browser does and fails on an informal pronoun, possessive or
+  imperative in German, French, Spanish or Chinese that is not listed with a reason.
 
 ### Single pages
 
