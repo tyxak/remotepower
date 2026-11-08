@@ -662,7 +662,7 @@ def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200, allow
     # SSRF connect-time recheck (mirrors _ssrf_opener's peer check).
     try:
         addrs = _socket.getaddrinfo(host, port, proto=_socket.IPPROTO_TCP)
-        for fam, _t, _pr, _cn, sa in addrs:
+        for _fam, _t, _pr, _cn, sa in addrs:
             if _peer_ip_blocked(sa[0], allow_loopback=loopback_ok):
                 raise RuntimeError(f'blocked peer {sa[0]}')
     except _socket.gaierror as e:

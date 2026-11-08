@@ -265,7 +265,7 @@ def handle_devices_bulk_attrs():
         # Same rule as handle_device_save_bulk: a decommissioned host is never
         # monitored, and un-decommissioning restores monitoring. Set AFTER any
         # explicit `monitored` above so decommission wins.
-        updates['monitored'] = False if dc else True
+        updates['monitored'] = not dc
     if 'icon' in body:
         updates['icon'] = A._sanitize_str(body.get('icon') or '', A.MAX_NAME_LEN)
     if 'notes' in body:

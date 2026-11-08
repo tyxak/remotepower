@@ -9565,7 +9565,7 @@ def handle_push_channel_test():
     require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    port = int(os.environ.get('RP_PUSH_PORT', 8766))
+    port = int(os.environ.get('RP_PUSH_PORT', '8766'))
     try:
         with socket.create_connection(('127.0.0.1', port), timeout=2):
             pass
@@ -16333,7 +16333,7 @@ def handle_device_save_bulk(dev_id):
         if 'decommissioned' in body:
             dc = bool(body.get('decommissioned'))
             updates['decommissioned'] = dc
-            updates['monitored'] = False if dc else True
+            updates['monitored'] = not dc
 
         # v3.14.0 #38: agent release channel (stable|beta). 'beta' devices are
         # advertised the beta binary by /api/agent/version when one is published;
@@ -21657,7 +21657,7 @@ def handle_device_decommission(dev_id):
         if dev_id not in devices:
             respond(404, {'error': 'Host not found'})
         devices[dev_id]['decommissioned'] = dc
-        devices[dev_id]['monitored'] = False if dc else True
+        devices[dev_id]['monitored'] = not dc
     if dc:
         # Clear any pending offline notification, exactly like disabling monitoring.
         # v6.4.2: locked RMW. An unlocked load/mutate/save of the WHOLE config
@@ -37099,7 +37099,7 @@ def _subsystems_status(now):
     # daemon is a separate co-located process invisible to api.py otherwise.
     try:
         if (load(CONFIG_FILE) or {}).get('push_enabled'):
-            port = int(os.environ.get('RP_PUSH_PORT', 8766))
+            port = int(os.environ.get('RP_PUSH_PORT', '8766'))
             reachable = False
             try:
                 with socket.create_connection(('127.0.0.1', port), timeout=1):
@@ -37117,7 +37117,7 @@ def _subsystems_status(now):
     # reads as unreachable here, which the row says rather than guesses at.
     try:
         if _module_on('sshgw'):
-            _gw_port = int(os.environ.get('RP_SSHGW_WS_PORT', 8767))
+            _gw_port = int(os.environ.get('RP_SSHGW_WS_PORT', '8767'))
             _gw_up = False
             try:
                 with socket.create_connection(('127.0.0.1', _gw_port), timeout=1):
@@ -37136,7 +37136,7 @@ def _subsystems_status(now):
     # 8.0.0: the web terminal daemon (remotepower-webterm). Optional and often absent, so an answer on its loopback port says it is here and no
     # answer says nothing: the Server status page names it (and puts it in the restart command) only when it answers.
     try:
-        _wt_port = int(os.environ.get('WEBTERM_PORT', 8765))
+        _wt_port = int(os.environ.get('WEBTERM_PORT', '8765'))
         _wt_up = False
         try:
             with socket.create_connection(('127.0.0.1', _wt_port), timeout=1):
@@ -37599,7 +37599,7 @@ def handle_self_status():
     try:
         tokens = load(TOKENS_FILE)
         active = 0
-        for t, meta in tokens.items():
+        for meta in tokens.values():
             if not isinstance(meta, dict):
                 continue
             ttl = meta.get('ttl', 0)
@@ -57047,7 +57047,7 @@ def handle_status():
     except Exception:
         ttl = 180
     online = offline = 0
-    for dev_id, dev in devices.items():
+    for dev in devices.values():
         if dev.get('agentless') or not dev.get('monitored', True):
             continue
         last = dev.get('last_seen', 0)
@@ -60967,7 +60967,7 @@ def _compute_compliance(devices=None):
                'integrity': _agent_integrity_status(dev, canonical, SERVER_VERSION)}
         passed = applicable = 0
         fails = []
-        for cid, title, sev, fn in checks:
+        for cid, _title, sev, fn in checks:
             try:
                 res = fn(ctx)
             except Exception:
@@ -61851,7 +61851,7 @@ def handle_patch_snapshot_enforce(sid):
     pkg_store = load(PACKAGES_FILE) or {}
     dev_cmds = {}
     results = {}
-    for dev_id, dev in devices.items():
+    for dev_id in devices:
         installed = {p.get('name'): p.get('version')
                     for p in (pkg_store.get(dev_id, {}).get('packages') or [])
                     if p.get('name') and p.get('version')}
@@ -64949,7 +64949,7 @@ def handle_nav_counts():
     # product: every open tab, every 60s.
     devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     offline = 0
-    for did, d in devices.items():
+    for d in devices.values():
         if not isinstance(d, dict) or d.get('monitored') is False:
             continue
         if d.get('agentless'):

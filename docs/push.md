@@ -103,7 +103,8 @@ steps:
    this open, it logs every connect/disconnect.
 2. Enable the toggle (above) and save. Click **Test daemon connection**
    right next to it — this is a TCP-reachability check from the server to
-   the daemon's own port (8766 by default). It confirms the daemon is
+   the daemon's own port (8766 by default; if you moved the daemon, set
+   `RP_PUSH_PORT` to its port in the server's environment). It confirms the daemon is
    running and its port is up; it does **not** prove nginx is proxying
    `/api/push/connect` correctly or that a real host can authenticate.
 3. An agent only picks up `push_enabled: true` on its *next* heartbeat (up

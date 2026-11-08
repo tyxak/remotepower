@@ -82,7 +82,7 @@ def _scrub_acme_credentials(cmd: str) -> str:
     if 'export ' not in cmd:
         return cmd
     out = cmd
-    for provider, fields in A.ACME_DNS_CREDENTIAL_FIELDS.items():
+    for fields in A.ACME_DNS_CREDENTIAL_FIELDS.values():
         for f in fields:
             name = f['name']
             # Match: NAME='anything-up-to-trailing-quote'

@@ -1233,7 +1233,7 @@ def _verify_due_receipts(now):
     # After the lock, for the same reason the webhooks are: capture_fix_outcome
     # takes its own _LockedUpdate and a nested one is an OperationalError on the
     # SQL backends.
-    for r, dev in worked:
+    for r, _dev in worked:
         A.capture_fix_outcome(
             alert_id=r.get('alert_id'), event=r.get('trigger') or '',
             device_id=r.get('device_id') or '',

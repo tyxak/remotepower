@@ -168,8 +168,10 @@ why.
 **Server Status** now has an **SSH Gateway** row. It says **Running** when the
 gateway answers on this server, and how many of the servers you allowed have a
 tunnel up. **Enabled — unreachable** means nothing is listening on the tunnel
-port here; check `systemctl status remotepower-sshgw`. If you run the gateway
-on another machine, that row reads unreachable even when all is well.
+port here; check `systemctl status remotepower-sshgw`. The row asks port 8767;
+if you moved the daemon to another tunnel port, set `RP_SSHGW_WS_PORT` to that
+port in the server's environment. If you run the gateway on another machine,
+that row reads unreachable even when all is well.
 
 ### 4. Allow your servers
 

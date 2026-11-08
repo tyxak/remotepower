@@ -220,7 +220,7 @@ def verify(receipt, rec, now):
         if _stale(c.get('repo_digest'), digests[ref]):
             return 'not_updated', '%s still runs the old image of %s' % (c.get('name'), ref)
     settling = False
-    for c, ref in mine:
+    for c, _ref in mine:
         status = str(c.get('status') or '').lower()
         health = str(c.get('health') or '').lower()
         if any(t in status for t in _STOPPED) or not any(t in status for t in _RUNNING):
@@ -269,7 +269,7 @@ def verify_rollback(receipt, rec, now):
         if local and old and local != old:
             return 'failed', '%s runs neither the new image nor the one before it (%s)' % (c.get('name'), ref)
     settling = False
-    for c, ref in mine:
+    for c, _ref in mine:
         status = str(c.get('status') or '').lower()
         health = str(c.get('health') or '').lower()
         if any(t in status for t in _STOPPED) or not any(t in status for t in _RUNNING):
