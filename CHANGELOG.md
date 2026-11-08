@@ -379,6 +379,11 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
 - **Two settings have a control.** Settings → Alerts inbox has **Let every signed-in user acknowledge, resolve and assign alerts** (on by default; off
   limits those actions to administrators). The SAML card has **SP entity ID** (blank still means the server's metadata URL). Both were documented as
   options you set by calling the API.
+- **Editing a backup monitor no longer resets what the form does not show.** A monitor can carry a tool (`restic`, `borg`, `tar` or `auto`) and how often
+  its integrity check and restore drill run, and only the API sets them. Pressing **Edit** and **Save** built a new entry from the form, so the tool
+  went back to `auto` and both cadences to weekly, with a success toast. An edit now starts from the monitor it edits. The list in the page also
+  changes only once the server has accepted the save: a refused one used to stay in it and ride into the next. Held by
+  `tests/test_v800_backup_monitor_edit_e2e.py`.
 - **The DNS records table says why it is empty.** With no provider credentials, a locked vault or a token that sees no zone, the table was a header
   over nothing and only a line of small print above it gave the reason. It now says *No zone to list yet. Give the provider credentials, then pick a
   zone.* The walk of the empty install is a test now: it opens all 79 sidebar pages of a fresh install and fails on a blank table, a loader that never

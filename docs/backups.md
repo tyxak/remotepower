@@ -116,6 +116,11 @@ restore-drill result: open the drawer's **Audit** tab and expand **System → Ba
   is a guide, not an alert. "Targets" and "off-site" are inferred from each monitor's
   target, so a monitor that names no target counts by its top-level folder.
 
+The form has no field for three things a monitor can carry. `tool` is `auto` (the agent picks from the path), `restic`, `borg` or `tar`.
+`verify_max_age_hours` and `restore_drill_max_age_hours` say how often the integrity check and the restore drill run, in hours; both are 168
+(weekly) when unset. Set them on a monitor with `POST /api/config` under `backup_monitors`. Editing a monitor in the form keeps them *(8.0.0; an edit
+used to put the tool back to `auto` and both cadences back to weekly)*.
+
 Backup events fire on a change of state, not on every heartbeat.
 
 **Proxmox guest backups** have their own card on the Backups page. It compares each

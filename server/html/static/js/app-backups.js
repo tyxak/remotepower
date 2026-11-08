@@ -515,16 +515,18 @@ async function addBackupMonitor() {
   const drill = !!document.getElementById('bm-drill')?.checked;
   const drillSample = (document.getElementById('bm-drill-sample')?.value || '').trim();
   if (drill && !drillSample) { toast('A restore drill needs a sample path', 'error'); return; }
-  const entry = {path, label: label || path, max_age_hours: hours, tool: 'auto',
-    verify_enabled: verify, restore_drill_enabled: drill, restore_sample_path: drillSample};
-  if (_backupEditIdx >= 0 && _backupEditIdx < _backupMonitors.length) {
-    _backupMonitors[_backupEditIdx] = entry;
-  } else {
-    _backupMonitors.push(entry);
-  }
+  // an edit starts from the monitor it edits: the form has no field for the tool or the two cadences, so a fresh entry put the tool back to auto and both cadences to weekly
+  const editing = _backupEditIdx >= 0 && _backupEditIdx < _backupMonitors.length;
+  const entry = Object.assign({tool: 'auto'}, editing ? _backupMonitors[_backupEditIdx] : {}, {path, label: label || path, max_age_hours: hours,
+    verify_enabled: verify, restore_drill_enabled: drill, restore_sample_path: drillSample});
+  // the list in the page is replaced only once the server has accepted it: a refused save used to stay in the list and ride into the next one
+  const next = _backupMonitors.slice();
+  if (editing) next[_backupEditIdx] = entry;
+  else next.push(entry);
   const wasEdit = _backupEditIdx >= 0;
-  const r = await api('POST', '/config', {backup_monitors: _backupMonitors});
+  const r = await api('POST', '/config', {backup_monitors: next});
   if (r?.ok) {
+    _backupMonitors = next;
     toast(wasEdit ? 'Backup monitor updated' : 'Backup monitor added', 'success');
     document.getElementById('bm-path').value = document.getElementById('bm-label').value = '';
     document.getElementById('bm-hours').value = '24';
