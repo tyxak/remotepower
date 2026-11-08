@@ -62,6 +62,12 @@ _EXEMPT = {
         'the ProtectKernelModules sandbox signal. Its home is a Checks row — it '
         'answers "can this agent see the module tree", which is a check result, '
         'not a fact about the host worth a drawer pill.',
+    'compose_rollback':
+        'a capability flag, not a reading: image_autoupdate.can_roll_back decides '
+        'from it whether a host may be updated while the policy promises a '
+        'rollback, and the Automatic updates card says so in the preview '
+        '("the agent on this host cannot roll back an update"). A drawer pill '
+        'for it would say nothing a person can act on.',
 }
 
 _UI_FILES = sorted(_JS.glob('app*.js')) + [_ROOT / 'server/html/index.html']
