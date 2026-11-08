@@ -63,7 +63,9 @@ def pihole_status(inst, c):
     try:
         return _pihole_blocking(c, sid)
     finally:
-        pihole_logout(c, sid)       # 8.0.0: the session is given back (Pi-hole holds 16 by default and the seats are the web login's too)
+        pihole_logout(
+            c, sid
+        )  # 8.0.0: the session is given back (Pi-hole holds 16 by default and the seats are the web login's too)
 
 
 def _pihole_blocking(c, sid):
@@ -90,7 +92,9 @@ def pihole_set_blocking(inst, c, enabled, seconds):
         r = c.post_json("/api/dns/blocking", body, headers={"X-FTL-SID": sid})
         if not r.ok:
             raise IntegrationError(f"Pi-hole refused the change (HTTP {r.status})")
-        return _pihole_blocking(c, sid)         # the answer is read in the session that made the change: it used to log in a second time
+        return _pihole_blocking(
+            c, sid
+        )  # the answer is read in the session that made the change: it used to log in a second time
     finally:
         pihole_logout(c, sid)
 

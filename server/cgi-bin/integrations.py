@@ -59,7 +59,8 @@ _NAME_FAILURES = (
 def network_error_reason(e: BaseException):
     """Why a call over the network failed, in words an operator can act on, or None for an exception that is not a
     recognised network failure (a bug, a bad value, a message somebody wrote for a person). urllib wraps nearly every
-    failure in URLError, so `type(e).__name__` says "URLError" for a DNS failure, a refused connection and a timeout alike."""
+    failure in URLError, so `type(e).__name__` says "URLError" for a DNS failure, a refused connection and a timeout alike.
+    """
     if isinstance(e, urllib.error.HTTPError):
         return "it answered HTTP %d" % e.code
     reason = getattr(e, "reason", None)
@@ -257,7 +258,9 @@ class HTTPClient:
 CONNECTORS: dict = {}
 
 
-def _register(type_, label, category, fields, notes="", version="", author="", homepage="", default_url=""):
+def _register(
+    type_, label, category, fields, notes="", version="", author="", homepage="", default_url=""
+):
     """Decorator registering a connector + its UI metadata.
 
     version/author/homepage (v6.1.1) are optional display metadata so the
@@ -683,8 +686,8 @@ def _homeassistant(inst, c):
         _field("secret", "Token secret", PASSWORD),
     ],
     notes="PBS API token. Authorization: PBSAPIToken=<id>:<secret>. Datastore fill, a datastore that cannot be read or is not mounted, bad chunks after garbage "
-          "collection, and the tasks that failed in the last 24 hours. PBS shows a token only its own user's tasks unless that user has Sys.Audit on /system/tasks: "
-          "without it the failed-task count leaves out the scheduled backup, verify and prune jobs.",
+    "collection, and the tasks that failed in the last 24 hours. PBS shows a token only its own user's tasks unless that user has Sys.Audit on /system/tasks: "
+    "without it the failed-task count leaves out the scheduled backup, verify and prune jobs.",
 )
 def _pbs(inst, c):
     h = {"Authorization": f"PBSAPIToken={inst.get('username','')}:{inst.get('secret','')}"}
@@ -777,9 +780,17 @@ def _pbs(inst, c):
 def _pbs_failed_tasks(c, h, now):
     """The tasks that ended in an error in the last 24 hours, counted and named by kind (GET /api2/json/nodes/localhost/tasks?errors=1&since=...), or None
     when the token cannot read them. PBS shows a user only their own tasks unless the user has Sys.Audit on /system/tasks, so a token without it sees none of
-    the scheduled backup, verify and prune jobs: the connector says what it counted, and the notes say what the token needs."""
+    the scheduled backup, verify and prune jobs: the connector says what it counted, and the notes say what the token needs.
+    """
     try:
-        rows = (c.get_json("/api2/json/nodes/localhost/tasks", headers=h, params={"errors": 1, "since": int(now) - 86400, "limit": 100}) or {}).get("data")
+        rows = (
+            c.get_json(
+                "/api2/json/nodes/localhost/tasks",
+                headers=h,
+                params={"errors": 1, "since": int(now) - 86400, "limit": 100},
+            )
+            or {}
+        ).get("data")
         if not isinstance(rows, list):
             return None
         kinds = {}
@@ -1203,9 +1214,13 @@ def _grafana(inst, c):
     # without the route (legacy alerting), leaves the answer as it was.
     if inst.get("secret"):
         try:
-            r = c.get("/api/alertmanager/grafana/api/v2/alerts", headers=h, params={"active": "true", "silenced": "false", "inhibited": "false"})
+            r = c.get(
+                "/api/alertmanager/grafana/api/v2/alerts",
+                headers=h,
+                params={"active": "true", "silenced": "false", "inhibited": "false"},
+            )
         except IntegrationError:
-            r = None        # the health call answered; this one got none (a timeout, a reset): the tile stays what the health call says
+            r = None  # the health call answered; this one got none (a timeout, a reset): the tile stays what the health call says
         firing = None
         names = []
         if r is None:
@@ -1216,10 +1231,20 @@ def _grafana(inst, c):
             except (IntegrationError, ValueError):
                 body = None
             if isinstance(body, list):
-                live = [a for a in body if isinstance(a, dict) and isinstance(a.get("status"), dict) and a["status"].get("state") == "active"]
+                live = [
+                    a
+                    for a in body
+                    if isinstance(a, dict)
+                    and isinstance(a.get("status"), dict)
+                    and a["status"].get("state") == "active"
+                ]
                 firing = len(live)
                 for a in live:
-                    n = (a.get("labels") or {}).get("alertname") if isinstance(a.get("labels"), dict) else None
+                    n = (
+                        (a.get("labels") or {}).get("alertname")
+                        if isinstance(a.get("labels"), dict)
+                        else None
+                    )
                     if isinstance(n, str) and n and n not in names:
                         names.append(n)
         elif r.status in (401, 403):
@@ -1721,7 +1746,7 @@ def _overseerr(inst, c):
     "media",
     [_field("secret", "API key", PASSWORD)],
     notes="Immich API key (Account Settings → API Keys), sent as x-api-key. Permissions the key needs: server.about and server.statistics; add server.storage for the "
-          "disk fill (it sets the status: 80% warns, 90% is critical) and queue.read (job.read on a server before 2.4.0) for the number of failed jobs.",
+    "disk fill (it sets the status: 80% warns, 90% is critical) and queue.read (job.read on a server before 2.4.0) for the number of failed jobs.",
 )
 def _immich(inst, c):
     h = {"x-api-key": inst.get("secret", "")}
@@ -1744,7 +1769,9 @@ def _immich(inst, c):
         status = CRIT if disk >= 90 else WARN if disk >= 80 else OK
     jobs = _immich_jobs(c, h)
     if jobs is not None:
-        metrics.update(jobs_failed=jobs["failed"], jobs_active=jobs["active"], jobs_waiting=jobs["waiting"])
+        metrics.update(
+            jobs_failed=jobs["failed"], jobs_active=jobs["active"], jobs_waiting=jobs["waiting"]
+        )
         if jobs["failed"]:
             detail += f" · {jobs['failed']} failed {'job' if jobs['failed'] == 1 else 'jobs'}"
     return {"status": status, "version": ver, "detail": detail, "metrics": metrics}
@@ -1756,7 +1783,11 @@ def _immich_disk(c, h):
         st = c.get_json("/api/server/storage", headers=h) or {}
         pct = st.get("diskUsagePercentage")
         if isinstance(pct, bool) or not isinstance(pct, (int, float)):
-            pct = _pct(st.get("diskUseRaw"), st.get("diskSizeRaw")) if _num(st.get("diskSizeRaw")) > 0 else None
+            pct = (
+                _pct(st.get("diskUseRaw"), st.get("diskSizeRaw"))
+                if _num(st.get("diskSizeRaw")) > 0
+                else None
+            )
         return None if pct is None else round(float(pct), 1)
     except (IntegrationError, AttributeError, TypeError, ValueError):
         return None
@@ -1765,7 +1796,9 @@ def _immich_disk(c, h):
 def _immich_jobs(c, h):
     """The jobs the server's queues hold, summed over the queues, or None. /api/queues (2.4.0 and later, an alpha API) answers a list of
     {name, isPaused, statistics: {active, waiting, failed, ...}}; /api/jobs (deprecated, and what older servers have) answers a map of
-    queue name to {jobCounts: {...}, queueStatus: {...}}. The first is tried first and the second when it does not answer or answers something else."""
+    queue name to {jobCounts: {...}, queueStatus: {...}}. The first is tried first and the second when it does not answer or answers something else.
+    """
+
     def total(rows):
         out = {"active": 0, "waiting": 0, "failed": 0}
         for counts in rows:
@@ -1774,6 +1807,7 @@ def _immich_jobs(c, h):
             for k in out:
                 out[k] += int(_num(counts.get(k)))
         return out
+
     try:
         q = c.get_json("/api/queues", headers=h)
         if isinstance(q, list) and q:
@@ -1794,7 +1828,8 @@ def _paperless_problems(st):
 
     Read from Paperless-ngx's own SystemStatusView: database.status and the tasks' redis, celery, index, classifier, sanity-check and LLM-index statuses are OK, WARNING or ERROR, each
     with an *_error. A WARNING of the classifier, the sanity check or the LLM index is what an install that has not run one yet says ("No classifier training tasks found"), so only
-    their ERROR counts; a WARNING of celery is "no worker answers a ping", which does. A database, redis or celery that is in ERROR stops documents being consumed, so those are critical."""
+    their ERROR counts; a WARNING of celery is "no worker answers a ping", which does. A database, redis or celery that is in ERROR stops documents being consumed, so those are critical.
+    """
     out = []
     if not isinstance(st, dict):
         return out
@@ -1817,10 +1852,19 @@ def _paperless_problems(st):
     elif word(tasks, "celery_status") == "WARNING":
         out.append((WARN, "celery: no worker answers"))
     ms = db.get("migration_status") if isinstance(db.get("migration_status"), dict) else {}
-    pending = ms.get("unapplied_migrations") if isinstance(ms.get("unapplied_migrations"), list) else []
+    pending = (
+        ms.get("unapplied_migrations") if isinstance(ms.get("unapplied_migrations"), list) else []
+    )
     if pending:
-        out.append((WARN, f"{len(pending)} migration{'s' if len(pending) != 1 else ''} not applied"))
-    for key, label in (("index", "index"), ("classifier", "classifier"), ("sanity_check", "sanity check"), ("llmindex", "LLM index")):
+        out.append(
+            (WARN, f"{len(pending)} migration{'s' if len(pending) != 1 else ''} not applied")
+        )
+    for key, label in (
+        ("index", "index"),
+        ("classifier", "classifier"),
+        ("sanity_check", "sanity check"),
+        ("llmindex", "LLM index"),
+    ):
         if word(tasks, key + "_status") == "ERROR":
             out.append((WARN, say(label, tasks.get(key + "_error"))))
     return out
@@ -1850,11 +1894,14 @@ def _paperless(inst, c):
     try:
         r = c.get("/api/status/", headers=h)
     except IntegrationError:
-        return out          # the counts were read; the health call got no answer (a timeout, a reset): that is not Paperless being unwell
+        return out  # the counts were read; the health call got no answer (a timeout, a reset): that is not Paperless being unwell
     if r.ok:
         try:
             body = r.json()
-        except (IntegrationError, ValueError):     # a body that is not JSON: Resp.json() says so with an IntegrationError
+        except (
+            IntegrationError,
+            ValueError,
+        ):  # a body that is not JSON: Resp.json() says so with an IntegrationError
             body = None
         if isinstance(body, dict):
             problems = _paperless_problems(body)
@@ -1956,12 +2003,18 @@ def _syncthing(inst, c):
     except IntegrationError:
         return out
     raw = body.get("errors") if isinstance(body, dict) else None
-    errs = [e for e in (raw if isinstance(raw, list) else []) if isinstance(e, dict) and str(e.get("message") or "").strip()]
+    errs = [
+        e
+        for e in (raw if isinstance(raw, list) else [])
+        if isinstance(e, dict) and str(e.get("message") or "").strip()
+    ]
     out["metrics"]["errors"] = len(errs)
     if errs:
         newest = max(errs, key=lambda e: str(e.get("when") or ""))
         out["status"] = WARN
-        out["detail"] += f" · {len(errs)} error{'s' if len(errs) != 1 else ''}: {str(newest['message']).strip()[:100]}"
+        out[
+            "detail"
+        ] += f" · {len(errs)} error{'s' if len(errs) != 1 else ''}: {str(newest['message']).strip()[:100]}"
     return out
 
 
@@ -2028,7 +2081,10 @@ def _octoprint(inst, c):
     "esphome",
     "ESPHome (dashboard)",
     "apps",
-    [_field("username", "User name (optional)", TEXT, optional=True), _field("secret", "Password (optional)", PASSWORD, optional=True)],
+    [
+        _field("username", "User name (optional)", TEXT, optional=True),
+        _field("secret", "Password (optional)", PASSWORD, optional=True),
+    ],
     notes="ESPHome dashboard or ESPHome Device Builder (it replaced the built-in dashboard, which ESPHome has removed). Reads the node list (/devices) and which nodes "
     "answer (/ping): Device Builder keeps both routes for compatibility and its authors mark them deprecated. Out-of-date firmware is a warning; an offline node is "
     "counted and said, not alerted, because a node that sleeps is offline most of the time. User name and password only if the dashboard has them set (HTTP Basic).",
@@ -2036,7 +2092,10 @@ def _octoprint(inst, c):
 def _esphome(inst, c):
     h = {}
     if inst.get("secret"):
-        h = {"Authorization": "Basic " + base64.b64encode(f"{inst.get('username', '')}:{inst.get('secret')}".encode()).decode()}
+        h = {
+            "Authorization": "Basic "
+            + base64.b64encode(f"{inst.get('username', '')}:{inst.get('secret')}".encode()).decode()
+        }
     data = c.get_json("/devices", headers=h)
     nodes = (data.get("configured") if isinstance(data, dict) else data) or []
     outdated = 0
@@ -2537,14 +2596,15 @@ def _sentinelone(inst, c):
 # A host that is only offline is NOT a warning here: phones and laptops come and go, and a standing amber tile is the one
 # that gets ignored. The shapes below are the vendors' documented ones; every field is read defensively because a parser that
 # trusts one of them turns a changed API into a traceback instead of a tile.
-_OVERLAY_SOON_DAYS = 14        # a key that ends within this many days is a warning
-_OVERLAY_SEEN_DAYS = 30        # an expired key only matters for a host that was seen this recently (old ones are abandoned)
-_OVERLAY_ONLINE_S = 300        # a host seen this recently counts as online when the API has no live flag
+_OVERLAY_SOON_DAYS = 14  # a key that ends within this many days is a warning
+_OVERLAY_SEEN_DAYS = 30  # an expired key only matters for a host that was seen this recently (old ones are abandoned)
+_OVERLAY_ONLINE_S = 300  # a host seen this recently counts as online when the API has no live flag
 
 
 def _iso_epoch(value):
     """Seconds since the epoch for an RFC 3339 timestamp ('2026-11-07T10:00:00Z', fractions and offsets allowed), or 0.
-    The zero time Go prints for 'never' ('0001-01-01T00:00:00Z') is 0 too: it is not a date a key can expire on."""
+    The zero time Go prints for 'never' ('0001-01-01T00:00:00Z') is 0 too: it is not a date a key can expire on.
+    """
     if not isinstance(value, str) or len(value) < 10:
         return 0
     s = value.strip()
@@ -2630,7 +2690,7 @@ def _tailscale(inst, c):
     rows = []
     for dev in items if isinstance(items, list) else []:
         if not isinstance(dev, dict) or dev.get("isExternal"):
-            continue          # a host shared in from another tailnet is not this tailnet's to keep alive
+            continue  # a host shared in from another tailnet is not this tailnet's to keep alive
         live = dev.get("connectedToControl")
         rows.append(
             {
@@ -2639,7 +2699,9 @@ def _tailscale(inst, c):
                 "expires": _iso_epoch(dev.get("expires")),
                 "no_expiry": bool(dev.get("keyExpiryDisabled")),
                 "update": bool(dev.get("updateAvailable")),
-                "authorized": dev.get("authorized") if isinstance(dev.get("authorized"), bool) else None,
+                "authorized": (
+                    dev.get("authorized") if isinstance(dev.get("authorized"), bool) else None
+                ),
             }
         )
     return _overlay_summary(rows)
@@ -2689,13 +2751,21 @@ def _headscale(inst, c):
 def _cloudflare_tunnel(inst, c):
     account = str(inst.get("slug") or "").strip()
     if not re.fullmatch(r"[0-9a-fA-F]{32}", account):
-        raise IntegrationError("the account ID is the 32-character hex string on the account's overview page")
+        raise IntegrationError(
+            "the account ID is the 32-character hex string on the account's overview page"
+        )
     h = {"Authorization": "Bearer " + (inst.get("secret") or "")}
-    d = c.get_json("/client/v4/accounts/%s/cfd_tunnel" % account, headers=h, params={"is_deleted": "false", "per_page": 100})
+    d = c.get_json(
+        "/client/v4/accounts/%s/cfd_tunnel" % account,
+        headers=h,
+        params={"is_deleted": "false", "per_page": 100},
+    )
     if not isinstance(d, dict) or d.get("success") is False:
         errs = d.get("errors") if isinstance(d, dict) else None
         first = errs[0] if isinstance(errs, list) and errs and isinstance(errs[0], dict) else {}
-        raise IntegrationError("Cloudflare refused it: %s" % (str(first.get("message") or "no reason given")[:120]))
+        raise IntegrationError(
+            "Cloudflare refused it: %s" % (str(first.get("message") or "no reason given")[:120])
+        )
     items = d.get("result")
     counts = {"healthy": 0, "degraded": 0, "down": 0, "inactive": 0}
     conns = 0
@@ -2716,7 +2786,9 @@ def _cloudflare_tunnel(inst, c):
     if counts["degraded"]:
         bits.append("%d degraded" % counts["degraded"])
     if counts["down"]:
-        bits.append("%d down (%s)" % (counts["down"], ", ".join(n for n in names_down if n) or "unnamed"))
+        bits.append(
+            "%d down (%s)" % (counts["down"], ", ".join(n for n in names_down if n) or "unnamed")
+        )
     return {
         "status": status,
         "detail": ", ".join(bits),
@@ -2797,7 +2869,11 @@ _STATS: dict = {
     ],
     "unifi": [("subsystems", "Subsystems", "num"), ("subsystems_bad", "Degraded", "num")],
     "homeassistant": [("entities", "Entities", "int"), ("unavailable", "Unavailable", "num")],
-    "pbs": [("datastores", "Datastores", "num"), ("fullest_pct", "Fullest", "pct"), ("tasks_failed_24h", "Failed 24h", "num")],
+    "pbs": [
+        ("datastores", "Datastores", "num"),
+        ("fullest_pct", "Fullest", "pct"),
+        ("tasks_failed_24h", "Failed 24h", "num"),
+    ],
     "kubernetes": [
         ("nodes_notready", "Nodes down", "num"),
         ("pods_crashloop", "CrashLoop", "num"),
@@ -2852,13 +2928,25 @@ _STATS: dict = {
         ("disk_pct", "Disk", "pct"),
         ("jobs_failed", "Failed jobs", "num"),
     ],
-    "paperless": [("documents", "Documents", "int"), ("inbox", "Inbox", "num"), ("problems", "Problems", "int")],
+    "paperless": [
+        ("documents", "Documents", "int"),
+        ("inbox", "Inbox", "num"),
+        ("problems", "Problems", "int"),
+    ],
     "vaultwarden": [("alive", "Alive", "flag")],
     "gitea": [("repos", "Repos", "int")],
-    "syncthing": [("devices_connected", "Connected", "num"), ("devices", "Devices", "num"), ("errors", "Errors", "int")],
+    "syncthing": [
+        ("devices_connected", "Connected", "num"),
+        ("devices", "Devices", "num"),
+        ("errors", "Errors", "int"),
+    ],
     "frigate": [("cameras", "Cameras", "num"), ("det_fps", "Detect FPS", "num")],
     "octoprint": [("printing", "Printing", "flag"), ("operational", "Operational", "flag")],
-    "esphome": [("nodes", "Nodes", "num"), ("outdated", "Outdated", "num"), ("offline", "Offline", "num")],
+    "esphome": [
+        ("nodes", "Nodes", "num"),
+        ("outdated", "Outdated", "num"),
+        ("offline", "Offline", "num"),
+    ],
     "homebridge": [("up", "Bridge", "flag"), ("plugins", "Plugins", "num")],
 }
 # The named *arr connectors share the servarr stat chips.

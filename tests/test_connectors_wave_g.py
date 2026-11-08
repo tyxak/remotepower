@@ -258,8 +258,11 @@ class TestESPHome(unittest.TestCase):
         self.assertEqual(r['status'], I.OK)
         self.assertEqual(r['metrics'], {'nodes': 1, 'outdated': 0})
 
-    def test_fields_empty(self):
-        self.assertEqual(I.CONNECTORS['esphome']['fields'], [])
+    def test_fields_are_an_optional_user_name_and_password(self):
+        # 8.0.0: a dashboard that has a login set is read with HTTP Basic; one that has none needs nothing (tests/test_v800_connector_updates_2.py holds the rest)
+        fields = I.CONNECTORS['esphome']['fields']
+        self.assertEqual([f['key'] for f in fields], ['username', 'secret'])
+        self.assertTrue(all(f['optional'] for f in fields))
 
     def test_down_is_critical(self):
         self.assertEqual(I.poll_instance({'type': 'esphome'}, FakeClient())['status'], I.CRIT)
