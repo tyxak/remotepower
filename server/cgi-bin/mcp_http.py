@@ -659,6 +659,10 @@ def _call(params, fetch):
         text, is_error = str(e), True
     except FetchError as e:
         text, is_error = "HTTP %s: %s" % (e.status, e.message), True
+    except (
+        Exception
+    ) as e:  # a tool that meets a reply it did not expect is a failed call, not an HTTP 500 for the model's host to puzzle over
+        text, is_error = "The tool could not read the answer (%s)." % type(e).__name__, True
     return {"content": [{"type": "text", "text": text}], "isError": is_error}, None
 
 

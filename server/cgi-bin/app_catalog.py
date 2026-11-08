@@ -675,5 +675,5 @@ def clean_found(raw):
 
 
 def describe(app_id):
-    """The catalog's entry for an app id, or None."""
-    return _BY_ID.get(app_id)
+    """The catalog's entry for an app id, or None. A value that is not text is no id: a list cannot even be looked up."""
+    return _BY_ID.get(app_id) if isinstance(app_id, str) else None

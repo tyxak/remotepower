@@ -340,15 +340,22 @@ def clean_watch(raw: Any) -> tuple[list[dict[str, str]], str]:
     return out, ""
 
 
-def watched(row: dict[str, Any], watch: list[dict[str, str]]) -> list[dict[str, str]]:
-    """The entries of the watch list that this row matches: its address (or a network that holds it), its service port or its program."""
+def watched(row: Any, watch: Any) -> list[dict[str, str]]:
+    """The entries of the watch list that this row matches: its address (or a network that holds it), its service port or its program. A row or an entry that is not a
+    map matches nothing: the rows come from a store and the entries from the settings, and either can have been edited by hand.
+    """
+    if not isinstance(row, dict) or not isinstance(watch, list):
+        return []
     hits = []
     try:
         addr = ipaddress.ip_address(row["ip"])
-    except (KeyError, ValueError):
+    except (KeyError, ValueError, TypeError):
         addr = None
+    prog = str(row.get("proc") or "").lower()
     for w in watch:
-        kind, value = w.get("kind"), w.get("value", "")
+        if not isinstance(w, dict):
+            continue
+        kind, value = w.get("kind"), str(w.get("value") if w.get("value") is not None else "")
         if kind == "ip" and row.get("ip") == value:
             hits.append(w)
         elif kind == "cidr" and addr is not None:
@@ -359,9 +366,35 @@ def watched(row: dict[str, Any], watch: list[dict[str, str]]) -> list[dict[str, 
                 pass
         elif kind == "port" and str(row.get("port")) == value:
             hits.append(w)
-        elif kind == "proc" and value and (row.get("proc") or "").lower() == value.lower():
+        elif kind == "proc" and value and prog == value.lower():
             hits.append(w)
     return hits
+
+
+def num(value: Any) -> int:
+    """A count from a store: the number, or 0 when it is not a whole non-negative one (a value of another kind was put there by hand or by an older build)."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def stored_rows(sample: Any) -> list[dict[str, Any]]:
+    """The rows of a stored sample that are rows. A reader subtracts them, sorts by them and puts their fields in a set, so each field has the type it needs; an address is not
+    parsed again. On a SQL backend a record comes back as it was written, with no shape registry in between, so a reader cannot count on what ingest checked.
+    """
+    rows = sample.get("rows") if isinstance(sample, dict) else None
+    out = []
+    for r in rows if isinstance(rows, list) else []:
+        if (
+            isinstance(r, dict)
+            and r.get("d") in ("in", "out")
+            and isinstance(r.get("ip"), str)
+            and isinstance(r.get("proc"), str)
+            and all(
+                isinstance(r.get(k), int) and not isinstance(r.get(k), bool) and r[k] >= 0
+                for k in ("port", "n", "tx", "rx")
+            )
+        ):
+            out.append(r)
+    return out
 
 
 def _hit_key(row: dict[str, Any], entry: dict[str, str]) -> str:
@@ -446,10 +479,10 @@ def fleet_summary(
         if not isinstance(sample, dict):
             continue
         total["hosts"] += 1
-        total["tx"] += sample.get("tx") or 0
-        total["rx"] += sample.get("rx") or 0
-        total["conns"] += sample.get("conns") or 0
-        for r in sample.get("rows") or []:
+        total["tx"] += num(sample.get("tx"))
+        total["rx"] += num(sample.get("rx"))
+        total["conns"] += num(sample.get("conns"))
+        for r in stored_rows(sample):
             e = remotes.setdefault(
                 r["ip"],
                 {

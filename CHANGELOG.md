@@ -547,6 +547,18 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   in the page's scripts that outputs `text/csv`; every csv writer call on the server, which writes a guarded cell or a heading the code defines) and a browser test that downloads
   the Programs table with a program called `=HYPERLINK(...)`.
 
+- **Generated tests of the new code found four ways it could fail on input it was never meant to read.** A property states a promise of a function (never raise, stay inside a
+  bound, give back what you were given) and Hypothesis looks for the input that breaks it. It was run over the cleaners of a host's connection sample and of the watch list, the agent's
+  reader of `ss`, the app catalog and the round trip from what an agent sends to what the server keeps, the image update policy, the probe runner and the hosted MCP endpoint. Four defects:
+  `describe()` of the app catalog raised for an id that is a list, because a list cannot be looked up; a stored connection row that is not a row (a text, a program that is a list, a missing
+  field) made the host's Traffic page, the fleet's, the Data Explorer and Fleet Query answer 500 for every user until the row was deleted, because a SQL backend hands a record back as it was
+  written and the shape registry is not in between (the readers check the type of each field now); a tool of the MCP endpoint that met an answer it did not expect raised out of the endpoint and
+  the model's host got an HTTP 500 and no result (it is a failed tool call now, with the name of the exception and nothing else); and the agent's reader of `ss` trusted `str.isdigit()`, which is
+  true for a superscript two (`int()` refuses it) and for a string of any length, in the new reader and in the older one that reads peer connections (a port is ASCII digits from 0 to 65535 now).
+  **Held by** `tests/test_v800_properties.py` (24 properties; skipped where hypothesis is not installed, which is CI) and `tests/test_v800_found_by_properties.py` (13 examples that CI runs, one
+  for each input Hypothesis printed). Each fix was taken out again to see its tests fail, and the first strategy for the `ss` reader did not: the port is only converted after the address parses,
+  which random text almost never builds, so it is generated from a valid address and a port of digit-like characters.
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).

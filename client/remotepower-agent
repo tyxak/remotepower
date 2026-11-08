@@ -2355,7 +2355,8 @@ def _is_private_ip(ip):
 def _ss_port(addr):
     """The port in an `ss` address column ("10.0.0.1:22", "[::]:22", "*:22"), or None."""
     port = addr.rpartition(':')[2]
-    return int(port) if port.isdigit() else None
+    # ASCII digits only and a port's own range: str.isdigit() is true for a superscript two, which int() refuses, and for a string of any length
+    return int(port) if port.isascii() and port.isdigit() and len(port) <= 5 and int(port) <= 65535 else None
 
 
 def collect_peer_connections(limit=50):
@@ -2443,7 +2444,7 @@ def _ss_ip_port(addr):
     """(address, port) from an `ss` address column ("203.0.113.7:443", "[2001:db8::1]:443", "[fe80::1%eth0]:22"), the address in its shortest form and an
     IPv4 address inside an IPv6 one as IPv4; None when the column is not one."""
     host, _, port = addr.rpartition(':')
-    if not port.isdigit():
+    if not (port.isascii() and port.isdigit() and len(port) <= 5 and int(port) <= 65535):
         return None
     try:
         ip = ipaddress.ip_address(host.strip('[]').split('%', 1)[0])

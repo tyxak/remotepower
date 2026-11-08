@@ -206,6 +206,12 @@ def _row_view(r, watch, labels, geo_cache, scores, rec, now):
 # ── the host view ────────────────────────────────────────────────────────────
 
 
+def _win(sample):
+    """The window a stored sample covers, in seconds: the number when it is one from 1 to 3600, else 1."""
+    v = sample.get("win") if isinstance(sample, dict) else None
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and 1 <= v <= 3600 else 1.0
+
+
 def _step(dev, every):
     """Seconds between two samples that reach the server: the sampling interval, or the host's own poll interval when that is longer, since a sample travels with
     a report. A host that polls every ten minutes is not stale after five."""
@@ -264,20 +270,20 @@ def handle_device_traffic(dev_id):
     }
     if state in ("reporting", "stale", "error"):
         sample = rec["sample"]
-        rows = [r for r in (sample.get("rows") or []) if isinstance(r, dict)]
+        rows = T.stored_rows(sample)
         scores = _intel({r["ip"] for r in rows if T.scope_of(r["ip"]) == "public"})
         geo_cache, watch, labels = {}, _watch(cfg), _is_operator() or not A._tenancy_enforced()
         out.update(
             {
                 "at": rec.get("at"),
-                "win": sample.get("win"),
-                "tx": sample.get("tx", 0),
-                "rx": sample.get("rx", 0),
-                "conns": sample.get("conns", 0),
+                "win": _win(sample),
+                "tx": T.num(sample.get("tx")),
+                "rx": T.num(sample.get("rx")),
+                "conns": T.num(sample.get("conns")),
                 "trunc": bool(sample.get("trunc")),
                 "err": sample.get("err") if sample.get("err") in T.ERRORS else "",
-                "other": sample.get("other") or out["other"],
-                "series": [p for p in (rec.get("series") or []) if isinstance(p, list) and len(p) == 4],
+                "other": sample.get("other") if isinstance(sample.get("other"), dict) else out["other"],
+                "series": [p for p in (rec.get("series") if isinstance(rec.get("series"), list) else []) if isinstance(p, list) and len(p) == 4 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in p)],
                 "rows": [_row_view(r, watch, labels, geo_cache, scores, rec, now) for r in rows],
             }
         )
@@ -310,14 +316,14 @@ def handle_traffic_fleet():
         line = {"id": dev_id, "name": name, "state": state}
         if state in ("reporting", "stale", "error") and rec is not None:
             sample = rec["sample"]
-            win = max(1.0, float(sample.get("win") or 1))
-            line.update({"at": rec.get("at"), "conns": sample.get("conns", 0), "tx": sample.get("tx", 0), "rx": sample.get("rx", 0), "tx_rate": round(sample.get("tx", 0) / win), "rx_rate": round(sample.get("rx", 0) / win)})
+            win, tx, rx = _win(sample), T.num(sample.get("tx")), T.num(sample.get("rx"))
+            line.update({"at": rec.get("at"), "conns": T.num(sample.get("conns")), "tx": tx, "rx": rx, "tx_rate": round(tx / win), "rx_rate": round(rx / win)})
             if sample.get("err") in T.ERRORS:
                 line["err"] = sample["err"]
             if state == "reporting":
                 entries.append((dev_id, name, sample))
                 if watch and len(hits) < HITS_MAX:
-                    for r in sample.get("rows") or []:
+                    for r in T.stored_rows(sample):
                         for w in T.watched(r, watch):
                             if len(hits) < HITS_MAX:
                                 hits.append({"id": dev_id, "name": name, "ip": r["ip"], "port": r["port"], "proc": r.get("proc", ""), "d": r["d"], "tx": r["tx"], "rx": r["rx"], "kind": w["kind"], "value": w["value"], "label": w.get("label", "") if labels else ""})
@@ -366,9 +372,7 @@ def explorer_rows(devices, store, now):
         state = _state(dev, rec, now, every)
         if state not in ("reporting", "stale"):
             continue
-        for r in rec["sample"].get("rows") or []:
-            if not isinstance(r, dict):
-                continue
+        for r in T.stored_rows(rec["sample"]):
             out.append(
                 {
                     "device_id": dev_id,
@@ -402,10 +406,7 @@ def hosts_talking(devices, store, needle):
         if not isinstance(dev, dict) or dev.get("agentless") or dev.get("decommissioned"):
             continue
         rec = store.get(dev_id)
-        rows = rec["sample"].get("rows") if isinstance(rec, dict) and isinstance(rec.get("sample"), dict) else None
-        for r in rows if isinstance(rows, list) else []:
-            if not isinstance(r, dict):
-                continue
+        for r in T.stored_rows(rec.get("sample") if isinstance(rec, dict) else None):
             if needle in str(r.get("ip") or "").lower() or needle in str(r.get("proc") or "").lower() or needle == str(r.get("port")) or needle == T.service_of(r.get("port")):
                 out.add(dev_id)
                 break
