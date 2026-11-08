@@ -16,6 +16,7 @@ The seed is run once for the whole process (test_v702_seeder_shapes keeps it), a
 import importlib.util
 import json
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -107,6 +108,35 @@ class TestTheSeederStatesWhatItsAgentsFound(unittest.TestCase):
         self.assertGreaterEqual(len(offered), 8, "apps a connector reads: %r" % sorted(offered))
         for needed in ("gitea", "vaultwarden", "syncthing", "node_exporter", "jellyfin", "postgres", "redis"):
             self.assertIn(needed, ids_found)
+
+
+class TestTheSeederStatesWhoHoldsThePushChannel(unittest.TestCase):
+    """A Linux agent that holds the push channel open says so in every heartbeat and the server keeps when (push_seen), which the page shows as a bolt. The demo had none, so the
+    host list, the cards and the drawer were measured by the rendered gates without it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.devices = seeded._seeded_devices()
+
+    def agents(self, linux):
+        rows = [d for d in self.devices.values() if isinstance(d.get("sysinfo"), dict) and d["sysinfo"] and not d.get("agentless")]
+        return [d for d in rows if linux == (not any(x in (d.get("os") or "").lower() for x in _NOT_LINUX))]
+
+    def test_most_linux_agents_hold_it_and_some_do_not_and_the_server_reads_the_stamp_as_up(self):
+        import api
+        now = int(time.time())
+        linux = self.agents(True)
+        holding = [d for d in linux if "push_seen" in d]
+        self.assertGreaterEqual(len(holding), 5)
+        self.assertTrue([d for d in linux if "push_seen" not in d], "the page shows hosts without the bolt too")
+        for d in holding:
+            self.assertTrue(api._push_channel_up(d, now), d.get("name"))
+
+    def test_the_windows_and_macos_agents_never_say_it(self):
+        other = [d for d in self.agents(False) if any(x in (d.get("os") or "").lower() for x in ("windows", "macos", "mac os"))]
+        self.assertTrue(other)
+        for d in other:
+            self.assertNotIn("push_seen", d, d.get("name"))
 
 
 class TestTheSeederStatesSharedLogins(unittest.TestCase):

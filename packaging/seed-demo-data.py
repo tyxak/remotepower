@@ -1367,6 +1367,10 @@ def _demo_cpu_time_other(busy: float, windows: bool) -> dict:
     return {'cpu_user': user, 'cpu_system': system, 'cpu_idle': idle, ('cpu_irq' if windows else 'cpu_nice'): extra}
 
 
+# the two Linux agents of the demo that do not hold the push channel open (the opt-in daemon is not on their path), so the bolt is on most hosts and not on all
+_DEMO_NO_PUSH = {'bk01', 'pr01'}
+
+
 def build_devices() -> dict:
     """Build devices.json with sysinfo, last_seen, and per-mount disks."""
     out = {}
@@ -1570,6 +1574,10 @@ def build_devices() -> dict:
             if not any(x in _os for x in ('windows', 'macos', 'mac os', 'junos', 'unifi')):
                 rec['sysinfo']['probe_types'] = list(_AGENT_PROBE_TYPES)
                 rec['sysinfo']['compose_rollback'] = True
+                # 8.0.0: a Linux agent that holds the push channel open says so in every heartbeat, and the server keeps the time it last said it
+                # (push_seen), which the host list, the cards and the drawer show as a small bolt. The demo's agents all hold it but two, so the page shows both.
+                if dev['id'] not in _DEMO_NO_PUSH:
+                    rec['push_seen'] = last_seen
                 rec['sysinfo']['discovered'] = [{'id': a, 'via': list(v), 'port': p, 'scope': sc, 'container': c} for a, p, sc, v, c in _DEMO_APPS.get(dev['id'], ())]
             # v3.11–v3.13: device-drawer cards — access watch (recent logins),
             # systemd timers, listening ports w/ scope (Exposure), per-host
