@@ -75,6 +75,7 @@ Some limits to know about:
 - Loopback connections and a host's connections to itself are left out.
 - A sample lost to a network error is not sent again. The next one covers the next interval.
 - A host that polls less often than it samples sends a sample with each report, and is called **Out of date** only after three of its own intervals.
+- If your installation keeps its data in JSON files, each report rewrites the whole Traffic file: about 80 milliseconds with 50 hosts and 340 with 200. SQLite and PostgreSQL write one row, in under a millisecond. With more than 100 hosts on JSON files, switch to one of them or raise the interval in the **Watch list** card.
 
 ## Who sees what
 
