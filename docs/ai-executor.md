@@ -31,7 +31,14 @@ cannot author shell.
 
 `GET /api/ai-exec/catalog` returns the entire action space. Read it to see, in one
 place, everything your AI could ever propose. Each entry also shows the SHA-256 of the
-body it would run.
+body it would run. On an install with tenants, the list holds the scripts you are
+allowed to see: your own tenant's and the ones nobody owns, the same set the Scripts
+page shows you.
+
+You can read the same list without the API. Open an alert's AI triage and click
+**Actions it may pick from**, next to **Propose fix**. The list opens under the verdict
+with each action's name, its id, its description and the start of the hash of the body.
+Click the button again to close it.
 
 ### 2. A human always approves
 

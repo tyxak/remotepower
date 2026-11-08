@@ -1,7 +1,7 @@
 # API reference
 
 > **This page is a curated tour of the most-used endpoints, not the full surface.**
-> RemotePower exposes **781 paths**. The complete, always-current reference is
+> RemotePower exposes **782 paths**. The complete, always-current reference is
 > generated from the live route table — browse it interactively at
 > **`/swagger.html`**, or fetch the OpenAPI 3.1 document at
 > **`/api/openapi.json`**. Everything shipped is in there; this page is hand-written
@@ -193,6 +193,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | `POST` | `/api/security/advisory/brief` | | Server-side-redacted brief for the optional AI ordering pass (titles/severities/counts only — never evidence) |
 | `POST` | `/api/devices/:id/snmp/walk` | admin | SNMP **OID browser** — walk any subtree with the host's stored credentials; audited, capped per walk *(v6.4.1)*. See [monitors.md](monitors.md) |
 | `POST` | `/api/devices/:id` | | Save host settings from the drawer, including the display **name** *(rename, v6.4.1)* |
+| `GET` | `/api/devices/:id/settings` | admin | What the drawer's Host settings form edits, under the names the save takes: `watched_services`, `watched_files`, `log_watch`, `cmd_allowlist`, `reachability`, `manual_status`, `ssh_user`, `ssh_port` and `quarantined`. The host list does not carry them *(8.0.0)* |
 | `GET` | `/api/devices/:id/flows` | | NetFlow/IPFIX top talkers, conversations and protocol breakdown. See [flow.md](flow.md) |
 | `POST` | `/api/flow/in/:token` | token | Flow ingest from the `remotepower-flowd` receiver |
 | `GET`/`POST` | `/api/kmip/*` | admin | The KMIP key server — status, config, clients (issue / revoke / re-issue / delete), key inventory, activity log, export / import / reset. See [kmip.md](kmip.md) *(v6.4.1)* |

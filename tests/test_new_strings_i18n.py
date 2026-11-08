@@ -483,6 +483,14 @@ NEW_STRINGS = [
     # 8.0.0: the backup monitor form gets its tool
     "Tool",
     "Guess from the path name",
+    # 8.0.0: Run command over SSH on an agentless host
+    "Runs over SSH as the SSH user set for this host, with the key from Settings → Security. The output comes back here.",
+    "Running over SSH…",
+    # 8.0.0: the host drawer's settings form is read-only until the stored settings are known
+    "The settings of this host could not be read, so they cannot be changed here. Reading and changing them takes an administrator.",
+    # 8.0.0: the governed executor's list of what it may pick from, in the AI triage view
+    "Actions it may pick from",
+    "The executor can only pick from these. It cannot write a command, and a person approves the choice before anything runs.",
 ]
 
 

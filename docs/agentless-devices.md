@@ -146,10 +146,21 @@ can run commands and read a basic snapshot over SSH.
    fill in the SSH user and port.
 3. Use **Poll over SSH** to read the OS, hostname, uptime, memory, disk and load, which
    then show as the host's metrics.
+4. Use **Run command** to run one command and read what it prints. The dialog shows the
+   output and the exit code, and nothing is queued: the server connects and runs it while
+   you wait. The button is on the host drawer of a host whose reachability is **SSH**, and
+   an agent host keeps its own Run command, which goes through the agent.
 
 Connections never prompt (`BatchMode`, key only) and trust the host key on first use. A
 changed host key stops the connection. Running a command needs an admin, the host's
 command allowlist applies, and every poll and command is audited.
+
+A quarantined host refuses commands over SSH, and so does every host while the server is in
+maintenance mode. These are the same two refusals the agent's command queue gives, in the
+same words. A poll only reads, so it keeps working in both. The Ansible runner and the web
+terminal follow the same rules: the runner stops for maintenance mode and leaves quarantined
+hosts out of its targets, and the web terminal refuses a quarantined host (it does not stop
+for maintenance mode, like the SSH gateway).
 
 ## What still doesn't work
 

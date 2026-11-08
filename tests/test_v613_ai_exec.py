@@ -73,7 +73,9 @@ class _Case(unittest.TestCase):
         api._call_ai_with_prompts = lambda s, u, k: {"ok": True, "text": self.ai_text}
 
         self.actor = "alice"
-        api.save(api.SCRIPTS_FILE, {"s1": {"name": "Restart nginx", "body": _SCRIPT_BODY}})
+        # the library is `{"scripts": [...]}`, as handle_scripts_add writes it. This fixture was a dict keyed by id, the shape the readers wrongly assumed, so
+        # these tests ran against a store the product never holds (tests/test_v800_ai_exec_scripts.py fills it through the real producer).
+        api.save(api.SCRIPTS_FILE, {"scripts": [{"id": "s1", "name": "Restart nginx", "description": "", "body": _SCRIPT_BODY}]})
         api.save(api.DEVICES_FILE, {"d1": {"name": "web01"}})
         api.save(api.CMDS_FILE, {})
         api.save(api.CONFIRMATIONS_FILE, {})
@@ -156,7 +158,7 @@ class TestTheModelCannotAuthorACommand(_Case):
             self.assertTrue(c["id"].startswith(("script:", "playbook:")))
 
     def test_an_empty_catalog_refuses_rather_than_improvising(self):
-        self.api.save(self.api.SCRIPTS_FILE, {})
+        self.api.save(self.api.SCRIPTS_FILE, {"scripts": []})
         self.api._LOAD_CACHE.clear()
         # Playbooks may still supply entries; if the catalog is empty the handler
         # must refuse rather than let the model free-style.
@@ -221,7 +223,7 @@ class TestWhatYouApproveIsWhatRuns(_Case):
         The approver would otherwise be rubber-stamping something they never saw."""
         cid = self.propose()["data"]["confirmation_id"]
         self.api.save(self.api.SCRIPTS_FILE,
-                      {"s1": {"name": "Restart nginx", "body": _EVIL}})
+                      {"scripts": [{"id": "s1", "name": "Restart nginx", "description": "", "body": _EVIL}]})
         self.api._LOAD_CACHE.clear()
         r = self.approve(cid)
         self.assertEqual(500, r["status"])          # execution refused
@@ -235,7 +237,7 @@ class TestWhatYouApproveIsWhatRuns(_Case):
 
     def test_a_deleted_script_is_refused(self):
         cid = self.propose()["data"]["confirmation_id"]
-        self.api.save(self.api.SCRIPTS_FILE, {})
+        self.api.save(self.api.SCRIPTS_FILE, {"scripts": []})
         self.api._LOAD_CACHE.clear()
         self.assertEqual(500, self.approve(cid)["status"])
         self.assertEqual([], self.queued())

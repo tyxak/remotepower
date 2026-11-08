@@ -409,6 +409,31 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   maintenance drain), the Ansible run ignored maintenance mode, and the web terminal ignored quarantine, which the SSH gateway had always honoured. They ask the one
   predicate the queue asks now (`_direct_block_reason`), so the words cannot drift, and a test enumerates the channels by syntax tree and fails on a fourth that does not
   ask. Four-eyes approval is unchanged: it parks a queued command, and none of these writes the queue. Held by `tests/test_v800_direct_exec_gates.py`.
+- **The host drawer's settings form no longer clears what it never showed (High).** The form under **Actions & settings** reads nine fields off the host list: the watched
+  units, the watched files, the log rules, the command allowlist, the reachability mode, the manual status, the SSH user, the SSH port and the quarantine flag. The host list has
+  never carried them (it is a whitelist, and the host record keeps two of them under other names). So every host opened with those fields empty, and **Save settings** posted the
+  empties back. The save treats an empty list as an explicit clear, so changing only a host's group also cleared its command allowlist, its watched units and files and its log rules,
+  and reset an agentless host's SSH mode, user and port. It was found while building Run command for SSH hosts, whose mode the form would not keep. `GET /api/devices/<id>/settings`
+  (admin only, like the save) now answers the fields under the names the save takes. The drawer reads it when it opens, and when the answer does not come (a failed request) the
+  form stays read-only with a line that says why, so a save cannot post a guess. A test derives what the form reads and what it posts from the page's own source and the server's
+  syntax tree, and fails when a field has no source. Held by `tests/test_v800_drawer_settings.py` and `tests/test_v800_drawer_settings_e2e.py`.
+- **An agentless SSH host has Run command on its drawer.** `POST /api/devices/<id>/ssh-exec` had a route, an allowlist and an audit line and no page. The drawer of a host whose
+  reachability is SSH now has **Run command**; an agent host keeps its own, which goes through the agent. The dialog says the command runs over SSH as the host's SSH user, leaves out the
+  timeout and wait choices that belong to the agent's queue, and shows the output with the exit code, or the server's refusal in words (the allowlist, quarantine, maintenance
+  mode, SSH switched off). It is tested against a real OpenSSH server run as a normal user on a high port. Held by `tests/test_v800_ssh_run_command_e2e.py`.
+- **The AI executor could not propose a saved script, and an approval row never named one (Medium).** The executor chooses from a catalog of the scripts you saved and the built-in
+  remediation playbooks. The script library is `{"scripts": [...]}`, a wrapped list, and three readers took it for a dict keyed by script id: the catalog listed no saved script
+  (`GET /api/ai-exec/catalog` held the playbooks and nothing else), the check that re-reads a script when an approved proposal runs could not find one, and the Confirmations list
+  never put a script's name on a row, so the second administrator approving an MCP `run_saved_script` saw the action and no name. It failed closed: nothing ran that should not
+  have. The tests stayed green because their fixtures wrote the dict the readers expected. The same slip had cost the MCP `run_saved_script` tool its life at 7.0.2, and
+  `_script_by_id` and `_visible_scripts` were written for it; the three sites use them now. That also settles who sees what: the catalog and the lookup answer with the scripts
+  the caller may see, as the library's own list does, so one tenant is not shown another tenant's script name or hash. A test lists the readers of the library by syntax tree and
+  fails on one that neither names the `scripts` key nor asks the helper: 15 of 18 did before, 17 of 17 do now. The older executor tests now fill the library in the shape the
+  product writes. Held by `tests/test_v800_ai_exec_scripts.py`.
+- **The AI triage view lists what the executor may pick from.** `GET /api/ai-exec/catalog` was written so an operator could read, in one place, everything the AI could ever propose,
+  and nothing in the product asked it. Next to **Propose fix**, **Actions it may pick from** opens the list under the verdict: the name, the id, the description and the start of the hash
+  of each script and playbook. A second click closes it, and a read that fails says why in words. The button is there only when the AI executor module is on. Held by
+  `tests/test_v800_ai_exec_catalog_e2e.py`.
 - **The DNS records table says why it is empty.** With no provider credentials, a locked vault or a token that sees no zone, the table was a header
   over nothing and only a line of small print above it gave the reason. It now says *No zone to list yet. Give the provider credentials, then pick a
   zone.* The walk of the empty install is a test now: it opens all 79 sidebar pages of a fresh install and fails on a blank table, a loader that never

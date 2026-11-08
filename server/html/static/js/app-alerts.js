@@ -1233,7 +1233,9 @@ function _renderTriageResult(el, t, alertId, deviceId) {
     `</div>`) : '';
   const execOn = !!(window._modules || {}).ai_exec;
   const proposeHtml = (alertId != null && deviceId && v.recommended_action && execOn)
-    ? `<p><button class="btn-icon btn-xs" data-action="triageProposeFix" data-arg="${idA}" title="Ask the governed executor to pick a saved remediation matching this verdict — a human approves before anything runs">${_icon('wrench', 13)} Propose fix (governed executor)</button></p>`
+    ? `<p><button class="btn-icon btn-xs" data-action="triageProposeFix" data-arg="${idA}" title="Ask the governed executor to pick a saved remediation matching this verdict — a human approves before anything runs">${_icon('wrench', 13)} Propose fix (governed executor)</button> ` +
+      `<button class="btn-icon btn-xs" data-action="aiExecCatalogToggle" title="The executor can only pick from these. It cannot write a command, and a person approves the choice before anything runs.">${_icon('eye', 13)} Actions it may pick from</button></p>` +
+      `<div id="ai-exec-catalog"></div>`
     : '';
   el.innerHTML =
     '<div class="ai-content">' +
@@ -1278,6 +1280,23 @@ async function triageFeedback(alertId, dir) {
   const a = (_alertsCache || []).find(x => String(x.id) === String(alertId));
   const body = document.getElementById('ai-insight-body');
   if (a && a.ai_triage && body) _renderTriageResult(body, a.ai_triage, a.id, a.device_id);
+}
+
+// 8.0.0: what the governed executor may pick from, read-only and opened in place so the verdict stays on screen. GET /api/ai-exec/catalog was written so an
+// operator could audit the model's whole action space in one place, and nothing in the product asked it.
+async function aiExecCatalogToggle() {
+  const box = document.getElementById('ai-exec-catalog');
+  if (!box) return;
+  if (box.dataset.open === '1') { box.dataset.open = ''; box.innerHTML = ''; return; }
+  box.dataset.open = '1';
+  box.innerHTML = '<p class="hint">Loading…</p>';
+  const r = await api('GET', '/ai-exec/catalog').catch(() => null);
+  if (!r || r.error || !Array.isArray(r.catalog)) { box.innerHTML = `<p class="c-red">${_escapeHtml(failText(r))}</p>`; return; }
+  const rows = r.catalog.map(c =>
+    `<li><strong>${_escapeHtml(c.label || c.id)}</strong> <code class="fs-11">${_escapeHtml(c.id)}</code>` +
+    (c.description ? ` <span class="hint">${_escapeHtml(c.description)}</span>` : '') +
+    ` <span class="hint fs-10">sha256 ${_escapeHtml(String(c.body_sha256 || '').slice(0, 12))}</span></li>`).join('');
+  box.innerHTML = `<p class="hint">The executor can only pick from these. It cannot write a command, and a person approves the choice before anything runs.</p><ul>${rows}</ul>`;
 }
 
 async function triageProposeFix(alertId) {

@@ -8497,7 +8497,7 @@ async function addScheduleJob() {
 // coerced to Infinity by the data-arg dispatcher and the DELETE would 404.
 function _deleteJobBtn(btn) { return deleteJob(btn.dataset.id); }
 async function deleteJob(id) { id = String(id); const data = await api('DELETE', '/schedule/' + encodeURIComponent(id)); if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); } else failToast(data); }
-function openExecModal(id, name) { document.getElementById('exec-device-id').value = id; document.getElementById('exec-cmd').value = ''; { const t = document.getElementById('exec-timeout'); if (t) t.value = ''; } { const w = document.getElementById('exec-wait'); if (w) w.checked = false; const rr = document.getElementById('exec-result'); if (rr) { rr.classList.add('d-none'); rr.innerHTML = ''; } } document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
+function openExecModal(id, name, ssh) { document.getElementById('exec-device-id').value = id; _execSshMode(!!ssh); document.getElementById('exec-cmd').value = ''; { const t = document.getElementById('exec-timeout'); if (t) t.value = ''; } { const w = document.getElementById('exec-wait'); if (w) w.checked = false; const rr = document.getElementById('exec-result'); if (rr) { rr.classList.add('d-none'); rr.innerHTML = ''; } } document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
 function pickFromLibrary() { const val = document.getElementById('exec-library-pick').value; if (val) document.getElementById('exec-cmd').value = val; }
 // v3.3.0: schedule modal carries an editing id for in-place updates.
 let _scheduleEditId = null;
@@ -8565,10 +8565,36 @@ async function _editScheduleBtn(btn) {
   if (calCb) calCb.checked = false;
   openModal('schedule-add-modal');
 }
+// 8.0.0: an agentless host that is reached over SSH runs the command at once (POST /devices/<id>/ssh-exec: admin, the global opt-in, the host's allowlist, quarantine and maintenance
+// mode), so the agent queue's wait and timeout rows do not apply and the answer is on screen when the call returns.
+function _execSshMode(on) {
+  const m = document.getElementById('exec-modal');
+  if (m) m.dataset.ssh = on ? '1' : '';
+  ['exec-timeout', 'exec-wait'].forEach(k => { const row = document.getElementById(k)?.closest('.form-group'); if (row) row.classList.toggle('d-none', on); });
+  const sub = document.getElementById('exec-subtitle');
+  if (sub) sub.textContent = on ? 'Runs over SSH as the SSH user set for this host, with the key from Settings → Security. The output comes back here.'
+                                : 'Command runs as root on the client machine. Output returned on next heartbeat (~60s).';
+}
+function _execShowOutput(res, text, rc) {
+  if (res) res.innerHTML = `<div class="section-title mt-12">Output${rc != null ? ` <span class="hint">(exit ${rc})</span>` : ''}</div>`
+    + `<pre class="ff-mono fs-12 scroll-cap mt-6">${escHtml(String(text).trim() || '(no output)')}</pre>`;
+}
+async function _sendSshExec(id, cmd) {
+  const btn = document.getElementById('exec-run-btn');
+  const origBtn = btn ? btn.innerHTML : '';
+  const res = document.getElementById('exec-result');
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  if (res) { res.classList.remove('d-none'); res.innerHTML = '<div class="hint mt-8">Running over SSH…</div>'; }
+  const data = await api('POST', `/devices/${encodeURIComponent(id)}/ssh-exec`, {command: cmd});
+  if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
+  if (!data || data.error) { if (res) res.innerHTML = `<div class="c-red mt-8">${escHtml(failText(data))}</div>`; return; }
+  _execShowOutput(res, data.output || '', typeof data.rc === 'number' ? data.rc : null);
+}
 async function sendExecCmd() {
   const id = document.getElementById('exec-device-id').value;
   const cmd = document.getElementById('exec-cmd').value.trim();
   if (!cmd) { toast('Enter a command', 'error', {transient: true}); return; }
+  if (document.getElementById('exec-modal')?.dataset.ssh === '1') { await _sendSshExec(id, cmd); return; }
   const wait = !!document.getElementById('exec-wait')?.checked;
   const body = {device_id: id, cmd};
   const to = parseInt(document.getElementById('exec-timeout')?.value || '0', 10);
@@ -8591,8 +8617,7 @@ async function sendExecCmd() {
     const out = data.output || {};
     const text = (out && out.output != null) ? out.output : (typeof out === 'string' ? out : '');
     const rc = out && typeof out.rc === 'number' ? out.rc : null;
-    if (res) res.innerHTML = `<div class="section-title mt-12">Output${rc != null ? ` <span class="hint">(exit ${rc})</span>` : ''}</div>`
-      + `<pre class="ff-mono fs-12 scroll-cap mt-6">${escHtml(String(text).trim() || '(no output)')}</pre>`;
+    _execShowOutput(res, text, rc);
     return;
   }
 
@@ -24771,6 +24796,7 @@ async function removeProcessWatch(idx) {
 let _drawerDeviceId   = null;
 let _drawerDeviceName = null;
 let _drawerDeviceData = null;          // cached device object from /api/devices
+let _drawerSettingsLoaded = false;     // 8.0.0: the Host settings form has what is stored (GET /devices/<id>/settings); until it does the form is read-only
 let _drawerAuditLoaded = {};           // which audit sections have been fetched
 let _drawerIntegrations = null;        // {id, data}: the host's bound integrations, fetched as the drawer opens
 let _drawerOpenSeq = 0;                // bumped on every open and close, so a slow answer can tell it is stale
@@ -24824,6 +24850,11 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   try {
     const devs = await api('GET', '/devices');
     _drawerDeviceData = (devs || []).find(d => d.id === id) || {};
+    // 8.0.0: what the Host settings form edits is not in the roster (watched services, files, log rules, the command allowlist, the SSH mode and user, quarantine). The form used to
+    // open empty for every host and "Save settings" posted the empties back, which cleared them. It has its own route now, and the form stays read-only until that answers.
+    _drawerSettingsLoaded = false;
+    const _st = await api('GET', `/devices/${encodeURIComponent(id)}/settings`).catch(() => null);
+    if (_st && !_st.error && _drawerDeviceId === id) { Object.assign(_drawerDeviceData, _st); _drawerSettingsLoaded = true; }
     // Fill the real device name now that we have it (the caller may have
     // passed no name — e.g. the command palette opens with the id only).
     _drawerDeviceName = _drawerDeviceData.name || name || id;
@@ -25357,7 +25388,7 @@ function _renderDrawerActions() {
 
   // Icon name (Lucide), label, fn (closure), danger flag, hidden flag
   const actions = [
-    ['terminal',  'Run command',     () => { closeDeviceDrawer(); openExecModal(id, name); },                                                                                    false, agentless],
+    ['terminal',  'Run command',     () => { closeDeviceDrawer(); openExecModal(id, name, !!agentless); },                                                                       false, agentless && d.reachability !== 'ssh'],
     ['refresh',   'Reboot',          () => { rebootTarget = id; closeDeviceDrawer(); openModal('reboot-modal'); document.getElementById('reboot-name').textContent = name; },    false, agentless],
     ['power',     'Shut down',       () => { shutdownTarget = id; closeDeviceDrawer(); openModal('shutdown-modal'); document.getElementById('shutdown-name').textContent = name; }, false, agentless],
     ['radio',     'Wake on LAN',     () => _wolWithMacCheck(id, name),                                                                                                            false, false],
@@ -25647,6 +25678,13 @@ function _renderDrawerSettings() {
       <button class="btn-primary isl-626" data-action="_drawerSaveSettings" >Save settings</button>
     </div>`;
 
+  // 8.0.0: without the stored values the form would show empty fields and a save would clear them, so it stays read-only until they are known
+  if (!_drawerSettingsLoaded) {
+    const f = document.getElementById('drawer-settings-form');
+    f.querySelectorAll('input, select, textarea, button').forEach(el => { el.disabled = true; });
+    f.insertAdjacentHTML('afterbegin', '<p class="hint" id="drawer-settings-locked">The settings of this host could not be read, so they cannot be changed here. Reading and changing them takes an administrator.</p>');
+  }
+
   // Populate SNMP fields async (agentless only). Don't block the form
   // render on the round trip.
   if (isAgentless) _drawerLoadSnmpConfig(id);
@@ -25786,6 +25824,8 @@ async function _drawerSnmpPollNow() {
 async function _drawerSaveSettings() {
   const id = _drawerDeviceId;
   if (!id) return;
+  // 8.0.0: a form that does not hold what is stored would post its empty fields back as a clear; the button is disabled then, and this holds for any other way in
+  if (!_drawerSettingsLoaded) { toast('The settings of this host could not be read, so they cannot be changed here. Reading and changing them takes an administrator.', 'error'); return; }
 
   const group    = document.getElementById('ds-group')?.value.trim() || '';
   const tagsRaw  = document.getElementById('ds-tags')?.value  || '';

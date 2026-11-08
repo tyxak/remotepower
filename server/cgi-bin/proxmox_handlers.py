@@ -59,8 +59,10 @@ def bind(api_globals):
 def handle_proxmox_status() -> None:
     """``GET /api/proxmox/status`` — is Proxmox configured / enabled?
 
-    Cheap, no network call. The frontend uses this to decide whether
-    to show the Virtualization nav entry and the LXC section.
+    Cheap, no network call. No page calls it: the Virtualization entry has been
+    visible all the time since 2.3.3, and both Proxmox pages read the same two
+    flags (`enabled`, `configured`) from their own listing. It stays for scripts
+    that want the answer without listing any guests.
     """
     A.require_auth()
     cfg = A.load(A.CONFIG_FILE)

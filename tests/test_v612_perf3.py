@@ -318,7 +318,10 @@ class TestEagerJsPayload(unittest.TestCase):
         # switch of the Alerts inbox, the SAML SP entity ID and the CMDB dialog's shared logins) and app.js about 1,000 (the two lines that ask for the
         # drawer's services and the shared logins, the compatibility note of the force-upgrade question, the switch and the field on load and save).
         # The renderers are in lazy modules; the sections they fill sit in the markup that is drawn before a loader runs.
-        self.assertLess(total, 2_726_000,
+        # 8.0.0 twelfth round: 2_731_000. The payload was 2_722_791 when the budget went to 2_726_000 and is 2_727_094 now: 4,303 bytes more. Run command for an agentless host that is
+        # reached over SSH (the dialog's mode, the call and the output helper the two paths share) is about 2,000 of them; the host settings form reading what is stored from its own
+        # route and staying read-only until it has (and the guard in the save) is about 2,300. Both draw before any loader could be asked for more.
+        self.assertLess(total, 2_731_000,
                         'the eager JS payload regressed past its budget')
 
 

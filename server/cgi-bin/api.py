@@ -16241,6 +16241,41 @@ def handle_device_notes(dev_id):
 # same length caps, same type checks. Anything not in the bundle is
 # left alone (no implicit reset to defaults). Empty list = explicit
 # clear; missing key = "don't touch."
+def handle_device_settings_get(dev_id):
+    """GET /api/devices/<id>/settings — what the drawer's Host settings form edits, under the names the form posts it back by. Admin only, like the save.
+
+    8.0.0: the form read these off the roster (`GET /api/devices`), which has never carried them (the roster is a whitelist, and the host record keeps four of them under other names:
+    services_watched, allowed_commands). The form opened with no watched unit, no watched file, no log rule, no allowed command, ICMP and no SSH user for every host, and "Save settings"
+    posted those empties back: a rename of the host cleared the others, the command allowlist among them (the save treats an empty list as an explicit clear, as it documents). The
+    names here are the save's own, so the two cannot drift apart: tests/test_v800_drawer_settings.py holds that against the save handler and the form's own reads."""
+    require_admin_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Host not found'})
+    dev = (_load_ro(DEVICES_FILE) or {}).get(dev_id)
+    if not isinstance(dev, dict):
+        respond(404, {'error': 'Host not found'})
+    try:
+        port = max(1, min(65535, int(dev.get('ssh_port') or 22)))
+    except (TypeError, ValueError, OverflowError):
+        port = 22
+    def _list(value):
+        return value if isinstance(value, list) else []     # a record that holds a string where a list belongs must not be read a character at a time
+
+    respond(200, {
+        'watched_services': [str(x) for x in _list(dev.get('services_watched')) if isinstance(x, (str, int))][:50],
+        'log_watch': [{'unit': str(r.get('unit') or ''), 'pattern': str(r.get('pattern') or '')} for r in _list(dev.get('log_watch')) if isinstance(r, dict)][:50],
+        'watched_files': [str(x) for x in _list(dev.get('watched_files')) if isinstance(x, str)],
+        'cmd_allowlist': [str(x) for x in _list(dev.get('allowed_commands')) if isinstance(x, str)][:50],
+        'reachability': dev.get('reachability') if dev.get('reachability') in ('icmp', 'manual', 'ssh') else 'icmp',
+        'manual_status': dev.get('manual_status', True) is not False,
+        'ssh_user': str(dev.get('ssh_user') or ''),
+        'ssh_port': port,
+        'quarantined': bool(dev.get('quarantined')),
+    })
+
+
 def handle_device_save_bulk(dev_id):
     actor = require_admin_auth()
     if method() != 'POST':
@@ -66618,11 +66653,12 @@ def _ai_exec_catalog():
     place, every action their AI could ever propose.
     """
     out = []
-    scripts = load(SCRIPTS_FILE) or {}
-    # scripts.json is a dict keyed by script id (see _mcp_execute).
-    for sid, s in list(scripts.items())[:_AI_EXEC_MAX_CATALOG]:
-        if not isinstance(s, dict):
-            continue
+    # 8.0.0: scripts.json is `{'scripts': [...]}`, a wrapped list (see _script_by_id). This read it as a dict keyed by id, so no saved script was ever
+    # listed and the catalog held the built-in playbooks only. The rows are the ones the caller may see, as in the library's own list: a script body is
+    # code that runs as root, and its name and hash are not reference data for another tenant.
+    rows = _visible_scripts((load(SCRIPTS_FILE) or {}).get('scripts') or [])
+    for s in rows[:_AI_EXEC_MAX_CATALOG]:
+        sid = s['id']    # store_shapes leaves out a row with no id, a row that is not a map and an id that cannot be a key, before any reader sees the list
         body = s.get('body') or ''
         if not str(body).strip():
             continue
@@ -66658,7 +66694,7 @@ def _ai_exec_resolve(catalog_id):
     cid = str(catalog_id or '')
     if cid.startswith('script:'):
         sid = cid.split(':', 1)[1]
-        script = (load(SCRIPTS_FILE) or {}).get(sid) or {}
+        script = _script_by_id(sid) or {}    # 8.0.0: the wrapped list, and only a script the caller may see (`.get(sid)` on the store always missed)
         body = str(script.get('body') or '')
         if not body.strip():
             return None, None
@@ -66802,8 +66838,9 @@ def handle_confirmations_list():
         c2 = dict(c)
         c2['device_name'] = d.get('name', '')
         sid = (c.get('params') or {}).get('script_id')
-        if sid and sid in scripts:
-            c2['script_name'] = scripts[sid].get('name', sid)
+        _named = _script_by_id(sid, scripts) if sid else None   # 8.0.0: `sid in scripts` tested the wrapper's one key, so no row was ever named
+        if _named:
+            c2['script_name'] = _named.get('name', sid)
         out.append(c2)
     respond(200, {'confirmations': out})
 
@@ -76864,6 +76901,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/devices/', '/output', 'handle_cmd_output', "pi.startswith('/api/devices/') and pi.endswith('/output') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/update-logs', 'handle_device_update_logs', "pi.startswith('/api/devices/') and pi.endswith('/update-logs') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/uptime', 'handle_uptime', "pi.startswith('/api/devices/') and pi.endswith('/uptime') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/settings', 'handle_device_settings_get', "pi.startswith('/api/devices/') and pi.endswith('/settings') and m == 'GET'"),
     ('eq', ('GET',), '/api/fleet/uptime7d', '', 'handle_fleet_uptime7d', "pi == '/api/fleet/uptime7d' and m == 'GET'"),
     ('code', None, None, None, '_route_code_104', "pi == '/api/monitor/history' and m == 'GET'"),
     ('pat', ('PUT',), '/api/cmd-library/', '', 'handle_cmd_library_update', "pi.startswith('/api/cmd-library/') and m == 'PUT'"),
