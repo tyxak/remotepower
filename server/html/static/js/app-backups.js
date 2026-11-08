@@ -502,9 +502,22 @@ function editBackupMonitor(idx) {
   const _bv = document.getElementById('bm-verify'); if (_bv) _bv.checked = !!m.verify_enabled;
   const _bd = document.getElementById('bm-drill'); if (_bd) _bd.checked = !!m.restore_drill_enabled;
   const _bds = document.getElementById('bm-drill-sample'); if (_bds) _bds.value = m.restore_sample_path || '';
+  const _bvh = document.getElementById('bm-verify-hours'); if (_bvh) _bvh.value = String(m.verify_max_age_hours || 168);
+  const _bdh = document.getElementById('bm-drill-hours'); if (_bdh) _bdh.value = String(m.restore_drill_max_age_hours || 168);
   _backupEditIdx = idx;
   renderBackupMonitors(_backupMonitors);  // re-render so the button flips to "Save"
   document.getElementById('bm-path').focus();
+}
+
+// 8.0.0: the cadences (hours between two integrity checks, and between two restore drills), kept to the 1..8760 the server keeps; blank or unreadable is the weekly default.
+function _bmHours(id) {
+  return Math.min(8760, Math.max(1, parseInt(document.getElementById(id)?.value, 10) || 168));
+}
+
+// 8.0.0: does the path name a backup tool the way the agent looks for one (restic, borg, or a tar file name)? The agent's rule, so the form can say so before a monitor checks nothing.
+function _bmPathNamesATool(path) {
+  const p = String(path || '').toLowerCase();
+  return p.includes('restic') || p.includes('borg') || /\.(tar|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz)$/.test(p);
 }
 
 async function addBackupMonitor() {
@@ -517,10 +530,13 @@ async function addBackupMonitor() {
   const drill = !!document.getElementById('bm-drill')?.checked;
   const drillSample = (document.getElementById('bm-drill-sample')?.value || '').trim();
   if (drill && !drillSample) { toast('A restore drill needs a sample path', 'error'); return; }
+  // saved all the same (the name may change): a monitor that asks for a check, on a path that names no tool, would check nothing, and the agent only reports that a week later
+  if (verify && tool === 'auto' && !_bmPathNamesATool(path)) toast('This path names no backup tool, so Verify integrity has none to run. Choose restic, borg or tar in the Tool list.', 'warning', {duration: 8000});
   // an edit starts from the monitor it edits: the form has no field for the two cadences (how often the integrity check and the restore drill run), so a fresh entry put both back to weekly
   const editing = _backupEditIdx >= 0 && _backupEditIdx < _backupMonitors.length;
   const entry = Object.assign({}, editing ? _backupMonitors[_backupEditIdx] : {}, {path, label: label || path, max_age_hours: hours, tool,
-    verify_enabled: verify, restore_drill_enabled: drill, restore_sample_path: drillSample});
+    verify_enabled: verify, verify_max_age_hours: _bmHours('bm-verify-hours'), restore_drill_enabled: drill, restore_sample_path: drillSample,
+    restore_drill_max_age_hours: _bmHours('bm-drill-hours')});
   // the list in the page is replaced only once the server has accepted it: a refused save used to stay in the list and ride into the next one
   const next = _backupMonitors.slice();
   if (editing) next[_backupEditIdx] = entry;
@@ -536,6 +552,8 @@ async function addBackupMonitor() {
     const _bvr = document.getElementById('bm-verify'); if (_bvr) _bvr.checked = false;
     const _bdr = document.getElementById('bm-drill'); if (_bdr) _bdr.checked = false;
     const _bdsr = document.getElementById('bm-drill-sample'); if (_bdsr) _bdsr.value = '';
+    const _bvhr = document.getElementById('bm-verify-hours'); if (_bvhr) _bvhr.value = '168';
+    const _bdhr = document.getElementById('bm-drill-hours'); if (_bdhr) _bdhr.value = '168';
     _backupEditIdx = -1;
     renderBackupMonitors(_backupMonitors);
   } else failToast(r);

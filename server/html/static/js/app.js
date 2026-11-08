@@ -3099,7 +3099,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js'];   // 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites.
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js'];   // 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites.
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -5548,7 +5548,7 @@ async function _loadTenants() {
   const r = await api('GET', '/tenants').catch(() => null);
   // api() RESOLVES on 403 rather than throwing, so the refusal has to be
   // detected on the body — a .catch here would never run.
-  if (!r || !r.ok || !Array.isArray(r.tenants)) { sec.classList.add('hidden'); return; }
+  if (!r || !r.ok || !Array.isArray(r.tenants)) { sec.classList.add('hidden'); _showOwnTenantBranding(); return; }
   sec.classList.remove('hidden');
   list.innerHTML = r.tenants.map(t => {
     const suspended = t.status === 'suspended';
@@ -5560,6 +5560,7 @@ async function _loadTenants() {
     // to rename, suspend or delete it, so the buttons are not offered either.
     const acts = t.builtin ? '<span class="hint">built-in</span>' : `
       <button class="btn-icon cell-sm" data-action="renameTenant" data-arg="${escAttr(t.id)}">Rename</button>
+      <button class="btn-icon cell-sm" data-action="openTenantBranding" data-arg="${escAttr(t.id)}" data-arg2="${escAttr(t.name)}">Branding</button>
       <button class="btn-icon cell-sm" data-action="toggleTenantStatus" data-arg="${escAttr(t.id)}">${suspended ? 'Activate' : 'Suspend'}</button>
       <button class="btn-icon c-danger-outline cell-sm" data-action="deleteTenant" data-arg="${escAttr(t.id)}">Delete</button>`;
     return `<div class="sb-controls"><span>${pill} <strong>${escHtml(t.name)}</strong> ` +
@@ -5567,6 +5568,17 @@ async function _loadTenants() {
            `<span>${acts}</span></div>`;
   }).join('');
   _fillTenantAssignPickers(r.tenants);
+}
+
+// 8.0.0: a tenant's own administrator brands their tenant from a card in Settings → General (the tenant list is a platform superadmin's, and the server lets either of them in).
+function _showOwnTenantBranding() {
+  const card = document.getElementById('tenant-own-branding');
+  if (!card) return;
+  const t = _meCache && _meCache.tenant;
+  const own = !!(_meCache && _meCache.admin && t && t !== 'default');
+  card.classList.toggle('hidden', !own);
+  const b = document.getElementById('tenant-own-branding-btn');
+  if (b && own) b.dataset.arg = t;
 }
 
 async function _fillTenantAssignPickers(tenants) {
@@ -27614,8 +27626,8 @@ async function _loadAuditSection(key) {
             let vcell = '<td class="fs-11 c-muted">—</td>';
             if (b.verify_enabled) {
               const vs = b.verify_status || 'unknown';
-              const vcls = vs === 'ok' ? 'c-green' : (vs === 'failed' || vs === 'timeout' || vs === 'error' || vs === 'unreachable') ? 'c-red' : (vs === 'tool_missing' ? 'c-amber' : 'c-muted');
-              const vlbl = vs === 'ok' ? 'verified' : vs;
+              const vcls = vs === 'ok' ? 'c-green' : (vs === 'failed' || vs === 'timeout' || vs === 'error' || vs === 'unreachable') ? 'c-red' : ((vs === 'tool_missing' || vs === 'no_tool') ? 'c-amber' : 'c-muted');
+              const vlbl = vs === 'ok' ? 'verified' : (vs === 'no_tool' ? 'no tool chosen' : vs);   // 8.0.0: no_tool, the path names none and none was chosen
               // 7.5.0: when it was checked. A weekly result looked as fresh as one a minute old; the time is stored and was not shown.
               vcell = `<td class="${vcls}" title="${escAttr(((b.verify_tool || '') + ' ' + (b.verify_output || '')).trim())}">${escHtml(vlbl)}${b.verify_at ? ` <span class="fs-11 c-muted">${timeAgoHtml(b.verify_at)}</span>` : ''}</td>`;
             }

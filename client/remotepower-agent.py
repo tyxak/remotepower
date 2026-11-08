@@ -6352,10 +6352,16 @@ def collect_backup_verify(backup_monitors):
                         'verify_output': _why, 'verify_at': int(time.time())})
             continue
         tool = _detect_backup_tool(p, mon.get('tool', 'auto'))
-        if not tool:
-            continue
         interval = max(1, int(mon.get('verify_max_age_hours', 168) or 168)) * 3600
         if now - int(state.get(p, 0)) < interval:
+            continue
+        if not tool:
+            # 8.0.0: `auto` on a path that names no tool was skipped without a word, so a monitor with Verify integrity ticked checked nothing and
+            # showed nothing. It is reported once per interval like any other result, and the host drawer says why.
+            out.append({'path': p, 'tool': '', 'verify_status': 'no_tool',
+                        'verify_output': 'The path names no backup tool (restic, borg or a tar file). Choose the tool in the monitor.',
+                        'verify_at': now})
+            state[p] = now
             continue
         if budget <= 0:
             break

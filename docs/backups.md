@@ -103,8 +103,8 @@ restore-drill result: open the drawer's **Audit** tab and expand **System → Ba
   This catches a truncated or half-written file that is still recent. `0` turns it
   off, which is the default.
 - **Integrity.** With **Verify integrity** on, the agent runs the tool's own check
-  (`restic check`, `borg check`, `tar -t`) at most about once a week, with a time
-  limit of 30 seconds per check. A bad archive raises **`backup_verify_failed`**; a
+  (`restic check`, `borg check`, `tar -t`) at most once per check interval (a week
+  unless you change it), with a time limit of 30 seconds per check. A bad archive raises **`backup_verify_failed`**; a
   passing one raises **`backup_verified`**. `restic` and `borg` need their passphrase
   in the agent's environment, for example `RESTIC_PASSWORD_FILE` or `BORG_PASSPHRASE`.
 - **Restore drill.** With **Restore drill** on, the agent restores a sample path from
@@ -117,12 +117,16 @@ restore-drill result: open the drawer's **Audit** tab and expand **System → Ba
   target, so a monitor that names no target counts by its top-level folder.
 
 **Tool** *(8.0.0)*. The form's **Tool** says which program checks the backup: `restic`, `borg` or `tar`, or **Guess from the path name**. The guess finds a tool only when
-the name of the path says so (`restic` or `borg` in it, or a tar file name) and silently leaves a path with any other name unchecked, so choose the tool when the name
-says nothing. Before 8.0.0 the form had no such field and every monitor it made was a guess.
+the name of the path says so (`restic` or `borg` in it, or a tar file name), so choose the tool when the name says nothing. Before 8.0.0 the form had no such field and every
+monitor it made was a guess.
 
-The form has no field for how often the integrity check and the restore drill run. `verify_max_age_hours` and `restore_drill_max_age_hours` are in hours and weekly (168)
-when unset. Set them on a monitor with `POST /api/config` under `backup_monitors`. Editing a monitor in the form keeps them *(8.0.0; an edit used to put both back to
-weekly)*.
+A monitor with **Verify integrity** on and no tool it can find used to check nothing and say nothing. The form now warns you when you save one, and the host drawer's backup table
+shows **no tool chosen** in amber, with the reason on hover, once the agent has looked. The agent reports it once per check interval. It is a setting to fix, so it raises no alert
+*(8.0.0)*.
+
+**Integrity check every (hours)** and **Restore drill every (hours)** set how often each runs, from 1 to 8760 hours. Both are 168 (a week) unless you change them, and they are
+filled in when you edit a monitor *(8.0.0; they had no field, and an edit put both back to weekly)*. They are `verify_max_age_hours` and `restore_drill_max_age_hours` on a monitor
+in `backup_monitors` if you set them over the API.
 
 Backup events fire on a change of state, not on every heartbeat.
 

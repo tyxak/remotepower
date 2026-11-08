@@ -491,6 +491,16 @@ NEW_STRINGS = [
     # 8.0.0: the governed executor's list of what it may pick from, in the AI triage view
     "Actions it may pick from",
     "The executor can only pick from these. It cannot write a command, and a person approves the choice before anything runs.",
+    # 8.0.0: the branding of a tenant (the Branding dialog and the card of a tenant's own administrator)
+    "Branding",
+    "The name and accent colour this tenant's users see. Leave the name blank to use the installation's own.",
+    "Your tenant's branding",
+    # 8.0.0: the backup monitor's two cadences, the status of a monitor that names no tool, and the warning when one is saved
+    "Integrity check every (hours)",
+    "Restore drill every (hours)",
+    "no tool chosen",
+    "This path names no backup tool, so Verify integrity has none to run. Choose restic, borg or tar in the Tool list.",
+    ") at most once per check interval (weekly unless you change it), time-bounded.",
 ]
 
 

@@ -512,6 +512,11 @@ overridden. This is the one tenancy endpoint a tenant's **own admin** may call
 (for their own tenant only) — it is a self-service white-label knob, not a
 platform-operator concern.
 
+In the page, a platform superadmin clicks **Branding** on the tenant's row in
+**Settings → Security → Tenants**. A tenant's own admin finds **Your tenant's
+branding** under the installation's Branding in **Settings → General**. Both open
+one dialog with the name and the accent. For a script, the same thing over the API:
+
 ```bash
 curl -sS -X PUT https://rp.example.com/api/tenants/tn_8kQ2v1Ab/branding \
   -H "X-Token: $TOKEN" -H 'Content-Type: application/json' \

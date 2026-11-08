@@ -434,6 +434,18 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   and nothing in the product asked it. Next to **Propose fix**, **Actions it may pick from** opens the list under the verdict: the name, the id, the description and the start of the hash
   of each script and playbook. A second click closes it, and a read that fails says why in words. The button is there only when the AI executor module is on. Held by
   `tests/test_v800_ai_exec_catalog_e2e.py`.
+- **A tenant can be branded from the page.** `PUT /api/tenants/<id>/branding` has let a platform superadmin brand any tenant and a tenant's own administrator brand theirs since 6.1.1, and
+  nothing in the page called it. Each row of **Settings → Security → Tenants** (the built-in one apart) has a **Branding** button, and a tenant's own administrator has **Your tenant's
+  branding** under the installation's Branding in **Settings → General**. Both open one dialog with the product name (40 characters, blank means the installation's) and the accent. It
+  opens filled from what is stored, a refused save says why and keeps the dialog open, and a tenant administrator sees the new name in the shell at once. Held by
+  `tests/test_v800_tenant_branding_e2e.py`.
+- **A backup monitor has a field for each of its two cadences, and one that checks nothing says so.** How often the integrity check and the restore drill run
+  (`verify_max_age_hours`, `restore_drill_max_age_hours`, a week unless set) could only be set over the API, and a monitor saved from the page went back to weekly. **Integrity check
+  every (hours)** and **Restore drill every (hours)** are in the form, filled when you edit a monitor and kept to 1 to 8760. The form's hint no longer says the check runs at most weekly
+  when you can change that. A monitor with **Verify integrity** on, the tool on **Guess from the path name** and a path that names no tool (restic, borg or a tar file) was skipped by the agent
+  without a word, so the one control you had asked for never ran and nothing showed it. The form warns when you save such a monitor, the agent reports `no_tool` once per check interval, and
+  the host drawer shows **no tool chosen** in amber with the reason. It raises no alert: it is a setting to fix, like `tool_missing`. Held by `tests/test_v800_backup_monitor_tool.py` (the
+  agent, through the real function) and `tests/test_v800_backup_monitor_cadence_e2e.py`.
 - **The DNS records table says why it is empty.** With no provider credentials, a locked vault or a token that sees no zone, the table was a header
   over nothing and only a line of small print above it gave the reason. It now says *No zone to list yet. Give the provider credentials, then pick a
   zone.* The walk of the empty install is a test now: it opens all 79 sidebar pages of a fresh install and fails on a blank table, a loader that never

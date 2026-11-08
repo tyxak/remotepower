@@ -3091,6 +3091,12 @@
             <button class="btn-primary mt-12" data-action="saveBranding">Save branding</button>
             <span id="branding-status" class="fs-12 c-muted ml-8"></span>
           </div>
+          <!-- 8.0.0: a tenant's own administrator brands their tenant here; a platform superadmin does it from the Tenants list (Settings → Security) -->
+          <div class="settings-section hidden" id="tenant-own-branding">
+            <div class="section-title">Your tenant's branding</div>
+            <p class="hint">The name and accent colour this tenant's users see. Leave the name blank to use the installation's own.</p>
+            <button class="btn-secondary" id="tenant-own-branding-btn" data-action="openTenantBranding">Branding</button>
+          </div>
           <!-- v3.4.2: "Session timeout" (raw seconds) was a duplicate of
                Security → Session length (hours/days), writing the same
                session_ttl_short/long keys. Consolidated into Security. -->
@@ -3897,8 +3903,16 @@
               <label class="click-row"><input type="checkbox" id="bm-verify"> run the tool's own check (restic/borg/tar)</label>
             </div>
             <div class="form-group">
+              <label for="bm-verify-hours" class="form-label">Integrity check every (hours)</label>
+              <input type="number" id="bm-verify-hours" class="form-input isl-81" value="168" min="1" max="8760">
+            </div>
+            <div class="form-group">
               <label for="bm-drill" class="form-label">Restore drill</label>
               <label class="click-row"><input type="checkbox" id="bm-drill"> restore + verify a sample into a sandbox</label>
+            </div>
+            <div class="form-group">
+              <label for="bm-drill-hours" class="form-label">Restore drill every (hours)</label>
+              <input type="number" id="bm-drill-hours" class="form-input isl-81" value="168" min="1" max="8760">
             </div>
             <div class="form-group">
               <label for="bm-drill-sample" class="form-label">Drill sample path</label>
@@ -3906,7 +3920,7 @@
             </div>
             <button class="btn-secondary" data-action="addBackupMonitor" >Add</button>
           </div>
-          <p class="hint mt-8">Verification runs the backup tool's <strong>own integrity check</strong> (<code>tar -tf</code>, <code>restic check</code>, <code>borg check</code>) at most weekly, time-bounded. <code>tar</code> needs nothing; <code>restic</code>/<code>borg</code> need their passphrase in the agent's environment (e.g. <code>RESTIC_PASSWORD_FILE</code> / <code>BORG_PASSPHRASE</code> in the agent unit). A failed check fires <code>backup_verify_failed</code>. A <strong>restore drill</strong> goes further — it actually restores the given sample path from the latest archive into a throwaway sandbox (never over live paths), checks it's non-empty, then deletes it; a failure fires <code>restore_drill_failed</code>.</p>
+          <p class="hint mt-8">Verification runs the backup tool's <strong>own integrity check</strong> (<code>tar -tf</code>, <code>restic check</code>, <code>borg check</code>) at most once per check interval (weekly unless you change it), time-bounded. <code>tar</code> needs nothing; <code>restic</code>/<code>borg</code> need their passphrase in the agent's environment (e.g. <code>RESTIC_PASSWORD_FILE</code> / <code>BORG_PASSPHRASE</code> in the agent unit). A failed check fires <code>backup_verify_failed</code>. A <strong>restore drill</strong> goes further — it actually restores the given sample path from the latest archive into a throwaway sandbox (never over live paths), checks it's non-empty, then deletes it; a failure fires <code>restore_drill_failed</code>.</p>
         </div>
 
         <div class="settings-section">
@@ -10427,6 +10441,32 @@ nextcloud mem=95 sustain=6</pre>
   <div class="modal-actions">
     <button class="btn-secondary" data-action="_uiPromptCancel">Cancel</button>
     <button class="btn-primary" id="ui-prompt-confirm" data-action="_uiPromptOk">OK</button>
+  </div>
+</div></div>
+
+<!-- 8.0.0: the name and accent colour of a tenant (app-tenant-branding.js, fetched when the Branding button is used) -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tenant-branding-title" id="tenant-branding-modal"><div class="modal">
+  <div class="modal-title" id="tenant-branding-title">Branding</div>
+  <div class="modal-subtitle">The name and accent colour this tenant's users see. Leave the name blank to use the installation's own.</div>
+  <div class="hint mb-8" id="tenant-branding-who"></div>
+  <div class="form-group">
+    <label for="tenant-branding-name" class="form-label">Product name</label>
+    <input type="text" id="tenant-branding-name" class="form-input" maxlength="40" autocomplete="off">
+  </div>
+  <div class="form-group">
+    <label for="tenant-branding-accent" class="form-label">Accent</label>
+    <select id="tenant-branding-accent" class="form-input">
+      <option value="">Blue (default)</option>
+      <option value="emerald">Emerald</option>
+      <option value="violet">Violet</option>
+      <option value="amber">Amber</option>
+      <option value="rose">Rose</option>
+      <option value="cyan">Cyan</option>
+    </select>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="tenant-branding-modal">Cancel</button>
+    <button class="btn-primary" data-action="saveTenantBranding">Save</button>
   </div>
 </div></div>
 
