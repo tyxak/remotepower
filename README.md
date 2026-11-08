@@ -210,8 +210,8 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   destination, an integration, e-mail, single sign-on and five sidecars. The Linux agent finds the apps a host
   runs, out of the 63 it knows, and offers a monitor and a connector for each. New are three connectors
   (Tailscale, Headscale and Cloudflare Tunnel), an Apprise destination, four monitor types (SMTP, IMAP, SSH
-  banner and NTP), a read-only MCP endpoint and automatic image updates with a rollback; the last two are off
-  until you switch them on. Reading the whole code once more found one High issue and several Medium ones, and
+  banner and NTP), a Traffic view of the addresses your Linux hosts talk to, a read-only MCP endpoint and
+  automatic image updates with a rollback; the last three are off until you switch them on. Reading the whole code once more found one High issue and several Medium ones, and
   every one is fixed. Update the agents.
 - **v7.5.0 "Wh0leMatters"** — finishing what was started, with everything from 7.4.1 to 7.4.9 on top of
   7.4.0. A second read of the whole product found fifteen Medium issues, twenty-one Low or hardening

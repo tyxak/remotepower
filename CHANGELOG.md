@@ -10,8 +10,8 @@ releases only; for an older release the entry below is the record.
 The first release of a new major version, and it changes what a person can adjust and what the agent finds without being asked. You can set the text
 size from 80% to 300%, show a long page as tabs or as one page, keep named layouts for Home, and take ten setup tasks a step at a time. The Linux
 agent finds the apps a host runs (63 are known) and offers a monitor and a connector for each. Three connectors, an Apprise destination, four monitor
-types (SMTP, IMAP, SSH banner and NTP), a read-only MCP endpoint and automatic container image updates with a rollback are new, and the last two are off
-until you switch them on. Reading the whole code once more found a High issue in the host drawer's settings form and Medium issues in the AI executor
+types (SMTP, IMAP, SSH banner and NTP), a Traffic view of the addresses your Linux hosts talk to, a read-only MCP endpoint and automatic container image
+updates with a rollback are new, and the last three are off until you switch them on. Reading the whole code once more found a High issue in the host drawer's settings form and Medium issues in the AI executor
 and in the channels that reach a host over SSH; all are fixed. Production runs 7.5.0, so the release is a fast-forward of it. The release page is
 [docs/v8.0.0.md](docs/v8.0.0.md).
 

@@ -171,8 +171,10 @@ class TestThePolicy(unittest.TestCase):
             self.assertIs(IA.stored_policy({"mode": "shadow", "rollback": bad})["rollback"], False, repr(bad))
 
     def test_the_fingerprint_keeps_its_value(self):
-        """It is stored as the release already attempted: a different hash function or format would make every host try its update again."""
-        self.assertEqual(IA.fingerprint({"a:1": "sha256:1"}), "ff5524f5214c97c8")
+        """It is stored as the release already attempted: a different hash function or format would make every host try its update again. SHA-256 since the first
+        build of 8.0.0 (SHA-1 with usedforsecurity=False before, which a code scanner flags whatever it says); nothing was released with the first, so no host's receipt
+        holds the old value, and from here on it must not change."""
+        self.assertEqual(IA.fingerprint({"a:1": "sha256:1"}), "7a997de4f576f622")
 
     def test_the_fingerprint_depends_on_the_images_and_their_digests_and_not_on_their_order(self):
         a = IA.fingerprint({"x:1": REG, "y:1": OLD})
