@@ -133,6 +133,7 @@ holds long-form docs that don't fit there.
 - **[scripts.md](scripts.md)** — Multi-line script library, dry-run
  linting, batch execution.
 - **[compose.md](compose.md)** — docker compose dropdown on host cards.
+- **[app-discovery.md](app-discovery.md)** — The apps an agent finds on a Linux host (from its sockets, containers and services), and the monitor and connector each one offers: **Discovered on this host** in the drawer and **Found on your hosts** on Integrations *(8.0.0)*.
 - **[docker-agent.md](docker-agent.md)** — run the agent as a container to
  monitor a Docker host (no host install; one-click compose from the UI).
 - **[containers.md](containers.md)** — Docker / Podman / Kubernetes pod

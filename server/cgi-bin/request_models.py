@@ -1517,6 +1517,13 @@ if _AVAILABLE:
         vmid: str = ''
         _v0 = field_validator('action', 'confirm', 'description', 'name', 'type', 'vmid', mode='before')(_coerce_str_loose)
 
+    class AppDiscoveryRequest(BaseModel):
+        """8.0.0: POST /api/devices/<id>/apps/monitor and /apps/dismiss. `dismissed` is the JSON false to show an app again; anything else hides it."""
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        app: str = ''
+        dismissed: Any = None
+        _v0 = field_validator('app', mode='before')(_coerce_str_loose)
+
     class DeviceComposeActionRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         action: str = ''

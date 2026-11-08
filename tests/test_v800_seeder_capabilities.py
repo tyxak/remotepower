@@ -72,5 +72,42 @@ class TestTheSeederStatesWhatItsAgentsSay(unittest.TestCase):
             self.assertEqual(H.satellite_types(sat), list(H.known_types()), sat.get("name"))
 
 
+class TestTheSeederStatesWhatItsAgentsFound(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.devices = seeded._seeded_devices()
+
+    def test_every_linux_agent_says_what_it_found_and_the_windows_and_macos_agents_do_not(self):
+        import app_catalog
+        linux = [d for d in self.devices.values() if isinstance(d.get("sysinfo"), dict) and d["sysinfo"] and not any(x in (d.get("os") or "").lower() for x in _NOT_LINUX)]
+        other = [d for d in self.devices.values() if isinstance(d.get("sysinfo"), dict) and d["sysinfo"] and any(x in (d.get("os") or "").lower() for x in ("windows", "macos", "mac os"))]
+        self.assertGreaterEqual(len(linux), 5)
+        self.assertTrue(other)
+        for d in linux:
+            self.assertIsInstance(d["sysinfo"].get("discovered"), list, d.get("name"))
+        for d in other:
+            self.assertNotIn("discovered", d["sysinfo"], d.get("name"))
+        said = [d for d in linux if d["sysinfo"]["discovered"]]
+        self.assertGreaterEqual(len(said), 8, "the demo has hosts that run apps")
+
+    def test_each_row_is_what_the_servers_own_cleaner_keeps_and_the_port_is_one_of_the_apps(self):
+        import app_catalog
+        for d in self.devices.values():
+            rows = (d.get("sysinfo") or {}).get("discovered") or []
+            self.assertEqual(app_catalog.clean_found(rows), rows, d.get("name"))
+            for row in rows:
+                app = app_catalog.describe(row["id"])
+                self.assertIn(row["port"], app["ports"], (d.get("name"), row["id"]))
+
+    def test_the_demo_leaves_apps_for_the_connectors_and_the_monitor_button_to_offer(self):
+        import app_catalog
+        ids_found = {row["id"] for d in self.devices.values() for row in (d.get("sysinfo") or {}).get("discovered") or []}
+        offered = {a for a in ids_found if app_catalog.describe(a)["connector"]}
+        self.assertGreaterEqual(len(offered), 8, "apps a connector reads: %r" % sorted(offered))
+        for needed in ("gitea", "vaultwarden", "syncthing", "node_exporter", "jellyfin", "postgres", "redis"):
+            self.assertIn(needed, ids_found)
+
+
 if __name__ == "__main__":
     unittest.main()

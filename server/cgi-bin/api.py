@@ -944,6 +944,7 @@ import appliance_evidence      # firewall and router syslog -> threat evidence (
 # v4.7.0: homelab software integrations — per-product API connectors. Pure
 # parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
 import integrations as integrations_mod
+import app_catalog as app_catalog_mod   # 8.0.0: the apps a host is likely to run, and the matcher the agent shares (pure)
 import protocol_probes as protocol_probes_mod   # 8.0.0: the smtp, imap, ssh and ntp monitor types (pure handshakes)
 # v5.8.0 (B5.1): load any operator-installed connector plugins from
 # server/cgi-bin/connectors.d/*.py (root-owned, filesystem-only). Best-effort:
@@ -1187,6 +1188,18 @@ for _ia_name in (
 ):
     globals()[_ia_name] = getattr(image_autoupdate_handlers_mod, _ia_name)
 del _ia_name
+
+# 8.0.0: the apps a host runs (the Linux agent's `sysinfo.discovered`, or what is worked out here for an older agent), and the monitor and connector each one offers.
+_ad_spec = _tk_ilu.spec_from_file_location(
+    'app_discovery_handlers', Path(__file__).parent / 'app_discovery_handlers.py')
+app_discovery_handlers_mod = _tk_ilu.module_from_spec(_ad_spec)
+_ad_spec.loader.exec_module(app_discovery_handlers_mod)
+app_discovery_handlers_mod.bind(globals())
+for _ad_name in (
+        'handle_device_apps', 'handle_app_discovery', 'handle_device_app_monitor', 'handle_device_app_dismiss',
+):
+    globals()[_ad_name] = getattr(app_discovery_handlers_mod, _ad_name)
+del _ad_name
 
 # v7.4.2 (#44): the integrations bound to a host, for the host drawer. A new route, so a
 # bound module rather than another inline handler.
@@ -15829,7 +15842,7 @@ def _bf_active(dev_bf, cutoff, threshold):
 # that every open page re-fetches once a minute. A key belongs here when no
 # client file reads it off this response; verify with a grep over
 # server/html/static/js before adding one.
-_ROSTER_SYSINFO_OMIT = frozenset({'proc_names', 'network_io_ts', 'network_io_gaps', 'disk_io'})
+_ROSTER_SYSINFO_OMIT = frozenset({'proc_names', 'network_io_ts', 'network_io_gaps', 'disk_io', 'discovered'})   # 8.0.0: discovered has its own route
 
 
 def handle_devices_list():
@@ -23133,6 +23146,9 @@ def handle_heartbeat():
                         'scope':   scope,
                     })
                 safe_si['listening_ports'] = safe_ports
+            # 8.0.0: the apps the agent says its host runs (app_catalog.py): only entries the catalog knows survive, in the shape it states
+            if 'discovered' in si:
+                safe_si['discovered'] = app_catalog_mod.clean_found(si['discovered'])
             # top processes (CPU + memory leaders, up to ~20 per device)
             if isinstance(si.get('top_processes'), list):
                 safe_procs = []
@@ -77081,6 +77097,10 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/virt/', '/snapshots', 'handle_virt_snapshots', "pi.startswith('/api/virt/') and pi.endswith('/snapshots') and m == 'GET'"),
     ('pat', ('POST',), '/api/virt/', '/snapshot', 'handle_virt_snapshot_action', "pi.startswith('/api/virt/') and pi.endswith('/snapshot') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/compose', 'handle_device_compose_list', "pi.startswith('/api/devices/') and pi.endswith('/compose') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/apps', 'handle_device_apps', "pi.startswith('/api/devices/') and pi.endswith('/apps') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/apps/monitor', 'handle_device_app_monitor', "pi.startswith('/api/devices/') and pi.endswith('/apps/monitor') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/apps/dismiss', 'handle_device_app_dismiss', "pi.startswith('/api/devices/') and pi.endswith('/apps/dismiss') and m == 'POST'"),
+    ('eq', ('GET',), '/api/app-discovery', '', 'handle_app_discovery', "pi == '/api/app-discovery' and m == 'GET'"),
     ('pat', ('POST',), '/api/devices/', '/compose/action', 'handle_device_compose_action', "pi.startswith('/api/devices/') and pi.endswith('/compose/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/containers/action', 'handle_device_container_action', "pi.startswith('/api/devices/') and pi.endswith('/containers/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/docker/prune', 'handle_device_docker_prune', "pi.startswith('/api/devices/') and pi.endswith('/docker/prune') and m == 'POST'"),

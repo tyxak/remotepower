@@ -3099,7 +3099,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js'];   // 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used).
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js'];   // 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites.
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -4123,7 +4123,8 @@ function openDetail(id, name) {
 }function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
 // 8.0.0: the wizards and the step-by-step forms are app-wizard.js, fetched on first use; these are the entry points index.html names.
 function wizOpen(name) {
-  _loadJsModule('app-wizard.js').then(() => { if (typeof wizStart === 'function') wizStart(name); });
+  const more = name === 'syslog' || name === 'flow' || name === 'satellite';        // 8.0.0: the sidecar wizards are app-wizard-sidecars.js, fetched after the runner
+  _loadJsModule('app-wizard.js').then(() => (more ? _loadJsModule('app-wizard-sidecars.js') : null)).then(() => { if (typeof wizStart === 'function') wizStart(name); });
 }
 function wizOpenFrom(name, modalId) {
   closeModal(modalId);
@@ -15429,6 +15430,7 @@ async function loadIntegrationsPage() {
     const order = { critical: 0, warning: 1, unknown: 2, ok: 3 };
     items.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || String(a.label || '').localeCompare(String(b.label || '')));
     wrap.innerHTML = _integrationTiles(items);
+    _loadJsModule('app-appdiscovery.js').then(() => { if (typeof loadFoundApps === 'function') loadFoundApps(); });   // 8.0.0: apps an agent found that nothing reads yet
     if (sum) {
       const c = { critical: 0, warning: 0, ok: 0 };
       items.forEach(i => { if (i.status in c) c[i.status]++; });
@@ -15453,6 +15455,8 @@ function _clearIntegrationSidePanels() {
     const el = document.getElementById(id);
     if (el) { el.innerHTML = ''; el.classList.add('d-none'); }
   }
+  const found = document.getElementById('found-apps-card');   // 8.0.0: with the integrations hidden nothing is offered
+  if (found) found.hidden = true;
 }
 
 function _renderDnsBlockPanels(items, dnsCtl) {
@@ -24834,6 +24838,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   _renderDrawerActions();
   _renderDrawerSettings();
   switchDrawerTab(defaultTab);
+  _loadJsModule('app-appdiscovery.js').then(() => { if (typeof loadDrawerApps === 'function') loadDrawerApps(id); });   // 8.0.0: the apps found on this host
 }
 
 // Where focus goes back to when the drawer closes. The control that opened it sits in the

@@ -2208,6 +2208,8 @@
             </ul>
             <div class="section-header">
               <div class="section-title">Tokens</div>
+              <button class="btn-secondary" data-action="wizOpen" data-arg="syslog">Receive logs</button>
+              <button class="btn-secondary" data-action="wizOpen" data-arg="flow">Receive flows</button>
               <button class="enroll-btn" data-action="openInboundWebhookCreate">
                 <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-8a2aac00"/></svg>
                 New token
@@ -2253,6 +2255,7 @@
             <div class="section-title">Relay satellites</div>
             <p class="hint">Run a satellite (<code>client/remotepower-satellite.py</code>) inside a segmented network — agents there reach this server <em>through</em> it (<code>agent → satellite → server</code>). Each satellite authenticates with its own token, so you can see and revoke relays independently of the agents. Set the minted token as <code>RP_SATELLITE_TOKEN</code> and <code>RP_UPSTREAM</code> on the satellite host, then point that segment's agents at <code>http://&lt;satellite&gt;:8800</code>. <a href="docs/satellites.md" class="c-accent">Documentation</a></p>
             <button class="enroll-btn" data-action="createSatellite"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-8a2aac00"/></svg> New satellite</button>
+            <button class="btn-secondary" data-action="wizOpen" data-arg="satellite">Guide me</button>
             <pre id="satellite-new-token" class="sb-result" hidden></pre>
             <div id="satellites-list" class="sb-result">Loading…</div>
           </div>
@@ -9430,6 +9433,12 @@ nextcloud mem=95 sustain=6</pre>
           <span id="integrations-page-summary" class="hint"></span>
         </div>
         <div id="integrations-page-tiles" class="integ-tiles"><div class="hint">Loading…</div></div>
+        <!-- 8.0.0: apps an agent saw running that a connector could read and nothing reads yet; hidden until there is one -->
+        <div id="found-apps-card" class="dash-card mt-12" hidden>
+          <div class="section-title">Found on your hosts</div>
+          <p class="hint">An agent saw these apps running. Connect one to read its health, or hide it from this list.</p>
+          <div id="found-apps-list" class="scroll-cap"></div>
+        </div>
         <!-- v6.1.2: Pi-hole / AdGuard top-blocked. Hidden until a DNS connector
              actually reports lists, so instances without one see no empty box. -->
         <div id="dns-block-panels" class="mt-12 d-none"></div>
@@ -10357,6 +10366,13 @@ nextcloud mem=95 sustain=6</pre>
           <div class="drawer-actions-grid" id="drawer-actions-grid">
             <!-- rendered by JS -->
           </div>
+        </div>
+
+        <!-- 8.0.0: the apps the agent found on this host (app-appdiscovery.js fills it and shows it when there is one) -->
+        <div class="drawer-section mt-16" id="drawer-apps-section" hidden>
+          <div class="section-title">Discovered on this host</div>
+          <p class="hint">The agent found these apps running. Monitor one from this host, connect it to read its health, or hide it.</p>
+          <div id="drawer-apps-list" class="scroll-cap"><!-- rendered by JS --></div>
         </div>
 
         <div class="drawer-section mt-16">

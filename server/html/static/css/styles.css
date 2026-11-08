@@ -6782,6 +6782,11 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .agent-sig.agent-mismatch { color: var(--red-ink); }
 /* 8.0.0: the small bolt on a host whose agent holds the push channel open (host table, card and drawer) */
 .dev-push { display: inline-flex; vertical-align: middle; margin-left: 5px; color: var(--accent-ink); cursor: help; }
+/* 8.0.0: a row of the apps an agent found (the host drawer's Discovered on this host, the Integrations page's Found on your hosts) */
+.app-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 0; border-bottom: 1px solid var(--hair); }
+.app-row:last-child { border-bottom: 0; }
+.app-name { font-weight: 600; }
+.app-end { margin-left: auto; }
 /* v3.4.2: automation rules list */
 .auto-rule { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
 .auto-rule.auto-off { opacity: 0.6; }

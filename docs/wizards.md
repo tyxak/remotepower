@@ -1,6 +1,6 @@
 # Wizards and step-by-step forms
 
-Three guided flows and one switch for long forms. They sit next to the dialogs you already use. Nothing changes until you press a button or
+Guided flows for the things that take several steps, and one switch for long forms. They sit next to the dialogs you already use. Nothing changes until you press a button or
 turn the switch on, and the dialogs they sit next to are still there.
 
 | You want to | Open | What you get |
@@ -10,6 +10,9 @@ turn the switch on, and the dialogs they sit next to are still there.
 | Add an integration | **Settings → Integrations → Guide me**, next to **Add** | A wizard in four steps |
 | Set up email | **Settings → Notifications → Email notifications (SMTP) → Guide me**, or the **Email (SMTP)** card of the notification wizard | A wizard in five steps |
 | Set up single sign-on | **Settings → Integrations → OIDC / OpenID Connect → Guide me** | A wizard in six steps |
+| Receive logs from a host | **Settings → Integrations → Inbound webhooks & syslog → Receive logs** | A wizard in four steps |
+| Receive network flows from a router | **Settings → Integrations → Inbound webhooks & syslog → Receive flows** | A wizard in four steps |
+| Add a relay satellite or a scan worker | **Settings → Integrations → Relay satellites → Guide me**, next to **New satellite** | A wizard in three steps |
 | Fill in a long form one part at a time | The **Step by step** switch at the top of a form | The same form, a few fields at a time |
 
 Only administrators can make install commands, PINs, notification destinations and integrations. Someone who cannot is shown the server's refusal.
@@ -136,6 +139,38 @@ order.
 The wizard saves only at **Add it**, so closing it earlier leaves nothing. The list that is saved is the server's own, read a moment before, with
 the new integration in it, so the other integrations and their secrets stay as they were. If you have edits on the Settings page that you have not
 saved, they are still there afterwards, and the new integration is in the list beside them.
+
+## Receive logs and receive flows
+
+The syslog receiver and the flow receiver know a sender by the address its packets come from, and the token belongs to a host on the server's side, so the sender never holds
+it. Getting one working takes three things that the guides ([syslog.md](syslog.md), [flow.md](flow.md)) list: a host that carries the sender's address, a token of the right kind
+pinned to it, and the sender's own settings. The wizard does the first two and shows the third.
+
+1. **Sender.** Pick a host that is already here and has an address, or make a new one from a name and an IPv4 address (it is added without an agent, as a firewall, router or
+   other host according to what you say it is). Say what the sender is: OPNsense, pfSense, MikroTik RouterOS, rsyslog, syslog-ng, VMware ESXi or Cisco IOS have settings the wizard
+   writes out; anything else gets the guide. The receivers speak IPv4 over UDP only, so an address that is not IPv4 is refused.
+2. **Receiver.** Whether the receiver is running on this server (it reads the same state as Server Status), and the address of this server as the sender reaches it, which is
+   filled in from the address you opened this page on. If the receiver is not detected here, the step gives the installer line (`sudo ./install-server.sh --with-syslogd` or
+   `--with-flowd`) and says to carry on if it runs on another host. Leaving the step finds the token of that kind that is already pinned to the host, or makes one: going back and
+   forward, or running the wizard again for the same host, does not make another.
+3. **Send.** The sender's settings with this server's address and the port filled in: commands to copy for MikroTik, rsyslog, syslog-ng, ESXi and Cisco, the guide for a sender that is
+   set up in a page (OPNsense, pfSense), a test line to send from a Linux or FreeBSD sender, and a wait that turns to **Arriving** when the token's own count goes up. After five
+   minutes it says what to check. A token the receiver cannot map (the host has no address, is gone, or the token is off) is said in words.
+4. **Done.** What arrived, and **Open host**.
+
+## Add a relay satellite
+
+A relay satellite carries agents in a separate network to this server; a scan worker runs the scans of **Security → Pentest** from that network.
+
+1. **Satellite.** A name, and whether it is a relay or a scan worker.
+2. **Install.** The one command to run on the satellite host, with the token and this server's address filled in: `satellite-setup.sh` for a relay (`RP_UPSTREAM`), `scanner-setup.sh` for
+   a scan worker (`RP_SERVER_URL`). The token is shown once, so this step has no way back. A satellite connects to its server over https, and the step says so when the page you opened
+   is not on https. It waits for the satellite to connect.
+3. **Done.** The address it connected from, and the kind.
+
+The wizards were checked against the real receiver and the real satellite: the syslog test sends a real UDP line to `remotepower-syslogd` and reads the token's count rise, and the satellite
+test starts `remotepower-satellite.py` from the token the page showed. The flow receiver was not run (it needs NetFlow packets), so its test raises the token's count the way a
+forwarded rollup does.
 
 ## Step by step
 

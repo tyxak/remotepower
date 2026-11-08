@@ -96,7 +96,7 @@ class TestRollBackInTheComposeDialog(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         ctx = _STATE["browser"].new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
-        ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
+        ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")
         cls.ctx, cls.page, cls.errors, cls.posts = ctx, ctx.new_page(), [], []
         cls.page.on("pageerror", lambda e: cls.errors.append(str(e)))
         cls.page.on("request", lambda r: cls.posts.append(r) if r.method == "POST" and "/compose/action" in r.url else None)
@@ -193,6 +193,10 @@ class TestRollBackInTheComposeDialog(unittest.TestCase):
                     if not text or text == english:
                         bad.append((lang, what, text))
                 self.press()
+                try:                                                # the dictionary is applied by an observer a moment after the text is set
+                    self.page.wait_for_function("(q) => document.getElementById('ui-prompt-message').textContent !== q", arg=QUESTION, timeout=3000)
+                except Exception:
+                    pass
                 question = self.page.inner_text("#ui-prompt-message")
                 if not question or question == QUESTION:
                     bad.append((lang, "question", question[:40]))

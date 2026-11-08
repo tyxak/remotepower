@@ -22,7 +22,7 @@ function _wizNode(tag, cls, text) {
 let _wiz = null;            // the wizard that is open: {def, i, st, busy, finished, timers}
 
 function wizStart(name, arg) {
-  const make = _WIZARDS[name];
+  const make = _WIZARDS[name] || (typeof _WIZARDS_MORE !== 'undefined' ? _WIZARDS_MORE[name] : null);     // _WIZARDS_MORE: the sidecar wizards (app-wizard-sidecars.js)
   if (!make || document.getElementById('wizard-modal')) return;
   const def = make();
   _wiz = { def, i: 0, st: def.init(arg), busy: false, finished: false, timers: [] };
@@ -59,7 +59,7 @@ function wizStart(name, arg) {
   o.addEventListener('keydown', _wizKey);
   document.body.appendChild(o);
   openModal('wizard-modal');
-  _wizShow(0);
+  _wizShow(_wizSteps()[0].n);           // the first step that applies (a wizard started from an app an agent found has no use for the first)
 }
 
 // Enter in a text box goes on, like the button does (a checkbox, a radio button and a button keep their own Enter).
@@ -801,12 +801,18 @@ function _wizIntegCatalog(list) { return (Array.isArray(list) ? list : []).filte
 function _wizIntegDef() {
   return {
     title: 'Add an integration',
-    init: () => {
+    init: (arg) => {
       const known = _wizIntegCatalog(typeof _integrationCatalog !== 'undefined' ? _integrationCatalog : []);
-      return { type: '', name: '', named: false, url: '', urlSet: false, verify: true, vals: {}, verdict: null, testing: false, catalog: known, loaded: known.length > 0 };
+      // 8.0.0: started from an app an agent found ({type, url, name, device_id}): the service and its address are known, so it begins at the connection, and the
+      // instance is bound to the host ("Runs on host")
+      const pre = arg && typeof arg === 'object' && typeof arg.type === 'string' && arg.type ? arg : null;
+      const c = pre ? known.find(x => x.type === pre.type) : null;
+      return { type: pre ? pre.type : '', name: pre ? String(pre.name || (c && c.label) || pre.type) : '', named: !!pre, url: pre ? String(pre.url || '') : '', urlSet: !!(pre && pre.url),
+               device_id: pre ? String(pre.device_id || '') : '', preset: !!pre, verify: true, vals: {}, verdict: null, testing: false, catalog: known, loaded: known.length > 0 };
     },
+    onClose: (st, finished) => { if (finished && typeof appsRefresh === 'function') appsRefresh(); },
     steps: [
-      { label: 'Service', render: _wizIntegService, validate: st => (st.type ? null : { msg: 'Choose a service', focus: 'wiz-search' }) },
+      { label: 'Service', skip: st => st.preset, render: _wizIntegService, validate: st => (st.type ? null : { msg: 'Choose a service', focus: 'wiz-search' }) },
       { label: 'Connection', render: _wizIntegConnection, validate: _wizIntegCheck },
       { label: 'Test', render: _wizIntegTest },
       { label: 'Finish', render: _wizIntegFinish, primary: 'Add it', next: _wizIntegAdd },
@@ -875,6 +881,15 @@ function _wizIntegFilter(q) {
 }
 
 function _wizIntegConnection(st, body) {
+  if (!st.loaded) {                     // started from an app an agent found: the list of services has not been fetched yet
+    body.appendChild(_wizNode('div', 'hint', 'Loading…'));
+    api('GET', '/integrations').then(d => {
+      st.catalog = _wizIntegCatalog(d && d.catalog);
+      st.loaded = true;
+      if (_wiz && _wiz.st === st) _wizShow(_wiz.i);
+    });
+    return;
+  }
   const c = _wizIntegOf(st);
   if (c.notes) body.appendChild(_wizNode('div', 'hint mb-12', c.notes));
   _wizField(body, { id: 'wiz-name', label: 'Name', value: st.name, maxlength: 80, onInput: v => { st.name = v; st.named = true; st.verdict = null; } });
@@ -918,6 +933,7 @@ function _wizIntegCheck(st) {
 // The instance as the page keeps it. A credential left empty is not sent.
 function _wizIntegInst(st) {
   const inst = { type: st.type, label: st.name.trim(), url: st.url.trim(), enabled: true, verify_tls: st.verify };
+  if (st.device_id) inst.device_id = st.device_id;
   (_wizIntegOf(st).fields || []).forEach(f => {
     const v = String(st.vals[f.key] || '').trim();
     if (v) inst[f.key] = v;

@@ -328,6 +328,36 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   Immich's documentation sites render in the browser, so their pages could not be read by the tools used here: Immich was read from its OpenAPI document, UniFi's Integration API
   from nothing official, so the UniFi connector is unchanged.
 
+- **The agent finds the apps its host runs, and offers a monitor and a connector for each.** The Linux agent now reads three lists it already has or one read-only call away (the
+  listening sockets, the containers, and the services `systemctl list-units` says are running) and says which of 51 well-known apps it found, as `sysinfo.discovered`. An app is
+  recognised by what it is, not by where it listens: a process name, a container image or a service is a sign by itself, and a port only when it belongs to one app (8096 is
+  Jellyfin's) or when another sign agrees; 80, 3000 and 8080 recognise nothing alone. The catalog and the matcher are `server/cgi-bin/app_catalog.py`; the agent's copy is written by
+  `tools/sync-app-catalog.py` (`--check` fails a stale copy, as for the protocol probes) and answers exactly as the module does on four hundred random fact sets. An older Linux agent is
+  read from the ports and containers it did report; Windows and macOS hosts are not covered, since the catalog knows Linux's process names and services. Nothing is probed and nothing is
+  made by itself. The host drawer has **Discovered on this host** (under the quick actions): each app is **Monitored** (a monitor already looks at its port), has **Monitor** (a TCP monitor
+  that the host's own agent runs against its loopback, through the 7.4.9 probes, the port being the one the host reports now and never one from the request), **Connected**, **Connect**
+  (the integration wizard, on its Connection step, with the host's address and the app's port filled in and the instance bound to the host, so it shows on the host's card as Runs on
+  host) or *listens on this host only, so the server cannot read it*, and **Hide** (kept in the settings; **Hidden apps** brings one back). **Integrations** has **Found on your hosts**: the
+  apps a connector could read and nothing reads yet, across the hosts the caller may see. With **Show homelab software** off no connector is offered; the Monitor buttons stay. New:
+  `GET /api/devices/{id}/apps`, `GET /api/app-discovery`, `POST /api/devices/{id}/apps/monitor` and `/apps/dismiss` (administrator). The demo's agents say what they found, so the demo shows
+  all of it. Found on the way: a drawer that has just been opened would have shown the apps of the host that was open before until its own answer came; it starts empty now, and a late
+  answer for another host is dropped. **Checked** on this machine's real systemd and sockets (25 services and 17 listeners, no catalog app found, as it should be), not against an installed
+  Jellyfin or Gitea. **Held by** `tests/test_v800_app_discovery.py` (73 tests: the catalog, every sign of every app recognising that app and no other, the agent's copy and its read of the
+  services, the heartbeat's cleaner, the four routes against the validators a saved monitor and a saved integration go through, the guide against the catalog) and
+  `tests/test_v800_app_discovery_e2e.py` (14 browser tests: the states, Monitor, Connect starting the wizard on its second step, Hide and Show, the card, a hostile host name, a late
+  answer, six languages), and 60 mutations of the matcher, the routes, the agent and the page. See `docs/app-discovery.md`.
+
+- **Wizards for the sidecars.** Three more, beside the controls that were there. **Receive logs** and **Receive flows** (Settings → Integrations → Inbound webhooks & syslog) take a
+  sender (an existing host with an address, or a new one made from a name and an IPv4 address and added without an agent), read whether the receiver runs on this server from the same
+  state as Server Status, find the token of that kind already pinned to the host or make one (one, however often the step is gone back to), show the sender's settings with this server's
+  address and the port filled in (commands for MikroTik, rsyslog, syslog-ng, ESXi and Cisco, the guide for OPNsense and pfSense, a test line for a Linux or FreeBSD sender), and wait for
+  the token's own count to rise. **Guide me** by **New satellite** makes a relay satellite or a scan worker and shows the one command to run on its host (`satellite-setup.sh` with
+  `RP_UPSTREAM`, or `scanner-setup.sh` with `RP_SERVER_URL`), with the token (shown once, so that step has no way back) and this server's address filled in, and waits for it to connect. The
+  code is one more lazy module, `app-wizard-sidecars.js`, fetched after the runner; the runner now begins at the first step that applies, which the integration wizard started from a
+  discovered app needed too. See `docs/wizards.md`. **Held by** `tests/test_v800_sidecar_wizards_e2e.py` (13 browser tests, two of them against the real thing: a real UDP line to the real
+  `remotepower-syslogd` reaches the wizard through the receiver, the API and the token, and the real `remotepower-satellite.py`, started from the token the page showed, makes the page say
+  Connected; the flow receiver was not run, its test raises the token's count the way a forwarded rollup does) and 16 mutations of the wizards.
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).

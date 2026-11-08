@@ -459,6 +459,26 @@ _DEMO_INTERNAL_HOSTS = ('jf01', 'nc01')
 # tests/test_v800_seeder_capabilities.py compares it with, so a type added there is added here.
 _AGENT_PROBE_TYPES = ('tcp', 'http', 'ping', 'smtp', 'imap', 'ssh', 'ntp')
 
+# 8.0.0: what each Linux agent says its host runs (sysinfo.discovered): (app id from server/cgi-bin/app_catalog.py, port, scope, the signs that found it, container). A Linux agent
+# sends the key on every check-in, an empty list when it found nothing, so a host not named here says nothing was found. tests/test_v800_seeder_capabilities.py reads each row
+# through the catalog's own cleaner. The demo's integrations and monitors cover most of these (Jellyfin, Pi-hole, Home Assistant, Nextcloud, Gitea's two monitors), which
+# leaves Gitea, Vaultwarden, Syncthing and node_exporter for "Found on your hosts" and a few ports for the Monitor button.
+_DEMO_APPS = {
+    'pi1': (('pihole', 80, 'lan', ('process', 'unit', 'port'), ''),),
+    'ng01': (('nginx', 80, 'world', ('process', 'unit', 'port'), ''), ('npm', 81, 'lan', ('container', 'port'), 'npm')),
+    'jf01': (('jellyfin', 8096, 'lan', ('process', 'unit', 'port'), ''), ('sonarr', 8989, 'lan', ('container', 'port'), 'sonarr'),
+             ('radarr', 7878, 'lan', ('container', 'port'), 'radarr'), ('prowlarr', 9696, 'lan', ('container', 'port'), 'prowlarr'),
+             ('bazarr', 6767, 'lan', ('container', 'port'), 'bazarr'), ('qbittorrent', 8080, 'lan', ('container', 'port'), 'qbittorrent')),
+    'gt01': (('gitea', 3000, 'lan', ('process', 'unit', 'port'), ''), ('postgres', 5432, 'local', ('process', 'port'), '')),
+    'ha01': (('homeassistant', 8123, 'lan', ('container', 'port'), 'homeassistant'),),
+    'nc01': (('nextcloud', 80, 'lan', ('container', 'port'), 'nextcloud'), ('mariadb', 3306, 'local', ('process', 'port'), ''),
+             ('redis', 6379, 'local', ('process', 'unit', 'port'), '')),
+    'vw01': (('vaultwarden', 80, 'lan', ('process', 'unit', 'port'), ''), ('redis', 6379, 'local', ('process', 'port'), '')),
+    'pr01': (('prometheus', 9090, 'lan', ('process', 'unit', 'port'), ''), ('grafana', 3000, 'lan', ('process', 'unit', 'port'), ''),
+             ('node_exporter', 9100, 'lan', ('process', 'unit', 'port'), '')),
+    'tnas': (('syncthing', 8384, 'lan', ('unit', 'port'), ''), ('samba', 445, 'lan', ('process', 'unit', 'port'), '')),
+}
+
 
 def _demo_enrich_sysinfo(dev, rng, si):
     """v3.11–v3.13 device-drawer / Exposure / Storage demo data, added in place.
@@ -1550,6 +1570,7 @@ def build_devices() -> dict:
             if not any(x in _os for x in ('windows', 'macos', 'mac os', 'junos', 'unifi')):
                 rec['sysinfo']['probe_types'] = list(_AGENT_PROBE_TYPES)
                 rec['sysinfo']['compose_rollback'] = True
+                rec['sysinfo']['discovered'] = [{'id': a, 'via': list(v), 'port': p, 'scope': sc, 'container': c} for a, p, sc, v, c in _DEMO_APPS.get(dev['id'], ())]
             # v3.11–v3.13: device-drawer cards — access watch (recent logins),
             # systemd timers, listening ports w/ scope (Exposure), per-host
             # storage/RAID health, and the firewall posture + fingerprint.

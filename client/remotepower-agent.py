@@ -4948,6 +4948,197 @@ def _kubectl_listing():
     return items
 
 
+# BEGIN app_catalog: generated from server/cgi-bin/app_catalog.py by tools/sync-app-catalog.py, do not edit by hand
+# the apps this host runs, recognised from its listening sockets, its containers and its services
+_ac_VIAS = ('process', 'container', 'unit', 'port')
+_ac_SCOPES = ('local', 'lan', 'world')
+
+def _ac_app(app_id, name, kind, ports=(), procs=(), images=(), units=(), connector='', distinct=False, scheme=''):
+    """One entry. `ports` are the app's own TCP ports, the one its API answers on first; `procs` the names of its process as `ss` prints them (the first 15 characters);
+    `images` the last path segment of its container image, or `org/name` where the plain name belongs to other things; `units` the name of its systemd service without
+    `.service` (and without `@instance`); `connector` the id of the connector that reads it, if there is one; `distinct` says that a listener on one of its ports is
+    enough to recognise it, and `scheme` that its API answers TLS by default ('https'; empty is http)."""
+    return {'id': app_id, 'name': name, 'kind': kind, 'ports': tuple(ports), 'procs': tuple(procs), 'images': tuple(images), 'units': tuple(units),
+            'connector': connector, 'distinct': bool(distinct), 'scheme': scheme}
+
+
+_ac_APPS = (
+    _ac_app('nginx', 'nginx', 'web', (80, 443), ('nginx',), ('nginx',), ('nginx',)),
+    _ac_app('apache', 'Apache HTTP Server', 'web', (80, 443), ('apache2', 'httpd'), ('httpd',), ('apache2', 'httpd')),
+    _ac_app('caddy', 'Caddy', 'web', (80, 443), ('caddy',), ('caddy',), ('caddy',)),
+    _ac_app('traefik', 'Traefik', 'web', (8080, 80, 443), ('traefik',), ('traefik',), ('traefik',), 'traefik'),
+    _ac_app('npm', 'Nginx Proxy Manager', 'web', (81,), (), ('nginx-proxy-manager',), (), 'npm'),
+    _ac_app('postgres', 'PostgreSQL', 'database', (5432,), ('postgres',), ('postgres', 'postgis'), ('postgresql',), distinct=True),
+    _ac_app('mariadb', 'MariaDB / MySQL', 'database', (3306,), ('mariadbd', 'mysqld'), ('mariadb', 'mysql'), ('mariadb', 'mysql', 'mysqld'), distinct=True),
+    _ac_app('redis', 'Redis / Valkey', 'database', (6379,), ('redis-server', 'valkey-server'), ('redis', 'valkey'), ('redis', 'redis-server', 'valkey'), distinct=True),
+    _ac_app('mongodb', 'MongoDB', 'database', (27017,), ('mongod',), ('mongo',), ('mongod',), distinct=True),
+    _ac_app('influxdb', 'InfluxDB', 'database', (8086,), ('influxd',), ('influxdb',), ('influxdb',), distinct=True),
+    _ac_app('elasticsearch', 'Elasticsearch / OpenSearch', 'database', (9200,), (), ('elasticsearch', 'opensearch'), ('elasticsearch', 'opensearch'), distinct=True),
+    _ac_app('rabbitmq', 'RabbitMQ', 'messaging', (5672,), ('beam.smp',), ('rabbitmq',), ('rabbitmq-server',), distinct=True),
+    _ac_app('memcached', 'memcached', 'database', (11211,), ('memcached',), ('memcached',), ('memcached',), distinct=True),
+    _ac_app('mosquitto', 'Mosquitto (MQTT)', 'messaging', (1883,), ('mosquitto',), ('eclipse-mosquitto', 'mosquitto'), ('mosquitto',), distinct=True),
+    _ac_app('grafana', 'Grafana', 'observability', (3000,), ('grafana', 'grafana-server'), ('grafana',), ('grafana-server',), 'grafana'),
+    _ac_app('prometheus', 'Prometheus', 'observability', (9090,), ('prometheus',), ('prometheus',), ('prometheus',), 'prometheus'),
+    _ac_app('node_exporter', 'Prometheus node exporter', 'observability', (9100,), ('node_exporter',), ('node-exporter',), ('prometheus-node-exporter', 'node_exporter'), 'prometheus_exporter', True),
+    _ac_app('loki', 'Grafana Loki', 'observability', (3100,), ('loki',), ('loki',), ('loki',), distinct=True),
+    _ac_app('netdata', 'Netdata', 'observability', (19999,), ('netdata',), ('netdata',), ('netdata',), 'netdata', True),
+    _ac_app('uptimekuma', 'Uptime Kuma', 'observability', (3001,), (), ('uptime-kuma',), (), 'uptimekuma', True),
+    _ac_app('pihole', 'Pi-hole', 'network', (80, 443), ('pihole-FTL',), ('pihole',), ('pihole-FTL',), 'pihole'),
+    _ac_app('adguard', 'AdGuard Home', 'network', (3000, 80), ('AdGuardHome',), ('adguardhome',), ('AdGuardHome',), 'adguard'),
+    _ac_app('headscale', 'Headscale', 'network', (8080,), ('headscale',), ('headscale',), ('headscale',), 'headscale'),
+    _ac_app('unbound', 'Unbound', 'network', (), ('unbound',), ('unbound',), ('unbound',)),
+    _ac_app('jellyfin', 'Jellyfin', 'media', (8096, 8920), ('jellyfin',), ('jellyfin',), ('jellyfin',), 'jellyfin', True),
+    _ac_app('plex', 'Plex Media Server', 'media', (32400,), ('Plex Media Serv',), ('pms-docker', 'plex'), ('plexmediaserver',), 'plex', True),
+    _ac_app('sonarr', 'Sonarr', 'media', (8989,), ('Sonarr',), ('sonarr',), ('sonarr',), 'sonarr', True),
+    _ac_app('radarr', 'Radarr', 'media', (7878,), ('Radarr',), ('radarr',), ('radarr',), 'radarr', True),
+    _ac_app('lidarr', 'Lidarr', 'media', (8686,), ('Lidarr',), ('lidarr',), ('lidarr',), 'lidarr', True),
+    _ac_app('readarr', 'Readarr', 'media', (8787,), ('Readarr',), ('readarr',), ('readarr',), 'readarr', True),
+    _ac_app('prowlarr', 'Prowlarr', 'media', (9696,), ('Prowlarr',), ('prowlarr',), ('prowlarr',), 'prowlarr', True),
+    _ac_app('bazarr', 'Bazarr', 'media', (6767,), (), ('bazarr',), ('bazarr',), 'bazarr', True),
+    _ac_app('overseerr', 'Overseerr', 'media', (5055,), (), ('overseerr',), ('overseerr',), 'overseerr', True),
+    _ac_app('immich', 'Immich', 'media', (2283,), (), ('immich-server',), ('immich-server', 'immich'), 'immich', True),
+    _ac_app('frigate', 'Frigate', 'media', (5000, 8971), (), ('frigate',), ('frigate',), 'frigate'),
+    _ac_app('qbittorrent', 'qBittorrent', 'download', (8080,), ('qbittorrent-nox',), ('qbittorrent', 'qbittorrent-nox'), ('qbittorrent-nox',), 'qbittorrent'),
+    _ac_app('transmission', 'Transmission', 'download', (9091,), ('transmission-da',), ('transmission',), ('transmission-daemon',), 'transmission', True),
+    _ac_app('deluge', 'Deluge', 'download', (8112,), ('deluged', 'deluge-web'), ('deluge',), ('deluged', 'deluge-web'), 'deluge', True),
+    _ac_app('sabnzbd', 'SABnzbd', 'download', (8080,), (), ('sabnzbd',), ('sabnzbd', 'sabnzbdplus'), 'sabnzbd'),
+    _ac_app('nzbget', 'NZBGet', 'download', (6789,), ('nzbget',), ('nzbget',), ('nzbget',), 'nzbget', True),
+    _ac_app('homeassistant', 'Home Assistant', 'home', (8123,), (), ('home-assistant', 'homeassistant'), ('home-assistant', 'hass', 'homeassistant'), 'homeassistant', True),
+    _ac_app('homebridge', 'Homebridge', 'home', (8581,), ('homebridge',), ('homebridge',), ('homebridge',), 'homebridge', True),
+    _ac_app('esphome', 'ESPHome', 'home', (6052,), (), ('esphome',), ('esphome',), 'esphome', True),
+    _ac_app('octoprint', 'OctoPrint', 'home', (5000, 80), (), ('octoprint',), ('octoprint',), 'octoprint'),
+    _ac_app('nextcloud', 'Nextcloud', 'cloud', (80, 443, 8080), (), ('nextcloud',), (), 'nextcloud'),
+    _ac_app('vaultwarden', 'Vaultwarden', 'cloud', (80, 8000, 8080), ('vaultwarden',), ('vaultwarden/server', 'vaultwarden'), ('vaultwarden',), 'vaultwarden'),
+    _ac_app('paperless', 'Paperless-ngx', 'cloud', (8000,), (), ('paperless-ngx',), ('paperless-webserver',), 'paperless'),
+    _ac_app('gitea', 'Gitea / Forgejo', 'dev', (3000,), ('gitea', 'forgejo'), ('gitea', 'forgejo'), ('gitea', 'forgejo'), 'gitea'),
+    _ac_app('syncthing', 'Syncthing', 'storage', (8384,), ('syncthing',), ('syncthing',), ('syncthing',), 'syncthing', True),
+    _ac_app('samba', 'Samba', 'storage', (445, 139), ('smbd',), ('samba',), ('smb', 'smbd'), '', True),
+    _ac_app('k3s', 'Kubernetes (k3s)', 'orchestration', (6443,), ('k3s-server', 'k3s'), ('k3s',), ('k3s',), 'kubernetes', True, 'https'),
+)
+
+_ac_BY_ID = {a['id']: a for a in _ac_APPS}
+
+
+def _ac_repo(image):
+    """The repository of a container image reference, lower-case, without registry-independent noise: 'lscr.io/linuxserver/jellyfin:latest' is 'lscr.io/linuxserver/jellyfin'."""
+    ref = str(image or '').strip().lower()
+    ref = ref.split('@', 1)[0]
+    last = ref.rsplit('/', 1)[-1]
+    if ':' in last:
+        ref = ref[:len(ref) - len(last)] + last.split(':', 1)[0]
+    return ref
+
+
+def _ac_image_is(image, wanted):
+    """Whether the image's repository is `wanted`: the whole path, or the end of it after a slash ('nginx' is 'docker.io/library/nginx' and not 'jc21/nginx-proxy-manager')."""
+    repo = _ac_repo(image)
+    return bool(repo) and any(repo == w or repo.endswith('/' + w) for w in wanted)
+
+
+def _ac_published_ports(refs):
+    """The host ports a container publishes, from docker's own text ('0.0.0.0:8096->8096/tcp, :::8096->8096/tcp'), in the order given and each once."""
+    out = []
+    for ref in refs or []:
+        for part in str(ref).split(','):
+            part = part.strip()
+            if '->' not in part or not part.endswith('/tcp'):
+                continue
+            host = part.split('->', 1)[0].rsplit(':', 1)[-1]
+            if host.isdigit() and 0 < int(host) < 65536 and int(host) not in out:
+                out.append(int(host))
+    return out
+
+
+def _ac_running(container):
+    state = str((container or {}).get('status') or '').strip().lower()
+    return not state.startswith(('exited', 'dead', 'created', 'removing', 'paused'))
+
+
+def _ac_discover(ports, containers, units):
+    """The apps these three facts say are running. `ports`: [{port, proto, process, scope}] (the sockets that listen), `containers`: [{image, ports: [text], status}], `units`:
+    the running systemd services, with or without `.service` and `@instance`. Returns [{id, via, port, scope, container}] in the catalog's order, each app once, `via` the signs
+    that found it in the order process, container, unit, port."""
+    ports = ports if isinstance(ports, list) else []
+    containers = containers if isinstance(containers, list) else []
+    units = units if isinstance(units, list) else []
+    listening = {}
+    for p in ports:
+        if isinstance(p, dict) and str(p.get('proto') or 'tcp').lower().startswith('tcp') and isinstance(p.get('port'), int) and not isinstance(p.get('port'), bool):
+            listening.setdefault(p['port'], p)
+    stems = set()
+    for u in units:
+        u = str(u)
+        stems.add(u[:-8] if u.endswith('.service') else u)
+    stems = {u.split('@', 1)[0] for u in stems}
+    boxes = [c for c in containers if isinstance(c, dict) and _ac_running(c)]
+    found = []
+    for app in _ac_APPS:
+        via, port, container = [], None, ''
+        names = {n.lower() for n in app['procs']}
+        for number, p in sorted(listening.items()):
+            if names and str(p.get('process') or '').lower()[:15] in names:
+                via.append('process')
+                port = number
+                break
+        for c in boxes:
+            if _ac_image_is(c.get('image'), app['images']):
+                via.append('container')
+                container = str(c.get('name') or '')[:64]
+                for number in _ac_published_ports(c.get('ports')):
+                    if number in app['ports']:
+                        port = number
+                        break
+                else:
+                    published = _ac_published_ports(c.get('ports'))
+                    if port is None and published:
+                        port = published[0]
+                break
+        if any(u in stems for u in app['units']):
+            via.append('unit')
+        mine = [number for number in app['ports'] if number in listening]
+        if mine and (via or app['distinct']):
+            via.append('port')
+            if port is None:
+                port = mine[0]
+        if not via:
+            continue
+        if port is None and mine:
+            port = mine[0]
+        found.append({'id': app['id'], 'via': via, 'port': port, 'scope': str((listening.get(port) or {}).get('scope') or '') if port is not None else '', 'container': container})
+    return found
+# END app_catalog
+
+
+# 8.0.0: the container list of the last check, kept so the discovery of the apps the host runs does not ask the runtime a second time.
+_LAST_CONTAINERS = []
+
+
+def _running_units():
+    """The services systemd says are running, as the names it prints (`nginx.service`), or [] where systemd is not there. One read-only `systemctl list-units`; the
+    discovery of the apps the host runs matches these names, so a failure here only means that one of its signs is missing."""
+    if not _which('systemctl'):
+        return []
+    try:
+        r = subprocess.run(['systemctl', 'list-units', '--type=service', '--state=running', '--no-legend', '--plain', '--no-pager'], capture_output=True, text=True, timeout=5)
+    except Exception as e:
+        log.debug(f'running units error: {e}')
+        return []
+    if r.returncode != 0:
+        return []
+    out = []
+    for line in r.stdout.splitlines():
+        name = (line.split() or [''])[0]
+        if name.endswith('.service') and len(name) < 128:
+            out.append(name)
+    return out[:400]
+
+
+def discover_apps(ports, containers, units):
+    """The apps this host runs (8.0.0), from its listening sockets, its containers and its running services, by the catalog the server shares with this agent. Nothing is
+    probed: these are three lists the agent already has or one read-only call away."""
+    return _ac_discover(ports, containers, units)
+
+
 def get_containers():
     """Return up to CONTAINERS_HARD_CAP container/pod entries across runtimes.
 
@@ -15846,6 +16037,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             try:
                 if _which('docker') or _which('podman') or _which('kubectl'):
                     payload['containers'] = get_containers()
+                    _LAST_CONTAINERS[:] = payload['containers']
             except Exception as e:
                 log.debug(f'Container listing error: {e}')
             # v2.1.0: compose projects ride alongside containers. Reported
@@ -15999,6 +16191,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 sysinfo.update(get_host_health())
             except Exception as e:
                 log.debug(f'host health probe error: {e}')
+            # 8.0.0: the apps this host runs, for the server's "Discovered here" and the monitors and connectors it offers. Inside `if send_sysinfo:` and after
+            # `sysinfo = {...}` and the listening ports are in it, like the collectors around it.
+            try:
+                sysinfo['discovered'] = discover_apps(sysinfo.get('listening_ports'), _LAST_CONTAINERS, _running_units())
+            except Exception as e:
+                log.debug(f'app discovery error: {e}')
             # v7.4.5 (#55): the addresses the host holds, for the "internal" switch. Inside
             # `if send_sysinfo:` and AFTER `sysinfo = {...}`, like the collectors above. Left out when the
             # probe fails: a missing key is "unknown" to the server and keeps the listeners graded world.
