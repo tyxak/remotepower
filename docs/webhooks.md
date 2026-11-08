@@ -211,7 +211,7 @@ Migrating a single legacy URL to the new array:
 | GET    | `/api/webhook/dlq` | List the dead-letter queue (failed deliveries) — admin |
 | POST   | `/api/webhook/dlq/retry` | Re-dispatch one entry (`{id}`) or all (`{all: true}`) — admin |
 | DELETE | `/api/webhook/dlq` | Clear the dead-letter queue — admin |
-| POST   | `/api/webhook/replay` | Replay past fleet events to a destination — admin |
+| POST   | `/api/webhook/replay` | Send a past fleet event (`{event, ts}`) through the normal webhook path again — platform operator. The Timeline has a button for it |
 
 Max 20 destinations. URL must be http or https. Format must be one of those listed above (anything else returns 400).
 

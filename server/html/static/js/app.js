@@ -3099,7 +3099,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js'];   // 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites.
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js'];   // 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites.
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -28561,6 +28561,8 @@ function _renderTimeline() {
   }
   const total = items.length;
   const page = items.slice(0, _timelineShown);
+  // 8.0.0: sending a past event through the channels again is the platform operator's (the server refuses a tenant's administrator), so it is offered to the same people
+  const canReplay = !!(_meCache && _meCache.admin && (!_meCache.tenant || _meCache.tenant === 'default'));
   const rows = page.map(it => {
     const sev = _TIMELINE_SEV[it.severity] || 'sev-low';
     const whenAbs = _fmtAbsTs((it.ts || 0));
@@ -28573,7 +28575,9 @@ function _renderTimeline() {
       + `<div class="tl-main">`
       +   `<div class="tl-head">${devChip}<span class="tl-title">${_escapeHtml(it.title || it.kind)}</span>`
       +   `<span class="sev-pill ${sev}">${_escapeHtml(it.severity)}</span>`
-      +   `<span class="tl-kind">${_escapeHtml(kindWords(it.kind, _timelineKindLabels))}</span></div>`
+      +   `<span class="tl-kind">${_escapeHtml(kindWords(it.kind, _timelineKindLabels))}</span>`
+      +   ((canReplay && it.event) ? `<button class="btn-icon btn-xs" data-action="timelineReplay" data-arg="${escAttr(it.event)}" data-arg2="${Number(it.ts) || 0}" title="Send this event again through your notification channels" aria-label="Send this event again through your notification channels">${_icon('redo', 13)}</button>` : '')
+      +   `</div>`
       +   (it.detail ? `<div class="tl-detail">${_escapeHtml(it.detail)}</div>` : '')
       + `</div>`
       + `<div class="tl-time" title="${_escapeHtml(whenAbs)}">${timeAgoHtml(it.ts)}</div>`

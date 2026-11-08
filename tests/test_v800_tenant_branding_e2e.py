@@ -224,6 +224,35 @@ class TestASuperadminBrandsATenant(unittest.TestCase):
         self.page.unroute_all(behavior="ignoreErrors")
         self.assertEqual(self.stored(self.acme), ("Acme Ops", "violet"))
 
+    def test_a_dialog_that_cannot_read_what_is_stored_says_so_and_does_not_open(self):
+        self.open_list()
+        self.page.route("**/api/tenants/*/branding", lambda route: route.abort() if route.request.method == "GET" else route.continue_())
+        self.row(self.acme).click()
+        self.page.wait_for_function("() => document.body.innerText.includes('The server did not answer.')", timeout=15000)
+        self.assertFalse(self.page.evaluate("() => document.getElementById('tenant-branding-modal').classList.contains('active')"), "a form that shows nothing stored must not be saved over it")
+        self.page.unroute_all(behavior="ignoreErrors")
+
+    def test_a_save_that_gets_no_answer_says_so_and_keeps_the_dialog_open(self):
+        self.open_dialog(self.acme)
+        self.page.route("**/api/tenants/*/branding", lambda route: route.abort() if route.request.method == "PUT" else route.continue_())
+        self.page.fill("#tenant-branding-name", "No answer")
+        self.page.click('#tenant-branding-modal [data-action="saveTenantBranding"]')
+        self.page.wait_for_function("() => document.body.innerText.includes('The server did not answer.')", timeout=15000)
+        self.assertTrue(self.page.evaluate("() => document.getElementById('tenant-branding-modal').classList.contains('active')"))
+        self.page.unroute_all(behavior="ignoreErrors")
+        self.assertEqual(self.stored(self.acme), ("Acme Ops", "violet"))
+
+    def test_a_refusal_is_said_once_not_twice(self):
+        self.open_dialog(self.acme)
+        reason = "you may only manage your own tenant's branding"
+        self.page.route("**/api/tenants/*/branding", lambda route: route.fulfill(status=403, content_type="application/json", body=json.dumps({"error": reason}))
+                        if route.request.method == "PUT" else route.continue_())
+        self.page.click('#tenant-branding-modal [data-action="saveTenantBranding"]')
+        self.page.wait_for_function("(t) => document.body.innerText.includes(t)", arg=reason, timeout=15000)
+        self.page.wait_for_timeout(800)
+        self.assertEqual(self.page.evaluate("(t) => [...document.querySelectorAll('.toast')].filter(e => e.textContent.includes(t)).length", reason), 1)
+        self.page.unroute_all(behavior="ignoreErrors")
+
     def test_a_superadmin_does_not_get_the_card_for_a_tenant_s_own_administrator(self):
         open_settings(self.page, "tenant-own-branding-btn")
         # the list is loaded when the section is no longer hidden: only then is the card's answer known

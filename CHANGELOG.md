@@ -446,6 +446,10 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   without a word, so the one control you had asked for never ran and nothing showed it. The form warns when you save such a monitor, the agent reports `no_tool` once per check interval, and
   the host drawer shows **no tool chosen** in amber with the reason. It raises no alert: it is a setting to fix, like `tool_missing`. Held by `tests/test_v800_backup_monitor_tool.py` (the
   agent, through the real function) and `tests/test_v800_backup_monitor_cadence_e2e.py`.
+- **The Timeline can send a past event through the notification channels again.** `POST /api/webhook/replay` has re-fired an event of the activity feed since 5.0.0 and nothing in the
+  page called it. A row of the Timeline that is a fleet event has a replay button for the platform operator (the server refuses a tenant's administrator, since the route reaches every
+  tenant's events). It asks first, because the other end is a person: the event goes out as a new one, with the same channels, filters and mutes, and the people on them are told again. A
+  command run and the current CVE row are not fleet events and have no button. The Timeline's rows carry the event's own name, `event`, for it. Held by `tests/test_v800_webhook_replay_e2e.py`.
 - **The DNS records table says why it is empty.** With no provider credentials, a locked vault or a token that sees no zone, the table was a header
   over nothing and only a line of small print above it gave the reason. It now says *No zone to list yet. Give the provider credentials, then pick a
   zone.* The walk of the empty install is a test now: it opens all 79 sidebar pages of a fresh install and fails on a blank table, a loader that never

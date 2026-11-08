@@ -151,9 +151,11 @@ class TestTheCadencesHaveAField(unittest.TestCase):
         return next((m for m in self.monitors() if m["path"] == path), None)
 
     def press_add_and_wait(self):
+        """Press Add (or Save) and return the monitors the page sent: the server keeps the cadences in range as well, so what is stored cannot show what the page did."""
         with self.page.expect_response(lambda r: r.request.method == "POST" and r.url.endswith("/api/config"), timeout=20000) as info:
             self.page.click('[data-action="addBackupMonitor"]')
         self.assertEqual(info.value.status, 200, info.value.text()[:200])
+        return info.value.request.post_data_json["backup_monitors"]
 
     def test_both_fields_are_there_and_say_weekly_until_told_otherwise(self):
         self.assertEqual(self.page.input_value("#bm-verify-hours"), "168")
@@ -199,8 +201,9 @@ class TestTheCadencesHaveAField(unittest.TestCase):
                 self.page.fill("#bm-path", "/srv/range.tar")
                 self.page.check("#bm-verify")
                 self.page.evaluate("(v) => { document.getElementById('bm-verify-hours').value = v; }", typed)
-                self.press_add_and_wait()
-                self.assertEqual(self.by_path("/srv/range.tar")["verify_max_age_hours"], expected)
+                sent = self.press_add_and_wait()
+                self.assertEqual(next(m for m in sent if m["path"] == "/srv/range.tar")["verify_max_age_hours"], expected, "what the page sent")
+                self.assertEqual(self.by_path("/srv/range.tar")["verify_max_age_hours"], expected, "what the server kept")
 
     def test_the_form_goes_back_to_weekly_after_a_save(self):
         self.page.fill("#bm-path", "/srv/new.tar")

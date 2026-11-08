@@ -501,6 +501,12 @@ NEW_STRINGS = [
     "no tool chosen",
     "This path names no backup tool, so Verify integrity has none to run. Choose restic, borg or tar in the Tool list.",
     ") at most once per check interval (weekly unless you change it), time-bounded.",
+    # 8.0.0: send a past event through the notification channels again, from the Timeline
+    "Send this event again through your notification channels",
+    "Replay this event",
+    "It is sent again as a new event is: the same channels, filters and mutes apply, and the people on those channels are told again.",
+    "Replay",
+    "Event replayed",
 ]
 
 

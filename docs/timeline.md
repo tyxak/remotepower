@@ -12,6 +12,12 @@ whole fleet or a single host.
   the Timeline already centred on that alert's own timestamp and narrowed to its
   host. **Clear window** goes back to newest-first.
 - Filters by kind (events / commands / CVE posture / audit).
+- **Send an event again.** On a row that is a fleet event, the platform operator
+  (an admin of the default tenant) has a replay button. It asks first, then sends the
+  event through your notification channels as a new one: the same channels, filters
+  and mutes apply, and the people on those channels are told again. A tenant's admin
+  does not get the button, because the route reaches every tenant's events. The
+  call behind it is `POST /api/webhook/replay` with the row's `event` and `ts`.
 - Useful for incident reconstruction: agent went offline, what commands ran
   before, which alerts fired after, when it recovered.
 
@@ -19,7 +25,7 @@ whole fleet or a single host.
 
 | Source | Rows |
 |---|---|
-| Fleet events | every fired event whose payload names the host |
+| Fleet events | every fired event whose payload names the host. The row carries `event`, the event's own name, which a command run and the CVE row do not |
 | Command runs | operator and scheduled command output, including server-queued package upgrades |
 | CVE findings | one current-posture row per host (state, not an event — a re-scan of already-known CVEs fires nothing, so an event-sourced view would never show them) |
 | Audit log | **admins and auditors only** — the change-shaped entries: config saves, maintenance windows, rule and threshold edits, mitigations, host and firewall changes |

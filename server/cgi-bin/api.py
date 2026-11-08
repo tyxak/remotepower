@@ -68391,6 +68391,7 @@ def _timeline_collect(include_ids, name_map):
         items.append({
             'ts':          int(e.get('ts') or 0),
             'kind':        ev,
+            'event':       ev,    # 8.0.0: what POST /api/webhook/replay takes, with `ts`; a command run and the CVE state row are not fleet events and carry none
             'severity':    _alert_severity(ev, pl) or 'info',
             'title':       _webhook_title(ev),
             'detail':      _timeline_event_detail(ev, pl),
