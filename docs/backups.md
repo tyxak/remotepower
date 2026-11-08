@@ -61,8 +61,31 @@ it is admin-only, asks you to type `RESTORE`, and is audited.
 
 Add a **Proxmox Backup Server** instance under **Settings → Integrations** (a PBS API
 token). Its datastores then appear on the Backups page with fill percentage, dedup
-factor, free and total space, and the estimated date it fills. A full or unreachable
-datastore raises the standard `integration_down` and `integration_recovered` alerts.
+factor, free and total space, and the estimated date it fills (only a date to come:
+PBS says an estimate in the past means that usage is declining or not changing). A full
+or unreachable datastore raises the standard `integration_down` and `integration_recovered`
+alerts.
+
+The connector also reads what PBS says is wrong, and the datastore's row says it under
+the name:
+
+- **An error.** PBS answers an error text for a datastore it cannot look up (and an
+  available size of -1). The status is critical and the Backups page shows PBS's own words.
+  Before 8.0.0 such a datastore read as one with nothing used in it.
+- **Not mounted.** A removable datastore that is not mounted turns the status to a
+  warning: backups cannot land on it, but the server is not at fault.
+- **Bad chunks.** Chunks still marked bad after garbage collection mean a snapshot still
+  refers to data that verification found damaged: a warning with the count.
+- **Failed tasks.** The number of tasks that ended in an error in the last 24 hours, by
+  kind (backup, verification, prune, garbage collection, sync), is a **Failed 24h**
+  metric, and any failed task makes a healthy poll a warning. PBS shows a token only
+  the tasks of its own user unless that user has **Sys.Audit** on `/system/tasks`: without
+  it the count leaves out the scheduled jobs, so give the token's user that privilege
+  if you want the number to mean "every task". A token that cannot list tasks at all
+  leaves the figure out rather than reporting a zero.
+
+These are read from the API schema PBS publishes (`/docs/api-viewer`). They were checked
+against fixtures built from it, not against a running PBS.
 
 ## Backup freshness and integrity
 

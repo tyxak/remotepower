@@ -308,7 +308,12 @@ class TestEagerJsPayload(unittest.TestCase):
         # activity feed (about 190 bytes: the severity map, the feed's event list and the click-through), the step-up dialog settling the caller that
         # waits for it when it is closed with Escape (about 330 bytes; a fix, because every step-up-gated button used to stay in flight for ever after
         # that), and the one call that loads the Automatic updates card (95 bytes). The card itself is a lazy module.
-        self.assertLess(total, 2_717_000,
+        # 8.0.0 push mark, manual rollback, restart command and the PBS rows: 2_720_000. The payload was 2_715_640 after the automatic updates and is
+        # 2_718_735 now: 3,095 bytes more. app-self.js is 1,641 (the one list of units a restart of the stack takes in, which the command, the sentence and
+        # the copy button read, and the Web terminal row), app.js 884 (the bolt on a host whose agent holds the push channel open, in the table, on the card
+        # and in the drawer, and the question the Roll back button asks) and app-backups.js 566 (a datastore's error, that it is not mounted, bad chunks).
+        # Server Status, the host table and the Backups page draw before a loader could be asked for more. The translations are in i18n.js, which is not eager.
+        self.assertLess(total, 2_720_000,
                         'the eager JS payload regressed past its budget')
 
 

@@ -22,7 +22,7 @@ that might never run. There is no "disable forever" verb.
 
 import base64
 
-from integrations import IntegrationError
+from integrations import IntegrationError, pihole_logout
 
 # A blocker may be switched off for a while to debug something. It may not be
 # switched off and forgotten — that is a security regression wearing a
@@ -60,6 +60,13 @@ def _pihole_sid(inst, c):
 
 def pihole_status(inst, c):
     sid = _pihole_sid(inst, c)
+    try:
+        return _pihole_blocking(c, sid)
+    finally:
+        pihole_logout(c, sid)       # 8.0.0: the session is given back (Pi-hole holds 16 by default and the seats are the web login's too)
+
+
+def _pihole_blocking(c, sid):
     s = c.get_json("/api/dns/blocking", headers={"X-FTL-SID": sid})
     # Pi-hole reports blocking as the string "enabled"/"disabled", and `timer` as
     # the seconds left on a temporary disable (null when not counting down).
@@ -74,15 +81,18 @@ def pihole_status(inst, c):
 
 def pihole_set_blocking(inst, c, enabled, seconds):
     sid = _pihole_sid(inst, c)
-    # A timer is meaningless when turning blocking back ON — Pi-hole wants null.
-    body: dict = {
-        "blocking": bool(enabled),
-        "timer": None if enabled else clamp_seconds(seconds),
-    }
-    r = c.post_json("/api/dns/blocking", body, headers={"X-FTL-SID": sid})
-    if not r.ok:
-        raise IntegrationError(f"Pi-hole refused the change (HTTP {r.status})")
-    return pihole_status(inst, c)
+    try:
+        # A timer is meaningless when turning blocking back ON — Pi-hole wants null.
+        body: dict = {
+            "blocking": bool(enabled),
+            "timer": None if enabled else clamp_seconds(seconds),
+        }
+        r = c.post_json("/api/dns/blocking", body, headers={"X-FTL-SID": sid})
+        if not r.ok:
+            raise IntegrationError(f"Pi-hole refused the change (HTTP {r.status})")
+        return _pihole_blocking(c, sid)         # the answer is read in the session that made the change: it used to log in a second time
+    finally:
+        pihole_logout(c, sid)
 
 
 # ── AdGuard Home ─────────────────────────────────────────────────────────────

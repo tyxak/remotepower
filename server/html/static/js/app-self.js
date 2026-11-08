@@ -110,11 +110,9 @@ function _selfNameSources(sy) {
 
 // The co-located sidecars, as row descriptors. Rendered BOTH as the
 // "Distributed subsystems" table and as rows of the readiness table.
-// The units a restart of the stack takes in: the two that every install has, then each sidecar that is in use on this server, in the order the
-// systemctl command lists them. One list, so the command and the sentence above it name the same units. Push, the SSH gateway and the web terminal
-// are co-located by design; the syslog, flow and KMIP daemons may run on another host, so those are only named while their unit is active here (a unit
-// systemctl does not know would fail the whole command). tests/test_v800_restart_stack.py reads the units RemotePower ships and fails when one of
-// them is in neither this list nor the list of units that are not part of a restart.
+// The units a restart of the stack takes in, in the order of the command: the two every install has, then each sidecar in use here. Push, the SSH gateway and the web
+// terminal are co-located; the syslog, flow and KMIP daemons may run on another host, so they count only while their unit is active here (systemctl fails the whole
+// command on a unit it does not know). tests/test_v800_restart_stack.py fails when a shipped unit is in neither this list nor its list of excused units.
 function _selfRestartUnits(sub) {
   sub = sub || {};
   const sat = (sub.satellites && sub.satellites.scanners) || {};

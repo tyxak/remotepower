@@ -81,7 +81,13 @@ async function loadPbsBackups() {
       const eta = s.full_eta
         ? `<td class="hint">${_fmtAbsDate(s.full_eta)}</td>`
         : '<td class="c-muted">—</td>';
-      return `<tr><td class="fw-600">${escHtml(s.name)}</td>`
+      // 8.0.0: what PBS says is wrong with the datastore, under its name: an error (its own text), a removable datastore that is not mounted, bad chunks
+      const issues = [];
+      if (s.error) issues.push(`<span class="c-red">${escHtml(s.error)}</span>`);
+      if (s.mounted === false) issues.push('<span class="c-amber">Not mounted</span>');
+      if (s.bad_chunks) issues.push(`<span class="c-amber">${plural(s.bad_chunks, 'bad chunk', 'bad chunks')}</span>`);
+      const note = issues.length ? `<div class="hint">${issues.join(' · ')}</div>` : '';
+      return `<tr><td class="fw-600">${escHtml(s.name)}${note}</td>`
         + `<td class="${pctCls}">${escHtml(String(s.used_pct))}%</td>`
         + `<td class="hint">${escHtml(String(s.avail_gb))} GB free / ${escHtml(String(s.total_gb))} GB</td>`
         + `<td>${s.dedup ? escHtml(String(s.dedup)) + '×' : '<span class="c-muted">—</span>'}</td>`

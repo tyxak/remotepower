@@ -3556,8 +3556,7 @@ function _signedBadge(d) {
   return '';
 }
 
-// 8.0.0: the small bolt that marks a host whose agent holds the push channel open, so commands reach it within seconds instead of at its next poll. The server says so in
-// `push` (the host is online and said so on a recent heartbeat); a host that does not use the channel has no mark. In the host table, on the card and in the drawer.
+// 8.0.0: the bolt on a host whose agent holds the push channel open (the server's `push`: online, and said so on a recent heartbeat). Table, card and drawer.
 function _pushMark(d) {
   if (!d || d.push !== true) return '';
   const t = 'Connected to the push channel: commands reach this host within seconds';
@@ -16909,7 +16908,7 @@ async function runCompose(action) {
   if (!dir) { toast('Pick a project first', 'error', {transient: true}); return; }
   // Down is the most disruptive — confirm explicitly.
   if (action === 'down' && !await uiConfirm({ message: `Run "docker compose down" in ${dir}?\nThis stops and removes the project's containers.`, confirmText: 'Compose down', danger: true })) return;
-  // 8.0.0: a rollback replaces the project's containers too, so it asks first (the text has no variable, so it can be translated)
+  // 8.0.0: a rollback replaces the project's containers too, so it asks first
   if (action === 'rollback' && !await uiConfirm({ message: 'Roll back this project to the images it ran before its last update? The agent puts the earlier images back and starts the project without pulling. Data the newer version wrote is not rolled back.', confirmText: 'Roll back', danger: true })) return;
   const resp = await api('POST', '/devices/' + encodeURIComponent(deviceId) + '/compose/action',
                          {action, dir});

@@ -105,6 +105,28 @@ connector's own status is.
 A breach raises `integration_metric_alert`, once, and `integration_metric_recovered` resolves
 it when the value is back within bounds. Two rules on one integration do not clear each other.
 
+## What changed in 8.0.0 for three connectors
+
+Each was read against the product's own API documentation, and checked against fixtures
+built from it, not against the product.
+
+- **Pi-hole** gives its session back. Pi-hole v6 holds at most 16 API sessions by default
+  (`webserver.api.max_sessions`), a session that is not ended lives for 30 minutes
+  (`webserver.session.timeout`), and a login is denied when they are all taken. The connector
+  and the DNS-blocker control logged in on every call and never ended the session, so a poll
+  every minute used up the seats and the web login with them. Both now end it with
+  `DELETE /api/auth` as soon as they have read, and the control uses one session for a change
+  and for the answer it reads back.
+- **Immich** reads how full the disk under the library is (`GET /api/server/storage`; 80%
+  warns, 90% is critical) and the job queues (`GET /api/queues` from 2.4.0, `GET /api/jobs`
+  before). The failed-job count is shown and does not change the status, because a failed
+  job stays counted until somebody clears it. The key needs `server.about` and
+  `server.statistics` as before, plus `server.storage` and `queue.read` (`job.read` before
+  2.4.0) for the new readings; a key without them gets the old answer.
+- **Proxmox Backup Server** reads datastore errors, mount state, bad chunks and the tasks that
+  failed in the last day, and shows a fill forecast only when it is in the future. See
+  [backups.md](backups.md#proxmox-backup-server).
+
 ## Security model
 
 - Every outbound request goes through RemotePower's **address guard**: the target

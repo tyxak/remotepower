@@ -401,6 +401,19 @@ def _hdr_token(inst, header, prefix=""):
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+def pihole_logout(c, sid):
+    """End a Pi-hole v6 session: DELETE /api/auth, answered 204 (docs.pi-hole.net/api/auth). Pi-hole holds at most webserver.api.max_sessions of them (16 by
+    default) and may deny a new login when they are all taken; a session that is left behind lives for webserver.session.timeout (1800 s by default), and the
+    documentation asks clients to log out when they are done. A poll every minute that never did used the seats up, and the web login of whoever runs the Pi-hole
+    with them. Best effort: what was read is worth more than the logout, so nothing here raises."""
+    if not sid:
+        return False
+    try:
+        return bool(c.request("DELETE", "/api/auth", headers={"X-FTL-SID": sid}).ok)
+    except Exception:
+        return False
+
+
 @_register(
     "pihole",
     "Pi-hole",
@@ -409,7 +422,7 @@ def _hdr_token(inst, header, prefix=""):
     notes="Pi-hole v6 API (app password under Settings → Web interface / API).",
 )
 def _pihole(inst, c):
-    # v6: authenticate for a session ID, then read the summary.
+    # v6: authenticate for a session ID, read, and give the session back (8.0.0: it used to stay until Pi-hole timed it out).
     sid = ""
     try:
         auth = c.post_json("/api/auth", {"password": inst.get("secret") or ""}).json()
@@ -417,6 +430,13 @@ def _pihole(inst, c):
     except IntegrationError:
         sid = ""
     h = {"X-FTL-SID": sid} if sid else {}
+    try:
+        return _pihole_read(c, h)
+    finally:
+        pihole_logout(c, sid)
+
+
+def _pihole_read(c, h):
     s = c.get_json("/api/stats/summary", headers=h)
     q = s.get("queries") or {}
     g = s.get("gravity") or {}
@@ -662,7 +682,9 @@ def _homeassistant(inst, c):
         _field("username", "Token ID (user@realm!name)", TEXT),
         _field("secret", "Token secret", PASSWORD),
     ],
-    notes="PBS API token. Authorization: PBSAPIToken=<id>:<secret>.",
+    notes="PBS API token. Authorization: PBSAPIToken=<id>:<secret>. Datastore fill, a datastore that cannot be read or is not mounted, bad chunks after garbage "
+          "collection, and the tasks that failed in the last 24 hours. PBS shows a token only its own user's tasks unless that user has Sys.Audit on /system/tasks: "
+          "without it the failed-task count leaves out the scheduled backup, verify and prune jobs.",
 )
 def _pbs(inst, c):
     h = {"Authorization": f"PBSAPIToken={inst.get('username','')}:{inst.get('secret','')}"}
@@ -670,35 +692,57 @@ def _pbs(inst, c):
     stores = (usage or {}).get("data") or []
     worst = 0.0
     worst_name = ""
+    now = time.time()
     # v6.3.0: per-datastore breakdown so the Backups page can render a tidy table
     # (name, fill %, total/avail). Robust to a store missing any size field.
     _GB = 1024.0**3
     datastores = []
+    broken, unmounted, corrupt = [], [], []
     for s in stores:
+        name = s.get("store", "?")
         used = _pct(s.get("used"), s.get("total"))
         if used > worst:
-            worst, worst_name = used, s.get("store", "?")
+            worst, worst_name = used, name
         _total = _num(s.get("total"))
         _avail = _num(s.get("avail"))
         ds = {
-            "name": s.get("store", "?"),
+            "name": name,
             "used_pct": round(used, 1),
             "total_gb": round(_total / _GB, 1) if _total else 0,
-            "avail_gb": round(_avail / _GB, 1) if _avail else 0,
+            "avail_gb": round(_avail / _GB, 1) if _avail > 0 else 0,
         }
         # PBS reports a rolling dedup factor in the usage history when available.
         _dedup = s.get("deduplication-factor") or s.get("dedup")
         if isinstance(_dedup, (int, float)) and _dedup > 0:
             ds["dedup"] = round(float(_dedup), 2)
-        # estimated-full-date (unix ts) → surface how long until the store fills.
+        # estimated-full-date (unix ts) → surface how long until the store fills. PBS says an estimate in the past means that usage is declining or not
+        # changing (8.0.0: a date that has gone by was shown as the day the store fills), so only a date to come is a forecast.
         _eff = s.get("estimated-full-date")
-        if isinstance(_eff, (int, float)) and _eff > 0:
+        if isinstance(_eff, (int, float)) and not isinstance(_eff, bool) and _eff > now:
             ds["full_eta"] = int(_eff)
+        # 8.0.0: PBS answers `error` when it cannot look a datastore up, and avail -1 ("-1 on error"); both used to read as a store with nothing used in it.
+        err = s.get("error")
+        if isinstance(err, str) and err.strip():
+            ds["error"] = err.strip()[:200]
+        elif s.get("avail") is not None and _avail < 0:
+            ds["error"] = "the datastore could not be read"
+        if ds.get("error"):
+            broken.append(name)
+        # mount-status is mounted | notmounted | nonremovable: a removable datastore that is not mounted is not a fault of the server, but backups cannot land
+        if s.get("mount-status") == "notmounted":
+            ds["mounted"] = False
+            unmounted.append(name)
+        # chunks still marked .bad after garbage collection: some snapshot still refers to data that verification found damaged
+        gc = s.get("gc-status")
+        bad = int(_num(gc.get("still-bad"))) if isinstance(gc, dict) else 0
+        if bad > 0:
+            ds["bad_chunks"] = bad
+            corrupt.append(name)
         datastores.append(ds)
     status = OK
-    if worst >= 90:
+    if worst >= 90 or broken:
         status = CRIT
-    elif worst >= 80:
+    elif worst >= 80 or unmounted or corrupt:
         status = WARN
     ver = ""
     try:
@@ -707,13 +751,46 @@ def _pbs(inst, c):
         )
     except IntegrationError:
         pass
+    detail = f"{len(stores)} datastores, fullest {worst_name} {round(worst,1)}%"
+    if broken:
+        detail += f"; cannot read {', '.join(broken[:3])}"
+    if unmounted:
+        detail += f"; not mounted: {', '.join(unmounted[:3])}"
+    if corrupt:
+        detail += f"; bad chunks in {', '.join(corrupt[:3])}"
+    metrics = {"datastores": len(stores), "fullest_pct": worst}
+    failed = _pbs_failed_tasks(c, h, now)
+    if failed is not None:
+        metrics["tasks_failed_24h"] = failed["count"]
+        if failed["count"]:
+            status = status if status != OK else WARN
+            detail += f"; {failed['count']} failed {'task' if failed['count'] == 1 else 'tasks'} in 24 h ({failed['kinds']})"
     return {
         "status": status,
         "version": ver,
-        "detail": f"{len(stores)} datastores, fullest {worst_name} {round(worst,1)}%",
-        "metrics": {"datastores": len(stores), "fullest_pct": worst},
+        "detail": detail,
+        "metrics": metrics,
         "datastores": datastores,
     }
+
+
+def _pbs_failed_tasks(c, h, now):
+    """The tasks that ended in an error in the last 24 hours, counted and named by kind (GET /api2/json/nodes/localhost/tasks?errors=1&since=...), or None
+    when the token cannot read them. PBS shows a user only their own tasks unless the user has Sys.Audit on /system/tasks, so a token without it sees none of
+    the scheduled backup, verify and prune jobs: the connector says what it counted, and the notes say what the token needs."""
+    try:
+        rows = (c.get_json("/api2/json/nodes/localhost/tasks", headers=h, params={"errors": 1, "since": int(now) - 86400, "limit": 100}) or {}).get("data")
+        if not isinstance(rows, list):
+            return None
+        kinds = {}
+        for t in rows:
+            if isinstance(t, dict):
+                k = str(t.get("worker_type") or "task")[:40]
+                kinds[k] = kinds.get(k, 0) + 1
+        top = sorted(kinds.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
+        return {"count": sum(kinds.values()), "kinds": ", ".join(f"{n} {k}" for k, n in top)}
+    except (IntegrationError, AttributeError, TypeError, ValueError):
+        return None
 
 
 @_register(
@@ -1607,7 +1684,8 @@ def _overseerr(inst, c):
     "Immich",
     "media",
     [_field("secret", "API key", PASSWORD)],
-    notes="Immich API key (Account Settings → API Keys), sent as x-api-key.",
+    notes="Immich API key (Account Settings → API Keys), sent as x-api-key. Permissions the key needs: server.about and server.statistics; add server.storage for the "
+          "disk fill (it sets the status: 80% warns, 90% is critical) and queue.read (job.read on a server before 2.4.0) for the number of failed jobs.",
 )
 def _immich(inst, c):
     h = {"x-api-key": inst.get("secret", "")}
@@ -1617,12 +1695,62 @@ def _immich(inst, c):
     photos = int(_num(stats.get("photos", 0)))
     videos = int(_num(stats.get("videos", 0)))
     usage_mb = int(_num(stats.get("usage", 0)) / (1024 * 1024))
-    return {
-        "status": OK,
-        "version": ver,
-        "detail": f"{photos} photos, {videos} videos, {usage_mb} MB used",
-        "metrics": {"photos": photos, "videos": videos, "usage_mb": usage_mb},
-    }
+    metrics = {"photos": photos, "videos": videos, "usage_mb": usage_mb}
+    detail = f"{photos} photos, {videos} videos, {usage_mb} MB used"
+    status = OK
+    # 8.0.0: how full the disk under the library is (GET /api/server/storage, API key permission server.storage) and what the job queues hold
+    # (GET /api/queues since 2.4.0, permission queue.read; GET /api/jobs, permission job.read, before that and still answering). Both are optional: a key
+    # without the permission, or a server without the route, leaves the answer as it was.
+    disk = _immich_disk(c, h)
+    if disk is not None:
+        metrics["disk_pct"] = disk
+        detail += f" · disk {disk:g}% full"
+        status = CRIT if disk >= 90 else WARN if disk >= 80 else OK
+    jobs = _immich_jobs(c, h)
+    if jobs is not None:
+        metrics.update(jobs_failed=jobs["failed"], jobs_active=jobs["active"], jobs_waiting=jobs["waiting"])
+        if jobs["failed"]:
+            detail += f" · {jobs['failed']} failed {'job' if jobs['failed'] == 1 else 'jobs'}"
+    return {"status": status, "version": ver, "detail": detail, "metrics": metrics}
+
+
+def _immich_disk(c, h):
+    """The percentage of the disk under the library that is used, or None when the server does not say (no permission, no route, an answer without it)."""
+    try:
+        st = c.get_json("/api/server/storage", headers=h) or {}
+        pct = st.get("diskUsagePercentage")
+        if isinstance(pct, bool) or not isinstance(pct, (int, float)):
+            pct = _pct(st.get("diskUseRaw"), st.get("diskSizeRaw")) if _num(st.get("diskSizeRaw")) > 0 else None
+        return None if pct is None else round(float(pct), 1)
+    except (IntegrationError, AttributeError, TypeError, ValueError):
+        return None
+
+
+def _immich_jobs(c, h):
+    """The jobs the server's queues hold, summed over the queues, or None. /api/queues (2.4.0 and later, an alpha API) answers a list of
+    {name, isPaused, statistics: {active, waiting, failed, ...}}; /api/jobs (deprecated, and what older servers have) answers a map of
+    queue name to {jobCounts: {...}, queueStatus: {...}}. The first is tried first and the second when it does not answer or answers something else."""
+    def total(rows):
+        out = {"active": 0, "waiting": 0, "failed": 0}
+        for counts in rows:
+            if not isinstance(counts, dict):
+                raise TypeError("a queue without counts")
+            for k in out:
+                out[k] += int(_num(counts.get(k)))
+        return out
+    try:
+        q = c.get_json("/api/queues", headers=h)
+        if isinstance(q, list) and q:
+            return total([(r or {}).get("statistics") for r in q])
+    except (IntegrationError, AttributeError, TypeError, ValueError):
+        pass
+    try:
+        j = c.get_json("/api/jobs", headers=h)
+        if isinstance(j, dict) and j:
+            return total([(r or {}).get("jobCounts") for r in j.values()])
+    except (IntegrationError, AttributeError, TypeError, ValueError):
+        pass
+    return None
 
 
 @_register(
@@ -2541,7 +2669,7 @@ _STATS: dict = {
     ],
     "unifi": [("subsystems", "Subsystems", "num"), ("subsystems_bad", "Degraded", "num")],
     "homeassistant": [("entities", "Entities", "int"), ("unavailable", "Unavailable", "num")],
-    "pbs": [("datastores", "Datastores", "num"), ("fullest_pct", "Fullest", "pct")],
+    "pbs": [("datastores", "Datastores", "num"), ("fullest_pct", "Fullest", "pct"), ("tasks_failed_24h", "Failed 24h", "num")],
     "kubernetes": [
         ("nodes_notready", "Nodes down", "num"),
         ("pods_crashloop", "CrashLoop", "num"),
@@ -2593,6 +2721,8 @@ _STATS: dict = {
         ("photos", "Photos", "int"),
         ("videos", "Videos", "int"),
         ("usage_mb", "Usage", "mb"),
+        ("disk_pct", "Disk", "pct"),
+        ("jobs_failed", "Failed jobs", "num"),
     ],
     "paperless": [("documents", "Documents", "int"), ("inbox", "Inbox", "num")],
     "vaultwarden": [("alive", "Alive", "flag")],

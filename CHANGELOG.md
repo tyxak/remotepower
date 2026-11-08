@@ -312,6 +312,22 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   it asks before anything leaves the page, a confirmed rollback queues `compose:rollback:<dir>` for the project that was picked on the real server, a host without the flag is refused in
   the toast with nothing queued, and the button, its tooltip and the question are translated in all six languages). Eight mutations of the route and the dialog all fail them.
 
+- **Three connectors read what their products' own API documents say.** Every fact was read from the vendor's own source (Pi-hole's authentication page, Immich's OpenAPI document,
+  PBS's API schema), and the connectors are checked against fixtures built from those shapes, not against a Pi-hole, an Immich or a PBS. **Pi-hole** gives its session back: Pi-hole
+  v6 holds 16 API sessions by default, one that is not ended lives 30 minutes and a login is denied when they are all taken, and the connector and the DNS-blocker control logged in
+  on every call and never ended one (a poll every minute used up the seats, and the web login's with them). Both end it with `DELETE /api/auth` now, whatever the read did, and the
+  control uses one session for a change and the answer it reads back. **Immich** reads the disk under the library (`/api/server/storage`: 80% warns, 90% is critical) and the job
+  queues (`/api/queues` from 2.4.0, `/api/jobs` before; failed jobs are shown and do not change the status, since they stay counted until somebody clears them); a key without
+  `server.storage` or `queue.read` gets the answer it got before. **Proxmox Backup Server** reads a datastore's `error` and an `avail` of -1 (a datastore PBS cannot look up used to read as
+  one with nothing used in it: critical now), a removable datastore that is not mounted, chunks still bad after garbage collection, and the tasks that failed in the last 24 hours
+  (a **Failed 24h** metric; the token's user needs Sys.Audit on /system/tasks to see the scheduled jobs, and the notes say so), and the Backups page shows a fill forecast only when
+  it is in the future (PBS: an estimate in the past means that usage is declining or not changing). **Held by** `tests/test_v800_connector_updates.py` (32 tests, including a Pi-hole
+  stand-in that holds seats the way the documentation says and is shown to deny the seventeenth login of the old behaviour) and 27 mutations, all caught. **Not changed, and why:**
+  TrueNAS still uses the REST API: its documentation says REST is deprecated in 25.04 and removed in the release it calls 26 (renamed 27), the replacement is JSON-RPC 2.0 over a
+  WebSocket at `/api/current` (read in the vendor's own client), and a WebSocket client in the connector transport with `auth.login_ex` is open work (see the report). UniFi's and
+  Immich's documentation sites render in the browser, so their pages could not be read by the tools used here: Immich was read from its OpenAPI document, UniFi's Integration API
+  from nothing official, so the UniFi connector is unchanged.
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).
