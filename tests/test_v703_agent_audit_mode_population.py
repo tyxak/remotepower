@@ -66,6 +66,9 @@ EXEMPT = {
     '_check_canaries': 'compares canary hashes; planting is _plant_canaries',
     '_watched_files_changed': 'compares hashes of the watched files',
     '_burst_live_samples': 'takes extra metric samples while a live view is open',
+    # 8.0.0: the server sends how many log lines (0 to 10) of an unhealthy container the heartbeat may carry; this stores that number and nothing else.
+    # The read that follows is `docker logs --tail` of the host's own container list, which observes and changes nothing.
+    '_set_container_log_lines': 'stores a number from 0 to 10 for the container log excerpt; changes nothing on the host',
     # ── agent-owned bookkeeping, no host path involved ──────────────────────
     '_safe_state_write': 'writes under the agent state dir, never a host path',
     '_write_metrics_spool': 'writes the agent metric spool',

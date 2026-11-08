@@ -3310,6 +3310,18 @@ def _config():
     return cfg
 
 
+def _push_channel_up(dev, now):
+    """Whether the agent of this host said, recently, that its push channel is open (8.0.0). The word is as old as the host's last heartbeat, so it counts for
+    three polls of the host's own interval and never less than three minutes: a host that stopped saying it has stopped using the channel. A stored value of
+    the wrong kind (text, a bool, a list) says nothing."""
+    seen = (dev or {}).get('push_seen')
+    if not isinstance(seen, (int, float)) or seen != seen:
+        return False
+    iv = (dev or {}).get('poll_interval')
+    iv = iv if isinstance(iv, int) and 10 <= iv <= 86400 else 60
+    return 0 <= now - seen <= max(180, 3 * iv)
+
+
 def get_online_ttl():
     """Effective online TTL value, clamped to MIN_ONLINE_TTL."""
     try:
@@ -15913,6 +15925,8 @@ def handle_devices_list():
             'device_type':  dev.get('device_type', ''),
             'compose_projects_count': len(dev.get('compose_projects', []) or []),
             'compose_projects_ts':    dev.get('compose_projects_ts', 0),
+            # 8.0.0: this host's agent holds the push channel open (the small bolt on the Hosts page and in the drawer): online, and said so recently
+            'push':         bool(not agentless and is_online and _push_channel_up(dev, now)),
         }
         if not slim:
             # v3.3.0: heavy fields only when ?slim=1 is NOT set. Home + nav
@@ -22459,6 +22473,13 @@ def handle_heartbeat():
         _ash = body.get('agent_sha256')
         if isinstance(_ash, str) and len(_ash) == 64 and all(c in '0123456789abcdef' for c in _ash.lower()):
             dev['agent_sha256'] = _ash.lower()
+        # 8.0.0: whether this agent's push channel is open right now. The Linux agent says so on every heartbeat once its listener thread has started; an agent
+        # that has not started one (the channel is off, the websockets library is missing, or it is the Windows or macOS agent) says nothing, and anything but
+        # the JSON true leaves the host without the mark. The Hosts page shows the mark only while the word is fresh (_push_channel_up).
+        if body.get('push_connected') is True:
+            dev['push_seen'] = int(time.time())
+        else:
+            dev.pop('push_seen', None)
         # v3.4.2: agent reports a refused (unsigned/invalid) self-update.
         _rej = body.get('agent_update_rejected')
         if isinstance(_rej, str) and _rej:

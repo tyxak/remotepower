@@ -3556,6 +3556,14 @@ function _signedBadge(d) {
   return '';
 }
 
+// 8.0.0: the small bolt that marks a host whose agent holds the push channel open, so commands reach it within seconds instead of at its next poll. The server says so in
+// `push` (the host is online and said so on a recent heartbeat); a host that does not use the channel has no mark. In the host table, on the card and in the drawer.
+function _pushMark(d) {
+  if (!d || d.push !== true) return '';
+  const t = 'Connected to the push channel: commands reach this host within seconds';
+  return ` <span class="dev-push" role="img" title="${escAttr(t)}" aria-label="${escAttr(t)}">${_icon('zap', 12)}</span>`;
+}
+
 function renderDevices() {
   const container = document.getElementById('devices-container');
   // v1.11.5: apply density class so card padding/font-size match the
@@ -3836,7 +3844,7 @@ function renderDevices() {
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action" tabindex="0" role="button">${iconContent}</div>
-          <div><div class="device-name">${ticketMark}${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}"  tabindex="0" role="button">${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}${decommPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
+          <div><div class="device-name">${ticketMark}${getDistroIcon(d.os)}${escHtml(d.name)}${_pushMark(d)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}"  tabindex="0" role="button">${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}${decommPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
@@ -3973,7 +3981,7 @@ function _registerDevicesMinimalTable() {
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}${d.decommissioned ? ' decommissioned' : ''}" data-dev-id="${d.id}">
         <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42" aria-label="Select ${escAttr(d.name)}"></td>
         <td class="dev-status-cell ta-center"><span class="status-dot ${isOnline ? 'online' : 'offline'}" role="img" title="${isOnline ? 'Online' : 'Offline'}" aria-label="${isOnline ? 'Online' : 'Offline'}"></span></td>
-        <td class="dev-name-cell">${(window._ticketDevices && window._ticketDevices.has(d.id)) ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default tabindex="0" role="button">${_icon('ticket', 13)}</span>` : ''}<a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
+        <td class="dev-name-cell">${(window._ticketDevices && window._ticketDevices.has(d.id)) ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default tabindex="0" role="button">${_icon('ticket', 13)}</span>` : ''}<a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${_pushMark(d)}${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
         <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}${rdpLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
         <td class="dev-os-cell fs-12" title="${escAttr(d.os || '')}">${escHtml(d.os || '—')}</td>
@@ -24818,7 +24826,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
     // v5.1.0 #7: path breadcrumb readout (fleet / <group> / <host>)
     const crumb = `<span class="rp-crumb">fleet<i>/</i>${_drawerDeviceData.group ? escHtml(_drawerDeviceData.group) + '<i>/</i>' : ''}<b>${escHtml(_drawerDeviceName)}</b></span>`;
     document.getElementById('drawer-device-sub').innerHTML =
-      crumb + ` <span class="isl-401" data-color="${color}">${status}</span>`;
+      crumb + ` <span class="isl-401" data-color="${color}">${status}</span>` + _pushMark(_drawerDeviceData);
   } catch(e) {
     _drawerDeviceData = {};
     document.getElementById('drawer-device-sub').textContent = '';

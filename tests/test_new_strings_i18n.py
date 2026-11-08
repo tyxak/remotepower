@@ -327,6 +327,7 @@ NEW_STRINGS = [
     "Rollback failed",
     "the agent on this host cannot roll back an update",
     "the optional web terminal daemon does not answer on this server",
+    "Connected to the push channel: commands reach this host within seconds",
     "Roll back",
     "Put the project back on the images it ran before its last update",
     "Roll back this project to the images it ran before its last update? The agent puts the earlier images back and starts the project without pulling. Data the newer version wrote is not rolled back.",

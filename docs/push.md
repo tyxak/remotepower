@@ -116,6 +116,14 @@ steps:
    job — a successful connection alone only proves the WebSocket path
    works.
 
+### Which hosts are connected *(8.0.0)*
+
+A small bolt beside a host's name, in the host table, on its card and in the header of its drawer, means its agent holds the push channel open right now. The agent says so
+on every heartbeat once its listener has started (`push_connected`), and the bolt shows while that word is fresh: three polls of the host's own interval, and never less
+than three minutes. A host that is offline, an agentless host, a Windows or macOS host (they do not use the channel) and a host whose agent does not say so have no bolt.
+The bolt is what the agent itself sees, an open WebSocket, so a connection that a firewall drops silently takes up to the keepalive timeout (about 40 seconds) and one poll to
+disappear. It is the quick way to see which hosts the channel reaches, before you compare command latency as described above.
+
 ## Auth model
 
 An agent authenticates to the push daemon with the exact same host token

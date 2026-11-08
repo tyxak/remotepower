@@ -345,8 +345,10 @@ class TestComposeUpdateAction(unittest.TestCase):
              patch.object(agent.subprocess, 'run', side_effect=fake_run):
             res = agent._run_compose(f'compose:update:{tmp}')
         self.assertEqual(res['rc'], 0)
-        self.assertEqual(calls[0], ['docker', 'compose', 'pull'])
-        self.assertEqual(calls[1], ['docker', 'compose', 'up', '-d'])
+        # 8.0.0: an update also asks docker which images the project runs, before and after, to note them for a rollback (tests/test_v800_compose_rollback.py);
+        # what this test is about is the order of the two compose commands
+        compose = [c for c in calls if c[:2] == ['docker', 'compose']]
+        self.assertEqual(compose, [['docker', 'compose', 'pull'], ['docker', 'compose', 'up', '-d']])
 
     def test_update_stops_when_pull_fails(self):
         tmp = self._stack()
@@ -359,7 +361,8 @@ class TestComposeUpdateAction(unittest.TestCase):
              patch.object(agent.subprocess, 'run', side_effect=fake_run):
             res = agent._run_compose(f'compose:update:{tmp}')
         self.assertEqual(res['rc'], 1)
-        self.assertEqual(len(calls), 1, 'must not run up -d after pull failed')
+        compose = [c for c in calls if c[:2] == ['docker', 'compose']]
+        self.assertEqual(compose, [['docker', 'compose', 'pull']], 'must not run up -d after pull failed')
 
 
 class TestComposeDeploy(unittest.TestCase):

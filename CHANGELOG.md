@@ -147,6 +147,17 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   ships and fails when it is in neither the list nor the short list of units that are excused with a reason, so the next sidecar cannot be left out the same way); nine mutations of
   the list, the sentence, the copy button, the row and the probe all fail it.
 
+- **A small bolt on the hosts that use the push channel.** The Hosts page (table and cards) and the header of a host's drawer show a bolt beside the name of every host whose agent
+  holds the push channel open, so which hosts a command reaches within seconds no longer has to be read out of the daemon's journal. The Linux agent says so on every heartbeat once
+  its listener has started (`push_connected`; the listener raises a flag while its WebSocket is open and drops it the moment it is not), the server stamps `push_seen` only for the
+  JSON `true`, and the host list says `push` only for a host that is online and said so within three polls of its own interval (never less than three minutes): a host that
+  stopped saying it has stopped using the channel. An offline host, an agentless host, a Windows or macOS host, and a stored value of the wrong kind have none. The mark has a name
+  for assistive technology and a translation in all six languages. **Held by** `tests/test_v800_push_mark.py` (14 tests; the round runs the agent's listener against the real push
+  daemon and the real `websockets` library: the flag goes up when the daemon accepts the host, a command waiting for it wakes the agent, the flag drops when the daemon goes, and a
+  wrong token never raises it) and `tests/test_v800_push_mark_e2e.py` (5 browser tests that plant the word on four seeded hosts and read the table, the cards and the drawer). The
+  demo has no agents that hold a channel, so it shows no bolts. Found on the way: leaving `websockets.serve` waits for every connection to end and asyncio has waited for them
+  since Python 3.12, so the daemon closes its clients itself first (it already did); a test that left them to the library passed by luck at the fifteenth second.
+
 ### Connect and monitor more
 
 - **Connectors for the networks that carry remote access: Tailscale, Headscale and Cloudflare Tunnel.** Each reads one API and says whether the thing

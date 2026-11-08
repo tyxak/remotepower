@@ -749,6 +749,17 @@ def _ws_no_redirect_connect():
 _WS_CONNECT = _ws_no_redirect_connect() if _PUSH_AVAILABLE else None
 
 
+# 8.0.0: whether the push channel is open right now. The listener thread sets it while its WebSocket is open and clears it the moment it is not; the heartbeat
+# reads it (`_push_report`) so the Hosts page can mark the hosts that use the channel. A plain bool in a dict: one writer, one reader, no lock needed.
+_PUSH_STATE = {'up': False}
+
+
+def _push_report(thread_started):
+    """The heartbeat's word about the push channel: nothing until this host has started a listener (the channel is off, or the websockets library is
+    missing), then the JSON true or false on every heartbeat. The server marks a host as using the channel only for a fresh true."""
+    return {'push_connected': bool(_PUSH_STATE['up'])} if thread_started else {}
+
+
 def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
     """Runs in a background daemon thread for the agent's whole lifetime
     once started. Maintains (and silently reconnects) a WebSocket to the
@@ -784,15 +795,19 @@ def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
                 connect_kwargs[_WS_HEADER_KW] = {'X-RP-Push-Token': token}
                 async with _WS_CONNECT(url, **connect_kwargs) as ws:
                     backoff = 5   # reset once a connection actually succeeds
-                    async for raw in ws:
-                        if stop_event.is_set():
-                            break
-                        try:
-                            msg = json.loads(raw)
-                        except (TypeError, ValueError):
-                            continue
-                        if isinstance(msg, dict) and msg.get('type') == 'wake':
-                            wake_event.set()
+                    _PUSH_STATE['up'] = True
+                    try:
+                        async for raw in ws:
+                            if stop_event.is_set():
+                                break
+                            try:
+                                msg = json.loads(raw)
+                            except (TypeError, ValueError):
+                                continue
+                            if isinstance(msg, dict) and msg.get('type') == 'wake':
+                                wake_event.set()
+                    finally:
+                        _PUSH_STATE['up'] = False
             except Exception as e:
                 log.debug(f'push listener: {type(e).__name__}: {e}')
             if stop_event.is_set():
@@ -804,6 +819,8 @@ def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
         asyncio.run(_run())
     except Exception as e:
         log.debug(f'push listener thread exiting: {e}')
+    finally:
+        _PUSH_STATE['up'] = False
 
 
 # SSH gateway tunnel (server/sshgw/remotepower-sshgw.py). When the server
@@ -15529,6 +15546,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                    # v3.4.2: report our own binary's hash so the server can
                    # attest the running agent matches its canonical copy.
                    'agent_sha256': _agent_self_sha256()}
+        payload.update(_push_report(_push_thread_started))      # 8.0.0: is the push channel open? (nothing until a listener has started)
         # v6.2.2: per-iteration — holds the delta-field hashes SENT FULL this
         # beat, committed to delta_hashes only on a non-busy response. Reset
         # here so a light (no-sysinfo) poll can never commit a prior beat's.

@@ -413,7 +413,7 @@ BUCKETS = list_of(fields(need=('ts',), ts=NUM))   # a roll-up tier: the merge in
 SHAPES: dict = {
     # ── a map keyed by host id ──────────────────────────────────────────────────────────────────────────────────────────
     'devices.json': dict_of(fields(
-        group=STR, name=STR, hostname=OPT_STR, os=OPT_STR, site=OPT_STR, last_seen=NUM, compose_projects=LIST, log_watch=list_of(),
+        group=STR, name=STR, hostname=OPT_STR, os=OPT_STR, site=OPT_STR, last_seen=NUM, push_seen=OPT_NUM, compose_projects=LIST, log_watch=list_of(),
         tags=list_of(STR), depends_on=list_of(STR),
         # 7.5.0: the heartbeat answer puts this in a set, and a list or a map in it is not hashable: the host's heartbeat answered 500
         services_watched=list_of(STR),
