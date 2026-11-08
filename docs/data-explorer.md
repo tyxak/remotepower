@@ -24,7 +24,7 @@ and its API accepts nested AND/OR/NOT conditions.
 The page builds a flat AND list because that covers most questions. For OR and NOT, call the API
 (see [API](#api)); the same engine runs both.
 
-## The ten entities
+## The eleven entities
 
 The page lists them by these names.
 
@@ -40,6 +40,7 @@ The page lists them by these names.
 | `alerts` | alert | "every open critical on hosts in the prod group" |
 | `attackers` | (source address, attacked host) | "which known-abusive addresses are hitting the web tier, and are they blocked" |
 | `gateway_sessions` | finished SSH-gateway session | "who reached the database hosts through the gateway this week" |
+| `apps` | (host, app the agent found on it) | "which hosts run Jellyfin, and which of those listen on loopback only" |
 
 ## Conditions
 
@@ -254,6 +255,15 @@ those two columns are empty.
 Finished [SSH gateway](sshgw.md) sessions. Visible to admins and auditors, the
 same people who see the session list on the gateway page; for every other role
 the entity returns no rows.
+
+### `apps`
+
+`device_id`, `device_name`, `app`, `name`, `kind`, `port`, `scope`, `via`, `container`, `source`.
+
+The apps the Linux agent found on each host (see [app-discovery.md](app-discovery.md)), one row per host and app. `app` is the
+catalog id (`jellyfin`), `scope` says whether the port is open to the network or to loopback only, and `via` says what gave the app
+away: a process, a container image, a service or a port. `source` is `agent` for a host whose agent reports apps and `server` for an
+older agent, where the server works them out from the ports and containers it did report. Agentless hosts have no rows.
 
 ## Saved queries
 

@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server" / "cgi-
 import protocol_probes as P  # noqa: E402
 
 
-def _self_signed_pair():
+def self_signed_pair():
     """A throwaway key and certificate made when the module starts, so the repository holds no private key. The client side of these
     tests either does not verify (UNVERIFIED) or must refuse the certificate because nothing trusts it, so only the pair's shape matters."""
     import datetime
@@ -66,7 +66,7 @@ UNVERIFIED.verify_mode = ssl.CERT_NONE
 def setUpModule():
     d = tempfile.mkdtemp(prefix="rp-probe-cert-")
     f = Path(d) / "pair.pem"
-    f.write_bytes(_self_signed_pair())
+    f.write_bytes(self_signed_pair())
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(str(f))
     _CTX["server"] = ctx

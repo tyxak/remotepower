@@ -29144,6 +29144,8 @@ const _FQ_FIELDS = {
   firewall_off: 'fq-fwoff', ssh_weak: 'fq-sshweak', autoupdate_off: 'fq-auoff',
   // v7.5.0: disk encryption and distro-flagged security updates
   encryption_off: 'fq-encoff', security_gt: 'fq-security',
+  // 8.0.0: an app the agent found on the host
+  app: 'fq-app',
 };
 function _fqFields() {
   const out = {};

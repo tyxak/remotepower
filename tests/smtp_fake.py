@@ -17,7 +17,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from test_v800_protocol_probes import PEM       # the self-signed pair for localhost that the probe tests already carry
+from test_v800_protocol_probes import self_signed_pair       # a throwaway key and certificate for localhost, made when the first TLS server starts
 
 _CTX = []
 
@@ -26,7 +26,7 @@ def _server_context():
     if not _CTX:
         d = tempfile.mkdtemp(prefix="rp-smtp-fake-cert-")
         f = Path(d) / "pair.pem"
-        f.write_text(PEM)
+        f.write_bytes(self_signed_pair())
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(str(f))
         _CTX.append(ctx)

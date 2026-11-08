@@ -151,6 +151,40 @@ def _rows_for(dev_id, dev, cfg, integrations, containers):
     return source, [_row(f, dev_id, dev, cfg, integrations, hidden, problem) for f in found], problem
 
 
+def explorer_rows(devices, containers):
+    """Data Explorer `apps` (8.0.0): one row per (host, app found on it) for the hosts given. The hosts are already the caller's (the caller filters them), and the
+    rows come from the same read the host's page uses, so "which hosts run Jellyfin" and the drawer's list cannot disagree."""
+    out = []
+    for dev_id, dev in sorted(devices.items(), key=lambda kv: str((kv[1] or {}).get('name') or kv[0]).lower()):
+        if not isinstance(dev, dict) or dev.get('agentless') or dev.get('decommissioned'):
+            continue
+        source, found = _found_for(dev_id, dev, containers)
+        for f in found:
+            app = app_catalog.describe(f['id'])
+            if not app:
+                continue
+            out.append({'device_id': dev_id, 'device_name': dev.get('name') or dev_id, 'app': app['id'], 'name': app['name'], 'kind': app['kind'],
+                        'port': f['port'], 'scope': f['scope'], 'via': ', '.join(f['via']), 'container': f['container'], 'source': source})
+    return out
+
+
+def hosts_running(devices, containers, needle):
+    """Ids of the hosts of `devices` that have an app found on them whose id or name contains `needle` (any case): the Fleet Query `app` criterion (8.0.0)."""
+    needle = str(needle or '').strip().lower()
+    out = set()
+    if not needle:
+        return out
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('agentless') or dev.get('decommissioned'):
+            continue
+        for f in _found_for(dev_id, dev, containers)[1]:
+            app = app_catalog.describe(f['id'])
+            if app and (needle in str(app['id']).lower() or needle in str(app['name']).lower()):
+                out.add(dev_id)
+                break
+    return out
+
+
 def handle_device_apps(dev_id):
     """GET /api/devices/<id>/apps -- the apps this host runs, each with what can be done about it (8.0.0).
 

@@ -16,7 +16,7 @@ leaves the groups as they are.
 
 | Family | Criteria |
 | --- | --- |
-| Identity | Group, Tag, OS contains, Kernel contains, Platform contains (for example `debian` or `arm64`), Agent version contains, Pkg manager (`apt`, `dnf`, `pacman`), **Has package** |
+| Identity | Group, Tag, OS contains, Kernel contains, Platform contains (for example `debian` or `arm64`), Agent version contains, Pkg manager (`apt`, `dnf`, `pacman`), **Has package**, **Runs app** |
 | State | Online, Monitored, Agentless, Quarantined, Offline for more than N days, Uptime over or under N days, Cores over or under N |
 | Patching | Pending updates over N, **Security updates** over N, Reboot required, Kernel outdated, 3rd-party updates pending, Integrity (agent file verified, mismatch or unknown), **CVE (crit+high)** at least N |
 | Resources | Busiest disk %, Memory %, CPU %, Swap %, Load (1 minute), busiest Inode %, File descriptors %, Conntrack % |
@@ -27,6 +27,8 @@ Notes:
 
 - **Has package** matches part of a package name. The table then gets a **Matched package** column
   with the installed version (up to three matches per host).
+- **Runs app** matches part of the name of an app the Linux agent found on the host (`jelly` finds Jellyfin). It is the
+  same finding as **Discovered on this host** in the host's drawer; see [app-discovery.md](app-discovery.md).
 - **CVE (crit+high)** counts the way the dashboard does: a finding you accepted as a risk is left
   out, and with the [CVE count option](cve.md#counting-only-what-an-update-can-fix) on, so is every
   finding no update can clear.
@@ -74,7 +76,7 @@ matching hosts.
 ## API
 
 `GET /api/fleet/query` takes the same criteria as query parameters (`group`, `tag`, `os`,
-`version`, `has_package`, `online`, `pending_gt`, `security_gt`, `cve_min`, `disk_gt`,
+`version`, `has_package`, `app`, `online`, `pending_gt`, `security_gt`, `cve_min`, `disk_gt`,
 `firewall_off`, `encryption_off`, `ssh_weak`, and so on). Add `format=csv` or `format=xml` to download instead of JSON. Saved
 queries are under `/api/query/templates`. See [api.md](api.md) for authentication.
 

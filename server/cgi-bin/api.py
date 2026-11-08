@@ -34399,6 +34399,18 @@ _QE_GATEWAY_SESSION_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'duration_s', 'bytes_in', 'bytes_out', 'reason')}
 
 
+def _qe_apps_rows():
+    """8.0.0: one row per (host, app the agent found on it) -- "which hosts run Jellyfin", "which apps listen on loopback only". The rows are the ones the
+    host's own page lists (app_discovery_handlers), for the hosts the caller may see."""
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
+    containers = (_load_ro(CONTAINERS_FILE) or {}) if backend_exists(CONTAINERS_FILE) else {}
+    return app_discovery_handlers_mod.explorer_rows(devices, containers)
+
+
+_QE_APP_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'device_name', 'app', 'name', 'kind', 'port', 'scope', 'via', 'container', 'source')}
+
+
 _QE_ENTITIES = {
     'devices':    (_qe_devices_rows, _QE_DEVICE_FIELDS),
     'cves':       (_qe_cve_rows, _QE_CVE_FIELDS),
@@ -34412,6 +34424,8 @@ _QE_ENTITIES = {
     # v7.1.0
     'attackers':  (_qe_attackers_rows, _QE_ATTACKER_FIELDS),
     'gateway_sessions': (_qe_gateway_sessions_rows, _QE_GATEWAY_SESSION_FIELDS),
+    # 8.0.0
+    'apps':       (_qe_apps_rows, _QE_APP_FIELDS),
 }
 
 QUERY_TEMPLATES_FILE = DATA_DIR / 'query_templates.json'   # v6.1.1
@@ -34542,6 +34556,8 @@ _FQ_PARAMS = (
     # v7.5.0: disk encryption and distro-flagged security updates, the two
     # exposure questions the Data Explorer and the report could already answer.
     'encryption_off', 'security_gt',
+    # 8.0.0: the apps the agent found on a host.
+    'app',
 )
 _MX_PARAMS = ('devices', 'metrics', 'stat', 'tier', 'rel', 'from', 'to')
 
@@ -60320,6 +60336,7 @@ def handle_fleet_query():
       autoupdate_off=1 (no automatic security updates).
       v7.5.0: encryption_off=1 (disk encryption reported off),
       security_gt=<n> (distro-flagged security updates above n).
+      v8.0.0: app=<substr> (an app found on the host, by id or name).
       format=csv|xml downloads the filtered set (JSON otherwise; the print/PDF
       view fetches the JSON). Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
@@ -60378,6 +60395,7 @@ def handle_fleet_query():
     auoff_q = q('autoupdate_off') in ('1', 'true')
     encoff_q = q('encryption_off') in ('1', 'true')
     security_gt = qi('security_gt')
+    app_q = q('app').lower()
     ups_q = q('ups_on_battery') in ('1', 'true')
     temp_q = q('temp_high') in ('1', 'true')
     fmt = q('format').lower()   # '', 'csv', 'xml' — JSON when empty
@@ -60385,6 +60403,8 @@ def handle_fleet_query():
     ttl = get_online_ttl()
     devices = load(DEVICES_FILE) or {}
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
+    app_hosts = (app_discovery_handlers_mod.hosts_running(
+        devices, (_load_ro(CONTAINERS_FILE) or {}) if backend_exists(CONTAINERS_FILE) else {}, app_q) if app_q else set())
     canonical = _get_agent_sha256() if integ else None
     pkg_store = (load(PACKAGES_FILE) or {}) if has_pkg else {}
     cve = None
@@ -60429,6 +60449,8 @@ def handle_fleet_query():
         if version_q and version_q not in str(d.get('version') or '').lower():
             continue
         if pkgmgr_q and pkgmgr_q not in str(pkg.get('manager') or '').lower():
+            continue
+        if app_q and did not in app_hosts:
             continue
         online = (now - d.get('last_seen', 0)) < ttl
         if online_q in ('1', 'true') and not online:

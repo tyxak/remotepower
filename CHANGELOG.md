@@ -378,6 +378,13 @@ and in the channels that reach a host over SSH; all are fixed. Production runs 7
   (`integrations._STATS`) is in the label gate (`tests/test_v702_server_labels_i18n.py`), so a new label without them fails the build. The extra calls of the Paperless and
   Grafana connectors also keep a timeout or a reset from turning a healthy tile critical.
 
+- **Which hosts run an app is a fleet question.** The apps the agent finds were on the host's own page and on the Integrations page only. The Data Explorer has an
+  `apps` entity now, one row per host and app with the port, whether it listens to the network or to loopback only, what gave it away and whether the agent or the
+  server's fallback for an older agent found it, and Fleet Query has a **Runs app** criterion that matches part of a name. Both read the same finding the drawer lists,
+  through one reader in `app_discovery_handlers`, so the three cannot disagree. Found by following each signal the agent sends to the eleven places that could use it:
+  the finding reached the drawer, the Integrations page and the AI index, and nothing that answers a question over the whole fleet. **Held by**
+  `tests/test_v800_app_query.py` (20 tests: the real Explorer loader and `handle_fleet_query`, an older agent, hosts the catalog does not read, the caller's scope).
+
 ### Found by surveying the whole code
 
 Three surveys, each over everything of its kind. The routes the server answers against the pages that call them (most of the routes no page calls

@@ -23,6 +23,8 @@ NEW_STRINGS = [
     # the Pentest page
     "New scan",
     # Fleet Query
+    "Runs app",
+    "app name",
     "Criteria set in this group",
     "Identity",
     "Resources",
