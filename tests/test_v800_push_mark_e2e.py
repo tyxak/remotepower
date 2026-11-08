@@ -5,7 +5,8 @@ tests/test_v800_push_mark.py holds what produces the field (the agent's flag aga
 the host table, the cards and the drawer mark the host that said it a moment ago and no other (not one that said it an hour ago, not an offline one, not one that said
 nothing), the mark has a name for assistive technology and a translation in all six languages, and nothing in the page broke.
 
-The demo has no agents that hold a channel, so the test plants `push_seen` on four seeded hosts the way a heartbeat would.
+The demo's Linux agents hold a channel (all but two: packaging/seed-demo-data.py), so the test clears every `push_seen` and plants it on three seeded hosts the way a heartbeat
+would, and a fourth says nothing: the marks it counts are exactly the ones it made.
 
 Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
 """
@@ -126,6 +127,8 @@ class TestThePushMark(unittest.TestCase):
 
     def setUp(self):
         devices = json.loads(json.dumps(self.devices0))
+        for d in devices.values():
+            d.pop("push_seen", None)        # the demo's Linux agents hold the channel now (the seeder says so): this test measures exactly the hosts it plants
         now = int(time.time())
         devices[self.fresh["id"]]["push_seen"] = now - 5
         devices[self.stale["id"]]["push_seen"] = now - 3600

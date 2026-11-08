@@ -107,6 +107,7 @@ class TestTheAutomaticUpdatesCard(unittest.TestCase):
         cls.periods0 = cls.config0.get("time_periods")
         cls.images0 = read("image_updates.json") if _path("image_updates.json").exists() else {}
         cls.containers0 = read("containers.json") if _path("containers.json").exists() else {}
+        cls.devices0 = read("devices.json")
 
     @classmethod
     def tearDownClass(cls):
@@ -116,6 +117,7 @@ class TestTheAutomaticUpdatesCard(unittest.TestCase):
             write("config.json", cfg)
             write("image_updates.json", cls.images0)
             write("containers.json", cls.containers0)
+            write("devices.json", cls.devices0)
         finally:
             cls.ctx.close()
 
@@ -129,6 +131,7 @@ class TestTheAutomaticUpdatesCard(unittest.TestCase):
         write("config.json", cfg)
         write("image_updates.json", self.images0)
         write("containers.json", self.containers0)
+        write("devices.json", self.devices0)
 
     def tearDown(self):
         self.page.evaluate("""() => {
@@ -515,6 +518,11 @@ class TestTheAutomaticUpdatesCard(unittest.TestCase):
 
     def test_a_project_held_back_because_its_agent_cannot_roll_back_says_so_in_the_preview(self):
         dev_id, name = self.stale_project()
+        # the demo's Linux agents say they can roll back (packaging/seed-demo-data.py, since the seeder states what its agents say), so this host is made one that does not:
+        # an agent that is too old to send the word is what the preview must hold back
+        devices = read("devices.json")
+        devices[dev_id].setdefault("sysinfo", {}).pop("compose_rollback", None)
+        write("devices.json", devices)
         cfg = read("config.json")
         cfg["image_autoupdate"] = {"mode": "shadow", "include": ["ghcr.io/acme/*"], "rollback": True}
         write("config.json", cfg)
