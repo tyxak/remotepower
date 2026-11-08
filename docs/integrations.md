@@ -201,9 +201,10 @@ the browser, on purpose, so a stolen session cannot add code. See
   Syncthing, OctoPrint, SentinelOne, Tailscale, Headscale, Cloudflare Tunnel, the RemotePower peer. Optional for Netdata, Grafana,
   Gitea/Forgejo and GitHub.
 - **Token ID and secret**: Proxmox Backup Server. **Client ID and secret**: CrowdStrike Falcon.
-- **Username and password** (Basic or a login): AdGuard Home, UniFi, vCenter, Cloud Director,
+- **Username and password** (Basic or a login): AdGuard Home, vCenter, Cloud Director,
   Nginx Proxy Manager (an email), NZBGet, Nextcloud, qBittorrent, Homebridge, Wazuh. Optional
-  for Traefik and Transmission. Pi-hole and Deluge take a password only.
+  for Traefik and Transmission. Pi-hole and Deluge take a password only. **UniFi** takes an API
+  key (below) or, for the older login, a username and a password.
 - **Application password**: WordPress (optional; it unlocks the login list).
 - **Optional Basic or bearer**: Prometheus and Prometheus exporter. A user name and a password
   send Basic auth, a password alone is sent as a bearer token, and leaving both empty suits a
@@ -262,6 +263,15 @@ the browser, on purpose, so a stolen session cannot add code. See
   - The status is *OK* when every value was read, *warning* when some were not (the detail names
     them) and *critical* when none were, when the server cannot be reached or when it refuses the
     login.
+- **UniFi Network** uses the Integration API *(8.0.0)*. Make an API key under **Integrations** in
+  the Network application and paste it as the key; it works on a UniFi OS console (UDM, UDR,
+  Cloud Gateway, Cloud Key) and on a Network application from 9.0. The connector lists the adopted
+  devices of the site and goes **critical** when one is offline, interrupted or isolated, naming
+  up to three; a device with an incorrect U5G topology is a **warning**. It also shows how many
+  clients are connected and how many firmware updates are available (an update does not change the
+  status). Leave **Site** empty for the console's only site, or give the site's name as the older API
+  knew it (`default` on a single-site install). Fill in a **username** and the older login is used
+  instead (`/api/login` of a self-hosted controller, which UniFi OS consoles do not answer).
 - **Servarr** is one connector for any *arr app. It **detects the API version** (`/api/v3` for
   Sonarr and Radarr, `/api/v1` for Prowlarr, Lidarr and Readarr) and shows the app's own
   health-check warnings and errors. For Sonarr, Radarr, Lidarr and Readarr it also reads the

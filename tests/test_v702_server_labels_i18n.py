@@ -308,8 +308,8 @@ _SAME_IN_LANGUAGE = {
     'hi': set(_KEPT),
     'ar': set(_KEPT),
     'es': _KEPT | {'Array', 'Datastores', 'Hosts', 'Pools', 'Routers', 'Streaming', 'Torrents', 'Upstreams'},
-    'de': _KEPT | {'Host offline', 'Array', 'Bridge', 'Datastores', 'Hosts', 'Offline', 'Online', 'Plugins', 'Pools', 'Repos', 'Streaming', 'Torrents', 'Upstreams', 'VMs', 'Videos'},
-    'fr': _KEPT | {'Array', 'Datastores', 'Documents', 'Photos', 'Plugins', 'Pools', 'Streaming', 'Torrents', 'Tunnels', 'Upstreams'},
+    'de': _KEPT | {'Host offline', 'Array', 'Bridge', 'Clients', 'Datastores', 'Hosts', 'Offline', 'Online', 'Plugins', 'Pools', 'Repos', 'Streaming', 'Torrents', 'Upstreams', 'VMs', 'Videos'},
+    'fr': _KEPT | {'Array', 'Clients', 'Datastores', 'Documents', 'Photos', 'Plugins', 'Pools', 'Streaming', 'Torrents', 'Tunnels', 'Upstreams'},
 }
 
 

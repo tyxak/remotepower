@@ -610,14 +610,23 @@ def _truenas(inst, c):
     "UniFi Network",
     "network",
     [
-        _field("username", "Username", TEXT),
-        _field("secret", "Password", PASSWORD),
+        _field("secret", "API key (or the password, with a username)", PASSWORD),
+        _field("username", "Username (only for the older login)", TEXT, optional=True),
         _field("slug", "Site (default: default)", TEXT, optional=True),
     ],
-    notes="Self-hosted UniFi Network controller (classic /api/login). UDM/UDM-Pro paths differ.",
+    notes="UniFi Network through its Integration API (8.0.0): an API key made under Integrations in the Network application, sent as X-API-KEY, on a UniFi OS console "
+    "(UDM, UDR, Cloud Gateway, Cloud Key) or a Network application from 9.0. Lists the adopted devices and goes critical when one is offline, interrupted or isolated. "
+    "With a Username, the older login (classic /api/login of a self-hosted controller) is used instead; UniFi OS consoles do not answer it.",
 )
 def _unifi(inst, c):
     site = inst.get("slug") or "default"
+    if inst.get("username"):
+        return _unifi_login(inst, c, site)
+    return _unifi_integration(inst, c, site)
+
+
+def _unifi_login(inst, c, site):
+    """The older way: a cookie login on a self-hosted controller, and the health of its subsystems."""
     c.post_json(
         "/api/login",
         {
@@ -636,6 +645,113 @@ def _unifi(inst, c):
         "detail": detail,
         "metrics": {"subsystems": len(subs), "subsystems_bad": len(bad)},
     }
+
+
+# The Integration API (UniFi Network 9.0 and later): every path is under /proxy/network/integration, lists are pages {offset, limit, count, totalCount, data} with a limit of at
+# most 200, a site is {id (a UUID), internalReference (the older name, "default" on a single-site install), name}, and an adopted device carries `state`, `firmwareUpdatable` and
+# `supported`. Read from the vendor's own OpenAPI file for 10.4.57 (developer.ui.com/network/v10.4.57/openapi.json) on 2026-11-08, and the first two answers against a capture of a
+# 10.6.109 console.
+_UNIFI_BASE = "/proxy/network/integration/v1"
+_UNIFI_DOWN = ("OFFLINE", "CONNECTION_INTERRUPTED", "ISOLATED")
+_UNIFI_PAGE = 200
+_UNIFI_PAGES = 5  # 1,000 devices: past that the answer says it counted the first thousand
+_UNIFI_ID = re.compile(r"^[0-9A-Za-z-]{8,64}$")
+
+
+def _unifi_page(c, path, h, limit=_UNIFI_PAGE):
+    """One page of a list: (rows, totalCount). A body that is not a page is an error, not an empty list."""
+    r = c.get(f"{path}?offset=0&limit={int(limit)}", headers=h)
+    return _unifi_rows(r, path)
+
+
+def _unifi_rows(r, path):
+    if r.status in (401, 403):
+        raise IntegrationError(
+            f"unauthorized (HTTP {r.status}) — check the API key (Network application → Integrations)"
+        )
+    if not r.ok:
+        raise IntegrationError(
+            f"{path} answered HTTP {r.status} — is this a UniFi OS console or a Network application from 9.0?"
+        )
+    body = r.json()
+    rows = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        raise IntegrationError(f"{path} did not answer a page")
+    total = body.get("totalCount")
+    total = (
+        int(total)
+        if isinstance(total, (int, float)) and not isinstance(total, bool) and 0 <= total < 10**9
+        else len(rows)
+    )
+    return [x for x in rows if isinstance(x, dict)], total
+
+
+def _unifi_integration(inst, c, site):
+    h = _hdr_token(inst, "X-API-KEY", "")
+    info = c.get(f"{_UNIFI_BASE}/info", headers=h)
+    if info.status in (401, 403):
+        raise IntegrationError(
+            f"unauthorized (HTTP {info.status}) — check the API key (Network application → Integrations)"
+        )
+    if not info.ok:
+        raise IntegrationError(
+            f"/info answered HTTP {info.status} — is this a UniFi OS console or a Network application from 9.0?"
+        )
+    body = info.json()
+    ver = str(body.get("applicationVersion") or "") if isinstance(body, dict) else ""
+    sites, _ = _unifi_page(c, f"{_UNIFI_BASE}/sites", h)
+    chosen = next((x for x in sites if x.get("internalReference") == site), None)
+    if chosen is None and not inst.get("slug") and len(sites) == 1:
+        chosen = sites[0]
+    if chosen is None:
+        known = (
+            ", ".join(sorted(str(x.get("internalReference") or "?") for x in sites)[:6]) or "none"
+        )
+        raise IntegrationError(f"site {site!r} not found (the console has: {known})")
+    sid = str(chosen.get("id") or "")
+    if not _UNIFI_ID.match(sid):
+        raise IntegrationError("the console named a site with an id that is not one")
+    sid_q = urllib.parse.quote(sid, safe="")
+    devices, total = [], 0
+    for page in range(_UNIFI_PAGES):
+        r = c.get(
+            f"{_UNIFI_BASE}/sites/{sid_q}/devices?offset={page * _UNIFI_PAGE}&limit={_UNIFI_PAGE}",
+            headers=h,
+        )
+        rows, total = _unifi_rows(r, f"{_UNIFI_BASE}/sites/<site>/devices")
+        devices += rows
+        if not rows or len(devices) >= total:
+            break
+    down = [d for d in devices if str(d.get("state") or "") in _UNIFI_DOWN]
+    odd = [d for d in devices if str(d.get("state") or "") == "U5G_INCORRECT_TOPOLOGY"]
+    updates = sum(
+        1 for d in devices if d.get("firmwareUpdatable") is True and d.get("supported") is not False
+    )
+    clients = None
+    try:
+        _rows, clients = _unifi_page(c, f"{_UNIFI_BASE}/sites/{sid_q}/clients", h, limit=1)
+    except IntegrationError:
+        pass  # the client count is a nicety: the devices are the health
+    names = ", ".join(str(d.get("name") or d.get("macAddress") or "?")[:40] for d in down[:3])
+    if down:
+        status, detail = CRIT, f"{len(down)} of {len(devices)} devices down: {names}" + (
+            " …" if len(down) > 3 else ""
+        )
+    elif odd:
+        status, detail = WARN, f"{len(odd)} device(s) with an incorrect topology (U5G)"
+    else:
+        status, detail = OK, f"{len(devices)} devices online" if devices else "no adopted devices"
+    if total > len(devices):
+        detail += f" · counted the first {len(devices)} of {total}"
+    if updates:
+        detail += f" · {updates} firmware update{'s' if updates != 1 else ''} available"
+    metrics = {"devices": len(devices), "devices_down": len(down), "firmware_updates": updates}
+    if clients is not None:
+        metrics["clients"] = clients
+    out = {"status": status, "detail": detail, "metrics": metrics}
+    if ver:
+        out["version"] = ver
+    return out
 
 
 @_register(
@@ -1681,9 +1797,8 @@ def _servarr(inst, c):
     elif q_warn:
         detail += " · downloads with warnings"
     metrics = {"app": app, "health_errors": len(errors), "health_warnings": len(warnings)}
-    if (
-        queue_read
-    ):  # an app with no queue (Prowlarr) or an answer that did not come has no Queue chip, rather than a zero
+    # an app with no queue (Prowlarr), or an answer that did not come, has no Queue chip rather than a zero
+    if queue_read:
         metrics["queue_total"] = q_total
         metrics["queue_problems"] = 1 if (q_err or q_warn) else 0
     return {"status": status, "version": ver, "detail": detail, "metrics": metrics}
@@ -2898,7 +3013,14 @@ _STATS: dict = {
         ("alerts_crit", "Crit alerts", "num"),
         ("alerts_warn", "Warn alerts", "num"),
     ],
-    "unifi": [("subsystems", "Subsystems", "num"), ("subsystems_bad", "Degraded", "num")],
+    "unifi": [
+        ("devices", "Devices", "num"),
+        ("devices_down", "Down", "num"),
+        ("clients", "Clients", "num"),
+        ("firmware_updates", "Updates", "num"),
+        ("subsystems", "Subsystems", "num"),
+        ("subsystems_bad", "Degraded", "num"),
+    ],
     "homeassistant": [("entities", "Entities", "int"), ("unavailable", "Unavailable", "num")],
     "pbs": [
         ("datastores", "Datastores", "num"),

@@ -51,6 +51,10 @@ ALLOW = {
         'search keywords: typing the old word still finds the page',
     ('server/cgi-bin/integrations.py', r'Devices'):
         'Syncthing calls its peers devices, and the tile shows its number',
+    ('server/cgi-bin/integrations.py', r'adopted devices|devices down|devices online|device\(s\) with an incorrect topology'):
+        'UniFi calls what its console manages (access points, switches, gateways) devices, and the connector reports them in the product\'s own word',
+    ('docs/integrations.md', r'devices of the site|a device with an incorrect U5G'):
+        'the same: UniFi\'s own word for what its console manages',
     ('server/html/static/js/i18n.js', r'Devices'):
         'the key of the translation of the Syncthing tile\'s label above',
     ('client/remotepower-agent.py', r'unknown device'):
