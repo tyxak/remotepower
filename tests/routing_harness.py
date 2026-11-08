@@ -45,6 +45,9 @@ def resolve_route(method, path):
     # same way or a cached build holds stale handler objects across the swap.
     saved_patterns = api._PATTERN_ROUTES
     api._PATTERN_ROUTES = None
+    # the request the dispatcher reads is put back afterwards: a PATH_INFO and a REQUEST_METHOD left in the environment were read by the next module that ran
+    # in the same process (test_v640_client_errors answered a list for a GET after test_v500_features)
+    env_before = {n: os.environ.get(n) for n in ('REQUEST_METHOD', 'PATH_INFO')}
     os.environ['REQUEST_METHOD'] = method
     os.environ['PATH_INFO'] = path
     try:
@@ -55,6 +58,11 @@ def resolve_route(method, path):
     except api.HTTPError as e:
         return (f'__http__{e.status}', [])
     finally:
+        for n, v in env_before.items():
+            if v is None:
+                os.environ.pop(n, None)
+            else:
+                os.environ[n] = v
         for name, fn in saved.items():
             setattr(api, name, fn)
         api._EXACT_ROUTES = saved_table

@@ -230,12 +230,20 @@ class TestNetworkMetrics(unittest.TestCase):
         })
         self._auth = api.require_auth
         self._scope = api._scope_filter_devices
+        self._respond = api.respond
+        self._qs = os.environ.get("QUERY_STRING")
         api.require_auth = lambda *a, **k: "tester"
         api._scope_filter_devices = lambda d, *a, **k: d
 
     def tearDown(self):
         api.require_auth = self._auth
         api._scope_filter_devices = self._scope
+        api.respond = self._respond
+        # a QUERY_STRING left behind was read by the next module in the process (test_v640_client_errors)
+        if self._qs is None:
+            os.environ.pop("QUERY_STRING", None)
+        else:
+            os.environ["QUERY_STRING"] = self._qs
 
     def _call(self, by):
         os.environ["QUERY_STRING"] = "by=" + by
