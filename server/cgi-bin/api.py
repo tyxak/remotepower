@@ -34448,6 +34448,28 @@ _QE_APP_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'device_id', 'device_name', 'app', 'name', 'kind', 'port', 'scope', 'via', 'container', 'source')}
 
 
+def _qe_traffic_rows():
+    """8.0.0: one row for each (host, direction, remote address, port, program) of each host's last connection sample, for the hosts the caller may see. Nothing while the
+    Traffic module is off: the route is outside /api/traffic, so the gate that 404s that prefix does not reach it."""
+    if not _module_on('traffic'):
+        return []
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
+    store = (_load_ro(TRAFFIC_FILE) or {}) if backend_exists(TRAFFIC_FILE) else {}
+    return traffic_handlers_mod.explorer_rows(devices, store, int(time.time()))
+
+
+_QE_TRAFFIC_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'device_name', 'direction', 'address', 'scope', 'port', 'service', 'program', 'connections', 'sent', 'received', 'new', 'watched', 'state', 'sampled_at')}
+
+# An entity that belongs to a module is listed, and answers, only while that module is on.
+_QE_ENTITY_MODULE = {'traffic': 'traffic'}
+
+
+def _qe_entity_names():
+    """The entities that can be asked about now: all of them, less those whose module is off."""
+    return sorted(n for n in _QE_ENTITIES if n not in _QE_ENTITY_MODULE or _module_on(_QE_ENTITY_MODULE[n]))
+
+
 _QE_ENTITIES = {
     'devices':    (_qe_devices_rows, _QE_DEVICE_FIELDS),
     'cves':       (_qe_cve_rows, _QE_CVE_FIELDS),
@@ -34463,6 +34485,7 @@ _QE_ENTITIES = {
     'gateway_sessions': (_qe_gateway_sessions_rows, _QE_GATEWAY_SESSION_FIELDS),
     # 8.0.0
     'apps':       (_qe_apps_rows, _QE_APP_FIELDS),
+    'traffic':    (_qe_traffic_rows, _QE_TRAFFIC_FIELDS),
 }
 
 QUERY_TEMPLATES_FILE = DATA_DIR / 'query_templates.json'   # v6.1.1
@@ -34476,8 +34499,8 @@ def _query_run_one(body):
     batch. Same read-only, whitelisted-field, RBAC/tenancy-scoped contract
     as before (unchanged for the single-query caller)."""
     entity = str(body.get('entity', '')).strip()
-    if entity not in _QE_ENTITIES:
-        return 400, {'error': f'unknown entity: {entity!r}. Choose from: {sorted(_QE_ENTITIES)}'}
+    if entity not in _QE_ENTITIES or entity not in _qe_entity_names():
+        return 400, {'error': f'unknown entity: {entity!r}. Choose from: {_qe_entity_names()}'}
     loader, fields = _QE_ENTITIES[entity]
     where = body.get('where')
     rows = loader()
@@ -34558,8 +34581,9 @@ def handle_query_fields():
     """GET /api/query/fields — the entity/field registry, for the query
     builder UI's dropdowns (not a schema dump of anything else)."""
     require_auth()
+    names = _qe_entity_names()
     respond(200, {'ok': True, 'entities': {name: sorted(fields)
-                  for name, (_, fields) in _QE_ENTITIES.items()}})
+                  for name, (_, fields) in _QE_ENTITIES.items() if name in names}})
 
 
 # v6.4.2: saved queries come from three surfaces now — the Data Explorer
@@ -34593,8 +34617,8 @@ _FQ_PARAMS = (
     # v7.5.0: disk encryption and distro-flagged security updates, the two
     # exposure questions the Data Explorer and the report could already answer.
     'encryption_off', 'security_gt',
-    # 8.0.0: the apps the agent found on a host.
-    'app',
+    # 8.0.0: the apps the agent found on a host, and what a host talks to (Traffic).
+    'app', 'talks',
 )
 _MX_PARAMS = ('devices', 'metrics', 'stat', 'tier', 'rel', 'from', 'to')
 
@@ -34709,7 +34733,7 @@ def handle_query_template_create():
     params = {}
     if kind == 'predicate':
         # Unchanged path — entity + predicate validation exactly as before.
-        if entity not in _QE_ENTITIES:
+        if entity not in _QE_ENTITIES or entity not in _qe_entity_names():
             respond(400, {'error': f'unknown entity: {entity!r}'})
         _, fields = _QE_ENTITIES[entity]
         if where:
@@ -60374,6 +60398,7 @@ def handle_fleet_query():
       v7.5.0: encryption_off=1 (disk encryption reported off),
       security_gt=<n> (distro-flagged security updates above n).
       v8.0.0: app=<substr> (an app found on the host, by id or name).
+      v8.0.0: talks=<text> (a connection in the host's last Traffic sample: an address part, a port number or service name, or a program; needs the Traffic module).
       format=csv|xml downloads the filtered set (JSON otherwise; the print/PDF
       view fetches the JSON). Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
@@ -60433,6 +60458,7 @@ def handle_fleet_query():
     encoff_q = q('encryption_off') in ('1', 'true')
     security_gt = qi('security_gt')
     app_q = q('app').lower()
+    talks_q = q('talks').lower()
     ups_q = q('ups_on_battery') in ('1', 'true')
     temp_q = q('temp_high') in ('1', 'true')
     fmt = q('format').lower()   # '', 'csv', 'xml' — JSON when empty
@@ -60442,6 +60468,8 @@ def handle_fleet_query():
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     app_hosts = (app_discovery_handlers_mod.hosts_running(
         devices, (_load_ro(CONTAINERS_FILE) or {}) if backend_exists(CONTAINERS_FILE) else {}, app_q) if app_q else set())
+    talk_hosts = (traffic_handlers_mod.hosts_talking(devices, (_load_ro(TRAFFIC_FILE) or {}) if backend_exists(TRAFFIC_FILE) else {}, talks_q)
+                  if talks_q and _module_on('traffic') else set())
     canonical = _get_agent_sha256() if integ else None
     pkg_store = (load(PACKAGES_FILE) or {}) if has_pkg else {}
     cve = None
@@ -60488,6 +60516,8 @@ def handle_fleet_query():
         if pkgmgr_q and pkgmgr_q not in str(pkg.get('manager') or '').lower():
             continue
         if app_q and did not in app_hosts:
+            continue
+        if talks_q and did not in talk_hosts:
             continue
         online = (now - d.get('last_seen', 0)) < ttl
         if online_q in ('1', 'true') and not online:

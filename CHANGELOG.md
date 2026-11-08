@@ -390,6 +390,24 @@ and in the channels that reach a host over SSH; all are fixed. Production runs 7
   the finding reached the drawer, the Integrations page and the AI index, and nothing that answers a question over the whole fleet. **Held by**
   `tests/test_v800_app_query.py` (20 tests: the real Explorer loader and `handle_fleet_query`, an older agent, hosts the catalog does not read, the caller's scope).
 
+- **Traffic: which addresses each Linux host talks to, and how much each connection moved.** A new tab on the Network page and a section in each host's drawer, in a
+  module that is off until you switch it on (Settings → Advanced → Optional modules → **Traffic**), because it records the remote addresses and program names your hosts
+  connect to. The Linux agent reads `ss` for its established TCP connections (the kernel's own byte counters, no packet capture and no payload) every 60 seconds (30 to
+  3,600) and sends one row for each direction, remote address, service port and program: the connections and the bytes each way since the last sample. The tab adds the
+  fleet up: how many hosts are sampling, the busiest remote addresses with the hosts that talk to each one (a country and an organisation when GeoLite2 is set up, a
+  Threat Intel score when there is one), programs, ports with their service names, and a line for each host with its state; the drawer adds a 24-hour chart. An address a
+  host first used after its first hour is marked **New** for a day. A **watch list** of addresses, networks, ports and programs marks what matches and raises a **Watched
+  connection** alert, once and again after six hours while the connection is still there (at most ten for one report, and the alert goes out only after the record that
+  remembers it is saved). Only the platform operator edits the list, and on an installation with organisations the alert and the pages leave out the entry and its note. A host
+  that cannot be sampled says why: no `ss`, the table could not be read, a kernel without byte counts, or not a Linux host; a host that polls slowly is not called out of date
+  after five minutes. The Data Explorer has a `traffic` entity and Fleet Query a **Talks to** criterion; while the module is off neither answers, and a Linux agent is told to
+  sample nothing. Service names come from a table in the code and never from the machine's services file, which calls port 3000 "hbci" and 8006 "wpl-analytics". See
+  `docs/traffic.md`. **Held by** `tests/test_v800_traffic.py` (86 tests: the rules on literals, the heartbeat, the routes, two organisations, the settings document, the real inbox),
+  `tests/test_v800_traffic_agent.py` (31: three layouts captured from the real `ss`, the real tool over real sockets, a real round through the heartbeat),
+  `tests/test_v800_traffic_query.py` (17) and `tests/test_v800_traffic_e2e.py` (18 browser tests on the demo seed: the tab, the marks, the filters, the drawer and its states,
+  the watch list editor and a refresh arriving while it is edited, a viewer, the module off in both page layouts, a download, text from a host, a late answer, six languages);
+  44 mutations of the new code, all caught.
+
 ### Found by surveying the whole code
 
 Three surveys, each over everything of its kind. The routes the server answers against the pages that call them (most of the routes no page calls
@@ -521,6 +539,14 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   `tests/test_v800_dynamic_colour_carrier.py` (every element that uses a placeholder class carries its colour) and `tests/test_v800_no_unused_js_locals.py`
   (no local variable in the bundle is computed and never read).
 
+- **A CSV the page builds no longer runs as a formula.** Found while building the Traffic tables. Every export the server writes quotes a cell that starts with `=`, `+`,
+  `-` or `@` (or a tab or a carriage return) with a leading `'`, because a spreadsheet runs such a cell as a formula and the text of a cell can come from a host: a program
+  name, a host name, a process. The two CSV builders in the page, the table export (about seventy tables, Processes among them) and the metric explorer's, did not, so a
+  program called `=HYPERLINK(...)` ran when the downloaded file was opened. Medium. Both write their cells through one helper that follows the server's rule, text only, so a
+  negative number is still a number. **Held by** `tests/test_v800_csv_formula_guard.py` (8 tests: the helper under node, cell by cell against the server's rule; every function
+  in the page's scripts that outputs `text/csv`; every csv writer call on the server, which writes a guarded cell or a heading the code defines) and a browser test that downloads
+  the Programs table with a program called `=HYPERLINK(...)`.
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).
@@ -538,14 +564,6 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
 - **The top bar keeps the page name at the largest text size.** At 200% on a 1440 pixel window the bar is 467 page pixels wide, and the crumb was
   squeezed to 6 of them by the `Auto-refresh` label and the buttons. The crumb keeps room for `Dashboard` and the refresh label gives way first (desktop
   layout only; the phone layout is as it was).
-- **A CSV the page builds no longer runs as a formula.** Found while building the Traffic tables. Every export the server writes quotes a cell that starts with `=`, `+`,
-  `-` or `@` (or a tab or a carriage return) with a leading `'`, because a spreadsheet runs such a cell as a formula and the text of a cell can come from a host: a program
-  name, a host name, a process. The two CSV builders in the page, the table export (about seventy tables, Processes among them) and the metric explorer's, did not, so a
-  program called `=HYPERLINK(...)` ran when the downloaded file was opened. Medium. Both write their cells through one helper that follows the server's rule, text only, so a
-  negative number is still a number. **Held by** `tests/test_v800_csv_formula_guard.py` (8 tests: the helper under node, cell by cell against the server's rule; every function
-  in the page's scripts that outputs `text/csv`; every csv writer call on the server, which writes a guarded cell or a heading the code defines) and a browser test that downloads
-  the Programs table with a program called `=HYPERLINK(...)`.
-
 - **Network** gives each node its words on hover and to a screen reader (`web1 — agentless host, offline`; the circle itself carries only `HOS`, `OTH` or
   `UNM`), and the **Forecast** chart's word `projected` sits at the foot of its region, where the projection line no longer crosses it.
 - **Compliance** opens the OpenSCAP card with one line (`Scores a host against an OpenSCAP profile and lists the rules it fails`) and folds the

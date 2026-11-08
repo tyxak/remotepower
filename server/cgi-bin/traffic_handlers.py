@@ -89,7 +89,9 @@ def ingest(dev_id, raw, now):
         sample = T.clean_sample(raw, now)
         if sample is None:
             return
-        prev = A._entity_read_one(A.TRAFFIC_FILE, dev_id, {}) or {}
+        prev = A._entity_read_one(A.TRAFFIC_FILE, dev_id, {})
+        if not isinstance(prev, dict):
+            prev = {}        # a row that is not a map (the JSON backend drops it on read; a SQL backend hands it over) is replaced, not read
         rec = T.merge(prev, sample, now)
         if isinstance(prev.get("alerted"), dict):
             rec["alerted"] = prev["alerted"]            # kept through a sample that cannot be checked, so what was raised is not raised again
@@ -321,7 +323,7 @@ def handle_traffic_fleet():
                                 hits.append({"id": dev_id, "name": name, "ip": r["ip"], "port": r["port"], "proc": r.get("proc", ""), "d": r["d"], "tx": r["tx"], "rx": r["rx"], "kind": w["kind"], "value": w["value"], "label": w.get("label", "") if labels else ""})
         if len(hosts) < HOSTS_MAX:
             hosts.append(line)
-    summary = T.fleet_summary(entries, top=50)
+    summary = T.fleet_summary(entries, top=50, is_new=lambda hid, ip: T.is_new(store.get(hid), ip, now))
     public = {e["ip"] for e in summary["remotes"] if e["scope"] == "public"}
     scores, geo_cache = _intel(public), {}
     for e in summary["remotes"]:
@@ -345,6 +347,69 @@ def handle_traffic_fleet():
             "geo": bool(cfg.get("geoip_db_path") or cfg.get("geoip_asn_db_path")),
         },
     )
+
+
+# ── the Data Explorer and Fleet Query ────────────────────────────────────────
+
+
+def explorer_rows(devices, store, now):
+    """Data Explorer `traffic` (8.0.0): one row for each (host, direction, remote address, port, program) of the last sample of each host given. The hosts are already the
+    caller's (the caller filters them) and the module gate is the caller's too. A row says whether the address is new for the host and whether any watch list entry matches it,
+    never which entry: the entries and their notes are the operator's."""
+    cfg = A._config_ro()
+    every, watch = sampling_every(cfg), _watch(cfg)
+    out = []
+    for dev_id, dev in sorted(devices.items(), key=lambda kv: str((kv[1] or {}).get("name") or kv[0]).lower()):
+        if not isinstance(dev, dict) or dev.get("agentless") or dev.get("decommissioned"):
+            continue
+        rec = store.get(dev_id) if isinstance(store, dict) else None
+        state = _state(dev, rec, now, every)
+        if state not in ("reporting", "stale"):
+            continue
+        for r in rec["sample"].get("rows") or []:
+            if not isinstance(r, dict):
+                continue
+            out.append(
+                {
+                    "device_id": dev_id,
+                    "device_name": dev.get("name") or dev_id,
+                    "direction": r.get("d"),
+                    "address": r.get("ip"),
+                    "scope": T.scope_of(r.get("ip")),
+                    "port": r.get("port"),
+                    "service": T.service_of(r.get("port")),
+                    "program": r.get("proc") or "",
+                    "connections": r.get("n"),
+                    "sent": r.get("tx"),
+                    "received": r.get("rx"),
+                    "new": T.is_new(rec, r.get("ip"), now),
+                    "watched": bool(watch and T.watched(r, watch)),
+                    "state": state,
+                    "sampled_at": rec.get("at"),
+                }
+            )
+    return out
+
+
+def hosts_talking(devices, store, needle):
+    """Ids of the hosts of `devices` whose last sample has a connection to an address that contains `needle`, on that port (or its service name), or by a program that contains
+    it, in any case: the Fleet Query `talks` criterion (8.0.0). Empty for an empty needle."""
+    needle = str(needle or "").strip().lower()
+    out = set()
+    if not needle or not isinstance(store, dict):
+        return out
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get("agentless") or dev.get("decommissioned"):
+            continue
+        rec = store.get(dev_id)
+        rows = rec["sample"].get("rows") if isinstance(rec, dict) and isinstance(rec.get("sample"), dict) else None
+        for r in rows if isinstance(rows, list) else []:
+            if not isinstance(r, dict):
+                continue
+            if needle in str(r.get("ip") or "").lower() or needle in str(r.get("proc") or "").lower() or needle == str(r.get("port")) or needle == T.service_of(r.get("port")):
+                out.add(dev_id)
+                break
+    return out
 
 
 # ── the watch list ───────────────────────────────────────────────────────────

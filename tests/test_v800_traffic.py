@@ -39,8 +39,24 @@ class TestTheRules(unittest.TestCase):
 
     def test_ports_have_names_and_a_value_that_is_not_a_port_has_none(self):
         self.assertEqual((T.service_of(22), T.service_of(443), T.service_of(5432)), ('ssh', 'https', 'postgresql'))
+        self.assertEqual((T.service_of(8006), T.service_of(8096), T.service_of(32400)), ('proxmox', 'jellyfin', 'plex'), 'the ports of the apps a homelab runs')
         for bad in (0, -1, 65536, True, 'x', None, 22.0):
             self.assertEqual(T.service_of(bad), '', repr(bad))
+
+    def test_the_name_of_a_port_comes_from_the_table_and_never_from_the_services_file_of_the_machine(self):
+        import socket
+        real = socket.getservbyport
+
+        def refuse(*a, **k):
+            raise AssertionError('the machine\'s services file was read')
+        socket.getservbyport = refuse
+        try:
+            for port in (3000, 9001, 61234, 8008):
+                self.assertEqual(T.service_of(port), '', port)
+        finally:
+            socket.getservbyport = real
+        self.assertFalse(hasattr(T, 'socket'), 'registered names such as 3000 hbci and 8006 wpl-analytics would read as wrong, and differ between distributions')
+        self.assertEqual(sorted(T.SERVICES), sorted(set(T.SERVICES)), 'control')
 
     def test_an_address_is_public_private_or_one_of_the_special_kinds(self):
         want = {'8.8.8.8': 'public', '10.0.0.1': 'private', '192.168.1.1': 'private', '100.64.0.1': 'private', '169.254.1.1': 'link-local', '224.0.0.1': 'multicast',
@@ -206,8 +222,9 @@ class _Server(unittest.TestCase):
         self.put({'web01': device(), 'win01': device(id='win01', name='win01', os='Windows 11', token='tokw')}, traffic_module_enabled=True)
 
     def put(self, devices, **cfg):
-        Path(self.api.DEVICES_FILE).write_text(json.dumps(devices))
-        Path(self.api.CONFIG_FILE).write_text(json.dumps(cfg))
+        # through the storage layer: under SQLite and Postgres a store is a table, and a file written beside it is not what the server reads
+        self.api.save(self.api.DEVICES_FILE, devices)
+        self.api.save(self.api.CONFIG_FILE, cfg)
         self.api._LOAD_CACHE.clear()
 
     def cfg(self):
@@ -227,7 +244,7 @@ class _Server(unittest.TestCase):
         self.api._LOAD_CACHE.clear()
         return self.api._entity_read_one(self.api.TRAFFIC_FILE, dev, None)
 
-    def request(self, path, method='GET', token='k', body=None):
+    def request(self, path, method='GET', token='k', body=None, query=''):
         """A request through main(): the dispatcher, with the gates that run before a handler does."""
         names = ('REQUEST_METHOD', 'PATH_INFO', 'REMOTE_ADDR', 'CONTENT_LENGTH', 'QUERY_STRING', 'HTTP_AUTHORIZATION', 'HTTP_X_TOKEN')
         saved = {n: os.environ.get(n) for n in names}
@@ -236,7 +253,7 @@ class _Server(unittest.TestCase):
             os.environ.update(PATH_INFO=path)
             self.api.main()
         try:
-            return _run(self.api, go, body, method=method, env={'HTTP_AUTHORIZATION': 'Bearer ' + token})
+            return _run(self.api, go, body, method=method, env={'HTTP_AUTHORIZATION': 'Bearer ' + token, 'QUERY_STRING': query})
         finally:
             for n, v in saved.items():
                 if v is None:
@@ -296,10 +313,19 @@ class TestTheHeartbeat(_Server):
             self.beat(traffic=bad)
 
     def test_a_record_that_is_not_a_map_in_the_store_is_replaced_not_raised_on(self):
-        Path(self.api.DATA_DIR / 'traffic.json').write_text(json.dumps({'web01': 'junk'})) if not self.api.backend_exists(self.api.TRAFFIC_FILE) else None
         self.api._entity_write_one(self.api.TRAFFIC_FILE, 'web01', 'junk')
         self.beat(traffic=sample())
         self.assertEqual(self.stored()['sample']['tx'], 1000)
+
+    def test_a_row_that_is_not_a_map_is_replaced_whatever_the_backend_hands_over(self):
+        """The JSON backend drops such a row when it reads the store; a SQL backend gives it back as it is, and ingest used to call .get on it and fail for ever."""
+        real = self.api._entity_read_one
+        self.api._entity_read_one = lambda f, d, default=None: 'junk' if f == self.api.TRAFFIC_FILE else real(f, d, default)
+        try:
+            self.beat(traffic=sample())
+        finally:
+            self.api._entity_read_one = real
+        self.assertEqual(self.stored()['sample']['tx'], 1000, 'the host\'s next report put a record where the damaged row was')
 
     def test_the_stored_row_leaves_with_the_host(self):
         self.beat(traffic=sample())
@@ -380,7 +406,7 @@ class TestOneHost(_Server):
 
     def test_the_reputation_of_an_address_comes_from_the_threat_intel_store_and_only_for_a_public_one(self):
         self.beat(traffic=sample([row(), row(ip=LAN, port=22)]))
-        Path(self.api.IPINTEL_FILE).write_text(json.dumps({'attackers': {PUB: {'verdict': {'score': 97}}, LAN: {'verdict': {'score': 99}}, PUB2: {'verdict': {'score': 'x'}}}}))
+        self.api.save(self.api.IPINTEL_FILE, {'attackers': {PUB: {'verdict': {'score': 97}}, LAN: {'verdict': {'score': 99}}, PUB2: {'verdict': {'score': 'x'}}}})
         self.api._LOAD_CACHE.clear()
         by = {r['ip']: r for r in self.host()['rows']}
         self.assertEqual(by[PUB]['score'], 97)
@@ -426,6 +452,15 @@ class TestOneHost(_Server):
         self.put({'web01': device()})
         st, body = self.call(self.api.handle_device_traffic, 'web01')
         self.assertEqual((st, body.get('module_disabled')), (404, 'traffic'), 'the host route is outside the prefix the dispatcher gates, so it checks the switch itself')
+
+    def test_a_remote_says_how_many_hosts_it_is_new_for_and_names_its_ports(self):
+        a = T.clean_sample(sample([row(port=443), row(port=22)]), 1)
+        out = T.fleet_summary([('h1', 'web', a), ('h2', 'db', a)], top=10, is_new=lambda hid, ip: hid == 'h2' and ip == PUB)
+        remote = {e['ip']: e for e in out['remotes']}[PUB]
+        self.assertEqual(remote['new_hosts'], 1)
+        self.assertEqual(remote['ports'], [{'port': 22, 'service': 'ssh'}, {'port': 443, 'service': 'https'}])
+        self.assertNotIn('new_hosts', T.fleet_summary([('h1', 'web', a)], top=10)['remotes'][0], 'without the callback nothing is new')
+        self.assertNotIn('new_hosts', T.fleet_summary([('h1', 'web', a)], top=10, is_new=lambda hid, ip: False)['remotes'][0])
 
 
 class TestWhichMatchesAreDueAnAlert(unittest.TestCase):
@@ -652,6 +687,16 @@ class TestTheFleet(_Server):
         self.assertIs(top['watched'], True)
         self.assertEqual(top['scope'], 'public')
 
+    def test_an_address_that_is_new_for_a_host_is_marked_on_the_remote_with_how_many_hosts(self):
+        rec = self.stored('web02')
+        rec['first'] -= T.LEARN_S + 100
+        rec['seen'] = {PUB: rec['first'] + T.LEARN_S + 50}          # first used after the baseline hour and within the last day
+        self.api._entity_write_one(self.api.TRAFFIC_FILE, 'web02', rec)
+        remotes = {e['ip']: e for e in self.fleet()['remotes']}
+        self.assertEqual(remotes[PUB]['new_hosts'], 1, 'new for web02, in its baseline hour for web01')
+        self.assertEqual({p['port'] for p in remotes[PUB]['ports']}, {443})
+        self.assertNotIn('new_hosts', remotes[PUB2])
+
     def test_a_watch_list_match_names_the_host_the_address_the_port_and_the_entry(self):
         hits = self.fleet()['hits']
         self.assertEqual({(h['name'], h['ip'], h['port'], h['kind']) for h in hits}, {('web01', PUB, 443, 'ip'), ('web02', PUB, 443, 'ip'), ('web01', LAN, 22, 'port')})
@@ -830,6 +875,25 @@ class TestTenants(_Server):
         self.assertEqual((got['watch'][0]['label'], got['editable']), ('operator note', True))
         st, got = self.request('/api/traffic/config', 'POST', token='op', body={'watch': [{'kind': 'port', 'value': '22', 'label': 'ssh'}]})
         self.assertEqual(st, 200, got)
+
+
+    def test_the_settings_document_does_not_hand_a_tenant_the_operators_watch_list(self):
+        """GET /api/config returns the whole settings document, so the entries and their notes have a second way out besides the Traffic routes."""
+        for tok in ('ta', 'tb', 'tv'):
+            st, got = self.request('/api/config', token=tok)
+            self.assertEqual(st, 200, got)
+            self.assertEqual(got.get('traffic_watch'), [], tok + ': the list of the organisation that runs the installation comes back empty')
+            self.assertNotIn('operator note', json.dumps(got), tok)
+        st, got = self.request('/api/config', token='op')
+        self.assertEqual([w['label'] for w in got['traffic_watch']], ['operator note'], 'the platform operator reads it')
+
+    def test_on_an_installation_with_no_tenants_every_signed_in_user_reads_the_list_here_as_in_the_traffic_routes(self):
+        self.put({'web01': device()}, traffic_module_enabled=True, traffic_watch=[{'kind': 'port', 'value': '23', 'label': 'telnet'}])
+        for tok in ('ta', 'tv'):
+            st, got = self.request('/api/config', token=tok)
+            self.assertEqual((st, [w['label'] for w in got['traffic_watch']]), (200, ['telnet']), tok)
+            st, got = self.request('/api/traffic/config', token=tok)
+            self.assertEqual([w['label'] for w in got['watch']], ['telnet'], 'the two routes agree on who reads the entries')
 
 
 class TestTheRegistrations(unittest.TestCase):

@@ -76,7 +76,7 @@ holds long-form docs that don't fit there.
   of the wrong kind does to the Thermal page and the risk score, and one low issue, a stored reading or limit too big
   for a float that answered 500 to everyone. Caught before release, with the scans and the mutation checks behind it.
 - **[v8.0.0.md](v8.0.0.md)** — "Pil0tMatters": the text size from 80% to 300%, tabs and named layouts, ten wizards, the apps
-  the agent finds on a host, three connectors and four monitor types, a read-only MCP endpoint and automatic image updates.
+  the agent finds on a host, three connectors and four monitor types, a read-only MCP endpoint, automatic image updates and a Traffic view of what each host talks to.
 - **[v7.5.0.md](v7.5.0.md)** — "Wh0leMatters": the release that carries 7.4.1 to 7.4.9 to production, with four-eyes approval on every
   command, a sign-in before a restore, the agents' data in every page that can use it, and fifteen medium findings fixed.
 - **[v7.4.9.md](v7.4.9.md)** — "Ch0iceMatters": a host runs its upgrades in a Standard or an Extended mode, a
@@ -134,6 +134,7 @@ holds long-form docs that don't fit there.
  linting, batch execution.
 - **[compose.md](compose.md)** — docker compose dropdown on host cards.
 - **[app-discovery.md](app-discovery.md)** — The apps an agent finds on a Linux host (from its sockets, containers and services), and the monitor and connector each one offers: **Discovered on this host** in the drawer and **Found on your hosts** on Integrations *(8.0.0)*.
+- **[traffic.md](traffic.md)** — Which addresses your Linux hosts talk to and how much each connection moved: the **Traffic** tab on the Network page, the host drawer's section, the watch list and its alert, the Data Explorer `traffic` entity and Fleet Query **Talks to**; off until you switch it on *(8.0.0)*.
 - **[docker-agent.md](docker-agent.md)** — run the agent as a container to
  monitor a Docker host (no host install; one-click compose from the UI).
 - **[containers.md](containers.md)** — Docker / Podman / Kubernetes pod

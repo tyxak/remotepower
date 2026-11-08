@@ -41,6 +41,7 @@ The page lists them by these names.
 | `attackers` | (source address, attacked host) | "which known-abusive addresses are hitting the web tier, and are they blocked" |
 | `gateway_sessions` | finished SSH-gateway session | "who reached the database hosts through the gateway this week" |
 | `apps` | (host, app the agent found on it) | "which hosts run Jellyfin, and which of those listen on loopback only" |
+| `traffic` | (host, direction, remote address, port, program) | "which hosts talk to an address they never used before, and how much do they send it" |
 
 ## Conditions
 
@@ -264,6 +265,16 @@ The apps the Linux agent found on each host (see [app-discovery.md](app-discover
 catalog id (`jellyfin`), `scope` says whether the port is open to the network or to loopback only, and `via` says what gave the app
 away: a process, a container image, a service or a port. `source` is `agent` for a host whose agent reports apps and `server` for an
 older agent, where the server works them out from the ports and containers it did report. Agentless hosts have no rows.
+
+### `traffic`
+
+`device_id`, `device_name`, `direction`, `address`, `scope`, `port`, `service`, `program`, `connections`, `sent`, `received`, `new`, `watched`, `state`, `sampled_at`.
+
+What each Linux host's connections moved at its last sample (see [traffic.md](traffic.md)), one row for each direction (`in` or `out`), remote address, service port and
+program. `scope` is `public`, `private` or `link-local`, `sent` and `received` are bytes since the sample before, `new` says the host first used the public address after
+its baseline hour and within the last day, and `watched` says whether any watch list entry matches the row, never which one. `state` is `reporting` or `stale` and
+`sampled_at` the time of the sample. Hosts with no sample, agentless hosts and retired hosts have no rows. The entity is listed, and answers, only while the Traffic module
+is on.
 
 ## Saved queries
 

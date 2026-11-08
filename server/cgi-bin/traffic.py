@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import ipaddress
 import re
-import socket
 from typing import Any
 
 MAX_ROWS = 100  # rows kept for a host, the busiest first
@@ -23,17 +22,26 @@ SEEN_MAX = 300  # public remote addresses remembered for a host, to tell a new o
 NEW_FOR_S = 86400  # an address counts as new for a day after a host first used it
 LEARN_S = 3600  # the first hour of a host's samples is its baseline: nothing in it is new
 MAX_WATCH = 100  # entries in the watch list
-ALERT_REPEAT_S = 6 * 3600  # a watched connection that is still there raises its alert again after this long
+ALERT_REPEAT_S = (
+    6 * 3600
+)  # a watched connection that is still there raises its alert again after this long
 ALERT_MAX = 10  # alerts one host's sample may raise; what is left comes due at the next sample
-ALERTED_MAX = 200  # matches remembered for a host, so the record of what was raised cannot grow without bound
+ALERTED_MAX = (
+    200  # matches remembered for a host, so the record of what was raised cannot grow without bound
+)
 MAX_BYTES = 2**50
 WATCH_KINDS = ("ip", "cidr", "port", "proc")
-ERRORS = ("no-ss", "ss-failed", "no-counters")  # what an agent may say when it could not read its connections; any other text is dropped
+ERRORS = (
+    "no-ss",
+    "ss-failed",
+    "no-counters",
+)  # what an agent may say when it could not read its connections; any other text is dropped
 
 _PROC_RX = re.compile(r"[^\x20-\x7e]")
 
-# Names for the ports a person expects to recognise. A port that is not here is looked up in the services file of the machine the server runs on, which may know more
-# and may not; an empty name is a fair answer for a port nobody has registered.
+# Names for the ports a person expects to recognise, and nothing else: a port that is not here has no name. The services file of the machine the server runs on is not read.
+# It names 3000 "hbci" and 8006 "wpl-analytics" (registered once, used by Gitea and by Proxmox), and the same port would read differently on the next distribution; an empty
+# name is a fair answer for a port that several things use.
 SERVICES = {
     20: "ftp-data",
     21: "ftp",
@@ -102,19 +110,28 @@ SERVICES = {
     15672: "rabbitmq",
     27017: "mongodb",
     51820: "wireguard",
+    548: "afp",
+    631: "ipp",
+    3260: "iscsi",
+    5353: "mdns",
+    5985: "winrm",
+    5986: "winrm-tls",
+    8006: "proxmox",
+    8007: "proxmox-backup",
+    8096: "jellyfin",
+    8123: "home-assistant",
+    8384: "syncthing",
+    22000: "syncthing-sync",
+    25565: "minecraft",
+    32400: "plex",
 }
 
 
 def service_of(port: Any) -> str:
-    """The name of a TCP port: the table above, then the services file of this machine, else an empty string."""
+    """The name of a TCP port from the table above, else an empty string."""
     if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
         return ""
-    if port in SERVICES:
-        return SERVICES[port]
-    try:
-        return socket.getservbyport(port, "tcp")
-    except OSError:
-        return ""
+    return SERVICES.get(port, "")
 
 
 def scope_of(ip: Any) -> str:
@@ -165,9 +182,24 @@ def clean_row(raw: Any) -> dict[str, Any] | None:
     ip = _address(raw.get("ip"))
     port = _count(raw.get("port"), 65535)
     n, tx, rx = _count(raw.get("n"), 10**6), _count(raw.get("tx")), _count(raw.get("rx"))
-    if direction not in ("in", "out") or ip is None or not port or n is None or tx is None or rx is None:
+    if (
+        direction not in ("in", "out")
+        or ip is None
+        or not port
+        or n is None
+        or tx is None
+        or rx is None
+    ):
         return None
-    return {"d": direction, "ip": ip, "port": port, "proc": _program(raw.get("proc")), "n": max(1, n), "tx": tx, "rx": rx}
+    return {
+        "d": direction,
+        "ip": ip,
+        "port": port,
+        "proc": _program(raw.get("proc")),
+        "n": max(1, n),
+        "tx": tx,
+        "rx": rx,
+    }
 
 
 def clean_sample(raw: Any, now: int | None = None) -> dict[str, Any] | None:
@@ -177,7 +209,13 @@ def clean_sample(raw: Any, now: int | None = None) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
     rows_in, other_raw = raw.get("rows"), raw.get("other")
-    rows = [r for r in (clean_row(x) for x in (rows_in[: MAX_ROWS * 2] if isinstance(rows_in, list) else [])) if r]
+    rows = [
+        r
+        for r in (
+            clean_row(x) for x in (rows_in[: MAX_ROWS * 2] if isinstance(rows_in, list) else [])
+        )
+        if r
+    ]
     rows.sort(key=lambda r: (-(r["tx"] + r["rx"]), -r["n"], r["ip"], r["port"]))
     kept, rest = rows[:MAX_ROWS], rows[MAX_ROWS:]
     other_in: dict[str, Any] = other_raw if isinstance(other_raw, dict) else {}
@@ -218,7 +256,11 @@ def merge(prev: Any, sample: dict[str, Any], now: int) -> dict[str, Any]:
     series = [p for p in (prev.get("series") or []) if isinstance(p, list) and len(p) == 4]
     first = _count(prev.get("first"), 4 * 10**9) or now
     seen_in = prev.get("seen")
-    seen = {k: v for k, v in seen_in.items() if isinstance(k, str) and isinstance(v, int)} if isinstance(seen_in, dict) else {}
+    seen = (
+        {k: v for k, v in seen_in.items() if isinstance(k, str) and isinstance(v, int)}
+        if isinstance(seen_in, dict)
+        else {}
+    )
     # a sample that says the connections could not be read has no volume to plot: a flat point would read as "no traffic"
     if not sample.get("err") and (not series or now - series[-1][0] >= SERIES_GAP):
         win = max(1.0, sample["win"])
@@ -228,7 +270,13 @@ def merge(prev: Any, sample: dict[str, Any], now: int) -> dict[str, Any]:
             seen[r["ip"]] = now
     if len(seen) > SEEN_MAX:
         seen = dict(sorted(seen.items(), key=lambda kv: kv[1])[-SEEN_MAX:])
-    return {"first": first, "at": now, "sample": sample, "series": series[-SERIES_MAX:], "seen": seen}
+    return {
+        "first": first,
+        "at": now,
+        "sample": sample,
+        "series": series[-SERIES_MAX:],
+        "seen": seen,
+    }
 
 
 def is_new(record: Any, ip: str, now: int) -> bool:
@@ -236,7 +284,12 @@ def is_new(record: Any, ip: str, now: int) -> bool:
     if not isinstance(record, dict) or not isinstance(record.get("seen"), dict):
         return False
     at, first = record["seen"].get(ip), record.get("first")
-    if isinstance(at, bool) or not isinstance(at, int) or isinstance(first, bool) or not isinstance(first, int):
+    if (
+        isinstance(at, bool)
+        or not isinstance(at, int)
+        or isinstance(first, bool)
+        or not isinstance(first, int)
+    ):
         return False
     return at - first >= LEARN_S and 0 <= now - at <= NEW_FOR_S
 
@@ -252,7 +305,10 @@ def clean_watch(raw: Any) -> tuple[list[dict[str, str]], str]:
     for i, e in enumerate(raw):
         if not isinstance(e, dict):
             return [], "entry %d is not an object" % (i + 1)
-        kind, value = e.get("kind"), str(e.get("value") if e.get("value") is not None else "").strip()
+        kind, value = (
+            e.get("kind"),
+            str(e.get("value") if e.get("value") is not None else "").strip(),
+        )
         if kind not in WATCH_KINDS:
             return [], "entry %d: the kind must be one of ip, cidr, port or proc" % (i + 1)
         if kind == "ip":
@@ -310,10 +366,19 @@ def watched(row: dict[str, Any], watch: list[dict[str, str]]) -> list[dict[str, 
 
 def _hit_key(row: dict[str, Any], entry: dict[str, str]) -> str:
     """What one watch list match is, for the record of what a host has raised: the entry and the row (direction, remote address, port, program)."""
-    return "%s:%s|%s|%s|%s|%s" % (entry["kind"], entry["value"], row["d"], row["ip"], row["port"], row["proc"])
+    return "%s:%s|%s|%s|%s|%s" % (
+        entry["kind"],
+        entry["value"],
+        row["d"],
+        row["ip"],
+        row["port"],
+        row["proc"],
+    )
 
 
-def due_hits(alerted: Any, rows: list[dict[str, Any]], watch: list[dict[str, str]], now: int) -> tuple[list[tuple[dict[str, Any], dict[str, str]]], dict[str, int]]:
+def due_hits(
+    alerted: Any, rows: list[dict[str, Any]], watch: list[dict[str, str]], now: int
+) -> tuple[list[tuple[dict[str, Any], dict[str, str]]], dict[str, int]]:
     """([(row, entry)], alerted) -- the watch list matches in a host's new sample that are due an alert, and the host's record of what it has raised.
 
     A match is one entry on one row (a row that two entries match is two). It is due when the host has not raised it within ALERT_REPEAT_S: the first time, and
@@ -322,7 +387,14 @@ def due_hits(alerted: Any, rows: list[dict[str, Any]], watch: list[dict[str, str
     cannot make it grow."""
     keep: dict[str, int] = {}
     if isinstance(alerted, dict):
-        keep = {k: v for k, v in alerted.items() if isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool) and 0 <= now - v < ALERT_REPEAT_S}
+        keep = {
+            k: v
+            for k, v in alerted.items()
+            if isinstance(k, str)
+            and isinstance(v, int)
+            and not isinstance(v, bool)
+            and 0 <= now - v < ALERT_REPEAT_S
+        }
         if len(keep) > ALERTED_MAX:
             keep = dict(sorted(keep.items(), key=lambda kv: kv[1])[-ALERTED_MAX:])
     hits: list[tuple[dict[str, Any], dict[str, str]]] = []
@@ -342,18 +414,30 @@ _KIND_WORDS = {"ip": "address", "cidr": "network", "port": "port", "proc": "prog
 
 def hit_detail(row: dict[str, Any], entry: dict[str, str], show_entry: bool) -> str:
     """The sentence an alert carries: the direction and the port with its service name, and, when show_entry, which entry matched with the note written on it. On
-    an installation with several organisations the entry stays out: it is the operator's list, and the remote address and port already say what was seen."""
+    an installation with several organisations the entry stays out: it is the operator's list, and the remote address and port already say what was seen.
+    """
     svc = service_of(row["port"])
-    text = "%s connection on port %d%s" % ("Inbound" if row["d"] == "in" else "Outbound", row["port"], " (%s)" % svc if svc else "")
+    text = "%s connection on port %d%s" % (
+        "Inbound" if row["d"] == "in" else "Outbound",
+        row["port"],
+        " (%s)" % svc if svc else "",
+    )
     if not show_entry:
         return text + ", matches the watch list"
-    text += ", matches the watch list entry %s %s" % (_KIND_WORDS.get(entry["kind"], entry["kind"]), entry["value"])
+    text += ", matches the watch list entry %s %s" % (
+        _KIND_WORDS.get(entry["kind"], entry["kind"]),
+        entry["value"],
+    )
     return text + (" (%s)" % entry["label"] if entry.get("label") else "")
 
 
-def fleet_summary(entries: list[tuple[str, str, dict[str, Any]]], top: int = 50) -> dict[str, Any]:
+def fleet_summary(
+    entries: list[tuple[str, str, dict[str, Any]]], top: int = 50, is_new: Any = None
+) -> dict[str, Any]:
     """Add up hosts' latest samples: [(host id, host name, sample)] become the busiest remote addresses (with the hosts that talk to each), the busiest programs and ports,
-    and the totals. Hosts are counted by id, since two hosts can share a name; a remote lists at most five of them."""
+    and the totals. Hosts are counted by id, since two hosts can share a name; a remote lists at most five of them. `is_new(host id, address)`, when given, says whether
+    an address is new for that host, and a remote carries `new_hosts`, how many hosts it is new for.
+    """
     remotes: dict[str, dict[str, Any]] = {}
     procs: dict[str, dict[str, Any]] = {}
     ports: dict[tuple[str, int], dict[str, Any]] = {}
@@ -366,18 +450,37 @@ def fleet_summary(entries: list[tuple[str, str, dict[str, Any]]], top: int = 50)
         total["rx"] += sample.get("rx") or 0
         total["conns"] += sample.get("conns") or 0
         for r in sample.get("rows") or []:
-            e = remotes.setdefault(r["ip"], {"ip": r["ip"], "hosts": {}, "n": 0, "tx": 0, "rx": 0, "ports": set()})
+            e = remotes.setdefault(
+                r["ip"],
+                {
+                    "ip": r["ip"],
+                    "hosts": {},
+                    "n": 0,
+                    "tx": 0,
+                    "rx": 0,
+                    "ports": set(),
+                    "new": set(),
+                },
+            )
             e["hosts"].setdefault(hid, name)
+            if is_new is not None and hid not in e["new"] and is_new(hid, r["ip"]):
+                e["new"].add(hid)
             e["n"] += r["n"]
             e["tx"] += r["tx"]
             e["rx"] += r["rx"]
             e["ports"].add(r["port"])
-            p = procs.setdefault(r["proc"] or "-", {"proc": r["proc"] or "-", "hosts": set(), "n": 0, "tx": 0, "rx": 0})
+            p = procs.setdefault(
+                r["proc"] or "-",
+                {"proc": r["proc"] or "-", "hosts": set(), "n": 0, "tx": 0, "rx": 0},
+            )
             p["hosts"].add(hid)
             p["n"] += r["n"]
             p["tx"] += r["tx"]
             p["rx"] += r["rx"]
-            q = ports.setdefault((r["d"], r["port"]), {"d": r["d"], "port": r["port"], "hosts": set(), "n": 0, "tx": 0, "rx": 0})
+            q = ports.setdefault(
+                (r["d"], r["port"]),
+                {"d": r["d"], "port": r["port"], "hosts": set(), "n": 0, "tx": 0, "rx": 0},
+            )
             q["hosts"].add(hid)
             q["n"] += r["n"]
             q["tx"] += r["tx"]
@@ -397,12 +500,31 @@ def fleet_summary(entries: list[tuple[str, str, dict[str, Any]]], top: int = 50)
                 "n": e["n"],
                 "tx": e["tx"],
                 "rx": e["rx"],
-                "ports": sorted(e["ports"])[:6],
+                "ports": [{"port": q, "service": service_of(q)} for q in sorted(e["ports"])[:6]],
+                **({"new_hosts": len(e["new"])} if e["new"] else {}),
             }
             for e in busiest(list(remotes.values()))
         ],
-        "programs": [{"proc": p["proc"], "hosts_n": len(p["hosts"]), "n": p["n"], "tx": p["tx"], "rx": p["rx"]} for p in busiest(list(procs.values()))],
+        "programs": [
+            {
+                "proc": p["proc"],
+                "hosts_n": len(p["hosts"]),
+                "n": p["n"],
+                "tx": p["tx"],
+                "rx": p["rx"],
+            }
+            for p in busiest(list(procs.values()))
+        ],
         "ports": [
-            {"d": q["d"], "port": q["port"], "service": service_of(q["port"]), "hosts_n": len(q["hosts"]), "n": q["n"], "tx": q["tx"], "rx": q["rx"]} for q in busiest(list(ports.values()))
+            {
+                "d": q["d"],
+                "port": q["port"],
+                "service": service_of(q["port"]),
+                "hosts_n": len(q["hosts"]),
+                "n": q["n"],
+                "tx": q["tx"],
+                "rx": q["rx"],
+            }
+            for q in busiest(list(ports.values()))
         ],
     }

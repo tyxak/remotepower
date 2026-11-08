@@ -2814,7 +2814,7 @@ const MODULE_PAGES = {
   autonomy:   'autonomy',
   sshgw:      'sshgw',
   mcp:        null,   // 8.0.0: an API prefix with no page, like ai_exec
-  traffic:    null,   // 8.0.0: an API prefix and a tab of the Network page, not a page of its own (_applyModuleTabGates hides the tab)
+  traffic:    null,   // 8.0.0: an API prefix and a tab of the Network page, not a page of its own (_applyModuleElementGates hides the tab)
 };
 
 // [checkbox id, config key, default] — defaults MUST mirror api._MODULES, or a
@@ -2846,14 +2846,14 @@ function _applyModuleNavGates(modules) {
   }
 }
 
-// 8.0.0: a module can own a tab of an existing page instead of a page of its own (Traffic on Network). The tab button names the module in
-// data-module; with the module off the button is hidden, and pgTabsApply skips a hidden button, so a tab remembered from before falls back to
-// the page's default one. Presentation only: the server answers 404 for the module's API either way.
-function _applyModuleTabGates(modules) {
-  document.querySelectorAll('.pg-tabs [data-pg-tab-btn][data-module]').forEach(b => {
-    const mod = b.dataset.module;
-    if (!(mod in modules)) return;          // an older server did not send it: leave the tab as it is
-    b.classList.toggle('d-none', !modules[mod]);
+// 8.0.0: a module can own something smaller than a page: a tab of an existing page (Traffic on Network) or a field of a form (Fleet Query's "Talks to"). The element names its
+// module in data-module; with the module off it is hidden, and pgTabsApply skips a hidden tab button, so a tab remembered from before falls back to the page's default one.
+// Presentation only: the server answers 404, or nothing, for the module's data either way.
+function _applyModuleElementGates(modules) {
+  document.querySelectorAll('[data-module]').forEach(el => {
+    const mod = el.dataset.module;
+    if (!(mod in modules)) return;          // an older server did not send it: leave the element as it is
+    el.classList.toggle('d-none', !modules[mod]);
   });
   const cur = document.querySelector('.page.active');
   if (cur && cur.querySelector('.pg-tabs[data-pg]')) pgTabsApply(cur.id.replace(/^page-/, ''));
@@ -3105,7 +3105,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js'];   // 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites.
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js', 'app-traffic.js'];   // 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites. 8.0.0: app-traffic.js, the Traffic tab of the Network page and the drawer's Traffic section (fetched when either shows and the module is on).
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -3197,10 +3197,20 @@ function _pageSectionsStacked() {
   try { return localStorage.getItem('rp_pagetabs') === 'stacked'; } catch (_) { return false; }
 }
 function _pgTabIn(card, tab) { return String(card.dataset.pgTab || '').split(/\s+/).includes(tab); }
+// 8.0.0: a tab whose cards a lazy module fills: [page, tab, the module that owns it, its file, the function that draws it]. The file is fetched the first time the
+// tab shows and the function runs each time it shows (it limits itself: showPage and the module gate both pass through pgTabsApply). With the module off
+// nothing is fetched.
+const _PG_TAB_HOOKS = [['netmap', 'traffic', 'traffic', 'app-traffic.js', 'trafficEnter']];
+function _pgTabEnter(page, tab, stacked) {
+  for (const [pg, tb, mod, file, fn] of _PG_TAB_HOOKS) {
+    if (pg !== page || (!stacked && tb !== tab) || !(window._modules && window._modules[mod])) continue;
+    _loadJsModule(file).then(() => { if (typeof window[fn] === 'function') window[fn](); });
+  }
+}
 function pgTabsApply(page, tab) {
   const bar = document.querySelector(`.pg-tabs[data-pg="${page}"]`);
   if (!bar) return;
-  const names = [...bar.querySelectorAll('[data-pg-tab-btn]:not(.d-none)')].map(b => b.dataset.pgTabBtn);   // a tab its module hid (_applyModuleTabGates) is not one to land on
+  const names = [...bar.querySelectorAll('[data-pg-tab-btn]:not(.d-none)')].map(b => b.dataset.pgTabBtn);   // a tab its module hid (_applyModuleElementGates) is not one to land on
   if (tab === undefined) { try { tab = localStorage.getItem('pgtab.' + page); } catch (_) { tab = null; } }
   if (!names.includes(tab)) tab = names.includes(bar.dataset.default) ? bar.dataset.default : names[0];
   const stacked = _pageSectionsStacked();
@@ -3212,6 +3222,7 @@ function pgTabsApply(page, tab) {
     b.classList.toggle('active', on);
     if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
   });
+  _pgTabEnter(page, tab, stacked);
 }
 
 function pgTab(arg) {
@@ -20045,7 +20056,7 @@ async function loadHome() {
   // (an older server) leaves everything visible, as before.
   window._modules = home.modules || {};
   _applyModuleNavGates(window._modules);
-  _applyModuleTabGates(window._modules);
+  _applyModuleElementGates(window._modules);
   window._ticketsOn = !!home.tickets_enabled;
   window._billingOn = !!home.billing_enabled;
   window._ticketDevices = new Set(home.ticket_devices || []);
@@ -24887,6 +24898,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   _renderDrawerSettings();
   switchDrawerTab(defaultTab);
   _loadJsModule('app-appdiscovery.js').then(() => { if (typeof loadDrawerApps === 'function') loadDrawerApps(id); });   // 8.0.0: the apps found on this host
+  if (window._modules && window._modules.traffic) _loadJsModule('app-traffic.js').then(() => { if (typeof loadDrawerTraffic === 'function') loadDrawerTraffic(id); });   // 8.0.0: what this host's connections moved
   _loadJsModule('app-business-services.js').then(() => { if (typeof loadDrawerServices === 'function') loadDrawerServices(id); });   // 8.0.0: the services this host is part of
 }
 
@@ -29169,8 +29181,8 @@ const _FQ_FIELDS = {
   firewall_off: 'fq-fwoff', ssh_weak: 'fq-sshweak', autoupdate_off: 'fq-auoff',
   // v7.5.0: disk encryption and distro-flagged security updates
   encryption_off: 'fq-encoff', security_gt: 'fq-security',
-  // 8.0.0: an app the agent found on the host
-  app: 'fq-app',
+  // 8.0.0: an app the agent found on the host, and something the host talks to
+  app: 'fq-app', talks: 'fq-talks',
 };
 function _fqFields() {
   const out = {};

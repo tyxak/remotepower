@@ -6826,6 +6826,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <div class="form-group"><label class="form-label">Pkg manager</label><input type="text" id="fq-pkgmgr" class="form-input" placeholder="apt / dnf / pacman" aria-label="Pkg manager"></div>
               <div class="form-group"><label class="form-label">Has package</label><input type="text" id="fq-haspkg" class="form-input" placeholder="package name" aria-label="Has package"></div>
               <div class="form-group"><label class="form-label">Runs app</label><input type="text" id="fq-app" class="form-input" placeholder="app name" aria-label="Runs app"></div>
+              <div class="form-group d-none" data-module="traffic"><label class="form-label">Talks to</label><input type="text" id="fq-talks" class="form-input" placeholder="address, port or program" aria-label="Talks to"></div>
               </div>
             </details>
             <details class="fq-group">
@@ -8787,6 +8788,7 @@ nextcloud mem=95 sustain=6</pre>
           <button class="pg-tab" data-pg-tab-btn="dependencies" data-action="pgTab" data-arg="netmap:dependencies">Dependencies</button>
           <button class="pg-tab" data-pg-tab-btn="discovery" data-action="pgTab" data-arg="netmap:discovery">Discovery</button>
           <button class="pg-tab" data-pg-tab-btn="watches" data-action="pgTab" data-arg="netmap:watches">Watches</button>
+          <button class="pg-tab d-none" data-pg-tab-btn="traffic" data-module="traffic" data-action="pgTab" data-arg="netmap:traffic">Traffic</button>
         </nav>
         <div data-pg-tab="map" class="isl-173">
           <button class="btn-icon" data-action="loadNetmap" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -8863,6 +8865,103 @@ nextcloud mem=95 sustain=6</pre>
           </div>
           <p class="hint">Hosts seen by agents that ran a LAN scan (host drawer → Health &amp; hardware → Scan LAN) and that aren't enrolled in RemotePower.</p>
           <div id="discovery-body"><div class="c-muted">No scan data yet — run a LAN scan from a host's Health &amp; hardware card.</div></div>
+        </div>
+
+        <!-- 8.0.0: the Traffic view. app-traffic.js shows this when the module is on and fills it when the tab opens -->
+        <div id="traffic-wrap" data-pg-tab="traffic" hidden>
+          <div class="dash-card mt-16">
+            <div class="section-header">
+              <div class="section-title">Traffic</div>
+              <button class="btn-icon" data-action="loadTraffic"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            </div>
+            <p class="hint">Which addresses your Linux hosts talk to, which programs open the connections, and how much each connection moved between a host's last two samples, read from each host's connection table. <a href="docs/traffic.md" class="c-accent">Documentation</a></p>
+            <div id="traffic-stats" class="mt-8"></div>
+            <div id="traffic-note" class="hint mt-8"></div>
+          </div>
+
+          <div class="dash-card mt-16">
+            <div class="section-header">
+              <div class="section-title">Remote addresses</div>
+              <div class="row-8-center">
+                <select id="traffic-show" class="form-input input-auto" data-change="trafficShow" aria-label="Show">
+                  <option value="all">All addresses</option>
+                  <option value="public">Public addresses</option>
+                  <option value="local">Local network</option>
+                  <option value="new">New addresses</option>
+                  <option value="watched">Watch list matches</option>
+                </select>
+                <input type="text" id="traffic-remotes-filter" class="form-input input-filter" placeholder="Filter by address, host, port or country…" aria-label="Filter remote addresses">
+              </div>
+            </div>
+            <div class="table-card">
+              <table>
+                <thead id="traffic-remotes-thead"><tr><th scope="col" data-col="address">Address</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="ports">Ports</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th><th scope="col" data-col="where">Country and organisation</th></tr></thead>
+                <tbody id="traffic-remotes-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dash-card mt-16">
+            <div class="section-header"><div class="section-title">Programs</div></div>
+            <div class="table-card">
+              <table>
+                <thead id="traffic-programs-thead"><tr><th scope="col" data-col="program">Program</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th></tr></thead>
+                <tbody id="traffic-programs-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dash-card mt-16">
+            <div class="section-header"><div class="section-title">Ports and services</div></div>
+            <div class="table-card">
+              <table>
+                <thead id="traffic-ports-thead"><tr><th scope="col" data-col="direction">Direction</th><th scope="col" data-col="port">Port</th><th scope="col" data-col="service">Service</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th></tr></thead>
+                <tbody id="traffic-ports-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dash-card mt-16">
+            <div class="section-header"><div class="section-title">Hosts</div></div>
+            <div class="table-card">
+              <table>
+                <thead id="traffic-hosts-thead"><tr><th scope="col" data-col="host">Host</th><th scope="col" data-col="state">State</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th><th scope="col" data-col="last">Last sample</th></tr></thead>
+                <tbody id="traffic-hosts-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dash-card mt-16">
+            <div class="section-header"><div class="section-title">Watch list</div></div>
+            <p class="hint">Addresses, networks, ports and programs you want to notice. A connection that matches is marked, listed here and raises a Watched connection alert. <a href="docs/traffic.md" class="c-accent">Documentation</a></p>
+            <div class="table-card">
+              <table>
+                <thead id="traffic-hits-thead"><tr><th scope="col" data-col="host">Host</th><th scope="col" data-col="address">Address</th><th scope="col" data-col="port">Port</th><th scope="col" data-col="program">Program</th><th scope="col" data-col="direction">Direction</th><th scope="col" data-col="entry">Entry</th></tr></thead>
+                <tbody id="traffic-hits-tbody"></tbody>
+              </table>
+            </div>
+            <div id="traffic-wl-list" class="scroll-cap mt-12"></div>
+            <div id="traffic-wl-note" class="hint mt-8"></div>
+            <div id="traffic-wl-edit" class="mt-8" hidden>
+              <div class="row-8-center">
+                <select id="traffic-wl-kind" class="form-input input-auto" aria-label="Kind">
+                  <option value="ip">Address</option>
+                  <option value="cidr">Network</option>
+                  <option value="port">Port</option>
+                  <option value="proc">Program</option>
+                </select>
+                <input type="text" id="traffic-wl-value" class="form-input input-wide-sm" placeholder="Address, network, port or program" aria-label="Value">
+                <input type="text" id="traffic-wl-label" class="form-input input-wide-sm" placeholder="Note (optional)" aria-label="Note">
+                <button class="btn-icon" data-action="trafficWatchAdd">Add</button>
+              </div>
+              <div class="row-8-center mt-8">
+                <label class="meta-sm" for="traffic-every">Sample every</label>
+                <input type="number" id="traffic-every" class="form-input input-narrow" min="30" max="3600" aria-label="Seconds between samples">
+                <span class="meta-sm">Seconds</span>
+                <button class="enroll-btn" data-action="trafficWatchSave">Save</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -10409,6 +10508,13 @@ nextcloud mem=95 sustain=6</pre>
           <div class="section-title">Discovered on this host</div>
           <p class="hint">The agent found these apps running. Monitor one from this host, connect it to read its health, or hide it. <a href="docs/app-discovery.md" class="c-accent" target="_blank" rel="noopener">Documentation</a></p>
           <div id="drawer-apps-list" class="scroll-cap"><!-- rendered by JS --></div>
+        </div>
+
+        <!-- 8.0.0: what this host's connections moved at its last sample (app-traffic.js fills it and shows it when the Traffic module is on and the host is a Linux one) -->
+        <div class="drawer-section mt-16" id="drawer-traffic-section" hidden>
+          <div class="section-title">Traffic</div>
+          <p class="hint">Which addresses this host talks to and how much each connection moved between its last two samples. <a href="docs/traffic.md" class="c-accent" target="_blank" rel="noopener">Documentation</a></p>
+          <div id="drawer-traffic-body"><!-- rendered by JS --></div>
         </div>
 
         <!-- 8.0.0: the business services this host is a part of, directly or through another service (app-business-services.js fills it and shows it when there is one) -->

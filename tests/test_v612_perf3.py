@@ -321,7 +321,11 @@ class TestEagerJsPayload(unittest.TestCase):
         # 8.0.0 twelfth round: 2_731_000. The payload was 2_722_791 when the budget went to 2_726_000 and is 2_727_094 now: 4,303 bytes more. Run command for an agentless host that is
         # reached over SSH (the dialog's mode, the call and the output helper the two paths share) is about 2,000 of them; the host settings form reading what is stored from its own
         # route and staying read-only until it has (and the guard in the save) is about 2,300. Both draw before any loader could be asked for more.
-        self.assertLess(total, 2_731_000,
+        # 8.0.0 Traffic: 2_733_000. The payload was about 2_729_300 before the Traffic view's front end and is 2_731_246 now: 1,949 bytes more. The hook that fetches a tab's lazy
+        # module the first time the tab shows (about 700, with its comment), the gate that hides what a module that is off owns, now for any element that names its module and not
+        # only a tab (about 200 more: the tab and Fleet Query's Talks to field), the cell helper both client CSV builders write through so that a program name starting with =
+        # is not a formula in the file (about 800), the drawer's call (about 200) and the Fleet Query field and the lazy list (about 100). The view itself is a lazy module.
+        self.assertLess(total, 2_733_000,
                         'the eager JS payload regressed past its budget')
 
 

@@ -3240,6 +3240,16 @@ def build_config() -> dict:
         'sshgw_enabled':         True,
         'sshgw_public_host':     'gw.demo.example',
         'sshgw_public_port':     2222,
+        # 8.0.0: the Traffic view is on so its tab, its drawer section and the sweeps that walk the seeded stack can reach it; the watch list holds what gt01 and
+        # pmx01 trip (see _DEMO_TRAFFIC).
+        'traffic_module_enabled': True,
+        'traffic_every':         60,
+        'traffic_watch': [
+            {'kind': 'ip', 'value': '185.220.101.45', 'label': 'A Tor relay'},
+            {'kind': 'cidr', 'value': '185.220.100.0/22', 'label': 'Tor relays'},
+            {'kind': 'port', 'value': '23', 'label': 'Telnet is not used on this network'},
+            {'kind': 'proc', 'value': 'nc', 'label': 'netcat'},
+        ],
         # Threat Intel: lookups and auto-block on, so the page shows scores,
         # reports and blocks. No provider keys: the demo never calls out.
         'ip_intel': {'lookup_enabled': True, 'report_enabled': True,
@@ -3966,6 +3976,14 @@ def build_alerts() -> dict:
          {'device_id': 'ha01', 'device_name': 'home-assistant.lab', 'container': 'zwave-js',
           'image': 'zwavejs/zwave-js-ui', 'runtime': 'docker',
           'output': "wget: can't connect to remote host (127.0.0.1): Connection refused"}, None, None),
+        # 8.0.0: what the Traffic watch list raises, in the payload traffic_handlers._raise sends (appended last so the ids above stay the same)
+        ('traffic_watch', 'medium', 'gt01', 'Watched Connection',
+         {'device_id': 'gt01', 'device_name': 'gitea.lab', 'name': 'gitea.lab', 'ip': '185.220.101.45', 'port': 9001, 'process': 'kworker-net',
+          'detail': 'Outbound connection on port 9001, matches the watch list entry address 185.220.101.45 (A Tor relay)', 'label': 'A Tor relay'}, None, None),
+        ('traffic_watch', 'medium', 'pmx01', 'Watched Connection',
+         {'device_id': 'pmx01', 'device_name': 'proxmox.lab', 'name': 'proxmox.lab', 'ip': '10.0.0.1', 'port': 23, 'process': 'telnet',
+          'detail': 'Outbound connection on port 23 (telnet), matches the watch list entry port 23 (Telnet is not used on this network)',
+          'label': 'Telnet is not used on this network'}, 'alice', None),
     ]
     alerts = []
     for i, (event, sev, dev_id, title, payload, ack_by, resolved_by) in enumerate(specs):
@@ -4040,6 +4058,8 @@ def build_fleet_events() -> dict:
         ('health_degraded', 'nc01',  {'severity': 'warning'}),
         ('health_recovered','nc01',  {}),
         ('container_unhealthy', 'ha01', {'container': 'zwave-js'}),   # 7.4.9, last so the others keep their times
+        ('traffic_watch', 'gt01', {'ip': '185.220.101.45', 'port': 9001, 'process': 'kworker-net', 'label': 'A Tor relay',
+                                   'detail': 'Outbound connection on port 9001, matches the watch list entry address 185.220.101.45 (A Tor relay)'}),   # 8.0.0
     ]
     events = []
     for i, (event, dev_id, extra) in enumerate(templates):
@@ -5231,6 +5251,108 @@ def build_repo_inventory() -> dict:
     for dev_id, files in _DEMO_REPO_FILES.items():
         digest = _h.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()[:24]
         out[dev_id] = {'ts': now() - 600, 'hash': digest, 'files': files}
+    return out
+
+
+# 8.0.0: what the demo's Linux hosts talk to, over one 60 second window: (direction, remote address, service port, program, connections, bytes sent, bytes received).
+# The outbound peers are well-known public services, and the inbound clients of nginx are Cloudflare's edge, which is what a homelab behind Cloudflare sees. The
+# documentation ranges are not used for public addresses: Python does not count them as public, so they would read as the local network. gt01 holds the two things the
+# demo's watch list is there to catch (a connection to a Tor relay under a program name that is not its own) and pmx01 a telnet session. ha01 has no ss (Alpine, iproute2
+# not installed), bk01 has not sent a sample yet, and the Windows and macOS hosts are not supported: the four states a host line can be in besides sampling.
+_DEMO_TRAFFIC = {
+    'ng01': [
+        ('in', '104.16.132.229', 443, 'nginx', 23, 4_200_000, 520_000), ('in', '104.18.2.35', 443, 'nginx', 17, 3_100_000, 410_000),
+        ('in', '172.67.74.226', 443, 'nginx', 9, 880_000, 120_000), ('in', '162.158.89.17', 443, 'nginx', 4, 150_000, 22_000),
+        ('in', '141.101.64.10', 443, 'nginx', 2, 61_000, 9_000), ('in', '10.0.3.10', 443, 'nginx', 2, 640_000, 31_000),
+        ('out', '10.0.2.30', 8096, 'nginx', 6, 610_000, 3_900_000), ('out', '10.0.2.60', 443, 'nginx', 5, 98_000, 1_250_000),
+        ('out', '10.0.2.40', 3000, 'nginx', 3, 22_000, 340_000), ('out', '10.0.2.70', 80, 'nginx', 2, 6_000, 71_000),
+        ('out', '172.65.32.248', 443, 'certbot', 1, 4_300, 12_800),
+    ],
+    'jf01': [
+        ('in', '10.0.2.20', 8096, 'jellyfin', 6, 3_900_000, 610_000), ('in', '10.0.3.10', 8096, 'jellyfin', 2, 28_000_000, 130_000),
+        ('in', '10.0.3.20', 8096, 'jellyfin', 1, 5_200_000, 24_000), ('out', '151.101.1.140', 443, 'jellyfin', 3, 14_000, 380_000),
+        ('out', '10.0.1.20', 445, '', 2, 4_100, 29_500_000),
+    ],
+    'gt01': [
+        ('in', '10.0.2.20', 3000, 'gitea', 3, 340_000, 22_000), ('in', '10.0.3.10', 22, 'sshd', 1, 180_000, 9_000),
+        ('out', '74.125.140.109', 587, 'gitea', 1, 6_400, 2_100), ('out', '140.82.112.3', 443, 'gitea', 2, 41_000, 1_300_000),
+        ('out', '185.220.101.45', 9001, 'kworker-net', 2, 2_900_000, 41_000),
+    ],
+    'nc01': [
+        ('in', '10.0.2.20', 443, 'apache2', 5, 1_250_000, 98_000), ('out', '104.26.8.140', 443, 'php-fpm8.3', 2, 9_000, 410_000),
+        ('out', '74.125.140.109', 587, 'php-fpm8.3', 1, 21_000, 3_000),
+    ],
+    'vw01': [
+        ('in', '10.0.2.20', 80, 'vaultwarden', 2, 71_000, 6_000), ('out', '104.18.17.184', 443, 'vaultwarden', 1, 2_000, 14_000),
+        ('out', '74.125.140.109', 587, 'vaultwarden', 1, 3_900, 800),
+    ],
+    'pr01': [('in', '10.0.3.10', 9090, 'prometheus', 2, 820_000, 14_000), ('in', '10.0.3.10', 3000, 'grafana', 1, 410_000, 22_000)] + [
+        ('out', ip, 9100, 'prometheus', 1, 3_200, 190_000) for ip in ('10.0.1.10', '10.0.1.20', '10.0.0.254', '10.0.2.10', '10.0.2.20', '10.0.2.30',
+                                                                       '10.0.2.40', '10.0.2.50', '10.0.2.60', '10.0.2.70', '10.0.2.90', '10.0.3.10')],
+    'pmx01': [
+        ('in', '10.0.3.10', 8006, 'pveproxy', 3, 1_900_000, 140_000), ('in', '10.0.3.20', 8006, 'pveproxy', 1, 220_000, 18_000),
+        ('out', '212.224.123.70', 443, 'apt', 1, 8_000, 2_400_000), ('out', '10.0.1.20', 22, 'ssh', 1, 30_000, 51_000),
+        ('out', '10.0.0.1', 23, 'telnet', 1, 1_200, 8_000), ('out', '10.0.2.90', 8007, 'pvedaemon', 2, 18_400_000, 60_000),
+    ],
+    'tnas': [
+        ('in', '10.0.3.10', 445, 'smbd', 2, 5_100_000, 9_800_000), ('in', '10.0.2.30', 445, 'smbd', 2, 29_500_000, 4_100),
+        ('in', '10.0.1.10', 2049, '', 3, 2_400_000, 6_700_000), ('out', '206.190.215.14', 443, 'rclone', 4, 61_000_000, 38_000),
+        ('out', '10.0.1.99', 9000, 'nc', 1, 500, 120),
+    ],
+    'fw01': [
+        ('in', '10.0.3.10', 443, 'lighttpd', 2, 410_000, 36_000), ('in', '10.0.3.10', 22, 'sshd', 1, 62_000, 4_000),
+        ('out', '1.1.1.1', 853, 'unbound', 6, 120_000, 410_000), ('out', '9.9.9.9', 853, 'unbound', 4, 71_000, 260_000),
+        ('out', '81.169.160.20', 443, 'pkg', 1, 3_000, 620_000),
+    ],
+    'pi1': [
+        ('in', '10.0.0.254', 53, 'pihole-FTL', 2, 3_100, 1_800), ('in', '10.0.3.20', 80, 'lighttpd', 1, 48_000, 3_000),
+        ('out', '1.1.1.1', 853, 'pihole-FTL', 3, 90_000, 240_000), ('out', '1.0.0.1', 853, 'pihole-FTL', 2, 52_000, 133_000),
+    ],
+}
+# Public addresses a host first used this long ago (seconds): past its baseline hour and inside the last day, so they read as new.
+_DEMO_TRAFFIC_NEW = {'ng01': {'141.101.64.10': 5 * 3600}, 'gt01': {'185.220.101.45': 2 * 3600}}
+
+
+def _traffic_module():
+    """server/cgi-bin/traffic.py, loaded from the checkout the seeder sits in: the demo's rows go through the cleaner and the merger a real report goes through."""
+    import importlib.util as _ilu
+    spec = _ilu.spec_from_file_location('rp_traffic_demo', _CGI_DIR / 'traffic.py')
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def build_traffic() -> dict:
+    """What each Linux host's connections moved -> traffic.json (8.0.0): {dev_id: {first, at, sample, series, seen}}, written the way traffic.ingest keeps them.
+
+    Nine hosts have a sample and a day's chart, ha01 says it cannot read its connections, bk01 has no record yet and the hosts that run no Linux agent have none."""
+    T = _traffic_module()
+    t = now()
+    out = {}
+    for dev_id, rows in _DEMO_TRAFFIC.items():
+        at = t - _seeded_random('traffic-at', dev_id).randint(8, 50)
+        sample = T.clean_sample({'win': 60, 'rows': [{'d': d, 'ip': ip, 'port': port, 'proc': proc, 'n': n, 'tx': tx, 'rx': rx} for d, ip, port, proc, n, tx, rx in rows]}, at)
+        rec = T.merge(None, sample, at)
+        first = t - 86400 * 9
+        rec['first'] = first
+        rec['seen'] = {ip: first + 7200 for ip in rec['seen']}
+        for ip, ago in _DEMO_TRAFFIC_NEW.get(dev_id, {}).items():
+            rec['seen'][ip] = t - ago
+        rng = _seeded_random('traffic-series', dev_id)
+        tx, rx, conns = sample['tx'] / 60.0, sample['rx'] / 60.0, sample['conns']
+        series = []
+        for k in range(T.SERIES_MAX):
+            ts = at - (T.SERIES_MAX - 1 - k) * T.SERIES_GAP
+            day = 0.5 + 0.5 * _math.sin((((ts % 86400) / 3600.0) - 9) / 24.0 * 2 * _math.pi)       # busy in the afternoon, quiet at night
+            f = 0.35 + 0.65 * day
+            series.append([ts, round(tx * f * (0.8 + 0.4 * rng.random())), round(rx * f * (0.8 + 0.4 * rng.random())), max(1, round(conns * (0.6 + 0.4 * f)))])
+        series[-1] = [at, round(tx), round(rx), conns]
+        rec['series'] = series
+        out[dev_id] = rec
+    at = t - 22
+    broken = T.merge(None, T.clean_sample({'win': 60, 'rows': [], 'err': 'no-ss'}, at), at)
+    broken['first'] = t - 86400 * 9
+    out['ha01'] = broken
     return out
 
 
@@ -8135,6 +8257,7 @@ BUILDERS = {
     'cputime_history.json':        build_cputime_history,
     'patch_previews.json':         build_patch_previews,
     'repo_inventory.json':         build_repo_inventory,
+    'traffic.json':                build_traffic,
     'gpu_history.json':            build_gpu_history,
     'thermal_history.json':        build_thermal_history,
     'thermal_rollup.json':         build_thermal_rollup,

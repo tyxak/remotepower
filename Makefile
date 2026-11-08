@@ -54,6 +54,7 @@ LINT_SRC := server/cgi-bin/safe_opener.py \
             server/cgi-bin/image_autoupdate.py \
             server/cgi-bin/protocol_probes.py \
             server/cgi-bin/mcp_http.py \
+            server/cgi-bin/traffic.py \
             tests/test_v190.py \
             tests/test_v1100.py \
             tests/test_wsgi_entrypoint.py \
@@ -101,6 +102,7 @@ TYPECHECK_SRC := server/cgi-bin/safe_opener.py \
                  server/cgi-bin/image_autoupdate.py \
                  server/cgi-bin/protocol_probes.py \
                  server/cgi-bin/mcp_http.py \
+                 server/cgi-bin/traffic.py \
                  server/cgi-bin/importers.py
 PIP_FLAGS ?= --break-system-packages
 
