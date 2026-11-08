@@ -77829,8 +77829,7 @@ def run_sidecar_watch_if_due():
     reboot. An informational row on a page nobody has open during an outage is
     not a control.
 
-    Cheap: three `systemctl is-active` calls at most, on a 5-minute cadence, and
-    only for sidecars the operator has actually turned on.
+    Cheap: a `systemctl is-active` call for each sidecar the operator has turned on (and one for the web terminal, which has no switch), on a 5-minute cadence.
     """
     now = int(time.time())
     cfg = _config_ro() or {}
@@ -77862,19 +77861,39 @@ def run_sidecar_watch_if_due():
             want.append(('remotepower-kmipd', 'KMIP key server'))
     except Exception:
         pass
-    if not want:
-        return
+    # 8.0.0: the agent push channel and the SSH gateway had a row on Server status and no alert: a daemon that died left the feature silently off. Each has a switch the operator
+    # turned on (push_enabled, the sshgw module), and that switch is the gate here as the token kinds and the KMIP flag are for the others.
+    try:
+        if cfg.get('push_enabled'):
+            want.append(('remotepower-push', 'agent push channel'))
+    except Exception:
+        pass
+    try:
+        if _module_on('sshgw'):
+            want.append(('remotepower-sshgw', 'SSH gateway'))
+    except Exception:
+        pass
 
     state = load(SIDECAR_STATE_FILE) or {}
+    state_before = json.dumps(state, sort_keys=True, default=str)
     marks = state.get('down') if isinstance(state.get('down'), dict) else {}
+    # 8.0.0: the web terminal has no switch to read, and a unit that was never installed answers `inactive` for ever, which is not a fault. It is watched once it has been seen
+    # running, and from then on a dead state is reported like the others'.
+    seen = state.get('seen') if isinstance(state.get('seen'), dict) else {}
+    probe = list(want) + ([('remotepower-webterm', 'web terminal')] if _have_systemctl else [])
     pending = []
-    for unit, what in (want if _have_systemctl else ()):
+    for unit, what in (probe if _have_systemctl else ()):
         try:
             r = subprocess.run(['systemctl', 'is-active', unit],
                                capture_output=True, text=True, timeout=3)
             status = (r.stdout or '').strip()
         except Exception:
             continue          # can't tell → say nothing, per the contract above
+        if unit in _SIDECARS_WATCHED_ONCE_SEEN:
+            if status == 'active':
+                seen[unit] = True
+            elif not seen.get(unit):
+                continue      # never seen running here: the unit is not installed, or the daemon lives on another host
         # ONLY these two are a definite dead state. `unknown`, `activating`,
         # `deactivating` and an empty answer all mean "cannot tell right now",
         # and a sidecar running on another host answers `inactive` for a unit
@@ -77944,10 +77963,14 @@ def run_sidecar_watch_if_due():
             bad_marks.pop(_gone, None)
     except Exception:
         pass
-    state['unmappable'] = bad_marks
-    state['down'] = marks
+    for _k, _v in (('unmappable', bad_marks), ('down', marks), ('seen', seen)):
+        if _v:
+            state[_k] = _v
+        else:
+            state.pop(_k, None)       # an empty map is the absence of one: a quiet install keeps a quiet file
     try:
-        save(SIDECAR_STATE_FILE, state, non_blocking=True)
+        if json.dumps(state, sort_keys=True, default=str) != state_before:     # a write only when something moved: with no sidecar on, nothing does
+            save(SIDECAR_STATE_FILE, state, non_blocking=True)
     except Exception:
         pass
     for ev, payload in pending:
@@ -77973,7 +77996,8 @@ def run_sidecar_watch_if_due():
 # a stale-value trap. This compares the LIVE constant against the last value
 # observed and only writes on a CHANGE, so the store is a change log, never a
 # claim about what is running now.
-_SIDECAR_WATCH_INTERVAL = 300   # v6.4.2: three is-active calls, every 5 min
+_SIDECAR_WATCH_INTERVAL = 300   # v6.4.2: an is-active call per enabled sidecar, every 5 min
+_SIDECARS_WATCHED_ONCE_SEEN = ('remotepower-webterm',)   # 8.0.0: units with no switch to read: watched once they have been seen running
 SERVER_VERSION_HISTORY_MAX = 50
 
 

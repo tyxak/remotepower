@@ -450,6 +450,14 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   page called it. A row of the Timeline that is a fleet event has a replay button for the platform operator (the server refuses a tenant's administrator, since the route reaches every
   tenant's events). It asks first, because the other end is a person: the event goes out as a new one, with the same channels, filters and mutes, and the people on them are told again. A
   command run and the current CVE row are not fleet events and have no button. The Timeline's rows carry the event's own name, `event`, for it. Held by `tests/test_v800_webhook_replay_e2e.py`.
+- **Two more sidecars have a wizard, and three have an alert.** **Guide me** next to the agent push channel (Settings → Advanced) checks that the push daemon answers, switches the channel
+  on, and waits for the first agent that uses it (the host list marks one with a bolt); after five minutes with nothing it says what to look at. **Guide me** on the SSH Gateway page, and
+  beside its switch in Advanced, follows the guide: it switches the module on with the address your users reach the gateway by, checks that the gateway service is connected to this server,
+  opts in the Linux hosts you tick, tells you how many keys your account has (a key is added on the SSH Gateway page, which asks for your password) and ends with the block for
+  `~/.ssh/config`. The sidecar alert (`sidecar_down`, `sidecar_recovered`) covered the syslog and flow receivers and the KMIP server only. It now covers the agent push daemon and the SSH
+  gateway when you have switched them on, and the web terminal once it has been seen running (it has no switch, and a unit that was never installed answers `inactive` for ever, which is not a
+  fault). The state file is written only when something moved. Held by `tests/test_v800_wizards_push_sshgw_e2e.py` (the daemons' ports are real listening sockets, the rest is the real server)
+  and `tests/test_v800_sidecar_watch.py`.
 - **The DNS records table says why it is empty.** With no provider credentials, a locked vault or a token that sees no zone, the table was a header
   over nothing and only a line of small print above it gave the reason. It now says *No zone to list yet. Give the provider credentials, then pick a
   zone.* The walk of the empty install is a test now: it opens all 79 sidebar pages of a fresh install and fails on a blank table, a loader that never

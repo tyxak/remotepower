@@ -56,6 +56,14 @@ closes within a few minutes.
 There are five steps. A server is reachable when all five are true, so if
 something doesn't work, check them in order.
 
+**Guide me.** The SSH Gateway page (the Connect tab) and **Settings → Advanced → Optional
+modules** have a **Guide me** button. It follows steps 3 to 5 below and checks step 1 on the way:
+it switches the module on with the address your users reach the gateway by, checks that the
+gateway service is connected to this server, opts in the hosts you tick, tells you how many keys
+your account has (a key is added on the SSH Gateway page, because it asks for your password), and
+ends with the block for `~/.ssh/config`. Step 2, the route through your web server, is part of the
+shipped configuration and is not checked.
+
 ### 1. Install the gateway
 
 On the RemotePower server:

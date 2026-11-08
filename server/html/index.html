@@ -3017,6 +3017,7 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-ai_exec"> <strong>AI executor</strong> — lets the AI <em>propose</em> a remediation for a host. It executes nothing: a proposal is parked in the Confirmations queue and a human admin must approve it, and the AI may only <em>select</em> from your saved scripts and registered playbooks — it cannot write a command. <strong>Off by default</strong>; off means the whole API is 404, not merely a hidden button.</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-autonomy" checked> <strong>Autonomous remediation</strong> — the loop that can fix recurring problems on its own. The page is visible by default and the loop is <strong>inert</strong>: every tenant starts at <em>off</em>, which records nothing and acts on nothing. You move a tenant to <em>shadow</em> to have it write receipts you can grade, and only then to <em>enabled</em>. Unticking this hides the page and 404s the API. <a href="docs/autonomy.md" class="c-accent">Documentation</a></label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-sshgw"> <strong>SSH Gateway</strong> — reach opted-in servers with your own SSH client through one gateway, with no inbound port on the server. Off by default. It needs the gateway service on this server (<code>install-server.sh --with-sshgw</code>); unticking this refuses every gateway login and 404s the API. <a href="docs/sshgw.md" class="c-accent">Documentation</a></label></div>
+            <div class="settings-row"><button class="btn-secondary" data-action="wizOpen" data-arg="sshgw" type="button">Guide me</button></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-mcp"> <strong>MCP endpoint</strong> — lets an AI host ask this server about the fleet over HTTP, read-only, with the permissions of the API key it uses. Off by default, and the endpoint answers 404 until this is ticked. <a href="docs/mcp.md" class="c-accent">Documentation</a></label></div>
           </div>
           <div class="settings-section">
@@ -3031,7 +3032,7 @@
             <p class="hint">Send connected agents a "poll now" nudge over a companion WebSocket daemon instead of always waiting for the next scheduled poll — cuts worst-case command-dispatch latency, but never carries commands itself; the agent's normal poll cycle stays authoritative. Requires <code>server/push/remotepower-push.py</code> installed + running separately. Off by default — the feature is invisible unless both this is on and the daemon is actually reachable. <a href="docs/push.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-push-enabled"> Enable the agent push channel</label></div>
             <div class="hint">Linux agents only — Windows and macOS agents ignore this. The test button below checks the daemon, not whether your agents use it.</div>
-            <div class="row-6"><button class="btn-secondary" data-action="testPushChannel" type="button">Test daemon connection</button></div>
+            <div class="row-6"><button class="btn-secondary" data-action="wizOpen" data-arg="push" type="button">Guide me</button><button class="btn-secondary" data-action="testPushChannel" type="button">Test daemon connection</button></div>
             <div id="push-channel-test-result" class="hint mt-6" role="status" aria-live="polite"></div>
           </div>
 
@@ -7466,6 +7467,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card" data-pg-tab="connect">
           <div class="section-title">Connect</div>
           <div id="sshgw-state" class="hint mb-8" role="status"></div>
+          <div class="toolbar mb-8"><button class="btn-secondary" data-action="wizOpen" data-arg="sshgw" type="button">Guide me</button></div>
           <p class="hint">Add this to <code>~/.ssh/config</code>, then connect with <code>ssh root@&lt;name&gt;.rp</code>. Names are a server's RemotePower name, hostname or host id.</p>
           <pre id="sshgw-config" class="ff-mono scroll-cap"></pre>
           <div class="toolbar">

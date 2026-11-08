@@ -232,6 +232,16 @@ class TestASuperadminBrandsATenant(unittest.TestCase):
         self.assertFalse(self.page.evaluate("() => document.getElementById('tenant-branding-modal').classList.contains('active')"), "a form that shows nothing stored must not be saved over it")
         self.page.unroute_all(behavior="ignoreErrors")
 
+    def test_a_dialog_whose_read_is_refused_says_why_and_does_not_open(self):
+        self.open_list()
+        reason = "you may only manage your own tenant's branding"
+        self.page.route("**/api/tenants/*/branding", lambda route: route.fulfill(status=403, content_type="application/json", body=json.dumps({"error": reason}))
+                        if route.request.method == "GET" else route.continue_())
+        self.row(self.acme).click()
+        self.page.wait_for_function("(t) => document.body.innerText.includes(t)", arg=reason, timeout=15000)
+        self.assertFalse(self.page.evaluate("() => document.getElementById('tenant-branding-modal').classList.contains('active')"), "an empty form must not be offered for saving over what is stored")
+        self.page.unroute_all(behavior="ignoreErrors")
+
     def test_a_save_that_gets_no_answer_says_so_and_keeps_the_dialog_open(self):
         self.open_dialog(self.acme)
         self.page.route("**/api/tenants/*/branding", lambda route: route.abort() if route.request.method == "PUT" else route.continue_())

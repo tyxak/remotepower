@@ -161,7 +161,7 @@ Most of this page is information. These conditions also raise alerts:
 | Event | When |
 |---|---|
 | `server_disk_low`, `server_disk_ok` | The data directory's filesystem is fuller than the watchdog threshold, and the recovery. |
-| `sidecar_down`, `sidecar_recovered` | A sidecar you enabled (syslog, flow, KMIP) has stopped. It is checked every 5 minutes, and only when systemd is present and reports a definite `inactive` or `failed`. A sidecar running on another host stays silent. |
+| `sidecar_down`, `sidecar_recovered` | A sidecar you enabled (syslog, flow, KMIP, the agent push channel, the SSH gateway) has stopped. The web terminal has no switch, so it is watched once it has been seen running. It is checked every 5 minutes, and only when systemd is present and reports a definite `inactive` or `failed`. A sidecar running on another host stays silent. |
 | `ingest_source_unmappable`, `ingest_source_mapped` | A syslog or flow token is wired to a host that has no IP, or no longer exists. A token you disabled yourself is not reported. |
 | `kmip_cert_expiring`, `kmip_cert_renewed` | The KMIP CA or a live client certificate expires within the window in **Settings → Alert parameters → Certificates → Cert-file expiring** (default 21 days). Checked every 6 hours. Revoked clients are ignored. |
 | `restore_drill_failed`, `restore_drill_ok` | The scheduled restore drill failed, and the next pass. See [backups.md](backups.md). |

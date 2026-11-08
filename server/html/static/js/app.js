@@ -4123,7 +4123,7 @@ function openDetail(id, name) {
 }function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
 // 8.0.0: the wizards and the step-by-step forms are app-wizard.js, fetched on first use; these are the entry points index.html names.
 function wizOpen(name) {
-  const more = name === 'syslog' || name === 'flow' || name === 'satellite';        // 8.0.0: the sidecar wizards are app-wizard-sidecars.js, fetched after the runner
+  const more = name === 'syslog' || name === 'flow' || name === 'satellite' || name === 'push' || name === 'sshgw';        // 8.0.0: the sidecar wizards are app-wizard-sidecars.js, fetched after the runner
   _loadJsModule('app-wizard.js').then(() => (more ? _loadJsModule('app-wizard-sidecars.js') : null)).then(() => { if (typeof wizStart === 'function') wizStart(name); });
 }
 function wizOpenFrom(name, modalId) {

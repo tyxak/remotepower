@@ -41,6 +41,11 @@ makes it run sooner. Two consequences:
 
 ## Enable it
 
+**Guide me.** **Settings → Advanced → Agent push channel** has a **Guide me** button. It checks that
+the daemon answers, switches the channel on, and waits for the first agent that uses it, which shows a
+small bolt in the host list. If nothing connects after five minutes it says what to look at (the agent
+host needs `python3-websockets`). The steps below are the same thing by hand.
+
 **On a fresh install it's already installed — flip one switch.** As of v6.1.1
 both `install-server.sh` and the Docker image install and start the push daemon
 by default (opt out with `--no-push` / `RP_WITH_PUSH=0`), and nginx already

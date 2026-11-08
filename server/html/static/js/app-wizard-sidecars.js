@@ -4,6 +4,8 @@
 //   wizStart('syslog')     a host sends its logs to the syslog receiver of this server
 //   wizStart('flow')       a router sends its traffic records (NetFlow, IPFIX, sFlow) to the flow receiver
 //   wizStart('satellite')  a relay satellite, or a scan worker, for another network
+//   wizStart('push')       the agent push channel: the daemon answers, the channel is on, the first agent uses it
+//   wizStart('sshgw')      the SSH gateway: the module and its address, the service, the hosts, your key, the ~/.ssh/config block
 //
 // The two receivers know a device by the address its packets come from, and the token is attached to a host on the server's side, so the device never holds it: what the wizard
 // does for each is the three things the guides list (a host that carries the address, a token of the right kind pinned to it, the sender's own settings) and then it waits for the
@@ -409,5 +411,315 @@ function _wizSatDone(st, body) {
   }
 }
 
+// ── "Turn on the agent push channel" ────────────────────────────────────────────────────────────────────────────────────────
+// The push daemon is installed with the server and idle until the channel is switched on: this checks that it answers, switches it on, and waits for the first agent that uses it (the
+// host list marks one with a bolt). A Linux agent needs python3-websockets, and one that lacks it keeps polling as before, so the wait says what to look at when nothing arrives.
+function _wizPushDef() {
+  return {
+    title: 'Turn on the agent push channel',
+    init: () => ({ daemon: null, detail: '', checking: false, on: false, arrived: null, watching: false, watchFrom: 0, late: false }),
+    steps: [
+      { label: 'Daemon', render: _wizPushDaemon, validate: st => (st.daemon === true ? null : { msg: 'The push daemon does not answer yet. Start it, then check again.' }), next: _wizPushTurnOn },
+      { label: 'Agents', render: _wizPushAgents, primary: 'Continue', noBack: true },
+      { label: 'Done', render: _wizPushDone, closeOnly: true, noBack: true },
+    ],
+  };
+}
+
+function _wizPushDaemon(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'Agents are told to poll the moment a command is waiting'));
+  body.appendChild(_wizNode('div', 'hint', 'Without it an agent finds a command at its next poll, up to a minute later. With it a small daemon on this server nudges the agent at once. It carries no command, only the nudge, and an agent that cannot use it keeps polling as before. Linux agents only.'));
+  const el = _wizNode('div', 'wiz-watch');
+  el.id = 'wiz-push-daemon';
+  el.setAttribute('role', 'status');
+  body.appendChild(el);
+  const again = _wizNode('button', 'btn-secondary mt-8', 'Check again');
+  again.type = 'button';
+  again.setAttribute('data-action', 'wizPushCheck');
+  body.appendChild(again);
+  _wizPushPaint();
+  if (st.daemon === null) wizPushCheck();
+}
+
+async function wizPushCheck() {
+  const w = _wiz;
+  if (!w || w.st.checking) return;
+  const st = w.st;
+  st.checking = true;
+  _wizPushPaint();
+  const r = await api('POST', '/push-daemon/test', {}).catch(() => null);
+  if (_wiz !== w) return;
+  st.checking = false;
+  st.daemon = !!(r && r.reachable);
+  st.detail = (r && (r.detail || r.error)) || '';
+  _wizPushPaint();
+}
+
+function _wizPushPaint() {
+  const el = document.getElementById('wiz-push-daemon');
+  const w = _wiz;
+  if (!el || !w) return;
+  const st = w.st;
+  el.textContent = '';
+  if (st.checking || st.daemon === null) {
+    el.className = 'wiz-watch c-muted';
+    el.appendChild(_wizNode('span', '', 'Checking…'));
+  } else if (st.daemon) {
+    el.className = 'wiz-watch c-green';
+    el.appendChild(_wizNode('span', 'wiz-state', 'The push daemon answers'));
+  } else {
+    el.className = 'wiz-watch c-amber';
+    el.appendChild(_wizNode('span', 'wiz-state', 'The push daemon does not answer'));
+    if (st.detail) el.appendChild(_wizNode('span', 'ff-mono', st.detail));
+    el.appendChild(_wizNode('div', 'hint', 'It is installed with the server unless install-server.sh was run with --no-push (or RP_WITH_PUSH=0 was set for the Docker image). Start it with systemctl start remotepower-push, then check again.'));
+  }
+}
+
+async function _wizPushTurnOn(st) {
+  const r = await api('POST', '/config', { push_enabled: true }).catch(() => null);
+  if (!r || r.error) { _wizMsg((r && r.error) || 'Could not turn it on. Try again.'); return false; }
+  st.on = true;
+  return true;
+}
+
+function _wizPushAgents(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'The channel is on'));
+  body.appendChild(_wizNode('div', 'hint', 'A Linux agent starts using it at its next poll, if python3-websockets is installed on that host. Windows and macOS agents ignore it.'));
+  _wizCommand(body, 'wiz-push-cmd', 'If an agent does not connect', 'Install the WebSocket library on the agent host.', 'sudo apt install python3-websockets    # Debian, Ubuntu; pacman -S python-websockets on Arch');
+  const watch = _wizNode('div', 'wiz-watch');
+  watch.id = 'wiz-watch';
+  watch.setAttribute('role', 'status');
+  body.appendChild(watch);
+  _wizPushWatch();
+  _wizPushWatchPaint();
+}
+
+function _wizPushWatchPaint() {
+  const el = document.getElementById('wiz-watch');
+  const w = _wiz;
+  if (!el || !w) return;
+  const st = w.st;
+  el.textContent = '';
+  if (st.arrived) {
+    el.className = 'wiz-watch c-green';
+    el.appendChild(_wizNode('span', 'wiz-state', 'Connected'));
+    el.appendChild(_wizNode('span', 'wiz-chip', String(st.arrived.hosts)));
+  } else if (st.late) {
+    el.className = 'wiz-watch c-amber';
+    el.appendChild(_wizNode('span', '', 'No agent has connected after 5 minutes. Check that python3-websockets is installed on a Linux agent host, and that the host has polled since the channel was switched on.'));
+  } else {
+    el.className = 'wiz-watch c-muted';
+    el.appendChild(_wizNode('span', '', 'Waiting for an agent to connect…'));
+    const sec = st.watchFrom ? Math.round((Date.now() - st.watchFrom) / 1000) : 0;
+    if (sec > 0) el.appendChild(_wizNode('span', 'ff-mono', sec + ' s'));
+  }
+}
+
+function _wizPushWatch() {
+  const w = _wiz;
+  if (!w || w.st.watching || w.st.arrived) return;
+  const st = w.st;
+  st.watching = true;
+  st.watchFrom = Date.now();
+  const stop = () => { st.watching = false; clearInterval(timer); };
+  const tick = async () => {
+    if (_wiz !== w) { stop(); return; }
+    if ((Date.now() - st.watchFrom) / 1000 > _WIZ_WATCH_LIMIT_S) { st.late = true; stop(); _wizPushWatchPaint(); return; }
+    const r = await api('GET', '/devices?slim=1').catch(() => null);
+    if (_wiz !== w || !st.watching) return;
+    const hosts = (Array.isArray(r) ? r : (r && r.devices) || []).filter(d => d && d.push === true).length;
+    if (hosts > 0) {
+      st.arrived = { hosts };
+      stop();
+      _wizPushWatchPaint();
+      if (w.def.steps[w.i].label === 'Done') _wizShow(w.i);
+      return;
+    }
+    _wizPushWatchPaint();
+  };
+  const timer = setInterval(tick, _WIZ_WATCH_MS);
+  w.timers.push(timer);
+}
+
+function _wizPushDone(st, body) {
+  if (st.arrived) {
+    body.appendChild(_wizNode('div', 'wiz-q c-green', 'Agents are using it'));
+    _wizList(body, [['Hosts using it', String(st.arrived.hosts)]]);
+  } else {
+    body.appendChild(_wizNode('div', 'wiz-q', 'No agent is using it yet'));
+    body.appendChild(_wizNode('div', 'hint', 'Agents pick it up at their next poll. A host that uses the channel shows a small bolt in the host list.'));
+  }
+}
+
+// ── "Set up the SSH gateway" ────────────────────────────────────────────────────────────────────────────────────────────────
+// The order the guide gives: switch the module on and say where users reach it, check that the gateway service is connected to this server, opt hosts in, add your key, and put the
+// block in ~/.ssh/config. A key is a standing credential and asks for a password, so it is added on the SSH Gateway page, which this opens; the wizard reads how many you have.
+function _wizGwDef() {
+  return {
+    title: 'Set up the SSH gateway',
+    init: () => ({ host: location.hostname, port: '2222', status: null, self: null, devices: null, keys: null, picked: {}, checking: false }),
+    steps: [
+      { label: 'Address', render: _wizGwAddress, validate: _wizGwAddressCheck, next: _wizGwTurnOn },
+      { label: 'Service', render: _wizGwService, validate: st => ((st.status && st.status.daemon_secret_set) ? null : { msg: 'The gateway service is not connected yet. Install it, then check again.' }) },
+      { label: 'Access', render: _wizGwAccess, next: _wizGwOptIn },
+      { label: 'Done', render: _wizGwDone, closeOnly: true, noBack: true },
+    ],
+  };
+}
+
+function _wizGwAddress(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'Where do your users reach the gateway?'));
+  body.appendChild(_wizNode('div', 'hint', "The name and port people put in their ~/.ssh/config. Continuing switches the SSH gateway module on."));
+  _wizField(body, { id: 'wiz-gw-host', label: 'Public host name', value: st.host, placeholder: 'gateway.example.com', maxlength: 253, onInput: v => { st.host = v; } });
+  _wizField(body, { id: 'wiz-gw-port', label: 'Public port', value: st.port, maxlength: 5, hint: 'The port the gateway listens on from outside, 2222 unless you changed it.', onInput: v => { st.port = v; } });
+}
+
+function _wizGwAddressCheck(st) {
+  if (!st.host.trim()) return { msg: 'Enter the name your users reach this server by', focus: 'wiz-gw-host' };
+  const p = parseInt(st.port, 10);
+  if (!(p >= 1 && p <= 65535)) return { msg: 'Enter a port from 1 to 65535', focus: 'wiz-gw-port' };
+  return null;
+}
+
+async function _wizGwTurnOn(st) {
+  const r = await api('POST', '/config', { sshgw_enabled: true, sshgw_public_host: st.host.trim(), sshgw_public_port: parseInt(st.port, 10) }).catch(() => null);
+  if (!r || r.error) { _wizMsg((r && r.error) || 'Could not turn it on. Try again.', 'wiz-gw-host'); return false; }
+  st.status = null;
+  return true;
+}
+
+function _wizGwService(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'Is the gateway service here?'));
+  body.appendChild(_wizNode('div', 'hint', 'The gateway is a separate service that takes the SSH connections and passes them through the agents. It shares a secret with this server, and runs on this server or on another host.'));
+  const el = _wizNode('div', 'wiz-watch');
+  el.id = 'wiz-gw-state';
+  el.setAttribute('role', 'status');
+  body.appendChild(el);
+  const again = _wizNode('button', 'btn-secondary mt-8', 'Check again');
+  again.type = 'button';
+  again.setAttribute('data-action', 'wizGwCheck');
+  body.appendChild(again);
+  _wizGwPaint();
+  if (st.status === null) wizGwCheck();
+}
+
+async function wizGwCheck() {
+  const w = _wiz;
+  if (!w || w.st.checking) return;
+  const st = w.st;
+  st.checking = true;
+  _wizGwPaint();
+  const [status, self] = await Promise.all([api('GET', '/sshgw/status').catch(() => null), api('GET', '/self/status').catch(() => null)]);
+  if (_wiz !== w) return;
+  st.checking = false;
+  st.status = (status && !status.error) ? status : { daemon_secret_set: false };
+  st.self = (self && self.subsystems && self.subsystems.sshgw) || null;
+  _wizGwPaint();
+}
+
+function _wizGwPaint() {
+  const el = document.getElementById('wiz-gw-state');
+  const w = _wiz;
+  if (!el || !w) return;
+  const st = w.st;
+  el.textContent = '';
+  if (st.checking || st.status === null) {
+    el.className = 'wiz-watch c-muted';
+    el.appendChild(_wizNode('span', '', 'Checking…'));
+    return;
+  }
+  const connected = !!st.status.daemon_secret_set;
+  el.className = 'wiz-watch ' + (connected ? 'c-green' : 'c-amber');
+  el.appendChild(_wizNode('span', 'wiz-state', connected ? 'The gateway service is connected to RemotePower' : 'The gateway service is not connected to RemotePower yet'));
+  if (!connected) {
+    el.appendChild(_wizNode('div', 'hint', 'Install it with install-server.sh --with-sshgw (in the Docker image, set RP_WITH_SSHGW=1), then check again.'));
+    return;
+  }
+  const answers = !!(st.self && st.self.reachable);
+  el.appendChild(_wizNode('div', answers ? 'hint c-green' : 'hint c-amber', answers ? 'It answers on this server' : 'It does not answer on this server. If it runs on another host, that is expected.'));
+}
+
+function _wizGwAccess(st, body) {
+  body.appendChild(_wizNode('div', 'wiz-q', 'Which hosts may be reached through it?'));
+  body.appendChild(_wizNode('div', 'hint', "Only Linux agents carry the tunnel, and a host's own SSH server still decides who may log in. You can change this later on the SSH Gateway page."));
+  const list = _wizNode('div', 'wiz-gw-hosts');
+  list.id = 'wiz-gw-hosts';
+  body.appendChild(list);
+  const keys = _wizNode('div', 'mt-12');
+  keys.id = 'wiz-gw-keys';
+  body.appendChild(keys);
+  if (st.devices === null || st.keys === null) {
+    list.appendChild(_wizNode('div', 'hint', 'Loading…'));
+    Promise.all([api('GET', '/sshgw/devices').catch(() => null), api('GET', '/sshgw/keys').catch(() => null)]).then(([d, k]) => {
+      st.devices = (d && Array.isArray(d.devices)) ? d.devices.filter(x => x.linux) : [];
+      st.keys = (k && Array.isArray(k.keys)) ? k.keys.length : 0;
+      if (_wiz && _wiz.st === st && document.getElementById('wiz-gw-hosts')) _wizGwAccessPaint();
+    });
+    return;
+  }
+  _wizGwAccessPaint();
+}
+
+function _wizGwAccessPaint() {
+  const w = _wiz;
+  const list = document.getElementById('wiz-gw-hosts');
+  const keys = document.getElementById('wiz-gw-keys');
+  if (!w || !list || !keys) return;
+  const st = w.st;
+  list.textContent = '';
+  if (!st.devices.length) list.appendChild(_wizNode('div', 'hint', 'No Linux agent host yet.'));
+  st.devices.forEach(d => {
+    const row = _wizNode('label', 'click-row');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!(d.enabled || st.picked[d.device_id]);
+    cb.disabled = !!d.enabled;
+    cb.setAttribute('data-wiz-host', d.device_id);
+    cb.addEventListener('change', () => { st.picked[d.device_id] = cb.checked; });
+    row.appendChild(cb);
+    row.appendChild(document.createTextNode(' ' + (d.name || d.device_id)));
+    list.appendChild(row);
+  });
+  keys.textContent = '';
+  _wizList(keys, [['Keys on your account', String(st.keys)]]);
+  if (!st.keys) {
+    keys.appendChild(_wizNode('div', 'hint', 'The gateway lets you in with an SSH public key registered on your account. Add one on the SSH Gateway page, which asks for your password.'));
+    const open = _wizNode('button', 'btn-secondary mt-8', 'Open the SSH Gateway page');
+    open.type = 'button';
+    open.setAttribute('data-action', 'wizGwOpenPage');
+    keys.appendChild(open);
+  }
+}
+
+function wizGwOpenPage() {
+  const w = _wiz;
+  if (w) w.finished = true;
+  closeModal('wizard-modal');
+  if (typeof showPage === 'function') showPage('sshgw');
+}
+
+// Hosts ticked here are opted in now, one request each; a host that is already in stays in (the box is ticked and cannot be cleared here).
+async function _wizGwOptIn(st) {
+  const ids = Object.keys(st.picked).filter(id => st.picked[id] && !(st.devices || []).find(d => d.device_id === id && d.enabled));
+  for (const id of ids) {
+    const r = await api('PATCH', `/devices/${encodeURIComponent(id)}/sshgw`, { enabled: true }).catch(() => null);
+    if (!r || r.error) { _wizMsg((r && r.error) || 'Could not change the host. Try again.'); return false; }
+    const d = (st.devices || []).find(x => x.device_id === id);
+    if (d) d.enabled = true;
+  }
+  return true;
+}
+
+function _wizGwDone(st, body) {
+  const host = st.host.trim();
+  const port = parseInt(st.port, 10) || 2222;
+  const opted = (st.devices || []).filter(d => d.enabled);
+  body.appendChild(_wizNode('div', 'wiz-q c-green', 'The gateway is ready'));
+  _wizList(body, [['Public address', host + ':' + port], ['Hosts opted in', String(opted.length)], ['Keys on your account', String(st.keys || 0)]]);
+  const text = 'Host rp-gateway\n    HostName ' + host + '\n' + (port === 22 ? '' : '    Port ' + port + '\n') + '    User ' + ((st.status && st.status.username) || 'you') +
+               '\n\nHost *' + ((st.status && st.status.target_suffix) || '.rp') + '\n    ProxyJump rp-gateway\n';
+  _wizCommand(body, 'wiz-gw-config', 'Add this to ~/.ssh/config', 'Then connect to a host by its name followed by the suffix, for example ssh root@web01.rp.', text);     // the suffix is the gateway's own constant, as the page's text says
+}
+
 // The runner (app-wizard.js) looks a wizard up here when it is not one of its own. Nothing of app-wizard.js is touched when this file loads, so the two load in either order.
-const _WIZARDS_MORE = { syslog: () => _wizRxDef('syslog'), flow: () => _wizRxDef('flow'), satellite: _wizSatDef };
+const _WIZARDS_MORE = { syslog: () => _wizRxDef('syslog'), flow: () => _wizRxDef('flow'), satellite: _wizSatDef, push: _wizPushDef, sshgw: _wizGwDef };
