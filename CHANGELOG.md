@@ -479,6 +479,12 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   zone.* The walk of the empty install is a test now: it opens all 79 sidebar pages of a fresh install and fails on a blank table, a loader that never
   ends, a failure message, a request the install cannot answer or a script error. The DNS table was the only blank one; 78 pages are on screen and the SSH
   gateway page is hidden until the gateway is switched on.
+- **Passkey sign-in and the sign-in callbacks read the proxy's scheme header the same way.** Five places decided between http and https and no two read
+  `X-Forwarded-Proto` alike. A proxy that sent it in capitals (`HTTPS`) or as a chain (`https, http`) made the passkey origin `HTTPS://host` or
+  `https, http://host`, which the browser's own origin never matches, and the install links and the portal link took a capital as "not a scheme" and
+  guessed. All five now take the first entry of the header, lower-cased, and ignore anything that is not `http` or `https`. What each does when
+  nothing says is unchanged: links guess https, so an enrolment token is never sent in clear; passkeys use the origin the browser reports, which is
+  plain http on a local box; the SAML and OIDC callbacks use https. Held by `tests/test_v800_request_scheme.py`.
 
 ### Single pages
 

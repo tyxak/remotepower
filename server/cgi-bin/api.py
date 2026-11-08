@@ -21436,6 +21436,22 @@ def _public_base_url(cfg=None):
     return str((cfg or {}).get('public_base_url') or '').strip().rstrip('/')
 
 
+def _scheme_word(raw):
+    """'http' or 'https' from a header value, or '' when it says neither. A chain
+    of proxies lists every hop, the client-facing one first ('https, http'), and
+    a proxy may send any case; every scheme decision below reads it through here."""
+    first = str(raw or '').split(',')[0].strip().lower()
+    return first if first in ('http', 'https') else ''
+
+
+def _scheme_of(get):
+    """'http' or 'https' for a link built from a request, from `get(name)`: the
+    proxy's word first, the server's second, https when neither says. A guess of
+    http would put an enrolment token on the wire in clear."""
+    return (_scheme_word(get('HTTP_X_FORWARDED_PROTO'))
+            or _scheme_word(get('REQUEST_SCHEME')) or 'https')
+
+
 def _request_base_url(environ=None):
     """`proto://host` for THIS request, correct under EVERY server model. The
     threaded WSGI worker keeps request CGI vars in the thread-local _RCTX, NOT in
@@ -21453,12 +21469,7 @@ def _request_base_url(environ=None):
         return _env(k, '')
     host = _v('HTTP_HOST') or _v('SERVER_NAME') or 'localhost'
     host = re.sub(r'[^A-Za-z0-9.:\[\]\-]', '', host)[:255]
-    proto = (_v('HTTP_X_FORWARDED_PROTO')
-             or _v('REQUEST_SCHEME')
-             or ('https' if _v('HTTPS') in ('on', '1') else 'https'))
-    if proto not in ('http', 'https'):
-        proto = 'https'
-    return f'{proto}://{host}'
+    return f'{_scheme_of(_v)}://{host}'
 
 
 
@@ -30240,7 +30251,11 @@ def _rehydrate_secrets(incoming, current, id_field):
     stored value from `current` (matched by `id_field`). So an exported doc
     round-trips without the operator re-typing secrets they didn't change. Works
     on a list of dicts (keyed by id) or a bare dict; unmatched '(redacted)'
-    values are left as-is (the operator must fix them)."""
+    values are left as-is (the operator must fix them). A placeholder inside a list
+    that sits below a row has no id to match by, so it also stays: no exported
+    collection holds one today (checked over the demo store: every placeholder is a
+    key of a row), and matching by position could hand one entry's secret to
+    another after a reorder."""
     def _by_id(items):
         if id_field and isinstance(items, list):
             return {it.get(id_field): it for it in items if isinstance(it, dict)}
@@ -30256,7 +30271,7 @@ def _rehydrate_secrets(incoming, current, id_field):
                     _fix(v, ref.get(k) if isinstance(ref, dict) else None)
         elif isinstance(dst, list):
             for item in dst:
-                _fix(item, ref if not isinstance(ref, dict) else ref)
+                _fix(item, ref)
 
     if isinstance(incoming, list) and id_field:
         cur = _by_id(current)
@@ -36771,11 +36786,7 @@ def _render_agent_install(environ):
     enrolment token from `?t=`) derived from the request. Pure — unit-testable."""
     host = environ.get('HTTP_HOST') or environ.get('SERVER_NAME') or 'localhost'
     host = re.sub(r'[^A-Za-z0-9.:\[\]\-]', '', host)[:255]   # defensive
-    proto = (environ.get('HTTP_X_FORWARDED_PROTO')
-             or environ.get('REQUEST_SCHEME')
-             or ('https' if environ.get('HTTPS') in ('on', '1') else 'https'))
-    if proto not in ('http', 'https'):
-        proto = 'https'
+    proto = _scheme_of(environ.get)
     # Baked token: "Add device" mints a one-time token and links
     # <server>/install?t=<token>, so the operator runs a SINGLE wget|sh with NO
     # args — the device enrols itself and shows up by hostname.
@@ -36986,11 +36997,7 @@ def _render_win_install(environ):
     the request. Pure — unit-testable. Mirrors _render_agent_install."""
     host = environ.get('HTTP_HOST') or environ.get('SERVER_NAME') or 'localhost'
     host = re.sub(r'[^A-Za-z0-9.:\[\]\-]', '', host)[:255]
-    proto = (environ.get('HTTP_X_FORWARDED_PROTO')
-             or environ.get('REQUEST_SCHEME')
-             or ('https' if environ.get('HTTPS') in ('on', '1') else 'https'))
-    if proto not in ('http', 'https'):
-        proto = 'https'
+    proto = _scheme_of(environ.get)
     qs = urllib.parse.parse_qs(environ.get('QUERY_STRING', ''))
     token = (qs.get('t') or qs.get('token') or [''])[0]
     token = re.sub(r'[^A-Za-z0-9._\-]', '', token)[:128]
@@ -62506,7 +62513,7 @@ def _webauthn_rp():
     host_full = _env('HTTP_HOST', '')
     host = host_full.split(':')[0]
     rp_id = cfg.get('webauthn_rp_id') or host
-    proto = (_env('HTTP_X_FORWARDED_PROTO')
+    proto = (_scheme_word(_env('HTTP_X_FORWARDED_PROTO'))
              or ('https' if _env('HTTPS') in ('on', '1') else 'http'))
     origin = cfg.get('webauthn_origin') or f'{proto}://{host_full}'
     return rp_id, origin
@@ -62728,10 +62735,8 @@ def _saml():
 def _saml_base_url():
     """Public base URL (scheme://host) — same proxy-aware derivation as OIDC."""
     host = _env('HTTP_HOST', '').strip()
-    scheme = 'https' if _env('HTTPS', 'on') in ('on', '1', 'true') else 'http'
-    fwd = _env('HTTP_X_FORWARDED_PROTO', '').strip().lower()
-    if fwd in ('http', 'https'):
-        scheme = fwd
+    scheme = (_scheme_word(_env('HTTP_X_FORWARDED_PROTO', ''))
+              or ('https' if _env('HTTPS', 'on') in ('on', '1', 'true') else 'http'))
     return f'{scheme}://{host}'
 
 
@@ -67034,10 +67039,8 @@ def _oidc_discover(issuer):
 def _oidc_redirect_uri():
     """Build the public callback URL from the current request context."""
     host = _env('HTTP_HOST', '').strip()
-    scheme = 'https' if _env('HTTPS', 'on') in ('on', '1', 'true') else 'http'
-    fwd_scheme = _env('HTTP_X_FORWARDED_PROTO', '').strip().lower()
-    if fwd_scheme in ('http', 'https'):
-        scheme = fwd_scheme
+    scheme = (_scheme_word(_env('HTTP_X_FORWARDED_PROTO', ''))
+              or ('https' if _env('HTTPS', 'on') in ('on', '1', 'true') else 'http'))
     return f'{scheme}://{host}/api/auth/oidc/callback'
 
 
