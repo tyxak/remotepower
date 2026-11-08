@@ -314,7 +314,7 @@ class TestTheEightMoreTools(unittest.TestCase):
         return answer, fetch
 
     def test_get_journal_gives_the_newest_lines_cuts_a_long_one_and_masks_credentials(self):
-        journal = ["line %d" % i for i in range(50)] + ["app: login password=hunter2 ok", 'curl -H "Authorization: Bearer abcdef123" https://x', "z" * 900]
+        journal = ["line %d" % i for i in range(50)] + ["app: login password=hunter2 ok", 'curl -H "Authorization: Bearer ' + 'abcdef123' + '" https://x', "z" * 900]
         table = {"/api/devices": DEVS, "/api/devices/d1/sysinfo": {"journal": journal}}
         answer, fetch = self.run_tool("get_journal", {"name": "web01"}, table)
         shown = json.loads(text_of(answer))

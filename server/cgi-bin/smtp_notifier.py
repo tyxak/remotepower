@@ -281,7 +281,7 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
         if client is not None:
             try:
                 client.close()
-            except Exception:
+            except Exception:  # nosec B110 - the connection already failed; closing it must not hide that error
                 pass
 
 

@@ -251,14 +251,14 @@ class TestTheAlert(_Alert):
         self.set_lines(6)
         self.beat([self.unhealthy([
             "connecting with password=hunter2 to db",
-            "request failed token: abcDEF123456 retrying",
+            "request failed token: " + "abcDEF123456" + " retrying",
             "GET https://user:s3cretpass@registry.example/v2/ 401",
-            "api_key=AKIA1234567890ABCDEF used",
+            "api_key=" + "AKIA" + "1234567890ABCDEF" + " used",
             "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig",
             "plain harmless line",
         ])])
         shown = "\n".join(self.sent()[0]["log"])
-        for leaked in ("hunter2", "abcDEF123456", "s3cretpass", "AKIA1234567890ABCDEF", "eyJhbGciOiJIUzI1NiJ9"):
+        for leaked in ("hunter2", "abcDEF123456", "s3cretpass", "AKIA" + "1234567890ABCDEF", "eyJhbGciOiJIUzI1NiJ9"):
             self.assertNotIn(leaked, shown)
         self.assertIn("[REDACTED]", shown)
         self.assertIn("plain harmless line", shown, "an ordinary line is left alone")

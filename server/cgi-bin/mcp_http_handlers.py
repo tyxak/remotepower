@@ -126,7 +126,7 @@ def _mcp_get(path, method='GET', body=None):
     finally:
         try:
             out_text.detach()
-        except Exception:
+        except Exception:  # nosec B110 - the wrapper is only being let go; a failed detach has nothing to report
             pass
         for a, v in saved.items():
             setattr(ctx, a, v)

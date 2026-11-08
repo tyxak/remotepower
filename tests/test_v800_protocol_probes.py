@@ -2,7 +2,7 @@
 """8.0.0: the protocol handshakes behind the smtp, imap, ssh and ntp monitor types (server/cgi-bin/protocol_probes.py).
 
 Run against real sockets on the loopback: a small SMTP, IMAP and SSH server in a thread each (with TLS and STARTTLS from a self-signed
-certificate embedded below) and a UDP server for NTP that can lie in every way a server can: a refusal, a banner that is not the protocol, a
+certificate made when the module starts) and a UDP server for NTP that can lie in every way a server can: a refusal, a banner that is not the protocol, a
 STARTTLS it does not offer, a kiss-of-death, a stratum of 16, a reply that does not answer our request, silence. The arithmetic of the NTP
 offset is checked once more with a fake socket and a clock that is told what time it is, so the sign and the size of the number are held by
 a case where the right answer is known.
@@ -24,23 +24,39 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server" / "cgi-bin"))
 import protocol_probes as P  # noqa: E402
 
-PEM = """-----BEGIN CERTIFICATE-----
-MIIBmjCCAUGgAwIBAgIUFjfXv/bZUCKlopctUZ63XHwPXvIwCgYIKoZIzj0EAwIw
-FDESMBAGA1UEAwwJbG9jYWxob3N0MCAXDTI2MTEwNzE1NDQ0MFoYDzIxMjYxMDE0
-MTU0NDQwWjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIBBggqhkjO
-PQMBBwNCAARKRQi1TioRPBC5ps0HwcVUWGrQ+LssGNePX5fMk5/03t2pWbLQ0ooj
-VD9V/C2U4yjGJn3JGseRxfl932xsDTTso28wbTAdBgNVHQ4EFgQUUoTwzoK9kBJX
-I2GZAbjjBDhrGRUwHwYDVR0jBBgwFoAUUoTwzoK9kBJXI2GZAbjjBDhrGRUwDwYD
-VR0TAQH/BAUwAwEB/zAaBgNVHREEEzARgglsb2NhbGhvc3SHBH8AAAEwCgYIKoZI
-zj0EAwIDRwAwRAIgVhmddSOzn5hE2V3/plyIqkBOB7KAtPvLvI0rw/LthqQCIEdr
-tHSW6xirEjUB/rG/e00Wj+t0GXgqXdUYTf2PxOBT
------END CERTIFICATE-----
------BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgIwIhuv96qz86Fx7f
-ufKrmazlmzhFntviS8RcW3+XgZmhRANCAARKRQi1TioRPBC5ps0HwcVUWGrQ+Lss
-GNePX5fMk5/03t2pWbLQ0oojVD9V/C2U4yjGJn3JGseRxfl932xsDTTs
------END PRIVATE KEY-----
-"""
+
+def _self_signed_pair():
+    """A throwaway key and certificate made when the module starts, so the repository holds no private key. The client side of these
+    tests either does not verify (UNVERIFIED) or must refuse the certificate because nothing trusts it, so only the pair's shape matters."""
+    import datetime
+    import ipaddress
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=30))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False
+        )
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.PEM) + key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    )
+
+
 _CTX = {}
 UNVERIFIED = ssl.create_default_context()
 UNVERIFIED.check_hostname = False
@@ -50,7 +66,7 @@ UNVERIFIED.verify_mode = ssl.CERT_NONE
 def setUpModule():
     d = tempfile.mkdtemp(prefix="rp-probe-cert-")
     f = Path(d) / "pair.pem"
-    f.write_text(PEM)
+    f.write_bytes(_self_signed_pair())
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(str(f))
     _CTX["server"] = ctx

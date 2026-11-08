@@ -8824,7 +8824,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """v3.8.0: a redirect handler that refuses to follow 3xx — so a
     server-initiated POST (audit forward) can't be bounced past the SSRF guard
     to an internal/metadata address. Returning None leaves the 3xx unfollowed."""
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    def redirect_request(self, req, fp, code, msg, headers, _newurl):
         return None
 
 
