@@ -48937,10 +48937,15 @@ def _compliance_facts(devices=None):
         # v6.3.1 (SECURITY): restrict events to the caller's visible devices —
         # a fleet event carries device_id (+ name), so an unfiltered read
         # would leak other scopes'/tenants' hostnames into the evidence.
-        recent = [e for e in events
-                  if isinstance(e, dict) and e.get('ts', 0) >= cutoff
-                  and ((e.get('payload') or {}).get('device_id') in _visible_ids
-                       or (e.get('payload') or {}).get('name') in _visible_names)]
+        def _is_mine(e):
+            # by id when the event has one: a host name is not unique (two tenants can each have a web01), so matching on the name alone counted
+            # another tenant's event of a host called like one of mine as mine. Only an event that carries no id is matched by its name
+            did = (e.get('payload') or {}).get('device_id')
+            if isinstance(did, str) and did:
+                return did in _visible_ids
+            return (e.get('payload') or {}).get('name') in _visible_names
+
+        recent = [e for e in events if isinstance(e, dict) and e.get('ts', 0) >= cutoff and _is_mine(e)]
 
         def _ev_label(e, with_port=False):
             p = e.get('payload') or {}

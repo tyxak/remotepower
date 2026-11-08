@@ -32,7 +32,8 @@ _STATE = {}
 REG = "sha256:" + "b" * 64
 OLD = "sha256:" + "a" * 64
 # (English text, language) pairs where the right translation is the same word
-SAME = {("Images", "de"), ("Images", "fr"), ("Shadow", "de"), ("Hosts per run", "de"), ("Host", "de"), ("Host", "es"), ("State", "de"), ("Detail", "de"), ("Mode", "fr")}
+SAME = {("Images", "de"), ("Images", "fr"), ("Shadow", "de"), ("Hosts per run", "de"), ("Host", "de"), ("Host", "es"), ("State", "de"), ("Detail", "de"), ("Mode", "fr"),
+        ("Documentation", "fr")}   # the pointer of the card (8.0.0); the French word is the English one
 
 
 def setUpModule():

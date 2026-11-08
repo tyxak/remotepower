@@ -577,6 +577,13 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   every such field and reading each surface; the support bundle, the backup and the settings page for a viewer showed none. The export keeps the header names, and with a config key
   set it holds the values as ciphertext that an import restores. Where the key is set and the crypto library is missing, `_cfg_enc` handed the text back unchanged, which would also
   have written the destination URL in plain text; the export now falls back to the masked form. **Held by** `tests/test_v800_declarative_headers.py`, which reads all three surfaces.
+- **A row is matched to your hosts by id, not by name.** A host name is free text and two organisations can each have a host called `web01`. Two places matched by name: the
+  compliance evidence counted a fleet event as yours when its host id was yours **or its name was one of yours**, so another organisation's new port, SSH key or brute-force event
+  for a host with the same name went into your evidence; and the image auto-update page showed another organisation's held update, with its compose directory and image names,
+  to a host with the same name, and told you how many updates the last run made in the whole installation. Both match by host id now (an event that has no id is still matched by
+  its name, the only thing it has), and the last run keeps the ids so the count is yours. The tenant matrix of 7.4.9 could not see it: it looks for another organisation's names,
+  and here the names are the same. **Held by** `tests/test_v800_name_collision_scope.py`, which also reads every membership test of a name field against the code and fails on a
+  new one that is not listed with a reason, and the tenant cases of `tests/test_v800_image_autoupdate.py`.
 
 ### Single pages
 

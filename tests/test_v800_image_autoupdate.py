@@ -492,6 +492,15 @@ class TestTheSweep(_Sweep):
         self.sweep()
         self.assertEqual(len(self.receipts()), 1, "shadow does not repeat itself every sweep")
 
+    def test_a_run_records_the_ids_of_the_hosts_it_acted_on_and_of_the_hosts_it_held(self):
+        """The page tells a caller who sees only some hosts how many of THEIR hosts a run touched, which needs the ids and not only the count."""
+        self.sweep()
+        last = self.last_run()
+        self.assertEqual((last["made"], last["made_ids"]), (1, ["d1"]))
+        self.assertTrue(last["held"], "control: the fixture holds at least one host back")
+        for h in last["held"]:
+            self.assertTrue(h.get("device_id"), h)
+
     def test_on_queues_the_update_command_for_the_image_on_the_list_and_not_for_the_one_that_is_not(self):
         self.sweep()
         self.assertEqual(self.queue(), {"d1": ["compose:update:/srv/web"]})
@@ -1275,7 +1284,7 @@ class TestReadingThePolicy(_Routes):
         api.save(api.DEVICES_FILE, devs)
         store = api.load(api.IMAGE_UPDATES_FILE)
         store["autoupdate"] = {"receipts": [{"id": "r1", "device_id": "d2", "device_name": "db01", "ts": 1}, {"id": "r2", "device_id": "d1", "device_name": "web01", "ts": 2}],
-                               "last_run": {"ts": 5, "made": 0, "held": [{"device": "db01", "reason": "x"}, {"device": "web01", "reason": "y"}]}}
+                               "last_run": {"ts": 5, "made": 0, "held": [{"device": "db01", "device_id": "d2", "reason": "x"}, {"device": "web01", "device_id": "d1", "reason": "y"}]}}
         api.save(api.IMAGE_UPDATES_FILE, store)
         api._LOAD_CACHE.clear()
         mine = self.get(user="tadmin")["body"]
@@ -1285,6 +1294,43 @@ class TestReadingThePolicy(_Routes):
         both = self.get(user="alice")["body"]
         self.assertEqual(sorted(r["id"] for r in both["receipts"]), ["r1", "r2"])
         self.assertEqual(sorted(d["device_name"] for d in both["preview"]), ["db01", "web01"])
+
+    def _two_tenants_with_a_last_run(self, last_run):
+        cfg = api.load(api.CONFIG_FILE)
+        cfg.update(tenancy_enforced=True, image_autoupdate=dict(POLICY_ON, mode="shadow", include=["*"]))
+        api.save(api.CONFIG_FILE, cfg)
+        api.save(api.TENANTS_FILE, {"tenantA": {"name": "A", "status": "active", "created": 1}, "tenantB": {"name": "B", "status": "active", "created": 1}})
+        devs = api.load(api.DEVICES_FILE)
+        devs["d1"]["tenant"], devs["d2"]["tenant"] = "tenantA", "tenantB"
+        devs["d2"]["name"] = devs["d1"]["name"]                    # the same display name in both tenants
+        api.save(api.DEVICES_FILE, devs)
+        store = api.load(api.IMAGE_UPDATES_FILE)
+        store["autoupdate"] = {"receipts": [], "last_run": last_run}
+        api.save(api.IMAGE_UPDATES_FILE, store)
+        api._LOAD_CACHE.clear()
+
+    def test_a_host_with_the_same_name_in_another_tenant_is_not_shown_by_its_name(self):
+        """The rows of the last run were matched to the caller's hosts by display name, and a name is not unique: tenant B's held update of a host called like
+        tenant A's showed its compose directory and its images to tenant A."""
+        self._two_tenants_with_a_last_run({"ts": 5, "made": 2, "made_ids": ["d1", "d2"], "held": [
+            {"device": "web01", "device_id": "d1", "dir": "/srv/a", "refs": ["a/img"], "reason": "mine"},
+            {"device": "web01", "device_id": "d2", "dir": "/srv/b-secret", "refs": ["b/private-img"], "reason": "theirs"}]})
+        mine = self.get(user="tadmin")["body"]["last_run"]
+        self.assertEqual([h["reason"] for h in mine["held"]], ["mine"])
+        self.assertNotIn("b-secret", json.dumps(mine))
+        self.assertNotIn("private-img", json.dumps(mine))
+
+    def test_a_confined_caller_is_told_how_many_of_their_hosts_were_updated_and_not_how_many_in_the_install(self):
+        self._two_tenants_with_a_last_run({"ts": 5, "made": 2, "made_ids": ["d1", "d2"], "held": []})
+        self.assertEqual(self.get(user="tadmin")["body"]["last_run"]["made"], 1, "one of the two updates was for tenant A's host")
+        self.assertEqual(self.get(user="alice")["body"]["last_run"]["made"], 2, "control: the operator sees the whole run")
+
+    def test_the_ids_of_the_run_are_never_in_an_answer_and_a_row_without_an_id_is_not_shown_to_a_confined_caller(self):
+        self._two_tenants_with_a_last_run({"ts": 5, "made": 1, "made_ids": ["d1"], "held": [{"device": "web01", "reason": "from before the ids were kept"}]})
+        for user in ("tadmin", "alice"):
+            self.assertNotIn("made_ids", self.get(user=user)["body"]["last_run"], user)
+        self.assertEqual(self.get(user="tadmin")["body"]["last_run"]["held"], [])
+        self.assertEqual(len(self.get(user="alice")["body"]["last_run"]["held"]), 1, "control: the operator still sees it")
 
 
 class TestWiring(unittest.TestCase):

@@ -202,7 +202,8 @@ def _apply_policy(policy, now):
     active, _note = _period_state(policy, now)
     decisions = IA.plan(A._image_update_view(), devices, policy, _receipts(store), period_active=active, online=_online(now))
     todo = [d for d in decisions if d['action'] == 'queue'][:policy['max_hosts_per_run']]
-    held = [{'device': d['device_name'], 'dir': d['dir'], 'refs': d['refs'], 'reason': d['reason']} for d in decisions if d['action'] == 'skip'][:_SKIPPED_CAP]
+    held = [{'device': d['device_name'], 'device_id': d['device_id'], 'dir': d['dir'], 'refs': d['refs'], 'reason': d['reason']}
+            for d in decisions if d['action'] == 'skip'][:_SKIPPED_CAP]
     made = []
     for d in todo:
         items = [c for c in ((containers.get(d['device_id']) or {}).get('items') or []) if isinstance(c, dict) and c.get('compose_dir') == d['dir']]
@@ -216,7 +217,7 @@ def _apply_policy(policy, now):
         if policy['mode'] == 'on':
             state, detail, cid = _queue(d['device_id'], receipt['command'])
             if state == 'refused':
-                held.append({'device': d['device_name'], 'dir': d['dir'], 'refs': d['refs'], 'reason': detail})
+                held.append({'device': d['device_name'], 'device_id': d['device_id'], 'dir': d['dir'], 'refs': d['refs'], 'reason': detail})
                 continue
             receipt.update(state=state, detail=detail, confirmation_id=cid)
             if state == 'queued':
@@ -229,7 +230,8 @@ def _apply_policy(policy, now):
             block = st['autoupdate'] = {}
         rows = [r for r in block.get('receipts') or [] if isinstance(r, dict)]
         block['receipts'] = (rows + made)[-IA.MAX_RECEIPTS:]
-        block['last_run'] = {'ts': now, 'mode': policy['mode'], 'made': len(made), 'held': held}
+        # the ids of the hosts an update was made for, so a caller who sees only some hosts is told how many of THEIR hosts it was, not how many in the install
+        block['last_run'] = {'ts': now, 'mode': policy['mode'], 'made': len(made), 'made_ids': [r['device_id'] for r in made][:IA.MAX_RECEIPTS], 'held': held}
 
 
 # ── routes ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -250,10 +252,13 @@ def handle_image_autoupdate_get():
     receipts = [r for r in reversed(_receipts(store)) if seen(r.get('device_id'))][:50]
     block = store.get('autoupdate') if isinstance(store.get('autoupdate'), dict) else {}
     last_run = block.get('last_run') if isinstance(block.get('last_run'), dict) else None
-    if last_run and visible is not None:
-        devices = A.load(A.DEVICES_FILE) or {}
-        names = {(devices.get(i) or {}).get('name') for i in visible}
-        last_run = dict(last_run, held=[h for h in last_run.get('held') or [] if isinstance(h, dict) and h.get('device') in names])
+    if last_run:
+        made_ids = last_run.get('made_ids') if isinstance(last_run.get('made_ids'), list) else []
+        last_run = {k: v for k, v in last_run.items() if k != 'made_ids'}
+        if visible is not None:
+            # by host id, not by name: two tenants can each have a host called web01. A row with no id (from before the ids were kept) is not shown to a confined caller
+            last_run['made'] = len([i for i in made_ids if i in visible])
+            last_run['held'] = [h for h in last_run.get('held') or [] if isinstance(h, dict) and h.get('device_id') in visible]
     periods = [{'id': p.get('id'), 'name': p.get('name') or p.get('id')} for p in (cfg.get('time_periods') or []) if isinstance(p, dict) and p.get('id')]
     A.respond(200, {'policy': policy, 'receipts': receipts, 'preview': preview, 'last_run': last_run, 'periods': periods,
                     'period_active': active, 'period_note': note, 'cadence_s': CADENCE_S})
