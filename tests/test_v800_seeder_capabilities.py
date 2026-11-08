@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""8.0.0: the demo seeder says what a Linux agent and a satellite say about themselves.
+
+Two signals have no page of their own and are read by code that decides what a host is given:
+
+  sysinfo.probe_types      the monitor types the agent's own probe engine runs; a monitor of smtp, imap, ssh or ntp is handed only to a host that says so
+  sysinfo.compose_rollback that the agent can put a compose project back on the images it had before an update; with the rollback option of the
+                           automatic image update switched on, a host that does not say so is held back instead of updated
+
+The demo seeded neither, so on the demo a host's monitors could only be the three of 7.4.9 and the rollback option held every host back. The Linux agent
+sends both on every heartbeat, and so does the satellite (its X-RP-Probes header, kept on its record), so the seed does too. The Windows and macOS agents
+say neither, and the seed leaves them out: a host that cannot do a thing must read as one that cannot.
+
+The seed is run once for the whole process (test_v702_seeder_shapes keeps it), and the signals are read with the same helpers the server reads them with.
+"""
+import importlib.util
+import json
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import test_v702_seeder_shapes as seeded  # noqa: E402 (it puts server/cgi-bin on the path and keeps the one seeding of the demo data)
+import host_probe_handlers as H  # noqa: E402
+import image_autoupdate as IA  # noqa: E402
+
+_ROOT = Path(__file__).resolve().parent.parent
+_NOT_LINUX = ("windows", "macos", "mac os", "junos", "unifi")
+
+
+def _seeder_module():
+    spec = importlib.util.spec_from_file_location("seed_demo_capabilities", _ROOT / "packaging" / "seed-demo-data.py")
+    mod = importlib.util.module_from_spec(spec)             # type: ignore[arg-type]
+    spec.loader.exec_module(mod)                             # type: ignore[union-attr]
+    return mod
+
+
+class TestTheSeederStatesWhatItsAgentsSay(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.devices = seeded._seeded_devices()
+        cls.sats = json.loads((Path(seeded._SEEDED["dir"]) / "satellites.json").read_text())
+
+    def population(self, linux):
+        rows = [d for d in self.devices.values() if isinstance(d.get("sysinfo"), dict) and d["sysinfo"]]
+        return [d for d in rows if linux == (not any(x in (d.get("os") or "").lower() for x in _NOT_LINUX))]
+
+    def test_the_seeders_list_of_monitor_types_is_the_servers_list(self):
+        self.assertEqual(list(_seeder_module()._AGENT_PROBE_TYPES), list(H.known_types()), "a type added to the server is added to the seed")
+
+    def test_every_seeded_linux_agent_says_it_runs_every_type_and_can_roll_back(self):
+        hosts = self.population(True)
+        self.assertGreaterEqual(len(hosts), 5, "the seed has Linux agents to say it")
+        for d in hosts:
+            self.assertEqual(H.host_types(d), list(H.known_types()), d.get("name"))
+            self.assertTrue(IA.can_roll_back(d), d.get("name"))
+
+    def test_the_windows_and_macos_agents_say_neither_and_are_read_as_the_oldest_kind(self):
+        hosts = self.population(False)
+        hosts = [d for d in hosts if any(x in (d.get("os") or "").lower() for x in ("windows", "macos", "mac os"))]
+        self.assertTrue(hosts, "the seed has a Windows or macOS agent to leave it out of")
+        for d in hosts:
+            self.assertNotIn("probe_types", d["sysinfo"], d.get("name"))
+            self.assertNotIn("compose_rollback", d["sysinfo"], d.get("name"))
+            self.assertEqual(H.host_types(d), list(H.SUPPORTED), d.get("name"))
+            self.assertFalse(IA.can_roll_back(d), d.get("name"))
+
+    def test_every_seeded_satellite_says_which_types_it_runs(self):
+        self.assertTrue(self.sats)
+        for sid, sat in self.sats.items():
+            self.assertEqual(H.satellite_types(sat), list(H.known_types()), sat.get("name"))
+
+
+if __name__ == "__main__":
+    unittest.main()

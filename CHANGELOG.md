@@ -277,6 +277,10 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   satellite's): all three read `SSH-2.0-OpenSSH_10.6` and say the same, and a closed port is refused in the same words; breaking the banner check in any one engine fails it. **Not run
   against a real service:** the SMTP, IMAP and NTP monitors and the container runtime. No mail server or NTP server is installed on the development machine, and the Docker client is
   installed but its daemon is not running and the compose plugin is missing. Nothing was downloaded or started as root to change that.
+- **The demo says what its agents and satellites say.** The two capability flags of this release had no value in the demo data, so on the demo a host could only be given the
+  three monitor types of 7.4.9 and the rollback option of the automatic image update held every host back. The seed now gives every Linux agent `probe_types` (all seven) and
+  `compose_rollback`, and every satellite its `probe_types`; the Windows and macOS agents say neither, as they do not. **Held by** `tests/test_v800_seeder_capabilities.py` (4 tests;
+  the three about the Linux agents and the satellites fail on the seed from before, and the one about Windows and macOS is the control that stays green).
 
 ### Single pages
 

@@ -455,6 +455,11 @@ def _demo_disk_io(dev_id):
 _DEMO_INTERNAL_HOSTS = ('jf01', 'nc01')
 
 
+# 8.0.0: the monitor types the Linux agent's and the satellite's own probe engine run. The same list as host_probe_handlers.known_types(), which
+# tests/test_v800_seeder_capabilities.py compares it with, so a type added there is added here.
+_AGENT_PROBE_TYPES = ('tcp', 'http', 'ping', 'smtp', 'imap', 'ssh', 'ntp')
+
+
 def _demo_enrich_sysinfo(dev, rng, si):
     """v3.11–v3.13 device-drawer / Exposure / Storage demo data, added in place.
 
@@ -1538,6 +1543,13 @@ def build_devices() -> dict:
                 rec['sysinfo'].update(_demo_cpu_time_other(rec['sysinfo']['cpu_percent'], windows=False))
             elif not any(x in _os for x in ('junos', 'unifi')):
                 rec['sysinfo'].update(_demo_cpu_time(dev, rec['sysinfo']['cpu_percent']))
+            # 8.0.0: what a Linux agent says about itself on every heartbeat: the monitor types its own probe engine runs (so a monitor of
+            # any of the seven can be handed to it) and that it can put a compose project back on the images it had before an update
+            # (so the automatic image update's rollback option does not hold the host back). The Windows and macOS agents say neither:
+            # they run tcp, http and ping, and cannot roll back.
+            if not any(x in _os for x in ('windows', 'macos', 'mac os', 'junos', 'unifi')):
+                rec['sysinfo']['probe_types'] = list(_AGENT_PROBE_TYPES)
+                rec['sysinfo']['compose_rollback'] = True
             # v3.11–v3.13: device-drawer cards — access watch (recent logins),
             # systemd timers, listening ports w/ scope (Exposure), per-host
             # storage/RAID health, and the firewall posture + fingerprint.
@@ -4560,7 +4572,9 @@ def build_satellites() -> dict:
         out[sid] = {'name': name,
                     'token_hash': hashlib.sha256(token.encode('utf-8')).hexdigest(),
                     'created': now() - 86400 * 60, 'last_seen': now() - age,
-                    'last_ip': last_ip, 'scanner': scanner}
+                    'last_ip': last_ip, 'scanner': scanner,
+                    # 8.0.0: a satellite says which monitor types it runs on every call (the X-RP-Probes header); the server hands it only those
+                    'probe_types': list(_AGENT_PROBE_TYPES)}
     return out
 
 
