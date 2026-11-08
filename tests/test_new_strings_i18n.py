@@ -480,6 +480,9 @@ NEW_STRINGS = [
     "Defined once for a site, a group or a tag under Scoped credentials on the CMDB page. Reveal needs the vault unlocked.",
     # 8.0.0: the empty DNS records table
     "No zone to list yet. Give the provider credentials, then pick a zone.",
+    # 8.0.0: the backup monitor form gets its tool
+    "Tool",
+    "Guess from the path name",
 ]
 
 

@@ -498,6 +498,7 @@ function editBackupMonitor(idx) {
   document.getElementById('bm-path').value  = m.path  || '';
   document.getElementById('bm-label').value = m.label || '';
   document.getElementById('bm-hours').value = String(m.max_age_hours || 24);
+  const _bt = document.getElementById('bm-tool'); if (_bt) _bt.value = ['restic', 'borg', 'tar'].includes(m.tool) ? m.tool : 'auto';
   const _bv = document.getElementById('bm-verify'); if (_bv) _bv.checked = !!m.verify_enabled;
   const _bd = document.getElementById('bm-drill'); if (_bd) _bd.checked = !!m.restore_drill_enabled;
   const _bds = document.getElementById('bm-drill-sample'); if (_bds) _bds.value = m.restore_sample_path || '';
@@ -511,13 +512,14 @@ async function addBackupMonitor() {
   const label = document.getElementById('bm-label').value.trim();
   const hours = parseInt(document.getElementById('bm-hours').value, 10) || 24;
   if (!path) { toast('Path required', 'error', {transient: true}); return; }
+  const tool = document.getElementById('bm-tool')?.value || 'auto';
   const verify = !!document.getElementById('bm-verify')?.checked;
   const drill = !!document.getElementById('bm-drill')?.checked;
   const drillSample = (document.getElementById('bm-drill-sample')?.value || '').trim();
   if (drill && !drillSample) { toast('A restore drill needs a sample path', 'error'); return; }
-  // an edit starts from the monitor it edits: the form has no field for the tool or the two cadences, so a fresh entry put the tool back to auto and both cadences to weekly
+  // an edit starts from the monitor it edits: the form has no field for the two cadences (how often the integrity check and the restore drill run), so a fresh entry put both back to weekly
   const editing = _backupEditIdx >= 0 && _backupEditIdx < _backupMonitors.length;
-  const entry = Object.assign({tool: 'auto'}, editing ? _backupMonitors[_backupEditIdx] : {}, {path, label: label || path, max_age_hours: hours,
+  const entry = Object.assign({}, editing ? _backupMonitors[_backupEditIdx] : {}, {path, label: label || path, max_age_hours: hours, tool,
     verify_enabled: verify, restore_drill_enabled: drill, restore_sample_path: drillSample});
   // the list in the page is replaced only once the server has accepted it: a refused save used to stay in the list and ride into the next one
   const next = _backupMonitors.slice();
@@ -530,6 +532,7 @@ async function addBackupMonitor() {
     toast(wasEdit ? 'Backup monitor updated' : 'Backup monitor added', 'success');
     document.getElementById('bm-path').value = document.getElementById('bm-label').value = '';
     document.getElementById('bm-hours').value = '24';
+    const _btr = document.getElementById('bm-tool'); if (_btr) _btr.value = 'auto';
     const _bvr = document.getElementById('bm-verify'); if (_bvr) _bvr.checked = false;
     const _bdr = document.getElementById('bm-drill'); if (_bdr) _bdr.checked = false;
     const _bdsr = document.getElementById('bm-drill-sample'); if (_bdsr) _bdsr.value = '';

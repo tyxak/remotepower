@@ -3884,6 +3884,15 @@
               <input type="number" id="bm-hours" class="form-input isl-81" value="24" min="1" max="8760">
             </div>
             <div class="form-group">
+              <label for="bm-tool" class="form-label">Tool</label>
+              <select id="bm-tool" class="form-input">
+                <option value="auto">Guess from the path name</option>
+                <option value="restic">restic</option>
+                <option value="borg">borg</option>
+                <option value="tar">tar</option>
+              </select>
+            </div>
+            <div class="form-group">
               <label for="bm-verify" class="form-label">Verify integrity</label>
               <label class="click-row"><input type="checkbox" id="bm-verify"> run the tool's own check (restic/borg/tar)</label>
             </div>

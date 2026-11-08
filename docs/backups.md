@@ -116,10 +116,13 @@ restore-drill result: open the drawer's **Audit** tab and expand **System → Ba
   is a guide, not an alert. "Targets" and "off-site" are inferred from each monitor's
   target, so a monitor that names no target counts by its top-level folder.
 
-The form has no field for three things a monitor can carry. `tool` is `auto` (the agent picks from the path), `restic`, `borg` or `tar`.
-`verify_max_age_hours` and `restore_drill_max_age_hours` say how often the integrity check and the restore drill run, in hours; both are 168
-(weekly) when unset. Set them on a monitor with `POST /api/config` under `backup_monitors`. Editing a monitor in the form keeps them *(8.0.0; an edit
-used to put the tool back to `auto` and both cadences back to weekly)*.
+**Tool** *(8.0.0)*. The form's **Tool** says which program checks the backup: `restic`, `borg` or `tar`, or **Guess from the path name**. The guess finds a tool only when
+the name of the path says so (`restic` or `borg` in it, or a tar file name) and silently leaves a path with any other name unchecked, so choose the tool when the name
+says nothing. Before 8.0.0 the form had no such field and every monitor it made was a guess.
+
+The form has no field for how often the integrity check and the restore drill run. `verify_max_age_hours` and `restore_drill_max_age_hours` are in hours and weekly (168)
+when unset. Set them on a monitor with `POST /api/config` under `backup_monitors`. Editing a monitor in the form keeps them *(8.0.0; an edit used to put both back to
+weekly)*.
 
 Backup events fire on a change of state, not on every heartbeat.
 

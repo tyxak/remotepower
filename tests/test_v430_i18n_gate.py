@@ -502,6 +502,7 @@ _DELIBERATE_ENGLISH = {
     "nmap",
     "not",
     "nuclei",
+    "borg", "restic", "tar",   # the backup tools of the backup monitor's Tool select: brand names
     "openclaw — local (WebSocket gateway)",
     "opencode — local (agent server)",
     "prod",

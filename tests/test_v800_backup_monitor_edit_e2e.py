@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""8.0.0: editing a backup monitor in Settings keeps what the form does not show, and a refused save leaves the list alone.
+"""8.0.0: the backup monitor form has a tool, editing a monitor keeps what the form does not show, and a refused save leaves the list alone.
 
-A backup monitor has a tool (restic, borg, tar or auto) and two cadences (how often the integrity check and the restore drill run; weekly when unset) that only the API sets: the
-form has no field for them. Editing a monitor built a fresh entry from the form, so the tool went back to auto and both cadences back to weekly, with a success toast.
-And the list in the page was changed before the server answered, so a refused save stayed in it and rode into the next one. Found by the survey of settings no page names
-(restore_drill_max_age_hours, verify_max_age_hours): the page that edits them could only reset them.
+A backup monitor has a tool (restic, borg, tar or auto) and two cadences (how often the integrity check and the restore drill run; weekly when unset). Auto only guesses from the
+NAME of the path (restic, borg or a tar file name in it) and finds nothing for any other name, so a monitor on a path that says nothing could not be verified unless the API set its
+tool, and the form had no field for it. It has one now. The two cadences are still API-only, and editing a monitor built a fresh entry from the form, so both went back to weekly with a
+success toast. And the list in the page was changed before the server answered, so a refused save stayed in it and rode into the next one. Found by the survey of settings no page
+names (restore_drill_max_age_hours, verify_max_age_hours): the page that edits them could only reset them.
 
 Runs on an empty install. Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
 """
@@ -104,9 +105,10 @@ class TestEditingABackupMonitor(unittest.TestCase):
             self.page.click('[data-action="addBackupMonitor"]')
         return info.value
 
-    def test_editing_keeps_the_tool_and_both_cadences_and_changes_what_the_form_shows(self):
+    def test_editing_shows_the_tool_keeps_both_cadences_and_changes_what_the_form_shows(self):
         self.start_with([API_ONLY])
         self.page.click('#backup-monitors-list [data-action="editBackupMonitor"]')
+        self.assertEqual(self.page.input_value("#bm-tool"), "borg", "the form shows the tool the monitor has")
         self.page.fill("#bm-label", "DB dump (nightly)")
         self.page.fill("#bm-hours", "6")
         self.assertEqual(self.save().status, 200)
@@ -114,11 +116,32 @@ class TestEditingABackupMonitor(unittest.TestCase):
         self.assertEqual(len(got), 1)
         self.assertEqual(got[0]["label"], "DB dump (nightly)")
         self.assertEqual(got[0]["max_age_hours"], 6)
-        self.assertEqual(got[0]["tool"], "borg", "the form has no tool field, so editing leaves the tool alone")
-        self.assertEqual(got[0]["verify_max_age_hours"], 48)
+        self.assertEqual(got[0]["tool"], "borg")
+        self.assertEqual(got[0]["verify_max_age_hours"], 48, "the form has no field for the cadences, so editing leaves them alone")
         self.assertEqual(got[0]["restore_drill_max_age_hours"], 72)
         self.assertTrue(got[0]["verify_enabled"], "the box the form shows is carried over")
         self.assertEqual(got[0]["path"], "/srv/backups/db")
+        self.assertEqual(self.page.input_value("#bm-tool"), "auto", "the form is cleared after a save")
+
+    def test_the_tool_select_sets_the_tool_of_a_new_monitor_and_changes_that_of_an_old_one(self):
+        self.start_with([API_ONLY])
+        self.page.fill("#bm-path", "/srv/backups/plain-name")
+        self.page.fill("#bm-label", "Plain")
+        self.page.select_option("#bm-tool", "tar")
+        self.assertEqual(self.save().status, 200)
+        got = self.stored()
+        self.assertEqual([(m["label"], m["tool"]) for m in got], [("DB dump", "borg"), ("Plain", "tar")])
+        self.page.evaluate("() => renderBackupMonitors(_backupMonitors)")
+        self.page.click('#backup-monitors-list [data-action="editBackupMonitor"][data-arg="0"]')
+        self.page.select_option("#bm-tool", "restic")
+        self.assertEqual(self.save().status, 200)
+        got = self.stored()
+        self.assertEqual([(m["label"], m["tool"]) for m in got], [("DB dump", "restic"), ("Plain", "tar")])
+        self.assertEqual((got[0]["verify_max_age_hours"], got[0]["restore_drill_max_age_hours"]), (48, 72))
+
+    def test_the_select_offers_auto_and_the_three_tools_the_agent_can_run(self):
+        self.start_with([API_ONLY])
+        self.assertEqual(self.page.eval_on_selector_all("#bm-tool option", "els => els.map(e => e.value)"), ["auto", "restic", "borg", "tar"])
 
     def test_a_box_the_form_shows_is_stored_as_it_is_left_and_the_rest_still_stands(self):
         self.start_with([API_ONLY])
@@ -150,7 +173,7 @@ class TestEditingABackupMonitor(unittest.TestCase):
         self.assertEqual(self.save().status, 200)
         got = self.stored()
         self.assertEqual([m["label"] for m in got], ["DB dump", "New"])
-        self.assertEqual((got[1]["tool"], got[1]["verify_max_age_hours"], got[1]["restore_drill_max_age_hours"]), ("auto", 168, 168))
+        self.assertEqual((got[1]["tool"], got[1]["verify_max_age_hours"], got[1]["restore_drill_max_age_hours"]), ("auto", 168, 168), "the select starts on auto")
         self.assertEqual((got[0]["tool"], got[0]["verify_max_age_hours"]), ("borg", 48), "the one that was there is as it was")
 
     def test_a_save_the_server_refuses_does_not_stay_in_the_list_or_ride_into_the_next_one(self):
