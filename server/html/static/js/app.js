@@ -495,10 +495,7 @@ const tableCtl = (() => {
     if (!rows.length) { toast('Nothing to export', 'info'); return; }
     const proj = r => (opts.getColumns ? opts.getColumns(r) : r);
     const cols = (opts.columns && opts.columns.slice()) || Object.keys(proj(rows[0]));
-    const esc = v => {
-      v = (v === null || v === undefined) ? '' : String(v);
-      return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
-    };
+    const esc = _csvCell;
     const lines = [cols.join(',')];
     for (const r of rows) {
       const rec = proj(r);
@@ -847,6 +844,16 @@ function tblPage(name, delta) { tableCtl.goPage(name, delta); }
 function tblClearFilter(name) { tableCtl.clearFilter(name); }
 // v6.3.0 (UX wave 2): pager rows-per-page select + CSV export button
 function tblPageSize(name) { tableCtl.setPageSize(name); }
+// 8.0.0: one cell of a CSV the page builds. A spreadsheet runs a cell that starts with = + - or @ (or a tab or a carriage return, which it strips back to one of them) as a formula,
+// and the text of a cell can come from a host: a program name, a host name, a process. The server's exports quote such a cell with a leading ' (api._csv_safe); the two
+// builders in the page did not, so a program called =HYPERLINK(...) ran when the file was opened. Text only: a number cannot carry a formula and is written as it is.
+function _csvCell(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string' && v !== '' && '=+-@\t\r'.includes(v[0])) v = "'" + v;
+  v = String(v);
+  if (!(v.includes(',') || v.includes('\n') || v.includes('\r') || v.includes('"'))) return v;
+  return '"' + v.split('"').join('""') + '"';
+}
 function tblExportCsv(name) { tableCtl.exportCsv(name); }
 // v6.3.0 (UX wave 4): column show/hide menu + checkbox handler
 function tblColsMenu(name, btn) { tableCtl.colsMenu(name, btn); }

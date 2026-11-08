@@ -544,7 +544,7 @@ function exportMetricExplorerCsv() {
   if (!_mxLastSeries.length) { toast('Run a query first', 'error', { transient: true }); return; }
   const lines = ['series,ts,iso,value'];
   _mxLastSeries.forEach(s => {
-    const nm = '"' + String(s.name).replace(/"/g, '""') + '"';
+    const nm = _csvCell(String(s.name));   // a host's name can start with =, and quotes do not stop a spreadsheet reading that as a formula
     s.points.forEach(p => {
       lines.push(`${nm},${p.x},${new Date(p.x * 1000).toISOString()},${p.y}`);
     });

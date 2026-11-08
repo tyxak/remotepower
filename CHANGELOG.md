@@ -538,6 +538,14 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
 - **The top bar keeps the page name at the largest text size.** At 200% on a 1440 pixel window the bar is 467 page pixels wide, and the crumb was
   squeezed to 6 of them by the `Auto-refresh` label and the buttons. The crumb keeps room for `Dashboard` and the refresh label gives way first (desktop
   layout only; the phone layout is as it was).
+- **A CSV the page builds no longer runs as a formula.** Found while building the Traffic tables. Every export the server writes quotes a cell that starts with `=`, `+`,
+  `-` or `@` (or a tab or a carriage return) with a leading `'`, because a spreadsheet runs such a cell as a formula and the text of a cell can come from a host: a program
+  name, a host name, a process. The two CSV builders in the page, the table export (about seventy tables, Processes among them) and the metric explorer's, did not, so a
+  program called `=HYPERLINK(...)` ran when the downloaded file was opened. Medium. Both write their cells through one helper that follows the server's rule, text only, so a
+  negative number is still a number. **Held by** `tests/test_v800_csv_formula_guard.py` (8 tests: the helper under node, cell by cell against the server's rule; every function
+  in the page's scripts that outputs `text/csv`; every csv writer call on the server, which writes a guarded cell or a heading the code defines) and a browser test that downloads
+  the Programs table with a program called `=HYPERLINK(...)`.
+
 - **Network** gives each node its words on hover and to a screen reader (`web1 — agentless host, offline`; the circle itself carries only `HOS`, `OTH` or
   `UNM`), and the **Forecast** chart's word `projected` sits at the foot of its region, where the projection line no longer crosses it.
 - **Compliance** opens the OpenSCAP card with one line (`Scores a host against an OpenSCAP profile and lists the rules it fails`) and folds the
