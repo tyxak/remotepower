@@ -227,7 +227,7 @@ function _wizRxPaint() {
   const el = document.getElementById('wiz-watch');
   const w = _wiz;
   if (!el || !w) return;
-  const st = w.st, k = _WIZ_RX[st.kind];
+  const st = w.st;
   el.textContent = '';
   if (st.arrived) {
     el.className = 'wiz-watch c-green';

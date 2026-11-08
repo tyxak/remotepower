@@ -224,7 +224,7 @@ async function runLogSearch() {
     byDev[r.device_id].lines.push(r);
   }
   let html = `<div class="hint-mb">${data.count} match${data.count===1?'':'es'} across ${Object.keys(byDev).length} host${Object.keys(byDev).length===1?'':'s'}</div>`;
-  for (const [dev_id, g] of Object.entries(byDev)) {
+  for (const g of Object.values(byDev)) {
     html += `<details open class="mb-8"><summary class="isl-423">${escHtml(g.name)} <span class="meta-sm-nm">(${g.lines.length})</span></summary>`;
     html += g.lines.map(l => {
       const color = lineSeverityColor(l.line);

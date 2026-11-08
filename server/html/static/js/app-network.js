@@ -683,9 +683,6 @@ async function netmapEditOpen() {
     openModal('netmap-edit-modal');
     return;
   }
-  // Build an option list of all devices for the dropdowns
-  const optsHtml = '<option value="">— none —</option>' +
-    nodes.map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name)} (${escHtml(n.type || 'host')})</option>`).join('');
   body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="w-full"><thead><tr class="isl-468"><th class="cell-m">Host</th><th class="cell-m">Type</th><th class="cell-m">Connected to (upstream)</th><th class="cell-m">Depends on <span class="meta-sm-nm">(alerts suppressed when down)</span></th></tr></thead><tbody>${
     nodes.map(n => {
       const cur = (_netmapData.edges.find(e => e.from === n.id) || {}).to || '';

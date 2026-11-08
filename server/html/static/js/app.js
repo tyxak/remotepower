@@ -52,8 +52,6 @@ let pinTimer        = null;
 let pinSeconds      = 0;
 let refreshTimer    = null;
 let refreshInterval = 60;
-let refreshRemaining = refreshInterval;
-let _refreshBarWired = false;   // animationend listener bound once (v3.8.0)
 let activeTagFilter = null;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -968,24 +966,10 @@ const densityCtl = (() => {
 })();
 
 // ══════════════════════════════════════════════════════════════════════════════
-// v1.10.0: OS icons
+// OS icons
 // ══════════════════════════════════════════════════════════════════════════════
-// Two icons total: Linux (Tux) and Windows. Anything that doesn't match
-// either gets a question-mark glyph so detection failures are visible
-// rather than silent. Detection is a coarse string match against the
-// agent-reported `os` field — most distros report something containing
-// "Linux" or a distro name we can recognise; Windows reports "Windows".
-//
-// The SVGs are kept tiny (16×16) and use currentColor so they inherit the
-// surrounding text colour. Stylised glyphs, not full-fidelity logos.
-const _OS_ICONS = {
-  // Tux silhouette, very stylised
-  linux:   '<svg viewBox="0 0 24 24" fill="currentColor" aria-label="Linux"><path d="M12 3c-2.2 0-3.5 1.8-3.5 4 0 1.5.5 2.5.5 3.5 0 1-1.5 1.5-2.5 3-1 1.5-1.5 3.5-1.5 5 0 1.5 1 2.5 2 2.5h10c1 0 2-1 2-2.5 0-1.5-.5-3.5-1.5-5-1-1.5-2.5-2-2.5-3 0-1 .5-2 .5-3.5C15.5 4.8 14.2 3 12 3zm-1.5 4.5a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5zm3 0a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z"/></svg>',
-  // Windows tile
-  windows: '<svg viewBox="0 0 24 24" fill="currentColor" aria-label="Windows"><path d="M3 5.5l8-1.1v7.4H3V5.5zm0 7.6h8v7.4l-8-1.1v-6.3zm9-8.8 9-1.3v9H12V4.3zm0 9h9v9l-9-1.3v-7.7z"/></svg>',
-  unknown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-label="Unknown OS"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 4 2c-.7.5-1.5 1-1.5 2v.5"/><circle cx="12" cy="17" r=".7" fill="currentColor"/></svg>',
-};
-
+// osIcon() returns the branded distro logo from getDistroIcon() for the agent-reported
+// `os` field (a coarse string match), sized with width/height attributes.
 
 function osIcon(osStr, sizePx) {
   // v2.2.1: now returns the branded distro logo from getDistroIcon().
@@ -3785,7 +3769,6 @@ function renderDevices() {
     const metricsHist = (window._metricsHistory && window._metricsHistory[d.id]) || {};
     const diskHist = metricsHist.disk || [];
     const memHist  = metricsHist.mem || [];
-    const cpuHist  = metricsHist.cpu || [];
     const diskSpark = rootMount && diskHist.length >= 2
       ? renderSparkline(diskHist, {width: 52, height: 14, color: rootMount.percent > 85 ? 'var(--red)' : rootMount.percent > 70 ? 'var(--amber)' : 'var(--green)'})
       : '';
@@ -4099,7 +4082,6 @@ async function confirmReboot() { const extra = _approvalFields('reboot'); closeM
 // v3.3.0: device-icon palette is now Lucide SVG names from _ICONS.
 // Legacy emoji values stored on devices still render — _renderDeviceIcon
 // returns the raw value when it's not a known icon name.
-const deviceIcons = ['monitor','laptop','smartphone','printer','radio','globe','server','hardDrive','gamepad','tv','home','building','factory','cloud','ship','shield','lock','zap','package','search','wrench','terminal'];
 function _renderDeviceIcon(val) {
   if (!val) return '';
   if (_ICONS[val]) return _icon(val, 16);
@@ -13007,7 +12989,7 @@ async function setHostUpgradeMode(arg) {
   const block = document.getElementById('upgrade-mode-block');
   if (data && block) block.outerHTML = _upgradeModeBlock(id, data);
 }
-async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this host.'}); return; } const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += _upgradeModeBlock(devId, data); html += _patchPlanButton(devId, devName, data); html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
+async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this host.'}); return; } const statusCls = data.patch_status === 'fully_patched' ? 'c-green' : data.patch_status === 'patches_available' ? 'c-amber' : 'c-muted'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value ${statusCls}">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value ${data.online ? 'c-green' : 'c-red'}">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += _upgradeModeBlock(devId, data); html += _patchPlanButton(devId, devName, data); html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
 let cveReportData = null;
@@ -17833,10 +17815,6 @@ async function runbookModalRegen() {
 // left to mislead the next reader. Runbooks are unaffected: the drawer's
 // Runbook action (aiViewRunbook) and the runbook modal are the live path, and
 // app-ai.js's post-generate/delete refresh calls are typeof-guarded no-ops.
-
-// Track the last device name so we don't have to thread it through the
-// callbacks above. Set when openDetail runs.
-let _lastOpenDeviceName = '';
 
 // ─── v2.2.0: Configuration drift detection ─────────────────────────────────
 //
@@ -23273,7 +23251,7 @@ async function testHealthchecks() {
   // due. For an immediate test, fire it client-side as the operator —
   // confirms the URL is reachable from this browser at least.
   try {
-    const r = await fetch(url, { method: 'GET', mode: 'no-cors' });
+    await fetch(url, { method: 'GET', mode: 'no-cors' });
     toast('Test ping sent — check your Healthchecks.io dashboard', 'success');
   } catch (e) {
     toast('Test ping failed: ' + e.message, 'error');
@@ -24381,9 +24359,6 @@ async function loadDashboardSettings() {
   const tpTicket = _tpTicket();          // 7.4.9: taken before the request goes out, see _tpApply
   const cfg = await api('GET', '/config');
   if (!cfg) return;
-
-  const hiddenAttn = new Set(cfg.dashboard_hidden_attention_kinds || []);
-  const hiddenAct  = new Set(cfg.dashboard_hidden_activity_events || []);
 
   // Brute force settings
   const bfEnabled   = cfg.brute_force_enabled !== false;
@@ -26905,7 +26880,6 @@ async function _loadAuditSection(key) {
         }
         badge.textContent = `${evs.length}`;
         body.innerHTML = evs.slice(0,30).map(ev => {
-          const p = ev.payload || {};
           const cls = EVENT_CLASS[ev.event] || 'info';
           return `<div class="isl-642">
             <span class="activity-dot ${cls}"></span>
@@ -27202,10 +27176,10 @@ async function _loadAuditSection(key) {
         body.innerHTML = `<div class="sysinfo-row">` +
           pairs.map(([k, v, sk]) => {
             const lv  = mst[sk] || 'ok';
-            const col = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'inherit';
+            const cls = lv === 'critical' ? 'c-red' : lv === 'warning' ? 'c-amber' : '';
             return `<div class="sysinfo-pill">
               <div class="label">${escHtml(k)}</div>
-              <div class="value isl-648">${v.toFixed(1)}%</div>
+              <div class="value isl-648 ${cls}">${v.toFixed(1)}%</div>
             </div>`;
           }).join('') + `</div>`;
         break;
@@ -27257,8 +27231,6 @@ async function _loadAuditSection(key) {
           badge.textContent = 'error';
           return;
         }
-        const sysObj = (data.system || {}).sysObjectID || '';
-        const isMikrotik = sysObj.startsWith('1.3.6.1.4.1.14988');
         let h = trapsHtml;
         // Sys-group
         if (data.system) {

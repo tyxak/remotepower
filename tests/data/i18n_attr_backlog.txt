@@ -42,11 +42,9 @@ CVE-2026-1234 CVE-2026-5678
 DELETE VOLUMES
 Get-Service | Where-Object Status -eq 'Stopped'
 INBOX
-Linux
 REMOVE KMIP
 RemotePower
 Slack, , PagerDuty
-Windows
 [connection] id=remotepower-managed type=ethernet
 ^web- / 10.20.0.0/16
 aa:bb:cc:dd:ee:ff

@@ -73,9 +73,11 @@ class TestI18nCatalog(unittest.TestCase):
                 self.assertRegex(m.group(1), r'''["']?%s["']?\s*:\s*["'][^"']+["']''' % lang,
                                  f"{src!r} missing {lang}")
 
-    def test_selectors_broadened(self):
+    def test_subtitles_are_translated_with_their_markup(self):
+        # The v4.1 engine walked a list of selectors (`.section-title` among them); since v4.2 every text node whose trimmed text is in DICT is translated,
+        # wherever it sits, and only the page subtitles need a selector of their own (they keep the <span>/<a> markup inside a sentence). The list itself
+        # was dead code for years and is gone, and this test used to pin its text.
         self.assertIn("'.page-subtitle'", I18N)
-        self.assertIn("'.section-title'", I18N)
 
     def test_apply_wired_into_page_show(self):
         # v6.3.0: srcpin (brace-balanced) instead of a fixed char window —

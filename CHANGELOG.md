@@ -492,6 +492,13 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   import ran over nothing under `unittest discover`, where every module is already imported by then, and when it did run (a targeted run) it imported
   the whole suite into the running process and broke the module after it. It now imports them in a fresh interpreter, and a second test plants a module
   that leaks and requires it to be named. Held by `tests/test_v800_test_state_restored.py` and `tests/test_no_import_time_env_leak.py`.
+- **Four places that lost a colour or a dimming when the inline styles were removed have it back.** The Patch Report dialog printed Status and Online in plain
+  text (green, amber or red before), the host audit's Metrics tiles never showed the state of their threshold, a row of the drift table lost its separator line,
+  and a file marked as ignored was no longer dimmed. The page still worked out each colour into a variable it never read. An unused-variable pass over the whole
+  bundle found all four, and the dead leftovers beside them went too. The list in the class-parity test had recorded the placeholder classes as "the colour
+  arrives from the attribute" without anyone looking at the elements. Held by `tests/test_v800_dropped_styles_e2e.py` (the computed colours, in a browser),
+  `tests/test_v800_dynamic_colour_carrier.py` (every element that uses a placeholder class carries its colour) and `tests/test_v800_no_unused_js_locals.py`
+  (no local variable in the bundle is computed and never read).
 
 ### Single pages
 

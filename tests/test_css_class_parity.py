@@ -42,12 +42,16 @@ LEGACY_UNSTYLED = {
     # trace in the stylesheet is the comment recording them — which is exactly
     # why the old raw-text read resolved them and why they look new here.
     #   .isl-3xx/4xx/5xx/6xx — "dynamic colour, applied via data-color
-    #     attribute": deliberately carry no static rule, the colour arrives from
-    #     the attribute at render time.
+    #     attribute": carry no static rule, the colour arrives from the attribute
+    #     at render time. That premise was never checked until 8.0.0, and four
+    #     sites turned out to carry no attribute at all (the Patch Report's
+    #     Status and Online, the audit Metrics tiles, a drift row): their colour
+    #     was gone. tests/test_v800_dynamic_colour_carrier.py now holds the
+    #     premise over every element that uses one of these classes.
     #   .nav-alert / .nav-warn — the v6 flat design dropped the icon tints and
     #     colours the count text instead. styles.css says so verbatim: "JS still
     #     sets the classes; they're just unstyled now."
-    "isl-376", "isl-377", "isl-401", "isl-457", "isl-536", "isl-543", "isl-648",
+    "isl-376", "isl-401", "isl-457", "isl-536", "isl-648",
     "nav-alert", "nav-warn",
 }
 

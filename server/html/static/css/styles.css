@@ -5559,7 +5559,6 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-374 { font-weight: 600 }
 .isl-375 { display: flex; gap: 4px; align-items: center }
 /* .isl-376 — dynamic colour, applied via data-color attribute */
-/* .isl-377 — dynamic colour, applied via data-color attribute */
 .isl-378 { font-size: 13px; font-weight: 620; margin: 16px 0 8px; color: var(--muted) }
 .isl-379 { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px }
 .isl-380 { display: flex; justify-content: space-between; margin-bottom: 6px }
@@ -5802,7 +5801,7 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-540 { width: 100%; font-size: 12px }
 .isl-541 { font-size: 10px; padding: 2px 6px; margin-right: 4px }
 .isl-542 { font-size: 10px; color: var(--muted); margin-right: 4px }
-/* .isl-543 — dynamic colour, applied via data-color attribute */
+.isl-543 { border-bottom: 1px solid var(--border) }
 .isl-544 { padding: 6px 4px; font-family: var(--font-mono); font-size: 11px }
 .isl-545 { padding: 6px 4px; color: var(--muted) }
 .isl-546 { padding: 6px 4px; text-align: right }

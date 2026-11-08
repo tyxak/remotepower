@@ -514,7 +514,6 @@ let _hcData    = null;   // {desired, current, drift, desired_at, current_collec
 let _hcDevId   = null;
 let _hcDevName = null;
 const HC_TEXT_SECTIONS    = ['repos','netplan','nmcli','resolv_conf','hosts','sudoers','motd','logrotate','cron'];
-const HC_SPECIAL_SECTIONS = ['services','users','groups'];
 
 // ── Open modal ─────────────────────────────────────────────────────────────
 

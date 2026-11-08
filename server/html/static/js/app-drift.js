@@ -406,10 +406,7 @@ async function openDriftDetail(devId, devName) {
           ? `<span title="Content retrieval refused for sensitive files" class="isl-542">no content</span>`
           : '');
 
-      const rowStyle = ignored
-        ? 'border-bottom:1px solid var(--border);opacity:0.55'
-        : 'border-bottom:1px solid var(--border)';
-      html += `<tr class="isl-543">
+      html += `<tr class="isl-543${ignored ? ' muted-row' : ''}">
         <td class="isl-544">${escHtml(p)}${f.via ? `<div class="hint">${escHtml(f.via)}</div>` : ''}</td>
         <td class="cell-pad">${statusHtml}</td>
         <td class="isl-545">${lastCheck}</td>

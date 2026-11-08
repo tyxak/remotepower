@@ -60,7 +60,6 @@ function renderCalendarGrid() {
   const gridStart = new Date(year, month, 1 - firstWeekday);
 
   const today = new Date();
-  const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
 
   // Index events by yyyy-m-d local-date key
   const byDay = {};

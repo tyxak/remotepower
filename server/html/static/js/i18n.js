@@ -11223,21 +11223,6 @@
     "Where each Linux host fetches its updates from, read from the repository files its agent reports. A source that is not a distribution's, one fetched over plain http and one whose signatures or certificates are not checked are listed with what is wrong.": { "zh": "每台 Linux 主机从哪里获取更新，内容来自其代理报告的仓库文件。不属于发行版的来源、通过纯 http 获取的来源，以及不校验签名或证书的来源，会连同问题一并列出。", "hi": "हर Linux होस्ट अपने अपडेट कहाँ से लेता है, यह उसके एजेंट द्वारा भेजी गई रिपॉज़िटरी फ़ाइलों से पढ़ा जाता है। जो स्रोत किसी वितरण का नहीं है, जो सादे http से लिया जाता है, और जिसके हस्ताक्षर या प्रमाणपत्र जाँचे नहीं जाते, वे समस्या के साथ सूचीबद्ध होते हैं।", "es": "De dónde obtiene cada host Linux sus actualizaciones, según los archivos de repositorio que informa su agente. Se listan, con lo que falla, las fuentes que no son de una distribución, las que se descargan por http sin cifrar y las que no comprueban firmas o certificados.", "ar": "من أين يجلب كل مضيف Linux تحديثاته، بحسب ملفات المستودعات التي يبلغ عنها وكيله. تُعرض، مع المشكلة، المصادر التي ليست من توزيعة، وتلك التي تُجلب عبر http عادي، وتلك التي لا تُفحص توقيعاتها أو شهاداتها.", "de": "Woher jeder Linux-Host seine Updates bezieht, gelesen aus den Paketquellen-Dateien, die sein Agent meldet. Quellen, die nicht von einer Distribution stammen, solche über unverschlüsseltes http und solche ohne Prüfung von Signaturen oder Zertifikaten werden mit dem Problem aufgeführt.", "fr": "D'où chaque hôte Linux tire ses mises à jour, d'après les fichiers de dépôts que son agent signale. Les sources qui ne viennent pas d'une distribution, celles récupérées en http simple et celles dont les signatures ou les certificats ne sont pas vérifiés sont listées avec le problème." }
   };
 
-  // Selectors for clean, text-only containers we translate. We only touch
-  // elements with NO element children (so we never clobber icon+text buttons
-  // or anything structural), plus anything explicitly carrying [data-i18n].
-  var SELECTOR = [
-    '[data-i18n]',
-    '.sidebar-label > span',
-    '.sidebar-group-toggle > span',
-    '.nav-btn > span',
-    '.page-title',
-    '.page-subtitle',
-    '.section-title',
-    '.empty-title',
-    '.empty-text'
-  ].join(',');
-
   var current = 'en';
 
   function normalizeLang(l) {
