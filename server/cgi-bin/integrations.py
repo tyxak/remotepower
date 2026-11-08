@@ -564,8 +564,19 @@ def _adguard_top(raw):
 )
 def _truenas(inst, c):
     h = _hdr_token(inst, "Authorization", "Bearer ")
-    info = c.get_json("/api/v2.0/system/info", headers=h)
-    ver = info.get("version", "")
+    first = c.get("/api/v2.0/system/info", headers=h)
+    # 8.0.0: the newest TrueNAS releases (26) no longer have the REST API this connector speaks; they answer 404 at /api/v2.0, and "HTTP 404" told nobody why. The replacement is a
+    # JSON-RPC 2.0 API over a WebSocket (/api/current), which this connector does not speak yet.
+    if first.status in (404, 410):
+        raise IntegrationError(
+            "no REST API at /api/v2.0: TrueNAS 26 removed it, and its WebSocket API is not supported by this connector yet. On an earlier release, check the address"
+        )
+    if first.status in (401, 403):
+        raise IntegrationError(f"unauthorized (HTTP {first.status}) — check the API key")
+    if not first.ok:
+        raise IntegrationError(f"/api/v2.0/system/info answered HTTP {first.status}")
+    info = first.json()
+    ver = info.get("version", "") if isinstance(info, dict) else ""
     pools = c.get_json("/api/v2.0/pool", headers=h)
     bad = [
         p.get("name", "?")
@@ -655,7 +666,9 @@ _UNIFI_BASE = "/proxy/network/integration/v1"
 _UNIFI_DOWN = ("OFFLINE", "CONNECTION_INTERRUPTED", "ISOLATED")
 _UNIFI_PAGE = 200
 _UNIFI_PAGES = 5  # 1,000 devices: past that the answer says it counted the first thousand
-_UNIFI_ID = re.compile(r"^[0-9A-Za-z-]{8,64}$")
+_UNIFI_ID = re.compile(
+    r"^[0-9A-Za-z-]{8,64}$"
+)  # a site id is a UUID: what this lets through needs no quoting in a path, and nothing else gets that far
 
 
 def _unifi_page(c, path, h, limit=_UNIFI_PAGE):
@@ -711,11 +724,10 @@ def _unifi_integration(inst, c, site):
     sid = str(chosen.get("id") or "")
     if not _UNIFI_ID.match(sid):
         raise IntegrationError("the console named a site with an id that is not one")
-    sid_q = urllib.parse.quote(sid, safe="")
     devices, total = [], 0
     for page in range(_UNIFI_PAGES):
         r = c.get(
-            f"{_UNIFI_BASE}/sites/{sid_q}/devices?offset={page * _UNIFI_PAGE}&limit={_UNIFI_PAGE}",
+            f"{_UNIFI_BASE}/sites/{sid}/devices?offset={page * _UNIFI_PAGE}&limit={_UNIFI_PAGE}",
             headers=h,
         )
         rows, total = _unifi_rows(r, f"{_UNIFI_BASE}/sites/<site>/devices")
@@ -729,7 +741,7 @@ def _unifi_integration(inst, c, site):
     )
     clients = None
     try:
-        _rows, clients = _unifi_page(c, f"{_UNIFI_BASE}/sites/{sid_q}/clients", h, limit=1)
+        _rows, clients = _unifi_page(c, f"{_UNIFI_BASE}/sites/{sid}/clients", h, limit=1)
     except IntegrationError:
         pass  # the client count is a nicety: the devices are the health
     names = ", ".join(str(d.get("name") or d.get("macAddress") or "?")[:40] for d in down[:3])

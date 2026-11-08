@@ -470,6 +470,10 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   when one is offline, interrupted or isolated, naming up to three, with warnings for an incorrect U5G topology, the client count, and the number of firmware updates available. The site is chosen by
   the name the older API used (`default`), or is the only one. A username switches to the older login, unchanged. The paths and the device states are from the vendor's own OpenAPI file for Network
   10.4.57, and the connector spec checker finds all four paths in it. Held by `tests/test_v800_unifi_integration_api.py` (a fake client; no console was available).
+- **A TrueNAS that no longer has the REST API says so.** The connector speaks `/api/v2.0`, which TrueNAS 26 removed; the same paths answer 404 and the card read "HTTP 404", which names neither
+  the cause nor the remedy. It now says that there is no REST API there, that its WebSocket replacement is not supported by this connector yet, and (for an earlier release) to check the address.
+  A refused key and any other status are said in words too. The WebSocket client the replacement needs is not built: it has to live in the same guarded transport as the other connectors, and is
+  the one connector change of this release that stays open. Held by `tests/test_v800_truenas_rest_gone.py`.
 - **The DNS records table says why it is empty.** With no provider credentials, a locked vault or a token that sees no zone, the table was a header
   over nothing and only a line of small print above it gave the reason. It now says *No zone to list yet. Give the provider credentials, then pick a
   zone.* The walk of the empty install is a test now: it opens all 79 sidebar pages of a fresh install and fails on a blank table, a loader that never

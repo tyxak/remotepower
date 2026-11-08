@@ -263,6 +263,10 @@ the browser, on purpose, so a stolen session cannot add code. See
   - The status is *OK* when every value was read, *warning* when some were not (the detail names
     them) and *critical* when none were, when the server cannot be reached or when it refuses the
     login.
+- **TrueNAS** uses the REST API (`/api/v2.0`) with an API key. TrueNAS 26 removed that API, and its
+  replacement is a WebSocket API (JSON-RPC 2.0 at `/api/current`) that this connector does not speak
+  yet. On a TrueNAS that has no REST API the card says so, in words, instead of "HTTP 404"
+  *(8.0.0)*. Releases that still have it work as before.
 - **UniFi Network** uses the Integration API *(8.0.0)*. Make an API key under **Integrations** in
   the Network application and paste it as the key; it works on a UniFi OS console (UDM, UDR,
   Cloud Gateway, Cloud Key) and on a Network application from 9.0. The connector lists the adopted
