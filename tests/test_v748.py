@@ -30,17 +30,21 @@ def _server_version():
 
 
 class TestVersionBumps(unittest.TestCase):
-    """The strict pins moved to tests/test_v749.py. What stays true of 7.4.8 while it is inside the windows."""
+    """Loosened at the v8.0.0 bump. The STRICT pins for the current release live in tests/test_v800.py; what stays here is the
+    shape: the surfaces must still agree with each other, whatever version they carry, and 7.4.8 has left the kept windows."""
 
-    def test_version_doc_exists_and_is_titled(self):
-        p = _ROOT / f"docs/v{V}.md"
-        self.assertTrue(p.exists(), f"docs/v{V}.md missing")
-        self.assertIn(f'# RemotePower v{V} \u2014 "{CODENAME}"', p.read_text())
+    def test_readme_badge_matches_the_server(self):
+        self.assertIn(f"version-{_server_version()}-blue", (_ROOT / "README.md").read_text())
 
-    def test_version_doc_has_no_template_left(self):
-        body = (_ROOT / f"docs/v{V}.md").read_text()
-        for stub in ("CODENAME", "One-paragraph release summary", "## Section", "- **Change.**"):
-            self.assertNotIn(stub, body, f"unfilled template stub: {stub}")
+    def test_changelog_newest_header_is_the_server_version(self):
+        first = [l for l in (_ROOT / "CHANGELOG.md").read_text().splitlines() if l.startswith("## v")][0]
+        self.assertTrue(first.startswith(f'## v{_server_version()} \u2014 "'), first)
+
+    def test_version_doc_has_left_the_keep_three_window(self):
+        """docs/v7.4.8.md went at the v8.0.0 bump. The CHANGELOG entry is the record now."""
+        self.assertFalse((_ROOT / f"docs/v{V}.md").exists(), f"docs/v{V}.md should be gone")
+
+    def test_changelog_entry_has_no_template_left(self):
         changelog = (_ROOT / "CHANGELOG.md").read_text()
         top = changelog[changelog.index(f"## v{V}"):changelog.index(f"\n## v{PREVIOUS}")]
         for stub in ("CODENAME", "YYYY-MM-DD", "One-paragraph release summary", "Headline change"):
@@ -52,20 +56,30 @@ class TestVersionBumps(unittest.TestCase):
             self.skipTest("excluded from dist tree")
         self.assertNotIn(CODENAME, p.read_text())
 
-    def test_it_is_still_in_the_kept_windows(self):
+    def test_doc_set_keeps_three_versions(self):
         vers = sorted(p.stem for p in (_ROOT / "docs").glob("v*.md") if re.fullmatch(r"v\d+\.\d+\.\d+", p.stem))
-        self.assertIn(f"v{V}", vers)
+        self.assertEqual(len(vers), 3, f"keep exactly 3 version docs: {vers}")
+        self.assertNotIn(f"v{V}", vers)
+
+    def test_it_is_still_in_the_readme_list(self):
         readme = (_ROOT / "README.md").read_text()
         block = readme[readme.index("### Recent releases"):]
         block = block[:block.index("\n## ")] if "\n## " in block else block
-        self.assertIn(V, re.findall(r"^- \*\*v(\d+\.\d+\.\d+)", block, re.M))
+        bullets = re.findall(r"^- \*\*v(\d+\.\d+\.\d+)", block, re.M)
+        self.assertLessEqual(len(bullets), 5, bullets)
+        self.assertEqual(bullets[0], _server_version(), "the new release leads")
+        self.assertIn(V, bullets)
+
+    def test_its_card_left_and_its_codename_stays_searchable(self):
         html = _html()
-        self.assertIn(V, re.findall(r"What's new \u2014 v(\d+\.\d+\.\d+)", html))
-        head = html[:html.index(f"What's new \u2014 v{V}")]
-        self.assertIn(CODENAME.lower(), head[head.rindex('data-keywords="'):].lower())
+        cards = re.findall(r"What's new \u2014 v(\d+\.\d+\.\d+)", html)
+        self.assertEqual(len(cards), 3, f"cap the cards at 3: {cards}")
+        self.assertNotIn(V, cards)
+        older = html[html.index('older versions history'):]
+        self.assertIn(CODENAME.lower(), older[:older.index('"')].lower())
 
     def test_no_dangling_links_to_the_dropped_docs(self):
-        for dropped in ("v7.3.0.md", "v7.4.0.md", "v7.4.1.md", "v7.4.2.md", "v7.4.3.md", "v7.4.4.md", "v7.4.5.md", "v7.4.6.md"):
+        for dropped in ("v7.3.0.md", "v7.4.0.md", "v7.4.1.md", "v7.4.2.md", "v7.4.3.md", "v7.4.4.md", "v7.4.5.md", "v7.4.6.md", "v7.4.7.md", "v7.4.8.md"):
             for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html", "docs/features.md"):
                 p = _ROOT / rel
                 if p.exists():
@@ -122,20 +136,6 @@ class TestTheSecurityReview(unittest.TestCase):
         text = self.raw()
         for needle in ("curl", "X-Token", "wget", "nc -"):
             self.assertNotIn(needle, text, needle)
-
-    def test_the_changelog_and_the_notes_agree_on_the_count(self):
-        body = (_ROOT / "CHANGELOG.md").read_text()
-        body = body[body.index("## v7.4.8 — "):body.index("## v7.4.7 — ")]
-        section = body[body.index("### Security"):][:400]
-        self.assertIn("found one issue", re.sub(r"\s+", " ", section))
-        notes = re.sub(r"\s+", " ", (_ROOT / "docs/v7.4.8.md").read_text())
-        self.assertIn("One low issue was fixed before release", notes)
-
-    def test_the_card_links_the_review(self):
-        html = _html()
-        card = html[html.index("What's new — v" + V):]
-        card = card[:card.index("</details>")]
-        self.assertIn("docs/security-review-7.4.8.md", card)
 
     def test_it_is_among_the_three_kept_reviews(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))

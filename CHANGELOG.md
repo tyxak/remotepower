@@ -5,9 +5,15 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## Unreleased (test)
+## v8.0.0 — "Pil0tMatters" — unreleased (test)
 
-What has changed since 7.5.0, on the way to 8.0.0. The release has no codename yet, so the changes collect here until the version is opened.
+The first release of a new major version, and it changes what a person can adjust and what the agent finds without being asked. You can set the text
+size from 80% to 300%, show a long page as tabs or as one page, keep named layouts for Home, and take ten setup tasks a step at a time. The Linux
+agent finds the apps a host runs (63 are known) and offers a monitor and a connector for each. Three connectors, an Apprise destination, four monitor
+types (SMTP, IMAP, SSH banner and NTP), a read-only MCP endpoint and automatic container image updates with a rollback are new, and the last two are off
+until you switch them on. Reading the whole code once more found a High issue in the host drawer's settings form and Medium issues in the AI executor
+and in the channels that reach a host over SSH; all are fixed. Production runs 7.5.0, so the release is a fast-forward of it. The release page is
+[docs/v8.0.0.md](docs/v8.0.0.md).
 
 ### Interface
 
@@ -329,7 +335,7 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   from nothing official, so the UniFi connector is unchanged.
 
 - **The agent finds the apps its host runs, and offers a monitor and a connector for each.** The Linux agent now reads three lists it already has or one read-only call away (the
-  listening sockets, the containers, and the services `systemctl list-units` says are running) and says which of 51 well-known apps it found, as `sysinfo.discovered`. An app is
+  listening sockets, the containers, and the services `systemctl list-units` says are running) and says which of 63 well-known apps it found, as `sysinfo.discovered`. An app is
   recognised by what it is, not by where it listens: a process name, a container image or a service is a sign by itself, and a port only when it belongs to one app (8096 is
   Jellyfin's) or when another sign agrees; 80, 3000 and 8080 recognise nothing alone. The catalog and the matcher are `server/cgi-bin/app_catalog.py`; the agent's copy is written by
   `tools/sync-app-catalog.py` (`--check` fails a stale copy, as for the protocol probes) and answers exactly as the module does on four hundred random fact sets. An older Linux agent is

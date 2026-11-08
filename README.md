@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-7.5.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-8.0.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -202,6 +202,15 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v8.0.0 "Pil0tMatters"** — the first release of a new major version, about what you can adjust and what
+  the agent finds on its own. You can set the text size from 80% to 300%, show a long page as tabs or as one
+  page, and keep up to eight named layouts for Home. Ten setup tasks have a wizard: a host, a notification
+  destination, an integration, e-mail, single sign-on and five sidecars. The Linux agent finds the apps a host
+  runs, out of the 63 it knows, and offers a monitor and a connector for each. New are three connectors
+  (Tailscale, Headscale and Cloudflare Tunnel), an Apprise destination, four monitor types (SMTP, IMAP, SSH
+  banner and NTP), a read-only MCP endpoint and automatic image updates with a rollback; the last two are off
+  until you switch them on. Reading the whole code once more found one High issue and several Medium ones, and
+  every one is fixed. Update the agents.
 - **v7.5.0 "Wh0leMatters"** — finishing what was started, with everything from 7.4.1 to 7.4.9 on top of
   7.4.0. A second read of the whole product found fifteen Medium issues, twenty-one Low or hardening
   items and three informational ones, and fixed every one; one of the Medium issues is High on a Mac that
@@ -242,13 +251,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   state. A switch counts only the CVE findings an update can fix, the Thermal page charts any
   sensor, a btrfs volume is one disk and not seven, and the page no longer sits under the
   sidebar while alerts are open.
-- **v7.4.6 "F1xableMatters"** — more requests from the same Docker install: a
-  host behind a NAT firewall can be marked internal, so a service that listens on
-  every address is graded as reachable from the local network, not from the world,
-  a server no longer shows up as the client of its own clients in the suggested
-  dependencies, a CVE finding says whether a fix exists for the host's own release, and
-  an alert resolved by hand makes its host report at once, and the Thermal page and the
-  risk score hold a drive to its own temperature lines.
 
 ## Security
 

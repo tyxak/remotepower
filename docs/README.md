@@ -75,13 +75,13 @@ holds long-form docs that don't fit there.
   its own agent do through the sensor limits and labels it reports and the text `apt-get` prints, what a stored row
   of the wrong kind does to the Thermal page and the risk score, and one low issue, a stored reading or limit too big
   for a float that answered 500 to everyone. Caught before release, with the scans and the mutation checks behind it.
+- **[v8.0.0.md](v8.0.0.md)** — "Pil0tMatters": the text size from 80% to 300%, tabs and named layouts, ten wizards, the apps
+  the agent finds on a host, three connectors and four monitor types, a read-only MCP endpoint and automatic image updates.
 - **[v7.5.0.md](v7.5.0.md)** — "Wh0leMatters": the release that carries 7.4.1 to 7.4.9 to production, with four-eyes approval on every
   command, a sign-in before a restore, the agents' data in every page that can use it, and fifteen medium findings fixed.
 - **[v7.4.9.md](v7.4.9.md)** — "Ch0iceMatters": a host runs its upgrades in a Standard or an Extended mode, a
   hard disk and a SATA SSD behind the same controllers keep their own temperature lines, and an update Ubuntu is
   still phasing in is not counted as pending.
-- **[v7.4.8.md](v7.4.8.md)** — "Hon3stMatters": a Problems row that shows when its host last reported, a sensor
-  limit that is not a temperature is no limit, and a package apt keeps back is pending.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.

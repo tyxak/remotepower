@@ -99,14 +99,14 @@ class TestVersionBumps(unittest.TestCase):
         self.assertEqual(len(vers), 3, f"keep exactly 3 version docs: {vers}")
         self.assertNotIn(f"v{V}", vers)
 
-    def test_readme_recent_releases_capped_at_five(self):
+    def test_readme_recent_releases_capped_at_five_and_it_has_left(self):
         readme = (_ROOT / "README.md").read_text()
         block = readme[readme.index("### Recent releases"):]
         block = block[:block.index("\n## ")] if "\n## " in block else block
         bullets = re.findall(r"^- \*\*v(\d+\.\d+\.\d+)", block, re.M)
         self.assertLessEqual(len(bullets), 5, bullets)
         self.assertEqual(bullets[0], _server_version(), "the new release leads")
-        self.assertIn(V, bullets)
+        self.assertNotIn(V, bullets, "7.4.6 left the five at the v8.0.0 bump; the CHANGELOG entry is the record")
 
     def test_whats_new_cards_capped_at_three(self):
         html = _html()
