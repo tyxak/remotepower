@@ -292,6 +292,8 @@ def handle_log_sweep_diagnose(dev_id):
     )
     try:
         ai_result = A._call_ai_with_prompts(system_prompt, user_prompt, 'log_sweep_rca')
+    except A.AINotEnabled as e:
+        A.respond(409, {'error': str(e)})
     except Exception as e:
         A.respond(500, {'error': f'AI call failed: {e}'})
         return
@@ -653,6 +655,9 @@ def handle_alert_ai_triage(alert_id):
         return
     try:
         triage = A._run_alert_triage(alert, dev_id, dev)
+    except A.AINotEnabled as e:
+        A.respond(409, {'error': str(e)})
+        return
     except RuntimeError as e:
         A.respond(502, {'error': str(e)})
         return

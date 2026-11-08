@@ -66795,6 +66795,8 @@ def handle_ai_exec_propose():
     )
     try:
         ai_result = _call_ai_with_prompts(system_prompt, user_prompt, 'ai_exec_propose')
+    except AINotEnabled as e:
+        respond(409, {'error': str(e)})
     except Exception as e:
         sys.stderr.write(f'[remotepower] ai_exec propose failed: {e}\n')
         respond(500, {'error': f'AI call failed: {e}'})
@@ -80595,6 +80597,8 @@ def handle_mitigate_ai(dev_id, action_id):
     )
     try:
         ai_result = _call_ai_with_prompts(system_prompt, user_prompt, prompt_key)
+    except AINotEnabled as e:
+        respond(409, {'error': str(e)}); return
     except Exception as e:
         # v3.0.4: log the traceback to stderr (nginx error log /
         # fcgiwrap journal) so future AI failures are diagnosable
@@ -80644,6 +80648,11 @@ def handle_mitigate_ai(dev_id, action_id):
     })
 
 
+class AINotEnabled(RuntimeError):
+    """8.0.0: the AI assistant is switched off in Settings. A setting that says no is not a server error: the handlers answer 409 with this message,
+    where they answered 500 or 502 and counted as a fault. It is a RuntimeError, so a caller that has not been taught about it still treats it as one."""
+
+
 def _call_ai_with_prompts(system_prompt, user_prompt, prompt_key):
     """Thin wrapper around the existing AI dispatch path that returns
     {text, …} so we can centralise prompt-key plumbing. The actual provider
@@ -80665,7 +80674,7 @@ def _call_ai_with_prompts(system_prompt, user_prompt, prompt_key):
     cfg = load(CONFIG_FILE) or {}
     ai_cfg = cfg.get('ai') or {}
     if not ai_cfg.get('enabled'):
-        raise RuntimeError('AI not enabled — configure in Settings → AI Assistant')
+        raise AINotEnabled('AI not enabled — configure in Settings → AI Assistant')
 
     # The per-prompt overrides live at the top level of the config, where
     # handle_ai_params_save writes them. This used to read them from cfg['ai'], where

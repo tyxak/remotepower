@@ -723,6 +723,9 @@ Update the agents for these. The agent version is 7.5.0.
 - **Business services nest only so deep.** The limit judged the saved service only, so editing the bottom of a chain made every holder
   deeper unchecked, and the depth walk took about 70 seconds at 40 services. It is checked for every service and walked once.
 - **A host record with a wrong-shaped watch list made its heartbeat answer 500** every time. The store registry types it.
+- **The AI buttons answered 500 or 502 on an install with no AI set up.** The command proposal, the mitigation advice, the log diagnosis and the
+  alert triage treated "the AI is switched off in Settings" like a provider that failed. They answer 409 with the pointer to Settings now, and a
+  provider that fails still answers 502 or 500.
 - Smaller, all with tests: a read-only mount no longer lowers a container-audit severity, an unhashable member kind answers 400, a
   refused enrolment source is in the audit trail again, probe results from two hosts at once are both kept, "passes its health check
   again" is no longer sent for a container that stopped, an alert's assignment is kept unless the request says otherwise, overlapping
