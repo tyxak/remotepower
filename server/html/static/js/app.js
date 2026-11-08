@@ -2807,6 +2807,7 @@ const MODULE_PAGES = {
   autonomy:   'autonomy',
   sshgw:      'sshgw',
   mcp:        null,   // 8.0.0: an API prefix with no page, like ai_exec
+  traffic:    null,   // 8.0.0: an API prefix and a tab of the Network page, not a page of its own (_applyModuleTabGates hides the tab)
 };
 
 // [checkbox id, config key, default] — defaults MUST mirror api._MODULES, or a
@@ -2823,6 +2824,7 @@ const MODULE_SETTINGS = [
   ['cfg-mod-autonomy',   'autonomy_enabled',   true],
   ['cfg-mod-sshgw',      'sshgw_enabled',      false],
   ['cfg-mod-mcp',        'mcp_module_enabled', false],
+  ['cfg-mod-traffic',    'traffic_module_enabled', false],
 ];
 
 function _applyModuleNavGates(modules) {
@@ -2835,6 +2837,19 @@ function _applyModuleNavGates(modules) {
       b.classList.toggle('d-none', off);
     });
   }
+}
+
+// 8.0.0: a module can own a tab of an existing page instead of a page of its own (Traffic on Network). The tab button names the module in
+// data-module; with the module off the button is hidden, and pgTabsApply skips a hidden button, so a tab remembered from before falls back to
+// the page's default one. Presentation only: the server answers 404 for the module's API either way.
+function _applyModuleTabGates(modules) {
+  document.querySelectorAll('.pg-tabs [data-pg-tab-btn][data-module]').forEach(b => {
+    const mod = b.dataset.module;
+    if (!(mod in modules)) return;          // an older server did not send it: leave the tab as it is
+    b.classList.toggle('d-none', !modules[mod]);
+  });
+  const cur = document.querySelector('.page.active');
+  if (cur && cur.querySelector('.pg-tabs[data-pg]')) pgTabsApply(cur.id.replace(/^page-/, ''));
 }
 
 function _moduleOffFor(page) {
@@ -3178,7 +3193,7 @@ function _pgTabIn(card, tab) { return String(card.dataset.pgTab || '').split(/\s
 function pgTabsApply(page, tab) {
   const bar = document.querySelector(`.pg-tabs[data-pg="${page}"]`);
   if (!bar) return;
-  const names = [...bar.querySelectorAll('[data-pg-tab-btn]')].map(b => b.dataset.pgTabBtn);
+  const names = [...bar.querySelectorAll('[data-pg-tab-btn]:not(.d-none)')].map(b => b.dataset.pgTabBtn);   // a tab its module hid (_applyModuleTabGates) is not one to land on
   if (tab === undefined) { try { tab = localStorage.getItem('pgtab.' + page); } catch (_) { tab = null; } }
   if (!names.includes(tab)) tab = names.includes(bar.dataset.default) ? bar.dataset.default : names[0];
   const stacked = _pageSectionsStacked();
@@ -20022,6 +20037,7 @@ async function loadHome() {
   // (an older server) leaves everything visible, as before.
   window._modules = home.modules || {};
   _applyModuleNavGates(window._modules);
+  _applyModuleTabGates(window._modules);
   window._ticketsOn = !!home.tickets_enabled;
   window._billingOn = !!home.billing_enabled;
   window._ticketDevices = new Set(home.ticket_devices || []);

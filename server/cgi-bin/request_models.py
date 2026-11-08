@@ -2253,6 +2253,12 @@ if _AVAILABLE:
         verify_after_min: Any = None
         rollback: Any = None
 
+    class TrafficConfigRequest(BaseModel):
+        """8.0.0: the Traffic view's watch list and sampling interval. Both are Any: traffic.clean_watch and the handler check them and say what is wrong."""
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        watch: Any = None
+        every: Any = None
+
     class LdapTestUserRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         password: str = ''

@@ -346,6 +346,7 @@ _CONFIG_NUMBERS = (
     'smtp_port', 'snapshot_stale_days', 'snmp_cpu_crit_percent', 'snmp_cpu_warn_percent',
     'snmp_dead_threshold', 'snmp_failures_before_alert', 'sshgw_public_port', 'steal_crit_percent', 'steal_warn_percent', 'temp_alert_threshold_c',
     'thermal_crit_c', 'thermal_hot_c', 'tls_crit_days', 'tls_warn_days',
+    'traffic_every',
     'unit_flap_restarts', 'unstable_host_returns_min', 'unstable_host_window_days', 'vpn_port_base',
     'webhook_log_retention_days', 'wol_port',
 )
@@ -393,6 +394,7 @@ def _config_fields() -> dict:
         patch_sla=list_of(),
         monitoring_profiles=list_of(),
         time_periods=list_of(),
+        traffic_watch=list_of(fields(kind=STR, value=STR, label=STR)),
     )
     for k in _CONFIG_TEXT:
         spec[k] = STR
@@ -576,6 +578,7 @@ SHAPES: dict = {
     'device_profiles.json': dict_of(fields(services_watched=list_of(STR), log_watch=list_of(), metric_thresholds=DICT)),
     'disk_usage.json': dict_of(fields(paths=DICT)),
     'diskio_history.json': dict_of(dict_of(LIST)),
+    'traffic.json': dict_of(fields(first=OPT_NUM, at=OPT_NUM, sample=DICT, series=LIST, seen=DICT)),    # 8.0.0: {device_id: {first, at, sample, series, seen}} (traffic.py)
     'cputime_history.json': dict_of(LIST),                  # 7.4.9: {device_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]}
     'dmarc_reports.json': fields(reports=list_of(), sources=DICT, mailbox=DICT),
     'flow.json': dict_of(fields(latest=DICT, history=list_of())),

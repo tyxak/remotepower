@@ -61,6 +61,9 @@ class TestModuleDefaults(unittest.TestCase):
                 "sshgw": False,
                 # 8.0.0: the hosted MCP endpoint ships OFF. A server that never opts in answers 404 at /api/mcp.
                 "mcp": False,
+                # 8.0.0: the Traffic view ships OFF. It records which addresses each host talks to, so an installation chooses to have it:
+                # until then /api/traffic answers 404 and a Linux agent is told to sample nothing.
+                "traffic": False,
             },
         )
 

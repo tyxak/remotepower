@@ -193,6 +193,9 @@ ENTITY_FILES = {
     # 7.4.9: repo_inventory.json -- per host, the package repository definition files it reported ({device_id: {ts, hash,
     # files}}), written only when they change. Born an ENTITY file, so there is no cold blob to migrate.
     'repo_inventory.json',
+    # 8.0.0: traffic.json -- per host, what its established TCP connections moved at the last sample, a day's chart and the public addresses it has used
+    # ({device_id: {first, at, sample, series, seen}}), one row per host. Born an ENTITY file, so there is no cold blob to migrate.
+    'traffic.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

@@ -453,6 +453,7 @@ CMDB_SSH_PORT_MAX     = 65535
 HARDWARE_FILE    = DATA_DIR / 'hardware.json'
 DISK_NAMES_FILE  = DATA_DIR / 'disk_names.json'        # v7.4.3 (#47): {device_id: {serial: name}}
 DISKIO_HIST_FILE = DATA_DIR / 'diskio_history.json'    # v7.4.3 (#49): {device_id: {disk: [[ts, busy%, read MB/s, write MB/s, IOPS, await ms], ...]}}
+TRAFFIC_FILE = DATA_DIR / 'traffic.json'                  # 8.0.0: {device_id: {first, at, sample, series, seen}} -- what a host's TCP connections moved (traffic.py)
 _DISKIO_HIST_MIN_GAP = 60       # seconds between two samples of one disk
 _DISKIO_HIST_MAX = 120          # samples kept per disk
 CPUTIME_HIST_FILE = DATA_DIR / 'cputime_history.json'   # 7.4.9: {device_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]} in percent
@@ -1200,6 +1201,18 @@ for _ad_name in (
 ):
     globals()[_ad_name] = getattr(app_discovery_handlers_mod, _ad_name)
 del _ad_name
+
+# 8.0.0: the Traffic view -- what each host's established TCP connections moved (the Linux agent's `traffic` sample), one host's page, the fleet's, and the watch list.
+_tr_spec = _tk_ilu.spec_from_file_location(
+    'traffic_handlers', Path(__file__).parent / 'traffic_handlers.py')
+traffic_handlers_mod = _tk_ilu.module_from_spec(_tr_spec)
+_tr_spec.loader.exec_module(traffic_handlers_mod)
+traffic_handlers_mod.bind(globals())
+for _tr_name in (
+        'handle_device_traffic', 'handle_traffic_fleet', 'handle_traffic_config_get', 'handle_traffic_config_set',
+):
+    globals()[_tr_name] = getattr(traffic_handlers_mod, _tr_name)
+del _tr_name
 
 # v7.4.2 (#44): the integrations bound to a host, for the host drawer. A new route, so a
 # bound module rather than another inline handler.
@@ -11543,6 +11556,9 @@ _MODULES = {
     # nothing at /api/mcp. On, it lets a caller's API token ask an AI host about the fleet over HTTP, read-only, with that
     # token's own permissions.
     'mcp':        ('mcp_module_enabled',     False, ('/api/mcp',)),
+    # 8.0.0: the Traffic view. DEFAULT OFF: it records which addresses each host talks to, so an installation chooses to have it, and off
+    # means 404 and a Linux agent that is told to stop sampling. /api/devices/<id>/traffic is outside this prefix and checks the switch itself.
+    'traffic':    ('traffic_module_enabled', False, ('/api/traffic',)),
 }
 
 
@@ -16101,6 +16117,7 @@ def _purge_device(dev_id):
         PATCH_PREVIEWS_FILE,         # 7.4.9: and its upgrade plan
         CONTAINER_AUDIT_ACCEPTS_FILE,   # 7.4.9: and the audit findings accepted for its containers
         REPO_INVENTORY_FILE,            # 7.4.9: and the repository files it reported
+        TRAFFIC_FILE,                   # 8.0.0: and what its connections moved
     ]
     try:
         for store_path in _SIMPLE_STORES:
@@ -24303,6 +24320,11 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] drift ingest failed dev={dev_id}: {e}\n")
 
+    # 8.0.0: the connections a Linux agent sampled for the Traffic view. Outside the devices lock, like the drift report above; the handler keeps nothing while
+    # the module is off, drops a sample that is not one and never raises into the heartbeat.
+    if 'traffic' in body:
+        traffic_handlers_mod.ingest(dev_id, body['traffic'], now)
+
     # v2.2.0: surface the watched-files list to the agent so it knows what
     # to hash next round. Added to common_resp below.
     # v4.4.0 (PERF): device_get() is an O(1) single-row read on SQLite/PG;
@@ -24995,6 +25017,13 @@ def handle_heartbeat():
             common_resp['container_log_lines'] = _container_log_setting()
     except Exception as _cle:
         sys.stderr.write(f"[remotepower] container log setting dispatch failed: {type(_cle).__name__}: {_cle}\n")
+    # 8.0.0: how often a Linux agent samples its connections for the Traffic view, in seconds; 0 while the module is off. Always sent to a Linux agent, even 0, so that
+    # switching the module off reaches an agent that was told a number before. The other agents sample nothing and never see the key.
+    try:
+        if _device_os_family(saved_dev) == 'linux':
+            common_resp['traffic_every'] = traffic_handlers_mod.sampling_every()
+    except Exception as _tre:
+        sys.stderr.write(f"[remotepower] traffic setting dispatch failed: {type(_tre).__name__}: {_tre}\n")
 
     # v4.9.0: one-shot directive — tell the agent to harvest its acme.sh DNS
     # credentials on the next poll (admin clicked "Import from agent"). Cleared
@@ -77186,6 +77215,10 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/apps/monitor', 'handle_device_app_monitor', "pi.startswith('/api/devices/') and pi.endswith('/apps/monitor') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/apps/dismiss', 'handle_device_app_dismiss', "pi.startswith('/api/devices/') and pi.endswith('/apps/dismiss') and m == 'POST'"),
     ('eq', ('GET',), '/api/app-discovery', '', 'handle_app_discovery', "pi == '/api/app-discovery' and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/traffic', 'handle_device_traffic', "pi.startswith('/api/devices/') and pi.endswith('/traffic') and m == 'GET'"),
+    ('eq', ('GET',), '/api/traffic/fleet', '', 'handle_traffic_fleet', "pi == '/api/traffic/fleet' and m == 'GET'"),
+    ('eq', ('GET',), '/api/traffic/config', '', 'handle_traffic_config_get', "pi == '/api/traffic/config' and m == 'GET'"),
+    ('eq', ('POST',), '/api/traffic/config', '', 'handle_traffic_config_set', "pi == '/api/traffic/config' and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/compose/action', 'handle_device_compose_action', "pi.startswith('/api/devices/') and pi.endswith('/compose/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/containers/action', 'handle_device_container_action', "pi.startswith('/api/devices/') and pi.endswith('/containers/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/docker/prune', 'handle_device_docker_prune', "pi.startswith('/api/devices/') and pi.endswith('/docker/prune') and m == 'POST'"),
