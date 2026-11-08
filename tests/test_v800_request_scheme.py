@@ -61,7 +61,8 @@ class TestTheLinkBuildersAgree(_WithEnv):
     def test_the_portal_link_the_sh_installer_and_the_ps1_installer_use_the_same_scheme(self):
         for label, env, want_link, *_ in CASES:
             full = {"HTTP_HOST": HOST, **env}
-            with self.subTest(case=label):
+            # `_request_base_url` falls back to the live environment for a key the dict lacks, and other modules leave request variables in it
+            with self.subTest(case=label), self._fake_env(env):
                 self.assertEqual(api._request_base_url(full), f"{want_link}://{HOST}")
                 sh = _grab(r'RP_SERVER="([^"]+)"', api._render_agent_install(full))
                 ps = _grab(r"\$Server = '([^']+)'", api._render_win_install(full))

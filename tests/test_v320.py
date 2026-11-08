@@ -35,6 +35,7 @@ class _ApiTestBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_v320_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')   # put back at the end: a module that unsets it breaks every later one
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         for mod in ('api',):
             if mod in sys.modules:
@@ -45,7 +46,10 @@ class _ApiTestBase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        _clear_env('RP_DATA_DIR')
+        if cls._prev_dd is None:
+            _clear_env('RP_DATA_DIR')
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
     def _seed_admin_session(self, username='admin'):
         users = self.api.load(self.api.USERS_FILE)
@@ -815,12 +819,12 @@ class TestOidcStart(_ApiTestBase):
         )
         # Mock the redirect path: handle_oidc_start sys.exit(0)s on the
         # redirect — patch sys.exit + print capture
-        os.environ['HTTP_HOST'] = 'remote.example.com'
-        os.environ['HTTP_X_FORWARDED_PROTO'] = 'https'
         import contextlib
-        with self.assertRaises(SystemExit):
-            with contextlib.redirect_stdout(io.StringIO()):
-                self.api.handle_oidc_start()
+        from unittest import mock
+        with mock.patch.dict(os.environ, {'HTTP_HOST': 'remote.example.com', 'HTTP_X_FORWARDED_PROTO': 'https'}):
+            with self.assertRaises(SystemExit):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.api.handle_oidc_start()
         # State should be persisted
         states = self.api.load(self.api.OIDC_STATES_FILE)
         self.assertEqual(len(states), 1)

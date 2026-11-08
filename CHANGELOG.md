@@ -485,6 +485,13 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   guessed. All five now take the first entry of the header, lower-cased, and ignore anything that is not `http` or `https`. What each does when
   nothing says is unchanged: links guess https, so an enrolment token is never sent in clear; passkeys use the origin the browser reports, which is
   plain http on a local box; the SAML and OIDC callbacks use https. Held by `tests/test_v800_request_scheme.py`.
+- **Two test-order failures are explained and fixed, and a check that looked at nothing now looks.** Twelve test modules, `test_v702_perf_gates` among them,
+  left the request context set. `api._env()` reads it before the environment, so the next module's requests were answered from the leftover: a 401 in
+  one, a failed host list in another, each green alone and red after a particular neighbour. Two base classes removed their scratch directory and then
+  unset `RP_DATA_DIR`, so a later module that runs `api.py` reached for `/var/lib/remotepower`. The check that no test module changes the environment at
+  import ran over nothing under `unittest discover`, where every module is already imported by then, and when it did run (a targeted run) it imported
+  the whole suite into the running process and broke the module after it. It now imports them in a fresh interpreter, and a second test plants a module
+  that leaks and requires it to be named. Held by `tests/test_v800_test_state_restored.py` and `tests/test_no_import_time_env_leak.py`.
 
 ### Single pages
 

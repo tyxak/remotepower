@@ -37,6 +37,7 @@ class _ApiTestBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_v310_')
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')   # put back at the end: a module that unsets it breaks every later one
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         for mod in ('api',):
             if mod in sys.modules:
@@ -47,7 +48,10 @@ class _ApiTestBase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
-        _clear_env('RP_DATA_DIR')
+        if cls._prev_dd is None:
+            _clear_env('RP_DATA_DIR')
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
 
     def _seed_admin_session(self, username='admin'):
         """Create an admin user + session token, return the token string.

@@ -243,6 +243,11 @@ class TestSudoSearchIsScoped(unittest.TestCase):
         body = self._search('', role='auditor')
         self.assertTrue((body or {}).get('ok'), 'auditor was refused its own endpoint')
 
+def tearDownModule():
+    # api._env() reads the request context before os.environ: a context left set here is what the next module's requests would be answered from
+    api._RCTX.environ = None
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

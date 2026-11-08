@@ -316,5 +316,10 @@ class TestAttentionCacheSeesTheDeviceSet(_Base):
             self.assertIn("parts = [_device_set_fingerprint()]", body, name)
 
 
+def tearDownModule():
+    # api._env() reads the request context before os.environ: a context left set here is what the next module's requests would be answered from
+    api._RCTX.environ = None
+
+
 if __name__ == "__main__":
     unittest.main()

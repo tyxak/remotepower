@@ -208,5 +208,10 @@ class TestTheseTestsWouldHaveCaughtIt(unittest.TestCase):
         self.assertIn('visible', api._build_metrics_ctx.__code__.co_varnames)
 
 
+def tearDownModule():
+    # api._env() reads the request context before os.environ: a context left set here is what the next module's requests would be answered from
+    api._RCTX.environ = None
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -160,5 +160,10 @@ class TestTheHandler(unittest.TestCase):
                        self._get(api.DEFAULT_TENANT).get('credentials', [])})
 
 
+def tearDownModule():
+    # api._env() reads the request context before os.environ: a context left set here is what the next module's requests would be answered from
+    api._RCTX.environ = None
+
+
 if __name__ == '__main__':
     unittest.main()
