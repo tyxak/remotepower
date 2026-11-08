@@ -325,7 +325,7 @@ cmd_lifecycle(){ # $1 verb  $2 optional component
   have_systemd || { echo "No systemd here (container?). Use: docker restart <container>." >&2; exit 1; }
   need_root "$verb"
   local order; mapfile -t order < <(_targets "$@")
-  [ "$verb" = stop ] && order=($(printf '%s\n' "${order[@]}" | tac))  # stop in reverse
+  [ "$verb" = stop ] && mapfile -t order < <(printf '%s\n' "${order[@]}" | tac)  # stop in reverse
   local u rc=0
   for u in "${order[@]}"; do
     unit_file "$u" || { warn "$u not installed — skipped"; continue; }
@@ -404,7 +404,7 @@ print(len(d))
 PY
       then ok "Postgres reachable (marker DSN, $(python3 -c "import json;print(len(json.load(open('$MARKER')).get('dsn','')) and 'dsn set' or 'no dsn')" 2>/dev/null))"
       else fail "Postgres backend selected but the DSN check failed — the push daemon + app can't read devices"; rc=1; fi ;;
-    sqlite)  [ -f "$RP_DATA_DIR"/*.db ] 2>/dev/null && ok "SQLite backend" || ok "SQLite backend (marker)" ;;
+    sqlite)  compgen -G "$RP_DATA_DIR/*.db" >/dev/null && ok "SQLite backend" || ok "SQLite backend (marker)" ;;
     json)    ok "JSON file backend" ;;
     unknown) warn "storage backend unknown — the marker is unreadable/corrupt at $MARKER" ;;
   esac

@@ -584,6 +584,9 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   its name, the only thing it has), and the last run keeps the ids so the count is yours. The tenant matrix of 7.4.9 could not see it: it looks for another organisation's names,
   and here the names are the same. **Held by** `tests/test_v800_name_collision_scope.py`, which also reads every membership test of a name field against the code and fails on a
   new one that is not listed with a reason, and the tenant cases of `tests/test_v800_image_autoupdate.py`.
+- **`rp doctor` finds a SQLite data directory that holds more than one database file.** It tested for one with `[ -f "$dir"/*.db ]`, which answers no when two files match (shellcheck
+  SC2144), so it printed the "(marker)" line for a healthy install. Both lines said ok, so nothing else changed. Reading every shipped script with shellcheck found this one error and
+  four warnings, all fixed. **Held by** `tests/test_v800_shellcheck.py` (error level only, so a newer shellcheck cannot turn a release red; skipped where shellcheck is missing).
 
 ### Single pages
 

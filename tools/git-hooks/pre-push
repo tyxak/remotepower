@@ -19,6 +19,7 @@
 # Install (once per clone):  git config core.hooksPath tools/git-hooks
 # Bypass (emergencies only): git push --no-verify
 
+# shellcheck disable=SC2034  # the hook is given the remote's name and does not need it
 remote_name="$1"
 remote_url="$2"
 
@@ -30,6 +31,7 @@ esac
 # ── Workflow-file pushes need the SSH remote (OAuth token lacks `workflow`) ──
 case "$remote_url" in
     https://*)
+        # shellcheck disable=SC2034  # git hands over four fields on each line and only two are read
         while read -r local_ref local_sha remote_ref remote_sha; do
             [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
             if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
