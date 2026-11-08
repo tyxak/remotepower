@@ -32,7 +32,7 @@ _SETUP = """() => {
   document.getElementById('site-health').className = 'site-health ok';
   document.getElementById('site-health').innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4v5c0 5-3 8-8 9-5-1-8-4-8-9V7z"/></svg>Healthy';
   document.getElementById('last-refresh-label').textContent = 'Auto-refresh \\u00b7 51s';
-  document.getElementById('topbar-crumb').textContent = 'Monitoring \\u203a Business services and checks';
+  document.getElementById('topbar-crumb').textContent = 'Security \\u203a Email authentication and DMARC aggregate reports';
   document.getElementById('header-vitals').innerHTML =
     '<span class="vital bad"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"6\"/></svg><b>15</b> offline</span><span class="vitals-sep"></span><span class="vital bad"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"6\"/></svg><b>51</b> alerts</span><span class="vitals-sep"></span>'
     + '<span class="vital bad"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"6\"/></svg><b>11</b> down</span><span class="vitals-sep"></span><canvas id="fleet-pulse" width="64" height="16"></canvas>';
@@ -97,11 +97,14 @@ class TestTopbarFitsATablet(unittest.TestCase):
     def test_a_wide_bar_keeps_the_readout_and_its_trend_line(self):
         m = self.measure(1440)
         self.assertIn('header-vitals', m['shown'], 'control: at 1440 nothing has given way')
+        self.assertIn('status-bar', m['shown'], 'the Auto-refresh label is there at 1440')
         self.assertIn('topbar-undo', m['shown'])
 
     def test_a_narrow_bar_gives_up_the_least_useful_controls_first(self):
         narrow = self.measure(800)['shown']
         self.assertNotIn('header-vitals', narrow)
+        self.assertNotIn('status-bar', narrow, 'the Auto-refresh label is the first thing to go')
+        self.assertNotIn('status-bar', self.measure(1280)['shown'])
         self.assertNotIn('topbar-undo', narrow)
         self.assertIn('toast-history-btn', narrow, 'the notification centre stays')
         mid = self.measure(1100)['shown']

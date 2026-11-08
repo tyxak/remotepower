@@ -674,8 +674,8 @@ html { zoom: var(--rp-zoom, 1); }
      ellipsizes past half the bar; it was 6 px wide at 200% text size, where the refresh label and the buttons left it nothing. The
      "Auto-refresh · 54s" label gives way first: it ellipsizes, to nothing if it must, before the crumb or a button loses room. */
   @media (min-width: 721px) {
-    .crumb { flex-shrink: 0; min-width: 9ch; max-width: 50%; }
-    .header-right { flex-shrink: 1; min-width: 0; }
+    .crumb { flex-shrink: 1; min-width: 9ch; max-width: 50%; }   /* 8.0.0: shrinks (to its ellipsis) before the buttons are pushed past the edge */
+    .header-right { flex-shrink: 0; min-width: 0; }   /* 8.0.0: the buttons keep their room and the breadcrumb is what shrinks (a shrinking cluster only moved its overflow off screen) */
     .header-right > .status-bar { flex-shrink: 1; min-width: 0; overflow: hidden; }
     .header-right > .status-bar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
@@ -7548,11 +7548,12 @@ body.density-compact .section-title { margin-bottom: 6px; }
 .vitals-sep { width: 1px; height: 14px; background: var(--border); }
 /* 8.0.0: the controls of the top bar share the row with the 248px sidebar. With the fleet readout and its trend line they need 825 px, and between a phone and a
    1280 px window that was more than the bar had; body{overflow-x:hidden} cut the theme and top-bar buttons off the right edge on 82 of 85 pages at 768 and 1024 px.
-   They give way one group at a time, in the order of how little each tells you: the trend line below 1280, the readout below 1220, and on a narrow bar (721 to 899)
-   the density, install, undo and redo buttons. The phone layout has its own rules (tests/test_v710_topbar_fits_phone.py); tests/test_v800_topbar_fits_tablet.py
+   They give way one group at a time, in the order of how little each tells you: the Auto-refresh label below 1290, the trend line below 1280, the readout below 1220, and
+   on a narrow bar (721 to 899) the density, install, undo and redo buttons. The breadcrumb is what shrinks, to its ellipsis, before any of them is pushed past the edge. The phone layout has its own rules (tests/test_v710_topbar_fits_phone.py); tests/test_v800_topbar_fits_tablet.py
    measures the bar at sixteen widths. */
 @media (max-width: 1279px) { .vitals canvas, .vitals > .vitals-sep:nth-last-child(2) { display: none; } }
 @media (max-width: 1219px) { .vitals { display: none; } }
+@media (min-width: 721px) and (max-width: 1289px) { .header-right > .status-bar { display: none; } }
 @media (min-width: 721px) and (max-width: 899px) { #density-toggle, #pwa-install-btn, #topbar-undo, #topbar-redo { display: none; } }
 
 /* v5.6.0: top-bar site-health pill. Green "Healthy" at rest; red "N issues"

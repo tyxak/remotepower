@@ -596,8 +596,8 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   imperative in German, French, Spanish or Chinese that is not listed with a reason.
 - **The top bar no longer runs off the right edge of a window between a phone and 1280 px.** Its controls need 825 px with the fleet readout and its trend line, the sidebar takes
   248 px, and the page hides what overflows sideways, so on 82 of 85 pages at 768 and at 1024 px the theme button and the hide-the-bar button were out of reach. The 7.5.0 and 8.0.0
-  changes to the bar had each fitted at 1440 px. Below 1280 px the trend line goes, below 1220 px the readout goes, and from 721 to 899 px the density, install, undo and redo buttons
-  go too (undo and redo stay on the keyboard). The census of two looks, light and dark and five widths found no other spacing fault: of about 450 icon buttons and 800 button rows on
+  changes to the bar had each fitted at 1440 px. Below 1290 px the Auto-refresh label goes, below 1280 px the trend line, below 1220 px the readout, and from 721 to 899 px the density,
+  install, undo and redo buttons too (undo and redo stay on the keyboard). The breadcrumb is what shrinks, to its ellipsis, before a button is pushed past the edge. The census of two looks, light and dark and five widths found no other spacing fault: of about 450 icon buttons and 800 button rows on
   every page, none was off the standard gap or the row height. **Held by** `tests/test_v800_topbar_fits_tablet.py`, which loads the real page with every control shown and
   measures the bar at sixteen widths.
 
