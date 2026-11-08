@@ -95,6 +95,19 @@ class TestTheRules(unittest.TestCase):
         s = T.clean_sample(sample([row()], other={'n': 'x', 'tx': -1, 'rx': True, 'rows': 2.5}), 1)
         self.assertEqual(s['other'], {'n': 0, 'tx': 0, 'rx': 0, 'rows': 0})
 
+    def test_an_agent_may_say_why_it_could_not_read_and_no_other_text_is_kept(self):
+        for token in T.ERRORS:
+            self.assertEqual(T.clean_sample(sample([], err=token), 1)['err'], token)
+        for bad in ('<script>', 'NO-SS', '', None, 5, True, ['no-ss'], {'no-ss': 1}, 'no-ss ', 'x' * 1000):
+            self.assertNotIn('err', T.clean_sample(sample([], err=bad), 1), repr(bad))
+        self.assertNotIn('err', T.clean_sample(sample(), 1))
+
+    def test_a_sample_that_could_not_read_adds_no_point_to_the_chart(self):
+        s = T.clean_sample(sample([], err='no-ss'), 1000)
+        self.assertEqual(T.merge(None, s, 1000)['series'], [], 'a flat point would read as no traffic')
+        rec = T.merge(None, T.clean_sample(sample(), 1000), 1000)
+        self.assertEqual(len(T.merge(rec, s, 1000 + T.SERIES_GAP)['series']), 1, 'and one that is already there is left alone')
+
     def test_the_chart_takes_a_point_every_five_minutes_and_keeps_a_day(self):
         s = T.clean_sample(sample([row(tx=6000, rx=12000)], win=60), 1000)
         rec = T.merge(None, s, 1000)
@@ -321,6 +334,39 @@ class TestOneHost(_Server):
         got = self.host()
         self.assertEqual((got['state'], len(got['rows'])), ('stale', 1))
 
+    def test_a_host_whose_agent_could_not_read_its_connections_says_so(self):
+        self.beat(traffic=sample([], err='no-ss'))
+        got = self.host()
+        self.assertEqual((got['state'], got['err'], got['rows'], got['series']), ('error', 'no-ss', [], []))
+        fleet = self.fleet()
+        line = {h['id']: h for h in fleet['hosts']}['web01']
+        self.assertEqual((line['state'], line['err'], fleet['by_state']['error'], fleet['totals']['hosts']), ('error', 'no-ss', 1, 0), 'a host that cannot be read adds nothing to the totals')
+        self.beat(traffic=sample([row()], err='no-counters'))
+        got = self.host()
+        self.assertEqual((got['state'], got['err'], len(got['rows'])), ('reporting', 'no-counters', 1), 'connections without a volume still show, with the reason')
+        self.beat(traffic=sample([row()]))
+        self.assertEqual(self.host()['err'], '', 'the next good sample clears it')
+
+    def test_a_stored_reason_that_is_not_one_of_the_known_tokens_is_not_shown(self):
+        self.beat(traffic=sample())
+        rec = self.stored()
+        rec['sample']['err'] = '<img src=x onerror=alert(1)>'              # a store edited by hand, or written by an older build
+        self.api._entity_write_one(self.api.TRAFFIC_FILE, 'web01', rec)
+        self.assertEqual(self.host()['err'], '')
+        line = {h['id']: h for h in self.fleet()['hosts']}['web01']
+        self.assertNotIn('err', line)
+
+    def test_a_host_that_polls_slowly_is_not_stale_after_five_minutes(self):
+        self.put({'web01': device(poll_interval=900)}, traffic_module_enabled=True)
+        self.beat(traffic=sample())
+        rec = self.stored()
+        rec['at'] -= 800            # past the 300 second floor, inside three polls of 900
+        self.api._entity_write_one(self.api.TRAFFIC_FILE, 'web01', rec)
+        self.assertEqual(self.host()['state'], 'reporting')
+        rec['at'] -= 2000
+        self.api._entity_write_one(self.api.TRAFFIC_FILE, 'web01', rec)
+        self.assertEqual(self.host()['state'], 'stale')
+
     def test_an_address_first_used_after_the_baseline_hour_is_marked_new(self):
         self.beat(traffic=sample([row()]))
         rec = self.stored()
@@ -396,7 +442,7 @@ class TestTheFleet(_Server):
         got = self.fleet()
         self.assertEqual(got['totals']['hosts'], 2)
         self.assertEqual([h['id'] for h in got['hosts']], ['idle', 'web01', 'web02', 'win01'])
-        self.assertEqual(got['by_state'], {'reporting': 2, 'stale': 0, 'waiting': 1, 'unsupported': 1})
+        self.assertEqual(got['by_state'], {'reporting': 2, 'stale': 0, 'waiting': 1, 'unsupported': 1, 'error': 0})
         top = got['remotes'][0]
         self.assertEqual((top['ip'], top['hosts_n'], top['tx'], top['rx']), (PUB, 2, 150, 50))
         self.assertEqual(sorted(h['name'] for h in top['hosts']), ['web01', 'web02'])

@@ -166,8 +166,17 @@ def _row_view(r, watch, labels, geo_cache, scores, rec, now):
 # ── the host view ────────────────────────────────────────────────────────────
 
 
+def _step(dev, every):
+    """Seconds between two samples that reach the server: the sampling interval, or the host's own poll interval when that is longer, since a sample travels with
+    a report. A host that polls every ten minutes is not stale after five."""
+    poll = dev.get("poll_interval") if isinstance(dev, dict) else None
+    poll = poll if isinstance(poll, (int, float)) and not isinstance(poll, bool) and 0 < poll <= 86400 else 0
+    return max(every, MIN_EVERY, poll)
+
+
 def _state(dev, rec, now, every):
-    """What a host's Traffic row is: 'unsupported' (only the Linux agent samples), 'waiting' (no sample yet), 'stale' (it stopped) or 'reporting'."""
+    """What a host's Traffic row is: 'unsupported' (only the Linux agent samples), 'waiting' (no sample yet), 'stale' (it stopped), 'error' (its last sample
+    says it could not read its connections: no `ss`, or `ss` failed) or 'reporting'. A kernel that gives no byte counts still reports, with `err` set."""
     if A._device_os_family(dev) != "linux":
         return "unsupported"
     if not isinstance(rec, dict) or not isinstance(rec.get("sample"), dict):
@@ -175,7 +184,9 @@ def _state(dev, rec, now, every):
     at = rec.get("at")
     if isinstance(at, bool) or not isinstance(at, (int, float)):
         return "waiting"
-    return "stale" if now - at > max(STALE_REPORTS * max(every, MIN_EVERY), 300) else "reporting"
+    if now - at > max(STALE_REPORTS * _step(dev, every), 300):
+        return "stale"
+    return "error" if rec["sample"].get("err") in ("no-ss", "ss-failed") else "reporting"
 
 
 def handle_device_traffic(dev_id):
@@ -208,9 +219,10 @@ def handle_device_traffic(dev_id):
         "rows": [],
         "series": [],
         "other": {"n": 0, "tx": 0, "rx": 0, "rows": 0},
+        "err": "",
         "geo": bool(cfg.get("geoip_db_path") or cfg.get("geoip_asn_db_path")),
     }
-    if state in ("reporting", "stale"):
+    if state in ("reporting", "stale", "error"):
         sample = rec["sample"]
         rows = [r for r in (sample.get("rows") or []) if isinstance(r, dict)]
         scores = _intel({r["ip"] for r in rows if T.scope_of(r["ip"]) == "public"})
@@ -223,6 +235,7 @@ def handle_device_traffic(dev_id):
                 "rx": sample.get("rx", 0),
                 "conns": sample.get("conns", 0),
                 "trunc": bool(sample.get("trunc")),
+                "err": sample.get("err") if sample.get("err") in T.ERRORS else "",
                 "other": sample.get("other") or out["other"],
                 "series": [p for p in (rec.get("series") or []) if isinstance(p, list) and len(p) == 4],
                 "rows": [_row_view(r, watch, labels, geo_cache, scores, rec, now) for r in rows],
@@ -247,7 +260,7 @@ def handle_traffic_fleet():
     devices = A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})
     store = (A._load_ro(A.TRAFFIC_FILE) or {}) if A.backend_exists(A.TRAFFIC_FILE) else {}
     watch, labels = _watch(cfg), _is_operator() or not A._tenancy_enforced()
-    entries, hosts, hits, by_state = [], [], [], {"reporting": 0, "stale": 0, "waiting": 0, "unsupported": 0}
+    entries, hosts, hits, by_state = [], [], [], {"reporting": 0, "stale": 0, "waiting": 0, "unsupported": 0, "error": 0}
     ranked = sorted(((str(d.get("name") or i).lower(), i, d) for i, d in devices.items() if isinstance(d, dict) and not d.get("agentless") and not d.get("decommissioned")))
     for _name_key, dev_id, dev in ranked:
         rec = store.get(dev_id) if isinstance(store.get(dev_id), dict) else None
@@ -255,10 +268,12 @@ def handle_traffic_fleet():
         by_state[state] += 1
         name = dev.get("name") or dev_id
         line = {"id": dev_id, "name": name, "state": state}
-        if state in ("reporting", "stale") and rec is not None:
+        if state in ("reporting", "stale", "error") and rec is not None:
             sample = rec["sample"]
             win = max(1.0, float(sample.get("win") or 1))
             line.update({"at": rec.get("at"), "conns": sample.get("conns", 0), "tx": sample.get("tx", 0), "rx": sample.get("rx", 0), "tx_rate": round(sample.get("tx", 0) / win), "rx_rate": round(sample.get("rx", 0) / win)})
+            if sample.get("err") in T.ERRORS:
+                line["err"] = sample["err"]
             if state == "reporting":
                 entries.append((dev_id, name, sample))
                 if watch and len(hits) < HITS_MAX:

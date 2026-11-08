@@ -114,6 +114,9 @@ DECLARED = {
     # 8.0.0: how many of an unhealthy container's last log lines the agent sends (0 = none). Only the Linux agent reads a container's health
     # check and log, and only it reads the key; the server sends it to Linux agents alone (a Windows or macOS heartbeat is answered without it).
     'container_log_lines':  ('linux',),
+    # 8.0.0: how often (seconds) the agent samples its connections for the Traffic view, 0 = never. Only the Linux agent has `ss` and the kernel's byte
+    # counters for each socket, and only it reads the key; the server sends it to Linux agents alone, 0 included, so that switching the module off reaches one.
+    'traffic_every':        ('linux',),
     # v7.0.2: the eight keys from the `common_resp = { ... }` literal. They
     # were outside the extraction above, so none of them had a row here.
     'poll_interval':        _ALL,

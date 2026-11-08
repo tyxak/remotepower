@@ -19,7 +19,8 @@ this agent does NOT read): OpenSCAP (`force_scap_scan` /
 `guard_actions` (Integrity Guard check types are Linux-only);
 `harvest_dns_creds` / `force_acme_rescan` (acme.sh);
 `host_monitors` / `host_monitor_interval` (checks probed from this host: the Linux agent only);
-`container_log_lines` (the log lines of an unhealthy container: only the Linux agent reads a container's health check and log).
+`container_log_lines` (the log lines of an unhealthy container: only the Linux agent reads a container's health check and log);
+`traffic_every` (how often to sample connections for the Traffic view: only the Linux agent has `ss` and the kernel's byte counters for each socket).
 Everything else the server sends is honoured here — when closing one of these,
 also update this list and the Windows agent's.
 
@@ -68,6 +69,7 @@ HEARTBEAT_KEYS_NOT_HONOURED = (
     'harvest_dns_creds', 'force_acme_rescan',   # acme.sh
     'host_monitors', 'host_monitor_interval',   # checks probed from this host: the Linux agent only (the server refuses the assignment)
     'container_log_lines',                # log lines of an unhealthy container: only the Linux agent reads a container's health check and log (the server sends it to Linux agents alone)
+    'traffic_every',                      # how often to sample connections for the Traffic view: only the Linux agent has `ss` and the per-socket byte counters (the server sends it to Linux agents alone)
 )
 _warned_unsigned_scripts = False   # v6.4.3: log the refusal once, not per poll
 DEFAULT_POLL = 60

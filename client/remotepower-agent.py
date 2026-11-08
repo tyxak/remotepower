@@ -2414,6 +2414,189 @@ def collect_peer_connections(limit=50):
     return rows[:limit]
 
 
+# 8.0.0: the Traffic view. `ss -i` gives every established TCP socket the kernel's own byte counters (bytes_acked, bytes_received), so a sample is the difference
+# between two readings, added up for each (direction, remote address, service port, program). No packet is captured, no payload is read and no name is looked
+# up. It runs only once a heartbeat answer carries `traffic_every` (seconds); 0 stops it again. UDP has no counters here, and a connection that opened and closed
+# between two readings is not seen. The server cleans the sample again and trusts none of these limits.
+TRAFFIC_ROWS = 100              # rows sent, the busiest first; the rest are added up into `other`
+TRAFFIC_MAX_SOCKETS = 20000     # sockets read from one `ss` run
+TRAFFIC_MAX_WINDOW = 3600       # a longer gap (a suspended host) is not a window: the sample starts over
+TRAFFIC_SS_TIMEOUT = 15         # seconds; `-p` walks /proc and is slow on a host with many processes
+_TRAFFIC_EVERY = 0              # seconds between two samples; 0 = off
+_TRAFFIC_PREV = None            # (monotonic time, {socket: (bytes acked, bytes received)} or None) of the last reading; None counters = no baseline
+_SS_USERS_RX = re.compile(r'users:\(\("(.*?)",pid=\d+')
+_SS_ACKED_RX = re.compile(r'\bbytes_acked:(\d+)')
+_SS_RECEIVED_RX = re.compile(r'\bbytes_received:(\d+)')
+
+
+def _set_traffic_every(value):
+    """Seconds between two samples, from the heartbeat answer. A whole number above 0 turns sampling on at that pace, held to 30..3600; 0, a negative number,
+    text or anything else turns it off. Turning it off forgets the last reading, so a later start is not measured across the gap."""
+    global _TRAFFIC_EVERY, _TRAFFIC_PREV
+    n = value if isinstance(value, int) and not isinstance(value, bool) else 0
+    _TRAFFIC_EVERY = max(30, min(3600, n)) if n > 0 else 0
+    if not _TRAFFIC_EVERY:
+        _TRAFFIC_PREV = None
+
+
+def _ss_ip_port(addr):
+    """(address, port) from an `ss` address column ("203.0.113.7:443", "[2001:db8::1]:443", "[fe80::1%eth0]:22"), the address in its shortest form and an
+    IPv4 address inside an IPv6 one as IPv4; None when the column is not one."""
+    host, _, port = addr.rpartition(':')
+    if not port.isdigit():
+        return None
+    try:
+        ip = ipaddress.ip_address(host.strip('[]').split('%', 1)[0])
+    except ValueError:
+        return None
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return str(ip), int(port)
+
+
+def _ss_sockets(text, limit=TRAFFIC_MAX_SOCKETS):
+    """([(local address, local port, remote address, remote port, program, bytes acked, bytes received)], truncated) from the output of `ss -tinp`. The byte
+    counts are None where the socket's info line carries none (an old kernel); the program is '' where `ss` names none (a socket of another user, read without
+    root). Three layouts are read: no header and no State column (`-H state established`), a State column, and a header line. A line that is no socket is skipped."""
+    socks = []
+    cur = None                                   # [local, remote, program, info text] of the socket being read
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        if line[0] in ' \t':                     # the info line of the socket above
+            if cur is not None:
+                cur[3] += ' ' + line
+            continue
+        cols = line.split()
+        if cols and not cols[0].isdigit():       # a State column, or the header line
+            cols = cols[1:]
+        cur = None
+        if len(cols) < 4 or not cols[0].isdigit() or not cols[1].isdigit():
+            continue
+        local, remote = _ss_ip_port(cols[2]), _ss_ip_port(cols[3])
+        if local is None or remote is None:
+            continue
+        if len(socks) >= limit:
+            return _ss_sockets_done(socks), True
+        m = _SS_USERS_RX.search(line)
+        cur = [local, remote, m.group(1)[:48] if m else '', '']
+        socks.append(cur)
+    return _ss_sockets_done(socks), False
+
+
+def _ss_sockets_done(socks):
+    """The tuples of _ss_sockets, with the byte counts read out of each socket's info text."""
+    out = []
+    for local, remote, prog, info in socks:
+        a, r = _SS_ACKED_RX.search(info), _SS_RECEIVED_RX.search(info)
+        out.append((local[0], local[1], remote[0], remote[1], prog, int(a.group(1)) if a else None, int(r.group(1)) if r else None))
+    return out
+
+
+def _ss_listening(text):
+    """The local ports of the listening sockets in the output of `ss -tln`, as a set."""
+    ports = set()
+    for line in text.splitlines():
+        cols = line.split()
+        if cols and not cols[0].isdigit():       # the State column, or the header line
+            cols = cols[1:]
+        if len(cols) >= 4 and cols[0].isdigit() and cols[1].isdigit():
+            port = _ss_port(cols[2])
+            if port is not None:
+                ports.add(port)
+    return ports
+
+
+def _ss_run(args):
+    """What `ss` prints for these arguments, or None when it fails, times out or gives a non-zero status."""
+    exe = _which('ss')
+    if not exe:
+        return None
+    try:
+        r = subprocess.run([exe] + args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           text=True, errors='replace', timeout=TRAFFIC_SS_TIMEOUT)
+    except Exception:
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def _traffic_delta(now, before):
+    """Bytes a socket moved between two readings: all of its count when it was not there before, none when the kernel gave no count, and all of it again when
+    the count went down (the address pair was taken over by a new connection)."""
+    if now is None:
+        return 0
+    if before is None or now < before:
+        return now
+    return now - before
+
+
+def _traffic_remote_skipped(remote, local):
+    """True for a connection that is no other host's: the far end is loopback, unspecified or multicast, or it is this host's own address."""
+    if remote == local:
+        return True
+    try:
+        ip = ipaddress.ip_address(remote)
+    except ValueError:
+        return True
+    return ip.is_loopback or ip.is_unspecified or ip.is_multicast
+
+
+def traffic_sample(now=None):
+    """The Traffic view's sample for this report: None while sampling is off, before it is due, and for the first reading (which only sets the baseline the next
+    one is measured from). Otherwise {'win', 'rows', 'other', 'conns', 'trunc'}, with 'err' when the host could not be read: 'no-ss' (the tool is missing),
+    'ss-failed' (it did not answer) or 'no-counters' (the kernel gives no byte counts, so there are connections and no volume). One row for each
+    (direction, remote address, service port, program): 'in' when the socket's local port is one the host listens on, and then the port is the local one."""
+    global _TRAFFIC_PREV
+    every = _TRAFFIC_EVERY
+    if not every or not sys.platform.startswith('linux'):
+        return None
+    t = time.monotonic() if now is None else now
+    prev = _TRAFFIC_PREV
+    if prev is not None and t - prev[0] < every * 0.9:      # a report answers a little early or late, so 90% of the interval is due
+        return None
+    if not _which('ss'):
+        _TRAFFIC_PREV = (t, None)
+        return {'win': every, 'rows': [], 'conns': 0, 'err': 'no-ss'}
+    established = _ss_run(['-H', '-t', '-i', '-n', '-p', 'state', 'established'])
+    listening = _ss_run(['-H', '-t', '-l', '-n'])
+    if established is None or listening is None:
+        _TRAFFIC_PREV = (t, None)
+        return {'win': every, 'rows': [], 'conns': 0, 'err': 'ss-failed'}
+    socks, trunc = _ss_sockets(established)
+    ports = _ss_listening(listening)
+    base = prev[1] if prev is not None else None
+    win = t - prev[0] if prev is not None else 0.0
+    measured = base is not None and 0 < win <= TRAFFIC_MAX_WINDOW
+    counters, rows, conns, counted = {}, {}, 0, False
+    for lip, lport, rip, rport, prog, acked, received in socks:
+        if _traffic_remote_skipped(rip, lip):
+            continue
+        conns += 1
+        counted = counted or acked is not None or received is not None
+        key = (lip, lport, rip, rport)
+        counters[key] = (acked, received)
+        direction = 'in' if lport in ports else 'out'
+        row = rows.setdefault((direction, rip, lport if direction == 'in' else rport, prog), [0, 0, 0])
+        row[0] += 1
+        if measured:
+            before = base.get(key) or (None, None)
+            row[1] += _traffic_delta(acked, before[0])
+            row[2] += _traffic_delta(received, before[1])
+    _TRAFFIC_PREV = (t, counters)
+    if not measured:
+        return None
+    out = [{'d': d, 'ip': ip, 'port': port, 'proc': prog, 'n': n, 'tx': tx, 'rx': rx} for (d, ip, port, prog), (n, tx, rx) in rows.items()]
+    out.sort(key=lambda r: (-(r['tx'] + r['rx']), -r['n'], r['ip'], r['port']))
+    kept, rest = out[:TRAFFIC_ROWS], out[TRAFFIC_ROWS:]
+    sample = {
+        'win': round(win, 1), 'rows': kept, 'conns': conns, 'trunc': trunc,
+        'other': {'n': sum(r['n'] for r in rest), 'tx': sum(r['tx'] for r in rest), 'rx': sum(r['rx'] for r in rest), 'rows': len(rest)},
+    }
+    if conns and not counted:
+        sample['err'] = 'no-counters'
+    return sample
+
+
 def collect_lldp_neighbors(limit=64):
     """W5-1: LLDP neighbors from `lldpctl -f keyvalue` (skips silently if lldpd
     isn't installed). Returns [{local_if, peer_name, peer_port, mgmt_ip}] so the
@@ -16890,6 +17073,15 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.debug(f'canary check error: {e}')
             log.debug(f"Poll {poll_count}: sending sysinfo + journal")
 
+        # 8.0.0: the Traffic view's sample. It is due on its own wall-clock interval (`traffic_every`, from the server), not on the sysinfo cadence, so it sits outside
+        # `if send_sysinfo:`. A sample lost to a failed report is not sent again: the next one covers the next interval.
+        try:
+            _traffic = traffic_sample()
+            if _traffic is not None:
+                payload['traffic'] = _traffic
+        except Exception as e:
+            log.debug(f'traffic sample error: {e}')
+
         # v4.2.0 (B5 P3): report a finished host scan (lynis) to the server.
         # Peek, don't pop — the result is dequeued below only after the server
         # accepted the heartbeat. A network error or busy-202 (which drops the
@@ -17289,6 +17481,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             # 8.0.0: how many log lines of an unhealthy container ride with its report (0 = none)
             if 'container_log_lines' in resp:
                 _set_container_log_lines(resp.get('container_log_lines'))
+            # 8.0.0: how often to sample connections for the Traffic view, in seconds (0 = never). A Linux agent is always sent it, even 0, so that switching the module off reaches it.
+            if 'traffic_every' in resp:
+                _set_traffic_every(resp.get('traffic_every'))
             # v2.6.0: receive desired host config from server
             if 'backup_monitors' in resp:
                 _backup_monitors = resp.get('backup_monitors')

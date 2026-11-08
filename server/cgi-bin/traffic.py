@@ -25,6 +25,7 @@ LEARN_S = 3600  # the first hour of a host's samples is its baseline: nothing in
 MAX_WATCH = 100  # entries in the watch list
 MAX_BYTES = 2**50
 WATCH_KINDS = ("ip", "cidr", "port", "proc")
+ERRORS = ("no-ss", "ss-failed", "no-counters")  # what an agent may say when it could not read its connections; any other text is dropped
 
 _PROC_RX = re.compile(r"[^\x20-\x7e]")
 
@@ -188,7 +189,7 @@ def clean_sample(raw: Any, now: int | None = None) -> dict[str, Any] | None:
     if isinstance(win, bool) or not isinstance(win, (int, float)) or not 1 <= win <= 3600:
         return None
     conns = _count(raw.get("conns"), 10**7)
-    return {
+    out = {
         "at": int(now or 0),
         "win": round(float(win), 1),
         "rows": kept,
@@ -198,6 +199,10 @@ def clean_sample(raw: Any, now: int | None = None) -> dict[str, Any] | None:
         "rx": sum(r["rx"] for r in kept) + other["rx"],
         "trunc": raw.get("trunc") is True,
     }
+    err = raw.get("err")
+    if isinstance(err, str) and err in ERRORS:
+        out["err"] = err
+    return out
 
 
 def merge(prev: Any, sample: dict[str, Any], now: int) -> dict[str, Any]:
@@ -211,7 +216,8 @@ def merge(prev: Any, sample: dict[str, Any], now: int) -> dict[str, Any]:
     first = _count(prev.get("first"), 4 * 10**9) or now
     seen_in = prev.get("seen")
     seen = {k: v for k, v in seen_in.items() if isinstance(k, str) and isinstance(v, int)} if isinstance(seen_in, dict) else {}
-    if not series or now - series[-1][0] >= SERIES_GAP:
+    # a sample that says the connections could not be read has no volume to plot: a flat point would read as "no traffic"
+    if not sample.get("err") and (not series or now - series[-1][0] >= SERIES_GAP):
         win = max(1.0, sample["win"])
         series.append([now, round(sample["tx"] / win), round(sample["rx"] / win), sample["conns"]])
     for r in sample["rows"]:
