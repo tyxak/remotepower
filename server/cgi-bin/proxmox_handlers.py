@@ -476,7 +476,7 @@ def handle_proxmox_snapshots_list() -> None:
     qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
     guest_type = (qs.get('type') or [''])[0]
     vmid_str = (qs.get('vmid') or [''])[0]
-    if guest_type not in ('qemu', 'lxc') or not vmid_str.isdigit():
+    if guest_type not in ('qemu', 'lxc') or not (vmid_str.isascii() and vmid_str.isdigit()):
         A.respond(400, {'error': 'type (qemu|lxc) and numeric vmid required'})
         return
     cfg = A.load(A.CONFIG_FILE)

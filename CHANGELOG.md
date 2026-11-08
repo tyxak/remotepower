@@ -555,7 +555,7 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   written and the shape registry is not in between (the readers check the type of each field now); a tool of the MCP endpoint that met an answer it did not expect raised out of the endpoint and
   the model's host got an HTTP 500 and no result (it is a failed tool call now, with the name of the exception and nothing else); and the agent's reader of `ss` trusted `str.isdigit()`, which is
   true for a superscript two (`int()` refuses it) and for a string of any length, in the new reader and in the older one that reads peer connections (a port is ASCII digits from 0 to 65535 now).
-  **Held by** `tests/test_v800_properties.py` (24 properties; skipped where hypothesis is not installed, which is CI) and `tests/test_v800_found_by_properties.py` (13 examples that CI runs, one
+  **Held by** `tests/test_v800_properties.py` (26 properties; skipped where hypothesis is not installed, which is CI) and `tests/test_v800_found_by_properties.py` (13 examples that CI runs, one
   for each input Hypothesis printed). Each fix was taken out again to see its tests fail, and the first strategy for the `ss` reader did not: the port is only converted after the address parses,
   which random text almost never builds, so it is generated from a valid address and a port of digit-like characters.
 - **Deleting a host now clears the settings that are kept by host.** The purge cleared four of the eight settings that are a map of host id to something and left the other four:
@@ -563,6 +563,14 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   stayed for good. The eight are read from the code, and a ninth that the purge misses fails the build (`tests/test_v800_purge_config_maps.py`, which also deletes a host and checks
   that the other host keeps its entry). Not changed: about a third of the stores still name a deleted host (alerts, tickets, the audit trail, maintenance windows, runbooks, the
   CMDB). Those are history or records a person wrote, and they are kept on purpose.
+- **A text is checked for ASCII digits before it is given to `int()`.** `str.isdigit()` is true for a superscript two and for the digits of other scripts, and `int()` refuses the
+  first of them, so `if s.isdigit() and int(s) < 10` raised for the text `²`. The generated tests had found it in the Traffic reader of `ss`; reading the code for the same shape found
+  it in 11 more functions that take text from outside: a watch list entry, the port a container publishes, an SMTP greeting, a cidr, a query value, an object id, a cron field, a JSON
+  path, the expected status of a probe and the log length the server sends an agent. Most answered 500 where they should say 400, and the SMTP probe reported `error` instead of
+  `not SMTP`. One was worse: the app catalog read the published port of a container from an agent's report, so one host that reported `²` made the Integrations list, the Data
+  Explorer's `apps` entity and the Fleet Query `app` criterion answer 500 for every user until the report changed. All are ASCII-only now. Eleven more functions read the output of a
+  tool (ZFS, SMART, nmap, SNMP) and are listed with the reason their text cannot be anything else. **Held by** `tests/test_v800_ascii_digits.py`, which reads every `isdigit()` that
+  feeds `int()` from the code and fails on a new one that is neither guarded nor listed, and drives each fixed function with `²`.
 
 ### Single pages
 

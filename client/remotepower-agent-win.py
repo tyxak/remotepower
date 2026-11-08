@@ -3703,7 +3703,7 @@ def _run_container_action_win(cmd):
     tail = CONTAINER_LOG_TAIL_DEFAULT
     if len(parts) == 5:
         raw_tail = parts[4].strip()
-        if not raw_tail.isdigit():
+        if not (raw_tail.isascii() and raw_tail.isdigit()):
             return {'cmd': cmd, 'output': 'invalid tail size', 'rc': 2}
         tail = max(1, min(int(raw_tail), CONTAINER_LOG_TAIL_MAX))
     if runtime != 'docker':

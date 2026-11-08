@@ -3213,7 +3213,7 @@ def _custom_probe(inst, c):
     metrics = {"http_status": r.status}
     expect = str(inst.get("probe_expect") or "").strip()
     if expect:
-        if not expect.isdigit() or int(expect) != r.status:
+        if not (expect.isascii() and expect.isdigit()) or int(expect) != r.status:
             return {
                 "status": CRIT,
                 "detail": f"HTTP {r.status} (expected {expect})",

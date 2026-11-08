@@ -341,7 +341,7 @@ def _validate_walk_oid(raw):
     if len(parts) < 2 or len(parts) > _WALK_MAX_ARCS:
         return None
     for p in parts:
-        if not p.isdigit() or len(p) > 10:
+        if not (p.isascii() and p.isdigit()) or len(p) > 10:
             return None
         if int(p) > _WALK_MAX_ARC:
             return None

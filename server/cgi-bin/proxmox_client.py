@@ -713,7 +713,7 @@ def _valid_ipv4_cidr(s: str) -> bool:
     if '/' not in s:
         return False
     addr, _, prefix = s.partition('/')
-    if not (prefix.isdigit() and 0 <= int(prefix) <= 32):
+    if not (prefix.isascii() and prefix.isdigit() and 0 <= int(prefix) <= 32):
         return False
     return _valid_ipv4(addr)
 

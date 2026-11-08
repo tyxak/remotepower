@@ -61,6 +61,8 @@ SAMPLE = st.one_of(
 GOOD_ROW = ROW.map(T.clean_row).filter(lambda r: r is not None)
 WATCH_ENTRY = st.fixed_dictionaries({"kind": st.sampled_from(list(T.WATCH_KINDS)) | JSON, "value": st.text(max_size=40) | st.integers() | JSON, "label": st.text(max_size=80) | JSON})
 GOOD_WATCH = st.lists(WATCH_ENTRY, max_size=12).map(lambda w: T.clean_watch(w)[0])
+# digits of other scripts and the superscripts, which str.isdigit() accepts and int() may refuse: random text almost never makes a port of them, so a strategy builds one
+DIGITISH = st.text(alphabet=list("0123456789\u00b2\u00b3\u0661\u0663\uff11"), max_size=7)
 
 
 class TestTrafficRules(unittest.TestCase):
@@ -118,6 +120,14 @@ class TestTrafficRules(unittest.TestCase):
             self.assertIn(e["kind"], T.WATCH_KINDS)
             self.assertTrue(e["value"] and len(e["label"]) <= 60)
         self.assertEqual(T.clean_watch(entries), (entries, ""), "cleaning twice is cleaning once")
+
+    @FAST
+    @given(st.lists(st.fixed_dictionaries({"kind": st.just("port"), "value": DIGITISH}), max_size=6))
+    def test_a_port_entry_made_of_digit_like_characters_is_a_port_or_a_message(self, raw):
+        entries, err = T.clean_watch(raw)
+        for e in entries:
+            self.assertTrue(e["value"].isascii() and 0 < int(e["value"]) < 65536, e)
+        self.assertTrue(entries == [] or err == "")
 
     @FAST
     @given(JSON, JSON)
@@ -220,6 +230,15 @@ class TestTheCatalogAndTheRoundTrip(unittest.TestCase):
         found = app_catalog.discover(ports, containers, units)
         self.assertIsInstance(found, list)
         self.assertEqual(app_catalog.clean_found(found), found, "the agent's own finding is accepted whole by the server's cleaner")
+
+    @FAST
+    @given(st.lists(st.builds(lambda a, p, c: "%s:%s->%s/tcp" % (a, p, c), st.sampled_from(["0.0.0.0", "::", ""]), DIGITISH, DIGITISH), max_size=4),
+           st.sampled_from(["jellyfin/jellyfin", "nginx", "x"]))
+    def test_a_published_port_made_of_digit_like_characters_is_a_port_or_nothing(self, ports, image):
+        found = app_catalog.discover([], [{"name": "c", "image": image, "status": "Up", "ports": ports}], [])
+        self.assertIsInstance(found, list)
+        for f in found:
+            self.assertTrue(f["port"] is None or 0 < f["port"] < 65536, f)
 
     @FAST
     @given(JSON)

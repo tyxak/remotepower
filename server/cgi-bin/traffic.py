@@ -323,7 +323,7 @@ def clean_watch(raw: Any) -> tuple[list[dict[str, str]], str]:
                 return [], "entry %d: %r is not a network" % (i + 1, value[:40])
             value = net.compressed
         elif kind == "port":
-            if not value.isdigit() or not 0 < int(value) < 65536:
+            if not (value.isascii() and value.isdigit()) or not 0 < int(value) < 65536:
                 return [], "entry %d: a port is a number from 1 to 65535" % (i + 1)
             value = str(int(value))
         else:

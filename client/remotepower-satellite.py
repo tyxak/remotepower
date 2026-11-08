@@ -615,7 +615,7 @@ def _pp_smtp_reply(c):
     for _ in range(_pp_REPLY_LINES_MAX):
         line = c.readline()
         lines.append(line)
-        if len(line) < 3 or not line[:3].isdigit():
+        if len(line) < 3 or not (line[:3].isascii() and line[:3].isdigit()):
             raise _pp_ProbeError("not SMTP: " + _pp_clean(line, 40))
         if len(line) == 3 or line[3] == " ":
             return int(line[:3]), lines

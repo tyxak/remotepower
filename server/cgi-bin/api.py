@@ -27595,7 +27595,7 @@ def _monitor_json_path(doc, path):
     "field absent" from "field is null"."""
     cur = doc
     for seg in str(path).split('.'):
-        if isinstance(cur, list) and seg.isdigit() and int(seg) < len(cur):
+        if isinstance(cur, list) and seg.isascii() and seg.isdigit() and int(seg) < len(cur):
             cur = cur[int(seg)]
         elif isinstance(cur, dict) and seg in cur:
             cur = cur[seg]
@@ -70813,7 +70813,7 @@ def _cron_to_ics(cron, now):
     if len(parts) != 5:
         return None
     mn, hr, dom, mon, dow = parts
-    if not (mn.isdigit() and hr.isdigit()):
+    if not (mn.isascii() and mn.isdigit() and hr.isascii() and hr.isdigit()):
         return None
     minute, hour = int(mn), int(hr)
     if not (0 <= minute < 60 and 0 <= hour < 24):
@@ -70825,7 +70825,7 @@ def _cron_to_ics(cron, now):
         if cand <= base:
             cand += _dt.timedelta(days=1)
         return int(cand.timestamp()), 'FREQ=DAILY'
-    if dom == '*' and mon == '*' and dow.isdigit():
+    if dom == '*' and mon == '*' and dow.isascii() and dow.isdigit():
         days = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
         cron_dow = int(dow) % 7                 # cron: 0=Sun..6=Sat
         py_target = (cron_dow - 1) % 7          # python weekday: Mon=0..Sun=6
@@ -70835,7 +70835,7 @@ def _cron_to_ics(cron, now):
         if cand <= base:
             cand += _dt.timedelta(days=7)
         return int(cand.timestamp()), f'FREQ=WEEKLY;BYDAY={days[cron_dow]}'
-    if mon == '*' and dow == '*' and dom.isdigit():
+    if mon == '*' and dow == '*' and dom.isascii() and dom.isdigit():
         d = int(dom)
         try:
             cand = base.replace(day=d, hour=hour, minute=minute, second=0, microsecond=0)

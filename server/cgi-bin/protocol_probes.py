@@ -121,7 +121,7 @@ def _smtp_reply(c):
     for _ in range(_REPLY_LINES_MAX):
         line = c.readline()
         lines.append(line)
-        if len(line) < 3 or not line[:3].isdigit():
+        if len(line) < 3 or not (line[:3].isascii() and line[:3].isdigit()):
             raise ProbeError("not SMTP: " + _clean(line, 40))
         if len(line) == 3 or line[3] == " ":
             return int(line[:3]), lines

@@ -5684,7 +5684,7 @@ def _ac_published_ports(refs):
             if "->" not in part or not part.endswith("/tcp"):
                 continue
             host = part.split("->", 1)[0].rsplit(":", 1)[-1]
-            if host.isdigit() and 0 < int(host) < 65536 and int(host) not in out:
+            if host.isascii() and host.isdigit() and 0 < int(host) < 65536 and int(host) not in out:
                 out.append(int(host))
     return out
 
@@ -7897,7 +7897,7 @@ def _pp_smtp_reply(c):
     for _ in range(_pp_REPLY_LINES_MAX):
         line = c.readline()
         lines.append(line)
-        if len(line) < 3 or not line[:3].isdigit():
+        if len(line) < 3 or not (line[:3].isascii() and line[:3].isdigit()):
             raise _pp_ProbeError("not SMTP: " + _pp_clean(line, 40))
         if len(line) == 3 or line[3] == " ":
             return int(line[:3]), lines
@@ -13089,7 +13089,7 @@ def _run_container_action(cmd):
     tail = CONTAINER_LOG_TAIL_DEFAULT
     if len(parts) == 5:
         raw_tail = parts[4].strip()
-        if not raw_tail.isdigit():
+        if not (raw_tail.isascii() and raw_tail.isdigit()):
             return {'cmd': cmd, 'output': 'invalid tail size', 'rc': -1}
         tail = max(1, min(int(raw_tail), CONTAINER_LOG_TAIL_MAX))
     runtime = runtime.strip().lower()

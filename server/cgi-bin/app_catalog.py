@@ -561,7 +561,7 @@ def _published_ports(refs):
             if "->" not in part or not part.endswith("/tcp"):
                 continue
             host = part.split("->", 1)[0].rsplit(":", 1)[-1]
-            if host.isdigit() and 0 < int(host) < 65536 and int(host) not in out:
+            if host.isascii() and host.isdigit() and 0 < int(host) < 65536 and int(host) not in out:
                 out.append(int(host))
     return out
 
