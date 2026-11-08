@@ -76,18 +76,56 @@ def sampling_every(cfg=None):
 
 
 def ingest(dev_id, raw, now):
-    """Keep the sample a host's agent sent with its report. Called from the heartbeat outside the devices lock; it does nothing while the module is off, drops a sample
-    that is not one, and never raises, so a bad sample cannot fail the heartbeat that carried it."""
+    """Keep the sample a host's agent sent with its report, and raise an alert for each watch list match that is due one. Called from the heartbeat outside the
+    devices lock; it does nothing while the module is off, drops a sample that is not one, and never raises, so a bad sample cannot fail the heartbeat that
+    carried it.
+
+    The alerts go out only after the record that remembers them has been saved and read back: the write is best-effort and is skipped under lock contention, and
+    an alert sent for a record that was not kept would be sent again with the next sample."""
     if raw is None or not A._module_on("traffic"):
         return
+    hits = []
     try:
         sample = T.clean_sample(raw, now)
         if sample is None:
             return
         prev = A._entity_read_one(A.TRAFFIC_FILE, dev_id, {}) or {}
-        A._entity_write_one(A.TRAFFIC_FILE, dev_id, T.merge(prev, sample, now))
+        rec = T.merge(prev, sample, now)
+        if isinstance(prev.get("alerted"), dict):
+            rec["alerted"] = prev["alerted"]            # kept through a sample that cannot be checked, so what was raised is not raised again
+        watch = _watch(A._config_ro())
+        due = []
+        if watch and not sample.get("err"):
+            due, rec["alerted"] = T.due_hits(prev.get("alerted") if isinstance(prev, dict) else None, sample["rows"], watch, now)
+        A._entity_write_one(A.TRAFFIC_FILE, dev_id, rec)
+        if due:
+            kept = A._entity_read_one(A.TRAFFIC_FILE, dev_id, {}) or {}
+            if isinstance(kept, dict) and kept.get("at") == now:
+                hits = due
     except Exception as e:
         sys.stderr.write(f"[remotepower] traffic ingest failed dev={dev_id}: {type(e).__name__}: {e}\n")
+        return
+    _raise(dev_id, hits)
+
+
+def _raise(dev_id, hits):
+    """One `traffic_watch` event for each match. The payload names the remote address, the port and the program, which the inbox and the activity feed show; the
+    entry that matched and the note written on it go in only on an installation without tenants, because with tenants they are the operator's list."""
+    if not hits:
+        return
+    try:
+        dev = A.device_get(dev_id)
+        name = (dev.get("name") if isinstance(dev, dict) else None) or dev_id
+        show = not A._tenancy_enforced()
+        for row, entry in hits:
+            payload = {"name": name, "device_id": dev_id, "ip": row["ip"], "port": row["port"], "detail": T.hit_detail(row, entry, show)}
+            if row.get("proc"):
+                payload["process"] = row["proc"]
+            if show and entry.get("label"):
+                payload["label"] = entry["label"]
+            A.fire_webhook("traffic_watch", payload)
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] traffic alert failed dev={dev_id}: {type(e).__name__}: {e}\n")
 
 
 # ── who is asking ────────────────────────────────────────────────────────────

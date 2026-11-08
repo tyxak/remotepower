@@ -19305,6 +19305,7 @@ const EVENT_CLASS = {
   'container_restarting_cleared': 'ok', 'unit_flapping_cleared': 'ok',
   'container_unhealthy': 'warn', 'container_healthy': 'ok',   // 7.4.9
   'image_autoupdate_failed': 'warn',
+  'traffic_watch': 'warn',   // 8.0.0: a host connected to something on the Traffic watch list
   'business_service_down': 'critical', 'business_service_up': 'ok',   // 7.4.9
   'container_resource_high': 'warn', 'container_resource_ok': 'ok',   // v7.4.3 (#50)
   'containers_stale': 'warn',
@@ -21958,6 +21959,7 @@ function _renderHomeActivity(fleetEvents) {
     'business_service_down', 'business_service_up',   // 7.4.9
     // v3.2.x: container image update tracking
     'image_update_available', 'image_updated', 'image_autoupdate_failed',
+    'traffic_watch',   // 8.0.0
     'metric_warning', 'metric_critical', 'metric_recovered', 'custom_metric_alert', 'custom_metric_recover',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'mailbox_recovered', 'custom_script_fail', 'custom_script_recover',
@@ -22214,7 +22216,7 @@ function _homeActivityAttrs(event, p) {
     case 'device_offline': case 'device_online':
     case 'agent_stopped': case 'agent_started':
     case 'mailbox_threshold': case 'mailbox_recovered': case 'reboot_required': case 'reboot_cleared':
-    case 'new_port_detected': case 'ssh_key_added':
+    case 'new_port_detected': case 'ssh_key_added': case 'traffic_watch':   // 8.0.0: the host's page has the Traffic section
     case 'backup_size_anomaly':
     case 'brute_force_detected': case 'backup_stale': case 'backup_recovered':
     case 'backup_verify_failed': case 'backup_verified':

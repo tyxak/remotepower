@@ -270,6 +270,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'business_service_down', 'business_service_up',       # 7.4.9
             # v3.2.x: container image update tracking
             'image_update_available', 'image_updated', 'image_autoupdate_failed',   # 8.0.0: the last is an automatic update that did not work
+            'traffic_watch',                                      # 8.0.0: a host connected to something on the Traffic watch list
             # v1.11.10: metric thresholds
             'metric_warning', 'metric_critical', 'metric_recovered',
             'custom_metric_alert', 'custom_metric_recover',    # W3-11

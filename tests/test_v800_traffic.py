@@ -428,6 +428,209 @@ class TestOneHost(_Server):
         self.assertEqual((st, body.get('module_disabled')), (404, 'traffic'), 'the host route is outside the prefix the dispatcher gates, so it checks the switch itself')
 
 
+class TestWhichMatchesAreDueAnAlert(unittest.TestCase):
+    """The pure rules: what is due, how often it comes back, how many at once, and how much is remembered."""
+
+    W_IP = {'kind': 'ip', 'value': PUB, 'label': 'flagged'}
+    W_PORT = {'kind': 'port', 'value': '443', 'label': ''}
+
+    def rows(self, *specs):
+        return [T.clean_row(row(**s)) for s in specs]
+
+    def test_a_match_is_due_the_first_time_and_not_again_until_six_hours_have_passed(self):
+        rows = self.rows({})
+        hits, kept = T.due_hits(None, rows, [self.W_IP], 1000)
+        self.assertEqual([(r['ip'], w['kind']) for r, w in hits], [(PUB, 'ip')])
+        self.assertEqual(len(kept), 1)
+        hits, kept2 = T.due_hits(kept, rows, [self.W_IP], 1000 + T.ALERT_REPEAT_S - 1)
+        self.assertEqual((hits, kept2), ([], kept), 'the same match within six hours is not raised again, and the record keeps its first time')
+        hits, kept3 = T.due_hits(kept, rows, [self.W_IP], 1000 + T.ALERT_REPEAT_S)
+        self.assertEqual(len(hits), 1, 'still there after six hours: raised again')
+        self.assertEqual(list(kept3.values()), [1000 + T.ALERT_REPEAT_S])
+
+    def test_two_entries_on_one_row_are_two_matches_and_a_different_row_is_a_different_match(self):
+        hits, kept = T.due_hits(None, self.rows({}), [self.W_IP, self.W_PORT], 5)
+        self.assertEqual(sorted(w['kind'] for _r, w in hits), ['ip', 'port'])
+        hits, _ = T.due_hits(kept, self.rows({}, {'ip': PUB2}), [self.W_PORT], 6)
+        self.assertEqual([r['ip'] for r, _w in hits], [PUB2], 'the address that was raised is not, and a new one on the same port is')
+        hits, _ = T.due_hits(kept, self.rows({'proc': 'wget'}), [self.W_PORT], 6)
+        self.assertEqual(len(hits), 1, 'the same address and port from another program is another match')
+        hits, _ = T.due_hits(kept, self.rows({'d': 'in'}), [self.W_PORT], 6)
+        self.assertEqual(len(hits), 1, 'and so is the other direction')
+
+    def test_nothing_is_due_without_a_watch_list_or_without_rows(self):
+        self.assertEqual(T.due_hits(None, self.rows({}), [], 1), ([], {}))
+        self.assertEqual(T.due_hits(None, [], [self.W_IP], 1), ([], {}))
+
+    def test_at_most_ten_are_due_at_once_and_the_rest_come_due_at_the_next_sample(self):
+        rows = self.rows(*[{'ip': '9.9.9.%d' % (i + 1), 'tx': 1000 - i} for i in range(25)])
+        hits, kept = T.due_hits(None, rows, [self.W_PORT], 100)
+        self.assertEqual(len(hits), T.ALERT_MAX)
+        self.assertEqual([r['ip'] for r, _w in hits], [r['ip'] for r in rows[:T.ALERT_MAX]], 'the busiest rows first')
+        self.assertEqual(len(kept), T.ALERT_MAX, 'only what was raised is marked, so the others are still due')
+        hits2, kept2 = T.due_hits(kept, rows, [self.W_PORT], 160)
+        self.assertEqual([r['ip'] for r, _w in hits2], [r['ip'] for r in rows[T.ALERT_MAX:2 * T.ALERT_MAX]])
+        hits3, kept3 = T.due_hits(kept2, rows, [self.W_PORT], 220)
+        self.assertEqual(len(hits3), 5)
+        self.assertEqual(T.due_hits(kept3, rows, [self.W_PORT], 280)[0], [])
+
+    def test_the_record_of_what_was_raised_cannot_grow_without_bound(self):
+        flood = {'k%d' % i: 950 + i % 40 for i in range(T.ALERTED_MAX + 100)}        # all of them recent, and more than the record may hold
+        hits, kept = T.due_hits(flood, self.rows({}), [self.W_PORT], 1000)
+        self.assertLessEqual(len(kept), T.ALERTED_MAX)
+        self.assertEqual(hits, [], 'a full record takes no new match: a host that matches a whole port range does not make it grow')
+        now = 1000 + T.ALERT_REPEAT_S
+        hits, kept = T.due_hits({'old': 1, 'recent': now - 100}, self.rows({}), [self.W_PORT], now)
+        self.assertNotIn('old', kept, 'what is older than six hours is forgotten')
+        self.assertIn('recent', kept)
+        self.assertEqual(len(hits), 1, 'and room is made for the match that is due')
+
+    def test_a_record_that_is_not_a_map_of_times_is_read_as_empty_and_does_not_raise(self):
+        for bad in (None, 'x', [], 5, True, {'a': 'x', 5: 1, 'b': True, 'c': -3, 'd': 10 ** 30, 'e': None, 'f': [1]}):
+            hits, kept = T.due_hits(bad, self.rows({}), [self.W_IP], 1_800_000_000)       # a clock that is a clock: -3 is 1970, not a moment ago
+            self.assertEqual((len(hits), len(kept)), (1, 1), repr(bad))
+
+    def test_the_sentence_says_the_direction_and_the_port_and_names_the_entry_only_where_it_may(self):
+        r = T.clean_row(row(d='in', port=22, ip=LAN, proc='sshd'))
+        self.assertEqual(T.hit_detail(r, {'kind': 'port', 'value': '22', 'label': ''}, True), 'Inbound connection on port 22 (ssh), matches the watch list entry port 22')
+        self.assertEqual(T.hit_detail(T.clean_row(row()), self.W_IP, True), 'Outbound connection on port 443 (https), matches the watch list entry address %s (flagged)' % PUB)
+        self.assertEqual(T.hit_detail(T.clean_row(row(port=61234)), {'kind': 'cidr', 'value': '10.0.0.0/8', 'label': 'secret note'}, False), 'Outbound connection on port 61234, matches the watch list')
+        self.assertNotIn('secret', T.hit_detail(T.clean_row(row()), {'kind': 'cidr', 'value': '10.0.0.0/8', 'label': 'secret note'}, False))
+
+
+class TestTheWatchAlert(_Server):
+    """What a host's report does to the watch list: the event, its payload, who may read the entry, and when it goes out."""
+
+    def setUp(self):
+        super().setUp()
+        self.fired = []         # only this view's event: a report fires others of its own
+        self.api.fire_webhook = lambda event, payload, *a, **k: self.fired.append((event, payload)) if event == 'traffic_watch' else None
+        self.watch = [{'kind': 'ip', 'value': PUB, 'label': 'ex-employee VPS'}, {'kind': 'port', 'value': '23', 'label': ''}]
+        self.put({'web01': device(), 'win01': device(id='win01', name='win01', os='Windows 11', token='tokw')}, traffic_module_enabled=True, traffic_watch=self.watch)
+
+    def test_a_connection_to_a_watched_address_raises_one_alert_with_what_the_inbox_shows(self):
+        self.beat(traffic=sample([row(proc='curl'), row(ip=PUB2, port=53)]))
+        self.assertEqual([e for e, _p in self.fired], ['traffic_watch'])
+        p = self.fired[0][1]
+        self.assertEqual((p['name'], p['device_id'], p['ip'], p['port'], p['process']), ('web01', 'web01', PUB, 443, 'curl'))
+        self.assertEqual(p['detail'], 'Outbound connection on port 443 (https), matches the watch list entry address %s (ex-employee VPS)' % PUB)
+        self.assertEqual(p['label'], 'ex-employee VPS')
+
+    def test_the_same_connection_in_the_next_report_is_not_raised_again_and_a_new_one_is(self):
+        self.beat(traffic=sample([row()]))
+        self.beat(traffic=sample([row()]))
+        self.assertEqual(len(self.fired), 1)
+        self.beat(traffic=sample([row(), row(ip=PUB2, port=23, proc='telnet')]))
+        self.assertEqual([(p['ip'], p['port']) for _e, p in self.fired], [(PUB, 443), (PUB2, 23)])
+
+    def test_it_comes_back_after_six_hours_while_the_connection_is_still_there(self):
+        self.beat(traffic=sample([row()]))
+        rec = self.stored()
+        rec['alerted'] = {k: v - T.ALERT_REPEAT_S for k, v in rec['alerted'].items()}
+        self.api._entity_write_one(self.api.TRAFFIC_FILE, 'web01', rec)
+        self.beat(traffic=sample([row()]))
+        self.assertEqual(len(self.fired), 2)
+
+    def test_the_record_remembers_what_it_raised_and_keeps_it_through_a_sample_that_cannot_be_checked(self):
+        self.beat(traffic=sample([row()]))
+        before = self.stored()['alerted']
+        self.assertEqual(len(before), 1)
+        self.beat(traffic=sample([], err='ss-failed'))
+        self.assertEqual(self.stored()['alerted'], before, 'an error sample does not wipe it, so the connection is not raised again when the host reads again')
+        self.beat(traffic=sample([row()]))
+        self.assertEqual(len(self.fired), 1)
+        self.put({'web01': device()}, traffic_module_enabled=True)          # the operator empties the list
+        self.beat(traffic=sample([row()]))
+        self.assertEqual(self.stored()['alerted'], before, 'and an empty list leaves it alone')
+
+    def test_nothing_goes_out_while_the_module_is_off_or_the_list_is_empty(self):
+        self.put({'web01': device()}, traffic_module_enabled=True, traffic_watch=[])
+        self.beat(traffic=sample([row()]))
+        self.put({'web01': device()}, traffic_watch=self.watch)
+        self.beat(traffic=sample([row()]))
+        self.assertEqual(self.fired, [])
+
+    def test_the_alert_goes_out_only_for_a_record_that_was_kept(self):
+        real = self.api._entity_write_one
+        self.api._entity_write_one = lambda *a, **k: None                       # the write is skipped under lock contention, as it can be
+        self.beat(traffic=sample([row()]))
+        self.assertEqual(self.fired, [], 'an alert for a record that was not saved would be raised again with the next sample')
+        self.api._entity_write_one = real
+        self.beat(traffic=sample([row()]))
+        self.assertEqual(len(self.fired), 1)
+
+    def test_a_host_that_matches_many_things_raises_ten_a_report_and_the_rest_follow(self):
+        self.put({'web01': device()}, traffic_module_enabled=True, traffic_watch=[{'kind': 'port', 'value': '443', 'label': ''}])
+        rows = [row(ip='9.9.9.%d' % (i + 1), tx=500 - i) for i in range(23)]
+        for expect in (10, 20, 23, 23):
+            self.beat(traffic=sample(rows))
+            self.assertEqual(len(self.fired), expect)
+
+    def test_on_an_installation_with_tenants_the_entry_and_its_note_stay_out_of_the_alert(self):
+        self.put({'web01': device(), 'win01': device(id='win01', name='win01', os='Windows 11', token='tokw')}, traffic_module_enabled=True, tenancy_enforced=True,
+                 traffic_watch=[{'kind': 'cidr', 'value': '93.184.0.0/16', 'label': 'operator note: C2 range'}])
+        self.beat(traffic=sample([row()]))
+        self.assertEqual(len(self.fired), 1)
+        p = self.fired[0][1]
+        self.assertNotIn('label', p)
+        self.assertEqual(p['detail'], 'Outbound connection on port 443 (https), matches the watch list')
+        self.assertNotIn('operator', json.dumps(p))
+        self.assertNotIn('93.184.0.0', p['detail'], 'the network the operator listed is the operator\'s; the remote address is the tenant\'s own')
+        self.assertEqual(p['ip'], PUB)
+
+    def test_a_watch_list_in_the_settings_that_is_not_a_list_raises_nothing_and_fails_nothing(self):
+        for bad in ('x', 5, {'kind': 'ip'}, [5, None], [{'kind': 'ip', 'value': 'nope'}]):
+            self.put({'web01': device()}, traffic_module_enabled=True, traffic_watch=bad)
+            self.beat(traffic=sample([row()]))
+        self.assertEqual(self.fired, [])
+
+    def test_the_event_is_a_point_event_in_its_own_channel_kind_and_every_label_is_translated(self):
+        ev = self.api.EVENT_REGISTRY['traffic_watch']
+        self.assertEqual((ev['lifecycle'], ev['kind'], ev['severity']), ('point', 'traffic', 'medium'))
+        self.assertIn('traffic', {k for k, _l, _g in self.api.CHANNEL_KIND_DEFS})
+        self.assertIn('traffic_watch', self.api.WEBHOOK_EVENT_NAMES)
+        i18n = (ROOT / 'server' / 'html' / 'static' / 'js' / 'i18n.js').read_text()
+        for text in (ev['label'], ev['title'], 'Watched connections'):
+            self.assertIn('"%s": {' % text, i18n, text)
+
+    def test_the_message_a_channel_gets_names_the_host_the_address_the_port_and_the_program(self):
+        import notify
+        text = notify._webhook_message('traffic_watch', {'name': 'web01', 'ip': PUB, 'port': 443, 'process': 'curl', 'detail': 'Outbound connection on port 443 (https), matches the watch list'})
+        self.assertEqual(text, 'web01: %s port 443 by curl: Outbound connection on port 443 (https), matches the watch list' % PUB)
+        self.assertEqual(notify._webhook_message('traffic_watch', {'name': 'web01', 'ip': PUB, 'port': 23, 'detail': 'x'}), 'web01: %s port 23: x' % PUB)
+
+
+class TestTheWatchAlertThroughTheRealInbox(_Server):
+    """No stand-in for fire_webhook: the event goes through _record_alert's whitelist and its coalescing identity, which is where a payload key is lost."""
+
+    def alerts(self):
+        self.api._LOAD_CACHE.clear()
+        store = self.api.load(self.api.ALERTS_FILE) or {}
+        return [a for a in (store.get('alerts') if isinstance(store, dict) else store) or [] if a.get('event') == 'traffic_watch']
+
+    def test_the_inbox_row_carries_the_address_the_port_the_program_and_the_sentence(self):
+        self.put({'web01': device()}, traffic_module_enabled=True, traffic_watch=[{'kind': 'ip', 'value': PUB, 'label': 'ex-employee VPS'}])
+        self.beat(traffic=sample([row(proc='curl')]))
+        rows = self.alerts()
+        self.assertEqual(len(rows), 1, rows)
+        a = rows[0]
+        self.assertEqual((a['device_id'], a['severity']), ('web01', 'medium'))
+        p = a['payload']
+        self.assertEqual((p['ip'], p['port'], p['process']), (PUB, 443, 'curl'))
+        self.assertIn('matches the watch list entry address', p['detail'])
+        self.assertEqual(p['label'], 'ex-employee VPS')
+
+    def test_two_remote_addresses_on_one_host_are_two_rows_and_the_same_one_twice_is_one(self):
+        self.put({'web01': device()}, traffic_module_enabled=True, traffic_watch=[{'kind': 'port', 'value': '443', 'label': ''}])
+        self.beat(traffic=sample([row(), row(ip=PUB2)]))
+        self.assertEqual(len(self.alerts()), 2)
+        rec = self.stored()
+        rec['alerted'] = {k: v - T.ALERT_REPEAT_S for k, v in rec['alerted'].items()}
+        self.api._entity_write_one(self.api.TRAFFIC_FILE, 'web01', rec)
+        self.beat(traffic=sample([row(), row(ip=PUB2)]))
+        self.assertEqual(len(self.alerts()), 2, 'raised again after six hours, and it joins the row that is still open')
+
+
 class TestTheFleet(_Server):
 
     def setUp(self):

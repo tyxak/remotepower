@@ -23,6 +23,9 @@ SEEN_MAX = 300  # public remote addresses remembered for a host, to tell a new o
 NEW_FOR_S = 86400  # an address counts as new for a day after a host first used it
 LEARN_S = 3600  # the first hour of a host's samples is its baseline: nothing in it is new
 MAX_WATCH = 100  # entries in the watch list
+ALERT_REPEAT_S = 6 * 3600  # a watched connection that is still there raises its alert again after this long
+ALERT_MAX = 10  # alerts one host's sample may raise; what is left comes due at the next sample
+ALERTED_MAX = 200  # matches remembered for a host, so the record of what was raised cannot grow without bound
 MAX_BYTES = 2**50
 WATCH_KINDS = ("ip", "cidr", "port", "proc")
 ERRORS = ("no-ss", "ss-failed", "no-counters")  # what an agent may say when it could not read its connections; any other text is dropped
@@ -303,6 +306,49 @@ def watched(row: dict[str, Any], watch: list[dict[str, str]]) -> list[dict[str, 
         elif kind == "proc" and value and (row.get("proc") or "").lower() == value.lower():
             hits.append(w)
     return hits
+
+
+def _hit_key(row: dict[str, Any], entry: dict[str, str]) -> str:
+    """What one watch list match is, for the record of what a host has raised: the entry and the row (direction, remote address, port, program)."""
+    return "%s:%s|%s|%s|%s|%s" % (entry["kind"], entry["value"], row["d"], row["ip"], row["port"], row["proc"])
+
+
+def due_hits(alerted: Any, rows: list[dict[str, Any]], watch: list[dict[str, str]], now: int) -> tuple[list[tuple[dict[str, Any], dict[str, str]]], dict[str, int]]:
+    """([(row, entry)], alerted) -- the watch list matches in a host's new sample that are due an alert, and the host's record of what it has raised.
+
+    A match is one entry on one row (a row that two entries match is two). It is due when the host has not raised it within ALERT_REPEAT_S: the first time, and
+    again after that long while the connection is still there. At most ALERT_MAX are due in one sample, the busiest rows first; the rest are not marked, so they
+    come due at the next sample. The record forgets what is older than ALERT_REPEAT_S and keeps at most ALERTED_MAX, so a host that matches a whole port range
+    cannot make it grow."""
+    keep: dict[str, int] = {}
+    if isinstance(alerted, dict):
+        keep = {k: v for k, v in alerted.items() if isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool) and 0 <= now - v < ALERT_REPEAT_S}
+        if len(keep) > ALERTED_MAX:
+            keep = dict(sorted(keep.items(), key=lambda kv: kv[1])[-ALERTED_MAX:])
+    hits: list[tuple[dict[str, Any], dict[str, str]]] = []
+    for r in rows:
+        for w in watched(r, watch):
+            if len(hits) >= ALERT_MAX or len(keep) >= ALERTED_MAX:
+                return hits, keep
+            k = _hit_key(r, w)
+            if k not in keep:
+                keep[k] = now
+                hits.append((r, w))
+    return hits, keep
+
+
+_KIND_WORDS = {"ip": "address", "cidr": "network", "port": "port", "proc": "program"}
+
+
+def hit_detail(row: dict[str, Any], entry: dict[str, str], show_entry: bool) -> str:
+    """The sentence an alert carries: the direction and the port with its service name, and, when show_entry, which entry matched with the note written on it. On
+    an installation with several organisations the entry stays out: it is the operator's list, and the remote address and port already say what was seen."""
+    svc = service_of(row["port"])
+    text = "%s connection on port %d%s" % ("Inbound" if row["d"] == "in" else "Outbound", row["port"], " (%s)" % svc if svc else "")
+    if not show_entry:
+        return text + ", matches the watch list"
+    text += ", matches the watch list entry %s %s" % (_KIND_WORDS.get(entry["kind"], entry["kind"]), entry["value"])
+    return text + (" (%s)" % entry["label"] if entry.get("label") else "")
 
 
 def fleet_summary(entries: list[tuple[str, str, dict[str, Any]]], top: int = 50) -> dict[str, Any]:

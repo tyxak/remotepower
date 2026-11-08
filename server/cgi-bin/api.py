@@ -453,7 +453,7 @@ CMDB_SSH_PORT_MAX     = 65535
 HARDWARE_FILE    = DATA_DIR / 'hardware.json'
 DISK_NAMES_FILE  = DATA_DIR / 'disk_names.json'        # v7.4.3 (#47): {device_id: {serial: name}}
 DISKIO_HIST_FILE = DATA_DIR / 'diskio_history.json'    # v7.4.3 (#49): {device_id: {disk: [[ts, busy%, read MB/s, write MB/s, IOPS, await ms], ...]}}
-TRAFFIC_FILE = DATA_DIR / 'traffic.json'                  # 8.0.0: {device_id: {first, at, sample, series, seen}} -- what a host's TCP connections moved (traffic.py)
+TRAFFIC_FILE = DATA_DIR / 'traffic.json'                  # 8.0.0: {device_id: {first, at, sample, series, seen, alerted}} -- what a host's TCP connections moved (traffic.py)
 _DISKIO_HIST_MIN_GAP = 60       # seconds between two samples of one disk
 _DISKIO_HIST_MAX = 120          # samples kept per disk
 CPUTIME_HIST_FILE = DATA_DIR / 'cputime_history.json'   # 7.4.9: {device_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]} in percent
@@ -2361,6 +2361,13 @@ EVENT_REGISTRY = {
         lifecycle='point',
         label='An automatic container image update did not work (the image was not replaced, or the containers are not healthy)',
         kind='container', title='Automatic Image Update Failed', severity='high', priority=4, tags='rotating_light,whale'),
+    # 8.0.0: a host's connection matched an entry of the Traffic watch list (an address, a network, a port or a program the operator asked to be told about).
+    # Raised from the host's own report (traffic_handlers.ingest), once for each (entry, remote address, port, program) and again after six hours while the
+    # connection is still there, at most ten for one report. It records that something HAPPENED, so there is nothing to clear.
+    'traffic_watch': dict(
+        lifecycle='point',
+        label='A host connected to something on the Traffic watch list (an address, network, port or program)',
+        kind='traffic', title='Watched Connection', severity='medium', priority=4, tags='eyes,satellite'),
     'container_healthy': dict(
         label='A container passes its health check again (or stopped, or left the list)',
         kind='container', title='Container Healthy',
@@ -10293,6 +10300,7 @@ CHANNEL_KIND_DEFS = (
     ('service', 'Service down/up', 'operational'),
     ('container', 'Container alerts', 'operational'),
     ('image_update', 'Container image updates', 'operational'),
+    ('traffic', 'Watched connections', 'operational'),   # 8.0.0
     ('script', 'Custom script', 'operational'),
     ('custom_check', 'Custom checks', 'operational'),
     ('log_alert', 'Log alerts', 'operational'),

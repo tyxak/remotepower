@@ -578,7 +578,7 @@ SHAPES: dict = {
     'device_profiles.json': dict_of(fields(services_watched=list_of(STR), log_watch=list_of(), metric_thresholds=DICT)),
     'disk_usage.json': dict_of(fields(paths=DICT)),
     'diskio_history.json': dict_of(dict_of(LIST)),
-    'traffic.json': dict_of(fields(first=OPT_NUM, at=OPT_NUM, sample=DICT, series=LIST, seen=DICT)),    # 8.0.0: {device_id: {first, at, sample, series, seen}} (traffic.py)
+    'traffic.json': dict_of(fields(first=OPT_NUM, at=OPT_NUM, sample=DICT, series=LIST, seen=DICT, alerted=DICT)),    # 8.0.0: {device_id: {first, at, sample, series, seen, alerted}} (traffic.py)
     'cputime_history.json': dict_of(LIST),                  # 7.4.9: {device_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]}
     'dmarc_reports.json': fields(reports=list_of(), sources=DICT, mailbox=DICT),
     'flow.json': dict_of(fields(latest=DICT, history=list_of())),

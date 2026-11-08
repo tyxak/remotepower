@@ -69,6 +69,8 @@ EXEMPT = {
     # 8.0.0: the server sends how many log lines (0 to 10) of an unhealthy container the heartbeat may carry; this stores that number and nothing else.
     # The read that follows is `docker logs --tail` of the host's own container list, which observes and changes nothing.
     '_set_container_log_lines': 'stores a number from 0 to 10 for the container log excerpt; changes nothing on the host',
+    # 8.0.0: the server picks how often, never what is run: the sample is `ss` with a fixed argument list over the host's own connection table
+    '_set_traffic_every': 'stores 0 or a number from 30 to 3600 for the connection sample; the sample runs ss with a fixed argument list and reads, changes nothing on the host',
     # 8.0.0: its three arguments are the host's own listening sockets, containers and running units (the heartbeat's `sysinfo` dict is what the taint follows, and that dict is also
     # where the server's settings are read). The catalog it matches against ships with the agent, nothing is probed, and nothing is started or written.
     'discover_apps': "matches the host's own sockets, container names and running units against the catalog that ships with the agent; probes and changes nothing",
