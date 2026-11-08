@@ -47,6 +47,10 @@ DELIBERATELY_UNINDEXED = {
     'uptime_seconds': 'duplicate of `uptime`',
     'pkg_scan_ts': 'a timestamp, not a fact anyone asks about',
     'psutil': 'a capability flag the UI reads; not a fleet question',
+    'probe_types': 'the monitor types the agent\'s own probe engine runs: a capability flag the server reads to decide which monitors a host may be handed; '
+                   'the Monitoring page is where a question about a monitor is answered',
+    'compose_rollback': 'a capability flag: the agent can put a compose project back on the images it had before an update; the server reads it to decide whether '
+                        'the automatic update\'s rollback option holds a host back, and the host\'s compose dialog shows the result',
     'modules_visible': 'internal agent bookkeeping',
     '_batt_low': 'internal derived flag, prefixed to say so',
     'firewall_fp': 'a fingerprint hash; the firewall corpus carries the rules',
@@ -133,6 +137,17 @@ class TestTheNewSignalsReachFleetKnowledge(unittest.TestCase):
         t = _text(canary_status=[{'path': '/a', 'state': 'armed', 'detail': ''}])
         self.assertIn('1 canary', t)
         self.assertNotIn('NOT armed', t)
+
+    def test_the_apps_found_on_a_host_are_named_by_the_catalog_and_nothing_an_agent_made_up_is(self):
+        t = _text(discovered=[{'id': 'gitea', 'via': ['port'], 'port': 3000, 'scope': 'lan', 'container': ''},
+                              {'id': 'postgres', 'via': ['unit'], 'port': 5432, 'scope': 'local', 'container': ''},
+                              {'id': 'not-in-the-catalog', 'via': ['port'], 'port': 1, 'scope': 'lan', 'container': ''},
+                              'junk', None])
+        self.assertIn('apps found running: Gitea / Forgejo (port 3000), PostgreSQL (port 5432)', t)
+        self.assertNotIn('not-in-the-catalog', t)
+        self.assertNotIn('junk', t)
+        self.assertNotIn('apps found running', _text(discovered=[]))
+        self.assertNotIn('apps found running', _text(discovered=[{'id': 'nothing', 'port': 1}]))
 
     def test_sshd_config_and_sessions(self):
         t = _text(ssh_config={'PermitRootLogin': 'no', 'PasswordAuthentication': 'no'},

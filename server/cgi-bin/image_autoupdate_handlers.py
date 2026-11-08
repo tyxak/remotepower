@@ -106,7 +106,7 @@ def run_image_autoupdate_if_due():
     A._claim_cadence_slot('last_image_autoupdate', now)
     _follow(policy, now)
     if policy['mode'] in ('shadow', 'on'):
-        _apply(policy, now)
+        _apply_policy(policy, now)
 
 
 def _start_rollback(r, why, policy, now, devices):
@@ -194,7 +194,7 @@ def _follow(policy, now):
                                                    'label': ', '.join(str(x) for x in (r.get('refs') or []))[:300], 'detail': ch['detail'] or new})
 
 
-def _apply(policy, now):
+def _apply_policy(policy, now):
     """Queue (or, in shadow mode, only record) the updates the policy allows now, at most `max_hosts_per_run` of them."""
     store = A.load(A.IMAGE_UPDATES_FILE) or {}
     devices = A.load(A.DEVICES_FILE) or {}

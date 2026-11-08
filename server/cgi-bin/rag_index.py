@@ -51,6 +51,7 @@ import math
 import hashlib
 import time
 
+import app_catalog
 import checks
 
 
@@ -991,6 +992,17 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
         if isinstance(_li, list) and _li:
             posture.append("logged-in users: "
                            + ", ".join(str(u) for u in _li[:10]))
+        # 8.0.0: the apps the agent found running on the host, by the catalog's own names: "which hosts run Gitea" had a drawer section and no corpus entry.
+        # Only ids the catalog knows are named, so what an agent sends can add no free text to the corpus.
+        _dis = si.get('discovered')
+        if isinstance(_dis, list) and _dis:
+            _apps = []
+            for _row in _dis[:30]:
+                _app = app_catalog.describe(_row.get('id')) if isinstance(_row, dict) else None
+                if _app:
+                    _apps.append(f"{_app['name']} (port {_row['port']})" if isinstance(_row.get('port'), int) else _app['name'])
+            if _apps:
+                posture.append("apps found running: " + ", ".join(_apps))
         # v7.1.0: USB inventory {VID:PID: label} — "which hosts have a USB
         # device attached" had a drawer row and an alert, and no corpus entry.
         _usb = si.get('usb')
