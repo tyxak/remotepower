@@ -33,6 +33,13 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
+- [security-review-8.0.0.md](security-review-8.0.0.md) — the release that added the Traffic view, the app finder, four handshake monitors, a
+  read-only MCP endpoint and automatic image updates: one high issue, eight medium ones and six low ones and one informational one, all of
+  them fixed. Among them are a host settings form that cleared what it never showed, three ways to run code on a host that ignored
+  quarantine, a CSV export that ran a host name as a formula, one damaged report that made three views answer 500 for everyone, an
+  export meant to be committed that held header values, and two places that matched another organisation's hosts by name. It has the
+  scans, the run over every new route, the lists made by script with their ratios, the marker run over every place a secret is stored,
+  and what is left.
 - [security-review-7.5.0.md](security-review-7.5.0.md) — a second read of the whole product, for rules the code applied in most
   places and missed in one or two: fifteen medium issues, twenty-one low ones and three informational ones, all of them fixed.
   Among them are four-eyes approval that a dozen paths skipped, restores that asked for no sign-in, playbook content shown
@@ -44,10 +51,6 @@ are kept:
   in the Docker image, tenant administrators reaching instance-wide operations, and a tenant's users reading the
   operator's tickets and invoices. It has the scans, the run over every route, the mutation checks, and what is left
   and how big it is.
-- [security-review-7.4.8.md](security-review-7.4.8.md) — a patch release: one low issue, a stored sensor, drive or
-  GPU reading, or a sensor limit, too big for a float that answered 500 to everyone on the Thermal page, and a check
-  that nothing a host sends or apt prints reaches a command, that a limit or a time of the wrong kind never reaches a
-  page, and that no route, permission or dependency changed, with the scans and the mutation checks behind them.
 
 Each review found real defects. The high and low ones were fixed before the
 release went out; a medium one that was too big for the release is named in the
@@ -178,7 +181,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; the latest is
-[security-review-7.4.8.md](security-review-7.4.8.md). The codebase is also
+[security-review-8.0.0.md](security-review-8.0.0.md). The codebase is also
 scanned with a combined **SAST + DAST** pipeline (see *Security testing* below):
 CodeQL reports zero in both languages under the configuration production runs,
 Bandit reports nothing new against its baseline and no high-severity finding,
@@ -365,7 +368,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-7.4.8.md](security-review-7.4.8.md)).
+  [security-review-8.0.0.md](security-review-8.0.0.md)).
 - **SAST** — **CodeQL** with GitHub's query suites (also run on every push),
   [Bandit](https://bandit.readthedocs.io/), [semgrep](https://semgrep.dev/),
   [gitleaks](https://github.com/gitleaks/gitleaks) and an undefined-name check.

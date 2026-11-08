@@ -65,7 +65,7 @@ Both show the hosts you can see, like everything else, and neither answers while
 
 Each Linux agent reads its established TCP connections with `ss` and takes the kernel's own byte counters for each one. A sample is what changed since the last reading, added up for each direction, remote address, service port and program. The default interval is 60 seconds. You can set 30 to 3,600 in the **Watch list** card.
 
-Some limits to know about:
+Limits:
 
 - Only Linux agents sample. Windows and macOS hosts show as **Not supported**.
 - Only TCP has a volume. UDP is not counted.
@@ -79,7 +79,7 @@ Some limits to know about:
 
 ## Who sees what
 
-You see the hosts your role and organisation allow, the same as everywhere else. The watch list and the interval belong to the installation: anyone signed in can read the interval and how many entries there are, and only the platform operator edits them.
+You see the hosts your role and organisation allow, the same as everywhere else. Anyone signed in can read the interval and how many entries the watch list has; only the platform operator edits either.
 
 ## API
 

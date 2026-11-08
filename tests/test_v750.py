@@ -195,7 +195,7 @@ class TestTheSecurityReview(unittest.TestCase):
 
     def test_three_reviews_are_kept(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
-        self.assertEqual(reviews, ["security-review-7.4.8.md", "security-review-7.4.9.md", "security-review-7.5.0.md"])
+        self.assertEqual(reviews, ["security-review-7.4.9.md", "security-review-7.5.0.md", "security-review-8.0.0.md"])
 
 
 class TestTheReleaseContainsItsGuards(unittest.TestCase):

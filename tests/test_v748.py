@@ -87,70 +87,25 @@ class TestVersionBumps(unittest.TestCase):
             self.assertFalse((_ROOT / "docs" / dropped).exists(), dropped)
 
 
-class TestTheSecurityReview(unittest.TestCase):
-    """The review is part of the release: it exists, it is indexed where a reader looks, it names what it
-    found, it says what it did not run, and the three kept reviews are the last three."""
+class TestTheReviewHasLeftTheWindow(unittest.TestCase):
+    """The review of 7.4.8 left the three kept reviews at the 8.0.0 bump. Its one finding stays counted in CHANGELOG.md."""
 
-    DOC = "docs/security-review-7.4.8.md"
+    def test_it_is_gone_everywhere(self):
+        self.assertFalse((_ROOT / "docs/security-review-7.4.8.md").exists())
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "docs/security-review-7.4.9.md", "docs/security-review-7.5.0.md",
+                    "docs/security-review-8.0.0.md", "server/html/index.html"):
+            self.assertNotIn("security-review-7.4.8.md", (_ROOT / rel).read_text(), rel)
 
-    def raw(self):
-        return (_ROOT / self.DOC).read_text()
+    def test_the_changelog_still_counts_its_issue(self):
+        body = (_ROOT / "CHANGELOG.md").read_text()
+        body = body[body.index("## v7.4.8 \u2014 "):body.index("## v7.4.7 \u2014 ")]
+        self.assertIn("too big for a float", body)
 
-    def text(self):
-        return re.sub(r"\s+", " ", self.raw())
-
-    def test_it_exists_and_is_indexed_and_is_the_latest(self):
-        self.assertTrue((_ROOT / self.DOC).exists())
-        for rel in ("docs/README.md", "docs/security.md"):
-            self.assertIn("security-review-7.4.8.md", (_ROOT / rel).read_text(), rel)
-        sec = (_ROOT / "docs/security.md").read_text()
-        self.assertGreaterEqual(sec.count("latest is\n[security-review-7.4.8.md]") +
-                                sec.count("latest:\n  [security-review-7.4.8.md]"), 2)
-
-    def test_it_says_what_it_covers_and_what_it_did_not_run(self):
-        text = self.text()
-        self.assertIn("This review covers everything that changed since 7.4.7", text)
-        self.assertIn("were not run this time", text)           # CodeQL, the nginx scanners and nuclei
-        self.assertIn("## Known and unchanged", text)
-        self.assertIn("A live probe of the maintainer's own instance", text)
-        self.assertIn("`apt` itself", text, "the agent was never run against a real apt")
-
-    def test_it_names_its_finding_and_the_summary_has_one_row(self):
-        text = self.text()
-        self.assertIn("**one** issue", text)
-        self.assertIn("A stored reading or limit too big for a float made the Thermal page and the Prometheus export fail", text)
-        rows = re.findall(r"^\| ([1-9]) \|", self.raw(), re.M)
-        self.assertEqual(rows, ["1"])
-
-    def test_it_ran_the_scans_and_the_checks_it_says_it_did(self):
-        text = self.text()
-        for needle in ("bandit", "semgrep", "gitleaks", "pip-audit", "Hostile values through the real functions",
-                       "Hostile text from apt", "The Updated cell", "The Prometheus export", "Mutation checks"):
-            self.assertIn(needle, text, needle)
-
-    def test_no_placeholder_is_left(self):
-        for stub in ("@@", "TBD-", "SEMGREPAPIRESULT", "MUTATIONSRESULT"):
-            self.assertNotIn(stub, self.raw(), stub)
-
-    def test_it_reveals_no_command_for_the_attack(self):
-        text = self.raw()
-        for needle in ("curl", "X-Token", "wget", "nc -"):
-            self.assertNotIn(needle, text, needle)
-
-    def test_it_is_among_the_three_kept_reviews(self):
+    def test_three_reviews_are_kept(self):
         reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
         self.assertEqual(len(reviews), 3, reviews)
-        self.assertIn("security-review-7.4.8.md", reviews)
+        self.assertNotIn("security-review-7.4.8.md", reviews)
 
-    def test_the_review_that_left_the_window_is_gone_everywhere(self):
-        self.assertFalse((_ROOT / "docs/security-review-7.4.5.md").exists())
-        for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html"):
-            p = _ROOT / rel
-            if p.exists():
-                self.assertNotIn("security-review-7.4.5.md", p.read_text(), rel)
-
-    def test_the_kept_reviews_do_not_send_a_reader_to_the_one_that_left(self):
-        self.assertNotIn("7.4.5 review", self.text())
 
 
 class TestTheReleaseContainsItsGuards(unittest.TestCase):

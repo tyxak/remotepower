@@ -63,6 +63,10 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-8.0.0.md](security-review-8.0.0.md)** — the v8.0.0 review: what the Traffic view, the app finder, the handshake monitors, the MCP
+  endpoint and the automatic image updates can be made to do, and every place that turns text into a number, matches a host by name or
+  hides a secret on some surfaces and not on others. One high, eight medium, six low and one informational finding, all fixed, the scans and
+  the mutation checks behind them, and what is still open.
 - **[security-review-7.5.0.md](security-review-7.5.0.md)** — the v7.5.0 review, a second read of the whole product for rules the
   code applied in most places and missed in one or two: four-eyes approval on every command, a step-up on the restores, playbook
   content for the roles that may edit it, flaws in the agents, and the server code added since 7.4.0. Fifteen medium, twenty-one
@@ -71,10 +75,6 @@ holds long-form docs that don't fit there.
   changed: an authorization check on every route as 26 kinds of caller, hostile input on every route, the three agents
   and their installers, the web client and the web server headers, the interface, and the documents. Five high, seventeen
   medium and twelve low findings, all fixed, the scans and the mutation checks behind them, and what is still open.
-- **[security-review-7.4.8.md](security-review-7.4.8.md)** — the v7.4.8 review: what a host can make the server and
-  its own agent do through the sensor limits and labels it reports and the text `apt-get` prints, what a stored row
-  of the wrong kind does to the Thermal page and the risk score, and one low issue, a stored reading or limit too big
-  for a float that answered 500 to everyone. Caught before release, with the scans and the mutation checks behind it.
 - **[v8.0.0.md](v8.0.0.md)** — "Pil0tMatters": the text size from 80% to 300%, tabs and named layouts, ten wizards, the apps
   the agent finds on a host, three connectors and four monitor types, a read-only MCP endpoint, automatic image updates and a Traffic view of what each host talks to.
 - **[v7.5.0.md](v7.5.0.md)** — "Wh0leMatters": the release that carries 7.4.1 to 7.4.9 to production, with four-eyes approval on every

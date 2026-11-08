@@ -9,11 +9,12 @@ releases only; for an older release the entry below is the record.
 
 The first release of a new major version, and it changes what a person can adjust and what the agent finds without being asked. You can set the text
 size from 80% to 300%, show a long page as tabs or as one page, keep named layouts for Home, and take ten setup tasks a step at a time. The Linux
-agent finds the apps a host runs (63 are known) and offers a monitor and a connector for each. Three connectors, an Apprise destination, four monitor
-types (SMTP, IMAP, SSH banner and NTP), a Traffic view of the addresses your Linux hosts talk to, a read-only MCP endpoint and automatic container image
-updates with a rollback are new, and the last three are off until you switch them on. Reading the whole code once more found a High issue in the host drawer's settings form and Medium issues in the AI executor
-and in the channels that reach a host over SSH; all are fixed. Production runs 7.5.0, so the release is a fast-forward of it. The release page is
-[docs/v8.0.0.md](docs/v8.0.0.md).
+agent finds the apps a host runs (63 are known) and offers a monitor and a connector for each. Three connectors, an Apprise destination, four
+monitor types (SMTP, IMAP, SSH banner and NTP), a Traffic view of the addresses your Linux hosts talk to, a read-only MCP endpoint and automatic
+container image updates with a rollback are new, and the last three are off until you switch them on. Reading the whole code once more found one
+High issue, eight Medium issues, six Low or hardening items and one informational item; every one is fixed. Production runs 7.5.0, so the release is
+a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and the security review is
+[docs/security-review-8.0.0.md](docs/security-review-8.0.0.md).
 
 ### Interface
 
@@ -561,7 +562,7 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
 - **Deleting a host now clears the settings that are kept by host.** The purge cleared four of the eight settings that are a map of host id to something and left the other four:
   the patch alert flag, the disabled checks, the DNS result and, new in 8.0.0, the hidden apps. None of them holds a secret and nothing reads them for a host that is gone, but they
   stayed for good. The eight are read from the code, and a ninth that the purge misses fails the build (`tests/test_v800_purge_config_maps.py`, which also deletes a host and checks
-  that the other host keeps its entry). Not changed: about a third of the stores still name a deleted host (alerts, tickets, the audit trail, maintenance windows, runbooks, the
+  that the other host keeps its entry). Not changed: about a quarter of the stores still name a deleted host (alerts, tickets, the audit trail, maintenance windows, runbooks, the
   CMDB). Those are history or records a person wrote, and they are kept on purpose.
 - **A text is checked for ASCII digits before it is given to `int()`.** `str.isdigit()` is true for a superscript two and for the digits of other scripts, and `int()` refuses the
   first of them, so `if s.isdigit() and int(s) < 10` raised for the text `²`. The generated tests had found it in the Traffic reader of `ss`; reading the code for the same shape found

@@ -1,0 +1,160 @@
+# Security review — v8.0.0
+
+8.0.0 adds a Traffic view, an app finder in the Linux agent, four handshake monitors, a read-only MCP endpoint, automatic container image updates
+with a rollback, an Apprise destination and three connectors. This review asked two questions. The first was what each of those can be made to do
+that it should not. The second was where a rule the code already had, written down and applied in most
+places, was missed in one or two. The second question is the one that found most things, so it was answered with lists made by a script
+(every writer of the command queue, every outbound connection, every place that turns text into a number) and with the ratio printed, not with a
+reading of the places that looked likely. Every finding below was reproduced and fixed on a seeded copy of the product, not on anyone's
+installation.
+
+It found **one High issue, eight Medium issues, six Low or hardening items and one informational item. Every one of them is fixed.** Nothing rated
+Medium or higher is open. Each fix has tests, and each test was run against the code with its fix taken out.
+
+Update the agents for the agent fixes (the agent version is 8.0.0). The server fixes need no action except where [v8.0.0.md](v8.0.0.md) says so.
+
+## What changed that a reviewer should look at
+
+Fourteen routes were added. The route table held 981 entries at 7.5.0 and holds 995 now.
+
+| Route | Who may call it |
+|---|---|
+| `GET /api/devices/<id>/settings` | an administrator, and the host must be one the caller may see (the check that runs before every host route) |
+| `GET /api/devices/<id>/apps`, `POST .../apps/monitor`, `POST .../apps/dismiss` | read: any signed-in role for a host the caller may see; the two writes: an administrator of the installation |
+| `GET /api/app-discovery` | any signed-in role, over the hosts the caller may see |
+| `GET /api/devices/<id>/traffic`, `GET /api/traffic/fleet`, `GET /api/traffic/config` | any signed-in role, over the hosts the caller may see; the module is off by default and the routes answer 404 until it is on |
+| `POST /api/traffic/config` | the platform operator |
+| `GET /api/image-updates/auto` | any signed-in role, over the hosts the caller may see (S9) |
+| `POST /api/image-updates/auto` | the platform operator, and a fresh sign-in to turn it on |
+| `GET`, `POST` and `DELETE /api/mcp` | the MCP module, off by default; `POST` only, the other two answer 405 |
+
+Five things changed what a host, a caller or an outside service can do:
+
+- **The MCP endpoint reads through the same gates as the rest of the server.** A tool call is a request for one of the server's own read routes,
+  made as the caller with the caller's own token, and it passes through every check the web server's front door makes. A test holds the list of
+  those checks equal to the list in the request handler, so a check added there and not here fails the build. It can only read.
+- **Four handshake monitors connect to the address they are given.** SMTP, IMAP, SSH banner and NTP run on the server, on a host's agent or on
+  a satellite. The agent and the satellite carry a copy of the server's probe code that a script writes and a test keeps identical, and each
+  passes its own address rule when it connects: link-local and cloud-metadata addresses are always refused, loopback only where allowed, and the
+  address is checked when the name is resolved and again when the connection is made. Each handshake is tested against real local servers on all three.
+- **The Linux agent reads its own connection table once a minute when Traffic is on.** It runs `ss`, adds up what each connection moved by remote
+  address, port and program, and sends the 100 busiest rows. It captures no packets and reads no payload. Program names need root. Traffic is off
+  until you switch it on.
+- **Automatic image updates put commands on a host through the gateway every other command uses.** Maintenance mode, quarantine, audit mode and
+  four-eyes approval apply to them. The mode is off, shadow (records what it would do) or on; shadow queues nothing.
+- **An Apprise destination is a webhook format.** Its key is part of the address, so it is stored, hidden and exported like every other destination
+  address (S7).
+
+## How it was done
+
+**Scanners, on the final tree.**
+
+| Scanner | What it covered | Result |
+|---|---|---|
+| CodeQL 2.27.4 (the version the pinned workflow action uses), Python and JavaScript, the repository's own configuration | the whole tree | no result in either language |
+| bandit, against its baseline | 150 files of the server and the agents | no new result |
+| semgrep (python, javascript and security-audit rule sets; a known-bad file as a control, which gave three results) | the 88 code files changed since 7.5.0 | 7 results: six on lines older than this release (three file modes and one log line in the macOS agent, a SHA-1 in the demo seeder, one JavaScript `innerHTML` call), and one on a line this release wrote, a SHA-1 that was already declared as not security-related and is SHA-256 now |
+| gitleaks (history and tree; three planted tokens as a control) | the whole repository | no leak; the control found all three |
+| shellcheck | 29 shell scripts | one error and four warnings, all fixed (S16) |
+| pip-audit | the 25 Python packages the server and its tests import, as installed | none in a package the product depends on; `mcp` 1.23.3, which only the test client uses, has ten (the product's MCP code is standard library) |
+| nuclei 3.3.7 with 11,265 templates (the missing-headers template found 10 headers missing on a bare static server, as a control) | a seeded stack behind the shipped nginx configuration | 13 results, all informational: the server software, no HSTS on plain HTTP and no `Cross-Origin-Embedder-Policy` (both known, below), page text that names products the page integrates with, the `security.txt`, the demo addresses in the page |
+| wapiti 3.3.0, 17 of its 18 modules in six groups (CSP, security headers, cookie flags, CSRF, CRLF, redirect, XSS, stored XSS, SQL, blind SQL, SSRF, XXE, shellshock, backup files, dangerous files, htaccess, HTTP methods), not signed in | the same stack | 150 addresses crawled, 30 of them answering 200, and nine form fields, all on the sign-in form; no vulnerability and no anomaly. The methods module listed 146 addresses and, on four, DELETE, PATCH, POST and PUT answering 404, the router's answer to a method it has no route for. The command execution module did not finish in three runs and has no result. Not signed in, the scan sees the page, its static files and the sign-in form, so it says little about the API; the matrix and the hostile-request runs below cover that |
+
+**Measurements, each with a control that fails when it measures nothing.**
+
+- **Generated tests.** 26 properties (Hypothesis) state a promise of a function over input it was never meant to read, and 13 examples keep
+  the inputs it printed. They were run over the Traffic cleaners, the agent's reader of `ss`, the app catalog, the image update policy, the probe
+  runner and the MCP endpoint, and found S6, S10, S11 and S13. Properties are skipped where Hypothesis is not installed (CI), and the examples are not.
+- **Hostile requests to the new routes.** 1,904 requests (4 kinds of caller, 33 bodies, 5 query strings, with every module off and then on) to the
+  14 routes added since 7.5.0, through the real request handler: no 500, no exception, no request left unanswered.
+- **Lists made by script, with the ratio.** The command queue has 30 writers: 12 ask for approval or call a gateway that does, 18 are listed
+  with a reason, none is neither, and no module added in 8.0.0 writes it. The outbound connections are 25 in 24 functions (23 in 22 at 7.5.0): 14 name
+  an address rule, the other 11 are unchanged and each takes a target the operator names (SNMP, ICMP, WOL, the S3 endpoint, the mail relay) or is a
+  constant, and the two new ones have the peer check. The connectors have no connection of their own; they go through one client that checks every
+  request address twice and follows no redirect. All 1,744 names the 56 bound handler modules take from the server resolve. The text-to-number
+  places are in S12. All eight settings kept by host id are cleared when a host is deleted (S14). The places that matched a row to a host by display name
+  were found by syntax tree and by search, and two of them were wrong (S8, S9).
+- **A marker in every place that holds a secret.** Seven markers (the Apprise key in a destination address, a header value, four connector keys, a
+  basic-auth password in an address) and the operator's notes were put where 8.0.0 stores them, and every surface that sends settings out was read: the
+  settings page as an administrator and as a viewer, the support bundle, the backup, the declarative export, the audit lines. One leak, S7. The settings
+  page shows an administrator the destination and integration addresses on purpose, and a viewer sees none of them.
+- **The authorization matrix.** 26 callers (the platform operator and five other roles, two roles scoped to a group or a tag, five roles of two
+  organisations, eight API keys, three host tokens, a wrong token and no token) send one request to every route the server has, against the objects
+  of their own organisation, of the other one and of the default one, and each answer is judged against the check the handler names. The result is
+  added here when the run ends.
+- **An upgrade.** A data directory written by 7.5.0 (146 files) was served by this version: sign-in worked, 296 `GET` routes that take no parameter
+  answered 263 times 200, 13 times 400, 3 times 401, 3 times 403, 12 times 404 and twice 503 (the two SAML routes, which answer 503 when SAML is
+  not set up), never 500. A heartbeat from a real 7.5.0 agent was accepted by this version's handler on that data.
+- **Speed.** Start-up, the host list, Home, Needs attention, the fleet query and a heartbeat with a real 151 KB agent payload, at 500 hosts, on JSON
+  and SQLite: within 2 percent of 7.5.0 on both.
+
+## Fixed in 8.0.0
+
+| # | Severity | Where | What was wrong | The fix | Held by |
+|---|---|---|---|---|---|
+| S1 | High | web page, host drawer | The settings form under Actions & settings read nine fields the host list never carries. Changing only a host's group posted them empty, and the save treats an empty list as a clear: the host lost its command allowlist, its watched units and files and its log rules, and an agentless host lost its SSH mode, user and port | the page asks `GET /api/devices/<id>/settings` and stays read-only, with a line that says why, when the answer does not come | test_v800_drawer_settings, test_v800_drawer_settings_e2e |
+| S2 | Medium | server, command channels | Run command on an SSH host, the Ansible run and the web terminal ignored quarantine and maintenance mode, which the command queue and the SSH gateway honoured | all ask the one rule the queue asks, and a test lists the channels by syntax tree | test_v800_direct_exec_gates |
+| S3 | Medium | server, AI executor | Three readers took the script library, a list inside a map, for a map of scripts: the executor could not propose a saved script, the re-check when an approved proposal runs could not find one, and an approval row named none | the three use the helpers the others use, which also limit the answer to the scripts the caller may see | test_v800_ai_exec_scripts |
+| S4 | Medium | web page, CSV exports | The two CSV builders in the page did not quote a cell that starts with `=`, `+`, `-` or `@`, so a program or host name sent by a host ran as a formula when the file was opened | the rule the server's exports have; a test runs the real function with hostile cells | test_v800_csv_formula_guard |
+| S5 | Medium | server, app finder | One damaged or hostile container report (`²` as a published port) made the Integrations list, the Data Explorer apps entity and the Fleet Query app criterion answer 500 for every user | digits are read as ASCII only | test_v800_ascii_digits |
+| S6 | Medium | server, Traffic | A stored connection row that was not a row (a SQL backend gives a record back as it was written) made the host page, the fleet view, the Data Explorer and Fleet Query answer 500 for every user until it was deleted | the readers check the type of each field | test_v800_found_by_properties, test_v800_properties |
+| S7 | Medium | server, declarative export | The export, whose note says it is safe to commit, held a webhook destination's header values (an `Authorization` or `X-API-Key` credential, likely on an Apprise destination) and its Pushover user in plain text. 6.4.2 hid them in the support bundle and the backup and missed this third surface | the names stay; the values are masked, or ciphertext that an import restores when a config key is set, and when the crypto library is missing the export falls back to masked (the destination address too) | test_v800_declarative_headers |
+| S8 | Medium | server, compliance evidence | A fleet event counted as yours when its host id was yours or its name was one of yours, so another organisation's new port, SSH key or brute-force event for a host with the same name went into your evidence | by id; an event with no id is still matched by name | test_v800_name_collision_scope |
+| S9 | Medium | server, image updates | The last run's held rows were matched to your hosts by display name, so another organisation's compose directory and image names showed on a host with the same name, and the count of updates made was the whole installation's | the run keeps host ids; you get the rows and the count of your own hosts | test_v800_image_autoupdate, test_v800_name_collision_scope |
+| S10 | Low | server, MCP endpoint | A tool that met an answer it did not expect raised out of the endpoint: HTTP 500 and no result | a failed tool call that names the exception | test_v800_found_by_properties |
+| S11 | Low | server, app catalog | `describe()` of an id that was a list raised | answers none for anything that is not text | test_v800_found_by_properties |
+| S12 | Low | server and agents, ten more functions | Text checked with `isdigit()` and then given to `int()`, which refuses the superscript two: a 500 where a 400 was meant (a port of the watch list, a cidr, a query value, an object id, a cron field, a JSON path, a probe's status, the log length the server sends an agent) and "error" for "not SMTP" | ASCII only. 17 places in 11 functions were found by reading every `isdigit()`; 11 more read the output of a tool and are listed with the reason | test_v800_ascii_digits |
+| S13 | Low | Linux agent | The reader of `ss` took any text `isdigit()` accepted for a port, in the new reader and in the older reader of peer connections | ASCII digits from 0 to 65535 | test_v800_properties, test_v800_found_by_properties |
+| S14 | Low | server, deleting a host | The purge cleared four of the eight settings kept by host id and left the patch alert flag, the disabled checks, the DNS result and the hidden apps | all eight; the list is read from the code | test_v800_purge_config_maps |
+| S15 | Low | server, sign-in | Five places chose between http and https and no two read `X-Forwarded-Proto` alike; capitals or a list made the passkey origin one the browser never matches | one reading of the header's first entry | test_v800_request_scheme |
+| S16 | Info | server, `rp doctor` | A test for a database file used a pattern that answers no when two files match; shellcheck found it and four warnings | fixed, and error level is held | test_v800_shellcheck |
+
+## Open
+
+Nothing rated Medium or higher is open. These are smaller, and none of them is a way to attack an installation.
+
+- **A deleted host is still named by records that outlive it.** About a quarter of the stores in the demo instance (32 to 37 of 148) name a host that was deleted:
+  alerts, tickets, the audit trail, maintenance windows, runbooks and the CMDB. They are history or records a person wrote. Which of them should go
+  with the host is a decision for the operator and is not made here.
+- **79 of the 167 test files that put a request variable in the process environment (`QUERY_STRING`, `REQUEST_METHOD`, a header and the like) never
+  put it back.** They pass in the order the suite runs, because each later file sets what it reads, and one of them can fail a test in a subset run. Two
+  files did, a test and a helper that 26 test files use, and both put the variables back now. They are tests, not the product.
+- **Translations.** The strings added in 8.0.0 are owed a read by a native speaker in each of the six languages. Register (Sie, vous, usted) and
+  the labels that name buttons were checked by script and by reading; wording was not.
+
+## Not found
+
+- **A way for a new route to reach another organisation's data.** The handlers were read by script (which check each one names) and driven as a
+  tenant administrator, a viewer and the platform operator. The two places that matched by name are S8 and S9.
+- **A secret in the repository or its history.** gitleaks found none; a planted token was found by the same command.
+- **A new outbound connection without the address check.** See the list above.
+- **A new writer of the command queue that does not ask for approval.** 30 writers, none neither asking nor listed.
+- **A slower heartbeat, host list, Home or fleet query.** Within 2 percent of 7.5.0.
+
+## Known and unchanged
+
+- A fully compromised server is root on its agents, by design (see the threat model).
+- **The knowledge base is the operator's shared library.** Every signed-in user reads every article; the hosts an article points at are filtered to the
+  ones the reader can see (7.4.9). A tenant that wants its own articles has none.
+- **A role scoped to groups, tags or sites limits what a user can change, not what they can see.** Give a person who must not see other hosts a
+  tenant (see the 7.4.9 review).
+- **Traffic's watch list and sampling interval belong to the installation.** On an installation with tenants, everyone sees the matches on their own
+  hosts, and the entries, their notes and the alert text that names them stay with the operator.
+- **On the JSON file backend, Traffic rewrites its file for each report.** It costs about 80 milliseconds with 50 hosts and 340 with 200; SQLite and
+  PostgreSQL write one row. The Traffic guide says so. It is off by default.
+- The two web server configurations send HSTS only when you turn it on, and no `Cross-Origin-Embedder-Policy`.
+- **A container image is pinned by tag, not by digest, in the Dockerfiles.** A release build takes the current patched `python:3.14-slim`.
+
+## The release gate
+
+The release gate runs on the commit that carries this section. Its result is added here when it ends.
+
+## Not run for this review
+
+- A live probe of a running installation: none was available for this release, so every probe ran against a seeded copy.
+- Real Windows and macOS hosts. Traffic, the app finder, the rollback and the Suricata readers are Linux only; the other agents were changed for
+  one declared key.
+- Real services behind the integrations: the UniFi, Tailscale, Headscale and Cloudflare connectors ran against stand-ins written from the vendors'
+  published descriptions. An Apprise server was not run. The Suricata readers ran over captured log samples, not a live sensor.
+- Browsers other than Chromium.
+- A latency benchmark of the product beyond the speed comparison above.
