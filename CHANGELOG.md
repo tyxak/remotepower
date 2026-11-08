@@ -1493,7 +1493,7 @@ This release adds no text to translate.
 ## v7.4.7 — "0nceMatters" — 2026-11-01 (pre-release on dev; no standalone release — ships within v7.5.0)
 
 Two reports from the same Docker install, filed on tyxak/remotepower as #56 and #57, and the Thermal, Disk and Host
-metrics work that followed 7.4.6. The release page is [docs/v7.4.7.md](docs/v7.4.7.md).
+metrics work that followed 7.4.6. The release page is [v7.4.7 on GitHub](https://github.com/tyxak/remotepower/releases/tag/v7.4.7).
 
 ### Thermal
 
@@ -1781,7 +1781,7 @@ fixed. See `docs/security-review-7.4.5.md`.
 
 The next request from the same Docker install, filed on tyxak/remotepower as #54:
 temperature lines for each drive, because a hard disk and an NVMe drive should not be
-held to one pair of numbers. The release page is [docs/v7.4.4.md](docs/v7.4.4.md).
+held to one pair of numbers. The release page is [v7.4.4 on GitHub](https://github.com/tyxak/remotepower/releases/tag/v7.4.4).
 
 ### Disks
 
@@ -1836,7 +1836,7 @@ The review of this release found one issue. It was caught before release and is 
 
 The next batch of requests from the same Docker install, filed on tyxak/remotepower
 as #46 to #52: more of what the fleet already knows measured and alerted on, and a few
-rough edges of the HTTP monitors. The release page is [docs/v7.4.3.md](docs/v7.4.3.md).
+rough edges of the HTTP monitors. The release page is [v7.4.3 on GitHub](https://github.com/tyxak/remotepower/releases/tag/v7.4.3).
 
 ### Documentation
 
