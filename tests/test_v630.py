@@ -363,10 +363,13 @@ class TestWave2QuickWins(unittest.TestCase):
                       "pageSize must be whitelisted or the pref silently drops")
 
     def test_export_csv_quotes_fields(self):
+        # 8.0.0: the quoting moved into the shared cell writer (_csvCell), which also guards a leading = + - @ (tests/test_v800_csv_formula_guard.py runs it)
         app = _js("app.js")
         i = app.index("function exportCsv")
         chunk = app[i:app.index("function clearFilter")]
-        self.assertIn('replace(/"/g', chunk)
+        self.assertIn("_csvCell", chunk, "the exporter writes every cell through the shared cell writer")
+        cell = app[app.index("function _csvCell"):app.index("function tblExportCsv")]
+        self.assertIn("join('\"\"')", cell, "a double quote inside a cell is doubled")
 
     def test_palette_recents(self):
         app = _js("app.js")
