@@ -264,7 +264,10 @@ the browser, on purpose, so a stolen session cannot add code. See
     login.
 - **Servarr** is one connector for any *arr app. It **detects the API version** (`/api/v3` for
   Sonarr and Radarr, `/api/v1` for Prowlarr, Lidarr and Readarr) and shows the app's own
-  health-check warnings and errors. The named entries (Sonarr, Radarr and the rest) use the same
+  health-check warnings and errors. For Sonarr, Radarr, Lidarr and Readarr it also reads the
+  download queue (`queue/status`): it shows how many items are in it, and a queue that holds a
+  download with an error or a warning turns the integration to **warning**, which the app's own
+  health list does not say *(8.0.0)*. Prowlarr has no queue and is unchanged. The named entries (Sonarr, Radarr and the rest) use the same
   connector, so pick one per instance. **Bazarr** has a different API and is its own type.
 - **Standalone ESXi** exposes only SOAP. Point the vCenter connector at a vCenter instance.
 - **OctoPrint** reports a disconnected printer as a *warning* (OctoPrint itself is still up) and

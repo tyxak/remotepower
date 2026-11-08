@@ -177,6 +177,10 @@ def _run(api, fn, body=None, method='POST', env=None):
     saved_env = {n: os.environ.get(n) for n in names}
     api._begin_request()
     raw = b'' if body is None else json.dumps(body).encode()
+    # a request carries the credentials the caller gives and no others: another test module's session token, left in the environment, is read before an API key (a 401 for the
+    # whole of test_v800_app_discovery when tests.test_v642_integration_routing ran first, as it does in the alphabetical order of the gate)
+    os.environ.pop('HTTP_AUTHORIZATION', None)
+    os.environ.pop('HTTP_X_TOKEN', None)
     os.environ.update(REQUEST_METHOD=method, PATH_INFO='/api/x', REMOTE_ADDR='203.0.113.50', CONTENT_LENGTH=str(len(raw)), QUERY_STRING='')
     os.environ.update(env or {})
     saved_stdin, saved_respond = sys.stdin, api.respond

@@ -70,6 +70,11 @@ def _set_request(method, path, body=None, headers=None):
         os.environ[k] = v
 
 
+def tearDownModule():
+    # `_set_request` leaves the last request's session token in the environment, and a later module that authenticates another way reads it first (401 for all of test_v800_app_discovery)
+    os.environ.pop('HTTP_X_TOKEN', None)
+
+
 def _call(handler, *args, **kwargs):
     def fake(status, data):
         raise _Captured(status, data)

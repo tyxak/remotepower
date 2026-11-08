@@ -458,6 +458,12 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   gateway when you have switched them on, and the web terminal once it has been seen running (it has no switch, and a unit that was never installed answers `inactive` for ever, which is not a
   fault). The state file is written only when something moved. Held by `tests/test_v800_wizards_push_sshgw_e2e.py` (the daemons' ports are real listening sockets, the rest is the real server)
   and `tests/test_v800_sidecar_watch.py`.
+- **The Sonarr, Radarr, Lidarr and Readarr connector reads the download queue.** It showed the app's health list and version. A download that failed to import sits in the queue while the
+  app reports no problem, so a stuck queue was invisible. The connector now also asks `queue/status`, shows how many items are queued, and turns to **warning** when a queued download
+  carries an error or a warning (a health error is still critical). Prowlarr has no queue and is unchanged, and an app that does not answer the route, or an answer that does not come,
+  leaves the result as it was. The path of this and of every other literal call of the connectors whose vendors publish an API description (Jellyfin, AdGuard Home, Gitea and the four Servarr
+  apps: 14 lookups) was checked against those descriptions, and all exist. The other connectors have no description that can be fetched; they stay open. Held by
+  `tests/test_v800_servarr_queue.py`.
 - **The DNS records table says why it is empty.** With no provider credentials, a locked vault or a token that sees no zone, the table was a header
   over nothing and only a line of small print above it gave the reason. It now says *No zone to list yet. Give the provider credentials, then pick a
   zone.* The walk of the empty install is a test now: it opens all 79 sidebar pages of a fresh install and fails on a blank table, a loader that never

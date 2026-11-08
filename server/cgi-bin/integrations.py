@@ -1642,7 +1642,31 @@ def _servarr(inst, c):
     health = c.get_json(f"/api/{api}/health", headers=h) or []
     errors = [x.get("message", "") for x in health if str(x.get("type", "")).lower() == "error"]
     warnings = [x.get("message", "") for x in health if str(x.get("type", "")).lower() == "warning"]
-    status = CRIT if errors else (WARN if warnings else OK)
+    # 8.0.0: what the download client is stuck on. GET /api/<v>/queue/status (Sonarr and Radarr on v3, Lidarr and Readarr on v1; Prowlarr has no queue, so it answers 404) is
+    # {totalCount, count, unknownCount, errors, warnings, unknownErrors, unknownWarnings}, where the last four say whether any queued item carries one. It is the signal the health list
+    # does not give: a download that failed to import sits in the queue with the app itself reporting no problem. Asked quietly, so an app without the route, or an answer
+    # that does not come, leaves the result as it was.
+    queue, queue_read = {}, False
+    try:
+        qr = c.get(f"/api/{api}/queue/status", headers=h)
+        if qr.ok:
+            body = qr.json()
+            if isinstance(body, dict):
+                queue, queue_read = body, True
+    except IntegrationError:
+        pass
+    q_total = queue.get("totalCount")
+    q_total = (
+        int(q_total)
+        if isinstance(q_total, (int, float))
+        and not isinstance(q_total, bool)
+        and q_total == q_total
+        and 0 <= q_total < 10**9
+        else 0
+    )
+    q_err = bool(queue.get("errors") or queue.get("unknownErrors"))
+    q_warn = bool(queue.get("warnings") or queue.get("unknownWarnings"))
+    status = CRIT if errors else (WARN if (warnings or q_err or q_warn) else OK)
     detail = f"{app} {ver}"
     if errors:
         detail += f" · {len(errors)} error: {errors[0][:60]}"
@@ -1650,12 +1674,19 @@ def _servarr(inst, c):
         detail += f" · {len(warnings)} warning: {warnings[0][:60]}"
     else:
         detail += " · healthy"
-    return {
-        "status": status,
-        "version": ver,
-        "detail": detail,
-        "metrics": {"app": app, "health_errors": len(errors), "health_warnings": len(warnings)},
-    }
+    if q_total:
+        detail += f" · {q_total} in queue"
+    if q_err:
+        detail += " · downloads with errors"
+    elif q_warn:
+        detail += " · downloads with warnings"
+    metrics = {"app": app, "health_errors": len(errors), "health_warnings": len(warnings)}
+    if (
+        queue_read
+    ):  # an app with no queue (Prowlarr) or an answer that did not come has no Queue chip, rather than a zero
+        metrics["queue_total"] = q_total
+        metrics["queue_problems"] = 1 if (q_err or q_warn) else 0
+    return {"status": status, "version": ver, "detail": detail, "metrics": metrics}
 
 
 # Discoverability: list each *arr app by name in the Add dropdown. They all use
@@ -2918,7 +2949,11 @@ _STATS: dict = {
         ("download_kbs", "Down", "rate"),
     ],
     "deluge": [("torrents", "Torrents", "num"), ("download_kbs", "Down", "rate")],
-    "servarr": [("health_errors", "Errors", "num"), ("health_warnings", "Warnings", "num")],
+    "servarr": [
+        ("health_errors", "Errors", "num"),
+        ("health_warnings", "Warnings", "num"),
+        ("queue_total", "Queue", "num"),
+    ],
     "bazarr": [("health_issues", "Issues", "num")],
     "overseerr": [("pending_requests", "Pending", "num"), ("update_available", "Update", "flag")],
     "immich": [
