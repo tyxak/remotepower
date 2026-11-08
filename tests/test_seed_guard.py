@@ -252,7 +252,12 @@ class TestV610CoverageFill(unittest.TestCase):
         self.assertTrue(flow_monitors)
         self.assertIn('steps', flow_monitors[0])
         self.assertNotIn('http_flow_steps', flow_monitors[0])
-        valid_types = {'ping', 'tcp', 'http', 'dns', 'icmp', 'db', 'http_flow', 'path'}
+        # read from the Type select of the Add monitor dialog, not kept by hand: the four handshake monitors of 8.0.0 were refused by a list of eight
+        import re
+        from pathlib import Path
+        html = (Path(__file__).resolve().parent.parent / 'server' / 'html' / 'index.html').read_text()
+        valid_types = set(re.findall(r'<option value="([^"]+)"', re.search(r'<select id="mon-type"[^>]*>(.*?)</select>', html, re.S).group(1)))
+        self.assertGreaterEqual(len(valid_types), 12, valid_types)
         for mon in monitors:
             self.assertIn(mon['type'], valid_types, mon)
 

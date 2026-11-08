@@ -1954,6 +1954,15 @@ def _demo_monitors():
              'expect_status': 200, 'via_host': 'gt01'},
             {'label': 'Gitea Postgres — from gt01', 'type': 'tcp',
              'target': '127.0.0.1:5432', 'target_kind': 'host', 'via_host': 'gt01'},
+            # 8.0.0: the four handshake monitors. A server's own greeting, not only a connect; no mail is sent and no password is used.
+            {'label': 'Mail relay accepts mail (SMTP)', 'type': 'smtp',
+             'target': 'mail.lab:587', 'target_kind': 'host', 'tls': 'starttls'},
+            {'label': 'Mailbox answers (IMAP)', 'type': 'imap',
+             'target': 'mail.lab:993', 'target_kind': 'host', 'tls': 'tls'},
+            {'label': 'Gitea SSH answers', 'type': 'ssh',
+             'target': 'gitea.lab:22', 'target_kind': 'host'},
+            {'label': 'Clock of the NTP server', 'type': 'ntp',
+             'target': 'ntp.lab', 'target_kind': 'host', 'max_offset_ms': 500},
     ]
 
 
@@ -2989,6 +2998,14 @@ def build_config() -> dict:
                 'pushover_token': 'apDEMO_TOKEN_NOT_REAL',
                 'pushover_user':  'uDEMO_USER_NOT_REAL',
             },
+            # 8.0.0: Apprise forwards to whichever services are set up behind its key (the key is part of the address)
+            {
+                'id':      'wh_apprise_demo',
+                'name':    'Apprise — family chat',
+                'url':     'https://apprise.lab/notify/demo-not-a-real-key',
+                'format':  'apprise',
+                'enabled': True,
+            },
         ],
 
         # Default metric thresholds — same as production defaults
@@ -3244,6 +3261,12 @@ def build_config() -> dict:
         # pmx01 trip (see _DEMO_TRAFFIC).
         'traffic_module_enabled': True,
         'traffic_every':         60,
+        # 8.0.0: automatic container image updates, in shadow mode: the card and the receipts have something to show and no command is queued for a host
+        # that has no agent to run it. The images are the ones build_image_updates lists; databases are left out.
+        'image_autoupdate': {
+            'mode': 'shadow', 'include': ['nextcloud:*', 'homeassistant/*', 'prom/*', 'grafana/*', 'vaultwarden/*'], 'exclude': ['postgres:*', 'mariadb:*'],
+            'period': '', 'max_hosts_per_run': 2, 'verify_after_min': 10, 'rollback': True,
+        },
         'traffic_watch': [
             {'kind': 'ip', 'value': '185.220.101.45', 'label': 'A Tor relay'},
             {'kind': 'cidr', 'value': '185.220.100.0/22', 'label': 'Tor relays'},
@@ -4902,7 +4925,34 @@ def build_image_updates() -> dict:
                        'last_error': ''}
     images['jellyfin/jellyfin:latest']['registry_digest'] = ''
     images['jellyfin/jellyfin:latest']['last_error'] = 'HTTPError: 429 Too Many Requests'
-    return {'images': images, 'last_full_scan': now() - 3600}
+    return {'images': images, 'last_full_scan': now() - 3600, 'autoupdate': _demo_image_autoupdate()}
+
+
+def _demo_image_autoupdate() -> dict:
+    """8.0.0: what the automatic image updates have done, so the card shows a history and not an empty table: two updates that went through while the policy was
+    on, one that was rolled back because a container kept restarting, one that moved nothing, and what the policy would do now (it is in shadow mode). The
+    receipt keys are the ones image_autoupdate_handlers writes; tests/test_v800_seeder_covers_the_features.py holds them to its states and its verification."""
+    t = now()
+    def receipt(i, dev, dname, dirs, refs, state, ago, mode, detail='', **extra):
+        rid = _stable_hex('iau-receipt', i, nbytes=6)
+        digests = {r: 'sha256:' + _stable_hex('iau-digest', r, i, nbytes=32) for r in refs}
+        row = {'id': rid, 'ts': t - ago, 'device_id': dev, 'device_name': dname, 'dir': dirs, 'refs': refs, 'digests': digests,
+               'fingerprint': _stable_hex('iau-fp', dev, dirs, i, nbytes=8), 'command': 'compose:update:' + dirs, 'mode': mode, 'before': {}, 'previous': {},
+               'queued_at': (t - ago) if mode == 'on' else 0, 'verify_at': (t - ago + 600) if mode == 'on' else 0, 'state': state, 'detail': detail, 'confirmation_id': ''}
+        row.update(extra)
+        return row
+    receipts = [
+        receipt(1, 'nc01', 'nextcloud.lab', '/opt/nextcloud', ['nextcloud:30-apache'], 'ok', 86400 * 6, 'on', 'every container is running and healthy', verified_at=t - 86400 * 6 + 700),
+        receipt(2, 'pr01', 'prometheus.lab', '/opt/monitoring/grafana', ['grafana/grafana:latest'], 'ok', 86400 * 5, 'on', 'every container is running and healthy', verified_at=t - 86400 * 5 + 700),
+        receipt(3, 'ha01', 'homeassistant.lab', '/opt/homeassistant', ['homeassistant/home-assistant:stable'], 'rolled_back', 86400 * 3, 'on',
+                'unhealthy after the update (mosquitto restarted 4 times); rolled back to the previous image', verified_at=t - 86400 * 3 + 700,
+                unhealthy_detail='mosquitto restarted 4 times', rollback_queued_at=t - 86400 * 3 + 710, rollback_verify_at=t - 86400 * 3 + 1310),
+        receipt(4, 'vw01', 'vaultwarden.lab', '/opt/vaultwarden', ['vaultwarden/server:latest'], 'not_updated', 86400 * 2, 'on', 'the registry digest is the one it already runs', verified_at=t - 86400 * 2 + 700),
+        receipt(5, 'nc01', 'nextcloud.lab', '/opt/nextcloud', ['nextcloud:30-apache'], 'shadow', 3600 * 5, 'shadow', 'shadow mode: nothing was queued'),
+    ]
+    return {'receipts': receipts, 'last_run': {'ts': t - 1200, 'mode': 'shadow', 'made': 1, 'made_ids': ['nc01'],
+                                              'held': [{'device': 'pr01', 'device_id': 'pr01', 'dir': '/opt/monitoring/prometheus', 'refs': ['prom/prometheus:latest'],
+                                                        'reason': 'no change: the registry digest is the one it runs'}]}}
 
 
 def build_compose_stacks() -> dict:
