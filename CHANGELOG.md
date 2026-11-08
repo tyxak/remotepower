@@ -571,6 +571,12 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   Explorer's `apps` entity and the Fleet Query `app` criterion answer 500 for every user until the report changed. All are ASCII-only now. Eleven more functions read the output of a
   tool (ZFS, SMART, nmap, SNMP) and are listed with the reason their text cannot be anything else. **Held by** `tests/test_v800_ascii_digits.py`, which reads every `isdigit()` that
   feeds `int()` from the code and fails on a new one that is neither guarded nor listed, and drives each fixed function with `²`.
+- **The declarative export no longer carries the header values and the Pushover user of a webhook destination.** A destination can have custom headers (an `Authorization` or
+  `X-API-Key` credential, the likely thing to set on an Apprise destination) and, for Pushover, a user key. Neither has a secret-shaped name, so the name-based pass missed them.
+  6.4.2 masked them in the support bundle and the backup and left them in plain text in the declarative export, whose own note calls it safe to commit. Found by putting a marker in
+  every such field and reading each surface; the support bundle, the backup and the settings page for a viewer showed none. The export keeps the header names, and with a config key
+  set it holds the values as ciphertext that an import restores. Where the key is set and the crypto library is missing, `_cfg_enc` handed the text back unchanged, which would also
+  have written the destination URL in plain text; the export now falls back to the masked form. **Held by** `tests/test_v800_declarative_headers.py`, which reads all three surfaces.
 
 ### Single pages
 

@@ -30216,9 +30216,27 @@ def _build_declarative_config():
         _armed = bool(_config_master_key())
         if name in ('webhook_destinations', 'inbound_webhooks') and isinstance(red, list):
             enc_ok = _armed and name == 'webhook_destinations'
+
+            def _sealed(value, fallback):
+                """The value as ciphertext when a master key is armed, and `fallback` otherwise. _cfg_enc hands the text back unchanged when the
+                crypto library is missing, and plain text must never reach a document that is meant to be committed."""
+                if not enc_ok:
+                    return fallback
+                sealed = _cfg_enc(value)
+                return sealed if isinstance(sealed, str) and sealed.startswith(_CONFIG_ENC_PREFIX_V2) else fallback
+
             for item in red:
-                if isinstance(item, dict) and item.get('url'):
-                    item['url'] = _cfg_enc(item['url']) if enc_ok else _redact_url_to_host(item['url'])
+                if not isinstance(item, dict):
+                    continue
+                if item.get('url'):
+                    item['url'] = _sealed(item['url'], _redact_url_to_host(item['url']))
+                # a destination's custom headers carry an Authorization or X-API-Key credential and the header NAME is not secret-shaped, so the
+                # name-based pass above misses the value; the Pushover user key is the other field of a destination that no name rule catches.
+                # Both were masked in the support bundle and the backup since 6.4.2 and left in this document, which is meant to be committed
+                if isinstance(item.get('headers'), dict):
+                    item['headers'] = {hk: _sealed(hv, '(redacted)') for hk, hv in item['headers'].items()}
+                if item.get('pushover_user'):
+                    item['pushover_user'] = _sealed(item['pushover_user'], '(redacted)')
         # v6.2.3 (SECURITY): an integration instance URL can embed basic-auth
         # userinfo (https://user:pass@host); the name-based redactor catches the
         # sibling 'secret' but not the URL, so it survived into this
