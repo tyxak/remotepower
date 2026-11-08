@@ -109,5 +109,30 @@ class TestTheSeederStatesWhatItsAgentsFound(unittest.TestCase):
             self.assertIn(needed, ids_found)
 
 
+class TestTheSeederStatesSharedLogins(unittest.TestCase):
+    """The demo has shared logins (a group's or a tag's), so the CMDB page's Scoped credentials table and a host's "Shared logins that apply to this host" have something to show
+    to the rendered gates that measure the seeded instance. Metadata only, as the host credentials are."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.devices = seeded._seeded_devices()
+        cls.creds = json.loads((Path(seeded._SEEDED["dir"]) / "scoped_credentials.json").read_text())["creds"]
+
+    def test_each_login_is_metadata_only_and_has_an_id_of_the_shape_the_api_mints(self):
+        self.assertGreaterEqual(len(self.creds), 3)
+        for c in self.creds:
+            self.assertRegex(c["id"], r"^scred_[0-9a-f]{16}$")
+            self.assertEqual((c["ct"], c["nonce"]), ("", ""), c["label"])
+            self.assertIn(c["scope_type"], ("site", "group", "tag"))
+
+    def test_each_login_applies_to_hosts_of_the_demo_by_the_servers_own_rule_and_some_host_has_none(self):
+        import api
+        applies = {c["label"]: [d["name"] for d in self.devices.values() if api._scoped_cred_applies(c, d)] for c in self.creds}
+        for label, hosts in applies.items():
+            self.assertTrue(hosts, "no host of the demo is in the scope of %s" % label)
+        covered = {n for hosts in applies.values() for n in hosts}
+        self.assertTrue([d["name"] for d in self.devices.values() if d["name"] not in covered], "every host has a shared login: the dialog's empty state is never seen")
+
+
 if __name__ == "__main__":
     unittest.main()

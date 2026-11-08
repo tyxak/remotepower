@@ -5022,6 +5022,23 @@ def _demo_bs_defs():
     return out
 
 
+def build_scoped_credentials() -> dict:
+    """Shared logins that a group or a tag hands to its hosts -> scoped_credentials.json ({'creds': [...]}).
+
+    Metadata only, like the host credentials above: ct and nonce stay empty (the list endpoints never decrypt, only /reveal does). Each one applies to the hosts
+    whose group or tags it names, which is what the CMDB dialog's "Shared logins that apply to this host" and the Scoped credentials table on the CMDB page show.
+    The ids are `scred_` and sixteen hex digits, the shape the API mints, so a delete of one from the demo goes down the same path."""
+    def cred(scope_type, scope_value, label, username, note, days):
+        h = hashlib.sha256(('scred|' + repr((scope_type, scope_value, label))).encode()).hexdigest()[:16]
+        return {'id': 'scred_' + h, 'scope_type': scope_type, 'scope_value': scope_value, 'label': label, 'username': username,
+                'note': note, 'nonce': '', 'ct': '', 'created_by': 'demo', 'created_at': now() - 86400 * days}
+    return {'creds': [
+        cred('group', 'services', 'Services admin', 'svc-admin', 'one login for every box in the services group', 120),
+        cred('tag', 'secrets', 'Vault break-glass', 'breakglass', 'the sealed envelope in the office safe', 90),
+        cred('group', 'monitoring', 'Grafana admin', 'admin', 'shared with the on-call team', 45),
+    ]}
+
+
 def build_business_services() -> dict:
     """Business service definitions -> business_services.json ({id: {name, description, rule, members, ...}})."""
     return _demo_bs_defs()
@@ -8077,6 +8094,7 @@ BUILDERS = {
     'gitops_state.json':           build_gitops_state,
     'custom_scripts.json':         build_custom_scripts,
     'business_services.json':      build_business_services,
+    'scoped_credentials.json':     build_scoped_credentials,
     'business_service_state.json': build_business_service_state,
     'business_service_history.json': build_business_service_history,
     'smart_history.json':          build_smart_history,
