@@ -24,8 +24,8 @@ import time
 DEFAULT_PORTS = {"smtp": 25, "imap": 143, "ssh": 22, "ntp": 123}
 TYPES = tuple(DEFAULT_PORTS)
 TLS_MODES = ("none", "starttls", "tls")
-MAX_OFFSET_MS = 3_600_000          # an hour: past that the clock is not "a little off"
-_NTP_EPOCH = 2208988800            # seconds from 1900-01-01 to 1970-01-01
+MAX_OFFSET_MS = 3_600_000  # an hour: past that the clock is not "a little off"
+_NTP_EPOCH = 2208988800  # seconds from 1900-01-01 to 1970-01-01
 _LINE_MAX = 1024
 _REPLY_LINES_MAX = 40
 
@@ -77,7 +77,9 @@ def _wrap(sock, host, ctx):
         raise ProbeError("TLS: the certificate was not accepted") from None
     except ssl.SSLError as e:
         sock.close()
-        raise ProbeError("TLS: " + _clean(getattr(e, "reason", None) or "handshake failed", 40)) from None
+        raise ProbeError(
+            "TLS: " + _clean(getattr(e, "reason", None) or "handshake failed", 40)
+        ) from None
 
 
 class _Conn:
@@ -161,7 +163,9 @@ def smtp_probe(host, port, tls="none", ctx=None, timeout=5, peer_ok=None):
             c.send(b"QUIT\r\n")
         except OSError:
             pass
-        return True, " · ".join(x for x in (greeting, used, "%dms" % int((time.monotonic() - t0) * 1000)) if x)
+        return True, " · ".join(
+            x for x in (greeting, used, "%dms" % int((time.monotonic() - t0) * 1000)) if x
+        )
     finally:
         c.close()
 
@@ -172,7 +176,7 @@ def _imap_until(c, tag):
     for _ in range(_REPLY_LINES_MAX):
         line = c.readline()
         if line.startswith(tag + " "):
-            return line[len(tag) + 1:].upper().startswith("OK"), untagged
+            return line[len(tag) + 1 :].upper().startswith("OK"), untagged
         untagged.append(line)
     raise ProbeError("an IMAP answer that does not end")
 
@@ -217,7 +221,9 @@ def imap_probe(host, port, tls="none", ctx=None, timeout=5, peer_ok=None):
         except OSError:
             pass
         proto = next((_clean(x, 12) for x in caps if x.upper().startswith("IMAP4")), "IMAP")
-        return True, " · ".join(x for x in (proto, used, "%dms" % int((time.monotonic() - t0) * 1000)) if x)
+        return True, " · ".join(
+            x for x in (proto, used, "%dms" % int((time.monotonic() - t0) * 1000)) if x
+        )
     finally:
         c.close()
 
@@ -226,7 +232,7 @@ def ssh_banner_probe(host, port, timeout=5, peer_ok=None):
     t0 = time.monotonic()
     c = _Conn(_connect(host, port, timeout, peer_ok))
     try:
-        for _ in range(8):      # a server may send other lines before its identification
+        for _ in range(8):  # a server may send other lines before its identification
             line = c.readline(255)
             if line.startswith("SSH-"):
                 banner = _clean(line, 80)
@@ -241,12 +247,15 @@ def ssh_banner_probe(host, port, timeout=5, peer_ok=None):
 def _to_ntp(ts):
     secs = int(ts)
     # the seconds field is 32 bits and wraps in February 2036 (and every 136 years after): the wrapped value is what goes on the wire
-    return struct.pack(">II", (secs + _NTP_EPOCH) & 0xFFFFFFFF, int((ts - secs) * (1 << 32)) & 0xFFFFFFFF)
+    return struct.pack(
+        ">II", (secs + _NTP_EPOCH) & 0xFFFFFFFF, int((ts - secs) * (1 << 32)) & 0xFFFFFFFF
+    )
 
 
 def _from_ntp(b, ref=None):
     """Seconds since 1970 for an NTP timestamp. The field wraps every 136 years, so with `ref` (a time known to be near, which is this
-    machine's own clock) the era is the one that puts the result closest to it; without it the first era is assumed."""
+    machine's own clock) the era is the one that puts the result closest to it; without it the first era is assumed.
+    """
     secs, frac = struct.unpack(">II", b)
     unix = secs - _NTP_EPOCH + frac / float(1 << 32)
     if ref is not None:
@@ -254,7 +263,9 @@ def _from_ntp(b, ref=None):
     return unix
 
 
-def ntp_probe(host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=time.time, sock_factory=None):
+def ntp_probe(
+    host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=time.time, sock_factory=None
+):
     infos = socket.getaddrinfo(host, port, 0, socket.SOCK_DGRAM)
     chosen = None
     for family, _t, _p, _c, sa in infos:
@@ -269,11 +280,11 @@ def ntp_probe(host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=time.
         sock.settimeout(timeout)
         t1 = now()
         req = bytearray(48)
-        req[0] = 0x23                      # leap indicator 0, version 4, mode 3 (client)
+        req[0] = 0x23  # leap indicator 0, version 4, mode 3 (client)
         req[40:48] = _to_ntp(t1)
         sock.sendto(bytes(req), sa)
         data = None
-        for _ in range(4):                 # a stray datagram from somewhere else is not the answer
+        for _ in range(4):  # a stray datagram from somewhere else is not the answer
             d, addr = sock.recvfrom(1024)
             if addr[0] == sa[0] and len(d) >= 48:
                 data = d
@@ -289,7 +300,9 @@ def ntp_probe(host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=time.
     if mode != 4:
         return False, "not a server reply (mode %d)" % mode
     if stratum == 0:
-        return False, "kiss-of-death %s" % (_clean(data[12:16].decode("ascii", "replace"), 8) or "?")
+        return False, "kiss-of-death %s" % (
+            _clean(data[12:16].decode("ascii", "replace"), 8) or "?"
+        )
     if li == 3 or stratum >= 16:
         return False, "not synchronised (stratum %d)" % stratum
     if data[40:48] == b"\0" * 8:
@@ -297,7 +310,11 @@ def ntp_probe(host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=time.
     t2, t3 = _from_ntp(data[32:40], t1), _from_ntp(data[40:48], t1)
     offset = ((t2 - t1) + (t3 - t4)) / 2.0
     delay = (t4 - t1) - (t3 - t2)
-    detail = "stratum %d · offset %+.1f ms · delay %.0f ms" % (stratum, offset * 1000, max(delay, 0.0) * 1000)
+    detail = "stratum %d · offset %+.1f ms · delay %.0f ms" % (
+        stratum,
+        offset * 1000,
+        max(delay, 0.0) * 1000,
+    )
     if max_offset_ms is not None and abs(offset * 1000) > max_offset_ms:
         return False, "%s (limit %d ms)" % (detail, int(max_offset_ms))
     return True, detail
@@ -331,7 +348,13 @@ def run(mtype, host, port, m, peer_ok=None, ssl_ctx=None, timeout=5):
             return ssh_banner_probe(host, port, timeout, peer_ok)
         if mtype == "ntp":
             limit = m.get("max_offset_ms")
-            limit = limit if isinstance(limit, (int, float)) and not isinstance(limit, bool) and 0 < limit <= MAX_OFFSET_MS else None
+            limit = (
+                limit
+                if isinstance(limit, (int, float))
+                and not isinstance(limit, bool)
+                and 0 < limit <= MAX_OFFSET_MS
+                else None
+            )
             return ntp_probe(host, port, limit, timeout, peer_ok)
         return False, "unknown protocol check"
     except ProbeError as e:

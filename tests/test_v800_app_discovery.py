@@ -229,7 +229,9 @@ class TestTheAgentsCopy(unittest.TestCase):
         spec.loader.exec_module(tool)                         # type: ignore[union-attr]
         text = (ROOT / 'client' / 'remotepower-agent.py').read_text()
         self.assertEqual(tool.splice(text, tool.render()), text)
-        stale = text.replace("'jellyfin', 'Jellyfin', 'media'", "'jellyfin', 'Jellyfin?', 'media'")
+        anchor = '        "Jellyfin",\n        "media",'
+        self.assertEqual(text.count(anchor), 1, 'the demonstration needs a line that exists once')
+        stale = text.replace(anchor, '        "Jellyfin?",\n        "media",')
         self.assertNotEqual(stale, text, 'the demonstration changed the copy')
         self.assertNotEqual(tool.splice(stale, tool.render()), stale)
 

@@ -4950,122 +4950,564 @@ def _kubectl_listing():
 
 # BEGIN app_catalog: generated from server/cgi-bin/app_catalog.py by tools/sync-app-catalog.py, do not edit by hand
 # the apps this host runs, recognised from its listening sockets, its containers and its services
-_ac_VIAS = ('process', 'container', 'unit', 'port')
-_ac_SCOPES = ('local', 'lan', 'world')
+_ac_VIAS = ("process", "container", "unit", "port")
+_ac_SCOPES = ("local", "lan", "world")
 
-def _ac_app(app_id, name, kind, ports=(), procs=(), images=(), units=(), connector='', distinct=False, scheme=''):
+
+def _ac_app(
+    app_id,
+    name,
+    kind,
+    ports=(),
+    procs=(),
+    images=(),
+    units=(),
+    connector="",
+    distinct=False,
+    scheme="",
+):
     """One entry. `ports` are the app's own TCP ports, the one its API answers on first; `procs` the names of its process as `ss` prints them (the first 15 characters);
     `images` the last path segment of its container image, or `org/name` where the plain name belongs to other things; `units` the name of its systemd service without
     `.service` (and without `@instance`); `connector` the id of the connector that reads it, if there is one; `distinct` says that a listener on one of its ports is
-    enough to recognise it, and `scheme` that its API answers TLS by default ('https'; empty is http)."""
-    return {'id': app_id, 'name': name, 'kind': kind, 'ports': tuple(ports), 'procs': tuple(procs), 'images': tuple(images), 'units': tuple(units),
-            'connector': connector, 'distinct': bool(distinct), 'scheme': scheme}
+    enough to recognise it, and `scheme` that its API answers TLS by default ('https'; empty is http).
+    """
+    return {
+        "id": app_id,
+        "name": name,
+        "kind": kind,
+        "ports": tuple(ports),
+        "procs": tuple(procs),
+        "images": tuple(images),
+        "units": tuple(units),
+        "connector": connector,
+        "distinct": bool(distinct),
+        "scheme": scheme,
+    }
 
 
 _ac_APPS = (
-    _ac_app('nginx', 'nginx', 'web', (80, 443), ('nginx',), ('nginx',), ('nginx',)),
-    _ac_app('apache', 'Apache HTTP Server', 'web', (80, 443), ('apache2', 'httpd'), ('httpd',), ('apache2', 'httpd')),
-    _ac_app('caddy', 'Caddy', 'web', (80, 443), ('caddy',), ('caddy',), ('caddy',)),
-    _ac_app('traefik', 'Traefik', 'web', (8080, 80, 443), ('traefik',), ('traefik',), ('traefik',), 'traefik'),
-    _ac_app('npm', 'Nginx Proxy Manager', 'web', (81,), (), ('nginx-proxy-manager',), (), 'npm'),
-    _ac_app('postgres', 'PostgreSQL', 'database', (5432,), ('postgres',), ('postgres', 'postgis'), ('postgresql',), distinct=True),
-    _ac_app('mariadb', 'MariaDB / MySQL', 'database', (3306,), ('mariadbd', 'mysqld'), ('mariadb', 'mysql'), ('mariadb', 'mysql', 'mysqld'), distinct=True),
-    _ac_app('redis', 'Redis / Valkey', 'database', (6379,), ('redis-server', 'valkey-server'), ('redis', 'valkey'), ('redis', 'redis-server', 'valkey'), distinct=True),
-    _ac_app('mongodb', 'MongoDB', 'database', (27017,), ('mongod',), ('mongo',), ('mongod',), distinct=True),
-    _ac_app('influxdb', 'InfluxDB', 'database', (8086,), ('influxd',), ('influxdb',), ('influxdb',), distinct=True),
-    _ac_app('elasticsearch', 'Elasticsearch / OpenSearch', 'database', (9200,), (), ('elasticsearch', 'opensearch'), ('elasticsearch', 'opensearch'), distinct=True),
-    _ac_app('rabbitmq', 'RabbitMQ', 'messaging', (5672,), ('beam.smp',), ('rabbitmq',), ('rabbitmq-server',), distinct=True),
-    _ac_app('memcached', 'memcached', 'database', (11211,), ('memcached',), ('memcached',), ('memcached',), distinct=True),
-    _ac_app('mosquitto', 'Mosquitto (MQTT)', 'messaging', (1883,), ('mosquitto',), ('eclipse-mosquitto', 'mosquitto'), ('mosquitto',), distinct=True),
-    _ac_app('grafana', 'Grafana', 'observability', (3000,), ('grafana', 'grafana-server'), ('grafana',), ('grafana-server',), 'grafana'),
-    _ac_app('prometheus', 'Prometheus', 'observability', (9090,), ('prometheus',), ('prometheus',), ('prometheus',), 'prometheus'),
-    _ac_app('node_exporter', 'Prometheus node exporter', 'observability', (9100,), ('node_exporter',), ('node-exporter',), ('prometheus-node-exporter', 'node_exporter'), 'prometheus_exporter', True),
-    _ac_app('loki', 'Grafana Loki', 'observability', (3100,), ('loki',), ('loki',), ('loki',), distinct=True),
-    _ac_app('netdata', 'Netdata', 'observability', (19999,), ('netdata',), ('netdata',), ('netdata',), 'netdata', True),
-    _ac_app('uptimekuma', 'Uptime Kuma', 'observability', (3001,), (), ('uptime-kuma',), (), 'uptimekuma', True),
-    _ac_app('pihole', 'Pi-hole', 'network', (80, 443), ('pihole-FTL',), ('pihole',), ('pihole-FTL',), 'pihole'),
-    _ac_app('adguard', 'AdGuard Home', 'network', (3000, 80), ('AdGuardHome',), ('adguardhome',), ('AdGuardHome',), 'adguard'),
-    _ac_app('headscale', 'Headscale', 'network', (8080,), ('headscale',), ('headscale',), ('headscale',), 'headscale'),
-    _ac_app('unbound', 'Unbound', 'network', (), ('unbound',), ('unbound',), ('unbound',)),
-    _ac_app('jellyfin', 'Jellyfin', 'media', (8096, 8920), ('jellyfin',), ('jellyfin',), ('jellyfin',), 'jellyfin', True),
-    _ac_app('plex', 'Plex Media Server', 'media', (32400,), ('Plex Media Serv',), ('pms-docker', 'plex'), ('plexmediaserver',), 'plex', True),
-    _ac_app('sonarr', 'Sonarr', 'media', (8989,), ('Sonarr',), ('sonarr',), ('sonarr',), 'sonarr', True),
-    _ac_app('radarr', 'Radarr', 'media', (7878,), ('Radarr',), ('radarr',), ('radarr',), 'radarr', True),
-    _ac_app('lidarr', 'Lidarr', 'media', (8686,), ('Lidarr',), ('lidarr',), ('lidarr',), 'lidarr', True),
-    _ac_app('readarr', 'Readarr', 'media', (8787,), ('Readarr',), ('readarr',), ('readarr',), 'readarr', True),
-    _ac_app('prowlarr', 'Prowlarr', 'media', (9696,), ('Prowlarr',), ('prowlarr',), ('prowlarr',), 'prowlarr', True),
-    _ac_app('bazarr', 'Bazarr', 'media', (6767,), (), ('bazarr',), ('bazarr',), 'bazarr', True),
-    _ac_app('overseerr', 'Overseerr', 'media', (5055,), (), ('overseerr',), ('overseerr',), 'overseerr', True),
-    _ac_app('immich', 'Immich', 'media', (2283,), (), ('immich-server',), ('immich-server', 'immich'), 'immich', True),
-    _ac_app('frigate', 'Frigate', 'media', (5000, 8971), (), ('frigate',), ('frigate',), 'frigate'),
-    _ac_app('qbittorrent', 'qBittorrent', 'download', (8080,), ('qbittorrent-nox',), ('qbittorrent', 'qbittorrent-nox'), ('qbittorrent-nox',), 'qbittorrent'),
-    _ac_app('transmission', 'Transmission', 'download', (9091,), ('transmission-da',), ('transmission',), ('transmission-daemon',), 'transmission'),   # 9091 is Authelia's default too, so it is no sign by itself (8.0.0)
-    _ac_app('deluge', 'Deluge', 'download', (8112,), ('deluged', 'deluge-web'), ('deluge',), ('deluged', 'deluge-web'), 'deluge', True),
-    _ac_app('sabnzbd', 'SABnzbd', 'download', (8080,), (), ('sabnzbd',), ('sabnzbd', 'sabnzbdplus'), 'sabnzbd'),
-    _ac_app('nzbget', 'NZBGet', 'download', (6789,), ('nzbget',), ('nzbget',), ('nzbget',), 'nzbget', True),
-    _ac_app('homeassistant', 'Home Assistant', 'home', (8123,), (), ('home-assistant', 'homeassistant'), ('home-assistant', 'hass', 'homeassistant'), 'homeassistant', True),
-    _ac_app('homebridge', 'Homebridge', 'home', (8581,), ('homebridge',), ('homebridge',), ('homebridge',), 'homebridge', True),
-    _ac_app('esphome', 'ESPHome', 'home', (6052,), (), ('esphome',), ('esphome',), 'esphome', True),
-    _ac_app('octoprint', 'OctoPrint', 'home', (5000, 80), (), ('octoprint',), ('octoprint',), 'octoprint'),
-    _ac_app('nextcloud', 'Nextcloud', 'cloud', (80, 443, 8080), (), ('nextcloud',), (), 'nextcloud'),
-    _ac_app('vaultwarden', 'Vaultwarden', 'cloud', (80, 8000, 8080), ('vaultwarden',), ('vaultwarden/server', 'vaultwarden'), ('vaultwarden',), 'vaultwarden'),
-    _ac_app('paperless', 'Paperless-ngx', 'cloud', (8000,), (), ('paperless-ngx',), ('paperless-webserver',), 'paperless'),
-    _ac_app('gitea', 'Gitea / Forgejo', 'dev', (3000,), ('gitea', 'forgejo'), ('gitea', 'forgejo'), ('gitea', 'forgejo'), 'gitea'),
-    _ac_app('syncthing', 'Syncthing', 'storage', (8384,), ('syncthing',), ('syncthing',), ('syncthing',), 'syncthing', True),
-    _ac_app('samba', 'Samba', 'storage', (445, 139), ('smbd',), ('samba',), ('smb', 'smbd'), '', True),
-    _ac_app('k3s', 'Kubernetes (k3s)', 'orchestration', (6443,), ('k3s-server', 'k3s'), ('k3s',), ('k3s',), 'kubernetes', True, 'https'),
+    _ac_app("nginx", "nginx", "web", (80, 443), ("nginx",), ("nginx",), ("nginx",)),
+    _ac_app(
+        "apache",
+        "Apache HTTP Server",
+        "web",
+        (80, 443),
+        ("apache2", "httpd"),
+        ("httpd",),
+        ("apache2", "httpd"),
+    ),
+    _ac_app("caddy", "Caddy", "web", (80, 443), ("caddy",), ("caddy",), ("caddy",)),
+    _ac_app(
+        "traefik",
+        "Traefik",
+        "web",
+        (8080, 80, 443),
+        ("traefik",),
+        ("traefik",),
+        ("traefik",),
+        "traefik",
+    ),
+    _ac_app("npm", "Nginx Proxy Manager", "web", (81,), (), ("nginx-proxy-manager",), (), "npm"),
+    _ac_app(
+        "postgres",
+        "PostgreSQL",
+        "database",
+        (5432,),
+        ("postgres",),
+        ("postgres", "postgis"),
+        ("postgresql",),
+        distinct=True,
+    ),
+    _ac_app(
+        "mariadb",
+        "MariaDB / MySQL",
+        "database",
+        (3306,),
+        ("mariadbd", "mysqld"),
+        ("mariadb", "mysql"),
+        ("mariadb", "mysql", "mysqld"),
+        distinct=True,
+    ),
+    _ac_app(
+        "redis",
+        "Redis / Valkey",
+        "database",
+        (6379,),
+        ("redis-server", "valkey-server"),
+        ("redis", "valkey"),
+        ("redis", "redis-server", "valkey"),
+        distinct=True,
+    ),
+    _ac_app(
+        "mongodb",
+        "MongoDB",
+        "database",
+        (27017,),
+        ("mongod",),
+        ("mongo",),
+        ("mongod",),
+        distinct=True,
+    ),
+    _ac_app(
+        "influxdb",
+        "InfluxDB",
+        "database",
+        (8086,),
+        ("influxd",),
+        ("influxdb",),
+        ("influxdb",),
+        distinct=True,
+    ),
+    _ac_app(
+        "elasticsearch",
+        "Elasticsearch / OpenSearch",
+        "database",
+        (9200,),
+        (),
+        ("elasticsearch", "opensearch"),
+        ("elasticsearch", "opensearch"),
+        distinct=True,
+    ),
+    _ac_app(
+        "rabbitmq",
+        "RabbitMQ",
+        "messaging",
+        (5672,),
+        ("beam.smp",),
+        ("rabbitmq",),
+        ("rabbitmq-server",),
+        distinct=True,
+    ),
+    _ac_app(
+        "memcached",
+        "memcached",
+        "database",
+        (11211,),
+        ("memcached",),
+        ("memcached",),
+        ("memcached",),
+        distinct=True,
+    ),
+    _ac_app(
+        "mosquitto",
+        "Mosquitto (MQTT)",
+        "messaging",
+        (1883,),
+        ("mosquitto",),
+        ("eclipse-mosquitto", "mosquitto"),
+        ("mosquitto",),
+        distinct=True,
+    ),
+    _ac_app(
+        "grafana",
+        "Grafana",
+        "observability",
+        (3000,),
+        ("grafana", "grafana-server"),
+        ("grafana",),
+        ("grafana-server",),
+        "grafana",
+    ),
+    _ac_app(
+        "prometheus",
+        "Prometheus",
+        "observability",
+        (9090,),
+        ("prometheus",),
+        ("prometheus",),
+        ("prometheus",),
+        "prometheus",
+    ),
+    _ac_app(
+        "node_exporter",
+        "Prometheus node exporter",
+        "observability",
+        (9100,),
+        ("node_exporter",),
+        ("node-exporter",),
+        ("prometheus-node-exporter", "node_exporter"),
+        "prometheus_exporter",
+        True,
+    ),
+    _ac_app(
+        "loki",
+        "Grafana Loki",
+        "observability",
+        (3100,),
+        ("loki",),
+        ("loki",),
+        ("loki",),
+        distinct=True,
+    ),
+    _ac_app(
+        "netdata",
+        "Netdata",
+        "observability",
+        (19999,),
+        ("netdata",),
+        ("netdata",),
+        ("netdata",),
+        "netdata",
+        True,
+    ),
+    _ac_app(
+        "uptimekuma",
+        "Uptime Kuma",
+        "observability",
+        (3001,),
+        (),
+        ("uptime-kuma",),
+        (),
+        "uptimekuma",
+        True,
+    ),
+    _ac_app(
+        "pihole",
+        "Pi-hole",
+        "network",
+        (80, 443),
+        ("pihole-FTL",),
+        ("pihole",),
+        ("pihole-FTL",),
+        "pihole",
+    ),
+    _ac_app(
+        "adguard",
+        "AdGuard Home",
+        "network",
+        (3000, 80),
+        ("AdGuardHome",),
+        ("adguardhome",),
+        ("AdGuardHome",),
+        "adguard",
+    ),
+    _ac_app(
+        "headscale",
+        "Headscale",
+        "network",
+        (8080,),
+        ("headscale",),
+        ("headscale",),
+        ("headscale",),
+        "headscale",
+    ),
+    _ac_app("unbound", "Unbound", "network", (), ("unbound",), ("unbound",), ("unbound",)),
+    _ac_app(
+        "jellyfin",
+        "Jellyfin",
+        "media",
+        (8096, 8920),
+        ("jellyfin",),
+        ("jellyfin",),
+        ("jellyfin",),
+        "jellyfin",
+        True,
+    ),
+    _ac_app(
+        "plex",
+        "Plex Media Server",
+        "media",
+        (32400,),
+        ("Plex Media Serv",),
+        ("pms-docker", "plex"),
+        ("plexmediaserver",),
+        "plex",
+        True,
+    ),
+    _ac_app(
+        "sonarr", "Sonarr", "media", (8989,), ("Sonarr",), ("sonarr",), ("sonarr",), "sonarr", True
+    ),
+    _ac_app(
+        "radarr", "Radarr", "media", (7878,), ("Radarr",), ("radarr",), ("radarr",), "radarr", True
+    ),
+    _ac_app(
+        "lidarr", "Lidarr", "media", (8686,), ("Lidarr",), ("lidarr",), ("lidarr",), "lidarr", True
+    ),
+    _ac_app(
+        "readarr",
+        "Readarr",
+        "media",
+        (8787,),
+        ("Readarr",),
+        ("readarr",),
+        ("readarr",),
+        "readarr",
+        True,
+    ),
+    _ac_app(
+        "prowlarr",
+        "Prowlarr",
+        "media",
+        (9696,),
+        ("Prowlarr",),
+        ("prowlarr",),
+        ("prowlarr",),
+        "prowlarr",
+        True,
+    ),
+    _ac_app("bazarr", "Bazarr", "media", (6767,), (), ("bazarr",), ("bazarr",), "bazarr", True),
+    _ac_app(
+        "overseerr",
+        "Overseerr",
+        "media",
+        (5055,),
+        (),
+        ("overseerr",),
+        ("overseerr",),
+        "overseerr",
+        True,
+    ),
+    _ac_app(
+        "immich",
+        "Immich",
+        "media",
+        (2283,),
+        (),
+        ("immich-server",),
+        ("immich-server", "immich"),
+        "immich",
+        True,
+    ),
+    _ac_app("frigate", "Frigate", "media", (5000, 8971), (), ("frigate",), ("frigate",), "frigate"),
+    _ac_app(
+        "qbittorrent",
+        "qBittorrent",
+        "download",
+        (8080,),
+        ("qbittorrent-nox",),
+        ("qbittorrent", "qbittorrent-nox"),
+        ("qbittorrent-nox",),
+        "qbittorrent",
+    ),
+    _ac_app(
+        "transmission",
+        "Transmission",
+        "download",
+        (9091,),
+        ("transmission-da",),
+        ("transmission",),
+        ("transmission-daemon",),
+        "transmission",
+    ),  # 9091 is Authelia's default too, so it is no sign by itself (8.0.0)
+    _ac_app(
+        "deluge",
+        "Deluge",
+        "download",
+        (8112,),
+        ("deluged", "deluge-web"),
+        ("deluge",),
+        ("deluged", "deluge-web"),
+        "deluge",
+        True,
+    ),
+    _ac_app(
+        "sabnzbd",
+        "SABnzbd",
+        "download",
+        (8080,),
+        (),
+        ("sabnzbd",),
+        ("sabnzbd", "sabnzbdplus"),
+        "sabnzbd",
+    ),
+    _ac_app(
+        "nzbget",
+        "NZBGet",
+        "download",
+        (6789,),
+        ("nzbget",),
+        ("nzbget",),
+        ("nzbget",),
+        "nzbget",
+        True,
+    ),
+    _ac_app(
+        "homeassistant",
+        "Home Assistant",
+        "home",
+        (8123,),
+        (),
+        ("home-assistant", "homeassistant"),
+        ("home-assistant", "hass", "homeassistant"),
+        "homeassistant",
+        True,
+    ),
+    _ac_app(
+        "homebridge",
+        "Homebridge",
+        "home",
+        (8581,),
+        ("homebridge",),
+        ("homebridge",),
+        ("homebridge",),
+        "homebridge",
+        True,
+    ),
+    _ac_app("esphome", "ESPHome", "home", (6052,), (), ("esphome",), ("esphome",), "esphome", True),
+    _ac_app(
+        "octoprint",
+        "OctoPrint",
+        "home",
+        (5000, 80),
+        (),
+        ("octoprint",),
+        ("octoprint",),
+        "octoprint",
+    ),
+    _ac_app("nextcloud", "Nextcloud", "cloud", (80, 443, 8080), (), ("nextcloud",), (), "nextcloud"),
+    _ac_app(
+        "vaultwarden",
+        "Vaultwarden",
+        "cloud",
+        (80, 8000, 8080),
+        ("vaultwarden",),
+        ("vaultwarden/server", "vaultwarden"),
+        ("vaultwarden",),
+        "vaultwarden",
+    ),
+    _ac_app(
+        "paperless",
+        "Paperless-ngx",
+        "cloud",
+        (8000,),
+        (),
+        ("paperless-ngx",),
+        ("paperless-webserver",),
+        "paperless",
+    ),
+    _ac_app(
+        "gitea",
+        "Gitea / Forgejo",
+        "dev",
+        (3000,),
+        ("gitea", "forgejo"),
+        ("gitea", "forgejo"),
+        ("gitea", "forgejo"),
+        "gitea",
+    ),
+    _ac_app(
+        "syncthing",
+        "Syncthing",
+        "storage",
+        (8384,),
+        ("syncthing",),
+        ("syncthing",),
+        ("syncthing",),
+        "syncthing",
+        True,
+    ),
+    _ac_app("samba", "Samba", "storage", (445, 139), ("smbd",), ("samba",), ("smb", "smbd"), "", True),
+    _ac_app(
+        "k3s",
+        "Kubernetes (k3s)",
+        "orchestration",
+        (6443,),
+        ("k3s-server", "k3s"),
+        ("k3s",),
+        ("k3s",),
+        "kubernetes",
+        True,
+        "https",
+    ),
     # 8.0.0, second tranche: each sign below is the product's own name for itself (its binary, its image, its systemd unit) and each port its documented default. Authelia's 9091 is Transmission's
     # too, so neither lists it as `distinct`: it is a sign only when another one agrees.
-    _ac_app('authelia', 'Authelia', 'web', (9091,), ('authelia',), ('authelia',), ('authelia',)),
-    _ac_app('keycloak', 'Keycloak', 'web', (8080, 8443), (), ('keycloak',), ('keycloak',)),
-    _ac_app('haproxy', 'HAProxy', 'web', (80, 443), ('haproxy',), ('haproxy',), ('haproxy',)),
-    _ac_app('portainer', 'Portainer', 'orchestration', (9443, 9000), ('portainer',), ('portainer-ce', 'portainer-ee'), ('portainer',), '', False, 'https'),
-    _ac_app('minio', 'MinIO', 'storage', (9000, 9001), ('minio',), ('minio',), ('minio',)),
-    _ac_app('vault', 'HashiCorp Vault', 'cloud', (8200,), ('vault',), ('hashicorp/vault', 'vault'), ('vault',), '', True),
-    _ac_app('consul', 'HashiCorp Consul', 'orchestration', (8500,), ('consul',), ('hashicorp/consul', 'consul'), ('consul',)),
-    _ac_app('nodered', 'Node-RED', 'home', (1880,), (), ('node-red',), ('nodered',), '', True),
-    _ac_app('zigbee2mqtt', 'Zigbee2MQTT', 'home', (8080,), (), ('zigbee2mqtt',), ('zigbee2mqtt',)),
-    _ac_app('ollama', 'Ollama', 'dev', (11434,), ('ollama',), ('ollama',), ('ollama',), '', True),
-    _ac_app('cloudflared', 'Cloudflare Tunnel', 'network', (), ('cloudflared',), ('cloudflared',), ('cloudflared',), 'cloudflare_tunnel'),
-    _ac_app('tailscaled', 'Tailscale', 'network', (), ('tailscaled',), ('tailscale',), ('tailscaled',), 'tailscale'),
+    _ac_app("authelia", "Authelia", "web", (9091,), ("authelia",), ("authelia",), ("authelia",)),
+    _ac_app("keycloak", "Keycloak", "web", (8080, 8443), (), ("keycloak",), ("keycloak",)),
+    _ac_app("haproxy", "HAProxy", "web", (80, 443), ("haproxy",), ("haproxy",), ("haproxy",)),
+    _ac_app(
+        "portainer",
+        "Portainer",
+        "orchestration",
+        (9443, 9000),
+        ("portainer",),
+        ("portainer-ce", "portainer-ee"),
+        ("portainer",),
+        "",
+        False,
+        "https",
+    ),
+    _ac_app("minio", "MinIO", "storage", (9000, 9001), ("minio",), ("minio",), ("minio",)),
+    _ac_app(
+        "vault",
+        "HashiCorp Vault",
+        "cloud",
+        (8200,),
+        ("vault",),
+        ("hashicorp/vault", "vault"),
+        ("vault",),
+        "",
+        True,
+    ),
+    _ac_app(
+        "consul",
+        "HashiCorp Consul",
+        "orchestration",
+        (8500,),
+        ("consul",),
+        ("hashicorp/consul", "consul"),
+        ("consul",),
+    ),
+    _ac_app("nodered", "Node-RED", "home", (1880,), (), ("node-red",), ("nodered",), "", True),
+    _ac_app("zigbee2mqtt", "Zigbee2MQTT", "home", (8080,), (), ("zigbee2mqtt",), ("zigbee2mqtt",)),
+    _ac_app("ollama", "Ollama", "dev", (11434,), ("ollama",), ("ollama",), ("ollama",), "", True),
+    _ac_app(
+        "cloudflared",
+        "Cloudflare Tunnel",
+        "network",
+        (),
+        ("cloudflared",),
+        ("cloudflared",),
+        ("cloudflared",),
+        "cloudflare_tunnel",
+    ),
+    _ac_app(
+        "tailscaled",
+        "Tailscale",
+        "network",
+        (),
+        ("tailscaled",),
+        ("tailscale",),
+        ("tailscaled",),
+        "tailscale",
+    ),
 )
 
-_ac_BY_ID = {a['id']: a for a in _ac_APPS}
+_ac_BY_ID = {a["id"]: a for a in _ac_APPS}
 
 
 def _ac_repo(image):
     """The repository of a container image reference, lower-case, without registry-independent noise: 'lscr.io/linuxserver/jellyfin:latest' is 'lscr.io/linuxserver/jellyfin'."""
-    ref = str(image or '').strip().lower()
-    ref = ref.split('@', 1)[0]
-    last = ref.rsplit('/', 1)[-1]
-    if ':' in last:
-        ref = ref[:len(ref) - len(last)] + last.split(':', 1)[0]
+    ref = str(image or "").strip().lower()
+    ref = ref.split("@", 1)[0]
+    last = ref.rsplit("/", 1)[-1]
+    if ":" in last:
+        ref = ref[: len(ref) - len(last)] + last.split(":", 1)[0]
     return ref
 
 
 def _ac_image_is(image, wanted):
     """Whether the image's repository is `wanted`: the whole path, or the end of it after a slash ('nginx' is 'docker.io/library/nginx' and not 'jc21/nginx-proxy-manager')."""
     repo = _ac_repo(image)
-    return bool(repo) and any(repo == w or repo.endswith('/' + w) for w in wanted)
+    return bool(repo) and any(repo == w or repo.endswith("/" + w) for w in wanted)
 
 
 def _ac_published_ports(refs):
     """The host ports a container publishes, from docker's own text ('0.0.0.0:8096->8096/tcp, :::8096->8096/tcp'), in the order given and each once."""
     out = []
     for ref in refs or []:
-        for part in str(ref).split(','):
+        for part in str(ref).split(","):
             part = part.strip()
-            if '->' not in part or not part.endswith('/tcp'):
+            if "->" not in part or not part.endswith("/tcp"):
                 continue
-            host = part.split('->', 1)[0].rsplit(':', 1)[-1]
+            host = part.split("->", 1)[0].rsplit(":", 1)[-1]
             if host.isdigit() and 0 < int(host) < 65536 and int(host) not in out:
                 out.append(int(host))
     return out
 
 
 def _ac_running(container):
-    state = str((container or {}).get('status') or '').strip().lower()
-    return not state.startswith(('exited', 'dead', 'created', 'removing', 'paused'))
+    state = str((container or {}).get("status") or "").strip().lower()
+    return not state.startswith(("exited", "dead", "created", "removing", "paused"))
 
 
 def _ac_discover(ports, containers, units):
@@ -5077,48 +5519,63 @@ def _ac_discover(ports, containers, units):
     units = units if isinstance(units, list) else []
     listening = {}
     for p in ports:
-        if isinstance(p, dict) and str(p.get('proto') or 'tcp').lower().startswith('tcp') and isinstance(p.get('port'), int) and not isinstance(p.get('port'), bool):
-            listening.setdefault(p['port'], p)
+        if (
+            isinstance(p, dict)
+            and str(p.get("proto") or "tcp").lower().startswith("tcp")
+            and isinstance(p.get("port"), int)
+            and not isinstance(p.get("port"), bool)
+        ):
+            listening.setdefault(p["port"], p)
     stems = set()
     for u in units:
         u = str(u)
-        stems.add(u[:-8] if u.endswith('.service') else u)
-    stems = {u.split('@', 1)[0] for u in stems}
+        stems.add(u[:-8] if u.endswith(".service") else u)
+    stems = {u.split("@", 1)[0] for u in stems}
     boxes = [c for c in containers if isinstance(c, dict) and _ac_running(c)]
     found = []
     for app in _ac_APPS:
-        via, port, container = [], None, ''
-        names = {n.lower() for n in app['procs']}
+        via, port, container = [], None, ""
+        names = {n.lower() for n in app["procs"]}
         for number, p in sorted(listening.items()):
-            if names and str(p.get('process') or '').lower()[:15] in names:
-                via.append('process')
+            if names and str(p.get("process") or "").lower()[:15] in names:
+                via.append("process")
                 port = number
                 break
         for c in boxes:
-            if _ac_image_is(c.get('image'), app['images']):
-                via.append('container')
-                container = str(c.get('name') or '')[:64]
-                for number in _ac_published_ports(c.get('ports')):
-                    if number in app['ports']:
+            if _ac_image_is(c.get("image"), app["images"]):
+                via.append("container")
+                container = str(c.get("name") or "")[:64]
+                for number in _ac_published_ports(c.get("ports")):
+                    if number in app["ports"]:
                         port = number
                         break
                 else:
-                    published = _ac_published_ports(c.get('ports'))
+                    published = _ac_published_ports(c.get("ports"))
                     if port is None and published:
                         port = published[0]
                 break
-        if any(u in stems for u in app['units']):
-            via.append('unit')
-        mine = [number for number in app['ports'] if number in listening]
-        if mine and (via or app['distinct']):
-            via.append('port')
+        if any(u in stems for u in app["units"]):
+            via.append("unit")
+        mine = [number for number in app["ports"] if number in listening]
+        if mine and (via or app["distinct"]):
+            via.append("port")
             if port is None:
                 port = mine[0]
         if not via:
             continue
         if port is None and mine:
             port = mine[0]
-        found.append({'id': app['id'], 'via': via, 'port': port, 'scope': str((listening.get(port) or {}).get('scope') or '') if port is not None else '', 'container': container})
+        found.append(
+            {
+                "id": app["id"],
+                "via": via,
+                "port": port,
+                "scope": (
+                    str((listening.get(port) or {}).get("scope") or "") if port is not None else ""
+                ),
+                "container": container,
+            }
+        )
     return found
 # END app_catalog
 
@@ -7159,8 +7616,8 @@ import time as _pp_time
 _pp_DEFAULT_PORTS = {"smtp": 25, "imap": 143, "ssh": 22, "ntp": 123}
 _pp_TYPES = tuple(_pp_DEFAULT_PORTS)
 _pp_TLS_MODES = ("none", "starttls", "tls")
-_pp_MAX_OFFSET_MS = 3_600_000          # an hour: past that the clock is not "a little off"
-_pp_NTP_EPOCH = 2208988800            # seconds from 1900-01-01 to 1970-01-01
+_pp_MAX_OFFSET_MS = 3_600_000  # an hour: past that the clock is not "a little off"
+_pp_NTP_EPOCH = 2208988800  # seconds from 1900-01-01 to 1970-01-01
 _pp_LINE_MAX = 1024
 _pp_REPLY_LINES_MAX = 40
 
@@ -7212,7 +7669,9 @@ def _pp_wrap(sock, host, ctx):
         raise _pp_ProbeError("TLS: the certificate was not accepted") from None
     except _pp_ssl.SSLError as e:
         sock.close()
-        raise _pp_ProbeError("TLS: " + _pp_clean(getattr(e, "reason", None) or "handshake failed", 40)) from None
+        raise _pp_ProbeError(
+            "TLS: " + _pp_clean(getattr(e, "reason", None) or "handshake failed", 40)
+        ) from None
 
 
 class _pp_Conn:
@@ -7296,7 +7755,9 @@ def _pp_smtp_probe(host, port, tls="none", ctx=None, timeout=5, peer_ok=None):
             c.send(b"QUIT\r\n")
         except OSError:
             pass
-        return True, " · ".join(x for x in (greeting, used, "%dms" % int((_pp_time.monotonic() - t0) * 1000)) if x)
+        return True, " · ".join(
+            x for x in (greeting, used, "%dms" % int((_pp_time.monotonic() - t0) * 1000)) if x
+        )
     finally:
         c.close()
 
@@ -7307,7 +7768,7 @@ def _pp_imap_until(c, tag):
     for _ in range(_pp_REPLY_LINES_MAX):
         line = c.readline()
         if line.startswith(tag + " "):
-            return line[len(tag) + 1:].upper().startswith("OK"), untagged
+            return line[len(tag) + 1 :].upper().startswith("OK"), untagged
         untagged.append(line)
     raise _pp_ProbeError("an IMAP answer that does not end")
 
@@ -7352,7 +7813,9 @@ def _pp_imap_probe(host, port, tls="none", ctx=None, timeout=5, peer_ok=None):
         except OSError:
             pass
         proto = next((_pp_clean(x, 12) for x in caps if x.upper().startswith("IMAP4")), "IMAP")
-        return True, " · ".join(x for x in (proto, used, "%dms" % int((_pp_time.monotonic() - t0) * 1000)) if x)
+        return True, " · ".join(
+            x for x in (proto, used, "%dms" % int((_pp_time.monotonic() - t0) * 1000)) if x
+        )
     finally:
         c.close()
 
@@ -7361,7 +7824,7 @@ def _pp_ssh_banner_probe(host, port, timeout=5, peer_ok=None):
     t0 = _pp_time.monotonic()
     c = _pp_Conn(_pp_connect(host, port, timeout, peer_ok))
     try:
-        for _ in range(8):      # a server may send other lines before its identification
+        for _ in range(8):  # a server may send other lines before its identification
             line = c.readline(255)
             if line.startswith("SSH-"):
                 banner = _pp_clean(line, 80)
@@ -7376,12 +7839,15 @@ def _pp_ssh_banner_probe(host, port, timeout=5, peer_ok=None):
 def _pp_to_ntp(ts):
     secs = int(ts)
     # the seconds field is 32 bits and wraps in February 2036 (and every 136 years after): the wrapped value is what goes on the wire
-    return _pp_struct.pack(">II", (secs + _pp_NTP_EPOCH) & 0xFFFFFFFF, int((ts - secs) * (1 << 32)) & 0xFFFFFFFF)
+    return _pp_struct.pack(
+        ">II", (secs + _pp_NTP_EPOCH) & 0xFFFFFFFF, int((ts - secs) * (1 << 32)) & 0xFFFFFFFF
+    )
 
 
 def _pp_from_ntp(b, ref=None):
     """Seconds since 1970 for an NTP timestamp. The field wraps every 136 years, so with `ref` (a time known to be near, which is this
-    machine's own clock) the era is the one that puts the result closest to it; without it the first era is assumed."""
+    machine's own clock) the era is the one that puts the result closest to it; without it the first era is assumed.
+    """
     secs, frac = _pp_struct.unpack(">II", b)
     unix = secs - _pp_NTP_EPOCH + frac / float(1 << 32)
     if ref is not None:
@@ -7389,7 +7855,9 @@ def _pp_from_ntp(b, ref=None):
     return unix
 
 
-def _pp_ntp_probe(host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=_pp_time.time, sock_factory=None):
+def _pp_ntp_probe(
+    host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=_pp_time.time, sock_factory=None
+):
     infos = _pp_socket.getaddrinfo(host, port, 0, _pp_socket.SOCK_DGRAM)
     chosen = None
     for family, _t, _p, _c, sa in infos:
@@ -7404,11 +7872,11 @@ def _pp_ntp_probe(host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=_
         sock.settimeout(timeout)
         t1 = now()
         req = bytearray(48)
-        req[0] = 0x23                      # leap indicator 0, version 4, mode 3 (client)
+        req[0] = 0x23  # leap indicator 0, version 4, mode 3 (client)
         req[40:48] = _pp_to_ntp(t1)
         sock.sendto(bytes(req), sa)
         data = None
-        for _ in range(4):                 # a stray datagram from somewhere else is not the answer
+        for _ in range(4):  # a stray datagram from somewhere else is not the answer
             d, addr = sock.recvfrom(1024)
             if addr[0] == sa[0] and len(d) >= 48:
                 data = d
@@ -7424,7 +7892,9 @@ def _pp_ntp_probe(host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=_
     if mode != 4:
         return False, "not a server reply (mode %d)" % mode
     if stratum == 0:
-        return False, "kiss-of-death %s" % (_pp_clean(data[12:16].decode("ascii", "replace"), 8) or "?")
+        return False, "kiss-of-death %s" % (
+            _pp_clean(data[12:16].decode("ascii", "replace"), 8) or "?"
+        )
     if li == 3 or stratum >= 16:
         return False, "not synchronised (stratum %d)" % stratum
     if data[40:48] == b"\0" * 8:
@@ -7432,7 +7902,11 @@ def _pp_ntp_probe(host, port, max_offset_ms=None, timeout=5, peer_ok=None, now=_
     t2, t3 = _pp_from_ntp(data[32:40], t1), _pp_from_ntp(data[40:48], t1)
     offset = ((t2 - t1) + (t3 - t4)) / 2.0
     delay = (t4 - t1) - (t3 - t2)
-    detail = "stratum %d · offset %+.1f ms · delay %.0f ms" % (stratum, offset * 1000, max(delay, 0.0) * 1000)
+    detail = "stratum %d · offset %+.1f ms · delay %.0f ms" % (
+        stratum,
+        offset * 1000,
+        max(delay, 0.0) * 1000,
+    )
     if max_offset_ms is not None and abs(offset * 1000) > max_offset_ms:
         return False, "%s (limit %d ms)" % (detail, int(max_offset_ms))
     return True, detail
@@ -7466,7 +7940,13 @@ def _pp_run(mtype, host, port, m, peer_ok=None, ssl_ctx=None, timeout=5):
             return _pp_ssh_banner_probe(host, port, timeout, peer_ok)
         if mtype == "ntp":
             limit = m.get("max_offset_ms")
-            limit = limit if isinstance(limit, (int, float)) and not isinstance(limit, bool) and 0 < limit <= _pp_MAX_OFFSET_MS else None
+            limit = (
+                limit
+                if isinstance(limit, (int, float))
+                and not isinstance(limit, bool)
+                and 0 < limit <= _pp_MAX_OFFSET_MS
+                else None
+            )
             return _pp_ntp_probe(host, port, limit, timeout, peer_ok)
         return False, "unknown protocol check"
     except _pp_ProbeError as e:
