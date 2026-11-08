@@ -114,6 +114,14 @@ host in one click. It is the **Quarantine** row on the host drawer's **Actions &
 settings** tab, and only administrators can change it. Quarantined hosts drop queued commands rather than running
 them when quarantine lifts.
 
+Quarantine holds for every way RemotePower can run something on a host, not only the agent's command queue *(8.0.0)*:
+a command over SSH on an agentless host, an Ansible run (the quarantined target is left out) and the web terminal
+(like the SSH gateway) are refused for a quarantined host with the same words the queue uses. **Maintenance mode** (Settings,
+Notifications) also pauses a command over SSH and an Ansible run; it does not stop a terminal session, which queues
+nothing. Before 8.0.0 a command over SSH ignored both, the Ansible run ignored maintenance mode and the web terminal ignored
+quarantine. **Four-eyes approval** is a different gate: it parks a queued command for a second admin. These three channels
+write no queue, so it does not apply to them.
+
 ## SLA targets
 
 On the **Business → Reports** page, in the **Uptime (SLA)** card you can set a target uptime % per host,

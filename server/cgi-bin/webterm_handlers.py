@@ -118,6 +118,10 @@ def handle_webterm_auth():
     if dev_id not in devices:
         A.respond(404, {'error': 'Host not found'})
     A._scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
+    # 8.0.0: a quarantined host takes no exec, reboot or actions, and a terminal is exec: the SSH gateway has always refused one, this did not.
+    _blocked = A._direct_block_reason(devices[dev_id], maintenance=False)
+    if _blocked:
+        A.respond(_blocked[0], {'error': _blocked[1]})
 
     # W6-49: RDP-tunnel intent is gated behind an explicit opt-in — it exposes a
     # native-RDP bridge (mstsc/Remmina to localhost:PORT), not an in-browser

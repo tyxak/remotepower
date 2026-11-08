@@ -21212,6 +21212,9 @@ def handle_ansible_playbook_run(pb_id):
     require_write_role('run a playbook')
     if not _ansible_available():
         respond(400, {'error': 'ansible-playbook is not installed on the server.'})
+    _blocked = _direct_block_reason({})           # 8.0.0: maintenance mode pauses a playbook run too (quarantine is applied per target below)
+    if _blocked:
+        respond(_blocked[0], {'error': _blocked[1], 'maintenance': True})
     data = _ansible_load()
     pb = next((p for p in data['playbooks'] if p['id'] == pb_id), None)
     if not pb:
@@ -25725,6 +25728,23 @@ def _maintenance_active():
     return (True, str(cfg.get('maintenance_reason') or 'scheduled maintenance')[:200])
 
 
+def _direct_block_reason(dev, maintenance=True):
+    """What holds for ANY way of running a command on a host, queued or not: a quarantined host takes no exec, reboot or actions, and while the server is in maintenance mode
+    no new command goes out. (status, message) in the words the queue has always used, or None.
+
+    8.0.0: these two refusals were written inside `_command_block_reason`, so only the paths that put a command on the agent's queue had them. The channels that reach a host over
+    SSH from the server did not: `POST /api/devices/<id>/ssh-exec` ignored both, the Ansible run ignored maintenance mode, and the web terminal ignored quarantine, which the SSH
+    gateway has always honoured. `maintenance=False` is for an interactive channel (the web terminal, like the gateway, is held to quarantine and not to maintenance mode)."""
+    if maintenance:
+        active, reason = _maintenance_active()
+        if active:
+            return (503, f'Server is in maintenance mode ({reason}) — new commands are '
+                         f'paused. They will resume once maintenance ends.')
+    if _device_quarantined(dev):
+        return (409, 'Host is quarantined — exec/reboot/actions are disabled.')
+    return None
+
+
 def _block_if_maintenance(command):
     """503 if maintenance mode is on (poll_interval is exempt — agent-local timer
     only, like the quarantine carve-out)."""
@@ -26011,13 +26031,9 @@ def _command_block_reason(dev, command):
     # matching the long-standing carve-out.
     if str(command).startswith('poll_interval:'):
         return None
-    active, reason = _maintenance_active()          # v5.0.0 #R3
-    if active:
-        return (503, f'Server is in maintenance mode ({reason}) — new commands are '
-                     f'paused. They will resume once maintenance ends.')
-    # v3.4.0: never queue actions for a quarantined device.
-    if _device_quarantined(dev):
-        return (409, 'Host is quarantined — exec/reboot/actions are disabled.')
+    _direct = _direct_block_reason(dev)             # v5.0.0 #R3 maintenance mode, v3.4.0 quarantine: never queue actions for a quarantined device
+    if _direct:
+        return _direct
     # v4.11.0: an audit-mode (read-only) agent refuses every command locally.
     # Refuse to even queue one so the operator gets a clear error now instead of a
     # deferred "refused" result. The flag rides the heartbeat sysinfo.
@@ -40503,6 +40519,9 @@ def handle_device_ssh_exec(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     cfg, dev, host, user, port, key = _ssh_preflight(dev_id)
+    _blocked = _direct_block_reason(dev)          # 8.0.0: the queue's maintenance-mode and quarantine refusals hold here too
+    if _blocked:
+        respond(_blocked[0], dict({'error': _blocked[1]}, **({'maintenance': True} if _blocked[0] == 503 else {})))
     command = _sanitize_str(str((get_json_obj()).get('command') or ''), 2000)
     if not command:
         respond(400, {'error': 'command required'})

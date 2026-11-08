@@ -404,6 +404,11 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   apps its agents found, the monitor types they run and their rollback support were seeded already. The rendered gates (accessibility, overflow, icon gaps) measure
   the seeded instance, so something the seed never showed was something they could not see. Two browser tests that had chosen their data on the old seed now say what
   they need.
+- **Quarantine and maintenance mode now hold for the channels that reach a host over SSH.** A hand count of the ways the server can run code on a host found three that the
+  command queue's refusals did not cover. `POST /api/devices/<id>/ssh-exec` ignored both (an admin could run a command on a quarantined host, or in the middle of a
+  maintenance drain), the Ansible run ignored maintenance mode, and the web terminal ignored quarantine, which the SSH gateway had always honoured. They ask the one
+  predicate the queue asks now (`_direct_block_reason`), so the words cannot drift, and a test enumerates the channels by syntax tree and fails on a fourth that does not
+  ask. Four-eyes approval is unchanged: it parks a queued command, and none of these writes the queue. Held by `tests/test_v800_direct_exec_gates.py`.
 - **The DNS records table says why it is empty.** With no provider credentials, a locked vault or a token that sees no zone, the table was a header
   over nothing and only a line of small print above it gave the reason. It now says *No zone to list yet. Give the provider credentials, then pick a
   zone.* The walk of the empty install is a test now: it opens all 79 sidebar pages of a fresh install and fails on a blank table, a loader that never
