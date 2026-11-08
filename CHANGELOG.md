@@ -137,6 +137,16 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   uninterruptible power supply, zero in words), so each of those exceptions is listed with its reason, and an exception that stops applying fails the gate. Its
   first version matched "27" inside "2027", so a changed date passed; the mutation round showed it, and numbers and names now match as whole tokens.
 
+- **The restart command on Server status names every sidecar in use.** Server status → **Restart the stack** was built from five conditions written out one by one, so the SSH
+  gateway, the KMIP key server and the web terminal were never in the `systemctl restart` line: copying it left three daemons on old code. It is one list now, and the sentence
+  above the command and the copy button read from it: the app workers and the scheduler, then the scan worker, the push daemon, the SSH gateway and the web terminal while they are
+  set up here, and the syslog, flow and KMIP daemons while their unit is active on this server (a unit that runs on another host is not named, because `systemctl` would refuse the
+  whole command). The page had no word about the web terminal at all: the server probes its port (`WEBTERM_PORT`, 8765 by default) and **Distributed subsystems** has a **Web terminal**
+  row that says Running when it answers and *Not detected locally* when it does not, never a fault, because the daemon is optional and may live on another host. **Held by**
+  `tests/test_v800_restart_stack.py` (17 tests that run the page code in a V8 isolate against the payloads the server sends, and one that reads every systemd unit RemotePower
+  ships and fails when it is in neither the list nor the short list of units that are excused with a reason, so the next sidecar cannot be left out the same way); nine mutations of
+  the list, the sentence, the copy button, the row and the probe all fail it.
+
 ### Connect and monitor more
 
 - **Connectors for the networks that carry remote access: Tailscale, Headscale and Cloudflare Tunnel.** Each reads one API and says whether the thing
@@ -281,6 +291,15 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   three monitor types of 7.4.9 and the rollback option of the automatic image update held every host back. The seed now gives every Linux agent `probe_types` (all seven) and
   `compose_rollback`, and every satellite its `probe_types`; the Windows and macOS agents say neither, as they do not. **Held by** `tests/test_v800_seeder_capabilities.py` (4 tests;
   the three about the Linux agents and the satellites fail on the seed from before, and the one about Windows and macOS is the control that stays green).
+- **Roll back by hand.** The rollback of the automatic image update was a step only the sweep could take. The host's **docker compose** dialog has a **Roll back** button now: it puts the
+  project that is picked back on the images it ran before its last update, whoever or whatever updated it (the agent notes the images each time it runs a `compose:update`, from the
+  Image updates page too). It asks first, in words that say the data is not rolled back, and a person who says no queues nothing. `POST /api/devices/<id>/compose/action` takes
+  `rollback`, needs the same **containers** permission and goes through the same approval, maintenance and quarantine gates as every compose action, and answers 400 in words (and queues
+  nothing) for a host whose agent does not say it can roll back, instead of queueing a verb an older agent would answer with an error nobody reads. **Held by** six new tests in
+  `tests/test_v210.py` (queued for a host that says it can, refused for one that does not, only the JSON `true` counts, the other six actions never ask, an unreported directory is
+  refused as for every other action) and `tests/test_v800_compose_rollback_e2e.py` (5 browser tests on the demo seed, which now gives its Linux agents the flag: the button is there,
+  it asks before anything leaves the page, a confirmed rollback queues `compose:rollback:<dir>` for the project that was picked on the real server, a host without the flag is refused in
+  the toast with nothing queued, and the button, its tooltip and the question are translated in all six languages). Eight mutations of the route and the dialog all fail them.
 
 ### Single pages
 

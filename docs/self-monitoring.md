@@ -41,14 +41,22 @@ maintenance runs inside each request or in the scheduler. See
 [scaling.md](scaling.md) to change any of it.
 
 **Distributed subsystems.** Relay satellites and scan workers (online of total),
-the agent push daemon, the SSH gateway, and the syslog, flow and KMIP sidecars.
-The same rows as in the readiness table.
+the agent push daemon, the SSH gateway, the web terminal, and the syslog, flow and
+KMIP sidecars. The same rows as in the readiness table. The web terminal is
+optional and may run on another host, so a daemon that does not answer on this
+server reads as *Not detected locally* and is never a fault.
 
-**Restart the stack.** The exact `systemctl restart` command for the units that
-are running here, with a copy button. RemotePower runs as an unprivileged
+**Restart the stack.** The exact `systemctl restart` command, with a copy button:
+the app workers and the scheduler, and each sidecar in use on this server, so a
+copy leaves no daemon on old code. That is the scan worker, the push daemon, the SSH
+gateway and the web terminal while they are set up here, and the syslog, flow and
+KMIP daemons while their unit is active on this server (a unit that runs on another
+host is not named, because `systemctl` would refuse the whole command). The sentence
+above the command names the same units. RemotePower runs as an unprivileged
 service, so a restart needs root on the host. Installs that set up the
 privileged helper can also restart from **Settings → Install → Restart server**,
-and the card says why when that is unavailable.
+and the card says why when that is unavailable. That button restarts the app
+workers and the scheduler only.
 
 **Site health.** A **healthy** pill, or the number of warnings with a **View N
 reasons** link. It shows the server version and when it last

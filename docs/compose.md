@@ -134,8 +134,13 @@ Queues `compose:<action>:<dir>` against the agent's exec channel.
 
 Validates:
 
-- `action` ∈ `{up, down, restart, pull, logs, update}` — the only actions the
-  agent recognises (see below). The dialog has no button for `update`.
+- `action` ∈ `{up, down, restart, pull, logs, update, rollback}` — the only actions
+  the agent recognises (see below). The dialog has no button for `update` (it
+  lives on **Containers → Image updates**); it has one for `rollback`.
+- `rollback` is refused with a 400 (`The agent on this host cannot roll back an
+  update`) when the host's agent does not say it can: its heartbeat carries
+  `compose_rollback: true` from 8.0.0 on. Nothing is queued then, and an older
+  agent is never handed a verb it would answer with an error nobody reads.
 - `dir` is non-empty and ≤ 1024 chars.
 - `dir` **is one of the directories the agent reported in this host's
   last heartbeat.** This is the security boundary: even a stolen admin
@@ -170,6 +175,11 @@ When the agent dequeues `compose:<action>:<dir>` it:
    - `restart` → `docker compose restart`
    - `pull`    → `docker compose pull`
    - `update`  → `docker compose pull`, then `docker compose up -d`
+   - `rollback` → points the references an `update` changed back at the images the
+     project ran before, then `docker compose up -d --pull never`. It needs the note
+     the agent made of that update, and refuses (and says why) when there is none,
+     when anything else changed the project since, or when an earlier image is gone.
+     Data is not rolled back. See [containers.md](containers.md).
    - `logs`    → `docker compose logs --no-color --tail=50`
 5. 180 s timeout (pull + up can be slow on cold caches).
 6. Output capped at 64 KB.

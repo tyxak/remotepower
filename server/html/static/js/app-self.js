@@ -110,6 +110,27 @@ function _selfNameSources(sy) {
 
 // The co-located sidecars, as row descriptors. Rendered BOTH as the
 // "Distributed subsystems" table and as rows of the readiness table.
+// The units a restart of the stack takes in: the two that every install has, then each sidecar that is in use on this server, in the order the
+// systemctl command lists them. One list, so the command and the sentence above it name the same units. Push, the SSH gateway and the web terminal
+// are co-located by design; the syslog, flow and KMIP daemons may run on another host, so those are only named while their unit is active here (a unit
+// systemctl does not know would fail the whole command). tests/test_v800_restart_stack.py reads the units RemotePower ships and fails when one of
+// them is in neither this list nor the list of units that are not part of a restart.
+function _selfRestartUnits(sub) {
+  sub = sub || {};
+  const sat = (sub.satellites && sub.satellites.scanners) || {};
+  return [
+    ['remotepower-wsgi', 'the app workers', true],
+    ['remotepower-scheduler', 'the out-of-band scheduler', true],
+    ['remotepower-scanner', 'the scan worker', !!sat.total],
+    ['remotepower-push', 'the push daemon', !!(sub.push && sub.push.enabled)],
+    ['remotepower-sshgw', 'the SSH gateway', !!(sub.sshgw && sub.sshgw.enabled)],
+    ['remotepower-webterm', 'the web terminal', !!(sub.webterm && sub.webterm.reachable)],
+    ['remotepower-syslogd', 'the syslog receiver', !!(sub.syslog && sub.syslog.unit === 'active')],
+    ['remotepower-flowd', 'the flow receiver', !!(sub.flow && sub.flow.unit === 'active')],
+    ['remotepower-kmipd', 'the KMIP key server', !!(sub.kmip && sub.kmip.unit === 'active')],
+  ].filter(x => x[2]).map(x => ({ unit: x[0], what: x[1] }));
+}
+
 function _selfSidecarRows(s) {
   const sub = s.subsystems || {};
   const rows = [];
@@ -144,6 +165,12 @@ function _selfSidecarRows(s) {
     rows.push({ key: 'sshgw-daemon', label: 'SSH Gateway', state: 'bad', status: 'Enabled — unreachable',
                 detail: `nothing listening on port ${gw.port} on this server — check systemctl status remotepower-sshgw` });
   }
+  // The web terminal daemon is optional and may run on another host: one that answers on this server's loopback says so, and silence is not a fault.
+  const wt = sub.webterm || {};
+  rows.push(wt.reachable
+    ? { key: 'webterm-daemon', label: 'Web terminal', state: 'ok', status: 'Running', detail: `accepting connections on port ${wt.port}` }
+    : { key: 'webterm-daemon', label: 'Web terminal', state: 'muted', status: 'Not detected locally',
+        detail: 'the optional web terminal daemon does not answer on this server' });
   // Syslog / flow receivers are INFORMATIONAL: optional, and they may legitimately
   // run on another host, so "not detected locally" is never a fault here.
   const sy = sub.syslog || {};
@@ -663,16 +690,15 @@ async function loadSelfStatus() {
   // service so a live restart needs root on the host; surface the exact,
   // copy-pasteable systemctl command (scoped to the subsystems that are
   // actually running) rather than a privileged in-app endpoint.
-  const _scannerSvc = (sub.satellites && sub.satellites.scanners && sub.satellites.scanners.total) ? ' remotepower-scanner' : '';
-  const _pushSvc = (sub.push && sub.push.enabled) ? ' remotepower-push' : '';
-  const _syslogSvc = (sub.syslog && sub.syslog.unit === 'active') ? ' remotepower-syslogd' : '';
-  const _flowSvc = (sub.flow && sub.flow.unit === 'active') ? ' remotepower-flowd' : '';
-  const _restartCmd = `sudo systemctl restart remotepower-wsgi remotepower-scheduler${_scannerSvc}${_pushSvc}${_syslogSvc}${_flowSvc}`;
+  const _restartUnits = _selfRestartUnits(sub);
+  const _restartCmd = 'sudo systemctl restart ' + _restartUnits.map(u => u.unit).join(' ');
+  const _restartWhat = _restartUnits.map(u => u.what);
+  const _restartSaid = _restartWhat.length > 1 ? _restartWhat.slice(0, -1).join(', ') + ' and ' + _restartWhat[_restartWhat.length - 1] : _restartWhat[0];
   const restartAvail = _selfRestartAvailability(ver);
   const restartCard = `
     <div class="dash-card" data-pg-tab="upkeep">
       <div class="section-title">Restart the stack</div>
-      <div class="hint mb-8">RemotePower runs as an unprivileged service, so restarting it is a host action (needs root on the server). This cleanly restarts the app workers and the out-of-band scheduler${_scannerSvc ? ', the scan worker' : ''}${_pushSvc ? ', the push daemon' : ''} — workers cycle with no dropped requests behind nginx and agents reconnect on their own:</div>
+      <div class="hint mb-8">RemotePower runs as an unprivileged service, so restarting it is a host action (needs root on the server). This cleanly restarts ${_restartSaid} — workers cycle with no dropped requests behind nginx and agents reconnect on their own:</div>
       <div class="row-8-mb8"><code class="self-restart-cmd">${escHtml(_restartCmd)}</code><button class="btn-icon" data-action="copyText" data-arg="${escAttr(_restartCmd)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button></div>
       ${restartAvail}
       <div class="hint">See <a href="docs/self-monitoring.md" class="c-accent">self-monitoring.md</a> and <a href="docs/scaling.md" class="c-accent">scaling.md</a>.</div>

@@ -553,7 +553,9 @@ The **Automatic updates** card under the table can do that for you, for the imag
   again until the registry ships a newer image. What it cannot do: the old image has to still be on the host (`docker image prune` removes it, and the agent then refuses and
   says so), it does nothing when anything else changed the project after the update, it leaves an image pinned by digest alone, and it does not roll data back, so a database
   the new version changed stays changed. It points the image's tag back at the old image, so another project on the same host that uses that tag gets the old image the next
-  time it is recreated.
+  time it is recreated. The same step is a button too: **Roll back** in the host's docker compose dialog (the host's menu, **docker compose**) puts the project that is picked
+  back on the images it ran before its last update, whoever or whatever updated it. It asks first, it needs the **containers** permission and goes through approval,
+  maintenance mode and quarantine like every compose action, and it is refused when the host's agent does not say it can roll back.
 - **Who.** The policy is the platform operator's, because it decides what an unattended loop may do to every host. Switching it on, or changing a policy that
   is on, asks for a fresh sign-in. Every save and every update is a line in the audit log (`image_autoupdate_set`, `image_autoupdate_queued`, and for a rollback `image_autoupdate_rollback_queued` and `image_autoupdate_rolled_back`).
 

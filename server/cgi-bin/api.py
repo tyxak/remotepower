@@ -289,7 +289,7 @@ BATCH_JOB_TTL_SEC    = 3600           # 1h — purges old jobs on next access
 # commands against the agent's exec channel.
 MAX_COMPOSE_PROJECTS_PER_DEVICE = 50
 MAX_COMPOSE_PATH_LEN            = 1024
-COMPOSE_ALLOWED_ACTIONS         = ('up', 'down', 'restart', 'pull', 'logs', 'update')
+COMPOSE_ALLOWED_ACTIONS         = ('up', 'down', 'restart', 'pull', 'logs', 'update', 'rollback')
 
 # ── v1.7.0: CVE scanner + package inventory ────────────────────────────────────
 PACKAGES_FILE       = DATA_DIR / 'packages.json'
@@ -37038,6 +37038,19 @@ def _subsystems_status(now):
             out['sshgw'] = {'enabled': False}
     except Exception:
         pass
+    # 8.0.0: the web terminal daemon (remotepower-webterm). Optional and often absent, so an answer on its loopback port says it is here and no
+    # answer says nothing: the Server status page names it (and puts it in the restart command) only when it answers.
+    try:
+        _wt_port = int(os.environ.get('WEBTERM_PORT', 8765))
+        _wt_up = False
+        try:
+            with socket.create_connection(('127.0.0.1', _wt_port), timeout=1):
+                _wt_up = True
+        except OSError:
+            _wt_up = False
+        out['webterm'] = {'reachable': _wt_up, 'port': _wt_port}
+    except Exception:
+        pass
     # v6.3.1: native agentless syslog receiver (remotepower-syslogd) — an
     # INFORMATIONAL watcher, never a warning/health input: the
     # receiver is an optional sidecar, and it may legitimately run on a
@@ -42577,6 +42590,10 @@ def handle_device_compose_action(dev_id):
         respond(404, {'error': 'Host not found'})
     if dev.get('agentless'):
         respond(400, {'error': 'cannot run compose on agentless host'})
+    # 8.0.0: a rollback is for a host whose agent says it notes the images an update replaces. An agent from before that takes the verb as unknown
+    # and says so in its output, and the caller would have been told that it was queued.
+    if action == 'rollback' and not image_autoupdate_handlers_mod.IA.can_roll_back(dev):
+        respond(400, {'error': 'The agent on this host cannot roll back an update. Update the agent first.'})
 
     # Path must match a project the agent reported. This is *the* security
     # check — if it weren't here, a stolen admin token could ask any

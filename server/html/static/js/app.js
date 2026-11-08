@@ -16901,6 +16901,8 @@ async function runCompose(action) {
   if (!dir) { toast('Pick a project first', 'error', {transient: true}); return; }
   // Down is the most disruptive — confirm explicitly.
   if (action === 'down' && !await uiConfirm({ message: `Run "docker compose down" in ${dir}?\nThis stops and removes the project's containers.`, confirmText: 'Compose down', danger: true })) return;
+  // 8.0.0: a rollback replaces the project's containers too, so it asks first (the text has no variable, so it can be translated)
+  if (action === 'rollback' && !await uiConfirm({ message: 'Roll back this project to the images it ran before its last update? The agent puts the earlier images back and starts the project without pulling. Data the newer version wrote is not rolled back.', confirmText: 'Roll back', danger: true })) return;
   const resp = await api('POST', '/devices/' + encodeURIComponent(deviceId) + '/compose/action',
                          {action, dir});
   if (!resp || resp.error) { failToast(resp); return; }

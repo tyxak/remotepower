@@ -747,11 +747,53 @@ class TestComposeActions(_TestBase):
         r = self._action('agentless1', {'action': 'up', 'dir': '/opt/stack'})
         self.assertEqual(r.status, 400)
 
+    def _says_it_can_roll_back(self, dev_id='dev1', value=True):
+        devs = api.load(api.DEVICES_FILE)
+        devs[dev_id].setdefault('sysinfo', {})['compose_rollback'] = value
+        api.save(api.DEVICES_FILE, devs)
+
     def test_all_allowed_actions_accepted(self):
         self._hb_with_project('dev1')
+        self._says_it_can_roll_back()           # 8.0.0: a rollback is only for a host whose agent says it can
         for action in api.COMPOSE_ALLOWED_ACTIONS:
             r = self._action('dev1', {'action': action, 'dir': '/opt/stack'})
             self.assertEqual(r.status, 200, f"action {action!r} should be ok")
+
+    def test_a_rollback_is_queued_for_a_host_whose_agent_says_it_can_roll_back(self):
+        self._hb_with_project('dev1')
+        self._says_it_can_roll_back()
+        r = self._action('dev1', {'action': 'rollback', 'dir': '/opt/stack'})
+        self.assertEqual((r.status, r.body.get('queued')), (200, 'compose:rollback:/opt/stack'))
+        self.assertIn('compose:rollback:/opt/stack', api.load(api.CMDS_FILE).get('dev1', []))
+
+    def test_a_rollback_is_refused_in_words_for_a_host_whose_agent_does_not_say_it_can_and_nothing_is_queued(self):
+        self._hb_with_project('dev1')
+        r = self._action('dev1', {'action': 'rollback', 'dir': '/opt/stack'})
+        self.assertEqual(r.status, 400)
+        self.assertIn('cannot roll back an update', r.body['error'])
+        self.assertEqual(api.load(api.CMDS_FILE).get('dev1', []), [])
+
+    def test_only_the_json_true_says_it_can_roll_back(self):
+        self._hb_with_project('dev1')
+        for said in ('true', 'yes', 1, [True], {'a': 1}):
+            self._says_it_can_roll_back(value=said)
+            r = self._action('dev1', {'action': 'rollback', 'dir': '/opt/stack'})
+            self.assertEqual(r.status, 400, repr(said))
+        self.assertEqual(api.load(api.CMDS_FILE).get('dev1', []), [])
+
+    def test_the_other_actions_do_not_ask_whether_the_agent_can_roll_back(self):
+        self._hb_with_project('dev1')
+        for action in ('up', 'down', 'restart', 'pull', 'logs', 'update'):
+            r = self._action('dev1', {'action': action, 'dir': '/opt/stack'})
+            self.assertEqual(r.status, 200, action)
+
+    def test_a_rollback_of_a_directory_the_agent_never_reported_is_refused_like_every_other_action(self):
+        self._hb_with_project('dev1')
+        self._says_it_can_roll_back()
+        r = self._action('dev1', {'action': 'rollback', 'dir': '/etc'})
+        self.assertEqual(r.status, 400)
+        self.assertIn('reported', r.body['error'])
+        self.assertEqual(api.load(api.CMDS_FILE).get('dev1', []), [])
 
 
 # ─── Apostrophe in device names — the auto-refresh / window-close bug ──────
