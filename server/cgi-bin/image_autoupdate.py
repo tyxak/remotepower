@@ -126,7 +126,7 @@ def match(ref, patterns):
 def fingerprint(refs_digests):
     """One short id for a set of images at the registry digests they were updated to, so an update is attempted once per release."""
     text = '|'.join('%s@%s' % (r, refs_digests[r]) for r in sorted(refs_digests))
-    return hashlib.sha1(text.encode('utf-8')).hexdigest()[:16]
+    return hashlib.sha1(text.encode('utf-8'), usedforsecurity=False).hexdigest()[:16]   # a short id, not a credential: same declaration as the other non-security hashes
 
 
 def _stale(local, registry):
