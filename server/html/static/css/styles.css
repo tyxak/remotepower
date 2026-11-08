@@ -7546,7 +7546,14 @@ body.density-compact .section-title { margin-bottom: 6px; }
 .vitals .vital b { color: var(--text); font-weight: 600; }
 .vitals .vital.bad b { color: var(--red-ink); }
 .vitals-sep { width: 1px; height: 14px; background: var(--border); }
-@media (max-width: 980px) { .vitals { display: none; } }
+/* 8.0.0: the controls of the top bar share the row with the 248px sidebar. With the fleet readout and its trend line they need 825 px, and between a phone and a
+   1280 px window that was more than the bar had; body{overflow-x:hidden} cut the theme and top-bar buttons off the right edge on 82 of 85 pages at 768 and 1024 px.
+   They give way one group at a time, in the order of how little each tells you: the trend line below 1280, the readout below 1220, and on a narrow bar (721 to 899)
+   the density, install, undo and redo buttons. The phone layout has its own rules (tests/test_v710_topbar_fits_phone.py); tests/test_v800_topbar_fits_tablet.py
+   measures the bar at sixteen widths. */
+@media (max-width: 1279px) { .vitals canvas, .vitals > .vitals-sep:nth-last-child(2) { display: none; } }
+@media (max-width: 1219px) { .vitals { display: none; } }
+@media (min-width: 721px) and (max-width: 899px) { #density-toggle, #pwa-install-btn, #topbar-undo, #topbar-redo { display: none; } }
 
 /* v5.6.0: top-bar site-health pill. Green "Healthy" at rest; red "N issues"
    (offline + open alerts + monitors down) when anything needs attention. */
