@@ -422,6 +422,9 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   apps its agents found, the monitor types they run and their rollback support were seeded already. The rendered gates (accessibility, overflow, icon gaps) measure
   the seeded instance, so something the seed never showed was something they could not see. Two browser tests that had chosen their data on the old seed now say what
   they need.
+  The seed adds what was still missing: a Tailscale, a Headscale and a Cloudflare Tunnel tile on the Integrations page (each row is held against the connector's own summary
+  of the same numbers), and two named Home layouts, Security and Patching, for the demo, alice and bob accounts, so the layout switcher next to Customize shows.
+  **Held by** `tests/test_v800_seeder_overlay_connectors.py` and `tests/test_v800_seeder_layouts.py` (the server keeps every layout whole).
 - **Quarantine and maintenance mode now hold for the channels that reach a host over SSH.** A hand count of the ways the server can run code on a host found three that the
   command queue's refusals did not cover. `POST /api/devices/<id>/ssh-exec` ignored both (an admin could run a command on a quarantined host, or in the middle of a
   maintenance drain), the Ansible run ignored maintenance mode, and the web terminal ignored quarantine, which the SSH gateway had always honoured. They ask the one

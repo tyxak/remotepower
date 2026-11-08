@@ -368,6 +368,19 @@ SITE_OF = {
 # ─── State builders ───────────────────────────────────────────────────────────
 
 
+def _demo_dashboard_sets():
+    """8.0.0: two named Home layouts for each demo account, so the switcher next to Customize shows and a visitor can look at them. They are the lists of the
+    Security and Patching ready-made layouts of the Customize panel (app-dashsets.js `_DASH_PRESETS`, held to the widget list by test_dashboard_sets_prefs). The
+    layout in use stays the account's own, so Home opens as before. The demo is read-only, so a visitor's choice lasts until the page is reloaded."""
+    return [
+        {'id': 'security', 'name': 'Security',
+         'w': ['heatmap', 'attseverity', 'alertsev', 'crittotal', 'cves', 'bruteforce', 'threatintel', 'worldports', 'newports', 'fwchanges', 'sshkeys', 'tls', 'drift',
+               'atttop', 'tickets']},
+        {'id': 'patching', 'name': 'Patching',
+         'w': ['patchpct', 'updatestotal', 'updates', 'rebootreq', 'crittotal', 'cves', 'versionskew', 'agentver', 'os', 'maintenance', 'atttop']},
+    ]
+
+
 def build_users() -> dict:
     """One demo user, viewer role, password 'demo'.
 
@@ -390,6 +403,7 @@ def build_users() -> dict:
             'password_hash': demo_hash,
             'totp_secret':   '',
             'created_at':    now() - 86400 * 30,
+            'ui_prefs':      {'dashboard_sets': _demo_dashboard_sets()},
         },
         # v3.7.0 maker-checker needs two distinct admins so the approve flow
         # demos: self-approval is blocked, so alice's request must be approved
@@ -399,6 +413,7 @@ def build_users() -> dict:
             'password_hash': demo_hash,
             'totp_secret':   '',
             'created_at':    now() - 86400 * 120,
+            'ui_prefs':      {'dashboard_sets': _demo_dashboard_sets()},
             'sshgw_keys':    [_demo_sshgw_key('alice', 'laptop', 40, 1)],
         },
         'bob': {
@@ -406,7 +421,7 @@ def build_users() -> dict:
             'password_hash': demo_hash,
             'totp_secret':   '',
             'created_at':    now() - 86400 * 90,
-            'ui_prefs':      {'team': 'Infrastructure'},
+            'ui_prefs':      {'team': 'Infrastructure', 'dashboard_sets': _demo_dashboard_sets()},
             'sshgw_keys':    [_demo_sshgw_key('bob', 'laptop', 20, 5)],
         },
         # v5.4.0 — the Billing / invoices / worksheet pages are admin/finance
@@ -4333,7 +4348,17 @@ _DEMO_INTEG_DEFS = [
      {'cpu_busy_pct': 23.4, 'mem_free_gb': 11.2, 'targets_down': 0}),
     ('prometheus_exporter', 'node_exporter — opnsense', 'http://10.0.0.1:9100', 'ok',
      '3 values read', None,
-     {'mem_active_bytes': 1840291840, 'load1': 0.42, 'root_free_bytes': 41234000000}),
+     {'mem_active_bytes': 1840291840, 'load1': 0.42, 'root_free_bytes': 41234000000}),    # 8.0.0: the networks that carry remote access. Tailscale and Headscale count the hosts and their keys (a key that ends within 14
+    # days is a warning); a Cloudflare tunnel that has lost some of its connections is degraded, and one with none is down.
+    ('tailscale', 'Tailscale', 'https://api.tailscale.com', 'warning',
+     '14 hosts, 11 online, 2 keys end within 14 days', None,
+     {'devices': 14, 'online': 11, 'offline': 3, 'keys_expiring': 2, 'keys_expired': 0, 'updates': 3, 'unapproved': 0}),
+    ('headscale', 'Headscale', 'https://headscale.lab', 'ok',
+     '6 hosts, 5 online', None,
+     {'devices': 6, 'online': 5, 'offline': 1, 'keys_expiring': 0, 'keys_expired': 0, 'updates': 0, 'unapproved': 0}),
+    ('cloudflare_tunnel', 'Cloudflare Tunnel', 'https://api.cloudflare.com', 'warning',
+     '3 tunnels, 2 healthy, 1 degraded', None,
+     {'tunnels': 3, 'healthy': 2, 'degraded': 1, 'down': 0, 'inactive': 0, 'connections': 7}),
 ]
 
 _DEMO_INTEGRATIONS = [
