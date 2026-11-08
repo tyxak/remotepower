@@ -57,6 +57,7 @@ from i18n_engine import text_node_cap   # noqa: E402
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 _API = _ROOT / 'server' / 'cgi-bin' / 'api.py'
 _CHECKS = _ROOT / 'server' / 'cgi-bin' / 'checks.py'
+_INTEGRATIONS = _ROOT / 'server' / 'cgi-bin' / 'integrations.py'
 _I18N = _ROOT / 'server' / 'html' / 'static' / 'js' / 'i18n.js'
 _NODE = shutil.which('node')
 
@@ -93,6 +94,8 @@ def _top_level_value(tree, name):
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id == name:
                     return node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name and node.value is not None:
+            return node.value                       # `_STATS: dict = {...}`
     raise AssertionError(f'{name} is no longer a top-level assignment')
 
 
@@ -152,6 +155,12 @@ def _registries():
     out['CHECK_BASELINE_CATALOG.name'] = [c.get('name') for c in cat]
     out['CHECK_BASELINE_CATALOG.desc'] = [c.get('desc') for c in cat]
 
+    # 8.0.0: the label under each number of an Integrations tile. 34 of the 80 had no entry and were English in every language, including four that a
+    # release had just added: the registry was in no gate.
+    stats = _top_level_value(ast.parse(_INTEGRATIONS.read_text(encoding='utf-8')), '_STATS')
+    out['integrations._STATS.label'] = [
+        (_literal(row) or (None, None, None))[1] for rows in stats.values for row in (rows.elts if isinstance(rows, ast.List) else [])]
+
     return {k: sorted({s for s in v if isinstance(s, str) and s.strip()})
             for k, v in out.items()}
 
@@ -171,6 +180,7 @@ _FLOOR = {
     'CHECK_BASELINE_CATALOG.cat': 8,
     'CHECK_BASELINE_CATALOG.name': 60,
     'CHECK_BASELINE_CATALOG.desc': 60,
+    'integrations._STATS.label': 60,
 }
 
 
@@ -289,7 +299,18 @@ class TestServerLabelsAreTranslated(unittest.TestCase):
 
 # Labels whose translation is the English word itself: German says "offline" too. They come back
 # from the engine unchanged and are correct. An entry that stops being identical is stale.
-_SAME_IN_LANGUAGE = {'de': {'Host offline'}}
+# Labels that a language writes the way English does: protocol and product terms (HTTP, vApps, CrashLoop), and words the language has borrowed (Plugins, Videos, Online).
+# Added with the stat labels of the Integrations tiles (8.0.0), which join the population here. Each entry must still be identical to English in that language:
+# test_the_same_in_language_list_is_not_stale fails the one that is translated differently now.
+_KEPT = {'CrashLoop', 'HTTP', 'vApps'}
+_SAME_IN_LANGUAGE = {
+    'zh': set(_KEPT),
+    'hi': set(_KEPT),
+    'ar': set(_KEPT),
+    'es': _KEPT | {'Array', 'Datastores', 'Hosts', 'Pools', 'Routers', 'Streaming', 'Torrents', 'Upstreams'},
+    'de': _KEPT | {'Host offline', 'Array', 'Bridge', 'Datastores', 'Hosts', 'Offline', 'Online', 'Plugins', 'Pools', 'Repos', 'Streaming', 'Torrents', 'Upstreams', 'VMs', 'Videos'},
+    'fr': _KEPT | {'Array', 'Datastores', 'Documents', 'Photos', 'Plugins', 'Pools', 'Streaming', 'Torrents', 'Tunnels', 'Upstreams'},
+}
 
 
 @unittest.skipUnless(_NODE, 'node not installed')

@@ -167,6 +167,11 @@ class TestPaperlessSaysWhenItIsNotWell(unittest.TestCase):
         r, _ = run({"type": "paperless", "secret": "tok"}, routes)
         self.assertEqual(r["status"], I.CRIT, "the core call still fails the poll")
 
+    def test_a_status_call_that_gets_no_answer_leaves_the_counts_and_is_not_a_failure(self):
+        routes = {("GET", "/api/statistics/"): (200, {"documents_total": 120, "documents_inbox": 3}), ("GET", "/api/status/"): I.IntegrationError("timed out")}
+        r, _ = run({"type": "paperless", "secret": "tok"}, routes)
+        self.assertEqual((r["status"], r["detail"]), (I.OK, "120 documents, 3 in inbox"))
+
     def test_the_label_names_the_new_metric(self):
         self.assertIn(("problems", "Problems", "int"), I._STATS["paperless"])
         self.assertIn("view_system_monitoring", I.CONNECTORS["paperless"]["notes"])
@@ -373,6 +378,12 @@ class TestGrafanaSaysWhatIsFiring(unittest.TestCase):
         for junk in ({"a": 1}, "x", [None, 3, "y", {"status": 1}, {"labels": "z", "status": {"state": "active"}}]):
             r, _ = grafana(junk)
             self.assertIn(r["status"], (I.OK, I.WARN), junk)
+
+    def test_an_alerts_call_that_gets_no_answer_leaves_the_tile_what_the_health_call_says(self):
+        routes = {("GET", "/api/health"): (200, {"database": "ok", "version": "12.0.0"}), ("GET", "/api/alertmanager/grafana/api/v2/alerts"): I.IntegrationError("timed out")}
+        r, _ = run({"type": "grafana", "secret": "tok"}, routes)
+        self.assertEqual((r["status"], r["detail"]), (I.OK, "database ok"))
+        self.assertNotIn("alerts_firing", r["metrics"])
 
     def test_the_label_names_the_new_metric(self):
         self.assertIn(("alerts_firing", "Firing", "int"), I._STATS["grafana"])

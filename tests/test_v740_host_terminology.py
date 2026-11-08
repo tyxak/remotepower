@@ -51,6 +51,8 @@ ALLOW = {
         'search keywords: typing the old word still finds the page',
     ('server/cgi-bin/integrations.py', r'Devices'):
         'Syncthing calls its peers devices, and the tile shows its number',
+    ('server/html/static/js/i18n.js', r'Devices'):
+        'the key of the translation of the Syncthing tile\'s label above',
     ('client/remotepower-agent.py', r'unknown device'):
         'a USB peripheral with no vendor or product name',
 }

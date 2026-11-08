@@ -1202,10 +1202,15 @@ def _grafana(inst, c):
     # of {labels, status{state: unprocessed | active | suppressed}, ...}. Only `active` is firing, whatever the filters let through. A token that may not read them, or a Grafana
     # without the route (legacy alerting), leaves the answer as it was.
     if inst.get("secret"):
-        r = c.get("/api/alertmanager/grafana/api/v2/alerts", headers=h, params={"active": "true", "silenced": "false", "inhibited": "false"})
+        try:
+            r = c.get("/api/alertmanager/grafana/api/v2/alerts", headers=h, params={"active": "true", "silenced": "false", "inhibited": "false"})
+        except IntegrationError:
+            r = None        # the health call answered; this one got none (a timeout, a reset): the tile stays what the health call says
         firing = None
         names = []
-        if r.ok:
+        if r is None:
+            pass
+        elif r.ok:
             try:
                 body = r.json()
             except (IntegrationError, ValueError):
@@ -1842,7 +1847,10 @@ def _paperless(inst, c):
     }
     # 8.0.0: Paperless-ngx's own health, GET /api/status/. It answers a plain-text 403 to a user who is not staff or a superuser and does not hold
     # paperless.view_system_monitoring, and a release that has no such route a 404: neither is Paperless being unwell, so the counts stay and the detail says why health is missing.
-    r = c.get("/api/status/", headers=h)
+    try:
+        r = c.get("/api/status/", headers=h)
+    except IntegrationError:
+        return out          # the counts were read; the health call got no answer (a timeout, a reset): that is not Paperless being unwell
     if r.ok:
         try:
             body = r.json()

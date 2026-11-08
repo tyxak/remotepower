@@ -367,6 +367,11 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   `tests/test_v800_connector_updates_2.py`. Not changed: TrueNAS (the REST API goes away in the release the docs call 26; its replacement is a WebSocket client this
   server does not have) and UniFi (the official pages could not be read).
 
+- **The labels under the numbers of an Integrations tile are translated.** 34 of the 80 labels (Photos, Videos, Nodes, Cameras, Torrents, Firing and others, four of them
+  added by this release) had no dictionary entry and read English in the other six languages, and no gate looked at them. They have translations now, and the registry
+  (`integrations._STATS`) is in the label gate (`tests/test_v702_server_labels_i18n.py`), so a new label without them fails the build. The extra calls of the Paperless and
+  Grafana connectors also keep a timeout or a reset from turning a healthy tile critical.
+
 ### Found by surveying the whole code
 
 Three surveys, each over everything of its kind. The routes the server answers against the pages that call them (most of the routes no page calls
