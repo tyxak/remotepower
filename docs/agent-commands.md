@@ -144,6 +144,10 @@ agent more than one major version behind is marked incompatible and should be
 reinstalled instead of self-updating. An agent with a higher major version than the
 server is marked incompatible too, and you should upgrade the server first.
 
+The host's **Force-upgrade** question reads this before it is shown. For an agent marked incompatible it adds
+*Not compatible with this server* and the reason, so you can stop and reinstall or upgrade the server instead. You can
+still confirm. If the answer does not come, the question is the one it always was.
+
 ## Backup integrity verification
 
 Point the agent at backup files or repositories to verify (`restic`, `borg` or `tar`

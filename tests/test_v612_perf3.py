@@ -313,7 +313,12 @@ class TestEagerJsPayload(unittest.TestCase):
         # the copy button read, and the Web terminal row), app.js 884 (the bolt on a host whose agent holds the push channel open, in the table, on the card
         # and in the drawer, and the question the Roll back button asks) and app-backups.js 566 (a datastore's error, that it is not mounted, bad chunks).
         # Server Status, the host table and the Backups page draw before a loader could be asked for more. The translations are in i18n.js, which is not eager.
-        self.assertLess(total, 2_720_000,
+        # 8.0.0 whole-code survey: 2_726_000. The payload was about 2_719_900 after the app discovery and the wizards and is 2_722_791 now: about 2,900
+        # bytes more. index.html is 1,900 of them (the four places the survey found a control missing: the host drawer's business services, the viewer
+        # switch of the Alerts inbox, the SAML SP entity ID and the CMDB dialog's shared logins) and app.js about 1,000 (the two lines that ask for the
+        # drawer's services and the shared logins, the compatibility note of the force-upgrade question, the switch and the field on load and save).
+        # The renderers are in lazy modules; the sections they fill sit in the markup that is drawn before a loader runs.
+        self.assertLess(total, 2_726_000,
                         'the eager JS payload regressed past its budget')
 
 

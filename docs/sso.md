@@ -130,14 +130,15 @@ from your IdP:
 | Groups attribute | `saml_attr_groups` | Default `groups`. |
 | Admin group | `saml_admin_group` | Legacy single admin group. |
 | Allow IdP-initiated sign-in | `saml_allow_unsolicited` | Off is safer — see below. |
+| SP entity ID | `saml_sp_entity_id` | Optional; blank = `https://<your-server>/api/saml/metadata`. Set it when your IdP registered another identifier for this server. |
 
 **On the IdP**: hand it the SP metadata from `GET /api/saml/metadata` (the
 "View SP metadata" button; public, no auth). The values it contains:
 
 - **ACS URL**: `https://<your-server>/api/auth/saml/acs` (HTTP-POST binding)
 - **SP entity ID**: defaults to `https://<your-server>/api/saml/metadata`;
-  override with the config-only key `saml_sp_entity_id` (no Settings field —
-  set it via `POST /api/config`).
+  fill in the **SP entity ID** field on the SAML card when your IdP registered
+  another identifier for this server.
 
 Verification posture: pysaml2 enforces signatures (both the response *and*
 the assertions must be signed), audience and validity window; RemotePower

@@ -1843,6 +1843,8 @@
             <div class="section-title">Alerts inbox</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ack-comment-enabled" checked> Prompt for an optional comment when acknowledging an alert</label></div>
             <p class="hint">When on, acknowledging an alert (single or "Ack selected") asks for an optional comment. The comment is stored on the alert and included in the acknowledgement webhook. Turn this off to acknowledge in one click. <a href="docs/alerts.md" class="c-accent">Documentation</a></p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-viewers-can-ack" checked> Let every signed-in user acknowledge, resolve and assign alerts</label></div>
+            <p class="hint">On by default. Turn it off and only administrators can acknowledge, unacknowledge, resolve or assign an alert; everyone else can still read them.</p>
           </div>
 
           <!-- v6.1.1 (#53): alert-storm auto-promotion to a status-page
@@ -2308,6 +2310,10 @@
               </label>
               <label class="form-label">IdP entity ID
                 <input type="text" id="saml-idp-entity-id" class="form-input" placeholder="https://idp.example.com/saml/metadata">
+              </label>
+              <label class="form-label">SP entity ID (optional)
+                <input type="text" id="saml-sp-entity-id" class="form-input" placeholder="(blank = the metadata URL of this server)">
+                <span class="hint">The identifier your identity provider has registered for this server. Leave it blank unless the IdP was set up with an ID other than the metadata URL.</span>
               </label>
               <label class="form-label">IdP SSO URL (HTTP-Redirect)
                 <input type="text" id="saml-idp-sso-url" class="form-input" placeholder="https://idp.example.com/saml/sso">
@@ -10375,6 +10381,13 @@ nextcloud mem=95 sustain=6</pre>
           <div id="drawer-apps-list" class="scroll-cap"><!-- rendered by JS --></div>
         </div>
 
+        <!-- 8.0.0: the business services this host is a part of, directly or through another service (app-business-services.js fills it and shows it when there is one) -->
+        <div class="drawer-section mt-16" id="drawer-services-section" hidden>
+          <div class="section-title">Business services that depend on this host</div>
+          <p class="hint">These services use this host, directly or through another service. Open one to see its parts.</p>
+          <div id="drawer-services-list" class="scroll-cap"><!-- rendered by JS --></div>
+        </div>
+
         <div class="drawer-section mt-16">
           <div class="section-title">Host settings</div>
           <div id="drawer-settings-form"><!-- rendered by JS --></div>
@@ -11904,6 +11917,12 @@ nextcloud mem=95 sustain=6</pre>
     </div>
     <div id="cmdb-creds-list" class="scroll-cap">
       <div class="isl-232">No credentials yet.</div>
+    </div>
+    <!-- 8.0.0: the shared logins of a site, group or tag that this host is in (cmdbLoadInherited fills it and shows it when there is one) -->
+    <div id="cmdb-inherited-wrap" class="mt-16" hidden>
+      <div class="section-title">Shared logins that apply to this host</div>
+      <p class="hint">Defined once for a site, a group or a tag under Scoped credentials on the CMDB page. Reveal needs the vault unlocked.</p>
+      <div id="cmdb-inherited-list" class="scroll-cap"></div>
     </div>
   </div>
 

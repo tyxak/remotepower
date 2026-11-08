@@ -8,6 +8,8 @@
 let _bsData = null;          // {services, counts} from GET /api/business-services
 let _bsParts = [];           // the parts of the service being edited
 let _bsPick = null;          // what the part picker offers: {hosts, monitors, scripts, services}
+let _bsDrawerSeq = 0;        // the newest request of the host drawer's section: an older answer arrives late and is dropped
+let _bsDrawerRows = [];      // the services of that section, named by their place in the list in its links
 
 const _BS_STATE = {
   ok:       ['Up',       'c-green-bold', '●'],
@@ -261,4 +263,31 @@ async function deleteBusinessServiceFromModal() {
   closeModal('bs-modal');
   toast('Service deleted', 'success');
   loadBusinessServices();
+}
+
+// 8.0.0: the host drawer's "Business services that depend on this host". The server answers with the services that hold the host, directly or through another service, each
+// with its state (GET /api/business-services/impact); a host that is in no service has no section. The links are named by their place in the list, not by the service's id.
+async function loadDrawerServices(id) {
+  const sec = document.getElementById('drawer-services-section');
+  const box = document.getElementById('drawer-services-list');
+  if (!sec || !box) return;
+  box.innerHTML = '';
+  sec.hidden = true;                      // a drawer that has just been opened starts empty: what was on screen is another host's
+  const seq = ++_bsDrawerSeq;
+  const r = await api('GET', '/business-services/impact?device_id=' + encodeURIComponent(id)).catch(() => null);
+  if (seq !== _bsDrawerSeq || _drawerDeviceId !== id) return;
+  const rows = r && Array.isArray(r.services) ? r.services : [];
+  if (!rows.length) return;
+  _bsDrawerRows = rows;
+  box.innerHTML = rows.map((s, i) => `<div class="row-8-center mb-6">${_bsStateBadge(s.state)}
+      <a href="#" class="fw-500" data-action="drawerOpenService" data-arg="${i}" data-prevent-default>${escHtml(s.name)}</a>
+      ${s.direct ? '' : '<span class="hint">through another service</span>'}</div>`).join('');
+  sec.hidden = false;
+}
+
+function drawerOpenService(i) {
+  const s = _bsDrawerRows[i];
+  if (!s) return;
+  closeDeviceDrawer();
+  openBusinessServiceDetail(s.id);
 }

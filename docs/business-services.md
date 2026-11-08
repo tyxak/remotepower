@@ -66,6 +66,12 @@ is told, so one missed report does not page. Then:
 Both events go through the [notification routing](webhooks.md) like any other, under the kind **Business service degraded
 / down**, and they show in the Alerts inbox and the activity feed. Deleting a service closes its open alert.
 
+## On a host
+
+Open a host's drawer (Actions and settings) and **Business services that depend on this host** lists every service that has
+the host as a part, with its state. A service that holds another service which holds the host is listed too, marked
+*through another service*. Select a name to open the service. A host that is in no service shows no section.
+
 ## Availability
 
 The 30-day figure is the share of the last 30 days the service was not down. Degraded counts as up, because it still

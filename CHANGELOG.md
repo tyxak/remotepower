@@ -358,6 +358,33 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   `remotepower-syslogd` reaches the wizard through the receiver, the API and the token, and the real `remotepower-satellite.py`, started from the token the page showed, makes the page say
   Connected; the flow receiver was not run, its test raises the token's count the way a forwarded rollup does) and 16 mutations of the wizards.
 
+### Found by surveying the whole code
+
+Three surveys, each over everything of its kind. The routes the server answers against the pages that call them (most of the routes no page calls
+belong to agents, daemons, signed links or the MCP server; three had been written for a page that was never built). The settings the server saves against
+the Settings page. And every sidebar page of an empty install, as it looks on the first day. Held by `tests/test_v800_settings_gaps.py`,
+`tests/test_v800_settings_gaps_e2e.py`, `tests/test_v800_host_services_e2e.py`, `tests/test_v800_agent_compat_warning_e2e.py`,
+`tests/test_v800_inherited_creds_e2e.py` and `tests/test_v800_empty_install_walk_e2e.py`.
+
+- **A host's drawer lists the business services that depend on it.** `GET /api/business-services/impact` answers which services a host belongs to,
+  directly or through another service, and was written for the host's page. The drawer now shows them under **Business services that depend on this
+  host**, each with its state. A service that reaches the host only through another service says so, a name opens the service's dialog, and a host in
+  no service has no section.
+- **The force-upgrade question warns about an agent that cannot take the update.** `GET /api/agent-compat` was written for it and nothing asked. An agent
+  a major version ahead of the server would be put back, and one more than a major behind may need a fresh install. The question now says so, with the
+  reason. You can still confirm. If the answer does not come, the question is the one it always was.
+- **A host's CMDB dialog lists the shared logins it inherits.** A login stored once for a site, a group or a tag was listed only on the CMDB page, never on
+  the hosts it applies to. `GET /api/cmdb/<id>/inherited-credentials` answered that and no page asked. The Credentials tab now has **Shared logins that apply
+  to this host** with the label, the scope and the user name, and **Reveal** (the vault has to be unlocked). A host none applies to shows nothing.
+- **Two settings have a control.** Settings → Alerts inbox has **Let every signed-in user acknowledge, resolve and assign alerts** (on by default; off
+  limits those actions to administrators). The SAML card has **SP entity ID** (blank still means the server's metadata URL). Both were documented as
+  options you set by calling the API.
+- **The DNS records table says why it is empty.** With no provider credentials, a locked vault or a token that sees no zone, the table was a header
+  over nothing and only a line of small print above it gave the reason. It now says *No zone to list yet. Give the provider credentials, then pick a
+  zone.* The walk of the empty install is a test now: it opens all 79 sidebar pages of a fresh install and fails on a blank table, a loader that never
+  ends, a failure message, a request the install cannot answer or a script error. The DNS table was the only blank one; 78 pages are on screen and the SSH
+  gateway page is hidden until the gateway is switched on.
+
 ### Single pages
 
 Found by looking at every sidebar page of the demo, and held by `tests/test_sidebar_page_fixes_e2e.py` (7 of 7 mutations caught).

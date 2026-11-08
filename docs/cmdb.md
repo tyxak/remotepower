@@ -297,6 +297,13 @@ username, note) the vault key isn't required — those fields aren't
 encrypted. If you change the password, the new value gets re-encrypted
 under the current key, so you need an unlocked vault for that path.
 
+### Shared logins for a site, group or tag
+
+A login that belongs to a whole site, group or tag (a customer's domain admin, the switch password of a site) is stored once under **Scoped credentials**
+on the CMDB page, with the same vault. Every host in that site or group, or carrying that tag, inherits it. The Credentials tab of a host's CMDB dialog
+lists the ones that apply to it under **Shared logins that apply to this host**: label, scope and user name, with **Reveal** (the vault has to be unlocked).
+A host that none applies to shows no list. You see only the logins your account may see.
+
 ### Deleting
 
 Hard delete. The encrypted blob is removed from `cmdb.json` on save.
@@ -424,6 +431,7 @@ finance roles cannot.
 | POST   | `/cmdb/vault/unlock` | any | Body: `{passphrase}`. Returns `{key}` on success, 403 on bad pass (with audit). |
 | POST   | `/cmdb/vault/change` | admin | Body: `{old_passphrase, new_passphrase}`. Returns `{key, rotated}`. |
 | GET    | `/cmdb/{device_id}/credentials` | any | Metadata only — never returns ciphertext or plaintext. |
+| GET    | `/cmdb/{device_id}/inherited-credentials` | any | The scoped credentials that apply to this host, metadata only. Reveal is `POST /scoped-credentials/{id}/reveal`. |
 | POST   | `/cmdb/{device_id}/credentials` | admin + key | Body: `{label, username, password, note}`. Returns `{id}`. |
 | PUT    | `/cmdb/{device_id}/credentials/{cred_id}` | admin (+ key if password changes) | Send only changed fields. |
 | DELETE | `/cmdb/{device_id}/credentials/{cred_id}` | admin | Hard delete. |

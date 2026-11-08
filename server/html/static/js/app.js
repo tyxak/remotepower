@@ -5680,6 +5680,8 @@ async function loadSettings() {
   // W1-21: signed ack/resolve links in alert emails (default off)
   const _aal = document.getElementById('cfg-alert-ack-links');
   if (_aal) _aal.checked = !!data.alert_email_ack_links;
+  const _vca = document.getElementById('cfg-viewers-can-ack');   // 8.0.0: on unless the server says false
+  if (_vca) _vca.checked = data.viewers_can_ack_alerts !== false;
   const _pubUrl = document.getElementById('cfg-public-base-url');   // v7.1.0
   if (_pubUrl) _pubUrl.value = data.public_base_url || '';
 
@@ -6276,6 +6278,7 @@ async function saveSettings(btn) {
     ack_comment_enabled:       (document.getElementById('cfg-ack-comment-enabled') || {}).checked ?? true,
     // W1-21: signed ack/resolve links in alert emails (default off)
     alert_email_ack_links:     !!(document.getElementById('cfg-alert-ack-links') || {}).checked,
+    viewers_can_ack_alerts:    (document.getElementById('cfg-viewers-can-ack') || {}).checked ?? true,
     public_base_url:           ((document.getElementById('cfg-public-base-url') || {}).value || '').trim(),
 
     // v3.11.0: scheduled posture digest
@@ -14999,6 +15002,7 @@ async function loadIntegrationsTab() {
       // not a secret — so it's safe to round-trip into the textarea).
       setIf('saml-enabled', 'saml_enabled', true);
       setIf('saml-idp-entity-id', 'saml_idp_entity_id');
+      setIf('saml-sp-entity-id', 'saml_sp_entity_id');
       setIf('saml-idp-sso-url', 'saml_idp_sso_url');
       setIf('saml-idp-cert', 'saml_idp_x509_cert');
       setIf('saml-attr-username', 'saml_attr_username');
@@ -16264,6 +16268,7 @@ async function saveSamlConfig() {
   const payload = {
     saml_enabled:           document.getElementById('saml-enabled').checked,
     saml_idp_entity_id:     val('saml-idp-entity-id'),
+    saml_sp_entity_id:      val('saml-sp-entity-id'),
     saml_idp_sso_url:       val('saml-idp-sso-url'),
     saml_idp_x509_cert:     val('saml-idp-cert'),
     saml_attr_username:     val('saml-attr-username'),
@@ -24839,6 +24844,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   _renderDrawerSettings();
   switchDrawerTab(defaultTab);
   _loadJsModule('app-appdiscovery.js').then(() => { if (typeof loadDrawerApps === 'function') loadDrawerApps(id); });   // 8.0.0: the apps found on this host
+  _loadJsModule('app-business-services.js').then(() => { if (typeof loadDrawerServices === 'function') loadDrawerServices(id); });   // 8.0.0: the services this host is part of
 }
 
 // Where focus goes back to when the drawer closes. The control that opened it sits in the
@@ -31314,7 +31320,11 @@ async function restoreIgnored(category, entry) {
 //   - recovery after a corrupt/truncated previous update
 //   - testing the self-update path
 async function forceAgentUpgrade(deviceId, name) {
-  if (!await uiConfirm(`Force-upgrade agent on "${name}"?\n\nThe agent will re-download and replace its binary on the next heartbeat, even if it already reports the current version. Use this for corrupt-binary recovery or to push a rebuild.`)) return;
+  // 8.0.0: the server says whether this agent can take the update (GET /api/agent-compat): one a major version ahead of the server would be put back, one more than a major behind may need a fresh install
+  const c = await api('GET', '/agent-compat').catch(() => null);
+  const row = c && Array.isArray(c.devices) ? c.devices.find(d => d.id === deviceId) : null;
+  const note = row && row.compatible === false ? `\n\nNot compatible with this server: ${row.reason}.` : '';
+  if (!await uiConfirm(`Force-upgrade agent on "${name}"?\n\nThe agent will re-download and replace its binary on the next heartbeat, even if it already reports the current version. Use this for corrupt-binary recovery or to push a rebuild.` + note)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/agent/force-upgrade`, {});
   if (r?.ok) toast(r.message || 'Force-upgrade scheduled', 'success');
   else failToast(r);

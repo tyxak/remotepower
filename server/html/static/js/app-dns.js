@@ -374,13 +374,16 @@ function _dnsCurrentZone() {
   return { id: zsel.value, name: (opt && opt.dataset.name) || '' };
 }
 
+// 8.0.0: what the records table says while there is no zone to list (no credentials yet, a vault that is locked, a token that sees no zone): not a header over nothing
+const _DNS_NO_ZONE_ROW = '<tr><td colspan="6" class="empty-state-sm">No zone to list yet. Give the provider credentials, then pick a zone.</td></tr>';
+
 async function loadDnsZones() {
   const prov = _dnsCurrentProvider();
   const zsel = document.getElementById('dns-zone');
   const tb = document.getElementById('dns-tbody');
   const status = document.getElementById('dns-status');
   if (zsel) zsel.innerHTML = '';
-  if (tb) tb.innerHTML = '';
+  if (tb) tb.innerHTML = _DNS_NO_ZONE_ROW;
   if (!prov) return;
   if (!prov.creds_set && !prov.vault_set) {
     if (status) status.textContent = prov.cred_hint || 'No API credentials configured for this provider.';
@@ -410,7 +413,7 @@ async function loadDnsRecords() {
   const zone = _dnsCurrentZone();
   const tb = document.getElementById('dns-tbody');
   const status = document.getElementById('dns-status');
-  if (!prov || !zone) { if (tb) tb.innerHTML = ''; return; }
+  if (!prov || !zone) { if (tb) tb.innerHTML = _DNS_NO_ZONE_ROW; return; }
   if (tb) tb.innerHTML = _skeletonRows(5);
   const data = await api('GET', `/dns/records?provider=${encodeURIComponent(prov.key)}&zone=${encodeURIComponent(zone.id)}&zone_name=${encodeURIComponent(zone.name)}`, undefined, _dnsExtra());
   if (!data || data.error) {

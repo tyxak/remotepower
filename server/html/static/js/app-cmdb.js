@@ -1064,6 +1064,7 @@ async function cmdbAssetSave() {
 
 async function cmdbLoadCreds(deviceId) {
   if (!deviceId) return;
+  cmdbLoadInherited(deviceId);
   const warn = document.getElementById('cmdb-creds-locked-warning');
   const addBtn = document.getElementById('cmdb-creds-add-btn');
   const locked = !_cmdbVaultKey;
@@ -1121,6 +1122,31 @@ async function cmdbLoadCreds(deviceId) {
       </div>
     </div>`;
   }).join('');
+}
+
+// 8.0.0: the shared logins that apply to the host in the dialog (GET /api/cmdb/<id>/inherited-credentials: what the server knows about them, never a secret). They are defined once
+// for a site, a group or a tag on the CMDB page and were only ever listed there, never on the host they apply to. Reveal is the scoped credential's own.
+let _cmdbInhSeq = 0;      // the newest request: an older answer arrives late and is dropped
+async function cmdbLoadInherited(deviceId) {
+  const wrap = document.getElementById('cmdb-inherited-wrap');
+  const list = document.getElementById('cmdb-inherited-list');
+  if (!wrap || !list) return;
+  const seq = ++_cmdbInhSeq;
+  const res = await cmdbApi('GET', '/cmdb/' + encodeURIComponent(deviceId) + '/inherited-credentials').catch(() => null);
+  if (seq !== _cmdbInhSeq || !_cmdbCurrent || _cmdbCurrent.device_id !== deviceId) return;
+  const creds = res && res.ok && res.data && Array.isArray(res.data.credentials) ? res.data.credentials : [];
+  wrap.hidden = !creds.length;
+  const locked = !_cmdbVaultKey;
+  list.innerHTML = creds.map(c => `<div class="isl-444">
+      <div class="isl-445">
+        <div class="fw-600">${_cmdbEsc(c.label)} <span class="group-badge">${_cmdbEsc(c.scope_type)}</span> <span class="hint">${_cmdbEsc(c.scope_value)}</span></div>
+        <div class="isl-328">user: ${_cmdbEsc(c.username) || '—'}</div>
+        ${c.note ? `<div class="isl-69">${_cmdbEsc(c.note)}</div>` : ''}
+      </div>
+      <div class="isl-446">
+        <button class="btn-icon" ${locked ? 'disabled' : ''} data-action="scopedCredReveal" data-arg="${_cmdbEsc(c.id)}">Reveal</button>
+      </div>
+    </div>`).join('');
 }
 
 function cmdbSshCopy(cmd) {

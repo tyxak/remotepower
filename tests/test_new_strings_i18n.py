@@ -465,6 +465,21 @@ NEW_STRINGS = [
     "Turning it on adds a Sign in with SSO button to the sign-in page. Local accounts keep working, and anyone the provider lets in gets a viewer account.",
     "To try it, open the sign-in page in a private window. Keep this window signed in until it works.",
     "Single sign-on turned on",
+    # 8.0.0: Settings controls the whole-code survey found missing
+    "Let every signed-in user acknowledge, resolve and assign alerts",
+    "On by default. Turn it off and only administrators can acknowledge, unacknowledge, resolve or assign an alert; everyone else can still read them.",
+    "SP entity ID (optional)",
+    "(blank = the metadata URL of this server)",
+    "The identifier your identity provider has registered for this server. Leave it blank unless the IdP was set up with an ID other than the metadata URL.",
+    # 8.0.0: the business services a host is part of (host drawer)
+    "Business services that depend on this host",
+    "These services use this host, directly or through another service. Open one to see its parts.",
+    "through another service",
+    # 8.0.0: the shared logins a host inherits (CMDB dialog, Credentials)
+    "Shared logins that apply to this host",
+    "Defined once for a site, a group or a tag under Scoped credentials on the CMDB page. Reveal needs the vault unlocked.",
+    # 8.0.0: the empty DNS records table
+    "No zone to list yet. Give the provider credentials, then pick a zone.",
 ]
 
 
