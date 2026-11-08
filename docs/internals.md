@@ -50,7 +50,7 @@ By the numbers:
 | Typed request-body models | ~280 |
 | Homelab integration connectors | 53 (+ a generic HTTP probe) |
 | Background maintenance sweeps | ~78 |
-| Frontend JS files (no bundler) | 62 |
+| Frontend JS files (no bundler) | 66 |
 | Test methods across ~1,100 files | ~20,000 |
 
 ---
@@ -246,7 +246,7 @@ the UI.
 ## The frontend: a framework you can read
 
 The dashboard is one `index.html` (~13,000 lines), one main `app.js` (~34,000
-lines), and ~61 supporting JS modules — all vanilla, all served as-is. No
+lines), and ~65 supporting JS modules — all vanilla, all served as-is. No
 framework, no build, no bundler. State lives in a few module-scoped objects;
 rendering is `innerHTML` with escaped values plus targeted DOM updates.
 

@@ -15,11 +15,14 @@ The seed is run once for the whole process (test_v702_seeder_shapes keeps it), a
 """
 import importlib.util
 import json
+import os
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
 
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-seeder-caps-"))      # before anything that executes api.py or the seeder (see test_rp_data_dir_guard)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_v702_seeder_shapes as seeded  # noqa: E402 (it puts server/cgi-bin on the path and keeps the one seeding of the demo data)
 import host_probe_handlers as H  # noqa: E402

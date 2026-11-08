@@ -120,7 +120,7 @@ class TestTheDevicesOfAnApiKeyConsole(unittest.TestCase):
 
     def test_an_incorrect_u5g_topology_is_a_warning(self):
         r, _ = poll(routes([dev("LTE", "U5G_INCORRECT_TOPOLOGY", i=1)]))
-        self.assertEqual((r["status"], r["detail"]), (I.WARN, "1 device(s) with an incorrect topology (U5G)"))
+        self.assertEqual((r["status"], r["detail"]), (I.WARN, "1 device with an incorrect topology (U5G)"))
 
     def test_more_than_three_down_are_named_three_and_counted_all(self):
         r, _ = poll(routes([dev("AP %d" % i, "OFFLINE", i=i) for i in range(1, 6)]))

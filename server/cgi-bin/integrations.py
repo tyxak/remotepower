@@ -750,7 +750,10 @@ def _unifi_integration(inst, c, site):
             " …" if len(down) > 3 else ""
         )
     elif odd:
-        status, detail = WARN, f"{len(odd)} device(s) with an incorrect topology (U5G)"
+        status, detail = (
+            WARN,
+            f"{plural(len(odd), 'device', 'devices')} with an incorrect topology (U5G)",
+        )
     else:
         status, detail = OK, f"{len(devices)} devices online" if devices else "no adopted devices"
     if total > len(devices):

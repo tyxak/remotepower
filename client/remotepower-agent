@@ -4999,7 +4999,7 @@ _ac_APPS = (
     _ac_app('immich', 'Immich', 'media', (2283,), (), ('immich-server',), ('immich-server', 'immich'), 'immich', True),
     _ac_app('frigate', 'Frigate', 'media', (5000, 8971), (), ('frigate',), ('frigate',), 'frigate'),
     _ac_app('qbittorrent', 'qBittorrent', 'download', (8080,), ('qbittorrent-nox',), ('qbittorrent', 'qbittorrent-nox'), ('qbittorrent-nox',), 'qbittorrent'),
-    _ac_app('transmission', 'Transmission', 'download', (9091,), ('transmission-da',), ('transmission',), ('transmission-daemon',), 'transmission', True),
+    _ac_app('transmission', 'Transmission', 'download', (9091,), ('transmission-da',), ('transmission',), ('transmission-daemon',), 'transmission'),   # 9091 is Authelia's default too, so it is no sign by itself (8.0.0)
     _ac_app('deluge', 'Deluge', 'download', (8112,), ('deluged', 'deluge-web'), ('deluge',), ('deluged', 'deluge-web'), 'deluge', True),
     _ac_app('sabnzbd', 'SABnzbd', 'download', (8080,), (), ('sabnzbd',), ('sabnzbd', 'sabnzbdplus'), 'sabnzbd'),
     _ac_app('nzbget', 'NZBGet', 'download', (6789,), ('nzbget',), ('nzbget',), ('nzbget',), 'nzbget', True),
@@ -5014,6 +5014,20 @@ _ac_APPS = (
     _ac_app('syncthing', 'Syncthing', 'storage', (8384,), ('syncthing',), ('syncthing',), ('syncthing',), 'syncthing', True),
     _ac_app('samba', 'Samba', 'storage', (445, 139), ('smbd',), ('samba',), ('smb', 'smbd'), '', True),
     _ac_app('k3s', 'Kubernetes (k3s)', 'orchestration', (6443,), ('k3s-server', 'k3s'), ('k3s',), ('k3s',), 'kubernetes', True, 'https'),
+    # 8.0.0, second tranche: each sign below is the product's own name for itself (its binary, its image, its systemd unit) and each port its documented default. Authelia's 9091 is Transmission's
+    # too, so neither lists it as `distinct`: it is a sign only when another one agrees.
+    _ac_app('authelia', 'Authelia', 'web', (9091,), ('authelia',), ('authelia',), ('authelia',)),
+    _ac_app('keycloak', 'Keycloak', 'web', (8080, 8443), (), ('keycloak',), ('keycloak',)),
+    _ac_app('haproxy', 'HAProxy', 'web', (80, 443), ('haproxy',), ('haproxy',), ('haproxy',)),
+    _ac_app('portainer', 'Portainer', 'orchestration', (9443, 9000), ('portainer',), ('portainer-ce', 'portainer-ee'), ('portainer',), '', False, 'https'),
+    _ac_app('minio', 'MinIO', 'storage', (9000, 9001), ('minio',), ('minio',), ('minio',)),
+    _ac_app('vault', 'HashiCorp Vault', 'cloud', (8200,), ('vault',), ('hashicorp/vault', 'vault'), ('vault',), '', True),
+    _ac_app('consul', 'HashiCorp Consul', 'orchestration', (8500,), ('consul',), ('hashicorp/consul', 'consul'), ('consul',)),
+    _ac_app('nodered', 'Node-RED', 'home', (1880,), (), ('node-red',), ('nodered',), '', True),
+    _ac_app('zigbee2mqtt', 'Zigbee2MQTT', 'home', (8080,), (), ('zigbee2mqtt',), ('zigbee2mqtt',)),
+    _ac_app('ollama', 'Ollama', 'dev', (11434,), ('ollama',), ('ollama',), ('ollama',), '', True),
+    _ac_app('cloudflared', 'Cloudflare Tunnel', 'network', (), ('cloudflared',), ('cloudflared',), ('cloudflared',), 'cloudflare_tunnel'),
+    _ac_app('tailscaled', 'Tailscale', 'network', (), ('tailscaled',), ('tailscale',), ('tailscaled',), 'tailscale'),
 )
 
 _ac_BY_ID = {a['id']: a for a in _ac_APPS}

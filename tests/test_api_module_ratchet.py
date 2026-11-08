@@ -102,7 +102,10 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # 591→592 (v7.4.9): handle_logout — the session lifecycle beside handle_login (the pair that mints and ends a token in tokens.json,
 # which is the request spine: verify_token, require_auth and the dispatcher read the same store). It is nine lines of that store
 # and carries no subsystem of its own, so it stays with handle_login.
-INLINE_HANDLER_CEILING = 592
+# 592→593 (8.0.0): handle_device_settings_get — the read half of handle_device_save_bulk, the drawer's Host settings save (device CRUD, which stays on the spine and inline).
+# The two have to name the same nine fields, and tests/test_v800_drawer_settings.py reads both from this file's syntax tree; a read in another module would put the two
+# halves of one contract in two files, which is the split that hid the defect.
+INLINE_HANDLER_CEILING = 593
 
 
 class TestApiHandlerRatchet(unittest.TestCase):

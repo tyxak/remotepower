@@ -32,18 +32,18 @@ image or a service is a sign on its own. A port is a sign only when it belongs t
 
 | Kind | Apps (✱ has a connector) |
 |---|---|
-| Web servers and proxies | nginx, Apache HTTP Server, Caddy, Traefik ✱, Nginx Proxy Manager ✱ |
+| Web servers and proxies | nginx, Apache HTTP Server, Caddy, Traefik ✱, Nginx Proxy Manager ✱, HAProxy, Authelia, Keycloak |
 | Databases and caches | PostgreSQL, MariaDB / MySQL, Redis / Valkey, MongoDB, InfluxDB, Elasticsearch / OpenSearch, memcached |
 | Messaging | RabbitMQ, Mosquitto (MQTT) |
 | Monitoring | Grafana ✱, Prometheus ✱, Prometheus node exporter ✱, Grafana Loki, Netdata ✱, Uptime Kuma ✱ |
-| DNS and network | Pi-hole ✱, AdGuard Home ✱, Headscale ✱, Unbound |
+| DNS and network | Pi-hole ✱, AdGuard Home ✱, Headscale ✱, Unbound, Cloudflare Tunnel ✱, Tailscale ✱ |
 | Media and photos | Jellyfin ✱, Plex Media Server ✱, Sonarr ✱, Radarr ✱, Lidarr ✱, Readarr ✱, Prowlarr ✱, Bazarr ✱, Overseerr ✱, Immich ✱, Frigate ✱ |
 | Downloads | qBittorrent ✱, Transmission ✱, Deluge ✱, SABnzbd ✱, NZBGet ✱ |
-| Home and printing | Home Assistant ✱, Homebridge ✱, ESPHome ✱, OctoPrint ✱ |
-| Files and secrets | Nextcloud ✱, Vaultwarden ✱, Paperless-ngx ✱ |
-| Development | Gitea / Forgejo ✱ |
-| Storage | Syncthing ✱, Samba |
-| Orchestration | Kubernetes (k3s) ✱ |
+| Home and printing | Home Assistant ✱, Homebridge ✱, ESPHome ✱, OctoPrint ✱, Node-RED, Zigbee2MQTT |
+| Files and secrets | Nextcloud ✱, Vaultwarden ✱, Paperless-ngx ✱, HashiCorp Vault |
+| Development | Gitea / Forgejo ✱, Ollama |
+| Storage | Syncthing ✱, Samba, MinIO |
+| Orchestration | Kubernetes (k3s) ✱, Portainer, HashiCorp Consul |
 
 ## On a host: Discovered on this host
 

@@ -60,7 +60,7 @@ APPS = (
     _app('immich', 'Immich', 'media', (2283,), (), ('immich-server',), ('immich-server', 'immich'), 'immich', True),
     _app('frigate', 'Frigate', 'media', (5000, 8971), (), ('frigate',), ('frigate',), 'frigate'),
     _app('qbittorrent', 'qBittorrent', 'download', (8080,), ('qbittorrent-nox',), ('qbittorrent', 'qbittorrent-nox'), ('qbittorrent-nox',), 'qbittorrent'),
-    _app('transmission', 'Transmission', 'download', (9091,), ('transmission-da',), ('transmission',), ('transmission-daemon',), 'transmission', True),
+    _app('transmission', 'Transmission', 'download', (9091,), ('transmission-da',), ('transmission',), ('transmission-daemon',), 'transmission'),   # 9091 is Authelia's default too, so it is no sign by itself (8.0.0)
     _app('deluge', 'Deluge', 'download', (8112,), ('deluged', 'deluge-web'), ('deluge',), ('deluged', 'deluge-web'), 'deluge', True),
     _app('sabnzbd', 'SABnzbd', 'download', (8080,), (), ('sabnzbd',), ('sabnzbd', 'sabnzbdplus'), 'sabnzbd'),
     _app('nzbget', 'NZBGet', 'download', (6789,), ('nzbget',), ('nzbget',), ('nzbget',), 'nzbget', True),
@@ -75,6 +75,20 @@ APPS = (
     _app('syncthing', 'Syncthing', 'storage', (8384,), ('syncthing',), ('syncthing',), ('syncthing',), 'syncthing', True),
     _app('samba', 'Samba', 'storage', (445, 139), ('smbd',), ('samba',), ('smb', 'smbd'), '', True),
     _app('k3s', 'Kubernetes (k3s)', 'orchestration', (6443,), ('k3s-server', 'k3s'), ('k3s',), ('k3s',), 'kubernetes', True, 'https'),
+    # 8.0.0, second tranche: each sign below is the product's own name for itself (its binary, its image, its systemd unit) and each port its documented default. Authelia's 9091 is Transmission's
+    # too, so neither lists it as `distinct`: it is a sign only when another one agrees.
+    _app('authelia', 'Authelia', 'web', (9091,), ('authelia',), ('authelia',), ('authelia',)),
+    _app('keycloak', 'Keycloak', 'web', (8080, 8443), (), ('keycloak',), ('keycloak',)),
+    _app('haproxy', 'HAProxy', 'web', (80, 443), ('haproxy',), ('haproxy',), ('haproxy',)),
+    _app('portainer', 'Portainer', 'orchestration', (9443, 9000), ('portainer',), ('portainer-ce', 'portainer-ee'), ('portainer',), '', False, 'https'),
+    _app('minio', 'MinIO', 'storage', (9000, 9001), ('minio',), ('minio',), ('minio',)),
+    _app('vault', 'HashiCorp Vault', 'cloud', (8200,), ('vault',), ('hashicorp/vault', 'vault'), ('vault',), '', True),
+    _app('consul', 'HashiCorp Consul', 'orchestration', (8500,), ('consul',), ('hashicorp/consul', 'consul'), ('consul',)),
+    _app('nodered', 'Node-RED', 'home', (1880,), (), ('node-red',), ('nodered',), '', True),
+    _app('zigbee2mqtt', 'Zigbee2MQTT', 'home', (8080,), (), ('zigbee2mqtt',), ('zigbee2mqtt',)),
+    _app('ollama', 'Ollama', 'dev', (11434,), ('ollama',), ('ollama',), ('ollama',), '', True),
+    _app('cloudflared', 'Cloudflare Tunnel', 'network', (), ('cloudflared',), ('cloudflared',), ('cloudflared',), 'cloudflare_tunnel'),
+    _app('tailscaled', 'Tailscale', 'network', (), ('tailscaled',), ('tailscale',), ('tailscaled',), 'tailscale'),
 )
 
 _BY_ID = {a['id']: a for a in APPS}

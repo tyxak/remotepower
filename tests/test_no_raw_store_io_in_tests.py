@@ -53,6 +53,11 @@ _PATTERNS = (
 # site nobody checked.
 EXEMPT_FILES = {
     'test_no_raw_store_io_in_tests.py': 'this file quotes the patterns it bans',
+    'test_v800_push_mark.py':
+        'runs the real push daemon against a data directory written in the JSON layout: the daemon reads that directory, and its read of it is the subject of the test, '
+        'not a storage key being written behind the backend\'s back.',
+    'test_v800_demo_look.py':
+        'reads the config the SEEDER wrote into its output directory, as test_v702_seeder_shapes does: the seeder writes real JSON files before any backend exists.',
     'test_v702_seeder_shapes.py':
         'reads the SEEDER\'s output directory, which the seeder writes as real '
         'JSON files before any backend exists — that directory is the subject '
