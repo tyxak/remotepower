@@ -16151,7 +16151,12 @@ def _purge_device(dev_id):
         try:
             with _LockedUpdate(CONFIG_FILE) as cfg:
                 for key in ('containers_stale_notified', 'metric_notified',
-                            'offline_notified', 'offline_pending'):
+                            'offline_notified', 'offline_pending',
+                            # 8.0.0: the other settings that are a map of host id to something. Four of the
+                            # eight were cleared here and four were not, so a deleted host left its patch
+                            # alert flag, its disabled checks, its DNS result and its hidden apps behind
+                            'patch_alerted', 'host_checks_disabled', 'dns_harvest_result',
+                            'app_discovery_dismissed'):
                     if isinstance(cfg.get(key), dict) and dev_id in cfg[key]:
                         cfg[key].pop(dev_id)
         except Exception:

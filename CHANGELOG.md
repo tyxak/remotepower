@@ -558,6 +558,11 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   **Held by** `tests/test_v800_properties.py` (24 properties; skipped where hypothesis is not installed, which is CI) and `tests/test_v800_found_by_properties.py` (13 examples that CI runs, one
   for each input Hypothesis printed). Each fix was taken out again to see its tests fail, and the first strategy for the `ss` reader did not: the port is only converted after the address parses,
   which random text almost never builds, so it is generated from a valid address and a port of digit-like characters.
+- **Deleting a host now clears the settings that are kept by host.** The purge cleared four of the eight settings that are a map of host id to something and left the other four:
+  the patch alert flag, the disabled checks, the DNS result and, new in 8.0.0, the hidden apps. None of them holds a secret and nothing reads them for a host that is gone, but they
+  stayed for good. The eight are read from the code, and a ninth that the purge misses fails the build (`tests/test_v800_purge_config_maps.py`, which also deletes a host and checks
+  that the other host keeps its entry). Not changed: about a third of the stores still name a deleted host (alerts, tickets, the audit trail, maintenance windows, runbooks, the
+  CMDB). Those are history or records a person wrote, and they are kept on purpose.
 
 ### Single pages
 
