@@ -1187,7 +1187,8 @@ def _netdata(inst, c):
     "Grafana",
     "observability",
     [_field("secret", "API token", PASSWORD, optional=True)],
-    notes="Grafana /api/health (DB reachability). Token optional for the basic check.",
+    notes="Grafana /api/health (DB reachability). A token is optional for that. With a token that may read alert instances, the alerts that are firing now are counted "
+    "and named (/api/alertmanager/grafana/api/v2/alerts, active and not silenced or inhibited) and make the tile a warning.",
 )
 def _grafana(inst, c):
     h = _hdr_token(inst, "Authorization", "Bearer ") if inst.get("secret") else {}
@@ -1195,12 +1196,42 @@ def _grafana(inst, c):
     db = str(hp.get("database", "")).lower()
     ver = hp.get("version", "")
     status = OK if db == "ok" else CRIT
-    return {
-        "status": status,
-        "version": ver,
-        "detail": f"database {db or 'unknown'}",
-        "metrics": {"database_ok": db == "ok"},
-    }
+    detail = f"database {db or 'unknown'}"
+    metrics = {"database_ok": db == "ok"}
+    # 8.0.0: the alert instances that are firing now. Grafana's alerting spec (pkg/services/ngalert/api/tooling/spec.json) gives the route, the three filters and the answer: a list
+    # of {labels, status{state: unprocessed | active | suppressed}, ...}. Only `active` is firing, whatever the filters let through. A token that may not read them, or a Grafana
+    # without the route (legacy alerting), leaves the answer as it was.
+    if inst.get("secret"):
+        r = c.get("/api/alertmanager/grafana/api/v2/alerts", headers=h, params={"active": "true", "silenced": "false", "inhibited": "false"})
+        firing = None
+        names = []
+        if r.ok:
+            try:
+                body = r.json()
+            except (IntegrationError, ValueError):
+                body = None
+            if isinstance(body, list):
+                live = [a for a in body if isinstance(a, dict) and isinstance(a.get("status"), dict) and a["status"].get("state") == "active"]
+                firing = len(live)
+                for a in live:
+                    n = (a.get("labels") or {}).get("alertname") if isinstance(a.get("labels"), dict) else None
+                    if isinstance(n, str) and n and n not in names:
+                        names.append(n)
+        elif r.status in (401, 403):
+            detail += " · the token cannot read alert instances"
+        if firing is not None:
+            metrics["alerts_firing"] = firing
+            if firing:
+                shown = sorted(names)[:3]
+                more = len(names) - len(shown)
+                detail += f" · {firing} alert{'s' if firing != 1 else ''} firing"
+                if shown:
+                    detail += ": " + ", ".join(shown) + (f" +{more} more" if more > 0 else "")
+                if status == OK:
+                    status = WARN
+            else:
+                detail += " · no alerts firing"
+    return {"status": status, "version": ver, "detail": detail, "metrics": metrics}
 
 
 @_register(
@@ -1753,23 +1784,84 @@ def _immich_jobs(c, h):
     return None
 
 
+def _paperless_problems(st):
+    """The problems GET /api/status/ names, worst first, as (status, text).
+
+    Read from Paperless-ngx's own SystemStatusView: database.status and the tasks' redis, celery, index, classifier, sanity-check and LLM-index statuses are OK, WARNING or ERROR, each
+    with an *_error. A WARNING of the classifier, the sanity check or the LLM index is what an install that has not run one yet says ("No classifier training tasks found"), so only
+    their ERROR counts; a WARNING of celery is "no worker answers a ping", which does. A database, redis or celery that is in ERROR stops documents being consumed, so those are critical."""
+    out = []
+    if not isinstance(st, dict):
+        return out
+    db = st.get("database") if isinstance(st.get("database"), dict) else {}
+    tasks = st.get("tasks") if isinstance(st.get("tasks"), dict) else {}
+
+    def word(d, key):
+        return str(d.get(key) or "").upper()
+
+    def say(label, err):
+        e = str(err or "").strip()
+        return f"{label}: {e[:80]}" if e else label
+
+    if word(db, "status") == "ERROR":
+        out.append((CRIT, say("database", db.get("error"))))
+    if word(tasks, "redis_status") == "ERROR":
+        out.append((CRIT, say("redis", tasks.get("redis_error"))))
+    if word(tasks, "celery_status") == "ERROR":
+        out.append((CRIT, say("celery", tasks.get("celery_error"))))
+    elif word(tasks, "celery_status") == "WARNING":
+        out.append((WARN, "celery: no worker answers"))
+    ms = db.get("migration_status") if isinstance(db.get("migration_status"), dict) else {}
+    pending = ms.get("unapplied_migrations") if isinstance(ms.get("unapplied_migrations"), list) else []
+    if pending:
+        out.append((WARN, f"{len(pending)} migration{'s' if len(pending) != 1 else ''} not applied"))
+    for key, label in (("index", "index"), ("classifier", "classifier"), ("sanity_check", "sanity check"), ("llmindex", "LLM index")):
+        if word(tasks, key + "_status") == "ERROR":
+            out.append((WARN, say(label, tasks.get(key + "_error"))))
+    out.sort(key=lambda row: 0 if row[0] == CRIT else 1)
+    return out
+
+
 @_register(
     "paperless",
     "Paperless-ngx",
     "apps",
     [_field("secret", "API token", PASSWORD)],
-    notes="Paperless-ngx API token (profile → API auth token), sent as Authorization: Token.",
+    notes="Paperless-ngx API token (profile → API auth token), sent as Authorization: Token. Counts come from /api/statistics/; health (database, redis, celery, "
+    "index, classifier, sanity check) comes from /api/status/, which Paperless answers only to a staff or superuser account or one with the view_system_monitoring "
+    "permission. Without that the counts still show and the detail says so.",
 )
 def _paperless(inst, c):
     h = _hdr_token(inst, "Authorization", "Token ")
     st = c.get_json("/api/statistics/", headers=h) or {}
     docs = int(_num(st.get("documents_total", 0)))
     inbox = int(_num(st.get("documents_inbox", 0)))
-    return {
+    out = {
         "status": OK,
         "detail": f"{docs} documents, {inbox} in inbox",
         "metrics": {"documents": docs, "inbox": inbox},
     }
+    # 8.0.0: Paperless-ngx's own health, GET /api/status/. It answers a plain-text 403 to a user who is not staff or a superuser and does not hold
+    # paperless.view_system_monitoring, and a release that has no such route a 404: neither is Paperless being unwell, so the counts stay and the detail says why health is missing.
+    r = c.get("/api/status/", headers=h)
+    if r.ok:
+        try:
+            body = r.json()
+        except (IntegrationError, ValueError):     # a body that is not JSON: Resp.json() says so with an IntegrationError
+            body = None
+        if isinstance(body, dict):
+            problems = _paperless_problems(body)
+            out["metrics"]["problems"] = len(problems)
+            if problems:
+                out["status"] = CRIT if problems[0][0] == CRIT else WARN
+                out["detail"] += " · " + "; ".join(text for _, text in problems)
+    elif r.status in (401, 403):
+        out["detail"] += " · health needs a staff user or the view_system_monitoring permission"
+    elif r.status == 404:
+        out["detail"] += " · this Paperless has no status endpoint"
+    else:
+        out["detail"] += f" · the status endpoint answered HTTP {r.status}"
+    return out
 
 
 @_register(
@@ -1845,11 +1937,25 @@ def _syncthing(inst, c):
     uptime = int(_num(st.get("uptime", 0)))
     conns = (c.get_json("/rest/system/connections", headers=h) or {}).get("connections") or {}
     connected = sum(1 for d in conns.values() if (d or {}).get("connected"))
-    return {
+    out = {
         "status": OK,
         "detail": f"{connected}/{len(conns)} devices connected, up {uptime // 3600}h",
         "metrics": {"devices_connected": connected, "devices": len(conns), "uptime_s": uptime},
     }
+    # 8.0.0: Syncthing's own error list, GET /rest/system/error -> {"errors": [{"when", "message"}]} (the red banner of its page). Cheap, unlike /rest/db/status, which its
+    # documentation calls an expensive call and which does not list its states. A release or a key that cannot read it leaves the answer as it was.
+    try:
+        body = c.get_json("/rest/system/error", headers=h)
+    except IntegrationError:
+        return out
+    raw = body.get("errors") if isinstance(body, dict) else None
+    errs = [e for e in (raw if isinstance(raw, list) else []) if isinstance(e, dict) and str(e.get("message") or "").strip()]
+    out["metrics"]["errors"] = len(errs)
+    if errs:
+        newest = max(errs, key=lambda e: str(e.get("when") or ""))
+        out["status"] = WARN
+        out["detail"] += f" · {len(errs)} error{'s' if len(errs) != 1 else ''}: {str(newest['message']).strip()[:100]}"
+    return out
 
 
 @_register(
@@ -1915,12 +2021,16 @@ def _octoprint(inst, c):
     "esphome",
     "ESPHome (dashboard)",
     "apps",
-    [],
-    notes="ESPHome dashboard device list (/devices) — counts nodes and flags "
-    "out-of-date firmware. The dashboard has no token auth; protect it at the proxy.",
+    [_field("username", "User name (optional)", TEXT, optional=True), _field("secret", "Password (optional)", PASSWORD, optional=True)],
+    notes="ESPHome dashboard or ESPHome Device Builder (it replaced the built-in dashboard, which ESPHome has removed). Reads the node list (/devices) and which nodes "
+    "answer (/ping): Device Builder keeps both routes for compatibility and its authors mark them deprecated. Out-of-date firmware is a warning; an offline node is "
+    "counted and said, not alerted, because a node that sleeps is offline most of the time. User name and password only if the dashboard has them set (HTTP Basic).",
 )
 def _esphome(inst, c):
-    data = c.get_json("/devices")
+    h = {}
+    if inst.get("secret"):
+        h = {"Authorization": "Basic " + base64.b64encode(f"{inst.get('username', '')}:{inst.get('secret')}".encode()).decode()}
+    data = c.get_json("/devices", headers=h)
     nodes = (data.get("configured") if isinstance(data, dict) else data) or []
     outdated = 0
     for n in nodes:
@@ -1928,13 +2038,24 @@ def _esphome(inst, c):
         cur = (n or {}).get("current_version")
         if dep and cur and str(dep) != str(cur):
             outdated += 1
+    # 8.0.0: GET /ping answers {<config>.yaml: true | false | null} for every configured node. A dashboard without it, or one that answers anything else, leaves this out.
+    offline = None
+    try:
+        ping = c.get_json("/ping", headers=h)
+        seen = [v for v in ping.values() if isinstance(v, bool)] if isinstance(ping, dict) else []
+        if seen:
+            offline = sum(1 for v in seen if v is False)
+    except IntegrationError:
+        pass
     status = WARN if outdated else OK
-    return {
-        "status": status,
-        "detail": f"{len(nodes)} nodes"
-        + (f", {outdated} out of date" if outdated else ", all current"),
-        "metrics": {"nodes": len(nodes), "outdated": outdated},
-    }
+    detail = f"{len(nodes)} nodes"
+    if offline:
+        detail += f", {offline} offline"
+    detail += f", {outdated} out of date" if outdated else ", all current"
+    metrics = {"nodes": len(nodes), "outdated": outdated}
+    if offline is not None:
+        metrics["offline"] = offline
+    return {"status": status, "detail": detail, "metrics": metrics}
 
 
 @_register(
@@ -2696,7 +2817,7 @@ _STATS: dict = {
     "caddy": [("upstreams", "Upstreams", "num"), ("upstreams_failing", "Failing", "num")],
     "uptimekuma": [("monitors", "Monitors", "num"), ("down", "Down", "num")],
     "netdata": [("alarms_critical", "Critical", "num"), ("alarms_warning", "Warning", "num")],
-    "grafana": [("database_ok", "Database", "flag")],
+    "grafana": [("database_ok", "Database", "flag"), ("alerts_firing", "Firing", "int")],
     "remotepower": [
         ("devices", "Hosts", "int"),
         ("offline", "Offline", "num"),
@@ -2724,13 +2845,13 @@ _STATS: dict = {
         ("disk_pct", "Disk", "pct"),
         ("jobs_failed", "Failed jobs", "num"),
     ],
-    "paperless": [("documents", "Documents", "int"), ("inbox", "Inbox", "num")],
+    "paperless": [("documents", "Documents", "int"), ("inbox", "Inbox", "num"), ("problems", "Problems", "int")],
     "vaultwarden": [("alive", "Alive", "flag")],
     "gitea": [("repos", "Repos", "int")],
-    "syncthing": [("devices_connected", "Connected", "num"), ("devices", "Devices", "num")],
+    "syncthing": [("devices_connected", "Connected", "num"), ("devices", "Devices", "num"), ("errors", "Errors", "int")],
     "frigate": [("cameras", "Cameras", "num"), ("det_fps", "Detect FPS", "num")],
     "octoprint": [("printing", "Printing", "flag"), ("operational", "Operational", "flag")],
-    "esphome": [("nodes", "Nodes", "num"), ("outdated", "Outdated", "num")],
+    "esphome": [("nodes", "Nodes", "num"), ("outdated", "Outdated", "num"), ("offline", "Offline", "num")],
     "homebridge": [("up", "Bridge", "flag"), ("plugins", "Plugins", "num")],
 }
 # The named *arr connectors share the servarr stat chips.

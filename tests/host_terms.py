@@ -63,6 +63,8 @@ PROTECT = re.compile(
     # a third party's own word for its entities: Syncthing and ESPHome call them devices
     r"|\bdevices connected\b"
     r"|\bESPHome dashboard device list\b"
+    # another product's own name: ESPHome Device Builder replaced ESPHome's built-in dashboard
+    r"|\b(?:ESPHome )?Device Builder\b"
 )
 WORD = re.compile(r"\b(?:DEVICES?|[Dd]evices?)\b")
 # a token that is a path, an identifier, a file name or an attribute, not a sentence

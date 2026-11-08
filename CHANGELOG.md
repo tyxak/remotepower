@@ -358,6 +358,15 @@ What has changed since 7.5.0, on the way to 8.0.0. The release has no codename y
   `remotepower-syslogd` reaches the wizard through the receiver, the API and the token, and the real `remotepower-satellite.py`, started from the token the page showed, makes the page say
   Connected; the flow receiver was not run, its test raises the token's count the way a forwarded rollup does) and 16 mutations of the wizards.
 
+- **Four more connectors read what their products' own sources say.** Each was read from the vendor's documentation or source first, and is tested against fixtures
+  built from it, not against the product. **Paperless-ngx** reports its own health from `GET /api/status/` (database, redis, celery, index, classifier, sanity check,
+  migrations); the tile only counted documents and could never be anything but OK, and a user who may not read the route (it needs a staff account or the
+  `view_system_monitoring` permission) gets the counts and a note. **Syncthing** shows its error list as a warning. **Grafana** counts and names the alerts that are firing
+  when the token may read alert instances. **ESPHome** counts the nodes that do not answer, takes an optional user name and password, and its note says that the built-in
+  dashboard has been removed and ESPHome Device Builder replaced it, which keeps `/devices` and `/ping` for compatibility. Held by
+  `tests/test_v800_connector_updates_2.py`. Not changed: TrueNAS (the REST API goes away in the release the docs call 26; its replacement is a WebSocket client this
+  server does not have) and UniFi (the official pages could not be read).
+
 ### Found by surveying the whole code
 
 Three surveys, each over everything of its kind. The routes the server answers against the pages that call them (most of the routes no page calls

@@ -105,10 +105,10 @@ connector's own status is.
 A breach raises `integration_metric_alert`, once, and `integration_metric_recovered` resolves
 it when the value is back within bounds. Two rules on one integration do not clear each other.
 
-## What changed in 8.0.0 for three connectors
+## What changed in 8.0.0 for seven connectors
 
-Each was read against the product's own API documentation, and checked against fixtures
-built from it, not against the product.
+Each was read against the product's own API documentation or source, and checked against
+fixtures built from it, not against the product.
 
 - **Pi-hole** gives its session back. Pi-hole v6 holds at most 16 API sessions by default
   (`webserver.api.max_sessions`), a session that is not ended lives for 30 minutes
@@ -126,6 +126,27 @@ built from it, not against the product.
 - **Proxmox Backup Server** reads datastore errors, mount state, bad chunks and the tasks that
   failed in the last day, and shows a fill forecast only when it is in the future. See
   [backups.md](backups.md#proxmox-backup-server).
+- **Paperless-ngx** reports its own health. The tile only counted documents and could never
+  be anything but OK. It now also reads `GET /api/status/`: a database, redis or celery in
+  error is critical, and a celery that no worker answers, a search index, classifier, sanity
+  check or LLM index in error, or migrations that were not applied is a warning. A classifier,
+  sanity check or LLM index that has not run yet (a new install) is not a problem. Paperless
+  answers that route only to a staff or superuser account or one with the
+  `view_system_monitoring` permission, and a plain-text 403 otherwise: the counts still show
+  and the detail says what the token's user needs.
+- **Syncthing** shows its own error list (`GET /rest/system/error`, the red banner of its
+  page) as a warning with the number and the newest message. Folder states are not read:
+  Syncthing documents `/rest/db/status` as an expensive call.
+- **ESPHome** counts the nodes that do not answer (`GET /ping`), says so in the detail and
+  does not alert on it, because a node that sleeps is offline most of the time. The built-in
+  ESPHome dashboard has been removed from ESPHome; **ESPHome Device Builder** replaced it and
+  keeps `/devices` and `/ping` for compatibility (its authors mark them deprecated), so the
+  connector works against either. It also takes a user name and password now, sent as HTTP
+  Basic, for a dashboard that has them set.
+- **Grafana** counts the alerts firing now when the token may read alert instances
+  (`GET /api/alertmanager/grafana/api/v2/alerts`; only *active* alerts that are not silenced or
+  inhibited count) and names up to three of them. Any firing alert makes the tile a warning.
+  Without a token, or with one that may not read them, the tile is what it was.
 
 ## Security model
 
@@ -188,7 +209,8 @@ the browser, on purpose, so a stolen session cannot add code. See
   send Basic auth, a password alone is sent as a bearer token, and leaving both empty suits a
   server on your LAN with no login.
 - **No credential**: Caddy, Uptime Kuma (a published status-page slug), Vaultwarden (`/alive`),
-  Frigate, ESPHome (protect these at your proxy).
+  Frigate (protect these at your proxy). **ESPHome** takes an optional user name and
+  password (Basic) for a dashboard that has them set.
 
 ### Notes per target
 
@@ -247,7 +269,7 @@ the browser, on purpose, so a stolen session cannot add code. See
 - **Standalone ESXi** exposes only SOAP. Point the vCenter connector at a vCenter instance.
 - **OctoPrint** reports a disconnected printer as a *warning* (OctoPrint itself is still up) and
   only unreachability as critical. **ESPHome** warns when a node's deployed firmware is behind the
-  dashboard's current version.
+  dashboard's current version, and counts the nodes that do not answer without alerting on them.
 - **WordPress** needs the URL to be the **site root** (`https://blog.example`, not `/wp-admin` and
   not the REST path). Without credentials it reports REST reachability and the site title. Add a
   username and an **Application password** (Users → Profile → Application Passwords, WordPress
