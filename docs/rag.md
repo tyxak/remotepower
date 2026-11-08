@@ -33,7 +33,7 @@ never indexed by any of them.
 | Source | Contents | Notes |
 |---|---|---|
 | **Docs & runbooks** | Product Markdown docs + per-host AI runbooks | docs deployed to `/var/lib/remotepower/docs/` |
-| **Live state** | Per host: summary (incl. IP/hostname/MAC), resources (CPU/RAM/disk/uptime), listening ports, patch & reboot status, config drift, watched services, **open alerts**, **local TLS cert expiry**, CVEs, containers, **Docker disk use** *(7.5.0)*, storage pools with the date of the newest snapshot and, on ZFS, the cache hit ratio and the datasets that hold the most space (sizes to two figures, so a few megabytes do not rewrite the chunk) *(7.5.0)*, SNMP | one chunk per `(host, facet)` |
+| **Live state** | Per host: summary (incl. IP/hostname/MAC), resources (CPU/RAM/disk/uptime), listening ports, patch & reboot status, config drift, watched services, **open alerts**, **local TLS cert expiry**, CVEs, containers, **the apps the agent found running** *(8.0.0; named by the app catalog, with the port, so "which hosts run Gitea" has an answer)*, **Docker disk use** *(7.5.0)*, storage pools with the date of the newest snapshot and, on ZFS, the cache hit ratio and the datasets that hold the most space (sizes to two figures, so a few megabytes do not rewrite the chunk) *(7.5.0)*, SNMP | one chunk per `(host, facet)` |
 | **Fleet rollups** | Cross-host summaries: worst CVEs, **all open (unresolved) alerts worst-first**, hosts with pending updates / pending reboot, drifted hosts, certs expiring soon | answers "which hosts have X?" / "what is alerting?" |
 | **CMDB** | Asset metadata + per-asset Markdown docs | **credentials vault never indexed** |
 | **History** | Recent commands, alerts, fleet events | bounded by count + age; redaction applied |
