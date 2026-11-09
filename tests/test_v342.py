@@ -22,6 +22,7 @@ from clientjs import client_js
 import os
 import re
 import shutil
+import subprocess
 import sys
 import unittest
 from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
@@ -1185,6 +1186,14 @@ class TestV342BakeSign(unittest.TestCase):
         _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
         api = importlib.import_module('api')
         d = tempfile.mkdtemp()
+
+        def _release_gpg_home():
+            # gpg starts an agent for the home directory it is given and leaves it running: stop it, then remove the directory (it was one process and one tmpfs directory more for each run)
+            home = os.path.join(d, 'signing-gpg')
+            if shutil.which('gpgconf') and os.path.isdir(home):
+                subprocess.run(['gpgconf', '--homedir', home, '--kill', 'all'], capture_output=True, timeout=30)
+            shutil.rmtree(d, ignore_errors=True)
+        self.addCleanup(_release_gpg_home)
         api.require_auth = lambda *a, **k: 't'
         api.require_admin_auth = lambda *a, **k: 'admin'
         api.audit_log = lambda *a, **k: None

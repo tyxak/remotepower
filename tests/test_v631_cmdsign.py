@@ -71,6 +71,8 @@ class TestSignedCommandChannel(unittest.TestCase):
         api._SIGNING_GNUPGHOME = cls._orig_home
         cls.ag.RELEASE_PUBKEY_FILE = cls._orig_pub
         cls.ag.REQUIRE_SIGNED_CMDS_FILE = cls._orig_flag
+        if shutil.which("gpgconf"):                  # the agent gpg started for this home would otherwise outlive the run
+            subprocess.run(["gpgconf", "--homedir", str(cls.home), "--kill", "all"], capture_output=True, timeout=30)
         shutil.rmtree(cls.home, ignore_errors=True)
 
     def test_sign_then_verify_roundtrip(self):
