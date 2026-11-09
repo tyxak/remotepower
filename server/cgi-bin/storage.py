@@ -197,6 +197,9 @@ ENTITY_FILES = {
     # and which watch list matches it has raised ({device_id: {first, at, sample, series, seen, alerted}}), one row per host. Born an ENTITY file, so there is
     # no cold blob to migrate.
     'traffic.json',
+    # 8.0.0: detections.json -- per host, what the Detections rules found at the last sweep and when each finding was raised ({device_id: {found, alerted}}), one row
+    # per host, and none for a host with nothing found. Born an ENTITY file, so there is no cold blob to migrate.
+    'detections.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

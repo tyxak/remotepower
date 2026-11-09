@@ -134,6 +134,7 @@ holds long-form docs that don't fit there.
  linting, batch execution.
 - **[compose.md](compose.md)** — docker compose dropdown on host cards.
 - **[app-discovery.md](app-discovery.md)** — The apps an agent finds on a Linux host (from its sockets, containers and services), and the monitor and connector each one offers: **Discovered on this host** in the drawer and **Found on your hosts** on Integrations *(8.0.0)*.
+- **[detections.md](detections.md)** — Rules that look at what a host does, not at what a threat is called, over the Traffic samples, the activity log and Threat Intel: a shell on the Internet, a new open port a stranger is using, a way back in followed by a new destination, an address that turned bad later. One **Detection** alert for each finding; the **Detections** tab on the Threat Intel page; off until you switch it on *(8.0.0)*.
 - **[traffic.md](traffic.md)** — Which addresses your Linux hosts talk to and how much each connection moved: the **Traffic** tab on the Threat Intel page, the host drawer's section, the watch list and its alert, the Data Explorer `traffic` entity and Fleet Query **Talks to**; off until you switch it on *(8.0.0)*.
 - **[docker-agent.md](docker-agent.md)** — run the agent as a container to
  monitor a Docker host (no host install; one-click compose from the UI).

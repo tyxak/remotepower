@@ -453,7 +453,8 @@ CMDB_SSH_PORT_MAX     = 65535
 HARDWARE_FILE    = DATA_DIR / 'hardware.json'
 DISK_NAMES_FILE  = DATA_DIR / 'disk_names.json'        # v7.4.3 (#47): {device_id: {serial: name}}
 DISKIO_HIST_FILE = DATA_DIR / 'diskio_history.json'    # v7.4.3 (#49): {device_id: {disk: [[ts, busy%, read MB/s, write MB/s, IOPS, await ms], ...]}}
-TRAFFIC_FILE = DATA_DIR / 'traffic.json'                  # 8.0.0: {device_id: {first, at, sample, series, seen, alerted}} -- what a host's TCP connections moved (traffic.py)
+TRAFFIC_FILE = DATA_DIR / 'traffic.json'                  # 8.0.0: {device_id: {first, at, sample, series, seen, seen_out, alerted}} -- what a host's TCP connections moved (traffic.py)
+DETECTIONS_FILE = DATA_DIR / 'detections.json'            # 8.0.0: {device_id: {found, alerted}} -- what the Detections rules found at the last sweep and when each was raised (detections.py)
 _DISKIO_HIST_MIN_GAP = 60       # seconds between two samples of one disk
 _DISKIO_HIST_MAX = 120          # samples kept per disk
 CPUTIME_HIST_FILE = DATA_DIR / 'cputime_history.json'   # 7.4.9: {device_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]} in percent
@@ -1216,6 +1217,19 @@ for _tr_name in (
 ):
     globals()[_tr_name] = getattr(traffic_handlers_mod, _tr_name)
 del _tr_name
+
+# 8.0.0: Detections -- rules over what the agents already report (a shell holding a connection to the Internet, a new open port a stranger is using, a way back in followed by a
+# new destination, an address Threat Intel marks as bad later), the sweep that runs them and the page that lists what they found.
+_dt_spec = _tk_ilu.spec_from_file_location(
+    'detections_handlers', Path(__file__).parent / 'detections_handlers.py')
+detections_handlers_mod = _tk_ilu.module_from_spec(_dt_spec)
+_dt_spec.loader.exec_module(detections_handlers_mod)
+detections_handlers_mod.bind(globals())
+for _dt_name in (
+        'handle_detections_get', 'handle_detections_rules_set', 'run_detections_if_due',
+):
+    globals()[_dt_name] = getattr(detections_handlers_mod, _dt_name)
+del _dt_name
 
 # v7.4.2 (#44): the integrations bound to a host, for the host drawer. A new route, so a
 # bound module rather than another inline handler.
@@ -2371,6 +2385,13 @@ EVENT_REGISTRY = {
         lifecycle='point',
         label='A host connected to something on the Traffic watch list (an address, network, port or program)',
         kind='traffic', title='Watched Connection', severity='medium', priority=4, tags='eyes,satellite'),
+    # 8.0.0: a Detections rule found behaviour that looks like an attack. Raised by the sweep (detections_handlers.run_detections_if_due), once for each finding and again after the
+    # finding's own repeat interval while it is still true. `severity` is the rule's, so the alert is ranked by what was found (see _alert_severity). It records that something
+    # HAPPENED, so there is nothing to clear.
+    'detection_found': dict(
+        lifecycle='point',
+        label='A detection rule found behaviour that looks like an attack (a reverse shell, a takeover, an address Threat Intel marks as bad)',
+        kind='detections', title='Detection', severity=None, priority=4, tags='mag,rotating_light'),
     'container_healthy': dict(
         label='A container passes its health check again (or stopped, or left the list)',
         kind='container', title='Container Healthy',
@@ -10304,6 +10325,7 @@ CHANNEL_KIND_DEFS = (
     ('container', 'Container alerts', 'operational'),
     ('image_update', 'Container image updates', 'operational'),
     ('traffic', 'Watched connections', 'operational'),   # 8.0.0
+    ('detections', 'Detections', 'security'),   # 8.0.0
     ('script', 'Custom script', 'operational'),
     ('custom_check', 'Custom checks', 'operational'),
     ('log_alert', 'Log alerts', 'operational'),
@@ -10610,6 +10632,10 @@ def _alert_severity(event, payload):
     if event == 'snmp_trap_received':
         sev = str(p.get('severity') or '').lower()
         return sev if sev in ('critical', 'high', 'medium', 'low', 'info') else 'medium'
+    # 8.0.0: a Detections rule sets the severity of what it found; anything else it might send reads as medium.
+    if event == 'detection_found':
+        sev = str(p.get('severity') or '').lower()
+        return sev if sev in ('critical', 'high', 'medium', 'low') else 'medium'
     if event == 'cve_found':
         if int(p.get('critical') or 0) > 0:
             return 'critical'
@@ -11570,6 +11596,8 @@ _MODULES = {
     # 8.0.0: the Traffic view. DEFAULT OFF: it records which addresses each host talks to, so an installation chooses to have it, and off
     # means 404 and a Linux agent that is told to stop sampling. /api/devices/<id>/traffic is outside this prefix and checks the switch itself.
     'traffic':    ('traffic_module_enabled', False, ('/api/traffic',)),
+    # 8.0.0: Detections. DEFAULT OFF: it runs rules over what the agents report and raises alerts, so an installation chooses to have it; off means 404 and no sweep.
+    'detections': ('detections_module_enabled', False, ('/api/detections',)),
 }
 
 
@@ -16141,6 +16169,7 @@ def _purge_device(dev_id):
         CONTAINER_AUDIT_ACCEPTS_FILE,   # 7.4.9: and the audit findings accepted for its containers
         REPO_INVENTORY_FILE,            # 7.4.9: and the repository files it reported
         TRAFFIC_FILE,                   # 8.0.0: and what its connections moved
+        DETECTIONS_FILE,                # 8.0.0: and what the Detections rules found for it
     ]
     try:
         for store_path in _SIMPLE_STORES:
@@ -77335,6 +77364,8 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('GET',), '/api/traffic/fleet', '', 'handle_traffic_fleet', "pi == '/api/traffic/fleet' and m == 'GET'"),
     ('eq', ('GET',), '/api/traffic/config', '', 'handle_traffic_config_get', "pi == '/api/traffic/config' and m == 'GET'"),
     ('eq', ('POST',), '/api/traffic/config', '', 'handle_traffic_config_set', "pi == '/api/traffic/config' and m == 'POST'"),
+    ('eq', ('GET',), '/api/detections', '', 'handle_detections_get', "pi == '/api/detections' and m == 'GET'"),
+    ('eq', ('POST',), '/api/detections/rules', '', 'handle_detections_rules_set', "pi == '/api/detections/rules' and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/compose/action', 'handle_device_compose_action', "pi.startswith('/api/devices/') and pi.endswith('/compose/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/containers/action', 'handle_device_container_action', "pi.startswith('/api/devices/') and pi.endswith('/containers/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/docker/prune', 'handle_device_docker_prune', "pi.startswith('/api/devices/') and pi.endswith('/docker/prune') and m == 'POST'"),
@@ -78321,6 +78352,7 @@ def main():
     # Cheap-when-not-due (12h sweep), bounded per run, deduped across fleet.
     _safe(run_image_scan_if_due, 'run_image_scan_if_due')
     _safe(run_image_autoupdate_if_due, 'run_image_autoupdate_if_due')   # 8.0.0 opt-in automatic image updates (off by default)
+    _safe(run_detections_if_due, 'run_detections_if_due')               # 8.0.0 opt-in Detections sweep (off by default)
     # v3.14.0: daily refresh of CISA KEV + FIRST EPSS for CVE prioritization.
     _safe(refresh_kev_epss_if_due, 'refresh_kev_epss_if_due')
     # v3.14.0: predictive disk-failure alerting (edge-triggered, ~6h cadence).

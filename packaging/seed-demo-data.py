@@ -1343,6 +1343,15 @@ def _ip_intel_documents() -> tuple:
                 'sniffcat': {'at': now() - 1500, 'n': 44, 'ips': ''}},
         'calls': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())), 'abuseipdb': 1, 'sniffcat': 1},
     }
+    # 8.0.0: the Tor relay that gt01 calls in the Traffic demo, with a verdict and an attack on ng01 three hours ago, so the Detections rule that looks again at the addresses a host
+    # called has something to find, and the Traffic tab shows a country and a network for it. Fixed values and no draw from rng, so nothing seeded after this changes.
+    attackers['185.220.101.45'] = {
+        'first_seen': now() - 86400 * 2, 'last_seen': now() - 3 * 3600, 'checked_at': now() - 3 * 3600,
+        'devices': {'ng01': {'count': 64, 'unit': 'nginx.access', 'at': now() - 3 * 3600, 'not_blocked': 'score 88 is below 90'}},
+        'verdict': {'score': 88, 'reports': 412, 'country': 'DE', 'isp': 'Example Hosting GmbH', 'usage': 'Data Center/Web Hosting/Transit',
+                    'providers': {'abuseipdb': {'score': 88, 'reports': 12}, 'sniffcat': {'score': 78, 'reports': 3}}},
+        'reported': {}, 'errors': {},
+    }
     table = {'attackers': attackers, 'blocks': blocks,
              'edge': edge, 'edgelist': edgelist, 'edgeban': edgeban,
              'budget': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())),
@@ -3276,6 +3285,10 @@ def build_config() -> dict:
         # pmx01 trip (see _DEMO_TRAFFIC).
         'traffic_module_enabled': True,
         'traffic_every':         60,
+        # 8.0.0: Detections is on for the same reason: its tab on the Threat Intel page, the alerts it raises and the sweeps that walk the seeded stack. The rules are the defaults,
+        # and what they found is what the rules themselves find over the demo's traffic, events and Threat Intel (build_detections).
+        'detections_module_enabled': True,
+        'last_detections_run':   now() - 130,
         # 8.0.0: automatic container image updates, in shadow mode: the card and the receipts have something to show and no command is queued for a host
         # that has no agent to run it. The images are the ones build_image_updates lists; databases are left out.
         'image_autoupdate': {
@@ -4023,10 +4036,13 @@ def build_alerts() -> dict:
           'detail': 'Outbound connection on port 23 (telnet), matches the watch list entry port 23 (Telnet is not used on this network)',
           'label': 'Telnet is not used on this network'}, 'alice', None),
     ]
+    specs += _demo_detection_alert_specs()      # 8.0.0: last, so the ids of the alerts above (derived from their position) stay the same
     alerts = []
-    for i, (event, sev, dev_id, title, payload, ack_by, resolved_by) in enumerate(specs):
+    for i, spec in enumerate(specs):
+        event, sev, dev_id, title, payload, ack_by, resolved_by = spec[:7]
         rng = _seeded_random('alert', i, event)
-        ts = now() - rng.randint(600, 86400 * 4)
+        drawn = rng.randint(600, 86400 * 4)
+        ts = now() - (spec[7] if len(spec) > 7 else drawn)            # an eighth element is how many seconds ago it was raised
         rec = {
             'id':              'a-' + _stable_hex('alert', i, event),
             'ts':              ts,
@@ -4059,7 +4075,22 @@ def build_alerts() -> dict:
 def build_fleet_events() -> dict:
     """v2.2.4 — immutable fleet event history feeding the Home activity feed.
     Event names MUST be in the JS FLEET_EVENTS set or they won't render.
-    Shape mirrors _record_fleet_event: {events: [{ts, event, payload}]}."""
+    Shape mirrors _record_fleet_event: {events: [{ts, event, payload}]}.
+
+    8.0.0: the events a Detections sweep raised are the last ones, one for each finding of build_detections, at the time it was raised."""
+    events = _fleet_event_rows()
+    for dev_id, (name, found) in _demo_findings().items():
+        for f in found[:_DETECTION_SHOWN]:
+            payload = {'device_id': dev_id, 'device_name': name, 'name': name, 'severity': f['severity'], 'detail': f['detail']}
+            if f.get('port'):
+                payload['port'] = f['port']
+            events.append({'ts': _demo_detection_at(f), 'event': 'detection_found', 'payload': payload})
+    events.sort(key=lambda e: e['ts'])
+    return {'events': events}
+
+
+def _fleet_event_rows() -> list:
+    """The demo's fleet events other than the ones Detections raised: the rotating cast, and the events the Detections rules read."""
     name_of = {d['id']: d['name'] for d in FAKE_DEVICES}
     # A rotating cast of plausible events over the last few days.
     templates = [
@@ -4098,18 +4129,26 @@ def build_fleet_events() -> dict:
         ('container_unhealthy', 'ha01', {'container': 'zwave-js'}),   # 7.4.9, last so the others keep their times
         ('traffic_watch', 'gt01', {'ip': '185.220.101.45', 'port': 9001, 'process': 'kworker-net', 'label': 'A Tor relay',
                                    'detail': 'Outbound connection on port 9001, matches the watch list entry address 185.220.101.45 (A Tor relay)'}),   # 8.0.0
+        # 8.0.0: what the Detections rules read, in the order of the story the traffic rows tell. gt01: a new SSH key and then, ten minutes later, a first call to a Tor relay. nc01: a port
+        # nobody asked for. pmx01: a burst of failed logins and then a first login from the same address. `_ago` is how many seconds ago it happened; the payloads hold only the keys
+        # _record_fleet_event keeps.
+        ('ssh_key_added', 'gt01', {'user': 'git', '_ago': 110 * 60}),
+        ('new_port_detected', 'nc01', {'proto': 'tcp', 'port': 8081, '_ago': 3 * 3600}),
+        ('brute_force_detected', 'pmx01', {'source_ip': '20.52.131.9', 'count': 187, 'unit': 'sshd', '_ago': 40 * 60}),
+        ('login_new_source', 'pmx01', {'source': '20.52.131.9', 'user': 'root', '_ago': 12 * 60}),
     ]
     events = []
     for i, (event, dev_id, extra) in enumerate(templates):
         rng = _seeded_random('fleetev', i, event)
-        ts = now() - rng.randint(300, 86400 * 4)
+        drawn = rng.randint(300, 86400 * 4)
         payload = dict(extra)
+        ts = now() - payload.pop('_ago', drawn)
         if dev_id:
             payload['device_id'] = dev_id
             payload['device_name'] = name_of.get(dev_id, dev_id)
         events.append({'ts': ts, 'event': event, 'payload': payload})
     events.sort(key=lambda e: e['ts'])
-    return {'events': events}
+    return events
 
 
 # ─── v2.2.0: Config drift state ─────────────────────────────────────────────
@@ -5346,6 +5385,10 @@ _DEMO_TRAFFIC = {
     'nc01': [
         ('in', '10.0.2.20', 443, 'apache2', 5, 1_250_000, 98_000), ('out', '104.26.8.140', 443, 'php-fpm8.3', 2, 9_000, 410_000),
         ('out', '74.125.140.109', 587, 'php-fpm8.3', 1, 21_000, 3_000),
+        # what the Detections demo finds on this host: a shell that holds a connection to the Internet, a database that calls an address it never used, and a port nobody
+        # asked for (see the events of build_fleet_events) that a stranger is already connected to. The addresses are arbitrary.
+        ('out', '35.193.77.120', 4444, 'bash', 1, 3_400, 18_000), ('out', '104.21.64.15', 443, 'mariadbd', 1, 800, 6_000),
+        ('in', '52.214.37.66', 8081, 'python3', 2, 3_000, 41_000),
     ],
     'vw01': [
         ('in', '10.0.2.20', 80, 'vaultwarden', 2, 71_000, 6_000), ('out', '104.18.17.184', 443, 'vaultwarden', 1, 2_000, 14_000),
@@ -5375,7 +5418,8 @@ _DEMO_TRAFFIC = {
     ],
 }
 # Public addresses a host first used this long ago (seconds): past its baseline hour and inside the last day, so they read as new.
-_DEMO_TRAFFIC_NEW = {'ng01': {'141.101.64.10': 5 * 3600}, 'gt01': {'185.220.101.45': 2 * 3600}}
+_DEMO_TRAFFIC_NEW = {'ng01': {'141.101.64.10': 5 * 3600}, 'gt01': {'185.220.101.45': 100 * 60},
+                     'nc01': {'35.193.77.120': 50 * 60, '104.21.64.15': 35 * 60, '52.214.37.66': 100 * 60}}
 
 
 def _traffic_module():
@@ -5418,6 +5462,94 @@ def build_traffic() -> dict:
     broken = T.merge(None, T.clean_sample({'win': 60, 'rows': [], 'err': 'no-ss'}, at), at)
     broken['first'] = t - 86400 * 9
     out['ha01'] = broken
+    return out
+
+
+_DETECTION_SHOWN = 5       # findings a host shows: detections.MAX_PER_HOST
+
+
+def _detections_module():
+    """server/cgi-bin/detections.py, loaded from the checkout the seeder sits in: the demo's findings are what the rules themselves find over the demo's traffic, events and
+    Threat Intel. The module imports `traffic` by name, so the directory is on the path while it loads."""
+    import importlib.util as _ilu
+    spec = _ilu.spec_from_file_location('rp_detections_demo', _CGI_DIR / 'detections.py')
+    mod = _ilu.module_from_spec(spec)
+    sys.path.insert(0, str(_CGI_DIR))
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.remove(str(_CGI_DIR))
+    return mod
+
+
+def _demo_intel(table) -> dict:
+    """{ip: {score, last}} from the Threat Intel table, the way detections_handlers._intel_map reads the store: the reputation score and the last attack on a host here or at the edge."""
+    out = {}
+    for ip, a in (table.get('attackers') or {}).items():
+        score = ((a.get('verdict') or {}).get('score'))
+        last = max([x.get('at') for x in (a.get('devices') or {}).values() if isinstance(x.get('at'), int)] or [None], key=lambda v: -1 if v is None else v)
+        if score is not None or last is not None:
+            out[ip] = {'score': score, 'last': last}
+    return out
+
+
+def _demo_findings() -> dict:
+    """{host id: (name, [finding])} that the Detections rules find over the demo's own traffic, events and Threat Intel at the moment of the seed (agented hosts that have a finding)."""
+    D, T = _detections_module(), _traffic_module()
+    t = now()
+    traffic = build_traffic()
+    events = {}
+    for e in _fleet_event_rows():
+        did = (e.get('payload') or {}).get('device_id')
+        if e['event'] in D.EVENT_NAMES and did:
+            events.setdefault(did, []).append(e)
+    intel = _demo_intel(build_ip_intel())
+    out = {}
+    for d in FAKE_DEVICES:
+        if d.get('agentless'):
+            continue
+        rec = traffic.get(d['id'])
+        rows = T.stored_rows(rec['sample']) if rec and not rec['sample'].get('err') else []
+        ctx = {'host': {'id': d['id'], 'name': d['name']}, 'now': t, 'rec': rec, 'rows': rows, 'events': events.get(d['id'], []), 'intel': intel}
+        found = D.evaluate(ctx)
+        if found:
+            out[d['id']] = (d['name'], found)
+    return out
+
+
+def _demo_detection_at(f) -> int:
+    """When a finding was raised: a little after the thing that caused it (the login, the first use of an address, the port opening), or at a seeded time in the last hour and a half."""
+    t = now()
+    ev = f.get('evidence') or {}
+    cause = max([v for k, v in ev.items() if (k.endswith('_at') or k == 'first_used') and isinstance(v, int) and not isinstance(v, bool)] or [0])
+    rng = _seeded_random('detection-raised', f['key'])
+    if cause:
+        return min(t - 60, cause + rng.randint(30, 240))
+    return t - rng.randint(300, 5400)
+
+
+def build_detections() -> dict:
+    """What the Detections rules found at the last sweep -> detections.json (8.0.0): {dev_id: {found, alerted}}, the findings the rules themselves find over the demo's other stores,
+    stored the way detections_handlers keeps them, and each one marked as raised at the time of its alert."""
+    D = _detections_module()
+    out = {}
+    for dev_id, (_name, found) in _demo_findings().items():
+        shown = found[:_DETECTION_SHOWN]
+        out[dev_id] = {'found': [D.compact(f) for f in shown], 'alerted': {f['key']: _demo_detection_at(f) for f in shown}}
+    return out
+
+
+def _demo_detection_alert_specs() -> list:
+    """The alerts a sweep raised for those findings, in the payload detections_handlers._raise sends: (event, severity, host, title, payload, acknowledged by, resolved by, seconds ago)."""
+    out = []
+    t = now()
+    for dev_id, (name, found) in _demo_findings().items():
+        for f in found[:_DETECTION_SHOWN]:
+            payload = {'device_id': dev_id, 'device_name': name, 'name': name, 'rule': f['rule'], 'severity': f['severity'], 'detail': f['detail']}
+            for k in ('ip', 'port', 'process'):
+                if f.get(k) not in (None, ''):
+                    payload[k] = f[k]
+            out.append(('detection_found', f['severity'], dev_id, 'Detection', payload, None, None, t - _demo_detection_at(f)))
     return out
 
 
@@ -8327,6 +8459,7 @@ BUILDERS = {
     'patch_previews.json':         build_patch_previews,
     'repo_inventory.json':         build_repo_inventory,
     'traffic.json':                build_traffic,
+    'detections.json':             build_detections,
     'gpu_history.json':            build_gpu_history,
     'thermal_history.json':        build_thermal_history,
     'thermal_rollup.json':         build_thermal_rollup,

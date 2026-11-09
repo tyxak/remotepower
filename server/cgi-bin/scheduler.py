@@ -86,6 +86,7 @@ CADENCE = (
     'run_routeros_update_check_if_due',
     'run_image_scan_if_due',
     'run_image_autoupdate_if_due',
+    'run_detections_if_due',             # 8.0.0 opt-in Detections sweep
     'refresh_kev_epss_if_due',
     '_maybe_check_disk_predictions',
     '_maybe_push_metrics',

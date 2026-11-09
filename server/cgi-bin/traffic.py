@@ -250,8 +250,9 @@ def merge(prev: Any, sample: dict[str, Any], now: int) -> dict[str, Any]:
     """The host's stored record after this sample.
 
     The record keeps the latest sample, a chart of one point every SERIES_GAP seconds ([time, bytes/s out, bytes/s in, connections], SERIES_MAX points) and the first time
-    each public remote address was seen (SEEN_MAX, the oldest forgotten first). `first` is the time of the host's first sample: is_new() reads the first hour after it as
-    the host's baseline, so that hour does not mark every address it used as new."""
+    each public remote address was seen (SEEN_MAX, the oldest forgotten first). `seen_out` is the same list for the addresses the host itself connected to, so a later
+    reading of an address (Detections asks Threat Intel again) can tell a server it called from a visitor it served. `first` is the time of the host's first sample:
+    is_new() reads the first hour after it as the host's baseline, so that hour does not mark every address it used as new."""
     prev = prev if isinstance(prev, dict) else {}
     series = [p for p in (prev.get("series") or []) if isinstance(p, list) and len(p) == 4]
     first = _count(prev.get("first"), 4 * 10**9) or now
@@ -265,17 +266,30 @@ def merge(prev: Any, sample: dict[str, Any], now: int) -> dict[str, Any]:
     if not sample.get("err") and (not series or now - series[-1][0] >= SERIES_GAP):
         win = max(1.0, sample["win"])
         series.append([now, round(sample["tx"] / win), round(sample["rx"] / win), sample["conns"]])
+    out_in = prev.get("seen_out")
+    seen_out = (
+        {k: v for k, v in out_in.items() if isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool)}
+        if isinstance(out_in, dict)
+        else {}
+    )
     for r in sample["rows"]:
-        if r["ip"] not in seen and scope_of(r["ip"]) == "public":
+        if scope_of(r["ip"]) != "public":
+            continue
+        if r["ip"] not in seen:
             seen[r["ip"]] = now
+        if r["d"] == "out" and r["ip"] not in seen_out:
+            seen_out[r["ip"]] = now
     if len(seen) > SEEN_MAX:
         seen = dict(sorted(seen.items(), key=lambda kv: kv[1])[-SEEN_MAX:])
+    if len(seen_out) > SEEN_MAX:
+        seen_out = dict(sorted(seen_out.items(), key=lambda kv: kv[1])[-SEEN_MAX:])
     return {
         "first": first,
         "at": now,
         "sample": sample,
         "series": series[-SERIES_MAX:],
         "seen": seen,
+        "seen_out": seen_out,
     }
 
 

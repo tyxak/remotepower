@@ -157,7 +157,7 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 - A fully compromised server is root on its agents, by design (see the threat model).
 - **A deleted host's history stays.** Deleting a host removes the data kept for it, the schedules and mutes that name only it, and its place in groups, services and links
   (see [data-retention.md](data-retention.md)). Alerts, tickets, time entries, the audit trail, command history, receipts and gateway sessions keep its id, because they say what
-  happened; 25 of the 148 stores of the demo instance still name a deleted host for that reason, and each is listed with its reason in `tests/test_v800_host_purge.py`. The audit
+  happened; 25 of the 149 stores of the demo instance still name a deleted host for that reason, and each is listed with its reason in `tests/test_v800_host_purge.py`. The audit
   trail is append-only on purpose. A ticket or a time entry can be deleted by hand.
 - **The knowledge base is the operator's shared library.** Every signed-in user reads every article; the hosts an article points at are filtered to the
   ones the reader can see (7.4.9). A tenant that wants its own articles has none.

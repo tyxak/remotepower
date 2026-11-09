@@ -2815,6 +2815,7 @@ const MODULE_PAGES = {
   sshgw:      'sshgw',
   mcp:        null,   // 8.0.0: an API prefix with no page, like ai_exec
   traffic:    null,   // 8.0.0: an API prefix and a tab of the Threat Intel page, not a page of its own (_applyModuleElementGates hides the tab)
+  detections: null,   // 8.0.0: the same shape as traffic: an API prefix and a tab of the Threat Intel page
 };
 
 // [checkbox id, config key, default] — defaults MUST mirror api._MODULES, or a
@@ -2832,6 +2833,7 @@ const MODULE_SETTINGS = [
   ['cfg-mod-sshgw',      'sshgw_enabled',      false],
   ['cfg-mod-mcp',        'mcp_module_enabled', false],
   ['cfg-mod-traffic',    'traffic_module_enabled', false],
+  ['cfg-mod-detections', 'detections_module_enabled', false],
 ];
 
 function _applyModuleNavGates(modules) {
@@ -3105,7 +3107,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js', 'app-traffic.js'];   // 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites. 8.0.0: app-traffic.js, the Traffic tab of the Threat Intel page and the drawer's Traffic section (fetched when either shows and the module is on).
+const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js', 'app-traffic.js', 'app-detections.js'];   // 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites. 8.0.0: app-traffic.js, the Traffic tab of the Threat Intel page and the drawer's Traffic section (fetched when either shows and the module is on). 8.0.0: app-detections.js, the Detections tab of the Threat Intel page (fetched when the tab shows and the module is on).
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -3200,7 +3202,7 @@ function _pgTabIn(card, tab) { return String(card.dataset.pgTab || '').split(/\s
 // 8.0.0: a tab whose cards a lazy module fills: [page, tab, the module that owns it, its file, the function that draws it]. The file is fetched the first time the
 // tab shows and the function runs each time it shows (it limits itself: showPage and the module gate both pass through pgTabsApply). With the module off
 // nothing is fetched.
-const _PG_TAB_HOOKS = [['ipintel', 'traffic', 'traffic', 'app-traffic.js', 'trafficEnter']];
+const _PG_TAB_HOOKS = [['ipintel', 'traffic', 'traffic', 'app-traffic.js', 'trafficEnter'], ['ipintel', 'detections', 'detections', 'app-detections.js', 'detectionsEnter']];
 function _pgTabEnter(page, tab, stacked) {
   for (const [pg, tb, mod, file, fn] of _PG_TAB_HOOKS) {
     if (pg !== page || (!stacked && tb !== tab) || !(window._modules && window._modules[mod])) continue;
@@ -19326,6 +19328,7 @@ const EVENT_CLASS = {
   'container_unhealthy': 'warn', 'container_healthy': 'ok',   // 7.4.9
   'image_autoupdate_failed': 'warn',
   'traffic_watch': 'warn',   // 8.0.0: a host connected to something on the Traffic watch list
+  'detection_found': 'critical',   // 8.0.0: a Detections rule found behaviour that looks like an attack
   'business_service_down': 'critical', 'business_service_up': 'ok',   // 7.4.9
   'container_resource_high': 'warn', 'container_resource_ok': 'ok',   // v7.4.3 (#50)
   'containers_stale': 'warn',
@@ -21991,6 +21994,7 @@ function _renderHomeActivity(fleetEvents) {
     // v3.2.x: container image update tracking
     'image_update_available', 'image_updated', 'image_autoupdate_failed',
     'traffic_watch',   // 8.0.0
+    'detection_found',   // 8.0.0
     'metric_warning', 'metric_critical', 'metric_recovered', 'custom_metric_alert', 'custom_metric_recover',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'mailbox_recovered', 'custom_script_fail', 'custom_script_recover',
@@ -22152,7 +22156,7 @@ function _renderHomeActivity(fleetEvents) {
       // The subject is whatever identifies the specific thing the
       // event is about — the same fields the row renderer shows.
       const subject = p.path || p.unit || p.metric || p.cve_id
-                      || p.pattern || p.command || '';
+                      || p.pattern || p.command || (e.event === 'detection_found' ? p.detail : '') || '';   // 8.0.0: two findings on one host are two rows
       const key = `${e.event}|${host}|${subject}`;
       if (_seenActivity.has(key)) return false;
       _seenActivity.add(key);
@@ -22253,6 +22257,8 @@ function _homeActivityAttrs(event, p) {
     case 'backup_verify_failed': case 'backup_verified':
     case 'restore_drill_failed': case 'restore_drill_ok':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    case 'detection_found':   // 8.0.0: the findings are on the Detections tab of the Threat Intel page
+      return `${base} data-home-act="detections"`;
     case 'drift_detected':
       return `${base} data-home-act="drift"`;
     case 'vault_break_glass': return `${base} data-home-act="cmdb"`;
@@ -32149,6 +32155,10 @@ function _homeNavAction(btn) {
     case 'thermal':  showPage('thermal',         document.querySelector('.nav-btn[data-page="thermal"]')); break;
     case 'dmarc':    showPage('dmarc',           document.querySelector('.nav-btn[data-page="dmarc"]')); break;
     case 'ipintel':  showPage('ipintel',         document.querySelector('.nav-btn[data-page="ipintel"]')); break;
+    case 'detections':   // 8.0.0
+      showPage('ipintel', document.querySelector('.nav-btn[data-page="ipintel"]'));
+      pgTab('ipintel:detections');
+      break;
     case 'dns':      showPage('dns',             document.querySelector('.nav-btn[data-page="dns"]')); break;
     case 'rollouts': showPage('rollouts',        document.querySelector('.nav-btn[data-page="rollouts"]')); break;
     case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;

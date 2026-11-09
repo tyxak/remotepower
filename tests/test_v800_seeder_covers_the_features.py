@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -131,6 +132,51 @@ class TestTheOtherFeatures(unittest.TestCase):
         self.assertGreaterEqual(len(found), 6, 'hosts that report the apps the agent found')
         sets = seed._demo_dashboard_sets()
         self.assertGreaterEqual(len(sets), 2)
+
+
+class TestTheDetections(unittest.TestCase):
+    """The demo's findings are what the rules themselves find over the demo's other stores, so the seeder cannot say something the rules would not."""
+
+    def test_the_module_is_on_and_every_rule_has_a_finding_in_the_store_the_alerts_and_the_feed(self):
+        import detections
+        cfg = seed.build_config()
+        self.assertTrue(cfg['detections_module_enabled'])
+        self.assertNotIn('detections', cfg, 'the demo runs the rules as they ship')
+        store = seed.build_detections()
+        rules = {f['rule'] for rec in store.values() for f in rec['found']}
+        self.assertEqual(rules, set(detections.RULES), 'one finding for each of the six rules: a rule the demo cannot show is a rule nobody sees')
+        alerts = [a for a in seed.build_alerts()['alerts'] if a['event'] == 'detection_found']
+        events = [e for e in seed.build_fleet_events()['events'] if e['event'] == 'detection_found']
+        shown = sum(len(rec['found']) for rec in store.values())
+        self.assertEqual((len(alerts), len(events)), (shown, shown))
+        self.assertEqual({a['payload']['detail'] for a in alerts}, {f['detail'] for rec in store.values() for f in rec['found']}, 'the inbox and the page say the same thing')
+
+    def test_what_was_raised_is_what_the_next_sweep_would_not_raise_again(self):
+        import detections
+        now = int(time.time())
+        for rec in seed.build_detections().values():
+            for f in rec['found']:
+                at = rec['alerted'][f['key']]
+                self.assertTrue(0 < now - at < 6 * 3600, 'raised in the last hours, which is inside every repeat interval but the fastest')
+                self.assertFalse(detections.is_due(rec['alerted'], dict(f, repeat_s=6 * 3600), now), 'the live sweep would find it already raised')
+
+    def test_an_alert_is_raised_after_what_caused_it(self):
+        for rec in seed.build_detections().values():
+            for f in rec['found']:
+                ev = f.get('evidence') or {}
+                for k in ('login_at', 'first_used', 'event_at'):
+                    if isinstance(ev.get(k), int):
+                        self.assertGreaterEqual(rec['alerted'][f['key']], ev[k], '%s: raised before %s' % (f['rule'], k))
+
+    def test_the_store_and_the_intel_pass_the_shape_registry_without_a_repair(self):
+        for name, data in (('detections.json', seed.build_detections()), ('traffic.json', seed.build_traffic())):
+            before = repr(data)
+            self.assertEqual(repr(store_shapes.normalize(name, data)), before, name)
+
+    def test_the_tor_relay_has_a_verdict_that_names_its_country_and_network(self):
+        att = seed.build_ip_intel()['attackers']['185.220.101.45']
+        self.assertEqual((att['verdict']['score'], att['verdict']['country']), (88, 'DE'))
+        self.assertTrue(att['verdict']['isp'])
 
 
 class TestTheTimesheet(unittest.TestCase):

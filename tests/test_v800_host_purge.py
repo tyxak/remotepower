@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """8.0.0: deleting a host takes its own data with it, and what stays is listed with a reason.
 
-`_purge_device` cleared the stores it knew by hand. In the demo instance, deleting each of the 18 hosts in turn left 66 of the 148 stores still naming the host that was just
+`_purge_device` cleared the stores it knew by hand. In the demo instance, deleting each of the 18 hosts in turn left 66 of the 149 stores still naming the host that was just
 deleted. Some are history and stay on purpose (an alert, a ticket, a time entry and the audit trail say what happened and to which host). The rest were the host's own data, the
 schedules and mutes that name only it, and its place in groups, services, assignments and links. A runbook, a CMDB record and a webhook token for a host that no page can reach any
 more are data nobody can delete, and a recurring job that names a host id is inherited by whatever enrolls under that id.

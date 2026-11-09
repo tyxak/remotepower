@@ -106,6 +106,7 @@ _EVENT_COLORS = {
     "container_unhealthy": 0xEF4444,
     "image_autoupdate_failed": 0xEF4444,
     "traffic_watch": 0xF59E0B,
+    "detection_found": 0xEF4444,
     "containers_stale": 0xF59E0B,
     "cve_found": 0xEF4444,
     "log_alert": 0xF59E0B,
@@ -972,6 +973,9 @@ def _webhook_message(event, payload):
         # 8.0.0: a host's connection matched the Traffic watch list; the detail names the direction, the port and, where it may, the entry
         prog = f' by {payload["process"]}' if payload.get("process") else ""
         return f'{name}: {payload.get("ip", "?")} port {payload.get("port", "?")}{prog}: {payload.get("detail", "")}'
+    elif event == "detection_found":
+        # 8.0.0: a Detections rule's own sentence names the host and what it saw; the title already says it is a detection
+        return str(payload.get("detail") or f"{name}: a detection rule found something")
     elif event == "container_healthy":
         c = f'{name}: container "{payload.get("container", "?")}"'
         return {

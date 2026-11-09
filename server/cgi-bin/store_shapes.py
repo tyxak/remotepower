@@ -395,6 +395,7 @@ def _config_fields() -> dict:
         monitoring_profiles=list_of(),
         time_periods=list_of(),
         traffic_watch=list_of(fields(kind=STR, value=STR, label=STR)),
+        detections=dict_of(DICT),
     )
     for k in _CONFIG_TEXT:
         spec[k] = STR
@@ -578,7 +579,8 @@ SHAPES: dict = {
     'device_profiles.json': dict_of(fields(services_watched=list_of(STR), log_watch=list_of(), metric_thresholds=DICT)),
     'disk_usage.json': dict_of(fields(paths=DICT)),
     'diskio_history.json': dict_of(dict_of(LIST)),
-    'traffic.json': dict_of(fields(first=OPT_NUM, at=OPT_NUM, sample=DICT, series=LIST, seen=DICT, alerted=DICT)),    # 8.0.0: {device_id: {first, at, sample, series, seen, alerted}} (traffic.py)
+    'traffic.json': dict_of(fields(first=OPT_NUM, at=OPT_NUM, sample=DICT, series=LIST, seen=DICT, seen_out=DICT, alerted=DICT)),    # 8.0.0: {device_id: {first, at, sample, series, seen, seen_out, alerted}} (traffic.py)
+    'detections.json': dict_of(fields(found=LIST, alerted=DICT)),    # 8.0.0: {device_id: {found, alerted}} -- what the Detections rules found at the last sweep and when each was raised (detections_handlers.py)
     'cputime_history.json': dict_of(LIST),                  # 7.4.9: {device_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]}
     'dmarc_reports.json': fields(reports=list_of(), sources=DICT, mailbox=DICT),
     'flow.json': dict_of(fields(latest=DICT, history=list_of())),

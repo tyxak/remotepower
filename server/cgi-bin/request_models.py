@@ -2259,6 +2259,11 @@ if _AVAILABLE:
         watch: Any = None
         every: Any = None
 
+    class DetectionsRulesRequest(BaseModel):
+        """8.0.0: the Detections rules a person switched or tuned. `rules` is Any: detections.clean_update checks it and says what is wrong."""
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        rules: Any = None
+
     class LdapTestUserRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         password: str = ''

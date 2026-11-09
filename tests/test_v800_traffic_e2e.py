@@ -219,7 +219,8 @@ class TestTrafficInTheBrowser(unittest.TestCase):
         self.assertIn("New", benign)
         self.assertNotIn("Watch list", benign)
         self.show("new")
-        self.assertEqual(sorted(t.split(" ")[0] for t in self.texts("#traffic-remotes-tbody tr")), ["141.101.64.10", "185.220.101.45"])
+        self.assertEqual(sorted(t.split(" ")[0] for t in self.texts("#traffic-remotes-tbody tr")), ["104.21.64.15", "141.101.64.10", "185.220.101.45", "35.193.77.120", "52.214.37.66"],
+                         "the two of the Traffic demo and the three the Detections demo adds on nextcloud.lab")
         self.show("watched")
         self.assertEqual([t.split(" ")[0] for t in self.texts("#traffic-remotes-tbody tr")], ["185.220.101.45"])
         self.show("local")
@@ -592,7 +593,16 @@ class TestTheOverviewTheNoteTheWidgetAndTheGatewayIcon(unittest.TestCase):
     def test_the_note_is_there_while_nothing_names_a_country_and_goes_when_a_lookup_does(self):
         self.assertNotIn("geoip_db_path", read("config.json"))
         self.open_tab()
-        self.assertTrue(self.page.is_visible("#traffic-geo-note"))
+        self.assertTrue(self.page.eval_on_selector("#traffic-geo-note", "n => n.hidden"), "the demo's Threat Intel has a lookup of the Tor relay that names its country and network, so the column is not empty and there is nothing to say")
+        tor = [t for t in self.page.eval_on_selector_all("#traffic-remotes-tbody tr", "els => els.map(e => e.textContent.replace(/\\s+/g, ' ').trim())") if t.startswith("185.220.101.45")][0]
+        self.assertIn("DE", tor)
+        self.assertIn("Example Hosting GmbH", tor)
+        bare = json.loads(json.dumps(self.intel0))
+        bare["attackers"].pop("185.220.101.45")
+        write("ip_intel.json", bare)
+        self.page.evaluate("async () => { await loadTraffic(); }")
+        self.page.wait_for_function("() => !document.getElementById('traffic-geo-note').hidden", timeout=10000)
+        self.assertTrue(self.page.is_visible("#traffic-geo-note"), "with that lookup taken away nothing names a country")
         self.assertIn("GeoLite2", self.page.inner_text("#traffic-geo-note"))
         self.assertTrue(self.page.eval_on_selector("#traffic-geo-note a", "a => a.getAttribute('href')").endswith("traffic.md#country-and-organisation"))
         intel = json.loads(json.dumps(self.intel0)) or {}

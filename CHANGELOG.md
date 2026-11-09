@@ -10,8 +10,8 @@ releases only; for an older release the entry below is the record.
 The first release of a new major version, and it changes what a person can adjust and what the agent finds without being asked. You can set the text
 size from 80% to 300%, show a long page as tabs or as one page, keep named layouts for Home, and take ten setup tasks a step at a time. The Linux
 agent finds the apps a host runs (63 are known) and offers a monitor and a connector for each. Three connectors, an Apprise destination, four
-monitor types (SMTP, IMAP, SSH banner and NTP), a Traffic view of the addresses your Linux hosts talk to, a read-only MCP endpoint and automatic
-container image updates with a rollback are new, and the last three are off until you switch them on. Reading the whole code once more found one
+monitor types (SMTP, IMAP, SSH banner and NTP), a Traffic view of the addresses your Linux hosts talk to, Detections that look at what a host does, a read-only MCP
+endpoint and automatic container image updates with a rollback are new, and the last four are off until you switch them on. Reading the whole code once more found one
 High issue, nine Medium issues, seven Low or hardening items and one informational item; every one is fixed. Production runs 7.5.0, so the release is
 a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and the security review is
 [docs/security-review-8.0.0.md](docs/security-review-8.0.0.md).
@@ -416,6 +416,26 @@ a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and t
   the watch list editor and a refresh arriving while it is edited, a viewer, the module off in both page layouts, a download, text from a host, a late answer, six languages);
   44 mutations of the new code, all caught.
 
+- **Detections: rules that look at what a host does, so they can catch an attack nobody has named yet.** A new tab on the Threat Intel page, in a module that is off until you
+  switch it on (Settings → Advanced → Optional modules → **Detections**; most rules read Traffic, so switch that on too). A signature exists only after somebody has seen the
+  attack; these rules read behaviour, so a zero-day shows by its effect. Every five minutes a sweep reads three things the server already holds, the Traffic samples, the activity
+  log and what Threat Intel knows about an address, and runs six rules: a **shell** (or `nc`, `ncat`, `socat`, `telnet`) holding a connection of its own to a public address, which is
+  how a reverse shell looks; a **database, cache, mail store or `sshd`** calling an address the host never used; a host connected to an address Threat Intel **scores 75 or more or
+  that attacked you in the last 14 days**, and the same look again at every address the host called earlier, so an address that turns bad later is found too (the Traffic record keeps
+  a second list, `seen_out`, for the addresses a host itself called, because a web server is visited by thousands of scanners and a visitor is not a call); a **new SSH key, an account
+  with no password or a changed firewall followed within two hours by a first connection to a new address** (programs that fetch updates and the time do not count); a **burst of
+  failed logins followed within an hour by a first login from a new address**, critical when it is the address that guessed; and a **new open port that a public address is already
+  connected to**. Each finding raises one `detection_found` alert in the severity the rule found, so it can be acknowledged, resolved, muted, routed and held by maintenance like any
+  other alert, and it is raised once and again after its own interval (six hours, a day, a week) while it is still true. A host shows and raises its five worst and one sweep raises
+  a hundred for the whole fleet, the worst first, so one address that turns bad cannot flood the inbox; what is held back is raised by the next sweep. A rule that fails on a host
+  is named once in the server's log with the number of hosts, and the others run. **Threat Intel → Detections** lists the findings of the last sweep, worst first, and the rules; the platform operator can switch a rule off or change
+  its limits, and a viewer reads them. Findings are scoped to the hosts the caller may see; an unmonitored host shows its findings and raises none; a quiet fleet writes no store; the
+  alerts go out only after the store that remembers them is saved. The demo's six findings are what the rules themselves find over the demo's other stores. `docs/detections.md`.
+  **Held by** `tests/test_v800_detections_rules.py` (57 tests: the rules on fixtures built from the real Traffic producers), `tests/test_v800_detections_sweep.py` (47: the sweep, the
+  routes, two organisations, hostile stores, the real inbox and the real fleet log, the cap and a rule that fails), `tests/test_v800_detections_wiring.py` (17: every registry the module and the event are named in)
+  and `tests/test_v800_detections_e2e.py` (16 browser tests on the demo seed), and by 44 mutations of the new code, all caught; the first run of the sweep mutations left three
+  alive (an unmonitored host that remembered what it never sent, a handler with no switch of its own, and a whitelist the new rule depended on), and each got the test it was missing.
+
 ### Found by surveying the whole code
 
 Three surveys, each over everything of its kind. The routes the server answers against the pages that call them (most of the routes no page calls
@@ -577,7 +597,7 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   the patch alert flag, the disabled checks, the DNS result and, new in 8.0.0, the hidden apps. None of them holds a secret and nothing reads them for a host that is gone, but they
   stayed for good. The eight are read from the code, and a ninth that the purge misses fails the build (`tests/test_v800_purge_config_maps.py`, which also deletes a host and checks
   that the other host keeps its entry). The stores that still named a deleted host are the next entry.
-- **Deleting a host now takes its own data with it.** The purge cleared the stores it knew by hand and no others: deleting each of the 18 hosts of the demo in turn left 66 of its 148
+- **Deleting a host now takes its own data with it.** The purge cleared the stores it knew by hand and no others: deleting each of the 18 hosts of the demo in turn left 66 of its 149
   stores naming the host, and 25 do now, each of them listed with the reason it stays. It removes what was kept for the host: its CMDB record (notes, documents and credentials), its runbook, its
   trend rings, baselines and findings, and the events about it in the activity feed (the old filter looked for a `device_id` at the top of an event, and the server keeps the host under
   `payload`, so it had never removed one). It removes what was set up to act on the host or to stay quiet about it: scheduled commands, backup jobs, scan and network scan schedules, mutes,

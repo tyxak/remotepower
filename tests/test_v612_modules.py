@@ -64,6 +64,9 @@ class TestModuleDefaults(unittest.TestCase):
                 # 8.0.0: the Traffic view ships OFF. It records which addresses each host talks to, so an installation chooses to have it:
                 # until then /api/traffic answers 404 and a Linux agent is told to sample nothing.
                 "traffic": False,
+                # 8.0.0: Detections ships OFF. It runs rules over what the agents report and raises alerts, so an installation chooses to have it:
+                # until then /api/detections answers 404 and no sweep runs.
+                "detections": False,
             },
         )
 
