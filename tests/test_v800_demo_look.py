@@ -4,7 +4,9 @@
 The demo is the seeder's data under `RP_READ_ONLY`, re-seeded every two minutes by a systemd unit that `install-demo.sh` writes. The
 seeder rewrites the whole configuration each time, so whatever the demo should default to has to be written by the seeder, and the
 unit has to carry the flags that ask for it. The seed is also what every rendered gate, the screenshots and most browser tests run
-on, and Classic with the system font is the product's own default, so a plain seed must stay exactly that.
+on, and Classic with the system font is the product's own default, so a plain seed must stay exactly that. The one exception is the demo's own
+directory, /var/lib/remotepower-demo: a demo installed before the two flags existed has a unit that runs the seeder without them, so it stayed on
+Classic for good (its /api/public-info said "look": ""), and the seeder now asks for the new look and typeface there without being told.
 
 What is held here: the flags and the keys they write (not a lock, only what is asked), that nothing is written without them, that
 the installer passes them to the first seed AND to the unit (the second is the one that was missing in a first version of any such
@@ -88,7 +90,8 @@ class TestWhatTheSeederWrites(unittest.TestCase):
 
     def test_a_run_without_the_flags_takes_them_away_which_is_why_the_timer_carries_them(self):
         """The seeder writes the whole configuration every time it runs. The demo is re-seeded by a timer, so a unit that forgot the
-        flags would make the demo Pilot for two minutes after the install and Classic from then on."""
+        flags would make the demo Pilot for two minutes after the install and Classic from then on, for a directory other than the demo's
+        own (TestTheDemosOwnDirectory holds that one)."""
         d = tempfile.mkdtemp(prefix='rp-demolook-seed-')
         self.assertEqual(self.seed(d, '--look', 'pilot', '--typeface', 'b612').get('brand_look'), 'pilot')
         cfg = self.seed(d)
@@ -102,10 +105,44 @@ class TestWhatTheSeederWrites(unittest.TestCase):
 
     def test_the_defaults_of_the_flags_are_the_products_own(self):
         text = SEEDER.read_text()
-        self.assertIn("'--look', choices=('classic', 'pilot'), default='classic'", text)
-        self.assertIn("'--typeface', choices=('system', 'b612'), default='system'", text)
+        self.assertIn("'--look', choices=('classic', 'pilot'), default=None", text)
+        self.assertIn("'--typeface', choices=('system', 'b612'), default=None", text)
         self.assertIn("DEMO_LOOK = 'classic'", text)
         self.assertIn("DEMO_TYPEFACE = 'system'", text)
+
+
+class TestTheDemosOwnDirectory(unittest.TestCase):
+    """A demo whose timer unit predates the flags runs `seed-demo-data.py --data-dir /var/lib/remotepower-demo --apply --quiet`, and that has to be enough."""
+
+    def dry_run(self, *args):
+        r = subprocess.run([sys.executable, str(SEEDER), *args], capture_output=True, text=True, timeout=120, cwd=str(ROOT))
+        self.assertEqual(r.returncode, 0, r.stdout[-400:] + r.stderr[-400:])
+        return re.findall(r'^Default look and typeface: (\S+), (\S+)$', r.stdout, re.M)
+
+    def test_the_demos_own_directory_is_asked_for_without_a_flag(self):
+        s = _seeder()
+        self.assertEqual(s.DEFAULT_DATA_DIR, Path('/var/lib/remotepower-demo'), 'the directory install-demo.sh seeds by default')
+        self.assertEqual(s.resolve_look(None, None, s.DEFAULT_DATA_DIR), ('pilot', 'b612'))
+        self.assertEqual(s.resolve_look(None, None, '/var/lib/remotepower-demo/'), ('pilot', 'b612'), 'a trailing slash is the same directory')
+
+    def test_a_unit_written_before_the_flags_existed_gets_them(self):
+        """The command line of the old unit, through the real argument parser (a dry run writes nothing)."""
+        self.assertEqual(self.dry_run('--data-dir', '/var/lib/remotepower-demo'), [('pilot', 'b612')])
+        self.assertEqual(self.dry_run(), [('pilot', 'b612')], 'no --data-dir at all is the demo\'s directory too')
+
+    def test_any_other_directory_is_the_products_own(self):
+        s = _seeder()
+        self.assertEqual(s.resolve_look(None, None, tempfile.mkdtemp(prefix='rp-demolook-other-')), ('classic', 'system'))
+        self.assertEqual(self.dry_run('--data-dir', tempfile.mkdtemp(prefix='rp-demolook-other-')), [('classic', 'system')])
+
+    def test_a_flag_wins_in_the_demos_own_directory_and_each_is_resolved_on_its_own(self):
+        s = _seeder()
+        demo = s.DEFAULT_DATA_DIR
+        self.assertEqual(s.resolve_look('classic', 'system', demo), ('classic', 'system'), '--classic of the installer')
+        self.assertEqual(s.resolve_look('classic', None, demo), ('classic', 'b612'))
+        self.assertEqual(s.resolve_look(None, 'system', demo), ('pilot', 'system'))
+        self.assertEqual(s.resolve_look('pilot', 'b612', tempfile.mkdtemp(prefix='rp-demolook-other-')), ('pilot', 'b612'), 'asked for, anywhere')
+        self.assertEqual(self.dry_run('--data-dir', '/var/lib/remotepower-demo', '--look', 'classic', '--typeface', 'system'), [('classic', 'system')])
 
 
 class TestWhatTheInstallerAsksFor(unittest.TestCase):

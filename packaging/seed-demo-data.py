@@ -168,10 +168,25 @@ def _cadence_markers():
 TARGET_DIR = DEFAULT_DATA_DIR
 
 # The look and the typeface the seeded instance offers by default (Settings > Branding; a person's own choice still wins). Classic
-# with the system font is the product's own default and what the tests and the pictures were measured on, so the seed keeps it unless
-# asked: install-demo.sh asks for Pilot and B612, which is what the public demo shows.
+# with the system font is the product's own default and what the tests and the pictures were measured on, so a seed keeps it unless
+# asked: install-demo.sh asks for Pilot and B612 with --look and --typeface, which is what the public demo shows.
+# One directory is asked for without a flag: the demo's own (DEFAULT_DATA_DIR). The seeder rewrites the whole configuration on every
+# run, the demo is re-seeded by a timer unit written when it was installed, and a unit written before the two flags existed runs
+# the seeder without them, so such a demo stayed on Classic for good (the sign-in page read "look": "" from /api/public-info). A
+# directory the tests, the screenshots or a developer chose is never the demo's own, so those seeds are still what they were.
 DEMO_LOOK = 'classic'
 DEMO_TYPEFACE = 'system'
+
+
+def resolve_look(look, typeface, target):
+    """The (look, typeface) a seed of `target` writes: what --look and --typeface asked for, and for the demo's own directory without them
+    the new look and typeface, everywhere else the product's own. A person who wants the demo on Classic says so (--classic of the
+    installer passes `--look classic --typeface system`)."""
+    try:
+        own = Path(target).resolve() == Path(DEFAULT_DATA_DIR).resolve()
+    except OSError:
+        own = False
+    return look or ('pilot' if own else 'classic'), typeface or ('b612' if own else 'system')
 
 # A dir is treated as a sanctioned demo target if it contains this marker file.
 # The script drops it automatically after a successful seed of an empty dir, so
@@ -8393,10 +8408,10 @@ def main():
                    help='Actually write the files (default is dry-run)')
     p.add_argument('--quiet', action='store_true',
                    help='Suppress per-file output (useful for cron)')
-    p.add_argument('--look', choices=('classic', 'pilot'), default='classic',
-                   help="The default look of the seeded instance (default: classic). The public demo uses pilot.")
-    p.add_argument('--typeface', choices=('system', 'b612'), default='system',
-                   help="The default typeface of the seeded instance (default: system). The public demo uses b612.")
+    p.add_argument('--look', choices=('classic', 'pilot'), default=None,
+                   help=f"The default look of the seeded instance (default: pilot for {DEFAULT_DATA_DIR}, the public demo's own directory, and classic for any other).")
+    p.add_argument('--typeface', choices=('system', 'b612'), default=None,
+                   help=f"The default typeface of the seeded instance (default: b612 for {DEFAULT_DATA_DIR}, and system for any other).")
     # Undocumented escape hatch for the rare empty-but-protected-path case.
     # It can NEVER bypass the real-accounts check — see _guard_demo_target.
     p.add_argument('--i-know-this-is-not-a-demo-dir', dest='override',
@@ -8408,8 +8423,9 @@ def main():
     # dir actually being seeded, not the compile-time default.
     global TARGET_DIR, DEMO_LOOK, DEMO_TYPEFACE
     TARGET_DIR = target
-    DEMO_LOOK, DEMO_TYPEFACE = args.look, args.typeface
+    DEMO_LOOK, DEMO_TYPEFACE = resolve_look(args.look, args.typeface, target)
     print(f"Target data dir: {target.resolve() if target.exists() else target}")
+    print(f"Default look and typeface: {DEMO_LOOK}, {DEMO_TYPEFACE}")
     if not args.apply:
         print(f"Dry-run. Would write {len(BUILDERS)} files to {target}/")
         for name in BUILDERS:

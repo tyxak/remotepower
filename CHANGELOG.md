@@ -53,8 +53,8 @@ a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and t
   them on the sign-in page and everywhere after it, and can still choose Classic and the system font in My Account (the demo is read-only, so a
   choice lasts until the page is reloaded). `seed-demo-data.py` has two new flags, `--look` and `--typeface`, because it rewrites the whole
   configuration every time it runs. `install-demo.sh` passes them to the first seed and to the timer that refreshes the demo; `--classic` turns
-  both off. A plain seed writes neither, so the tests and the screenshots that run on the seed are unchanged. An existing demo changes when you run
-  the installer again. Three things came with it. The Branding card under **Settings → Advanced** has a **Default typeface** row beside the default look. 7.4.9 gave an
+  both off. A plain seed writes neither, so the tests and the screenshots that run on the seed are unchanged. A plain seed of the demo's own directory (`/var/lib/remotepower-demo`) asks for them too, so a demo whose timer was written before the flags existed changes at its next
+  re-seed; a seed of any other directory stays Classic unless the flags ask, and the installer's `--classic` (`--look classic --typeface system`) keeps the demo on Classic. Three things came with it. The Branding card under **Settings → Advanced** has a **Default typeface** row beside the default look. 7.4.9 gave an
   administrator no say over the typeface; the demo needs one typeface for everybody, including a visitor who has not signed in. It has no lock:
   nobody should be made to read in a face they cannot read. The hint under the typeface in My Account now says B612 loads when it is in use, not
   only when you pick it. And the sign-in page follows the default look and typeface, which it could not before: only `/api/me` carried them,
