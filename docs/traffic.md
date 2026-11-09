@@ -1,6 +1,6 @@
 # Traffic
 
-The Traffic tab on the **Network** page shows which addresses your Linux hosts talk to, which programs open those connections, and how much each connection moved. It works from each host's connection table. It captures no packets and reads none of the data the connections carry.
+The **Traffic** tab on the **Threat Intel** page shows which addresses your Linux hosts talk to, which programs open those connections, and how much each connection moved. It works from each host's connection table. It captures no packets and reads none of the data the connections carry.
 
 ## Turn it on
 
@@ -8,7 +8,7 @@ Traffic is off by default, because it records the remote addresses and program n
 
 1. Open **Settings > Advanced > Optional modules** and tick **Traffic**.
 2. Save. Linux agents pick the change up with their next report and start sampling, once a minute by default.
-3. Open **Network > Traffic**. The first rows appear one sample interval later.
+3. Open **Threat Intel > Traffic**. The first rows appear one sample interval later.
 
 Untick it to stop. The agents stop sampling, the tab disappears and the Traffic API answers 404. The Data Explorer and Fleet Query stop answering for it too. Rows already stored stay where they are until you turn the module on again or delete the host.
 

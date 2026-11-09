@@ -80,8 +80,9 @@ class TestTabsInTheBrowser(unittest.TestCase):
                     page.evaluate(f"localStorage.removeItem('pgtab.{name}'); showPage('{name}')")
                     page.wait_for_selector(f'#page-{name}.active', timeout=10000)
                     page.wait_for_timeout(300)
+                    # a tab its module hides (Traffic on Threat Intel, and this stack has the module off) cannot be clicked and is not one to land on either
                     tabs = page.eval_on_selector_all(
-                        f'#page-{name} [data-pg-tab-btn]', 'els => els.map(e => e.dataset.pgTabBtn)')
+                        f'#page-{name} [data-pg-tab-btn]:not(.d-none)', 'els => els.map(e => e.dataset.pgTabBtn)')
                     self.assertGreaterEqual(len(tabs), 2)
                     for tab in tabs:
                         page.click(f'#page-{name} [data-pg-tab-btn="{tab}"]')

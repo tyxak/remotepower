@@ -394,7 +394,7 @@ a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and t
   the finding reached the drawer, the Integrations page and the AI index, and nothing that answers a question over the whole fleet. **Held by**
   `tests/test_v800_app_query.py` (20 tests: the real Explorer loader and `handle_fleet_query`, an older agent, hosts the catalog does not read, the caller's scope).
 
-- **Traffic: which addresses each Linux host talks to, and how much each connection moved.** A new tab on the Network page and a section in each host's drawer, in a
+- **Traffic: which addresses each Linux host talks to, and how much each connection moved.** A new tab on the Threat Intel page and a section in each host's drawer, in a
   module that is off until you switch it on (Settings → Advanced → Optional modules → **Traffic**), because it records the remote addresses and program names your hosts
   connect to. The Linux agent reads `ss` for its established TCP connections (the kernel's own byte counters, no packet capture and no payload) every 60 seconds (30 to
   3,600) and sends one row for each direction, remote address, service port and program: the connections and the bytes each way since the last sample. The tab adds the

@@ -3019,7 +3019,7 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-sshgw"> <strong>SSH Gateway</strong> — reach opted-in servers with your own SSH client through one gateway, with no inbound port on the server. Off by default. It needs the gateway service on this server (<code>install-server.sh --with-sshgw</code>); unticking this refuses every gateway login and 404s the API. <a href="docs/sshgw.md" class="c-accent">Documentation</a></label></div>
             <div class="settings-row"><button class="btn-secondary" data-action="wizOpen" data-arg="sshgw" type="button">Guide me</button></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-mcp"> <strong>MCP endpoint</strong> — lets an AI host ask this server about the fleet over HTTP, read-only, with the permissions of the API key it uses. Off by default, and the endpoint answers 404 until this is ticked. <a href="docs/mcp.md" class="c-accent">Documentation</a></label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-traffic"> <strong>Traffic</strong> — shows on the Network page which addresses each Linux host talks to and how much every connection moved. It records remote addresses and program names, so it is off by default. Switching it on makes the agents read their connection table; switching it off stops them, and the API answers 404. <a href="docs/traffic.md" class="c-accent">Documentation</a></label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-traffic"> <strong>Traffic</strong> — shows on the Threat Intel page which addresses each Linux host talks to and how much every connection moved. It records remote addresses and program names, so it is off by default. Switching it on makes the agents read their connection table; switching it off stops them, and the API answers 404. <a href="docs/traffic.md" class="c-accent">Documentation</a></label></div>
           </div>
           <div class="settings-section">
             <div class="section-title">Provisioning — server-side execution</div>
@@ -5135,7 +5135,7 @@
               <p><strong>Wizards.</strong> <em>Guide me</em> walks through adding a host, a notification destination, an integration, e-mail, single sign-on, the syslog, flow and satellite sidecars, the push channel and the SSH gateway, and checks as it goes. A <em>Step by step</em> switch shows six long dialogs a few fields at a time. See <code>docs/wizards.md</code>.</p>
               <p><strong>Apps found on a host.</strong> The Linux agent says which of 63 well-known apps a host runs, and the host drawer offers a monitor and a connector for each. See <code>docs/app-discovery.md</code>.</p>
               <p><strong>More to connect and monitor.</strong> Tailscale, Headscale and Cloudflare Tunnel connectors, an Apprise destination, SMTP, IMAP, SSH banner and NTP monitors that run from the server, a host or a satellite, and the last log lines of an unhealthy container in its alert.</p>
-              <p><strong>Traffic.</strong> A tab on the Network page shows which addresses your Linux hosts talk to, which programs open the connections and how much each one moved, with a watch list that raises an alert. It reads each host's TCP connection table; it captures no packets. See <code>docs/traffic.md</code>.</p>
+              <p><strong>Traffic.</strong> A tab on the Threat Intel page shows which addresses your Linux hosts talk to, which programs open the connections and how much each one moved, with a watch list that raises an alert. It reads each host's TCP connection table; it captures no packets. See <code>docs/traffic.md</code>.</p>
               <p><strong>Off until you switch it on.</strong> Traffic and a read-only MCP endpoint (<code>POST /api/mcp</code>, 16 read tools), both under Settings &rarr; Advanced &rarr; Optional modules, and automatic image updates with a rollback (Containers &rarr; Image updates). See <code>docs/mcp.md</code>.</p>
               <p><strong>What the last read of the code found.</strong> One High issue, nine Medium issues, seven Low or hardening items and one informational item. The High one: saving the host drawer&rsquo;s settings form cleared the host&rsquo;s allowlist, watched units and log rules. Among the Medium ones: an AI executor that could not propose a saved script, three ways to run code on a host that ignored quarantine or maintenance mode, events of one organisation counted into another&rsquo;s compliance evidence, and a Home page that showed a tenant&rsquo;s users the whole installation&rsquo;s figures. All are fixed. See <code>docs/security-review-8.0.0.md</code>.</p>
               <p><strong>What changes for you.</strong> Update the agents. Hard-reload the dashboard once. Long pages open as tabs.</p>
@@ -7127,6 +7127,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="pg-tab" data-pg-tab-btn="attackers" data-action="pgTab" data-arg="ipintel:attackers">Attackers</button>
           <button class="pg-tab" data-pg-tab-btn="blocks" data-action="pgTab" data-arg="ipintel:blocks">Active blocks</button>
           <button class="pg-tab" data-pg-tab-btn="sources" data-action="pgTab" data-arg="ipintel:sources">Log sources</button>
+          <button class="pg-tab d-none" data-pg-tab-btn="traffic" data-module="traffic" data-action="pgTab" data-arg="ipintel:traffic">Traffic</button>
           <button class="pg-tab" data-pg-tab-btn="settings" data-action="pgTab" data-arg="ipintel:settings">Settings</button>
         </nav>
 
@@ -7198,6 +7199,103 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <p class="hint mt-8">Each row is one log file or command. An agent looks at every log about once a minute and reads only what was written since the last look, and the three numbers are for that look, not totals. Reading means new lines arrived. Quiet means the log was checked and nothing new had been written. A host sends this list when something changes and at least every ten minutes, so Last report can be minutes old. A firewall or router has no agent, so its rows count the lines its syslog sent today (UTC).</p>
           <div id="ipintel-src-notes" class="mt-8"></div>
+        </div>
+
+        <!-- 8.0.0: the Traffic view. app-traffic.js shows this when the module is on and fills it when the tab opens -->
+        <div id="traffic-wrap" data-pg-tab="traffic" hidden>
+          <div class="dash-card mt-16">
+            <div class="section-header">
+              <div class="section-title">Traffic</div>
+              <button class="btn-icon" data-action="loadTraffic"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            </div>
+            <p class="hint">Which addresses your Linux hosts talk to, which programs open the connections, and how much each connection moved between a host's last two samples, read from each host's connection table. <a href="docs/traffic.md" class="c-accent">Documentation</a></p>
+            <div id="traffic-stats" class="mt-8"></div>
+            <div id="traffic-note" class="hint mt-8"></div>
+          </div>
+
+          <div class="dash-card mt-16">
+            <div class="section-header">
+              <div class="section-title">Remote addresses</div>
+              <div class="row-8-center">
+                <select id="traffic-show" class="form-input input-auto" data-change="trafficShow" aria-label="Show">
+                  <option value="all">All addresses</option>
+                  <option value="public">Public addresses</option>
+                  <option value="local">Local network</option>
+                  <option value="new">New addresses</option>
+                  <option value="watched">Watch list matches</option>
+                </select>
+                <input type="text" id="traffic-remotes-filter" class="form-input input-filter" placeholder="Filter by address, host, port or country…" aria-label="Filter remote addresses">
+              </div>
+            </div>
+            <div class="table-card">
+              <table>
+                <thead id="traffic-remotes-thead"><tr><th scope="col" data-col="address">Address</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="ports">Ports</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th><th scope="col" data-col="where">Country and organisation</th></tr></thead>
+                <tbody id="traffic-remotes-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dash-card mt-16">
+            <div class="section-header"><div class="section-title">Programs</div></div>
+            <div class="table-card">
+              <table>
+                <thead id="traffic-programs-thead"><tr><th scope="col" data-col="program">Program</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th></tr></thead>
+                <tbody id="traffic-programs-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dash-card mt-16">
+            <div class="section-header"><div class="section-title">Ports and services</div></div>
+            <div class="table-card">
+              <table>
+                <thead id="traffic-ports-thead"><tr><th scope="col" data-col="direction">Direction</th><th scope="col" data-col="port">Port</th><th scope="col" data-col="service">Service</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th></tr></thead>
+                <tbody id="traffic-ports-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dash-card mt-16">
+            <div class="section-header"><div class="section-title">Hosts</div></div>
+            <div class="table-card">
+              <table>
+                <thead id="traffic-hosts-thead"><tr><th scope="col" data-col="host">Host</th><th scope="col" data-col="state">State</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th><th scope="col" data-col="last">Last sample</th></tr></thead>
+                <tbody id="traffic-hosts-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dash-card mt-16">
+            <div class="section-header"><div class="section-title">Watch list</div></div>
+            <p class="hint">Addresses, networks, ports and programs you want to notice. A connection that matches is marked, listed here and raises a Watched connection alert. <a href="docs/traffic.md" class="c-accent">Documentation</a></p>
+            <div class="table-card">
+              <table>
+                <thead id="traffic-hits-thead"><tr><th scope="col" data-col="host">Host</th><th scope="col" data-col="address">Address</th><th scope="col" data-col="port">Port</th><th scope="col" data-col="program">Program</th><th scope="col" data-col="direction">Direction</th><th scope="col" data-col="entry">Entry</th></tr></thead>
+                <tbody id="traffic-hits-tbody"></tbody>
+              </table>
+            </div>
+            <div id="traffic-wl-list" class="scroll-cap mt-12"></div>
+            <div id="traffic-wl-note" class="hint mt-8"></div>
+            <div id="traffic-wl-edit" class="mt-8" hidden>
+              <div class="row-8-center">
+                <select id="traffic-wl-kind" class="form-input input-auto" aria-label="Kind">
+                  <option value="ip">Address</option>
+                  <option value="cidr">Network</option>
+                  <option value="port">Port</option>
+                  <option value="proc">Program</option>
+                </select>
+                <input type="text" id="traffic-wl-value" class="form-input input-wide-sm" placeholder="Address, network, port or program" aria-label="Value">
+                <input type="text" id="traffic-wl-label" class="form-input input-wide-sm" placeholder="Note (optional)" aria-label="Note">
+                <button class="btn-icon" data-action="trafficWatchAdd">Add</button>
+              </div>
+              <div class="row-8-center mt-8">
+                <label class="meta-sm" for="traffic-every">Sample every</label>
+                <input type="number" id="traffic-every" class="form-input input-narrow" min="30" max="3600" aria-label="Seconds between samples">
+                <span class="meta-sm">Seconds</span>
+                <button class="enroll-btn" data-action="trafficWatchSave">Save</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="dash-card mt-16" data-pg-tab="attackers" id="ipintel-lookup-card" hidden>
@@ -8789,7 +8887,6 @@ nextcloud mem=95 sustain=6</pre>
           <button class="pg-tab" data-pg-tab-btn="dependencies" data-action="pgTab" data-arg="netmap:dependencies">Dependencies</button>
           <button class="pg-tab" data-pg-tab-btn="discovery" data-action="pgTab" data-arg="netmap:discovery">Discovery</button>
           <button class="pg-tab" data-pg-tab-btn="watches" data-action="pgTab" data-arg="netmap:watches">Watches</button>
-          <button class="pg-tab d-none" data-pg-tab-btn="traffic" data-module="traffic" data-action="pgTab" data-arg="netmap:traffic">Traffic</button>
         </nav>
         <div data-pg-tab="map" class="isl-173">
           <button class="btn-icon" data-action="loadNetmap" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -8868,102 +8965,6 @@ nextcloud mem=95 sustain=6</pre>
           <div id="discovery-body"><div class="c-muted">No scan data yet — run a LAN scan from a host's Health &amp; hardware card.</div></div>
         </div>
 
-        <!-- 8.0.0: the Traffic view. app-traffic.js shows this when the module is on and fills it when the tab opens -->
-        <div id="traffic-wrap" data-pg-tab="traffic" hidden>
-          <div class="dash-card mt-16">
-            <div class="section-header">
-              <div class="section-title">Traffic</div>
-              <button class="btn-icon" data-action="loadTraffic"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
-            </div>
-            <p class="hint">Which addresses your Linux hosts talk to, which programs open the connections, and how much each connection moved between a host's last two samples, read from each host's connection table. <a href="docs/traffic.md" class="c-accent">Documentation</a></p>
-            <div id="traffic-stats" class="mt-8"></div>
-            <div id="traffic-note" class="hint mt-8"></div>
-          </div>
-
-          <div class="dash-card mt-16">
-            <div class="section-header">
-              <div class="section-title">Remote addresses</div>
-              <div class="row-8-center">
-                <select id="traffic-show" class="form-input input-auto" data-change="trafficShow" aria-label="Show">
-                  <option value="all">All addresses</option>
-                  <option value="public">Public addresses</option>
-                  <option value="local">Local network</option>
-                  <option value="new">New addresses</option>
-                  <option value="watched">Watch list matches</option>
-                </select>
-                <input type="text" id="traffic-remotes-filter" class="form-input input-filter" placeholder="Filter by address, host, port or country…" aria-label="Filter remote addresses">
-              </div>
-            </div>
-            <div class="table-card">
-              <table>
-                <thead id="traffic-remotes-thead"><tr><th scope="col" data-col="address">Address</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="ports">Ports</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th><th scope="col" data-col="where">Country and organisation</th></tr></thead>
-                <tbody id="traffic-remotes-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="dash-card mt-16">
-            <div class="section-header"><div class="section-title">Programs</div></div>
-            <div class="table-card">
-              <table>
-                <thead id="traffic-programs-thead"><tr><th scope="col" data-col="program">Program</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th></tr></thead>
-                <tbody id="traffic-programs-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="dash-card mt-16">
-            <div class="section-header"><div class="section-title">Ports and services</div></div>
-            <div class="table-card">
-              <table>
-                <thead id="traffic-ports-thead"><tr><th scope="col" data-col="direction">Direction</th><th scope="col" data-col="port">Port</th><th scope="col" data-col="service">Service</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th></tr></thead>
-                <tbody id="traffic-ports-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="dash-card mt-16">
-            <div class="section-header"><div class="section-title">Hosts</div></div>
-            <div class="table-card">
-              <table>
-                <thead id="traffic-hosts-thead"><tr><th scope="col" data-col="host">Host</th><th scope="col" data-col="state">State</th><th scope="col" data-col="connections">Connections</th><th scope="col" data-col="sent">Sent</th><th scope="col" data-col="received">Received</th><th scope="col" data-col="last">Last sample</th></tr></thead>
-                <tbody id="traffic-hosts-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="dash-card mt-16">
-            <div class="section-header"><div class="section-title">Watch list</div></div>
-            <p class="hint">Addresses, networks, ports and programs you want to notice. A connection that matches is marked, listed here and raises a Watched connection alert. <a href="docs/traffic.md" class="c-accent">Documentation</a></p>
-            <div class="table-card">
-              <table>
-                <thead id="traffic-hits-thead"><tr><th scope="col" data-col="host">Host</th><th scope="col" data-col="address">Address</th><th scope="col" data-col="port">Port</th><th scope="col" data-col="program">Program</th><th scope="col" data-col="direction">Direction</th><th scope="col" data-col="entry">Entry</th></tr></thead>
-                <tbody id="traffic-hits-tbody"></tbody>
-              </table>
-            </div>
-            <div id="traffic-wl-list" class="scroll-cap mt-12"></div>
-            <div id="traffic-wl-note" class="hint mt-8"></div>
-            <div id="traffic-wl-edit" class="mt-8" hidden>
-              <div class="row-8-center">
-                <select id="traffic-wl-kind" class="form-input input-auto" aria-label="Kind">
-                  <option value="ip">Address</option>
-                  <option value="cidr">Network</option>
-                  <option value="port">Port</option>
-                  <option value="proc">Program</option>
-                </select>
-                <input type="text" id="traffic-wl-value" class="form-input input-wide-sm" placeholder="Address, network, port or program" aria-label="Value">
-                <input type="text" id="traffic-wl-label" class="form-input input-wide-sm" placeholder="Note (optional)" aria-label="Note">
-                <button class="btn-icon" data-action="trafficWatchAdd">Add</button>
-              </div>
-              <div class="row-8-center mt-8">
-                <label class="meta-sm" for="traffic-every">Sample every</label>
-                <input type="number" id="traffic-every" class="form-input input-narrow" min="30" max="3600" aria-label="Seconds between samples">
-                <span class="meta-sm">Seconds</span>
-                <button class="enroll-btn" data-action="trafficWatchSave">Save</button>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- ── v5.0.0: network throughput metrics, scoped fleet/group/tag/site ── -->

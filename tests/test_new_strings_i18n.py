@@ -559,7 +559,7 @@ NEW_STRINGS = [
     "Add this to ~/.ssh/config",
     "Then connect to a host by its name followed by the suffix, for example ssh root@web01.rp.",
     # 8.0.0: the Traffic view (its module row in Settings, Advanced; the page's own strings are added with the page)
-    "— shows on the Network page which addresses each Linux host talks to and how much every connection moved. It records remote addresses and program names, so it is off by default. Switching it on makes the agents read their connection table; switching it off stops them, and the API answers 404.",
+    "— shows on the Threat Intel page which addresses each Linux host talks to and how much every connection moved. It records remote addresses and program names, so it is off by default. Switching it on makes the agents read their connection table; switching it off stops them, and the API answers 404.",
 ]
 
 

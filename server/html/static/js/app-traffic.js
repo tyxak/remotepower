@@ -1,5 +1,5 @@
 // app-traffic.js — the Traffic view (8.0.0): which addresses each Linux host talks to and how much each connection moved. Buildless classic script; every symbol is global
-// like the rest of the client JS, and it is fetched on first use (the lazy map in app.js): the Traffic tab of the Network page and the host drawer's Traffic section.
+// like the rest of the client JS, and it is fetched on first use (the lazy map in app.js): the Traffic tab of the Threat Intel page and the host drawer's Traffic section.
 //
 //   trafficEnter()          the tab was opened (app.js calls it whenever the tab shows): draw the cards, at most every few seconds
 //   loadTraffic()           fetch the fleet's answer and the watch list and draw them (the Refresh button)

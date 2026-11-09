@@ -206,7 +206,7 @@ class TestPageSections(unittest.TestCase):
                 self._open(name)
                 for tab in self._tabs(name):
                     self.page.click(f'#page-{name} [data-pg-tab-btn="{tab}"]')
-                    # a tab whose cards a lazy module fills (Network > Traffic) is empty for the moment it takes the module to load and answer, so it is asked again for a few seconds
+                    # a tab whose cards a lazy module fills (Threat Intel > Traffic) is empty for the moment it takes the module to load and answer, so it is asked again for a few seconds
                     deadline = time.time() + 8
                     while True:
                         boxes = [c for c in self._cards(name) if c['shown'] and tab in c['tabs'] and c['h'] > 20]

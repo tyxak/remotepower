@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""8.0.0: the Traffic view in a browser on the demo seed: the Traffic tab of the Network page, the host drawer's Traffic section and the watch list editor.
+"""8.0.0: the Traffic view in a browser on the demo seed: the Traffic tab of the Threat Intel page, the host drawer's Traffic section and the watch list editor.
 
 tests/test_v800_traffic.py holds the rules and the routes and tests/test_v800_traffic_agent.py the agent. This file holds what a person sees and presses: the tab adds the
 fleet up (hosts sampling, the busiest remote addresses, programs, ports, one line for each host), a new address and a watch list match are marked, the Show select and the
@@ -113,7 +113,7 @@ def _login(page, user="alice", password="demo"):
 
 
 # The Server Status page has a tab called "traffic" too, and it comes first in the page: a bare selector finds that hidden one.
-TAB = '.pg-tabs[data-pg="netmap"] [data-pg-tab-btn="traffic"]'
+TAB = '.pg-tabs[data-pg="ipintel"] [data-pg-tab-btn="traffic"]'
 
 INIT = "try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); %s } catch (e) {}"
 
@@ -153,13 +153,13 @@ class TestTrafficInTheBrowser(unittest.TestCase):
           if (typeof closeDeviceDrawer === 'function') closeDeviceDrawer();
           if (window.__realApi) { window.api = window.__realApi; window.__realApi = null; }
           (window.__held || []).splice(0).forEach(release => release());
-          try { localStorage.removeItem('pgtab.netmap'); } catch (e) {}
+          try { localStorage.removeItem('pgtab.ipintel'); } catch (e) {}
         }""")
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
     def open_tab(self, reload=True):
-        self.page.evaluate("() => showPage('netmap')")
+        self.page.evaluate("() => showPage('ipintel')")
         self.page.wait_for_selector(TAB, state="visible", timeout=30000)
         self.page.click(TAB)
         self.page.wait_for_function("() => { const w = document.getElementById('traffic-wrap'); return w && !w.hidden && typeof loadTraffic === 'function'; }", timeout=30000)
@@ -383,7 +383,7 @@ class TestTrafficInTheBrowser(unittest.TestCase):
         page = ctx.new_page()
         try:
             _login(page, "demo", "demo")
-            page.evaluate("() => showPage('netmap')")
+            page.evaluate("() => showPage('ipintel')")
             page.wait_for_selector(TAB, state="visible", timeout=30000)
             page.click(TAB)
             page.wait_for_function("() => document.querySelectorAll('#traffic-remotes-tbody tr').length > 1", timeout=30000)
@@ -400,17 +400,17 @@ class TestTrafficInTheBrowser(unittest.TestCase):
         config["traffic_module_enabled"] = False
         write("config.json", config)
         ctx = _STATE["browser"].new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
-        ctx.add_init_script(INIT % "localStorage.setItem('pgtab.netmap', 'traffic');")
+        ctx.add_init_script(INIT % "localStorage.setItem('pgtab.ipintel', 'traffic');")
         page, seen = ctx.new_page(), []
         page.on("request", lambda r: seen.append(r.url))
         try:
             _login(page)
-            page.evaluate("() => showPage('netmap')")
+            page.evaluate("() => showPage('ipintel')")
             page.wait_for_timeout(2500)
-            self.assertTrue(page.eval_on_selector(TAB, "b => b.classList.contains('d-none')"), "the Network page's own button is the one the gate hides")
+            self.assertTrue(page.eval_on_selector(TAB, "b => b.classList.contains('d-none')"), "the Threat Intel page's own button is the one the gate hides")
             self.assertFalse(page.is_visible(TAB))
             self.assertTrue(page.eval_on_selector("#traffic-wrap", "w => w.hidden"))
-            self.assertEqual(page.eval_on_selector('.pg-tabs[data-pg="netmap"] .pg-tab.active', "b => b.dataset.pgTabBtn"), "map", "a tab remembered from before falls back to the page's own")
+            self.assertEqual(page.eval_on_selector('.pg-tabs[data-pg="ipintel"] .pg-tab.active', "b => b.dataset.pgTabBtn"), "attackers", "a tab remembered from before falls back to the page's own")
             page.evaluate("([id, name]) => openDeviceDrawer(id, name)", ["gt01", "gitea.lab"])
             page.wait_for_function("() => /Online|Offline/.test(document.getElementById('drawer-device-sub').textContent)", timeout=30000)
             page.wait_for_timeout(1000)
@@ -425,10 +425,10 @@ class TestTrafficInTheBrowser(unittest.TestCase):
         page = ctx.new_page()
         try:
             _login(page)
-            page.evaluate("() => showPage('netmap')")
+            page.evaluate("() => showPage('ipintel')")
             page.wait_for_function("() => document.querySelectorAll('#traffic-remotes-tbody tr').length > 1", timeout=30000)
             self.assertTrue(page.is_visible("#traffic-wrap"))
-            self.assertTrue(page.is_visible("#netmap-svg"), "the other cards show too")
+            self.assertTrue(page.is_visible("#ipintel-att-thead"), "the other cards show too")
         finally:
             ctx.close()
 
@@ -442,9 +442,9 @@ class TestTrafficInTheBrowser(unittest.TestCase):
         page.on("request", lambda r: seen.append(r.url))
         try:
             _login(page)
-            page.evaluate("() => showPage('netmap')")
+            page.evaluate("() => showPage('ipintel')")
             page.wait_for_timeout(2500)
-            self.assertTrue(page.is_visible("#netmap-svg"), "the other cards show: this is the one long page")
+            self.assertTrue(page.is_visible("#ipintel-att-thead"), "the other cards show: this is the one long page")
             self.assertFalse(page.is_visible("#traffic-wrap"))
             self.assertEqual([u for u in seen if "/traffic" in u or "app-traffic" in u], [], "every tab shows in this mode, and a module that is off still fetches nothing")
         finally:

@@ -14,7 +14,9 @@ All three are off until you turn them on. You'll find everything under
 **Security → Threat Intel**.
 
 The page has four tabs: **Attackers**, **Active blocks**, **Log sources** and
-**Settings**. A strip of counts above them shows the attackers, how many were
+**Settings**. A fifth, **Traffic**, sits before **Settings** once you turn on the
+[Traffic module](traffic.md); it shows which addresses your Linux hosts talk to and
+marks the ones Threat Intel has a score for. A strip of counts above them shows the attackers, how many were
 reported, how many are waiting for a lookup and the active blocks. An admin who
 has turned on edge sources also sees **Feeds with a problem**. Click a count to
 open the matching tab. The provider keys, the log sensor, firewalls and routers,
