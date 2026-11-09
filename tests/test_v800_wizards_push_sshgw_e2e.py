@@ -288,9 +288,15 @@ class TestThePushWizard(_Wizards):
         bad = []
         try:
             for lang in LANGS:
-                self.page.evaluate("(l) => RPi18n.setLang(l, false)", lang)
-                self.page.wait_for_timeout(300)
-                now = self.page.evaluate(pick)
+                # the account's own language arrives from the server a moment after the page opens and puts the page back on it, and the page is translated in slices: choose the
+                # language again until the title has changed, for a few seconds
+                deadline = time.time() + 6
+                while True:
+                    self.page.evaluate("(l) => RPi18n.setLang(l, false)", lang)
+                    self.page.wait_for_timeout(300)
+                    now = self.page.evaluate(pick)
+                    if (now[0] != english[0] and now[1] != english[1]) or time.time() > deadline:
+                        break
                 if now[0] == english[0] or now[1] == english[1]:
                     bad.append((lang, now))
         finally:
@@ -430,9 +436,15 @@ class TestTheSshGatewayWizard(_Wizards):
         bad = []
         try:
             for lang in LANGS:
-                self.page.evaluate("(l) => RPi18n.setLang(l, false)", lang)
-                self.page.wait_for_timeout(300)
-                now = self.page.evaluate(pick)
+                # the account's own language arrives from the server a moment after the page opens and puts the page back on it, and the page is translated in slices: choose the
+                # language again until the title has changed, for a few seconds
+                deadline = time.time() + 6
+                while True:
+                    self.page.evaluate("(l) => RPi18n.setLang(l, false)", lang)
+                    self.page.wait_for_timeout(300)
+                    now = self.page.evaluate(pick)
+                    if (now[0] != english[0] and now[1] != english[1]) or time.time() > deadline:
+                        break
                 if now[0] == english[0] or now[1] == english[1]:
                     bad.append((lang, now))
         finally:
