@@ -252,7 +252,8 @@ def merge(prev: Any, sample: dict[str, Any], now: int) -> dict[str, Any]:
     The record keeps the latest sample, a chart of one point every SERIES_GAP seconds ([time, bytes/s out, bytes/s in, connections], SERIES_MAX points) and the first time
     each public remote address was seen (SEEN_MAX, the oldest forgotten first). `seen_out` is the same list for the addresses the host itself connected to, so a later
     reading of an address (Detections asks Threat Intel again) can tell a server it called from a visitor it served. `first` is the time of the host's first sample:
-    is_new() reads the first hour after it as the host's baseline, so that hour does not mark every address it used as new."""
+    is_new() reads the first hour after it as the host's baseline, so that hour does not mark every address it used as new.
+    """
     prev = prev if isinstance(prev, dict) else {}
     series = [p for p in (prev.get("series") or []) if isinstance(p, list) and len(p) == 4]
     first = _count(prev.get("first"), 4 * 10**9) or now
@@ -268,7 +269,11 @@ def merge(prev: Any, sample: dict[str, Any], now: int) -> dict[str, Any]:
         series.append([now, round(sample["tx"] / win), round(sample["rx"] / win), sample["conns"]])
     out_in = prev.get("seen_out")
     seen_out = (
-        {k: v for k, v in out_in.items() if isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool)}
+        {
+            k: v
+            for k, v in out_in.items()
+            if isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool)
+        }
         if isinstance(out_in, dict)
         else {}
     )

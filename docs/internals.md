@@ -49,7 +49,7 @@ By the numbers:
 | Request handlers (`handle_*`) | ~900 |
 | Typed request-body models | ~280 |
 | Homelab integration connectors | 53 (+ a generic HTTP probe) |
-| Background maintenance sweeps | ~78 |
+| Background maintenance sweeps | ~79 |
 | Frontend JS files (no bundler) | 66 |
 | Test methods across ~1,200 files | ~22,000 |
 
@@ -65,7 +65,7 @@ layer. What happens next is the interesting part.
 The Flask route does almost nothing: it copies the WSGI environ into a
 thread-local request context (`_RCTX`) and calls `api.main()` — the same
 `main()` that has existed since the project's CGI days. The whole dispatch table,
-the auth and CSRF enforcement, the read-only-role gate, the ~78 maintenance
+the auth and CSRF enforcement, the read-only-role gate, the ~79 maintenance
 sweeps: all unchanged. Only the shell around them changed.
 
 That's not an accident. Earlier releases ran the server as CGI behind fcgiwrap (one
@@ -175,7 +175,7 @@ backends and 500s on the third is the bug we design against.
 
 ## The maintenance sweeps
 
-RemotePower has ~78 periodic jobs: poll integrations, check disk headroom, expire
+RemotePower has ~79 periodic jobs: poll integrations, check disk headroom, expire
 confirmations, sample SMART/GPU history, run scheduled backups, re-scan for CVEs,
 and so on. There is no cron inside the app and no external job runner. Each sweep
 is a `run_<x>_if_due()` function with a cheap "is it time yet?" gate backed by a

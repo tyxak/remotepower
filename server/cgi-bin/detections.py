@@ -12,6 +12,7 @@ one. A rule that cannot be evaluated (a missing record, a row of the wrong kind)
 
 from __future__ import annotations
 
+import math
 from typing import Any, Callable
 
 import traffic as T
@@ -225,11 +226,31 @@ def _public(ip: Any) -> bool:
 
 
 def _num(v: Any) -> float | None:
-    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v else None
+    """A finite number as a float. NaN, infinity and an integer too large for a float read as absent: `int(inf)` and `float(10**400)` raise."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    try:
+        f = float(v)
+    except OverflowError:
+        return None
+    return f if math.isfinite(f) else None
 
 
 def _int(v: Any) -> int | None:
     return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+
+def _fact(v: Any) -> Any:
+    """One fact of a finding as it is kept: a number stays (a non-finite one becomes none, because NaN is not JSON), a text is cut, anything else is read as text."""
+    if v is None or isinstance(v, (bool, int)):
+        return v
+    if isinstance(v, float):
+        return v if math.isfinite(v) else None
+    return str(v)[:TEXT_MAX]
+
+
+def _facts(ev: dict[Any, Any]) -> dict[str, Any]:
+    return {str(k)[:40]: _fact(v) for k, v in list(ev.items())[:EVIDENCE_KEYS]}
 
 
 def _dict(v: Any) -> dict[str, Any]:
@@ -243,8 +264,11 @@ def _where(ctx: dict[str, Any]) -> str:
 
 
 def _rows(ctx: dict[str, Any], direction: str | None = None) -> list[dict[str, Any]]:
+    raw = ctx.get("rows")
     rows = [
-        r for r in (ctx.get("rows") or []) if isinstance(r, dict) and isinstance(r.get("ip"), str)
+        r
+        for r in (raw if isinstance(raw, list) else [])
+        if isinstance(r, dict) and isinstance(r.get("ip"), str)
     ]
     return [r for r in rows if direction is None or r.get("d") == direction]
 
@@ -252,7 +276,8 @@ def _rows(ctx: dict[str, Any], direction: str | None = None) -> list[dict[str, A
 def _events(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     """The host's events that are usable: a name, a whole-number time and the payload as a map."""
     out = []
-    for e in ctx.get("events") or []:
+    raw = ctx.get("events")
+    for e in raw if isinstance(raw, list) else []:
         if (
             not isinstance(e, dict)
             or not isinstance(e.get("event"), str)
@@ -290,6 +315,18 @@ def _finding(
         "repeat_s": min(repeat_s, KEEP_S),
     }
     out.update({k: v for k, v in extra.items() if v not in (None, "")})
+    # A row of a damaged or hostile store can hold anything where a port, an address or a count should be: keep what the page and the alert expect.
+    port = _int(out.get("port"))
+    if port is None or not 0 <= port <= 65535:
+        out.pop("port", None)
+    else:
+        out["port"] = port
+    for k in ("ip", "process"):
+        if k in out:
+            out[k] = str(out[k])[:64]
+    ev = out.get("evidence")
+    if isinstance(ev, dict):
+        out["evidence"] = _facts(ev)
     return out
 
 

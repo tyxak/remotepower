@@ -175,7 +175,7 @@ bursts. See [wsgi.md](wsgi.md) for the full worker-model writeup.
 
 ### The out-of-band maintenance scheduler (v5.5.0, default on)
 
-RemotePower runs about 78 maintenance sweeps (the `run_*_if_due` family and its
+RemotePower runs about 79 maintenance sweeps (the `run_*_if_due` family and its
 siblings). Left in-process they'd
 **piggy-back on request traffic** — convenient on a single node, but it means
 (a) no traffic ⇒ no maintenance, (b) every request makes dozens of "is it due?" DB

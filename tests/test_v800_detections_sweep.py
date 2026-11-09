@@ -390,6 +390,7 @@ class TestThePage(_Server):
         f = got['findings'][0]
         self.assertEqual((f['id'], f['name'], f['ip'], f['port'], f['process'], f['monitored']), ('web01', 'web01', PUB2, 443, 'bash', True))
         self.assertIsInstance(f['raised_at'], int)
+        self.assertNotIn('key', f, 'the sweep\'s own name for a finding embeds the host id and is not for the page')
         self.assertEqual((got['total'], got['counts']['high'], got['counts']['medium'], got['every'], got['traffic'], got['editable']), (2, 1, 1, 300, True, True))
         self.assertIsInstance(got['last_run'], int)
 
@@ -409,7 +410,7 @@ class TestThePage(_Server):
         self.api._entity_write_one(self.api.DETECTIONS_FILE, 'web01', 'junk')
         self.api._entity_write_one(self.api.TRAFFIC_FILE, 'web02', 'junk')
         self.api.save(self.api.FLEET_EVENTS_FILE, {'events': [None, 'x', {'event': 'ssh_key_added', 'ts': 'x', 'payload': 5}, {'event': 'login_new_source', 'ts': int(time.time()), 'payload': {'device_id': ['x']}}]})
-        self.api.save(self.api.IPINTEL_FILE, {'attackers': {PUB2: 'x', 5: {'devices': 'x'}, PUB: {'verdict': 'x', 'devices': {'a': 'x'}}}})
+        self.api.save(self.api.IPINTEL_FILE, {'attackers': {PUB2: 'x', '5': {'devices': 'x'}, PUB: {'verdict': 'x', 'devices': {'a': 'x'}}}})
         self.api._LOAD_CACHE.clear()
         self.plant(rows=[row(proc='bash')])
         self.sweep()

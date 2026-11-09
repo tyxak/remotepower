@@ -15,7 +15,7 @@ default; nginx's shipped `remotepower-locations.conf` already `proxy_pass`es
 `wsgi:application` target, error handling, and Flask's own test client all
 work). Business logic is unchanged: every request still runs the exact same
 `api.main()` request path (dispatch table, auth, CSRF/read-only/IP-allowlist
-enforcement, the 78 maintenance sweeps) that has always served RemotePower —
+enforcement, the 79 maintenance sweeps) that has always served RemotePower —
 only the transport shell (CGI vs a persistent Flask/gunicorn process) changed.
 
 ## Concurrency: threads and/or processes
@@ -64,7 +64,7 @@ systemctl daemon-reload && systemctl restart remotepower-wsgi
 
 ## Out-of-band maintenance scheduler (default on)
 
-RemotePower runs 78 background maintenance sweeps (monitors, IMAP ingest,
+RemotePower runs 79 background maintenance sweeps (monitors, IMAP ingest,
 KEV/EPSS refresh, scheduled reports, backups, escalation, …). Left
 in-process they'd **piggy-back on request traffic** — when a request arrives,
 `main()` runs whatever is due. Two limits at scale: with **no traffic

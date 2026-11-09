@@ -12,7 +12,7 @@ size from 80% to 300%, show a long page as tabs or as one page, keep named layou
 agent finds the apps a host runs (63 are known) and offers a monitor and a connector for each. Three connectors, an Apprise destination, four
 monitor types (SMTP, IMAP, SSH banner and NTP), a Traffic view of the addresses your Linux hosts talk to, Detections that look at what a host does, a read-only MCP
 endpoint and automatic container image updates with a rollback are new, and the last four are off until you switch them on. Reading the whole code once more found one
-High issue, nine Medium issues, seven Low or hardening items and one informational item; every one is fixed. Production runs 7.5.0, so the release is
+High issue, nine Medium issues, eight Low or hardening items and one informational item; every one is fixed. Production runs 7.5.0, so the release is
 a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and the security review is
 [docs/security-review-8.0.0.md](docs/security-review-8.0.0.md).
 
@@ -442,7 +442,9 @@ a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and t
   routes, two organisations, hostile stores, the real inbox and the real fleet log, the cap and a rule that fails), `tests/test_v800_detections_wiring.py` (19: every registry the module and the event are named in)
   and `tests/test_v800_detections_e2e.py` (21 browser tests on the demo seed), and by 56 mutations of the new code, all caught; the first run of the sweep mutations left three
   alive (an unmonitored host that remembered what it never sent, a handler with no switch of its own, and a whitelist the new rule depended on), and each got the test it was missing, as did the three that the first run of the readers' mutations left alive (a report that counted a host once for each finding, an AI flag that took
-  medium findings, and a helper that read hosts it was not given).
+  medium findings, and a helper that read hosts it was not given). A generated run over records that hold anything (a score of infinity or of 400 digits, `NaN` in a count, text where a port should be, a number where a list should be) found six
+  defects in the rules, all fixed: `tests/test_v800_detections_found_by_properties.py` keeps them as 10 examples that CI runs, and `tests/test_v800_detections_properties.py` states the promises
+  for any record (3 properties; skipped where hypothesis is not installed).
 
 ### Found by surveying the whole code
 

@@ -8,7 +8,7 @@ places, was missed in one or two. The second question is the one that found most
 reading of the places that looked likely. Every finding below was reproduced and fixed on a seeded copy of the product, not on anyone's
 installation.
 
-It found **one High issue, nine Medium issues, seven Low or hardening items and one informational item. Every one of them is fixed.** Nothing rated
+It found **one High issue, nine Medium issues, eight Low or hardening items and one informational item. Every one of them is fixed.** Nothing rated
 Medium or higher is open. Each fix has tests, and each test was run against the code with its fix taken out.
 
 Update the agents for the agent fixes (the agent version is 8.0.0). The server fixes need no action except where [v8.0.0.md](v8.0.0.md) says so.
@@ -69,9 +69,9 @@ Six things changed what a host, a caller or an outside service can do:
 
 **Measurements, each with a control that fails when it measures nothing.**
 
-- **Generated tests.** 26 properties (Hypothesis) state a promise of a function over input it was never meant to read, and 13 examples keep
+- **Generated tests.** 29 properties (Hypothesis) state a promise of a function over input it was never meant to read, and 23 examples keep
   the inputs it printed. They were run over the Traffic cleaners, the agent's reader of `ss`, the app catalog, the image update policy, the probe
-  runner and the MCP endpoint, and found S6, S11, S12 and S14. Properties are skipped where Hypothesis is not installed (CI), and the examples are not.
+  runner, the MCP endpoint and the Detections rules, and found S6, S11, S12, S14 and S19. Properties are skipped where Hypothesis is not installed (CI), and the examples are not.
 - **Hostile requests to the new routes.** 1,904 requests (4 kinds of caller, 33 bodies, 5 query strings, with every module off and then on) to the
   14 routes added since 7.5.0, through the real request handler: no 500, no exception, no request left unanswered.
 - **Lists made by script, with the ratio.** The command queue has 30 writers: 12 ask for approval or call a gateway that does, 18 are listed
@@ -141,6 +141,7 @@ Six things changed what a host, a caller or an outside service can do:
 | S16 | Low | server, sign-in | Five places chose between http and https and no two read `X-Forwarded-Proto` alike; capitals or a list made the passkey origin one the browser never matches | one reading of the header's first entry | test_v800_request_scheme |
 | S17 | Info | server, `rp doctor` | A test for a database file used a pattern that answers no when two files match; shellcheck found it and four warnings | fixed, and error level is held | test_v800_shellcheck |
 | S18 | Low | server, SSO sign-in | The public OIDC callback wrote the `error` and `error_description` of its query string to the error log as they came, so a line break in either started a line of its own and anyone who could reach the server could add a `[remotepower] ...` entry. A scanner reported the route as an SQL injection (it is not); reading the handler found the log line | both go through the two log helpers the heartbeat already used: control characters and line separators become `?`, the code is cut to 80 characters and the description to 240 | test_v800_oidc_callback_log |
+| S19 | Low | server, Detections | A record of a damaged or restored store could stop a rule for a host or break the page: a Threat Intel score of infinity or of 400 digits raised in the known-bad rule, `NaN` in a byte count made the answer invalid JSON for the browser, rows or events that were a number raised in every rule, and a port or an address that was not one was kept as it came. Generated records found them. Nothing a host sends reaches these fields unclean (the Traffic cleaners stop it), so it took a damaged store | a score that is not finite or is too large for a float reads as none, a port outside 0 to 65535 is left out, addresses and program names are cut at 64 characters, every fact kept with a finding is a finite number or text, and rows or events that are not lists read as empty | test_v800_detections_found_by_properties, test_v800_detections_properties |
 
 ## Open
 

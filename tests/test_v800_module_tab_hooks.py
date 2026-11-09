@@ -137,7 +137,14 @@ class TestTheWiring(unittest.TestCase):
         network = [b['tab'] for b in self.sc.buttons if b['strip'] == 'netmap']
         self.assertEqual(network, ['map', 'dependencies', 'discovery', 'watches'], 'the Network page keeps its four tabs')
         ipintel = [b['tab'] for b in self.sc.buttons if b['strip'] == 'ipintel']
-        self.assertEqual(ipintel, ['attackers', 'blocks', 'sources', 'traffic', 'settings'], 'Traffic sits before Settings')
+        self.assertEqual(ipintel, ['attackers', 'blocks', 'sources', 'traffic', 'detections', 'settings'], 'Traffic and Detections sit before Settings')
+
+
+    def test_the_detections_view_is_on_the_threat_intel_page_next_to_traffic(self):
+        self.assertEqual(self.sc.ids.get('detections-wrap'), ['ipintel'], 'the cards of the Detections view are on the Threat Intel page, once')
+        mine = [b for b in self.sc.buttons if b['tab'] == 'detections' and b['module'] == 'detections']
+        self.assertEqual([(b['strip'], b['arg']) for b in mine], [('ipintel', 'ipintel:detections')])
+        self.assertEqual([t for t in self.hooks if t[2] == 'detections'], [('ipintel', 'detections', 'detections', 'app-detections.js', 'detectionsEnter')])
 
 
 class TestTheCheckerCanFail(unittest.TestCase):

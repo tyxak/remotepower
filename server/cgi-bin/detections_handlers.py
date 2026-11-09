@@ -302,7 +302,7 @@ def handle_detections_get():
     host = _query("host")
     findings = []
     for dev_id, dev, f, alerted in _visible_findings(devices, store, host if isinstance(host, str) and host else None):
-        row = dict(f)
+        row = {k: v for k, v in f.items() if k != "key"}          # the key is the sweep's own name for the finding and embeds the host id: the page has no use for it
         row.update({"id": dev_id, "name": dev.get("name") or dev_id, "monitored": bool(dev.get("monitored", True))})
         at = alerted.get(f.get("key"))
         if isinstance(at, int) and not isinstance(at, bool):
