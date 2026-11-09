@@ -10,6 +10,7 @@ Serves the real app the way production does, without nginx:
 Returns (base_url, shutdown_callable). Everything runs on localhost with a
 throwaway RP_DATA_DIR.
 """
+import gc
 import http.client
 import http.server
 import os
@@ -72,6 +73,19 @@ def _free_port():
     return port
 
 
+def park_the_old_heap():
+    """Move everything the process holds now out of the garbage collector's sight.
+
+    The whole suite runs in ONE process, and by the time the browser modules come it holds millions of objects: 14.6 million and 12 GB after 2,400 tests, and one full
+    collection took 3.5 s (90 pauses over 0.2 s, the longest 5 s, measured on the exact discover order). This harness answers the browser from threads of that process (the
+    static files and the proxy to gunicorn), so a full collection stops every request for seconds, and a test that waits a second or two for an answer loses at random: the cron words
+    test failed in two full runs and in no run of its module on its own. Freezing what exists leaves the collector only what a module makes itself. A collection first, so that
+    garbage already waiting is freed and not parked for good; the next call (the next module) has only what came since to look through.
+    """
+    gc.collect()
+    gc.freeze()
+
+
 def start_stack(data_dir=None):
     """Boot the real gunicorn+wsgi stack. Returns (base_url, shutdown).
 
@@ -83,6 +97,7 @@ def start_stack(data_dir=None):
     that only exists once there is data) was structurally invisible to a gate
     whose whole purpose is to see it.
     """
+    park_the_old_heap()
     data_dir = data_dir or tempfile.mkdtemp(prefix='rp-e2e-data-')
     gunicorn_port = _free_port()
 
