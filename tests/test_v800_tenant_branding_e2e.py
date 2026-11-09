@@ -141,6 +141,10 @@ class TestASuperadminBrandsATenant(unittest.TestCase):
         self.page.wait_for_selector("#app", state="visible", timeout=90000)
         self.page.wait_for_timeout(2500)
 
+    def tearDown(self):
+        # a test that fails before its own unroute leaves its handler on the page for every test after it, and the rest of the class then times out one after another
+        self.page.unroute_all(behavior="ignoreErrors")
+
     def stored(self, tid):
         r = _api(self.page, "GET", f"/tenants/{tid}/branding")
         return (r["name"], r["accent"])
