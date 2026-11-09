@@ -18,9 +18,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 # ── Bootstrap: mock CGI environment before importing api ──────────────────────
-os.environ.setdefault('REQUEST_METHOD', 'GET')
-os.environ.setdefault('PATH_INFO', '/')
-os.environ.setdefault('CONTENT_LENGTH', '0')
 
 import importlib.util
 spec = importlib.util.spec_from_file_location(
@@ -447,6 +444,22 @@ class TestChannelRouting(ApiTestBase):
             'level': 'warning',
         })
         self.assertIsNone(result, 'alert should have been suppressed by routing')
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault('REQUEST_METHOD', 'GET')
+    os.environ.setdefault('PATH_INFO', '/')
+    os.environ.setdefault('CONTENT_LENGTH', '0')
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

@@ -25,9 +25,6 @@ import unittest
 from pathlib import Path
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
-os.environ.setdefault("REQUEST_METHOD", "GET")
-os.environ.setdefault("PATH_INFO", "/")
-os.environ.setdefault("CONTENT_LENGTH", "0")
 # Keep the macOS agent's logger off any real /var/log path when it imports.
 # RESTORED in tearDownModule: under `unittest discover` a module-level env var
 # leaks into every later module in the same process, and this one made
@@ -43,6 +40,10 @@ def tearDownModule():
         os.environ.pop("RP_AGENT_LOG", None)
     else:
         os.environ["RP_AGENT_LOG"] = _PRIOR_AGENT_LOG
+
+    import env_guard
+
+    env_guard.restore(__name__)
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "server" / "cgi-bin"))
 
@@ -294,6 +295,16 @@ class TestEndToEndOnMac(unittest.TestCase):
                   .get('custom_script_results') or {})
         self.assertTrue(stored.get('s1', {}).get('ok'),
                         f'the server did not store the result: {stored}')
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault("REQUEST_METHOD", "GET")
+    os.environ.setdefault("PATH_INFO", "/")
+    os.environ.setdefault("CONTENT_LENGTH", "0")
 
 
 if __name__ == '__main__':

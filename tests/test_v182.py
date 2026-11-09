@@ -18,9 +18,6 @@ sys.path.insert(0, str(_CGI_BIN))
 
 _TMPDIR = tempfile.mkdtemp()
 os.environ['RP_DATA_DIR'] = _TMPDIR
-os.environ['REQUEST_METHOD'] = 'POST'
-os.environ['PATH_INFO'] = '/'
-os.environ['CONTENT_LENGTH'] = '0'
 
 import importlib.util
 _spec = importlib.util.spec_from_file_location('api_v182', _CGI_BIN / 'api.py')
@@ -309,6 +306,22 @@ class TestRoutesRegistered(unittest.TestCase):
     def test_max_global_rules_defined(self):
         self.assertTrue(hasattr(api_module, 'MAX_GLOBAL_LOG_RULES'))
         self.assertGreater(api_module.MAX_GLOBAL_LOG_RULES, 0)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ['REQUEST_METHOD'] = 'POST'
+    os.environ['PATH_INFO'] = '/'
+    os.environ['CONTENT_LENGTH'] = '0'
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

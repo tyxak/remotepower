@@ -271,5 +271,18 @@ class TestSnapshotAssets(unittest.TestCase):
         self.assertIn('_snapCtx.name', chunk)
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

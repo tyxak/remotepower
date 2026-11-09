@@ -31,9 +31,6 @@ sys.path.insert(0, str(_CGI_BIN))
 
 _TMPDIR = tempfile.mkdtemp()
 os.environ["RP_DATA_DIR"] = _TMPDIR
-os.environ["REQUEST_METHOD"] = "GET"
-os.environ["PATH_INFO"] = "/"
-os.environ["CONTENT_LENGTH"] = "0"
 
 import importlib.util
 
@@ -463,6 +460,22 @@ class TestTooling(unittest.TestCase):
         text = mk.read_text()
         for tgt in ("test:", "lint:", "format:", "typecheck:"):
             self.assertIn(tgt, text)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ["REQUEST_METHOD"] = "GET"
+    os.environ["PATH_INFO"] = "/"
+    os.environ["CONTENT_LENGTH"] = "0"
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == "__main__":

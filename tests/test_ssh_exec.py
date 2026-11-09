@@ -22,9 +22,6 @@ sys.path.insert(0, str(_CGI))
 import ssh_exec
 
 os.environ["RP_DATA_DIR"] = tempfile.mkdtemp()
-os.environ["REQUEST_METHOD"] = "GET"
-os.environ["PATH_INFO"] = "/"
-os.environ["CONTENT_LENGTH"] = "0"
 _spec = importlib.util.spec_from_file_location("api_ssh", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
@@ -186,6 +183,22 @@ class TestSshEndpoints(unittest.TestCase):
             api.require_admin_auth = orig
         self.assertTrue(denied["hit"])
         self.assertEqual(st, 403)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ["REQUEST_METHOD"] = "GET"
+    os.environ["PATH_INFO"] = "/"
+    os.environ["CONTENT_LENGTH"] = "0"
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == "__main__":

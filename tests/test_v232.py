@@ -35,9 +35,6 @@ _ROOT    = Path(__file__).parent.parent
 _CGI_BIN = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI_BIN))
 
-os.environ.setdefault('REQUEST_METHOD', 'GET')
-os.environ.setdefault('PATH_INFO', '/')
-os.environ.setdefault('CONTENT_LENGTH', '0')
 _spec = importlib.util.spec_from_file_location("api_v232", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
@@ -557,7 +554,6 @@ class TestCSPMigrationFidelity(unittest.TestCase):
                 f'{f} contains duplicate IDs: {dups}')
 
 
-
 # ── A named font family must be shipped by a sheet the client loads ─────────
 
 
@@ -754,6 +750,22 @@ class TestRuntimeVendorLoadsCarrySri(unittest.TestCase):
         mods = sorted(set(re.findall(
             r"""import\(\s*['"](/static/vendor/[^'"]+)['"]""", client_js())))
         self.assertEqual(mods, ['/static/vendor/novnc/core/rfb.js'], mods)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault('REQUEST_METHOD', 'GET')
+    os.environ.setdefault('PATH_INFO', '/')
+    os.environ.setdefault('CONTENT_LENGTH', '0')
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

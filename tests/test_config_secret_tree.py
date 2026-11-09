@@ -25,9 +25,6 @@ _CGI_BIN = Path(__file__).parent.parent / 'server' / 'cgi-bin'
 sys.path.insert(0, str(_CGI_BIN))
 
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp())
-os.environ.setdefault('REQUEST_METHOD', 'GET')
-os.environ.setdefault('PATH_INFO', '/')
-os.environ.setdefault('CONTENT_LENGTH', '0')
 
 import backup_crypto  # noqa: E402
 
@@ -171,6 +168,22 @@ class TestV1Compat(_Base):
         # every v2 value shares ONE derivation (master, install-salt)
         v2_keys = [k for k in api._CFG_DK_CACHE if k[0] != 'v1']
         self.assertEqual(len(v2_keys), 1)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault('REQUEST_METHOD', 'GET')
+    os.environ.setdefault('PATH_INFO', '/')
+    os.environ.setdefault('CONTENT_LENGTH', '0')
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

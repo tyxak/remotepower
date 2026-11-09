@@ -20,9 +20,6 @@ ROOT = Path(__file__).resolve().parent.parent
 _CGI = ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v642-life-"))
-os.environ.setdefault("REQUEST_METHOD", "GET")
-os.environ.setdefault("PATH_INFO", "/")
-os.environ.setdefault("CONTENT_LENGTH", "0")
 
 _spec = importlib.util.spec_from_file_location("api_v642_life", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -721,6 +718,22 @@ class TestLastLoginAndSessionInventory(unittest.TestCase):
         self.assertIsNone(api._tenant_gate())
         _status, body = call(api.handle_sessions_list)
         self.assertEqual(sorted(s["user"] for s in body["sessions"]), ["alice", "bob"])
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault("REQUEST_METHOD", "GET")
+    os.environ.setdefault("PATH_INFO", "/")
+    os.environ.setdefault("CONTENT_LENGTH", "0")
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == "__main__":

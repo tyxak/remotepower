@@ -30,9 +30,6 @@ import unittest
 from pathlib import Path
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
-os.environ.setdefault("REQUEST_METHOD", "GET")
-os.environ.setdefault("PATH_INFO", "/")
-os.environ.setdefault("CONTENT_LENGTH", "0")
 _ROOT = Path(__file__).resolve().parent.parent
 _CGI_BIN = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI_BIN))
@@ -155,6 +152,22 @@ class TestServerKeepsTheFields(unittest.TestCase):
         self.assertIn("health_pct", src,
                       "the server no longer reads health_pct — the agents' "
                       "battery record shape needs updating with it")
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault("REQUEST_METHOD", "GET")
+    os.environ.setdefault("PATH_INFO", "/")
+    os.environ.setdefault("CONTENT_LENGTH", "0")
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == "__main__":

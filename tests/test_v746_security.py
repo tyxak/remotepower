@@ -96,7 +96,6 @@ class TestWhoCanAskAHostToReport(_Resolve):
         self.assertEqual(self.requested(), ["d2"])
 
 
-
 class TestAHostCannotAskForItself(_Resolve):
 
     def test_a_heartbeat_that_carries_the_request_does_not_leave_one(self):
@@ -285,6 +284,19 @@ class TestTheSuggestionsReadHostileStores(_Alerts):
         api_cve._LOAD_CACHE.clear()
         self.assertEqual([(s["device_id"], s["upstream_id"], s["ports"]) for s in api_cve._dependency_suggestions()],
                          [("a", "b", [5432])])
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == "__main__":

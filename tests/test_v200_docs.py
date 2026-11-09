@@ -28,9 +28,6 @@ sys.path.insert(0, str(_CGI_BIN))
 
 _TMPDIR = tempfile.mkdtemp()
 os.environ["RP_DATA_DIR"] = _TMPDIR
-os.environ["REQUEST_METHOD"] = "GET"
-os.environ["PATH_INFO"] = "/"
-os.environ["CONTENT_LENGTH"] = "0"
 
 _spec = importlib.util.spec_from_file_location("api_v200_docs", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -391,6 +388,22 @@ class TestMigration(unittest.TestCase):
         api.save(api.CMDB_FILE, {'dev1': existing})
         loaded = api._cmdb_load()
         self.assertEqual(loaded['dev1']['docs'], existing['docs'])
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ["REQUEST_METHOD"] = "GET"
+    os.environ["PATH_INFO"] = "/"
+    os.environ["CONTENT_LENGTH"] = "0"
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

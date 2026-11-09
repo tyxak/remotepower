@@ -22,9 +22,6 @@ from pathlib import Path
 _CGI = Path(__file__).resolve().parent.parent / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v741-nic-"))
-os.environ.setdefault("REQUEST_METHOD", "GET")
-os.environ.setdefault("PATH_INFO", "/")
-os.environ.setdefault("CONTENT_LENGTH", "0")
 _spec = importlib.util.spec_from_file_location("api_v741_nic", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
@@ -341,6 +338,22 @@ class TestReliabilityAndCheckRow(_Base):
         self.assertIsNone(api._checks_threshold_kwargs({})["nic_drop_min"])
         self.assertIsNone(api._checks_threshold_kwargs({"nic_drop_alert_min": "-4"})["nic_drop_min"])
         self.assertEqual(api._checks_threshold_kwargs({"nic_drop_alert_min": 0})["nic_drop_min"], 0)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault("REQUEST_METHOD", "GET")
+    os.environ.setdefault("PATH_INFO", "/")
+    os.environ.setdefault("CONTENT_LENGTH", "0")
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == "__main__":

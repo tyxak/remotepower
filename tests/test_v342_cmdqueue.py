@@ -40,6 +40,11 @@ def setUpModule():
     _ORIG_SP_RUN = _sp.run
     _ORIG_SH_WHICH = _sh.which
 
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
 
 def tearDownModule():
     import shutil as _sh
@@ -48,6 +53,10 @@ def tearDownModule():
         _sp.run = _ORIG_SP_RUN
     if _ORIG_SH_WHICH is not None:
         _sh.which = _ORIG_SH_WHICH
+
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 class _Base(unittest.TestCase):

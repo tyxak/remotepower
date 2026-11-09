@@ -16,9 +16,6 @@ _CGI_BIN = Path(__file__).parent.parent / 'server' / 'cgi-bin'
 sys.path.insert(0, str(_CGI_BIN))
 
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp())
-os.environ.setdefault('REQUEST_METHOD', 'GET')
-os.environ.setdefault('PATH_INFO', '/')
-os.environ.setdefault('CONTENT_LENGTH', '0')
 
 import checks  # noqa: E402
 
@@ -80,6 +77,22 @@ class TestEngine(unittest.TestCase):
         bad, _out = checks._eval_custom_check(
             cdef, {'sysinfo': {'proc_names': ['sshd']}})
         self.assertEqual((ok, bad), ('ok', 'critical'))
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault('REQUEST_METHOD', 'GET')
+    os.environ.setdefault('PATH_INFO', '/')
+    os.environ.setdefault('CONTENT_LENGTH', '0')
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

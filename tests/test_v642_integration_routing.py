@@ -30,9 +30,6 @@ _CGI = Path(__file__).parent.parent / 'server' / 'cgi-bin'
 sys.path.insert(0, str(_CGI))
 
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp())
-os.environ.setdefault('REQUEST_METHOD', 'GET')
-os.environ.setdefault('PATH_INFO', '/')
-os.environ.setdefault('CONTENT_LENGTH', '0')
 
 _spec = importlib.util.spec_from_file_location('api_v642_introute', _CGI / 'api.py')
 api = importlib.util.module_from_spec(_spec)
@@ -73,6 +70,10 @@ def _set_request(method, path, body=None, headers=None):
 def tearDownModule():
     # `_set_request` leaves the last request's session token in the environment, and a later module that authenticates another way reads it first (401 for all of test_v800_app_discovery)
     os.environ.pop('HTTP_X_TOKEN', None)
+
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 def _call(handler, *args, **kwargs):
@@ -576,6 +577,16 @@ class TestDeviceEnrolledEvent(unittest.TestCase):
         self.assertEqual(fired, [], 're-enrollment must not read as a new device')
         actions = [r.get('action') for r in _entries(api.load(api.AUDIT_LOG_FILE))]
         self.assertIn('reenroll', actions)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault('REQUEST_METHOD', 'GET')
+    os.environ.setdefault('PATH_INFO', '/')
+    os.environ.setdefault('CONTENT_LENGTH', '0')
 
 
 if __name__ == '__main__':

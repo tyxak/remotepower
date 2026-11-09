@@ -24,9 +24,6 @@ _CGI_BIN = Path(__file__).parent.parent / 'server' / 'cgi-bin'
 sys.path.insert(0, str(_CGI_BIN))
 
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp())
-os.environ.setdefault('REQUEST_METHOD', 'GET')
-os.environ.setdefault('PATH_INFO', '/')
-os.environ.setdefault('CONTENT_LENGTH', '0')
 
 _spec = importlib.util.spec_from_file_location('api_lockdefer', _CGI_BIN / 'api.py')
 api = importlib.util.module_from_spec(_spec)
@@ -165,6 +162,22 @@ class TestAuditAndCommandDeferral(LockDeferredBase):
             api.fire_webhook('device_online', {'device_id': 'd1'})
         self.assertEqual([e.get('event') for e in _events()],
                          ['device_offline', 'device_online'])
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault('REQUEST_METHOD', 'GET')
+    os.environ.setdefault('PATH_INFO', '/')
+    os.environ.setdefault('CONTENT_LENGTH', '0')
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

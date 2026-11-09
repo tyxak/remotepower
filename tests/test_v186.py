@@ -18,9 +18,6 @@ sys.path.insert(0, str(_CGI_BIN))
 
 _TMPDIR = tempfile.mkdtemp()
 os.environ['RP_DATA_DIR'] = _TMPDIR
-os.environ['REQUEST_METHOD'] = 'GET'
-os.environ['PATH_INFO'] = '/'
-os.environ['CONTENT_LENGTH'] = '0'
 
 import importlib.util
 _spec = importlib.util.spec_from_file_location('api_v186', _CGI_BIN / 'api.py')
@@ -421,6 +418,22 @@ class TestWiring(unittest.TestCase):
             (int(parts[0]), int(parts[1]), int(parts[2])),
             (1, 8, 6),
         )
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ['REQUEST_METHOD'] = 'GET'
+    os.environ['PATH_INFO'] = '/'
+    os.environ['CONTENT_LENGTH'] = '0'
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

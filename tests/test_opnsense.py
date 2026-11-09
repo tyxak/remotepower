@@ -21,9 +21,6 @@ sys.path.insert(0, str(_CGI_BIN))
 import opnsense as opn
 
 os.environ["RP_DATA_DIR"] = tempfile.mkdtemp()
-os.environ["REQUEST_METHOD"] = "GET"
-os.environ["PATH_INFO"] = "/"
-os.environ["CONTENT_LENGTH"] = "0"
 _spec = importlib.util.spec_from_file_location("api_opn", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
@@ -337,6 +334,22 @@ class TestOpnsenseHandlers(unittest.TestCase):
         _req("POST", "/api/devices/o1/opnsense/action", {"action": "rm_rf"}, self.tok)
         st, _ = _call(api.handle_device_opnsense_action, "o1")
         self.assertEqual(st, 400)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ["REQUEST_METHOD"] = "GET"
+    os.environ["PATH_INFO"] = "/"
+    os.environ["CONTENT_LENGTH"] = "0"
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == "__main__":

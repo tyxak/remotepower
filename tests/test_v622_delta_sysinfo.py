@@ -23,9 +23,6 @@ _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v622-delta-"))
-os.environ.setdefault("REQUEST_METHOD", "GET")
-os.environ.setdefault("PATH_INFO", "/")
-os.environ.setdefault("CONTENT_LENGTH", "0")
 _spec = importlib.util.spec_from_file_location("api_v622_delta", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
@@ -180,6 +177,22 @@ class TestProtocolLockstep(unittest.TestCase):
     def test_agent_relearns_capability_from_every_response(self):
         self.assertIn("delta_ok = bool(resp.get('delta_ok'))", _AGENT_SRC)
         self.assertIn("resp.get('delta_resend')", _AGENT_SRC)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault("REQUEST_METHOD", "GET")
+    os.environ.setdefault("PATH_INFO", "/")
+    os.environ.setdefault("CONTENT_LENGTH", "0")
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == "__main__":

@@ -47,9 +47,6 @@ sys.path.insert(0, str(_CGI_BIN))
 
 _TMPDIR = tempfile.mkdtemp()
 os.environ["RP_DATA_DIR"] = _TMPDIR
-os.environ["REQUEST_METHOD"] = "GET"
-os.environ["PATH_INFO"] = "/"
-os.environ["CONTENT_LENGTH"] = "0"
 
 _spec = importlib.util.spec_from_file_location("api_v212", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -313,6 +310,22 @@ class TestSaveHeld(unittest.TestCase):
             os.close(lock_fd)
         orphans = list(self._data_dir.glob('held.json.tmp.*'))
         self.assertEqual(orphans, [])
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ["REQUEST_METHOD"] = "GET"
+    os.environ["PATH_INFO"] = "/"
+    os.environ["CONTENT_LENGTH"] = "0"
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

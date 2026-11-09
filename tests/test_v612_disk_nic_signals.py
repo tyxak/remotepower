@@ -30,9 +30,6 @@ _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
-os.environ.setdefault("REQUEST_METHOD", "GET")
-os.environ.setdefault("PATH_INFO", "/")
-os.environ.setdefault("CONTENT_LENGTH", "0")
 
 _spec = importlib.util.spec_from_file_location("api_v612_dn", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -170,6 +167,22 @@ class TestNicErrorDeltaIngest(unittest.TestCase):
             self._delta_after({'rx_err': 1, 'tx_err': 1, 'rx_drop': 1, 'tx_drop': 1},
                               {'rx_err': 2, 'tx_err': 3, 'rx_drop': 4, 'tx_drop': 5}),
             (2 + 3 + 4 + 5) - (1 + 1 + 1 + 1))
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault("REQUEST_METHOD", "GET")
+    os.environ.setdefault("PATH_INFO", "/")
+    os.environ.setdefault("CONTENT_LENGTH", "0")
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

@@ -381,9 +381,10 @@ def tearDownModule():
         os.environ.pop("RP_DOCS_DIR", None)
     else:
         os.environ["RP_DOCS_DIR"] = _PRIOR_DOCS_DIR
-os.environ.setdefault("REQUEST_METHOD", "GET")
-os.environ.setdefault("PATH_INFO", "/")
-os.environ.setdefault("CONTENT_LENGTH", "0")
+
+    import env_guard
+
+    env_guard.restore(__name__)
 
 _spec = importlib.util.spec_from_file_location("api_rag", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -785,6 +786,16 @@ class TestApiEndpoints(unittest.TestCase):
         api.get_json_body = lambda: {"query": "  "}
         st, body = self._call(api.handle_ai_rag_search)
         self.assertEqual(st, 400)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault("REQUEST_METHOD", "GET")
+    os.environ.setdefault("PATH_INFO", "/")
+    os.environ.setdefault("CONTENT_LENGTH", "0")
 
 
 if __name__ == "__main__":

@@ -18,9 +18,6 @@ from pathlib import Path
 _CGI = Path(__file__).resolve().parent.parent / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v741-drift-"))
-os.environ.setdefault("REQUEST_METHOD", "GET")
-os.environ.setdefault("PATH_INFO", "/")
-os.environ.setdefault("CONTENT_LENGTH", "0")
 _spec = importlib.util.spec_from_file_location("api_v741_drift_never", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
@@ -146,6 +143,22 @@ class TestRecordsFromBeforeTheKeyExisted(_Base):
         self.seed(baseline_size=4096)
         self.report(GONE)
         self.assertEqual(len(self.calls), 1)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault("REQUEST_METHOD", "GET")
+    os.environ.setdefault("PATH_INFO", "/")
+    os.environ.setdefault("CONTENT_LENGTH", "0")
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == "__main__":

@@ -17,9 +17,6 @@ sys.path.insert(0, str(_CGI_BIN))
 
 _TMPDIR = tempfile.mkdtemp()
 os.environ['RP_DATA_DIR'] = _TMPDIR
-os.environ['REQUEST_METHOD'] = 'GET'
-os.environ['PATH_INFO'] = '/'
-os.environ['CONTENT_LENGTH'] = '0'
 
 import importlib.util
 _spec = importlib.util.spec_from_file_location('api_v183', _CGI_BIN / 'api.py')
@@ -240,6 +237,22 @@ class TestAgentAliasResolution(unittest.TestCase):
     def test_returns_input_when_systemctl_returns_empty(self):
         resolve = self._exec_resolve_alias_with_mock('')
         self.assertEqual(resolve('whatever.service'), 'whatever.service')
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ['REQUEST_METHOD'] = 'GET'
+    os.environ['PATH_INFO'] = '/'
+    os.environ['CONTENT_LENGTH'] = '0'
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

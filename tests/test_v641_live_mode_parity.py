@@ -19,9 +19,6 @@ import unittest
 from pathlib import Path
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
-os.environ.setdefault("REQUEST_METHOD", "GET")
-os.environ.setdefault("PATH_INFO", "/")
-os.environ.setdefault("CONTENT_LENGTH", "0")
 _PRIOR_AGENT_LOG = os.environ.get("RP_AGENT_LOG")
 os.environ["RP_AGENT_LOG"] = os.path.join(tempfile.mkdtemp(), "a.log")
 _ROOT = Path(__file__).resolve().parent.parent
@@ -51,6 +48,10 @@ def tearDownModule():
         os.environ.pop("RP_AGENT_LOG", None)
     else:
         os.environ["RP_AGENT_LOG"] = _PRIOR_AGENT_LOG
+
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 def _load(name, rel):
@@ -238,6 +239,16 @@ class TestServerAcceptsTheAgentSample(unittest.TestCase):
         p['token'] = 'wrong'
         status, _ = self._ingest(p)
         self.assertEqual(status, 403)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault("REQUEST_METHOD", "GET")
+    os.environ.setdefault("PATH_INFO", "/")
+    os.environ.setdefault("CONTENT_LENGTH", "0")
 
 
 if __name__ == '__main__':

@@ -34,9 +34,6 @@ _ROOT    = Path(__file__).parent.parent
 _CGI_BIN = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI_BIN))
 
-os.environ.setdefault('REQUEST_METHOD', 'GET')
-os.environ.setdefault('PATH_INFO', '/')
-os.environ.setdefault('CONTENT_LENGTH', '0')
 _spec = importlib.util.spec_from_file_location("api_v242", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
@@ -151,6 +148,22 @@ class TestDocumentation(unittest.TestCase):
     def test_doc_cards_well_formed(self):
         self.assertEqual(self.html.count('<details'),
                          self.html.count('</details>'))
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ.setdefault('REQUEST_METHOD', 'GET')
+    os.environ.setdefault('PATH_INFO', '/')
+    os.environ.setdefault('CONTENT_LENGTH', '0')
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == '__main__':

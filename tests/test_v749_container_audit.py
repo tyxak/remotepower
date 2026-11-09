@@ -673,5 +673,18 @@ class TestRegistration(unittest.TestCase):
         self.assertIn("CONTAINER_AUDIT_ACCEPTS_FILE,   # 7.4.9", src)
 
 
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
+
+
 if __name__ == "__main__":
     unittest.main()

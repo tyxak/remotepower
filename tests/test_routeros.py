@@ -21,9 +21,6 @@ sys.path.insert(0, str(_CGI_BIN))
 import routeros as ros
 
 os.environ["RP_DATA_DIR"] = tempfile.mkdtemp()
-os.environ["REQUEST_METHOD"] = "GET"
-os.environ["PATH_INFO"] = "/"
-os.environ["CONTENT_LENGTH"] = "0"
 _spec = importlib.util.spec_from_file_location("api_ros", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
@@ -458,6 +455,22 @@ class TestRouterosHandlers(unittest.TestCase):
             st, body = _call(api.handle_device_routeros_traffic, "r1")
         self.assertEqual(st, 200)
         self.assertEqual(body["interfaces"][0]["rx_bps"], 100)
+
+
+def setUpModule():
+    __import__("sys").path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import env_guard
+
+    env_guard.save(__name__)
+    os.environ["REQUEST_METHOD"] = "GET"
+    os.environ["PATH_INFO"] = "/"
+    os.environ["CONTENT_LENGTH"] = "0"
+
+
+def tearDownModule():
+    import env_guard
+
+    env_guard.restore(__name__)
 
 
 if __name__ == "__main__":
