@@ -457,6 +457,10 @@ class TestSidebarPageFixes(unittest.TestCase):
         # a session of its own: the shared page has long since visited these pages
         ctx = self._browser.new_context(viewport={'width': 1440, 'height': 900}, service_workers='block')
         ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_pagetabs', 'stacked'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
+        # The schedule's answer is held back 2.5 s in the browser (its own clock, so the test's keeps running): the markup's "No scheduled jobs." row is on screen first, as it is
+        # whenever a large test process answers slowly. The test has to wait for a job's row, and a wait for the first `tr` fails here every time.
+        ctx.add_init_script("(() => { const f = window.fetch; window.fetch = function (u) { const p = f.apply(this, arguments); "
+                            "return /\\/api\\/schedule($|\\?)/.test(String((u && u.url) || u)) ? p.then(r => new Promise(res => setTimeout(() => res(r), 2500))) : p; }; })();")
         page = ctx.new_page()
         try:
             page.goto(self._base + '/index.html')
@@ -468,8 +472,10 @@ class TestSidebarPageFixes(unittest.TestCase):
             self.assertEqual(page.evaluate("() => [typeof cronWords, _loadedJsModules.has('app-cronwords.js')]"), ['undefined', False],
                              'a lazy module: a new session has not fetched it')
             page.evaluate("() => showPage('schedule')")
-            page.wait_for_selector('#schedule-tbody tr', timeout=15000)
-            page.wait_for_timeout(1200)
+            # The markup holds a "No scheduled jobs." row of its own, so a bare `tr` is there before anything is fetched: wait for a job's row. A fixed sleep after the bare `tr`
+            # lost to a slow answer whenever this ran inside the whole suite's one large process, where the schedule arrives through the harness's proxy (it failed in two full runs
+            # and passed in every run of the module on its own).
+            page.wait_for_selector('#schedule-tbody .cmd-badge', timeout=30000)
             self.assertEqual(page.evaluate("() => [typeof cronWords, _loadedJsModules.has('app-cronwords.js')]"), ['function', True])
             # loaded BEFORE the table drew: a row has the words and the expression under them, not the expression alone
             rows = page.evaluate("""() => [...document.querySelectorAll('#schedule-tbody tr')].map(tr => !!tr.querySelector('div.hint.mono-12'))""")
