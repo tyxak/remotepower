@@ -56322,7 +56322,8 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             fp = _fleet_checks_fp(cfg, scripts_all)
             # the cache is the whole fleet's (handle_fleet_checks hands it every host and filters its rows): this passed the caller's own view, which put a tenant's
             # two hosts into a cache the operator's Checks page then read for 15 seconds, and summed every row for whoever asked
-            rows = _fleet_checks_rows(_load_ro(DEVICES_FILE) or {}, cfg, scripts_all, fp)
+            _devices_every = _load_ro(DEVICES_FILE) or {}
+            rows = _fleet_checks_rows(_devices_every, cfg, scripts_all, fp)
             roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0}
             for h in rows:
                 if h.get('monitored') is False or h.get('device_id') not in devices_raw:

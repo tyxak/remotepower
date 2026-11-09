@@ -22,14 +22,13 @@ sys.path.insert(0, str(_TESTS.parent / 'server' / 'cgi-bin'))
 
 from test_v800_traffic import _Server, device  # noqa: E402
 
-NOW = int(time.time())
 TOKENS = {'ta': ('alice', 'admin'), 'tb': ('bob', 'admin'), 'op': ('root', 'admin'), 'tv': ('vic', 'viewer')}
 TENANT_OF = {'alice': 'acme', 'bob': 'globex', 'root': 'default', 'vic': 'acme'}
 SECRET = 'prometheus.operator-internal:3000'
 
 
-def alert(aid, dev, sev):
-    return {'id': aid, 'event': 'host_offline', 'severity': sev, 'device_id': dev, 'created_at': NOW, 'payload': {'name': dev}}
+def alert(aid, dev, sev, now):
+    return {'id': aid, 'event': 'host_offline', 'severity': sev, 'device_id': dev, 'created_at': now, 'payload': {'name': dev}}
 
 
 class _Home(_Server):
@@ -37,13 +36,14 @@ class _Home(_Server):
     def setUp(self):
         super().setUp()
         api = self.api
+        NOW = int(time.time())          # taken now: a full run reaches this test long after the module was imported, and a VPN client is 'connected' for a few minutes
         api.verify_token = lambda token: TOKENS.get(token, (None, None))
         api._caller_effective_tenant = lambda user: TENANT_OF[user]
         self.put({'web01': device(tenant='acme'), 'web02': device(id='web02', name='web02', token='t2', tenant='globex'), 'ops01': device(id='ops01', name='ops01', token='t3', tenant='default')},
                  tenancy_enforced=True, backup_monitors=[{'path': '/srv/backup', 'label': 'nightly'}],
                  monitors=[{'label': 'operator site', 'type': 'http', 'target': 'https://operator.example/'}])
         save = api.save
-        save(api.ALERTS_FILE, {'alerts': [alert('a1', 'web01', 'critical'), alert('a2', 'web02', 'critical'), alert('a3', 'web02', 'high'), alert('a4', 'ops01', 'medium'),
+        save(api.ALERTS_FILE, {'alerts': [alert('a1', 'web01', 'critical', NOW), alert('a2', 'web02', 'critical', NOW), alert('a3', 'web02', 'high', NOW), alert('a4', 'ops01', 'medium', NOW),
                                           {'id': 'a5', 'event': 'monitor_down', 'severity': 'high', 'created_at': NOW, 'payload': {'name': 'operator site'}}]})
         save(api.INTEG_STATE_FILE, {'latest': {'g1': {'id': 'g1', 'label': 'Operator Grafana', 'type': 'grafana', 'status': 'critical', 'detail': 'Could not reach ' + SECRET,
                                                       'version': '11.1', 'checked': NOW, 'metrics': {}}}})
