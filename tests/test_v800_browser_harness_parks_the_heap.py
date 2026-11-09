@@ -8,6 +8,7 @@ real `make pre-release` on a quiet machine, and in no run of its module on its o
 whatever the machine is doing. `park_the_old_heap()` freezes what exists (`gc.freeze()`), so the collector looks only at what a module makes itself.
 """
 import gc
+import importlib.util
 import sys
 import unittest
 import weakref
@@ -16,8 +17,13 @@ from pathlib import Path
 _TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(_TESTS))
 
-import e2e_harness as H  # noqa: E402
 import srcpin  # noqa: E402
+
+# The harness is loaded by path, as a module of its own: this file tests a helper and drives no browser, and test_v643_browser_gates_are_required treats every file that
+# imports the harness by name as a browser suite that has to consult RP_BROWSER_REQUIRE.
+_SPEC = importlib.util.spec_from_file_location("harness_under_test", _TESTS / "e2e_harness.py")
+H = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(H)
 
 
 class TestTheHarnessParksTheOldHeap(unittest.TestCase):
