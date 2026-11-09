@@ -39,7 +39,7 @@ KEYS = ("smtp_enabled", "smtp_host", "smtp_port", "smtp_tls", "smtp_verify_tls",
 PROVIDERS = ["gmail", "microsoft", "fastmail", "proton", "brevo", "mailgun", "sendgrid", "ses", "own", "local"]
 BRANDS = {"Microsoft 365", "Fastmail", "Proton Mail Bridge", "Brevo", "Mailgun", "SendGrid", "Amazon SES"}
 # (English text, language) pairs where the right translation is the same word
-SAME = {("Port", "fr"), ("Port", "de"), ("Test", "fr"), ("Test", "de"), ("Server", "de"), ("Service", "fr"), ("Email", "de")}
+SAME = {("Port", "fr"), ("Port", "de"), ("Test", "fr"), ("Test", "de"), ("Server", "de"), ("Service", "fr"), ("Email", "de"), ("Documentation", "fr")}
 
 
 def setUpModule():

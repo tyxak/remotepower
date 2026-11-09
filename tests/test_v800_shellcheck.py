@@ -16,12 +16,23 @@ ROOT = Path(__file__).resolve().parent.parent
 SHELLCHECK = shutil.which('shellcheck')
 
 
+_NOT_SHIPPED = {'.git', 'node_modules', '.codeql-cache', 'dist', '__pycache__', '.ci-parity-venv', '.mypy_cache', '.ruff_cache', '.hypothesis'}
+
+
+def tracked():
+    """The files the repository ships. In a work tree of its own that is `git ls-files`. A tarball is not a work tree, and neither is the copy `make dist` stages inside the checkout
+    (git answers for the checkout around it and lists none of it), so there every file under the directory is read."""
+    top = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=ROOT, capture_output=True, text=True)
+    if top.returncode == 0 and Path(top.stdout.strip()).resolve() == ROOT.resolve():
+        out = subprocess.run(['git', 'ls-files'], cwd=ROOT, capture_output=True, text=True)
+        if out.returncode == 0:
+            return [n for n in out.stdout.split('\n') if n]
+    return [str(p.relative_to(ROOT)) for p in sorted(ROOT.rglob('*')) if p.is_file() and not (_NOT_SHIPPED & set(p.relative_to(ROOT).parts))]
+
+
 def shell_files():
-    out = subprocess.run(['git', 'ls-files'], cwd=ROOT, capture_output=True, text=True)
-    if out.returncode != 0:
-        return None
     files = []
-    for name in out.stdout.split('\n'):
+    for name in tracked():
         p = ROOT / name
         if not name or not p.is_file() or p.stat().st_size > 400_000:
             continue
@@ -47,16 +58,12 @@ class TestShellcheck(unittest.TestCase):
 
     def test_the_population_is_not_empty(self):
         files = shell_files()
-        if files is None:
-            self.skipTest('not a git checkout')
         self.assertGreaterEqual(len(files), 20, files)
         for known in ('install-server.sh', 'server/rp', 'docker/entrypoint.sh'):
             self.assertIn(known, files)
 
     def test_no_script_has_a_finding_of_error_level(self):
         files = shell_files()
-        if files is None:
-            self.skipTest('not a git checkout')
         res = self.run_on(files)
         self.assertEqual(res.stdout.strip(), '', '%d scripts read; findings:\n%s' % (len(files), res.stdout))
 

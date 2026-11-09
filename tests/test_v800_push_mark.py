@@ -213,8 +213,13 @@ class TestTheServerKeepsTheWordFresh(unittest.TestCase):
     def plant(self, **dev):
         base = {'id': 'd1', 'name': 'box', 'os': 'Ubuntu 24.04', 'token': 'tok', 'last_seen': int(time.time()), 'sysinfo': {}}
         base.update(dev)
-        # written directly: save() refuses to move a last_seen back (a host that went quiet is the point of one test), and refuses a NaN (a hand-edited store is another)
-        Path(self.api.DEVICES_FILE).write_text(json.dumps({'d1': base}))
+        # through save(), so a SQL backend (which keeps the store in a table, not in the file) sees the row. clamp_last_seen=False because save() would not move a last_seen back
+        # and a host that went quiet is the point of one test. The one value save() refuses on the JSON backend is a NaN (a hand-edited file is the only thing that holds one),
+        # so that case is written as a file.
+        try:
+            self.api.save(self.api.DEVICES_FILE, {'d1': base}, clamp_last_seen=False)
+        except ValueError:
+            Path(self.api.DEVICES_FILE).write_text(json.dumps({'d1': base}))
         self.api._LOAD_CACHE.clear()
 
     def stored(self):

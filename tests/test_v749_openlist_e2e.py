@@ -479,6 +479,11 @@ class TestHostProbes(_Page):
 
     def rows(self):
         self.page.wait_for_function("() => (window.monitorTargets || []).some(r => r.label === 'Gitea Postgres \u2014 from gt01')", timeout=90000)
+        # the table shows 15 monitors a page and puts the ones that are down first; the demo has more monitors than a page (8.0.0 added four) and the two probed by a host are up,
+        # so they sit on the second page: ask for a long one
+        self.page.wait_for_function("() => document.querySelectorAll('#monitor-tbody tr').length > 0", timeout=30000)
+        if self.page.query_selector('#tablepagesize-monitor'):
+            self.page.select_option('#tablepagesize-monitor', '100')
         self.page.wait_for_function("() => { const t = document.getElementById('monitor-tbody'); return t && t.innerText.includes('from gt01'); }",
                                     timeout=30000)
         return self.page.eval_on_selector_all("#monitor-tbody tr", "rs => rs.map(r => [...r.children].map(c => c.innerText.trim().replace(/\\s+/g, ' ')))")

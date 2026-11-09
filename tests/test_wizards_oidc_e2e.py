@@ -41,7 +41,7 @@ KEYS = ("oidc_enabled", "oidc_issuer", "oidc_client_id", "oidc_client_secret", "
 PROVIDERS = ["authentik", "authelia", "keycloak", "pocketid", "zitadel", "other"]
 BRANDS = {"Authentik", "Authelia", "Keycloak", "Pocket ID", "Zitadel"}
 # (English text, language) pairs where the right translation is the same word
-SAME = {("Roles", "es"), ("Roles", "fr"), ("Test", "fr"), ("Test", "de"), ("Service", "fr"), ("Issuer URL", "de"), ("Client ID", "de"), ("Client ID", "fr")}
+SAME = {("Roles", "es"), ("Roles", "fr"), ("Test", "fr"), ("Test", "de"), ("Service", "fr"), ("Issuer URL", "de"), ("Client ID", "de"), ("Client ID", "fr"), ("Documentation", "fr")}
 
 
 class _Idp(BaseHTTPRequestHandler):

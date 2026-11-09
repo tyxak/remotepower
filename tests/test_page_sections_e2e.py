@@ -206,7 +206,13 @@ class TestPageSections(unittest.TestCase):
                 self._open(name)
                 for tab in self._tabs(name):
                     self.page.click(f'#page-{name} [data-pg-tab-btn="{tab}"]')
-                    boxes = [c for c in self._cards(name) if c['shown'] and tab in c['tabs'] and c['h'] > 20]
+                    # a tab whose cards a lazy module fills (Network > Traffic) is empty for the moment it takes the module to load and answer, so it is asked again for a few seconds
+                    deadline = time.time() + 8
+                    while True:
+                        boxes = [c for c in self._cards(name) if c['shown'] and tab in c['tabs'] and c['h'] > 20]
+                        if boxes or time.time() > deadline:
+                            break
+                        self.page.wait_for_timeout(250)
                     self.assertTrue(boxes, f'{name}/{tab} shows nothing')
 
     def test_a_card_two_tabs_share_shows_on_both_and_on_no_other(self):

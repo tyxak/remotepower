@@ -162,8 +162,14 @@ class TestSidebarPageFixes(unittest.TestCase):
     # ── Timesheet ───────────────────────────────────────────────────────────
     def test_an_entrys_edit_and_delete_sit_side_by_side(self):
         self._show('timesheet', 2200)
-        pairs = self.page.evaluate("""() => [...document.querySelectorAll('.ts-entry')].map(e => [...e.querySelectorAll('.btn-icon')].map(b => b.getBoundingClientRect()))
-                                              .filter(p => p.length === 2).map(p => [p[0].top, p[1].top, p[0].left, p[1].left])""")
+        read = """() => [...document.querySelectorAll('.ts-entry')].map(e => [...e.querySelectorAll('.btn-icon')].map(b => b.getBoundingClientRect()))
+                                              .filter(p => p.length === 2).map(p => [p[0].top, p[1].top, p[0].left, p[1].left])"""
+        pairs = self.page.evaluate(read)
+        if not pairs:
+            # the seeded entries are dated 1 to 9 days ago, so on a Monday none of them is in the current week yet: the week before has them
+            self.page.evaluate('tsPrevWeek()')
+            self.page.wait_for_timeout(1500)
+            pairs = self.page.evaluate(read)
         self.assertTrue(pairs, 'control: the seeded week has entries that can be edited')
         for top1, top2, left1, left2 in pairs:
             self.assertLess(abs(top1 - top2), 3, 'edit above delete')

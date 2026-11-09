@@ -56037,6 +56037,12 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     def _g(k):
         return want is None or k in want
     out = {}
+    # 8.0.0 (SECURITY): this function builds the summaries from stores that are not keyed by host, and the matrix of the 8.0.0 review found a tenant's administrator
+    # answered with the whole installation's: every alert by severity, the monitors, the backup jobs, the VPN totals, the fleet checks roll-up and the list of integrations
+    # with their addresses. The ones the organisation that runs the installation owns (their routes answer only its users, 7.4.9) are not built for anyone else, and the
+    # ones that count hosts or alerts count what the caller may see, as the Alerts, Backups and Checks pages do.
+    in_operator_org = _caller_in_operator_org()
+    unrestricted = _caller_scope() is None and _tenant_gate() is None
     # v6.4.3: WireGuard clients connected / total.
     #
     # GATED TO admin+auditor. /api/home is `require_auth()` — every
@@ -56053,7 +56059,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
         try:
             _u, _r = verify_token(get_token_from_request())
             _rr = _resolve_role(_r) if _u else {}
-            if _rr.get('admin') or _rr.get('auditor') or _r == 'auditor':
+            if (_rr.get('admin') or _rr.get('auditor') or _r == 'auditor') and in_operator_org:
                 _tuns = (load(VPN_FILE) or {}).get('tunnels') or []
                 _tot = _conn = 0
                 for _t in _tuns:
@@ -56084,7 +56090,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     # Open alerts by severity
     try:
         sev = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
-        for a in (load(ALERTS_FILE) or {}).get('alerts') or []:
+        for a in _filter_alerts_for_caller((load(ALERTS_FILE) or {}).get('alerts') or []):
             if a.get('acknowledged_at') or a.get('resolved_at'):
                 continue
             s = a.get('severity')
@@ -56128,6 +56134,8 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             n = len(cfg.get('monitors') or [])
             out['monitors'] = {'total': n, 'up': n, 'down': 0}
     except Exception:
+        out['monitors'] = {}
+    if not in_operator_org:
         out['monitors'] = {}
     # Container issues (not-running across all reported hosts). Gated — reads
     # CONTAINERS_FILE and walks every container, so skip it when not displayed.
@@ -56233,11 +56241,19 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
         store = load(BACKUP_JOBS_FILE) or {}
         jobs = store.get('jobs') if isinstance(store, dict) else store
         jobs = jobs or []
-        ran = sum(1 for j in jobs if isinstance(j, dict)
-                  and (now - (j.get('last_run') or 0)) < 86400)
         mons = cfg.get('backup_monitors') or []
         bstate = (load(DATA_DIR / 'backup_state.json') or {}) \
             if backend_exists(DATA_DIR / 'backup_state.json') else {}
+        if not unrestricted:
+            # the jobs the Backups page lists to this caller, and the stale file-age checks of this caller's hosts (the state is keyed `<host id>:<path>`)
+            _devs_all = _load_ro(DEVICES_FILE) or {}
+            _view = (_devs_all, _scope_filter_devices(_devs_all))      # what backups_handlers._backup_visibility_view() builds
+            jobs = [j for j in jobs if isinstance(j, dict) and _backup_job_visible(j, _view)]
+            bstate = {k: v for k, v in bstate.items() if str(k).split(':', 1)[0] in devices_raw}
+        if not in_operator_org:
+            mons = []                       # the list of file-age monitors is the settings document's, which a tenant gets empty
+        ran = sum(1 for j in jobs if isinstance(j, dict)
+                  and (now - (j.get('last_run') or 0)) < 86400)
         stale = sum(1 for v in bstate.values()
                     if isinstance(v, dict) and v.get('ok') is False)
         out['backups'] = {'total': len(jobs), 'ran24h': ran,
@@ -56304,10 +56320,12 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             # loop inside every /api/home poll that shows this widget.
             scripts_all = _load_custom_scripts()
             fp = _fleet_checks_fp(cfg, scripts_all)
-            rows = _fleet_checks_rows(devices_raw, cfg, scripts_all, fp)
+            # the cache is the whole fleet's (handle_fleet_checks hands it every host and filters its rows): this passed the caller's own view, which put a tenant's
+            # two hosts into a cache the operator's Checks page then read for 15 seconds, and summed every row for whoever asked
+            rows = _fleet_checks_rows(_load_ro(DEVICES_FILE) or {}, cfg, scripts_all, fp)
             roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0}
             for h in rows:
-                if h.get('monitored') is False:
+                if h.get('monitored') is False or h.get('device_id') not in devices_raw:
                     continue
                 counts = (h.get('summary') or {}).get('counts') or {}
                 for k in roll:
@@ -56316,7 +56334,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
         except Exception:
             out['checksrollup'] = {}
     # v4.7.0: homelab software integration health rollup (cheap — one file read).
-    if _g('integrations'):
+    if _g('integrations') and in_operator_org:
         try:
             latest = (load(INTEG_STATE_FILE) or {}).get('latest') or {}
             roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0, 'total': len(latest)}

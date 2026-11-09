@@ -18,7 +18,6 @@ import json
 import os
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -126,7 +125,9 @@ class TestTheSeederStatesWhoHoldsThePushChannel(unittest.TestCase):
 
     def test_most_linux_agents_hold_it_and_some_do_not_and_the_server_reads_the_stamp_as_up(self):
         import api
-        now = int(time.time())
+        # the seed is built ONCE per process and a full run reaches this test minutes later, so time.time() here is not the clock of the seed: the stamps are read at the moment
+        # the seeder wrote them (the newest last_seen), which is what a server reading them a moment after the seed would see
+        now = max(int(d["last_seen"]) for d in self.devices.values() if isinstance(d.get("last_seen"), (int, float)))
         linux = self.agents(True)
         holding = [d for d in linux if "push_seen" in d]
         self.assertGreaterEqual(len(holding), 5)

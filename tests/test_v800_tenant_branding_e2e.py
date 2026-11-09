@@ -154,8 +154,17 @@ class TestASuperadminBrandsATenant(unittest.TestCase):
 
     def open_dialog(self, tid):
         self.open_list()
-        self.row(tid).click()
-        self.page.wait_for_selector("#tenant-branding-modal.active", timeout=20000)
+        # A click that lands on a row the list is about to redraw does nothing, and the dialog never opens (the gate runs of 8.0.0 lost one test of this file in two, and a
+        # different one each time). The list is drawn again once, so the click is made again when no dialog follows it.
+        for attempt in range(3):
+            self.row(tid).click()
+            try:
+                self.page.wait_for_selector("#tenant-branding-modal.active", timeout=7000)
+                return
+            except Exception:
+                if attempt == 2:
+                    raise
+                self.page.wait_for_timeout(500)
 
     def test_every_row_but_the_built_in_one_has_a_branding_button(self):
         self.open_list()

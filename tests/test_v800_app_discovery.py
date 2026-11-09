@@ -16,7 +16,6 @@ The monitor and the connector are checked against the same validators a saved mo
 import copy
 import importlib.machinery
 import importlib.util
-import json
 import os
 import random
 import subprocess
@@ -326,8 +325,9 @@ class _Server(unittest.TestCase):
         self.put({'jf01': device(sysinfo={'discovered': [JF, NG]})})
 
     def put(self, devices, **cfg):
-        Path(self.api.DEVICES_FILE).write_text(json.dumps(devices))
-        Path(self.api.CONFIG_FILE).write_text(json.dumps(cfg))
+        # through save(), not a file write: a SQL backend keeps a store in a table named by the file, so a JSON file next to it is a store nobody reads
+        self.api.save(self.api.DEVICES_FILE, devices, clamp_last_seen=False)
+        self.api.save(self.api.CONFIG_FILE, cfg)
         self.api._LOAD_CACHE.clear()
 
     def cfg(self):
@@ -396,7 +396,7 @@ class TestTheHostsApps(_Server):
 
     def test_an_older_agent_gets_its_apps_worked_out_from_the_ports_and_containers_it_did_report(self):
         self.put({'jf01': device(sysinfo={'listening_ports': [listener(8096, 'jellyfin', 'lan'), listener(80, 'nginx', 'world')]})})
-        Path(self.api.CONTAINERS_FILE).write_text(json.dumps({'jf01': {'ts': 1, 'items': [{'name': 'pg', 'image': 'postgres', 'tag': '16', 'ports': ['127.0.0.1:5432->5432/tcp'], 'status': 'running'}]}}))
+        self.api.save(self.api.CONTAINERS_FILE, {'jf01': {'ts': 1, 'items': [{'name': 'pg', 'image': 'postgres', 'tag': '16', 'ports': ['127.0.0.1:5432->5432/tcp'], 'status': 'running'}]}})
         self.api._LOAD_CACHE.clear()
         body = self.apps()
         self.assertEqual(body['source'], 'server')

@@ -5,10 +5,12 @@ GET /api/agent-compat was written "so the UI can warn before an update queues a 
 version ahead of the server would be put back to the server's build, one more than a major behind may need a fresh install, and every other agent gets the question it always
 had. An answer that does not come (the route fails) leaves the question as it was. Refusing the question sends nothing; accepting it still sends the update.
 
-The server in this tree is 7.5.0, so 9.0.0 is a major ahead and 5.0.0 is two behind. Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
+The server's version is read from the code, and the three agent versions are worked out from its major: one major ahead (put back by the update), more than a major behind
+(may need a fresh install) and one major behind (fine). Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -22,6 +24,12 @@ from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent
 _GATE = browser_available() or browser_required.required()
+# the version of the server in this tree, read from the code: a literal here went stale at every version bump (the first failure of the 8.0.0 gate)
+_SERVER = re.search(r"SERVER_VERSION = '([^']+)'", (_ROOT / "server" / "cgi-bin" / "api.py").read_text()).group(1)
+_MAJOR = int(_SERVER.split(".")[0])
+AHEAD = "%d.0.0" % (_MAJOR + 1)      # a major ahead of the server
+BEHIND = "%d.0.0" % (_MAJOR - 3)     # more than a major behind
+FINE = "%d.4.0" % (_MAJOR - 1)       # one major behind, which the update can take
 
 try:
     from playwright.sync_api import sync_playwright
@@ -145,7 +153,7 @@ class TestTheForceUpgradeQuestionKnowsTheAgent(unittest.TestCase):
         self.page.wait_for_timeout(700)
 
     def test_an_agent_that_can_take_the_update_gets_the_question_it_always_had(self):
-        self.with_version("gt01", "7.4.0")
+        self.with_version("gt01", FINE)
         text = self.ask("gt01")
         self.assertIn('Force-upgrade agent on "', text)
         self.assertNotIn("Not compatible", text)
@@ -153,16 +161,16 @@ class TestTheForceUpgradeQuestionKnowsTheAgent(unittest.TestCase):
         self.assertEqual(self.posts, [], "refusing sends nothing")
 
     def test_an_agent_ahead_of_the_server_is_told_the_update_would_put_it_back(self):
-        self.with_version("gt01", "9.0.0")
+        self.with_version("gt01", AHEAD)
         text = self.ask("gt01")
         self.assertIn("Not compatible with this server:", text)
-        self.assertIn("agent 9.0.0 is newer than server 7.5.0", text)
+        self.assertIn("agent %s is newer than server %s" % (AHEAD, _SERVER), text)
         self.assertIn("upgrade the server first", text)
         self.answer(False)
         self.assertEqual(self.posts, [])
 
     def test_an_agent_more_than_a_major_behind_is_told_to_reinstall(self):
-        self.with_version("gt01", "5.0.0")
+        self.with_version("gt01", BEHIND)
         text = self.ask("gt01")
         self.assertIn("Not compatible with this server:", text)
         self.assertIn(">1 major behind", text)
@@ -171,21 +179,21 @@ class TestTheForceUpgradeQuestionKnowsTheAgent(unittest.TestCase):
 
     def test_the_warning_is_this_hosts_own(self):
         devices = json.loads(json.dumps(self.devices0))
-        devices["gt01"]["version"] = "9.0.0"
-        devices["jf01"]["version"] = "7.4.0"
+        devices["gt01"]["version"] = AHEAD
+        devices["jf01"]["version"] = FINE
         write("devices.json", devices)
         self.assertNotIn("Not compatible", self.ask("jf01"), "gt01's version is not jf01's")
         self.answer(False)
 
     def test_the_warning_is_not_a_refusal_accepting_still_sends_the_update(self):
-        self.with_version("gt01", "9.0.0")
+        self.with_version("gt01", AHEAD)
         self.ask("gt01")
         self.answer(True)
         self.assertEqual(len(self.posts), 1)
         self.assertTrue(self.posts[0].endswith("/devices/gt01/agent/force-upgrade"), self.posts)
 
     def test_a_route_that_fails_leaves_the_question_as_it_was(self):
-        self.with_version("gt01", "9.0.0")
+        self.with_version("gt01", AHEAD)
         self.page.evaluate("""() => {
           window.__realApi = window.api;
           window.api = function (m, p, ...rest) {
@@ -199,7 +207,7 @@ class TestTheForceUpgradeQuestionKnowsTheAgent(unittest.TestCase):
         self.answer(False)
 
     def test_nothing_in_the_page_broke_on_the_way(self):
-        self.with_version("gt01", "9.0.0")
+        self.with_version("gt01", AHEAD)
         self.ask("gt01")
         self.answer(False)
         self.assertEqual([e for e in self.errors if "Failed to load resource" not in e], [])

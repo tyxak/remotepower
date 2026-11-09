@@ -3539,7 +3539,9 @@ async function loadDevices() {
                       && !window._devicesRenderPending;
     window._devicesRawPrev = raw;
     devices = data;
-    window._devicesCache = data;  // v3.0.2: command palette consumes this
+    // v3.0.2: command palette consumes this. A list only: an answer that is an error is an object, and the pickers of Cron, File manager and App Catalog map over it
+    // (8.0.0: with every GET answering 500 all three threw "(devs || []).map is not a function", which test_v740_failed_loads_e2e found)
+    window._devicesCache = Array.isArray(data) ? data : [];
     if (!unchanged) {
       if (_devVisible || !window._devicesRendered) {
         renderDevices();
