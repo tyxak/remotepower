@@ -62,9 +62,12 @@ window genuinely converts; do not chase the number.
 import ast
 import io
 import re
+import sys
 import tokenize
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))      # srcpin sits beside the tests; run alone, only the repository root is on the path
 
 TESTS = Path(__file__).resolve().parent
 
