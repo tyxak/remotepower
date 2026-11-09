@@ -6564,6 +6564,10 @@ def build_time_entries() -> dict:
             note='Demo environment upkeep'),
         _te(12, 1, 'bob', 0.5, False, '', category='admin',
             note='Timesheet + invoice review'),
+        # Dated today. The Timesheet opens on the current week, so a demo whose newest entry was a day old showed an empty page on
+        # a Monday, until the week before was opened.
+        _te(13, 0, 'alice', 1.0, True, SITE_HQ, 'ng01', rate_name='Standard',
+            note='Checked the reverse-proxy certificate renewal'),
     ]
     return {'entries': entries, 'seq': len(entries)}
 

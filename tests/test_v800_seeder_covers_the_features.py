@@ -133,5 +133,28 @@ class TestTheOtherFeatures(unittest.TestCase):
         self.assertGreaterEqual(len(sets), 2)
 
 
+class TestTheTimesheet(unittest.TestCase):
+
+    def test_the_current_week_has_an_entry_on_every_day_of_the_week(self):
+        """The Timesheet opens on the current week (Monday to Sunday). An entry is dated some days before the day the seed runs, so the week holds one on a Monday only
+        when one is dated today: the newest entry was a day old and the demo's Timesheet was empty every Monday until the week before was opened."""
+        import datetime
+        today = datetime.date.today()
+        entries = seed.build_time_entries()['entries']
+        ages = sorted((today - datetime.date.fromisoformat(e['date'])).days for e in entries)
+        self.assertGreaterEqual(len(entries), 12, 'control: the ledger was read')
+        self.assertEqual(ages[0], 0, 'an entry dated today: the newest of %s days old' % ages[:3])
+        for weekday in range(7):                      # the seed run on a Monday (0) to a Sunday (6): the week so far is the last `weekday` days and today
+            self.assertTrue(any(a <= weekday for a in ages), 'no entry in the week so far on weekday %d' % weekday)
+        for e in entries:
+            self.assertTrue(e['id'] and e['user'] and e['hours'] > 0, e)
+
+    def test_every_entry_has_its_own_number_and_the_counter_is_ahead_of_them(self):
+        ledger = seed.build_time_entries()
+        numbers = [e['number'] for e in ledger['entries']]
+        self.assertEqual(len(set(numbers)), len(numbers))
+        self.assertEqual(ledger['seq'], max(numbers))
+
+
 if __name__ == '__main__':
     unittest.main()
