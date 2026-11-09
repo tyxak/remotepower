@@ -103,6 +103,11 @@ Five things changed what a host, a caller or an outside service can do:
 - **An upgrade.** A data directory written by 7.5.0 (146 files) was served by this version: sign-in worked, 296 `GET` routes that take no parameter
   answered 263 times 200, 13 times 400, 3 times 401, 3 times 403, 12 times 404 and twice 503 (the two SAML routes, which answer 503 when SAML is
   not set up), never 500. A heartbeat from a real 7.5.0 agent was accepted by this version's handler on that data.
+- **Another browser.** Firefox 150.0.2 (the Playwright build) opened each of the 85 sidebar pages of the seeded stack, signed in, at 1440 and at 390 px, and Chromium did the same as the
+  control. Firefox showed no console error, no uncaught page error, no failed request and no horizontal overflow, and every page drew its root. The only responses of 400 or more were three
+  502s that the demo's integrations to services that do not exist give, the same in both browsers. Chromium also logs those as console errors and reports a poll that the app cancels when
+  the page changes (`net::ERR_ABORTED`); Firefox does neither. WebKit was installed and does not start on this system: the Playwright build needs five libraries of Ubuntu's versions
+  (ICU 74, libjxl 0.8, libxml2.so.2, flite and libbacktrace), so there is no result for Safari's engine.
 - **Speed.** Start-up, the host list, Home, Needs attention, the fleet query and a heartbeat with a real 151 KB agent payload, at 500 hosts, on JSON
   and SQLite: within 2 percent of 7.5.0 on both.
 
@@ -202,5 +207,5 @@ and again after the fixes.
   one declared key.
 - Real services behind the integrations: the UniFi, Tailscale, Headscale and Cloudflare connectors ran against stand-ins written from the vendors'
   published descriptions. An Apprise server was not run. The Suricata readers ran over captured log samples, not a live sensor.
-- Browsers other than Chromium.
+- Safari's engine: WebKit does not start on the machine the checks ran on (see "Another browser"). Firefox and Chromium were run.
 - A latency benchmark of the product beyond the speed comparison above.

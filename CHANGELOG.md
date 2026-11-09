@@ -46,6 +46,9 @@ a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and t
   for five seconds apiece (Dashboard, Hosts, Host metrics, Check catalog, Patches, Settings) and fades from one to the next. The browser terminal and
   `rp` pictures are unchanged: the first is a live session on a real host and the second is the `rp` terminal program, and the demo data gives neither.
 
+- **The demo's Timesheet has an entry from today.** The Timesheet opens on the current week and the newest entry of the demo was a day old, so the page was empty on every Monday until you
+  opened the week before. The seed (`packaging/seed-demo-data.py`) adds one open, billable hour dated today. **Held by** a check in `tests/test_v800_seeder_covers_the_features.py` that the
+  week so far holds an entry for a seed run on any day from Monday to Sunday, and by the browser test of the page, which lost its fallback to the previous week.
 - **The public demo opens in the new look and typeface.** The demo asks for **Pilot** and **B612** as the instance defaults, so a visitor gets
   them on the sign-in page and everywhere after it, and can still choose Classic and the system font in My Account (the demo is read-only, so a
   choice lasts until the page is reloaded). `seed-demo-data.py` has two new flags, `--look` and `--typeface`, because it rewrites the whole
