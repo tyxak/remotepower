@@ -394,6 +394,19 @@ class TestTrafficInTheBrowser(unittest.TestCase):
         finally:
             ctx.close()
 
+    def test_fleet_query_has_the_talks_to_field_when_the_module_is_on_and_it_finds_the_host(self):
+        """The Fleet Query page is a lazy page: it is cloned on the first visit, after the module gates ran, and the field kept its d-none (found by the Detections field next to it)."""
+        self.page.evaluate("() => showPage('query')")
+        self.page.wait_for_selector("#fq-talks", state="attached", timeout=30000)
+        self.assertFalse(self.page.eval_on_selector("#fq-talks", "e => e.closest('[data-module]').classList.contains('d-none')"), "the module is on: the field is there")
+        self.page.evaluate("() => { document.querySelectorAll('#page-query details.fq-group').forEach(d => d.open = true); }")
+        self.assertTrue(self.page.is_visible("#fq-talks"))
+        self.page.fill("#fq-talks", "kworker")
+        self.page.evaluate("async () => { await runFleetQuery(); }")
+        self.page.wait_for_function("() => document.querySelectorAll('#fq-results tbody tr').length > 0", timeout=30000)
+        self.assertEqual(self.texts("#fq-results tbody tr .tl-devchip"), ["gitea.lab"])
+        self.page.fill("#fq-talks", "")
+
     # ── the module switch ────────────────────────────────────────────────────
 
     def test_with_the_module_off_there_is_no_tab_no_request_and_no_section(self):

@@ -5,6 +5,7 @@
 //   loadDetections()         fetch the rules and the findings and draw them (the Refresh button)
 //   detectionsOpenHost(i)    a line of the Findings table opens that host's drawer
 //   detectionsSave()         send the rules as they stand (the platform operator's)
+//   loadDrawerDetections(id) fill the host drawer's section for the host that is open: its findings, or nothing
 //
 // Host names, addresses, program names and the sentences of a finding came from a host, so they are only ever put in the page with escHtml. A host id never travels through
 // data-arg (the dispatcher turns a number-looking value into a number): the lines of the table are named by their place in the list.
@@ -14,6 +15,7 @@ let _dtAt = 0;                // when the tab was last drawn (ms), so the module
 let _dtData = null;           // the last answer of GET /detections
 let _dtRows = [];             // the lines of the Findings table, named by index in their buttons
 let _dtRegistered = false;
+let _dtDrawerSeq = 0;         // the newest drawer load: the answer for a host that was closed meanwhile is dropped
 
 const _DT_SEV = { critical: ['Critical', 'crit', 0], high: ['High', 'crit', 1], medium: ['Medium', 'warn', 2], low: ['Low', '', 3] };
 const _DT_COUNTS = ['critical', 'high', 'medium'];
@@ -149,4 +151,20 @@ function detectionsEnter() {
   if (Date.now() - _dtAt < 4000) return;     // showPage and the module gate both pass through here
   _dtAt = Date.now();
   loadDetections();
+}
+
+// The host drawer's section: the findings of the last sweep for the host that is open, worst first, and no section at all when it has none.
+async function loadDrawerDetections(id) {
+  const sec = document.getElementById('drawer-detections-section');
+  const box = document.getElementById('drawer-detections-body');
+  if (!sec || !box) return;
+  sec.hidden = true;
+  box.innerHTML = '';
+  if (!(window._modules && window._modules.detections)) return;
+  const seq = ++_dtDrawerSeq;
+  const r = await api('GET', '/detections?host=' + encodeURIComponent(id)).catch(() => null);
+  if (seq !== _dtDrawerSeq || (typeof _drawerDeviceId !== 'undefined' && _drawerDeviceId !== id)) return;
+  if (!r || r.error || !(r.findings || []).length) return;
+  sec.hidden = false;
+  box.innerHTML = r.findings.map(f => `<div class="row-8-center mt-6">${_dtSevBadge(f.severity)} <span>${escHtml(f.detail || '')}</span>${f.raised_at ? ` <span class="hint">${timeAgoHtml(f.raised_at)}</span>` : ''}</div>`).join('');
 }

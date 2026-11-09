@@ -3315,7 +3315,11 @@ function showPage(name, btn, opts) {
   // the clone; loaders run after, so eager sort wire-up etc. is unchanged).
   if (!document.getElementById('page-' + name)) {
     const _tpl = document.querySelector('template[data-page-tpl="' + name + '"]');
-    if (_tpl) _tpl.parentNode.insertBefore(_tpl.content.cloneNode(true), _tpl);
+    if (_tpl) {
+      _tpl.parentNode.insertBefore(_tpl.content.cloneNode(true), _tpl);
+      // 8.0.0: an element the page names a module for (Fleet Query's Talks to and Detection fields) is cloned with its `d-none`, and the gate ran before there was a clone to find
+      if (window._modules) _applyModuleElementGates(window._modules);
+    }
   }
   _markNavSeen(name);
   _stopPagePollers();   // v5.0.1 perf: stop the leaving page's continuous pollers
@@ -10561,6 +10565,7 @@ const _RISK_KIND_LABEL = {
   win_protection_off: 'Windows protection off', container_crashloop: 'Container restart loop',
   risky_accounts: 'Account with no password',
   cert_file_expired: 'Expired certificate file',
+  detections: 'Detections',   // 8.0.0
 };
 function _riskLevel(s) {
   const c = _RISK_CUTS;
@@ -24202,7 +24207,7 @@ const _SCORE_WEIGHT_DEFAULTS = [
     timer_failed: 3, custom_check_failed: 5,
     brute_force: 4, known_attacker: 8,
     security_updates: 3, mac_protection_off: 6, win_protection_off: 5,
-    container_crashloop: 4, risky_accounts: 12, cert_file_expired: 10,
+    container_crashloop: 4, risky_accounts: 12, cert_file_expired: 10, detections: 8,
   }],
   ['ap-lw-', 'reliability_weight_', {
     smart_failing: 40, realloc_growing: 25, pending_sectors: 20, wear_high: 15,
@@ -24962,6 +24967,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   switchDrawerTab(defaultTab);
   _loadJsModule('app-appdiscovery.js').then(() => { if (typeof loadDrawerApps === 'function') loadDrawerApps(id); });   // 8.0.0: the apps found on this host
   if (window._modules && window._modules.traffic) _loadJsModule('app-traffic.js').then(() => { if (typeof loadDrawerTraffic === 'function') loadDrawerTraffic(id); });   // 8.0.0: what this host's connections moved
+  if (window._modules && window._modules.detections) _loadJsModule('app-detections.js').then(() => { if (typeof loadDrawerDetections === 'function') loadDrawerDetections(id); });   // 8.0.0: what the Detections rules found on this host
   _loadJsModule('app-business-services.js').then(() => { if (typeof loadDrawerServices === 'function') loadDrawerServices(id); });   // 8.0.0: the services this host is part of
 }
 
@@ -29245,7 +29251,7 @@ const _FQ_FIELDS = {
   // v7.5.0: disk encryption and distro-flagged security updates
   encryption_off: 'fq-encoff', security_gt: 'fq-security',
   // 8.0.0: an app the agent found on the host, and something the host talks to
-  app: 'fq-app', talks: 'fq-talks',
+  app: 'fq-app', talks: 'fq-talks', detected: 'fq-detected',
 };
 function _fqFields() {
   const out = {};

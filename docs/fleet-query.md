@@ -16,7 +16,7 @@ leaves the groups as they are.
 
 | Family | Criteria |
 | --- | --- |
-| Identity | Group, Tag, OS contains, Kernel contains, Platform contains (for example `debian` or `arm64`), Agent version contains, Pkg manager (`apt`, `dnf`, `pacman`), **Has package**, **Runs app**, **Talks to** |
+| Identity | Group, Tag, OS contains, Kernel contains, Platform contains (for example `debian` or `arm64`), Agent version contains, Pkg manager (`apt`, `dnf`, `pacman`), **Has package**, **Runs app**, **Talks to**, **Detection** |
 | State | Online, Monitored, Agentless, Quarantined, Offline for more than N days, Uptime over or under N days, Cores over or under N |
 | Patching | Pending updates over N, **Security updates** over N, Reboot required, Kernel outdated, 3rd-party updates pending, Integrity (agent file verified, mismatch or unknown), **CVE (crit+high)** at least N |
 | Resources | Busiest disk %, Memory %, CPU %, Swap %, Load (1 minute), busiest Inode %, File descriptors %, Conntrack % |
@@ -31,6 +31,8 @@ Notes:
   same finding as **Discovered on this host** in the host's drawer; see [app-discovery.md](app-discovery.md).
 - **Talks to** matches the hosts that have a connection, in their last [Traffic](traffic.md) sample, to an address that contains your text (`10.0.2.`), to that port
   number or service name (`443`, `https`), or by a program that contains it (`nginx`). The field is there, and answers, only while the Traffic module is on.
+- **Detection** matches the hosts that have a finding of the last [Detections](detections.md) sweep whose rule, sentence, address, program or severity contains your text
+  (`shell`, `critical`, `203.0.113.`). The field is there, and answers, only while the Detections module is on.
 - **CVE (crit+high)** counts the way the dashboard does: a finding you accepted as a risk is left
   out, and with the [CVE count option](cve.md#counting-only-what-an-update-can-fix) on, so is every
   finding no update can clear.

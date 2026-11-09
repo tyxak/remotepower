@@ -430,11 +430,19 @@ a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and t
   a hundred for the whole fleet, the worst first, so one address that turns bad cannot flood the inbox; what is held back is raised by the next sweep. A rule that fails on a host
   is named once in the server's log with the number of hosts, and the others run. **Threat Intel → Detections** lists the findings of the last sweep, worst first, and the rules; the platform operator can switch a rule off or change
   its limits, and a viewer reads them. Findings are scoped to the hosts the caller may see; an unmonitored host shows its findings and raises none; a quiet fleet writes no store; the
-  alerts go out only after the store that remembers them is saved. The demo's six findings are what the rules themselves find over the demo's other stores. `docs/detections.md`.
-  **Held by** `tests/test_v800_detections_rules.py` (57 tests: the rules on fixtures built from the real Traffic producers), `tests/test_v800_detections_sweep.py` (47: the sweep, the
-  routes, two organisations, hostile stores, the real inbox and the real fleet log, the cap and a rule that fails), `tests/test_v800_detections_wiring.py` (17: every registry the module and the event are named in)
-  and `tests/test_v800_detections_e2e.py` (16 browser tests on the demo seed), and by 44 mutations of the new code, all caught; the first run of the sweep mutations left three
-  alive (an unmonitored host that remembered what it never sent, a handler with no switch of its own, and a whitelist the new rule depended on), and each got the test it was missing.
+  alerts go out only after the store that remembers them is saved. The demo's six findings are what the rules themselves find over the demo's other stores. The findings are read by
+  everything that reads what the agents report, so none of them is a number only its own tab knows: the **host drawer** lists a host's findings, the Data Explorer has a `detections`
+  entity, Fleet Query a **Detection** field (`?host=<id>` narrows the page to one host), the **risk score** a `detections` factor (a critical finding twice, a high one once, capped;
+  a medium one does not score; tunable like the others), the **intrusion control** of the compliance report fails on a detection and names the hosts, the **fleet report** counts hosts
+  and findings in its Threats section, and the AI context of a host says when it has a serious finding. Building the field found an older bug: **Fleet Query's Talks to field had never
+  been shown**. The page is a lazy template that is cloned on the first visit, after the module gates ran, so the field kept its `d-none` with the module on; `showPage` runs the
+  gates on the clone now. `docs/detections.md`.
+  **Held by** `tests/test_v800_detections_rules.py` (57 tests: the rules on fixtures built from the real Traffic producers), `tests/test_v800_detections_bindings.py` (31: each reader above, the module off
+  as the control and a second organisation as the other one), `tests/test_v800_detections_sweep.py` (47: the sweep, the
+  routes, two organisations, hostile stores, the real inbox and the real fleet log, the cap and a rule that fails), `tests/test_v800_detections_wiring.py` (19: every registry the module and the event are named in)
+  and `tests/test_v800_detections_e2e.py` (21 browser tests on the demo seed), and by 56 mutations of the new code, all caught; the first run of the sweep mutations left three
+  alive (an unmonitored host that remembered what it never sent, a handler with no switch of its own, and a whitelist the new rule depended on), and each got the test it was missing, as did the three that the first run of the readers' mutations left alive (a report that counted a host once for each finding, an AI flag that took
+  medium findings, and a helper that read hosts it was not given).
 
 ### Found by surveying the whole code
 

@@ -207,6 +207,11 @@
         ['Distinct gateway users', th.gw_users, 0],
         ['Distinct hosts reached', th.gw_hosts, 0],
       ];
+      // 8.0.0: what the Detections rules found, when the module is on
+      if (th.detections && typeof th.detections === 'object') {
+        thRows.push(['Hosts with a detection finding', th.detections.hosts, th.detections.hosts],
+          ['Detection findings (critical / high / medium)', [th.detections.critical || 0, th.detections.high || 0, th.detections.medium || 0].join(' / '), (th.detections.critical || 0) + (th.detections.high || 0)]);
+      }
       // The edge is the instance's, so these rows exist only when the server
       // sent them: a per-site or scoped report has none.
       if (th.edge && typeof th.edge === 'object') {

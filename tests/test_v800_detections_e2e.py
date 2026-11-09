@@ -234,6 +234,70 @@ class TestDetectionsInTheBrowser(unittest.TestCase):
         self.page.wait_for_function("() => { const w = document.getElementById('detections-wrap'); return w && !w.hidden; }", timeout=30000)
         self.assertEqual(self.page.eval_on_selector('.pg-tabs[data-pg="ipintel"] .pg-tab.active', "b => b.dataset.pgTabBtn"), "detections")
 
+    # ── what else shows the findings ─────────────────────────────────────────
+
+    def open_drawer(self, dev_id):
+        name = read("devices.json")[dev_id]["name"]
+        self.page.evaluate("([id, name]) => openDeviceDrawer(id, name)", [dev_id, name])
+        self.page.wait_for_function("() => /Online|Offline/.test(document.getElementById('drawer-device-sub').textContent)", timeout=30000)
+
+    def test_the_host_drawer_lists_the_findings_of_that_host_and_a_quiet_host_has_no_section(self):
+        self.open_drawer("nc01")
+        self.page.wait_for_function("() => { const s = document.getElementById('drawer-detections-section'); return s && !s.hidden && document.querySelectorAll('#drawer-detections-body .row-8-center').length > 0; }", timeout=30000)
+        rows = self.texts("#drawer-detections-body .row-8-center")
+        self.assertEqual(len(rows), 3, rows)
+        self.assertTrue(any("bash on nextcloud.lab is connected to 35.193.77.120:4444" in r for r in rows), rows)
+        self.assertEqual(self.page.inner_text("#drawer-detections-section .section-title").strip(), "Detections")
+        self.page.evaluate("() => closeDeviceDrawer()")
+        self.open_drawer("ng01")
+        self.page.wait_for_timeout(1500)
+        self.assertTrue(self.page.eval_on_selector("#drawer-detections-section", "s => s.hidden"), "ng01 has no finding: no empty section")
+
+    def test_a_late_answer_for_the_host_that_was_open_before_does_not_paint_over_the_one_open_now(self):
+        self.page.evaluate("""() => {
+          window.__held = [];
+          window.__realApi = window.api;
+          window.api = function (m, p, ...rest) {
+            const out = window.__realApi.call(this, m, p, ...rest);
+            if (m !== 'GET' || p !== '/detections?host=nc01') return out;
+            return out.then(v => new Promise(r => window.__held.push(() => r(v))));
+          };
+        }""")
+        self.page.evaluate("() => openDeviceDrawer('nc01', 'nextcloud.lab')")
+        self.page.wait_for_function("() => window.__held.length >= 1", timeout=30000)
+        self.page.evaluate("() => openDeviceDrawer('ng01', 'nginx.lab')")
+        self.page.wait_for_timeout(1500)
+        self.page.evaluate("() => window.__held.splice(0).forEach(release => release())")
+        self.page.wait_for_timeout(1200)
+        self.assertTrue(self.page.eval_on_selector("#drawer-detections-section", "s => s.hidden"), "the answer of the host that was closed arrived late and was dropped")
+
+    def test_fleet_query_has_the_detection_field_and_it_finds_the_host(self):
+        self.page.evaluate("() => showPage('query')")
+        self.page.wait_for_selector("#fq-detected", state="attached", timeout=30000)
+        self.assertFalse(self.page.eval_on_selector("#fq-detected", "e => e.closest('[data-module]').classList.contains('d-none')"), "the module is on: the field is there")
+        self.page.evaluate("() => { document.querySelectorAll('#page-query details.fq-group').forEach(d => d.open = true); }")
+        self.assertTrue(self.page.is_visible("#fq-detected"))
+        self.page.fill("#fq-detected", "reverse")
+        self.page.fill("#fq-detected", "bash")
+        self.page.evaluate("async () => { await runFleetQuery(); }")
+        self.page.wait_for_function("() => document.querySelectorAll('#fq-results tbody tr').length > 0", timeout=30000)
+        self.assertEqual(self.texts("#fq-results tbody tr .tl-devchip"), ["nextcloud.lab"])
+        self.page.fill("#fq-detected", "")
+
+    def test_the_data_explorer_offers_the_entity_and_answers_it(self):
+        names = self.page.evaluate("async () => { const r = await api('GET', '/query/fields'); return Object.keys(r.entities || {}); }")
+        self.assertIn("detections", names)
+        rows = self.page.evaluate("async () => { const r = await api('POST', '/query', {entity: 'detections', sort: 'device_name'}); return r.rows.map(x => [x.device_name, x.rule, x.severity]); }")
+        self.assertEqual(len(rows), 6, rows)
+        self.assertEqual({r[1] for r in rows}, {"interpreter_egress", "service_new_destination", "known_bad_contact", "persistence_then_egress", "bruteforce_then_login", "exposed_port_in_use"})
+
+    def test_the_risk_page_explains_the_score_with_the_findings(self):
+        factors = self.page.evaluate("async () => { const r = await api('GET', '/risk'); return (r.devices || []).filter(d => d.device_name === 'nextcloud.lab').flatMap(d => d.factors.map(f => [f.kind, f.points, f.detail])); }")
+        kinds = {f[0]: f for f in factors}
+        self.assertIn("detections", kinds, factors)
+        self.assertGreater(kinds["detections"][1], 0)
+        self.assertIn("serious finding", kinds["detections"][2])
+
     # ── the rules ────────────────────────────────────────────────────────────
 
     def test_the_rules_are_listed_with_what_they_mean_and_what_they_read(self):

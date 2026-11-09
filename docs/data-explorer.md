@@ -24,7 +24,7 @@ and its API accepts nested AND/OR/NOT conditions.
 The page builds a flat AND list because that covers most questions. For OR and NOT, call the API
 (see [API](#api)); the same engine runs both.
 
-## The eleven entities
+## The thirteen entities
 
 The page lists them by these names.
 
@@ -42,6 +42,7 @@ The page lists them by these names.
 | `gateway_sessions` | finished SSH-gateway session | "who reached the database hosts through the gateway this week" |
 | `apps` | (host, app the agent found on it) | "which hosts run Jellyfin, and which of those listen on loopback only" |
 | `traffic` | (host, direction, remote address, port, program) | "which hosts talk to an address they never used before, and how much do they send it" |
+| `detections` | (host, finding of the last Detections sweep) | "which hosts have a critical finding, and which rule found it" |
 
 ## Conditions
 
@@ -275,6 +276,14 @@ program. `scope` is `public`, `private` or `link-local`, `sent` and `received` a
 its baseline hour and within the last day, and `watched` says whether any watch list entry matches the row, never which one. `state` is `reporting` or `stale` and
 `sampled_at` the time of the sample. Hosts with no sample, agentless hosts and retired hosts have no rows. The entity is listed, and answers, only while the Traffic module
 is on.
+
+### `detections`
+
+`device_id`, `device_name`, `rule`, `rule_title`, `severity`, `detail`, `address`, `port`, `program`, `raised_at`, `monitored`.
+
+What the last [Detections](detections.md) sweep found, one row for each finding. `rule` is the rule's id (`interpreter_egress`) and `rule_title` its name, `severity` is the one the
+rule found, `detail` is the sentence of the alert, and `raised_at` is empty for a finding that was held back or has not been raised yet. A host shows its five worst findings. The
+entity is listed, and answers, only while the Detections module is on.
 
 ## Saved queries
 

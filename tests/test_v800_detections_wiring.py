@@ -67,6 +67,22 @@ class TestTheModuleIsNamedWhereAModuleMustBe(unittest.TestCase):
         self.assertTrue(m, 'the wrapper that detectionsEnter shows when the module is on')
 
 
+class TestAGatedFieldOfALazyPageIsGated(unittest.TestCase):
+    """Fleet Query is a lazy page: its markup is a <template> that showPage clones on the first visit, after the module gates ran. The Talks to field kept its d-none for ever."""
+
+    def test_showpage_applies_the_gates_to_the_clone(self):
+        body = srcpin.js_function(APP, 'showPage')
+        i = body.index('cloneNode(true)')
+        self.assertIn('_applyModuleElementGates(window._modules)', body[i:i + 700], 'the gates must run after the clone, or a gated field of a lazy page is never shown')
+
+    def test_every_element_a_module_gates_that_is_inside_a_lazy_page_is_covered_by_that(self):
+        lazy = re.findall(r'<template data-page-tpl="([a-z-]+)">(.*?)</template>', HTML, re.S)
+        self.assertTrue(lazy, 'the scan found no lazy page')
+        gated = {name: re.findall(r'data-module="(\w+)"', body) for name, body in lazy if 'data-module="' in body}
+        self.assertEqual(sorted(gated), ['query'], 'if another lazy page names a module, it depends on the same call: %s' % gated)
+        self.assertEqual(sorted(set(gated['query'])), ['detections', 'traffic'])
+
+
 class TestTheEventIsNamedWhereAnEventMustBe(unittest.TestCase):
 
     @unittest.skipUnless(NODE, 'node not installed')

@@ -45,6 +45,18 @@ How the rules decide:
 
 A host you marked as unmonitored shows its findings, flagged, and raises no alert.
 
+## Where else you see them
+
+- **The host's page.** The host drawer has a **Detections** section with that host's findings, when it has any.
+- **Data Explorer.** The `detections` entity has one row for each finding: [data-explorer.md](data-explorer.md).
+- **Fleet Query.** The **Detection** field finds the hosts with a finding whose rule, sentence, address, program or severity contains your text: [fleet-query.md](fleet-query.md).
+- **Risk score.** A critical finding scores twice and a high one once, capped. A medium one does not score: [risk.md](risk.md).
+- **Compliance.** A detection in the last 30 days fails the intrusion control, with the hosts named in its evidence.
+- **Fleet report.** The Threats section counts the hosts with a finding and the findings by severity.
+- **AI advisors.** They are told when a host has a serious finding.
+
+All of them read only while the module is on, and only for the hosts you can see.
+
 ## Alerts
 
 Each finding raises one **Detection** alert, in the severity the rule found, with the host, the rule, the address, the port and the program. It works like any other alert: acknowledge it, resolve it, mute it, route it to a channel or put the host in maintenance. Under **Settings > Notifications** the event is listed as a detection and sits under its own kind, **Detections**.

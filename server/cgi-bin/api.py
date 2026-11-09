@@ -34539,8 +34539,21 @@ def _qe_traffic_rows():
 _QE_TRAFFIC_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'device_id', 'device_name', 'direction', 'address', 'scope', 'port', 'service', 'program', 'connections', 'sent', 'received', 'new', 'watched', 'state', 'sampled_at')}
 
+def _qe_detections_rows():
+    """8.0.0: one row for each finding of the last Detections sweep, for the hosts the caller may see. Nothing while the module is off: the route is outside /api/detections, so
+    the gate that 404s that prefix does not reach it."""
+    if not _module_on('detections'):
+        return []
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
+    store = (_load_ro(DETECTIONS_FILE) or {}) if backend_exists(DETECTIONS_FILE) else {}
+    return detections_handlers_mod.explorer_rows(devices, store)
+
+
+_QE_DETECTIONS_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'device_name', 'rule', 'rule_title', 'severity', 'detail', 'address', 'port', 'program', 'raised_at', 'monitored')}
+
 # An entity that belongs to a module is listed, and answers, only while that module is on.
-_QE_ENTITY_MODULE = {'traffic': 'traffic'}
+_QE_ENTITY_MODULE = {'traffic': 'traffic', 'detections': 'detections'}
 
 
 def _qe_entity_names():
@@ -34564,6 +34577,7 @@ _QE_ENTITIES = {
     # 8.0.0
     'apps':       (_qe_apps_rows, _QE_APP_FIELDS),
     'traffic':    (_qe_traffic_rows, _QE_TRAFFIC_FIELDS),
+    'detections': (_qe_detections_rows, _QE_DETECTIONS_FIELDS),
 }
 
 QUERY_TEMPLATES_FILE = DATA_DIR / 'query_templates.json'   # v6.1.1
@@ -34695,8 +34709,8 @@ _FQ_PARAMS = (
     # v7.5.0: disk encryption and distro-flagged security updates, the two
     # exposure questions the Data Explorer and the report could already answer.
     'encryption_off', 'security_gt',
-    # 8.0.0: the apps the agent found on a host, and what a host talks to (Traffic).
-    'app', 'talks',
+    # 8.0.0: the apps the agent found on a host, what a host talks to (Traffic) and what a Detections rule found on it.
+    'app', 'talks', 'detected',
 )
 _MX_PARAMS = ('devices', 'metrics', 'stat', 'tier', 'rel', 'from', 'to')
 
@@ -47388,6 +47402,11 @@ def _ai_fleet_with_attack_flags(visible):
         _mutes = _config_ro().get('exposure_mutes') or []
     except Exception:
         _hw, _mutes = {}, []
+    # 8.0.0: what the Detections rules found, read once (nothing while the module is off)
+    try:
+        _det = (_load_ro(DETECTIONS_FILE) or {}) if _module_on('detections') and backend_exists(DETECTIONS_FILE) else {}
+    except Exception:
+        _det = {}
     _now = int(time.time())
     out = []
     for did, dev in visible.items():
@@ -47414,6 +47433,11 @@ def _ai_fleet_with_attack_flags(visible):
         kb = int((_intel.get(did) or {}).get('known_bad_unblocked') or 0)
         if kb:
             flags.append(f'{kb} known-abusive attacker' + ('s' if kb != 1 else '') + ' not blocked')
+        _found = (_det.get(did) or {}).get('found') if isinstance(_det.get(did), dict) else None
+        _serious = [f for f in (_found if isinstance(_found, list) else []) if isinstance(f, dict) and f.get('severity') in ('critical', 'high') and f.get('rule') in detections_handlers_mod.D.RULES]
+        if _serious:
+            _titles = list(dict.fromkeys(detections_handlers_mod.D.RULES[f['rule']]['title'] for f in _serious))
+            flags.append(f'{len(_serious)} serious behaviour detection' + ('s' if len(_serious) != 1 else '') + ' (' + '; '.join(_titles[:2]) + ')')
         out.append(dict(dev, _extra_flags=flags) if flags else dev)
     return out
 
@@ -48965,6 +48989,7 @@ def _compliance_facts(devices=None):
     facts['new_ports'] = []
     facts['ssh_key_changes'] = []
     facts['brute_force'] = []
+    facts['detections'] = []      # 8.0.0: hosts a Detections rule raised a finding for in the window
     facts['privileged_group_changes'] = []
     # v6.3.1: privileged-group change detection is "monitored" once a host has a
     # sudo/wheel/Administrators baseline (accounts reported → `_priv_users` set
@@ -49018,6 +49043,9 @@ def _compliance_facts(devices=None):
             _ev_label(e) for e in recent if e.get('event') == 'brute_force_detected'))
         facts['privileged_group_changes'] = list(dict.fromkeys(
             _ev_label(e) for e in recent if e.get('event') == 'priv_group_added'))
+        # 8.0.0: behaviour a Detections rule found (a shell on the Internet, a takeover, an address Threat Intel marks as bad): evidence for the intrusion control
+        facts['detections'] = list(dict.fromkeys(
+            _ev_label(e) for e in recent if e.get('event') == 'detection_found'))
     except Exception:
         pass
     # v7.1.0: the response half of intrusion detection, and the gateway as a
@@ -54544,6 +54572,9 @@ _RISK_WEIGHTS = {
     # A certificate file a host's service reads that has expired: clients get a certificate error until it is renewed. Counted per
     # file, like an expired contract (expiry_expired); the alert says "soon", this scores the ones that are already past.
     'cert_file_expired': 10,
+    # 8.0.0: what a Detections rule found on the host at its last sweep: a shell holding a connection to the Internet, a new open port that a stranger is using, a new key
+    # followed by a new destination. Counted per critical finding (twice) and per high one; a medium finding is a notice and does not score.
+    'detections': 8,
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
@@ -54558,7 +54589,7 @@ _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               # v7.5.0
               'security_updates': 18, 'mac_protection_off': 12,
               'win_protection_off': 15, 'container_crashloop': 12, 'risky_accounts': 24,
-              'cert_file_expired': 20}
+              'cert_file_expired': 20, 'detections': 24}
 # states (substring match) that mean a storage pool / RAID array is unhealthy
 _RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
                      'suspended', 'error', 'fail')
@@ -54604,7 +54635,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                  av_rec=None, img_rec=None, backup_stale=None, secrets_rec=None,
                  patch_sla_breach=None, drift_rec=None, custom_defs=None,
                  checks_disabled=None, bf_rows=None, intel_rec=None, cve_fixable_only=None,
-                 cont_rec=None):
+                 cont_rec=None, det_rec=None):
     si = dev.get('sysinfo') or {}
     hw_rec = hw_rec or {}
     # v6.2.2 batch 4: operator-configurable per-factor weights. Hoisted by the
@@ -55064,6 +55095,14 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         _add('known_attacker', min(_RISK_CAPS['known_attacker'], _n * w['known_attacker']),
              f'{plural(_n, "known-abusive source", "known-abusive sources")} not blocked'
              + (f' ({", ".join(_ips[:2])})' if _ips else ''))
+
+    # 8.0.0: what a Detections rule found here at the last sweep (`det_rec` is the host's findings, empty while the module is off). Critical counts twice, high once.
+    if det_rec:
+        _serious = [f for f in det_rec if isinstance(f, dict) and f.get('severity') in ('critical', 'high')]
+        _n = sum(2 if f.get('severity') == 'critical' else 1 for f in _serious)
+        if _n:
+            _add('detections', min(_RISK_CAPS['detections'], _n * w['detections']),
+                 f'{plural(len(_serious), "serious finding", "serious findings")} from the Detections rules (' + str(_serious[0].get('detail') or '')[:90] + ')')
 
     score = min(100, sum(f['points'] for f in factors))
     return {'device_id': dev_id, 'device_name': dev.get('name', dev_id),
@@ -55640,6 +55679,8 @@ def _compute_fleet_risk():
                           for r in _rows if r.get('breached')}
     except Exception:
         sla_detail = {}
+    # 8.0.0: the findings of the Detections sweep, read once for the fleet (nothing while the module is off)
+    _det_store = (_load_ro(DETECTIONS_FILE) or {}) if _module_on('detections') and backend_exists(DETECTIONS_FILE) else {}
     out = []
     for dev_id, dev in devices.items():
         if not isinstance(dev, dict) or dev.get('monitored') is False or dev.get('agentless'):
@@ -55669,7 +55710,8 @@ def _compute_fleet_risk():
                                          if _bf_store else None),
                                 intel_rec=_intel.get(dev_id),
                                 cve_fixable_only=_cve_count_only,
-                                cont_rec=conts.get(dev_id) or {}))
+                                cont_rec=conts.get(dev_id) or {},
+                                det_rec=(_det_store.get(dev_id) or {}).get('found') if isinstance(_det_store.get(dev_id), dict) else None))
     out.sort(key=lambda r: -r['score'])
     return out
 
@@ -60504,6 +60546,7 @@ def handle_fleet_query():
       security_gt=<n> (distro-flagged security updates above n).
       v8.0.0: app=<substr> (an app found on the host, by id or name).
       v8.0.0: talks=<text> (a connection in the host's last Traffic sample: an address part, a port number or service name, or a program; needs the Traffic module).
+      v8.0.0: detected=<text> (a finding of the last Detections sweep whose rule, sentence, address, program or severity contains the text; needs the Detections module).
       format=csv|xml downloads the filtered set (JSON otherwise; the print/PDF
       view fetches the JSON). Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
@@ -60564,6 +60607,7 @@ def handle_fleet_query():
     security_gt = qi('security_gt')
     app_q = q('app').lower()
     talks_q = q('talks').lower()
+    detected_q = q('detected').lower()
     ups_q = q('ups_on_battery') in ('1', 'true')
     temp_q = q('temp_high') in ('1', 'true')
     fmt = q('format').lower()   # '', 'csv', 'xml' — JSON when empty
@@ -60575,6 +60619,8 @@ def handle_fleet_query():
         devices, (_load_ro(CONTAINERS_FILE) or {}) if backend_exists(CONTAINERS_FILE) else {}, app_q) if app_q else set())
     talk_hosts = (traffic_handlers_mod.hosts_talking(devices, (_load_ro(TRAFFIC_FILE) or {}) if backend_exists(TRAFFIC_FILE) else {}, talks_q)
                   if talks_q and _module_on('traffic') else set())
+    detected_hosts = (detections_handlers_mod.hosts_detected(devices, (_load_ro(DETECTIONS_FILE) or {}) if backend_exists(DETECTIONS_FILE) else {}, detected_q)
+                      if detected_q and _module_on('detections') else set())
     canonical = _get_agent_sha256() if integ else None
     pkg_store = (load(PACKAGES_FILE) or {}) if has_pkg else {}
     cve = None
@@ -60623,6 +60669,8 @@ def handle_fleet_query():
         if app_q and did not in app_hosts:
             continue
         if talks_q and did not in talk_hosts:
+            continue
+        if detected_q and did not in detected_hosts:
             continue
         online = (now - d.get('last_seen', 0)) < ttl
         if online_q in ('1', 'true') and not online:

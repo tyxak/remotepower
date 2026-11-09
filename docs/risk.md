@@ -63,6 +63,8 @@ custom checks, and whether the host is being attacked right now.
 - **An expired certificate file scores per file** (capped), with the paths in the detail. Only files that have already expired
   count; one that is merely expiring soon is the *certificate file expiring* alert's. The **Certificate file expiry** setting turns it
   off *(7.5.0)*.
+- **What a Detections rule found counts.** A critical finding of the last [Detections](detections.md) sweep scores twice and a high one once, per finding and capped, with the
+  sentence of the first in the detail. A medium finding is a notice and does not score. Nothing scores while the Detections module is off *(8.0.0)*.
 - **ECC memory errors and NIC errors are not in this score.** The
   [reliability score](disk-health.md#host-reliability-prediction) weighs them as failing hardware, and a
   fault counted in both scores makes both wrong.

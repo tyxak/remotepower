@@ -25,6 +25,7 @@ and `_MODULES` answers 404 for the `/api/detections` prefix until then.
 
 import sys
 import time
+import urllib.parse
 
 import detections as D
 import traffic as T
@@ -67,6 +68,12 @@ def _is_operator():
         return bool(A._caller_is_admin()) and (not A._tenancy_enforced() or A._caller_is_superadmin())
     except Exception:
         return False
+
+
+def _query(name):
+    """One value of the query string, or None: the same read the other handlers make of `QUERY_STRING` (through the request's own environment, never the process's)."""
+    vals = urllib.parse.parse_qs(A._env("QUERY_STRING", "") or "").get(name)
+    return vals[0] if vals else None
 
 
 def _gate():
@@ -224,6 +231,60 @@ def run_detections_if_due():
         _raise(dev_id, name, f)
 
 
+# ── the Data Explorer and the host's own page ────────────────────────────────
+
+
+def _visible_findings(devices, store, host=None):
+    """[(host id, host record, finding, alerted map)] for the findings of the hosts in `devices` (already the caller's), the worst first. `host` narrows it to one host."""
+    out = []
+    for dev_id, dev in devices.items():
+        rec = store.get(dev_id) if isinstance(dev, dict) and isinstance(store, dict) and isinstance(store.get(dev_id), dict) else None
+        if rec is None or not isinstance(rec.get("found"), list) or (host is not None and dev_id != host):
+            continue
+        alerted = rec.get("alerted") if isinstance(rec.get("alerted"), dict) else {}
+        out.extend((dev_id, dev, f, alerted) for f in rec["found"] if isinstance(f, dict) and f.get("rule") in D.RULES)
+    out.sort(key=lambda t: (D.RANK.get(t[2].get("severity"), 9), str(t[1].get("name") or t[0]).lower(), str(t[2].get("rule"))))
+    return out
+
+
+def explorer_rows(devices, store):
+    """Data Explorer `detections` (8.0.0): one row for each finding of the last sweep, for the hosts given. The hosts are already the caller's and the module gate is the
+    caller's too. The rule is given by its id and by its title, and `raised_at` is empty for a finding that was held back or never raised."""
+    out = []
+    for dev_id, dev, f, alerted in _visible_findings(devices, store):
+        at = alerted.get(f.get("key"))
+        out.append(
+            {
+                "device_id": dev_id,
+                "device_name": dev.get("name") or dev_id,
+                "rule": f.get("rule"),
+                "rule_title": D.RULES[f["rule"]]["title"],
+                "severity": f.get("severity") or "",
+                "detail": str(f.get("detail") or ""),
+                "address": f.get("ip") or "",
+                "port": f.get("port") if isinstance(f.get("port"), int) and not isinstance(f.get("port"), bool) else None,
+                "program": f.get("process") or "",
+                "raised_at": at if isinstance(at, int) and not isinstance(at, bool) else None,
+                "monitored": bool(dev.get("monitored", True)),
+            }
+        )
+    return out
+
+
+def hosts_detected(devices, store, needle):
+    """Ids of the hosts of `devices` that have a finding whose rule id or title, sentence, address or program contains `needle`, in any case: the Fleet Query `detected`
+    criterion (8.0.0). Empty for an empty needle."""
+    needle = str(needle or "").strip().lower()
+    out = set()
+    if not needle:
+        return out
+    for dev_id, _dev, f, _alerted in _visible_findings(devices, store):
+        text = " ".join(str(x) for x in (f.get("rule"), D.RULES[f["rule"]]["title"], f.get("detail"), f.get("ip"), f.get("process"), f.get("severity")) if x)
+        if needle in text.lower():
+            out.add(dev_id)
+    return out
+
+
 # ── the page ─────────────────────────────────────────────────────────────────
 
 
@@ -238,22 +299,15 @@ def handle_detections_get():
     cfg = A._config_ro()
     devices = A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})
     store = (A._load_ro(A.DETECTIONS_FILE) or {}) if A.backend_exists(A.DETECTIONS_FILE) else {}
+    host = _query("host")
     findings = []
-    for dev_id, dev in devices.items():
-        rec = store.get(dev_id) if isinstance(dev, dict) and isinstance(store.get(dev_id), dict) else None
-        if rec is None or not isinstance(rec.get("found"), list):
-            continue
-        alerted = rec.get("alerted") if isinstance(rec.get("alerted"), dict) else {}
-        for f in rec["found"]:
-            if not isinstance(f, dict) or f.get("rule") not in D.RULES:
-                continue
-            row = dict(f)
-            row.update({"id": dev_id, "name": dev.get("name") or dev_id, "monitored": bool(dev.get("monitored", True))})
-            at = alerted.get(f.get("key"))
-            if isinstance(at, int) and not isinstance(at, bool):
-                row["raised_at"] = at
-            findings.append(row)
-    findings.sort(key=lambda r: (D.RANK.get(r.get("severity"), 9), str(r["name"]).lower(), str(r.get("rule"))))
+    for dev_id, dev, f, alerted in _visible_findings(devices, store, host if isinstance(host, str) and host else None):
+        row = dict(f)
+        row.update({"id": dev_id, "name": dev.get("name") or dev_id, "monitored": bool(dev.get("monitored", True))})
+        at = alerted.get(f.get("key"))
+        if isinstance(at, int) and not isinstance(at, bool):
+            row["raised_at"] = at
+        findings.append(row)
     counts = {s: sum(1 for r in findings if r.get("severity") == s) for s in D.RANK}
     last = cfg.get("last_detections_run")
     A.respond(

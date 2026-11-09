@@ -145,7 +145,7 @@ def _threats_section(devices, now, days=30, edge=False):
            'attackers': 0, 'known_bad': 0, 'known_bad_unblocked': 0,
            'blocks_active': 0, 'reported': 0, 'top_hosts': [],
            'gw_sessions': 0, 'gw_users': 0, 'gw_hosts': 0, 'gw_hours': 0.0,
-           'edge': None}
+           'edge': None, 'detections': None}
     if edge:
         try:
             out['edge'] = A.ip_intel_handlers_mod.edge_report(now, days)
@@ -193,6 +193,21 @@ def _threats_section(devices, now, days=30, edge=False):
         out['gw_hosts'] = len({r.get('device_id') for r in rows})
         out['gw_hours'] = round(sum(int(r.get('duration_s') or 0) for r in rows) / 3600, 1)
     except Exception:  # nosec B110 — the gateway is optional
+        pass
+    # 8.0.0: what the Detections rules found at the last sweep, for the report's hosts: None while the module is off
+    try:
+        if A._module_on('detections'):
+            det = {'hosts': 0, 'critical': 0, 'high': 0, 'medium': 0}
+            store = (A._load_ro(A.DETECTIONS_FILE) or {}) if A.backend_exists(A.DETECTIONS_FILE) else {}
+            for did in ids:
+                found = (store.get(did) or {}).get('found') if isinstance(store.get(did), dict) else None
+                rows = [f for f in (found if isinstance(found, list) else []) if isinstance(f, dict)]
+                det['hosts'] += 1 if rows else 0
+                for f in rows:
+                    if f.get('severity') in ('critical', 'high', 'medium'):
+                        det[f['severity']] += 1
+            out['detections'] = det
+    except Exception:  # nosec B110 — a report section must not fail the report
         pass
     return out
 
@@ -709,6 +724,10 @@ def _fleet_report_csv_bytes(report):
         row(['Threats', 'Known-abusive, not blocked', th.get('known_bad_unblocked', 0)])
         row(['Threats', 'Blocks active', th.get('blocks_active', 0)])
         row(['Threats', f"Addresses reported ({th.get('days', 30)}d)", th.get('reported', 0)])
+        dt = th.get('detections')
+        if isinstance(dt, dict):
+            row(['Threats', 'Hosts with a detection finding', dt.get('hosts', 0)])
+            row(['Threats', 'Detection findings (critical / high / medium)', '%s / %s / %s' % (dt.get('critical', 0), dt.get('high', 0), dt.get('medium', 0))])
         eg = th.get('edge')
         if isinstance(eg, dict):
             row(['Edge', f"Addresses seen at the edge ({th.get('days', 30)}d)", eg.get('seen', 0)])
@@ -1174,6 +1193,10 @@ def _render_report_email(report):
         lines.append(f"  Attackers (7d)     : {th.get('attackers', 0)}, "
                      f"{th.get('known_bad', 0)} known-abusive "
                      f"({th.get('known_bad_unblocked', 0)} not blocked)")
+        dt = th.get('detections')
+        if isinstance(dt, dict):
+            lines.append(f"  Detections         : {A.plural(dt.get('hosts', 0), 'host', 'hosts')} with a finding "
+                         f"({dt.get('critical', 0)} critical, {dt.get('high', 0)} high, {dt.get('medium', 0)} medium)")
         eg = th.get('edge')
         if isinstance(eg, dict):
             lines.append(f"  Edge ({th.get('days', 30)}d)       : {A.plural(eg.get('seen', 0), 'address', 'addresses')} seen, "

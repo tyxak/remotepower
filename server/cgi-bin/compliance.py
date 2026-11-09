@@ -341,6 +341,9 @@ def _access_review_control(facts):
 
 def _intrusion_control(facts):
     bf = facts.get('brute_force') or []
+    det = facts.get('detections') or []
+    # 8.0.0: behaviour a Detections rule found is evidence of an intrusion too: a shell on the Internet, a takeover, an address Threat Intel marks as bad
+    seen = (f" Behaviour detections raised on {plural(len(det), 'host', 'hosts')}: " + ", ".join(str(h) for h in det[:10]) + ".") if det else ""
     if bf:
         # v7.1.0: say whether anything RESPONDED. "Attacked" and "attacked by a
         # known-abusive address that is still getting through" are different
@@ -353,7 +356,9 @@ def _intrusion_control(facts):
         if blocks:
             resp += f" {plural(blocks, 'source address', 'source addresses')} {agree(blocks, 'is', 'are')} currently blocked."
         return FAIL, (f"Brute-force attempts detected on {plural(len(bf), 'host', 'hosts')} in the last 30 days: "
-                      + ", ".join(str(h) for h in bf[:10]) + "." + resp)
+                      + ", ".join(str(h) for h in bf[:10]) + "." + resp + seen)
+    if det:
+        return FAIL, f"Behaviour detections raised on {plural(len(det), 'host', 'hosts')} in the last 30 days: " + ", ".join(str(h) for h in det[:10]) + "."
     return PASS, "No brute-force login activity in the last 30 days."
 
 
