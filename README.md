@@ -164,8 +164,9 @@ its data is refreshed every two minutes so the hosts stay online.
   error budgets, an Alerts inbox with ack, auto-resolve and mute, and one
   filterable page to tune every alert threshold, grade and score weight.
 - **See every signal** — SMART and hardware health, CPU and board temperatures,
-  GPU, power and UPS, disk-fill forecasting, a per-host timeline and log search.
-  Agentless syslog, NetFlow/IPFIX/sFlow and SNMP receivers, plus an OID browser
+  GPU, power and UPS, disk-fill forecasting, a per-host timeline and log search,
+  and, once you switch it on, the remote addresses and programs behind each Linux
+  host's connections. Agentless syslog, NetFlow/IPFIX/sFlow and SNMP receivers, plus an OID browser
   for walking a subtree, cover the switches, firewalls and printers that cannot
   run an agent.
 - **Manage remotely** — shell and Custom Scripts on Linux, Windows and macOS, a

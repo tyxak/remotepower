@@ -617,7 +617,7 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   test hard-coded the server version it expected. Two wizard tests flagged a French word that is the same as the English one. The shellcheck test listed no script in a staged copy of the tree.
   The page sections walker, the Timesheet test (the demo's entries are dated 1 to 9 days ago, so on a Monday the week has none yet) and the monitor table test (the demo has more than one
   page of 15 monitors since the four handshake monitors) each assumed what the seed looked like, and a branding dialog test lost a click to a redraw. In the page: the top bar's breadcrumb,
-  which the tablet fix let shrink below "Dashboard" at the 200% text size (the narrow rules now apply below 1290 px only), and the shared device list, which could hold an error answer, so
+  which the tablet fix let shrink below "Dashboard" at the 200% text size (the narrow rules now apply below 1290 px only), and the shared host list, which could hold an error answer, so
   the Cron, File manager and App Catalog pickers threw `(devs || []).map is not a function` when every request failed. No other defect of the product turned up in the 22,473 tests of the run on JSON files.
 
 ### Single pages

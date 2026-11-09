@@ -95,6 +95,11 @@ Five things changed what a host, a caller or an outside service can do:
   the machine was also running the gate (asked alone, on a seeded stack in the same kind of namespace, it answers in under five seconds). The Home
   page had been flagged for tenant users in the last two reviews and each time read as the matrix's own planted row; this time the marker was an
   integration's address, and comparing each widget of a tenant administrator's answer with the operator's showed six that were the installation's.
+  The 31 runs of the tenant callers were made again on a copy of the final code (43,338 requests): the controls held (an administrator's own
+  objects worked in 116 to 119 of the 403 operations that take an id and the other organisation's were refused in 111 to 114), no request answered
+  2xx where the handler's own gate refuses (281 answers that were not a refusal: 112 were 400, 168 were 405 and one timed out), 12 operations
+  answered tenant users with a marker, the 13 above without the Home page, and five answered 5xx or not at all for the harness's reasons (the
+  three SAML routes, a network scan that was cut off, and a wake-on-LAN packet with no network to go out on).
 - **An upgrade.** A data directory written by 7.5.0 (146 files) was served by this version: sign-in worked, 296 `GET` routes that take no parameter
   answered 263 times 200, 13 times 400, 3 times 401, 3 times 403, 12 times 404 and twice 503 (the two SAML routes, which answer 503 when SAML is
   not set up), never 500. A heartbeat from a real 7.5.0 agent was accepted by this version's handler on that data.
@@ -161,7 +166,35 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 
 ## The release gate
 
-The release gate runs on the commit that carries this section. Its result is added here when it ends.
+The gate ran in two passes. The first was the steps of `make pre-release` run side by side on `6ac3a1d0`, the commit that carried the first version of
+this review, from 00:29 to 03:11 on 2026-11-09, with the browser and PostgreSQL tests required. It found eleven problems in tests and two in the page,
+listed below. The second pass ran on `cc33217b`, which fixed them, and the three small commits after it (`eb7a2047`, `2bdb7128`, `171e5d46`). It is a
+set of runs and not one run of everything on one commit; the commits after `cc33217b` touch one line of the server, which binds a name, and tests.
+
+| Step | Result |
+|---|---|
+| Test suite, JSON storage (`6ac3a1d0`) | 22,473 tests, 57 skipped; 27 failures and 9 errors in 12 modules, all listed below |
+| Test suite, SQLite (`6ac3a1d0`) | 21,522 tests, 191 skipped; 29 failures and 10 errors in three test files |
+| `make lint`: isort, black and mypy over 45 source files, ruff in two passes | no finding |
+| PostgreSQL tests (the server was PostgreSQL 18.6; CI runs 16) | 28 tests, none skipped, all pass |
+| `make dist`: the tarball, its leak check, and the suite on the staged tree | no forbidden path; the suite: 22,473 tests, 90 skipped, 45 failures and 9 errors (the JSON ones, and the shellcheck test, which listed no script in a staged copy) |
+| `make ci-parity`: Python 3.14, the workflow's dependency list, the workflow's runner | 21,673 tests, 522 skipped, 1 failure (the seeder test) |
+| bandit against its baseline | no issue outside the baseline, and none rated High |
+| CodeQL 2.27.4, Python and JavaScript, the repository's configuration | no result in either language; the preview that also reads the tests lists the reviewed classes (1,332 Python results, 18 of them in tests, none in JavaScript) |
+| Second pass: every module without a browser (1,119), on JSON and on SQLite | 21,399 and 21,352 tests; two failures in each, both of this round's making and both fixed: a source check that read a new name as a write through a shared object, and a clock taken when the module was imported |
+| Second pass: every browser module (99), four at a time | 1,080 tests; 95 modules passed. Four failed under that load: the SMTP and the integration wizard passed alone on the next run, and the six-language title check of two wizards and the branding dialogs were hardened and passed three whole-module runs each |
+| Second pass: the tenant callers of the matrix, on the final code | 31 runs, 43,338 requests (see "How it was done") |
+| Second pass: hostile requests to the 14 new routes, on the final code | 1,904 requests, no 500, no exception, nothing left unanswered |
+
+The first pass found these, and none of them was a way in. In tests: two files wrote the stores as files, which a SQL backend never reads; a seeder
+test compared the seed's clock with the time at the test, and a full run reaches it minutes after the seed was built; a browser test hard-coded the
+server version; two wizard tests flagged a French word that is the English one; the shellcheck test listed no script in a staged copy; the page
+sections walker read a tab that a lazy module fills at once; the Timesheet test fails on a Monday, because the demo's entries are dated 1 to 9 days
+ago; the monitor table test assumed the two monitors probed by a host sit on the first page of 15, which four new monitors changed; and a branding
+dialog test lost a click to a redraw. In the page: the top bar's breadcrumb, which the tablet fix let shrink below "Dashboard" at the 200% text size
+(the narrow rules now apply below 1290 px), and the shared host list, which could hold an error answer, so the Cron, File manager and App Catalog
+pickers threw when every request failed. The accessibility sweep failed 34 and 18 subtests under load and passed 10 of 10 alone on the same commit
+and again after the fixes.
 
 ## Not run for this review
 
