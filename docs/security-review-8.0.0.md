@@ -59,8 +59,8 @@ Six things changed what a host, a caller or an outside service can do:
 | Scanner | What it covered | Result |
 |---|---|---|
 | CodeQL 2.27.4 (the version the pinned workflow action uses), Python and JavaScript, the repository's own configuration | the whole tree | no result in either language |
-| bandit, against its baseline | 150 files of the server and the agents | no new result |
-| semgrep (python, javascript and security-audit rule sets; a known-bad file as a control, which gave three results) | the Python, JavaScript and shell files changed since 7.5.0 (88 read), and then the four largest, `api.py`, the agent, the demo seeder and `app.js`, again with 900 seconds for each rule, because 11 rule runs had timed out on them | 7 results the first time: six on lines older than this release (three file modes and one log line in the macOS agent, a SHA-1 in the demo seeder, one JavaScript `innerHTML` call), and one on a line this release wrote, a SHA-1 that was already declared as not security-related and is SHA-256 now. The second run had no timeout and 17 results on those four files, none on a line written since 7.5.0 (file modes, SHA-1 of values that are not secrets, two XML parser uses, one `shell=True` on a fixed command, one dynamic `urlopen`, one `innerHTML`) |
+| bandit, against its baseline | 157 files of the server and the agents | no new result |
+| semgrep (python, javascript and security-audit rule sets; a known-bad file as a control, which gave three results) | the Python, JavaScript and shell files changed since 7.5.0 (88 read), and then the four largest, `api.py`, the agent, the demo seeder and `app.js`, again with 900 seconds for each rule, because 11 rule runs had timed out on them | 7 results the first time: six on lines older than this release (three file modes and one log line in the macOS agent, a SHA-1 in the demo seeder, one JavaScript `innerHTML` call), and one on a line this release wrote, a SHA-1 that was already declared as not security-related and is SHA-256 now. The second run had no timeout and 17 results on those four files, none on a line written since 7.5.0 (file modes, SHA-1 of values that are not secrets, two XML parser uses, one `shell=True` on a fixed command, one dynamic `urlopen`, one `innerHTML`). A last run over the three Detections files of the final commit: no result, no error |
 | gitleaks (history and tree; three planted tokens as a control) | the whole repository | no leak; the control found all three |
 | shellcheck | 29 shell scripts | one error and four warnings, all fixed (S17) |
 | pip-audit | the 25 Python packages the server and its tests import, as installed | none in a package the product depends on; `mcp` 1.23.3, which only the test client uses, has ten (the product's MCP code is standard library) |
@@ -85,37 +85,41 @@ Six things changed what a host, a caller or an outside service can do:
   basic-auth password in an address) and the operator's notes were put where 8.0.0 stores them, and every surface that sends settings out was read: the
   settings page as an administrator and as a viewer, the support bundle, the backup, the declarative export, the audit lines. One leak, S7. The settings
   page shows an administrator the destination and integration addresses on purpose, and a viewer sees none of them.
-- **The authorization matrix.** 1,104 routed operations from the real route tables, 86,638 requests, 60 runs as 26 kinds of caller (the platform
+- **The authorization matrix.** 1,106 routed operations from the real route tables, 86,805 requests, 60 runs as 26 kinds of caller (the platform
   operator and five other roles, two roles scoped to a group or a tag, five roles of two organisations, eight API keys, three host tokens, a wrong
   token and no token), each against the objects of its own organisation, of the other one and of the default one, and every answer judged against
-  the check the handler names. The run was made on a copy of the final server code (`5a414a55`; no file under `server/cgi-bin` has changed since).
-  Controls: the platform administrator was answered 2xx by 504 to 567 operations in each run and the anonymous caller by 16; on the 403 operations
+  the check the handler names. The run was made on a copy of the final commit's server code except for one file: `detections.py`, whose later change (S19)
+  alters what a rule makes of a damaged record and touches no route, check or store.
+  Controls: the platform administrator was answered 2xx by 506 to 565 operations in each run and the anonymous caller by 16; on the 403 operations
   that take an id, a tenant administrator's own objects worked in 118 to 120 and the same call on the other organisation's object was refused
   (403 or 404) in 114 to 115 of them; the scope check refused every host-path operation outside the role's scope (92 of 92 for a group role, 88 of
-  88 for a tag role, 14 of 14 for a scoped key, which takes a host out of its own group part-way through the run, so only the calls before that
+  88 for a tag role, 12 of 12 for a scoped key, which takes a host out of its own group part-way through the run, so only the calls before that
   were in scope). No request answered 2xx where the handler's own declared gate refuses: of 718 answers that were not a refusal, 251 were 400, 446
   were 405 and 21 were 404 from the MCP routes, which are off in the seed. 58 operations answered some caller with a marker it should not hold:
   12 answered tenant users and 1 a host token (its own scripts), which together are the 13 of 7.4.9 and 7.5.0, on routes that are not new (the
   caller's own input stored and read back, the content of a cloned host, the shared knowledge base); 42 answered only roles or keys scoped to
   groups or tags (see "Known and unchanged"), none of them a route added in 8.0.0; 2 answered the finance role (the operator's time entries);
-  and 1, the Home page, answered 12 roles of the operator's organisation with one alert row that carries the matrix's tenant-B suffix. The matrix
-  plants three rows for one business service, the service's next alert coalesces into the last of them, and that row then names the operator's
+  and 1, the Home page, answered 10 kinds of caller of the operator's organisation with one alert row that carries the matrix's tenant-B suffix.
+  The matrix plants three rows for one business service, the service's next alert coalesces into the last of them, and that row then names the operator's
   own hosts (reproduced in process with the sweep: of three planted rows only the last was rewritten, to the service's hosts). No tenant caller
-  holds a marker on the Home page any more. Fourteen
+  holds a marker on the Home page, and neither Detections route answers anyone with a marker. Nine
   operations answered 5xx or not at all: the three SAML routes (503: the library is not installed), key generation (500: gpg could not run in the
-  namespace), two scans that reach out to the network (cut off by the network namespace), the monitor list, and seven operations that waited
-  longer than the harness's 25 seconds in one run each (the export in three) while the machine was also running the browser suites; the SAML
-  login route did the same once. In the other 46 to 59 runs each of those seven answered in under 3.5 seconds, the export in up to 22 and the
-  bulk collect in up to 17. Asked alone on a seeded stack, the monitor list answers in 11 seconds the first time, which runs the sweeps that
-  have fallen due, and in 0.2 seconds after that; it got no answer in 17 of the 47 runs that ask for it.
-- **An upgrade.** A data directory written by 7.5.0 (146 files) was served by this version: sign-in worked, 296 `GET` routes that take no parameter
-  answered 263 times 200, 13 times 400, 3 times 401, 3 times 403, 12 times 404 and twice 503 (the two SAML routes, which answer 503 when SAML is
+  namespace), two scans that reach out to the network (cut off by the network namespace), the monitor list, and two operations that waited
+  longer than the harness's 25 seconds in one run each (the bulk collect and the Windows agent download) while the machine was also running the
+  browser suites. In the other runs the bulk collect answered in up to 14 seconds and the download in under 3. Asked alone on a seeded stack, the
+  monitor list answers in 11 seconds the first time, which runs the sweeps that have fallen due, and in 0.2 seconds after that; it got no answer
+  in 19 of the 41 runs that ask for it.
+- **An upgrade.** A data directory written by 7.5.0 (146 files) was served by this version: sign-in worked, 297 `GET` routes that take no parameter
+  answered 263 times 200, 13 times 400, 3 times 401, 3 times 403, 13 times 404 and twice 503 (the two SAML routes, which answer 503 when SAML is
   not set up), never 500. A heartbeat from a real 7.5.0 agent was accepted by this version's handler on that data.
 - **Another browser.** Firefox 150.0.2 (the Playwright build) opened each of the 85 sidebar pages of the seeded stack, signed in, at 1440 and at 390 px, and Chromium did the same as the
   control. Firefox showed no console error, no uncaught page error, no failed request and no horizontal overflow, and every page drew its root. The only responses of 400 or more were three
   502s that the demo's integrations to services that do not exist give, the same in both browsers. Chromium also logs those as console errors and reports a poll that the app cancels when
-  the page changes (`net::ERR_ABORTED`); Firefox does neither. WebKit was installed and does not start on this system: the Playwright build needs five libraries of Ubuntu's versions
-  (ICU 74, libjxl 0.8, libxml2.so.2, flite and libbacktrace), so there is no result for Safari's engine.
+  the page changes (`net::ERR_ABORTED`); Firefox does neither. WebKit 26.4, Safari's engine, did not start until its five missing system libraries (ICU 74, libjxl 0.8, libxml2.so.2, flite and
+  libbacktrace) were put in a private directory; then it walked the same 85 pages at the same two widths on the last commit: no uncaught page error, no failed request, no horizontal
+  overflow, every page drew its root, and the only responses of 400 or more were the same 502s of the demo's integrations (two pages show them, as in Chromium; one of them is a different page
+  because the poll fires when it fires). It then drove the new views at 1440 and 390 px: Threat Intel > Detections (6 findings and 6 rules), Threat Intel > Traffic (15 remote addresses and
+  the overview) and Fleet Query with the Detection field, with no console error. Its screenshots showed two filter boxes that stretched across their card header, which is fixed.
 - **Speed.** Start-up, the host list, Home, Needs attention, the fleet query and a heartbeat with a real 151 KB agent payload, at 500 hosts, on JSON
   and SQLite: within 2 percent of 7.5.0 on both.
 
@@ -183,33 +187,40 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 
 ## The release gate
 
-The gate ran in two passes. The first was the steps of `make pre-release` run side by side on `6ac3a1d0`, the commit that carried the first version of
+The gate ran in four passes. The first was the steps of `make pre-release` run side by side on `6ac3a1d0`, the commit that carried the first version of
 this review, from 00:29 to 03:11 on 2026-11-09, with the browser and PostgreSQL tests required. It found eleven problems in tests and two in the page,
-listed below. The second pass ran on `cc33217b`, which fixed them, and the three small commits after it (`eb7a2047`, `2bdb7128`, `171e5d46`). It is a
-set of runs and not one run of everything on one commit; the commits after `cc33217b` touch one line of the server, which binds a name, and tests.
+listed below. The second pass ran on `cc33217b`, which fixed them, and the three small commits after it.
 
-Later commits changed more: a deleted host takes its own data with it (`host_purge.py`), the public SSO callback writes its query string as one log
-line (S18), 117 translated texts were corrected, the demo's seed opens in Pilot and B612 for its own directory and has a Timesheet entry dated
-today, and the Traffic view moved from the Network page to the Threat Intel page. Each was checked with the test files it touched and the modules
-that read what it changed; for the Traffic move that was 434 modules without a browser (10,301 tests) and 22 browser modules (217 tests), and all
-passed. The authorization matrix ran again for every caller on the last server code (see "The authorization matrix" above). The whole gate was not
-run again on the last commit: the suites on JSON and SQLite, the browser modules, CodeQL, the CI-parity run and the suite on the staged tarball.
-It has to run before this version is released.
+The third pass ran the same steps as five concurrent groups on `cf8011e3`, which carried Detections, the Traffic view on the Threat Intel page and
+the review, from 14:05 to 16:52 the same day. It found four things that were ours: the installer's sweep count and the API guide's path count had not moved with
+the code, a test that pins the Threat Intel tabs did not know Detections, and the Fleet Query field for Detections had a hint that its box cut off. SQLite
+added a hostile-store test that used an integer key, which a SQL backend cannot hold. The browser groups failed six more tests under load (the accessibility sweep on
+three pages, the cron words, the typeface comparison and the reasoning effort setting) that passed in the fourth pass; the first three passed alone too. A generated run over the Detections rules found S19 in the
+same days. `0634534e` fixed all of it, and the fourth pass ran on that commit: every module without a browser on JSON and on SQLite, every browser module three at a
+time, the CI-parity run, lint, bandit, PostgreSQL and CodeQL. The suite on the staged tarball and the hostile requests to the new routes were not run again on it.
+`make pre-release` as one run, which writes the stamp that lets a production push through, has to run on the commit that is promoted.
 
 | Step | Result |
 |---|---|
-| Test suite, JSON storage (`6ac3a1d0`) | 22,473 tests, 57 skipped; 27 failures and 9 errors in 12 modules, all listed below |
-| Test suite, SQLite (`6ac3a1d0`) | 21,522 tests, 191 skipped; 29 failures and 10 errors in three test files |
-| `make lint`: isort, black and mypy over 45 source files, ruff in two passes | no finding |
-| PostgreSQL tests (the server was PostgreSQL 18.6; CI runs 16) | 28 tests, none skipped, all pass |
-| `make dist`: the tarball, its leak check, and the suite on the staged tree | no forbidden path; the suite: 22,473 tests, 90 skipped, 45 failures and 9 errors (the JSON ones, and the shellcheck test, which listed no script in a staged copy) |
-| `make ci-parity`: Python 3.14, the workflow's dependency list, the workflow's runner | 21,673 tests, 522 skipped, 1 failure (the seeder test) |
-| bandit against its baseline | no issue outside the baseline, and none rated High |
-| CodeQL 2.27.4, Python and JavaScript, the repository's configuration | no result in either language; the preview that also reads the tests lists the reviewed classes (1,332 Python results, 18 of them in tests, none in JavaScript) |
-| Second pass: every module without a browser (1,119), on JSON and on SQLite | 21,399 and 21,352 tests; two failures in each, both of this round's making and both fixed: a source check that read a new name as a write through a shared object, and a clock taken when the module was imported |
+| First pass: test suite, JSON storage (`6ac3a1d0`) | 22,473 tests, 57 skipped; 27 failures and 9 errors in 12 modules, all listed below |
+| First pass: SQLite | 21,522 tests, 191 skipped; 29 failures and 10 errors in three test files |
+| First pass: `make lint`: isort, black and mypy over 45 source files, ruff in two passes | no finding |
+| First pass: PostgreSQL tests (the server was PostgreSQL 18.6; CI runs 16) | 28 tests, none skipped, all pass |
+| First pass: `make dist`: the tarball, its leak check, and the suite on the staged tree | no forbidden path; the suite: 22,473 tests, 90 skipped, 45 failures and 9 errors (the JSON ones, and the shellcheck test, which listed no script in a staged copy) |
+| First pass: `make ci-parity`: Python 3.14, the workflow's dependency list, the workflow's runner | 21,673 tests, 522 skipped, 1 failure (the seeder test) |
+| First pass: bandit and CodeQL 2.27.4 (Python and JavaScript, the repository's configuration) | no issue outside the baseline and none rated High; no result in either language; the preview that also reads the tests lists the reviewed classes (1,332 Python results, 18 of them in tests, none in JavaScript) |
+| Second pass: every module without a browser (1,119), on JSON and on SQLite | 21,399 and 21,352 tests; two failures in each, both of that round's making and both fixed: a source check that read a new name as a write through a shared object, and a clock taken when the module was imported |
 | Second pass: every browser module (99), four at a time | 1,080 tests; 95 modules passed. Four failed under that load: the SMTP and the integration wizard passed alone on the next run, and the six-language title check of two wizards and the branding dialogs were hardened and passed three whole-module runs each |
-| Third pass: the authorization matrix, every caller, on the last server code (`5a414a55`) | 60 runs, 86,638 requests (see "The authorization matrix" above) |
-| Second pass: hostile requests to the 14 new routes, on the final code | 1,904 requests, no 500, no exception, nothing left unanswered |
+| Second pass: hostile requests to the 14 new routes | 1,904 requests, no 500, no exception, nothing left unanswered |
+| Third pass: test suite, JSON storage (`cf8011e3`) | 22,807 tests, 57 skipped; 9 failures and 1 error. Four were ours (the two counts, the tab list and the hint); six failed under load and passed in the fourth pass |
+| Third pass: SQLite | 21,826 tests, 192 skipped; 3 failures and 1 error, all ours |
+| Third pass: `make ci-parity` | 21,977 tests, 523 skipped; 3 failures, the two counts and the tab list |
+| Third pass: PostgreSQL, bandit and CodeQL | 28 tests, none skipped, all pass; no issue outside the baseline; no result in either language (the preview that also reads the tests: 1,332 Python results, 18 of them in tests, none in JavaScript, the same reviewed classes) |
+| Third pass: `make dist` | the tarball and its leak check passed; the suite on the staged tree: 22,807 tests, 90 skipped, 7 failures and 2 errors (the four of ours, and five browser tests that failed under load and passed in the fourth pass) |
+| Fourth pass (`0634534e`): every module without a browser (1,136), on JSON and on SQLite | 21,711 and 21,664 tests, 57 and 109 skipped, no failure |
+| Fourth pass: every browser module (100), three at a time | 1,110 tests; 97 modules passed. Three failed on a wait of 20 seconds (page sections, the Traffic widget, the integration wizard) and passed alone right after, with 16, 27 and 21 tests |
+| Fourth pass: `make ci-parity`, `make lint`, bandit, PostgreSQL and CodeQL | 21,989 tests, 524 skipped, all pass; 47 source files, no finding; 157 files, nothing outside the baseline; 28 tests; no result in either language |
+| Authorization matrix: every caller, on the final server code | 60 runs, 86,805 requests (see "The authorization matrix" above) |
 
 The first pass found these, and none of them was a way in. In tests: two files wrote the stores as files, which a SQL backend never reads; a seeder
 test compared the seed's clock with the time at the test, and a full run reaches it minutes after the seed was built; a browser test hard-coded the
@@ -223,11 +234,11 @@ and again after the fixes.
 
 ## Not run for this review
 
-- The whole gate on the last commit (see "The release gate").
+- `make pre-release` as one run on the last commit. Its steps ran as groups on `cf8011e3` and again, without the suite on the staged tarball, on `0634534e` (see "The release gate").
 - A live probe of a running installation: none was available for this release, so every probe ran against a seeded copy.
 - Real Windows and macOS hosts. Traffic, the app finder, the rollback and the Suricata readers are Linux only; the other agents were changed for
   one declared key.
 - Real services behind the integrations: the UniFi, Tailscale, Headscale and Cloudflare connectors ran against stand-ins written from the vendors'
   published descriptions. An Apprise server was not run. The Suricata readers ran over captured log samples, not a live sensor.
-- Safari's engine: WebKit does not start on the machine the checks ran on (see "Another browser"). Firefox and Chromium were run.
+- Safari itself: WebKit 26.4 as built by Playwright ran on Linux (see "Another browser"), not Safari on macOS or iOS. Firefox and Chromium were run too.
 - A latency benchmark of the product beyond the speed comparison above.
