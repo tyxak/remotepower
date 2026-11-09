@@ -15,7 +15,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 DOC = "docs/security-review-8.0.0.md"
-HEADLINE = "one High issue, eight Medium issues, six Low or hardening items and one informational item"
+HEADLINE = "one High issue, nine Medium issues, six Low or hardening items and one informational item"
 REVIEWED_ROUTES = 995          # what the route tables held when the review was written: 981 at 7.5.0 and the 14 routes 8.0.0 added
 
 
@@ -43,13 +43,13 @@ class TestTheSecurityReview(unittest.TestCase):
     def test_the_table_agrees_with_the_headline(self):
         self.assertIn(HEADLINE, text())
         rows = re.findall(r"^\| (S\d+) \| ([^|]+) \|", raw(), re.M)
-        self.assertEqual([r[0] for r in rows], ["S%d" % i for i in range(1, 17)])
+        self.assertEqual([r[0] for r in rows], ["S%d" % i for i in range(1, 18)])
 
         def kind(severity):
             severity = severity.strip()
             return {"High": "high", "Medium": "medium", "Info": "info"}.get(severity) or ("low" if severity.startswith("Low") else "other")
         kinds = [kind(r[1]) for r in rows]
-        self.assertEqual((kinds.count("high"), kinds.count("medium"), kinds.count("low"), kinds.count("info"), kinds.count("other")), (1, 8, 6, 1, 0), kinds)
+        self.assertEqual((kinds.count("high"), kinds.count("medium"), kinds.count("low"), kinds.count("info"), kinds.count("other")), (1, 9, 6, 1, 0), kinds)
         body = raw()
         open_part = body[body.index("\n## Open"):body.index("\n## Not found")]
         self.assertIn("Nothing rated Medium or higher is open", open_part)
@@ -71,7 +71,7 @@ class TestTheSecurityReview(unittest.TestCase):
             self.assertIn(HEADLINE.lower(), re.sub(r"\s+", " ", (_ROOT / rel).read_text()).lower(), rel)
         for rel in ("docs/security.md", "docs/README.md"):
             body = re.sub(r"\s+", " ", (_ROOT / rel).read_text()).lower()
-            for needle in ("eight medium", "one informational"):
+            for needle in ("nine medium", "one informational"):
                 self.assertIn(needle, body, (rel, needle))
         changelog = (_ROOT / "CHANGELOG.md").read_text()
         section = changelog[changelog.index("## v8.0.0 — "):changelog.index("## v7.5.0 — ")]

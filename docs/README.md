@@ -65,7 +65,7 @@ holds long-form docs that don't fit there.
  matrix, organized by attacker goal rather than by feature.
 - **[security-review-8.0.0.md](security-review-8.0.0.md)** — the v8.0.0 review: what the Traffic view, the app finder, the handshake monitors, the MCP
   endpoint and the automatic image updates can be made to do, and every place that turns text into a number, matches a host by name or
-  hides a secret on some surfaces and not on others. One high, eight medium, six low and one informational finding, all fixed, the scans and
+  hides a secret on some surfaces and not on others. One high, nine medium, six low and one informational finding, all fixed, the scans and
   the mutation checks behind them, and what is still open.
 - **[security-review-7.5.0.md](security-review-7.5.0.md)** — the v7.5.0 review, a second read of the whole product for rules the
   code applied in most places and missed in one or two: four-eyes approval on every command, a step-up on the restores, playbook

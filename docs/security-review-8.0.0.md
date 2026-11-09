@@ -8,7 +8,7 @@ places, was missed in one or two. The second question is the one that found most
 reading of the places that looked likely. Every finding below was reproduced and fixed on a seeded copy of the product, not on anyone's
 installation.
 
-It found **one High issue, eight Medium issues, six Low or hardening items and one informational item. Every one of them is fixed.** Nothing rated
+It found **one High issue, nine Medium issues, six Low or hardening items and one informational item. Every one of them is fixed.** Nothing rated
 Medium or higher is open. Each fix has tests, and each test was run against the code with its fix taken out.
 
 Update the agents for the agent fixes (the agent version is 8.0.0). The server fixes need no action except where [v8.0.0.md](v8.0.0.md) says so.
@@ -53,9 +53,9 @@ Five things changed what a host, a caller or an outside service can do:
 |---|---|---|
 | CodeQL 2.27.4 (the version the pinned workflow action uses), Python and JavaScript, the repository's own configuration | the whole tree | no result in either language |
 | bandit, against its baseline | 150 files of the server and the agents | no new result |
-| semgrep (python, javascript and security-audit rule sets; a known-bad file as a control, which gave three results) | the 88 code files changed since 7.5.0 | 7 results: six on lines older than this release (three file modes and one log line in the macOS agent, a SHA-1 in the demo seeder, one JavaScript `innerHTML` call), and one on a line this release wrote, a SHA-1 that was already declared as not security-related and is SHA-256 now |
+| semgrep (python, javascript and security-audit rule sets; a known-bad file as a control, which gave three results) | the Python, JavaScript and shell files changed since 7.5.0 (88 read), and then the four largest, `api.py`, the agent, the demo seeder and `app.js`, again with 900 seconds for each rule, because 11 rule runs had timed out on them | 7 results the first time: six on lines older than this release (three file modes and one log line in the macOS agent, a SHA-1 in the demo seeder, one JavaScript `innerHTML` call), and one on a line this release wrote, a SHA-1 that was already declared as not security-related and is SHA-256 now. The second run had no timeout and 17 results on those four files, none on a line written since 7.5.0 (file modes, SHA-1 of values that are not secrets, two XML parser uses, one `shell=True` on a fixed command, one dynamic `urlopen`, one `innerHTML`) |
 | gitleaks (history and tree; three planted tokens as a control) | the whole repository | no leak; the control found all three |
-| shellcheck | 29 shell scripts | one error and four warnings, all fixed (S16) |
+| shellcheck | 29 shell scripts | one error and four warnings, all fixed (S17) |
 | pip-audit | the 25 Python packages the server and its tests import, as installed | none in a package the product depends on; `mcp` 1.23.3, which only the test client uses, has ten (the product's MCP code is standard library) |
 | nuclei 3.3.7 with 11,265 templates (the missing-headers template found 10 headers missing on a bare static server, as a control) | a seeded stack behind the shipped nginx configuration | 13 results, all informational: the server software, no HSTS on plain HTTP and no `Cross-Origin-Embedder-Policy` (both known, below), page text that names products the page integrates with, the `security.txt`, the demo addresses in the page |
 | wapiti 3.3.0, 17 of its 18 modules in six groups (CSP, security headers, cookie flags, CSRF, CRLF, redirect, XSS, stored XSS, SQL, blind SQL, SSRF, XXE, shellshock, backup files, dangerous files, htaccess, HTTP methods), not signed in | the same stack | 150 addresses crawled, 30 of them answering 200, and nine form fields, all on the sign-in form; no vulnerability and no anomaly. The methods module listed 146 addresses and, on four, DELETE, PATCH, POST and PUT answering 404, the router's answer to a method it has no route for. The command execution module did not finish in three runs and has no result. Not signed in, the scan sees the page, its static files and the sign-in form, so it says little about the API; the matrix and the hostile-request runs below cover that |
@@ -64,7 +64,7 @@ Five things changed what a host, a caller or an outside service can do:
 
 - **Generated tests.** 26 properties (Hypothesis) state a promise of a function over input it was never meant to read, and 13 examples keep
   the inputs it printed. They were run over the Traffic cleaners, the agent's reader of `ss`, the app catalog, the image update policy, the probe
-  runner and the MCP endpoint, and found S6, S10, S11 and S13. Properties are skipped where Hypothesis is not installed (CI), and the examples are not.
+  runner and the MCP endpoint, and found S6, S11, S12 and S14. Properties are skipped where Hypothesis is not installed (CI), and the examples are not.
 - **Hostile requests to the new routes.** 1,904 requests (4 kinds of caller, 33 bodies, 5 query strings, with every module off and then on) to the
   14 routes added since 7.5.0, through the real request handler: no 500, no exception, no request left unanswered.
 - **Lists made by script, with the ratio.** The command queue has 30 writers: 12 ask for approval or call a gateway that does, 18 are listed
@@ -72,16 +72,29 @@ Five things changed what a host, a caller or an outside service can do:
   an address rule, the other 11 are unchanged and each takes a target the operator names (SNMP, ICMP, WOL, the S3 endpoint, the mail relay) or is a
   constant, and the two new ones have the peer check. The connectors have no connection of their own; they go through one client that checks every
   request address twice and follows no redirect. All 1,744 names the 56 bound handler modules take from the server resolve. The text-to-number
-  places are in S12. All eight settings kept by host id are cleared when a host is deleted (S14). The places that matched a row to a host by display name
+  places are in S13. All eight settings kept by host id are cleared when a host is deleted (S15). The places that matched a row to a host by display name
   were found by syntax tree and by search, and two of them were wrong (S8, S9).
 - **A marker in every place that holds a secret.** Seven markers (the Apprise key in a destination address, a header value, four connector keys, a
   basic-auth password in an address) and the operator's notes were put where 8.0.0 stores them, and every surface that sends settings out was read: the
   settings page as an administrator and as a viewer, the support bundle, the backup, the declarative export, the audit lines. One leak, S7. The settings
   page shows an administrator the destination and integration addresses on purpose, and a viewer sees none of them.
-- **The authorization matrix.** 26 callers (the platform operator and five other roles, two roles scoped to a group or a tag, five roles of two
-  organisations, eight API keys, three host tokens, a wrong token and no token) send one request to every route the server has, against the objects
-  of their own organisation, of the other one and of the default one, and each answer is judged against the check the handler names. The result is
-  added here when the run ends.
+- **The authorization matrix.** 1,104 routed operations from the real route tables, 86,638 requests, 60 runs as 26 kinds of caller (the platform
+  operator and five other roles, two roles scoped to a group or a tag, five roles of two organisations, eight API keys, three host tokens, a wrong
+  token and no token), each against the objects of its own organisation, of the other one and of the default one, and every answer judged against
+  the check the handler names. This full run was made on a copy of the tree taken before S7 to S9 were fixed. Controls: the platform administrator was
+  answered 2xx by 511 to 566 operations in each run and the anonymous caller by 16; on the 403 operations that take an id, a tenant administrator's own
+  objects worked in 115 and the same call on the other organisation's object was refused (403 or 404) in 110 of them; the scope check refused every
+  host-path operation outside the role's scope (92 of 92 for a group role, 88 of 88 for a tag role, 19 of 19 for a scoped key). No request answered
+  2xx where the handler's own declared gate refuses: of 718 answers that were not a refusal, 251 were 400, 446 were 405 and 21 were 404 from the MCP
+  routes, which are off in the seed. 60 operations answered some caller with a marker it should not hold: 13 answered tenant users, on routes that are
+  not new and in the same number as at 7.4.9 and 7.5.0 (the caller's own input stored and read back, the content of a cloned host, the shared
+  knowledge base, and the Home page, which is S10); 44 answered only roles or keys scoped to groups or tags (see "Known and unchanged"), none of them
+  a route added in 8.0.0; 2 answered the finance role (the operator's time entries) and 1 a host token (its own scripts). Seven operations answered
+  5xx or not at all, each for a reason that belongs to the harness: the SAML library is not installed (three routes), two scans that reach out to the
+  network were cut off by the network namespace, key generation could not run gpg there, and the monitor list timed out in six of the 60 runs while
+  the machine was also running the gate (asked alone, on a seeded stack in the same kind of namespace, it answers in under five seconds). The Home
+  page had been flagged for tenant users in the last two reviews and each time read as the matrix's own planted row; this time the marker was an
+  integration's address, and comparing each widget of a tenant administrator's answer with the operator's showed six that were the installation's.
 - **An upgrade.** A data directory written by 7.5.0 (146 files) was served by this version: sign-in worked, 296 `GET` routes that take no parameter
   answered 263 times 200, 13 times 400, 3 times 401, 3 times 403, 12 times 404 and twice 503 (the two SAML routes, which answer 503 when SAML is
   not set up), never 500. A heartbeat from a real 7.5.0 agent was accepted by this version's handler on that data.
@@ -101,13 +114,14 @@ Five things changed what a host, a caller or an outside service can do:
 | S7 | Medium | server, declarative export | The export, whose note says it is safe to commit, held a webhook destination's header values (an `Authorization` or `X-API-Key` credential, likely on an Apprise destination) and its Pushover user in plain text. 6.4.2 hid them in the support bundle and the backup and missed this third surface | the names stay; the values are masked, or ciphertext that an import restores when a config key is set, and when the crypto library is missing the export falls back to masked (the destination address too) | test_v800_declarative_headers |
 | S8 | Medium | server, compliance evidence | A fleet event counted as yours when its host id was yours or its name was one of yours, so another organisation's new port, SSH key or brute-force event for a host with the same name went into your evidence | by id; an event with no id is still matched by name | test_v800_name_collision_scope |
 | S9 | Medium | server, image updates | The last run's held rows were matched to your hosts by display name, so another organisation's compose directory and image names showed on a host with the same name, and the count of updates made was the whole installation's | the run keeps host ids; you get the rows and the count of your own hosts | test_v800_image_autoupdate, test_v800_name_collision_scope |
-| S10 | Low | server, MCP endpoint | A tool that met an answer it did not expect raised out of the endpoint: HTTP 500 and no result | a failed tool call that names the exception | test_v800_found_by_properties |
-| S11 | Low | server, app catalog | `describe()` of an id that was a list raised | answers none for anything that is not text | test_v800_found_by_properties |
-| S12 | Low | server and agents, ten more functions | Text checked with `isdigit()` and then given to `int()`, which refuses the superscript two: a 500 where a 400 was meant (a port of the watch list, a cidr, a query value, an object id, a cron field, a JSON path, a probe's status, the log length the server sends an agent) and "error" for "not SMTP" | ASCII only. 17 places in 11 functions were found by reading every `isdigit()`; 11 more read the output of a tool and are listed with the reason | test_v800_ascii_digits |
-| S13 | Low | Linux agent | The reader of `ss` took any text `isdigit()` accepted for a port, in the new reader and in the older reader of peer connections | ASCII digits from 0 to 65535 | test_v800_properties, test_v800_found_by_properties |
-| S14 | Low | server, deleting a host | The purge cleared four of the eight settings kept by host id and left the patch alert flag, the disabled checks, the DNS result and the hidden apps | all eight; the list is read from the code | test_v800_purge_config_maps |
-| S15 | Low | server, sign-in | Five places chose between http and https and no two read `X-Forwarded-Proto` alike; capitals or a list made the passkey origin one the browser never matches | one reading of the header's first entry | test_v800_request_scheme |
-| S16 | Info | server, `rp doctor` | A test for a database file used a pattern that answers no when two files match; shellcheck found it and four warnings | fixed, and error level is held | test_v800_shellcheck |
+| S10 | Medium | server, Home page | The Home page's summaries are built from stores that are not keyed by host. A tenant's administrator or viewer was answered with the whole installation's: every open alert by severity, the monitors, the VPN totals, the backup jobs and their stale checks, the fleet checks roll-up, and the list of integrations with their labels, versions and the addresses in their error texts (the routes that give a tenant these answer 403 since 7.4.9). The checks roll-up also filled the 15-second cache of every host with the first caller's own narrow view | the monitors, the VPN totals and the integrations are the operator's and are not built for anyone else; the alert, backup and checks figures count what the caller may see; the cache is filled from the whole fleet | test_v800_home_widgets_scope |
+| S11 | Low | server, MCP endpoint | A tool that met an answer it did not expect raised out of the endpoint: HTTP 500 and no result | a failed tool call that names the exception | test_v800_found_by_properties |
+| S12 | Low | server, app catalog | `describe()` of an id that was a list raised | answers none for anything that is not text | test_v800_found_by_properties |
+| S13 | Low | server and agents, 17 places | Text checked with `isdigit()` and then given to `int()`, which refuses the superscript two: a 500 where a 400 was meant (a port of the watch list, a cidr, a query value, an object id, a cron field, a JSON path, a probe's status, the log length the server sends an agent) and "error" for "not SMTP" | ASCII only. 17 places in 14 functions (a function and its copy in an agent or the satellite count apart; S5 is the worst of them) were found by reading every `isdigit()`; 12 more places in 11 functions read the output of a tool and are listed with the reason | test_v800_ascii_digits |
+| S14 | Low | Linux agent | The reader of `ss` took any text `isdigit()` accepted for a port, in the new reader and in the older reader of peer connections | ASCII digits from 0 to 65535 | test_v800_properties, test_v800_found_by_properties |
+| S15 | Low | server, deleting a host | The purge cleared four of the eight settings kept by host id and left the patch alert flag, the disabled checks, the DNS result and the hidden apps | all eight; the list is read from the code | test_v800_purge_config_maps |
+| S16 | Low | server, sign-in | Five places chose between http and https and no two read `X-Forwarded-Proto` alike; capitals or a list made the passkey origin one the browser never matches | one reading of the header's first entry | test_v800_request_scheme |
+| S17 | Info | server, `rp doctor` | A test for a database file used a pattern that answers no when two files match; shellcheck found it and four warnings | fixed, and error level is held | test_v800_shellcheck |
 
 ## Open
 

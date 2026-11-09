@@ -12,7 +12,7 @@ size from 80% to 300%, show a long page as tabs or as one page, keep named layou
 agent finds the apps a host runs (63 are known) and offers a monitor and a connector for each. Three connectors, an Apprise destination, four
 monitor types (SMTP, IMAP, SSH banner and NTP), a Traffic view of the addresses your Linux hosts talk to, a read-only MCP endpoint and automatic
 container image updates with a rollback are new, and the last three are off until you switch them on. Reading the whole code once more found one
-High issue, eight Medium issues, six Low or hardening items and one informational item; every one is fixed. Production runs 7.5.0, so the release is
+High issue, nine Medium issues, six Low or hardening items and one informational item; every one is fixed. Production runs 7.5.0, so the release is
 a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and the security review is
 [docs/security-review-8.0.0.md](docs/security-review-8.0.0.md).
 
@@ -566,10 +566,10 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   CMDB). Those are history or records a person wrote, and they are kept on purpose.
 - **A text is checked for ASCII digits before it is given to `int()`.** `str.isdigit()` is true for a superscript two and for the digits of other scripts, and `int()` refuses the
   first of them, so `if s.isdigit() and int(s) < 10` raised for the text `²`. The generated tests had found it in the Traffic reader of `ss`; reading the code for the same shape found
-  it in 11 more functions that take text from outside: a watch list entry, the port a container publishes, an SMTP greeting, a cidr, a query value, an object id, a cron field, a JSON
-  path, the expected status of a probe and the log length the server sends an agent. Most answered 500 where they should say 400, and the SMTP probe reported `error` instead of
+  it in 17 more places, in 14 functions (the agents and the satellite each carry their own copy of the SMTP and app catalog code), that take text from outside: a watch list entry, the
+  port a container publishes, an SMTP greeting, a cidr, a query value, an object id, a cron field, a JSON path, the expected status of a probe and the log length the server sends an agent. Most answered 500 where they should say 400, and the SMTP probe reported `error` instead of
   `not SMTP`. One was worse: the app catalog read the published port of a container from an agent's report, so one host that reported `²` made the Integrations list, the Data
-  Explorer's `apps` entity and the Fleet Query `app` criterion answer 500 for every user until the report changed. All are ASCII-only now. Eleven more functions read the output of a
+  Explorer's `apps` entity and the Fleet Query `app` criterion answer 500 for every user until the report changed. All are ASCII-only now. Twelve more places, in eleven functions, read the output of a
   tool (ZFS, SMART, nmap, SNMP) and are listed with the reason their text cannot be anything else. **Held by** `tests/test_v800_ascii_digits.py`, which reads every `isdigit()` that
   feeds `int()` from the code and fails on a new one that is neither guarded nor listed, and drives each fixed function with `²`.
 - **The declarative export no longer carries the header values and the Pushover user of a webhook destination.** A destination can have custom headers (an `Authorization` or
@@ -598,9 +598,27 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
 - **The top bar no longer runs off the right edge of a window between a phone and 1280 px.** Its controls need 825 px with the fleet readout and its trend line, the sidebar takes
   248 px, and the page hides what overflows sideways, so on 82 of 85 pages at 768 and at 1024 px the theme button and the hide-the-bar button were out of reach. The 7.5.0 and 8.0.0
   changes to the bar had each fitted at 1440 px. Below 1290 px the Auto-refresh label goes, below 1280 px the trend line, below 1220 px the readout, and from 721 to 899 px the density,
-  install, undo and redo buttons too (undo and redo stay on the keyboard). The breadcrumb is what shrinks, to its ellipsis, before a button is pushed past the edge. The census of two looks, light and dark and five widths found no other spacing fault: of about 450 icon buttons and 800 button rows on
+  install, undo and redo buttons too (undo and redo stay on the keyboard). Below 1290 px the breadcrumb is what shrinks, to its ellipsis, before a button is pushed past the edge; wider than that the refresh label gives way and the page name stays whole. The census of two looks, light and dark and five widths found no other spacing fault: of about 450 icon buttons and 800 button rows on
   every page, none was off the standard gap or the row height. **Held by** `tests/test_v800_topbar_fits_tablet.py`, which loads the real page with every control shown and
   measures the bar at sixteen widths.
+
+- **The Home page gave a tenant's users the figures of the whole installation.** `_dashboard_extra_widgets` builds the summaries behind the Home widgets, and six of them came from stores
+  that are not keyed by host: every open alert by severity, the monitors, the VPN totals, the backup jobs and their stale checks, the fleet checks roll-up, and the list of integrations
+  with their labels, versions and the addresses in their error texts. A tenant's administrator or viewer was answered with the installation's, although the routes behind them have answered
+  a tenant 403 since 7.4.9 and the other widgets (hardware, maintenance, containers, brute force) already counted the caller's own hosts. The checks roll-up also passed the caller's own
+  narrow view to the cache that holds every host, so a tenant who asked first left two hosts in what the operator's Checks page read for the next 15 seconds. Found by the authorization
+  matrix of the review, which had flagged `/api/home` for tenant users in 7.4.9 and 7.5.0 and been read each time as its own planted row; this time the marker was an integration's address,
+  and comparing each widget of a tenant administrator's answer with the operator's showed six that were the installation's. Medium. The monitors, the VPN totals and the integrations are the
+  operator's organisation's and are not built for anyone else; the alert, backup and checks figures count what the caller may see; the cache is filled from the whole fleet. **Held by**
+  `tests/test_v800_home_widgets_scope.py` (6 tests: every store the widgets read, filled for two organisations and the operator, both orders of the cache, and an installation with no tenants
+  that changes nothing; each of the eight changes taken out fails a test).
+- **The first full run of the suites on 8.0.0 found eleven problems in tests and two in the page.** The SQLite run: two test files (`test_v800_app_discovery`, `test_v800_push_mark`) wrote the
+  stores as files, which a SQL backend never reads. A seeder test compared the seed's clock with the time at the test, and a full run reaches it minutes after the seed was built. A browser
+  test hard-coded the server version it expected. Two wizard tests flagged a French word that is the same as the English one. The shellcheck test listed no script in a staged copy of the tree.
+  The page sections walker, the Timesheet test (the demo's entries are dated 1 to 9 days ago, so on a Monday the week has none yet) and the monitor table test (the demo has more than one
+  page of 15 monitors since the four handshake monitors) each assumed what the seed looked like, and a branding dialog test lost a click to a redraw. In the page: the top bar's breadcrumb,
+  which the tablet fix let shrink below "Dashboard" at the 200% text size (the narrow rules now apply below 1290 px only), and the shared device list, which could hold an error answer, so
+  the Cron, File manager and App Catalog pickers threw `(devs || []).map is not a function` when every request failed. No other defect of the product turned up in the 22,473 tests of the run on JSON files.
 
 ### Single pages
 
