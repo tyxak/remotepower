@@ -211,12 +211,16 @@ else
   else
     demo_pg_flag=()
     [[ "$MAIN_IS_POSTGRES" -eq 1 ]] && demo_pg_flag=(--postgres)
+    # A demo that has no process of its own is still on the old per-request model: its vhost points at the transport this script retires, so it has to be replaced.
+    # A demo that already runs its own process keeps its vhost (certbot has added the 443 block to it); only its storage backend is brought in line.
+    demo_vhost_flag=()
+    systemctl is-active --quiet remotepower-wsgi-demo 2>/dev/null || demo_vhost_flag=(--rewrite-vhost)
     info "Found demo vhost for '$DEMO_HOST' needing an update — upgrading via install-demo.sh${demo_pg_flag:+ ${demo_pg_flag[*]}}..."
     if [[ "$DRY_RUN" -eq 1 ]]; then
-      echo "DRY-RUN: bash \"$ROOT/packaging/install-demo.sh\" \"$DEMO_HOST\" ${demo_pg_flag[*]:-}"
+      echo "DRY-RUN: bash \"$ROOT/packaging/install-demo.sh\" \"$DEMO_HOST\" ${demo_pg_flag[*]:-} ${demo_vhost_flag[*]:-}"
     else
       [[ -f "$ROOT/packaging/install-demo.sh" ]] || die "packaging/install-demo.sh not found — can't upgrade the demo"
-      bash "$ROOT/packaging/install-demo.sh" "$DEMO_HOST" "${demo_pg_flag[@]}"
+      bash "$ROOT/packaging/install-demo.sh" "$DEMO_HOST" "${demo_pg_flag[@]}" "${demo_vhost_flag[@]}"
     fi
     success "Demo vhost '$DEMO_HOST' upgraded (own remotepower-wsgi-demo process, backend matches the main install)."
   fi

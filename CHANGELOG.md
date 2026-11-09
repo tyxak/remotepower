@@ -695,6 +695,7 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   page of 15 monitors since the four handshake monitors) each assumed what the seed looked like, and a branding dialog test lost a click to a redraw. In the page: the top bar's breadcrumb,
   which the tablet fix let shrink below "Dashboard" at the 200% text size (the narrow rules now apply below 1290 px only), and the shared host list, which could hold an error answer, so
   the Cron, File manager and App Catalog pickers threw `(devs || []).map is not a function` when every request failed. No other defect of the product turned up in the 22,473 tests of the run on JSON files.
+- **Running `install-demo.sh` again no longer replaces the demo's nginx vhost.** certbot adds the 443 block to that file, and the installer wrote the port-80 skeleton back over it at every run, although its header called a re-run idempotent. An existing vhost is kept now, and `--rewrite-vhost` replaces it. `convert-to-wsgi.sh` passes that flag for a demo that is still on the old per-request model, because its vhost points at the transport that script retires; a demo that already has its own process keeps its vhost. Held by `tests/test_v800_install_demo_keeps_vhost.py` (9 tests, all of which fail against the old scripts).
 
 ### Single pages
 

@@ -20,8 +20,10 @@
 #   sudo bash packaging/install-demo.sh demoremote.tvipper.com
 #   sudo bash packaging/install-demo.sh demoremote.example.com --cgi-user nginx
 #
-# Idempotent: re-running re-seeds the demo data and re-renders the nginx
-# config + systemd unit. Won't touch the production install.
+# Idempotent: re-running re-seeds the demo data and re-renders the systemd
+# units. The nginx vhost is written only when there is none: certbot adds the
+# 443 block to it, and a re-run used to put the port-80 skeleton back over it.
+# --rewrite-vhost replaces it on purpose. Won't touch the production install.
 
 set -euo pipefail
 
@@ -32,11 +34,12 @@ CGI_USER=""             # auto-detect if empty
 DEMO_DATA_DIR="/var/lib/remotepower-demo"
 PROD_HTDOCS="/var/www/remotepower"   # shared with production
 DEMO_PORT="${RP_DEMO_PORT:-8091}"    # gunicorn port for the demo's own process
-NGINX_SITES_AVAIL="/etc/nginx/sites-available"
-NGINX_SITES_ENABL="/etc/nginx/sites-enabled"
+NGINX_SITES_AVAIL="${RP_DEMO_NGINX_SITES_AVAIL:-/etc/nginx/sites-available}"   # both can be moved for a test
+NGINX_SITES_ENABL="${RP_DEMO_NGINX_SITES_ENABL:-/etc/nginx/sites-enabled}"
 DRY_RUN=0
 SKIP_RESEED=0
 WITH_POSTGRES=0
+REWRITE_VHOST=0
 # The public demo shows the new look and typeface (Pilot, B612) unless asked not to: both are the instance's default, not a lock, and
 # the re-seed unit below carries the same flags, because it rewrites the configuration every two minutes.
 DEMO_LOOK="pilot"
@@ -71,6 +74,10 @@ Options:
                        the seeded data into it, matching the main install's
                        default backend. Off by default (the demo stays on the
                        lightweight flat-JSON backend unless you ask for this).
+  --rewrite-vhost      Replace the demo's nginx vhost even when one exists.
+                       Without it an existing vhost is kept as it is: certbot
+                       adds the 443 block to it, and writing the skeleton
+                       again would remove that block.
   --dry-run            Print what would happen without doing anything.
   -h, --help           This help.
 EOF
@@ -127,6 +134,7 @@ while [[ $# -gt 0 ]]; do
     --skip-reseed) SKIP_RESEED=1; shift ;;
     --classic)     DEMO_LOOK="classic"; DEMO_TYPEFACE="system"; shift ;;
     --postgres)    WITH_POSTGRES=1; shift ;;
+    --rewrite-vhost) REWRITE_VHOST=1; shift ;;
     --dry-run)     DRY_RUN=1; shift ;;
     -h|--help)     usage; exit 0 ;;
     *)             echo "Unknown flag: $1"; usage; exit 1 ;;
@@ -476,7 +484,14 @@ else
   die "Can't find nginx config dir. Looked for $NGINX_SITES_AVAIL and /etc/nginx/conf.d/"
 fi
 
-echo "── Writing nginx config to $NGINX_CONF…"
+# An existing vhost stays as it is: certbot rewrites the skeleton below into the 443 server block, and writing the skeleton again would put the port-80 version back over it.
+KEEP_VHOST=0
+if [[ -e "$NGINX_CONF" && "$REWRITE_VHOST" -eq 0 ]]; then
+  KEEP_VHOST=1
+  echo "── Keeping the nginx config that is already at $NGINX_CONF (pass --rewrite-vhost to replace it)…"
+else
+  echo "── Writing nginx config to $NGINX_CONF…"
+fi
 
 # Found live: a box with IPv6 disabled at the kernel level (common on some
 # VPS/cloud providers) makes nginx -t fail outright on `listen [::]:80` —
@@ -568,7 +583,11 @@ $IPV6_LISTEN
 EOF
 )
 
-if [[ "$DRY_RUN" -eq 1 ]]; then
+if [[ "$KEEP_VHOST" -eq 1 ]]; then
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "DRY-RUN: would keep $NGINX_CONF as it is"
+  fi
+elif [[ "$DRY_RUN" -eq 1 ]]; then
   echo "DRY-RUN: would write to $NGINX_CONF:"
   echo "── nginx config preview ────"
   echo "$NGINX_BODY" | sed 's/^/  | /'
@@ -607,7 +626,7 @@ fi
 cat <<EOF
 
 ────────────────────────────────────────────────────────────────────
-✓ Demo vhost installed.
+$([ "$KEEP_VHOST" -eq 1 ] && echo "✓ Demo installed; the nginx vhost that was already there is kept." || echo "✓ Demo vhost installed.")
 
    Hostname:    $DEMO_HOST
    Code:        $PROD_HTDOCS  (shared with production)
