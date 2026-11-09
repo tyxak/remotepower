@@ -81,25 +81,26 @@ Five things changed what a host, a caller or an outside service can do:
 - **The authorization matrix.** 1,104 routed operations from the real route tables, 86,638 requests, 60 runs as 26 kinds of caller (the platform
   operator and five other roles, two roles scoped to a group or a tag, five roles of two organisations, eight API keys, three host tokens, a wrong
   token and no token), each against the objects of its own organisation, of the other one and of the default one, and every answer judged against
-  the check the handler names. This full run was made on a copy of the tree taken before S7 to S9 were fixed. Controls: the platform administrator was
-  answered 2xx by 511 to 566 operations in each run and the anonymous caller by 16; on the 403 operations that take an id, a tenant administrator's own
-  objects worked in 115 and the same call on the other organisation's object was refused (403 or 404) in 110 of them; the scope check refused every
-  host-path operation outside the role's scope (92 of 92 for a group role, 88 of 88 for a tag role, 19 of 19 for a scoped key). No request answered
-  2xx where the handler's own declared gate refuses: of 718 answers that were not a refusal, 251 were 400, 446 were 405 and 21 were 404 from the MCP
-  routes, which are off in the seed. 60 operations answered some caller with a marker it should not hold: 13 answered tenant users, on routes that are
-  not new and in the same number as at 7.4.9 and 7.5.0 (the caller's own input stored and read back, the content of a cloned host, the shared
-  knowledge base, and the Home page, which is S10); 44 answered only roles or keys scoped to groups or tags (see "Known and unchanged"), none of them
-  a route added in 8.0.0; 2 answered the finance role (the operator's time entries) and 1 a host token (its own scripts). Seven operations answered
-  5xx or not at all, each for a reason that belongs to the harness: the SAML library is not installed (three routes), two scans that reach out to the
-  network were cut off by the network namespace, key generation could not run gpg there, and the monitor list timed out in six of the 60 runs while
-  the machine was also running the gate (asked alone, on a seeded stack in the same kind of namespace, it answers in under five seconds). The Home
-  page had been flagged for tenant users in the last two reviews and each time read as the matrix's own planted row; this time the marker was an
-  integration's address, and comparing each widget of a tenant administrator's answer with the operator's showed six that were the installation's.
-  The 31 runs of the tenant callers were made again on a copy of the final code (43,338 requests): the controls held (an administrator's own
-  objects worked in 116 to 119 of the 403 operations that take an id and the other organisation's were refused in 111 to 114), no request answered
-  2xx where the handler's own gate refuses (281 answers that were not a refusal: 112 were 400, 168 were 405 and one timed out), 12 operations
-  answered tenant users with a marker, the 13 above without the Home page, and five answered 5xx or not at all for the harness's reasons (the
-  three SAML routes, a network scan that was cut off, and a wake-on-LAN packet with no network to go out on).
+  the check the handler names. The run was made on a copy of the final server code (`5a414a55`; no file under `server/cgi-bin` has changed since).
+  Controls: the platform administrator was answered 2xx by 504 to 567 operations in each run and the anonymous caller by 16; on the 403 operations
+  that take an id, a tenant administrator's own objects worked in 118 to 120 and the same call on the other organisation's object was refused
+  (403 or 404) in 114 to 115 of them; the scope check refused every host-path operation outside the role's scope (92 of 92 for a group role, 88 of
+  88 for a tag role, 14 of 14 for a scoped key, which takes a host out of its own group part-way through the run, so only the calls before that
+  were in scope). No request answered 2xx where the handler's own declared gate refuses: of 718 answers that were not a refusal, 251 were 400, 446
+  were 405 and 21 were 404 from the MCP routes, which are off in the seed. 58 operations answered some caller with a marker it should not hold:
+  12 answered tenant users and 1 a host token (its own scripts), which together are the 13 of 7.4.9 and 7.5.0, on routes that are not new (the
+  caller's own input stored and read back, the content of a cloned host, the shared knowledge base); 42 answered only roles or keys scoped to
+  groups or tags (see "Known and unchanged"), none of them a route added in 8.0.0; 2 answered the finance role (the operator's time entries);
+  and 1, the Home page, answered 12 roles of the operator's organisation with one alert row that carries the matrix's tenant-B suffix. The matrix
+  plants three rows for one business service, the service's next alert coalesces into the last of them, and that row then names the operator's
+  own hosts (reproduced in process with the sweep: of three planted rows only the last was rewritten, to the service's hosts). No tenant caller
+  holds a marker on the Home page any more. Fourteen
+  operations answered 5xx or not at all: the three SAML routes (503: the library is not installed), key generation (500: gpg could not run in the
+  namespace), two scans that reach out to the network (cut off by the network namespace), the monitor list, and seven operations that waited
+  longer than the harness's 25 seconds in one run each (the export in three) while the machine was also running the browser suites; the SAML
+  login route did the same once. In the other 46 to 59 runs each of those seven answered in under 3.5 seconds, the export in up to 22 and the
+  bulk collect in up to 17. Asked alone on a seeded stack, the monitor list answers in 11 seconds the first time, which runs the sweeps that
+  have fallen due, and in 0.2 seconds after that; it got no answer in 17 of the 47 runs that ask for it.
 - **An upgrade.** A data directory written by 7.5.0 (146 files) was served by this version: sign-in worked, 296 `GET` routes that take no parameter
   answered 263 times 200, 13 times 400, 3 times 401, 3 times 403, 12 times 404 and twice 503 (the two SAML routes, which answer 503 when SAML is
   not set up), never 500. A heartbeat from a real 7.5.0 agent was accepted by this version's handler on that data.
@@ -176,6 +177,14 @@ this review, from 00:29 to 03:11 on 2026-11-09, with the browser and PostgreSQL 
 listed below. The second pass ran on `cc33217b`, which fixed them, and the three small commits after it (`eb7a2047`, `2bdb7128`, `171e5d46`). It is a
 set of runs and not one run of everything on one commit; the commits after `cc33217b` touch one line of the server, which binds a name, and tests.
 
+Later commits changed more: a deleted host takes its own data with it (`host_purge.py`), the public SSO callback writes its query string as one log
+line (S18), 117 translated texts were corrected, the demo's seed opens in Pilot and B612 for its own directory and has a Timesheet entry dated
+today, and the Traffic view moved from the Network page to the Threat Intel page. Each was checked with the test files it touched and the modules
+that read what it changed; for the Traffic move that was 434 modules without a browser (10,301 tests) and 22 browser modules (217 tests), and all
+passed. The authorization matrix ran again for every caller on the last server code (see "The authorization matrix" above). The whole gate was not
+run again on the last commit: the suites on JSON and SQLite, the browser modules, CodeQL, the CI-parity run and the suite on the staged tarball.
+It has to run before this version is released.
+
 | Step | Result |
 |---|---|
 | Test suite, JSON storage (`6ac3a1d0`) | 22,473 tests, 57 skipped; 27 failures and 9 errors in 12 modules, all listed below |
@@ -188,7 +197,7 @@ set of runs and not one run of everything on one commit; the commits after `cc33
 | CodeQL 2.27.4, Python and JavaScript, the repository's configuration | no result in either language; the preview that also reads the tests lists the reviewed classes (1,332 Python results, 18 of them in tests, none in JavaScript) |
 | Second pass: every module without a browser (1,119), on JSON and on SQLite | 21,399 and 21,352 tests; two failures in each, both of this round's making and both fixed: a source check that read a new name as a write through a shared object, and a clock taken when the module was imported |
 | Second pass: every browser module (99), four at a time | 1,080 tests; 95 modules passed. Four failed under that load: the SMTP and the integration wizard passed alone on the next run, and the six-language title check of two wizards and the branding dialogs were hardened and passed three whole-module runs each |
-| Second pass: the tenant callers of the matrix, on the final code | 31 runs, 43,338 requests (see "How it was done") |
+| Third pass: the authorization matrix, every caller, on the last server code (`5a414a55`) | 60 runs, 86,638 requests (see "The authorization matrix" above) |
 | Second pass: hostile requests to the 14 new routes, on the final code | 1,904 requests, no 500, no exception, nothing left unanswered |
 
 The first pass found these, and none of them was a way in. In tests: two files wrote the stores as files, which a SQL backend never reads; a seeder
@@ -203,6 +212,7 @@ and again after the fixes.
 
 ## Not run for this review
 
+- The whole gate on the last commit (see "The release gate").
 - A live probe of a running installation: none was available for this release, so every probe ran against a seeded copy.
 - Real Windows and macOS hosts. Traffic, the app finder, the rollback and the Suricata readers are Linux only; the other agents were changed for
   one declared key.
