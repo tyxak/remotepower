@@ -251,6 +251,12 @@ The first time you connect, ssh asks you to trust two different host keys:
 
 Answer `yes` only when the fingerprint matches.
 
+## Quick SSH from the Hosts page
+
+The small SSH icon next to a host's name builds `ssh user@ip` and copies it. A server that allows the gateway shows a second icon in the accent colour. It builds `ssh user@name.rp` instead, using the default username under **Settings → Security → SSH preferences**, and copies that command too. It works from anywhere, because the gateway carries the connection.
+
+The second icon appears when the gateway module is on, the server is allowed, and your role has the `ssh` permission. It uses the server's name when no other server you can reach answers to the same name, and the host id when one does. It needs the `Host *.rp` block above in your `~/.ssh/config`.
+
 ## What gets recorded
 
 Each connection writes one record: your account, the key's fingerprint, your

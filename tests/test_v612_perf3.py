@@ -325,7 +325,11 @@ class TestEagerJsPayload(unittest.TestCase):
         # module the first time the tab shows (about 700, with its comment), the gate that hides what a module that is off owns, now for any element that names its module and not
         # only a tab (about 200 more: the tab and Fleet Query's Talks to field), the cell helper both client CSV builders write through so that a program name starting with =
         # is not a formula in the file (about 800), the drawer's call (about 200) and the Fleet Query field and the lazy list (about 100). The view itself is a lazy module.
-        self.assertLess(total, 2_733_000,
+        # 8.0.0 Traffic overview, widget and gateway icon: 2_737_000. The payload was 2_731_551 at the Traffic commit and is 2_734_771 now: 3,220 bytes more. index.html is about 1,300
+        # of them (the Overview card, the note under the remote addresses, the widget's card and a paragraph of the quick SSH card) and app.js about 1,900 (the widget's entry,
+        # its glue that fetches the lazy renderer, and the second quick SSH icon with its target rule and its action). The renderers of the overview and of the widget are in
+        # app-traffic.js, which is lazy; the icon is drawn with the Hosts table, before any loader could be asked for it.
+        self.assertLess(total, 2_737_000,
                         'the eager JS payload regressed past its budget')
 
 

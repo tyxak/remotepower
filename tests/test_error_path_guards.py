@@ -255,6 +255,9 @@ class TestBareRequireAuthMutations(unittest.TestCase):
         # 8.0.0: the hosted MCP endpoint. Flagged for the rate-limit bucket and the audit line it writes; it changes no fleet state: every read
         # a tool makes is a GET run as the caller (tests/test_v800_mcp_http.py), and the module that serves it is off until it is switched on.
         "handle_mcp",
+        # 8.0.0: the host list. The gateway flag of a row is sent to an administrator or a role with the `ssh` permission, and the role lookup goes through verify_token, which can
+        # expire a stale session. Flagged for that reason only; the handler writes nothing (tests/test_v800_devices_sshgw_flag.py).
+        "handle_devices_list",
     }
 
     def test_new_bare_auth_mutating_handlers_get_reviewed(self):

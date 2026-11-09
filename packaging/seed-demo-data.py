@@ -389,7 +389,7 @@ def _demo_dashboard_sets():
     layout in use stays the account's own, so Home opens as before. The demo is read-only, so a visitor's choice lasts until the page is reloaded."""
     return [
         {'id': 'security', 'name': 'Security',
-         'w': ['heatmap', 'attseverity', 'alertsev', 'crittotal', 'cves', 'bruteforce', 'threatintel', 'worldports', 'newports', 'fwchanges', 'sshkeys', 'tls', 'drift',
+         'w': ['heatmap', 'attseverity', 'alertsev', 'crittotal', 'cves', 'bruteforce', 'threatintel', 'traffic', 'worldports', 'newports', 'fwchanges', 'sshkeys', 'tls', 'drift',
                'atttop', 'tickets']},
         {'id': 'patching', 'name': 'Patching',
          'w': ['patchpct', 'updatestotal', 'updates', 'rebootreq', 'crittotal', 'cves', 'versionskew', 'agentver', 'os', 'maintenance', 'atttop']},

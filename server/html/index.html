@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.0-2">
+<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.0-5">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=8.0.0-2">
+<link rel="stylesheet" href="static/css/styles.css?v=8.0.0-5">
 
 </head>
 <body>
@@ -905,6 +905,7 @@
         <div class="dash-card dash-off" id="home-w-uptimetop" data-widget="uptimetop"><div class="section-title">Longest uptime</div><div id="home-w-uptimetop-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-helpdesk" data-widget="helpdesk"><div class="section-title">Helpdesk tickets</div><div id="home-w-helpdesk-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-threatintel" data-widget="threatintel"><div class="section-title">Threat Intel</div><div id="home-w-threatintel-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-traffic" data-widget="traffic"><div class="section-title">Traffic</div><div id="home-w-traffic-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-gradedist" data-widget="gradedist"><div class="section-title">Health grade spread</div><div id="home-w-gradedist-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-versionskew" data-widget="versionskew"><div class="section-title">Agent version skew</div><div id="home-w-versionskew-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-offlinegroups" data-widget="offlinegroups"><div class="section-title">Offline by group</div><div id="home-w-offlinegroups-body" class="dash-mini"></div></div>
@@ -5135,7 +5136,7 @@
               <p><strong>Wizards.</strong> <em>Guide me</em> walks through adding a host, a notification destination, an integration, e-mail, single sign-on, the syslog, flow and satellite sidecars, the push channel and the SSH gateway, and checks as it goes. A <em>Step by step</em> switch shows six long dialogs a few fields at a time. See <code>docs/wizards.md</code>.</p>
               <p><strong>Apps found on a host.</strong> The Linux agent says which of 63 well-known apps a host runs, and the host drawer offers a monitor and a connector for each. See <code>docs/app-discovery.md</code>.</p>
               <p><strong>More to connect and monitor.</strong> Tailscale, Headscale and Cloudflare Tunnel connectors, an Apprise destination, SMTP, IMAP, SSH banner and NTP monitors that run from the server, a host or a satellite, and the last log lines of an unhealthy container in its alert.</p>
-              <p><strong>Traffic.</strong> A tab on the Threat Intel page shows which addresses your Linux hosts talk to, which programs open the connections and how much each one moved, with a watch list that raises an alert. It reads each host's TCP connection table; it captures no packets. See <code>docs/traffic.md</code>.</p>
+              <p><strong>Traffic.</strong> A tab on the Threat Intel page shows which addresses your Linux hosts talk to, which programs open the connections and how much each one moved, with an overview of bar charts, a Home widget and a watch list that raises an alert. It reads each host's TCP connection table; it captures no packets. See <code>docs/traffic.md</code>.</p>
               <p><strong>Off until you switch it on.</strong> Traffic and a read-only MCP endpoint (<code>POST /api/mcp</code>, 16 read tools), both under Settings &rarr; Advanced &rarr; Optional modules, and automatic image updates with a rollback (Containers &rarr; Image updates). See <code>docs/mcp.md</code>.</p>
               <p><strong>What the last read of the code found.</strong> One High issue, nine Medium issues, seven Low or hardening items and one informational item. The High one: saving the host drawer&rsquo;s settings form cleared the host&rsquo;s allowlist, watched units and log rules. Among the Medium ones: an AI executor that could not propose a saved script, three ways to run code on a host that ignored quarantine or maintenance mode, events of one organisation counted into another&rsquo;s compliance evidence, and a Home page that showed a tenant&rsquo;s users the whole installation&rsquo;s figures. All are fixed. See <code>docs/security-review-8.0.0.md</code>.</p>
               <p><strong>What changes for you.</strong> Update the agents. Hard-reload the dashboard once. Long pages open as tabs.</p>
@@ -5277,6 +5278,7 @@
               <p>Set a default SSH username under <strong>Settings → Security → SSH preferences</strong>. It's stored per-user.</p>
               <p>On the <strong>Hosts</strong> page, a small SSH icon appears next to each host's hostname. Clicking it builds an <code>ssh://</code> link to that host — using the host's IP if known, otherwise its hostname — with your default username, and also copies the plain <code>ssh user@host</code> command to your clipboard.</p>
               <p>Whether the <code>ssh://</code> link opens a terminal depends on your own machine having an <code>ssh://</code> handler registered (the OS, PuTTY, a terminal emulator). If it doesn't, the copied command is the reliable path — paste it into any terminal.</p>
+              <p>A host that allows the <a href="docs/sshgw.md" class="c-accent">SSH gateway</a> has a second, accent-coloured icon that builds <code>ssh user@name.rp</code>, through the gateway. It needs the <strong>ssh</strong> permission and the <code>Host *.rp</code> block of <code>~/.ssh/config</code>.</p>
             </div>
           </details>
 
@@ -7213,6 +7215,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div id="traffic-note" class="hint mt-8"></div>
           </div>
 
+          <div class="dash-card mt-16" id="traffic-overview-card" hidden>
+            <div class="section-header">
+              <div class="section-title">Overview</div>
+              <span class="hint"><span class="tr-key tr-tx"></span>Sent<span class="tr-key tr-rx"></span>Received</span>
+            </div>
+            <div id="traffic-overview" class="tr-overview"></div>
+          </div>
+
           <div class="dash-card mt-16">
             <div class="section-header">
               <div class="section-title">Remote addresses</div>
@@ -7233,6 +7243,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <tbody id="traffic-remotes-tbody"></tbody>
               </table>
             </div>
+            <p class="hint mt-8" id="traffic-geo-note" hidden>Country and organisation come from the GeoLite2 files (Settings → Security) or from a Threat Intel lookup of the address. Neither is set up here. <a href="docs/traffic.md#country-and-organisation" class="c-accent">Documentation</a></p>
           </div>
 
           <div class="dash-card mt-16">
@@ -13515,39 +13526,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=8.0.0-2"></script>
+<script defer src="static/js/app.js?v=8.0.0-5"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-cmdb.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-containers.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-network.js?v=8.0.0-2"></script>
+<script defer src="static/js/app-calendar.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-cmdb.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-containers.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-network.js?v=8.0.0-5"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-compliance.js?v=8.0.0-2"></script>
+<script defer src="static/js/app-hostconfig.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-compliance.js?v=8.0.0-5"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-dns.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-drift.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-cve.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-firewall.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-backups.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-iac.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-proxmox.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-virt.js?v=8.0.0-2"></script>
+<script defer src="static/js/app-ai.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-dns.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-drift.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-cve.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-firewall.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-backups.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-iac.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-proxmox.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-virt.js?v=8.0.0-5"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-remote.js?v=8.0.0-2"></script>
-<script defer src="static/js/app-tickets.js?v=8.0.0-2"></script>
+<script defer src="static/js/app-logs.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-remote.js?v=8.0.0-5"></script>
+<script defer src="static/js/app-tickets.js?v=8.0.0-5"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=8.0.0-2"></script>
+<script defer src="static/js/app-self.js?v=8.0.0-5"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=8.0.0-2"></script>
+<script defer src="static/js/app-tooltip.js?v=8.0.0-5"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -13557,6 +13568,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=8.0.0-2"></script>
+<script defer src="static/js/sw-register.js?v=8.0.0-5"></script>
 </body>
 </html>

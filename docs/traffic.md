@@ -15,6 +15,7 @@ Untick it to stop. The agents stop sampling, the tab disappears and the Traffic 
 ## What you see
 
 - **Summary.** How many hosts are sampling, the total sent and received per second, the number of connections and the sampling interval.
+- **Overview.** Four small bar charts of what the hosts moved between their last two samples: the busiest addresses, the busiest programs, where the traffic goes (a country, the local network or unknown) and which way it flows. Each bar is split into what was sent and what was received.
 - **Remote addresses.** The busiest addresses across the hosts you can see: which hosts talk to each one, on which ports, how many connections, and how much went each way. A public address shows its country and organisation when you have set up the GeoLite2 files (**Settings > Security**). Marks next to an address: **Local network**, **New**, **Watch list** and a Threat Intel **Score** when Threat Intel has a verdict for it. The **Show** menu narrows the table to public addresses, the local network, new addresses or watch list matches.
 - **Programs.** Which programs moved the most. A connection the kernel holds itself, such as a network mount, has no program and shows as **Unknown**.
 - **Ports and services.** Each port by direction, with the service name when it is a well-known one.
@@ -26,6 +27,19 @@ A host's own page has a **Traffic** section with the same rows for that host and
 Type in the box above a table to filter it, and select a column heading to sort. The download button under a table saves the rows you are looking at as CSV.
 
 A host line says **Sampling** (it sent a sample recently), **Out of date** (it stopped), **Waiting** (no sample yet), **Not supported** (not a Linux host) or **Cannot read** (see below).
+
+## Country and organisation
+
+A public address shows its country and organisation from two sources, field by field:
+
+1. The GeoLite2 files you set up under **Settings → Security**. They name the country, the autonomous system number and its organisation.
+2. A Threat Intel lookup of the address. When AbuseIPDB has looked the address up, Threat Intel keeps the two-letter country and the network it named, and Traffic uses them where the files name nothing.
+
+A private address is never looked up. When neither source is set up, the column stays empty and a note under the table says so.
+
+## On Home
+
+The **Traffic** widget shows how many of your Linux hosts are reporting, what they send and receive per second, their connections, any watch list matches and the three busiest addresses. Turn it on under **Customise** on Home. It is empty while the module is off, and it only counts the hosts you can see.
 
 ## New addresses
 

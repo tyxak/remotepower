@@ -6714,6 +6714,17 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .hh-grade { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
 .hh-sub { font-size: 13px; margin-top: 2px; }   /* widget subtitle = body text */
 .hh-bar-track { width: 100%; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+/* 8.0.0: the Traffic overview and widget: a bar in two parts, what a row sent and what it received. Widths come from data-pct. */
+.tr-overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px 24px; }
+.tr-block { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.tr-rows { display: flex; flex-direction: column; gap: 6px; }
+.tr-row { display: grid; grid-template-columns: minmax(0, 9.5em) minmax(40px, 1fr) auto; gap: 8px; align-items: center; }
+.tr-lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-bar { display: flex; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.tr-bar-fill { display: block; height: 100%; }
+.tr-tx { background: var(--accent); }
+.tr-rx { background: var(--green); }
+.tr-key { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin: 0 4px 0 8px; }
 .hh-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
 .hh-counts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .hh-worst { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }

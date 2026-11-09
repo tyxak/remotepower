@@ -7,6 +7,7 @@
 //   trafficOpenHost(i)      a line of the Hosts table opens that host's drawer
 //   trafficWatchAdd(), trafficWatchRemove(i), trafficWatchSave()   the watch list editor (the platform operator's)
 //   loadDrawerTraffic(id)   fill the drawer's section for the host that is open
+//   trafficWidgetHtml(tw)   the markup of the Home widget for the datum the server built; openTrafficTab() is the widget's way into this page
 //
 // Addresses, program names and host names came from a host, so they are only ever put in the page with escHtml. A host id never travels through data-arg (the dispatcher turns
 // a number-looking value into a number): the rows of a table are named by their place in the list.
@@ -41,8 +42,11 @@ function _trBytes(n) { return escHtml(_fmtBytes(n || 0)); }
 function _trRate(n) { return escHtml(_fmtBytes(n || 0)) + '/s'; }
 function _trDir(d) { return d === 'in' ? 'Inbound' : 'Outbound'; }
 
+// Where an address is: the country (a name from the GeoLite2 files, else the two-letter code a Threat Intel lookup stored) and the organisation.
+function _trWhere(r) { return [r.country || r.country_code, r.org].filter(Boolean); }
+
 function _trRemoteText(r) {
-  return [r.ip, (r.hosts || []).map(h => h.name || h.id).join(' '), (r.ports || []).map(p => p.port + ' ' + (p.service || '')).join(' '), r.country, r.org].filter(Boolean).join(' ').toLowerCase();
+  return [r.ip, (r.hosts || []).map(h => h.name || h.id).join(' '), (r.ports || []).map(p => p.port + ' ' + (p.service || '')).join(' '), r.country, r.country_code, r.org].filter(Boolean).join(' ').toLowerCase();
 }
 
 function _trRemoteRow(r) {
@@ -60,7 +64,7 @@ function _trRemoteRow(r) {
     <td>${escHtml(String(r.n || 0))}</td>
     <td class="hint-nowrap">${_trBytes(r.tx)}</td>
     <td class="hint-nowrap">${_trBytes(r.rx)}</td>
-    <td class="hint">${[r.country, r.org].filter(Boolean).map(escHtml).join(' · ')}</td>
+    <td class="hint">${_trWhere(r).map(escHtml).join(' · ')}</td>
   </tr>`;
 }
 
@@ -97,7 +101,7 @@ function _trRegister() {
   tableCtl.register({
     name: 'traffic-remotes', tbody: 'traffic-remotes-tbody', sortHeaders: 'traffic-remotes-thead', filterInput: 'traffic-remotes-filter', colspan: 7,
     columns: ['address', 'hosts', 'ports', 'connections', 'sent', 'received', 'where'],
-    getColumns: (r) => ({ address: r.ip, hosts: (r.hosts || []).map(h => h.name || h.id).join(' '), ports: (r.ports || []).map(p => p.port).join(' '), connections: r.n || 0, sent: r.tx || 0, received: r.rx || 0, where: [r.country, r.org].filter(Boolean).join(' ') }),
+    getColumns: (r) => ({ address: r.ip, hosts: (r.hosts || []).map(h => h.name || h.id).join(' '), ports: (r.ports || []).map(p => p.port).join(' '), connections: r.n || 0, sent: r.tx || 0, received: r.rx || 0, where: _trWhere(r).join(' ') }),
     match: (r, q) => _trRemoteText(r).includes(q),
     row: _trRemoteRow,
     emptyMsg: 'No connections to show yet.',
@@ -147,6 +151,94 @@ function _trRemoteRows() {
 }
 
 function trafficShow() { tableCtl.render('traffic-remotes', _trRemoteRows()); }
+
+// The Home widget (app.js calls trafficWidgetHtml once this file is loaded): what the hosts move now and the three busiest addresses, as bars in two parts (sent, received). The server sends the caller's own hosts only.
+// An address and a country or organisation came from a host or a lookup: escHtml.
+function trafficWidgetHtml(tw) {
+  if (!tw.total) return '<div class="hint">There is no host with an agent yet.</div>';
+  if (!tw.hosts) return '<div class="hint">No Linux host has reported yet.</div>';
+  const rate = (n) => escHtml(_fmtBytes(n || 0)) + '/s';
+  const top = tw.top || [];
+  const peak = top.reduce((a, r) => Math.max(a, (r.tx || 0) + (r.rx || 0)), 0);
+  const share = (n) => peak > 0 && n > 0 ? Math.max(1, Math.round(100 * n / peak)) : 0;
+  const rows = [{ l: 'Hosts reporting', r: escHtml(`${tw.hosts} / ${tw.total}`) }, { l: 'Sent', r: rate(tw.tx) }, { l: 'Received', r: rate(tw.rx) }, { l: 'Connections', r: escHtml(String(tw.conns || 0)) }]
+    .concat(tw.hits ? [{ l: 'Watch list matches', r: escHtml(String(tw.hits)), cls: 'c-amber' }] : []);
+  return _miniRows(rows)
+    + (top.length ? `<div class="tr-rows mt-8">` + top.map(r => {
+      const where = [r.country || r.country_code, r.org].filter(Boolean).join(' · ');
+      return `<div class="tr-row" title="${escAttr([r.ip].concat(where ? [where] : []).join(' · '))}"><span class="tr-lab mono-12">${escHtml(r.ip)}</span>`
+        + `<span class="tr-bar"><span class="tr-bar-fill tr-tx" data-pct="${share(r.tx)}"></span><span class="tr-bar-fill tr-rx" data-pct="${share(r.rx)}"></span></span>`
+        + `<span class="hint-nowrap">${escHtml(_fmtBytes((r.tx || 0) + (r.rx || 0)))}</span></div>`;
+    }).join('') + `</div>` : '')
+    + '<div class="hint pointer mt-8" data-action="openTrafficTab" tabindex="0">Open Traffic →</div>';
+}
+// The widget's way into the page: Threat Intel on its Traffic tab.
+function openTrafficTab() {
+  try { localStorage.setItem('pgtab.ipintel', 'traffic'); } catch (_) { /* private window */ }
+  showPage('ipintel', document.querySelector('.nav-btn[data-page="ipintel"]'));
+}
+
+// ── the overview: what the hosts moved, as bars ──────────────────────────────────────────────────────────────────────────────────────────
+// Everything here comes from the answer that is already loaded. A row's bar is its share of the biggest row of its block, in two parts (sent, received); the widths go
+// through data-pct, which the page applies with the CSP-safe style setter. Names of programs and addresses came from a host: they only ever go in with escHtml.
+const _TR_BARS = 6;
+
+function _trShare(n, peak) { return peak > 0 && n > 0 ? Math.max(1, Math.round(100 * n / peak)) : 0; }
+
+function _trBarRow(label, title, tx, rx, peak, cls) {
+  return `<div class="tr-row"><span class="tr-lab ${cls || ''}" title="${escAttr(title || label)}">${escHtml(label)}</span>`
+    + `<span class="tr-bar"><span class="tr-bar-fill tr-tx" data-pct="${_trShare(tx, peak)}"></span><span class="tr-bar-fill tr-rx" data-pct="${_trShare(rx, peak)}"></span></span>`
+    + `<span class="hint-nowrap">${_trBytes((tx || 0) + (rx || 0))}</span></div>`;
+}
+
+// rows: [{label, title, tx, rx, cls}], already in the order to show
+function _trBlock(title, rows, empty) {
+  const peak = rows.reduce((a, r) => Math.max(a, (r.tx || 0) + (r.rx || 0)), 0);
+  return `<div class="tr-block"><div class="fw-500">${title}</div>`
+    + (rows.length ? `<div class="tr-rows">${rows.map(r => _trBarRow(r.label, r.title, r.tx, r.rx, peak, r.cls)).join('')}</div>` : `<div class="hint">${empty}</div>`) + `</div>`;
+}
+
+// Where the busiest addresses are: a country by its code (the name when a GeoLite2 file gave one), the local network, or unknown.
+function _trWhereTo(remotes) {
+  const by = {};
+  for (const r of remotes) {
+    const local = r.scope && r.scope !== 'public';
+    const key = local ? 'local' : (r.country_code || r.country || 'unknown');
+    const e = by[key] || (by[key] = { key, name: '', tx: 0, rx: 0 });
+    if (r.country) e.name = r.country;
+    e.tx += r.tx || 0;
+    e.rx += r.rx || 0;
+  }
+  const label = (e) => e.key === 'local' ? 'Local network' : (e.key === 'unknown' ? 'Unknown' : (e.name || e.key));
+  return Object.values(by).sort((a, b) => (b.tx + b.rx) - (a.tx + a.rx)).slice(0, _TR_BARS).map(e => ({ label: label(e), tx: e.tx, rx: e.rx, cls: e.key === 'unknown' ? 'hint' : '' }));
+}
+
+function _trOverview(f) {
+  const el = document.getElementById('traffic-overview');
+  const card = document.getElementById('traffic-overview-card');
+  if (!el) return;
+  const remotes = f.remotes || [];
+  if (card) card.hidden = !remotes.length;
+  if (!remotes.length) { el.innerHTML = ''; return; }
+  const addr = remotes.slice(0, _TR_BARS).map(r => ({ label: r.ip, title: [r.ip].concat(_trWhere(r)).join(' · '), tx: r.tx, rx: r.rx, cls: 'mono-12' }));
+  const prog = (f.programs || []).slice(0, _TR_BARS).map(p => ({ label: p.proc === '-' || !p.proc ? 'Unknown' : p.proc, tx: p.tx, rx: p.rx, cls: p.proc === '-' || !p.proc ? 'hint' : 'mono-12' }));
+  const dir = { in: { tx: 0, rx: 0 }, out: { tx: 0, rx: 0 } };
+  for (const q of (f.ports || [])) { const d = dir[q.d]; if (d) { d.tx += q.tx || 0; d.rx += q.rx || 0; } }
+  const dirs = [{ label: 'Inbound', tx: dir.in.tx, rx: dir.in.rx }, { label: 'Outbound', tx: dir.out.tx, rx: dir.out.rx }].filter(r => r.tx + r.rx > 0);
+  el.innerHTML = _trBlock('Busiest addresses', addr, 'Nothing to show.')
+    + _trBlock('Programs', prog, 'Nothing to show.')
+    + _trBlock('Where to', _trWhereTo(remotes), 'Nothing to show.')
+    + _trBlock('Direction', dirs, 'Nothing to show.');
+}
+
+// The Country and organisation column is empty without the GeoLite2 files and without a Threat Intel lookup of the address: say so, with the way to fill it.
+function _trGeoNote(f) {
+  const note = document.getElementById('traffic-geo-note');
+  if (!note) return;
+  const remotes = f.remotes || [];
+  const named = remotes.some(r => r.country || r.country_code || r.org);
+  note.hidden = !(remotes.some(r => r.scope === 'public') && !f.geo && !named);
+}
 
 function _trStats(f) {
   const el = document.getElementById('traffic-stats');
@@ -263,6 +355,8 @@ async function loadTraffic() {
   _trCfg = (cfg && !cfg.error) ? cfg : (_trCfg || {});
   _trHostRows = (fleet.hosts || []).map((h, i) => Object.assign({ _i: i }, h));
   _trStats(fleet);
+  _trOverview(fleet);
+  _trGeoNote(fleet);
   tableCtl.render('traffic-remotes', _trRemoteRows());
   tableCtl.render('traffic-programs', fleet.programs || []);
   tableCtl.render('traffic-ports', fleet.ports || []);
@@ -295,7 +389,7 @@ function _trDrawerRowHtml(r) {
   if (r.new) marks.push('<span class="patch-badge warn">New</span>');
   if (r.watched && r.watched.length) marks.push('<span class="patch-badge crit">Watch list</span>');
   if (typeof r.score === 'number') marks.push(`<span class="patch-badge ${r.score >= 75 ? 'crit' : (r.score >= 25 ? 'warn' : 'ok')}"><span>Score</span> ${escHtml(String(r.score))}</span>`);
-  const where = [r.country, r.org].filter(Boolean).map(escHtml).join(' · ');
+  const where = _trWhere(r).map(escHtml).join(' · ');
   return `<tr>
     <td class="mono-12">${escHtml(r.ip)} ${marks.join(' ')}${where ? `<div class="hint">${where}</div>` : ''}</td>
     <td>${escHtml(r.service ? r.port + ' ' + r.service : String(r.port))}</td>

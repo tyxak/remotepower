@@ -59,6 +59,8 @@ STALE_REPORTS = 3  # a host that has missed this many samples reads as stale
 HOSTS_MAX = 500  # hosts listed on the fleet page
 HITS_MAX = 100  # watch list matches listed on the fleet page
 INTEL_MAX = 200  # addresses of one answer looked up in the intelligence store
+WIDGET_TOP = 3  # remote addresses on the Home widget
+WIDGET_HITS_MAX = 999  # watch list matches counted for the Home widget
 
 
 # ── the setting and the heartbeat side ───────────────────────────────────────
@@ -155,8 +157,9 @@ def _watch(cfg):
 # ── what a remote address is ─────────────────────────────────────────────────
 
 
-def _intel(ips):
-    """{ip: reputation score} for the addresses that the Threat Intel store has a verdict for. Read-only, never raises."""
+def _verdicts(ips):
+    """{ip: the verdict} for the addresses that the Threat Intel store has one for: its reputation score, and the country and network the lookup named. Read-only
+    (the dictionaries belong to the shared cache), never raises."""
     try:
         st = (A._load_ro(A.IPINTEL_FILE) or {}) if A.backend_exists(A.IPINTEL_FILE) else {}
         atts = st.get("attackers") if isinstance(st.get("attackers"), dict) else {}
@@ -165,7 +168,16 @@ def _intel(ips):
     out = {}
     for ip in list(ips)[:INTEL_MAX]:
         v = (atts.get(ip) or {}).get("verdict") if isinstance(atts.get(ip), dict) else None
-        score = v.get("score") if isinstance(v, dict) else None
+        if isinstance(v, dict):
+            out[ip] = v
+    return out
+
+
+def _intel(ips, verdicts=None):
+    """{ip: reputation score} for the addresses that the Threat Intel store has a verdict for."""
+    out = {}
+    for ip, v in (_verdicts(ips) if verdicts is None else verdicts).items():
+        score = v.get("score")
         if isinstance(score, (int, float)) and not isinstance(score, bool):
             out[ip] = score
     return out
@@ -180,21 +192,38 @@ def _where(ip):
     return {k: g[k] for k in ("country", "country_code", "asn", "org") if g.get(k) not in (None, "")}
 
 
-def _remote_view(ip, geo_cache, scores):
+def _lookup_where(v):
+    """{country_code, org} of an address from the verdict a Threat Intel lookup stored (AbuseIPDB names a two-letter country and the network); empty when it names none."""
+    out = {}
+    cc, isp = v.get("country"), v.get("isp")
+    if isinstance(cc, str) and len(cc.strip()) == 2 and cc.strip().isalpha():
+        out["country_code"] = cc.strip().upper()
+    if isinstance(isp, str) and isp.strip():
+        out["org"] = isp.strip()[:120]
+    return out
+
+
+def _remote_view(ip, geo_cache, scores, verdicts=None):
+    """What the page shows about a remote address: its scope, and for a public one the country and organisation (the GeoLite2 files first, then what a Threat Intel
+    lookup of the address stored, field by field) and the reputation score."""
     out = {"scope": T.scope_of(ip)}
     if out["scope"] == "public":
         if ip not in geo_cache:
             geo_cache[ip] = _where(ip)
         out.update(geo_cache[ip])
+        v = (verdicts or {}).get(ip)
+        if isinstance(v, dict):
+            for k, val in _lookup_where(v).items():
+                out.setdefault(k, val)
         if ip in scores:
             out["score"] = scores[ip]
     return out
 
 
-def _row_view(r, watch, labels, geo_cache, scores, rec, now):
+def _row_view(r, watch, labels, geo_cache, scores, rec, now, verdicts=None):
     out = dict(r)
     out["service"] = T.service_of(r["port"])
-    out.update(_remote_view(r["ip"], geo_cache, scores))
+    out.update(_remote_view(r["ip"], geo_cache, scores, verdicts))
     hits = T.watched(r, watch)
     if hits:
         out["watched"] = [{"kind": h["kind"], "value": h["value"], "label": h.get("label", "") if labels else ""} for h in hits]
@@ -271,7 +300,8 @@ def handle_device_traffic(dev_id):
     if state in ("reporting", "stale", "error"):
         sample = rec["sample"]
         rows = T.stored_rows(sample)
-        scores = _intel({r["ip"] for r in rows if T.scope_of(r["ip"]) == "public"})
+        verdicts = _verdicts({r["ip"] for r in rows if T.scope_of(r["ip"]) == "public"})
+        scores = _intel(None, verdicts)
         geo_cache, watch, labels = {}, _watch(cfg), _is_operator() or not A._tenancy_enforced()
         out.update(
             {
@@ -284,7 +314,7 @@ def handle_device_traffic(dev_id):
                 "err": sample.get("err") if sample.get("err") in T.ERRORS else "",
                 "other": sample.get("other") if isinstance(sample.get("other"), dict) else out["other"],
                 "series": [p for p in (rec.get("series") if isinstance(rec.get("series"), list) else []) if isinstance(p, list) and len(p) == 4 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in p)],
-                "rows": [_row_view(r, watch, labels, geo_cache, scores, rec, now) for r in rows],
+                "rows": [_row_view(r, watch, labels, geo_cache, scores, rec, now, verdicts) for r in rows],
             }
         )
     A.respond(200, out)
@@ -331,9 +361,10 @@ def handle_traffic_fleet():
             hosts.append(line)
     summary = T.fleet_summary(entries, top=50, is_new=lambda hid, ip: T.is_new(store.get(hid), ip, now))
     public = {e["ip"] for e in summary["remotes"] if e["scope"] == "public"}
-    scores, geo_cache = _intel(public), {}
+    verdicts = _verdicts(public)
+    scores, geo_cache = _intel(None, verdicts), {}
     for e in summary["remotes"]:
-        e.update({k: v for k, v in _remote_view(e["ip"], geo_cache, scores).items() if k != "scope"})
+        e.update({k: v for k, v in _remote_view(e["ip"], geo_cache, scores, verdicts).items() if k != "scope"})
         if watch and T.watched({"ip": e["ip"], "port": 0, "proc": ""}, [w for w in watch if w["kind"] in ("ip", "cidr")]):
             e["watched"] = True
     A.respond(
@@ -353,6 +384,45 @@ def handle_traffic_fleet():
             "geo": bool(cfg.get("geoip_db_path") or cfg.get("geoip_asn_db_path")),
         },
     )
+
+
+def traffic_widget(visible, now=None):
+    """The numbers of the small Traffic widget on Home, for the hosts `visible` (the caller's own view, so another tenant's hosts and addresses are not in them): how
+    many of the Linux hosts with an agent report, what they sent and received per second at their last sample, their connections, the watch list matches and the
+    three busiest remote addresses. {'on': False} while the module is off. Never raises: a widget must not take the dashboard down."""
+    try:
+        if not A._module_on("traffic"):
+            return {"on": False}
+        now = int(now or time.time())
+        cfg = A._config_ro()
+        every = sampling_every(cfg)
+        store = (A._load_ro(A.TRAFFIC_FILE) or {}) if A.backend_exists(A.TRAFFIC_FILE) else {}
+        watch = _watch(cfg)
+        entries, total, tx_rate, rx_rate, conns, hits = [], 0, 0, 0, 0, 0
+        for dev_id, dev in (visible or {}).items():
+            if not isinstance(dev, dict) or dev.get("agentless") or dev.get("decommissioned"):
+                continue
+            total += 1
+            rec = store.get(dev_id) if isinstance(store.get(dev_id), dict) else None
+            if _state(dev, rec, now, every) != "reporting":
+                continue
+            sample = rec["sample"]
+            win = _win(sample)
+            tx_rate += round(T.num(sample.get("tx")) / win)
+            rx_rate += round(T.num(sample.get("rx")) / win)
+            conns += T.num(sample.get("conns"))
+            entries.append((dev_id, dev.get("name") or dev_id, sample))
+            if watch and hits < WIDGET_HITS_MAX:
+                hits += sum(1 for r in T.stored_rows(sample) if T.watched(r, watch))
+        top = T.fleet_summary(entries, top=WIDGET_TOP)["remotes"]
+        verdicts = _verdicts({e["ip"] for e in top if e["scope"] == "public"})
+        scores, geo_cache, rows = _intel(None, verdicts), {}, []
+        for e in top:
+            view = _remote_view(e["ip"], geo_cache, scores, verdicts)
+            rows.append({"ip": e["ip"], "tx": e["tx"], "rx": e["rx"], "hosts_n": e["hosts_n"], **{k: v for k, v in view.items() if k in ("scope", "country", "country_code", "org", "score")}})
+        return {"on": True, "hosts": len(entries), "total": total, "tx": tx_rate, "rx": rx_rate, "conns": conns, "hits": min(hits, WIDGET_HITS_MAX), "top": rows}
+    except Exception:
+        return {}
 
 
 # ── the Data Explorer and Fleet Query ────────────────────────────────────────

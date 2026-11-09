@@ -689,4 +689,5 @@ builtins = [
     "run_vpn_stats_if_due",
     "satellite_probe_validate",
     "threat_sensor_config_for",
+    "traffic_widget",
 ]

@@ -797,6 +797,8 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               'helpdesk',
                               # 8.0.0: Threat Intel in brief (addresses seen, reported, blocked, sources in trouble)
                               'threatintel',
+                              # 8.0.0: Traffic in brief (rates, connections, watch list matches, the busiest addresses)
+                              'traffic',
                               # v4.1.0: Ask-AI box — toggleable, but pinned in the footer
                               'askai')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
@@ -1210,7 +1212,7 @@ traffic_handlers_mod = _tk_ilu.module_from_spec(_tr_spec)
 _tr_spec.loader.exec_module(traffic_handlers_mod)
 traffic_handlers_mod.bind(globals())
 for _tr_name in (
-        'handle_device_traffic', 'handle_traffic_fleet', 'handle_traffic_config_get', 'handle_traffic_config_set',
+        'handle_device_traffic', 'handle_traffic_fleet', 'handle_traffic_config_get', 'handle_traffic_config_set', 'traffic_widget',
 ):
     globals()[_tr_name] = getattr(traffic_handlers_mod, _tr_name)
 del _tr_name
@@ -15873,6 +15875,14 @@ _ROSTER_SYSINFO_OMIT = frozenset({'proc_names', 'network_io_ts', 'network_io_gap
 def handle_devices_list():
     require_auth()
     _scope   = _caller_scope()   # v3.4.2 RBAC: filter roster to role scope
+    _ssh_gw_ok = False
+    if _module_on('sshgw'):
+        try:
+            _u, _r = verify_token(get_token_from_request())
+            _rd = _resolve_role(_r) if _u else {}
+            _ssh_gw_ok = bool(_rd.get('admin') or 'ssh' in (_rd.get('permissions') or ()))
+        except Exception:
+            _ssh_gw_ok = False
     _tgate   = _tenant_gate()    # v3.14.0 P2: tenant isolation (None = off / superadmin)
     # v6.1.2 (perf #7): read-only — the loop below projects each device into a
     # fresh `row` dict and never mutates `devices`, so skip load()'s per-call
@@ -15966,6 +15976,10 @@ def handle_devices_list():
             # 8.0.0: this host's agent holds the push channel open (the small bolt on the Hosts page and in the drawer): online, and said so recently
             'push':         bool(not agentless and is_online and _push_channel_up(dev, now)),
         }
+        # 8.0.0: the Hosts page offers a quick SSH link through the gateway (`ssh user@name.rp`) for a host that allows it, to a person who may use ssh. The flag is sent only to
+        # such a person, and only for such a host.
+        if _ssh_gw_ok and dev.get('sshgw_enabled'):
+            row['sshgw_enabled'] = True
         if not slim:
             # v3.3.0: heavy fields only when ?slim=1 is NOT set. Home + nav
             # loaders skip them; the Devices page + CMDB modal opt in by
@@ -56091,6 +56105,9 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     # 8.0.0: Threat Intel in brief, for the caller's own hosts. Gated: it reads the store of addresses.
     if _g('threatintel'):
         out['threatintel'] = ip_intel_widget(devices_raw, now)
+    # 8.0.0: Traffic in brief, for the caller's own hosts. {'on': False} while the module is off.
+    if _g('traffic'):
+        out['traffic'] = traffic_widget(devices_raw, now)
     _oom_win = _oom_recent_window()   # hoisted: read config once per widget build
     # Load the hardware record once and share it across the smart/ups/temp, tls
     # and checks-roll-up widgets — avoids re-deep-copying hardware.json per

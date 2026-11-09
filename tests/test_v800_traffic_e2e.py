@@ -525,5 +525,153 @@ class TestTrafficInTheBrowser(unittest.TestCase):
         self.assertEqual([e for e in self.errors if "Failed to load resource" not in e], [])
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestTheOverviewTheNoteTheWidgetAndTheGatewayIcon(unittest.TestCase):
+    """The four bar charts above the tables, the note under the remote addresses, the Home widget, and the second quick SSH icon of the Hosts page (8.0.0)."""
+
+    @classmethod
+    def setUpClass(cls):
+        ctx = _STATE["browser"].new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
+        ctx.add_init_script(INIT % "")
+        cls.ctx, cls.page, cls.errors = ctx, ctx.new_page(), []
+        cls.page.on("pageerror", lambda e: cls.errors.append(str(e)))
+        _login(cls.page)
+        cls.config0, cls.devices0, cls.traffic0 = read("config.json"), read("devices.json"), read("traffic.json")
+        cls.intel0 = read("ip_intel.json") if _path("ip_intel.json").exists() else {}
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            write("config.json", cls.config0)
+            write("devices.json", cls.devices0)
+            write("traffic.json", cls.traffic0)
+            write("ip_intel.json", cls.intel0)
+        finally:
+            cls.ctx.close()
+
+    def setUp(self):
+        for name, doc in (("config.json", self.config0), ("devices.json", self.devices0), ("traffic.json", self.traffic0), ("ip_intel.json", self.intel0)):
+            write(name, doc)
+
+    def open_tab(self):
+        self.page.evaluate("() => { try { localStorage.removeItem('pgtab.ipintel'); } catch (e) {} showPage('ipintel'); }")
+        self.page.wait_for_selector(TAB, state="visible", timeout=30000)
+        self.page.click(TAB)
+        self.page.wait_for_function("() => document.querySelectorAll('#traffic-remotes-tbody tr').length > 1", timeout=30000)
+        self.page.evaluate("async () => { await loadTraffic(); }")
+
+    def wait_overview(self):
+        self.page.wait_for_function("() => document.querySelectorAll('#traffic-overview .tr-block').length === 4", timeout=20000)
+
+    # ── the overview ─────────────────────────────────────────────────────────
+
+    def test_four_blocks_every_bar_has_a_width_and_the_busiest_address_leads_the_first(self):
+        self.open_tab()
+        self.wait_overview()
+        got = self.page.evaluate("""() => ({
+            titles: [...document.querySelectorAll('#traffic-overview .tr-block > .fw-500')].map(e => e.textContent.trim()),
+            fills: [...document.querySelectorAll('#traffic-overview .tr-bar-fill')].map(e => [e.dataset.pct, e.style.width]),
+            first: document.querySelector('#traffic-overview .tr-block .tr-lab').textContent.trim(),
+            visible: !document.getElementById('traffic-overview-card').hidden })""")
+        self.assertEqual(got["titles"], ["Busiest addresses", "Programs", "Where to", "Direction"])
+        self.assertTrue(got["visible"])
+        self.assertGreater(len(got["fills"]), 8)
+        for pct, width in got["fills"]:
+            self.assertEqual(width, pct + "%", "the width comes from data-pct through the page's own setter (a style attribute is refused by the policy)")
+        self.assertEqual(got["first"], "206.190.215.14", "the busiest address of the demo's fleet is the first row of the first block")
+
+    def test_where_to_names_the_local_network_and_what_is_not_known(self):
+        self.open_tab()
+        self.wait_overview()
+        labels = self.page.evaluate("() => [...document.querySelectorAll('#traffic-overview .tr-block')][2].innerText")
+        self.assertIn("Local network", labels)
+        self.assertIn("Unknown", labels, "no GeoLite2 file is set up on the demo")
+
+    # ── the note, and what fills the column ──────────────────────────────────
+
+    def test_the_note_is_there_while_nothing_names_a_country_and_goes_when_a_lookup_does(self):
+        self.assertNotIn("geoip_db_path", read("config.json"))
+        self.open_tab()
+        self.assertTrue(self.page.is_visible("#traffic-geo-note"))
+        self.assertIn("GeoLite2", self.page.inner_text("#traffic-geo-note"))
+        self.assertTrue(self.page.eval_on_selector("#traffic-geo-note a", "a => a.getAttribute('href')").endswith("traffic.md#country-and-organisation"))
+        intel = json.loads(json.dumps(self.intel0)) or {}
+        intel.setdefault("attackers", {})["206.190.215.14"] = {"last_seen": int(time.time()), "devices": {}, "verdict": {"score": 12, "country": "nl", "isp": "Example Net B.V."}}
+        write("ip_intel.json", intel)
+        self.page.evaluate("async () => { await loadTraffic(); }")
+        self.page.wait_for_function("() => document.getElementById('traffic-geo-note').hidden", timeout=10000)
+        row = [t for t in self.page.eval_on_selector_all("#traffic-remotes-tbody tr", "els => els.map(e => e.textContent.replace(/\\s+/g, ' ').trim())") if t.startswith("206.190.215.14")][0]
+        self.assertIn("NL", row)
+        self.assertIn("Example Net B.V.", row)
+        where = self.page.evaluate("() => [...document.querySelectorAll('#traffic-overview .tr-block')][2].innerText")
+        self.assertIn("NL", where, "the destinations block counts the country the lookup named")
+
+    # ── the Home widget ──────────────────────────────────────────────────────
+
+    def widget_page(self):
+        self.page.evaluate("() => showPage('home')")
+        self.page.wait_for_selector("#page-home.active", timeout=20000)
+        self.page.evaluate("""async () => {
+            _uiPrefs.dashboard = _dashLayout().map(e => ({key: e.key, on: e.key === 'traffic' ? true : e.on, size: e.size}));
+            await loadHome();
+        }""")
+        self.page.wait_for_selector("#home-w-traffic:not(.dash-off)", timeout=20000)
+
+    def test_the_widget_shows_the_fleets_numbers_and_the_three_busiest_addresses_and_opens_the_tab(self):
+        self.widget_page()
+        self.page.wait_for_function("() => document.querySelectorAll('#home-w-traffic-body .tr-row').length > 0", timeout=20000)
+        fleet = self.page.evaluate("async () => await api('GET', '/traffic/fleet')")
+        text = self.page.inner_text("#home-w-traffic-body")
+        for words in ("Hosts reporting", "10 / 14", "Sent", "Received", "Connections", "Open Traffic"):
+            self.assertIn(words, text)
+        self.assertEqual(self.page.eval_on_selector_all("#home-w-traffic-body .tr-row .tr-lab", "els => els.map(e => e.textContent.trim())"), [r["ip"] for r in fleet["remotes"][:3]])
+        self.assertEqual(self.page.inner_text("#home-w-traffic .section-title"), "Traffic")
+        self.page.click("#home-w-traffic [data-action=openTrafficTab]")
+        self.page.wait_for_selector("#page-ipintel.active", timeout=20000)
+        self.assertEqual(self.page.eval_on_selector('.pg-tabs[data-pg="ipintel"] .pg-tab.active', "b => b.dataset.pgTabBtn"), "traffic")
+        self.page.evaluate("() => showPage('home')")
+
+    def test_the_widget_says_when_the_module_is_off(self):
+        cfg = json.loads(json.dumps(self.config0))
+        cfg["traffic_module_enabled"] = False
+        write("config.json", cfg)
+        self.widget_page()
+        self.page.wait_for_function("() => /Traffic is off/.test(document.getElementById('home-w-traffic-body').textContent)", timeout=20000)
+
+    # ── the Hosts page: the second quick SSH icon ────────────────────────────
+
+    def test_a_server_that_allows_the_gateway_has_a_second_icon_with_the_gateway_name(self):
+        self.page.evaluate("() => { _uiPrefs.default_ssh_username = 'ops'; showPage('devices'); }")
+        self.page.wait_for_function("() => document.querySelectorAll('#page-devices.active .dev-host-cell').length > 3", timeout=30000)
+        want = self.page.evaluate("""() => { const cells = [...document.querySelectorAll('#page-devices .dev-host-cell')].map(c => c.textContent);
+            return window._devicesCache.filter(d => d.sshgw_enabled && !/windows/i.test(String(d.os || '')) && cells.some(c => c.includes(d.hostname))).map(d => _sshGatewayTarget(d)).sort(); }""")
+        self.assertTrue(want, "the demo has servers that allow the gateway: the control that the page is not offering nothing")
+        icons = self.page.eval_on_selector_all('#page-devices a[data-action="quickSshGateway"]', "els => els.map(e => e.dataset.arg).sort()")
+        self.assertEqual(icons, want)
+        self.assertEqual(self.page.eval_on_selector('#page-devices a[data-action="quickSshGateway"]', "e => e.title"), "Quick SSH through the gateway")
+        self.page.evaluate("""() => { window.__cmd = null; Object.defineProperty(navigator, 'clipboard', {value: {writeText: s => { window.__cmd = s; return Promise.resolve(); }}, configurable: true}); }""")
+        self.page.eval_on_selector('#page-devices a[data-action="quickSshGateway"]', "e => e.click()")      # the icon is small and a column of the table can sit over it: the click is the page's own
+        self.page.wait_for_function("() => window.__cmd", timeout=10000)
+        cmd = self.page.evaluate("() => window.__cmd")
+        self.assertRegex(cmd, r"^ssh ops@[A-Za-z0-9._-]+\.rp$")
+        self.assertTrue(any(cmd.endswith(w + ".rp") for w in want))
+
+    def test_with_the_gateway_module_off_there_is_only_the_direct_icon(self):
+        cfg = json.loads(json.dumps(self.config0))
+        cfg["sshgw_enabled"] = False
+        write("config.json", cfg)
+        self.page.evaluate("() => { showPage('home'); }")
+        self.page.reload()
+        self.page.wait_for_selector("#app", state="visible", timeout=90000)
+        self.page.evaluate("() => showPage('devices')")
+        self.page.wait_for_function("() => document.querySelectorAll('#page-devices.active .dev-host-cell').length > 3", timeout=30000)
+        self.assertEqual(self.page.eval_on_selector_all('#page-devices a[data-action="quickSshGateway"]', "els => els.length"), 0)
+        self.assertGreater(self.page.eval_on_selector_all('#page-devices a[data-action="quickSsh"]', "els => els.length"), 0)
+
+    def test_nothing_broke_on_the_way(self):
+        self.open_tab()
+        self.assertEqual([e for e in self.errors if "Failed to load resource" not in e], [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -399,7 +399,11 @@ a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and t
   connect to. The Linux agent reads `ss` for its established TCP connections (the kernel's own byte counters, no packet capture and no payload) every 60 seconds (30 to
   3,600) and sends one row for each direction, remote address, service port and program: the connections and the bytes each way since the last sample. The tab adds the
   fleet up: how many hosts are sampling, the busiest remote addresses with the hosts that talk to each one (a country and an organisation when GeoLite2 is set up, a
-  Threat Intel score when there is one), programs, ports with their service names, and a line for each host with its state; the drawer adds a 24-hour chart. An address a
+  Threat Intel score when there is one), programs, ports with their service names, and a line for each host with its state; the drawer adds a 24-hour chart. An **Overview**
+  above the tables draws four bar charts, each bar split into what was sent and what was received: the busiest addresses, the programs, where the traffic goes (a country, the
+  local network or unknown) and which way it flows. A **Traffic** widget on Home shows how many hosts report, the rates, the connections, the watch list matches and the three
+  busiest addresses, for the hosts you can see. The country and organisation come from the GeoLite2 files, and where the files name nothing from a Threat Intel lookup of
+  the address (the two-letter country and the network it stored); a note under the table says when neither is set up. An address a
   host first used after its first hour is marked **New** for a day. A **watch list** of addresses, networks, ports and programs marks what matches and raises a **Watched
   connection** alert, once and again after six hours while the connection is still there (at most ten for one report, and the alert goes out only after the record that
   remembers it is saved). Only the platform operator edits the list, and on an installation with organisations the alert and the pages leave out the entry and its note. A host
@@ -420,6 +424,13 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
 `tests/test_v800_settings_gaps_e2e.py`, `tests/test_v800_host_services_e2e.py`, `tests/test_v800_agent_compat_warning_e2e.py`,
 `tests/test_v800_inherited_creds_e2e.py` and `tests/test_v800_empty_install_walk_e2e.py`.
 
+- **Quick SSH goes through the SSH gateway too.** A server that allows the gateway shows a second small SSH icon on the Hosts page, in the accent colour. It builds
+  `ssh user@name.rp` (the form `docs/sshgw.md` gives) and copies it, so a host with no route from where you sit is one click away. The page uses the server's name when no
+  other server you can reach answers to it and its id when one does, because the gateway refuses a name that two servers share and reads a name that is another server's
+  id as that id. The icon needs the gateway module, the server opted in, a Linux server and the `ssh` permission (admins always have it); the direct icon is unchanged.
+  `tools/bump-stamp.py` and a pre-commit hook came with it: the asset stamp (`?v=` and the service worker's cache name) moves with any change under `server/html`,
+  because two deploys under one stamp left the first deploy's script in the CDN in front of the demo for a day. **Held by** `tests/test_v800_quick_ssh_gateway.py` (17
+  tests that run the page's own functions under node, with five mutations) and `tests/test_v800_bump_stamp.py` (9, in a scratch repository).
 - **A host's drawer lists the business services that depend on it.** `GET /api/business-services/impact` answers which services a host belongs to,
   directly or through another service, and was written for the host's page. The drawer now shows them under **Business services that depend on this
   host**, each with its state. A service that reaches the host only through another service says so, a name opens the service's dialog, and a host in

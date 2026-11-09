@@ -1,0 +1,13 @@
+#!/bin/sh
+# pre-commit: a commit that changes a client asset moves the asset stamp too.
+#
+# A browser, and a CDN in front of a demo, key a script or a style on `?v=X.Y.Z-N` (and the service worker on CACHE_NAME). deploy-server.sh hashes only the stylesheet and the
+# dictionary, so a deploy of a changed script under the same stamp is served the old file for as long as the cache holds it (a day). `python3 tools/bump-stamp.py` moves the stamp in
+# lockstep; this hook refuses a commit that stages a file under server/html without it. Nothing else is checked, so a commit of docs or server code goes through.
+#
+# Install (once per clone):  git config core.hooksPath tools/git-hooks
+# Bypass (emergencies only): git commit --no-verify
+
+root=$(git rev-parse --show-toplevel) || exit 0
+[ -f "$root/tools/bump-stamp.py" ] || exit 0
+exec python3 "$root/tools/bump-stamp.py" --check

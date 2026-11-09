@@ -20144,6 +20144,12 @@ function _renderHomeTickets(t) {
 }
 
 // ── v4.1.0: add-on dashboard widgets (rendered from the /api/home payload) ───
+// 8.0.0: the Traffic widget is drawn by app-traffic.js, which is fetched the first time the widget has something to show.
+function _trafficWidget(tw) {
+  const paint = () => _setWidget('home-w-traffic-body', trafficWidgetHtml(tw));
+  if (typeof trafficWidgetHtml === 'function') paint(); else _loadJsModule('app-traffic.js').then(paint);
+}
+
 function _miniRows(rows) {
   if (!rows.length) return '<div class="hint">Nothing to show.</div>';
   return rows.map(r =>
@@ -20590,6 +20596,10 @@ function _renderHomeWidgets(home) {
         .concat(ti.problems ? [{ l: 'Sources in trouble', r: String(ti.problems), cls: 'c-amber' }] : []))
       + '<div class="hint pointer" data-action="showPage" data-arg="ipintel" tabindex="0">Open Threat Intel →</div>'
     : ti.on === false ? '<div class="hint">Threat Intel is off.</div>' : _miniRows([]));
+  // 8.0.0: Traffic in brief. {on: false} is "switched off"; no datum at all is a server that could not build it.
+  const tw = W.traffic || {};
+  if (tw.on) _trafficWidget(tw);
+  else _setWidget('home-w-traffic-body', tw.on === false ? '<div class="hint">Traffic is off.</div>' : _miniRows([]));
   // Actionable alerts feed — open alerts with inline ack / resolve / investigate.
   const af = (home.tickets && home.tickets.open) || [];
   _setWidget('home-w-alertsfeed-body', af.length
@@ -20704,6 +20714,7 @@ const DASH_WIDGETS = [
   { key: 'uptimetop', label: 'Longest uptime',                  opt: true, size: 'sm' },
   { key: 'helpdesk', label: 'Helpdesk tickets open',  opt: true, size: 'sm' },
   { key: 'threatintel', label: 'Threat Intel',           opt: true, size: 'sm' },
+  { key: 'traffic',     label: 'Traffic',                opt: true, size: 'sm' },
   // v6.4.2: onboarding checklist. NOT `opt` — a new operator must not have to
   // discover it to see it, which was the whole finding. Same order as
   // api.DASHBOARD_WIDGETS (a guardrail test pins the two lists equal).
@@ -23345,8 +23356,9 @@ function sshLinkIcon(d) {
   // v6.2.0: SSH is not the access path for Windows hosts (RDP/WinRM are) — don't
   // offer a quick-SSH link that would never connect.
   if (/windows/i.test(String(d.os || ''))) return '';
+  const gw = _sshGatewayIcon(d);   // 8.0.0: through the SSH gateway, for a host that allows it
   const host = (d.ip || '').trim() || (d.hostname || '').trim();
-  if (!host) return '';
+  if (!host) return gw;
   // escAttr the host since it goes into an HTML attribute.
   // v3.0.3: explicit color:var(--text) — without it the <a> takes the
   // browser's default link colour (blue), which is hard to read against
@@ -23356,7 +23368,50 @@ function sshLinkIcon(d) {
   return ` <a href="#" title="Quick SSH" data-action="quickSsh" data-arg="${escAttr(host)}" data-prevent-default` +
          ` class="isl-592">` +
          `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" class="isl-593">` +
+         `<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></a>` + gw;
+}
+
+// 8.0.0: the name the SSH gateway knows a host by, or ''. The host list carries `sshgw_enabled` only while the module is on, for a person who may use ssh, on an opted-in host.
+// The gateway refuses a name two hosts share and reads a name that is another host's id as that id: the NAME is used only when no other opted-in host answers to it, else the id.
+function _sshGatewayTarget(d) {
+  if (!d || !d.sshgw_enabled || !d.id) return '';
+  if (/windows/i.test(String(d.os || ''))) return '';
+  const ok = (s) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/.test(s);
+  const id = String(d.id), name = String(d.name || '').trim(), low = name.toLowerCase();
+  if (!ok(name)) return ok(id) ? id : '';
+  const clash = (window._devicesCache || []).some(x => x && x.sshgw_enabled && x.id !== d.id
+    && (String(x.name || '').trim().toLowerCase() === low || String(x.id).toLowerCase() === low));
+  return clash ? (ok(id) ? id : '') : name;
+}
+
+function _sshGatewayIcon(d) {
+  const target = _sshGatewayTarget(d);
+  if (!target) return '';
+  return ` <a href="#" title="Quick SSH through the gateway" data-action="quickSshGateway" data-arg="${escAttr(target)}" data-prevent-default` +
+         ` class="isl-592 c-accent">` +
+         `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" class="isl-593">` +
          `<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></a>`;
+}
+
+// Quick SSH through the gateway: quickSsh with the gateway's name for the host (`user@name.rp`, through the `Host *.rp` block the SSH Gateway page shows).
+function quickSshGateway(target) {
+  const user = getDefaultSshUsername();
+  if (!user) {
+    toast('Set a default SSH username first (Settings → Security → SSH preferences)', 'error');
+    return;
+  }
+  const host = `${target}.rp`;
+  try {
+    window.location.href = `ssh://${encodeURIComponent(user)}@${encodeURIComponent(host)}`;
+  } catch (_) { /* no handler: the copied command below still works */ }
+  const cmd = `ssh ${user}@${host}`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(cmd).then(
+      () => toast(`Copied: ${cmd}`, 'success'),
+      () => toast(`SSH command: ${cmd}`, 'info'));
+  } else {
+    toast(`SSH command: ${cmd}`, 'info');
+  }
 }
 
 // Quick SSH action. A browser cannot open a terminal itself — it can
