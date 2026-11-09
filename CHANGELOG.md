@@ -12,7 +12,7 @@ size from 80% to 300%, show a long page as tabs or as one page, keep named layou
 agent finds the apps a host runs (63 are known) and offers a monitor and a connector for each. Three connectors, an Apprise destination, four
 monitor types (SMTP, IMAP, SSH banner and NTP), a Traffic view of the addresses your Linux hosts talk to, a read-only MCP endpoint and automatic
 container image updates with a rollback are new, and the last three are off until you switch them on. Reading the whole code once more found one
-High issue, nine Medium issues, six Low or hardening items and one informational item; every one is fixed. Production runs 7.5.0, so the release is
+High issue, nine Medium issues, seven Low or hardening items and one informational item; every one is fixed. Production runs 7.5.0, so the release is
 a fast-forward of it. The release page is [docs/v8.0.0.md](docs/v8.0.0.md) and the security review is
 [docs/security-review-8.0.0.md](docs/security-review-8.0.0.md).
 
@@ -584,6 +584,13 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   environment never put it back, and 72 of them wrote one when the file was imported, so the last file imported set what every other file read until it set its own. The suite passed in the
   order it runs and failed in a subset run. The writes are in `setUpModule` now (216 of them, in 102 files) and `tests/env_guard.py` puts the variables back; `tests/test_v800_env_restored.py`
   holds both rules for every test file. Tests only: nothing in the product changed.
+- **The public SSO callback no longer lets a line break forge a line of the error log.** `GET /api/auth/oidc/callback` needs no sign-in, and when its query held `error` it wrote `error` and
+  `error_description` to the error log as they came, so a line break in either started a line of its own and anyone who could reach the server could add a `[remotepower] ...` entry. A scanner
+  reported the route as an SQL injection; it is not one (the value never reaches a query, and the answer is the same redirect for every value; the scanner read the server's own rate limit,
+  a 429, as a difference between its true and false probes), but reading the handler found the log line. Both values go through the two log helpers the heartbeat already used, `_log_field` for
+  the error code (cut to 80 characters) and a new `_log_text` for the description (cut to 240), which replace every control character and line separator with `?`. A normal error reads as it did.
+  The same scan found why its command execution module never finished: its rules for the output of `env` take four times as long for each doubling of a page, so the 450 KB index page cost
+  minutes per probe; it finishes against `/api/`. **Held by** `tests/test_v800_oidc_callback_log.py` (5 tests, each change of the fix taken out and caught).
 - **A text is checked for ASCII digits before it is given to `int()`.** `str.isdigit()` is true for a superscript two and for the digits of other scripts, and `int()` refuses the
   first of them, so `if s.isdigit() and int(s) < 10` raised for the text `²`. The generated tests had found it in the Traffic reader of `ss`; reading the code for the same shape found
   it in 17 more places, in 14 functions (the agents and the satellite each carry their own copy of the SMTP and app catalog code), that take text from outside: a watch list entry, the

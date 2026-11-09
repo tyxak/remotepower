@@ -22380,6 +22380,13 @@ def _log_field(value, limit):
     return re.sub(r'[^A-Za-z0-9._+-]', '?', str(value))[:limit]
 
 
+def _log_text(value, limit):
+    """Free text for a log line (an identity provider's error description): printable characters stay, and every control character, line break and line or
+    paragraph separator becomes '?', so one value is one line. `_log_field` is the stricter form for a token that has no spaces. 8.0.0: the public OIDC
+    callback wrote its query string to the log through neither."""
+    return re.sub(r'[\x00-\x1f\x7f-\x9f\u2028\u2029]', '?', str(value))[:limit]
+
+
 def handle_heartbeat():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -67354,10 +67361,12 @@ def handle_oidc_callback():
         time.sleep(0.5)
         respond(429, {'error': 'Too many SSO attempts — wait a minute'})
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
-    err = (qs.get('error', [''])[0] or '').strip()
+    err = (qs.get('error', [''])[0] or '').strip()[:80]
     if err:
         desc = (qs.get('error_description', [''])[0] or '')[:240]
-        sys.stderr.write(f'[remotepower] OIDC IdP returned error={err} desc={desc}\n')
+        # 8.0.0: this route is public and its query string goes into the log as text, so a line break in either value started a line of its own
+        # (a forged "[remotepower] ..." entry in the error log). The two log helpers the heartbeat already uses: one call, one line.
+        sys.stderr.write(f'[remotepower] OIDC IdP returned error={_log_field(err, 80)} desc={_log_text(desc, 240)}\n')
         # Redirect back to login with an error message
         print('Status: 302 Found')
         print(f'Location: /?oidc_error={urllib.parse.quote(err)}')

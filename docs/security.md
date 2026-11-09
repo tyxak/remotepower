@@ -34,7 +34,7 @@ test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
 - [security-review-8.0.0.md](security-review-8.0.0.md) — the release that added the Traffic view, the app finder, four handshake monitors, a
-  read-only MCP endpoint and automatic image updates: one high issue, nine medium ones and six low ones and one informational one, all of
+  read-only MCP endpoint and automatic image updates: one high issue, nine medium ones and seven low ones and one informational one, all of
   them fixed. Among them are a host settings form that cleared what it never showed, three ways to run code on a host that ignored
   quarantine, a CSV export that ran a host name as a formula, one damaged report that made three views answer 500 for everyone, an
   export meant to be committed that held header values, two places that matched another organisation's hosts by name, and a Home page that gave a
