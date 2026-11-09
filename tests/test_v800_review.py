@@ -16,7 +16,7 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 DOC = "docs/security-review-8.0.0.md"
 HEADLINE = "one High issue, nine Medium issues, seven Low or hardening items and one informational item"
-REVIEWED_ROUTES = 995          # what the route tables held when the review was written: 981 at 7.5.0 and the 14 routes 8.0.0 added
+REVIEWED_ROUTES = 997          # what the route tables held when the review was written: 981 at 7.5.0 and the 16 routes 8.0.0 added
 
 
 def raw():
@@ -78,7 +78,7 @@ class TestTheSecurityReview(unittest.TestCase):
         self.assertIn(HEADLINE.lower(), re.sub(r"\s+", " ", section).lower())
 
     def test_the_route_count_the_review_quotes_is_the_one_it_counted(self):
-        """The review says 981 entries at 7.5.0 and 14 added. 995 is the count when it was written, from the real route tables (the exact table and the
+        """The review says 981 entries at 7.5.0 and 16 added. 997 is the count when it was written, from the real route tables (the exact table and the
         dispatcher chain). The table grows with the next version's work, so what is held is that the review still says what it counted and that the live
         table has not shrunk below it."""
         os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v800-routes-"))
@@ -87,7 +87,7 @@ class TestTheSecurityReview(unittest.TestCase):
         api = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(api)
         live = len(set(str(r) for r in list(api._build_exact_routes().keys()) + api._dispatcher_routes()))
-        self.assertIn("Fourteen routes were added", text())
+        self.assertIn("Sixteen routes were added", text())
         self.assertIn("held 981 entries at 7.5.0 and holds %d now" % REVIEWED_ROUTES, text())
         self.assertGreaterEqual(live, REVIEWED_ROUTES, "the route tables hold fewer entries than the 8.0.0 review counted")
 

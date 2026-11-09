@@ -1,7 +1,7 @@
 # Security review — v8.0.0
 
-8.0.0 adds a Traffic view, an app finder in the Linux agent, four handshake monitors, a read-only MCP endpoint, automatic container image updates
-with a rollback, an Apprise destination and three connectors. This review asked two questions. The first was what each of those can be made to do
+8.0.0 adds a Traffic view, Detections (rules over behaviour), an app finder in the Linux agent, four handshake monitors, a read-only MCP endpoint, automatic container
+image updates with a rollback, an Apprise destination and three connectors. This review asked two questions. The first was what each of those can be made to do
 that it should not. The second was where a rule the code already had, written down and applied in most
 places, was missed in one or two. The second question is the one that found most things, so it was answered with lists made by a script
 (every writer of the command queue, every outbound connection, every place that turns text into a number) and with the ratio printed, not with a
@@ -15,7 +15,7 @@ Update the agents for the agent fixes (the agent version is 8.0.0). The server f
 
 ## What changed that a reviewer should look at
 
-Fourteen routes were added. The route table held 981 entries at 7.5.0 and holds 995 now.
+Sixteen routes were added. The route table held 981 entries at 7.5.0 and holds 997 now.
 
 | Route | Who may call it |
 |---|---|
@@ -24,11 +24,13 @@ Fourteen routes were added. The route table held 981 entries at 7.5.0 and holds 
 | `GET /api/app-discovery` | any signed-in role, over the hosts the caller may see |
 | `GET /api/devices/<id>/traffic`, `GET /api/traffic/fleet`, `GET /api/traffic/config` | any signed-in role, over the hosts the caller may see; the module is off by default and the routes answer 404 until it is on |
 | `POST /api/traffic/config` | the platform operator |
+| `GET /api/detections` (and `?host=<id>`) | any signed-in role, over the hosts the caller may see; the module is off by default and the route answers 404 until it is on |
+| `POST /api/detections/rules` | the platform operator |
 | `GET /api/image-updates/auto` | any signed-in role, over the hosts the caller may see (S9) |
 | `POST /api/image-updates/auto` | the platform operator, and a fresh sign-in to turn it on |
 | `GET`, `POST` and `DELETE /api/mcp` | the MCP module, off by default; `POST` only, the other two answer 405 |
 
-Five things changed what a host, a caller or an outside service can do:
+Six things changed what a host, a caller or an outside service can do:
 
 - **The MCP endpoint reads through the same gates as the rest of the server.** A tool call is a request for one of the server's own read routes,
   made as the caller with the caller's own token, and it passes through every check the web server's front door makes. A test holds the list of
@@ -39,6 +41,11 @@ Five things changed what a host, a caller or an outside service can do:
   address is checked when the name is resolved and again when the connection is made. Each handshake is tested against real local servers on all three.
 - **The Linux agent reads its own connection table once a minute when Traffic is on.** It runs `ss`, adds up what each connection moved by remote
   address, port and program, and sends the 100 busiest rows. It captures no packets and reads no payload. Program names need root. Traffic is off
+  until you switch it on.
+- **Detections runs rules over data the server already holds and raises alerts.** A sweep every five minutes reads the Traffic records, the activity log and the Threat Intel
+  store, writes one store (`detections.json`, a row for each host) and raises an alert for each new finding. It opens no connection and runs no command on a host. A finding is
+  read through the caller's own host scope by the page, the host drawer, the Data Explorer, Fleet Query, the risk score, the fleet report and the AI context, and the rules are
+  the platform operator's. A sweep raises at most 100 alerts for the whole fleet, the worst first, so one address that turns bad cannot flood an inbox. The module is off
   until you switch it on.
 - **Automatic image updates put commands on a host through the gateway every other command uses.** Maintenance mode, quarantine, audit mode and
   four-eyes approval apply to them. The mode is off, shadow (records what it would do) or on; shadow queues nothing.
@@ -150,7 +157,10 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 - **A secret in the repository or its history.** gitleaks found none; a planted token was found by the same command.
 - **A new outbound connection without the address check.** See the list above.
 - **A new writer of the command queue that does not ask for approval.** 30 writers, none neither asking nor listed.
-- **A slower heartbeat, host list, Home or fleet query.** Within 2 percent of 7.5.0.
+- **A slower heartbeat, host list, Home or fleet query.** Within 4 percent of 7.5.0, measured again at 500 hosts on both backends after Detections (the heartbeat 432 to 441 ms on the file
+  backend and 9.2 to 9.5 on SQLite).
+- **A Detections route that answers a hostile body with a server error.** The rules route was driven with 24 bodies of the wrong kind (a list, a number, a boolean, a number with
+  four hundred digits, a NaN, a key of 100,000 characters, nested lists) as three callers with three methods: 200, 400, 401, 403 and 405 only.
 
 ## Known and unchanged
 

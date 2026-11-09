@@ -6,6 +6,22 @@ this table in the same commit.** Where the bundled files carry no version
 marker the version is recorded as the best evidence available — pin it
 properly on the next update.
 
+## v8.0.0 — 2026-11-09
+
+- **Version check — nothing to update (2026-11-09).** Against the npm registry on this date `swagger-ui-dist` 5.34.1, `@xterm/xterm` 6.0.0,
+  `@xterm/addon-fit` 0.11.0, `@novnc/novnc` 1.7.0, `qrcode-generator` 2.0.4 and `@fontsource/inter`, `jetbrains-mono` and `b612` 5.3.0 are still the
+  current releases, and they are the versions in this folder.
+- **Three Actions have a newer release that is still inside the seven-day cooldown, so the pins stay.** `docker/login-action` 4.8.0 (published
+  2026-11-05, pinned 4.7.0), `sigstore/cosign-installer` 4.1.3 (2026-11-04, pinned 4.1.2) and `github/codeql-action` 4.39.3 (committed 2026-11-04,
+  pinned 4.39.2). The earliest day each can be taken is 2026-11-11 for the last two and 2026-11-12 for the first; the other seven pins are the latest
+  releases. The scanner image's nuclei (3.11.1, 2026-08-08) is the latest. The server and agent images build from `python:3.14-slim`, a floating tag
+  that moved on 2026-11-08.
+- **The server's Python dependencies are not pinned, so what a new install gets is what `make ci-parity` resolves.** `pip-audit` over that list
+  (bcrypt, cryptography, dnspython, webauthn, pysaml2, flask, gunicorn, pydantic, psycopg, mini-racer) finds no known vulnerability. The development
+  machine's own copies of dnspython (2.9.0), psycopg (3.3.6) and pydantic (2.14.1) are a patch release behind the newest; ci-parity runs the suite on
+  the newest in a fresh environment. The push, SSH gateway and web terminal daemons were run against `websockets` 17.4 (the newest, installed into a
+  separate directory; this machine's own copy is 10.4, and the installers take the newest): the 208 tests that start them pass.
+
 ## v7.5.0 — 2026-11-04
 
 - **Version check — nothing to update (2026-11-04).** Against the npm registry on this date: `swagger-ui-dist` 5.34.1, `@xterm/xterm` 6.0.0,
