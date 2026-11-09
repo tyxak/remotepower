@@ -232,6 +232,8 @@ The demo opens in the Pilot look with the B612 typeface, so a visitor sees the n
 
 The refresh timer sets the two defaults each time it runs. It runs `packaging/seed-demo-data.py` from the checkout you installed from, and for `/var/lib/remotepower-demo/` that script picks Pilot and B612 when the unit passes no `--look` or `--typeface`. A demo installed before these defaults changes at its next refresh once that checkout is updated (`git pull`, and the code update you already run); you do not need to run the installer again. Run it again only to change what the unit passes, for example to add `--classic`.
 
+Check that the unit exists with `systemctl cat remotepower-demo-seed.service`. A demo installed before the unit was added has none, and nothing re-seeds it. Run the seeder by hand from a whole checkout, as the user the demo's service runs as, for example `sudo -u www-data python3 packaging/seed-demo-data.py --data-dir /var/lib/remotepower-demo --apply --quiet`. The seeder reads `server/cgi-bin/traffic.py` beside it, so it needs the checkout and not a copy of the one file, and that user has to be able to read the checkout. Running the installer once adds the unit too.
+
 ### Docker (one-liner alternative)
 
 **Pull the prebuilt image** (published to the GitHub Container Registry on every release; multi-arch — `amd64` and `arm64`, so it runs on x86 servers and ARM SBCs alike):
