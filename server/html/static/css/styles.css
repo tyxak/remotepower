@@ -6667,6 +6667,9 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   padding: 1px 8px; cursor: pointer;
 }
 .tl-devchip:hover { border-color: var(--accent); }
+/* 8.0.0: on a phone the host chip and the replay button share one row, and the button is 40px tall with its padding while the chip took the 36px of the generic tap target:
+   the rendered census of button rows found the pair unequal. The chip is a button too, so it takes the 40px the other controls of the page are held to. */
+@media (max-width: 720px) { .tl-head .tl-devchip { min-height: 40px; } }
 
 /* v3.4.1: CVE↔patch cross-link badge on the Patches table */
 .patch-cve-badge {
