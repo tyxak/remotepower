@@ -16,6 +16,7 @@ import copy
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -158,9 +159,10 @@ def state():
     if _STATE:
         return _STATE
     seed_dir = tempfile.mkdtemp(prefix='rp-hostpurge-seed-')
+    data_dir = tempfile.mkdtemp(prefix='rp-hostpurge-data-')
     proc = subprocess.run([sys.executable, str(SEEDER), '--data-dir', seed_dir, '--apply', '--quiet'], capture_output=True, cwd=str(ROOT), timeout=900)
     assert proc.returncode == 0, 'the demo seeder failed: ' + proc.stderr.decode(errors='replace')[-300:]
-    api = load_api(tempfile.mkdtemp(prefix='rp-hostpurge-data-'))
+    api = load_api(data_dir)
     rels = sorted(p.relative_to(seed_dir).as_posix() for p in Path(seed_dir).rglob('*.json'))
     for rel in rels:
         api.save(api.DATA_DIR / rel, json.loads((Path(seed_dir) / rel).read_text()))
@@ -189,11 +191,13 @@ def state():
                     residue[(rel, kind, pat)] += 1
             if host in Path(rel).name and data:
                 residue[(rel, 'file', '')] += 1
-    _STATE.update(api=api, rels=rels, hosts=hosts, ids=ids, fired=fired, residue=residue, before_named=before_named, untouched=untouched)
+    _STATE.update(api=api, rels=rels, hosts=hosts, ids=ids, fired=fired, residue=residue, before_named=before_named, untouched=untouched, dirs=(seed_dir, data_dir))
     return _STATE
 
 
 def tearDownModule():
+    for d in _STATE.get('dirs', ()):
+        shutil.rmtree(d, ignore_errors=True)       # the seed and the data of about 7 MB each are on tmpfs
     _STATE.clear()
 
 
@@ -330,7 +334,9 @@ class TestThroughTheRealPurge(unittest.TestCase):
 class TestAStoreTheHostWasNeverIn(unittest.TestCase):
 
     def test_the_purge_does_not_create_it(self):
-        api = load_api(tempfile.mkdtemp(prefix='rp-hostpurge-empty-'))
+        empty = tempfile.mkdtemp(prefix='rp-hostpurge-empty-')
+        self.addCleanup(shutil.rmtree, empty, True)
+        api = load_api(empty)
         names = [n for n in HP.STORES if n not in ('devices.json', 'config.json')]
         self.assertEqual([n for n in names if api.backend_exists(api.DATA_DIR / n)], [], 'control: the empty instance starts without them')
         api.save(api.DEVICES_FILE, {'zz1': {'id': 'zz1', 'name': 'zz1', 'token': 't1'}})
