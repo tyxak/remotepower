@@ -249,6 +249,15 @@ class TestWhatIsLeft(unittest.TestCase):
         left = {rel for (rel, _kind, _pat) in s['residue']}
         self.assertLess(len(left), len(s['before_named']) / 2, '%d of %d stores still name a deleted host' % (len(left), len(s['before_named'])))
 
+    def test_the_documents_quote_the_number_the_test_counted(self):
+        s = state()
+        left = {rel for (rel, _kind, _pat) in s['residue']}
+        review = re.sub(r'\s+', ' ', (ROOT / 'docs' / 'security-review-8.0.0.md').read_text())
+        self.assertIn('%d of the %d stores of the demo instance still name a deleted host' % (len(left), len(s['rels'])), review)
+        changelog = re.sub(r'\s+', ' ', (ROOT / 'CHANGELOG.md').read_text())
+        self.assertIn('stores naming the host, and %d do now' % len(left), changelog)
+        self.assertIn('left 66 of its %d stores naming the host' % len(s['rels']), changelog)
+
     def test_a_store_that_did_not_name_the_host_is_left_exactly_as_it_was(self):
         self.assertEqual(state()['untouched'], [], 'purging the first host changed stores that never named it')
 
