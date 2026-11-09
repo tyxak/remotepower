@@ -562,8 +562,25 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
 - **Deleting a host now clears the settings that are kept by host.** The purge cleared four of the eight settings that are a map of host id to something and left the other four:
   the patch alert flag, the disabled checks, the DNS result and, new in 8.0.0, the hidden apps. None of them holds a secret and nothing reads them for a host that is gone, but they
   stayed for good. The eight are read from the code, and a ninth that the purge misses fails the build (`tests/test_v800_purge_config_maps.py`, which also deletes a host and checks
-  that the other host keeps its entry). Not changed: about a quarter of the stores still name a deleted host (alerts, tickets, the audit trail, maintenance windows, runbooks, the
-  CMDB). Those are history or records a person wrote, and they are kept on purpose.
+  that the other host keeps its entry). The stores that still named a deleted host are the next entry.
+- **Deleting a host now takes its own data with it.** The purge cleared the stores it knew by hand and no others: deleting each of the 18 hosts of the demo in turn left 66 of its 148
+  stores naming the host, and 25 do now, each of them listed with the reason it stays. It removes what was kept for the host: its CMDB record (notes, documents and credentials), its runbook, its
+  trend rings, baselines and findings, and the events about it in the activity feed (the old filter looked for a `device_id` at the top of an event, and the server keeps the host under
+  `payload`, so it had never removed one). It removes what was set up to act on the host or to stay quiet about it: scheduled commands, backup jobs, scan and network scan schedules, mutes,
+  maintenance windows for that host alone, container stacks and a tunnel that ended at it. It takes the host out of groups, business services, script assignments, knowledge base links and the
+  *connected to* and *depends on* of other hosts, and unbinds an integration that ran on it. A webhook token and an automation rule that name only that host are switched off and kept, so you can
+  see what they were for and point them elsewhere (a token pinned to a deleted host went on raising alerts that named it), and an approval still waiting for the host is declined. Alerts (the
+  open ones are resolved, as before), tickets, time entries, the audit trail, command history, receipts, gateway sessions, batch runs and scans stay, because they say what happened. So do
+  the settings you wrote that name the host (a custom check, a drift assignment, a monitor that ran on it), which match nothing once it is gone. The rules are one table
+  (`server/cgi-bin/host_purge.py`) and a store with nothing to clear is read and never locked, so a bulk delete does not rewrite 45 stores for each host. See `docs/data-retention.md`.
+  **Held by** `tests/test_v800_host_purge.py` (30 tests): it loads the demo instance into the active backend, deletes every host with the real purge, reads every store back, and fails on a place
+  that still names a deleted host and is not listed with its reason (or on a listed place that no longer does); each kind of rule has literal cases, and the shapes the server writes
+  (an event, an approval, a token, a rule, an integration) go through the real purge. Thirteen changes to the rules and the wiring were taken out again to see a test fail, and an unbound integration survived the first round
+  until it had a test of its own.
+- **Test files put the request variables back.** 79 of the 167 test files that write a request variable (`QUERY_STRING`, `REQUEST_METHOD`, a header and the like) into the process
+  environment never put it back, and 72 of them wrote one when the file was imported, so the last file imported set what every other file read until it set its own. The suite passed in the
+  order it runs and failed in a subset run. The writes are in `setUpModule` now (216 of them, in 102 files) and `tests/env_guard.py` puts the variables back; `tests/test_v800_env_restored.py`
+  holds both rules for every test file. Tests only: nothing in the product changed.
 - **A text is checked for ASCII digits before it is given to `int()`.** `str.isdigit()` is true for a superscript two and for the digits of other scripts, and `int()` refuses the
   first of them, so `if s.isdigit() and int(s) < 10` raised for the text `²`. The generated tests had found it in the Traffic reader of `ss`; reading the code for the same shape found
   it in 17 more places, in 14 functions (the agents and the satellite each carry their own copy of the SMTP and app catalog code), that take text from outside: a watch list entry, the

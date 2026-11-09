@@ -965,6 +965,7 @@ import time_periods as time_periods_mod   # 7.4.9: named time periods, the one r
 import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host and the grade of its listeners (pure)
 from secure_eq import secure_eq as _secure_eq   # constant-time comparison of secrets that never raises (7.4.9)
 import store_shapes                             # the shape each store file is expected to have, and its repair (7.4.9)
+import host_purge                               # 8.0.0: what deleting a host removes from the stores that name it (pure)
 import upgrade_mode as upgrade_mode_mod   # a host's apt upgrade mode, Standard or Extended (Discussion #30; pure)
 import zfs_stats as zfs_stats_mod   # 7.4.9: a host's ZFS cache counters and datasets, validated (pure)
 import peer_direction as peer_direction_mod   # v7.4.6 (#58): which way an observed TCP connection runs (pure)
@@ -16136,16 +16137,20 @@ def _purge_device(dev_id):
             except Exception:
                 pass
 
-        # fleet_events: filter out events for this device
-        try:
-            with _LockedUpdate(FLEET_EVENTS_FILE) as fe:
-                if isinstance(fe, dict):
-                    fe['events'] = [
-                        e for e in (fe.get('events') or [])
-                        if e.get('device_id') != dev_id
-                    ]
-        except Exception:
-            pass
+        # 8.0.0: the host's own data in the stores _SIMPLE_STORES does not list, the schedules and mutes that name only
+        # it, and its place in groups, services, assignments and links; the rules, and the stores that stay on purpose,
+        # are host_purge.RULES and tests/test_v800_host_purge.py. This replaces the fleet-events filter that stood here: it
+        # looked for a top-level device_id, and _record_fleet_event keeps the host under `payload`, so it never matched.
+        _purged_at = int(time.time())
+        for _name in host_purge.STORES:
+            try:
+                _path = DATA_DIR / _name
+                if not host_purge.affects(_name, _load_ro(_path), dev_id):
+                    continue
+                with _LockedUpdate(_path) as _data:
+                    host_purge.apply(_name, _data, dev_id, _purged_at)
+            except Exception:
+                pass
 
         # config: stale-notified flags keyed by dev_id
         try:

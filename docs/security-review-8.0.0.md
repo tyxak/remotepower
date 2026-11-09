@@ -132,12 +132,6 @@ Five things changed what a host, a caller or an outside service can do:
 
 Nothing rated Medium or higher is open. These are smaller, and none of them is a way to attack an installation.
 
-- **A deleted host is still named by records that outlive it.** About a quarter of the stores in the demo instance (32 to 37 of 148) name a host that was deleted:
-  alerts, tickets, the audit trail, maintenance windows, runbooks and the CMDB. They are history or records a person wrote. Which of them should go
-  with the host is a decision for the operator and is not made here.
-- **79 of the 167 test files that put a request variable in the process environment (`QUERY_STRING`, `REQUEST_METHOD`, a header and the like) never
-  put it back.** They pass in the order the suite runs, because each later file sets what it reads, and one of them can fail a test in a subset run. Two
-  files did, a test and a helper that 26 test files use, and both put the variables back now. They are tests, not the product.
 - **Translations.** The strings added in 8.0.0 are owed a read by a native speaker in each of the six languages. Register (Sie, vous, usted) and
   the labels that name buttons were checked by script and by reading; wording was not.
 
@@ -153,6 +147,10 @@ Nothing rated Medium or higher is open. These are smaller, and none of them is a
 ## Known and unchanged
 
 - A fully compromised server is root on its agents, by design (see the threat model).
+- **A deleted host's history stays.** Deleting a host removes the data kept for it, the schedules and mutes that name only it, and its place in groups, services and links
+  (see [data-retention.md](data-retention.md)). Alerts, tickets, time entries, the audit trail, command history, receipts and gateway sessions keep its id, because they say what
+  happened; 25 of the 148 stores of the demo instance still name a deleted host for that reason, and each is listed with its reason in `tests/test_v800_host_purge.py`. The audit
+  trail is append-only on purpose. A ticket or a time entry can be deleted by hand.
 - **The knowledge base is the operator's shared library.** Every signed-in user reads every article; the hosts an article points at are filtered to the
   ones the reader can see (7.4.9). A tenant that wants its own articles has none.
 - **A role scoped to groups, tags or sites limits what a user can change, not what they can see.** Give a person who must not see other hosts a

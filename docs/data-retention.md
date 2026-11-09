@@ -131,14 +131,29 @@ read as "kept for the life of the record":
 
 | Store | Bound |
 |---|---|
-| Hosts, groups, tags, sites | Until the host is deleted. Deleting a host removes its telemetry with it. |
-| CMDB assets and the credential vault | Until an operator deletes them. The vault is separately encrypted. |
+| Hosts, groups, tags, sites | Until the host is deleted. [Deleting a host](#deleting-a-host) removes the data kept for it. |
+| CMDB assets and the credential vault | A host's CMDB record, with its notes, documents and credentials, goes when the host is deleted. Credentials scoped to a site, group or tag stay until an operator deletes them. The vault is separately encrypted. |
 | Tickets, KB articles | Until deleted. At 5,000 of either, new ones are refused. |
-| Contacts, runbooks, saved scripts | Until deleted. |
+| Contacts, saved scripts | Until deleted. |
+| Runbooks | Until deleted, or until the host they were written for is deleted. |
 | Users and API keys | Until deleted or deprovisioned. API keys that expired more than 30 days ago are removed by the daily sweep. Deleting a user does **not** rewrite the audit entries that name them. That is on purpose: it is what keeps the log evidence. |
 | Host trend rings (thermal, SMART, GPU, disk I/O, container stats, custom metrics) | A fixed number of samples per series, for example 288 GPU samples (about a day) and 720 samples per custom metric. |
 | Service history | The last 100 state changes per host and unit. |
 | DR backups | Whatever your backup destination keeps. RemotePower does not prune them. |
+
+### Deleting a host
+
+Deleting a host, one at a time or in bulk, removes what was kept for it and what only makes sense with it. It keeps the records of what happened.
+
+**Removed with the host**
+
+- Its data: telemetry and trend rings, baselines and findings, its CMDB record and its runbook, and the events about it in the activity feed.
+- What was set up to act on it or to stay quiet about it: scheduled commands, backup jobs, scan and network scan schedules, mutes, maintenance windows for that host alone, container stacks, and tunnels that end at it.
+- Its place in something that stays: groups, business services, script assignments, knowledge base links, and the *connected to* and *depends on* of other hosts. An integration that ran on the host is unbound and kept.
+
+**Switched off and kept.** An automation rule or a webhook token that names only that host stays in its list, switched off, so you can see what it was for and point it at another host. An approval that was still waiting for the host is declined.
+
+**Kept.** Alerts (the open ones are resolved), tickets, time entries, the audit trail, command history, receipts, gateway sessions, batch runs and scans. They say what happened, so they keep the host's id. So do the settings you wrote that name the host, such as a custom check, a drift assignment or a monitor that ran on it. They match nothing once the host is gone.
 
 ---
 
