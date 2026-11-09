@@ -296,6 +296,16 @@ class TestCounts(FixtureCase):
         self.assertIn('| 3 event types', feats)
         self.assertIn('| 2 connectors (+ Custom HTTP)', feats)
 
+    def test_a_readme_that_states_no_line_count_is_not_a_warning(self):
+        """The README lost its '**~N lines**' sentence in the July 2026 rewrite, and `counts` warned about it on every run since."""
+        readme = self.tmp / 'README.md'
+        readme.write_text(readme.read_text().replace('**~2,000 lines** of server Python, one HTML file.\n\n', ''))
+        self.assertNotIn('lines**', readme.read_text(), 'control: the sentence is gone from the fixture')
+        rc, out = run(self.root_args('counts', apply=True))
+        self.assertNotIn('WARN', out, out)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn('lines**', readme.read_text(), 'nothing is added where the README never said it')
+
 
 class TestVerify(FixtureCase):
     def _make_clean(self):

@@ -372,7 +372,7 @@ class Pruner(Concern):
 # --------------------------------------------------------------------------
 
 class Counter(Concern):
-    """Refresh drifting counts: README server-Python lines + connector count,
+    """Refresh drifting counts: README server-Python lines (where it states them) + connector count,
     docs/features.md connector + webhook-event counts."""
 
     def run(self):
@@ -393,10 +393,11 @@ class Counter(Concern):
                     for p in sorted(cgi.rglob('*.py')))
         rounded = int(round(total / 1000.0)) * 1000
         print(f'server Python line count: {total} → ~{rounded:,}')
-        # exactly ONE spot in README ("What is it?" para) per the checklist
+        # one spot in README ("What is it?" para), when the README states a line count: the 2026-07-11 rewrite dropped the sentence, and a count that
+        # nobody prints cannot drift, so a README without it is not a warning (min_hits=0)
         self.edit(self.root / 'README.md',
                   r'(\*\*~)[\d,]+( lines\*\*)',
-                  rf'\g<1>{rounded:,}\g<2>')
+                  rf'\g<1>{rounded:,}\g<2>', min_hits=0)
 
     def _connectors(self):
         """The named connectors in the RUNTIME registry, excluding the custom
