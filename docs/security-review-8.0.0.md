@@ -132,8 +132,9 @@ Five things changed what a host, a caller or an outside service can do:
 
 Nothing rated Medium or higher is open. These are smaller, and none of them is a way to attack an installation.
 
-- **Translations.** The strings added in 8.0.0 are owed a read by a native speaker in each of the six languages. Register (Sie, vous, usted) and
-  the labels that name buttons were checked by script and by reading; wording was not.
+- **Translations.** No native speaker has read the strings added in 8.0.0, in any of the six languages. German, French and Spanish were read in full by the assistant that wrote the release
+  against the existing glossary, Chinese, Hindi and Arabic as a sample of 36 entries, and the read corrected 117 texts (informal forms, the Settings page named with a word the menu does
+  not use, a few terms). Register (Sie, vous, usted) and the word for the Settings page are held by tests; wording is not. A sheet per language with every changed entry is ready for a reviewer.
 
 ## Not found
 

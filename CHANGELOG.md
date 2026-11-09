@@ -612,6 +612,14 @@ the Settings page. And every sidebar page of an empty install, as it looks on th
   Alarm. The shape checks (placeholders, length, punctuation, missing languages) found nothing in the 632 entries this release added; reading a sample in German, French and Spanish
   found all of this. **Held by** `tests/test_v800_translation_register.py`, which reads DICT and HTMLDICT as the browser does and fails on an informal pronoun, possessive or
   imperative in German, French, Spanish or Chinese that is not listed with a reason.
+- **The translations were read in full for German, French and Spanish.** The 698 entries this release added or changed were read, and Chinese, Hindi and Arabic as a sample of 36. It found
+  117 texts to correct in 101 entries. Sixteen instructions were in the informal du, tu and tú forms in a product that writes to the reader as Sie, vous and usted (`Versuche es erneut`,
+  `Installe-le`, `Inténtalo`). 50 Spanish texts sent you to *Ajustes* when the menu says *Configuración* (only 34 of the 87 texts that name the Settings page used the menu's word), and eight
+  Hindi texts wrote *Settings* in Latin letters where the menu has *सेटिंग्स*. French called the shadow mode *Ombre* in the new texts and *Observation* everywhere else, German said *Agents* for
+  the plural of agent in ten texts where the older ones say *Agenten*, and a Spanish relay satellite was a *satélite de relevo* where the existing texts have *retransmisión*. Ten Hindi
+  texts kept an English word in Latin letters where the others write it in Devanagari, and one Arabic verb did not agree with its feminine noun. **Held by** `tests/test_v800_translation_register.py`,
+  which now also lists the informal imperatives the read found, and `tests/test_v800_translation_page_names.py`, which requires every text that names the Settings page to carry the menu's word
+  in all six languages (87 texts; three that quote another product's menu are listed). A native speaker's read is still open: it is the first item of the review's Open section.
 - **The top bar no longer runs off the right edge of a window between a phone and 1280 px.** Its controls need 825 px with the fleet readout and its trend line, the sidebar takes
   248 px, and the page hides what overflows sideways, so on 82 of 85 pages at 768 and at 1024 px the theme button and the hide-the-bar button were out of reach. The 7.5.0 and 8.0.0
   changes to the bar had each fitted at 1440 px. Below 1290 px the Auto-refresh label goes, below 1280 px the trend line, below 1220 px the readout, and from 721 to 899 px the density,

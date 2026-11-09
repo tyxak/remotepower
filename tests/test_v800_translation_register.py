@@ -2,7 +2,7 @@
 """8.0.0: the translations address the reader in the register the product uses.
 
 German, French and Spanish write to the reader formally (Sie, vous, usted) and Chinese with 您. Of the 632 entries 8.0.0 added, 26 had slipped into the informal form (du, tu, tú,
-你): the SSH gateway wizard, the branding card and a few hints. A reader of the German page saw Sie in one box and dein in the next. The population is every entry of DICT, read
+你): the SSH gateway wizard, the branding card and a few hints, and a read of all of them found 16 more in informal imperatives (Versuche es erneut, Installe-le, Inténtalo). A reader of the German page saw Sie in one box and dein in the next. The population is every entry of DICT, read
 by evaluating the object literal with node as the browser does; the rule is that no entry carries an informal pronoun or possessive, except the few listed here with the reason
 (a command called du, a verb that looks like the pronoun, a quoted system prompt).
 """
@@ -38,13 +38,15 @@ process.stdout.write(JSON.stringify({DICT: literal('DICT'), HTMLDICT: literal('H
 """
 
 INFORMAL = {
-    'de': re.compile(r'\b(du|dich|dir|dein|deine|deinen|deinem|deiner|deines|euch|euer|eure|euren|eurem|eurer)\b'),
-    'fr': re.compile(r"\b(tu|toi|ton|ta|tes)\b|\bt'|-toi\b|-tu\b"),
+    # the informal imperatives are listed by phrase, the ones a read of the 8.0.0 entries found: no pattern tells an imperative from a third-person description in French and Spanish
+    # (`ejecuta` is both), so this list names forms that can only be an instruction and cannot promise there are no others
+    'de': re.compile(r'\b(du|dich|dir|dein|deine|deinen|deinem|deiner|deines|euch|euer|eure|euren|eurem|eurer)\b|\bVersuche es\b|\bInstalliere (?:ihn|die|das|es)\b|\bprüfe dann\b'),
+    'fr': re.compile(r"\b(tu|toi|ton|ta|tes)\b|\bt'|-toi\b|-tu\b|\bRéessaie\b|\bInstalle(?:-(?:le|la|les)| la)\b|\bdéfinis RP_|\bvérifie à nouveau\b"),
     # only forms that cannot be a third-person description: the possessive and the pronoun, the verbs in -as/-es of the second person, and the informal imperative with a
     # clitic, listed by word because the formal one of another verb class has the same ending (déjalo is informal, ábralo is formal)
     'es': re.compile(r'\b(tu|tus|tú|puedes|quieres|necesitas|tienes|desactivas|hayas|cambies|conéctate|asegúrate|'
-                     r'(?:déj|guárd|cópi|pég|cámbi|actív|desactív|revís|instál|desbloqué|iníci|edít|ejecút|pruéb|compruéb|actualíz|confírm|aplíc|búsc|cré|ús|bórr|mír|quít|habilít|'
-                     r'deshabilít|reiníci|modifíc|ajúst|cárg|enví)al[oa]s?|(?:ábr|resuélv|vuélv|elíg|escríb|añád)el[oa]s?)\b', re.I),
+                     r'(?:déj|guárd|cópi|pég|cámbi|actív|desactív|revís|instál|desbloqué|iníci|edít|ejecút|pruéb|compruéb|actualíz|confírm|aplíc|búsc|cré|ús|bórr|mír|quít|habilít|intént|analíz|despliég|configúr|'
+                     r'deshabilít|reiníci|modifíc|ajúst|cárg|enví)al[oa]s?|(?:ábr|resuélv|vuélv|elíg|escríb|añád)el[oa]s?|Instala la)\b', re.I),
     'zh': re.compile('你'),
 }
 
@@ -91,6 +93,11 @@ class TestRegister(unittest.TestCase):
         planted = {'Where do your users reach the gateway?': {'de': 'Wo erreichen deine Benutzer das Gateway?', 'fr': 'Où tes utilisateurs joignent-ils la passerelle ?',
                                                               'es': '¿Dónde llegan tus usuarios a la pasarela?', 'zh': '你的用户在哪里访问网关？'}}
         self.assertEqual(sorted(l for l, _, _ in informal(planted)), ['de', 'es', 'fr', 'zh'])
+        imperative = {'a': {'de': 'Installiere ihn und prüfe dann erneut.', 'fr': 'Installe-le, puis réessaie.', 'es': 'Instala la biblioteca.'},
+                      'b': {'de': 'Versuche es erneut.', 'fr': 'Réessaie.', 'es': 'Analízalos con bash. Inténtalo de nuevo.'}}
+        self.assertEqual(sorted((l, k) for l, k, _ in informal(imperative)), [('de', 'a'), ('de', 'b'), ('es', 'a'), ('es', 'b'), ('fr', 'a'), ('fr', 'b')], 'control: the informal imperatives are seen')
+        formal_imperative = {'a': {'de': 'Installieren Sie ihn und prüfen Sie dann erneut.', 'fr': 'Installez-le, puis réessayez.', 'es': 'Instale la biblioteca. Inténtelo de nuevo.'}}
+        self.assertEqual(informal(formal_imperative), [], 'control: the formal imperatives pass')
         formal = {'x': {'de': 'Wo erreichen Ihre Benutzer das Gateway?', 'fr': 'Où vos utilisateurs joignent-ils la passerelle ?', 'es': '¿Dónde llegan sus usuarios?', 'zh': '您的用户'}}
         self.assertEqual(informal(formal), [], 'control: the formal forms pass')
 
