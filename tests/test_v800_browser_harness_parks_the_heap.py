@@ -25,8 +25,9 @@ class TestTheHarnessParksTheOldHeap(unittest.TestCase):
     def test_what_exists_when_a_stack_starts_is_frozen(self):
         keep = [{"n": i, "pair": [i, i]} for i in range(200_000)]          # tracked containers, the kind the suite leaves behind
         try:
-            before = gc.get_freeze_count()
-            self.assertLess(before, len(keep) * 2, "control: this list was not frozen before the call")
+            before = gc.get_freeze_count()                  # not zero in the whole suite: an earlier call has parked everything that existed then
+            gc.collect()
+            self.assertEqual(gc.get_freeze_count(), before, "control: a collection alone parks nothing")
             H.park_the_old_heap()
             self.assertGreaterEqual(gc.get_freeze_count() - before, len(keep), "the objects that existed at the call are out of the collector's sight")
         finally:
