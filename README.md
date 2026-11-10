@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="docs/screenshots/RP.png" alt="RemotePower" width="760">
+<img src="docs/screenshots/RP.png" alt="RemotePower: self-hosted fleet monitoring and remote management for Linux, Windows and macOS" width="760">
 
 **Self-hosted fleet monitoring and remote management for Linux, Windows and
 macOS.** One server, one small agent per host, and a web UI covering
