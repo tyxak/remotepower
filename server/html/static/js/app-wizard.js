@@ -65,7 +65,7 @@ function wizStart(name, arg) {
   o.addEventListener('keydown', _wizKey);
   document.body.appendChild(o);
   openModal('wizard-modal');
-  _wizShow(_wizSteps()[0].n);           // the first step that applies (a wizard started from an app an agent found has no use for the first)
+  _wizShow(_wizSteps()[0].n, true);     // the first step that applies (a wizard started from an app an agent found has no use for the first)
 }
 
 // Enter in a text box goes on, like the button does (a checkbox, a radio button and a button keep their own Enter).
@@ -106,7 +106,8 @@ function _wizBusy(on) {
   if (p) { if (on) p.setAttribute('aria-busy', 'true'); else p.removeAttribute('aria-busy'); }
 }
 
-function _wizShow(i) {
+// `opening` is the first draw after the dialog opens: openModal moves the focus in that same frame, and this move has to come after it.
+function _wizShow(i, opening) {
   const w = _wiz;
   if (!w) return;
   w.i = i;
@@ -123,7 +124,7 @@ function _wizShow(i) {
   const next = document.getElementById('wiz-next');
   next.textContent = typeof step.primary === 'function' ? step.primary(w.st) : (step.primary || (last ? 'Close' : 'Next'));
   document.getElementById('wiz-live').textContent = step.label;
-  requestAnimationFrame(() => _wizFocus(body));
+  requestAnimationFrame(() => _wizFocus(body, !opening));
 }
 
 // The numbered list at the top. items: [{label, n}] in order; `at` is the number of the step that is showing. A step that is done
@@ -148,7 +149,11 @@ function _wizStepper(ol, items, at, canJump, jump) {
 }
 
 // Focus goes to the first thing to answer on the step: the chosen radio button of a group, else the first box, else the first button.
-function _wizFocus(body) {
+// It runs a frame after the step is drawn. On a step drawn inside a dialog that is open already, a control that took the focus in that frame
+// keeps it (a person or a password manager that was quick, a script that types): moving it again sent the next characters into the first box.
+function _wizFocus(body, keep) {
+  const at = document.activeElement;
+  if (keep && at && at !== body && body.contains(at)) return;
   const f = body.querySelector('input[type=radio]:checked')
     || body.querySelector('input:not([type=hidden]):not([type=radio]):not([disabled]), select:not([disabled]), textarea:not([disabled])')
     || body.querySelector('input[type=radio]')

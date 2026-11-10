@@ -89,6 +89,7 @@ def setUpModule():
     proc = subprocess.run([sys.executable, str(seeder), "--data-dir", data_dir, "--apply"], capture_output=True, cwd=str(_ROOT), timeout=900)
     if proc.returncode != 0:
         raise unittest.SkipTest("demo seeder failed: " + proc.stderr.decode(errors="replace")[-300:])
+    _set_the_seeded_instances_aside(data_dir)
     from e2e_harness import start_stack
     pw = sync_playwright().start()
     try:
@@ -104,6 +105,25 @@ def setUpModule():
         pw.stop()
         raise unittest.SkipTest("app stack not available: %s" % exc)
     _STATE.update(pw=pw, browser=browser, base=base, shutdown=shutdown, data_dir=data_dir)
+
+
+def _set_the_seeded_instances_aside(data_dir):
+    """Switches off the instances the seed holds; they stay in the list, with their secrets.
+
+    Saving the list asks for a poll of every enabled instance at the next request ("force a re-poll"), and this stack has no scheduler process
+    to take it, so the page's own request after a save runs the poll inline, for up to 25 s (_INTEGRATIONS_POLL_BUDGET_S). The seed's instances
+    are at 10.0.x.x addresses, and how long those take to fail depends on the network the machine is on: 22 s on one that drops packets for
+    10.0.0.x, a few milliseconds on one that refuses them. That made the wait for the wizard to close, and the wait for the next dialog to
+    open, a race against the network. Nothing here is about the health of those instances, and the poll of the one a test adds is quick.
+    """
+    path = Path(data_dir) / "config.json"
+    cfg = json.loads(path.read_text())
+    seeded = [i for i in (cfg.get("integrations") or []) if isinstance(i, dict)]
+    if not seeded:        # a skip would read as a pass: the tests below need instances in the list
+        raise RuntimeError("the demo seed holds no integration, which these tests start from")
+    for inst in seeded:
+        inst["enabled"] = False
+    path.write_text(json.dumps(cfg))
 
 
 def tearDownModule():

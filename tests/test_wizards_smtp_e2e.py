@@ -372,6 +372,35 @@ class TestTheEmailGuide(unittest.TestCase):
         self.next()
         self.assertEqual(self.message(), "This field is needed", "a user name brings the need for a password")
 
+    # The focus goes to the first box a frame after a step is drawn. A person, a password manager or a test that types at once can focus another
+    # box inside that frame, and the move used to pull the focus back: the next characters went into the first box (the From address ended in
+    # the host box; a user name was never typed, so its check passed). Two of these races failed in a run of the whole suite, in two modules.
+    # Here the box takes the focus in the same task as the draw, which is the worst case, and the frame is waited for.
+    def after_the_frame(self, draw, box):
+        return self.page.evaluate("""([draw, box]) => new Promise(done => {
+            document.getElementById(draw).click();                     // draws the step and queues the focus move for the next frame
+            document.getElementById(box).focus();                      // a box takes the focus before that frame
+            requestAnimationFrame(() => requestAnimationFrame(() => done(document.activeElement && document.activeElement.id)));
+        })""", [draw, box])
+
+    def test_a_box_that_takes_the_focus_in_the_frame_after_back_keeps_it(self):
+        self.to_connection("local")
+        self.fill("#wiz-from", "guide@example.com")
+        self.next()
+        self.page.wait_for_selector("#wiz-rec")
+        self.page.evaluate("() => document.getElementById('wiz-back').click()")           # control: with nothing focused in the step, the first box gets it
+        self.page.wait_for_function("() => document.activeElement && document.activeElement.id === 'wiz-host'", timeout=5000)
+        self.next()
+        self.page.wait_for_selector("#wiz-rec")
+        self.assertEqual(self.after_the_frame("wiz-back", "wiz-user"), "wiz-user", "the focus move took the focus from the box that had it")
+        self.assertEqual(self.page.input_value("#wiz-host"), "127.0.0.1", "nothing was typed, so the host box is as the service set it")
+
+    def test_a_box_that_takes_the_focus_in_the_frame_after_next_keeps_it(self):
+        self.open()
+        self.pick("local")
+        self.assertEqual(self.after_the_frame("wiz-next", "wiz-from"), "wiz-from", "the focus move took the focus from the box that had it")
+        self.assertEqual(self.page.input_value("#wiz-host"), "127.0.0.1", "nothing was typed, so the host box is as the service set it")
+
     def test_the_recipients_are_checked(self):
         self.to_connection("local")
         self.fill("#wiz-from", "guide@example.com")

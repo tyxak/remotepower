@@ -767,6 +767,14 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   nothing is stored and the next press asks again. Found while testing the Automatic updates card; held by
   `test_on_asks_for_the_password_first_and_stores_nothing_if_it_is_not_given` in `tests/test_v800_image_autoupdate_e2e.py`.
 
+- **A wizard no longer takes the focus back from the box you just clicked.** Each step moves the focus to its first box a frame after it is drawn.
+  A box that you, a password manager or a script had focused inside that frame lost the focus to the first box, and what came next was typed
+  there: a From address ended up after the host name, and a user name was never typed, so its check passed. A step drawn inside a wizard that
+  is open now leaves the focus where it is; the first step of a wizard still starts on the chosen choice. Found by a browser test that failed
+  once in a run of the whole suite and never alone, then reproduced by typing within the first frame (about one try in ten under load); held by
+  `test_a_box_that_takes_the_focus_in_the_frame_after_back_keeps_it` and `..._after_next_keeps_it` in `tests/test_wizards_smtp_e2e.py`, which
+  place the focus in the same task as the draw and fail on the old code.
+
 ### The tab names the page
 
 - **Every page has a heading a screen reader can find.** The page title and every card title were divs: four headings in all of the 85 pages,
