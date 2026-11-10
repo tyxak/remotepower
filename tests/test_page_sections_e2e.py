@@ -323,21 +323,31 @@ class TestPageSections(unittest.TestCase):
         self.assertNotEqual(self.page.evaluate(f"getComputedStyle(document.querySelector('#page-{name} .pg-tabs')).display"), 'none')
         self.assertTrue(any(not c['shown'] for c in self._cards(name)), 'every card still shows with tabs chosen')
 
+    def _select_shows(self, value, seconds=20):
+        """Waits for the Page sections select to hold `value`. The select is in the markup, so it is attached at once, and it holds what the
+        last visit left until the page has built its Appearance card, which it does after a request: 27 ms on a quiet machine, and longer
+        than the fixed wait that stood here when other suites used it (the walk before this test leaves one long page chosen, so the stale
+        value read 'stacked'). The assertion that follows says what the select held if it never got there."""
+        try:
+            self.page.wait_for_function("(v) => document.getElementById('acct-page-sections').value === v", arg=value, timeout=seconds * 1000)
+        except Exception:
+            pass
+
     def test_the_appearance_switch_writes_the_choice_and_redoes_the_open_page(self):
         self.page.evaluate("() => { localStorage.removeItem('pgtab.account'); showPage('account'); }")
         self.page.wait_for_selector('#page-account.active')
         self.page.wait_for_selector('#acct-page-sections', state='attached')
-        self.page.wait_for_timeout(600)
         sel = self.page.locator('#acct-page-sections')
+        self._select_shows('tabs')
         self.assertEqual(sel.input_value(), 'tabs')
         self.assertTrue(any(not c['shown'] for c in self._cards('account')), 'tabs are on but every account card shows')
         sel.select_option('stacked')
         self.page.wait_for_timeout(300)
         self.assertEqual(self.page.evaluate("localStorage.getItem('rp_pagetabs')"), 'stacked')
         self.assertTrue(all(c['shown'] for c in self._cards('account')), 'the open page was not redone')
-        # the select shows the stored value the next time the page is built
-        self.page.evaluate("() => { showPage('sites'); showPage('account'); }")
-        self.page.wait_for_timeout(600)
+        # the select shows the stored value the next time the page is built: it is put on the other value first, so only a build can bring it back
+        self.page.evaluate("() => { document.getElementById('acct-page-sections').value = 'tabs'; showPage('sites'); showPage('account'); }")
+        self._select_shows('stacked')
         self.assertEqual(self.page.locator('#acct-page-sections').input_value(), 'stacked')
         self.page.locator('#acct-page-sections').select_option('tabs')
         self.page.wait_for_timeout(300)
