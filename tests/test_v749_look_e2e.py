@@ -237,6 +237,17 @@ class TestTheLookSwitchInABrowser(unittest.TestCase):
     def state(self, page):
         return page.evaluate(STATE)
 
+    def state_when(self, page, ok, seconds=15):
+        """The state once `ok(state)` holds, polled every quarter second. A login is ready when #app shows; the look is applied when the account's preferences have come back, and
+        a read at a fixed 3.5 s after it saw the browser's copy of the last person's look once in six full runs (never in a run of this module on its own)."""
+        s = self.state(page)
+        for _ in range(int(seconds * 4)):
+            if ok(s):
+                break
+            page.wait_for_timeout(250)
+            s = self.state(page)
+        return s
+
     def account(self, page):
         page.evaluate("showPage('account')")
         page.wait_for_selector("#acct-look button", timeout=30000)
@@ -322,12 +333,14 @@ class TestTheLookSwitchInABrowser(unittest.TestCase):
         self.addCleanup(lambda: self.reset(first))
         self.api(first, "POST", "/ui-prefs", {"look": "pilot"})
         second = self.login()                                    # no copy, no session: only the account knows
-        self.assertEqual(self.state(second)["look"], "pilot")
+        self.assertEqual(self.state_when(second, lambda s: s["look"] == "pilot")["look"], "pilot")
         self.wait_hero(second)
         # a browser the last person left on Pilot: the next person has not chosen, so they get Classic and the copy is corrected
         third = self.login(user="bob", init="localStorage.setItem('rp_look', 'pilot');")
-        s = self.state(third)
-        self.assertEqual((s["look"], s["copy"]), ("classic", "classic"))
+        s = self.state_when(third, lambda s: (s["look"], s["copy"]) == ("classic", "classic"))
+        if (s["look"], s["copy"]) != ("classic", "classic"):
+            self.fail("the next person got %s (copy %s) 15 s after the login; their stored preferences: %s; the instance's public settings: %s"
+                      % (s["look"], s["copy"], self.api(third, "GET", "/ui-prefs"), self.api(third, "GET", "/public-info")))
         self.assertEqual((s["heroReady"], s["heroKids"]), (False, 0))
 
     # ── the administrator ────────────────────────────────────────────────────────────────────────────────────────────────────
