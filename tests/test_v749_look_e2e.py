@@ -382,7 +382,12 @@ class TestTheLookSwitchInABrowser(unittest.TestCase):
         self.api(page, "POST", "/ui-prefs", {"look": "pilot"})
         self.reload(page)
         self.wait_hero(page)
-        dot = "#home-hero .pilot-matrix .pilot-dot.is-ok"
+        # A lit dot, whatever the host's state: every status but "none" has the same ring and glow (only --c differs). The first version took the dot of a host that is up
+        # ("is-ok") and failed with 'NoneType' object is not iterable in a full run beside other work, where this module took six minutes: the seed dates its heartbeats from the
+        # moment it ran and a host is up for a few minutes after one, the monitors that the first request starts had marked the rest down, so by then no dot was "is-ok" and the
+        # shadow reader answers null for a dot that is not there. Reproduced with heartbeats twenty minutes old and the monitors run: the old test fails with that message.
+        dot = "#home-hero .pilot-matrix .pilot-dot:not(.is-none)"
+        page.wait_for_selector(dot, state="attached", timeout=30000)
         glow = page.evaluate(SHADOWS, dot)
         self.assertTrue(any(s["blur"] > 0 and s["alpha"] > 0 for s in glow), glow)
         colour = page.eval_on_selector(dot, "e => getComputedStyle(e).backgroundColor")
@@ -394,6 +399,7 @@ class TestTheLookSwitchInABrowser(unittest.TestCase):
         page.evaluate("showPage('home')")
         self.wait_hero(page)
         self.assertEqual(self.state(page)["fx"], "reduced")
+        page.wait_for_selector(dot, state="attached", timeout=30000)
         glow = page.evaluate(SHADOWS, dot)
         self.assertTrue(glow and all(s["alpha"] == 0 for s in glow if s["blur"] > 0), glow)
         self.assertTrue(any(s["blur"] == 0 for s in glow), "the ring is part of the shape and stays")
