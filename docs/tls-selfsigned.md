@@ -51,6 +51,10 @@ and prints the **CA SHA-256 fingerprint** — copy it, you'll pin it on agents:
    F3:E2:20:7D:…:40:7A
 ```
 
+A server certificate that an earlier version made has no authority key identifier. OpenSSL 4.1 and Python 3.13 or later, which is what the agent runs, refuse such a certificate
+with `certificate verify failed: Missing Authority Key Identifier`. Run the same command again, or press **Generate certificate** in Settings, to replace it: the CA is
+reused, so agents keep their trust and only the server certificate changes. Reload nginx afterwards.
+
 ### 2. Enable HTTPS in nginx
 
 Uncomment the HTTPS `server { … }` block in

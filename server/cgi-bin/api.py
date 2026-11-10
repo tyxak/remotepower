@@ -38256,6 +38256,16 @@ def _tls_gen_self_signed(hosts, out_dir):
     if cn is None:
         cn = hosts[0]
 
+    # RFC 5280 4.2.1.1: a certificate that a CA issues names the key that signed it. OpenSSL 4.1 refuses a server certificate without that
+    # ("Missing Authority Key Identifier"), and so does Python from 3.13 on, which verifies in strict mode: an agent that pinned this CA
+    # could not connect to the server any more. The key id is the CA's own subject key id when it has one, so the two match exactly (a CA
+    # kept from an older install may have none: then it is computed from the CA's public key, the same way).
+    try:
+        akid = x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(
+            ca_cert.extensions.get_extension_for_class(x509.SubjectKeyIdentifier).value)
+    except x509.ExtensionNotFound:
+        akid = x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key())
+
     leaf_key = ec.generate_private_key(ec.SECP256R1())
     leaf_cert = (x509.CertificateBuilder()
         .subject_name(x509.Name([
@@ -38273,6 +38283,8 @@ def _tls_gen_self_signed(hosts, out_dir):
             digital_signature=True, content_commitment=False, key_encipherment=True,
             data_encipherment=False, key_agreement=False, key_cert_sign=False,
             crl_sign=False, encipher_only=False, decipher_only=False), critical=True)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(leaf_key.public_key()), critical=False)
+        .add_extension(akid, critical=False)
         .sign(ca_key, hashes.SHA256()))
     _write(leaf_crt_p, leaf_cert.public_bytes(serialization.Encoding.PEM), 0o644)
     _write(leaf_key_p, leaf_key.private_bytes(

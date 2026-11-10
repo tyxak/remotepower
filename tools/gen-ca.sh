@@ -167,15 +167,26 @@ basicConstraints = critical, CA:FALSE
 keyUsage = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
 subjectAltName = $SAN
+# What the CA puts in the certificate it signs. A certificate that a CA issues has to name the key that signed it (RFC 5280, 4.2.1.1):
+# OpenSSL 4.1 refuses one without it ("Missing Authority Key Identifier"), and so does Python from 3.13 on, which is what the agent
+# runs. It is not in v3_req above because a request has no issuer yet, and openssl req stops on it.
+[v3_leaf]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = $SAN
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
 EOF
 openssl req -new -key "$LEAF_KEY" -config "$TMP/leaf.cnf" -out "$TMP/leaf.csr"
 openssl x509 -req -in "$TMP/leaf.csr" -CA "$CA_CRT" -CAkey "$CA_KEY" \
   -CAcreateserial -days "$DAYS_LEAF" -sha256 \
-  -extfile "$TMP/leaf.cnf" -extensions v3_req -out "$LEAF_CRT" 2>/dev/null
+  -extfile "$TMP/leaf.cnf" -extensions v3_leaf -out "$LEAF_CRT" 2>"$TMP/x509.err" \
+  || die "could not issue the server certificate: $(tr '\n' ' ' < "$TMP/x509.err")"
 chmod 0644 "$LEAF_CRT"
 
-# verify the chain we just built
-openssl verify -CAfile "$CA_CRT" "$LEAF_CRT" >/dev/null \
+# verify the chain we just built, the strict way a client that follows RFC 5280 does
+openssl verify -x509_strict -CAfile "$CA_CRT" "$LEAF_CRT" >/dev/null \
   || die "internal error: generated leaf does not verify against the CA"
 
 # ── optional nginx wiring ───────────────────────────────────────────────────

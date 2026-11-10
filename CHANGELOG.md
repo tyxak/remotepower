@@ -806,6 +806,19 @@ Found by looking at every sidebar page of the demo, and held by `tests/test_side
   toast for the 502 that stayed on screen after you left the page. The probe is quiet now, the tile says why, and it offers only
   Check now.
 
+### Certificates on a newer system
+
+- **The certificates the built-in CA issues work with OpenSSL 4.1 and Python 3.13 or later.** `tools/gen-ca.sh` (the installers and the Docker image run it) and the
+  Settings button that generates a CA and a server certificate both issued the server certificate without an authority key identifier, which RFC 5280 asks of every
+  certificate a CA signs. OpenSSL 4.1 refuses such a certificate with `certificate verify failed: Missing Authority Key Identifier`, and so does Python from 3.13 on,
+  which is what the agent runs: on a host with both, an agent pinned to the generated CA could not reach the server. Both generators add the authority and the subject
+  key identifier now, and `gen-ca.sh` checks its own result in strict mode, so the next gap of this kind stops the install and not the first agent. A server certificate
+  made by an earlier version keeps working where it did; run the same command again (or press Generate certificate in Settings) to replace it. The CA is reused, so agents
+  keep their trust, and the new certificate works on the newer systems too. Found when a system update in the middle of a release run moved this machine to OpenSSL 4.1.0
+  and the one test that runs a real agent against a real HTTPS server failed every time. The tests that were to hold "a chain that verifies" ran `openssl verify` without
+  strict mode, which accepts the old certificate. Held by `tests/test_v800_certificates_name_their_issuer.py`: ten tests, nine of them fail on the old code (the handshake
+  with the agent's own error text), and a census by syntax holds every place in the product that signs a certificate.
+
 ### Threat Intel
 
 - **An address the edge found is blocked only on the Linux agents that are online.** The setting **Also block addresses found at the edge on every Linux
