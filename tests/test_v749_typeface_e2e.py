@@ -118,6 +118,14 @@ def differences(a, b):
     return out
 
 
+def same_layout(a, b):
+    """True when two readings with the SAME font saw the same boxes: the page did not change under the measurement. Widths, the clip flag and the line count are compared, not the
+    text (a counter's digits change by themselves and move nothing)."""
+    def key(m):
+        return m["page"], [(r["i"], r["tag"], r["w"], bool(r.get("clip")), r.get("lines")) for r in m["rows"]]
+    return key(a) == key(b)
+
+
 # The views the comparison renders, the languages it switches between in place and the widths it runs at. The views are the ones
 # with the most width-sensitive chrome in a walk of all of them (tables with long cells, chips, calendar events, titles that end in
 # an ellipsis, long headings): sixteen views, English and German (the longest strings), a desktop and a phone. Measured on the
@@ -448,12 +456,20 @@ class TestTheTypefaceInABrowser(unittest.TestCase):
     # ── what B612's width does to the layout ─────────────────────────────────────────────────────────────────────────────────
     def measure_both(self, page):
         """The same DOM measured with the system font and with B612, as (system, b612). Both faces are loaded first, so the switch
-        is a restyle and not a fetch."""
-        page.evaluate("() => { delete document.body.dataset.typeface; }")
-        a = page.evaluate(MEASURE)
-        page.evaluate("() => { document.body.dataset.typeface = 'b612'; }")
-        b = page.evaluate(MEASURE)
-        page.evaluate("() => { delete document.body.dataset.typeface; }")
+        is a restyle and not a fetch. The system font is read a second time after B612: when the page changed by itself between the
+        two readings (the top bar's crumb takes its German words a frame after the language switch, a counter comes in), the two
+        readings are not of the same DOM and the pair is read again. Without that a 79 px crumb in English was compared with a 40 px
+        crumb in German and blamed on the typeface (it failed in three full runs and in no run of the module on its own)."""
+        a = b = None
+        for _ in range(6):
+            page.evaluate("() => { delete document.body.dataset.typeface; }")
+            a = page.evaluate(MEASURE)
+            page.evaluate("() => { document.body.dataset.typeface = 'b612'; }")
+            b = page.evaluate(MEASURE)
+            page.evaluate("() => { delete document.body.dataset.typeface; }")
+            if same_layout(a, page.evaluate(MEASURE)):
+                break
+            page.wait_for_timeout(300)
         return a, b
 
     def test_b612_adds_no_clipped_text_wrapped_control_or_sideways_scroll(self):
@@ -516,6 +532,57 @@ class TestTheComparisonSeesWhatItIsFor(unittest.TestCase):
 
     def test_text_clipped_only_with_b612_is_found(self):
         self.assertEqual(self.kinds(self.doc([self.row(1)]), self.doc([self.row(1, clip=True, cut=9)])), ["clipped"])
+
+    # ── a page that changes by itself while it is measured ───────────────────────────────────────────────────────────────
+    class _Page:
+        """Answers page.evaluate(MEASURE) from a script, one reading per call, and counts the font switches."""
+        def __init__(self, readings):
+            self.readings, self.reads, self.switches, self.waits = list(readings), 0, 0, 0
+
+        def evaluate(self, script, *args):
+            if script is MEASURE:
+                r = self.readings[min(self.reads, len(self.readings) - 1)]
+                self.reads += 1
+                return r
+            self.switches += 1
+
+        def wait_for_timeout(self, ms):
+            self.waits += 1
+
+    def test_a_page_that_holds_still_is_read_once(self):
+        d = self.doc([self.row(1, w=79)])
+        page = self._Page([d, d, d])
+        a, b = TestTheTypefaceInABrowser.measure_both(None, page)
+        self.assertEqual((page.reads, page.waits), (3, 0))
+        self.assertEqual((a, b), (d, d))
+
+    def test_a_crumb_that_gets_its_german_words_between_the_readings_is_not_blamed_on_the_typeface(self):
+        """The failure in three full runs: 79 px and whole in English with the system font, 40 px and cut in German with B612."""
+        english = self.doc([self.row(1, cls="crumb", w=79)])
+        german = self.doc([self.row(1, cls="crumb", w=40, clip=True, cut=30, ell=True)])
+        page = self._Page([english, german, german,                 # the words arrive between the system font's reading and B612's: the two are not of one DOM
+                           german, german, german])                 # read again, now all three are German
+        a, b = TestTheTypefaceInABrowser.measure_both(None, page)
+        self.assertEqual(page.reads, 6)
+        self.assertEqual(page.waits, 1)
+        self.assertEqual(self.kinds(a, b), [], "the crumb is cut in both: B612 added nothing")
+        # control: what the old single reading concluded from the first three readings
+        self.assertEqual(self.kinds(english, german), ["clipped"])
+
+    def test_a_page_that_never_settles_is_read_six_times_and_still_answers(self):
+        page = self._Page([self.doc([self.row(1, w=60 + n)]) for n in range(40)])
+        a, b = TestTheTypefaceInABrowser.measure_both(None, page)
+        self.assertEqual(page.reads, 18)
+        self.assertEqual(page.waits, 6)
+        self.assertTrue(a and b)
+
+    def test_same_layout_ignores_text_and_sees_a_width_a_cut_and_a_line(self):
+        base = self.doc([self.row(1, txt="3 alerts", w=50, lines=1)])
+        self.assertTrue(same_layout(base, self.doc([self.row(1, txt="12 alerts", w=50, lines=1)])))
+        self.assertFalse(same_layout(base, self.doc([self.row(1, w=51, lines=1)])))
+        self.assertFalse(same_layout(base, self.doc([self.row(1, w=50, lines=1, clip=True, cut=3)])))
+        self.assertFalse(same_layout(base, self.doc([self.row(1, w=50, lines=2)])))
+        self.assertFalse(same_layout(base, self.doc([self.row(1, w=50, lines=1)], page=5)))
 
     def test_a_hard_cut_that_gets_worse_is_found_and_a_pixel_is_not(self):
         a = self.doc([self.row(1, clip=True, cut=10)])
