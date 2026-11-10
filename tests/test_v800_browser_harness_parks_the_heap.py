@@ -69,6 +69,30 @@ class TestTheHarnessParksTheOldHeap(unittest.TestCase):
         H.park_the_old_heap()
         self.assertTrue(all(r() is None for r in refs), "they were collected before the freeze and not parked with the rest")
 
+    def test_the_collector_is_off_while_a_stack_answers_and_back_as_it_was_after(self):
+        was_on = gc.isenabled()
+        try:
+            gc.enable()
+            back = H.quiet_the_collector()
+            self.assertFalse(gc.isenabled(), "no automatic collection while the stack answers the browser")
+            back()
+            self.assertTrue(gc.isenabled(), "and it is back after")
+            gc.disable()
+            back = H.quiet_the_collector()
+            back()
+            self.assertFalse(gc.isenabled(), "a collector that was off before the stack stays off after it")
+        finally:
+            gc.enable() if was_on else gc.disable()
+
+    def test_start_stack_quiets_the_collector_last_and_shutdown_gives_it_back_even_when_the_stack_will_not_stop(self):
+        src = (_TESTS / "e2e_harness.py").read_text()
+        body = srcpin.py_function(src, "start_stack")
+        self.assertIn("quiet_the_collector()", body)
+        self.assertGreater(body.index("quiet_the_collector()"), body.index("ThreadingHTTPServer"), "after every step that can raise")
+        shutdown = srcpin.py_function(body, "shutdown")
+        self.assertIn("finally:", shutdown)
+        self.assertLess(shutdown.index("finally:"), shutdown.index("collector_back()"), "in a finally, so a stack that will not stop does not leave the collector off")
+
     def test_start_stack_parks_the_heap_first(self):
         src = (_TESTS / "e2e_harness.py").read_text()
         body = srcpin.py_function(src, "start_stack")

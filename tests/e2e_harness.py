@@ -86,6 +86,23 @@ def park_the_old_heap():
     gc.freeze()
 
 
+def quiet_the_collector():
+    """Switches the automatic collections off for as long as a stack answers the browser; the function it returns puts the collector back as it was.
+
+    Freezing the old heap (above) keeps a collection from looking through it, but a long-lived process still collects now and then, and the part of its heap that is not frozen
+    can be large and, on a machine that is short of memory, swapped out: a full collection then reads it all back in while every request of the harness waits. Three full runs on
+    this machine failed one browser test each, in three different modules, with the process holding 18 GB of its heap in swap. A module makes little garbage of its own, the
+    next stack's park_the_old_heap() collects what it left, and a collection that never runs cannot stop a request.
+    """
+    was_on = gc.isenabled()
+    gc.disable()
+
+    def back():
+        if was_on:
+            gc.enable()
+    return back
+
+
 def start_stack(data_dir=None):
     """Boot the real gunicorn+wsgi stack. Returns (base_url, shutdown).
 
@@ -241,15 +258,19 @@ def start_stack(data_dir=None):
     httpd = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = f'http://127.0.0.1:{httpd.server_address[1]}'
+    collector_back = quiet_the_collector()           # last: nothing above can raise with the collector off and leave it off
 
     def shutdown():
-        httpd.shutdown()
-        httpd.server_close()
-        worker.terminate()
         try:
-            worker.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            worker.kill()
-        errlog.close()
+            httpd.shutdown()
+            httpd.server_close()
+            worker.terminate()
+            try:
+                worker.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                worker.kill()
+            errlog.close()
+        finally:
+            collector_back()
 
     return base, shutdown
