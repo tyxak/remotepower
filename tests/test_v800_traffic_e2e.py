@@ -654,12 +654,24 @@ class TestTheOverviewTheNoteTheWidgetAndTheGatewayIcon(unittest.TestCase):
         self.assertEqual(self.page.eval_on_selector('.pg-tabs[data-pg="ipintel"] .pg-tab.active', "b => b.dataset.pgTabBtn"), "traffic")
         self.page.evaluate("() => showPage('home')")
 
+    def widget_says_off(self):
+        return self.page.evaluate("() => /Traffic is off/.test(document.getElementById('home-w-traffic-body').textContent)")
+
     def test_the_widget_says_when_the_module_is_off(self):
         cfg = json.loads(json.dumps(self.config0))
         cfg["traffic_module_enabled"] = False
         write("config.json", cfg)
         self.widget_page()
-        self.page.wait_for_function("() => /Traffic is off/.test(document.getElementById('home-w-traffic-body').textContent)", timeout=20000)
+        # loadHome has no guard against overlapping calls: a load that was already on its way (the one-minute tick, or the one showPage starts) can be
+        # answered after the one just awaited and paints its older answer last, and a payload equal to the last painted one is not painted again.
+        # This failed once in three repeated runs and never alone, and a loop of 140 tries could not make it fail, so the page is asked again, with the
+        # skip cleared (as the page does after a failed load), until it shows the answer for the file that was written. A server that keeps
+        # answering "on" still fails here after 30 s, with what the widget held.
+        deadline = time.time() + 30
+        while time.time() < deadline and not self.widget_says_off():
+            self.page.evaluate("async () => { window._homeLastRender = null; await loadHome(); }")
+            self.page.wait_for_timeout(250)
+        self.assertTrue(self.widget_says_off(), "the widget body reads: %r" % self.page.inner_text("#home-w-traffic-body")[:160])
 
     # ── the Hosts page: the second quick SSH icon ────────────────────────────
 

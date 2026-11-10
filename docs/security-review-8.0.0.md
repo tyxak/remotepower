@@ -194,9 +194,12 @@ listed below. The second pass ran on `cc33217b`, which fixed them, and the three
 The third pass ran the same steps as five concurrent groups on `cf8011e3`, which carried Detections, the Traffic view on the Threat Intel page and
 the review, from 14:05 to 16:52 the same day. It found four things that were ours: the installer's sweep count and the API guide's path count had not moved with
 the code, a test that pins the Threat Intel tabs did not know Detections, and the Fleet Query field for Detections had a hint that its box cut off. SQLite
-added a hostile-store test that used an integer key, which a SQL backend cannot hold. The browser groups failed six more tests under load (the accessibility sweep on
-three pages, the cron words, the typeface comparison and the reasoning effort setting) that passed in the fourth pass; the first three passed alone too. A generated run over the Detections rules found S19 in the
-same days. `0634534e` fixed all of it, and the fourth pass ran on that commit: every module without a browser on JSON and on SQLite, every browser module three at a
+added a hostile-store test that used an integer key, which a SQL backend cannot hold. The browser groups failed six more tests (the accessibility sweep on three pages, the cron words, the typeface comparison and the reasoning effort
+setting) that passed in the fourth pass. The machine's load was not the cause. By the time a full run reaches the browser modules its test process holds
+14.6 million objects and 12 GB, one full garbage collection there took 3.5 s (the longest pause was 5 s), and the browser talks to a web server that runs
+in that same process, so every pause stopped every request. The harness sets that heap aside before each browser module starts (`park_the_old_heap` in
+`tests/e2e_harness.py`), and the same run had no pause over 0.2 s during the cron words module after it. That test also had a race of its own: it waited for
+a table row that the page's markup already holds. A generated run over the Detections rules found S19 in the same days. `0634534e` fixed all of it, and the fourth pass ran on that commit: every module without a browser on JSON and on SQLite, every browser module three at a
 time, the CI-parity run, lint, bandit, PostgreSQL and CodeQL. The suite on the staged tarball and the hostile requests to the new routes were not run again on it.
 `make pre-release` as one run, which writes the stamp that lets a production push through, has to run on the commit that is promoted.
 
@@ -212,11 +215,11 @@ time, the CI-parity run, lint, bandit, PostgreSQL and CodeQL. The suite on the s
 | Second pass: every module without a browser (1,119), on JSON and on SQLite | 21,399 and 21,352 tests; two failures in each, both of that round's making and both fixed: a source check that read a new name as a write through a shared object, and a clock taken when the module was imported |
 | Second pass: every browser module (99), four at a time | 1,080 tests; 95 modules passed. Four failed under that load: the SMTP and the integration wizard passed alone on the next run, and the six-language title check of two wizards and the branding dialogs were hardened and passed three whole-module runs each |
 | Second pass: hostile requests to the 14 new routes | 1,904 requests, no 500, no exception, nothing left unanswered |
-| Third pass: test suite, JSON storage (`cf8011e3`) | 22,807 tests, 57 skipped; 9 failures and 1 error. Four were ours (the two counts, the tab list and the hint); six failed under load and passed in the fourth pass |
+| Third pass: test suite, JSON storage (`cf8011e3`) | 22,807 tests, 57 skipped; 9 failures and 1 error. Four were ours (the two counts, the tab list and the hint); six failed in the full run only and passed in the fourth pass (the cause is under the table) |
 | Third pass: SQLite | 21,826 tests, 192 skipped; 3 failures and 1 error, all ours |
 | Third pass: `make ci-parity` | 21,977 tests, 523 skipped; 3 failures, the two counts and the tab list |
 | Third pass: PostgreSQL, bandit and CodeQL | 28 tests, none skipped, all pass; no issue outside the baseline; no result in either language (the preview that also reads the tests: 1,332 Python results, 18 of them in tests, none in JavaScript, the same reviewed classes) |
-| Third pass: `make dist` | the tarball and its leak check passed; the suite on the staged tree: 22,807 tests, 90 skipped, 7 failures and 2 errors (the four of ours, and five browser tests that failed under load and passed in the fourth pass) |
+| Third pass: `make dist` | the tarball and its leak check passed; the suite on the staged tree: 22,807 tests, 90 skipped, 7 failures and 2 errors (the four of ours, and five browser tests that failed in the full run only and passed in the fourth pass) |
 | Fourth pass (`0634534e`): every module without a browser (1,136), on JSON and on SQLite | 21,711 and 21,664 tests, 57 and 109 skipped, no failure |
 | Fourth pass: every browser module (100), three at a time | 1,110 tests; 97 modules passed. Three failed on a wait of 20 seconds (page sections, the Traffic widget, the integration wizard) and passed alone right after, with 16, 27 and 21 tests |
 | Fourth pass: `make ci-parity`, `make lint`, bandit, PostgreSQL and CodeQL | 21,989 tests, 524 skipped, all pass; 47 source files, no finding; 157 files, nothing outside the baseline; 28 tests; no result in either language |
