@@ -32,6 +32,13 @@ def alert(aid, dev, sev, now):
 
 
 class _Home(_Server):
+    def put(self, devices, **cfg):
+        # A home request runs the per-request sweeps, and one of them raises "server_disk_low" (high) when the disk under the data directory is 85% full. On a machine whose
+        # temporary directory is that full (a RAM-backed /tmp holding a few hundred thousand leftovers of earlier test runs, here) the alert was a third high one and the test
+        # counted it: it failed alone, on both backends, and in no run before the directory filled. The watchdog is not what this test is about, so it is off in every config it writes.
+        cfg.setdefault('disk_watchdog_pct', 0)
+        super().put(devices, **cfg)
+
 
     def setUp(self):
         super().setUp()
