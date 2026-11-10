@@ -391,25 +391,37 @@ class _LayoutsBase(unittest.TestCase):
     }"""
 
     @classmethod
+    def _reset(cls):
+        """Starts from an account with no layouts, here and on the server. A save of the last test's change can still be on its way (its 600 ms
+        debounce, or a request in flight), and two requests are not handled in the order they were sent: the reset's own save can be answered first
+        and the older one last, which left the layouts that test had made in the account (it failed once in a run beside another suite, and never
+        alone). The server is asked until it holds none, and the reset is sent again while it does."""
+        for _ in range(30):
+            cls.page.evaluate(cls.RESET)
+            time.sleep(0.3)
+            if 'dashboard_sets' not in cls.page.evaluate("async () => await api('GET', '/ui-prefs')"):
+                return
+
+    @classmethod
     def setUpClass(cls):
         cls.ctx, cls.page, cls.errors = _signed_in_context()
         cls.home_urls = []
         cls.page.on('request', lambda r: cls.home_urls.append(r.url) if '/api/home' in r.url else None)
         cls.page.wait_for_function("() => typeof flushUiPrefs === 'function' && _uiPrefsLoaded")
-        cls.page.evaluate(cls.RESET)           # the account is shared by every class: start from no layouts and the default saved one
+        cls._reset()                           # the account is shared by every class: start from no layouts and the default saved one
         cls.page.wait_for_selector('#home-heatmap .heatmap-cell', timeout=60000)
 
     @classmethod
     def tearDownClass(cls):
         try:
-            cls.page.evaluate(cls.RESET)       # and leave it that way for the next class
+            cls._reset()                       # and leave it that way for the next class
         finally:
             cls.ctx.close()
 
     def setUp(self):
         self._errors_before = len(self.errors)
         self.addCleanup(lambda: self.assertEqual(self.errors[self._errors_before:], [], 'a page error came up in this test'))
-        self.page.evaluate(self.RESET)
+        self._reset()
 
     # helpers
     def _open_panel(self):
