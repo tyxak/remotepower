@@ -170,6 +170,19 @@ class TestASuperadminBrandsATenant(unittest.TestCase):
                     raise
                 self.page.wait_for_timeout(500)
 
+    def click_row_until(self, tid, seen, arg=None):
+        """The same for a row whose read is meant to FAIL: no dialog follows, so the page's answer is the message it says. A click lost to the redraw leaves the page as it was and
+        the wait below times out (the two tests that clicked the row once failed in two of six runs of this module on its own, and in the staged-tree run of a real pre-release)."""
+        for attempt in range(3):
+            self.row(tid).click()
+            try:
+                self.page.wait_for_function(seen, arg=arg, timeout=7000)
+                return
+            except Exception:
+                if attempt == 2:
+                    raise
+                self.page.wait_for_timeout(500)
+
     def test_every_row_but_the_built_in_one_has_a_branding_button(self):
         self.open_list()
         tenants = _api(self.page, "GET", "/tenants")["tenants"]
@@ -240,8 +253,7 @@ class TestASuperadminBrandsATenant(unittest.TestCase):
     def test_a_dialog_that_cannot_read_what_is_stored_says_so_and_does_not_open(self):
         self.open_list()
         self.page.route("**/api/tenants/*/branding", lambda route: route.abort() if route.request.method == "GET" else route.continue_())
-        self.row(self.acme).click()
-        self.page.wait_for_function("() => document.body.innerText.includes('The server did not answer.')", timeout=15000)
+        self.click_row_until(self.acme, "() => document.body.innerText.includes('The server did not answer.')")
         self.assertFalse(self.page.evaluate("() => document.getElementById('tenant-branding-modal').classList.contains('active')"), "a form that shows nothing stored must not be saved over it")
         self.page.unroute_all(behavior="ignoreErrors")
 
@@ -250,8 +262,7 @@ class TestASuperadminBrandsATenant(unittest.TestCase):
         reason = "you may only manage your own tenant's branding"
         self.page.route("**/api/tenants/*/branding", lambda route: route.fulfill(status=403, content_type="application/json", body=json.dumps({"error": reason}))
                         if route.request.method == "GET" else route.continue_())
-        self.row(self.acme).click()
-        self.page.wait_for_function("(t) => document.body.innerText.includes(t)", arg=reason, timeout=15000)
+        self.click_row_until(self.acme, "(t) => document.body.innerText.includes(t)", reason)
         self.assertFalse(self.page.evaluate("() => document.getElementById('tenant-branding-modal').classList.contains('active')"), "an empty form must not be offered for saving over what is stored")
         self.page.unroute_all(behavior="ignoreErrors")
 
