@@ -30,6 +30,11 @@ ROOT = Path(__file__).resolve().parent.parent
 P = pp.P
 _STATE = {}
 
+# Debian and Ubuntu servers send their package version after the protocol version ("SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5"), so most servers a monitor meets have a
+# comment on the line. The server here sends one on every machine. Without it the test passed where sshd sends a bare line (Arch) and failed on the Ubuntu runner of the
+# 8.0.0 push, where it does not.
+ADDENDUM = "Ubuntu-3ubuntu13.5"
+
 
 def _load(name, path):
     loader = importlib.machinery.SourceFileLoader(name, str(path))
@@ -63,7 +68,7 @@ def setUpModule():
     port = _free_port()
     (work / "sshd_config").write_text("\n".join([
         "Port %d" % port, "ListenAddress 127.0.0.1", "HostKey %s" % key, "PidFile %s" % (work / "sshd.pid"), "UsePAM no", "PasswordAuthentication no",
-        "KbdInteractiveAuthentication no", "PubkeyAuthentication no", "StrictModes no", "LogLevel ERROR", ""]))
+        "KbdInteractiveAuthentication no", "PubkeyAuthentication no", "StrictModes no", "LogLevel ERROR", "VersionAddendum " + ADDENDUM, ""]))
     log = open(work / "sshd.log", "w")
     proc = subprocess.Popen([sshd, "-D", "-e", "-f", str(work / "sshd_config")], stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     deadline = time.time() + 15
@@ -119,7 +124,7 @@ class TestTheSshMonitorAgainstARealOpenSshServer(unittest.TestCase):
         got = self.engines(_STATE["port"])
         for name, (ok, detail) in got.items():
             self.assertTrue(ok, (name, detail))
-            self.assertRegex(detail, r"^SSH-2\.0-OpenSSH_[0-9.p]+ · \d+ms$", name)
+            self.assertRegex(detail, r"^SSH-2\.0-OpenSSH_[0-9.p]+ " + re.escape(ADDENDUM) + r" · \d+ms$", name)
         self.assertEqual(len({(ok, _same(detail)) for ok, detail in got.values()}), 1, got)
 
     def test_the_whole_monitor_path_of_the_agent_and_of_the_satellite_gives_an_ok_row_with_the_banner(self):
