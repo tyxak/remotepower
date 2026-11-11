@@ -31,9 +31,11 @@ P = pp.P
 _STATE = {}
 
 # Debian and Ubuntu servers send their package version after the protocol version ("SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5"), so most servers a monitor meets have a
-# comment on the line. The server here sends one on every machine. Without it the test passed where sshd sends a bare line (Arch) and failed on the Ubuntu runner of the
-# 8.0.0 push, where it does not.
+# comment on the line, and the test server sends one on every machine. What the whole line is depends on the machine: a bare sshd sends none of its own, the Ubuntu
+# runner's sshd sends "Ubuntu-2ubuntu3.8" first and this one comes after it. So the test never spells the line out: it reads the line from the socket itself and holds
+# the engines to that (the first version of this test assumed a bare sshd and failed on the runner of the 8.0.0 push, the second assumed one comment and failed there too).
 ADDENDUM = "Ubuntu-3ubuntu13.5"
+BANNER_CAP = 80                  # protocol_probes shows one printable line, cut at this many characters
 
 
 def _load(name, path):
@@ -120,11 +122,30 @@ class TestTheSshMonitorAgainstARealOpenSshServer(unittest.TestCase):
             "satellite": _STATE["satellite"]._pp_run("ssh", "127.0.0.1", port, {}, peer_ok=keep, ssl_ctx=ctx, timeout=5),
         }
 
+    @staticmethod
+    def raw_banner(port):
+        """The identification line the server sends, read without any of the engines."""
+        s = socket.create_connection(("127.0.0.1", port), timeout=5)
+        try:
+            data = b""
+            while b"\n" not in data and len(data) < 255:
+                chunk = s.recv(255)
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            s.close()
+        return data.split(b"\n", 1)[0].decode("ascii", "replace")
+
     def test_all_three_engines_read_the_identification_line_of_a_real_server_and_say_the_same(self):
+        line = self.raw_banner(_STATE["port"])
+        self.assertRegex(line, r"^SSH-2\.0-OpenSSH_[0-9.p]+", "the server is a real OpenSSH: " + line)
+        want = " ".join(line.split())[:BANNER_CAP]
         got = self.engines(_STATE["port"])
         for name, (ok, detail) in got.items():
             self.assertTrue(ok, (name, detail))
-            self.assertRegex(detail, r"^SSH-2\.0-OpenSSH_[0-9.p]+ " + re.escape(ADDENDUM) + r" · \d+ms$", name)
+            self.assertRegex(detail, r" · \d+ms$", name)
+            self.assertEqual(detail.rsplit(" · ", 1)[0], want, "%s shows the line the server sent, and the line is %r" % (name, line))
         self.assertEqual(len({(ok, _same(detail)) for ok, detail in got.values()}), 1, got)
 
     def test_the_whole_monitor_path_of_the_agent_and_of_the_satellite_gives_an_ok_row_with_the_banner(self):
