@@ -201,7 +201,22 @@ in that same process, so every pause stopped every request. The harness sets tha
 `tests/e2e_harness.py`), and the same run had no pause over 0.2 s during the cron words module after it. That test also had a race of its own: it waited for
 a table row that the page's markup already holds. A generated run over the Detections rules found S19 in the same days. `0634534e` fixed all of it, and the fourth pass ran on that commit: every module without a browser on JSON and on SQLite, every browser module three at a
 time, the CI-parity run, lint, bandit, PostgreSQL and CodeQL. The suite on the staged tarball and the hostile requests to the new routes were not run again on it.
-`make pre-release` as one run, which writes the stamp that lets a production push through, has to run on the commit that is promoted.
+
+The fifth round was the step that was still open: `make pre-release` as one command, which writes the stamp that a production push is checked against. It ran on
+`5ef09f22`, and that commit is what was promoted, apart from the release date and one upgrade note. Six earlier attempts at it ended on one browser test each. A
+seventh was stopped after two hours: a system update had moved the machine to OpenSSL 4.1.0, and the test that runs a real agent against a real HTTPS server failed
+every time. That was a defect in the product and not only in the test. The server certificate that `tools/gen-ca.sh` and the Settings generator issued had no
+authority key identifier, which RFC 5280 asks of every certificate a CA signs; OpenSSL 4.1 and Python 3.13 or later refuse such a certificate ("Missing Authority Key
+Identifier"), so an agent pinned to a generated CA could not connect from a host with both. Both generators add it now, `gen-ca.sh` checks its own result in strict
+mode, and `tests/test_v800_certificates_name_their_issuer.py` makes the handshake the way the agent does (nine of its ten tests fail on the old code). The tests that
+were to hold "a chain that verifies" had run `openssl verify` without strict mode, which accepts the old certificate.
+
+The other findings of the round were small. A wizard moved the focus to its first box a frame after it drew a step and took it from a box that had just been chosen, so
+fast typing landed in the wrong box (12 of 120 tries under load, none of 200 after the fix). The integration wizard module waited on a poll of the seed's instances that
+took 22 s on a network that drops packets for private addresses. The Page sections, Traffic widget, Home layouts and look tests had waits or resets that a slow machine beat. A
+Home widgets test counted the server's own disk-space alert because the machine's temporary directory was 86 percent full. The browser harness keeps the memory cleanup
+off while a stack answers now, because a test process with 18 GB of its heap in swap could not answer the browser while it cleaned. The round ran three passes at a time
+with its temporary files on disk.
 
 | Step | Result |
 |---|---|
@@ -224,6 +239,7 @@ time, the CI-parity run, lint, bandit, PostgreSQL and CodeQL. The suite on the s
 | Fourth pass: every browser module (100), three at a time | 1,110 tests; 97 modules passed. Three failed on a wait of 20 seconds (page sections, the Traffic widget, the integration wizard) and passed alone right after, with 16, 27 and 21 tests |
 | Fourth pass: `make ci-parity`, `make lint`, bandit, PostgreSQL and CodeQL | 21,989 tests, 524 skipped, all pass; 47 source files, no finding; 157 files, nothing outside the baseline; 28 tests; no result in either language |
 | Authorization matrix: every caller, on the final server code | 60 runs, 86,805 requests (see "The authorization matrix" above) |
+| Fifth round (`5ef09f22`): `make pre-release` as one command, three passes at a time | JSON 22,852 tests, 57 skipped, in 2 h 34 min; SQLite 21,869 tests, 192 skipped; CI-parity 22,018 tests, 528 skipped; PostgreSQL 28 tests, none skipped; the suite on the staged tarball, 90 skipped; lint (isort and black over 47 files, mypy over 47, ruff in two passes) and bandit; CodeQL (config-honoring) no result in Python or JavaScript. The preview that also reads the tests lists 1,240 Python results (the reviewed classes; it is not a gate) and none in JavaScript. All pass, and the run wrote the stamp |
 
 The first pass found these, and none of them was a way in. In tests: two files wrote the stores as files, which a SQL backend never reads; a seeder
 test compared the seed's clock with the time at the test, and a full run reaches it minutes after the seed was built; a browser test hard-coded the
@@ -237,7 +253,7 @@ and again after the fixes.
 
 ## Not run for this review
 
-- `make pre-release` as one run on the last commit. Its steps ran as groups on `cf8011e3` and again, without the suite on the staged tarball, on `0634534e` (see "The release gate").
+- The release date, the upgrade note about certificates, the AUR bump and the wiki. They come after the gate: the tagged tree differs from the gated one in the date on the CHANGELOG header and in one bullet of `docs/v8.0.0.md`.
 - A live probe of a running installation: none was available for this release, so every probe ran against a seeded copy.
 - Real Windows and macOS hosts. Traffic, the app finder, the rollback and the Suricata readers are Linux only; the other agents were changed for
   one declared key.

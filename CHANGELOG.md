@@ -5,7 +5,7 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v8.0.0 — "Pil0tMatters" — unreleased (test)
+## v8.0.0 — "Pil0tMatters" — 2026-11-11
 
 The first release of a new major version, and it changes what a person can adjust and what the agent finds without being asked. You can set the text
 size from 80% to 300%, show a long page as tabs or as one page, keep named layouts for Home, and take ten setup tasks a step at a time. The Linux
