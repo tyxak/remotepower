@@ -195,6 +195,28 @@ class TestTheScriptRunOnASmallTree(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertRegex(r.stdout, r'(?m)^slice 6/6: Ran 2 tests in \d+s - FAILED \(failures=1\)')
 
+    def test_what_failed_is_kept_in_a_file_and_is_the_report_of_the_run_that_failed(self):
+        """The 8.0.0 push on the runner: two slices failed, ci.yml shows the last 60 lines of the output, so the first failure was cut off, and the second slice's last 40
+        log lines were the OK run of its last pattern, not the report of the failure. The file holds both reports, by slice, whatever the end of the output shows."""
+        self._write('test_v6_ok.py', "self.assertEqual(0, 1)")
+        self._write('test_v8_ok.py', "self.fail('first pattern of slice 6')")
+        self._write('test_zz_ok.py', "self.assertTrue(True)")             # the last pattern of slice 6 passes, so the log ends with an OK
+        r = self._run()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        digest = (self.tree / 'logs' / 'failures.txt').read_text()
+        self.assertRegex(digest, r'(?m)^--- slice 3/6: what failed')
+        self.assertRegex(digest, r'(?m)^--- slice 6/6: what failed')
+        self.assertRegex(digest, r'(?m)^FAIL: test_it \(test_v6_ok\.')
+        self.assertRegex(digest, r'(?m)^FAIL: test_it \(test_v8_ok\.')
+        self.assertIn('AssertionError: 0 != 1', digest, 'the assertion message of slice 3 is in the report')
+        self.assertIn('first pattern of slice 6', digest, 'the message of slice 6 is in the report although its log ends with the OK of the last pattern')
+        # the same lines are printed too, and the file is rewritten by the next run: a pass leaves it empty
+        self.assertIn('AssertionError: 0 != 1', r.stdout)
+        self._write('test_v6_ok.py', 'self.assertTrue(True)')
+        self._write('test_v8_ok.py', 'self.assertTrue(True)')
+        self.assertEqual(self._run().returncode, 0)
+        self.assertEqual((self.tree / 'logs' / 'failures.txt').read_text(), '')
+
 
 class TestCiAndTheMakefileCallTheScript(unittest.TestCase):
 
@@ -235,6 +257,7 @@ class TestCiAndTheMakefileCallTheScript(unittest.TestCase):
             step = _must(re.search(r'- name: End of the test log\n(.*?)(?=\n      - |\n  [a-z]|\Z)', job, re.S), name + ': the "End of the test log" step')
             self.assertRegex(step.group(1), r'if:\s*always\(\)')
             self.assertIn('rp-unittest-chunks', step.group(1), 'it must read the directory the script writes to')
+            self.assertIn('failures.txt', step.group(1), 'it must print what failed, which the output of the suite does not always show')
 
     def test_the_directory_the_step_reads_is_the_one_the_script_writes(self):
         script = SCRIPT.read_text()

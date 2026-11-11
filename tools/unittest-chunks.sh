@@ -15,7 +15,9 @@
 # names fails the build, so a module cannot drop out of CI without anyone noticing.
 #
 # A slice is one or more patterns separated by `|`. Each slice writes its output to $RP_CHUNK_LOGS (default: $TMPDIR/rp-unittest-chunks, then
-# /tmp/rp-unittest-chunks). The script prints one line per slice and, for a slice that failed, its FAIL/ERROR headings and the last 40 lines of its output.
+# /tmp/rp-unittest-chunks). The script prints one line per slice and, for a slice that failed, its FAIL/ERROR headings and the report of its first failures.
+# The same lines go to $RP_CHUNK_LOGS/failures.txt, which is rewritten on every run: ci.yml shows only the end of this script's output, and on the 8.0.0 push two
+# slices failed, so the first one's report was cut off and could not be named from the log.
 set -u
 
 PYTHON=${PYTHON:-python}
@@ -31,6 +33,8 @@ SLICES=(
 )
 
 mkdir -p "$LOGS" || exit 2
+digest="$LOGS/failures.txt"
+: > "$digest"
 status=0
 summary=()
 n=0
@@ -62,8 +66,13 @@ for spec in "${SLICES[@]}"; do
   summary+=("$line")
   echo "$line"
   if [ "$rc" -ne 0 ]; then
-    grep -a -E '^(FAIL|ERROR): ' "$log" | head -40
-    tail -n 40 "$log"
+    # The headings, then the report of the run that failed: from its first "=====" line to its "Ran N tests" line. The last lines of the log are not it when
+    # the slice has several patterns, because the last pattern's run (a pass) comes after the one that failed.
+    {
+      echo "--- slice $n/${#SLICES[@]}: what failed (the whole log is $log)"
+      grep -a -E '^(FAIL|ERROR): ' "$log" | head -40
+      awk '/^=====/ {r = 1} /^Ran [0-9]+ tests? in/ {r = 0} r' "$log" | head -n 60
+    } | tee -a "$digest"
   fi
 done
 
@@ -72,6 +81,6 @@ printf '%s\n' "${summary[@]}"
 if [ "$status" -eq 0 ]; then
   echo "=== every slice passed"
 else
-  echo "=== at least one slice failed (full output: $LOGS)"
+  echo "=== at least one slice failed (what failed: $digest; full output: $LOGS)"
 fi
 exit "$status"

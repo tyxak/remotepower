@@ -116,16 +116,19 @@ jobs:
           # green. With pipefail the step fails when unittest does.
           set -o pipefail
           # Six `unittest discover` processes one after the other, so no process holds the whole suite (see the limit above and
-          # the header of the script). It prints one line per slice, and the heading and last lines of one that failed.
+          # the header of the script). It prints one line per slice, and the headings and the report of the first failures of one that failed.
           tools/unittest-chunks.sh -v 2>&1 | tail -60
 
-      # The suite's output goes through `tail`, so a job that hits its limit never prints it. Each slice keeps its own log; this
-      # step shows where the newest one stood, and `always()` runs it after a cancel as well.
+      # The suite's output goes through `tail`, so a job that hits its limit never prints it, and when two slices fail the report of the first
+      # is cut off (the 8.0.0 push). Each slice keeps its own log and the script keeps what failed in failures.txt; this step shows both,
+      # and `always()` runs it after a cancel as well.
       - name: End of the test log
         if: always()
         shell: bash
         run: |
-          log=$(ls -t "${TMPDIR:-/tmp}"/rp-unittest-chunks/slice-*.log 2>/dev/null | head -1)
+          dir="${TMPDIR:-/tmp}/rp-unittest-chunks"
+          if [ -s "$dir/failures.txt" ]; then echo "== what failed ($dir/failures.txt)"; head -n 250 "$dir/failures.txt"; fi
+          log=$(ls -t "$dir"/slice-*.log 2>/dev/null | head -1)
           if [ -n "$log" ]; then echo "== $log"; tail -n 80 "$log"; else echo "no slice log was written"; fi
 
   # Release-push only: build the tarball and run the suite against the EXTRACTED
@@ -172,5 +175,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          log=$(ls -t "${TMPDIR:-/tmp}"/rp-unittest-chunks/slice-*.log 2>/dev/null | head -1)
+          dir="${TMPDIR:-/tmp}/rp-unittest-chunks"
+          if [ -s "$dir/failures.txt" ]; then echo "== what failed ($dir/failures.txt)"; head -n 250 "$dir/failures.txt"; fi
+          log=$(ls -t "$dir"/slice-*.log 2>/dev/null | head -1)
           if [ -n "$log" ]; then echo "== $log"; tail -n 80 "$log"; else echo "no slice log was written"; fi
