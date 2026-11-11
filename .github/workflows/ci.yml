@@ -37,7 +37,12 @@ jobs:
     # 20,234 and needs about 34, so the 30-minute limit cancelled both ("exceeded the maximum execution
     # time of 30m0s"). A cancelled run shows nothing (the suite's output goes through `tail -40`), so
     # the ceiling is the only warning: 60 minutes, so the next release does not meet it again.
-    timeout-minutes: 60
+    # 8.0.0: 90, and the suite runs as six processes (tools/unittest-chunks.sh). The 8.0.0 push met the 60 minutes
+    # in three of its four jobs (two attempts) and in the fourth the test step was ended with exit code 143 after
+    # 42 minutes, although the same suite takes 33 minutes on a machine with 64 GB. The cause was memory, not time:
+    # one process held about 15 GB by the end (558 test modules each load their own copy of api.py) and a runner has 16.
+    # Each process holds a sixth now. The longer ceiling is headroom: a slow runner should be a late result, not a cancelled one.
+    timeout-minutes: 90
 
     # Postgres is the ENTERPRISE DEFAULT backend (v6.1.0), and until this job
     # existed no gate ran a line of it: `make check` covers JSON + SQLite, and
@@ -110,7 +115,18 @@ jobs:
           # exit status and this job could not fail: the 7.5.0 push printed "FAILED (failures=3)" here and finished
           # green. With pipefail the step fails when unittest does.
           set -o pipefail
-          python -m unittest discover -s tests -v 2>&1 | tail -40
+          # Six `unittest discover` processes one after the other, so no process holds the whole suite (see the limit above and
+          # the header of the script). It prints one line per slice, and the heading and last lines of one that failed.
+          tools/unittest-chunks.sh -v 2>&1 | tail -60
+
+      # The suite's output goes through `tail`, so a job that hits its limit never prints it. Each slice keeps its own log; this
+      # step shows where the newest one stood, and `always()` runs it after a cancel as well.
+      - name: End of the test log
+        if: always()
+        shell: bash
+        run: |
+          log=$(ls -t "${TMPDIR:-/tmp}"/rp-unittest-chunks/slice-*.log 2>/dev/null | head -1)
+          if [ -n "$log" ]; then echo "== $log"; tail -n 80 "$log"; else echo "no slice log was written"; fi
 
   # Release-push only: build the tarball and run the suite against the EXTRACTED
   # staged tree — this catches "reads a file the dist strips" bugs that a source-
@@ -119,7 +135,7 @@ jobs:
   dist:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    timeout-minutes: 60  # the same ceiling as `test`, which runs the same suite in parallel
+    timeout-minutes: 90  # the same ceiling as `test`, which runs the same suite in parallel
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -148,5 +164,13 @@ jobs:
           # make dist builds the tarball AND runs the suite against the
           # extracted staged tree — the "ships fine on dev, breaks on a fresh
           # checkout" catch that `unittest discover` alone can't make.
+          # The staged-tree suite runs as six processes too (tools/unittest-chunks.sh, called from the Makefile recipe).
           make dist
           ls -lh dist/
+
+      - name: End of the test log
+        if: always()
+        shell: bash
+        run: |
+          log=$(ls -t "${TMPDIR:-/tmp}"/rp-unittest-chunks/slice-*.log 2>/dev/null | head -1)
+          if [ -n "$log" ]; then echo "== $log"; tail -n 80 "$log"; else echo "no slice log was written"; fi

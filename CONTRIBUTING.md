@@ -50,6 +50,10 @@ The suite must pass before a PR is merged (CI enforces it). Tests respect
 RP_DATA_DIR="$(mktemp -d)" python -m unittest discover -s tests -v
 ```
 
+That runs the whole suite in one process, which holds about 15 GB of memory by the end. On a smaller machine,
+or to run it the way CI does, use `RP_DATA_DIR="$(mktemp -d)" tools/unittest-chunks.sh`. It runs the same suite
+as six processes, one after the other.
+
 Add tests for any behaviour change. New features get a `tests/test_*.py`; bug
 fixes get a regression test that fails before your change and passes after.
 

@@ -177,13 +177,13 @@ class TestCiListsInSync(unittest.TestCase):
             'which is the one that looks like coverage')
 
     def test_ci_parity_uses_the_ci_runner(self):
-        """ci-parity must run `python -m unittest discover` (the ci.yml
-        runner), not pytest — the two differ in collection AND in which
-        module-level imports they tolerate."""
+        """ci-parity must run the ci.yml runner, `tools/unittest-chunks.sh` (`python -m unittest discover` in six
+        processes), not pytest — the two differ in collection AND in which module-level imports they tolerate."""
         _require_sources(self)
         recipe = MAKEFILE.read_text()
         i = recipe.index('ci-parity:')
-        block = recipe[i:i + 1200]
+        block = recipe[i:i + 1400]
+        self.assertIn('tools/unittest-chunks.sh', block)
         self.assertIn('unittest discover', block)
         self.assertNotIn('pytest', block.split('unittest discover')[1][:200])
 

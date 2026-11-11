@@ -555,13 +555,13 @@ CI_DEPS := bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydanti
 # and a browser exists.
 ci-parity:
 	@command -v uv >/dev/null 2>&1 || { echo "⚠ uv not installed — skipping CI-$(CI_PY) parity (pip install uv). Prod CI runs $(CI_PY); dev is $$(python3 --version)."; exit 0; }
-	@echo "==> CI parity: Python $(CI_PY) + the ci.yml dep list + the ci.yml runner (unittest discover)"
+	@echo "==> CI parity: Python $(CI_PY) + the ci.yml dep list + the ci.yml runner (tools/unittest-chunks.sh: unittest discover in six processes)"
 	@uv python install $(CI_PY) >/dev/null 2>&1 || true
 	@rm -rf .ci-parity-venv
 	@uv venv --python $(CI_PY) .ci-parity-venv >/dev/null 2>&1
 	@. .ci-parity-venv/bin/activate && uv pip install --quiet $(CI_DEPS) >/dev/null 2>&1 && \
 		RPD=$$(mktemp -d /tmp/rp-ciparity-XXXXXX) && \
-		{ RP_DATA_DIR=$$RPD RP_BROWSER_REQUIRE= python -m unittest discover -s tests > .ci-parity-run.log 2>&1; \
+		{ RP_DATA_DIR=$$RPD RP_BROWSER_REQUIRE= tools/unittest-chunks.sh > .ci-parity-run.log 2>&1; \
 		  ec=$$?; tail -5 .ci-parity-run.log; rm -rf "$$RPD"; \
 		  [ $$ec -eq 0 ]; } || \
 		{ rm -rf .ci-parity-venv; echo "✗ CI-$(CI_PY) parity FAILED (full log: .ci-parity-run.log)"; exit 1; }
@@ -668,7 +668,9 @@ dist: clean
 	@echo "==> Running tests against staged tree"
 	@mkdir -p $(DIST_DIR)/.verify
 	@tar -xzf $(DIST_DIR)/$(DIST_NAME).tar.gz -C $(DIST_DIR)/.verify
-	@(cd $(DIST_DIR)/.verify/$(DIST_NAME) && $(PY) -m unittest discover -s tests) \
+	@# Six processes one after the other (tools/unittest-chunks.sh, the source tree's copy): one process held about 15 GB
+	@# by the end of the 8.0.0 suite, and a hosted runner has 16.
+	@(cd $(DIST_DIR)/.verify/$(DIST_NAME) && PYTHON=$(PY) $(CURDIR)/tools/unittest-chunks.sh) \
 	  > $(DIST_DIR)/$(DIST_NAME).test.log 2>&1 || \
 	  (echo "==> TESTS FAILED — staged-tree failures (from $(DIST_DIR)/$(DIST_NAME).test.log):"; \
 	   grep -aE '^(FAIL|ERROR): |^Ran [0-9]+|^FAILED' $(DIST_DIR)/$(DIST_NAME).test.log | tail -60; \
