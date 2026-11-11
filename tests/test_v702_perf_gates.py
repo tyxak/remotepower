@@ -63,6 +63,15 @@ class _Base(unittest.TestCase):
         for a in self._FILES:
             # The BASENAME is the storage key on the SQL backends.
             setattr(api, a, self.tmp / self._saved[a].name)
+        # Every other store of api sits in DATA_DIR, and CI shares one DATA_DIR across the whole suite: CVE findings, SMART and uptime history, ACME and TLS
+        # state are all keyed by host id, and other modules use d0, d1 and d2 too. The 8.0.0 push had one critical item in the digest of three clean hosts that
+        # no local run had, and a single finding left behind is enough to make it. Each test gets its own directory for all of them.
+        self._data_dir = api.DATA_DIR
+        self._moved = {n: v for n, v in vars(api).items()
+                       if n.isupper() and isinstance(v, Path) and v.parent == self._data_dir}
+        for n, v in self._moved.items():
+            setattr(api, n, self.tmp / v.name)
+        api.DATA_DIR = self.tmp
         self._saved_fns = {f: getattr(api, f) for f in self._FUNCS}
         api.respond = lambda status, body=None: (
             _ for _ in ()).throw(api.HTTPError(status, body))
@@ -84,6 +93,9 @@ class _Base(unittest.TestCase):
     def tearDown(self):
         for a, v in self._saved.items():
             setattr(api, a, v)
+        for n, v in self._moved.items():
+            setattr(api, n, v)
+        api.DATA_DIR = self._data_dir
         for f, v in self._saved_fns.items():
             setattr(api, f, v)
         api._LOAD_CACHE.clear()
@@ -299,7 +311,7 @@ class TestAttentionCacheSeesTheDeviceSet(_Base):
         api.save(api.CONFIG_FILE, {})
         api._LOAD_CACHE.clear()
         base = api._attention_payload()
-        self.assertEqual(0, base["counts"]["critical"])
+        self.assertEqual(0, base["counts"]["critical"], base["items"])
         devs = api.load(api.DEVICES_FILE)
         devs["ghost"] = {"name": "ghost", "last_seen": int(time.time()) - 99999,
                          "monitored": True, "sysinfo": {}}
