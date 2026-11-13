@@ -130,7 +130,7 @@ const _IPI_BAN_DIALOG = {
 // number, so every phrase can be translated on its own.
 const _IPI_CLEAR_WORD = {
   done: 'Addresses cleared', queue: 'Waiting to be looked up, cleared',
-  kept: 'Kept because the edge blocklist uses them',
+  kept: 'Kept for the edge blocklist',
   remembered: 'Remembered for a day so they are not reported twice',
   could_not: 'Could not clear',
   shown: 'Most recent shown', recorded: 'Recorded in all', load_all: 'Load all',
@@ -165,7 +165,7 @@ const _IPI_IGNORE_DIALOG = {
 const _IPI_CLEAR_DIALOG = {
   clear: {
     title: 'Clear recorded addresses',
-    message: 'Forget the addresses Threat Intel has recorded and the ones waiting to be looked up. Blocks and bans stay and expire on their own. Addresses the edge blocklist takes from this table stay, so the list does not shrink. An address reported in the last day is remembered by date only, so it is not reported twice.',
+    message: 'Forget the addresses Threat Intel has recorded and the ones waiting to be looked up. Blocks and bans stay and expire on their own. Addresses the edge blocklist takes from this table leave it too, and the blocklist keeps their last sighting, score and reports, so the list does not shrink. An address reported in the last day is remembered by date only, so it is not reported twice.',
     confirm: 'Clear',
   },
 };

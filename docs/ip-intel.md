@@ -580,7 +580,7 @@ The answer says how many addresses went and how many of each of these it kept:
 | Kept | Why |
 |---|---|
 | Blocks on hosts and bans at the edge | Each expires by itself and has its own **Unblock** or **Unban**. The sweep still lifts what runs out. |
-| Addresses the [edge blocklist](#the-edge-blocklist) takes from the table | The list is kept equal to its sources, so forgetting one would take it out of your Cloudflare list at the next sync. Turn off **Found by RemotePower** under **Edge blocklist** first if you want those gone too. |
+| What the [edge blocklist](#the-edge-blocklist) reads of the addresses it takes from the table | These addresses leave the table like the rest. The list is kept equal to its sources, so the blocklist keeps each one's last sighting, score and reports, and your Cloudflare list does not shrink at the next sync. An address drops out of the list when the list would have dropped it anyway. Turn off **Found by RemotePower** under **Edge blocklist** and clear again if you want them out of the list too. |
 | The date an address was last reported, for a day | Without it, the next time the address attacks it would be reported again. |
 | Settings and keys, the day's counts, where the feeds had read to, each host's sensor status, and the scans a firewall has only half counted | They are not addresses. The half-counted scans expire within 30 minutes. |
 

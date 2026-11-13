@@ -1807,10 +1807,11 @@ def _forget_stale(atts, now, pol):
 
 def _held_by_blocklist(st, pol, now):
     """The addresses the Edge blocklist takes from this table at its next sync, as
-    the list spells them. A clear leaves them: the list is kept equal to its
-    sources, so forgetting one here would drop it from Cloudflare at the next sync
-    without anybody having asked for that. Empty while the list cannot write or
-    its "found by RemotePower" source is off, when nothing depends on the table."""
+    the list spells them. A clear keeps what the list reads of them (see
+    _cleared_marker): the list is kept equal to its sources, so forgetting one here
+    would drop it from Cloudflare at the next sync without anybody having asked for
+    that. Empty while the list cannot write or its "found by RemotePower" source is
+    off, when nothing depends on the table."""
     if not (_edge_ban_ready(pol) and pol.get('edgelist_own')):
         return set()
     return set(edge_blocklist.own_candidates(
@@ -1833,6 +1834,35 @@ def _reported_marker(att, now):
     return out or None
 
 
+def _cleared_marker(att, told, listed):
+    """What a cleared address leaves behind, or None for nothing at all.
+
+    `told` is _reported_marker(att, now), which every address keeps.
+
+    An address the Edge blocklist takes from this table (`listed`) keeps what the list
+    reads of it as well, and nothing more: its last sighting, its score and the services
+    it was reported to (see edge_blocklist.own_candidates). The row names no host, so the
+    page, the Data Explorer and the counts do not show it, and the next sync makes the
+    same list. It goes with the table's other old rows (_stale_addresses). `in_list` is
+    the sync's own stamp, which the next sync sets again; keeping it stops a row that
+    comes back before then from saying the list does not hold it."""
+    out = dict(told or {})
+    if not listed:
+        return out or None
+    reported = att.get('reported') if isinstance(att.get('reported'), dict) else {}
+    kept = {p: int(t) for p, t in reported.items()
+            if isinstance(t, (int, float)) and not isinstance(t, bool)}
+    if kept:
+        out['reported'] = kept          # all of it: own_candidates asks only whether it is empty
+    out['last_seen'] = int(att.get('last_seen') or 0)
+    verdict = att.get('verdict') if isinstance(att.get('verdict'), dict) else {}
+    if verdict.get('score') is not None:
+        out['verdict'] = {'score': int(verdict['score'])}
+    if att.get('in_list'):
+        out['in_list'] = att['in_list']
+    return out
+
+
 def handle_ip_intel_clear():
     """POST /api/ip-intel/clear — administrator. Forget the addresses Threat Intel
     has recorded, and what is waiting to be looked up, for the hosts the caller can
@@ -1841,12 +1871,18 @@ def handle_ip_intel_clear():
     Left alone, because each has an effect or a lifetime of its own:
       * blocks on hosts and bans at the edge: each expires by itself and has its own
         Unblock or Unban, and the sweep lifts what runs out;
-      * addresses the Edge blocklist takes from this table (see _held_by_blocklist);
-      * when an address was last reported, for a day (see _reported_marker);
       * settings and keys, the day's lookup and report counts, the feeds' place in
         their logs and each host's sensor status;
       * the scans a firewall has only half counted (ip_intel_scan.json): thirty
         minutes of soft state that expires by itself.
+
+    Every address leaves the table, and two things stay of an address, as a row with
+    no host (see _cleared_marker):
+      * when it was last reported, for a day (see _reported_marker);
+      * what the Edge blocklist reads of it, for an address the list takes from this
+        table (see _held_by_blocklist). Such an address used to stay in the table
+        whole, and on an instance with the list on that was nearly every row, so the
+        button cleared almost nothing.
     """
     actor = A.require_admin_auth()
     if A.method() != 'POST':
@@ -1873,19 +1909,22 @@ def handle_ip_intel_clear():
             theirs = list(devs) if operator else [d for d in devs if d in mine]
             if not operator and not theirs:
                 continue                  # none of this caller's hosts saw it
-            if held and edge_blocklist.canonical(ip) in held:
-                kept_listed += 1
-                continue
-            if devs:
+            had_sightings = bool(devs)
+            if had_sightings:
                 cleared += 1
             for d in theirs:
                 devs.pop(d, None)
             if devs:
                 continue                  # another tenant's host saw it too: it stays for them
-            marker = _reported_marker(att, now)
+            listed = bool(held) and edge_blocklist.canonical(ip) in held
+            told = _reported_marker(att, now)
+            marker = _cleared_marker(att, told, listed)
             if marker:
                 atts[ip] = marker
-                remembered += 1
+                if told:
+                    remembered += 1
+                if listed and had_sightings:
+                    kept_listed += 1
             else:
                 atts.pop(ip, None)
         st['attackers'] = atts

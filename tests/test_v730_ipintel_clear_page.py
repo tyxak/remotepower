@@ -134,7 +134,7 @@ class TestWhatTheButtonDoes(unittest.TestCase):
         ask = out['asked'][0]
         self.assertTrue(ask['danger'])
         self.assertEqual(ask['confirmText'], 'Clear')
-        for fixed in ('Blocks and bans stay', 'edge blocklist', 'reported twice'):
+        for fixed in ('Blocks and bans stay', 'edge blocklist', 'leave it too', 'last sighting, score and reports', 'reported twice'):
             self.assertIn(fixed, ask['message'], 'the dialog must say what it leaves')
 
     def test_a_yes_clears_says_what_went_and_reloads(self):
@@ -146,14 +146,14 @@ class TestWhatTheButtonDoes(unittest.TestCase):
         html = out['result']
         self.assertIn('<span>Addresses cleared</span>: 812', html)
         self.assertIn('<span>Waiting to be looked up, cleared</span>: 37', html)
-        self.assertIn('<span>Kept because the edge blocklist uses them</span>: 14', html)
+        self.assertIn('<span>Kept for the edge blocklist</span>: 14', html)
         self.assertIn('<span>Remembered for a day so they are not reported twice</span>: 5', html)
 
     def test_a_line_for_something_that_did_not_happen_is_not_printed(self):
         out = node('reply = {ok: true, cleared: 3, queue: 0, kept_listed: 0, remembered: 0};'
                    'await clearIpIntel(); console.log(JSON.stringify({html: mk("ipintel-clear-result").innerHTML}));')
         self.assertIn('Addresses cleared', out['html'])
-        for absent in ('Waiting to be looked up', 'Kept because', 'Remembered for a day'):
+        for absent in ('Waiting to be looked up', 'Kept for the edge blocklist', 'Remembered for a day'):
             self.assertNotIn(absent, out['html'])
 
     def test_a_refusal_is_shown_and_nothing_reloads(self):

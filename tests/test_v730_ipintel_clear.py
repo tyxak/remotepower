@@ -11,6 +11,11 @@ dropped, at the Edge blocklist's next sync, each address the list takes from thi
 table, and would have made the next sighting of an address reported an hour ago
 report it again. Both are pinned below with the real sweep and the real sync, and
 every guard was shown red by mutation before this was committed.
+
+8.0.1: the first version left the addresses the list takes in the table whole, and
+on an instance with the list on that was nearly every row ("Kept because the edge
+blocklist uses them: 889" and nothing cleared). They leave the table now and keep
+only what the list reads of them.
 """
 import os
 import sys
@@ -170,8 +175,11 @@ class TestWhatItClears(_Clear):
 
 class TestWhatTheBlocklistTakes(_Clear):
     """The list is kept equal to its sources, and "found by RemotePower" is this
-    table. A clear that took those rows would have shrunk the Cloudflare list at
-    the next sync, which nobody asked for."""
+    table. A clear that took those rows whole would shrink the Cloudflare list at the
+    next sync; one that left them whole cleared nothing on an instance where nearly
+    every address qualifies (the answer read "889 kept"). It takes them off the table
+    and keeps what the list reads of each: the last sighting, the score and the
+    services it was reported to."""
 
     def seed(self):
         self.policy(edgelist_own=True, edgelist_own_score=75, edgelist_own_days=14)
@@ -185,15 +193,54 @@ class TestWhatTheBlocklistTakes(_Clear):
     def own(self):
         return set(edge_blocklist.own_candidates(self.store()['attackers'], T, 75, 14))
 
-    def test_the_rows_the_list_uses_stay_and_the_rest_go(self):
+    def test_the_table_empties_and_the_list_reads_the_same_candidates(self):
         self.seed()
         self.assertEqual(self.own(), {A1, A2})
         st, d = self.clear()
         self.assertEqual(st, 200, d)
-        self.assertEqual((d['cleared'], d['kept_listed']), (2, 2))
-        after = self.store()['attackers']
-        self.assertEqual(set(after), {A1, A2})
+        self.assertEqual((d['cleared'], d['kept_listed']), (4, 2))
+        page = self.view()
+        self.assertEqual((page['attackers'], page['attackers_total'], page['queued']), ([], 0, 0))
+        self.assertEqual(set(self.store()['attackers']), {A1, A2}, 'only what the list reads is kept')
         self.assertEqual(self.own(), {A1, A2}, 'the list would see the same candidates')
+
+    def test_what_is_kept_names_no_host_and_holds_only_what_the_list_reads(self):
+        self.seed()
+        self.clear()
+        after = self.store()['attackers']
+        self.assertEqual(after[A1], {'last_seen': T - 60, 'verdict': {'score': 95}})
+        self.assertEqual(after[A2], {'last_seen': T - 60, 'verdict': {'score': 10},
+                                     'reported': {'abuseipdb': T - HOUR}})
+
+    def test_a_report_older_than_a_day_still_keeps_the_address_in_the_list(self):
+        """own_candidates counts an address as reported however long ago. The day that a
+        clear remembers a report for is another rule (it stops a second report), so the
+        list's side keeps the whole record, or an address reported three days ago and
+        scoring little would drop out of the list."""
+        self.policy(edgelist_own=True, edgelist_own_score=75, edgelist_own_days=14)
+        self.put(attackers={A1: att(seen('d1'), score=10, reported={'abuseipdb': T - 3 * DAY})})
+        self.assertEqual(self.own(), {A1})
+        self.clear()
+        self.assertEqual(self.own(), {A1})
+        self.assertEqual(self.store()['attackers'][A1]['reported'], {'abuseipdb': T - 3 * DAY})
+
+    def test_every_row_can_be_a_candidate_and_the_table_still_empties(self):
+        """The report that made this change: with the list on and nearly every address
+        reported or scoring enough, the answer said how many were kept and cleared
+        nothing."""
+        self.policy(edgelist_own=True, edgelist_own_score=75, edgelist_own_days=14)
+        rows = ips('185.220', 60)
+        self.put(attackers={
+            ip: att(seen('d1', 'edge:cloudflare') if n % 2 else seen('d1'), score=100 if n % 3 else 20,
+                    last=T - n * 60, **({'reported': {'abuseipdb': T - n * 60}} if n % 3 == 0 else {}))
+            for n, ip in enumerate(rows)})
+        before = self.own()
+        self.assertEqual(len(before), 60, 'every row qualifies for the list')
+        st, d = self.clear()
+        self.assertEqual((d['cleared'], d['kept_listed']), (60, 60))
+        page = self.view()
+        self.assertEqual((page['attackers'], page['attackers_total']), ([], 0))
+        self.assertEqual(self.own(), before)
 
     def test_the_next_sync_makes_the_same_list(self):
         """Through the real sync, against the in-memory Cloudflare: the list a
@@ -205,6 +252,66 @@ class TestWhatTheBlocklistTakes(_Clear):
         self.clear()
         self.tick(at=T + 7 * HOUR)               # past edgelist_hours, so it is due
         self.assertEqual(set(self.only_list()['items']), before)
+
+    def test_an_address_that_comes_back_is_recorded_again_and_stays_in_the_list(self):
+        self.seed()
+        # reporting alone keeps the feature on (a sighting is queued) and asks for no lookup,
+        # so no fresh answer replaces the kept score
+        self.policy(lookup_enabled=False, block_enabled=False, report_enabled=True)
+        self.clear()
+        self.note_at(T + 60, 'd1', A1)
+        after = self.sweep_at(T + 120)['attackers']
+        self.assertEqual(set(after[A1]['devices']), {'d1'})
+        self.assertEqual(after[A1]['verdict']['score'], 95, 'the score the list reads is still there')
+        rows = self.view()['attackers']
+        self.assertEqual([r['ip'] for r in rows], [A1])
+        self.assertIn(A1, set(edge_blocklist.own_candidates(self.store()['attackers'], T + 120, 75, 14)))
+
+    def test_clearing_again_changes_nothing_and_says_so(self):
+        self.seed()
+        self.clear()
+        before = self.store()['attackers']
+        st, d = self.clear()
+        self.assertEqual((st, d['cleared'], d['kept_listed'], d['queue']), (200, 0, 0, 0))
+        self.assertEqual(self.store()['attackers'], before)
+
+    def test_with_the_source_switched_off_a_second_clear_takes_what_was_kept(self):
+        self.seed()
+        self.clear()
+        self.assertEqual(set(self.store()['attackers']), {A1, A2})
+        self.policy(edgelist_own=False)
+        st, d = self.clear()
+        self.assertEqual(d['kept_listed'], 0)
+        # the address reported an hour ago keeps its date for the day; the other goes
+        self.assertEqual(self.store()['attackers'], {A2: {'reported': {'abuseipdb': T - HOUR}}})
+
+    def test_a_kept_row_goes_with_the_table_s_other_old_rows(self):
+        self.seed()
+        self.clear()
+        self.assertEqual(self.sweep_at(T + 100 * DAY).get('attackers') or {}, {})
+
+    def test_everything_that_reads_the_table_copes_with_a_kept_row(self):
+        self.seed()
+        self.clear()
+        mod = self.api.ip_intel_handlers_mod
+        visible = {'d1': {'name': 'web01'}}
+        self.assertEqual(self.view()['attackers'], [])
+        self.assertEqual(mod.explorer_rows(visible), [])
+        self.assertIsInstance(mod.edge_metrics(T), dict)
+        mod.edge_report(T)                      # None or a summary: it must not raise on a row with no host
+        self.sweep_at(T + 60)                   # the sweep reads every row too
+
+    def test_a_kept_row_is_a_shape_the_registry_keeps(self):
+        """The stored document is read through store_shapes; a repair would send the
+        original to quarantine and drop what the list needs."""
+        import copy
+        import store_shapes
+        self.seed()
+        self.clear()
+        doc = copy.deepcopy(self.store())
+        fixed = store_shapes.normalize('ip_intel.json', copy.deepcopy(doc))
+        self.assertEqual(fixed['attackers'], doc['attackers'])
+        self.assertEqual(store_shapes.drain_dropped(), [])
 
     def test_without_the_blocklist_nothing_depends_on_the_table(self):
         self.seed()
@@ -322,9 +429,11 @@ class TestWhoseRowsTheyAre(_Clear):
         self.policy(edgelist_own=True, edgelist_own_score=75, edgelist_own_days=14)
         self.put(attackers={A1: att(seen('d1'), score=95)})
         self.tenanted()
+        before = set(edge_blocklist.own_candidates(self.store()['attackers'], T, 75, 14))
         st, d = self.clear()
-        self.assertEqual((d['cleared'], d['kept_listed']), (0, 1))
-        self.assertIn(A1, self.store()['attackers'])
+        self.assertEqual((d['cleared'], d['kept_listed']), (1, 1))
+        self.assertEqual(set(edge_blocklist.own_candidates(self.store()['attackers'], T, 75, 14)), before)
+        self.assertEqual(self.view()['attackers'], [], 'the tenant no longer sees it')
 
 
 class TestWhoMayClear(_Clear):
