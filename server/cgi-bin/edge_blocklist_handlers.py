@@ -124,7 +124,7 @@ def _gather(pol, el, now):
         err = ''
         if now < int(waits.get(name) or 0):
             err = f'{label} did not answer; trying again in a few minutes'
-        elif int(calls.get(name) or 0) < edge_blocklist.CALLS_PER_DAY:
+        elif int(calls.get(name) or 0) < ip_intel.limit_for(pol, name, 'downloads'):
             calls[name] = int(calls.get(name) or 0) + 1
             res = parse(*A._ip_intel_http(build(
                 key, pol[f'edgelist_{name}_conf'], pol[f'edgelist_{name}_limit'])))
@@ -537,6 +537,7 @@ def edge_list_status(st, pol):
         'src': src,
         'calls': {k: v for k, v in calls.items() if k in ('day', 'abuseipdb', 'sniffcat')},
         'per_day': edge_blocklist.CALLS_PER_DAY,
+        'per_day_by': {p: ip_intel.limit_for(pol, p, 'downloads') for p in ip_intel.PROVIDERS},
     }
 
 

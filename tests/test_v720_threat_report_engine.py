@@ -386,19 +386,29 @@ class TestTheServicesAnswers(_Engine):
         self.sweep()
         self.assertEqual(len(self.post_to('sniffcat')), n + 1, 'and did once the window had passed')
 
-    def test_any_other_failure_is_recorded_and_tried_again_next_time(self):
+    def test_any_other_failure_is_recorded_and_tried_again_after_a_short_wait(self):
+        """A service that answers 5xx has not taken the report. Its reason is kept, the address waits ten minutes before that service is
+        asked again (8.0.1; it used to be the next sighting, which asked a service that was down every minute), and once the wait has
+        passed it is asked."""
         self.answer_with(abuse=(500, {'message': 'upstream broke'}))
         self.feed(web(n=12))
         self.sweep()
         a = self.att()
         self.assertNotIn('abuseipdb', a.get('reported') or {})
         self.assertIn('upstream broke', a['errors']['abuseipdb'])
-        self.assertNotIn('abuseipdb', a.get('retry') or {})
+        now = int(time.time())
+        self.assertTrue(now + 9 * 60 <= a['retry']['abuseipdb'] <= now + 11 * 60, 'ten minutes, not the twenty a rate limit waits: %r' % a.get('retry'))
         n = len(self.post_to('abuseipdb'))
         self.answer_with()
         self.feed(web(n=1))
         self.sweep()
-        self.assertEqual(len(self.post_to('abuseipdb')), n + 1)
+        self.assertEqual(len(self.post_to('abuseipdb')), n, 'it did not ask again inside the wait')
+        st = self.store()
+        st['attackers'][ATTACKER]['retry']['abuseipdb'] = int(time.time()) - 1
+        ipintel_store.write(self.api, st)
+        self.feed(web(n=1))
+        self.sweep()
+        self.assertEqual(len(self.post_to('abuseipdb')), n + 1, 'and did once the wait had passed')
         self.assertIn('abuseipdb', self.att()['reported'])
         self.assertNotIn('abuseipdb', self.att().get('errors') or {}, 'the old reason is gone once it worked')
 
@@ -413,6 +423,9 @@ class TestTheServicesAnswers(_Engine):
         self.assertIn('sniffcat', a['reported'])
         self.assertEqual(a['ev']['src'], {'web': 12}, 'kept: AbuseIPDB has not been told')
         self.assertNotIn('ev_reported', a)
+        st = self.store()                      # the ten minutes AbuseIPDB is left alone for (8.0.1) have gone by
+        st['attackers'][ATTACKER]['retry']['abuseipdb'] = int(time.time()) - 1
+        ipintel_store.write(self.api, st)
         self.answer_with()
         self.feed(web(n=1))
         self.sweep()

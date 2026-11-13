@@ -76,8 +76,8 @@ holds long-form docs that don't fit there.
   and their installers, the web client and the web server headers, the interface, and the documents. Five high, seventeen
   medium and twelve low findings, all fixed, the scans and the mutation checks behind them, and what is still open.
 - **[v8.0.1.md](v8.0.1.md)** — "L0gMatters": Clear empties the Threat Intel table even with the Edge blocklist on, a service that does not
-  answer is no longer counted against your daily limits, a card shows the requests sent to AbuseIPDB and SniffCat, and an address a ban engine
-  banned can be blocked without a score.
+  answer is no longer counted against your daily limits, each service has limits of its own, a Request log shows what was sent to AbuseIPDB and
+  SniffCat and what your hosts' sensors sent, and an address a ban engine banned can be blocked without a score.
 - **[v8.0.0.md](v8.0.0.md)** — "Pil0tMatters": the text size from 80% to 300%, tabs and named layouts, ten wizards, the apps
   the agent finds on a host, three connectors and four monitor types, a read-only MCP endpoint, automatic image updates and a Traffic view of what each host talks to.
 - **[v7.5.0.md](v7.5.0.md)** — "Wh0leMatters": the release that carries 7.4.1 to 7.4.9 to production, with four-eyes approval on every

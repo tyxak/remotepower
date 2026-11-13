@@ -16133,7 +16133,9 @@ def _ts_submit(creds, events, sources, dropped, now):
         log.warning(f'threat sensor: the server refused a submission (HTTP {e.code}); it is dropped')
         return 'drop'
     except Exception as e:
-        log.debug(f'threat sensor: submission failed: {e}')
+        # A warning, not a debug line: the sensor retries from the same place with a growing wait, so this is at most a few lines an hour,
+        # and it is the only trace of a pass that reached nothing.
+        log.warning(f'threat sensor: submission failed, trying again: {type(e).__name__}: {e}')
         return 'retry'
 
 
@@ -16159,6 +16161,12 @@ def _threat_sensor_thread(creds, holder, stop_event, every=THREAT_EVERY_S, first
             report = bool(events) or sig != state.get('sig') \
                 or now - int(state.get('status_at') or 0) >= THREAT_STATUS_EVERY_S
             outcome = _ts_submit(creds, events, sources, dropped, now) if report else 'ok'
+            if events:
+                # The addresses this pass carried and what became of the post: the host's half of the trail that
+                # the server keeps its own half of (Threat Intel, Request log).
+                ips = [str(e.get('ip')) for e in events[:3]]
+                more = f' and {len(events) - 3} more' if len(events) > 3 else ''
+                log.info(f"threat sensor: {len(events)} address{'' if len(events) == 1 else 'es'} sent ({outcome}): {', '.join(ips)}{more}")
             if outcome in ('ok', 'drop'):
                 # This thread owns the reporting clock, so what the collector
                 # returned for these two keys does not matter.
@@ -16171,7 +16179,7 @@ def _threat_sensor_thread(creds, holder, stop_event, every=THREAT_EVERY_S, first
                 fails += 1
         except Exception as e:
             fails += 1
-            log.debug(f'threat sensor: pass failed: {type(e).__name__}: {e}')
+            log.warning(f'threat sensor: pass failed, waiting {min(600, every * (2 ** min(fails, 4)))} s: {type(e).__name__}: {e}')
     log.info('threat sensor: stopped')
 
 

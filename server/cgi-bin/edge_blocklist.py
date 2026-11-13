@@ -46,7 +46,7 @@ MIN_V6_PREFIX = 32
 _CLOUDFLARE_NETS = tuple(ipaddress.ip_network(c) for c in threat_evidence.CLOUDFLARE_RANGES)
 
 SOURCES = ("always", "own", "abuseipdb", "sniffcat")
-CALLS_PER_DAY = 4  # one blacklist download per source and read; AbuseIPDB's base tier allows five
+CALLS_PER_DAY = ip_intel.DOWNLOADS_PER_DAY  # the default; the operator can set one for each service (ip_intel.limit_for)
 STALE_SOURCE_S = 3 * 86400  # a source that did not answer is read from its last copy this long
 # A download that got no answer (a network failure or an HTTP 5xx) is not one of the day's CALLS_PER_DAY: nothing was
 # served. The source is left alone for SOURCE_RETRY_S, because every new edge ban makes a sync due at once and a service

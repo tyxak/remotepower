@@ -60,6 +60,11 @@ CATEGORIES = {
 }
 
 # Defaults for the operator-tunable policy (config `ip_intel`).
+DOWNLOADS_PER_DAY = 4   # blacklist downloads a day for each service, unless the operator says otherwise (AbuseIPDB's free plan allows five)
+LIMIT_KINDS = ('lookups', 'reports', 'downloads')
+BUDGET_VERSION = 2     # the day's counts in the store: 2 counts only the requests a service answered (1 also counted the ones it did not)
+
+
 DEFAULTS = {
     'lookup_enabled': False,
     'report_enabled': False,
@@ -75,6 +80,12 @@ DEFAULTS = {
     'cache_hours': 24,            # how long a lookup answer is reused
     'daily_lookup_budget': 900,   # per provider; AbuseIPDB's free tier is 1000
     'daily_report_budget': 900,   # per provider; reports have their own daily limit
+    # Limits of one service's own (8.0.1). None uses the general number above (lookups and reports) or DOWNLOADS_PER_DAY, so an
+    # installation that sets none behaves as before. Each service says what it allows: AbuseIPDB's free plan is about 1,000
+    # lookups and reports and 5 blacklist downloads a day, and another plan or service allows far more.
+    'limit_abuseipdb_lookups': None, 'limit_sniffcat_lookups': None,
+    'limit_abuseipdb_reports': None, 'limit_sniffcat_reports': None,
+    'limit_abuseipdb_downloads': None, 'limit_sniffcat_downloads': None,
     'report_comment': '',         # '' = the default text below
     'never_block': [],            # extra CIDRs that are never blocked (or reported)
     # What is never REPORTED, and nothing else: an ignored address can still be looked up
@@ -529,6 +540,20 @@ def evidence_comment(ev, template=None):
 
 
 # ── blocking ───────────────────────────────────────────────────────────────────
+
+def limit_for(policy, provider, kind):
+    """The most requests of `kind` ('lookups', 'reports' or 'downloads') a day that RemotePower may send to `provider`.
+    The service's own setting wins; without one, lookups and reports use the general number and downloads use
+    DOWNLOADS_PER_DAY. 0 is a limit: nothing is sent."""
+    own = policy.get('limit_%s_%s' % (provider, kind))
+    if isinstance(own, int) and not isinstance(own, bool) and own >= 0:
+        return own
+    if kind == 'lookups':
+        return int(policy.get('daily_lookup_budget') or 0)
+    if kind == 'reports':
+        return int(policy.get('daily_report_budget') or 0)
+    return DOWNLOADS_PER_DAY
+
 
 def block_decision(policy, verdict, local_count, confirmed=''):
     """(True, '') when the policy says to block, else (False, reason).

@@ -175,6 +175,7 @@ def ip_intel_note_attack(dev_id, unit, ip, count, window_s):
 # ── the threat sensor's side of the queue ──────────────────────────────────────
 
 SENSOR_EVENTS_PER_HOUR = 3000       # accepted from one host in an hour
+INTAKE_LOG_KEEP = 200               # what hosts sent, kept so a missing address can be traced (8.0.1)
 SENSOR_STATUS_KEEP_S = 30 * 86400   # a host that has not reported for a month is forgotten
 
 
@@ -306,6 +307,14 @@ def _note_evidence_into(intake, dev_id, events, status=None, now=None):
     ignored = dict(status.get('ignored') or {})
     if infra:
         ignored['cloudflare'] = ignored.get('cloudflare', 0) + infra
+    if not edge and (events or any(ignored.values())):
+        # What the host sent, whether or not it came to anything: the one place that says an address reached the server.
+        # A pass with nothing to say (a status only) is not a line.
+        log = intake['log'] if isinstance(intake.get('log'), list) else []
+        log.append({'at': now, 'device_id': dev_id, 'n': len(events), 'queued': queued, 'throttled': throttled,
+                    'ignored': {str(k)[:24]: int(v) for k, v in ignored.items() if isinstance(v, (int, float)) and v},
+                    'dropped': int(status.get('dropped') or 0), 'ips': [ev['ip'] for ev in events[:5]]})
+        intake['log'] = log[-INTAKE_LOG_KEEP:]
     if not edge:
         sensors[dev_id] = {
             'at': now, 'sources': list(status.get('sources') or []),
@@ -475,6 +484,50 @@ def _reqlog_view(st):
     return [e for e in reversed(rows) if isinstance(e, dict)][:REQLOG_SHOWN]
 
 
+def _whole(x):
+    """int(x), or 0 for anything that is not a number: a damaged or hand-edited store must not take the page down."""
+    try:
+        return int(x or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _intake_log_view(intake, names):
+    """What hosts sent, as lines of the same shape as the requests RemotePower made: the host is in the service column and
+    the address is the first one the pass carried. `names` is {device id: name}. It never raises on a stored row of the wrong
+    kind (store_shapes repairs the document where it is read, and this reads what is left with defaults)."""
+    rows = intake.get('log') if isinstance(intake.get('log'), list) else []
+    out = []
+    for e in reversed(rows):
+        if not isinstance(e, dict):
+            continue
+        ips = [i for i in (e.get('ips') if isinstance(e.get('ips'), list) else []) if isinstance(i, str)]
+        n, queued, throttled, dropped = _whole(e.get('n')), _whole(e.get('queued')), _whole(e.get('throttled')), _whole(e.get('dropped'))
+        note = f'queued {queued} of {n}'
+        if throttled:
+            note += f", {throttled} held back by the hour's limit"
+        ignored = e.get('ignored') if isinstance(e.get('ignored'), dict) else {}
+        aside = sum(_whole(v) for v in ignored.values() if isinstance(v, (int, float)))
+        if aside:
+            note += f', {aside} set aside'
+        if dropped:
+            note += f', {dropped} left out by the host'
+        if ips:
+            note += ': ' + ', '.join(ips) + (f' and {n - len(ips)} more' if n > len(ips) else '')
+        host = e.get('device_id') if isinstance(e.get('device_id'), str) else ''
+        out.append({'at': _whole(e.get('at')), 'prov': str(names.get(host) or host)[:80],
+                    'op': 'received', 'ip': ips[0] if ips else '', 'status': 200, 'ms': 0,
+                    'result': 'ok' if queued else 'refused', 'note': note[:300]})
+    return out
+
+
+def _request_lines(st, intake, names):
+    """Requests sent and what hosts sent, newest first, for the Request log card."""
+    lines = _reqlog_view(st) + _intake_log_view(intake, names)
+    lines.sort(key=lambda r: -int(r.get('at') or 0))
+    return lines[:REQLOG_SHOWN]
+
+
 def _ip_intel_http(req):
     """(status, parsed_json_or_None). Every request to a provider goes through here, and the two
     services' are logged (see _reqlog_note); a log line never fails a request."""
@@ -518,29 +571,34 @@ def _ip_intel_http_send(req):
 
 # ── the sweep ──────────────────────────────────────────────────────────────────
 
+def _budget_today(b, today):
+    """The day's counts as the code reads them. A new day starts empty. A record written before 8.0.1 (it has no `v`) counted every
+    request RemotePower sent, including the ones a service never answered, and a service that was down for a day filled the whole
+    report allowance that way. The report counts of such a record are not trusted: they read as empty and the next write drops them,
+    once. The lookup counts stay, because they were not what went wrong."""
+    b = b if isinstance(b, dict) else {}
+    if b.get('day') != today:
+        return {'day': today, 'v': ip_intel.BUDGET_VERSION}
+    if b.get('v') != ip_intel.BUDGET_VERSION:
+        return dict({k: n for k, n in b.items() if not str(k).startswith('report:')}, v=ip_intel.BUDGET_VERSION)
+    return b
+
+
 def _budget_left(st, pol, today):
     """{provider: lookups still allowed today} from the stored counters."""
-    b = st.get('budget') if isinstance(st.get('budget'), dict) else {}
-    if b.get('day') != today:
-        b = {'day': today}
-    cap = int(pol.get('daily_lookup_budget') or 0)
-    return {p: max(0, cap - int(b.get(p, 0))) for p in ip_intel.PROVIDERS}
+    b = _budget_today(st.get('budget'), today)
+    return {p: max(0, ip_intel.limit_for(pol, p, 'lookups') - int(b.get(p, 0))) for p in ip_intel.PROVIDERS}
 
 
 def _report_budget_left(st, pol, today):
     """{provider: reports still allowed today}. Reports are counted under
     `report:<provider>` in the same daily record as lookups."""
-    b = st.get('budget') if isinstance(st.get('budget'), dict) else {}
-    if b.get('day') != today:
-        b = {'day': today}
-    cap = int(pol.get('daily_report_budget') or 0)
-    return {p: max(0, cap - int(b.get('report:' + p, 0))) for p in ip_intel.PROVIDERS}
+    b = _budget_today(st.get('budget'), today)
+    return {p: max(0, ip_intel.limit_for(pol, p, 'reports') - int(b.get('report:' + p, 0))) for p in ip_intel.PROVIDERS}
 
 
 def _add_spend(st, today, spent):
-    b = st.get('budget') if isinstance(st.get('budget'), dict) else {}
-    if b.get('day') != today:
-        b = {'day': today}
+    b = dict(_budget_today(st.get('budget'), today))
     for p, n in spent.items():
         b[p] = int(b.get(p, 0)) + n
     st['budget'] = b
@@ -1625,7 +1683,7 @@ def handle_ip_intel():
                 rows.append(dict(b, device_id=dev_id, ip=ip,
                                  name=(visible[dev_id] or {}).get('name') or dev_id))
     rows.sort(key=lambda r: int(r.get('at') or 0), reverse=True)
-    budget = st.get('budget') if isinstance(st.get('budget'), dict) else {}
+    budget = _budget_today(st.get('budget'), time.strftime('%Y-%m-%d', time.gmtime(int(time.time()))))   # today's, as the sweep reads it
     # The page is sent the most recent `limit` addresses (PAGE_ROWS unless it asked
     # for more). `attackers_total` says how many there are, so a list cut short says
     # so instead of looking complete.
@@ -1638,7 +1696,7 @@ def handle_ip_intel():
                     'sensors': _sensor_rows(intake, visible),
                     'edge': A.edge_intel_status(st, pol) if operator else None,
                     'edge_list': A.edge_list_status(st, pol) if operator else None,
-                    'requests': _reqlog_view(st) if operator else None,
+                    'requests': _request_lines(st, intake, {d: (v or {}).get('name') for d, v in visible.items()}) if operator else None,
                     'ban_hosts': ban_hosts,
                     'can_ignore': bool(operator),
                     'budget': budget, 'queued': len(intake.get('queue') or [])})
@@ -1679,6 +1737,20 @@ def handle_ip_intel_settings():
                     pol[k] = max(lo, min(hi, int(body[k])))
                 except (TypeError, ValueError, OverflowError):
                     A.respond(400, {'error': f'{k} must be a number'})
+                changed.append(f'{k}={pol[k]}')
+        for prov in ip_intel.PROVIDERS:
+            for kind, hi in (('lookups', 1000000), ('reports', 1000000), ('downloads', 1000)):
+                k = 'limit_%s_%s' % (prov, kind)
+                if body.get(k) is None:
+                    continue                          # not sent: left as it was
+                if body[k] == '':
+                    pol.pop(k, None)                  # blank: this service uses the general number again
+                    changed.append(f'{k}=general')
+                    continue
+                try:
+                    pol[k] = max(0, min(hi, int(body[k])))
+                except (TypeError, ValueError, OverflowError):
+                    A.respond(400, {'error': 'limit must be a number', 'field': k})   # a fixed sentence the dictionary translates
                 changed.append(f'{k}={pol[k]}')
         if body.get('report_comment') is not None:
             text = ip_intel.clean_comment_template(body['report_comment'])

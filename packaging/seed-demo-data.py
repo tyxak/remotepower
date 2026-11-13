@@ -1374,7 +1374,16 @@ def _ip_intel_documents() -> tuple:
              'budget': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())),
                         'abuseipdb': 18, 'sniffcat': 18},
              'last_sweep': now()}
-    intake = {'adopted': True, 'queue': [], 'sensors': sensors,
+    # 8.0.1: what the hosts sent, newest last as the intake keeps it: passes that carried addresses, one the hour's limit held back and one that
+    # carried only things the server set aside, so the Request log shows the lines a host's sensor makes as well as the requests made.
+    host_ids = [d['id'] for d in linux][:3]
+    seen_ips = sorted(attackers)
+    log = []
+    for n, (host, k, queued, throttled, aside) in enumerate([(0, 3, 3, 0, {}), (1, 2, 2, 0, {}), (0, 4, 4, 0, {'cloudflare': 1}),
+                                                              (2, 1, 0, 1, {}), (1, 0, 0, 0, {'cloudflare': 2})]):
+        log.append({'at': now() - (6 - n) * 211, 'device_id': host_ids[host % len(host_ids)], 'n': k, 'queued': queued,
+                    'throttled': throttled, 'ignored': aside, 'dropped': 0, 'ips': seen_ips[n:n + k][:5]})
+    intake = {'adopted': True, 'queue': [], 'sensors': sensors, 'log': log,
               'cursors': {'cf': now() - 330, 'trap': now() - 330}}
     return table, intake
 

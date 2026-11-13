@@ -397,6 +397,7 @@ Each service has its own daily limits, and you set them on the same page:
 |---|---|---|
 | **Lookups per day (each service)** | 900 | Stops asking a service once it has been asked this many times today. |
 | **Reports per day (each service)** | 900 | Stops reporting to a service once it has been sent this many reports today. A report the service did not answer (a network failure or an HTTP 5xx error) does not count. |
+| **Lookups, reports and blacklist downloads per day, for one service** | blank | A service's own number replaces the general one for that service. A blank box uses the number above, and downloads use 4 a day. Use it when a plan allows more than the free one: AbuseIPDB's free plan is about 1,000 lookups and reports and 5 downloads a day, and another plan or service can allow far more. |
 | **Reuse a lookup for (hours)** | 24 | How long an answer is kept before the same address is asked about again. |
 | **Report after attempts** | 10 | How many failed attempts an address needs before it is reported. |
 | **Report listed addresses after blocks** | 3 | How many times a firewall must block an address that is on a reputation list (Spamhaus, Dshield, CINS) before it is reported as port scanning. 0 keeps those hits as context only. See [Firewall sources](firewall-sources.md). |
@@ -416,11 +417,16 @@ and it is for admins. The private and reserved ranges are refused.
 
 ### See what was sent
 
-**Provider requests**, on the **Log sources** tab, lists the last 150 requests RemotePower sent to AbuseIPDB and SniffCat: the time, the service, whether it was a lookup, a report or a blacklist download, the address, the answer (the HTTP status and what it came to), how long it took and the service's own sentence. Only the platform operator sees it.
+The **Request log**, on the **Log sources** tab, lists the last 150 lines of two kinds. Only the platform operator sees it.
 
-Keys, headers and the text of a report are never shown. RemotePower keeps the last 300 lines.
+- **What RemotePower sent** to AbuseIPDB and SniffCat: the time, the service, whether it was a lookup, a report or a blacklist download, the address, the answer (the HTTP status and what it came to), how long it took and the service's own sentence.
+- **What your hosts sent** (a **Sensor report**): the time, the host, the first address of the pass and how many were queued, held back by the hour's limit or set aside, with the addresses.
+
+Keys, headers and the text of a report are never shown. RemotePower keeps the last 300 requests and the last 200 passes of the hosts, and deleting a host removes the passes it sent.
 
 When a service fails, its line says so, for example `500 Server error` with the service's message, or `No answer`. A service that fails three times in a row in one pass is left alone for the rest of that pass, and the address waits ten minutes before that service is asked about it again. None of this counts against your daily limits.
+
+If an address you expected is missing, look for it here. A sensor report with the address means the server received it. Lookup and report lines for it mean it was handled. The Linux agent also writes a line to its own log each time its log sensor sends addresses (`threat sensor: 2 addresses sent (ok): …`) and a warning when a send or a pass fails, so the host's side of the trail can be read too.
 
 ### The report message
 
@@ -542,7 +548,7 @@ blocking and stays off on a multi-tenant install. The details are in
 A new scanner has no reputation yet: AbuseIPDB and SniffCat score an address 0 until others have reported it. So by default an address that fail2ban banned in three jails is
 not blocked by RemotePower, because its score is below the threshold. The ban is on the host that made it, and RemotePower adds nothing to it.
 
-Tick **Also block addresses that fail2ban, CrowdSec or a honeypot has already banned, whatever their score** (Threat Intel → Settings → Providers; it needs automatic blocking on)
+Tick **Also block addresses that fail2ban, CrowdSec or a honeypot has already banned, whatever their score** (on the **Settings** tab of Threat Intel, in the **Providers** card; it needs automatic blocking on)
 and an address one of these banned is treated like a high-scoring one:
 
 - **fail2ban**: a `Ban` line in its log. A `Found` line is a failure, not a ban.
@@ -639,8 +645,8 @@ settings or run a manual lookup, which spends the install's daily quota.
 | `rate limited or already reported` | SniffCat uses one status for its own limit and for a repeat, and only a repeat says so in words (that case shows as `already reported a moment ago`). When the message does not say, RemotePower cannot tell which it was, and waits a little over 20 minutes before asking again. |
 | `not reported: 4 / 10 attempts so far` | The logs show the address, but not enough yet. See [When an address is reported](#when-an-address-is-reported). |
 | `not reported: 2 / 3 WAF refusals so far` or `... Cloudflare refusals so far` | The same, counted on the nearest route: the WAF needs the number in **Report after WAF refusals**, and Cloudflare needs the number in **Report after Cloudflare refusals**. |
-| `not reported: the service is not answering` | The service failed or gave no answer to three requests in a row, so RemotePower stopped asking it for the rest of that pass and asks about this address again in ten minutes. Open **Provider requests** to see what it said. Nothing was counted against your daily limit. |
-| `not reported: the daily report limit is used up` | The service has been sent as many reports today as **Reports per day** allows. The count is RemotePower's own and covers only reports the service answered, so compare it with the usage on the service's own page, and raise **Reports per day** if your plan allows more. It starts again at midnight UTC. |
+| `not reported: the service is not answering` | The service failed or gave no answer to three requests in a row, so RemotePower stopped asking it for the rest of that pass and asks about this address again in ten minutes. Open the **Request log** to see what it said. Nothing was counted against your daily limit. |
+| `not reported: the daily report limit is used up` | The service has been sent as many reports today as its limit allows. The count is RemotePower's own and covers only reports the service answered, so compare it with the usage on the service's own page, and raise **Reports per day**, or set the limit of that service alone, if your plan allows more. It starts again at midnight UTC. The first time 8.0.1 runs it drops the day's report counts that older versions kept, because they also counted reports a service never answered. |
 | `not reported: nothing recognisable in the logs` | Only a jail such as `recidive` named it, so there is no honest category to report it under. |
 | Log sources: `Quiet` | The agent looked at the log and nothing new had been written. It looks about once a minute and reads only what was added since the last look, so a log that is written to now and then shows `Quiet` between writes. |
 | Log sources: `Reading` | New lines arrived since the last look. The numbers beside it are for that look, not totals. |

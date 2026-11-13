@@ -3,8 +3,8 @@
 
 The CURRENT release carries the strict version pins; older test_vXYZ.py files have theirs loosened to shape checks.
 Headline: what Threat Intel tells you and what it does about it. Clear empties the table even with the Edge blocklist on, a service
-that does not answer is not counted against the daily limits, a card lists the requests sent to AbuseIPDB and SniffCat, and an
-address a ban engine already banned can be blocked without a score. The behaviour lives in the test files of each change, each
+that does not answer is not counted against the daily limits, each service has limits of its own, a Request log lists what was sent to
+AbuseIPDB and SniffCat and what the hosts' sensors sent, and an address a ban engine already banned can be blocked without a score. The behaviour lives in the test files of each change, each
 guard watched failing before it was trusted; what is here is that the release is versioned, documented and carries them.
 """
 
@@ -163,6 +163,8 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v801_provider_down.py",         # a service that does not answer is not charged to the daily limits, and the blocklist's downloads too
         "tests/test_v801_request_log.py",           # every request to AbuseIPDB and SniffCat is a line; no key, header or body
         "tests/test_v801_request_log_page.py",      # the card, escaped, hidden for anyone else, six languages, the seeded rows
+        "tests/test_v801_service_limits.py",        # lookups, reports and downloads per day for each service; today's counts repaired once
+        "tests/test_v801_intake_log.py",            # what the hosts' sensors sent is a line of the same log; the agent's own log lines
         "tests/test_v801_block_confirmed.py",       # a ban engine's decision blocks, behind a proxy at the edge, with every protection kept
         "tests/test_v801_threatintel_e2e.py",       # the card, the checkbox and the blocks table, in a browser
     )

@@ -8,11 +8,12 @@ releases only; for an older release the entry below is the record.
 ## v8.0.1 — "L0gMatters" — unreleased (test)
 
 A release about what Threat Intel tells you and what it does about it. **Clear** empties the table now, even with the Edge blocklist on. A service that
-does not answer is no longer counted against your daily limits, and a new **Provider requests** card shows what RemotePower sent to AbuseIPDB and
-SniffCat and what each one answered. An address that fail2ban, CrowdSec or a honeypot has already banned can be blocked without waiting for a
-reputation score; that is off until you tick it. All four came from one installation: SniffCat answered every report with an error for a day, and
-RemotePower said its own limit was used up while SniffCat's page showed none used. The agents change in their version number only. The release page
-is [docs/v8.0.1.md](docs/v8.0.1.md).
+does not answer is no longer counted against your daily limits, and each service can have limits of its own. A new **Request log** shows what
+RemotePower sent to AbuseIPDB and SniffCat, what each answered and what your hosts' sensors sent, so a missing address can be traced. An address that
+fail2ban, CrowdSec or a honeypot has already banned can be blocked without waiting for a reputation score; that is off until you tick it. It all came
+from one installation: SniffCat answered every report with an error for a day, and RemotePower said its own limit was used up while SniffCat's page
+showed none used. Only the Linux agent changed, besides the version number: its sensor writes a line to the agent's log each time it sends addresses.
+The release page is [docs/v8.0.1.md](docs/v8.0.1.md).
 
 ### Threat Intel
 
@@ -31,10 +32,25 @@ is [docs/v8.0.1.md](docs/v8.0.1.md).
 - **The Edge blocklist's downloads follow the same rule.** A blacklist download that got no answer is not one of the day's four, and the source waits ten
   minutes. Every new edge ban makes a sync due at once, so a service that was down used up the four by lunchtime and the list was made from an old copy.
 
-- **Provider requests.** A card on Threat Intel → Log sources (platform operator only) lists the last 150 requests RemotePower sent to AbuseIPDB and
-  SniffCat: the time, the service, a lookup, a report or a blacklist download, the address, the HTTP status, how long it took and the service's own
-  sentence. Keys, headers and the text of a report are never kept, and 300 lines are. `GET /api/ip-intel` carries them as `requests`. **Held by**
-  `tests/test_v801_request_log.py`, `tests/test_v801_request_log_page.py` and, in a browser, `tests/test_v801_threatintel_e2e.py`.
+- **Each service has limits of its own.** One number (900) applied to both services, the blocklist's four downloads a day was a constant, and one
+  service allowed far more than that. **Lookups per day**, **Reports per day** and **Blacklist downloads per day** can be set for AbuseIPDB and SniffCat
+  separately; a blank box uses the general number and downloads use 4, so nothing changes until one is filled in. The usage line counts each service
+  against its own limit. **Held by** `tests/test_v801_service_limits.py`.
+
+- **Today's counts are corrected once.** Older versions counted every request, including the ones a service never answered, so a day of failed tries
+  filled the report allowance. The first time 8.0.1 runs it drops the day's report counts it did not write itself (the lookup counts stay), and the
+  Threat Intel page shows today's counts as the sweep reads them: before, a record from an earlier day was shown as today's. **Held by**
+  `tests/test_v801_service_limits.py`.
+
+- **Request log.** A card on Threat Intel → Log sources (platform operator only) lists the last 150 lines of what was sent and what was received. The
+  requests RemotePower sent to AbuseIPDB and SniffCat: the time, the service, a lookup, a report or a blacklist download, the address, the HTTP status,
+  how long it took and the service's own sentence. And what your hosts sent (a **Sensor report**): the host, how many addresses were queued, held back
+  by the hour's limit or set aside, and the first few. Keys, headers and the text of a report are never kept; 300 requests and 200 passes are, and
+  deleting a host removes the passes it sent (a `host_purge` rule, held by `tests/test_v800_host_purge.py` and `tests/test_v801_intake_log.py`).
+  `GET /api/ip-intel` carries the lines as `requests`. The Linux agent writes `threat sensor: 2 addresses sent (ok): …` to its log each time its sensor
+  sends addresses, and a warning, not a debug line, when a send or a pass fails. **Held by** `tests/test_v801_request_log.py`,
+  `tests/test_v801_request_log_page.py`, `tests/test_v801_intake_log.py`, the end-to-end `test_6` of `tests/test_v720_threat_sensor_wire.py` (the agent's
+  own thread against the real stack, the address named at both ends) and, in a browser, `tests/test_v801_threatintel_e2e.py`.
 
 - **Block what a ban engine already banned.** Off until you tick **Also block addresses that fail2ban, CrowdSec or a honeypot has already banned, whatever
   their score**. A new scanner has no reputation yet, so an address that fail2ban banned in three jails was not blocked by RemotePower, and behind

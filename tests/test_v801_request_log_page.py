@@ -1,4 +1,4 @@
-"""The Threat Intel page's card of requests sent to AbuseIPDB and SniffCat (8.0.1).
+"""The Threat Intel page's Request log: what was sent to AbuseIPDB and SniffCat, and what the hosts' sensors sent (8.0.1).
 
 Is the card there, hidden for anyone the server did not send the log to; does it print what the service said without letting
 that text become markup; has every word it prints six languages; and does the demo's seeded log say what the server writes.
@@ -73,7 +73,7 @@ class TestTheCard(unittest.TestCase):
 
     def test_it_follows_the_page_rules_for_a_card_and_a_table(self):
         card = self.card()
-        self.assertIn('<div class="section-title">Provider requests</div>', card)
+        self.assertIn('<div class="section-title">Request log</div>', card)
         self.assertIn('scrollable-table-wrap audit-scroll', card)
         self.assertNotIn('style=', card)
         self.assertNotIn('onclick', card)
@@ -116,6 +116,21 @@ class TestWhatItPrints(unittest.TestCase):
                      'unreachable: TimeoutError', 'c-red', 'c-green', 'c-amber'):
             self.assertIn(want, html)
 
+    def test_a_line_for_what_a_host_sent_names_the_host_and_has_no_duration(self):
+        row = {'at': 700, 'prov': 'web01', 'op': 'received', 'ip': '185.220.101.10', 'status': 200, 'ms': 0, 'result': 'ok',
+               'note': 'queued 2 of 2: 185.220.101.10, 185.220.101.11'}
+        out = node('_ipiData = {requests: %s}; _ipiAdmin = true; _ipiRenderRequests();'
+                   'console.log(JSON.stringify({html: mk("ipintel-req-tbody").innerHTML}));' % json.dumps([row]))
+        html = out['html']
+        for want in ('<td>web01</td>', '<span>Sensor report</span>', '185.220.101.10', '200 <span>OK</span>',
+                     'queued 2 of 2: 185.220.101.10, 185.220.101.11'):
+            self.assertIn(want, html)
+        self.assertNotIn(' ms', html, 'a received line took no time to make')
+        evil = dict(row, prov='<img src=x onerror=alert(1)>')
+        out = node('_ipiData = {requests: %s}; _ipiAdmin = true; _ipiRenderRequests();'
+                   'console.log(JSON.stringify({html: mk("ipintel-req-tbody").innerHTML}));' % json.dumps([evil]))
+        self.assertNotIn('<img', out['html'])
+
     def test_a_services_own_words_never_become_markup(self):
         evil = dict(self.ROWS[0], note='<img src=x onerror=alert(1)>', ip='<b>1</b>', prov='<i>x</i>', result='<u>y</u>')
         out = node('_ipiData = {requests: %s}; _ipiAdmin = true; _ipiRenderRequests();'
@@ -141,7 +156,7 @@ class TestWhatItPrints(unittest.TestCase):
         out = node('_ipiData = {requests: []}; _ipiAdmin = true; _ipiRenderRequests();'
                    'console.log(JSON.stringify({hidden: mk("ipintel-requests-card").hidden, html: mk("ipintel-req-tbody").innerHTML}));')
         self.assertFalse(out['hidden'])
-        self.assertIn('No request to AbuseIPDB or SniffCat has been logged yet.', out['html'])
+        self.assertIn('Nothing has been logged yet.', out['html'])
 
     def test_a_word_the_page_does_not_know_is_shown_as_the_server_sent_it(self):
         row = dict(self.ROWS[0], result='HTTP 404', op='something', status=404)
@@ -156,9 +171,9 @@ class TestTheWords(unittest.TestCase):
     def test_every_word_the_card_prints_has_six_languages(self):
         rows = dict_rows()
         words = set(table('_IPI_REQ_OP').values()) | set(table('_IPI_REQ_RESULT').values())
-        words |= {'Provider requests', 'Time', 'Service', 'Request', 'Address', 'Answer', 'Took', 'Note',
-                  'The last requests RemotePower sent to AbuseIPDB and SniffCat, and what each service answered. '
-                  'Keys and request bodies are never shown.',
+        words |= {'Request log', 'Time', 'Service or host', 'Request', 'Address', 'Answer', 'Took', 'Note',
+                  'The last requests RemotePower sent to AbuseIPDB and SniffCat and what each service answered, and the reports the log '
+                  'sensors on your hosts sent to RemotePower. Keys and request bodies are never shown.',
                   re.search(r"_IPI_REQ_EMPTY = '([^']+)'", _JS).group(1),
                   'the service is not answering'}
         self.assertGreaterEqual(len(words), 17)
@@ -173,7 +188,7 @@ class TestTheWords(unittest.TestCase):
         self.assertEqual(sent, set(results), 'the page and the server name different results')
         self.assertEqual(set(table('_IPI_REQ_CLASS')), set(results))
         self.assertEqual(set(table('_IPI_REQ_PROV')), {'abuseipdb', 'sniffcat'})
-        self.assertEqual(set(table('_IPI_REQ_OP')), {'check', 'report', 'blacklist', 'other'})
+        self.assertEqual(set(table('_IPI_REQ_OP')), {'check', 'report', 'blacklist', 'received', 'other'})
 
 
 class TestTheDemo(unittest.TestCase):
@@ -192,6 +207,20 @@ class TestTheDemo(unittest.TestCase):
             self.assertEqual(ip_intel.describe_answer(r['status'], {'message': r['note']})[0], r['result'], r)
         self.assertEqual([r['at'] for r in rows], sorted(r['at'] for r in rows), 'the store keeps newest last')
         self.assertTrue({'ok', 'server error', 'no answer', 'already reported', 'rate limited'} <= {r['result'] for r in rows})
+
+    def test_the_seeded_passes_of_the_hosts_are_what_the_server_writes(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('rp_seed2', _ROOT / 'packaging' / 'seed-demo-data.py')
+        seed = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(seed)
+        _table, intake = seed._ip_intel_documents()
+        log = intake.get('log')
+        self.assertGreaterEqual(len(log), 4, 'the demo shows no line for a host')
+        for e in log:
+            self.assertEqual(set(e), {'at', 'device_id', 'n', 'queued', 'throttled', 'ignored', 'dropped', 'ips'})
+            self.assertLessEqual(len(e['ips']), 5)
+        self.assertEqual([e['at'] for e in log], sorted(e['at'] for e in log), 'the intake keeps newest last')
+        self.assertTrue(any(e['throttled'] for e in log) and any(e['ignored'] for e in log), 'the demo shows more than the plain case')
 
 
 if __name__ == '__main__':

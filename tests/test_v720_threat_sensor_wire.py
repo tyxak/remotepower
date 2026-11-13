@@ -259,5 +259,62 @@ class TestTheSensorOverRealHttp(unittest.TestCase):
         self.assertIn('/var/log/nginx/access.log', paths, 'the Log sources card does not list the log')
 
 
+    # ── 6: the trail, at both ends (8.0.1) ──────────────────────────────────────
+
+    def test_6_the_address_is_named_in_the_hosts_log_and_in_the_servers(self):
+        """An address that goes missing has to be traceable. The agent says what it sent and what became of the post, the server keeps a
+        line for what it received, and they must name the same address. Nothing here waits for the server's once-a-minute sweep."""
+        import logging
+        status, resp = self.call('POST', '/api/ip-intel/settings', {'sensor_enabled': True}, self.admin)
+        self.assertEqual(status, 200, resp)
+        agent = load_agent('agent_v801_trail')
+        agent.HOST_ROOT = str(self.host)
+        agent.THREAT_STATE_FILE = self.host / 'state-trail.json'
+        agent._which = lambda prog, _cache={}: None
+
+        def http_post_plain(url, data, timeout=10):
+            req = agent.request.Request(url, data=json.dumps(data).encode(), headers={'Content-Type': 'application/json'})
+            with agent._OPENER.open(req, timeout=timeout) as resp_:
+                return json.loads(resp_.read(agent.MAX_JSON_RESP))
+        agent.http_post = http_post_plain
+        records = []
+        handler = logging.Handler()
+        handler.emit = records.append
+        agent.log.addHandler(handler)
+        previous = agent.log.level
+        agent.log.setLevel(logging.INFO)
+        self.addCleanup(lambda: (agent.log.removeHandler(handler), agent.log.setLevel(previous)))
+
+        creds = {'server_url': self.base, 'device_id': self.linux['device_id'], 'token': self.linux['token']}
+        holder = {'cfg': self.beat(self.linux)['threat_sensor']}
+        stop = threading.Event()
+        thread = threading.Thread(target=agent._threat_sensor_thread, args=(creds, holder, stop, 1, 0), daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (stop.set(), thread.join(timeout=10)))
+
+        deadline = time.monotonic() + 60
+        line = None
+        while time.monotonic() < deadline and not line:
+            requests_ = self.intel().get('requests') or []
+            line = next((r for r in requests_ if r.get('op') == 'received' and ATTACKER in (r.get('note') or '')), None)
+            if not line:
+                time.sleep(1)
+        self.assertIsNotNone(line, "the server kept no line for what the host sent: %r" % (self.intel().get('requests'),))
+        self.assertEqual(line['prov'], self.linux.get('name') or 'e2e-web01', 'the line names the host')
+        self.assertEqual((line['status'], line['result']), (200, 'ok'))
+        self.assertRegex(line['note'], r'^queued \d+ of \d+')
+
+        # The agent logs after the server's answer has come back, so the server's line can be there a moment before the agent's.
+        # Wait for it the way the server's was waited for: asserting on `records` at once failed two runs in three.
+        def said():
+            return [r for r in list(records) if 'threat sensor:' in r.getMessage() and 'sent (' in r.getMessage()]
+        until = time.monotonic() + 30
+        while time.monotonic() < until and not any(ATTACKER in r.getMessage() for r in said()):
+            time.sleep(0.2)
+        sent = [r.getMessage() for r in said()]
+        self.assertTrue(any(ATTACKER in m and '(ok)' in m for m in sent), 'the host said nothing about the address it sent: %r' % sent)
+        self.assertEqual([r.levelname for r in said()][:1], ['INFO'])
+
+
 if __name__ == '__main__':
     unittest.main()

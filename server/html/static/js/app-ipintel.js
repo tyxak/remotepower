@@ -172,7 +172,7 @@ const _IPI_CLEAR_DIALOG = {
 // The requests RemotePower sent to the two services (8.0.1). The fixed words are tables so the language
 // gate reads one place (tests/test_v801_request_log_page.py); the service names are not translated.
 const _IPI_REQ_PROV = {abuseipdb: 'AbuseIPDB', sniffcat: 'SniffCat'};
-const _IPI_REQ_OP = {check: 'Lookup', report: 'Report', blacklist: 'Blacklist download', other: 'Other'};
+const _IPI_REQ_OP = {check: 'Lookup', report: 'Report', blacklist: 'Blacklist download', received: 'Sensor report', other: 'Other'};
 const _IPI_REQ_RESULT = {
   'ok': 'OK', 'already reported': 'Already reported', 'rate limited': 'Rate limited',
   'key rejected': 'Key rejected', 'refused': 'Refused', 'server error': 'Server error', 'no answer': 'No answer',
@@ -181,7 +181,7 @@ const _IPI_REQ_CLASS = {
   'ok': 'c-green', 'already reported': 'c-green', 'rate limited': 'c-amber',
   'key rejected': 'c-red', 'refused': 'c-red', 'server error': 'c-red', 'no answer': 'c-red',
 };
-const _IPI_REQ_EMPTY = 'No request to AbuseIPDB or SniffCat has been logged yet.';
+const _IPI_REQ_EMPTY = 'Nothing has been logged yet.';
 const _IPI_EDGE_DIALOG = {
   token: {
     title: 'Remove token',
@@ -324,6 +324,15 @@ function _ipiFillSettings(s, budget) {
   set('ipintel-listed-report-after', s.report_listed_after ?? 3);
   set('ipintel-lookup-budget', s.daily_lookup_budget ?? 900);
   set('ipintel-report-budget', s.daily_report_budget ?? 900);
+  // a service's own limits: blank uses the number above (the placeholder says which), downloads use 4
+  for (const p of ['abuseipdb', 'sniffcat']) {
+    set(`ipintel-lim-${p}-lookups`, s[`limit_${p}_lookups`] ?? '');
+    set(`ipintel-lim-${p}-reports`, s[`limit_${p}_reports`] ?? '');
+    set(`ipintel-lim-${p}-downloads`, s[`limit_${p}_downloads`] ?? '');
+    const lk = document.getElementById(`ipintel-lim-${p}-lookups`), rp = document.getElementById(`ipintel-lim-${p}-reports`);
+    if (lk) lk.placeholder = String(s.daily_lookup_budget ?? 900);
+    if (rp) rp.placeholder = String(s.daily_report_budget ?? 900);
+  }
   set('ipintel-cache-hours', s.cache_hours ?? 24);
   set('ipintel-comment', s.report_comment || '');
   set('ipintel-never', (s.never_block || []).join('\n'));
@@ -368,10 +377,10 @@ function _ipiFillSettings(s, budget) {
   }
   const b = document.getElementById('ipintel-budget');
   if (b) {
-    const cap = s.daily_lookup_budget ?? 900;
-    const rcap = s.daily_report_budget ?? 900;
-    b.textContent = `Lookups today: AbuseIPDB ${budget.abuseipdb || 0} / ${cap}, SniffCat ${budget.sniffcat || 0} / ${cap}. ` +
-      `Reports today: AbuseIPDB ${budget['report:abuseipdb'] || 0} / ${rcap}, SniffCat ${budget['report:sniffcat'] || 0} / ${rcap}`;
+    // each service's own cap where there is one, else the general number
+    const cap = (p, kind) => s[`limit_${p}_${kind}`] ?? (kind === 'lookups' ? (s.daily_lookup_budget ?? 900) : (s.daily_report_budget ?? 900));
+    b.textContent = `Lookups today: AbuseIPDB ${budget.abuseipdb || 0} / ${cap('abuseipdb', 'lookups')}, SniffCat ${budget.sniffcat || 0} / ${cap('sniffcat', 'lookups')}. ` +
+      `Reports today: AbuseIPDB ${budget['report:abuseipdb'] || 0} / ${cap('abuseipdb', 'reports')}, SniffCat ${budget['report:sniffcat'] || 0} / ${cap('sniffcat', 'reports')}`;
   }
 }
 
@@ -842,7 +851,7 @@ function _ipiRenderRequests() {
       <td>${_ipiPhrase(_IPI_REQ_OP[r.op] || _IPI_REQ_OP.other)}</td>
       <td class="ff-mono fs-11">${escHtml(String(r.ip || ''))}</td>
       <td class="${_IPI_REQ_CLASS[r.result] || 'hint'}">${r.status ? escHtml(String(r.status)) : '–'} ${_ipiPhrase(_IPI_REQ_RESULT[r.result] || String(r.result || ''))}</td>
-      <td>${escHtml(String(r.ms || 0))} ms</td>
+      <td>${r.op === 'received' ? '' : escHtml(String(r.ms || 0)) + ' ms'}</td>
       <td class="hint fs-11">${escHtml(String(r.note || ''))}</td>
     </tr>`).join('');
 }
@@ -1050,6 +1059,12 @@ async function saveIpIntelSettings() {
     report_listed_after: v('ipintel-listed-report-after').value,
     daily_lookup_budget: v('ipintel-lookup-budget').value,
     daily_report_budget: v('ipintel-report-budget').value,
+    limit_abuseipdb_lookups: v('ipintel-lim-abuseipdb-lookups').value,
+    limit_abuseipdb_reports: v('ipintel-lim-abuseipdb-reports').value,
+    limit_abuseipdb_downloads: v('ipintel-lim-abuseipdb-downloads').value,
+    limit_sniffcat_lookups: v('ipintel-lim-sniffcat-lookups').value,
+    limit_sniffcat_reports: v('ipintel-lim-sniffcat-reports').value,
+    limit_sniffcat_downloads: v('ipintel-lim-sniffcat-downloads').value,
     cache_hours: v('ipintel-cache-hours').value,
     report_comment: v('ipintel-comment').value,
     never_block: v('ipintel-never').value,

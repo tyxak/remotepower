@@ -206,9 +206,10 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 ### Recent releases
 
 - **v8.0.1 "L0gMatters"** — what Threat Intel tells you and what it does about it. Clear empties the table even with the
-  Edge blocklist on. A service that does not answer is no longer counted against your daily limits, a **Provider requests**
-  card shows what RemotePower sent to AbuseIPDB and SniffCat and what each answered, and an address that fail2ban, CrowdSec or a
-  honeypot has already banned can be blocked without a reputation score, if you tick one box.
+  Edge blocklist on. A service that does not answer is no longer counted against your daily limits, each service can have
+  limits of its own, a **Request log** shows what RemotePower sent to AbuseIPDB and SniffCat, what each answered and what your
+  hosts' sensors sent, and an address that fail2ban, CrowdSec or a honeypot has already banned can be blocked without a
+  reputation score, if you tick one box.
 - **v8.0.0 "Pil0tMatters"** — the first release of a new major version, about what you can adjust and what
   the agent finds on its own. You can set the text size from 80% to 300%, show a long page as tabs or as one
   page, and keep up to eight named layouts for Home. Ten setup tasks have a wizard: a host, a notification

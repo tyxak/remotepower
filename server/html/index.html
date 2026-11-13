@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.1-1">
+<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.1-2">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=8.0.1-1">
+<link rel="stylesheet" href="static/css/styles.css?v=8.0.1-2">
 
 </head>
 <body>
@@ -5134,14 +5134,15 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v8.0.1 l0gmatters threat intel clear clear recorded addresses edge blocklist found by remotepower kept for the edge blocklist provider requests log sources api requests abuseipdb sniffcat lookup report blacklist download http status server error no answer daily limit daily report limit used up reports per day lookups per day not answering fail2ban crowdsec honeypot decoy ban engine block confirmed also block banned score cloudflare edge ban automatic">
+          <details class="doc-card" open data-keywords="release notes changelog v8.0.1 l0gmatters threat intel clear clear recorded addresses edge blocklist found by remotepower kept for the edge blocklist request log provider requests log sources api requests abuseipdb sniffcat lookup report blacklist download http status server error no answer daily limit daily report limit used up reports per day lookups per day blacklist downloads per day limits of its own each service not answering sensor report missing address threat sensor agent log fail2ban crowdsec honeypot decoy ban engine block confirmed also block banned score cloudflare edge ban automatic">
             <summary><strong>What's new — v8.0.1 &ldquo;L0gMatters&rdquo;</strong> &mdash; what Threat Intel tells you, and what it does about it.</summary>
             <div class="doc-body">
               <p><strong>Clear empties the table.</strong> With the Edge blocklist on, nearly every address qualified for the list, and Clear used to leave each of those rows whole. They leave the table now. The blocklist keeps each one&rsquo;s last sighting, score and reports, so your Cloudflare list does not shrink, and the answer says <em>Kept for the edge blocklist</em>.</p>
               <p><strong>A service that does not answer is not counted.</strong> A network failure or an HTTP 5xx from AbuseIPDB or SniffCat no longer counts against <em>Lookups per day</em> or <em>Reports per day</em>. The address waits ten minutes before that service is asked about it again, and a service that fails three times in one pass is left alone for the rest of that pass. The Edge blocklist&rsquo;s blacklist downloads follow the same rule.</p>
-              <p><strong>See what was sent.</strong> <em>Provider requests</em>, on the <em>Log sources</em> tab of Threat Intel, lists the last 150 requests to AbuseIPDB and SniffCat with the address, the HTTP status, how long it took and the service&rsquo;s own sentence. Keys, headers and the text of a report are never shown. Only the platform operator sees it.</p>
+              <p><strong>Each service has limits of its own.</strong> Under <em>Settings</em>, <em>Lookups per day</em>, <em>Reports per day</em> and <em>Blacklist downloads per day</em> can be set for AbuseIPDB and SniffCat separately. A blank box uses the general number, so nothing changes until you fill one in. Use it when a plan allows more than the free one.</p>
+              <p><strong>See what was sent, and what was received.</strong> The <em>Request log</em>, on the <em>Log sources</em> tab of Threat Intel, lists the last 150 lines: the requests to AbuseIPDB and SniffCat with the address, the HTTP status, how long it took and the service&rsquo;s own sentence, and each <em>Sensor report</em> your hosts sent, with how many addresses were queued, held back or set aside. If an address you expected is missing, look for it there. Keys, headers and the text of a report are never shown. Only the platform operator sees it.</p>
               <p><strong>Block what a ban engine already banned.</strong> Tick <em>Also block addresses that fail2ban, CrowdSec or a honeypot has already banned</em> under <em>Settings</em> and such an address is blocked on the host that saw it and, with the Edge blocklist on, banned at the edge, without waiting for a score. Everything that protects an address still applies. A host you do not trust can get an address banned at the edge this way, so leave it off if one is not under your control. It is off until you tick it.</p>
-              <p><strong>What changes for you.</strong> Hard-reload the dashboard once. The agents change in their version number only. If a service was down today, raise <em>Reports per day</em> until midnight UTC.</p>
+              <p><strong>What changes for you.</strong> Hard-reload the dashboard once. Update the Linux agents to get the sensor&rsquo;s log lines (<code>threat sensor: 2 addresses sent (ok)</code>); the Windows and macOS agents change in their version number only. If a service was down today, the day&rsquo;s report counts are dropped once when 8.0.1 first runs, so nothing needs resetting by hand.</p>
               <p><strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
               <p class="hint">See <code>docs/v8.0.1.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
@@ -7497,13 +7498,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <div class="dash-card mt-16" data-pg-tab="sources" id="ipintel-requests-card" hidden>
-          <div class="section-title">Provider requests</div>
-          <p class="hint mb-12">The last requests RemotePower sent to AbuseIPDB and SniffCat, and what each service answered. Keys and request bodies are never shown.</p>
+          <div class="section-title">Request log</div>
+          <p class="hint mb-12">The last requests RemotePower sent to AbuseIPDB and SniffCat and what each service answered, and the reports the log sensors on your hosts sent to RemotePower. Keys and request bodies are never shown.</p>
           <div class="scrollable-table-wrap audit-scroll">
             <table class="data-table w-full">
               <thead id="ipintel-req-thead"><tr>
                 <th scope="col" data-col="at">Time</th>
-                <th scope="col" data-col="prov">Service</th>
+                <th scope="col" data-col="prov">Service or host</th>
                 <th scope="col" data-col="op">Request</th>
                 <th scope="col" data-col="ip">Address</th>
                 <th scope="col" data-col="status">Answer</th>
@@ -7607,6 +7608,37 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </div>
           <p class="hint">Each service has its own daily limit, and the free plans are about 1,000 a day. When a limit is reached, RemotePower stops asking or reporting until the next day (UTC). Use 0 to switch one off.</p>
+          <p class="hint">Each service can have limits of its own, for example when your plan allows more than the numbers above. Leave a box blank to use the number above; blacklist downloads then use 4 a day.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group"><span class="form-label">AbuseIPDB</span></div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-lim-abuseipdb-lookups">Lookups per day</label>
+              <input type="number" id="ipintel-lim-abuseipdb-lookups" class="form-input isl-80" min="0" max="1000000" placeholder="">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-lim-abuseipdb-reports">Reports per day</label>
+              <input type="number" id="ipintel-lim-abuseipdb-reports" class="form-input isl-80" min="0" max="1000000" placeholder="">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-lim-abuseipdb-downloads">Blacklist downloads per day</label>
+              <input type="number" id="ipintel-lim-abuseipdb-downloads" class="form-input isl-80" min="0" max="1000" placeholder="4">
+            </div>
+          </div>
+          <div class="settings-row isl-57">
+            <div class="form-group"><span class="form-label">SniffCat</span></div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-lim-sniffcat-lookups">Lookups per day</label>
+              <input type="number" id="ipintel-lim-sniffcat-lookups" class="form-input isl-80" min="0" max="1000000" placeholder="">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-lim-sniffcat-reports">Reports per day</label>
+              <input type="number" id="ipintel-lim-sniffcat-reports" class="form-input isl-80" min="0" max="1000000" placeholder="">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ipintel-lim-sniffcat-downloads">Blacklist downloads per day</label>
+              <input type="number" id="ipintel-lim-sniffcat-downloads" class="form-input isl-80" min="0" max="1000" placeholder="4">
+            </div>
+          </div>
           <div class="form-group">
             <label class="form-label" for="ipintel-comment">Report message</label>
             <textarea id="ipintel-comment" class="form-input ff-mono" rows="2" maxlength="300" spellcheck="false"></textarea>
@@ -13593,39 +13625,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=8.0.1-1"></script>
+<script defer src="static/js/app.js?v=8.0.1-2"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-cmdb.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-containers.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-network.js?v=8.0.1-1"></script>
+<script defer src="static/js/app-calendar.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-cmdb.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-containers.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-network.js?v=8.0.1-2"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-compliance.js?v=8.0.1-1"></script>
+<script defer src="static/js/app-hostconfig.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-compliance.js?v=8.0.1-2"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-dns.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-drift.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-cve.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-firewall.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-backups.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-iac.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-proxmox.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-virt.js?v=8.0.1-1"></script>
+<script defer src="static/js/app-ai.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-dns.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-drift.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-cve.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-firewall.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-backups.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-iac.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-proxmox.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-virt.js?v=8.0.1-2"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-remote.js?v=8.0.1-1"></script>
-<script defer src="static/js/app-tickets.js?v=8.0.1-1"></script>
+<script defer src="static/js/app-logs.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-remote.js?v=8.0.1-2"></script>
+<script defer src="static/js/app-tickets.js?v=8.0.1-2"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=8.0.1-1"></script>
+<script defer src="static/js/app-self.js?v=8.0.1-2"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=8.0.1-1"></script>
+<script defer src="static/js/app-tooltip.js?v=8.0.1-2"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -13635,6 +13667,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=8.0.1-1"></script>
+<script defer src="static/js/sw-register.js?v=8.0.1-2"></script>
 </body>
 </html>

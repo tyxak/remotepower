@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""8.0.1 on the Threat Intel page, in a browser on the demo seed: the card of provider requests and the setting that lets a ban engine's decision block.
+"""8.0.1 on the Threat Intel page, in a browser on the demo seed: the Request log, the limits of each service and the setting that lets a ban engine's decision block.
 
-One page, not the gate. The card must be where the tabs put it, show what the seeder wrote and keep its box (no sideways scroll at a desktop or a phone width),
-every word of it must be translated, the checkbox must go to the server through the real endpoint and come back, and the blocks table must say who decided.
+One page, not the gate. The Request log must be where the tabs put it, show what the seeder wrote and keep its box (no sideways scroll at a desktop or a phone width),
+every word of it must be translated, the checkbox must go to the server through the real endpoint and come back, the blocks table must say who decided, and the
+six limits of the Limits card (lookups, reports and blacklist downloads for each service) must save through the real endpoint, come back, be cleared by a blank box,
+keep the card's box at a phone width and be translated.
 
 Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
 """
@@ -85,8 +87,19 @@ def _until(fn, seconds=20, step=0.25):
     return last
 
 
-CARD_WORDS = ('Provider requests', 'Time', 'Service', 'Request', 'Address', 'Answer', 'Took', 'Note', 'Lookup', 'Report',
-              'Blacklist download', 'OK', 'Already reported', 'Rate limited', 'Server error', 'No answer')
+CARD_WORDS = ('Request log', 'Time', 'Service or host', 'Request', 'Address', 'Answer', 'Took', 'Note', 'Lookup', 'Report',
+              'Blacklist download', 'Sensor report', 'OK', 'Already reported', 'Rate limited', 'Server error', 'No answer')
+LIMIT_WORDS = ('Lookups per day', 'Reports per day', 'Blacklist downloads per day',
+               'Each service can have limits of its own, for example when your plan allows more than the numbers above. Leave a box blank to use the number above; blacklist downloads then use 4 a day.')
+
+# the six limits as the server holds them, null where none is set; `save` presses the page's own Save first
+READ_LIMITS = """async (save) => {
+    if (save) await saveIpIntelSettings();
+    const s = (await api('GET', '/ip-intel')).settings, out = {};
+    for (const p of ['abuseipdb', 'sniffcat']) for (const k of ['lookups', 'reports', 'downloads']) out[p + '_' + k] = s['limit_' + p + '_' + k] ?? null;
+    return out;
+}"""
+NO_LIMITS = {p + '_' + k: None for p in ('abuseipdb', 'sniffcat') for k in ('lookups', 'reports', 'downloads')}
 
 
 @unittest.skipUnless(_GATE, SKIP_REASON)
@@ -119,10 +132,10 @@ class TestThePage(unittest.TestCase):
         self.page.wait_for_selector('#ipintel-requests-card:not([hidden])', timeout=15000)
         self.assertTrue(self.page.is_visible('#ipintel-requests-card'))
         rows = self.page.evaluate("() => document.querySelectorAll('#ipintel-req-tbody tr').length")
-        self.assertEqual(rows, 14, 'the demo seeds fourteen lines')
+        self.assertEqual(rows, 19, 'the demo seeds fourteen requests and five passes of the hosts')
         text = self.page.inner_text('#ipintel-requests-card')
-        for words in ('Provider requests', 'SniffCat', 'AbuseIPDB', 'Server error', 'No answer', 'Already reported', 'Rate limited',
-                      'Blacklist download', 'Internal server error. Please report this to: support@sniffcat.com', 'unreachable: TimeoutError'):
+        for words in ('Request log', 'SniffCat', 'AbuseIPDB', 'Server error', 'No answer', 'Already reported', 'Rate limited',
+                      'Blacklist download', 'Sensor report', 'held back by the hour', 'Internal server error. Please report this to: support@sniffcat.com', 'unreachable: TimeoutError'):
             self.assertIn(words, text)
         self.assertEqual(self.page.evaluate("() => document.querySelectorAll('#ipintel-req-tbody .c-red').length > 0"), True)
         self.tab('attackers')
@@ -146,34 +159,92 @@ class TestThePage(unittest.TestCase):
             self.assertLessEqual(got['wrapHeight'], 400, '%dpx wide: the table box is uncapped (%d px)' % (width, got['wrapHeight']))
         self.page.set_viewport_size({'width': 1440, 'height': 900})
 
-    def test_every_word_of_the_card_has_a_translation(self):
+    def _every_word_has_a_translation(self, tab, card, words):
         page = self.page
-        self.tab('sources')
-        page.wait_for_selector('#ipintel-requests-card:not([hidden])', timeout=15000)
+        self.tab(tab)
+        page.wait_for_selector('#%s:not([hidden])' % card, timeout=15000)
         assert page.evaluate("async () => { await _ensureI18n(); return !!window.RPi18n; }"), 'i18n.js did not load'
         rows = dict_rows()
         try:
             for lang in page.evaluate("() => RPi18n.langs.filter(l => l !== 'en')"):
                 page.evaluate("(l) => RPi18n.setLang(l, false)", lang)
-                for key in CARD_WORDS:
+                for key in words:
                     # what the engine returns is what the dictionary holds (a word can be the English one: German "OK", French "Service")
                     self.assertEqual(page.evaluate("(k) => RPi18n.t(k)", key), rows[key][lang], '%s: %r' % (lang, key))
                 last = []
 
                 def probe():
                     nonlocal last
-                    last = page.evaluate("""() => {
-                        const out = [], w = document.createTreeWalker(document.getElementById('ipintel-requests-card'), NodeFilter.SHOW_TEXT);
+                    last = page.evaluate("""(id) => {
+                        const out = [], w = document.createTreeWalker(document.getElementById(id), NodeFilter.SHOW_TEXT);
                         for (let n = w.nextNode(); n; n = w.nextNode()) {
                             const t = n.nodeValue.trim();
                             if (t && n.parentElement.offsetParent !== null && RPi18n.t(t) !== t) out.push(t);
                         }
-                        return out; }""")
+                        return out; }""", card)
                     return not last
                 _until(probe, seconds=4, step=0.2)
                 self.assertEqual(last, [], '%s: text on the card that the dictionary would have translated' % lang)
         finally:
             page.evaluate("() => RPi18n.setLang('en', false)")
+
+    def test_every_word_of_the_card_has_a_translation(self):
+        self._every_word_has_a_translation('sources', 'ipintel-requests-card', CARD_WORDS)
+
+    def test_every_word_of_the_limits_card_has_a_translation(self):
+        self._every_word_has_a_translation('settings', 'ipintel-limits-card', LIMIT_WORDS)
+
+    def test_the_limits_card_saves_a_limit_for_one_service_and_a_blank_clears_it(self):
+        page = self.page
+        self.tab('settings')
+        page.wait_for_selector('#ipintel-lim-sniffcat-reports', state='visible', timeout=15000)
+        general = page.evaluate("async () => { const s = (await api('GET', '/ip-intel')).settings; return [s.daily_lookup_budget ?? 900, s.daily_report_budget ?? 900]; }")
+        self.assertEqual(page.evaluate(READ_LIMITS, False), NO_LIMITS, 'none set on the demo instance')
+        for prov in ('abuseipdb', 'sniffcat'):
+            for kind in ('lookups', 'reports', 'downloads'):
+                self.assertEqual(page.input_value('#ipintel-lim-%s-%s' % (prov, kind)), '', 'blank until one is filled in')
+        self.assertEqual(page.get_attribute('#ipintel-lim-sniffcat-lookups', 'placeholder'), str(general[0]), 'the placeholder is the number a blank box uses')
+        self.assertEqual(page.get_attribute('#ipintel-lim-sniffcat-reports', 'placeholder'), str(general[1]))
+        self.assertEqual(page.get_attribute('#ipintel-lim-sniffcat-downloads', 'placeholder'), '4')
+        try:
+            page.fill('#ipintel-lim-sniffcat-reports', '8800')
+            page.fill('#ipintel-lim-sniffcat-downloads', '16')
+            self.assertEqual(page.evaluate(READ_LIMITS, True), dict(NO_LIMITS, sniffcat_reports=8800, sniffcat_downloads=16),
+                             'one service has its own limits; the other still uses the general ones')
+            page.fill('#ipintel-lim-sniffcat-reports', '')          # empty the boxes first, so that only the server can put the numbers back
+            page.fill('#ipintel-lim-sniffcat-downloads', '')
+            page.evaluate("async () => { await loadIpIntel(); }")
+            page.wait_for_timeout(500)
+            self.assertEqual(page.input_value('#ipintel-lim-sniffcat-reports'), '8800', 'the page did not show what the server holds')
+            self.assertEqual(page.input_value('#ipintel-lim-sniffcat-downloads'), '16', 'the page did not show what the server holds')
+            usage = page.inner_text('#ipintel-budget')
+            self.assertEqual(usage.count('/ 8800'), 1, usage)
+            self.assertIn('AbuseIPDB', usage.split('Reports today:')[1].split('SniffCat')[0])
+            self.assertTrue(usage.split('Reports today:')[1].split('SniffCat')[0].rstrip(', ').endswith('/ %s' % general[1]), usage)
+        finally:
+            page.fill('#ipintel-lim-sniffcat-reports', '')
+            page.fill('#ipintel-lim-sniffcat-downloads', '')
+            self.assertEqual(page.evaluate(READ_LIMITS, True), NO_LIMITS, 'a blank box clears the limit of that service')
+
+    def test_the_limits_card_keeps_its_box_at_a_desktop_and_a_phone_width(self):
+        self.tab('settings')
+        self.page.wait_for_selector('#ipintel-limits-card:not([hidden])', timeout=15000)
+        try:
+            for width, height in ((1440, 900), (390, 844)):
+                self.page.set_viewport_size({'width': width, 'height': height})
+                self.page.wait_for_timeout(400)
+                got = self.page.evaluate("""() => {
+                    const card = document.getElementById('ipintel-limits-card'), r = card.getBoundingClientRect();
+                    const boxes = [...card.querySelectorAll('input[id^="ipintel-lim-"]')].map(e => e.getBoundingClientRect());
+                    return {page: document.documentElement.scrollWidth - window.innerWidth, right: Math.round(r.right), width: window.innerWidth, inputs: boxes.length,
+                            clipped: boxes.filter(b => b.right > window.innerWidth + 1 || b.left < -1 || b.width < 30).length};
+                }""")
+                self.assertEqual(got['inputs'], 6)
+                self.assertLessEqual(got['page'], 1, '%dpx wide: the page scrolls sideways by %d' % (width, got['page']))
+                self.assertLessEqual(got['right'], got['width'] + 1, '%dpx wide: the card runs off the right edge' % width)
+                self.assertEqual(got['clipped'], 0, '%dpx wide: %d of the six limit boxes run off the screen or are squeezed under 30 px' % (width, got['clipped']))
+        finally:
+            self.page.set_viewport_size({'width': 1440, 'height': 900})
 
     def test_the_checkbox_goes_to_the_server_and_comes_back(self):
         page = self.page
@@ -187,6 +258,7 @@ class TestThePage(unittest.TestCase):
             page.check('#ipintel-block-confirmed')
             saved = page.evaluate("""async () => { await saveIpIntelSettings(); return (await api('GET', '/ip-intel')).settings.block_confirmed; }""")
             self.assertIs(saved, True)
+            page.uncheck('#ipintel-block-confirmed')               # clear it on the page first, so that only the server can tick it again
             page.evaluate("async () => { await loadIpIntel(); }")
             page.wait_for_timeout(500)
             self.assertTrue(page.is_checked('#ipintel-block-confirmed'), 'the page did not show what the server holds')

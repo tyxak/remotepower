@@ -215,7 +215,10 @@ class TestWhoSeesIt(_Real):
         st, d = self.call(self.api.handle_ip_intel)
         self.assertEqual(st, 200, d)
         rows = d['requests']
-        self.assertEqual(len(rows), 8)
+        sent = [r for r in rows if r['op'] != 'received']
+        got = [r for r in rows if r['op'] == 'received']
+        self.assertEqual(len(sent), 8, 'two addresses: a lookup and a report to each of two services')
+        self.assertEqual(len(got), 1, "the host's sensor report that queued them is a line of the same log")
         self.assertEqual([r['at'] for r in rows], sorted((r['at'] for r in rows), reverse=True))
 
     def test_nobody_else_does(self):
