@@ -564,7 +564,7 @@ SHAPES: dict = {
     'integrations_state.json': fields(latest=dict_of(fields(metrics=DICT, checked=NUM)), history=DICT),
     'ip_intel.json': fields(attackers=dict_of(fields(verdict=DICT, devices=DICT, last_seen=OPT_NUM, report_log=LIST)),
                             blocks=dict_of(dict_of(fields(until=NUM))), budget=fields(abuseipdb=NUM, sniffcat=NUM), last_sweep=NUM, edge=DICT, edgelist=DICT,
-                            edgeban=DICT),
+                            edgeban=DICT, reqlog=LIST),
     'ip_intel_intake.json': fields(queue=LIST, sensors=dict_of(fields(sources=LIST, ignored=DICT)), cursors=DICT),
     'kev_epss.json': fields(kev=list_of(STR), epss=dict_of(NUM)),
     'kmip.json': fields(clients=dict_of(fields(not_after=OPT_NUM)), daemon=fields(last_state_fetch=OPT_NUM),

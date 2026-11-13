@@ -429,7 +429,7 @@ An address that the list holds is not shown as `not blocked`, because the edge i
 | A sync that would empty the list or cut it by more than half | Held. The card says why, and **Sync anyway** goes ahead when you mean it. The halving check applies to lists of 200 entries or more. |
 | A source that did not answer | The sync uses that source's last copy for up to three days. With no copy, the sync is held. |
 | More entries than there is room for | The list is cut at **Most entries in the list**, less what your account's other lists use. The card says how many were left out. |
-| Downloads | Each blacklist is downloaded at most four times a day, and its last copy is reused in between. |
+| Downloads | Each blacklist is downloaded at most four times a day, and its last copy is reused in between. A download the service did not answer (a network failure or an HTTP 5xx error) is not counted, and RemotePower waits ten minutes before it asks that service again. |
 | One change at a time | Cloudflare applies a change in the background and takes one at a time. RemotePower waits up to 20 seconds and then looks again every five minutes. |
 | A ban by hand | Needs the platform operator for the edge and the **command** permission on each host. The never-block rules apply to both halves. One ban reaches at most 500 hosts. |
 

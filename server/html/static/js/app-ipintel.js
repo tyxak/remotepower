@@ -169,6 +169,19 @@ const _IPI_CLEAR_DIALOG = {
     confirm: 'Clear',
   },
 };
+// The requests RemotePower sent to the two services (8.0.1). The fixed words are tables so the language
+// gate reads one place (tests/test_v801_request_log_page.py); the service names are not translated.
+const _IPI_REQ_PROV = {abuseipdb: 'AbuseIPDB', sniffcat: 'SniffCat'};
+const _IPI_REQ_OP = {check: 'Lookup', report: 'Report', blacklist: 'Blacklist download', other: 'Other'};
+const _IPI_REQ_RESULT = {
+  'ok': 'OK', 'already reported': 'Already reported', 'rate limited': 'Rate limited',
+  'key rejected': 'Key rejected', 'refused': 'Refused', 'server error': 'Server error', 'no answer': 'No answer',
+};
+const _IPI_REQ_CLASS = {
+  'ok': 'c-green', 'already reported': 'c-green', 'rate limited': 'c-amber',
+  'key rejected': 'c-red', 'refused': 'c-red', 'server error': 'c-red', 'no answer': 'c-red',
+};
+const _IPI_REQ_EMPTY = 'No request to AbuseIPDB or SniffCat has been logged yet.';
 const _IPI_EDGE_DIALOG = {
   token: {
     title: 'Remove token',
@@ -264,6 +277,7 @@ async function loadIpIntel() {
   tableCtl.wireSortOnly('ipintel-blk-thead', 'ipintel-blk', () => _ipiRenderBlocks());
   tableCtl.wireSortOnly('ipintel-src-thead', 'ipintel-src', () => _ipiRenderSources());
   tableCtl.wireSortOnly('ipintel-edge-thead', 'ipintel-edge', () => _ipiRenderEdge());
+  tableCtl.wireSortOnly('ipintel-req-thead', 'ipintel-req', () => _ipiRenderRequests());
   _ipiWire();
   const d = await api('GET', '/ip-intel' + (_ipiRowsAsked ? '?limit=' + _ipiRowsAsked : '')).catch(() => null);
   _ipiData = (d && !d.error) ? d : {attackers: [], blocks: [], sensors: [], settings: {}};
@@ -288,6 +302,7 @@ async function loadIpIntel() {
   _ipiRenderSources();
   _ipiRenderEdge();
   _ipiRenderEdgeList();
+  _ipiRenderRequests();
 }
 
 function _ipiFillSettings(s, budget) {
@@ -801,6 +816,34 @@ function _ipiRenderEdge() {
     }
   }
   notes.innerHTML = out.join('');
+}
+
+// What RemotePower asked AbuseIPDB and SniffCat, newest first. The server sends it to the platform
+// operator only, so for anyone else the card stays hidden.
+function _ipiRenderRequests() {
+  const card = document.getElementById('ipintel-requests-card');
+  const tb = document.getElementById('ipintel-req-tbody');
+  if (!card || !tb) return;
+  const list = _ipiData && _ipiData.requests;
+  card.hidden = !(_ipiAdmin && Array.isArray(list));
+  if (card.hidden) return;
+  if (!list.length) {
+    tb.innerHTML = `<tr><td colspan="7" class="hint">${escHtml(_IPI_REQ_EMPTY)}</td></tr>`;
+    return;
+  }
+  const rows = tableCtl.sortRows('ipintel-req', list, r => ({
+    at: r.at || 0, prov: r.prov || '', op: r.op || '', ip: r.ip || '',
+    status: r.status || 0, ms: r.ms || 0, note: r.note || '',
+  }));
+  tb.innerHTML = rows.map(r => `<tr>
+      <td>${timeAgoHtml(r.at)}</td>
+      <td>${escHtml(_IPI_REQ_PROV[r.prov] || String(r.prov || ''))}</td>
+      <td>${_ipiPhrase(_IPI_REQ_OP[r.op] || _IPI_REQ_OP.other)}</td>
+      <td class="ff-mono fs-11">${escHtml(String(r.ip || ''))}</td>
+      <td class="${_IPI_REQ_CLASS[r.result] || 'hint'}">${r.status ? escHtml(String(r.status)) : '–'} ${_ipiPhrase(_IPI_REQ_RESULT[r.result] || String(r.result || ''))}</td>
+      <td>${escHtml(String(r.ms || 0))} ms</td>
+      <td class="hint fs-11">${escHtml(String(r.note || ''))}</td>
+    </tr>`).join('');
 }
 
 // The newer of the last sync and the last preview: a preview is what a sync would do, so

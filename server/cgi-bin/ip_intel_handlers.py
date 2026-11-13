@@ -54,6 +54,7 @@ def bind(api_globals):
 
 
 import json
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -406,7 +407,87 @@ def ip_intel_by_device(now=None):
 
 # ── HTTP ───────────────────────────────────────────────────────────────────────
 
+# ── a log of what was asked of the two services ────────────────────────────────
+#
+# One line for each request RemotePower sends to AbuseIPDB or SniffCat: when, which service and
+# request, for which address, the HTTP status, how long it took, and the service's own sentence.
+# It is there so "why was this not reported" is answered by reading what the service said. The
+# key, the headers and the body of a request are never in it. Lines are collected in memory and
+# written to the store by whatever holds its lock next (the sweep, the manual lookup, a blocklist
+# sync), so a request does not cost a rewrite of the store.
+
+REQLOG_KEEP = 300           # lines kept in the store
+REQLOG_SHOWN = 150          # lines the page is sent, newest first
+_REQLOG_HOSTS = {'api.abuseipdb.com': 'abuseipdb', 'api.sniffcat.com': 'sniffcat'}
+_REQLOG_PENDING = []
+_REQLOG_LOCK = threading.Lock()
+
+
+def _req_ip(req):
+    """The address a request is about, or ''. A lookup carries it in the query, a report in its body."""
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(req['url']).query)
+    for k in ('ipAddress', 'ip'):
+        if q.get(k):
+            return ip_intel.parse_ip(q[k][0]) or ''
+    body = req.get('body')
+    if isinstance(body, (bytes, bytearray)) and body:
+        try:
+            text = bytes(body).decode('utf-8', 'replace')
+            if text.lstrip().startswith('{'):
+                value = json.loads(text).get('ip')
+            else:
+                value = (urllib.parse.parse_qs(text).get('ip') or [''])[0]
+            return ip_intel.parse_ip(value) or ''
+        except (ValueError, AttributeError):
+            return ''
+    return ''
+
+
+def _reqlog_note(req, status, body, started):
+    """Add one line for this request to the pending ones. Only the two services are logged."""
+    parsed = urllib.parse.urlparse(req['url'])
+    prov = _REQLOG_HOSTS.get(parsed.netloc.lower())
+    if not prov:
+        return
+    op = parsed.path.rstrip('/').rsplit('/', 1)[-1]
+    result, note = ip_intel.describe_answer(status, body)
+    entry = {'at': int(time.time()), 'prov': prov, 'op': op if op in ('check', 'report', 'blacklist') else 'other',
+             'ip': _req_ip(req), 'status': int(status), 'ms': int(max(0, time.monotonic() - started) * 1000),
+             'result': result, 'note': note}
+    with _REQLOG_LOCK:
+        _REQLOG_PENDING.append(entry)
+        del _REQLOG_PENDING[:-REQLOG_KEEP]
+
+
+def _reqlog_flush(st):
+    """Move the lines made since the last write into the store. Call under the store's lock."""
+    with _REQLOG_LOCK:
+        new = list(_REQLOG_PENDING)
+        del _REQLOG_PENDING[:]
+    if new:
+        cur = st.get('reqlog') if isinstance(st.get('reqlog'), list) else []
+        st['reqlog'] = (cur + new)[-REQLOG_KEEP:]
+
+
+def _reqlog_view(st):
+    """The lines the page shows, newest first."""
+    rows = st.get('reqlog') if isinstance(st.get('reqlog'), list) else []
+    return [e for e in reversed(rows) if isinstance(e, dict)][:REQLOG_SHOWN]
+
+
 def _ip_intel_http(req):
+    """(status, parsed_json_or_None). Every request to a provider goes through here, and the two
+    services' are logged (see _reqlog_note); a log line never fails a request."""
+    started = time.monotonic()
+    status, parsed = _ip_intel_http_send(req)
+    try:
+        _reqlog_note(req, status, parsed, started)
+    except Exception:  # nosec B110 — a log line must not take a lookup or a report down with it
+        pass
+    return status, parsed
+
+
+def _ip_intel_http_send(req):
     """(status, parsed_json_or_None). Through the SSRF-guarded opener with
     redirects refused, so an API key can never be replayed to another host."""
     r = urllib.request.Request(req['url'], data=req.get('body'), method=req['method'])
@@ -465,19 +546,31 @@ def _add_spend(st, today, spent):
     st['budget'] = b
 
 
-def _fetch_verdict(ip, pol, allowance, spent):
+def _fetch_verdict(ip, pol, allowance, spent, down=None):
     """Ask every provider that has a key and allowance left. Network only:
-    always called with no lock held. Returns (verdict or None, {provider: error})."""
+    always called with no lock held. Returns (verdict or None, {provider: error}).
+
+    `down` is the sweep's count of answers each provider did not give. A provider that
+    has failed ip_intel.TRANSIENT_BREAKER times is not asked again in that sweep, and a
+    failed ask is not charged to the day's allowance. The manual lookup passes none and
+    asks as before: its "budget is used up" answer reads `spent`."""
     results = {}
     for prov in ip_intel.PROVIDERS:
         key = pol['keys'].get(prov)
         if not key or allowance.get(prov, 0) <= 0:
+            continue
+        if down is not None and down.get(prov, 0) >= ip_intel.TRANSIENT_BREAKER:
+            results[prov] = {'ok': False, 'error': 'the service is not answering'}
             continue
         allowance[prov] -= 1
         spent[prov] = spent.get(prov, 0) + 1
         build, parse = ip_intel.CHECK[prov]
         status, body = A._ip_intel_http(build(ip, key))
         results[prov] = parse(status, body)
+        if down is not None and results[prov].get('transient'):
+            allowance[prov] += 1
+            spent[prov] -= 1
+            down[prov] = down.get(prov, 0) + 1
     errors = {p: r.get('error') for p, r in results.items() if not r.get('ok')}
     if not any(r.get('ok') for r in results.values()):
         return None, errors
@@ -826,6 +919,7 @@ def run_ip_intel_if_due():
 
     # ── phase 2 ──
     spent = {}
+    down = {}            # provider -> answers it did not give this sweep (see ip_intel.TRANSIENT_BREAKER)
     looked = {}          # ip -> (verdict, errors): one lookup per address per sweep
     devices = A._load_ro(A.DEVICES_FILE) or {}
     protected = None
@@ -833,7 +927,7 @@ def run_ip_intel_if_due():
     for p in plan:
         groups.setdefault(p['ip'], []).append(p)
         if p['lookup'] and p['ip'] not in looked:
-            looked[p['ip']] = _fetch_verdict(p['ip'], pol, allowance, spent)
+            looked[p['ip']] = _fetch_verdict(p['ip'], pol, allowance, spent, down)
         p['verdict'] = (looked.get(p['ip']) or (None, {}))[0] or p['cached']
         p['report_ok'], p['report_err'], p['report_retry'], p['report_log'] = {}, {}, {}, []
         ev = p['item'].get('evidence')
@@ -887,6 +981,11 @@ def run_ip_intel_if_due():
             if report_allowance.get(prov, 0) <= 0:
                 lead['report_err'][prov] = 'not reported: the daily report limit is used up'
                 continue
+            if down.get(prov, 0) >= ip_intel.TRANSIENT_BREAKER:
+                # It has not answered this sweep: leave the rest of the queue alone with it, and try again later.
+                lead['report_err'][prov] = 'not reported: the service is not answering'
+                lead['report_retry'][prov] = now + ip_intel.TRANSIENT_RETRY_S
+                continue
             report_allowance[prov] -= 1
             spent['report:' + prov] = spent.get('report:' + prov, 0) + 1
             build, parse = ip_intel.REPORT[prov]
@@ -894,6 +993,14 @@ def run_ip_intel_if_due():
                 build(ip, key, report['cats'][prov], report['comment'], timestamp=report['when'])))
             entry = {'at': now, 'prov': prov, 'cats': list(report['cats'][prov]),
                      'comment': report['comment']}
+            if res.get('transient'):
+                # Nothing was filed. The day's allowance is not spent on it (a service that was down for a day
+                # used up the whole of it before this), and the address waits instead of being tried again at its
+                # next sighting.
+                report_allowance[prov] += 1
+                spent['report:' + prov] -= 1
+                down[prov] = down.get(prov, 0) + 1
+                lead['report_retry'][prov] = now + ip_intel.TRANSIENT_RETRY_S
             if res.get('ok'):
                 lead['report_ok'][prov] = now
                 entry['ok'] = True
@@ -919,6 +1026,7 @@ def run_ip_intel_if_due():
     sensors = _intake_ro().get('sensors')
     sensors = sensors if isinstance(sensors, dict) else {}
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
+        _reqlog_flush(st)
         _add_spend(st, today, spent)
         atts = st.setdefault('attackers', {})
         blocks = st.setdefault('blocks', {})
@@ -1522,6 +1630,7 @@ def handle_ip_intel():
                     'sensors': _sensor_rows(intake, visible),
                     'edge': A.edge_intel_status(st, pol) if operator else None,
                     'edge_list': A.edge_list_status(st, pol) if operator else None,
+                    'requests': _reqlog_view(st) if operator else None,
                     'ban_hosts': ban_hosts,
                     'can_ignore': bool(operator),
                     'budget': budget, 'queued': len(intake.get('queue') or [])})
@@ -1698,6 +1807,7 @@ def handle_ip_intel_lookup():
     if not spent:
         A.respond(429, {'error': "Today's lookup budget is used up"})
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
+        _reqlog_flush(st)
         _add_spend(st, today, spent)
         att = (st.get('attackers') or {}).get(ip)
         if isinstance(att, dict):

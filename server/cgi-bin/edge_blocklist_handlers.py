@@ -105,6 +105,7 @@ def _gather(pol, el, now):
     day = time.strftime('%Y-%m-%d', time.gmtime(now))
     prior = el.get('calls') if isinstance(el.get('calls'), dict) else {}
     calls = dict(prior) if prior.get('day') == day else {'day': day}
+    waits = dict(calls.get('wait')) if isinstance(calls.get('wait'), dict) else {}
     cache = {k: dict(v) for k, v in (el.get('src') or {}).items() if isinstance(v, dict)}
     got, failed = {}, {}
     for name, (build, parse, label) in _FETCH.items():
@@ -121,21 +122,32 @@ def _gather(pol, el, now):
             got[name] = {'ips': ips, 'from': 'copy', 'at': int(have.get('at') or 0)}
             continue
         err = ''
-        if int(calls.get(name) or 0) < edge_blocklist.CALLS_PER_DAY:
+        if now < int(waits.get(name) or 0):
+            err = f'{label} did not answer; trying again in a few minutes'
+        elif int(calls.get(name) or 0) < edge_blocklist.CALLS_PER_DAY:
             calls[name] = int(calls.get(name) or 0) + 1
             res = parse(*A._ip_intel_http(build(
                 key, pol[f'edgelist_{name}_conf'], pol[f'edgelist_{name}_limit'])))
             if res.get('ok'):
                 cache[name] = {'at': now, 'n': len(res['ips']), 'ips': '\n'.join(res['ips'])}
                 got[name] = {'ips': res['ips'], 'from': 'download', 'at': now}
+                waits.pop(name, None)
                 continue
             err = str(res.get('error') or 'did not answer')
+            if res.get('transient'):
+                # Nothing was served, so it is not one of the day's downloads; leave the service alone for a while.
+                calls[name] -= 1
+                waits[name] = now + edge_blocklist.SOURCE_RETRY_S
         else:
             err = f'{label} downloads are used up for today'
         if ips and age <= edge_blocklist.STALE_SOURCE_S:
             got[name] = {'ips': ips, 'from': 'copy', 'at': int(have.get('at') or 0), 'error': err}
         else:
             failed[name] = err
+    if waits:
+        calls['wait'] = waits
+    else:
+        calls.pop('wait', None)
     return got, cache, calls, failed
 
 
@@ -380,6 +392,7 @@ def _health_event(el, res):
 def _record(res, now, attempted=True):
     announce = None
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
+        A.ip_intel_handlers_mod._reqlog_flush(st)       # the downloads this sync made
         el = st.get('edgelist') if isinstance(st.get('edgelist'), dict) else {}
         if attempted:
             el['attempt'] = now

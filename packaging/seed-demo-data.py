@@ -1352,8 +1352,25 @@ def _ip_intel_documents() -> tuple:
                     'providers': {'abuseipdb': {'score': 88, 'reports': 12}, 'sniffcat': {'score': 78, 'reports': 3}}},
         'reported': {}, 'errors': {},
     }
+    # 8.0.1: what RemotePower asked the two services, newest last as the store keeps it. Fixed values, drawn from nothing, so nothing seeded after this changes. One
+    # SniffCat report went unanswered and one was refused as a repeat, so the card shows more than the green rows.
+    ips = sorted(attackers)[:6]
+    reqlog = []
+    for n, (prov, op, ip, status, result, note) in enumerate([
+            ('abuseipdb', 'check', ips[0], 200, 'ok', ''), ('sniffcat', 'check', ips[0], 200, 'ok', ''),
+            ('abuseipdb', 'report', ips[0], 200, 'ok', ''),
+            ('sniffcat', 'report', ips[0], 500, 'server error', 'Internal server error. Please report this to: support@sniffcat.com'),
+            ('abuseipdb', 'check', ips[1], 200, 'ok', ''), ('sniffcat', 'check', ips[1], 200, 'ok', ''),
+            ('abuseipdb', 'report', ips[1], 429, 'already reported', 'You can only report the same IP address once in 15 minutes.'),
+            ('sniffcat', 'report', ips[1], 0, 'no answer', 'unreachable: TimeoutError'),
+            ('abuseipdb', 'blacklist', '', 200, 'ok', ''), ('sniffcat', 'blacklist', '', 200, 'ok', ''),
+            ('abuseipdb', 'check', ips[2], 200, 'ok', ''), ('sniffcat', 'check', ips[2], 200, 'ok', ''),
+            ('abuseipdb', 'report', ips[2], 200, 'ok', ''), ('sniffcat', 'report', ips[2], 429, 'rate limited', 'Submission rate limit exceeded')]):
+        reqlog.append({'at': now() - (14 - n) * 97, 'prov': prov, 'op': op, 'ip': ip, 'status': status,
+                       'ms': 120 + (n * 37) % 410, 'result': result, 'note': note})
     table = {'attackers': attackers, 'blocks': blocks,
              'edge': edge, 'edgelist': edgelist, 'edgeban': edgeban,
+             'reqlog': reqlog,
              'budget': {'day': time.strftime('%Y-%m-%d', time.gmtime(now())),
                         'abuseipdb': 18, 'sniffcat': 18},
              'last_sweep': now()}

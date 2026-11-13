@@ -393,7 +393,7 @@ Each service has its own daily limits, and you set them on the same page:
 | Setting | Default | What it does |
 |---|---|---|
 | **Lookups per day (each service)** | 900 | Stops asking a service once it has been asked this many times today. |
-| **Reports per day (each service)** | 900 | Stops reporting to a service once it has been sent this many reports today. |
+| **Reports per day (each service)** | 900 | Stops reporting to a service once it has been sent this many reports today. A report the service did not answer (a network failure or an HTTP 5xx error) does not count. |
 | **Reuse a lookup for (hours)** | 24 | How long an answer is kept before the same address is asked about again. |
 | **Report after attempts** | 10 | How many failed attempts an address needs before it is reported. |
 | **Report listed addresses after blocks** | 3 | How many times a firewall must block an address that is on a reputation list (Spamhaus, Dshield, CINS) before it is reported as port scanning. 0 keeps those hits as context only. See [Firewall sources](firewall-sources.md). |
@@ -410,6 +410,14 @@ Type a public address into **Check an address** on the Attackers tab and press
 **Look up**. RemotePower asks both services at once, ignores the saved answer
 and counts the lookups against today's limit. It needs at least one saved key,
 and it is for admins. The private and reserved ranges are refused.
+
+### See what was sent
+
+**Provider requests**, on the **Log sources** tab, lists the last 150 requests RemotePower sent to AbuseIPDB and SniffCat: the time, the service, whether it was a lookup, a report or a blacklist download, the address, the answer (the HTTP status and what it came to), how long it took and the service's own sentence. Only the platform operator sees it.
+
+Keys, headers and the text of a report are never shown. RemotePower keeps the last 300 lines.
+
+When a service fails, its line says so, for example `500 Server error` with the service's message, or `No answer`. A service that fails three times in a row in one pass is left alone for the rest of that pass, and the address waits ten minutes before that service is asked about it again. None of this counts against your daily limits.
 
 ### The report message
 
@@ -608,6 +616,8 @@ settings or run a manual lookup, which spends the install's daily quota.
 | `rate limited or already reported` | SniffCat uses one status for its own limit and for a repeat, and only a repeat says so in words (that case shows as `already reported a moment ago`). When the message does not say, RemotePower cannot tell which it was, and waits a little over 20 minutes before asking again. |
 | `not reported: 4 / 10 attempts so far` | The logs show the address, but not enough yet. See [When an address is reported](#when-an-address-is-reported). |
 | `not reported: 2 / 3 WAF refusals so far` or `... Cloudflare refusals so far` | The same, counted on the nearest route: the WAF needs the number in **Report after WAF refusals**, and Cloudflare needs the number in **Report after Cloudflare refusals**. |
+| `not reported: the service is not answering` | The service failed or gave no answer to three requests in a row, so RemotePower stopped asking it for the rest of that pass and asks about this address again in ten minutes. Open **Provider requests** to see what it said. Nothing was counted against your daily limit. |
+| `not reported: the daily report limit is used up` | The service has been sent as many reports today as **Reports per day** allows. The count is RemotePower's own and covers only reports the service answered, so compare it with the usage on the service's own page, and raise **Reports per day** if your plan allows more. It starts again at midnight UTC. |
 | `not reported: nothing recognisable in the logs` | Only a jail such as `recidive` named it, so there is no honest category to report it under. |
 | Log sources: `Quiet` | The agent looked at the log and nothing new had been written. It looks about once a minute and reads only what was added since the last look, so a log that is written to now and then shows `Quiet` between writes. |
 | Log sources: `Reading` | New lines arrived since the last look. The numbers beside it are for that look, not totals. |

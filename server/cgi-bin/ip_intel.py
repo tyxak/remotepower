@@ -343,6 +343,14 @@ def sniffcat_parse_report(status, body):
 # report: a little over the service's repeat window.
 REPORT_RETRY_S = {'abuseipdb': 16 * 60, 'sniffcat': 21 * 60}
 
+# A service that did not answer (a network failure or an HTTP 5xx) is not charged to the
+# day's allowance. The address is left alone for TRANSIENT_RETRY_S, so a scanner that
+# shows up every minute is not tried again every minute, and a service that fails
+# TRANSIENT_BREAKER times in one sweep is skipped for the rest of it, so a service that is
+# down costs three requests a sweep and not one for every address waiting.
+TRANSIENT_RETRY_S = 10 * 60
+TRANSIENT_BREAKER = 3
+
 
 CHECK = {
     'abuseipdb': (abuseipdb_check_request, abuseipdb_parse_check),
@@ -364,7 +372,33 @@ def _error(status, body):
         # A 403 can be the provider refusing the key or its firewall refusing
         # the request, and nothing here can tell which, so it names neither.
         return {'ok': False, 'error': 'refused by the provider (HTTP 403)'}
+    if status == 0 or status >= 500:
+        # No answer (status 0 is a network failure) or a failure on the service's
+        # side: nothing was filed, so it is not charged to the day's allowance and
+        # is worth trying again later (see TRANSIENT_RETRY_S).
+        return {'ok': False, 'error': _short(msg or f'HTTP {status}', 160), 'transient': True}
     return {'ok': False, 'error': _short(msg or f'HTTP {status}', 160)}
+
+
+def describe_answer(status, body):
+    """(result, note) for the log of requests: what a service's answer came to, in the words the
+    page shows, and the service's own sentence (cut and cleaned). Nothing of the request is in it."""
+    note = _short(_detail(body), 160)
+    if status == 0:
+        return 'no answer', note
+    if status == 429:
+        return ('already reported' if _DUPLICATE_RE.search(note) else 'rate limited'), note
+    if status == 401:
+        return 'key rejected', note
+    if status == 403:
+        return 'refused', note
+    if status >= 500:
+        return 'server error', note
+    if status == 200:
+        if isinstance(body, dict) and body.get('success') is False:
+            return 'refused', note
+        return 'ok', ''
+    return f'HTTP {status}', note
 
 
 def _int(v):

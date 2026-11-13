@@ -48,6 +48,10 @@ _CLOUDFLARE_NETS = tuple(ipaddress.ip_network(c) for c in threat_evidence.CLOUDF
 SOURCES = ("always", "own", "abuseipdb", "sniffcat")
 CALLS_PER_DAY = 4  # one blacklist download per source and read; AbuseIPDB's base tier allows five
 STALE_SOURCE_S = 3 * 86400  # a source that did not answer is read from its last copy this long
+# A download that got no answer (a network failure or an HTTP 5xx) is not one of the day's CALLS_PER_DAY: nothing was
+# served. The source is left alone for SOURCE_RETRY_S, because every new edge ban makes a sync due at once and a service
+# that is down would otherwise be tried again, and counted, at each of them.
+SOURCE_RETRY_S = 10 * 60
 SHRINK_FLOOR = 0.5
 SHRINK_MIN_ITEMS = 200
 # A read is capped at 8 MB. A blacklist entry is about 100 bytes of JSON at AbuseIPDB and
@@ -167,7 +171,7 @@ def _detail(body):
 def _source_error(status, body, who):
     d = _detail(body)
     if status == 0:
-        return {"ok": False, "error": "unreachable"}
+        return {"ok": False, "error": "unreachable", "transient": True}
     if status == 200 and body is None:
         # a 200 whose body did not parse: the answer was cut off at the read limit
         return {"ok": False, "error": f"{who}'s answer could not be read; try a lower limit"}
@@ -190,7 +194,10 @@ def _source_error(status, body, who):
             "ok": False,
             "error": f"{who} refused the request (HTTP 403)" + (f": {d}" if d else ""),
         }
-    return {"ok": False, "error": d or f"{who} answered HTTP {status}"}
+    out = {"ok": False, "error": d or f"{who} answered HTTP {status}"}
+    if status >= 500:
+        out["transient"] = True
+    return out
 
 
 def abuseipdb_request(key, confidence, limit):
