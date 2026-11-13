@@ -8702,6 +8702,12 @@ body.alertwall .alertwall-exit:focus-within { opacity: 1; }
 .settings-row + .form-group,
 .form-group + .settings-row { margin-top: 16px; }
 
+/* 8.0.1, Threat Intel > Settings > Limits: the general row and the row of each service share one grid, so the Lookups boxes stand in one column and the
+   Reports boxes in the next. The first version gave each service's name a cell of its own, which put its three boxes one column to the right of the
+   general row's. A grid, not the flex row of the settings pages: a row that wraps keeps the column width instead of stretching its last box. */
+.settings-row.limits-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: start; }
+.limits-service { margin: 16px 0 6px; font-size: 13px; font-weight: 620; }
+
 /* Wrapping: the Hosts buttons stay on one line when the sidebar is pinned open, a clipped OS name ends in an ellipsis, a
    timeline host chip does not break at its hyphen, and short pills stay one line in the languages with wider words. */
 .section-header > .row-8 { flex: 0 0 auto; }

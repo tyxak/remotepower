@@ -287,6 +287,39 @@ class TestThePage(unittest.TestCase):
             page.unroute('**/api/ip-intel*')
             page.evaluate("async () => { await loadIpIntel(); }")
 
+    def test_the_limits_boxes_stand_in_columns_at_every_width(self):
+        """The Lookups boxes of the general row and of each service stand one under the other, the Reports boxes in the next column, every box has the
+        column's width (a box that wraps does not stretch) and no two boxes on a line overlap. The first version gave each service's name a cell of
+        its own, which put its three boxes one column to the right of the general row's; the overflow test above could not see that."""
+        self.tab('settings')
+        self.page.wait_for_selector('#ipintel-limits-card:not([hidden])', timeout=15000)
+        rows = (('ipintel-lookup-budget', 'ipintel-report-budget', 'ipintel-cache-hours'),
+                ('ipintel-lim-abuseipdb-lookups', 'ipintel-lim-abuseipdb-reports', 'ipintel-lim-abuseipdb-downloads'),
+                ('ipintel-lim-sniffcat-lookups', 'ipintel-lim-sniffcat-reports', 'ipintel-lim-sniffcat-downloads'))
+        try:
+            for width, height in ((1440, 900), (1000, 800), (800, 800), (390, 844)):
+                self.page.set_viewport_size({'width': width, 'height': height})
+                self.page.wait_for_timeout(400)
+                got = self.page.evaluate("""(rows) => rows.map(r => r.map(id => {
+                    const b = document.getElementById(id).getBoundingClientRect();
+                    return {x: Math.round(b.left), w: Math.round(b.width), y: Math.round(b.top)}; }))""", rows)
+                where = '%dpx wide: %r' % (width, got)
+                for col in range(3):
+                    xs = [r[col]['x'] for r in got]
+                    self.assertLessEqual(max(xs) - min(xs), 1, 'column %d does not line up. %s' % (col + 1, where))
+                widths = [b['w'] for r in got for b in r]
+                self.assertLessEqual(max(widths) - min(widths), 1, 'the boxes differ in width. %s' % where)
+                self.assertGreaterEqual(min(widths), 140, 'a box is squeezed. %s' % where)
+                for r in got:
+                    if abs(r[0]['x'] - r[1]['x']) > 1:
+                        self.assertLessEqual(abs(r[0]['y'] - r[1]['y']), 1, 'side by side, the first two boxes of a row are not level. %s' % where)
+                    for i, a in enumerate(r):
+                        for b in r[i + 1:]:
+                            if abs(a['y'] - b['y']) <= 1:
+                                self.assertLessEqual(a['x'] + a['w'], b['x'] + 1, 'two boxes on a line overlap. %s' % where)
+        finally:
+            self.page.set_viewport_size({'width': 1440, 'height': 900})
+
     def test_the_page_threw_nothing(self):
         self.assertEqual(self.errors, [])
 
