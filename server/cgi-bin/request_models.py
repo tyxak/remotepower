@@ -2781,6 +2781,7 @@ if _AVAILABLE:
         edgelist_enabled: Any = None
         edgelist_own: Any = None
         block_edge_hosts: Any = None
+        block_confirmed: Any = None
         edgelist_abuseipdb: Any = None
         edgelist_sniffcat: Any = None
         edgelist_name: Any = None

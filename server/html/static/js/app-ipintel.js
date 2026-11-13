@@ -312,6 +312,7 @@ function _ipiFillSettings(s, budget) {
   chk('ipintel-report', s.report_enabled);
   chk('ipintel-block', s.block_enabled);
   chk('ipintel-block-edge-hosts', s.block_edge_hosts);
+  chk('ipintel-block-confirmed', s.block_confirmed);
   chk('ipintel-sensor', s.sensor_enabled);
   set('ipintel-sensor-paths', (s.sensor_paths || []).join('\n'));
   chk('ipintel-appliance', s.appliance_enabled);
@@ -766,7 +767,7 @@ function _ipiRenderBlocks() {
       <td class="ff-mono">${escHtml(b.ip)}</td>
       <td>${escHtml(b.name || b.device_id)}</td>
       <td>${escHtml(b.score == null ? '—' : String(b.score))}</td>
-      <td>${escHtml(b.by === 'auto' ? 'automatic' : (b.by || ''))}</td>
+      <td>${b.by === 'auto' ? _ipiPhrase('automatic') : escHtml(b.by || '')}${b.why ? ` · ${_ipiPhrase(String(b.why))}` : ''}</td>
       <td>${timeAgoHtml(b.at)}</td>
       <td>${escHtml(left < 60 ? '< 1m' : _fmtDuration(left))}</td>
       <td><button class="btn-icon" data-ip="${escAttr(b.ip)}" data-dev="${escAttr(b.device_id)}" aria-label="Lift block"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> Unblock</button></td>
@@ -1037,6 +1038,7 @@ async function saveIpIntelSettings() {
     report_enabled: v('ipintel-report').checked,
     block_enabled: v('ipintel-block').checked,
     block_edge_hosts: v('ipintel-block-edge-hosts').checked,
+    block_confirmed: v('ipintel-block-confirmed').checked,
     sensor_enabled: v('ipintel-sensor').checked,
     sensor_paths: v('ipintel-sensor-paths').value,
     appliance_enabled: v('ipintel-appliance').checked,

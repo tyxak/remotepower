@@ -51,7 +51,10 @@ as [firewall sources](#firewalls-and-routers).
    [Blocking](#blocking)) is never reported either.
 5. **Block.** If blocking is on and the score reaches your threshold (default
    90), the host it attacked gets a firewall rule that drops its traffic. The
-   rule is removed again after the hours you set (default 24).
+   rule is removed again after the hours you set (default 24). With **Also block
+   addresses that fail2ban, CrowdSec or a honeypot has already banned** ticked, an
+   address one of them has banned is blocked without waiting for a score. See
+   [Block what a ban engine already banned](#block-what-a-ban-engine-already-banned).
 
 ## The log sensor
 
@@ -533,6 +536,26 @@ the other way: an address that only Cloudflare or the honeypot saw gets the
 block on every Linux agent that is online, up to 100 hosts a sweep. A host that is off is left out, so nothing piles up in its queue. It needs automatic
 blocking and stays off on a multi-tenant install. The details are in
 [Edge sources: Cloudflare](edge-sources.md#the-attackers-list).
+
+### Block what a ban engine already banned
+
+A new scanner has no reputation yet: AbuseIPDB and SniffCat score an address 0 until others have reported it. So by default an address that fail2ban banned in three jails is
+not blocked by RemotePower, because its score is below the threshold. The ban is on the host that made it, and RemotePower adds nothing to it.
+
+Tick **Also block addresses that fail2ban, CrowdSec or a honeypot has already banned, whatever their score** (Threat Intel → Settings → Providers; it needs automatic blocking on)
+and an address one of these banned is treated like a high-scoring one:
+
+- **fail2ban**: a `Ban` line in its log. A `Found` line is a failure, not a ban.
+- **CrowdSec**: a scenario of its own decided on the address.
+- **The edge honeypot** and **a decoy port**: the address used a planted credential or a decoy, which no ordinary visitor does.
+
+It is blocked on the host that saw it and, with the [edge blocklist](#the-edge-blocklist) on, banned at the edge for the same hours. For a site behind Cloudflare the edge ban is the one that
+stops the visitor, because a rule on the host does not match a proxied visitor. The row in **Active blocks** says `automatic · fail2ban` (or `CrowdSec`) so you can tell it from a block made
+by score, and the audit line ends in `confirmed=`.
+
+Everything that protects an address still applies: your own hosts, your allow-list, recent logins, the never-block list, Cloudflare's addresses, an address a provider lists as
+legitimate, the hourly limit per host and the cap on automatic edge bans. Know what you are trusting. The decision is made by the software on your hosts, so a host you do not trust can
+get an address banned at the edge this way, up to the hourly cap. Leave the box unticked if one of your hosts is not under your control.
 
 ### Ban by hand
 

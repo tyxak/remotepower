@@ -1088,7 +1088,15 @@ def run_ip_intel_if_due():
                 count += int(prior.get('count') or 0)        # a running total for the day
             seen[dev_id] = {'count': count, 'unit': str(item.get('unit') or '')[:64],
                             'at': int(item.get('at') or now)}
-            ok, why = ip_intel.block_decision(pol, verdict, item.get('count'))
+            sure = threat_evidence.confirmed_by(ev) if isinstance(ev, dict) else ''
+            ok, why = ip_intel.block_decision(pol, verdict, item.get('count'), sure)
+            # A block that exists because a ban engine decided (the setting `block_confirmed`) and not because
+            # of the score says so, in the block and in the audit line. The verdict can be missing: a new
+            # scanner has no score, and that is the case this setting is for.
+            by_ban = sure if (ok and sure and not ip_intel.block_decision(pol, verdict, item.get('count'))[0]) else ''
+            score = (verdict or {}).get('score')
+            note = {'why': by_ban} if by_ban else {}
+            tail = f' confirmed={by_ban}' if by_ban else ''     # one of the four fixed phrases of confirmed_by
             if (ok and _edge_ban_ready(pol)
                     and (dev_id in ip_intel.EDGE_DEVICES or not A._tenancy_enforced())):
                 # What is blocked on a host is banned at the edge too, so a
@@ -1127,9 +1135,9 @@ def run_ip_intel_if_due():
                                 continue
                             blocks.setdefault(hid, {})[ip] = {
                                 'at': now, 'until': now + int(pol['block_ttl_hours']) * 3600,
-                                'score': verdict.get('score'), 'by': 'auto', 'kind': 'edge'}
+                                'score': score, 'by': 'auto', 'kind': 'edge', **note}
                             commands.append((hid, 'exec:' + ip_intel.block_command(ip), 'ip_intel_block',
-                                             f"device={hid} ip={ip} score={verdict.get('score')} auto edge"))
+                                             f"device={hid} ip={ip} score={score} auto edge{tail}"))
                             edge_fanout += 1
                             reached += 1
                         fanned = True
@@ -1154,9 +1162,9 @@ def run_ip_intel_if_due():
             if ok:
                 blocks.setdefault(dev_id, {})[ip] = {
                     'at': now, 'until': now + int(pol['block_ttl_hours']) * 3600,
-                    'score': verdict.get('score'), 'by': 'auto', 'kind': p['kind']}
+                    'score': score, 'by': 'auto', 'kind': p['kind'], **note}
                 commands.append((dev_id, 'exec:' + ip_intel.block_command(ip), 'ip_intel_block',
-                                 f"device={dev_id} ip={ip} score={verdict.get('score')} auto"))
+                                 f"device={dev_id} ip={ip} score={score} auto{tail}"))
             elif pol['block_enabled'] and not (fanned and not why):
                 seen[dev_id]['not_blocked'] = why
         _forget_stale(atts, now, pol)
@@ -1653,7 +1661,7 @@ def handle_ip_intel_settings():
                   'edge_enabled', 'edge_cf_events', 'edge_trap', 'edge_count_list_rules', 'edge_planted_decides',
                   'edge_bait_decides',
                   'edgelist_enabled', 'edgelist_own', 'edgelist_abuseipdb', 'edgelist_sniffcat',
-                  'block_edge_hosts'):
+                  'block_edge_hosts', 'block_confirmed'):
             if body.get(k) is not None:
                 pol[k] = bool(body[k])
                 changed.append(f'{k}={pol[k]}')

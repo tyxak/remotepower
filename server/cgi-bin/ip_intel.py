@@ -66,6 +66,7 @@ DEFAULTS = {
     'block_enabled': False,
     'block_min_score': 90,        # merged confidence needed to block
     'block_edge_hosts': False,    # also block edge-found addresses on every Linux agent
+    'block_confirmed': False,     # also block an address fail2ban, CrowdSec or a honeypot already banned, whatever its score (8.0.1)
     'block_ttl_hours': 24,        # blocks lift themselves after this
     'block_max_per_hour': 20,     # per host; a cap on a runaway
     'report_min_count': 10,       # failed attempts seen before reporting
@@ -529,10 +530,18 @@ def evidence_comment(ev, template=None):
 
 # ── blocking ───────────────────────────────────────────────────────────────────
 
-def block_decision(policy, verdict, local_count):
-    """(True, '') when the policy says to block, else (False, reason)."""
+def block_decision(policy, verdict, local_count, confirmed=''):
+    """(True, '') when the policy says to block, else (False, reason).
+
+    `confirmed` is who already decided the address is hostile (threat_evidence.confirmed_by:
+    fail2ban, CrowdSec, the edge honeypot, a decoy port), or ''. With the operator's
+    `block_confirmed` setting on, that decision is enough and the reputation score is not
+    asked: a new scanner has no score yet, and the ban was made by software of theirs. An
+    address a provider lists as legitimate is still never blocked."""
     if not policy.get('block_enabled'):
         return False, 'auto-block is off'
+    if confirmed and policy.get('block_confirmed') and not (verdict or {}).get('whitelisted'):
+        return True, ''
     if not verdict or verdict.get('score') is None:
         return False, 'no reputation answer'
     if verdict.get('whitelisted'):
