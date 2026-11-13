@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-8.0.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-8.0.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -205,6 +205,10 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v8.0.1 "L0gMatters"** — what Threat Intel tells you and what it does about it. Clear empties the table even with the
+  Edge blocklist on. A service that does not answer is no longer counted against your daily limits, a **Provider requests**
+  card shows what RemotePower sent to AbuseIPDB and SniffCat and what each answered, and an address that fail2ban, CrowdSec or a
+  honeypot has already banned can be blocked without a reputation score, if you tick one box.
 - **v8.0.0 "Pil0tMatters"** — the first release of a new major version, about what you can adjust and what
   the agent finds on its own. You can set the text size from 80% to 300%, show a long page as tabs or as one
   page, and keep up to eight named layouts for Home. Ten setup tasks have a wizard: a host, a notification
@@ -247,13 +251,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   not a temperature (an NVMe drive with no threshold reported 65,261.8 °C) is no limit. A
   Debian or Ubuntu host with a package apt keeps back, a new kernel image for one, reads as
   having updates pending and not as fully patched.
-- **v7.4.7 "0nceMatters"** — each problem once: Monitoring → Problems joins an alert, a Needs
-  attention item and a failing check for the same trouble on a host into one row, with its state
-  (an alert you resolved while the host still reports the problem reads "resolved, still failing"),
-  its history and the actions that apply, and Alerts, Needs attention and Checks show the same
-  state. A switch counts only the CVE findings an update can fix, the Thermal page charts any
-  sensor, a btrfs volume is one disk and not seven, and the page no longer sits under the
-  sidebar while alerts are open.
 
 ## Security
 

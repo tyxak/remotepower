@@ -75,13 +75,13 @@ holds long-form docs that don't fit there.
   changed: an authorization check on every route as 26 kinds of caller, hostile input on every route, the three agents
   and their installers, the web client and the web server headers, the interface, and the documents. Five high, seventeen
   medium and twelve low findings, all fixed, the scans and the mutation checks behind them, and what is still open.
+- **[v8.0.1.md](v8.0.1.md)** — "L0gMatters": Clear empties the Threat Intel table even with the Edge blocklist on, a service that does not
+  answer is no longer counted against your daily limits, a card shows the requests sent to AbuseIPDB and SniffCat, and an address a ban engine
+  banned can be blocked without a score.
 - **[v8.0.0.md](v8.0.0.md)** — "Pil0tMatters": the text size from 80% to 300%, tabs and named layouts, ten wizards, the apps
   the agent finds on a host, three connectors and four monitor types, a read-only MCP endpoint, automatic image updates and a Traffic view of what each host talks to.
 - **[v7.5.0.md](v7.5.0.md)** — "Wh0leMatters": the release that carries 7.4.1 to 7.4.9 to production, with four-eyes approval on every
   command, a sign-in before a restore, the agents' data in every page that can use it, and fifteen medium findings fixed.
-- **[v7.4.9.md](v7.4.9.md)** — "Ch0iceMatters": a host runs its upgrades in a Standard or an Extended mode, a
-  hard disk and a SATA SSD behind the same controllers keep their own temperature lines, and an update Ubuntu is
-  still phasing in is not counted as pending.
 - **[cmdb.md](cmdb.md)** — Per-asset metadata, Markdown documentation,
  and the encrypted credential vault (AES-GCM + PBKDF2). Threat model,
  API reference, backup story, disaster recovery.

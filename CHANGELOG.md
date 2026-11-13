@@ -5,6 +5,46 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
+## v8.0.1 — "L0gMatters" — unreleased (test)
+
+A release about what Threat Intel tells you and what it does about it. **Clear** empties the table now, even with the Edge blocklist on. A service that
+does not answer is no longer counted against your daily limits, and a new **Provider requests** card shows what RemotePower sent to AbuseIPDB and
+SniffCat and what each one answered. An address that fail2ban, CrowdSec or a honeypot has already banned can be blocked without waiting for a
+reputation score; that is off until you tick it. All four came from one installation: SniffCat answered every report with an error for a day, and
+RemotePower said its own limit was used up while SniffCat's page showed none used. The agents change in their version number only. The release page
+is [docs/v8.0.1.md](docs/v8.0.1.md).
+
+### Threat Intel
+
+- **Clear takes every address off the table.** With the Edge blocklist on and **Found by RemotePower** at its defaults, nearly every address on an
+  internet-facing installation qualifies for the list, and Clear left each of those rows whole: it answered "Kept because the edge blocklist uses them"
+  and removed almost nothing. Those addresses leave the table now. A row with no host keeps only what the list reads of it (the last sighting, the score
+  and the services it was reported to), so the next sync makes the same list, and the row goes with the table's other old rows. The answer says "Kept
+  for the edge blocklist". **Held by** `tests/test_v730_ipintel_clear.py` and `tests/test_v730_ipintel_clear_page.py`, each new guard shown failing.
+
+- **A service that does not answer is not counted against your daily limits.** SniffCat answered every report with HTTP 500 for a day. RemotePower counted
+  each try against its own limit and tried the same address again at every sighting, so it said "the daily report limit is used up" while SniffCat's own
+  page showed none used. A network failure or an HTTP 5xx is not counted now, the address waits ten minutes before that service is asked about it again,
+  and a service that fails three times in one pass is skipped for the rest of that pass, so one that is down costs three requests and not one for every
+  address waiting. Lookups follow the same rule; the manual **Look up** button is unchanged. **Held by** `tests/test_v801_provider_down.py`.
+
+- **The Edge blocklist's downloads follow the same rule.** A blacklist download that got no answer is not one of the day's four, and the source waits ten
+  minutes. Every new edge ban makes a sync due at once, so a service that was down used up the four by lunchtime and the list was made from an old copy.
+
+- **Provider requests.** A card on Threat Intel → Log sources (platform operator only) lists the last 150 requests RemotePower sent to AbuseIPDB and
+  SniffCat: the time, the service, a lookup, a report or a blacklist download, the address, the HTTP status, how long it took and the service's own
+  sentence. Keys, headers and the text of a report are never kept, and 300 lines are. `GET /api/ip-intel` carries them as `requests`. **Held by**
+  `tests/test_v801_request_log.py`, `tests/test_v801_request_log_page.py` and, in a browser, `tests/test_v801_threatintel_e2e.py`.
+
+- **Block what a ban engine already banned.** Off until you tick **Also block addresses that fail2ban, CrowdSec or a honeypot has already banned, whatever
+  their score**. A new scanner has no reputation yet, so an address that fail2ban banned in three jails was not blocked by RemotePower, and behind
+  Cloudflare the ban that stops the visitor is the edge ban, which also waited for a score of 90. With the box ticked such an address is blocked on the
+  host that saw it and, with the Edge blocklist on, banned at the edge. Everything that protects an address still applies: the never-block list, your own
+  hosts, the allow-list, recent logins, Cloudflare's ranges, a provider's whitelist, the hourly limit per host and the cap on automatic edge bans. The
+  decision is made by software on your hosts, so a host you do not trust can get an address banned at the edge this way, up to the hourly cap. The block
+  says who decided (`automatic · fail2ban`). Nothing changes for an installation that does not tick the box. **Held by**
+  `tests/test_v801_block_confirmed.py`.
+
 ## v8.0.0 — "Pil0tMatters" — 2026-11-11
 
 The first release of a new major version, and it changes what a person can adjust and what the agent finds without being asked. You can set the text

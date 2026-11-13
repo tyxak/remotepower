@@ -61,14 +61,15 @@ class TestVersionBumps(unittest.TestCase):
         self.assertEqual(len(vers), 3, f"keep exactly 3 version docs: {vers}")
         self.assertNotIn(f"v{V}", vers)
 
-    def test_it_is_still_in_the_readme_list(self):
+    def test_it_has_left_the_readme_list(self):
+        """The list keeps five releases; 7.4.7 left it at the v8.0.1 bump. Its CHANGELOG entry is the record."""
         readme = (_ROOT / "README.md").read_text()
         block = readme[readme.index("### Recent releases"):]
         block = block[:block.index("\n## ")] if "\n## " in block else block
         bullets = re.findall(r"^- \*\*v(\d+\.\d+\.\d+)", block, re.M)
         self.assertLessEqual(len(bullets), 5, bullets)
         self.assertEqual(bullets[0], _server_version(), "the new release leads")
-        self.assertIn(V, bullets)
+        self.assertNotIn(V, bullets)
 
     def test_its_card_left_and_its_codename_stays_searchable(self):
         html = _html()
