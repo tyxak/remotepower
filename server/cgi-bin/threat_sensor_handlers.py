@@ -103,7 +103,9 @@ def threat_sensor_config_for(dev):
             return None
         if not isinstance(dev, dict) or dev.get('agentless') or A._device_os_family(dev) != 'linux':
             return None
-        return {'enabled': True, 'paths': list(pol.get('sensor_paths') or [])[:20]}
+        # `samples` is the operator's say on whether request samples (path without its query string, status) leave the host
+        return {'enabled': True, 'paths': list(pol.get('sensor_paths') or [])[:20],
+                'samples': bool(pol.get('sensor_samples', True))}
     except Exception:
         return None            # the heartbeat must never fail over an optional feature
 

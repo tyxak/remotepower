@@ -303,7 +303,8 @@ class TestTheSettingReachesAgents(_Intake):
 
     def test_a_linux_agent_is_told_and_a_windows_one_is_not(self):
         self.policy(sensor_enabled=True, sensor_paths=['/var/log/app/access.log'])
-        self.assertEqual(self.beat('d1').get('threat_sensor'), {'enabled': True, 'paths': ['/var/log/app/access.log']})
+        self.assertEqual(self.beat('d1').get('threat_sensor'),
+                         {'enabled': True, 'paths': ['/var/log/app/access.log'], 'samples': True})
         self.assertNotIn('threat_sensor', self.beat('d2'))
 
     def test_off_sends_nothing_so_the_agent_stops(self):
@@ -312,7 +313,7 @@ class TestTheSettingReachesAgents(_Intake):
 
     def test_the_config_builder_directly(self):
         f = self.api.threat_sensor_config_for
-        self.assertEqual(f({'os': 'Ubuntu 24.04'}), {'enabled': True, 'paths': []})
+        self.assertEqual(f({'os': 'Ubuntu 24.04'}), {'enabled': True, 'paths': [], 'samples': True})
         self.assertIsNone(f({'os': 'Windows 11'}))
         self.assertIsNone(f({'os': 'macOS 14.5'}))
         self.assertIsNone(f({'os': 'Debian 12', 'agentless': True}))

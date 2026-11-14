@@ -1719,7 +1719,7 @@ def handle_ip_intel_settings():
                   'edge_enabled', 'edge_cf_events', 'edge_trap', 'edge_count_list_rules', 'edge_planted_decides',
                   'edge_bait_decides',
                   'edgelist_enabled', 'edgelist_own', 'edgelist_abuseipdb', 'edgelist_sniffcat',
-                  'block_edge_hosts', 'block_confirmed'):
+                  'block_edge_hosts', 'block_confirmed', 'sensor_samples'):
             if body.get(k) is not None:
                 pol[k] = bool(body[k])
                 changed.append(f'{k}={pol[k]}')

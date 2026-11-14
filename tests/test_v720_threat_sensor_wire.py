@@ -163,7 +163,7 @@ class TestTheSensorOverRealHttp(unittest.TestCase):
     def test_2_the_setting_reaches_linux_hosts_only(self):
         status, resp = self.call('POST', '/api/ip-intel/settings', {'sensor_enabled': True}, self.admin)
         self.assertEqual(status, 200, resp)
-        self.assertEqual(self.beat(self.linux).get('threat_sensor'), {'enabled': True, 'paths': []})
+        self.assertEqual(self.beat(self.linux).get('threat_sensor'), {'enabled': True, 'paths': [], 'samples': True})
         self.assertNotIn('threat_sensor', self.beat(self.windows),
                          'a Windows agent has no web or WAF logs to read and must not be asked to')
 

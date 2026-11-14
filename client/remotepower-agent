@@ -14242,9 +14242,11 @@ def _stable_hash(value):
 # ═══════════════════════════════════════════════════════════════════════════════
 # Reads the web server, WAF, fail2ban and CrowdSec logs on THIS host and sends the
 # server a summary per source address: counts, and tokens from a fixed vocabulary
-# (server/cgi-bin/threat_evidence.py owns it). Log lines, request paths, host
-# names and user names never leave the host. The server decides what a summary is
-# worth, so what this code decides is only WHAT was seen.
+# (server/cgi-bin/threat_evidence.py owns it), and, when the server asks for them, up
+# to THREAT_SAMPLES samples of what the address asked for: the method, the path
+# without its query string, the status, the log. Log lines as such, query strings,
+# host names and user names never leave the host. The server decides what a summary
+# is worth, so what this code decides is only WHAT was seen.
 #
 # It runs in a thread of its own: a slow or broken log can never delay a
 # heartbeat. Linux only: the server sends `threat_sensor` to Linux agents and to
@@ -14268,6 +14270,11 @@ THREAT_CARRY_MAX = 2000           # addresses under that minimum whose count is 
 THREAT_FW_PORTS = 4               # distinct ports one address tried before it counts as a scan
 THREAT_FW_PACKETS = 15            # or this many blocked packets, to one port or several
 THREAT_MAX_LINE = 8192
+THREAT_SAMPLES = 3                # request samples sent with an address (the server keeps the same number)
+THREAT_PATH_MAX = 80              # characters of a path in a sample (the server cuts at the same length)
+THREAT_SAMPLE_ADDRS = 5000        # addresses that hold samples in one pass
+THREAT_RING_ADDRS = 4000          # addresses whose last refused requests are remembered
+THREAT_RING_KEEP_S = 900          # ... for this long, so a ban that lands a minute after the log line still finds it
 THREAT_DISCOVER_S = 600
 THREAT_CONF_FILES = 150
 THREAT_CONF_BYTES = 1_000_000
@@ -14492,6 +14499,56 @@ def _ts_decode(uri):
             break
         s = d
     return s.lower()
+
+
+# ── samples ────────────────────────────────────────────────────────────────────
+#
+# What the logs show an address asking for, as at most THREAT_SAMPLES short samples: the method, the path, the status and the log. The
+# server rebuilds each one from parts it checks itself (threat_evidence.normalize_sample) and tests/test_v801_agent_samples.py holds the
+# two cleaners equal, so a sample is made the same way on both sides and trusted by neither.
+#
+# The path is cut to letters, digits and . _ ~ / % + - and loses its query string and fragment. A query string is where a request keeps
+# what it carries (a session id, a payload, a password typed into the wrong form), a `;name=value` path parameter carries the same, and a
+# URL inside the path names a host, so each of those ends the path. A cut is marked with "...".
+
+_TS_SAMPLE_METHODS = frozenset(('GET', 'POST', 'HEAD', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'CONNECT', 'TRACE', 'PROPFIND'))
+_TS_PATH_RUN_RE = re.compile(r'[A-Za-z0-9._~/%+-]+')
+_TS_PATH_SCHEME_RE = re.compile(r'[A-Za-z][A-Za-z0-9+.-]{1,9}:/')
+
+
+def _ts_clean_path(raw):
+    """The path of a request target cut to what is safe to keep and show, or ''. Cleaning the result returns it unchanged."""
+    s = str(raw if raw is not None else '')[:2048]
+    for stop in ('?', '#'):
+        i = s.find(stop)
+        if i != -1:
+            s = s[:i]
+    if not s.startswith('/') or s.startswith('//'):
+        return ''                       # not a path: an absolute-form target and `//host/...` name a host
+    cut = False
+    m = _TS_PATH_SCHEME_RE.search(s)
+    if m:
+        s, cut = s[:m.start()], True
+    run = _TS_PATH_RUN_RE.match(s)
+    ok = run.group(0) if run else ''
+    if len(ok) < len(s):
+        cut = True
+    if len(ok) > THREAT_PATH_MAX:
+        ok, cut = ok[:THREAT_PATH_MAX], True
+    return (ok + '...') if (ok and cut) else ok
+
+
+def _ts_status(value):
+    try:
+        n = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    return n if 100 <= n <= 599 else 0
+
+
+# CrowdSec's nginx bouncer refusing a request on AppSec's verdict, in the access phase. The words come BEFORE `, client:`; what follows
+# is the request, which its sender wrote, so the pattern is only ever tried on what precedes it.
+_TS_CS_APPSEC_RE = re.compile(r"\[Crowdsec\] denied '[0-9A-Fa-f:.]{2,45}' with '[a-z]{2,12}' \(by appsec\)")
 
 
 def _ts_classify(method, uri, status, ua=''):
@@ -15176,6 +15233,87 @@ class _TsAgg:
         self.carry_out = {}            # the same, as it stands after this pass
         self._tx = {}
         self._tx_tok = set()
+        self.want_samples = False      # the server asks for samples; without that nothing below is kept
+        self.samples = {}              # ip -> samples of requests the evidence itself names (a hostile request, a refusal)
+        self.ring = {}                 # ip -> [(time, method, path, status)] refused requests, kept in case an engine bans the address
+        self.ring_prev = {}            # the same from the passes before, so a ban that lands a pass late still finds its request
+
+    def sample(self, ip, fam, method, uri, status, ts):
+        """One request the logs show `ip` making: kept when it is the evidence itself (a hostile request, a WAF refusal)."""
+        if not self.want_samples:
+            return
+        path = _ts_clean_path(uri)
+        if not path:
+            return
+        lst = self.samples.get(ip)
+        if lst is None:
+            if len(self.samples) >= THREAT_SAMPLE_ADDRS:
+                return
+            lst = self.samples[ip] = []
+        method = method if method in _TS_SAMPLE_METHODS else ''
+        if len(lst) >= THREAT_SAMPLES or any(x['m'] == method and x['p'] == path for x in lst):
+            return
+        lst.append({'f': fam, 'm': method, 'p': path, 'c': _ts_status(status), 't': int(ts or self.now)})
+
+    def refused_request(self, ip, method, uri, status, ts):
+        """A refused request that no pattern called hostile. Remembered for a few minutes, and sent only if a ban engine decides on
+        the address: it is what the ban was for. Most refusals are a broken link or a crawler, so nothing here is evidence by itself."""
+        if not self.want_samples:
+            return
+        path = _ts_clean_path(uri)
+        if not path:
+            return
+        r = self.ring.get(ip)
+        if r is None:
+            if len(self.ring) >= THREAT_RING_ADDRS:
+                return
+            r = self.ring[ip] = []
+        method = method if method in _TS_SAMPLE_METHODS else ''
+        r[:] = [e for e in r if not (e[1] == method and e[2] == path)]
+        r.append((int(ts or self.now), method, path, _ts_status(status)))
+        del r[:-THREAT_SAMPLES]
+
+    def ring_for(self, ip):
+        """The refused requests remembered for `ip` that are still young, oldest first: the earlier passes' and this one's."""
+        if not self.want_samples:
+            return []                  # a pass the server did not ask samples of reads nothing it was handed
+        floor = self.now - THREAT_RING_KEEP_S
+        out = []
+        for e in self.ring_prev.get(ip) or ():
+            try:
+                row = (int(e[0]), str(e[1]), str(e[2]), int(e[3]))
+            except (TypeError, ValueError, IndexError, OverflowError):
+                continue
+            if row[0] >= floor:
+                out.append(row)
+        out += [e for e in self.ring.get(ip, ()) if e[0] >= floor]
+        return out
+
+    def ring_out(self):
+        """What the next pass is given: what is still young, newest few for each address."""
+        floor = self.now - THREAT_RING_KEEP_S
+        out = {}
+        for ip in list(self.ring_prev) + [i for i in self.ring if i not in self.ring_prev]:
+            if len(out) >= THREAT_RING_ADDRS:
+                break
+            keep = [e for e in self.ring_for(ip) if e[0] >= floor][-THREAT_SAMPLES:]
+            if keep:
+                out[ip] = keep
+        return out
+
+    def samples_for(self, ip, with_refused=False):
+        """The samples to send for `ip`: the requests that were the evidence first and, for an address an engine decided on, the
+        refused requests it made."""
+        out = list(self.samples.get(ip, ())) if self.want_samples else []
+        if with_refused:
+            seen = {(x['m'], x['p']) for x in out}
+            for ts, m, p, c in reversed(self.ring_for(ip)):
+                if len(out) >= THREAT_SAMPLES:
+                    break
+                if (m, p) not in seen:
+                    seen.add((m, p))
+                    out.append({'f': 'web', 'm': m, 'p': p, 'c': c, 't': ts})
+        return out[:THREAT_SAMPLES]
 
     def hit(self, fam, fkey, ip, ts, tokens=(), n=1, ans=0, blk=0, tx=None):
         if tx is not None:
@@ -15302,6 +15440,9 @@ class _TsAgg:
         for e in out:
             e['tok'] = {f: dict(sorted(t.items(), key=lambda kv: -kv[1])[:24])
                         for f, t in e['tok'].items() if t}
+            smp = self.samples_for(e['ip'], with_refused=strong(e))
+            if smp:
+                e['smp'] = smp
         return out, dropped
 
 
@@ -15321,6 +15462,11 @@ def _ts_scan_access(lines, parse, agg, fkey, now):
         parsed += 1
         kinds = _ts_classify(rec['method'], rec['uri'], rec['status'], rec['ua'])
         if not kinds:
+            if agg.want_samples and rec['status'] >= 400:
+                ip = _ts_ip(rec['ip'])
+                ts = min(rec['ts'] or now, ceil)
+                if ip and ts >= floor:
+                    agg.refused_request(ip, rec['method'], rec['uri'], rec['status'], ts)
             continue
         ip = _ts_ip(rec['ip'])
         ts = min(rec['ts'] or now, ceil)
@@ -15330,6 +15476,7 @@ def _ts_scan_access(lines, parse, agg, fkey, now):
         agg.hit('web', fkey, ip, ts, ['req:' + k for k in kinds], 1,
                 ans=1 if 200 <= status < 300 and kinds[0] in _TS_ANSWERABLE else 0,
                 blk=1 if status >= 400 else 0)
+        agg.sample(ip, 'web', rec['method'], rec['uri'], status, ts)
     return n, parsed
 
 
@@ -15367,6 +15514,7 @@ def _ts_modsec_emit(tx, agg, fkey, now):
     status = tx['status'] or (403 if refused else 0)
     toks += ['req:' + k for k in _ts_classify(tx['method'], tx['uri'], status, tx['ua'])]
     agg.hit('waf', fkey, ip, ts, toks, 1, blk=1 if refused else 0, tx=tx['id'])
+    agg.sample(ip, 'waf', tx['method'], tx['uri'], status, ts)
     if cves:
         agg.add_cves(ip, cves)
     return True
@@ -15505,28 +15653,39 @@ def _ts_scan_nginx_error(lines, agg, fkey, now):
             continue
         rm = _TS_NGX_REQUEST_RE.search(line)
         method, uri = _ts_request_line(rm.group(1)) if rm else ('', '')
-        if 'ModSecurity:' in line:
+        if _TS_CS_APPSEC_RE.search(line[:cm.start()] if cm else ''):
+            # CrowdSec's bouncer refused the request on AppSec's verdict. That is a WAF refusal, whether or not
+            # CrowdSec went on to make a decision, so it counts with the WAF's and is named like AppSec's own scenarios.
+            agg.hit('waf', fkey, ip, ts, ['cs:appsec'], 1, blk=1)
+            agg.sample(ip, 'waf', method, uri, 403, ts)
+        elif 'ModSecurity:' in line:
             toks, cves, refused = _ts_modsec_message(line)
             um = _TS_MS_UID_RE.search(line)
             tx = um.group(1) if um else f'{ts}:{uri}'
             status = 403 if refused else 0
             toks += ['req:' + k for k in _ts_classify(method, uri, status)]
             agg.hit('waf', fkey, ip, ts, toks, 1, blk=1 if refused else 0, tx=tx)
+            agg.sample(ip, 'waf', method, uri, status, ts)
             if cves:
                 agg.add_cves(ip, cves)
         elif 'limiting requests' in line or 'limiting connections' in line:
             agg.hit('err', fkey, ip, ts, ['req:flood'], 1, blk=1)
+            agg.sample(ip, 'err', method, uri, 0, ts)
         elif (' was not found in "' in line or ': password mismatch' in line) and 'user "' in line:
             agg.hit('err', fkey, ip, ts, ['req:login'], 1, blk=1)
+            agg.sample(ip, 'err', method, uri, 401, ts)
         elif 'access forbidden by rule' in line:
             kinds = _ts_classify(method, uri, 403) or ('probe',)
             agg.hit('err', fkey, ip, ts, ['req:' + k for k in kinds], 1, blk=1)
+            agg.sample(ip, 'err', method, uri, 403, ts)
         else:
             fm = _TS_NGX_FILE_RE.search(line)
             target = fm.group(1) if fm else (uri if 'Primary script unknown' in line else '')
             kinds = _ts_classify(method or 'GET', target, 404) if target else ()
             if kinds:
                 agg.hit('err', fkey, ip, ts, ['req:' + k for k in kinds], 1, blk=1)
+                # the request, not the file system path in the message: that is where the document root is
+                agg.sample(ip, 'err', method or 'GET', uri, 404, ts)
     return n, parsed
 
 
@@ -16009,6 +16168,8 @@ def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
         disc['psig'] = psig
     agg, sources, new_files = _TsAgg(now), [], {}
     agg.carry = state.get('carry') if isinstance(state.get('carry'), dict) else {}
+    agg.want_samples = bool((cfg or {}).get('samples'))
+    agg.ring_prev = state.get('_ring') if agg.want_samples and isinstance(state.get('_ring'), dict) else {}
     deadline = time.monotonic() + float(budget_s)
 
     def note(kind, path, state_, n=0, parsed=0, events=0, fmt='', proxied=None, self_reports=None):
@@ -16097,6 +16258,8 @@ def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
     new_state = {'files': new_files, 'disc': disc, 'cs_last_id': cs_last,
                  'status_at': state.get('status_at', 0), 'sig': state.get('sig', ''),
                  'carry': agg.carry_out}
+    if agg.want_samples:
+        new_state['_ring'] = agg.ring_out()        # held in memory only: _ts_state_save leaves a key like this out
     return events, sources, dropped, new_state
 
 
@@ -16113,7 +16276,7 @@ def _ts_state_save(state):
         tmp = THREAT_STATE_FILE.with_suffix('.tmp')
         fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, 'w') as f:
-            json.dump(state, f)
+            json.dump({k: v for k, v in state.items() if not str(k).startswith('_')}, f)
         os.replace(str(tmp), str(THREAT_STATE_FILE))
     except Exception as e:
         log.debug(f'threat sensor: could not save state: {e}')
