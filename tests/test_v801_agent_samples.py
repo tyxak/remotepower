@@ -297,6 +297,17 @@ class TestSamplesFromEachLog(_Base):
         self.assertEqual(len(agg.ring[A1]), 1)
         self.assertEqual(agg.ring[A1][0][0], NOW - 7)
 
+    def test_a_plain_web_address_gets_only_the_requests_that_were_hostile(self):
+        # the ring is for an address an engine decided on; one that was only counted for hostile requests is sent what was hostile
+        agg = self.agg()
+        lines = [combined(A1, NOW - 40 + i, f'GET /backup{i}.sql HTTP/1.1', 404) for i in range(3)]
+        lines += [combined(A1, NOW - 30 + i, f'GET /harmless-{i} HTTP/1.1', 404) for i in range(5)]
+        self.scan_access(agg, lines)
+        ev = self.by_ip(agg)[A1]
+        self.assertEqual(ev['src'], {'web': 3})
+        self.assertEqual([s['p'] for s in ev['smp']], ['/backup0.sql', '/backup1.sql', '/backup2.sql'])
+        self.assertNotIn('harmless', json.dumps(ev))
+
     def test_the_evidence_comes_first_and_the_ring_fills_the_rest(self):
         agg = self.agg()
         self.scan_access(agg, [combined(A1, NOW - 30, 'GET /a HTTP/1.1', 404), combined(A1, NOW - 29, 'GET /b HTTP/1.1', 404),

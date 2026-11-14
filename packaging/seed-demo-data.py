@@ -1155,6 +1155,13 @@ def _ip_intel_documents() -> tuple:
                 ev['ban'] = ['nginx-blocked']
                 ev['src']['f2b'] = 2
                 ev['tok']['f2b'] = {'jail:nginx-blocked': 2}
+            # What each class asked for, as the sensor's samples (8.0.1). A fixed table and no draw from `rng`, so the rest of the
+            # demo stays what it was; the traversal path is long enough to be cut, so the page is seen with a path at its limit.
+            asked = {'sqli': ('GET', '/index.php', 403), 'probe': ('GET', '/.env', 404), 'scanner': ('GET', '/wp-login.php', 404),
+                     'login_brute': ('POST', '/wp-login.php', 401), 'rce': ('GET', '/cgi-bin/luci/', 403),
+                     'traversal': ('GET', ('/' + '..%2f' * 20)[:80] + '...', 403)}
+            ev['smp'] = [{'f': 'web', 'm': m, 'p': path, 'c': code, 't': seen - 60 * (k + 1)}
+                         for k, (m, path, code) in enumerate(asked[c] for c in mix[0] if c in asked)]
             if att['reported']:
                 att['ev_reported'] = {'at': seen, 'ev': ev}
                 text = f"{mix[1]}: {n} attempts within 30 minutes, seen by web server log (reported by RemotePower)"
