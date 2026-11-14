@@ -315,6 +315,7 @@ function _ipiFillSettings(s, budget) {
   chk('ipintel-block-confirmed', s.block_confirmed);
   chk('ipintel-sensor', s.sensor_enabled);
   chk('ipintel-sensor-samples', s.sensor_samples !== false);
+  chk('ipintel-report-samples', s.report_samples);
   set('ipintel-sensor-paths', (s.sensor_paths || []).join('\n'));
   chk('ipintel-appliance', s.appliance_enabled);
   set('ipintel-min-score', s.block_min_score ?? 90);
@@ -1067,6 +1068,7 @@ async function saveIpIntelSettings() {
     block_confirmed: v('ipintel-block-confirmed').checked,
     sensor_enabled: v('ipintel-sensor').checked,
     sensor_samples: v('ipintel-sensor-samples').checked,
+    report_samples: v('ipintel-report-samples').checked,
     sensor_paths: v('ipintel-sensor-paths').value,
     appliance_enabled: v('ipintel-appliance').checked,
     block_min_score: v('ipintel-min-score').value,

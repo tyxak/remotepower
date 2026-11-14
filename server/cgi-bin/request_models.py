@@ -2746,6 +2746,7 @@ if _AVAILABLE:
         block_enabled: Any = None
         sensor_enabled: Any = None
         sensor_samples: Any = None
+        report_samples: Any = None
         appliance_enabled: Any = None
         sensor_paths: Any = None
         block_min_score: Any = None

@@ -832,7 +832,7 @@ def _report_plan(group, pol):
             c += [x for x in ip_intel.CATEGORIES[kind][prov] if x not in c]
         cats[prov] = c
     if ev_ok:
-        comment = ip_intel.evidence_comment(ev, pol.get('report_comment'))
+        comment = ip_intel.evidence_comment(ev, pol.get('report_comment'), bool(pol.get('report_samples')))
         label = '+'.join(c for c, _n in threat_evidence.dominant(ev, 3)) or 'other'
         when = int(ev.get('last') or 0) or None
     else:
@@ -1723,7 +1723,7 @@ def handle_ip_intel_settings():
                   'edge_enabled', 'edge_cf_events', 'edge_trap', 'edge_count_list_rules', 'edge_planted_decides',
                   'edge_bait_decides',
                   'edgelist_enabled', 'edgelist_own', 'edgelist_abuseipdb', 'edgelist_sniffcat',
-                  'block_edge_hosts', 'block_confirmed', 'sensor_samples'):
+                  'block_edge_hosts', 'block_confirmed', 'sensor_samples', 'report_samples'):
             if body.get(k) is not None:
                 pol[k] = bool(body[k])
                 changed.append(f'{k}={pol[k]}')

@@ -87,6 +87,7 @@ DEFAULTS = {
     'limit_abuseipdb_reports': None, 'limit_sniffcat_reports': None,
     'limit_abuseipdb_downloads': None, 'limit_sniffcat_downloads': None,
     'report_comment': '',         # '' = the default text below
+    'report_samples': False,      # end a report about a web attack with up to three of the requests the logs showed (8.0.1)
     'never_block': [],            # extra CIDRs that are never blocked (or reported)
     # What is never REPORTED, and nothing else: an ignored address can still be looked up
     # and blocked, so ignoring can only ever do less in public, never leave a host less
@@ -135,6 +136,7 @@ DEFAULTS = {
 EDGE_DEVICES = {'edge:cloudflare': 'Cloudflare edge', 'edge:trap': 'Edge honeypot'}
 
 _MAX_COMMENT = 1000
+EXAMPLES_MAX = 3              # requests an operator who turned examples on may see at the end of a report
 _MIN_COMMENT = 10             # SniffCat refuses anything shorter
 _TEMPLATE_MAX = 300
 
@@ -527,17 +529,37 @@ def report_comment(kind, count, window_s, template=None):
                            _LEGACY_SEEN_BY.get(kind, 'system log'))[:_MAX_COMMENT]
 
 
-def evidence_comment(ev, template=None):
+def examples_text(ev):
+    """'Examples: GET /wp-login.php (404), ...' for the end of a report, or ''. This is the one place a
+    request's own text reaches a public report, so it is narrow: only when every class the address was
+    seen in is a web one (a request line says nothing about an SSH brute force), at most EXAMPLES_MAX of
+    them, and each one is rebuilt here from the stored sample, because a ledger is read back from storage
+    and the public text must not depend on what is in it. A path in a sample is letters, digits and
+    . _ ~ / % + - only, never a query string, and a method comes from a list of ten."""
+    if not threat_evidence.web_only(ev or {}):
+        return ''
+    smp = threat_evidence.normalize_samples((ev or {}).get('smp'), None, threat_evidence.SOURCES)
+    parts = [threat_evidence.sample_text(s) for s in smp[:EXAMPLES_MAX]]
+    return ('Examples: ' + ', '.join(parts)) if parts else ''
+
+
+def evidence_comment(ev, template=None, examples=False):
     """The same for an address the host's logs described. Every word comes from
     threat_evidence's fixed phrases and from numbers, so nothing the attacker
-    typed can reach a public report; `template` is the operator's wording."""
+    typed can reach a public report; `template` is the operator's wording.
+    The one exception is `examples` (the operator's setting `report_samples`, off by default):
+    see examples_text for what it adds and why that is narrow."""
     t = clean_comment_template(template)
     if is_default_comment(t) or comment_template_error(t):
         t = REPORT_COMMENT_DEFAULT
     mins = max(1, threat_evidence.window_seconds(ev) // 60)
-    return _render_comment(t, threat_evidence.what_word(ev), threat_evidence.hostile_count(ev),
-                           mins, threat_evidence.attack_phrase(ev),
-                           threat_evidence.seen_by(ev))[:_MAX_COMMENT]
+    text = _render_comment(t, threat_evidence.what_word(ev), threat_evidence.hostile_count(ev),
+                           mins, threat_evidence.attack_phrase(ev), threat_evidence.seen_by(ev))
+    if examples:
+        extra = examples_text(ev)
+        if extra and len(text) + 1 + len(extra) <= _MAX_COMMENT:
+            text = f'{text} {extra}'
+    return text[:_MAX_COMMENT]
 
 
 # ── blocking ───────────────────────────────────────────────────────────────────

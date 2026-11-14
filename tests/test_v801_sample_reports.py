@@ -35,6 +35,7 @@ from test_v720_threat_report_engine import raw_event as engine_event  # noqa: E4
 
 import ip_intel  # noqa: E402
 import threat_evidence  # noqa: E402
+import threat_evidence as te  # noqa: E402
 
 ROOT = HERE.parent
 
@@ -338,6 +339,196 @@ class TestThePage(unittest.TestCase):
         stamp = re.search(r'remotepower-shell-v([0-9.]+-\d+)', sw)
         self.assertTrue(stamp)
         self.assertNotEqual(stamp.group(1) if stamp else '', '8.0.1-3', 'app-ipintel.js, i18n.js and styles.css changed')
+
+
+class TestTheExamplesInAReport(_Engine):
+    """`report_samples` (default off): a report about a web attack ends with up to three of the requests the logs showed. This is the one place the
+    text of a request reaches a public report, so the tests look at the exact bodies both services receive."""
+
+    WEB = dict(src={'waf': 2, 'web': 3}, tok={'waf': {'crs:942100': 2}, 'web': {'req:probe': 3}})
+
+    def reported(self):
+        return len(self.posts()) > 0
+
+    def event(self, samples, **kw):
+        return engine_event(**dict(self.WEB, smp=samples, **kw))
+
+    def sent(self):
+        return self.abuse_form()['comment'][0], self.sniff_body()['comment']
+
+    def test_it_is_off_by_default_and_a_report_is_what_it_was(self):
+        self.assertIs(ip_intel.DEFAULTS['report_samples'], False)
+        self.feed(self.event([smp('/.env', status=403), smp('/wp-login.php', 'POST', 404)]))
+        self.sweep()
+        self.assertTrue(self.reported())
+        for text in self.sent():
+            self.assertNotIn('Examples', text)
+            self.assertNotIn('/.env', text)
+
+    def test_on_both_services_get_the_same_examples(self):
+        self.policy(report_samples=True)
+        self.feed(self.event([smp('/.env', status=403), smp('/wp-login.php', 'POST', 404)]))
+        self.sweep()
+        abuse, sniff = self.sent()
+        self.assertEqual(abuse, sniff)
+        self.assertTrue(abuse.endswith(' Examples: GET /.env (403), POST /wp-login.php (404)'), abuse)
+        self.assertIn('(reported by RemotePower) Examples:', abuse)
+        self.assertEqual(self.att()['report_log'][-1]['comment'], abuse, 'the page shows exactly what was sent')
+
+    def test_an_address_with_no_samples_is_reported_as_before(self):
+        self.policy(report_samples=True)
+        self.feed(self.event([]))
+        self.sweep()
+        abuse, _ = self.sent()
+        self.assertNotIn('Examples', abuse)
+        self.assertTrue(abuse.endswith('(reported by RemotePower)'))
+
+    def test_a_request_line_says_nothing_about_an_ssh_brute_force(self):
+        self.policy(report_samples=True)
+        # a refused web request the address made on the side is not evidence of the brute force that got it banned
+        self.feed(engine_event(src={'f2b': 4}, tok={'f2b': {'jail:sshd': 4}}, ban=['sshd'], smp=[smp('/favicon.ico', status=404)]))
+        self.sweep()
+        self.assertTrue(self.reported())
+        self.assertNotIn('Examples', self.sent()[0])
+        self.assertNotIn('favicon', self.sent()[0])
+
+    def test_a_mixed_address_gets_none_either(self):
+        self.policy(report_samples=True)
+        self.feed(self.event([smp('/.env', status=403)], ban=['sshd']))
+        self.sweep()
+        self.assertTrue(self.reported())
+        self.assertNotIn('Examples', self.sent()[0], 'one class that is not a web one is enough to leave them out')
+
+    def test_the_text_that_reaches_a_report_is_ascii_and_never_a_query_or_markup(self):
+        ev = te.normalize_event(engine_event(**dict(self.WEB, smp=[smp('/a?token=SECRET'), smp('/b<script>'), smp('/c;jsessionid=SECRET')])),
+                                now=int(time.time()))
+        text = ip_intel.evidence_comment(ev, None, True)
+        self.assertTrue(text.isascii(), text)
+        for needle in ('SECRET', '<', 'token', 'jsessionid=', '?'):
+            self.assertNotIn(needle, text)
+        self.assertTrue(text.endswith('Examples: GET /a (404), GET /b... (404), GET /c... (404)'), text)
+
+    def test_a_ledger_that_was_edited_cannot_put_text_in_a_report(self):
+        # the public text is built from the stored sample, which is read back from storage: it is rebuilt first
+        ev = dict(te.normalize_event(engine_event(**self.WEB), now=int(time.time())),
+                  smp=[{'f': 'web', 'm': 'GET', 'p': '/x<script>alert(1)</script>', 'c': 403, 't': 5}, 'junk',
+                       {'f': 'web', 'm': 'GET', 'p': 'http://evil.example/steal', 'c': 200, 't': 5},
+                       {'f': 'nope', 'm': 'GET', 'p': '/forged', 'c': 200, 't': 5}, {'f': 'web', 'm': "GET'; DROP", 'p': '/ok', 'c': 99999}])
+        text = ip_intel.evidence_comment(ev, None, True)
+        self.assertTrue(text.endswith('Examples: GET /x... (403), /ok'), text)
+        for needle in ('script', 'evil', 'forged', 'DROP', '99999'):
+            self.assertNotIn(needle, text)
+
+    def test_at_most_three(self):
+        ev = dict(te.normalize_event(engine_event(**self.WEB), now=int(time.time())), smp=[smp(f'/p{i}') for i in range(9)])
+        self.assertEqual(ip_intel.examples_text(ev), 'Examples: GET /p0 (404), GET /p1 (404), GET /p2 (404)')
+
+    def test_a_comment_that_would_not_fit_is_left_whole_not_cut_in_the_middle_of_an_example(self):
+        ev = te.normalize_event(engine_event(**dict(self.WEB, smp=[smp('/a' * 30)])), now=int(time.time()))
+        base = ip_intel.evidence_comment(ev, None, False)
+        old = ip_intel._MAX_COMMENT
+        ip_intel._MAX_COMMENT = len(base) + 10
+        self.addCleanup(setattr, ip_intel, '_MAX_COMMENT', old)
+        self.assertEqual(ip_intel.evidence_comment(ev, None, True), base)
+        ip_intel._MAX_COMMENT = old
+        self.assertLessEqual(len(ip_intel.evidence_comment(ev, 'x' * 290, True)), 1000)
+
+    def test_a_custom_wording_keeps_its_words_and_gets_the_examples(self):
+        self.policy(report_samples=True, report_comment='Blocked at the edge: {attack}, seen by {seen_by}.')
+        self.feed(self.event([smp('/.env', status=403)]))
+        self.sweep()
+        abuse, _ = self.sent()
+        self.assertTrue(abuse.startswith('Blocked at the edge: '), abuse)
+        self.assertTrue(abuse.endswith(' Examples: GET /.env (403)'), abuse)
+
+    def test_the_legacy_brute_force_report_has_no_examples_to_give(self):
+        self.policy(report_samples=True)
+        self.attack(count=25)
+        self.sweep()
+        self.assertTrue(self.reported())
+        self.assertNotIn('Examples', self.sent()[0])
+
+
+class TestTheExamplesSetting(_Intake):
+    def test_it_is_saved_shown_and_left_alone_by_a_save_that_does_not_name_it(self):
+        self.assertIs(self.call(self.api.handle_ip_intel, 'GET')[1]['settings']['report_samples'], False)
+        st, d = self.call(self.api.handle_ip_intel_settings, 'POST', {'report_samples': True})
+        self.assertEqual(st, 200, d)
+        self.assertIs(self.call(self.api.handle_ip_intel, 'GET')[1]['settings']['report_samples'], True)
+        self.call(self.api.handle_ip_intel_settings, 'POST', {'block_min_score': 80})
+        self.assertIs(self.call(self.api.handle_ip_intel, 'GET')[1]['settings']['report_samples'], True)
+        self.call(self.api.handle_ip_intel_settings, 'POST', {'report_samples': False})
+        self.assertIs(self.call(self.api.handle_ip_intel, 'GET')[1]['settings']['report_samples'], False)
+
+    def test_only_an_administrator_changes_it(self):
+        st, _ = self.call(self.api.handle_ip_intel_settings, 'POST', {'report_samples': True}, role='viewer')
+        self.assertEqual(st, 403)
+        self.assertIs(self.call(self.api.handle_ip_intel, 'GET')[1]['settings']['report_samples'], False)
+
+    def test_the_request_model_declares_the_key(self):
+        import request_models
+        self.assertIn('report_samples', request_models.IpIntelSettingsRequest.model_fields)
+
+    def test_the_two_switches_are_independent(self):
+        # what hosts send and what a report says are two decisions
+        self.call(self.api.handle_ip_intel_settings, 'POST', {'sensor_samples': False, 'report_samples': True})
+        s = self.call(self.api.handle_ip_intel, 'GET')[1]['settings']
+        self.assertEqual((s['sensor_samples'], s['report_samples']), (False, True))
+
+
+@unittest.skipUnless(shutil.which('node'), 'node not installed')
+class TestTheExamplesBox(unittest.TestCase):
+    _run = settings_js.TestPage._run
+
+    def test_the_box_is_by_the_report_message_with_its_warning(self):
+        html = (ROOT / 'server' / 'html' / 'index.html').read_text()
+        start = html.index('id="ipintel-limits-card"')
+        card = html[start:html.index('id="ipintel-never"', start) + 40]
+        self.assertRegex(card, r'<input type="checkbox" id="ipintel-report-samples"> Add a few example requests to reports</label>')
+        self.assertLess(card.index('id="ipintel-comment"'), card.index('id="ipintel-report-samples"'))
+        self.assertLess(card.index('id="ipintel-report-samples"'), card.index('id="ipintel-never"'))
+        for sentence in ('Both services show reports publicly, so look at the requests on the Attackers tab first.',
+                         'An address your own software banned by mistake would publish a path from your site.',
+                         'Reports about SSH, mail or other logins never carry examples.', 'Off until you turn it on.'):
+            self.assertIn(sentence, card)
+
+    def test_the_providers_card_does_not_promise_less_than_a_report_can_carry(self):
+        html = (ROOT / 'server' / 'html' / 'index.html').read_text()
+        i18n = (ROOT / 'server' / 'html' / 'static' / 'js' / 'i18n.js').read_text()
+        old = 'Reports also send the attack type and a count, never hostnames or log lines.'
+        self.assertNotIn(old, html)
+        self.assertNotIn(old, i18n)
+        self.assertIn('Reports also send the attack type and a count, and up to three request paths if you turn on examples, '
+                      'never hostnames or log lines.', html)
+        rows = dict_rows()
+        hint = next(k for k in rows if k.startswith('Each setting is off until you turn it on. Lookups send only the address.'))
+        for lang in ('de', 'fr', 'es', 'zh', 'hi', 'ar'):
+            self.assertTrue(rows[hint].get(lang), lang)
+
+    def test_the_words_are_translated(self):
+        rows = dict_rows()
+        langs = ('de', 'fr', 'es', 'zh', 'hi', 'ar')
+        label = 'Add a few example requests to reports'
+        self.assertTrue(rows.get(label) and all(rows[label].get(lang) for lang in langs))
+        hint = next((k for k in rows if k.startswith('A report about a web attack then ends with up to three of the requests')), None)
+        self.assertTrue(hint and all(rows[hint].get(lang) for lang in langs))
+        for lang in langs:      # the warning is in every language, not only the label
+            self.assertGreater(len(rows[hint][lang]), 120, lang)
+
+    def test_the_page_shows_the_stored_value_and_sends_what_was_ticked(self):
+        got = self._run("""
+          _ipiFillSettings({}, {});
+          const unset = els['ipintel-report-samples'].checked;
+          _ipiFillSettings({report_samples: true}, {});
+          const on = els['ipintel-report-samples'].checked;
+          els['ipintel-report-samples'].checked = false;
+          await saveIpIntelSettings();
+          const sentOff = sent.body.report_samples;
+          els['ipintel-report-samples'].checked = true;
+          await saveIpIntelSettings();
+          console.log(JSON.stringify({unset, on, sentOff, sentOn: sent.body.report_samples}));""")
+        self.assertEqual(got, {'unset': False, 'on': True, 'sentOff': False, 'sentOn': True},
+                         'a server that does not send the key means off: examples are the opt-in')
 
 
 if __name__ == '__main__':

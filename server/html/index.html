@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.1-4">
+<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.1-5">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=8.0.1-4">
+<link rel="stylesheet" href="static/css/styles.css?v=8.0.1-5">
 
 </head>
 <body>
@@ -7361,7 +7361,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div class="dash-card mt-16" data-pg-tab="settings" id="ipintel-settings-card" hidden>
           <div class="section-title">Providers</div>
-          <p class="hint mb-12">Each setting is off until you turn it on. Lookups send only the address. Reports also send the attack type and a count, never hostnames or log lines.</p>
+          <p class="hint mb-12">Each setting is off until you turn it on. Lookups send only the address. Reports also send the attack type and a count, and up to three request paths if you turn on examples, never hostnames or log lines.</p>
           <div class="settings-row isl-57">
             <div class="form-group">
               <label class="form-label" for="ipintel-abuseipdb-key">AbuseIPDB API key</label>
@@ -7647,6 +7647,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <label class="form-label" for="ipintel-comment">Report message</label>
             <textarea id="ipintel-comment" class="form-input ff-mono" rows="2" maxlength="300" spellcheck="false"></textarea>
             <p class="hint">Sent to AbuseIPDB and SniffCat with every report, and public on both. The standard text names what was seen, so it says "brute force" only when that is what happened. Placeholders: <code>{attack}</code> (what was seen, for example SQL injection), <code>{count}</code> (attempts), <code>{minutes}</code>, <code>{seen_by}</code> (which logs saw it) and <code>{what}</code> (a short noun, SSH or web login). Host names are never available to it. At least 10 characters. Clear the box to go back to the standard text.</p>
+          </div>
+          <div class="settings-row mb-12">
+            <label class="form-label"><input type="checkbox" id="ipintel-report-samples"> Add a few example requests to reports</label>
+            <p class="hint">A report about a web attack then ends with up to three of the requests the logs showed: the method, the path without its query string and the status, for example GET /wp-login.php (404). Both services show reports publicly, so look at the requests on the Attackers tab first. An address your own software banned by mistake would publish a path from your site. Reports about SSH, mail or other logins never carry examples. Off until you turn it on.</p>
           </div>
           <div class="form-group">
             <label class="form-label" for="ipintel-never">Never block or report (one address or network per line)</label>
@@ -13629,39 +13633,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=8.0.1-4"></script>
+<script defer src="static/js/app.js?v=8.0.1-5"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-cmdb.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-containers.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-network.js?v=8.0.1-4"></script>
+<script defer src="static/js/app-calendar.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-cmdb.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-containers.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-network.js?v=8.0.1-5"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-compliance.js?v=8.0.1-4"></script>
+<script defer src="static/js/app-hostconfig.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-compliance.js?v=8.0.1-5"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-dns.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-drift.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-cve.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-firewall.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-backups.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-iac.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-proxmox.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-virt.js?v=8.0.1-4"></script>
+<script defer src="static/js/app-ai.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-dns.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-drift.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-cve.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-firewall.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-backups.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-iac.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-proxmox.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-virt.js?v=8.0.1-5"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-remote.js?v=8.0.1-4"></script>
-<script defer src="static/js/app-tickets.js?v=8.0.1-4"></script>
+<script defer src="static/js/app-logs.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-remote.js?v=8.0.1-5"></script>
+<script defer src="static/js/app-tickets.js?v=8.0.1-5"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=8.0.1-4"></script>
+<script defer src="static/js/app-self.js?v=8.0.1-5"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=8.0.1-4"></script>
+<script defer src="static/js/app-tooltip.js?v=8.0.1-5"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -13671,6 +13675,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=8.0.1-4"></script>
+<script defer src="static/js/sw-register.js?v=8.0.1-5"></script>
 </body>
 </html>
