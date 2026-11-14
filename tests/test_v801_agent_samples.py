@@ -20,6 +20,7 @@ import shutil
 import string
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from typing import Any
@@ -354,6 +355,27 @@ class TestOnePassOverARealLayout(_Base):
         self.assertEqual([(s['f'], s['p'], s['c']) for s in got[A1]['smp']], [('waf', SRCSET_CLEAN, 403)])
         self.assertIn(A2, state['_ring'], 'the 404 is remembered for the next pass')
         server_agrees(self, events)
+
+    def test_the_refused_requests_cross_to_the_next_pass_through_the_state(self):
+        a = self.agent
+        self.lay_out()
+        out = {'text': '[]'}
+
+        def fake_run(argv, **kw):
+            return types.SimpleNamespace(returncode=0, stdout=out['text'], stderr='')
+
+        a._which = lambda prog, _c={}: '/usr/bin/cscli'            # found when the logs are discovered, so it is asked every pass
+        real = a.subprocess.run
+        a.subprocess.run = fake_run
+        self.addCleanup(setattr, a.subprocess, 'run', real)
+        _e, _s, _d, state1 = a.collect_threat_events(self.CFG, {}, NOW)
+        self.assertIn(A2, state1['_ring'], 'pass one remembered the 404')
+        # a minute later nothing new is in the logs, and CrowdSec has now decided on the address that asked
+        out['text'] = json.dumps([cs_alert(21, 'crowdsecurity/ssh-bf', A2, events=9, e=NOW + 50)])
+        events, _s, _d, state2 = a.collect_threat_events(self.CFG, state1, NOW + 60)
+        got = {e['ip']: e for e in events}
+        self.assertEqual([x['p'] for x in got[A2]['smp']], ['/gone'], 'the state carried the request to the pass that needed it')
+        self.assertEqual(state2['_ring'][A2][0][2], '/gone')
 
     def test_without_the_servers_say_nothing_is_added(self):
         self.lay_out()
