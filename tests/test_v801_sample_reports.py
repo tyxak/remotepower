@@ -12,6 +12,8 @@ The sweep and the handlers run for real over a real store; only the socket is re
 """
 import json
 import os
+import re
+import shutil
 import sys
 import tempfile
 import time
@@ -22,8 +24,14 @@ os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v801-samples-')
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / 'server' / 'cgi-bin'))
+import ipintel_store  # noqa: E402
+import test_v710_ipintel_settings_js as settings_js  # noqa: E402
 from test_ip_intel import ATTACKER  # noqa: E402
+from test_v710_i18n_glue import dict_rows  # noqa: E402
+from test_v720_ipintel_page import node  # noqa: E402
 from test_v720_threat_intake import _Intake, raw_event  # noqa: E402
+from test_v720_threat_report_engine import _Engine  # noqa: E402
+from test_v720_threat_report_engine import raw_event as engine_event  # noqa: E402
 
 import ip_intel  # noqa: E402
 import threat_evidence  # noqa: E402
@@ -152,6 +160,184 @@ class TestSamplesDoNotChangeWhatIsDecided(_Intake):
         st = self.store()
         again = store_shapes.normalize(self.api.IPINTEL_FILE.name, json.loads(json.dumps(st)))
         self.assertEqual(again['attackers'][ATTACKER]['ev']['smp'], st['attackers'][ATTACKER]['ev']['smp'])
+
+
+class TestTheViewAndTheOutcome(_Intake):
+    def row(self):
+        rows = self.call(self.api.handle_ip_intel, 'GET')[1]['attackers']
+        return next(r for r in rows if r['ip'] == ATTACKER)
+
+    def test_the_view_carries_the_samples_and_the_scenarios(self):
+        self.post([raw_event(src={'cs': 1}, tok={'cs': {'cs:crowdsecurity/http-generic-test': 1, 'cs:crowdsecurity/ssh-bf': 1}}, dec=1,
+                             smp=[smp('/wp-content/uploads/x.jpg/', status=403, fam='waf')])])
+        self.sweep()
+        ev = self.row()['evidence']
+        self.assertEqual([(s['f'], s['m'], s['p'], s['c']) for s in ev['samples']], [('waf', 'GET', '/wp-content/uploads/x.jpg/', 403)])
+        self.assertEqual(ev['scenarios'], [{'id': 'crowdsecurity/http-generic-test', 'n': 1, 'class': ''},
+                                           {'id': 'crowdsecurity/ssh-bf', 'n': 1, 'class': 'ssh_brute'}])
+
+    def test_an_address_with_no_samples_has_an_empty_list_not_a_missing_one(self):
+        self.post([raw_event()])
+        self.sweep()
+        self.assertEqual(self.row()['evidence']['samples'], [])
+
+    def test_a_damaged_ledger_is_rebuilt_in_the_view(self):
+        self.post([raw_event(smp=[smp('/ok')])])
+        self.sweep()
+        st = self.store()
+        st['attackers'][ATTACKER]['ev']['smp'] = [
+            {'f': 'web', 'm': 'GET', 'p': '/a<script>alert(1)</script>', 'c': 403, 't': 5}, 'junk', None,
+            {'f': 'zzz', 'm': 'GET', 'p': '/not-a-family', 'c': 1, 't': 1}, {'f': 'web', 'm': 'GET', 'p': 'http://evil.example/x'}]
+        ipintel_store.write(self.api, st)
+        self.api._LOAD_CACHE.clear()
+        self.assertEqual([s['p'] for s in self.row()['evidence']['samples']], ['/a...'])
+        for junk in ('text', 5, {'p': '/x'}, [[]]):
+            st['attackers'][ATTACKER]['ev']['smp'] = junk
+            ipintel_store.write(self.api, st)
+            self.api._LOAD_CACHE.clear()
+            self.assertEqual(self.row()['evidence']['samples'], [], repr(junk))
+
+
+class TestTheOutcomeNamesWhatHeldItUp(_Engine):
+    def reported(self):
+        return len(self.posts()) > 0
+
+    def test_a_scenario_with_no_category_is_named(self):
+        self.feed(engine_event(src={'cs': 1}, tok={'cs': {'cs:crowdsecurity/http-generic-test': 1}}, dec=1))
+        self.sweep()
+        self.assertFalse(self.reported())
+        for prov in ('abuseipdb', 'sniffcat'):
+            self.assertEqual(self.att()['errors'][prov],
+                             'not reported: no attack category for the CrowdSec scenario crowdsecurity/http-generic-test')
+
+    def test_the_uploads_listing_rule_is_reported_now(self):
+        self.feed(engine_event(src={'cs': 1}, tok={'cs': {'cs:crowdsecurity/generic-wordpress-uploads-listing': 1}}, dec=1))
+        self.sweep()
+        self.assertTrue(self.reported(), 'the address that started this: one AppSec rule, one CrowdSec decision')
+        self.assertEqual(self.abuse_form()['categories'], ['21'])
+
+    def test_a_decision_that_names_nothing_keeps_the_old_words(self):
+        self.feed(engine_event(src={'cs': 1}, dec=1))
+        self.sweep()
+        self.assertEqual(self.att()['errors']['abuseipdb'], 'not reported: nothing recognisable in the logs')
+
+
+@unittest.skipUnless(shutil.which('node'), 'node not installed')
+class TestThePage(unittest.TestCase):
+    _run = settings_js.TestPage._run
+
+    EV = {'classes': [], 'sources': [{'id': 'waf', 'n': 1}], 'kinds': [], 'rules': [], 'cves': [], 'jails': [], 'ans': 0, 'blk': 1,
+          'confirmed': 'CrowdSec', 'first': 1, 'last': 2, 'sent': False, 'scenarios': [], 'samples': []}
+
+    def detail(self, **kw):
+        ev = dict(self.EV, **kw)
+        return node('console.log(JSON.stringify(_ipiDetailHtml({evidence: %s, report_log: []})));' % json.dumps(ev))
+
+    def test_the_requests_are_listed_with_the_log_and_the_time(self):
+        html = self.detail(samples=[{'f': 'waf', 'm': 'GET', 'p': '/wp-content/uploads/x.jpg/', 'c': 403, 't': 5},
+                                    {'f': 'web', 'm': '', 'p': '/old', 'c': 0, 't': 0}])
+        self.assertIn('<dt><span>Requests</span></dt>', html)
+        self.assertIn('<div class="ipi-sample"><code>GET /wp-content/uploads/x.jpg/</code> 403 '
+                      '<span class="hint"><span>WAF audit log</span> · 5m ago</span></div>', html)
+        self.assertIn('<div class="ipi-sample"><code>/old</code> <span class="hint"><span>Web server log</span></span></div>', html)
+
+    def test_what_the_page_prints_is_escaped_whatever_the_server_sent(self):
+        hostile = '/<img src=x onerror=alert(1)>"' + "'" + '`'
+        html = self.detail(samples=[{'f': '<b>x</b>', 'm': '<i>', 'p': hostile, 'c': '<u>', 't': 5}],
+                           scenarios=[{'id': '<script>alert(1)</script>', 'n': 1, 'class': ''}])
+        for raw in ('<img', '<script', '<b>', '<i>', '<u>', 'onerror=alert(1)>'):
+            self.assertNotIn(raw, html, raw)
+        self.assertIn('&lt;img', html)
+        self.assertIn('&lt;script&gt;', html)
+
+    def test_no_samples_no_row(self):
+        html = self.detail()
+        self.assertNotIn('Requests', html)
+        self.assertNotIn('ipi-sample', html)
+
+    def test_the_scenarios_join_the_rules(self):
+        html = self.detail(rules=['942100'], jails=['sshd'], scenarios=[{'id': 'crowdsecurity/ssh-bf', 'n': 3, 'class': 'ssh_brute'}])
+        self.assertIn('<dt><span>Rules</span></dt><dd><code>942100</code> <code>sshd</code> <code>crowdsecurity/ssh-bf</code></dd>', html)
+
+    def test_the_filter_finds_a_path_and_a_scenario(self):
+        ev = dict(self.EV, scenarios=[{'id': 'crowdsecurity/http-generic-test', 'n': 1, 'class': ''}],
+                  samples=[{'f': 'web', 'm': 'GET', 'p': '/wp-login.php', 'c': 404, 't': 1}])
+        text = node('console.log(JSON.stringify(_ipiEvidenceText({evidence: %s})));' % json.dumps(ev))
+        self.assertIn('/wp-login.php', text)
+        self.assertIn('crowdsecurity/http-generic-test', text)
+
+    def test_the_outcome_line_names_the_scenario_or_the_jail(self):
+        reasons = ['not reported: no attack category for the CrowdSec scenario crowdsecurity/http-generic-test',
+                   'not reported: no attack category for the fail2ban jail recidive',
+                   'not reported: no attack category for the CrowdSec scenario x"><img src=x onerror=alert(1)>',
+                   'not reported: nothing recognisable in the logs',
+                   'not reported: no attack category for the CrowdSec scenario two words']
+        got = node('console.log(JSON.stringify(%s.map(_ipiReason)));' % json.dumps(reasons))
+        self.assertEqual(got[0], '<span>not reported:</span> <span>no attack category for the CrowdSec scenario</span> '
+                                 '<code>crowdsecurity/http-generic-test</code>')
+        self.assertEqual(got[1], '<span>not reported:</span> <span>no attack category for the fail2ban jail</span> <code>recidive</code>')
+        self.assertNotIn('<img', got[2])
+        self.assertIn('&lt;img', got[2])
+        self.assertEqual(got[3], '<span>not reported:</span> <span>nothing recognisable in the logs</span>')
+        # a name with a space is not one the server writes; it falls through to the plain phrase
+        self.assertEqual(got[4], '<span>not reported:</span> <span>no attack category for the CrowdSec scenario two words</span>')
+
+    def test_what_the_server_writes_is_what_the_page_reads(self):
+        import threat_evidence as te
+        now = int(time.time())
+        for name in ('crowdsecurity/http-generic-test', 'tyxak/own-thing', 'a_b.c/d-e'):
+            ev = te.normalize_event({'ip': '45.33.32.156', 'src': {'cs': 1}, 'tok': {'cs': {'cs:' + name: 1}}, 'dec': 1}, now=now)
+            why = 'not reported: ' + te.qualifies(ev, 10)[1]
+            html = node('console.log(JSON.stringify(_ipiReason(%s)));' % json.dumps(why))
+            self.assertIn('<code>%s</code>' % name, html)
+        ev = te.normalize_event({'ip': '45.33.32.156', 'src': {'f2b': 1}, 'ban': ['recidive']}, now=now)
+        why = 'not reported: ' + te.qualifies(ev, 10)[1]
+        self.assertIn('<code>recidive</code>', node('console.log(JSON.stringify(_ipiReason(%s)));' % json.dumps(why)))
+
+    def test_the_new_words_are_translated(self):
+        rows = dict_rows()
+        langs = ('de', 'fr', 'es', 'zh', 'hi', 'ar')
+        for phrase in ('Send up to three request samples with each address',
+                       'no attack category for the CrowdSec scenario', 'no attack category for the fail2ban jail', 'Requests'):
+            self.assertTrue(rows.get(phrase) and all(rows[phrase].get(lang) for lang in langs), phrase)
+        hint = next((k for k in rows if k.startswith('A sample is one request an address made')), None)
+        self.assertTrue(hint and all(rows[hint].get(lang) for lang in langs))
+
+    def test_the_card_no_longer_says_a_path_never_leaves_the_host(self):
+        html = (ROOT / 'server' / 'html' / 'index.html').read_text()
+        i18n = (ROOT / 'server' / 'html' / 'static' / 'js' / 'i18n.js').read_text()
+        for needle in ('never log lines, paths or host names', 'Only counts and attack types leave the host'):
+            self.assertNotIn(needle, html)
+            self.assertNotIn(needle, i18n)
+        card = html[html.index('id="ipintel-sensor-card"'):html.index('id="ipintel-appliance-card"')]
+        self.assertIn('Counts and attack types are sent for every address; log lines and host names never leave the host.', card)
+        self.assertRegex(card, r'<input type="checkbox" id="ipintel-sensor-samples"> Send up to three request samples with each address</label>')
+        self.assertIn('Untick this and hosts send counts and attack types only.', card)
+        self.assertLess(card.index('id="ipintel-sensor"'), card.index('id="ipintel-sensor-samples"'))
+        self.assertLess(card.index('id="ipintel-sensor-samples"'), card.index('id="ipintel-sensor-paths"'))
+
+    def test_the_page_shows_the_stored_value_and_sends_what_was_ticked(self):
+        got = self._run("""
+          _ipiFillSettings({sensor_samples: false}, {});
+          const off = els['ipintel-sensor-samples'].checked;
+          _ipiFillSettings({}, {});
+          const unset = els['ipintel-sensor-samples'].checked;
+          _ipiFillSettings({sensor_samples: true}, {});
+          const on = els['ipintel-sensor-samples'].checked;
+          els['ipintel-sensor-samples'].checked = false;
+          await saveIpIntelSettings();
+          const sentOff = sent.body.sensor_samples;
+          els['ipintel-sensor-samples'].checked = true;
+          await saveIpIntelSettings();
+          console.log(JSON.stringify({off, unset, on, sentOff, sentOn: sent.body.sensor_samples}));""")
+        self.assertEqual(got, {'off': False, 'unset': True, 'on': True, 'sentOff': False, 'sentOn': True},
+                         'a server that does not send the key means on, the way the agent reads it')
+
+    def test_the_stamp_moved_with_the_script(self):
+        sw = (ROOT / 'server' / 'html' / 'sw.js').read_text()
+        stamp = re.search(r'remotepower-shell-v([0-9.]+-\d+)', sw)
+        self.assertTrue(stamp)
+        self.assertNotEqual(stamp.group(1) if stamp else '', '8.0.1-3', 'app-ipintel.js, i18n.js and styles.css changed')
 
 
 if __name__ == '__main__':

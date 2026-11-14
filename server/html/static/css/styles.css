@@ -5450,6 +5450,8 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .ipi-facts dt { color: var(--muted); }
 .ipi-facts dd { margin: 0; overflow-wrap: anywhere; }
 .ipi-comment { display: block; margin-top: 2px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.ipi-sample { margin-top: 2px; }
+.ipi-sample code { font-family: var(--font-mono); font-size: 11px; }
 .badge-xs { font-size: 11px; padding: 3px 8px; }
 .cell-pad { padding: 6px 4px; }
 .cell-padl { padding: 6px 16px 6px 0; }

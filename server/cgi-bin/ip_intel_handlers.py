@@ -1378,6 +1378,10 @@ def _evidence_view(att):
         'kinds': [{'id': k, 'n': n} for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])[:5]],
         'rules': [r for r, _n in sorted(rules.items(), key=lambda kv: -kv[1])[:5]],
         'cves': list(ev.get('cve') or [])[:3], 'jails': list(ev.get('ban') or [])[:4],
+        # what the logs showed the address asking for, and the CrowdSec scenarios that named it. A ledger is read back from
+        # storage, so each sample is rebuilt here too; the page escapes what it prints either way.
+        'samples': threat_evidence.normalize_samples(ev.get('smp'), None, threat_evidence.SOURCES),
+        'scenarios': [{'id': n_, 'n': c_, 'class': k_ or ''} for n_, c_, k_ in threat_evidence.cs_scenarios(ev)],
         'ans': int(ev.get('ans') or 0), 'blk': int(ev.get('blk') or 0),
         'confirmed': threat_evidence.confirmed_by(ev),
         'first': ev.get('first'), 'last': ev.get('last'), 'sent': sent,

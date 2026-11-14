@@ -314,6 +314,7 @@ function _ipiFillSettings(s, budget) {
   chk('ipintel-block-edge-hosts', s.block_edge_hosts);
   chk('ipintel-block-confirmed', s.block_confirmed);
   chk('ipintel-sensor', s.sensor_enabled);
+  chk('ipintel-sensor-samples', s.sensor_samples !== false);
   set('ipintel-sensor-paths', (s.sensor_paths || []).join('\n'));
   chk('ipintel-appliance', s.appliance_enabled);
   set('ipintel-min-score', s.block_min_score ?? 90);
@@ -439,6 +440,14 @@ function _ipiReason(why) {
       const what = refs[3] === 'WAF' ? _ipiPhrase('WAF refusals so far') : _ipiPhrase('Cloudflare refusals so far');
       return `${_ipiPhrase('not reported:')} ${refs[1]} / ${refs[2]} ${what}`;
     }
+    // The server names the CrowdSec scenario or the fail2ban jail that decided on the address when RemotePower has no
+    // category for it (threat_evidence._no_class_reason); the name is code, so it is shown as it is.
+    const nocat = /^no attack category for the (CrowdSec scenario|fail2ban jail) (\S+)$/.exec(rep[1]);
+    if (nocat) {
+      const what = nocat[1] === 'CrowdSec scenario'
+        ? _ipiPhrase('no attack category for the CrowdSec scenario') : _ipiPhrase('no attack category for the fail2ban jail');
+      return `${_ipiPhrase('not reported:')} ${what} <code>${escHtml(nocat[2])}</code>`;
+    }
     return `${_ipiPhrase('not reported:')} ${_ipiPhrase(rep[1])}`;
   }
   return _ipiPhrase(why);
@@ -483,7 +492,8 @@ function _ipiIgnoredClasses() {
 function _ipiEvidenceText(a) {
   const e = a.evidence || {};
   return [(e.classes || []).map(c => _ipiClassName(c.id)).join(' '), (e.jails || []).join(' '),
-    (e.cves || []).join(' '), (e.rules || []).join(' '), Object.keys((a.listed || {}).lists || {}).join(' ')].join(' ');
+    (e.cves || []).join(' '), (e.rules || []).join(' '), (e.scenarios || []).map(s => s.id).join(' '),
+    (e.samples || []).map(s => s.p).join(' '), Object.keys((a.listed || {}).lists || {}).join(' ')].join(' ');
 }
 
 // Reputation lists a firewall's intrusion detection matched the address against ("Spamhaus ×3").
@@ -533,8 +543,15 @@ function _ipiDetailHtml(a) {
   if (e.ans) seen.push(`${_ipiPhrase('answered')} ${escHtml(String(e.ans))}`);
   if (e.blk) seen.push(`${_ipiPhrase('refused')} ${escHtml(String(e.blk))}`);
   if (seen.length) facts.push([_ipiPhrase('Seen in'), seen.join(' · ')]);
-  const ids = [].concat(e.rules || [], e.cves || [], e.jails || []).map(x => `<code>${escHtml(x)}</code>`);
+  const ids = [].concat(e.rules || [], e.cves || [], e.jails || [], (e.scenarios || []).map(s => s.id))
+    .map(x => `<code>${escHtml(x)}</code>`);
   if (ids.length) facts.push([_ipiPhrase('Rules'), ids.join(' ')]);
+  // What the address asked for, as the sensor saw it: the method and path (no query string), the answer, the log and when.
+  // The text of a request is the sender's, so every part is escaped here as well as rebuilt on the server.
+  const asked = (e.samples || []).map(s =>
+    `<div class="ipi-sample"><code>${escHtml([s.m, s.p].filter(Boolean).join(' '))}</code>${s.c ? ' ' + escHtml(String(s.c)) : ''} ` +
+    `<span class="hint">${_ipiPhrase(_IPI_SOURCE[s.f] || s.f)}${s.t ? ' · ' + escHtml(timeAgo(s.t)) : ''}</span></div>`);
+  if (asked.length) facts.push([_ipiPhrase('Requests'), asked.join('')]);
   if (a.listed) {
     const l = a.listed;
     facts.push([_ipiPhrase('Listed on'), `${_ipiListedText(a)} · ${_ipiPhrase('seen by the intrusion detection of')} ${escHtml((l.hosts || []).join(', '))} · ` +
@@ -1049,6 +1066,7 @@ async function saveIpIntelSettings() {
     block_edge_hosts: v('ipintel-block-edge-hosts').checked,
     block_confirmed: v('ipintel-block-confirmed').checked,
     sensor_enabled: v('ipintel-sensor').checked,
+    sensor_samples: v('ipintel-sensor-samples').checked,
     sensor_paths: v('ipintel-sensor-paths').value,
     appliance_enabled: v('ipintel-appliance').checked,
     block_min_score: v('ipintel-min-score').value,
