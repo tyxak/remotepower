@@ -4,7 +4,8 @@
 The CURRENT release carries the strict version pins; older test_vXYZ.py files have theirs loosened to shape checks.
 Headline: what Threat Intel tells you and what it does about it. Clear empties the table even with the Edge blocklist on, a service
 that does not answer is not counted against the daily limits, each service has limits of its own, a Request log lists what was sent to
-AbuseIPDB and SniffCat and what the hosts' sensors sent, and an address a ban engine already banned can be blocked without a score. The behaviour lives in the test files of each change, each
+AbuseIPDB and SniffCat and what the hosts' sensors sent, an address a ban engine already banned can be blocked without a score, and
+an address carries up to three samples of what it asked for (a report ends with them only if the operator says so). The behaviour lives in the test files of each change, each
 guard watched failing before it was trusted; what is here is that the release is versioned, documented and carries them.
 """
 
@@ -167,6 +168,9 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v801_intake_log.py",            # what the hosts' sensors sent is a line of the same log; the agent's own log lines
         "tests/test_v801_block_confirmed.py",       # a ban engine's decision blocks, behind a proxy at the edge, with every protection kept
         "tests/test_v801_threatintel_e2e.py",       # the card, the checkbox and the blocks table, in a browser
+        "tests/test_v801_evidence_samples.py",      # CrowdSec names the server could not class (the hub's names frozen) and the sample vocabulary: a path cut to a safe alphabet, rebuilt by the server
+        "tests/test_v801_agent_samples.py",         # the agent's samples: each log, the bouncer's AppSec line, the refused requests a ban is about, nothing written to disk
+        "tests/test_v801_sample_reports.py",        # the setting, the intake, the page (escaped), examples in a report (off by default), nothing in the AI corpus
     )
 
     def test_the_list_is_not_empty(self):

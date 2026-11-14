@@ -12,10 +12,40 @@ does not answer is no longer counted against your daily limits, and each service
 RemotePower sent to AbuseIPDB and SniffCat, what each answered and what your hosts' sensors sent, so a missing address can be traced. An address that
 fail2ban, CrowdSec or a honeypot has already banned can be blocked without waiting for a reputation score; that is off until you tick it. It all came
 from one installation: SniffCat answered every report with an error for a day, and RemotePower said its own limit was used up while SniffCat's page
-showed none used. Only the Linux agent changed, besides the version number: its sensor writes a line to the agent's log each time it sends addresses.
-The release page is [docs/v8.0.1.md](docs/v8.0.1.md).
+showed none used. A second finding came from the same installation: six addresses that CrowdSec had banned could not be reported, because the sensor sent
+the decision and nothing about what the address had asked for. Only the Linux agent changed, besides the version number: its sensor writes a line to the
+agent's log each time it sends addresses, sends up to three request samples with an address, and counts the CrowdSec bouncer's refusals on AppSec's verdict
+as WAF refusals. The release page is [docs/v8.0.1.md](docs/v8.0.1.md).
 
 ### Threat Intel
+
+- **Hosts now send up to three request samples with an address. This changes what leaves a host.** Until 8.0.1 the documentation said that log lines and
+  request paths never leave the host. A sample is the method, the path, the status and which log, with no query string and no `;name=value` parameter; the
+  path ends where a URL starts and at any character other than letters, digits and `. _ ~ / % + -`, and is at most 80 characters. Headers, host names,
+  user names and log lines still never leave a host. The box **Send up to three request samples with each address** (on by default) switches it off, and
+  the heartbeat tells the agent, so an agent that is not told sends none. RemotePower rebuilds every sample from parts it checks itself (the method from a
+  list of ten, the path through the same cut, the status as a number, the log from the vocabulary) and keeps nothing as it arrived; the page escapes what it
+  shows, a ledger read back from storage is rebuilt again, and the AI features never read a sample. The details of an address list its requests next to the
+  CrowdSec scenarios that named it. **Held by** `tests/test_v801_evidence_samples.py`, `tests/test_v801_agent_samples.py` and
+  `tests/test_v801_sample_reports.py`, each new guard shown failing. The agent keeps the refused requests of an address for 15 minutes and sends them only if
+  fail2ban, CrowdSec or the WAF then decides on it.
+
+- **Addresses CrowdSec banned on an AppSec rule can be reported.** Six addresses showed "not reported: nothing recognisable in the logs": each had one
+  CrowdSec decision and no category. Of the 241 scenarios with a source address in the public hub index 20 mapped to no class, and of its 243 AppSec rule
+  names 15 did. 21 map now: the uploads-listing rule is probing, the uploads-PHP and template-injection rules are code execution, `base-config` and `crs`
+  are the WAF, and the Guacamole, Cowrie, VMware advisory, `w00tw00t` and wp-config names have one. No name that mapped before changed class (checked over all
+  1,033 names). A crawl stays unreported, because v7.2.0 decided an aggressive crawler is not an attack. The line CrowdSec's nginx bouncer writes when it
+  refuses a request on AppSec's verdict is read from nginx's error log as a WAF refusal, with its request; the lines for a decision from the bouncer's own
+  cache are not, because that cache holds community lists too. **Held by** `tests/test_v801_evidence_samples.py`, which freezes the hub names and lists
+  the 14 that stay unmapped, with the reason for each.
+
+- **The outcome line names what held a report up.** "no attack category for the CrowdSec scenario ..." and "... the fail2ban jail ..." replace "nothing
+  recognisable in the logs" where there is a name to show; the old words stay for a decision that names nothing.
+
+- **A report can end with examples (off until you turn it on).** **Add a few example requests to reports** adds "Examples: GET /wp-login.php (404), ..." (up
+  to three) to a report about a web attack. It is the one place the text of a request reaches a public report, so it is narrow: only for an address whose every
+  class is a web one, each example rebuilt when the message is made, plain ASCII, and left out whole if it would not fit. An address your own software banned by
+  mistake would put a path from your site on a public page. **Held by** `tests/test_v801_sample_reports.py`.
 
 - **Clear takes every address off the table.** With the Edge blocklist on and **Found by RemotePower** at its defaults, nearly every address on an
   internet-facing installation qualifies for the list, and Clear left each of those rows whole: it answered "Kept because the edge blocklist uses them"

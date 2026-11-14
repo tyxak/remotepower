@@ -531,5 +531,27 @@ class TestTheExamplesBox(unittest.TestCase):
                          'a server that does not send the key means off: examples are the opt-in')
 
 
+class TestWhatTheAiCorpusDoesNotRead(unittest.TestCase):
+    """The text of a request is whatever its sender typed, and an AI advisor reads what the corpus holds. The builders read an address's
+    evidence only for the fixed phrase of its classes and for CVE ids; this holds that no sample, scenario or jail name is added to it."""
+
+    def test_a_sample_a_scenario_or_a_jail_never_reaches_a_prompt(self):
+        import rag_index
+        ip = '45.33.32.156'
+        ev = dict(te.blank(ip), first=1, last=2, src={'cs': 1}, tok={'cs': {'cs:MARKERSCEN/x-bf': 1}}, ban=['MARKERJAIL'], dec=1,
+                  cve=['CVE-2021-44228'], smp=[{'f': 'web', 'm': 'GET', 'p': '/MARKERPATH', 'c': 403, 't': 5}])
+        att = {'ev': ev, 'verdict': {'score': 50, 'country': 'DE', 'isp': 'Example ISP'}, 'last_seen': 10, 'reported': {},
+               'devices': {'d1': {'count': 3, 'unit': 'threat-sensor', 'at': 9}, 'edge:trap': {'count': 1, 'unit': 'edge-feed', 'at': 9}}}
+        intel = {'attackers': {ip: att}, 'blocks': {}}
+        devices = {'d1': {'name': 'web01', 'hostname': 'web01', 'os': 'Ubuntu 24.04'}}
+        docs = rag_index.build_threats_corpus(devices, intel, [], 0) + rag_index.build_edge_threats_corpus(intel, 0)
+        blob = json.dumps(docs)
+        # the control: the builders did read this evidence (its class is in the text), so the markers' absence means something
+        self.assertGreaterEqual(blob.count('service login brute force'), 2, blob[:400])
+        self.assertIn('CVE-2021-44228', blob)
+        for marker in ('MARKERPATH', 'MARKERSCEN', 'MARKERJAIL'):
+            self.assertNotIn(marker, blob, marker)
+
+
 if __name__ == '__main__':
     unittest.main()

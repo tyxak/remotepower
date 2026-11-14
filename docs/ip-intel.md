@@ -66,7 +66,7 @@ host reads these, read-only, once a minute:
 | Log | What it tells RemotePower |
 |---|---|
 | Web server access logs (nginx, Apache) | Requests that look like SQL injection, path traversal, code execution, a scan for exposed files, or login brute force, and whether the server answered them |
-| Web server error logs | ModSecurity messages, rate-limit trips, failed basic-auth logins, requests the server refused |
+| Web server error logs | ModSecurity messages, rate-limit trips, failed basic-auth logins, requests the server refused, and the lines CrowdSec's nginx bouncer writes when it refuses a request on AppSec's verdict |
 | ModSecurity audit log (native or JSON) | Which rules fired, and whether the WAF blocked the request |
 | fail2ban's log | Which addresses it saw failing, which it banned, and in which jail |
 | CrowdSec | The alerts its own scenarios raised on this host, including AppSec |
@@ -128,10 +128,35 @@ never delay a heartbeat.
 ### What is sent
 
 Per address: counts and a short list of fixed labels, such as `SQL injection`,
-a WAF rule number, a CVE id the logs named, or the name of a fail2ban jail.
-**Log lines, request paths, host names and user names never leave the host.**
-The server only keeps what is on its fixed list and drops the rest, so nothing
-an attacker typed can reach a report or the page.
+a WAF rule number, a CVE id the logs named, the name of a fail2ban jail, or the
+name of the CrowdSec scenario or AppSec rule that decided on it.
+
+With **Send up to three request samples with each address** ticked (on the
+**Settings** tab of Threat Intel, in the **Log sensor** card; it is ticked by
+default), up to three samples go with it. A sample is one request the address
+made: the method, the path, the status and which log it came from. The path has
+no query string, because that is where a request keeps what it carries. It ends
+at a path parameter (`;name=value`), at a URL inside the path and at any
+character other than letters, digits and `. _ ~ / % + -`, and it is at most 80
+characters, so a session id or a host name does not reach RemotePower in one.
+Headers, host names, user names and log lines never leave the host. Untick the
+box and hosts send counts and fixed labels only, as they did before 8.0.1.
+
+RemotePower does not trust the agent. It rebuilds every sample from parts it
+checks itself (the method from a list of ten, the path through the same cut, the
+status as a number) and drops what does not fit. A host is root on a machine an
+attacker may be on, and the text of a request is whatever its sender typed, so
+nothing is kept as it arrived and the page escapes what it shows. The AI
+features never read samples.
+
+Samples are there for you to read. They sit in the details of each address on
+the **Attackers** tab, next to the CrowdSec scenarios and the rules that named
+it, and they change nothing about what is reported or blocked. A request that
+was refused but that nothing called an attack is kept in the agent's memory for
+15 minutes and sent only if fail2ban, CrowdSec or the WAF then decides on the
+address: it is what the ban was for. A report carries them only if you tick
+**Add a few example requests to reports**, see
+[Examples at the end of a report](#examples-at-the-end-of-a-report).
 
 ### When an address is reported
 
@@ -141,7 +166,8 @@ An address is reported when **any** of these is true:
 - one of CrowdSec's own scenarios raised a ban on this host (a community
   blocklist entry or a decision someone made by hand does not count);
 - the WAF on a host refused its requests as many times as **Report after WAF
-  refusals** says (1 by default);
+  refusals** says (1 by default). A request CrowdSec's nginx bouncer refused on
+  AppSec's verdict counts as a WAF refusal;
 - Cloudflare refused its requests as many times as **Report after Cloudflare
   refusals** says (1 by default, see [Edge sources](#edge-sources));
 - it made as many hostile requests as **Report after attempts** says (10 by
@@ -151,7 +177,9 @@ What it does adds up for a day, so a slow attacker still counts. The page says
 why an address has not been reported yet and names the nearest of these routes,
 for example `4 / 10 attempts so far` or `2 / 3 WAF refusals so far` (when you
 have raised the WAF number). An address
-with nothing recognisable in the logs is never reported.
+with no attack category for what the logs showed is never reported. The page
+names the CrowdSec scenario or the fail2ban jail that has none, so you can see
+what it was.
 
 ### What a report says
 
@@ -186,6 +214,28 @@ An address is reported once per service per sweep, however many hosts or logs
 saw it. If a service answers that it was reported moments ago, RemotePower
 counts it as reported instead of retrying. **Evidence → Details** on the
 Attackers table shows exactly what was sent to each service.
+
+### Examples at the end of a report
+
+A report is public on both services, and what other people want to see in it is
+the request. Tick **Add a few example requests to reports** (on the **Settings**
+tab of Threat Intel, in the **Limits and report message** card) and a report
+about a web attack ends with up to three of the requests the logs showed, for
+example `Examples: GET /wp-login.php (404), POST /xmlrpc.php (403)`. It is off
+until you turn it on, and it is narrow:
+
+- It is only for an address whose every attack class is a web one. A request
+  line says nothing about an SSH brute force, so a report about SSH, mail or
+  another login carries none, and neither does one about an address seen doing
+  both.
+- Each example is rebuilt from the stored sample when the message is made: a
+  method from a fixed list, a path of letters, digits and `. _ ~ / % + -` with
+  no query string, and a status. No host name, user name or query string is in
+  one. The message is plain ASCII, and an example that would not fit in the
+  1,000 characters a report may have is left out whole.
+
+Look at the requests on the **Attackers** tab first. An address that your own
+software banned by mistake would put a path from your site on a public page.
 
 ### If fail2ban reports too
 
@@ -492,9 +542,11 @@ multi-tenant install only the platform operator can change them.
 | Blocklist sync | Requests to `api.cloudflare.com` with your list token: the list's name, its entries, and a comment on each entry saying which source it came from. Nothing about your hosts. |
 | Blacklist download | A request to AbuseIPDB and to SniffCat with your key, at most four a day for each. Nothing about your hosts. |
 | Lookup | The attacking address. |
-| Report | The attacking address, the attack categories, a one-line comment, and, for a report built from the logs, the time of the attack (AbuseIPDB only). The standard text reads "SQL injection and path traversal: 41 attempts within 10 minutes, seen by web server log and WAF (reported by RemotePower)"; you can change it (see [The report message](#the-report-message)). |
+| Report | The attacking address, the attack categories, a one-line comment, and, for a report built from the logs, the time of the attack (AbuseIPDB only). The standard text reads "SQL injection and path traversal: 41 attempts within 10 minutes, seen by web server log and WAF (reported by RemotePower)"; you can change it (see [The report message](#the-report-message)). With **Add a few example requests to reports** ticked, a report about a web attack also ends with up to three requests: the method, the path without its query string and the status. |
 
-Hostnames, user names, log lines and your own addresses are never sent.
+Hostnames, user names, log lines and your own addresses are never sent. The one
+thing in a report that an attacker typed is the path of an example request, and
+only when you turn examples on.
 
 The address is the one sshd logged the connection from, not anything the
 client typed. sshd writes the user name a client asks for into the same log
@@ -647,7 +699,9 @@ settings or run a manual lookup, which spends the install's daily quota.
 | `not reported: 2 / 3 WAF refusals so far` or `... Cloudflare refusals so far` | The same, counted on the nearest route: the WAF needs the number in **Report after WAF refusals**, and Cloudflare needs the number in **Report after Cloudflare refusals**. |
 | `not reported: the service is not answering` | The service failed or gave no answer to three requests in a row, so RemotePower stopped asking it for the rest of that pass and asks about this address again in ten minutes. Open the **Request log** to see what it said. Nothing was counted against your daily limit. |
 | `not reported: the daily report limit is used up` | The service has been sent as many reports today as its limit allows. The count is RemotePower's own and covers only reports the service answered, so compare it with the usage on the service's own page, and raise **Reports per day**, or set the limit of that service alone, if your plan allows more. It starts again at midnight UTC. The first time 8.0.1 runs it drops the day's report counts that older versions kept, because they also counted reports a service never answered. |
-| `not reported: nothing recognisable in the logs` | Only a jail such as `recidive` named it, so there is no honest category to report it under. |
+| `not reported: no attack category for the CrowdSec scenario crowdsecurity/...` | CrowdSec banned the address for a scenario or AppSec rule that RemotePower has no category for, so there is no honest category to report it under. The page shows the name, and the details of the address list what it asked for. |
+| `not reported: no attack category for the fail2ban jail recidive` | The same for a fail2ban jail such as `recidive`, which bans repeat offenders and says nothing about what they did. |
+| `not reported: nothing recognisable in the logs` | A ban engine decided on the address and named nothing RemotePower can read. |
 | Log sources: `Quiet` | The agent looked at the log and nothing new had been written. It looks about once a minute and reads only what was added since the last look, so a log that is written to now and then shows `Quiet` between writes. |
 | Log sources: `Reading` | New lines arrived since the last look. The numbers beside it are for that look, not totals. |
 | Log sources: `File missing` | The configuration names a log that does not exist yet. |
