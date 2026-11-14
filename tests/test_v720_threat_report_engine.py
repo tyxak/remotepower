@@ -240,7 +240,7 @@ class TestWhenAnAddressIsReported(_Engine):
         self.feed(raw_event(ban=['recidive'], src={'f2b': 50}, tok={'f2b': {'jail:recidive': 50}}))
         self.sweep()
         self.assertFalse(self.reported())
-        self.assertIn('nothing recognisable', self.att()['errors']['abuseipdb'])
+        self.assertEqual(self.att()['errors']['abuseipdb'], 'not reported: no attack category for the fail2ban jail recidive')
 
     def test_off_means_off(self):
         self.policy(report_enabled=False)

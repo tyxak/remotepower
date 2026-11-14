@@ -3,8 +3,11 @@
 The threat sensor in the Linux agent reads web server, WAF, fail2ban and
 CrowdSec logs on the host and sends, per source address, a small summary of
 what it saw: counts and TOKENS. A token is one of a handful of fixed shapes
-(`req:sqli`, `crs:942100`, `jail:sshd`, `cs:crowdsecurity/ssh-bf`, ...). Log
-lines, request paths, host names and user names never leave the host.
+(`req:sqli`, `crs:942100`, `jail:sshd`, `cs:crowdsecurity/ssh-bf`, ...). From 8.0.1 it
+also sends up to MAX_SAMPLES SAMPLES: a request the logs show the address making, as a
+method, a path, a status and the log it came from. Log lines as such, query strings,
+host names and user names never leave the host, and a sample is never kept as it
+arrived: the server rebuilds it from parts it checks itself (see "samples" below).
 
 This module is the server's half of that contract, and it is stdlib-only and
 never opens a socket:
@@ -20,8 +23,11 @@ never opens a socket:
   * `qualifies` decides whether the evidence is enough to report.
   * `categories` and the phrase helpers give the provider category ids and the
     words for the report. A report is public and filed under the operator's
-    account, so its text is built ONLY from this module's fixed phrases and from
-    numbers: nothing an attacker typed can reach it.
+    account, so its text is built from this module's fixed phrases and from
+    numbers. The one thing an attacker typed that can reach it is a sample's path,
+    and only when the operator has turned examples on (`report_samples`, off by
+    default): it has been cut to a short, safe alphabet with its query string
+    dropped.
 
 Evidence shape (all keys optional on input, always present on output):
 
@@ -31,6 +37,7 @@ Evidence shape (all keys optional on input, always present on output):
      'ans': 3,                                # hostile requests answered 2xx
      'blk': 31,                               # hostile requests refused
      'ban': ['sshd'],                         # fail2ban jails that banned it
+     'smp': [{'f': 'err', 'm': 'GET', 'p': '/.env', 'c': 403, 't': 1790000100}],   # requests the logs show
      'dec': 1,                                # CrowdSec decisions from local scenarios
      'cve': ['CVE-2021-44228']}
 
@@ -319,6 +326,108 @@ def token_valid(token):
     return bool(rx and rx.fullmatch(token))
 
 
+# ── samples ────────────────────────────────────────────────────────────────────
+# A sample is one request the logs show an address making: the method, the path, the answer and the log it came from. It is there for a
+# person to read, on the Threat Intel page and, when the operator turns that on, as an example in a report.
+#
+# The text of a request is whatever its sender typed, and an agent may be root on a machine an attacker is already on. So a sample is never
+# kept as it arrived. It is rebuilt here from parts that are each checked: the method from a short list, the path cut to a safe alphabet
+# with its query string dropped, the status as a number, the log from the vocabulary. What does not fit is dropped, and a path is cut where
+# it stops fitting, with "..." to say so. Nothing in a sample is read as markup, a pattern or a command, and the page escapes it anyway.
+#
+# The alphabet is letters, digits and . _ ~ / % + -. A query string is where a request keeps what it carries (a session id, a payload, a
+# password typed into the wrong form), a `;name=value` path parameter carries the same, and a URL inside the path names a host, so each of
+# those ends the path.
+
+MAX_SAMPLES = 3
+SAMPLE_PATH_MAX = 80
+_SAMPLE_METHODS = frozenset(
+    ("GET", "POST", "HEAD", "PUT", "DELETE", "OPTIONS", "PATCH", "CONNECT", "TRACE", "PROPFIND")
+)
+_SAMPLE_PATH_RE = re.compile(r"[A-Za-z0-9._~/%+-]+")
+_SAMPLE_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]{1,9}:/")
+_SAMPLE_T_MAX = 4_102_444_800  # the year 2100: a stamp bigger than that is not a time
+
+
+def clean_path(raw):
+    """The path of a request target, cut to what is safe to keep and show, or ''.
+    The query string and fragment are dropped, the path ends where a URL scheme or a
+    character outside the alphabet starts, and it is at most SAMPLE_PATH_MAX
+    characters. A cut is marked with '...'. Cleaning what this returned returns it
+    unchanged."""
+    s = str(raw if raw is not None else "")[:2048]
+    for stop in ("?", "#"):
+        i = s.find(stop)
+        if i != -1:
+            s = s[:i]
+    if not s.startswith("/") or s.startswith("//"):
+        return ""  # not a path: absolute-form targets and `//host/...` name a host
+    cut = False
+    m = _SAMPLE_SCHEME_RE.search(s)
+    if m:
+        s, cut = s[: m.start()], True
+    run = _SAMPLE_PATH_RE.match(s)
+    ok = run.group(0) if run else ""
+    if len(ok) < len(s):
+        cut = True
+    if len(ok) > SAMPLE_PATH_MAX:
+        ok, cut = ok[:SAMPLE_PATH_MAX], True
+    return (ok + "...") if (ok and cut) else ok
+
+
+def _sample_status(v):
+    try:
+        n = int(v)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    return n if 100 <= n <= 599 else 0
+
+
+def normalize_sample(raw, now=None, families=AGENT_SOURCES):
+    """One sample rebuilt from its parts, or None. `families` is what the sender
+    may speak for, as in normalize_event. The path is required: a sample with
+    none says nothing."""
+    if not isinstance(raw, dict):
+        return None
+    fam = raw.get("f")
+    if not isinstance(fam, str) or fam not in families:
+        return None
+    path = clean_path(raw.get("p"))
+    if not path:
+        return None
+    method = raw.get("m")
+    method = method if isinstance(method, str) and method in _SAMPLE_METHODS else ""
+    if now is None:
+        try:
+            t = max(0, min(_SAMPLE_T_MAX, int(raw.get("t"))))
+        except (TypeError, ValueError, OverflowError):
+            t = 0
+    else:
+        t = _ts(raw.get("t"), int(now))
+    return {"f": fam, "m": method, "p": path, "c": _sample_status(raw.get("c")), "t": t}
+
+
+def normalize_samples(raw, now=None, families=AGENT_SOURCES):
+    """Up to MAX_SAMPLES samples, each rebuilt, the first of each method and path."""
+    out, seen = [], set()
+    for item in raw if isinstance(raw, list) else []:
+        smp = normalize_sample(item, now, families)
+        if smp is None or (smp["m"], smp["p"]) in seen:
+            continue
+        seen.add((smp["m"], smp["p"]))
+        out.append(smp)
+        if len(out) >= MAX_SAMPLES:
+            break
+    return out
+
+
+def sample_text(smp):
+    """'GET /wp-login.php (404)': one sample as plain text for a report or a log."""
+    parts = [smp.get("m") or "", smp.get("p") or ""]
+    text = " ".join(x for x in parts if x)
+    return f"{text} ({smp['c']})" if smp.get("c") else text
+
+
 # ── token -> class ─────────────────────────────────────────────────────────────
 
 # Ordered: the first rule that matches a name wins, so the specific ones come
@@ -372,9 +481,11 @@ _CS_RULES = tuple(
         (
             "rce",
             _w("rce")
-            + r"|vpatch|cve|log4j|log4shell|spring4shell|shellshock|backdoor|webshell|exploit",
+            + r"|vpatch|cve|log4j|log4shell|spring4shell|shellshock|backdoor|webshell|exploit"
+            + r"|ssti|uploads-php|vmsa",
         ),
-        ("waf", r"appsec|modsec"),
+        # `crs` is the OWASP core rule set as an AppSec rule or an anomaly-score scenario; `base-config` is AppSec's own.
+        ("waf", r"appsec|modsec|base-config|" + _w("crs")),
         ("sqli", r"sqli"),
         ("xss", _w("xss")),
         ("traversal", _w("lfi", "rfi") + r"|traversal"),
@@ -389,12 +500,13 @@ _CS_RULES = tuple(
         ("port_scan", r"portscan|port-scan|iptables-scan|refused-conn|scan-multi"),
         (
             "probe",
-            r"probing|sensitive-files|admin-interface|wordpress-scan|user-enum|xmlrpc|open-proxy|http-.*scan",
+            r"probing|sensitive-files|admin-interface|wordpress-scan|user-enum|xmlrpc|open-proxy|http-.*scan"
+            r"|uploads-listing|wpconfig|w00tw00t",
         ),
         (
             "service_brute",
             _w("rdp", "smb")
-            + r"|(^|-)bf($|-)|brute|mysql|pgsql|mariadb|mongo|redis|telnet|asterisk|openvpn",
+            + r"|(^|[-_])bf($|[-_])|brute|mysql|pgsql|mariadb|mongo|redis|telnet|asterisk|openvpn|cowrie|guacamole",
         ),
     )
 )
@@ -537,6 +649,7 @@ def blank(ip=""):
         "trp": 0,
         "rep": 0,
         "cve": [],
+        "smp": [],
     }
 
 
@@ -587,6 +700,7 @@ def normalize_event(raw, now=None, families=AGENT_SOURCES):
         ev["rep"] = _count(raw.get("rep"))
     cves = raw.get("cve") if isinstance(raw.get("cve"), list) else []
     ev["cve"] = _uniq(c for c in cves if isinstance(c, str) and _CVE_RE.fullmatch(c))[:_MAX_CVES]
+    ev["smp"] = normalize_samples(raw.get("smp"), now, families)
     if not (ev["src"] or ev["tok"] or ev["ban"] or ev["dec"] or ev["trp"] or ev["rep"]):
         return None
     return ev
@@ -626,6 +740,8 @@ def merge(a, b):
     out["rep"] = min(_MAX_COUNT, _count(a.get("rep")) + _count(b.get("rep")))
     out["ban"] = _uniq(list(a.get("ban") or []) + list(b.get("ban") or []))[:_MAX_JAILS]
     out["cve"] = _uniq(list(a.get("cve") or []) + list(b.get("cve") or []))[:_MAX_CVES]
+    # The earlier sample stays first; both lists are checked again, because a ledger is read back from storage.
+    out["smp"] = normalize_samples(list(a.get("smp") or []) + list(b.get("smp") or []), None, SOURCES)
     return out
 
 
@@ -641,6 +757,7 @@ def slim(ev, tokens=8):
     }
     out["ban"] = list(ev.get("ban") or [])[:4]
     out["cve"] = list(ev.get("cve") or [])[:3]
+    out["smp"] = list(ev.get("smp") or [])[:MAX_SAMPLES]
     return out
 
 
@@ -724,6 +841,32 @@ def confirmed_by(ev):
     return ""
 
 
+def cs_scenarios(ev, limit=5):
+    """[(scenario, count, class or None)] for the CrowdSec scenarios and AppSec rules the
+    logs named, most seen first. The name is the fixed identifier of a hub scenario or
+    of one the operator wrote, and it has already passed the token check."""
+    seen = {}
+    for toks in (ev.get("tok") or {}).values():
+        for t, c in toks.items():
+            if isinstance(t, str) and t.startswith("cs:") and token_valid(t):
+                seen[t[3:]] = max(seen.get(t[3:], 0), _count(c))
+    ranked = sorted(seen.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
+    return [(name, n, scenario_class(name)) for name, n in ranked]
+
+
+def _no_class_reason(ev):
+    """Why an address with no attack class is not reported. It names the CrowdSec scenario or
+    the fail2ban jail that decided on it when there is one, so the page can say what the logs
+    held and the operator can see which name has no category."""
+    for name, _n, cls in cs_scenarios(ev):
+        if cls is None:
+            return f"no attack category for the CrowdSec scenario {name}"
+    for jail in ev.get("ban") or []:
+        if not jail_class(jail):
+            return f"no attack category for the fail2ban jail {jail}"
+    return "nothing recognisable in the logs"
+
+
 def qualifies(ev, min_count, cf_min=None, waf_min=None):
     """(True, why) when the evidence is enough to report, else (False, why not).
     Enough means ANY of: fail2ban banned it, a CrowdSec scenario decided on it,
@@ -736,7 +879,7 @@ def qualifies(ev, min_count, cf_min=None, waf_min=None):
     both fall back to WAF_MIN_BLOCKS, the library's own default; the server
     passes its policy, which asks for one."""
     if not classes(ev):
-        return False, "nothing recognisable in the logs"
+        return False, _no_class_reason(ev)
     who = confirmed_by(ev)
     if who:
         return True, f"confirmed by {who}"
