@@ -506,7 +506,7 @@ _CS_RULES = tuple(
         (
             "service_brute",
             _w("rdp", "smb")
-            + r"|(^|[-_])bf($|[-_])|brute|mysql|pgsql|mariadb|mongo|redis|telnet|asterisk|openvpn|cowrie|guacamole",
+            + r"|(^|-)bf($|-)|brute|mysql|pgsql|mariadb|mongo|redis|telnet|asterisk|openvpn|cowrie|guacamole",
         ),
     )
 )
