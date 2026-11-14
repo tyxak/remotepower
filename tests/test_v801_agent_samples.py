@@ -299,14 +299,16 @@ class TestSamplesFromEachLog(_Base):
         self.assertEqual(agg.ring[A1][0][0], NOW - 7)
 
     def test_a_plain_web_address_gets_only_the_requests_that_were_hostile(self):
-        # the ring is for an address an engine decided on; one that was only counted for hostile requests is sent what was hostile
+        # the ring is for an address an engine decided on; one that was only counted for hostile requests is sent what was hostile.
+        # One hostile request, so two of the three places are free: a fill from the ring would show in them.
         agg = self.agg()
-        lines = [combined(A1, NOW - 40 + i, f'GET /backup{i}.sql HTTP/1.1', 404) for i in range(3)]
+        lines = [combined(A1, NOW - 40, 'GET /backup0.sql HTTP/1.1', 404)]
         lines += [combined(A1, NOW - 30 + i, f'GET /harmless-{i} HTTP/1.1', 404) for i in range(5)]
         self.scan_access(agg, lines)
+        self.assertEqual(len(agg.ring[A1]), self.agent.THREAT_SAMPLES, 'the control: the ring does hold harmless requests of this address')
         ev = self.by_ip(agg)[A1]
-        self.assertEqual(ev['src'], {'web': 3})
-        self.assertEqual([s['p'] for s in ev['smp']], ['/backup0.sql', '/backup1.sql', '/backup2.sql'])
+        self.assertEqual(ev['src'], {'web': 1})
+        self.assertEqual([s['p'] for s in ev['smp']], ['/backup0.sql'])
         self.assertNotIn('harmless', json.dumps(ev))
 
     def test_the_evidence_comes_first_and_the_ring_fills_the_rest(self):

@@ -270,15 +270,16 @@ class TestThePage(unittest.TestCase):
     def test_the_outcome_line_names_the_scenario_or_the_jail(self):
         reasons = ['not reported: no attack category for the CrowdSec scenario crowdsecurity/http-generic-test',
                    'not reported: no attack category for the fail2ban jail recidive',
-                   'not reported: no attack category for the CrowdSec scenario x"><img src=x onerror=alert(1)>',
+                   'not reported: no attack category for the CrowdSec scenario x"><img/src=x/onerror=alert(1)>',
                    'not reported: nothing recognisable in the logs',
                    'not reported: no attack category for the CrowdSec scenario two words']
         got = node('console.log(JSON.stringify(%s.map(_ipiReason)));' % json.dumps(reasons))
         self.assertEqual(got[0], '<span>not reported:</span> <span>no attack category for the CrowdSec scenario</span> '
                                  '<code>crowdsecurity/http-generic-test</code>')
         self.assertEqual(got[1], '<span>not reported:</span> <span>no attack category for the fail2ban jail</span> <code>recidive</code>')
+        # no whitespace in that name, so it reaches the branch that prints a name as code and has to escape it there
+        self.assertIn('<code>x&quot;&gt;&lt;img/src=x/onerror=alert(1)&gt;</code>', got[2])
         self.assertNotIn('<img', got[2])
-        self.assertIn('&lt;img', got[2])
         self.assertEqual(got[3], '<span>not reported:</span> <span>nothing recognisable in the logs</span>')
         # a name with a space is not one the server writes; it falls through to the plain phrase
         self.assertEqual(got[4], '<span>not reported:</span> <span>no attack category for the CrowdSec scenario two words</span>')
