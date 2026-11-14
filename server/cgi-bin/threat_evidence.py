@@ -741,7 +741,9 @@ def merge(a, b):
     out["ban"] = _uniq(list(a.get("ban") or []) + list(b.get("ban") or []))[:_MAX_JAILS]
     out["cve"] = _uniq(list(a.get("cve") or []) + list(b.get("cve") or []))[:_MAX_CVES]
     # The earlier sample stays first; both lists are checked again, because a ledger is read back from storage.
-    out["smp"] = normalize_samples(list(a.get("smp") or []) + list(b.get("smp") or []), None, SOURCES)
+    out["smp"] = normalize_samples(
+        list(a.get("smp") or []) + list(b.get("smp") or []), None, SOURCES
+    )
     return out
 
 
