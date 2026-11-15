@@ -114,8 +114,9 @@ class TestRuleTables(unittest.TestCase):
         'nginx-wplogin': 'login_brute', 'nginx-xmlrpc': 'login_brute',
         'roundcube-auth': 'login_brute',
         'nginx-botsearch': 'probe', 'apache-noscript': 'probe', 'apache-nohome': 'probe',
-        'apache-overflows': 'probe', 'nginx-noproxy': 'probe',
-        'nginx-sensitive-files': 'probe', 'nginx-blocked': 'probe',
+        'apache-overflows': 'probe', 'nginx-blocked': 'probe',
+        # 8.0.1: a jail that says what kind of probing it bans
+        'nginx-noproxy': 'proxy_probe', 'nginx-sensitive-files': 'config_probe', 'apache-dotfile': 'config_probe',
         'nginx-limit-req': 'flood', 'nginx-dos': 'flood',
         'apache-badbots': 'bad_bot', 'nginx-unwanted-bots': 'bad_bot',
         'apache-fakegooglebot': 'bad_bot',
@@ -125,7 +126,11 @@ class TestRuleTables(unittest.TestCase):
         'postfix': 'mail_brute', 'postfix-sasl': 'mail_brute', 'dovecot': 'mail_brute',
         'courier-auth': 'mail_brute',
         'proftpd': 'ftp_brute', 'vsftpd': 'ftp_brute', 'pure-ftpd': 'ftp_brute',
-        'mysqld-auth': 'service_brute', 'rdp': 'service_brute',
+        # 8.0.1: a service's login by its name; what has no name of its own is still a service login
+        'mysqld-auth': 'db_brute', 'postgresql': 'db_brute', 'mongodb-auth': 'db_brute', 'redis-server': 'db_brute',
+        'mssql-auth': 'db_brute',          # was a web login by its "auth"
+        'rdp': 'rdp_brute', 'xrdp-sesman': 'rdp_brute', 'smb': 'smb_brute', 'samba': 'smb_brute',
+        'telnetd': 'telnet_brute', 'asterisk': 'service_brute', 'openvpn': 'service_brute', 'vnc': 'service_brute',
         'portscan': 'port_scan',
         'recidive': None, 'named-refused': None, '': None,
     }
@@ -146,9 +151,12 @@ class TestRuleTables(unittest.TestCase):
     SCENARIOS = {
         'crowdsecurity/ssh-bf': 'ssh_brute', 'crowdsecurity/ssh-slow-bf': 'ssh_brute',
         'crowdsecurity/ssh-cve-2024-6387': 'ssh_brute',
-        'crowdsecurity/http-probing': 'probe', 'crowdsecurity/http-sensitive-files': 'probe',
-        'crowdsecurity/http-admin-interface-probing': 'probe',
-        'crowdsecurity/http-wordpress-scan': 'probe', 'crowdsecurity/http-open-proxy': 'probe',
+        'crowdsecurity/http-probing': 'probe', 'crowdsecurity/http-technology-probing': 'probe',
+        # 8.0.1: a scenario that says what kind of probing it saw
+        'crowdsecurity/http-sensitive-files': 'config_probe',
+        'crowdsecurity/http-admin-interface-probing': 'admin_probe',
+        'crowdsecurity/http-wordpress-scan': 'wordpress', 'crowdsecurity/http-open-proxy': 'proxy_probe',
+        'crowdsecurity/http-wordpress_user-enum': 'user_enum',
         'crowdsecurity/http-sqli-probing': 'sqli', 'crowdsecurity/http-xss-probing': 'xss',
         'crowdsecurity/http-path-traversal-probing': 'traversal',
         'crowdsecurity/http-bad-user-agent': 'scanner',
@@ -160,7 +168,9 @@ class TestRuleTables(unittest.TestCase):
         'crowdsecurity/appsec-generic': 'waf',
         'crowdsecurity/nginx-req-limit-exceeded': 'flood',
         'crowdsecurity/postfix-spam': 'mail_brute',
-        'crowdsecurity/mysql-bf': 'service_brute',
+        'crowdsecurity/mysql-bf': 'db_brute', 'crowdsecurity/smb-bf': 'smb_brute',
+        'crowdsecurity/telnet-bf': 'telnet_brute', 'crowdsecurity/rdp-bf': 'rdp_brute',
+        'crowdsecurity/vnc-bf': 'service_brute',
         'crowdsecurity/iptables-scan-multi_ports': 'port_scan',
         # an aggressive crawler is not an attack, so it is not reported as one
         'crowdsecurity/http-crawl-non_statics': None,
@@ -282,7 +292,13 @@ class TestEvidenceMath(unittest.TestCase):
                  'probe': 'req:probe', 'scanner': 'req:scanner', 'flood': 'req:flood',
                  'bad_bot': 'jail:apache-badbots', 'waf': 'crs:920350',
                  'mail_brute': 'jail:postfix', 'ftp_brute': 'jail:proftpd',
-                 'service_brute': 'jail:mysqld-auth', 'port_scan': 'jail:portscan',
+                 'service_brute': 'jail:asterisk', 'port_scan': 'jail:portscan',
+                 # 8.0.1: the kinds of probing and of a service's login
+                 'config_probe': 'req:config', 'admin_probe': 'req:admin', 'wordpress': 'req:wordpress',
+                 'user_enum': 'req:enum', 'proxy_probe': 'req:proxy', 'host_recon': 'req:recon',
+                 'method_probe': 'req:method', 'decoy_loot': 'trap:gitdump',
+                 'rdp_brute': 'jail:rdp', 'smb_brute': 'jail:smb', 'telnet_brute': 'jail:telnetd',
+                 'db_brute': 'jail:mysqld-auth',
                  # v7.3.0: the three only the edge can say (a server feed, not an agent)
                  'canary': 'trap:canary', 'decoy_login': 'trap:decoylogin', 'ddos': 'cf:ddos',
                  # v7.4.0: the one only a firewall or router can say (the server reads its syslog)

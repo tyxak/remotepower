@@ -19,6 +19,36 @@ as WAF refusals. The release page is [docs/v8.0.1.md](docs/v8.0.1.md).
 
 ### Threat Intel
 
+- **A report says what kind of probing it was.** Fourteen reports from one day read as the same sentence, "probing for exposed files and admin
+  pages", whether the address had asked for `.env`, for phpMyAdmin or for a WordPress file. `probe` is a general class now with eight finer kinds
+  (configuration files, keys and backups; admin, login and debug pages; WordPress; user enumeration; open proxy; private host names; unusual HTTP
+  methods; files taken from a decoy backup or repository), and `service_brute` has four (RDP, SMB, Telnet, database). Every source names the kind
+  it can see: the Linux agent's sensor (five new request kinds; the four patterns that replace the one match the same requests), each honeypot
+  trap, the CrowdSec and fail2ban names (16 of the 483 frozen hub names moved, each from a general class to one of its kinds, none anywhere
+  else), the intrusion detection signatures, and a Cloudflare custom rule by its description. A report leaves the general class out when one of
+  its kinds explains the address. Configuration files and decoy files are also filed as hacking (15 at AbuseIPDB, 11 at SniffCat); RDP, SMB and
+  Telnet carry SniffCat's 22, 24 and 23 (both services' category lists as of 2026-11-15). Ignoring a general class ignores its kinds, so an
+  ignore list from before means what it meant; the page lists the kinds under the general one. A general class stays in a report when its
+  kinds do not account for it: one request for `.env` and fifty that a source could only call probing are reported as both, and ignoring the one
+  kind does not hold that address back. **A rule description that listed `.sql` among the files it blocks was reported as SQL injection**: "sql"
+  has to be followed by "injection" now. Four fail2ban jail names gained a class or a truer one (`xrdp`, `samba`, `vnc`, and `mssql-auth`, which
+  was filed as a web login), and an intrusion detection signature that spells out "PostgreSQL" is a database login now: the pattern only knew
+  "postgres". **Held by** `tests/test_v801_attack_classes.py` (the families, the ignore rule through the real sweep, every source, the page's
+  and the guides' tables) and `tests/test_v801_agent_request_kinds.py` (a corpus of 1,648 request targets through the old pattern and the
+  four), 37 mutations between them, each shown failing.
+
+- **Samples and real times from the edge sources. This changes what is asked of Cloudflare.** A report built from Cloudflare's events or the
+  honeypot's log had no examples, and its window was the ten minutes of one read. With **Send up to three request samples with each address**
+  ticked (the default), a zone that is read one event at a time is also asked for the path, the method and the time of each refused request, and
+  the honeypot's line is read for its method and path. Up to three per address are kept, rebuilt through the same cut as a host's samples, and the
+  events' own times become the address's first and last sighting. A query string, a host name and a user agent are never asked for.
+  Cloudflare's documentation shows the path and time fields and not the method's, so the read asks in tiers: all three, then path and time,
+  then none, and settles for the first Cloudflare accepts. A refusal costs a request and never the feed, and the Edge feeds card says what the
+  read got, for the zone that gave the least. The grouped view (paid plans) carries no request and is unchanged. **Held by**
+  `tests/test_v801_edge_samples.py` (the real poll and report sweep against a Cloudflare that refuses fields, 25 mutations shown failing).
+
+- **The Request log shows what a report was filed under.** A report's line carries its category ids. The text of a report is still never kept there.
+
 - **Hosts now send up to three request samples with an address. This changes what leaves a host.** Until 8.0.1 the documentation said that log lines and
   request paths never leave the host. A sample is the method, the path, the status and which log, with no query string and no `;name=value` parameter; the
   path ends where a URL starts and at any character other than letters, digits and `. _ ~ / % + -`, and is at most 80 characters. Headers, host names,

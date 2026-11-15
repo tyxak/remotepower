@@ -108,7 +108,8 @@ class TestRag(_Seeded):
         by_id = {d['id']: d for d in self._docs()}
         text = by_id['live/fleet#edge_addresses']['text']
         self.assertIn(f'{TRAP}: reputation 88/100', text)
-        self.assertIn('probing for exposed files', text)
+        self.assertIn('probing for configuration files, keys and backups', text)
+        self.assertNotIn('probing for exposed files', text, 'the bait trap names its kind of probing (8.0.1)')
         self.assertIn('seen by the honeypot', text)
         self.assertIn('reported to abuseipdb', text)
         self.assertIn('in the edge blocklist', text)

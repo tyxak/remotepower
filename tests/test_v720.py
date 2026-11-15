@@ -236,8 +236,13 @@ class TestTheDocumentationIsTheCode(unittest.TestCase):
         rows = {
             "SSH brute force": "ssh_brute", "Login brute force (web)": "login_brute",
             "SQL injection": "sqli", "Path traversal": "traversal",
-            "Code execution attempts": "rce", "Probing for exposed files": "probe",
+            "Code execution attempts": "rce",
+            # 8.0.1: probing by its kind, and a service's login by its name
+            "Probing for configuration files, keys and backups": "config_probe",
+            "Downloading files from a decoy backup or repository": "decoy_loot",
+            "Any other kind of probing": "probe",
             "Attack tools and scanners": "scanner",
+            "RDP brute force": "rdp_brute", "SMB brute force": "smb_brute", "Telnet brute force": "telnet_brute",
         }
         raw = (_ROOT / "docs/ip-intel.md").read_text()
         for label, cls in rows.items():
@@ -250,7 +255,14 @@ class TestTheDocumentationIsTheCode(unittest.TestCase):
         listed = re.findall(r"^\| ([^|]+) \| [\d, ]+ \| [\d, ]+ \|$", raw, re.M)
         self.assertEqual(sorted(listed), sorted(rows), "a row in the guide's table that the test does not know")
         self.assertLess(len(rows), len(te.CLASSES))
-        self.assertIn("Mail, FTP, other services, request flooding and port scans have their own", " ".join(raw.split()))
+        self.assertIn("Mail, FTP, request flooding and port scans have their own", " ".join(raw.split()))
+        # "Any other kind of probing" stands for every kind the table does not give a row of its own, and they all
+        # carry the general class's ids: a kind with ids of its own needs its own row
+        own_row = {"config_probe", "decoy_loot"}
+        for kind in te.FAMILIES["probe"]:
+            if kind not in own_row:
+                self.assertEqual((te.CLASSES[kind]["abuseipdb"], te.CLASSES[kind]["sniffcat"]),
+                                 (te.CLASSES["probe"]["abuseipdb"], te.CLASSES["probe"]["sniffcat"]), kind)
         for cls in ("mail_brute", "ftp_brute", "service_brute", "flood", "port_scan"):
             self.assertIn(cls, te.CLASSES)
 

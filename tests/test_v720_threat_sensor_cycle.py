@@ -291,7 +291,7 @@ class TestOnePass(_Host):
         a1 = ev[A1]
         self.assertEqual(a1['src']['web'], 6)
         self.assertEqual(a1['src']['waf'], 3, 'three audit transactions; the error-log line is one of them')
-        self.assertIn('req:probe', a1['tok']['web'])
+        self.assertEqual(a1['tok']['web'], {'req:config': 6, 'req:scanner': 6}, 'six requests for /.env by a named attack tool')
         self.assertIn('crs:942100', a1['tok']['waf'])
         self.assertEqual(ev[A2]['ban'], ['nginx-blocked'])
         self.assertEqual(ev[A2]['src']['web'], 5, 'blocked.log was discovered from the config')

@@ -36,7 +36,9 @@ Every ten minutes the RemotePower server calls `api.cloudflare.com` with your to
 
 What it finds is queued as evidence on the Threat Intel page, in the same list as the addresses your hosts' logs found. From there it takes the normal path: a look-up, then a report to AbuseIPDB and SniffCat.
 
-For each event RemotePower asks Cloudflare for four facts: the address, the action, the mechanism that acted and the rule id. It never asks for the request path, the query string, the user agent or the host name. An attacker typed those, and a report is public.
+For each event RemotePower asks Cloudflare for four facts: the address, the action, the mechanism that acted and the rule id. It never asks for the query string, the user agent or the host name. An attacker typed those, and a report is public.
+
+From 8.0.1 a zone that is read one event at a time is also asked for three more: the path, the method and the time of the request. RemotePower keeps the path and method of up to three requests per address as samples, cut the way a host's samples are (no query string, a short alphabet, 80 characters), and uses the times as the address's first and last sighting. Samples show in the details of an address, and reach a report only when you tick **Add a few example requests to reports**. Untick **Send up to three request samples with each address** in the **Log sensor** card and the three are not asked for. See [What is sent](ip-intel.md#what-is-sent).
 
 ## Step 1: Create the API token
 
@@ -201,7 +203,15 @@ What changes for you:
 - Every six hours RemotePower asks for the grouped view again, in case the plan
   changed.
 
-What stays the same: the four facts it asks for, what counts, and the report path.
+What stays the same: what counts, and the report path.
+
+A zone read one event at a time can carry request samples. The grouped view cannot, because it holds no request. When Cloudflare does not give one of the three sample fields, RemotePower asks again without it. The card then says what the read got, under `Reading`:
+
+- `Cloudflare did not give the method of a request for a zone, so a sample from it shows the path only.`
+- `Cloudflare refused the request fields for a zone, so addresses seen there carry no request samples.`
+- `A zone is read through the grouped view, which carries no request, so addresses seen there carry no request samples.`
+
+With several zones the card shows the sentence for the zone that gave the least.
 
 ## Rules that also block an IP list
 
@@ -237,7 +247,27 @@ Edge evidence takes the same report path as your hosts' logs.
 
 A report built from Cloudflare's events reads:
 
-`probing for exposed files and admin pages: 8 attempts within 10 minutes, seen by Cloudflare WAF (reported by RemotePower)`
+`WordPress probing: 8 attempts within 10 minutes, seen by Cloudflare WAF (reported by RemotePower)`
+
+The kind comes from the description of the custom rule that refused the request, so write in it what the rule blocks. These words are read, and the first row that matches wins:
+
+| The description mentions | Reported as |
+|---|---|
+| "SQL injection", "sqli" | SQL injection |
+| "XSS", "cross-site" | cross-site scripting |
+| "traversal", "LFI", "RFI" | path traversal |
+| "RCE", "remote code", "command execution", "command injection", "code injection", "webshell", "log4" | remote code execution attempts |
+| "rate limit", "flood", "DoS" | request flooding |
+| "scanner", "scan", "nikto", "nmap", "vulnerability" | vulnerability scanning |
+| "private host", "internal host" | probing private host names |
+| "enumeration" | user enumeration |
+| "WordPress", "wp-", "xmlrpc" | WordPress probing |
+| "sensitive", "backup", "dump", "dotfile", "credential", "secret", `.env`, `.git`, `.sql`, `.bak` | probing for configuration files, keys and backups |
+| "admin", "adminer", "pma", "cpanel" | probing for admin, login and debug pages |
+| "unusual", "methods" | probing with unusual HTTP methods |
+| "probe", "probing", "disclosure" | probing for exposed files and admin pages |
+
+A rule whose description matches none of them, and Cloudflare's own managed rules, are reported as `requests blocked by a web application firewall`. A word such as "exploit" names no kind on its own: a rule that blocks `.env` and "exploit paths" is a rule about files.
 
 If a script of yours already reports Cloudflare events to AbuseIPDB or SniffCat, stop it once RemotePower works, so each address is one report with all the evidence. The services refuse a second report of the same address within 15 and 20 minutes, and RemotePower counts that as already reported, so nothing breaks while both run. Keep whatever bans.
 
@@ -321,6 +351,7 @@ RemotePower reads the Worker's log through Workers Observability. The Worker has
 | `ip` | The visitor's address. |
 | `action` | What the Worker decided. `banned`, `already-banned` and `already-blocked-elsewhere` count as the Worker's own decision, and the address is reported at once. `allowlisted` and `shared-egress` are set aside. Anything else counts as a hit that waits for **Report after attempts**. |
 | `at` | When it happened. `timestamp` works too. |
+| `method`, `path` | The request, kept as a sample (the method and the path without a query string) when **Send up to three request samples with each address** is ticked. A line without them is counted all the same. |
 
 The table of what each kind is filed as is under [The honeypot](ip-intel.md#the-honeypot).
 

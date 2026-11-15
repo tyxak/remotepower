@@ -89,9 +89,18 @@ class TestTokens(unittest.TestCase):
     def test_the_classes(self):
         self.assertEqual(te.token_class('trap:robots'), 'bad_bot')
         self.assertEqual(te.token_class('trap:impostor'), 'bad_bot')
-        self.assertEqual(te.token_class('trap:bait'), 'probe')
         self.assertEqual(te.token_class('trap:canary'), 'canary')
         self.assertEqual(te.token_class('trap:decoylogin'), 'decoy_login')
+        # 8.0.1: every trap that was "probing" says which kind of probing it caught
+        kinds = {'bait': 'config_probe', 'mazeentry': 'config_probe', 'login': 'admin_probe', 'wpprobe': 'wordpress',
+                 'wpenum': 'user_enum', 'private': 'host_recon', 'decoy': 'host_recon',
+                 'maze': 'decoy_loot', 'mazeloot': 'decoy_loot', 'gitdump': 'decoy_loot'}
+        for kind, cls in kinds.items():
+            self.assertEqual(te.token_class('trap:' + kind), cls, kind)
+            self.assertIn(cls, te.FAMILIES['probe'], kind)
+        self.assertEqual(set(te.TRAP_KINDS) - set(kinds), {'robots', 'impostor', 'canary', 'decoylogin'},
+                         'a trap kind this test does not place')
+        self.assertNotIn('probe', set(te.TRAP_KINDS.values()), 'no trap is left saying only "probing"')
         self.assertEqual(te.token_class('cf:ddos'), 'ddos')
         self.assertEqual(te.token_class('cf:ratelimit'), 'flood')
         self.assertEqual(te.token_class('cf:custom'), 'waf')

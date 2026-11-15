@@ -171,6 +171,9 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v801_evidence_samples.py",      # CrowdSec names the server could not class (the hub's names frozen) and the sample vocabulary: a path cut to a safe alphabet, rebuilt by the server
         "tests/test_v801_agent_samples.py",         # the agent's samples: each log, the bouncer's AppSec line, the refused requests a ban is about, nothing written to disk
         "tests/test_v801_sample_reports.py",        # the setting, the intake, the page (escaped), examples in a report (off by default), nothing in the AI corpus
+        "tests/test_v801_attack_classes.py",        # probing and a service's login have kinds: the families, what a report says, what ignoring means, every source, the page and the guides
+        "tests/test_v801_agent_request_kinds.py",   # the agent's finer request kinds: the four patterns match what the one matched, and the server knows every kind
+        "tests/test_v801_edge_samples.py",          # samples and real times from Cloudflare and the honeypot: the tiers, what is never asked for, the request log's category ids
     )
 
     def test_the_list_is_not_empty(self):

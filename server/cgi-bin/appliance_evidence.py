@@ -258,7 +258,12 @@ _IDS_RULES = tuple(
                     r"friendly-scanner"),
         ("ftp_brute", r"\bftp\b.*(?:brute|login|auth)"),
         ("mail_brute", r"\b(?:smtp|imap|pop3)\b.*(?:brute|login|auth)"),
-        ("service_brute", r"\b(?:telnet|rdp|vnc|mssql|mysql|postgres)\b.*(?:brute|login|auth)"),
+        # the finer kinds of a service's login, each before the general one
+        ("rdp_brute", r"\brdp\b.*(?:brute|login|auth)"),
+        ("telnet_brute", r"\btelnet\b.*(?:brute|login|auth)"),
+        # "PostgreSQL" is how the rule sets spell it; `postgres\b` alone never matched that word
+        ("db_brute", r"\b(?:mssql|mysql|postgres(?:ql)?)\b.*(?:brute|login|auth)"),
+        ("service_brute", r"\bvnc\b.*(?:brute|login|auth)"),
         ("port_scan", r"\bet scan\b|detection of a network scan|network scan|port scan|"
                       r"\bscan\b"),
         ("probe", r"attempted information leak"),

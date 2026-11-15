@@ -141,6 +141,30 @@ class TestWhatItPrints(unittest.TestCase):
         self.assertNotIn('<u>y', out['html'])
         self.assertIn('&lt;img', out['html'])
 
+    def test_a_report_line_says_which_categories_it_was_filed_under_before_the_note(self):
+        """The text of a report is never kept in this log, so the category ids are what tells two reports about one address apart."""
+        def notes(rows):
+            out = node('_ipiData = {requests: %s}; _ipiAdmin = true; _ipiRenderRequests();'
+                       'console.log(JSON.stringify({html: mk("ipintel-req-tbody").innerHTML}));' % json.dumps(rows))
+            cells = [re.findall(r'<td[^>]*>(.*?)</td>', tr, re.S)[-1] for tr in out['html'].split('</tr>')[:-1]]
+            self.assertEqual(len(cells), len(rows), out['html'])
+            return out['html'], cells
+        report = self.ROWS[0]
+        html, cells = notes([dict(report, cats=[15, 21]), dict(report, cats=[18], note=''), report, dict(report, cats=[]), self.ROWS[1]])
+        self.assertEqual(cells[0], '<span>categories</span> 15, 21 · ' + report['note'])
+        self.assertEqual(cells[1], '<span>categories</span> 18', 'no note, so nothing follows the numbers')
+        self.assertEqual(cells[2], report['note'], 'a line without categories reads as it did')
+        self.assertEqual(cells[3], report['note'], 'and so does one with an empty list')
+        self.assertEqual(cells[4], '', 'a lookup has neither')
+        self.assertEqual(html.count('categories'), 2, 'only the two lines that carry them say the word')
+        # the ids are the server's own numbers; what is printed is escaped all the same
+        html, cells = notes([dict(report, cats=['<img src=x onerror=alert(1)>', 21], note='<b>n</b>')])
+        self.assertNotIn('<img', html)
+        self.assertNotIn('<b>', html)
+        self.assertEqual(cells[0], '<span>categories</span> &lt;img src=x onerror=alert(1)&gt;, 21 · &lt;b&gt;n&lt;/b&gt;')
+        rows = dict_rows()
+        self.assertTrue(rows.get('categories') and all(rows['categories'].get(l) for l in _LANGS), 'no six languages: categories')
+
     def test_the_card_stays_hidden_for_anyone_the_server_did_not_send_it_to(self):
         for data in ('{requests: null}', '{}', '{requests: "x"}'):
             out = node('_ipiData = %s; _ipiAdmin = true; mk("ipintel-requests-card").hidden = false;'

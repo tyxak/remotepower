@@ -14450,20 +14450,32 @@ _TS_RE_RCE = re.compile(
     r'/autodiscover/autodiscover\.json\?.{0,40}@|/mgmt/tm/util/bash|/vpns/portal/scripts|'
     r'/wls-wsat/|/_async/asyncresponseservice|/uddiexplorer/|/ws_utc/', re.I)
 
-# Sensitive files and leftovers nobody legitimately requests, whatever the answer.
-_TS_RE_PROBE = re.compile(
+# Sensitive files and leftovers nobody legitimately requests, whatever the answer. Until 8.0.1 this was one pattern and
+# one kind, `probe`, so a report could only say "probing". It is four now, and the kind says what was asked for:
+#   config     a file that holds a site's configuration, its keys or a copy of its data
+#   wordpress  WordPress's own installer, and the files that give a plugin's version away
+#   enum       asking a site who its users are
+#   probe      what is left: a leftover that says a tool is installed
+# Between them the four match exactly what the one pattern matched (tests/test_v801_agent_request_kinds.py holds that).
+_TS_RE_CONFIG = re.compile(
     r'/\.(?:env|git|svn|hg|ds_store|aws|ssh|bash_history|htpasswd|npmrc|docker|kube|vscode|idea|'
     r'gitlab-ci\.yml|travis\.yml)(?:[/.?]|$)|'
     r'/wp-config(?:\.php)?(?:\.|~|$)|'
     r'\.(?:bak|old|orig|save|swp|sql|dump)(?:$|\?)|'
     r'/(?:backup|backups|db|dump|database|site|www|wwwroot|web|public_html|html|htdocs)\.'
     r'(?:zip|tar|tgz|gz|7z|rar|sql)(?:$|\?)|'
-    r'/composer\.(?:json|lock)(?:$|\?)|/wp-admin/(?:setup-config|install)\.php|'
-    r'/wp-content/plugins/[^/]+/(?:readme|changelog)\.txt|[?&]author=\d+(?:$|&)|'
-    r'/(?:id_rsa|id_dsa|authorized_keys)(?:$|\?)|/(?:sftp|ftp)-config\.json|/\.dockerenv|'
-    r'/phpunit\.xsd', re.I)
+    r'/composer\.(?:json|lock)(?:$|\?)|'
+    r'/(?:id_rsa|id_dsa|authorized_keys)(?:$|\?)|/(?:sftp|ftp)-config\.json|/\.dockerenv', re.I)
 
-# Things a real site may serve: only a refusal marks the visitor as probing.
+_TS_RE_WORDPRESS = re.compile(
+    r'/wp-admin/(?:setup-config|install)\.php|/wp-content/plugins/[^/]+/(?:readme|changelog)\.txt', re.I)
+
+_TS_RE_ENUM = re.compile(r'[?&]author=\d+(?:$|&)', re.I)
+
+_TS_RE_PROBE = re.compile(r'/phpunit\.xsd', re.I)
+
+# Things a real site may serve (an admin tool, a status page, a debug page): only a refusal marks the visitor as
+# probing, and the kind is `admin`.
 _TS_RE_PROBE_REFUSED = re.compile(
     r'/(?:phpmyadmin\d*|pma|myadmin|mysqladmin|dbadmin|adminer|sqlmanager|websql)'
     r'(?:/(?:index\.php)?)?(?:$|\?)|'
@@ -14483,7 +14495,8 @@ _TS_RE_SCANNER_UA = re.compile(
     r'gobuster|dirbuster|dirb/|feroxbuster|ffuf|wfuzz|nuclei|burp(?:suite)?|havij|jaeles|hydra|'
     r'metasploit|w3af|skipfish|arachni|whatweb|l9explore|l9tcpid', re.I)
 
-_TS_ANSWERABLE = ('probe', 'rce', 'sqli', 'traversal', 'xss')
+# A 2xx answer to one of these is counted as "answered": the site gave the visitor something it should not have.
+_TS_ANSWERABLE = ('probe', 'config', 'wordpress', 'enum', 'proxy', 'rce', 'sqli', 'traversal', 'xss')
 
 
 def _ts_decode(uri):
@@ -14553,8 +14566,10 @@ _TS_CS_APPSEC_RE = re.compile(r"\[Crowdsec\] denied '[0-9A-Fa-f:.]{2,45}' with '
 
 def _ts_classify(method, uri, status, ua=''):
     """The kinds of hostile request this was: a tuple of 0-2 of 'rce', 'sqli',
-    'traversal', 'xss', 'login', 'probe', 'flood' (one, the most serious) and
-    'scanner' (when the User-Agent names an attack tool)."""
+    'traversal', 'xss', 'login', 'config', 'enum', 'wordpress', 'probe', 'proxy',
+    'admin', 'flood' (one, the most serious) and 'scanner' (when the User-Agent
+    names an attack tool). The server's threat_evidence._REQ_KINDS holds the same
+    names; a kind it does not know is dropped there."""
     method = str(method or '').upper()
     try:
         status = int(status or 0)
@@ -14578,12 +14593,18 @@ def _ts_classify(method, uri, status, ua=''):
     elif method == 'POST' and _TS_RE_LOGIN.match(u) and (
             status >= 400 if u.startswith('/api/') else not 300 <= status < 400):
         kind = 'login'
+    elif _TS_RE_CONFIG.search(u):
+        kind = 'config'
+    elif _TS_RE_ENUM.search(u):
+        kind = 'enum'
+    elif _TS_RE_WORDPRESS.search(u):
+        kind = 'wordpress'
     elif _TS_RE_PROBE.search(u):
         kind = 'probe'
     elif method == 'CONNECT' or u.startswith(('http://', 'https://', 'ftp://')):
-        kind = 'probe'     # asking this server to proxy: probing for an open proxy
+        kind = 'proxy'     # asking this server to proxy: probing for an open proxy
     elif status in (400, 403, 404, 405, 410, 444) and _TS_RE_PROBE_REFUSED.search(u):
-        kind = 'probe'
+        kind = 'admin'
     elif status == 429:
         kind = 'flood'
     kinds = [kind] if kind else []
@@ -15620,7 +15641,10 @@ _TS_NGX_CLIENT_RE = re.compile(r', client: ([0-9A-Fa-f:.]+)(?:,|$)')
 _TS_NGX_REQUEST_RE = re.compile(r', request: "((?:[^"\\]|\\.)*)"')
 _TS_APC_ERR_RE = re.compile(r'^\[\w{3} \w{3} \d{1,2} \d\d:\d\d:\d\d(?:\.\d+)? \d{4}\] ')
 _TS_APC_CLIENT_RE = re.compile(r'\[client ([0-9A-Fa-f:.]+?)(?::\d{1,5})?\]')
-_TS_APC_FILE_RE = re.compile(r'(?:File does not exist|script not found or unable to stat): (\S+)')
+# The path Apache names when a file is missing, a script cannot be run, or the configuration denies the request
+# (AH01630). The last was not in the pattern until 8.0.1, so a denied request was always the general "probe".
+_TS_APC_FILE_RE = re.compile(
+    r'(?:File does not exist|script not found or unable to stat|client denied by server configuration): (\S+)')
 _TS_NGX_FILE_RE = re.compile(r'open\(\) "([^"]{1,300})" failed \(2: No such file')
 
 
@@ -15840,8 +15864,14 @@ _TS_IDS_RULES = tuple(
      '\\bftp\\b.*(?:brute|login|auth)'),
     ('mail_brute',
      '\\b(?:smtp|imap|pop3)\\b.*(?:brute|login|auth)'),
+    ('rdp_brute',
+     '\\brdp\\b.*(?:brute|login|auth)'),
+    ('telnet_brute',
+     '\\btelnet\\b.*(?:brute|login|auth)'),
+    ('db_brute',
+     '\\b(?:mssql|mysql|postgres(?:ql)?)\\b.*(?:brute|login|auth)'),
     ('service_brute',
-     '\\b(?:telnet|rdp|vnc|mssql|mysql|postgres)\\b.*(?:brute|login|auth)'),
+     '\\bvnc\\b.*(?:brute|login|auth)'),
     ('port_scan',
      '\\bet scan\\b|detection of a network scan|network scan|port scan|\\bscan\\b'),
     ('probe',

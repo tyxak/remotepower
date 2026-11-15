@@ -249,21 +249,29 @@ class TestTheDocumentationIsTheCode(unittest.TestCase):
                                "seen by edge honeypot (reported by RemotePower)")
         cf, _ = ee.cf_events([{"zone": "7" * 32, "ip": "185.220.101.7", "action": "block", "source": "firewallcustom",
                                "rule": "b" * 32, "count": 8}],
-                             {"7" * 32: {"b" * 32: {"d": "probes", "c": "probe", "k": False}}},
+                             {"7" * 32: {"b" * 32: {"d": "WordPress probes", "c": ee.rule_class("WordPress probes"), "k": False}}},
                              now, now - 600, now)
         text2 = ip_intel.evidence_comment(cf[0])
-        self.assertEqual(text2, "probing for exposed files and admin pages: 8 attempts within 10 minutes, "
+        self.assertEqual(text2, "WordPress probing: 8 attempts within 10 minutes, "
                                 "seen by Cloudflare WAF (reported by RemotePower)")
         for t in (text, text2):
             self.assertTrue(t in _flat("docs/ip-intel.md"), f"docs/ip-intel.md does not show: {t!r}")
         self.assertIn("1 attempt within 1 minute", _flat("CHANGELOG.md"))
 
     def test_the_trap_table_is_the_registry(self):
-        """The guide's honeypot table names five groups; every trap kind the
-        vocabulary knows must land in one of them."""
-        groups = {"probe", "bad_bot", "canary", "decoy_login"}
+        """The guide's honeypot table has a row for every class a trap can be filed under; every trap kind the
+        vocabulary knows must land in one of them. Since 8.0.1 a trap says which kind of probing it caught."""
+        groups = {"config_probe", "admin_probe", "wordpress", "user_enum", "host_recon", "decoy_loot",
+                  "bad_bot", "canary", "decoy_login"}
         self.assertEqual({c for c in te.TRAP_KINDS.values() if c}, groups)
-        self.says("Probing for exposed files and admin pages")
+        section = (_ROOT / "docs/ip-intel.md").read_text().split("### The honeypot", 1)[1].split("\n### ", 1)[0]
+        filed = [ln.split("|")[2].strip() for ln in section.splitlines() if ln.startswith("| ") and "Filed as" not in ln]
+        self.assertGreaterEqual(len(filed), 9, "the table's rows")
+        for cls in groups:
+            phrase = te.CLASSES[cls]["phrase"]
+            self.assertTrue(any(cell.lower().startswith(phrase.lower()) for cell in filed), f"no row files a trap as: {phrase}")
+        self.assertFalse(any(cell.lower().startswith(te.CLASSES["probe"]["phrase"]) for cell in filed),
+                         "no trap is filed as probing in general any more")
         self.says("Unwanted web crawling")
         self.says("Using a credential planted in a decoy file")
         self.says("Signing in to a decoy service")

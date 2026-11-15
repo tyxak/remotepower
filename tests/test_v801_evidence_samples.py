@@ -50,6 +50,28 @@ ON_PURPOSE = {
 }
 
 
+# 8.0.1: probing and a service's login got kinds (threat_evidence.FAMILIES). The file above is the list as it was frozen,
+# and these are the names that moved since: each from a general class to one of its own kinds, and no other name moved.
+MOVED = {
+    'aidalinfo/couchdb-bf': ('service_brute', 'db_brute'),
+    'crowdsecurity/mariadb-bf': ('service_brute', 'db_brute'),
+    'crowdsecurity/mssql-bf': ('service_brute', 'db_brute'),
+    'crowdsecurity/mysql-bf': ('service_brute', 'db_brute'),
+    'crowdsecurity/pgsql-bf': ('service_brute', 'db_brute'),
+    'timokoessler/mongodb-bf': ('service_brute', 'db_brute'),
+    'crowdsecurity/smb-bf': ('service_brute', 'smb_brute'),
+    'crowdsecurity/telnet-bf': ('service_brute', 'telnet_brute'),
+    'crowdsecurity/generic-wordpress-uploads-listing': ('probe', 'wordpress'),
+    'crowdsecurity/http-wordpress-scan': ('probe', 'wordpress'),
+    'crowdsecurity/http-admin-interface-probing': ('probe', 'admin_probe'),
+    'crowdsecurity/http-sap-interface-probing': ('probe', 'admin_probe'),
+    'crowdsecurity/http-open-proxy': ('probe', 'proxy_probe'),
+    'crowdsecurity/http-sensitive-files': ('probe', 'config_probe'),
+    'crowdsecurity/http-wordpress_wpconfig': ('probe', 'config_probe'),
+    'crowdsecurity/http-wordpress_user-enum': ('probe', 'user_enum'),
+}
+
+
 def ev(**kw):
     raw = {'ip': IP, 'first': NOW - 600, 'last': NOW}
     raw.update(kw)
@@ -73,10 +95,21 @@ class TestHubMapping(unittest.TestCase):
         self.assertGreater(len(self.rows), 450)
         self.assertEqual(len({n for n, _c in self.rows}), len(self.rows), 'a name twice')
 
-    def test_every_name_keeps_the_class_it_had(self):
-        moved = [(n, c, te.scenario_class(n)) for n, c in self.rows
-                 if te.scenario_class(n) != (None if c == '-' else c)]
-        self.assertEqual(moved, [])
+    def test_every_name_keeps_the_class_it_had_or_moved_to_a_kind_of_it(self):
+        moved = {n: (None if c == '-' else c, te.scenario_class(n)) for n, c in self.rows
+                 if te.scenario_class(n) != (None if c == '-' else c)}
+        self.assertEqual(moved, MOVED)
+        self.assertEqual(len(MOVED), 16)
+        for name, (old, new) in MOVED.items():
+            self.assertIn(new, te.FAMILIES.get(old, ()), f'{name}: {old} to {new} is not a general class to one of its kinds')
+
+    def test_a_name_that_looks_like_a_moved_one_gains_nothing(self):
+        """The rules that name a kind are as narrow as the names they were written for: a scan of a database is not
+        a brute force of one, and a name with no class before has none now."""
+        for name in ('acme/mssql-scan', 'acme/sap-interface', 'aidalinfo/couchdb-crawl', 'acme/couchdb-sync'):
+            self.assertIsNone(te.scenario_class(name), name)
+        self.assertEqual(te.scenario_class('acme/mysql-scan'), 'db_brute',
+                         'the control: "mysql" was a service login before, so it is a database login now')
 
     def test_what_stays_unmapped_is_listed_with_its_reason(self):
         unmapped = {n for n, c in self.rows if c == '-'}
@@ -87,7 +120,7 @@ class TestHubMapping(unittest.TestCase):
 
     def test_the_names_the_stuck_addresses_needed(self):
         want = {
-            'crowdsecurity/generic-wordpress-uploads-listing': 'probe',
+            'crowdsecurity/generic-wordpress-uploads-listing': 'wordpress',     # a kind of probing since 8.0.1
             'crowdsecurity/generic-wordpress-uploads-php': 'rce',
             'crowdsecurity/generic-freemarker-ssti': 'rce',
             'crowdsecurity/base-config': 'waf',
@@ -98,7 +131,7 @@ class TestHubMapping(unittest.TestCase):
 
     def test_the_scan_names(self):
         want = {
-            'ltsich/http-w00tw00t': 'probe', 'crowdsecurity/http-wordpress_wpconfig': 'probe',
+            'ltsich/http-w00tw00t': 'probe', 'crowdsecurity/http-wordpress_wpconfig': 'config_probe',
             'PumbaLP/cowrie-precision': 'service_brute', 'corvese/apache-guacamole_bf': 'service_brute',
             'corvese/apache-guacamole_user_enum': 'service_brute',
             'crowdsecurity/vmware-vcenter-vmsa-2021-0027': 'rce', 'barnoux/crs-anomaly-score': 'waf',
@@ -337,7 +370,7 @@ class TestWhyNothingWasReported(unittest.TestCase):
 
     def test_a_mapped_scenario_reports(self):
         e = ev(src={'cs': 1}, tok={'cs': {'cs:crowdsecurity/generic-wordpress-uploads-listing': 1}}, dec=1)
-        self.assertEqual(te.classes(e), {'probe': 1})
+        self.assertEqual(te.classes(e), {'wordpress': 1})
         self.assertEqual(te.qualifies(e, 10), (True, 'confirmed by CrowdSec'))
 
     def test_an_unmapped_jail_is_named(self):

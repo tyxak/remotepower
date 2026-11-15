@@ -413,9 +413,10 @@ class TestTheAddressesThatWereStuck(_Base):
         self.agent._ts_cscli_alerts(json.dumps([cs_alert(11, scenario, A1, events=1, e=NOW - 39)]), agg, NOW, 0)
         return te.normalize_event(self.by_ip(agg)[A1], now=NOW)
 
-    def test_the_uploads_listing_rule_is_a_probe_and_reports(self):
+    def test_the_uploads_listing_rule_is_wordpress_probing_and_reports(self):
         ev = self.stuck('crowdsecurity/generic-wordpress-uploads-listing')
-        self.assertEqual(te.classes(ev), {'probe': 1})
+        self.assertEqual(te.classes(ev), {'wordpress': 1})
+        self.assertEqual(te.attack_phrase(ev), 'WordPress probing', 'a kind of probing, named')
         self.assertEqual(te.qualifies(ev, 10), (True, 'confirmed by CrowdSec'))
         self.assertEqual([s['p'] for s in ev['smp']], [SRCSET_CLEAN])
 

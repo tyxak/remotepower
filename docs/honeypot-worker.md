@@ -260,16 +260,16 @@ RemotePower reads the log every ten minutes unless you changed it, and files eac
 
 | `kind` | The visitor asked for | Filed as |
 |---|---|---|
-| `bait` | A file that should never be public: `.env`, `.git`, `.aws`, `.ssh`, SQL dumps, `actuator`, `phpunit` | Probing for exposed files and admin pages |
-| `login` | A login or admin page your site does not have | Probing for exposed files and admin pages |
+| `bait` | A file that should never be public: `.env`, `.git`, `.aws`, `.ssh`, SQL dumps, `actuator`, `phpunit` | Probing for configuration files, keys and backups |
+| `login` | A login or admin page your site does not have | Probing for admin, login and debug pages |
 
 One hit on a `bait` path is enough to report an address, because nobody innocent asks for `.env` or a database dump ([Edge sources](edge-sources.md#step-3-enter-it-in-remotepower) has the setting). A hit on a `login` path counts as one attempt, and an address is reported when its hits reach **Report after attempts**, which is 10 unless you changed it ([Limits on API use](ip-intel.md#limits-on-api-use)). Until then the attackers list says how far it is, for example `not reported: 9 / 10 attempts so far`. A report reads:
 
 ```
-probing for exposed files and admin pages: 12 attempts within 3 minutes, seen by edge honeypot (reported by RemotePower)
+probing for configuration files, keys and backups and probing for admin, login and debug pages: 12 attempts within 3 minutes, seen by edge honeypot (reported by RemotePower)
 ```
 
-The report names counts and the kind of attack. The path, the user agent and the rest of the line stay in your log and are never sent. Lines marked `allowlisted` are set aside.
+The report names counts and the kind of attack. RemotePower also keeps the method and path of up to three requests per address as samples, so the details of an address show what it asked for; untick **Send up to three request samples with each address** in the **Log sensor** card to stop that. A report carries them only when you tick **Add a few example requests to reports** ([What is sent](ip-intel.md#what-is-sent)). The user agent, the host name and the rest of the line stay in your log and are never read. Lines marked `allowlisted` are set aside.
 
 This Worker never bans, so it never writes the actions that make RemotePower report at once. If you add banning to it, log `banned`, `already-banned` or `already-blocked-elsewhere` for a ban. [The honeypot Worker log](edge-sources.md#the-honeypot-worker-log) lists what each action means.
 

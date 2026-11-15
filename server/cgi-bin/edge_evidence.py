@@ -17,10 +17,14 @@ This module is the pure half: request building, response parsing, and the
 reduction to `threat_evidence` summaries. It never opens a socket. The caller
 (edge_intel_handlers.py) passes the HTTP in, as ip_intel does.
 
-What it keeps: the address, a count, a mechanism or trap kind, and a time. What
-it never keeps: paths, query strings, user agents, host names and notes. Those
-are typed by the attacker, and a report is public. A rule's description is the
-operator's own text; it is read here only to pick a class and is never copied.
+What it keeps: the address, a count, a mechanism or trap kind, and a time. From
+8.0.1 it also keeps up to three SAMPLES per address, when the operator's samples
+setting is on: the method and the path of a request the edge refused or the
+honeypot answered, each rebuilt by threat_evidence.normalize_sample (a short safe
+alphabet, no query string), as a host's sensor sends them. What it never keeps:
+query strings, user agents, host names and notes. Those are typed by the attacker,
+and a report is public. A rule's description is the operator's own text; it is
+read here only to pick a class and is never copied.
 """
 
 import calendar
@@ -78,21 +82,38 @@ _NOT_EVENTS = (
 )
 
 # What the operator wrote in a custom rule's description, to a class. Used only
-# to choose a class; the text is never copied anywhere.
+# to choose a class; the text is never copied anywhere. The first rule that matches
+# wins, so the order is part of the table:
+#   * an attack by name comes first, and "sql" has to be followed by "injection" (or be
+#     "sqli"): a rule that lists the files it blocks says ".sql", and that read as SQL
+#     injection until 8.0.1. "command injection" and "code injection" are code execution;
+#     any other "... injection" names no class. No other word was added to an attack's row:
+#     a word like "exploit" in a rule about files would file a request for /.env as remote
+#     code execution, and take it out from under an ignore list that held it back as probing;
+#   * the private-host rule comes before the admin one, because its description says who
+#     may pass ("non-admin");
+#   * user enumeration comes before WordPress, because it names /wp-json/;
+#   * `probe` is last: a rule that only says it blocks probes.
 _RULE_WORDS = tuple(
     (cls, re.compile(rx))
     for cls, rx in (
-        ("sqli", r"\bsql|sqli|injection"),
+        ("sqli", r"sqli|sql[ _-]?injection"),
         ("xss", r"\bxss\b|cross-?site"),
         ("traversal", r"travers|\blfi\b|\brfi\b"),
-        ("rce", r"\brce\b|remote code|command exec|webshell|log4"),
+        ("rce", r"\brce\b|remote code|command exec|webshell|log4|(?:command|code)[ _-]?injection"),
         ("flood", r"\brate\b|rate-?limit|flood|\bdos\b"),
         ("scanner", r"scanner|\bscan\b|nikto|nmap|vulnerab"),
+        ("host_recon", r"private host|fw_private|internal host"),
+        ("user_enum", r"enumerat"),
+        ("wordpress", r"wp-|wordpress|xmlrpc"),
         (
-            "probe",
-            r"probe|sensitive|backup|dump|wp-|wordpress|xmlrpc|admin|phpmyadmin|adminer|"
-            r"disclosure|dotfile|\.env|\.git|enumerat|unusual|method|private host|fw_private",
+            "config_probe",
+            r"sensitive|backup|dump|dotfile|\.env|\.git|\.sql|\.bak|credential|secret",
         ),
+        ("admin_probe", r"admin|adminer|\bpma\b|cpanel"),
+        ("method_probe", r"unusual|\bmethods?\b"),
+        # "disclosure" stays general: a rule against version disclosure blocks a readme, not a key
+        ("probe", r"probe|probing|disclosure"),
     )
 )
 _LIST_REF_RE = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*")
@@ -122,6 +143,16 @@ _TRAP_TOKEN = {
 
 MAX_ROWS = 10000
 MAX_EVENTS = 2500  # single events one zone's read carries, as cf-sniffcat's default
+# What a single-event read asks for beyond the four fields a refusal is counted by, when the
+# operator's samples setting is on: where the request went, when, and how. Cloudflare's own
+# tutorial for this dataset shows the first two; the method's name is not on a page that was
+# read, so the caller asks in tiers and settles for the first one Cloudflare accepts.
+EVENT_EXTRA_TIERS = (
+    ("clientRequestPath", "datetime", "clientRequestHTTPMethodName"),
+    ("clientRequestPath", "datetime"),
+    (),
+)
+_EVENT_EXTRAS = frozenset(EVENT_EXTRA_TIERS[0])
 TRAP_LINES = 1000  # log lines one Worker's read carries
 MAX_ZONES = 50
 MAX_WORKERS = 3
@@ -209,15 +240,16 @@ def firewall_request(token, zone_ids, since, until, limit=MAX_ROWS):
     }
 
 
-def events_request(token, zone_ids, since, until, limit=MAX_EVENTS):
+def events_request(token, zone_ids, since, until, limit=MAX_EVENTS, extra=()):
     """The same facts as firewall_request, read one event at a time from
     `firewallEventsAdaptive`. A Free zone is refused the grouped dataset and can
     read this one, which is the dataset cf-sniffcat reads on the same zones.
 
-    Four fields are asked for and no others, so the response carries no path, query
-    string, host or user agent here either. Events that were allowed, skipped or
-    answered by a person are left out by the query (`_NOT_EVENTS`); the rest are
-    grouped by the parser."""
+    Four fields are asked for, plus the ones in `extra` (one of EVENT_EXTRA_TIERS:
+    the path, the time and the method, for samples). The response never carries a
+    query string, a host or a user agent: none of those is ever asked for. Events
+    that were allowed, skipped or answered by a person are left out by the query
+    (`_NOT_EVENTS`); the rest are grouped by the parser."""
     zones = [z for z in zone_ids if valid_id(z)][:MAX_ZONES]
     if not zones:
         raise ValueError("no zone id")
@@ -227,11 +259,14 @@ def events_request(token, zone_ids, since, until, limit=MAX_EVENTS):
         which = "zoneTag_in: [%s]" % ", ".join('"%s"' % z for z in zones)
     n = max(1, min(MAX_EVENTS, int(limit)))
     skip = ", ".join('{action_neq: "%s"}' % a for a in _NOT_EVENTS)
+    # only names from the fixed list reach the query, in the list's own order
+    more = "".join(" " + f for f in EVENT_EXTRA_TIERS[0] if f in extra and f in _EVENT_EXTRAS)
     query = (
         "query { viewer { zones(filter: {%s}) { zoneTag"
         " firewallEventsAdaptive(limit: %d, orderBy: [datetime_DESC],"
         ' filter: {datetime_geq: "%s", datetime_lt: "%s", AND: [%s]}) {'
-        " clientIP action source ruleId } } } }" % (which, n, _iso(since), _iso(until), skip)
+        " clientIP action source ruleId%s } } } }"
+        % (which, n, _iso(since), _iso(until), skip, more)
     )
     return {
         "method": "POST",
@@ -291,7 +326,12 @@ def _cf_error(status, body):
     'dataset' is Cloudflare saying a zone has no access to a GraphQL field. That
     sentence names the ZONE, not the token, and it is what a missing Analytics
     permission and a plan without the dataset both produce, so it is kept apart
-    from 'auth' and never worded as one of the two."""
+    from 'auth' and never worded as one of the two.
+
+    'query' is Cloudflare answering that it will not run the query as written: an
+    error list on an answer that is not a refusal of the token, a rate limit or a
+    failure on its side. A read that asked for more fields than the four it needs
+    asks again for fewer when it sees this (EVENT_EXTRA_TIERS)."""
     msg = ""
     if isinstance(body, dict):
         errs = body.get("errors")
@@ -323,6 +363,8 @@ def _cf_error(status, body):
         return {"ok": False, "error": msg or "unreachable"}
     if status == 429:
         return {"ok": False, "error": "rate limited by Cloudflare"}
+    if msg and status < 500:
+        return {"ok": False, "query": True, "error": msg}
     return {"ok": False, "error": msg or f"HTTP {status}"}
 
 
@@ -404,7 +446,14 @@ def parse_firewall(status, body):
 def parse_events(status, body, limit=MAX_EVENTS):
     """The rows parse_firewall returns, built from single events: one per address,
     action, source and rule, with the number of events behind it. `limit` is what
-    the request asked for per zone; a zone that came back full is flagged."""
+    the request asked for per zone; a zone that came back full is flagged.
+
+    When the read asked for them (EVENT_EXTRA_TIERS) a row also carries `first` and
+    `last`, the times of its earliest and latest event, and `smp`, up to
+    threat_evidence.MAX_SAMPLES requests as {'m', 'p', 't'}. The path and the method
+    are kept as Cloudflare sent them, cut to a length; they are the visitor's text
+    and nothing here reads them. threat_evidence.normalize_sample rebuilds each one
+    before it is stored."""
     if not isinstance(body, dict) or body.get("errors") or status != 200:
         return _cf_error(status, body)
     zones = ((body.get("data") or {}).get("viewer") or {}).get("zones")
@@ -425,18 +474,35 @@ def parse_events(status, body, limit=MAX_EVENTS):
                 str(e.get("source") or "").lower(),
                 str(e.get("ruleId") or ""),
             )
-            seen[key] = seen.get(key, 0) + 1
-        for (ip, action, source, rule), n in seen.items():
-            rows.append(
-                {
-                    "zone": str(z.get("zoneTag") or ""),
-                    "ip": ip,
-                    "action": action,
-                    "source": source,
-                    "rule": rule,
-                    "count": n,
-                }
-            )
+            g = seen.setdefault(key, {"n": 0, "first": 0, "last": 0, "smp": []})
+            g["n"] += 1
+            at = _epoch(e.get("datetime"))
+            if at:
+                g["first"] = at if not g["first"] else min(g["first"], at)
+                g["last"] = max(g["last"], at)
+            path = e.get("clientRequestPath")
+            if isinstance(path, str) and path and len(g["smp"]) < threat_evidence.MAX_SAMPLES * 4:
+                g["smp"].append(
+                    {
+                        "m": str(e.get("clientRequestHTTPMethodName") or "").upper()[:10],
+                        "p": path[:2048],
+                        "t": at,
+                    }
+                )
+        for (ip, action, source, rule), g in seen.items():
+            row = {
+                "zone": str(z.get("zoneTag") or ""),
+                "ip": ip,
+                "action": action,
+                "source": source,
+                "rule": rule,
+                "count": g["n"],
+            }
+            if g["first"]:
+                row["first"], row["last"] = g["first"], g["last"]
+            if g["smp"]:
+                row["smp"] = g["smp"]
+            rows.append(row)
     return {"ok": True, "rows": rows, "truncated": truncated}
 
 
@@ -465,9 +531,11 @@ def _log_object(event):
 
 
 def parse_trap(status, body, limit=TRAP_LINES):
-    """{'ok': True, 'hits': [{kind, ip, action, at}], 'truncated': bool}. A read that
-    came back with as many lines as it asked for is flagged, because the Worker may
-    have logged more than that in the window."""
+    """{'ok': True, 'hits': [{kind, ip, action, at, method, path}], 'truncated': bool}.
+    A read that came back with as many lines as it asked for is flagged, because the
+    Worker may have logged more than that in the window. `method` and `path` are the
+    visitor's text, cut to a length and read by nothing here; they become a sample
+    only through threat_evidence.normalize_sample."""
     if status != 200 or not isinstance(body, dict) or body.get("success") is False:
         return _cf_error(status, body)
     res = body.get("result")
@@ -492,6 +560,8 @@ def parse_trap(status, body, limit=TRAP_LINES):
                     or _epoch(o.get("timestamp"))
                     or _epoch(meta.get("timestamp"))
                 ),
+                "method": str(o.get("method") or "").upper()[:10],
+                "path": str(o.get("path") or "")[:2048],
             }
         )
     return {"ok": True, "hits": hits, "truncated": len(events) >= limit}
@@ -517,11 +587,33 @@ def _epoch(value):
 # ── reduction to evidence ──────────────────────────────────────────────────────
 
 
-def cf_events(rows, rules=None, now=None, since=None, until=None, include_carriers=False):
-    """(events, stats). `rows` come from parse_firewall; `rules` is
+def _keep_samples(e, family, found):
+    """Add `found` ({'m', 'p', 't'} as a reader made them) to an address's samples under
+    `family`. A few more than the vocabulary keeps are held here, so a repeated path does
+    not crowd the others out; normalize_event rebuilds each one and keeps the first three."""
+    smp = e.setdefault("smp", [])
+    for f in found:
+        if len(smp) >= threat_evidence.MAX_SAMPLES * 4:
+            break
+        # a time that was not read is left out (None), so the sample is stamped with the read's own time
+        smp.append(
+            {"f": family, "m": f.get("m") or "", "p": f.get("p") or "", "c": 0, "t": f.get("t") or None}
+        )
+
+
+def cf_events(
+    rows, rules=None, now=None, since=None, until=None, include_carriers=False, samples=False
+):
+    """(events, stats). `rows` come from parse_firewall or parse_events; `rules` is
     {zone_id: {rule_id: {...}}} from parse_rules, or None when it could not be
     read (a rule is then taken as it is). `stats` counts what was dropped and
-    why, with keys from a fixed list, so the page can say it."""
+    why, with keys from a fixed list, so the page can say it.
+
+    A custom rule the operator described gets the class its description points at
+    (rule_class); any other refusal is named by its mechanism. Rows read one event at
+    a time carry the events' own times, which become the address's first and last
+    sighting; a grouped read has only the window it asked for. `samples` (the
+    operator's setting) keeps what the rows hold of the requests themselves."""
     now = int(now or time.time())
     rules = rules or {}
     stats = {"rows": len(rows), "kept": 0, "ignored": {}}
@@ -555,23 +647,29 @@ def cf_events(rows, rules=None, now=None, since=None, until=None, include_carrie
             # community blocklist, which is not something they did to us.
             drop("list_rule", n)
             continue
-        token, fam_count = None, 0 if kind in _CF_WEAK else n
+        fam_count = 0 if kind in _CF_WEAK else n
         cls = rule.get("c") if kind == "custom" else ""
-        if cls in ("sqli", "xss", "traversal", "rce", "probe", "scanner", "flood"):
-            token = "req:" + cls
-        else:
-            token = "cf:" + kind
-        e = per_ip.setdefault(ip, {"ip": ip, "src": {}, "tok": {"cf": {}}, "blk": 0})
+        token = (threat_evidence.req_token(cls) if cls else None) or ("cf:" + kind)
+        e = per_ip.setdefault(
+            ip, {"ip": ip, "src": {}, "tok": {"cf": {}}, "blk": 0, "first": 0, "last": 0}
+        )
         e["tok"]["cf"][token] = e["tok"]["cf"].get(token, 0) + n
         if fam_count:
             e["src"]["cf"] = e["src"].get("cf", 0) + fam_count
         e["blk"] += n
+        at_first, at_last = _int(r.get("first")), _int(r.get("last"))
+        if at_first and at_last:
+            e["first"] = at_first if not e["first"] else min(e["first"], at_first)
+            e["last"] = max(e["last"], at_last)
+        if samples and isinstance(r.get("smp"), list):
+            _keep_samples(e, "cf", [f for f in r["smp"] if isinstance(f, dict)])
         stats["kept"] += n
     first = int(since or now - 600)
     last = int(until or now)
     out = []
     for e in per_ip.values():
-        e["first"], e["last"] = first, last
+        # the events' own times when the read carried them, else the window that was asked for
+        e["first"], e["last"] = (e["first"] or first), (e["last"] or last)
         ev = threat_evidence.normalize_event(e, now=now, families=threat_evidence.EDGE_SOURCES)
         if ev is not None:
             out.append(ev)
@@ -589,14 +687,16 @@ PLANTED_TOKENS = ("canary", "decoylogin")
 BAIT_TOKENS = ("bait", "wpprobe", "wpenum", "decoy", "gitdump")
 
 
-def trap_events(hits, now=None, decided_tokens=()):
+def trap_events(hits, now=None, decided_tokens=(), samples=False):
     """(events, stats). One summary per address: hits per trap kind, and the
     Worker's decision when it banned the address. Each log line is one hit. The
     Worker samples the lines of a source it can never ban, so a flood is
     undercounted here, never overstated.
 
     `decided_tokens` are trap kinds that count as decided on a single hit, banned
-    or not (see PLANTED_TOKENS); the default is the Worker's own word only."""
+    or not (see PLANTED_TOKENS); the default is the Worker's own word only.
+    `samples` (the operator's setting) keeps the method and path the Worker logged
+    with a hit, as up to three samples per address."""
     now = int(now or time.time())
     stats = {"hits": len(hits), "kept": 0, "ignored": {}}
     per_ip = {}
@@ -632,6 +732,8 @@ def trap_events(hits, now=None, decided_tokens=()):
         if at:
             e["first"] = at if not e["first"] else min(e["first"], at)
             e["last"] = max(e["last"], at)
+        if samples and h.get("path"):
+            _keep_samples(e, "trap", [{"m": h.get("method"), "p": h.get("path"), "t": at}])
         stats["kept"] += 1
     out = []
     for e in per_ip.values():

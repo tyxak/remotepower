@@ -289,7 +289,9 @@ class TestRemotePowerReadsWhatItPrints(unittest.TestCase):
         self.assertEqual(ev['ip'], ATK)
         self.assertEqual(ev['tok']['trap'], {'trap:bait': 8, 'trap:login': 4})
         self.assertEqual(ev['trp'], 0)               # the script never decides, so nothing is "banned"
-        self.assertIn('probe', te.classes(ev))
+        # 8.0.1: each trap names its kind of probing
+        self.assertEqual(te.classes(ev), {'config_probe': 8, 'admin_probe': 4})
+        self.assertTrue(set(te.classes(ev)) <= set(te.FAMILIES['probe']))
 
     def test_an_allowlisted_line_is_set_aside_and_a_documentation_address_is_not_public(self):
         evs, st = ee.trap_events(ee.parse_trap(200, self.wrap(self.lines))['hits'], now=NOW + 400)

@@ -17,13 +17,38 @@ const _ipiOpen = new Set();
 const _IPI_CLASS = {
   ssh_brute: 'SSH brute force', login_brute: 'login brute force', sqli: 'SQL injection',
   xss: 'cross-site scripting', traversal: 'path traversal', rce: 'remote code execution attempts',
-  probe: 'probing for exposed files and admin pages', scanner: 'vulnerability scanning',
+  probe: 'probing for exposed files and admin pages',
+  config_probe: 'probing for configuration files, keys and backups',
+  admin_probe: 'probing for admin, login and debug pages', wordpress: 'WordPress probing',
+  user_enum: 'user enumeration', proxy_probe: 'open proxy probing', host_recon: 'probing private host names',
+  method_probe: 'probing with unusual HTTP methods',
+  decoy_loot: 'downloading files from a decoy backup or repository', scanner: 'vulnerability scanning',
   flood: 'request flooding', bad_bot: 'unwanted web crawling',
   waf: 'requests blocked by a web application firewall', mail_brute: 'mail login brute force',
-  ftp_brute: 'FTP brute force', service_brute: 'service login brute force', port_scan: 'port scanning',
+  ftp_brute: 'FTP brute force', service_brute: 'service login brute force',
+  rdp_brute: 'RDP brute force', smb_brute: 'SMB brute force', telnet_brute: 'Telnet brute force',
+  db_brute: 'database login brute force', port_scan: 'port scanning',
   canary: 'using a credential planted in a decoy file', decoy_login: 'signing in to a decoy service',
   ddos: 'HTTP request flooding', decoy_port: 'connecting to a decoy port',
 };
+// A general kind of attack and the finer kinds of it, as threat_evidence.FAMILIES on the server has them
+// (tests/test_v801_attack_classes.py keeps the two in step). Ignoring the general kind ignores its kinds.
+const _IPI_FAMILY = {
+  probe: ['config_probe', 'admin_probe', 'wordpress', 'user_enum', 'proxy_probe', 'host_recon', 'method_probe', 'decoy_loot'],
+  service_brute: ['rdp_brute', 'smb_brute', 'telnet_brute', 'db_brute'],
+};
+// What the Cloudflare read could say about the requests themselves, when it was not everything. The keys are
+// what edge_intel_handlers.py sends as `samples` (the least any zone gave); 'full' needs no sentence.
+const _IPI_FEED_SAMPLES = {
+  path: 'Cloudflare did not give the method of a request for a zone, so a sample from it shows the path only.',
+  none: 'Cloudflare refused the request fields for a zone, so addresses seen there carry no request samples.',
+  grouped: 'A zone is read through the grouped view, which carries no request, so addresses seen there carry no request samples.',
+};
+// The sentence for a `samples` value, or ''. Only the table's own keys count: a value from a damaged store
+// ("constructor") would otherwise find something on the table's prototype and print it.
+function _ipiFeedSamples(v) {
+  return (typeof v === 'string' && Object.prototype.hasOwnProperty.call(_IPI_FEED_SAMPLES, v)) ? _IPI_FEED_SAMPLES[v] : '';
+}
 const _IPI_SOURCE = {
   web: 'Web server log', err: 'Web server error log', waf: 'WAF audit log',
   f2b: 'fail2ban log', cs: 'CrowdSec alerts', fw: 'Firewall log',
@@ -474,19 +499,52 @@ function _ipiClassName(id) { return _IPI_CLASS[id] || String(id); }
 
 // The kinds of attack that can be ignored, as checkboxes. The names are the ones the page
 // already uses for the Evidence column, so each is a phrase the language engine translates.
+// The kinds that stand alone come first; each general kind follows on a row of its own with its
+// finer kinds under it. A ticked general kind covers its kinds on the server, so the page shows
+// them ticked and locked, and remembers which of them were ticked on their own.
 function _ipiRenderIgnoreClasses(selected) {
   const box = document.getElementById('ipintel-ignore-classes');
   if (!box) return;
   const on = new Set(selected || []);
-  box.innerHTML = Object.keys(_IPI_CLASS).map(id =>
-    `<label class="ipi-ignore-class"><input type="checkbox" data-ipi-class="${escAttr(id)}"${on.has(id) ? ' checked' : ''}> ` +
-    `${_ipiPhrase(_IPI_CLASS[id])}</label>`).join('');
+  // a family counts only when its general kind has a label: without one its kinds are drawn as kinds on their own
+  const general = {};
+  for (const [g, kinds] of Object.entries(_IPI_FAMILY)) if (_IPI_CLASS[g]) for (const k of kinds) general[k] = g;
+  const boxFor = (id) => {
+    const g = general[id];
+    const covered = !!(g && on.has(g));
+    const cls = g ? ' ipi-ignore-kind' + (covered ? ' ipi-ignore-covered' : '') : (_IPI_FAMILY[id] ? ' ipi-ignore-general' : '');
+    return `<label class="ipi-ignore-class${cls}"><input type="checkbox" data-ipi-class="${escAttr(id)}"` +
+      (g ? ` data-ipi-general="${escAttr(g)}" data-ipi-own="${on.has(id) ? '1' : '0'}"` : '') +
+      `${(on.has(id) || covered) ? ' checked' : ''}${covered ? ' disabled' : ''}> ${_ipiPhrase(_IPI_CLASS[id])}</label>`;
+  };
+  const alone = Object.keys(_IPI_CLASS).filter(id => !general[id] && !Object.prototype.hasOwnProperty.call(_IPI_FAMILY, id));
+  const families = Object.keys(_IPI_FAMILY).filter(g => _IPI_CLASS[g]).map(g =>
+    boxFor(g) + _IPI_FAMILY[g].filter(k => _IPI_CLASS[k]).map(boxFor).join(''));
+  box.innerHTML = alone.map(boxFor).join('') + families.join('');
+  if (!box.dataset.ipiWired) {
+    box.dataset.ipiWired = '1';
+    box.addEventListener('change', (ev) => {
+      const t = ev.target;
+      if (!t || !t.dataset || !t.dataset.ipiClass) return;
+      if (t.dataset.ipiGeneral) { t.dataset.ipiOwn = t.checked ? '1' : '0'; return; }
+      for (const k of box.querySelectorAll('input[data-ipi-general]')) {
+        if (k.dataset.ipiGeneral !== t.dataset.ipiClass) continue;
+        k.disabled = t.checked;
+        k.checked = t.checked || k.dataset.ipiOwn === '1';
+        // a kind that is only ticked because its general kind covers it reads as locked
+        if (k.parentElement && k.parentElement.classList) k.parentElement.classList.toggle('ipi-ignore-covered', t.checked);
+      }
+    });
+  }
 }
 
+// What is saved: a general kind that is ticked, and a finer kind that was ticked on its own
+// (not one that only shows as ticked because its general kind covers it).
 function _ipiIgnoredClasses() {
   const box = document.getElementById('ipintel-ignore-classes');
   if (!box) return [];
-  return [...box.querySelectorAll('input[data-ipi-class]')].filter(i => i.checked).map(i => i.dataset.ipiClass);
+  return [...box.querySelectorAll('input[data-ipi-class]')]
+    .filter(i => (i.dataset.ipiGeneral ? i.dataset.ipiOwn === '1' : i.checked)).map(i => i.dataset.ipiClass);
 }
 
 // Plain text for filtering: what the logs showed, in the words the page uses.
@@ -826,7 +884,7 @@ function _ipiRenderEdge() {
     const asideHtml = r.aside.map(([k, n]) => `${_ipiPhrase(_IPI_ASIDE[k] || k)} ×${escHtml(String(n))}`).join(', ');
     return `<tr>
       <td>${_ipiPhrase(_IPI_FEED[r.feed])}${(f.zones || []).length ? `<div class="hint fs-11">${(f.zones || []).slice(0, 6).map(z => escHtml(z.name)).join(', ')}</div>` : ''}</td>
-      <td class="${_IPI_FEED_STATE_CLASS[r.key] || 'hint'}">${_ipiPhrase(_IPI_FEED_STATE[r.key] || r.key)}${f.error ? `<div class="hint fs-11">${escHtml(f.error)}</div>` : ''}${r.key === 'ok' && f.mode && f.mode !== 'groups' ? `<div class="hint fs-11">${_ipiPhrase('Cloudflare refused the grouped view, so the events are read one at a time.')}</div>` : ''}</td>
+      <td class="${_IPI_FEED_STATE_CLASS[r.key] || 'hint'}">${_ipiPhrase(_IPI_FEED_STATE[r.key] || r.key)}${f.error ? `<div class="hint fs-11">${escHtml(f.error)}</div>` : ''}${r.key === 'ok' && f.mode && f.mode !== 'groups' ? `<div class="hint fs-11">${_ipiPhrase('Cloudflare refused the grouped view, so the events are read one at a time.')}</div>` : ''}${r.key === 'ok' && _ipiFeedSamples(f.samples) ? `<div class="hint fs-11">${_ipiPhrase(_ipiFeedSamples(f.samples))}</div>` : ''}</td>
       <td>${on && f.at ? timeAgoHtml(f.at) : ''}</td>
       <td>${escHtml(String(f.rows ?? f.hits ?? 0))}</td>
       <td>${escHtml(String(f.kept || 0))}</td>
@@ -870,7 +928,7 @@ function _ipiRenderRequests() {
       <td class="ff-mono fs-11">${escHtml(String(r.ip || ''))}</td>
       <td class="${_IPI_REQ_CLASS[r.result] || 'hint'}">${r.status ? escHtml(String(r.status)) : '–'} ${_ipiPhrase(_IPI_REQ_RESULT[r.result] || String(r.result || ''))}</td>
       <td>${r.op === 'received' ? '' : escHtml(String(r.ms || 0)) + ' ms'}</td>
-      <td class="hint fs-11">${escHtml(String(r.note || ''))}</td>
+      <td class="hint fs-11">${Array.isArray(r.cats) && r.cats.length ? `${_ipiPhrase('categories')} ${escHtml(r.cats.join(', '))}${r.note ? ' · ' : ''}` : ''}${escHtml(String(r.note || ''))}</td>
     </tr>`).join('');
 }
 

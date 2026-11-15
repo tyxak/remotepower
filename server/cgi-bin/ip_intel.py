@@ -728,7 +728,8 @@ def ignore_reason(ip, nets, kinds, ignored):
     it is reported as usual. Both are fixed phrases (the page translates them)."""
     if nets and in_any(ip, nets):
         return 'on the ignore list'
-    if ignored and kinds and set(kinds) <= set(ignored):
+    # A general class covers its finer kinds: "probing" was every kind of probing before the kinds had names.
+    if ignored and kinds and set(kinds) <= threat_evidence.with_kinds(ignored):
         return 'only attacks you ignore'
     return ''
 

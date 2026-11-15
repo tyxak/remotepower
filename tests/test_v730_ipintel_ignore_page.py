@@ -15,12 +15,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from html import unescape
 from pathlib import Path
 
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v730-ignorepage-'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'))
 
+import ip_intel  # noqa: E402
 import srcpin  # noqa: E402
 import threat_evidence  # noqa: E402
 from test_v710_i18n_glue import dict_rows  # noqa: E402
@@ -46,14 +48,60 @@ def _line(name):
     return m.group(0)
 
 
+# The box that holds the ignore list, as much of a DOM node as the page uses (8.0.1: the list is drawn in groups, so the
+# page keeps state on the boxes and listens for `change`). Setting innerHTML makes one object per <input> with its data-*
+# attributes, checked and disabled, and querySelectorAll hands those same objects out, so what the listener changes is what
+# the next read sees. click() is what a click does: a locked box stays as it is and nothing hears of it, any other flips
+# and the list hears `change`. A selector or a listener the stub does not model stops the run instead of answering nothing.
+_IGNORE_BOX = r'''
+function ignoreBox() {
+  let html = '', inputs = [];
+  const camel = s => s.replace(/-([a-z])/g, (m, c) => c.toUpperCase());
+  const ids = keep => inputs.filter(keep).map(i => i.dataset.ipiClass);
+  return {
+    dataset: {}, changes: [],
+    get innerHTML() { return html; },
+    set innerHTML(v) {
+      html = String(v);
+      inputs = [...html.matchAll(/<input ([^>]*)>/g)].map(m => {
+        const at = Object.fromEntries([...m[1].matchAll(/([a-z-]+)(?:="([^"]*)")?/g)].map(a => [a[1], a[2] ?? '']));
+        const dataset = {};
+        for (const [k, v] of Object.entries(at)) if (k.startsWith('data-')) dataset[camel(k.slice(5))] = v;
+        return {dataset, checked: 'checked' in at, disabled: 'disabled' in at};
+      });
+    },
+    addEventListener(type, fn) {
+      if (type !== 'change') throw new Error('the stub does not model a ' + type + ' listener');
+      this.changes.push(fn);
+    },
+    querySelectorAll(sel) {
+      const m = /^input\[data-([a-z-]+)\]$/.exec(sel);
+      if (!m) throw new Error('the stub does not model the selector ' + sel);
+      return inputs.filter(i => camel(m[1]) in i.dataset);
+    },
+    click(id) {
+      const i = inputs.find(x => x.dataset.ipiClass === id);
+      if (!i) throw new Error('no box for ' + id);
+      if (i.disabled) return false;
+      i.checked = !i.checked;
+      for (const fn of this.changes) fn({target: i});
+      return true;
+    },
+    state() { return {ticked: ids(i => i.checked), locked: ids(i => i.disabled), own: ids(i => i.dataset.ipiOwn === '1')}; },
+  };
+}
+'''
+
+
 def node(script, timeout=30):
     esc = re.search(r'^function escHtml\(.*$', _APP, re.M).group(0)
     esca = re.search(r'^function escAttr\(.*$', _APP, re.M).group(0)
     parts = [
-        esc, esca, _const('_IPI_CLASS'), _const('_IPI_IGNORE_WORD'), _const('_IPI_IGNORE_DIALOG'),
+        esc, esca, _const('_IPI_CLASS'), _const('_IPI_FAMILY'), _const('_IPI_IGNORE_WORD'), _const('_IPI_IGNORE_DIALOG'),
         _const('_IPI_MORE_WORD'), _line('_IPI_ROW_STEP'), _line('_IPI_ROW_MAX'), _line('_ipiRowLimit'),
         'const els = {}; const mk = id => (els[id] = els[id] || {innerHTML: "", textContent: "", value: "", hidden: false,'
         ' checked: false, addEventListener(t, f) { (this._h = this._h || {})[t] = f; }});',
+        _IGNORE_BOX, 'els["ipintel-ignore-classes"] = ignoreBox();',
         'const document = {getElementById: mk};',
         'let _ipiData = {attackers: [], blocks: [], can_ignore: true}, _ipiWired = false; const _ipiOpen = new Set();'
         ' const sent = [], asked = [], toasts = []; let answer = true, reply = {ok: true}, loads = 0;',
@@ -99,6 +147,35 @@ def actions(attackers, can_ignore=True):
     return out
 
 
+_BOX = re.compile(r'<label class="([^"]*)"><input ([^>]*)> <span>([^<]*)</span></label>')
+
+
+def boxes(markup):
+    """The ignore list as it was drawn, in order: for each box its id, the label's classes, the general kind it is a
+    finer kind of and whether it was ticked on its own (both None for a box that is not a finer kind), whether it shows
+    ticked and locked, and its phrase. The boxes must add up to the whole list, so nothing else can be in it."""
+    found = list(_BOX.finditer(markup))
+    assert ''.join(m.group(0) for m in found) == markup, 'the list holds something that is not a box'
+    out = []
+    for m in found:
+        at = dict(re.findall(r'([a-z-]+)(?:="([^"]*)")?', m.group(2)))
+        out.append({'id': at.get('data-ipi-class'), 'label': m.group(1).split(), 'general': at.get('data-ipi-general'),
+                    'own': at.get('data-ipi-own'), 'checked': 'checked' in at, 'disabled': 'disabled' in at,
+                    'phrase': unescape(m.group(3))})
+    return out
+
+
+def ignore_list(*turns):
+    """Each turn is (the saved list the page draws, the boxes then clicked in order). The turns run one after the other on
+    one list, the way a settings load draws it again. For each: what would be saved (`sent`) and what the list shows
+    (`ticked`, `locked`, and `own` for the finer kinds the page remembers as ticked on their own)."""
+    script = 'const box = mk("ipintel-ignore-classes"); const out = [];' + ''.join(
+        '_ipiRenderIgnoreClasses(%s); for (const id of %s) box.click(id);'
+        'out.push({sent: _ipiIgnoredClasses(), ...box.state()});' % (json.dumps(saved), json.dumps(list(clicks)))
+        for saved, clicks in turns) + 'console.log(JSON.stringify(out));'
+    return node(script)
+
+
 @unittest.skipUnless(HAVE_NODE, 'node not installed')
 class TestTheWords(unittest.TestCase):
     def test_every_word_is_used_and_every_use_is_in_the_table(self):
@@ -127,9 +204,10 @@ class TestTheWords(unittest.TestCase):
         texts += re.findall(r'<p class="hint">(.*?)</p>', card, re.S)
         texts = [re.sub(r'\s+', ' ', t).strip() for t in texts]
         for key in ('Never report these addresses (one address or network per line)',
-                    'Never report an address when all it did was'):
+                    'Never report an address when all it did was',
+                    'Ticking a general kind also covers the finer kinds listed under it.'):
             self.assertIn(key, texts)
-        self.assertGreaterEqual(len(texts), 4, texts)
+        self.assertGreaterEqual(len(texts), 5, texts)
         for key in texts:
             self.assertTrue(rows.get(key) and all(rows[key].get(l) for l in _LANGS), 'no six languages: ' + key)
 
@@ -148,28 +226,127 @@ class TestTheWords(unittest.TestCase):
         self.assertIn("'ignore_reason'", src)
 
 
+def _sets(shown):
+    """A turn of ignore_list() with every list sorted: these tests are about which boxes, the order has a test of its own."""
+    return {k: sorted(v) for k, v in shown.items()}
+
+
 @unittest.skipUnless(HAVE_NODE, 'node not installed')
 class TestTheKindsOffered(unittest.TestCase):
+    # 8.0.1: two kinds are general ones, each with finer kinds under it. Ignoring a general kind ignores its kinds.
+    PROBE = ['config_probe', 'admin_probe', 'wordpress', 'user_enum', 'proxy_probe', 'host_recon', 'method_probe', 'decoy_loot']
+    SERVICE = ['rdp_brute', 'smb_brute', 'telnet_brute', 'db_brute']
+
+    def markup(self, saved):
+        return node('_ipiRenderIgnoreClasses(%s);'
+                    'console.log(JSON.stringify(mk("ipintel-ignore-classes").innerHTML));' % json.dumps(saved))
+
     def test_the_page_offers_exactly_the_kinds_the_server_knows(self):
         offered = set(node('console.log(JSON.stringify(Object.keys(_IPI_CLASS)));'))
         self.assertEqual(offered, set(threat_evidence.CLASSES))
 
+    def test_the_general_kinds_and_the_kinds_under_each_are_the_servers(self):
+        """The page shows the kinds under a ticked general kind as covered, and the server is what covers them. If
+        the two tables differed, the list would promise something the server does not do."""
+        page = node('console.log(JSON.stringify(_IPI_FAMILY));')
+        self.assertEqual(page, {'probe': self.PROBE, 'service_brute': self.SERVICE})
+        self.assertEqual({g: sorted(kinds) for g, kinds in page.items()},
+                         {g: sorted(kinds) for g, kinds in threat_evidence.FAMILIES.items()})
+
     def test_the_boxes_are_made_from_that_table_and_the_saved_ones_are_ticked(self):
-        out = node('_ipiRenderIgnoreClasses(["bad_bot", "probe"]);'
-                   'console.log(JSON.stringify(mk("ipintel-ignore-classes").innerHTML));')
-        ids = re.findall(r'data-ipi-class="([a-z_]+)"', out)
-        self.assertEqual(set(ids), set(threat_evidence.CLASSES))
-        ticked = re.findall(r'data-ipi-class="([a-z_]+)" checked', out)
-        self.assertEqual(set(ticked), {'bad_bot', 'probe'})
+        # the last two saved ids are ones the page has no box for: the list is made from the table, never from what was saved
+        out = self.markup(['bad_bot', 'probe', 'no_such_kind', '"><img src=x onerror=alert(1)>'])
+        drawn = boxes(out)
+        self.assertEqual(sorted(b['id'] for b in drawn), sorted(threat_evidence.CLASSES), 'one box for each kind, none twice')
+        ticked = {b['id'] for b in drawn if b['checked']}
+        self.assertEqual(ticked, {'bad_bot', 'probe'} | set(self.PROBE), 'what was saved, and the kinds the saved general kind covers')
         self.assertIn('<span>unwanted web crawling</span>', out, 'a phrase of its own, so the engine can translate it')
+        self.assertEqual({b['id']: b['phrase'] for b in drawn}, {k: v['phrase'] for k, v in threat_evidence.CLASSES.items()})
+
+    def test_the_kinds_that_stand_alone_come_first_then_each_general_kind_with_its_kinds(self):
+        drawn = boxes(self.markup([]))
+        ids = [b['id'] for b in drawn]
+        grouped = ['probe'] + self.PROBE + ['service_brute'] + self.SERVICE
+        self.assertEqual(ids[-len(grouped):], grouped, 'each general kind is followed by its own kinds')
+        table = node('console.log(JSON.stringify(Object.keys(_IPI_CLASS)));')
+        alone = [c for c in table if c not in grouped]
+        self.assertGreaterEqual(len(alone), 15, 'the control: most kinds stand alone')
+        self.assertEqual(ids[:-len(grouped)], alone, 'the others come first, in the order of the page\'s table')
+        for b in drawn:
+            role = 'ipi-ignore-general' if b['id'] in ('probe', 'service_brute') else 'ipi-ignore-kind' if b['id'] in grouped else None
+            self.assertEqual(b['label'], ['ipi-ignore-class'] + ([role] if role else []), b['id'])
+        self.assertEqual([b['id'] for b in drawn if b['checked'] or b['disabled']], [], 'nothing saved: nothing ticked, nothing locked')
+
+    def test_a_ticked_general_kind_shows_its_kinds_ticked_and_locked(self):
+        # saved: a kind that stands alone, a general kind, one of its kinds, and a kind of the general kind that is not ticked
+        drawn = {b['id']: b for b in boxes(self.markup(['bad_bot', 'probe', 'wordpress', 'smb_brute']))}
+        self.assertEqual({i for i, b in drawn.items() if b['checked']}, {'bad_bot', 'probe', 'smb_brute'} | set(self.PROBE))
+        self.assertEqual({i for i, b in drawn.items() if b['disabled']}, set(self.PROBE),
+                         'the kinds of the ticked general kind and nothing else: a kind of the other one stays free')
+        # each finer kind names its general kind and says whether it was saved on its own, which is what unticking gives back
+        self.assertEqual({i: (b['general'], b['own']) for i, b in drawn.items() if b['general'] is not None or b['own'] is not None},
+                         dict({k: ('probe', '1' if k == 'wordpress' else '0') for k in self.PROBE},
+                              **{k: ('service_brute', '1' if k == 'smb_brute' else '0') for k in self.SERVICE}))
 
     def test_what_is_ticked_is_what_is_sent(self):
-        out = node('_ipiRenderIgnoreClasses(["bad_bot", "xss"]);'
-                   'const box = mk("ipintel-ignore-classes");'
-                   'box.querySelectorAll = () => [...box.innerHTML.matchAll(/data-ipi-class="([a-z_]+)"( checked)?/g)]'
-                   '.map(m => ({dataset: {ipiClass: m[1]}, checked: !!m[2]}));'
-                   'console.log(JSON.stringify(_ipiIgnoredClasses()));')
-        self.assertEqual(sorted(out), ['bad_bot', 'xss'])
+        alone, nothing, general, kind, both = map(_sets, ignore_list(
+            (['bad_bot', 'xss'], ()), ([], ()), (['probe'], ()), (['config_probe'], ()), (['probe', 'config_probe'], ())))
+        self.assertEqual(alone['sent'], ['bad_bot', 'xss'])
+        self.assertEqual(nothing['sent'], [])
+        self.assertEqual(general['sent'], ['probe'], 'the general kind and not the kinds that show ticked because it covers them')
+        self.assertEqual(general['ticked'], sorted(['probe'] + self.PROBE), 'the control: they did show ticked')
+        self.assertEqual(kind, {'sent': ['config_probe'], 'ticked': ['config_probe'], 'locked': [], 'own': ['config_probe']})
+        self.assertEqual(both['sent'], ['config_probe', 'probe'], 'a kind saved beside its general kind stays saved')
+        self.assertEqual((both['ticked'], both['locked']), (general['ticked'], sorted(self.PROBE)), 'and looks like any covered kind')
+
+    def test_a_state_reached_by_ticking_is_the_state_a_saved_list_draws(self):
+        saved = ignore_list((['probe'], ()), (['config_probe'], ()), (['probe', 'config_probe'], ()), (['smb_brute', 'xss'], ()))
+        ticked = ignore_list(([], ['probe']), ([], ['config_probe']), ([], ['config_probe', 'probe']), ([], ['xss', 'smb_brute']))
+        for by_save, by_hand in zip(saved, ticked):
+            self.assertEqual(_sets(by_hand), _sets(by_save))
+
+    def test_unticking_a_general_kind_gives_each_of_its_kinds_back_its_own_state(self):
+        out = node('''
+          const box = mk("ipintel-ignore-classes"); const out = [];
+          const note = () => out.push({sent: _ipiIgnoredClasses(), ...box.state()});
+          _ipiRenderIgnoreClasses(["wordpress"]); note();                            // 0: one finer kind saved on its own
+          box.click("user_enum"); note();                                            // 1: another ticked by hand
+          box.click("probe"); note();                                                // 2: the general kind ticked
+          out.push(box.click("admin_probe"));                                        // 3: a locked box does not move
+          box.click("probe"); note();                                                // 4: the general kind unticked
+          box.click("wordpress"); box.click("probe"); box.click("probe"); note();    // 5: a kind unticked by hand, the general kind on and off
+          console.log(JSON.stringify(out));''')
+        own = ['user_enum', 'wordpress']
+        self.assertEqual(_sets(out[0]), {'sent': ['wordpress'], 'ticked': ['wordpress'], 'locked': [], 'own': ['wordpress']})
+        self.assertEqual(_sets(out[1]), {'sent': own, 'ticked': own, 'locked': [], 'own': own})
+        self.assertEqual(_sets(out[2]), {'sent': ['probe'] + own, 'ticked': sorted(['probe'] + self.PROBE),
+                                         'locked': sorted(self.PROBE), 'own': own}, 'every kind of it ticked and locked, the other general kind untouched')
+        self.assertIs(out[3], False)
+        self.assertEqual(_sets(out[4]), _sets(out[1]), 'each kind is where it was before the general kind was ticked')
+        self.assertEqual(_sets(out[5]), {'sent': ['user_enum'], 'ticked': ['user_enum'], 'locked': [], 'own': ['user_enum']},
+                         'a kind unticked by hand stays unticked')
+        # the same from a saved list that holds a general kind and one of its kinds
+        after = _sets(ignore_list((['probe', 'config_probe'], ['probe']))[0])
+        self.assertEqual(after, {'sent': ['config_probe'], 'ticked': ['config_probe'], 'locked': [], 'own': ['config_probe']})
+
+    def test_the_list_listens_once_however_often_it_is_drawn(self):
+        out = node('const box = mk("ipintel-ignore-classes");'
+                   '_ipiRenderIgnoreClasses([]); _ipiRenderIgnoreClasses(["xss"]); _ipiRenderIgnoreClasses(["probe"]);'
+                   'const listeners = box.changes.length; box.click("probe"); box.click("wordpress");'
+                   'console.log(JSON.stringify({listeners, sent: _ipiIgnoredClasses(), ...box.state()}));')
+        self.assertEqual(out.pop('listeners'), 1)
+        self.assertEqual(out, {'sent': ['wordpress'], 'ticked': ['wordpress'], 'locked': [], 'own': ['wordpress']},
+                         'and it works on the boxes of the last draw')
+
+    def test_what_the_list_shows_ticked_is_what_the_server_then_ignores(self):
+        """A kind that shows ticked and locked is not in what is saved, so the list tells the truth only if the server
+        reads a general kind as every kind of it. Each address here did one kind of thing and nothing else."""
+        saves = (['probe'], ['service_brute', 'wordpress'], ['config_probe'], ['bad_bot', 'probe', 'service_brute'], [])
+        for saved, got in zip(saves, ignore_list(*[(s, ()) for s in saves])):
+            kept, refused = ip_intel.clean_ignore_classes(got['sent'])
+            self.assertEqual((sorted(kept), refused), (sorted(saved), None), 'the server keeps exactly what the page sends')
+            ignored = {c for c in threat_evidence.CLASSES if ip_intel.ignore_reason('203.0.113.9', [], {c}, kept)}
+            self.assertEqual(ignored, set(got['ticked']), saved)
 
     def test_a_missing_container_is_not_a_crash(self):
         out = node('delete els["ipintel-ignore-classes"]; const real = document.getElementById;'
@@ -276,6 +453,14 @@ class TestTheMarkupAndTheRequest(unittest.TestCase):
         self.assertIn('.ipi-ignore-classes {', _CSS)
         rule = re.search(r'\.ipi-ignore-class \{[^}]*\}', _CSS).group(0)
         self.assertIn('font-size: 13px', rule)
+
+    def test_a_general_kind_has_a_row_of_its_own_and_its_kinds_are_indented_under_it(self):
+        general = re.search(r'\.ipi-ignore-general \{([^}]*)\}', _CSS)
+        kind = re.search(r'\.ipi-ignore-kind \{([^}]*)\}', _CSS)
+        self.assertTrue(general and kind, 'the two classes the list writes on a label have a rule each')
+        self.assertRegex(general.group(1), r'grid-column:\s*1\s*/\s*-1\b', 'it spans the grid, so its kinds start on the row below')
+        self.assertRegex(kind.group(1), r'\b(?:padding|margin)-inline-start:\s*[1-9]\d*px',
+                         'indented from the side reading starts on, so it is the right side in Arabic')
 
     def test_save_sends_both_lists_and_the_server_reads_both(self):
         from request_models import IpIntelSettingsRequest

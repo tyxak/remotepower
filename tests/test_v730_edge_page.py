@@ -6,6 +6,7 @@ sends (derived from the server's source, so a new reason on either side cannot
 reach the screen as a raw id), every phrase has six languages, and everything the
 page prints is escaped, because a provider's error sentence is free text.
 """
+import ast
 import json
 import os
 import re
@@ -20,6 +21,7 @@ os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v730-page-'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'))
 
+import edge_intel_handlers  # noqa: E402
 import srcpin  # noqa: E402
 import threat_evidence as te  # noqa: E402
 from test_v710_i18n_glue import dict_rows  # noqa: E402
@@ -45,7 +47,7 @@ def node(script, timeout=30):
     esca = re.search(r'^function escAttr\(.*$', _APP, re.M).group(0)
     prelude = '\n'.join([
         esc, esca,
-        _const('_IPI_FEED'), _const('_IPI_FEED_STATE'), _const('_IPI_FEED_STATE_CLASS'),
+        _const('_IPI_FEED'), _const('_IPI_FEED_STATE'), _const('_IPI_FEED_STATE_CLASS'), _const('_IPI_FEED_SAMPLES'),
         _const('_IPI_ASIDE'), _const('_IPI_CHECK'), _const('_IPI_CHECK_STATE'),
         _const('_IPI_CLASS'), _const('_IPI_SOURCE'), _const('_IPI_BAN_WORD'),
         'const els = {}; const el = id => (els[id] = els[id] || {innerHTML: "", textContent: "", value: ""});',
@@ -55,6 +57,7 @@ def node(script, timeout=30):
         'const tableCtl = {sortRows: (name, rows, fn) => rows};',
         'let _ipiData = null;',
         srcpin.js_function(_JS, '_ipiPhrase'), srcpin.js_function(_JS, '_ipiRenderEdge'),
+        srcpin.js_function(_JS, '_ipiFeedSamples'),
         srcpin.js_function(_JS, '_ipiReason'), srcpin.js_function(_JS, '_ipiStatus'),
         srcpin.js_function(_JS, '_ipiStatusHtml'), srcpin.js_function(_JS, '_ipiNotBlockedReason'),
         srcpin.js_function(_JS, '_ipiEdgeState'),
@@ -99,6 +102,31 @@ class TestTheWordsMatchTheServer(unittest.TestCase):
         states |= {'no_access', 'error', 'ok', 'refused'}   # the last two come through _fail()
         self.assertEqual(set(table('_IPI_CHECK_STATE')), states)
 
+    def test_every_samples_state_the_server_writes_has_a_sentence_except_the_complete_one(self):
+        """8.0.1: `samples` is how much a Cloudflare read could say about the requests themselves."""
+        # every value _poll_cf can write comes from one tuple, least first; the scan below shows it writes nothing else
+        written = set(edge_intel_handlers.SAMPLES_WORST_FIRST)
+        self.assertEqual(edge_intel_handlers.SAMPLES_WORST_FIRST, ('none', 'grouped', 'path', 'full'))
+        poll = next(n for n in ast.walk(ast.parse(_HANDLERS)) if isinstance(n, ast.FunctionDef) and n.name == '_poll_cf')
+        sites = [stmt for stmt in ast.walk(poll)
+                 if isinstance(stmt, ast.Assign) and any(isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant)
+                                                         and t.slice.value == 'samples' for t in stmt.targets)]
+        self.assertEqual(len(sites), 2, 'the value carried over a skipped read, and the value of this read')
+        for stmt in sites:
+            literal = {c.value for c in ast.walk(stmt.value) if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+            self.assertEqual(literal - {'samples'}, set(), 'a value written from outside SAMPLES_WORST_FIRST')
+        said = [stmt for stmt in ast.walk(poll) if isinstance(stmt, ast.Call) and getattr(stmt.func, 'attr', '') == 'add'
+                and getattr(stmt.func.value, 'id', '') == 'said']
+        self.assertEqual(len(said), 2, 'a zone read as single events, and one read grouped')
+        keys = {id(sub.slice) for stmt in said for sub in ast.walk(stmt) if isinstance(sub, ast.Subscript)}   # modes[...]['x']
+        named = {c.value for stmt in said for c in ast.walk(stmt)
+                 if isinstance(c, ast.Constant) and isinstance(c.value, str) and id(c) not in keys}
+        self.assertEqual(named, written, 'what a zone can be said to have given')
+        self.assertEqual(set(table('_IPI_FEED_SAMPLES')), written - {'full'}, "a read that got everything needs no sentence")
+        # and the status the page is sent keeps the key: a state that stays in the store is a sentence nobody reads
+        sent = edge_intel_handlers.edge_intel_status({'edge': {'cf': {'state': 'ok', 'samples': 'path'}}}, {})
+        self.assertEqual(sent['cf'].get('samples'), 'path')
+
 
 @unittest.skipUnless(HAVE_NODE, 'node not installed')
 class TestEveryPhraseIsTranslated(unittest.TestCase):
@@ -119,12 +147,22 @@ class TestEveryPhraseIsTranslated(unittest.TestCase):
         'What each feed read the last time, and what was set aside and why. Challenges, country and network '
         'rules, IP access rules and rules that also block an IP list are not evidence of an attack and are '
         'never reported.',
+        # 8.0.1: under the log sensor's "Send up to three request samples" box, which the edge feeds follow too
+        'The edge sources follow this box too: when it is ticked, RemotePower keeps the method and path of up to '
+        'three requests per address that Cloudflare refused or the honeypot answered.',
     )
 
     def test_the_static_labels_and_hints_are_in_the_page_and_translated(self):
         rows = dict_rows()
         for key in self.STATIC_HTML + self.HINTS:
             self.assertIn(key.replace("'", "'"), _HTML, key)
+            self.assertTrue(rows.get(key) and all(rows[key].get(l) for l in _LANGS), key)
+
+    def test_the_sentences_about_request_samples_are_translated(self):
+        rows = dict_rows()
+        sentences = list(table('_IPI_FEED_SAMPLES').values())
+        self.assertEqual(len(set(sentences)), 3, sentences)
+        for key in sentences:
             self.assertTrue(rows.get(key) and all(rows[key].get(l) for l in _LANGS), key)
 
     def test_the_server_reason_and_the_confirmer_are_translated(self):
@@ -197,6 +235,53 @@ class TestWhatIsPrinted(unittest.TestCase):
         cf = {'state': 'refused', 'at': 1, 'mode': 'events', 'error': 'x'}
         rows = self.render(dict(self.EDGE, cf=cf))['rows']
         self.assertNotIn('read one at a time', rows)
+
+    # 8.0.1: what a Cloudflare read could say about the requests themselves, when it was not everything
+    SAMPLES = {
+        'path': 'Cloudflare did not give the method of a request for a zone, so a sample from it shows the path only.',
+        'none': 'Cloudflare refused the request fields for a zone, so addresses seen there carry no request samples.',
+        'grouped': 'A zone is read through the grouped view, which carries no request, so addresses seen there carry '
+                   'no request samples.',
+    }
+
+    def state_cells(self, edge):
+        """(the Cloudflare feed's state cell, the honeypot's), each the text between its <td ...> and </td>."""
+        cells = []
+        for row in self.render(edge)['rows'].split('</tr>')[:2]:
+            cells.append(re.findall(r'<td[^>]*>(.*?)</td>', row, re.S)[1])
+        self.assertTrue(cells[0].startswith('<span>') and cells[1].startswith('<span>'), cells)
+        return cells
+
+    def test_a_read_that_could_not_say_everything_about_the_requests_says_what_is_missing(self):
+        self.assertEqual(table('_IPI_FEED_SAMPLES'), self.SAMPLES)
+        for state, sentence in self.SAMPLES.items():
+            cf, trap = self.state_cells(dict(self.EDGE, cf=dict(self.EDGE['cf'], samples=state)))
+            self.assertEqual(cf, '<span>Reading</span><div class="hint fs-11"><span>%s</span></div>' % sentence, state)
+            self.assertNotIn('sample', trap, 'the sentence belongs to the feed that was read that way')
+
+    def test_a_read_that_got_everything_and_one_that_does_not_say_print_no_sentence(self):
+        plain = '<span>Reading</span>'
+        self.assertEqual(self.state_cells(self.EDGE)[0], plain, 'the control: no `samples` in what the server sent')
+        # the last four are names every object has: a table looked up with one of them finds a function, not a sentence
+        for value in ('full', None, '', 'something_new', '<img src=x onerror=alert(1)>', 7, ['path'], {'a': 1},
+                      'constructor', 'toString', '__proto__', 'hasOwnProperty'):
+            cf = self.state_cells(dict(self.EDGE, cf=dict(self.EDGE['cf'], samples=value)))[0]
+            self.assertEqual(cf, plain, value)
+
+    def test_the_samples_sentence_stands_beside_the_single_events_note(self):
+        note = 'Cloudflare refused the grouped view, so the events are read one at a time.'
+        cf = self.state_cells(dict(self.EDGE, cf=dict(self.EDGE['cf'], mode='events', samples='path')))[0]
+        self.assertEqual(cf.count('<div class="hint fs-11">'), 2, cf)
+        self.assertIn('<span>%s</span>' % note, cf)
+        self.assertIn('<span>%s</span>' % self.SAMPLES['path'], cf)
+
+    def test_the_samples_sentence_is_for_a_feed_that_is_reading(self):
+        refused = {'state': 'refused', 'at': 1, 'samples': 'none', 'error': 'x'}
+        off = dict(self.EDGE, enabled=False, cf=dict(self.EDGE['cf'], samples='none'))
+        for edge in (dict(self.EDGE, cf=refused), off):
+            rows = self.render(edge)['rows']
+            for sentence in self.SAMPLES.values():
+                self.assertNotIn(sentence, rows)
 
     def test_off_and_not_yet_read(self):
         rows = self.render({'enabled': False, 'cf': {}, 'trap': {}})['rows']

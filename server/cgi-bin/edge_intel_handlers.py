@@ -87,20 +87,38 @@ def _zone_error(z, res):
     return ('%s: %s' % (z.get('name') or str(z.get('id'))[:8], res.get('error') or ''))[:200]
 
 
-def _read_zone(token, zone_id, since, until, prefer_events, limit=None):
+NO_EXTRAS = len(edge_evidence.EVENT_EXTRA_TIERS) - 1     # the tier that asks for the four fields and nothing else
+SAMPLES_WORST_FIRST = ('none', 'grouped', 'path', 'full')   # what a zone's read could say about requests, least first
+
+
+def _read_zone(token, zone_id, since, until, prefer_events, limit=None, tier=NO_EXTRAS):
     """(result, mode) for one zone's firewall events: the grouped dataset first,
     and the zone's single events when Cloudflare refuses the grouped one, which a
     Free plan does. A zone already known to need the events asks for them first,
     and asks for the grouped view again now and then, in case its plan changed.
-    One zone to a request, so a zone Cloudflare refuses cannot blank the others."""
+    One zone to a request, so a zone Cloudflare refuses cannot blank the others.
+
+    `tier` is where a single-event read starts in edge_evidence.EVENT_EXTRA_TIERS:
+    0 asks for the path, the time and the method as well, the last one for nothing
+    extra. When Cloudflare will not run the query as written the read asks again
+    for less, so a field it does not know costs a request and never the feed. A
+    result read as events carries the tier that answered, as `tier`."""
     def grouped():
         return edge_evidence.parse_firewall(*A._ip_intel_http(edge_evidence.firewall_request(
             token, [zone_id], since, until, limit or edge_evidence.MAX_ROWS)))
 
     def events():
         n = limit or edge_evidence.MAX_EVENTS
-        return edge_evidence.parse_events(*A._ip_intel_http(edge_evidence.events_request(
-            token, [zone_id], since, until, n)), limit=n)
+        res = None
+        for i in range(max(0, min(NO_EXTRAS, int(tier))), NO_EXTRAS + 1):
+            res = edge_evidence.parse_events(*A._ip_intel_http(edge_evidence.events_request(
+                token, [zone_id], since, until, n, edge_evidence.EVENT_EXTRA_TIERS[i])), limit=n)
+            if res['ok']:
+                res['tier'] = i
+                return res
+            if not res.get('query'):
+                return res        # the token, the dataset or no answer at all: asking for less would not help
+        return res
 
     if prefer_events:
         res = events()
@@ -149,6 +167,10 @@ def _poll_cf(token, pol, edge, now):
            'modes': dict(prev_modes)}
     if prev_cf.get('mode'):
         out['mode'] = prev_cf['mode']
+    # What the last read could say about the requests themselves stays on the card through a read that is skipped.
+    want_samples = bool(pol.get('sensor_samples', True))
+    if want_samples and prev_cf.get('samples') in SAMPLES_WORST_FIRST:
+        out['samples'] = prev_cf['samples']
     # Rules: read once an hour per zone, so a rule that also blocks an IP list is
     # known and the operator's own description can choose a class. A zone whose
     # rules cannot be read is still counted; the page says so.
@@ -187,6 +209,7 @@ def _poll_cf(token, pol, edge, now):
     # grouped dataset is exactly what a Free plan lacks: so each zone is asked for
     # the grouped view and, when that is refused, for its single events.
     rows, truncated, refusals, modes, used = [], False, [], {}, set()
+    said = set()                          # per zone that was read: 'full', 'path', 'none' or 'grouped'
     started = time.monotonic()
     for z in zones:
         if time.monotonic() - started > FIREWALL_BUDGET_S:
@@ -195,9 +218,23 @@ def _poll_cf(token, pol, edge, now):
             return dict(out, state='error', error='too many zones to read in one pass')
         known = prev_modes.get(z['id']) if isinstance(prev_modes.get(z['id']), dict) else {}
         prefer = known.get('m') == 'events' and now - int(known.get('p') or 0) < MODE_PROBE_S
-        res, mode = _read_zone(token, z['id'], since, until, prefer)
+        # Samples: start where this zone answered last time, and ask for everything again now and then.
+        tier, probing = NO_EXTRAS, False
+        held, last_probe = known.get('x'), known.get('xp')
+        if want_samples:
+            # a stored value of the wrong kind reads as "not known yet", and the read asks for everything
+            probing = (not isinstance(held, int) or isinstance(held, bool) or not isinstance(last_probe, int)
+                       or now - last_probe >= MODE_PROBE_S)
+            tier = 0 if probing else held          # _read_zone holds a number to the tiers there are
+        res, mode = _read_zone(token, z['id'], since, until, prefer, tier=tier)
         modes[z['id']] = {'m': mode,
                           'p': int(known.get('p') or now) if (prefer and mode == 'events') else now}
+        if want_samples and mode == 'events' and res['ok']:
+            modes[z['id']]['x'] = int(res.get('tier', NO_EXTRAS))
+            modes[z['id']]['xp'] = now if probing else last_probe
+            said.add('full' if modes[z['id']]['x'] == 0 else 'none' if modes[z['id']]['x'] == NO_EXTRAS else 'path')
+        elif want_samples and res['ok']:
+            said.add('grouped')
         if res['ok']:
             rows += res['rows']
             truncated = truncated or bool(res['truncated'])
@@ -214,10 +251,17 @@ def _poll_cf(token, pol, edge, now):
         return dict(out, **fail)
     events, stats = edge_evidence.cf_events(
         rows, rules, now, since, until,
-        include_carriers=bool(pol.get('edge_count_list_rules')))
+        include_carriers=bool(pol.get('edge_count_list_rules')), samples=want_samples)
     out.update(events=events, rows=stats['rows'], kept=stats['kept'], ignored=stats['ignored'],
                truncated=truncated, to=until,
                mode='groups' if used == {'groups'} else 'events' if used == {'events'} else 'mixed')
+    # What the read could say about the requests themselves, for the page: 'full' (path and method), 'path',
+    # 'none' (Cloudflare refused the fields) or 'grouped' (a grouped read carries no request). With several zones
+    # it is the least any one of them gave, because the card's sentence is about "a zone": the addresses seen on
+    # that zone are the ones with nothing to show. Left out when the operator has samples switched off.
+    out.pop('samples', None)
+    if want_samples and said:
+        out['samples'] = next(s for s in SAMPLES_WORST_FIRST if s in said)
     if refusals:
         # some zones were read and these were not: the page says which, and the
         # window still moves on, because a zone Cloudflare refuses stays refused
@@ -250,7 +294,8 @@ def _poll_trap(token, pol, edge, now):
         decided += edge_evidence.PLANTED_TOKENS
     if pol.get('edge_bait_decides'):
         decided += edge_evidence.BAIT_TOKENS
-    events, stats = edge_evidence.trap_events(hits, now, decided_tokens=decided)
+    events, stats = edge_evidence.trap_events(hits, now, decided_tokens=decided,
+                                              samples=bool(pol.get('sensor_samples', True)))
     return {'state': 'ok', 'at': now, 'events': events, 'hits': stats['hits'], 'kept': stats['kept'],
             'ignored': stats['ignored'], 'truncated': truncated, 'to': until, 'workers': workers}
 
@@ -360,7 +405,7 @@ def run_edge_intel_if_due():
 # ── what the page reads ────────────────────────────────────────────────────────
 
 _FEED_KEYS = ('state', 'at', 'rows', 'hits', 'kept', 'ignored', 'truncated', 'error',
-              'rules_unreadable', 'skipped', 'zones', 'workers', 'mode', 'refused')
+              'rules_unreadable', 'skipped', 'zones', 'workers', 'mode', 'refused', 'samples')
 
 
 def edge_intel_status(st, pol):

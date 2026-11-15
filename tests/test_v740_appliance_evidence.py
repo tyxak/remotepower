@@ -498,7 +498,8 @@ class TestSuricata(unittest.TestCase):
         """`rce` ends "force" and "source". With no boundary in front of it the pattern filed
         "brute force" and "external source" as remote code execution, and a public report said so."""
         for sig, want in (('ET FTP login brute force', 'ftp_brute'),
-                          ('ET TELNET Telnet brute force', 'service_brute'),
+                          ('ET TELNET Telnet brute force', 'telnet_brute'),
+                          ('ET VNC Authentication brute force', 'service_brute'),
                           ('ET SCAN Possible Nmap Scan from external source', 'scanner'),
                           ('ET WEB_SERVER Resource exhaustion attempt', None),
                           ('ET WEB_SERVER Enforce the policy', None)):

@@ -149,6 +149,11 @@ attacker may be on, and the text of a request is whatever its sender typed, so
 nothing is kept as it arrived and the page escapes what it shows. The AI
 features never read samples.
 
+The same box covers the [edge sources](edge-sources.md). With it ticked,
+RemotePower keeps the method and the path of up to three requests per address
+that Cloudflare refused or your honeypot Worker answered, cut the same way. It
+never asks Cloudflare for a query string, a host name or a user agent.
+
 Samples are there for you to read. They sit in the details of each address on
 the **Attackers** tab, next to the CrowdSec scenarios and the rules that named
 it, and they change nothing about what is reported or blocked. A request that
@@ -192,10 +197,33 @@ The categories follow what was seen:
 | SQL injection | 16, 21 | 12, 21 |
 | Path traversal | 21 | 16, 21 |
 | Code execution attempts | 15, 21 | 13, 21 |
-| Probing for exposed files | 21 | 21 |
+| Probing for configuration files, keys and backups | 15, 21 | 11, 21 |
+| Downloading files from a decoy backup or repository | 15, 21 | 11, 21 |
+| Any other kind of probing | 21 | 21 |
 | Attack tools and scanners | 19, 21 | 5, 21 |
+| RDP brute force | 18 | 17, 22 |
+| SMB brute force | 18 | 17, 24 |
+| Telnet brute force | 18 | 17, 23 |
 
-Mail, FTP, other services, request flooding and port scans have their own
+Probing has kinds, and a report names the kind when the source can tell it:
+
+| Kind | What the address asked for |
+|---|---|
+| Probing for configuration files, keys and backups | `.env`, `.git`, a key file, a database dump, a backup archive |
+| Probing for admin, login and debug pages | phpMyAdmin, `server-status`, a login page your site does not have |
+| WordPress probing | The installer, a plugin's readme, the debug log, the uploads directory |
+| User enumeration | The list of a site's users |
+| Open proxy probing | A request that asks your server to fetch another site |
+| Probing private host names | A host name you keep for yourself, or a decoy one |
+| Probing with unusual HTTP methods | `TRACE`, `PROPFIND` and others a browser never sends |
+| Downloading files from a decoy backup or repository | A file from the honeypot's fake backup directory or fake git repository |
+
+A source that can only say an address was probing still says `probing for
+exposed files and admin pages`. Until 8.0.1 every kind was reported with that one
+sentence. A service's login has kinds too: RDP, SMB, Telnet and database logins
+are named, and anything else is `service login brute force`.
+
+Mail, FTP, request flooding and port scans have their own
 categories too. The standard message is the same for every report and names the
 attack and where it was seen, for example `SQL injection and path traversal: 41
 attempts within 10 minutes, seen by web server log and WAF (reported by
@@ -322,13 +350,16 @@ switch and its own token.
 | Honeypot Worker log | The traps a visitor tripped, and whether your Worker banned the address |
 
 RemotePower asks Cloudflare for counts grouped by address, mechanism and rule.
-The request path and the user agent are never fetched, so nothing a visitor typed
-can reach a report.
+The grouped view holds no request, so nothing a visitor typed is fetched.
 
 A Free plan has no grouped view. Cloudflare refuses it with `zone '…' does not
 have access to the path`, and RemotePower then reads that zone's events one at a
-time and groups them itself. It asks for four fields only (address, action,
-source and rule), so the path and the user agent stay out here too. Each zone is
+time and groups them itself. It asks for four fields (address, action, source and
+rule). With **Send up to three request samples with each address** ticked it also
+asks for the path, the method and the time of each refused request, and keeps up
+to three per address as samples; see [What is sent](#what-is-sent). The query
+string, the host name and the user agent are never asked for. A path reaches a
+report only when you tick **Add a few example requests to reports**. Each zone is
 asked on its own: a zone Cloudflare refuses is named on the **Edge feeds** card
 and does not hold back the others.
 
@@ -365,7 +396,12 @@ those lines and files each trap under an attack class:
 
 | Trap | Filed as |
 |---|---|
-| Loot and exploit paths, fake admin pages, private host names, a fake backup tree | Probing for exposed files and admin pages |
+| Loot and exploit paths, and opening the fake backup directory | Probing for configuration files, keys and backups |
+| Fake admin and login pages | Probing for admin, login and debug pages |
+| WordPress files on a site that is not WordPress | WordPress probing |
+| The WordPress user list | User enumeration |
+| Private host names and decoy host names | Probing private host names |
+| Walking the fake backup directory, taking a file from it, or dumping the fake git repository | Downloading files from a decoy backup or repository |
 | A path only `robots.txt` names | Unwanted web crawling (a bot that ignores `robots.txt`) |
 | A crawler claiming to be a search engine from the wrong network | Unwanted web crawling (user-agent spoofing) |
 | A credential the honeypot handed out being used | Using a credential planted in a decoy file |
@@ -373,9 +409,15 @@ those lines and files each trap under an attack class:
 
 A report from the honeypot reads, for example, `using a credential planted in a
 decoy file: 1 attempt within 1 minute, seen by edge honeypot (reported by
-RemotePower)`. One built from Cloudflare's events reads `probing for exposed
-files and admin pages: 8 attempts within 10 minutes, seen by Cloudflare WAF
-(reported by RemotePower)`.
+RemotePower)`. One built from Cloudflare's events reads `WordPress probing: 8
+attempts within 10 minutes, seen by Cloudflare WAF (reported by RemotePower)`.
+
+For a custom rule of yours, RemotePower picks the kind from the words of the
+rule's description, so say in it what the rule blocks: "sensitive files",
+"WordPress", "admin panels", "user enumeration", "unusual methods", "private
+hosts", "SQL injection". **Test connection** on the Edge sources card lists
+your rules. A rule whose description names no kind is reported as `requests
+blocked by a web application firewall`.
 
 The Worker's own ban counts as a decision, like fail2ban's. An address it banned
 is reported at once. Hits it only counted wait for **Report after attempts**, with
@@ -502,7 +544,7 @@ Your own text can use five placeholders:
 | `{seen_by}` | which logs saw it: `web server log and WAF` |
 | `{count}` | the number of attempts |
 | `{minutes}` | the time window, in minutes |
-| `{what}` | a short noun: `SSH`, `web login`, `web` or `login` |
+| `{what}` | a short noun, for example `SSH`, `web login`, `web`, `mail login`, `RDP`, `port` or `login` |
 
 For example, `{attack}, {count} attempts in {minutes} minutes` is sent as `SQL
 injection, 41 attempts in 10 minutes`. It needs at least 10 characters, because
@@ -519,7 +561,7 @@ under **Limits and report message** and a button on each attacker say so.
 | Setting | What it does |
 |---|---|
 | **Never report these addresses** | One address or network per line, up to 500, none wider than a /8 (IPv4) or /16 (IPv6). An address on it is never reported to AbuseIPDB or SniffCat. |
-| **Never report an address when all it did was** | Tick the kinds of attack. An address is held back when everything it did is a kind you ticked. If it did anything else as well, it is reported as usual. |
+| **Never report an address when all it did was** | Tick the kinds of attack. An address is held back when everything it did is a kind you ticked. If it did anything else as well, it is reported as usual. Probing and a service's login each have finer kinds, listed under them. Ticking the general kind covers its finer kinds, so a list that ignored probing before 8.0.1 ignores the same addresses now. |
 | **Ignore** on an attacker's row | Adds that one address to the first list, after asking. It is not shown on an address the list already covers. |
 
 Ignoring only ever does less in public. An ignored address is still recorded and

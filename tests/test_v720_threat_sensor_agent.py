@@ -231,16 +231,20 @@ class TestClassifier(_Agent):
             ('POST', '/wp-login.php', 'login'),
             ('POST', '/xmlrpc.php', 'login'),
             ('POST', '/administrator/index.php', 'login'),
-            ('GET', '/.env', 'probe'),
-            ('GET', '/.git/config', 'probe'),
-            ('GET', '/wp-config.php.bak', 'probe'),
-            ('GET', '/backup.zip', 'probe'),
-            ('GET', '/db.sql', 'probe'),
-            ('GET', '/wp-admin/setup-config.php', 'probe'),
-            ('GET', '/?author=1', 'probe'),
-            ('GET', '/id_rsa', 'probe'),
-            ('CONNECT', 'example.com:443', 'probe'),
-            ('GET', 'http://example.com/', 'probe'),
+            # 8.0.1: what was one kind, `probe`, says what was asked for
+            ('GET', '/.env', 'config'),
+            ('GET', '/.git/config', 'config'),
+            ('GET', '/wp-config.php.bak', 'config'),
+            ('GET', '/backup.zip', 'config'),
+            ('GET', '/db.sql', 'config'),
+            ('GET', '/id_rsa', 'config'),
+            ('GET', '/composer.json', 'config'),
+            ('GET', '/wp-admin/setup-config.php', 'wordpress'),
+            ('GET', '/wp-content/plugins/akismet/readme.txt', 'wordpress'),
+            ('GET', '/?author=1', 'enum'),
+            ('GET', '/phpunit.xsd', 'probe'),
+            ('CONNECT', 'example.com:443', 'proxy'),
+            ('GET', 'http://example.com/', 'proxy'),
         ]
         for method, uri, want in cases:
             status = 200 if want == 'login' else 404
@@ -258,7 +262,7 @@ class TestClassifier(_Agent):
             self.assertEqual(self.kinds('GET', uri, 301), (), uri)
             self.assertEqual(self.kinds('GET', uri, 401), (), f'{uri}: a 401 is an ordinary auth challenge')
             for status in (403, 404):
-                self.assertEqual(self.kinds('GET', uri, status), ('probe',), (uri, status))
+                self.assertEqual(self.kinds('GET', uri, status), ('admin',), (uri, status))
 
     def test_legitimate_traffic_never_matches(self):
         """The cost of a false match is a public report about a customer."""
@@ -313,7 +317,7 @@ class TestClassifier(_Agent):
                    'Mozilla/5.0 (compatible; Nmap Scripting Engine; https://nmap.org/book/nse.html)',
                    'WPScan v3.8.25', 'gobuster/3.6', 'masscan/1.3', 'feroxbuster/2.10.0', 'Acunetix-Product'):
             self.assertEqual(self.kinds('GET', '/', 200, ua), ('scanner',), ua)
-        self.assertEqual(self.kinds('GET', '/.env', 404, 'zgrab/0.x'), ('probe', 'scanner'))
+        self.assertEqual(self.kinds('GET', '/.env', 404, 'zgrab/0.x'), ('config', 'scanner'))
         for ua in ('Mozilla/5.0 (X11; Linux x86_64) Chrome/120', 'curl/8.0', 'Go-http-client/1.1',
                    'python-requests/2.31.0', 'Googlebot/2.1', 'Prometheus/2.45', 'Censys Inspect',
                    'Mozilla/5.0 (compatible; Shodan)', ''):
@@ -348,7 +352,7 @@ class TestAccessScan(_Agent):
         e = ev[A1]
         self.assertEqual((n, parsed), (10, 10))
         self.assertEqual(e['src'], {'web': 10})
-        self.assertEqual(e['tok']['web'], {'req:probe': 7, 'req:sqli': 3})
+        self.assertEqual(e['tok']['web'], {'req:config': 7, 'req:sqli': 3})
         self.assertEqual((e['ans'], e['blk']), (2, 8), 'answered 2xx vs refused')
         self.assertEqual(e['last'] - e['first'] >= 0, True)
 
@@ -399,7 +403,7 @@ class TestAccessScan(_Agent):
         lines = self.lines(A1, 4, 'GET /.env HTTP/1.1', 404, ua='zgrab/0.x')
         agg, ev, *_ = run_access(self.agent, lines)
         self.assertEqual(ev[A1]['src'], {'web': 4})
-        self.assertEqual(ev[A1]['tok']['web'], {'req:probe': 4, 'req:scanner': 4})
+        self.assertEqual(ev[A1]['tok']['web'], {'req:config': 4, 'req:scanner': 4})
 
     def test_a_custom_log_through_the_format_the_server_declared(self):
         fmt = '$remote_addr [$time_local] "$request" $status "$http_user_agent" rt=$request_time'
@@ -530,15 +534,17 @@ class TestNginxError(_MinHitsOne):
             f'{L(NOW - 40)} [error] 1234#1234: *9 user "admin" was not found in "/etc/nginx/.htpasswd", client: {A3}, server: example.com, request: "GET /admin/ HTTP/1.1", host: "example.com"',
             f'{L(NOW - 39)} [error] 1234#1234: *10 user "admin": password mismatch, client: {A3}, server: example.com, request: "GET /admin/ HTTP/1.1", host: "example.com"',
             f'{L(NOW - 30)} [error] 1234#1234: *12 access forbidden by rule, client: {A2}, server: example.com, request: "GET /wp-config.php.bak HTTP/1.1", host: "example.com"',
+            f'{L(NOW - 29)} [error] 1234#1234: *12 access forbidden by rule, client: {A2}, server: example.com, request: "GET /members/ HTTP/1.1", host: "example.com"',
             f'{L(NOW - 20)} [error] 1234#1234: *13 open() "/var/www/html/.env" failed (2: No such file or directory), client: {A4}, server: example.com, request: "GET /.env HTTP/1.1", host: "example.com"',
             f'{L(NOW - 19)} [error] 1234#1234: *14 FastCGI sent in stderr: "Primary script unknown" while reading response header from upstream, client: {A4}, server: example.com, request: "GET /shell.php.bak HTTP/1.1", upstream: "fastcgi://unix:/run/php.sock:", host: "example.com"',
         ]
         ev, n, parsed = self.scan(lines)
         self.assertEqual(ev[A2]['tok']['err'].get('req:flood'), 2)
         self.assertEqual(ev[A3]['tok']['err'], {'req:login': 2})
-        self.assertIn('req:probe', ev[A2]['tok']['err'])
-        self.assertEqual(ev[A4]['tok']['err'], {'req:probe': 2})
-        self.assertEqual(parsed, 7)
+        # a refused request is named by what it asked for, and one that fits no kind is still a probe
+        self.assertEqual(ev[A2]['tok']['err'], {'req:flood': 2, 'req:config': 1, 'req:probe': 1})
+        self.assertEqual(ev[A4]['tok']['err'], {'req:config': 2})
+        self.assertEqual(parsed, 8)
 
     def test_noise_without_a_client_or_that_is_not_an_attack_is_ignored(self):
         L = ts_nginx_err
@@ -583,8 +589,8 @@ class TestApacheError(_MinHitsOne):
         self.assertEqual(ev[A1]['blk'], 1)
         self.assertIn('crstag:attack-sqli', ev[A1]['tok']['waf'])
         self.assertEqual(ev[A3]['tok']['err'], {'req:login': 2})
-        self.assertEqual(ev[A2]['tok']['err'], {'req:probe': 1})
-        self.assertEqual(ev[A4]['tok']['err'], {'req:probe': 1}, 'favicon is not a probe')
+        self.assertEqual(ev[A2]['tok']['err'], {'req:config': 1})
+        self.assertEqual(ev[A4]['tok']['err'], {'req:config': 1}, 'favicon is not a probe')
         self.assertEqual((n, parsed), (8, 8))
 
     def test_ipv6_client_with_a_port(self):

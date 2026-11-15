@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'))
 import ipintel_store  # noqa: E402
 
+import edge_evidence  # noqa: E402
 import ip_intel  # noqa: E402
 from test_ip_intel import ATTACKER, _Case  # noqa: E402
 
@@ -667,13 +668,26 @@ class TestAZoneWithoutTheGroupedView(_Edge):
         e = q[(ATTACKER, 'edge:cloudflare')]
         self.assertEqual((e['evidence']['src'], e['evidence']['tok']['cf']), ({'cf': 7}, {'req:probe': 7}))
 
-    def test_nothing_but_four_fields_is_asked_for(self):
+    def test_with_samples_switched_off_nothing_but_four_fields_is_asked_for(self):
+        self.policy(sensor_samples=False)
         self.poll()
         events = [q for q in self.graphql_queries() if 'firewallEventsAdaptive(' in q]
         self.assertEqual(len(events), 1)
-        for field in ('clientRequestPath', 'clientRequestQuery', 'userAgent', 'clientRequestHTTPHost'):
+        for field in ('clientRequestPath', 'clientRequestHTTPMethodName', 'clientRequestQuery', 'userAgent',
+                      'clientRequestHTTPHost'):
             self.assertNotIn(field, events[0])
         self.assertIn('clientIP action source ruleId }', events[0])
+
+    def test_with_samples_on_the_path_the_time_and_the_method_are_asked_for_and_nothing_else(self):
+        """8.0.1: the default. The selection is the four fields and the three of the first tier, in that order, and
+        never what else a visitor typed: the query string, the host name, the user agent."""
+        self.poll()
+        events = [q for q in self.graphql_queries() if 'firewallEventsAdaptive(' in q]
+        self.assertEqual(len(events), 1, 'Cloudflare took the first tier, so there is one request')
+        self.assertIn('{ clientIP action source ruleId clientRequestPath datetime clientRequestHTTPMethodName }', events[0])
+        for field in ('clientRequestQuery', 'userAgent', 'clientRequestHTTPHost'):
+            self.assertNotIn(field, events[0])
+        self.assertEqual(edge_evidence.EVENT_EXTRA_TIERS[0], ('clientRequestPath', 'datetime', 'clientRequestHTTPMethodName'))
 
     def test_the_zone_is_asked_for_its_events_first_next_time(self):
         self.poll()

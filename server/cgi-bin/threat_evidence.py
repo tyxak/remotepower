@@ -93,11 +93,21 @@ SOURCE_PHRASE = {
 #   AbuseIPDB: 4 DDoS, 5 FTP brute-force, 14 port scan, 15 hacking,
 #              16 SQL injection, 18 brute-force, 19 bad web bot (its text names
 #              crawlers that ignore robots.txt and user-agent spoofing),
-#              21 web app attack, 22 SSH
-#   SniffCat:  3 DDoS, 4 port scan, 5 mass scanner, 11 hacking, 12 SQL injection,
-#              13 command injection, 15 bad web bot (ignores robots.txt or
-#              impersonates a user agent), 16 path traversal, 17 brute-force,
-#              18 SSH/SFTP, 19 FTP, 20 email, 21 HTTP/HTTPS
+#              21 web app attack (probing for or exploiting a CMS, phpMyAdmin
+#              and the like), 22 SSH
+#   SniffCat:  3 DDoS, 4 port scan, 5 mass scanner, 11 hacking (attempts to gain
+#              access), 12 SQL injection, 13 command injection, 15 bad web bot
+#              (ignores robots.txt or impersonates a user agent), 16 path
+#              traversal, 17 brute-force, 18 SSH/SFTP, 19 FTP, 20 email,
+#              21 HTTP/HTTPS, 22 RDP, 23 Telnet, 24 SMB
+# Both lists were read again on 2026-11-15 (abuseipdb.com/categories, 23 ids;
+# sniffcat.com/documentation/categories, 27 ids).
+#
+# `probe` and `service_brute` are GENERAL classes. Each has finer kinds (FAMILIES
+# below) that a source names when it can tell: a request for /.env is
+# `config_probe`, one for /phpmyadmin is `admin_probe`. A source that can only say
+# "this was probing" still says `probe`. Until 8.0.1 every one of them was `probe`,
+# and a day of reports read as the same sentence fourteen times.
 CLASSES = {
     "ssh_brute": {
         "phrase": "SSH brute force",
@@ -130,6 +140,45 @@ CLASSES = {
         "abuseipdb": (21,),
         "sniffcat": (21,),
         "weight": 2,
+    },
+    "config_probe": {
+        "phrase": "probing for configuration files, keys and backups",
+        "abuseipdb": (15, 21),
+        "sniffcat": (11, 21),
+        "weight": 4,
+    },
+    "admin_probe": {
+        "phrase": "probing for admin, login and debug pages",
+        "abuseipdb": (21,),
+        "sniffcat": (21,),
+        "weight": 2,
+    },
+    "wordpress": {"phrase": "WordPress probing", "abuseipdb": (21,), "sniffcat": (21,), "weight": 2},
+    "user_enum": {"phrase": "user enumeration", "abuseipdb": (21,), "sniffcat": (21,), "weight": 2},
+    "proxy_probe": {
+        "phrase": "open proxy probing",
+        "abuseipdb": (21,),
+        "sniffcat": (21,),
+        "weight": 2,
+    },
+    "host_recon": {
+        "phrase": "probing private host names",
+        "abuseipdb": (21,),
+        "sniffcat": (21,),
+        "weight": 2,
+    },
+    "method_probe": {
+        "phrase": "probing with unusual HTTP methods",
+        "abuseipdb": (21,),
+        "sniffcat": (21,),
+        "weight": 1,
+    },
+    # Walking a fake backup directory or dumping a fake .git: the visitor took what a probe only looks for.
+    "decoy_loot": {
+        "phrase": "downloading files from a decoy backup or repository",
+        "abuseipdb": (15, 21),
+        "sniffcat": (11, 21),
+        "weight": 5,
     },
     "scanner": {
         "phrase": "vulnerability scanning",
@@ -168,6 +217,20 @@ CLASSES = {
         "sniffcat": (17,),
         "weight": 2,
     },
+    "rdp_brute": {"phrase": "RDP brute force", "abuseipdb": (18,), "sniffcat": (17, 22), "weight": 2},
+    "smb_brute": {"phrase": "SMB brute force", "abuseipdb": (18,), "sniffcat": (17, 24), "weight": 2},
+    "telnet_brute": {
+        "phrase": "Telnet brute force",
+        "abuseipdb": (18,),
+        "sniffcat": (17, 23),
+        "weight": 2,
+    },
+    "db_brute": {
+        "phrase": "database login brute force",
+        "abuseipdb": (18,),
+        "sniffcat": (17,),
+        "weight": 2,
+    },
     "port_scan": {"phrase": "port scanning", "abuseipdb": (14,), "sniffcat": (4,), "weight": 2},
     # A port on a firewall or router that nothing legitimate uses.
     "decoy_port": {
@@ -198,6 +261,25 @@ CLASSES = {
     },
 }
 
+# A general class and the finer kinds of it. Three things follow from one table: the general class
+# steps aside in a report when one of its kinds explains the address (`report_classes`), an operator who
+# ignores the general class ignores its kinds (`with_kinds`), and a source that learns to tell a kind
+# apart may move a name from the general class to one of its kinds and nowhere else.
+FAMILIES = {
+    "probe": (
+        "config_probe",
+        "admin_probe",
+        "wordpress",
+        "user_enum",
+        "proxy_probe",
+        "host_recon",
+        "method_probe",
+        "decoy_loot",
+    ),
+    "service_brute": ("rdp_brute", "smb_brute", "telnet_brute", "db_brute"),
+}
+GENERAL_OF = {kind: general for general, kinds in FAMILIES.items() for kind in kinds}
+
 # `{what}` in a report message, kept compatible with the older placeholder
 # ('SSH', 'web login', 'login').
 _WHAT = {
@@ -206,6 +288,10 @@ _WHAT = {
     "mail_brute": "mail login",
     "ftp_brute": "FTP login",
     "service_brute": "login",
+    "rdp_brute": "RDP",
+    "smb_brute": "SMB",
+    "telnet_brute": "Telnet",
+    "db_brute": "database login",
     "port_scan": "port",
     "decoy_port": "port",
 }
@@ -215,6 +301,14 @@ _WEB_CLASSES = (
     "traversal",
     "rce",
     "probe",
+    "config_probe",
+    "admin_probe",
+    "wordpress",
+    "user_enum",
+    "proxy_probe",
+    "host_recon",
+    "method_probe",
+    "decoy_loot",
     "scanner",
     "flood",
     "bad_bot",
@@ -238,19 +332,19 @@ _SKEW_S = 300
 # honeypot to be read and is not evidence of anything: a login cookie holder
 # asking the author list, the deploy tool's own probe, an odd client.
 TRAP_KINDS = {
-    "bait": "probe",  # loot and RCE probe paths (/.env, /.git/, ...)
+    "bait": "config_probe",  # loot and RCE probe paths (/.env, /.git/, ...)
     "robots": "bad_bot",  # followed a path only robots.txt names
-    "login": "probe",  # admin and login pages the site does not have
-    "private": "probe",  # recon against the private host names
+    "login": "admin_probe",  # admin and login pages the site does not have
+    "private": "host_recon",  # recon against the private host names
     "impostor": "bad_bot",  # claimed to be a search crawler from the wrong network
-    "wpprobe": "probe",  # WordPress disclosure files
-    "wpenum": "probe",  # WordPress user enumeration
-    "mazeentry": "probe",  # opened a fake backup directory
-    "maze": "probe",  # walked the fake backup mirror
-    "mazeloot": "probe",  # asked for a dump file inside it
-    "gitdump": "probe",  # dumped the fake .git
+    "wpprobe": "wordpress",  # WordPress disclosure files
+    "wpenum": "user_enum",  # WordPress user enumeration
+    "mazeentry": "config_probe",  # opened a fake backup directory
+    "maze": "decoy_loot",  # walked the fake backup mirror
+    "mazeloot": "decoy_loot",  # asked for a dump file inside it
+    "gitdump": "decoy_loot",  # dumped the fake .git
     "canary": "canary",  # used a credential the honeypot handed out
-    "decoy": "probe",  # a decoy host name only DNS brute force finds
+    "decoy": "host_recon",  # a decoy host name only DNS brute force finds
     "decoylogin": "decoy_login",  # tried to sign in there
 }
 
@@ -264,6 +358,8 @@ CF_KINDS = {
     "ua": "bad_bot",  # a user-agent block rule
 }
 
+# What a request was, to its class. The agent decides the first eight and, from 8.0.1, the next five; `method` and
+# `recon` are what a Cloudflare rule's description can say and a host's log cannot.
 _REQ_KINDS = {
     "sqli": "sqli",
     "xss": "xss",
@@ -273,6 +369,13 @@ _REQ_KINDS = {
     "scanner": "scanner",
     "login": "login_brute",
     "flood": "flood",
+    "config": "config_probe",
+    "admin": "admin_probe",
+    "wordpress": "wordpress",
+    "enum": "user_enum",
+    "proxy": "proxy_probe",
+    "method": "method_probe",
+    "recon": "host_recon",
 }
 
 # Matched with fullmatch(), never match() with a `$`: `$` also matches before a
@@ -293,10 +396,15 @@ IDS_CLASSES = (
     "ftp_brute",
     "mail_brute",
     "service_brute",
+    "rdp_brute",
+    "smb_brute",
+    "telnet_brute",
+    "db_brute",
 )
 
 _TOKEN_RE = {
-    "req": re.compile(r"req:(sqli|xss|traversal|rce|probe|scanner|login|flood)"),
+    # built from the table above, so a kind cannot be accepted here and mean nothing there
+    "req": re.compile(r"req:(" + "|".join(sorted(_REQ_KINDS)) + r")"),
     "crs": re.compile(r"crs:(\d{3,9})"),
     "crstag": re.compile(r"crstag:(attack-[a-z0-9-]{1,40})"),
     "jail": re.compile(r"jail:([A-Za-z0-9][A-Za-z0-9_.-]{0,39})"),
@@ -462,14 +570,19 @@ _JAIL_RULES = tuple(
         ("flood", _w("dos") + r"|limit-?req|req-?limit|rate-?limit|flood|limit-?conn"),
         ("bad_bot", r"bad-?bots?|unwanted|crawler|scrap|fake-?google|fake-?bot"),
         ("port_scan", r"port-?scan|iptables-?scan"),
-        (
-            "service_brute",
-            _w("rdp", "smb") + r"|mysql|maria|postgres|pgsql|mongo|redis|asterisk|openvpn|telnet",
-        ),
+        # The four below are where a jail gained a class or a truer one in 8.0.1: xrdp, samba and vnc had none
+        # (their bans said "no attack category"), and mssql-auth was a web login by its "auth".
+        ("rdp_brute", _w("rdp") + r"|xrdp"),
+        ("smb_brute", _w("smb") + r"|samba|smbd"),
+        ("telnet_brute", r"telnet"),
+        ("db_brute", r"mysql|maria|postgres|pgsql|mongo|redis|mssql"),
+        ("service_brute", r"asterisk|openvpn|" + _w("vnc")),
         ("login_brute", _w("wp") + r"|auth(?!or)|wordpress|xmlrpc|login"),
+        ("proxy_probe", r"noproxy"),
+        ("config_probe", r"sensitive|dotfile"),
         (
             "probe",
-            r"noscript|nohome|noproxy|botsearch|sensitive|blocked|probe|scan|forbidden|overflow|404|4xx|dotfile",
+            r"noscript|nohome|botsearch|blocked|probe|scan|forbidden|overflow|404|4xx",
         ),
     )
 )
@@ -498,15 +611,22 @@ _CS_RULES = tuple(
         ("mail_brute", r"postfix|dovecot|exim|sendmail|smtp|imap|pop3|spam"),
         ("ftp_brute", r"ftp"),
         ("port_scan", r"portscan|port-scan|iptables-scan|refused-conn|scan-multi"),
-        (
-            "probe",
-            r"probing|sensitive-files|admin-interface|wordpress-scan|user-enum|xmlrpc|open-proxy|http-.*scan"
-            r"|uploads-listing|wpconfig|w00tw00t",
-        ),
+        # The finer kinds of probing come before the general one. Each takes names that were `probe` and no others
+        # (tests/test_v801_attack_classes.py holds that over the frozen hub names).
+        ("user_enum", r"wordpress_user-enum"),
+        ("config_probe", r"sensitive-files|wpconfig"),
+        ("admin_probe", r"admin-interface|sap-interface-probing"),
+        ("wordpress", r"wordpress-scan|uploads-listing|xmlrpc"),
+        ("proxy_probe", r"open-proxy"),
+        ("probe", r"probing|user-enum|http-.*scan|w00tw00t"),
+        # ... and the finer kinds of a service's login before the general one.
+        ("rdp_brute", _w("rdp")),
+        ("smb_brute", _w("smb")),
+        ("telnet_brute", r"telnet"),
+        ("db_brute", r"mysql|pgsql|mariadb|mongo|redis|mssql-bf|couchdb-bf"),
         (
             "service_brute",
-            _w("rdp", "smb")
-            + r"|(^|-)bf($|-)|brute|mysql|pgsql|mariadb|mongo|redis|telnet|asterisk|openvpn|cowrie|guacamole",
+            r"(^|-)bf($|-)|brute|asterisk|openvpn|cowrie|guacamole",
         ),
     )
 )
@@ -570,6 +690,16 @@ def crs_class(rule_id):
     if 900000 <= n < 913000 or 949000 <= n < 960000 or 980000 <= n < 981000:
         return None
     return "waf"
+
+
+def req_token(class_id):
+    """The `req:` token that stands for a class ('req:config' for config_probe), or None
+    when no request kind names it. For a reader that has decided the class itself: a
+    Cloudflare rule the operator described."""
+    for kind, cls in _REQ_KINDS.items():
+        if cls == class_id:
+            return "req:" + kind
+    return None
 
 
 def token_class(token):
@@ -796,12 +926,30 @@ def hostile_count(ev):
     return max(cls.values()) if cls else 0
 
 
-def dominant(ev, limit=3):
-    """[(class, count)] most telling first. The generic WAF class steps aside
-    when a specific one explains the blocks."""
+def _spoken(ev):
+    """{class: count} for what a report says: `classes` without the ones that only repeat
+    another. The generic WAF class steps aside when a specific class explains the blocks.
+    A general class (FAMILIES) steps aside when its own kinds account for it, that is when
+    its count is no larger than theirs together: a fail2ban ban for "bot search" beside
+    twelve requests for /.env is the same probing seen twice, and the report says
+    "probing for configuration files". When the general count is the larger one the
+    address did more than its kinds say (one request for /.env and fifty the source could
+    only call probing), so both are said: naming the kind alone would put all fifty-one
+    under it, and under its category."""
     cls = classes(ev)
     if len(cls) > 1:
         cls.pop("waf", None)
+    for general, kinds in FAMILIES.items():
+        if general in cls:
+            named = sum(cls[k] for k in kinds if k in cls)
+            if named and cls[general] <= named:
+                del cls[general]
+    return cls
+
+
+def dominant(ev, limit=3):
+    """[(class, count)] most telling first, of the classes a report speaks for."""
+    cls = _spoken(ev)
     ranked = sorted(
         cls.items(), key=lambda kv: (-(CLASSES[kv[0]]["weight"] * max(kv[1], 1)), kv[0])
     )
@@ -809,14 +957,24 @@ def dominant(ev, limit=3):
 
 
 def report_classes(ev):
-    """The classes a report would speak for, as a set: what `dominant` ranks, with
-    the generic WAF class stepping aside once a specific class explains the
-    blocks. Used to tell whether everything an address did is a kind of attack the
-    operator ignores."""
-    cls = classes(ev)
-    if len(cls) > 1:
-        cls.pop("waf", None)
-    return set(cls)
+    """The classes a report would speak for, as a set: what `dominant` ranks. Used to
+    tell whether everything an address did is a kind of attack the operator ignores.
+    The rule in `_spoken` decides it here too: a general class that its kinds account
+    for is not a second thing the address did, and one they do not account for is, so
+    ignoring one kind of probing never holds back an address that mostly probed in
+    ways no kind names."""
+    return set(_spoken(ev))
+
+
+def with_kinds(class_ids):
+    """`class_ids` and the finer kinds of every general class in it, as a set. An
+    operator who ignores "probing" ignored every kind of it before the kinds had
+    names, and still does."""
+    out = set(class_ids or ())
+    for general, kinds in FAMILIES.items():
+        if general in out:
+            out.update(kinds)
+    return out
 
 
 def trap_family(ev):
@@ -984,6 +1142,7 @@ def web_only(ev):
     """True when every class the address was seen in is a web one."""
     cls = classes(ev)
     return bool(cls) and all(c in _WEB_CLASSES or c == "login_brute" for c in cls)
+
 
 
 # ── addresses nobody should report or block ────────────────────────────────────

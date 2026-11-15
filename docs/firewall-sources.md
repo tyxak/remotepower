@@ -164,7 +164,10 @@ wins:
 | nmap, nikto, sqlmap, masscan, zmap, Nessus, OpenVAS, WPScan, Nuclei and other scanner names | vulnerability scanning |
 | FTP with brute, login or auth | FTP brute force |
 | SMTP, IMAP or POP3 with brute, login or auth | mail login brute force |
-| Telnet, RDP, VNC, MSSQL, MySQL or PostgreSQL with brute, login or auth | service login brute force |
+| RDP with brute, login or auth | RDP brute force |
+| Telnet with brute, login or auth | Telnet brute force |
+| MSSQL, MySQL or PostgreSQL with brute, login or auth | database login brute force |
+| VNC with brute, login or auth | service login brute force |
 | a scan: "ET SCAN", a network scan, a port scan | port scanning |
 | "attempted information leak" | probing for exposed files and admin pages |
 

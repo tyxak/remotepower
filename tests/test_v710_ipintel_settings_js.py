@@ -31,7 +31,8 @@ class TestPage(unittest.TestCase):
         save = 'async ' + srcpin.js_function(_JS, 'saveIpIntelSettings')
         prelude = '''
 const els = {};
-const el = id => (els[id] = els[id] || {value: '', checked: false, placeholder: '', textContent: '', innerHTML: '', querySelectorAll: () => []});
+const el = id => (els[id] = els[id] || {value: '', checked: false, placeholder: '', textContent: '', innerHTML: '', querySelectorAll: () => [],
+                                       dataset: {}, addEventListener() {}});
 const document = {getElementById: el};
 let sent = null; let _ipiData = {settings: {}};
 async function api(m, p, body) { sent = {m, p, body}; return {ok: true}; }
@@ -39,6 +40,8 @@ function toast() {} function loadIpIntel() {} async function uiConfirm() { retur
 '''
         helpers = '\n'.join([
             re.search(r'^const _IPI_CLASS = \{.*?^\};', _JS, re.S | re.M).group(0),
+            # 8.0.1: the ignore list is drawn in groups, so the fill reads the families and wires a listener on the list's box
+            re.search(r'^const _IPI_FAMILY = \{.*?^\};', _JS, re.S | re.M).group(0),
             'function escAttr(s) { return String(s); } function escHtml(s) { return String(s); }',
             srcpin.js_function(_JS, '_ipiPhrase'), srcpin.js_function(_JS, '_ipiRenderIgnoreClasses'),
             srcpin.js_function(_JS, '_ipiIgnoredClasses')])

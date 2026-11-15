@@ -452,8 +452,41 @@ def _req_ip(req):
     return ''
 
 
+def _req_cats(req):
+    """The category ids a report request files the address under, or []. AbuseIPDB's body is a form
+    and SniffCat's is JSON; the ids are ours (threat_evidence.CLASSES), read back from what was sent."""
+    body = req.get('body')
+    if not isinstance(body, (bytes, bytearray)) or not body:
+        return []
+    try:
+        text = bytes(body).decode('utf-8', 'replace')
+        if text.lstrip().startswith('{'):
+            raw = json.loads(text).get('categories')
+        else:
+            raw = (urllib.parse.parse_qs(text).get('categories') or [''])[0]
+    except (ValueError, AttributeError):
+        return []
+    return _clean_cats(raw if isinstance(raw, list) else str(raw or '').split(','))
+
+
+def _clean_cats(items):
+    """Category ids as a short list of small whole numbers, or []. Both services number their categories from 1 and
+    neither goes past two digits. Only plain digits count (`str.isdigit` also says yes to a superscript two, which `int`
+    refuses), so this cannot raise; it is used where a request is logged and where a stored line is read back."""
+    out = []
+    for c in items if isinstance(items, list) else []:
+        if isinstance(c, bool) or not isinstance(c, (int, str)):
+            continue
+        text = str(c).strip()
+        if text.isascii() and text.isdigit() and len(text) <= 2 and 1 <= int(text) and int(text) not in out:
+            out.append(int(text))
+    return out[:8]
+
+
 def _reqlog_note(req, status, body, started):
-    """Add one line for this request to the pending ones. Only the two services are logged."""
+    """Add one line for this request to the pending ones. Only the two services are logged. A report's
+    line also says which categories the address was filed under: the text of a report is never kept
+    here, and the numbers are what tells two reports about one address apart."""
     parsed = urllib.parse.urlparse(req['url'])
     prov = _REQLOG_HOSTS.get(parsed.netloc.lower())
     if not prov:
@@ -463,6 +496,10 @@ def _reqlog_note(req, status, body, started):
     entry = {'at': int(time.time()), 'prov': prov, 'op': op if op in ('check', 'report', 'blacklist') else 'other',
              'ip': _req_ip(req), 'status': int(status), 'ms': int(max(0, time.monotonic() - started) * 1000),
              'result': result, 'note': note}
+    if entry['op'] == 'report':
+        cats = _req_cats(req)
+        if cats:
+            entry['cats'] = cats
     with _REQLOG_LOCK:
         _REQLOG_PENDING.append(entry)
         del _REQLOG_PENDING[:-REQLOG_KEEP]
@@ -479,9 +516,22 @@ def _reqlog_flush(st):
 
 
 def _reqlog_view(st):
-    """The lines the page shows, newest first."""
+    """The lines the page shows, newest first. A line's category ids are checked again on the way out: the store can
+    be edited by hand, and the page joins them into a cell."""
     rows = st.get('reqlog') if isinstance(st.get('reqlog'), list) else []
-    return [e for e in reversed(rows) if isinstance(e, dict)][:REQLOG_SHOWN]
+    out = []
+    for e in reversed(rows):
+        if not isinstance(e, dict):
+            continue
+        if 'cats' in e:
+            e = dict(e)
+            cats = _clean_cats(e.pop('cats'))
+            if cats:
+                e['cats'] = cats
+        out.append(e)
+        if len(out) >= REQLOG_SHOWN:
+            break
+    return out
 
 
 def _whole(x):

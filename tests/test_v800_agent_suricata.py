@@ -88,6 +88,12 @@ class TestTheTwoClassificationsAreOne(_Agent):
         ('ET FTP FTP login brute force attempt', 'Attempted User Privilege Gain'),
         ('ET SMTP SMTP auth brute force', 'Attempted User Privilege Gain'),
         ('ET RDP Brute force login attempt', 'Attempted User Privilege Gain'),
+        # 8.0.1: a service's login by its name, and what has no name of its own
+        ('ET TELNET Telnet login brute force', 'Attempted User Privilege Gain'),
+        ('ET SCAN Multiple MySQL Login Failures Possible Brute Force Attempt', 'Attempted User Privilege Gain'),
+        ('ET SCAN Multiple PostgreSQL Login Failures Possible Brute Force Attempt', 'Attempted User Privilege Gain'),
+        ('GPL SQL PostgreSQL authentication failed', ''),
+        ('ET SCAN VNC Authentication Failure', 'Attempted User Privilege Gain'),
         ('some local rule', 'Attempted Information Leak'),
         ('some local rule', ''),
         ('', ''),

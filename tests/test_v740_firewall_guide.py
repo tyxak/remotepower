@@ -214,7 +214,11 @@ class TestTheWordsAreTheReaders(unittest.TestCase):
             'vulnerability scanning': 'ET SCAN Nmap Scripting Engine',
             'FTP brute force': 'ET FTP login brute force',
             'mail login brute force': 'ET SMTP auth brute force',
-            'service login brute force': 'ET RDP login brute force',
+            # 8.0.1: a service's login by its name; VNC has no name of its own
+            'RDP brute force': 'ET RDP login brute force',
+            'Telnet brute force': 'ET TELNET login brute force',
+            'database login brute force': 'ET SCAN Multiple PostgreSQL Login Failures',
+            'service login brute force': 'ET VNC login brute force',
             'port scanning': 'ET SCAN Potential SSH Scan',
             'probing for exposed files and admin pages': 'ET WEB_SERVER Something',
         }

@@ -16,14 +16,14 @@ On this page: [Before you start](#before-you-start) · [What each trap catches](
 
 | Trap | `kind` | The visitor asked for | Filed as | Needs |
 |---|---|---|---|---|
-| Loot and exploit paths | `bait` | `.env`, `.git/HEAD`, `.git/config`, `.aws`, `.ssh`, SQL dumps, `actuator`, `phpunit` | Probing for exposed files and admin pages | A route for each path |
-| Login pages | `login` | `wp-login.php`, `xmlrpc.php`, `phpmyadmin`, `administrator` | Probing for exposed files and admin pages | A route for each path. On a WordPress site, none for `wp-login.php` or `xmlrpc.php` |
-| A fake git repository | `gitdump` | What a git dump tool asks for after `HEAD`: `objects`, `refs`, `logs`, `index`, `packed-refs` | Probing for exposed files and admin pages | The `.git` route |
+| Loot and exploit paths | `bait` | `.env`, `.git/HEAD`, `.git/config`, `.aws`, `.ssh`, SQL dumps, `actuator`, `phpunit` | Probing for configuration files, keys and backups | A route for each path |
+| Login pages | `login` | `wp-login.php`, `xmlrpc.php`, `phpmyadmin`, `administrator` | Probing for admin, login and debug pages | A route for each path. On a WordPress site, none for `wp-login.php` or `xmlrpc.php` |
+| A fake git repository | `gitdump` | What a git dump tool asks for after `HEAD`: `objects`, `refs`, `logs`, `index`, `packed-refs` | Downloading files from a decoy backup or repository | The `.git` route |
 | robots.txt decoys | `robots` | A path that only `robots.txt` names | Unwanted web crawling | Routes for `/robots.txt` and each decoy path |
-| A fake backup directory | `mazeentry`, `maze`, `mazeloot` | The directory, a folder in it, an archive in it | Probing for exposed files and admin pages | The `/backups` route |
-| WordPress probes | `wpprobe`, `wpenum` | The debug log, `wp-includes`, the user list | Probing for exposed files and admin pages | Routes you switch on, for sites that are not WordPress |
+| A fake backup directory | `mazeentry`, `maze`, `mazeloot` | The directory, a folder in it, an archive in it | Probing for configuration files, keys and backups for the directory itself; downloading files from a decoy backup or repository for what is in it | The `/backups` route |
+| WordPress probes | `wpprobe`, `wpenum` | The debug log, `wp-includes`, the user list | WordPress probing, and user enumeration for the user list | Routes you switch on, for sites that are not WordPress |
 | A planted password | `canary_use` | The password that the fake `.env` handed out, sent to a fake login or in a Basic header | Using a credential planted in a decoy file | `CANARY_PASSWORD` |
-| Decoy hosts | `decoy`, `decoy_login` | A host name nobody was told about, and signing in there | Probing for exposed files and admin pages, and signing in to a decoy service | A Custom Domain and `DECOY_HOSTS` |
+| Decoy hosts | `decoy`, `decoy_login` | A host name nobody was told about, and signing in there | Probing private host names, and signing in to a decoy service | A Custom Domain and `DECOY_HOSTS` |
 
 ## Step 1: Replace the script
 

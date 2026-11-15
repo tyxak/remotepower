@@ -119,16 +119,44 @@ class TestParsers(unittest.TestCase):
         r = ee.parse_rules(200, body)['rules']
         self.assertEqual(set(r), {RULE, RULE2})
         self.assertEqual((r[RULE]['c'], r[RULE]['k']), ('probe', False))
-        self.assertEqual((r[RULE2]['c'], r[RULE2]['k']), ('probe', True))
+        self.assertEqual((r[RULE2]['c'], r[RULE2]['k']), ('method_probe', True))      # 8.0.1: probing has kinds
         self.assertEqual(ee.parse_rules(404, None), {'ok': True, 'rules': {}})
         self.assertFalse(ee.parse_rules(500, None)['ok'])
 
     def test_rule_class_reads_the_operators_words(self):
         for text, cls in (('Block SQL injection attempts', 'sqli'), ('XSS filter', 'xss'),
                           ('path traversal', 'traversal'), ('Rate limit login', 'flood'),
-                          ('wp-login probes', 'probe'), ('Block WordPress probes', 'probe'),
-                          ('Challenge non-DK on admin', 'probe'), ('hello world', None), ('', None)):
+                          ('hello world', None), ('', None),
+                          # 8.0.1: a rule about probing says which kind, by the words of its description
+                          ('wp-login probes', 'wordpress'), ('Block WordPress probes', 'wordpress'),
+                          ('Block xmlrpc', 'wordpress'), ('Challenge non-DK on admin', 'admin_probe'),
+                          ('Admin-panel probes (phpmyadmin, adminer, /pma, cpanel)', 'admin_probe'),
+                          ('Sensitive-file and backup probes', 'config_probe'), ('dotfile probes', 'config_probe'),
+                          ('User enumeration (/wp-json/wp/v2/users)', 'user_enum'),
+                          ('Block unusual HTTP methods', 'method_probe'),
+                          ('Block non-admin on private hosts (edge fw_private)', 'host_recon'),
+                          ('Block probes', 'probe'), ('Block probes and disclosure', 'probe'),
+                          # a rule that lists the files it blocks is about files: ".sql" read as SQL injection until 8.0.1
+                          ('Block .env, .git, .sql and .bak files', 'config_probe'), ('Block SQL dumps', 'config_probe'),
+                          ('sqli attempts', 'sqli'), ('SQL-injection', 'sqli'),
+                          # only the words that name code execution do; "exploit" beside a file name does not
+                          ('Block command injection', 'rce'), ('Block remote code execution', 'rce'),
+                          ('Block .env and exploit paths', 'config_probe'), ('LDAP injection', None)):
             self.assertEqual(ee.rule_class(text), cls, text)
+
+    def test_every_class_a_rule_can_name_has_a_request_token(self):
+        """cf_events turns a rule's class into a `req:` token, so a class with no request kind would fall back to the
+        mechanism and the description would be read for nothing."""
+        classes = [cls for cls, _rx in ee._RULE_WORDS]
+        self.assertGreaterEqual(len(classes), 13)
+        self.assertEqual(len(classes), len(set(classes)), 'one row for each class')
+        self.assertEqual(classes[-1], 'probe', 'the general class is the last row: the kinds are tried first')
+        for cls in classes:
+            token = te.req_token(cls)
+            self.assertTrue(token and te.token_valid(token), cls)
+            self.assertEqual(te.token_class(token), cls)
+        self.assertIsNone(te.req_token('waf'))
+        self.assertIsNone(te.req_token('no such class'))
 
     def test_firewall_rows(self):
         body = {'data': {'viewer': {'zones': [{'zoneTag': ZONE, 'firewallEventsAdaptiveGroups': [
@@ -182,15 +210,18 @@ class TestParsers(unittest.TestCase):
             json.dumps(line),                                  # the whole event as a string
             {'msg': 'sweep', 'scanned': 3},                    # another line of the same Worker
             {'source': {'msg': 'trap hit', 'kind': 'bait', 'ip': ATK, 'action': 'banned',
-                        'path': EVIL}},                        # a path is never read
+                        'path': EVIL, 'method': 'get', 'ua': EVIL, 'host': EVIL, 'note': EVIL}},   # what a visitor typed
             12, None, [],
         ]
         r = ee.parse_trap(200, {'success': True, 'result': {'events': events}})
         self.assertTrue(r['ok'])
         self.assertEqual(len(r['hits']), 6)
         self.assertEqual({h['kind'] for h in r['hits']}, {'bait', 'robots'})
+        # 8.0.1: the method and the path are passed on for a sample to be made of them; nothing else of the line is
         for h in r['hits']:
-            self.assertEqual(set(h), {'kind', 'ip', 'action', 'at'})
+            self.assertEqual(set(h), {'kind', 'ip', 'action', 'at', 'method', 'path'})
+        self.assertEqual((r['hits'][5]['method'], r['hits'][5]['path']), ('GET', EVIL))
+        self.assertEqual((r['hits'][0]['method'], r['hits'][0]['path']), ('', ''), 'a line that logs neither')
         self.assertEqual(r['hits'][0]['at'], 1791662400)
         self.assertEqual(r['hits'][3]['at'], 1790000000)
 
@@ -512,8 +543,25 @@ class TestTrapEvents(unittest.TestCase):
         evs, _ = ee.trap_events([dict(self.hit(), path=EVIL, ua=EVIL, note=EVIL)], now=NOW)
         self.assertNotIn('DROP', json.dumps(evs))
         text = ip_intel.evidence_comment(evs[0])
-        self.assertEqual(text, 'probing for exposed files and admin pages: 1 attempt within 1 '
+        self.assertEqual(text, 'probing for configuration files, keys and backups: 1 attempt within 1 '
                                'minute, seen by edge honeypot (reported by RemotePower)')
+        self.assertEqual(evs[0]['smp'], [], 'samples are kept only when the operator has them switched on')
+
+    def test_a_hostile_path_becomes_a_sample_of_safe_characters_or_nothing(self):
+        """8.0.1: with samples on, the path is the one thing of the line that is kept, and only after it is rebuilt."""
+        hostile = '/.env' + EVIL
+        evs, _ = ee.trap_events([dict(self.hit(), method='GET', path=hostile, ua=EVIL, note=EVIL, host=EVIL),
+                                 dict(self.hit(), method=EVIL, path=EVIL)], now=NOW, samples=True)
+        smp = evs[0]['smp']
+        self.assertEqual([(x['f'], x['m'], x['c']) for x in smp], [('trap', 'GET', 0)], 'the second line has no path to keep')
+        self.assertTrue(smp[0]['p'].startswith('/.env'))
+        self.assertRegex(smp[0]['p'], r'\A[A-Za-z0-9._~/%+-]+(\.\.\.)?\Z')
+        self.assertNotEqual(smp[0]['p'], hostile, 'the control: the hostile text was cut')
+        self.assertNotIn('DROP', json.dumps(evs))
+        self.assertEqual(evs[0]['src'], {'trap': 2}, 'both hits count, sample or not')
+        # and a report carries it only when the operator turned examples on
+        self.assertNotIn('/.env', ip_intel.evidence_comment(evs[0]))
+        self.assertTrue(ip_intel.evidence_comment(evs[0], None, True).endswith('Examples: GET ' + smp[0]['p']))
 
 
 if __name__ == '__main__':

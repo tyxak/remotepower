@@ -5446,6 +5446,10 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .ipi-status-cell { min-width: 150px; }
 .ipi-ignore-classes { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 16px; }
 .ipi-ignore-class { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+/* 8.0.1: a general kind of attack sits on a row of its own, with its finer kinds indented under it. */
+.ipi-ignore-general { grid-column: 1 / -1; margin-top: 6px; }
+.ipi-ignore-kind { padding-inline-start: 22px; }
+.ipi-ignore-covered { opacity: .6; }
 .ipi-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 12px; }
 .ipi-facts dt { color: var(--muted); }
 .ipi-facts dd { margin: 0; overflow-wrap: anywhere; }

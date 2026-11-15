@@ -116,7 +116,8 @@ class TestTheStandardText(unittest.TestCase):
     from it, but most of what the logs find is not brute force, and the web
     counter counts more than logins (any 401 or 403)."""
 
-    BRUTE = {'ssh_brute', 'login_brute', 'mail_brute', 'ftp_brute', 'service_brute'}
+    BRUTE = {'ssh_brute', 'login_brute', 'mail_brute', 'ftp_brute', 'service_brute',
+             'rdp_brute', 'smb_brute', 'telnet_brute', 'db_brute'}      # 8.0.1: a service's login by name
 
     def test_the_standard_text_claims_no_kind_of_attack(self):
         for word in ('brute', 'failed', 'login'):
