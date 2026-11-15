@@ -178,7 +178,7 @@ class TestV342Automation(unittest.TestCase):
 
 
 class TestV342FleetMgmt(unittest.TestCase):
-    """octofleet-inspired batch: patch catalog, post-deploy verify, metering,
+    """A fleet management batch: patch catalog, post-deploy verify, metering,
     heat map, after-hours, fleet query, signed-agent badge on Devices."""
     API = _apisrc_combined()
     AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
@@ -235,7 +235,7 @@ class TestV342FleetMgmt(unittest.TestCase):
 
 
 class TestV342Deployment(unittest.TestCase):
-    """Second octofleet batch: staged rollouts, maintenance change-windows,
+    """A second batch: staged rollouts, maintenance change-windows,
     CIS-style compliance baselines, metering normalization/reclamation, PDF."""
     API = _apisrc_combined()
     APP = client_js()
