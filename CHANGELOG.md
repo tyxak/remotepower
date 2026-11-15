@@ -134,6 +134,18 @@ as WAF refusals. The release page is [docs/v8.0.1.md](docs/v8.0.1.md).
   has been handed over. **Held by** `tests/test_v801_uninstall_mark.py` (the real button, heartbeat and Hosts list with the clock set by the
   test; 15 mutations shown failing).
 
+### Notifications
+
+- **A destination that keeps failing is reported.** A webhook whose address was revoked or a mail server whose password expired failed
+  quietly: every failed delivery was a line in the delivery log and an entry in the dead-letter queue, and nothing told anyone that the alerts
+  had stopped arriving. RemotePower now counts failed deliveries per destination. The third in a row raises `notify_dest_failing`, an alert in
+  the inbox that names the destination and the last error and that goes out through every other destination; the first delivery that gets
+  through raises `notify_dest_recovered` and closes it. A destination that cannot work as it is set up (a missing token, an address the
+  local-address filter refuses) counts as failing; a delivery that was not tried (filtered, held for a digest, a dry run, over the send rate)
+  counts as nothing. The alert names a destination by the name you gave it or by its host, never by its address, whose path is the credential
+  for most chat services. Removing a destination or switching it off closes its alert. A destination that delivers costs one cached read
+  and no write. **Held by** `tests/test_v801_notify_dest_health.py` (the real firing path with the network replaced).
+
 ### Vulnerabilities
 
 - **A Rocky Linux, AlmaLinux or Red Hat host is told about the packages it has to update.** The agent reports an RPM version without its

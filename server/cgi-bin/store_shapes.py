@@ -459,6 +459,7 @@ SHAPES: dict = {
     'lldp_neighbors.json': dict_of(fields(neighbors=list_of())),
     'log_watch.json': dict_of(fields(units=dict_of(list_of()))),
     'metrics_history.json': dict_of(fields(samples=list_of(fields(mounts=list_of())))),
+    'notify_health.json': dict_of(fields(fails=OPT_NUM, since=OPT_NUM, last=OPT_NUM, error=OPT_STR, label=OPT_STR)),
     'packages.json': dict_of(fields(collected_at=OPT_NUM, count=OPT_NUM, os_id=OPT_STR, pkg_manager=OPT_STR, version_id=OPT_STR,
                                     packages=list_of(fields(arch=OPT_STR, name=OPT_STR, version=OPT_STR, source=OPT_STR,
                                                             source_version=OPT_STR, epoch=OPT_STR)))),

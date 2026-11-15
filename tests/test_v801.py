@@ -178,6 +178,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v801_pkg_versions.py",          # RPM and Alpine versions in their own order, held to 116 recorded OSV answers
         "tests/test_v801_cve_matching.py",          # what a scan asks OSV and does with the answer, replayed from the recording; the worker; the host view
         "tests/test_v801_agent_package_sources.py", # the agent's package list: source package, epoch, what counts as installed, the Alpine database
+        "tests/test_v801_notify_dest_health.py",    # a destination that keeps failing is reported once, through the others, and closed when it delivers
     )
 
     def test_the_list_is_not_empty(self):

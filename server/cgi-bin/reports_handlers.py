@@ -1532,9 +1532,11 @@ def _maybe_send_report_definitions():
         # Each destination is delivered independently: one broken webhook must not
         # stop the others, nor the email that already went out.
         for dest in A._webhook_destinations_by_id(cfg, dest_ids):
-            try:
-                A._dispatch_one_webhook('scheduled_report', dest, {}, body, subject, 3,
-                                        allow_digest=False)
-            except Exception as e:
-                A._log_webhook('scheduled_report', dest.get('url', '?'), 'error',
-                               f'report delivery failed: {type(e).__name__}: {str(e)[:120]}')
+            # 8.0.1: a report that cannot be delivered counts toward a failing destination
+            with A._watch_delivery(A._notify_dest_key(dest), A._notify_dest_label(dest)):
+                try:
+                    A._dispatch_one_webhook('scheduled_report', dest, {}, body, subject, 3,
+                                            allow_digest=False)
+                except Exception as e:
+                    A._log_webhook('scheduled_report', dest.get('url', '?'), 'error',
+                                   f'report delivery failed: {type(e).__name__}: {str(e)[:120]}')

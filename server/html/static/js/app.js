@@ -22054,6 +22054,8 @@ function _renderHomeActivity(fleetEvents) {
     // v6.4.2: the control plane telling on itself — a maintenance sweep
     // failing while the scheduler lives, and a stopped sidecar.
     'sweep_failing', 'sweep_recovered', 'sidecar_down', 'sidecar_recovered',
+    // 8.0.1: a notification destination that keeps failing, and the first delivery that gets through
+    'notify_dest_failing', 'notify_dest_recovered',
     // v6.4.3: a running receiver whose SOURCE is wired to nothing — the unit is
     // active and every packet is still being dropped.
     'ingest_source_unmappable', 'ingest_source_mapped',
@@ -22413,6 +22415,7 @@ function _homeActivityAttrs(event, p) {
     case 'mitigation_unverified':
     case 'sweep_failing': case 'sweep_recovered':
     case 'sidecar_down': case 'sidecar_recovered':
+    case 'notify_dest_failing': case 'notify_dest_recovered':
     case 'ingest_source_unmappable': case 'ingest_source_mapped':
       return `${base} data-home-act="self"`;
     // v6.4.2: a control-plane privilege/security change is about RemotePower

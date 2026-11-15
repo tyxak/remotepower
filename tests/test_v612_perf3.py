@@ -330,7 +330,8 @@ class TestEagerJsPayload(unittest.TestCase):
         # its glue that fetches the lazy renderer, and the second quick SSH icon with its target rule and its action). The renderers of the overview and of the widget are in
         # app-traffic.js, which is lazy; the icon is drawn with the Hosts table, before any loader could be asked for it.
         # 8.0.1 what a CVE scan leaves out: 2_739_000. The payload was 2_736_220 after the Threat Intel work of this release, 780 under the budget, and is
-        # 2_737_907 now: 1,687 bytes more, all of it in app-cve.js. The two sentences that say what a scan of a host leaves out are about 400 of them (the
+        # 2_738_123 now: 1,903 bytes more, 1,687 of them in app-cve.js and 216 in app.js (the two events of a failing notification destination in the
+        # activity feed's list and its click-through). In app-cve.js the two sentences that say what a scan of a host leaves out are about 400 of them (the
         # server sends a word and the page holds the sentence, so the translation engine can match it), the line that names the installed packages of a
         # finding and the note for a cut advisory list about 600, and the rest is the two functions' wiring and comments. app-cve.js is eager for the
         # reason given at 7.4.6. The translations are in i18n.js, which is not eager.

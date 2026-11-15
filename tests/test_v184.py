@@ -337,6 +337,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'server_upgraded',                       # v6.4.2 controller version change
             'integration_metric_alert',              # v6.4.2 operator bound on a connector metric
             'sweep_failing', 'sidecar_down',         # v6.4.2 control-plane health
+            'notify_dest_failing',                   # 8.0.1 a notification destination that keeps failing
             'mitigation_unverified',                 # v6.4.2 an operator fix that did not work
             'kmip_cert_expiring',                    # v6.4.1 KMIP PKI expiry
             'priv_group_added',                      # v6.2.0 sudo/wheel/Administrators grant
@@ -401,6 +402,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'password_stale', 'password_stale_cleared',     # v6.4.2 opt-in hardening
             'integration_metric_recovered',          # ← integration_metric_alert (v6.4.2)
             'sweep_recovered',                       # ← sweep_failing (v6.4.2)
+            'notify_dest_recovered',                 # ← notify_dest_failing (8.0.1)
             'sidecar_recovered',                     # ← sidecar_down (v6.4.2)
             # v6.4.3: an ingest token wired to nothing — the receiver is up and
             # dropping every packet it was enrolled to catch.

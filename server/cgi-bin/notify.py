@@ -1261,6 +1261,8 @@ def _webhook_message(event, payload):
         "sidecar_down",
         "sidecar_recovered",
         "mitigation_unverified",
+        "notify_dest_failing",
+        "notify_dest_recovered",
     ):
         # v6.4.2: control-plane health. Fleet-level, so `name` is the server and
         # the generic fallback would read "sweep_failing: unknown".

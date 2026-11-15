@@ -86,6 +86,7 @@ AUDIT_HMAC_ROTATIONS_FILE = DATA_DIR / 'audit_hmac_rotations.json'   # v6.1.1: k
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
 WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
 WEBHOOK_DLQ_FILE = DATA_DIR / 'webhook_dlq.json'  # v5.0.0 #R2: dead-letter queue
+NOTIFY_HEALTH_FILE = DATA_DIR / 'notify_health.json'  # 8.0.1: the failed streak of each notification destination
 # v6.4.2: the same idea for AUDIT forwarding, which had none. See
 # _spool_audit_forward / run_audit_forward_retry_if_due.
 AUDIT_FORWARD_SPOOL_FILE = DATA_DIR / 'audit_forward_spool.json'
@@ -2968,6 +2969,21 @@ EVENT_REGISTRY = {
     'sweep_recovered': dict(
         label='A failing maintenance sweep is running again', kind='health',
         resolves=('sweep_failing',), tags='white_check_mark,gear'),
+    # 8.0.1: a notification destination that keeps failing. An alert that cannot be
+    # delivered is the one failure nothing else reports: the delivery log scrolls,
+    # the dead-letter list is a page nobody opens until they wonder why it has been
+    # quiet, and a revoked webhook or an expired SMTP password stays silent. Fires on
+    # the transition (NOTIFY_FAIL_STREAK failed deliveries in a row), goes out
+    # through every other destination and into the inbox, and the recover event
+    # closes it by the destination's label.
+    'notify_dest_failing': dict(
+        label='A notification destination keeps failing', kind='health',
+        title='Notification Destination Failing', severity='high', priority=4,
+        tags='rotating_light,mailbox_with_no_mail'),
+    'notify_dest_recovered': dict(
+        label='A notification destination delivers again', kind='health',
+        title='Notification Destination Delivering', resolves=('notify_dest_failing',),
+        tags='white_check_mark,mailbox_with_mail'),
     # v6.4.2: a co-located sidecar (syslogd / flowd / kmipd) stopped. Each owns
     # an ingest or key-serving path that fails SILENTLY — when kmipd dies, every
     # appliance storing its volume keys there fails to unlock on its next
@@ -9672,8 +9688,145 @@ def _log_inbound(kind, token_id, label, status, detail=''):
 
 
 # ── Webhook ────────────────────────────────────────────────────────────────────
+# ── 8.0.1: a destination that keeps failing ───────────────────────────────────
+#
+# Every delivery writes one line to the delivery log. `_watch_delivery` listens to the lines
+# of ONE delivery to ONE destination and reads from them whether the destination delivered,
+# failed or was not tried (filtered, held for a digest, a dry run, rate-limited). A failed
+# streak is kept per destination in NOTIFY_HEALTH_FILE and announced once.
+NOTIFY_FAIL_STREAK = 3
+_DELIVERY = threading.local()
+_URL_IN_TEXT_RE = re.compile(r'[a-z][a-z0-9+.-]*://\S+', re.I)
+
+
+def _delivery_outcome(seen):
+    """(delivered, error text) from the log lines of one delivery, or None when nothing was tried."""
+    outcome = None
+    for status, detail in seen or ():
+        text = str(status)
+        if text.isascii() and text.isdigit():
+            outcome = (True, '') if int(text) < 400 else (False, str(detail))
+        elif text == 'error' and not str(detail).startswith('rate-limited'):
+            outcome = (False, str(detail))
+    return outcome
+
+
+def _notify_dest_key(dest):
+    """The stable name a destination's streak is kept under: its id, or a digest of its address
+    for a destination saved without one. Never the address itself: its path can be a credential."""
+    ident = str(dest.get('id') or '').strip()
+    if not ident:
+        ident = hashlib.sha256(str(dest.get('url') or '').encode('utf-8', 'replace')).hexdigest()[:16]
+    return ('wh:' + ident)[:64]
+
+
+def _notify_dest_label(dest):
+    """What an operator calls the destination: the name they gave it, else its host."""
+    name = _sanitize_str(str(dest.get('name') or ''), 80)
+    if name:
+        return name
+    return _redact_url_to_host(dest.get('url') or '') or 'Webhook'
+
+
+class _watch_delivery:
+    """Around one delivery to one destination. Nests: a delivery that announces a failing
+    destination starts deliveries of its own."""
+
+    def __init__(self, key, label):
+        self.key, self.label = key, label
+
+    def __enter__(self):
+        self._outer = getattr(_DELIVERY, 'seen', None)
+        _DELIVERY.seen = []
+        return self
+
+    def __exit__(self, *_exc):
+        seen, _DELIVERY.seen = _DELIVERY.seen, self._outer
+        outcome = _delivery_outcome(seen)
+        if outcome is not None:
+            try:
+                _note_delivery(self.key, self.label, outcome[0], outcome[1])
+            except Exception as e:
+                sys.stderr.write(f'[remotepower] destination health not recorded: {type(e).__name__}: {e}\n')
+        return False
+
+
+def _note_delivery(key, label, ok, error=''):
+    """Record that one delivery to a destination delivered or failed.
+
+    A destination that delivers and has no failure on record costs one cached read and no
+    write. The third failure in a row raises notify_dest_failing, once; the next delivery
+    that gets through raises notify_dest_recovered and forgets the streak. Both are fired
+    after the store is released: they are deliveries themselves."""
+    key = str(key or '')[:64]
+    if not key:
+        return
+    if ok:
+        known = _load_ro(NOTIFY_HEALTH_FILE) if backend_exists(NOTIFY_HEALTH_FILE) else None
+        if not isinstance(known, dict) or key not in known:
+            return
+    now = int(time.time())
+    announce = None
+    with _LockedUpdate(NOTIFY_HEALTH_FILE) as state:
+        row = state.get(key)
+        row = row if isinstance(row, dict) else {}
+        shown = _sanitize_str(str(row.get('label') or label or ''), 80) or 'destination'
+        if ok:
+            state.pop(key, None)
+            if row.get('alerted') is True:
+                announce = ('notify_dest_recovered', {
+                    'name': get_server_name(), 'label': shown,
+                    'detail': f'Notification destination "{shown}" delivers again.'})
+        else:
+            fails = _whole_or_zero(row.get('fails')) + 1
+            why = _URL_IN_TEXT_RE.sub('[address]', str(error or ''))[:160]
+            alerted = row.get('alerted') is True
+            if fails >= NOTIFY_FAIL_STREAK and not alerted:
+                alerted = True
+                announce = ('notify_dest_failing', {
+                    'name': get_server_name(), 'label': shown,
+                    'detail': (f'Notification destination "{shown}" has failed {fails} deliveries in a row'
+                               + (f': {why}' if why else '.'))})
+            state[key] = {'fails': fails, 'since': _whole_or_zero(row.get('since')) or now, 'last': now,
+                          'error': why, 'label': shown, 'alerted': alerted}
+    if announce:
+        fire_webhook(*announce)
+
+
+def _notify_health_prune(cfg):
+    """Forget the streak of a destination that is no longer there or is switched off, and close
+    its alert: nothing will ever be delivered to it again, so nothing else would."""
+    state = _load_ro(NOTIFY_HEALTH_FILE) if backend_exists(NOTIFY_HEALTH_FILE) else None
+    if not isinstance(state, dict) or not state:
+        return
+    live = set()
+    if str(cfg.get('webhook_url') or '').strip():
+        live.add('wh:legacy')
+    for entry in (cfg.get('webhook_urls') or []):
+        if isinstance(entry, dict) and str(entry.get('url') or '').strip() and entry.get('enabled') is not False:
+            live.add(_notify_dest_key(entry))
+    if cfg.get('smtp_enabled'):
+        live.add('email')
+    gone = [k for k in state if k not in live]
+    if not gone:
+        return
+    closed = []
+    with _LockedUpdate(NOTIFY_HEALTH_FILE) as store:
+        for key in gone:
+            row = store.pop(key, None)
+            if isinstance(row, dict) and row.get('alerted') is True:
+                closed.append(_sanitize_str(str(row.get('label') or ''), 80) or 'destination')
+    for shown in closed:
+        fire_webhook('notify_dest_recovered', {
+            'name': get_server_name(), 'label': shown,
+            'detail': f'Notification destination "{shown}" was removed or switched off.'})
+
+
 def _log_webhook(event, url, status, detail=''):
     """Append an entry to the webhook log (last MAX_WEBHOOK_LOG entries)."""
+    _watching = getattr(_DELIVERY, 'seen', None)
+    if _watching is not None:
+        _watching.append((status, detail))
     try:
         wl = load(WEBHOOK_LOG_FILE)
         # v6.4.2: an install that _log_email had already clobbered has a BARE
@@ -9776,9 +9929,11 @@ def _dlq_retry_entry(entry):
     filters are intentionally skipped — this replays the exact stored delivery
     to its destination (the operator already decided it should have gone)."""
     try:
-        _dispatch_one_webhook(entry.get('event', ''), entry.get('dest') or {},
-                              entry.get('payload') or {}, entry.get('message', ''),
-                              entry.get('title', ''), entry.get('priority'))
+        _dest = entry.get('dest') or {}
+        with _watch_delivery(_notify_dest_key(_dest), _notify_dest_label(_dest)):
+            _dispatch_one_webhook(entry.get('event', ''), _dest,
+                                  entry.get('payload') or {}, entry.get('message', ''),
+                                  entry.get('title', ''), entry.get('priority'))
         return True
     except Exception:
         return False
@@ -10044,10 +10199,22 @@ def _send_event_email(event, payload, message, cfg, server_name):
             smtp_notifier.send_email(cfg, recipients, subject, body,
                                      html_body=smtp_notifier.brand_html(cfg, subject, body))
             _log_email(event, recipients, 'ok', '')
+            _note_email_delivery(True)
         except smtp_notifier.SmtpError as e:
             _log_email(event, recipients, 'error', str(e))
+            _note_email_delivery(False, str(e))
         except Exception as e:
             _log_email(event, recipients, 'error', f'{type(e).__name__}: {e}')
+            _note_email_delivery(False, f'{type(e).__name__}: {e}')
+
+
+def _note_email_delivery(ok, error=''):
+    """8.0.1: the mail server is one destination, whoever the mail was for. Never raises: the
+    caller is the code that sends alerts."""
+    try:
+        _note_delivery('email', 'Email', ok, error)
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] destination health not recorded: {type(e).__name__}: {e}\n')
 
 
 def _log_email(event, recipients, status, detail):
@@ -10770,6 +10937,8 @@ def _alert_title(event, payload):
         return f'Integration unhealthy: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
     if event == 'edge_feed_down':
         return f'Edge feed down: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
+    if event == 'notify_dest_failing':
+        return str(p.get('detail') or f'Notification destination failing: {p.get("label", "?")}')[:200]
     if event == 'ip_reported':
         return f'Threat Intel: {p.get("detail", "addresses reported")}'[:200]
     if event == 'edge_list_held':
@@ -13040,9 +13209,10 @@ def _auto_resolve_alerts(event, payload):
         # W4-16: mail round-trip recovers — clear the open mailflow_delayed
         # alert (no device_id; matched by the fixed 'mailflow' label).
         sub_match['label'] = p.get('label')
-    elif event in ('edge_feed_recovered', 'edge_list_synced'):
+    elif event in ('edge_feed_recovered', 'edge_list_synced', 'notify_dest_recovered'):
         # v7.3.0: no device_id; one alert per feed (and one for the list), told
         # apart by `label`, which is in _ALERT_IDENTITY_FIELDS and stored.
+        # 8.0.1: and one per notification destination, by the destination's name.
         sub_match['label'] = p.get('label')
     elif event == 'image_updated':
         # Fleet-level (no device_id) — match the open alert by image+tag.
@@ -13609,8 +13779,9 @@ def _run_automation_action(action, event, payload, dev_id, cfg, rule):
             msg = _webhook_message(event, payload or {})
         except Exception:
             msg = event
-        _dispatch_one_webhook(event, dest, safe, msg,
-                              _webhook_title(event), _webhook_priority(event))
+        with _watch_delivery(_notify_dest_key(dest), _notify_dest_label(dest)):   # 8.0.1
+            _dispatch_one_webhook(event, dest, safe, msg,
+                                  _webhook_title(event), _webhook_priority(event))
     elif atype == 'open_ticket':
         # v5.6.0: auto-open a helpdesk ticket for the event's device. Reuses the
         # ticket store (only when the ticket system is enabled). Deduped per rule
@@ -14416,6 +14587,12 @@ def _send_webhook_to_url(event, safe_payload, message, cfg, only_dest_ids=None):
     # v5.4.1 (G2): an escalation tier can target ONE destination (by id or name,
     # case-insensitive). When set, restrict the fan-out to that destination so a
     # later tier can page a different/louder channel.
+    try:
+        # the saved settings, not `cfg`: Send test on one destination passes a config that holds only
+        # that one, and every other destination would read as removed
+        _notify_health_prune(_config_ro())
+    except Exception as _nh:
+        sys.stderr.write(f'[remotepower] destination health not pruned: {type(_nh).__name__}: {_nh}\n')
     if only_dest_ids:
         want = {str(x).strip().lower() for x in only_dest_ids if str(x).strip()}
         destinations = [d for d in destinations
@@ -14448,11 +14625,13 @@ def _send_webhook_to_url(event, safe_payload, message, cfg, only_dest_ids=None):
     title    = _webhook_title(event)
     priority = _webhook_priority(event)
     for dest in destinations:
-        try:
-            _dispatch_one_webhook(event, dest, safe_payload, message, title, priority)
-        except Exception as e:
-            _log_webhook(event, dest.get('url', '?'), 'error',
-                         f'unhandled: {type(e).__name__}: {str(e)[:200]}')
+        # 8.0.1: what this delivery logs decides whether the destination is failing
+        with _watch_delivery(_notify_dest_key(dest), _notify_dest_label(dest)):
+            try:
+                _dispatch_one_webhook(event, dest, safe_payload, message, title, priority)
+            except Exception as e:
+                _log_webhook(event, dest.get('url', '?'), 'error',
+                             f'unhandled: {type(e).__name__}: {str(e)[:200]}')
 
 
 def _webhook_title(event):
@@ -14967,12 +15146,13 @@ def run_webhook_digests_if_due():
                  for it in items[:100]]
         summary = (f'{len(items)} notifications held over the last '
                    f'{int(dest.get("digest_minutes"))} min:\n\n' + '\n'.join(lines))
-        try:
-            _dispatch_one_webhook('notification_digest', dest, {}, summary, title, 3,
-                                  allow_digest=False)
-        except Exception as e:
-            _log_webhook('notification_digest', dest.get('url', '?'), 'error',
-                         f'digest flush failed: {type(e).__name__}: {str(e)[:120]}')
+        with _watch_delivery(_notify_dest_key(dest), _notify_dest_label(dest)):   # 8.0.1
+            try:
+                _dispatch_one_webhook('notification_digest', dest, {}, summary, title, 3,
+                                      allow_digest=False)
+            except Exception as e:
+                _log_webhook('notification_digest', dest.get('url', '?'), 'error',
+                             f'digest flush failed: {type(e).__name__}: {str(e)[:120]}')
 
 
 # ── Notification-channel payload builders now live in notify.py ────────────

@@ -224,6 +224,34 @@ when the receiver is down. From **Settings → Notifications → Webhook log** y
 logged and its attempt counter bumped. You can also **replay** past fleet events
 to a destination, which is handy after a receiver outage.
 
+## A destination that keeps failing
+
+A webhook whose address was revoked, or a mail server whose password expired, fails quietly:
+each failed delivery is a line in the log and an entry in the dead-letter queue, and from then
+on your alerts stop arriving, which looks exactly like a quiet day.
+
+So RemotePower counts failed deliveries per destination. The third in a row raises
+`notify_dest_failing`: an alert in the inbox that names the destination and the last error,
+and a notification through every other destination you have. The first delivery that gets
+through raises `notify_dest_recovered` and closes the alert. A successful **Send test** or a
+retry from the dead-letter queue counts as getting through.
+
+- A failure is a refused or timed-out connection, an HTTP answer of 400 or above, a
+  destination that cannot work as it is set up (a missing token, a scheme that is not http or
+  https, an address the local-address filter refuses) and, for mail, anything the mail server
+  does not accept.
+- A delivery that was not tried is neither a failure nor a success: an event the destination
+  does not subscribe to, one held for a digest, a dry run, and a send dropped by the rate cap.
+- The alert names the destination by the name you gave it, or by its host when it has none.
+  The address itself is never written into the alert, because for most chat services the
+  path is the credential.
+- Removing a destination or switching it off closes its alert.
+- With one destination only, the inbox is where you will see it. A second destination, even
+  a plain email, is what makes a failing one reach you.
+
+Both events are in the **Host health score** row of Settings → Notifications, next to the
+other alerts about RemotePower itself, so the usual routing and muting apply.
+
 ## Audit + logging
 
 Every successful POST is logged to `webhook_log.json` with the format suffix: `OK (200) [pushover]`, `HTTP 400 [discord]: Bad Request`, etc. Visible in Settings → Notifications → Recent deliveries, and aggregated for the success-rate stat on the Server Status page.
