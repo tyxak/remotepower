@@ -349,7 +349,7 @@ def handle_cve_findings():
 
     for dev_id, dev in devices.items():
         pkg_entry = pkg_store.get(dev_id) or {}
-        ecosystem = pkg_entry.get('ecosystem', '')
+        ecosystem = A.cve_scanner.entry_ecosystem(pkg_entry)   # 8.0.1: the name the scan uses
         f_entry = findings_all.get(dev_id) or {}
         findings = f_entry.get('findings') or []
         kev_count, epss_max = A._enrich_cve_findings(findings, kev, epss)
@@ -448,6 +448,11 @@ def handle_cve_device(dev_id):
 
     f_entry   = findings_all.get(dev_id) or {}
     pkg_entry = pkg_store.get(dev_id) or {}
+    if not isinstance(pkg_entry, dict):
+        pkg_entry = {}
+    ecosystem = A.cve_scanner.entry_ecosystem(pkg_entry)
+    cut       = f_entry.get('cut')
+    cut       = cut if isinstance(cut, list) else []
     findings  = f_entry.get('findings') or []
     findings  = A.cve_scanner.apply_ignore_list(findings, ignore_data, dev_id)
     _kev, _epss = A._kev_epss()                       # v3.14.0
@@ -458,12 +463,16 @@ def handle_cve_device(dev_id):
         'name':           dev.get('name', dev_id),
         'group':          dev.get('group', ''),
         'os':             dev.get('os', ''),
-        'ecosystem':      pkg_entry.get('ecosystem', '') or 'unsupported',
+        'ecosystem':      ecosystem or 'unsupported',
         'scanned_at':     f_entry.get('scanned_at', 0),
         'packages_count': pkg_entry.get('count', 0),
         'collected_at':   pkg_entry.get('collected_at', 0),
         'findings':       findings,
         'error':          f_entry.get('error', ''),
+        # 8.0.1: what this scan leaves out (a word, see cve_scanner.coverage) and the packages whose
+        # advisory list was longer than a scan reads
+        'coverage':       A.cve_scanner.coverage(ecosystem, pkg_entry.get('sources') is True) if ecosystem else '',
+        'cut':            [str(n) for n in cut if isinstance(n, str)][:20],
     })
 
 

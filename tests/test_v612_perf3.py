@@ -329,7 +329,12 @@ class TestEagerJsPayload(unittest.TestCase):
         # of them (the Overview card, the note under the remote addresses, the widget's card and a paragraph of the quick SSH card) and app.js about 1,900 (the widget's entry,
         # its glue that fetches the lazy renderer, and the second quick SSH icon with its target rule and its action). The renderers of the overview and of the widget are in
         # app-traffic.js, which is lazy; the icon is drawn with the Hosts table, before any loader could be asked for it.
-        self.assertLess(total, 2_737_000,
+        # 8.0.1 what a CVE scan leaves out: 2_739_000. The payload was 2_736_220 after the Threat Intel work of this release, 780 under the budget, and is
+        # 2_737_907 now: 1,687 bytes more, all of it in app-cve.js. The two sentences that say what a scan of a host leaves out are about 400 of them (the
+        # server sends a word and the page holds the sentence, so the translation engine can match it), the line that names the installed packages of a
+        # finding and the note for a cut advisory list about 600, and the rest is the two functions' wiring and comments. app-cve.js is eager for the
+        # reason given at 7.4.6. The translations are in i18n.js, which is not eager.
+        self.assertLess(total, 2_739_000,
                         'the eager JS payload regressed past its budget')
 
 

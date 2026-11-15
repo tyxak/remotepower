@@ -12,6 +12,7 @@ import urllib.request
 
 import checks        # v7.0.3: the shared accepted-risk predicate
 import cve_fixes     # v7.4.6 (#57): which release of the host a fix is in (pure)
+import pkg_versions  # 8.0.1: the version order of RPM and Alpine packages (pure)
 import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
 import urllib.error
 import urllib.parse
@@ -57,6 +58,60 @@ OSV_SUPPORTED_ECOSYSTEMS = (
 
 # ── OSV ecosystem detection ───────────────────────────────────────────────────
 
+_RELEASED_BY_MAJOR = ('Rocky Linux', 'AlmaLinux')
+
+
+def _with_major(name: str, major: str) -> str:
+    """'AlmaLinux' and '9' give 'AlmaLinux:9'. Without a usable number the bare name is kept: it answers
+    for every release, which is more findings than the host has and never fewer."""
+    major = str(major or '').strip()
+    if major.isascii() and major.isdigit() and len(major) <= 3 and int(major) > 0:
+        return f'{name}:{int(major)}'
+    return name
+
+
+def entry_ecosystem(entry) -> str:
+    """The name to scan a stored package list under. A list stored before 8.0.1 says 'AlmaLinux' or
+    'Rocky Linux' with no release; the release is in the entry's `version_id`, so the scan does not have
+    to wait for the host to send its list again."""
+    if not isinstance(entry, dict):
+        return ''
+    ecosystem = entry.get('ecosystem')
+    if not isinstance(ecosystem, str):
+        return ''
+    if ecosystem in _RELEASED_BY_MAJOR:
+        return _with_major(ecosystem, str(entry.get('version_id') or '').split('.')[0])
+    return ecosystem
+
+
+def family(ecosystem) -> str:
+    """Which package format an ecosystem name stands for: 'deb', 'rpm', 'apk' or ''."""
+    if not isinstance(ecosystem, str):
+        return ''
+    if ecosystem == 'Ubuntu' or ecosystem.startswith(('Ubuntu:', 'Debian')):
+        return 'deb'
+    if ecosystem.startswith(('Rocky Linux', 'AlmaLinux', 'Red Hat')):
+        return 'rpm'
+    if ecosystem.startswith('Alpine'):
+        return 'apk'
+    return ''
+
+
+def coverage(ecosystem, has_meta: bool = False) -> str:
+    """What a scan of this host leaves out, as a word the page turns into a sentence.
+
+    'own_name'     Debian and Ubuntu: a package is asked for under its own name, and the advisories are
+                   filed under the source package, so a package named otherwise is not checked
+    'needs_agent'  Alpine and Rocky with a list from an agent that does not report source packages
+    ''             nothing known to be left out"""
+    fam = family(ecosystem)
+    if fam == 'deb':
+        return 'own_name'
+    if not has_meta and (fam == 'apk' or (fam == 'rpm' and ecosystem.startswith('Rocky Linux'))):
+        return 'needs_agent'
+    return ''
+
+
 def detect_ecosystem(os_release: dict, pkg_manager: str) -> str | None:
     """Map /etc/os-release + pkg_manager to OSV ecosystem string."""
     if not os_release:
@@ -83,10 +138,13 @@ def detect_ecosystem(os_release: dict, pkg_manager: str) -> str | None:
         return None
 
     if pkg_manager == 'dnf':
+        # 8.0.1: Rocky and Alma are asked for with their major release. The bare name answers for every
+        # release at once, and an el9 package is older than most el10 fixes of the same package, so a
+        # host on release 9 was shown the advisories of release 10 (7 of 20 for openssl-libs).
         if os_id == 'rocky':
-            return 'Rocky Linux'
+            return _with_major('Rocky Linux', ver_major)
         if os_id == 'almalinux':
-            return 'AlmaLinux'
+            return _with_major('AlmaLinux', ver_major)
         if os_id in ('rhel', 'redhat'):
             return 'Red Hat'
         return None
@@ -117,6 +175,129 @@ def _osv_querybatch(queries: list) -> list:
     )
     with _OPENER.open(req, timeout=OSV_TIMEOUT) as resp:
         return json.loads(resp.read(MAX_RESP_BYTES).decode('utf-8')).get('results', [])
+
+
+# 8.0.1: a long answer comes in pages. The kernel of an old release has more than a thousand advisories,
+# and the first page was read as the whole answer.
+OSV_MAX_PAGES = 10
+
+
+def _osv_query_all(queries: list) -> list:
+    """One {'vulns': [...]} per query, in order, with every page of a long answer followed.
+
+    An answer that is still not finished after OSV_MAX_PAGES pages is marked 'truncated': True, so the
+    scan can say that the list is cut instead of presenting it as whole. A transport failure raises, as
+    `_osv_querybatch` does, and so does an answer of another shape than one result per query: read as
+    "no advisories" it would empty a host's findings and announce them cleared."""
+    results = [{'vulns': []} for _ in queries]
+    owed = list(range(len(queries)))
+    tokens: dict = {}
+    for _page in range(OSV_MAX_PAGES):
+        if not owed:
+            break
+        still = []
+        for start in range(0, len(owed), OSV_BATCH_SIZE):
+            chunk = owed[start:start + OSV_BATCH_SIZE]
+            body = [dict(queries[k], page_token=tokens[k]) if k in tokens else queries[k] for k in chunk]
+            answers = _osv_querybatch(body)
+            if not isinstance(answers, list) or len(answers) != len(chunk):
+                raise ValueError('OSV did not answer every query of a batch')
+            for k, answer in zip(chunk, answers):
+                vulns = answer.get('vulns', []) if isinstance(answer, dict) else None
+                if not isinstance(vulns, list) or not all(isinstance(v, dict) for v in vulns):
+                    raise ValueError('an OSV answer is not a list of advisories')
+                results[k]['vulns'].extend(vulns)
+                token = answer.get('next_page_token')
+                if isinstance(token, str) and token:
+                    tokens[k] = token
+                    still.append(k)
+        owed = still
+    for k in owed:
+        results[k]['truncated'] = True
+    return results
+
+
+# ── 8.0.1: what to ask for ───────────────────────────────────────────────────
+#
+# The advisory database files an advisory under the name the distribution's own security data uses, and
+# that is not always the name of the installed package. Measured 2026-11-15, one query per name:
+#
+#   Alpine       the origin: "openssl" answers, "libcrypto3" and "libssl3" answer nothing
+#   Rocky Linux  the source package in the older advisories, every built package in the newer ones
+#   AlmaLinux    every built package: "krb5-libs" answers, the source name "krb5" answers nothing
+#   Red Hat      both
+#   Debian and Ubuntu  the source package: "glibc" answers, "libc6" answers nothing
+#
+# So a host is asked for in units. A unit is one (name, version) question, the package its findings are
+# filed under, and the installed packages it speaks for. Alpine is asked by origin, Rocky by both names,
+# and the findings of one source package are one finding however many packages were built from it. That
+# needs what an 8.0.1 agent reports (the source package and the epoch); a list without them is asked for
+# name by name, as before. Debian and Ubuntu are still asked for by the installed name: docs/cve.md says
+# what that leaves out and why it is not switched on here.
+
+MAX_BINARIES_SHOWN = 30
+
+
+def _text(value) -> str:
+    return str(value or '').strip()
+
+
+def plan(packages, ecosystem, has_meta: bool = False) -> list:
+    """The units to ask the advisory database for, for one host's package list.
+
+    Each unit is {'name', 'version'} (the question), 'package' and 'shown' (the name and version on a
+    finding), 'epoch_known' (whether the version carries its epoch) and 'binaries' (the installed packages
+    the unit speaks for; empty when the unit is the installed package itself)."""
+    fam = family(ecosystem)
+    units: dict = {}
+
+    def unit(name, version, package, epoch_known, binary):
+        key = (name, version)
+        found = units.get(key)
+        if found is None:
+            found = units[key] = {'name': name, 'version': version, 'package': package, 'shown': version,
+                                  'epoch_known': epoch_known, 'binaries': []}
+        if binary and binary not in found['binaries']:
+            found['binaries'].append(binary)
+
+    grouped = bool(has_meta) and fam in ('apk', 'rpm')
+    both_names = grouped and fam == 'rpm' and isinstance(ecosystem, str) and ecosystem.startswith('Rocky Linux')
+    sources: dict = {}   # (source, its version-release) -> {'binaries': [...], 'epochs': set()}
+    for p in (packages if isinstance(packages, list) else [])[:MAX_PACKAGES]:
+        if not isinstance(p, dict):
+            continue
+        name, version = _text(p.get('name')), _text(p.get('version'))
+        if not name or not version:
+            continue
+        if not grouped:
+            # an RPM list without epochs: the version is asked for as it is, which answers with every
+            # advisory of a package that has an epoch, and the "already patched" check sorts them out
+            unit(name, version, name, fam != 'rpm', None)
+            continue
+        source = _text(p.get('source')) or name
+        if fam == 'apk':
+            unit(source, version, source, True, name)   # a subpackage has its origin's version
+            continue
+        epoch = _text(p.get('epoch'))
+        if not (epoch.isascii() and epoch.isdigit()) or int(epoch) == 0:
+            epoch = ''
+        unit(name, f'{epoch}:{version}' if epoch else version, source, True, name)
+        if both_names:
+            source_version = _text(p.get('source_version')) or version
+            group = sources.setdefault((source, source_version), {'binaries': [], 'epochs': set()})
+            group['binaries'].append(name)
+            if version == source_version:
+                group['epochs'].add(epoch)
+    for (source, source_version), group in sources.items():
+        # The source package's own epoch is not in what a host can report. It is the epoch of a package
+        # built from it with the source's version, when they agree on one; otherwise the source is not
+        # asked for by name and its packages still are.
+        if len(group['epochs']) != 1:
+            continue
+        epoch = next(iter(group['epochs']))
+        for binary in group['binaries']:
+            unit(source, f'{epoch}:{source_version}' if epoch else source_version, source, True, binary)
+    return list(units.values())
 
 
 def _osv_vuln_details(vuln_id: str) -> dict | None:
@@ -181,10 +362,14 @@ def _ecosystem_supported(ecosystem: str) -> bool:
 # OSV once per ecosystem, and returns a {(eco, name, ver): result} map that
 # scan_device consults instead of making its own calls — O(unique packages)
 # OSV traffic instead of O(devices × packages).
-def prefetch_osv(store: dict, cache_dir: Path) -> dict:
-    """Build the shared OSV result map for a whole fleet. Returns {} if the
-    breaker is open or nothing is scannable (scan_device then falls back / skips).
-    Records breaker outcomes like a normal scan."""
+def prefetch_osv(store: dict, cache_dir: Path) -> dict | None:
+    """Build the shared OSV result map for a whole fleet. Returns {} if the breaker is open or nothing is
+    scannable (scan_device then skips), and None when a query failed part-way: the caller then scans each
+    host with its own queries. Records breaker outcomes like a normal scan.
+
+    8.0.1: a failure used to return what had been collected so far. scan_device reads a name that is not
+    in the map as "no advisories", so one failed request emptied the findings of every host in the scan
+    and each of them announced that its vulnerabilities were cleared."""
     if osv_breaker_open(cache_dir):
         return {}
     by_eco = {}   # ecosystem -> ordered unique [(name, version)]
@@ -192,36 +377,27 @@ def prefetch_osv(store: dict, cache_dir: Path) -> dict:
     for entry in (store or {}).values():
         if not isinstance(entry, dict):
             continue
-        eco = entry.get("ecosystem")
+        eco = entry_ecosystem(entry)
         if not _ecosystem_supported(eco):
             continue
-        for p in (entry.get("packages") or [])[:MAX_PACKAGES]:
-            name = str(p.get("name") or "").strip()
-            version = str(p.get("version") or "").strip()
-            if not name or not version:
-                continue
-            key = (eco, name, version)
+        for unit in plan(entry.get("packages") or [], eco, entry.get("sources") is True):
+            key = (eco, unit['name'], unit['version'])
             if key in seen:
                 continue
             seen.add(key)
-            by_eco.setdefault(eco, []).append((name, version))
+            by_eco.setdefault(eco, []).append((unit['name'], unit['version']))
     result_map = {}
-    any_ok = False
     for eco, pkgs in by_eco.items():
         queries = [{"package": {"name": n, "ecosystem": eco}, "version": v}
                    for (n, v) in pkgs]
-        for i in range(0, len(queries), OSV_BATCH_SIZE):
-            chunk = queries[i:i + OSV_BATCH_SIZE]
-            try:
-                res = _osv_querybatch(chunk)
-            except Exception:
-                osv_breaker_record(cache_dir, ok=False)
-                return result_map   # partial; callers handle the gaps
-            for j, r in enumerate(res):
-                n, v = pkgs[i + j]
-                result_map[(eco, n, v)] = r or {}
-            any_ok = True
-    if any_ok:
+        try:
+            res = _osv_query_all(queries)
+        except Exception:
+            osv_breaker_record(cache_dir, ok=False)
+            return None
+        for (n, v), r in zip(pkgs, res):
+            result_map[(eco, n, v)] = r or {}
+    if result_map:
         osv_breaker_record(cache_dir, ok=True)
     return result_map
 
@@ -533,9 +709,12 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
 # ── Main scan entrypoint ─────────────────────────────────────────────────────
 
 def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
-                cache_ttl: int = None, osv_prefetch: dict = None) -> dict:
+                cache_ttl: int = None, osv_prefetch: dict = None, has_meta: bool = False) -> dict:
     """
     Scan one device's package list against OSV (if ecosystem supported).
+
+    `has_meta` says the list came from an agent that reports the source package and the epoch of each
+    package (8.0.1); see `plan` for what that changes.
     """
     if not packages or not ecosystem:
         return {
@@ -576,45 +755,34 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
 
     details_cache = _load_json(cache_dir / 'cve_details_cache.json')
     findings = []
-    pkg_by_index = []
 
-    # Build queries
-    queries = []
-    for p in packages:
-        name = str(p.get('name') or '').strip()
-        version = str(p.get('version') or '').strip()
-        if not name or not version:
-            continue
-        queries.append({
-            'package': {'name': name, 'ecosystem': ecosystem},
-            'version': version,
-        })
-        pkg_by_index.append((name, version))
+    # 8.0.1: what to ask for is the plan, not the list (see `plan`)
+    units = plan(packages, ecosystem, has_meta)
+    queries = [{'package': {'name': u['name'], 'ecosystem': ecosystem}, 'version': u['version']}
+               for u in units]
 
-    all_results = []
-    if osv_prefetch is not None:
-        # v5.0.0 (#S1): serve every package from the fleet-wide prefetch map (one
-        # OSV sweep already covered the whole fleet) — no per-device OSV traffic.
-        # A package the prefetch missed → empty result (treated as no vulns).
-        all_results = [osv_prefetch.get((ecosystem, n, v), {}) for (n, v) in pkg_by_index]
-    else:
-        # Submit batches
-        for i in range(0, len(queries), OSV_BATCH_SIZE):
-            batch = queries[i:i+OSV_BATCH_SIZE]
-            try:
-                batch_results = _osv_querybatch(batch)
-            except Exception as e:
-                # v5.0.0 (#R5): record the failure — repeated ones trip the breaker
-                # so the rest of the fleet scan stops hammering a dead OSV.
-                osv_breaker_record(cache_dir, ok=False)
-                return {
-                    'scanned_at': int(time.time()),
-                    'ecosystem': ecosystem,
-                    'findings': findings,
-                    'error': f'OSV query failed: {e}',
-                    'partial': True,
-                }
-            all_results.extend(batch_results)
+    # v5.0.0 (#S1): serve every package from the fleet-wide prefetch map (one OSV sweep already covered
+    # the whole fleet), with no per-device OSV traffic.
+    # 8.0.1: a question the map does not hold is asked now. It used to be read as "no advisories", so
+    # anything that made the map and the scan disagree emptied the host's findings without a word.
+    held = osv_prefetch if isinstance(osv_prefetch, dict) else {}
+    all_results = [held.get((ecosystem, u['name'], u['version'])) for u in units]
+    owed = [i for i, answer in enumerate(all_results) if not isinstance(answer, dict)]
+    if owed:
+        try:
+            for i, answer in zip(owed, _osv_query_all([queries[i] for i in owed])):
+                all_results[i] = answer
+        except Exception as e:
+            # v5.0.0 (#R5): record the failure — repeated ones trip the breaker
+            # so the rest of the fleet scan stops hammering a dead OSV.
+            osv_breaker_record(cache_dir, ok=False)
+            return {
+                'scanned_at': int(time.time()),
+                'ecosystem': ecosystem,
+                'findings': findings,
+                'error': f'OSV query failed: {e}',
+                'partial': True,
+            }
         # All batches succeeded → the breaker resets (half-open probe recovered).
         osv_breaker_record(cache_dir, ok=True)
 
@@ -624,14 +792,19 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     # Collect hits and uncached vuln IDs
     vuln_ids_to_fetch = set()
     hits = []
+    cut = []      # 8.0.1: the names whose advisory list was longer than the pages that are read
     for idx, result in enumerate(all_results):
-        if idx >= len(pkg_by_index):
+        if idx >= len(units):
             break
-        pkg_name, pkg_version = pkg_by_index[idx]
+        unit = units[idx]
+        if not isinstance(result, dict):
+            continue
+        if result.get('truncated') and unit['package'] not in cut:
+            cut.append(unit['package'])
         for v in result.get('vulns') or []:
-            vid = v.get('id')
+            vid = v.get('id') if isinstance(v, dict) else None
             if vid:
-                hits.append((pkg_name, pkg_version, vid))
+                hits.append((unit, vid))
                 cached = details_cache.get(vid)
                 # Re-fetch (and so re-classify) a vuln when:
                 #   - it isn't cached at all, OR
@@ -705,23 +878,36 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     # a newer release is normally past an older release's fix without holding
     # the fix its own release lacks. Other distributions keep the folded
     # string and the old rule, with the status "unknown".
+    # 8.0.1: a finding is one advisory against one package as the plan files it, so the packages built
+    # from one source (Alpine, and RPM from an agent that reports the source) are one finding that names
+    # them, and a package listed twice (two architectures) is no longer two findings.
     suppressed = 0
-    for pkg_name, pkg_version, vid in hits:
+    filed = {}
+    for unit, vid in hits:
         det = details_cache.get(vid, {})
         eco_fix = det.get('eco_fix')
-        fix = cve_fixes.classify(eco_fix, ecosystem, pkg_name)
+        asked = unit['name']
+        fix = cve_fixes.classify(eco_fix, ecosystem, asked)
         if fix['status'] == cve_fixes.UNKNOWN:
-            fixed = det.get('fixed_versions', {}).get(pkg_name) or ''
+            fixed = det.get('fixed_versions', {}).get(asked) or ''
             patched_spec = fixed
         else:
             fixed = ', '.join(fix['fixed'])
-            patched_spec = ', '.join(cve_fixes.patched_by(eco_fix, ecosystem, pkg_name))
-        if patched_spec and _already_patched(pkg_version, patched_spec, ecosystem):
+            patched_spec = ', '.join(cve_fixes.patched_by(eco_fix, ecosystem, asked))
+        if patched_spec and _already_patched(unit['version'], patched_spec, ecosystem,
+                                             epoch_known=unit['epoch_known']):
             suppressed += 1
             continue
+        key = (unit['package'], vid)
+        finding = filed.get(key)
+        if finding is not None:
+            for name in unit['binaries']:
+                if name not in finding['_binaries']:
+                    finding['_binaries'].append(name)
+            continue
         finding = {
-            'package': pkg_name,
-            'version': pkg_version,
+            'package': unit['package'],
+            'version': unit['shown'],
             'vuln_id': vid,
             'severity': det.get('severity', 'unknown'),
             'severity_source': det.get('severity_source', 'unknown'),
@@ -731,10 +917,19 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             'aliases': det.get('aliases', []),
             'refs': det.get('refs', []),
             'published': det.get('published', ''),
+            '_binaries': list(unit['binaries']),
         }
         if fix['elsewhere']:
             finding['fixed_elsewhere'] = {eco: ', '.join(vs) for eco, vs in fix['elsewhere'].items()}
+        filed[key] = finding
         findings.append(finding)
+    for finding in findings:
+        names = sorted(finding.pop('_binaries'))
+        # named only when it says more than the package name does
+        if names and names != [finding['package']]:
+            finding['binaries'] = names[:MAX_BINARIES_SHOWN]
+            if len(names) > MAX_BINARIES_SHOWN:
+                finding['binaries_more'] = len(names) - MAX_BINARIES_SHOWN
 
     # Sort: critical > high > medium > low > unknown
     findings.sort(key=lambda f: (
@@ -751,12 +946,14 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         # is filtering, and a suspiciously high number is a hint the
         # comparator might be over-suppressing.
         'suppressed_patched': suppressed,
+        # 8.0.1: the packages whose advisory list was cut (see OSV_MAX_PAGES); empty for a whole list
+        'cut': cut[:20],
     }
 
 
 # ── v2.2.6: version comparison — suppress already-patched findings ───────────
 
-def _already_patched(installed: str, fixed_spec: str, ecosystem: str) -> bool:
+def _already_patched(installed: str, fixed_spec: str, ecosystem: str, epoch_known: bool = True) -> bool:
     """Return True if `installed` is >= the fixed version, i.e. the
     package is already patched and the OSV hit is a false positive.
 
@@ -768,8 +965,14 @@ def _already_patched(installed: str, fixed_spec: str, ecosystem: str) -> bool:
     Debian/Ubuntu use `dpkg --compare-versions`, the authoritative
     implementation of Debian version ordering (handles `~`, `+bN`,
     `ubuntuN`, `~esmN`, epoch, etc. — none of which a naive split
-    gets right). Other ecosystems fall through to a conservative
-    tuple comparison.
+    gets right). 8.0.1: RPM and Alpine versions are compared in their own
+    order (`pkg_versions`). The tuple comparison they used read the epoch of
+    "1:3.0.7-28.el9_4" as the first number of the version, so an installed
+    3.0.7-16.el9 counted as past every fix and a host that needed the update
+    showed nothing; and it read "-r5" and the letter of "1.1.1w" as nothing.
+    `epoch_known` is False for an RPM list collected without epochs: the
+    installed version is then compared as if it had the fix's epoch. Anything
+    else still falls through to the tuple comparison.
 
     Fail-safe: any uncertainty (no fixed version, comparison error,
     unparseable version) returns False so the finding is KEPT. A
@@ -781,15 +984,19 @@ def _already_patched(installed: str, fixed_spec: str, ecosystem: str) -> bool:
     if not candidates:
         return False
 
-    is_deb = ecosystem == 'Ubuntu' or (ecosystem or '').startswith('Debian')
+    fam = family(ecosystem)
     for fixed in candidates:
         try:
-            if is_deb:
-                if _dpkg_ge(installed, fixed):
-                    return True
+            if fam == 'deb':
+                patched = _dpkg_ge(installed, fixed)
+            elif fam == 'rpm':
+                patched = pkg_versions.rpm_ge(installed, fixed, assume_same_epoch=not epoch_known)
+            elif fam == 'apk':
+                patched = pkg_versions.apk_ge(installed, fixed)
             else:
-                if _tuple_ge(installed, fixed):
-                    return True
+                patched = _tuple_ge(installed, fixed)
+            if patched:
+                return True
         except Exception:
             # Comparison failed — don't suppress on this candidate
             continue
@@ -887,7 +1094,17 @@ def _save_json(path: Path, data: dict) -> None:
 
 
 def packages_hash(packages: list) -> str:
-    normalized = sorted((p.get('name', ''), p.get('version', '')) for p in packages)
+    """The fingerprint of a package list; the agent computes the same one to decide whether to send.
+
+    8.0.1: a package that names its source package or its epoch is hashed with them, so a list from an
+    agent that reports them differs from the same packages reported without, and is sent once. A list
+    that names neither (pacman, or an older agent) hashes as it always did."""
+    rows = []
+    for p in packages:
+        row = (p.get('name', ''), p.get('version', ''))
+        more = (p.get('source', ''), p.get('source_version', ''), p.get('epoch', ''))
+        rows.append(row + more if any(more) else row)
+    normalized = sorted(rows)
     return hashlib.sha256(
         json.dumps(normalized, separators=(',', ':')).encode()
     ).hexdigest()[:16]

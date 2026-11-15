@@ -134,6 +134,51 @@ as WAF refusals. The release page is [docs/v8.0.1.md](docs/v8.0.1.md).
   has been handed over. **Held by** `tests/test_v801_uninstall_mark.py` (the real button, heartbeat and Hosts list with the clock set by the
   test; 15 mutations shown failing).
 
+### Vulnerabilities
+
+- **A Rocky Linux, AlmaLinux or Red Hat host is told about the packages it has to update.** The agent reports an RPM version without its
+  epoch, OSV answers such a question with every advisory of the package, and RemotePower then leaves out the ones whose fix the host is already
+  at or past. That check split a version on punctuation, so the epoch of a fix (`1:3.0.7-28.el9_4`) was read as the first number of the
+  version: an installed `3.0.7-16.el9` counted as newer than every fix, and a host that needed the update showed nothing for `openssl`. A
+  package whose epoch is higher than its version's first number (`bind`, 32) went the other way and kept every advisory after the update.
+  RPM versions are now compared in RPM's own order (`server/cgi-bin/pkg_versions.py`), and for a list collected without epochs the installed
+  package is read with the epoch of the fix. Run **Scan all hosts** once after the upgrade.
+- **An Alpine host is told too.** The same check read `-r5` and the letter of `1.1.1w` as nothing, so a fix that only raised the revision or the
+  letter counted as installed. Alpine versions are compared in Alpine's own order.
+- **Checked against OSV.** 116 versions were sent to OSV, each against an advisory with a known fix, and the answers are kept in
+  `tests/data/osv_version_order_2026-11-15.tsv`. The new comparison gives the recorded answer for 112. The other four are forms no host reports
+  (a version with no revision, and three spellings of a lower bound); the test names them and fails if the list grows.
+- **Rocky Linux and AlmaLinux are asked for with their major release.** The bare name answers for every release at once, and a release 9 package
+  is older than most release 10 fixes of the same package: `openssl-libs` on AlmaLinux 9 got 20 advisories, 7 of them for release 10. A list
+  stored before the upgrade is scanned under its release too, from the version the host reported with it.
+- **The agent reports source packages and epochs.** A distribution's security data is kept by source package: OSV answers for `openssl` on
+  Alpine and nothing for `libcrypto3`, and the older Rocky advisories name only the source package. The Linux agent now adds the source package
+  of each installed package, that source's version where it differs, and the RPM epoch. With that, Alpine is asked by origin and Rocky by both
+  names. One advisory against one source package is one finding that lists the installed packages after **installed as**, so `openssl` and
+  `openssl-libs` on an AlmaLinux host are one finding where they were two. A list from an older agent is asked for package by package, as before.
+  The agent sends its list when it changes, and the new fields count as a change, so each host sends once after its agent is updated.
+- **Debian and Ubuntu are not matched by source package yet, and the host view says so.** OSV keeps their advisories under the source package too,
+  so a package with another name (`libc6`, `libssl3`, `openssh-server`, the kernel images) is not checked. Those two distributions list every known
+  CVE of a release, fixed or not: on 2026-11-15 OSV held more than 1,000 entries without a fix for the Debian 12 kernel alone. Showing them next to
+  the few an update can clear needs its own design, so this release keeps the old matching for the two, reports the source packages anyway, and
+  states the gap in the host view and in [the guide](docs/cve.md#how-a-package-is-matched).
+- **A long advisory list is read to the end.** OSV answers in pages, and only the first was read. Every page is followed now, up to 10,000
+  advisories for one package; past that the host view names the package whose list is cut.
+- **One failed request no longer empties the findings of every host.** A fleet scan looks up all packages together first. If a request failed
+  part-way, the scan went on with what it had and read every package that was missing as "no advisories": each host lost its findings and
+  announced that its vulnerabilities were cleared, until the next scan. The lookup now reports the failure, each host is scanned with its own
+  requests, and a host whose scan fails keeps its last findings. A package the lookup did not hold is asked for when its host is scanned, and
+  an answer that is not one result per question counts as a failed request instead of an empty one.
+- **Three corrections to the package list.** `dpkg-query` lists a package that was removed and still has its configuration files, so removed
+  software was reported as installed and checked; it is left out now, as it already was for an agent in a container. An Alpine host monitored
+  from the agent container had no reader and was reported with the packages of the agent's own image; its package database is read now. And a
+  package whose version has a caret (an RPM snapshot such as `1.0^20240101git`) was dropped from the list by the server.
+- **Held by** `tests/test_v801_pkg_versions.py`, `tests/test_v801_cve_matching.py` (the scan replayed against the recorded OSV answers in
+  `tests/data/osv_recorded_2026-11-15.tsv`, the real worker and the page's functions) and `tests/test_v801_agent_package_sources.py`; 94 mutations
+  shown failing. The dpkg, rpm and apk output in the agent tests is written from the tools' documented formats: none of the three is on the
+  machine this was built on, so the agent's new readers have not run against a real package database yet. A dpkg or rpm that does not take
+  the new query gets the list collected as before.
+
 ## v8.0.0 — "Pil0tMatters" — 2026-11-11
 
 The first release of a new major version, and it changes what a person can adjust and what the agent finds without being asked. You can set the text

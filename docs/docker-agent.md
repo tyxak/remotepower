@@ -96,8 +96,8 @@ It reports "not available" instead of misleading host data for:
 - **Self-update** — the binary is baked into the image; upgrade by pulling a
   newer image tag, never in place.
 - **Pending-update count on non-Debian hosts** — the installed-package inventory works on
-  Debian/Ubuntu and Arch hosts, but the "updates available" count is computed for
-  apt hosts only. For dnf and pacman hosts it stays *unknown*, never a false `0`. CVE scanning
+  Debian/Ubuntu, Arch and Alpine hosts, but the "updates available" count is computed for
+  apt hosts only. For dnf, pacman and apk hosts it stays *unknown*, never a false `0`. CVE scanning
   needs the package inventory and the OSV ecosystems described in [cve.md](cve.md).
 - **Package inventory on RHEL and Fedora hosts** — the rpm database is a binary store, and the
   agent image does not ship the `rpm` tool. The agent sends no package list for such a host, so

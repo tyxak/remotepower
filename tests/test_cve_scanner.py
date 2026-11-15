@@ -61,13 +61,14 @@ class TestEcosystemDetection(unittest.TestCase):
         )
 
     def test_rhel_family(self):
+        # 8.0.1: Rocky and Alma carry their major release (tests/test_v801_cve_matching.py holds why)
         self.assertEqual(
             cve_scanner.detect_ecosystem({'ID': 'rocky', 'VERSION_ID': '9'}, 'dnf'),
-            'Rocky Linux'
+            'Rocky Linux:9'
         )
         self.assertEqual(
             cve_scanner.detect_ecosystem({'ID': 'almalinux', 'VERSION_ID': '9'}, 'dnf'),
-            'AlmaLinux'
+            'AlmaLinux:9'
         )
         self.assertEqual(
             cve_scanner.detect_ecosystem({'ID': 'rhel', 'VERSION_ID': '9'}, 'dnf'),

@@ -175,6 +175,9 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v801_agent_request_kinds.py",   # the agent's finer request kinds: the four patterns match what the one matched, and the server knows every kind
         "tests/test_v801_edge_samples.py",          # samples and real times from Cloudflare and the honeypot: the tiers, what is never asked for, the request log's category ids
         "tests/test_v801_uninstall_mark.py",        # the "agent uninstalled" mark follows the command: stamped by the heartbeat that delivers it, carried by the Hosts list
+        "tests/test_v801_pkg_versions.py",          # RPM and Alpine versions in their own order, held to 116 recorded OSV answers
+        "tests/test_v801_cve_matching.py",          # what a scan asks OSV and does with the answer, replayed from the recording; the worker; the host view
+        "tests/test_v801_agent_package_sources.py", # the agent's package list: source package, epoch, what counts as installed, the Alpine database
     )
 
     def test_the_list_is_not_empty(self):

@@ -312,6 +312,31 @@ async function triggerCVEScan(devId, btn) {
   setTimeout(tick, 2000);
 }
 
+// 8.0.1: what a scan of this host leaves out. The server sends the word (cve_scanner.coverage), the page
+// holds the sentence, so it is translated like any other text.
+const _CVE_COVERAGE = {
+  own_name: 'On Debian and Ubuntu a package is checked under its own name. A package whose name differs from its source package, such as libc6, libssl3 or openssh-server, is not checked yet.',
+  needs_agent: 'The agent of this host does not report source packages, so a package built from a source package with another name is not checked. Update the agent, then send the package list again.',
+};
+
+function _cveCoverageHtml(data) {
+  let html = '';
+  if (typeof data.coverage === 'string' && Object.prototype.hasOwnProperty.call(_CVE_COVERAGE, data.coverage)) {
+    html += `<div class="hint mb-8" data-cve-coverage="${escAttr(data.coverage)}"><span>${escHtml(_CVE_COVERAGE[data.coverage])}</span></div>`;
+  }
+  if (Array.isArray(data.cut) && data.cut.length) {
+    html += `<div class="hint mb-8" data-cve-cut=""><span>The advisory list of these packages was longer than a scan reads, so it is cut:</span> <span class="mono-12">${escHtml(data.cut.join(', '))}</span></div>`;
+  }
+  return html;
+}
+
+// 8.0.1: a finding is filed under the source package; this names the installed packages it covers.
+function _cveBinariesHtml(f) {
+  if (!Array.isArray(f.binaries) || !f.binaries.length) return '';
+  const more = Number(f.binaries_more) > 0 ? ` +${Number(f.binaries_more)}` : '';
+  return ` <span class="hint" data-cve-binaries=""><span>installed as</span> <span class="mono-12">${escHtml(f.binaries.join(', '))}${more}</span></span>`;
+}
+
 async function openDeviceCVE(devId, devName) {
   document.getElementById('cve-detail-title').textContent = `CVE Findings: ${devName}`;
   document.getElementById('cve-detail-body').innerHTML = _skeletonBlock(6);
@@ -331,6 +356,7 @@ async function openDeviceCVE(devId, devName) {
   let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value fs-12">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value fs-11">${timeAgoHtml(data.scanned_at, {empty: 'never'})}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
   html += `<div class="mb-14 row-6"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">${_icon('refresh',14)} Send package list now</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="cyclonedx" title="Download a CycloneDX SBOM (with CVE findings) for this host">${_icon('download',14)} SBOM (CycloneDX)</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="spdx" title="Download an SPDX 2.3 SBOM for this host">${_icon('download',14)} SBOM (SPDX)</button><button class="btn-icon" data-action="sbomCaptureBaseline" data-arg="${escAttr(devId)}" title="Snapshot the current package set as the SBOM diff baseline">${_icon('copy',14)} Baseline</button><button class="btn-icon" data-action="sbomShowDiff" data-arg="${escAttr(devId)}" data-arg2="${escAttr(devName)}" title="Show package changes since the captured baseline">${_icon('list',14)} Changes since baseline</button></div>`;
   if (data.error) html += `<div class="isl-388">${escHtml(data.error)}</div>`;
+  html += _cveCoverageHtml(data);
   if (!data.findings.length) { html += '<div class="empty-state">No vulnerabilities found.</div>'; }
   else {
     // v3.14.0: surface exploited-in-wild + high-EPSS first.
@@ -347,7 +373,7 @@ async function openDeviceCVE(devId, devName) {
       const color = sevColor[f.severity] || 'var(--muted)';
       const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { const u = new URL(r); if (u.protocol !== 'http:' && u.protocol !== 'https:') return ''; return `<a href="${escHtml(r)}" target="_blank" rel="noopener noreferrer" class="c-accent">${escHtml(u.hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
       const aliasesHtml = (f.aliases||[]).map(a => `<code class="isl-389">${escHtml(a)}</code>`).join('');
-      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${escAttr(color)}">${escHtml(f.severity)}</span><code class="isl-393" data-copy="" title="Click to copy">${escHtml(f.vuln_id)}</code>${f.kev ? '<span class="kev-badge" title="Actively exploited in the wild (CISA KEV)">KEV</span>' : ''}${f.epss ? `<span class="epss-chip" title="EPSS — probability of exploitation in the next 30 days">EPSS ${(f.epss*100).toFixed(f.epss>=0.1?0:1)}%</span>` : ''}${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${_cveFixHtml(f)}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
+      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${escAttr(color)}">${escHtml(f.severity)}</span><code class="isl-393" data-copy="" title="Click to copy">${escHtml(f.vuln_id)}</code>${f.kev ? '<span class="kev-badge" title="Actively exploited in the wild (CISA KEV)">KEV</span>' : ''}${f.epss ? `<span class="epss-chip" title="EPSS — probability of exploitation in the next 30 days">EPSS ${(f.epss*100).toFixed(f.epss>=0.1?0:1)}%</span>` : ''}${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${_cveBinariesHtml(f)}${_cveFixHtml(f)}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
     }).join('');
   }
   document.getElementById('cve-detail-body').innerHTML = html;

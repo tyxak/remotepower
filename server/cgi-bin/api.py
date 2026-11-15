@@ -69156,8 +69156,16 @@ def handle_monitor_alerts_clear():
 
 # ─── v1.7.0: CVE scanner + package inventory ──────────────────────────────────
 
+_PKG_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+\-:~]{0,127}$')
+_PKG_VERSION_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+\-:~^]{0,63}$')
+
+
 def _sanitize_package_entry(entry):
-    """Sanitize one {name,version,arch} dict from agent payload."""
+    """Sanitize one {name,version,arch} dict from agent payload.
+
+    8.0.1: an agent may also name the package's source package, the source's version where it differs
+    from the package's own, and the RPM epoch. Each is kept only when it has the form of a name, a version
+    or a small whole number; a field that does not is left out and the package is kept without it."""
     if not isinstance(entry, dict):
         return None
     name = _sanitize_str(entry.get('name', ''), 128, allow_empty=False)
@@ -69166,11 +69174,23 @@ def _sanitize_package_entry(entry):
     if not name or not version:
         return None
     # Package names / versions are alphanum + common punctuation
-    if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._+\-:~]{0,127}$', name):
+    if not _PKG_NAME_RE.match(name):
         return None
-    if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._+\-:~]{0,63}$', version):
+    if not _PKG_VERSION_RE.match(version):
         return None
-    return {'name': name, 'version': version, 'arch': arch}
+    out = {'name': name, 'version': version, 'arch': arch}
+    source = entry.get('source')
+    if isinstance(source, str) and source != name and _PKG_NAME_RE.match(source):
+        out['source'] = source
+    source_version = entry.get('source_version')
+    if isinstance(source_version, str) and source_version != version and _PKG_VERSION_RE.match(source_version):
+        out['source_version'] = source_version
+    epoch = entry.get('epoch')
+    if isinstance(epoch, int):
+        epoch = str(epoch)      # True becomes "True", which is not a number and is left out below
+    if isinstance(epoch, str) and epoch.isascii() and epoch.isdigit() and len(epoch) <= 6 and int(epoch) > 0:
+        out['epoch'] = str(int(epoch))
+    return out
 
 
 def handle_packages_submit():
@@ -69226,6 +69246,10 @@ def handle_packages_submit():
         'os_id':        safe_hint['ID'],
         'version_id':   safe_hint['VERSION_ID'],
     }
+    # 8.0.1: the agent says whether its list names source packages and epochs. Without the mark, a package
+    # with no source field cannot be told from a list that was collected without them.
+    if body.get('sources') is True and pkg_manager in ('apt', 'dnf', 'apk'):
+        store[dev_id]['sources'] = True
     save(PACKAGES_FILE, store)
 
     # v3.11.0: evaluate the fleet software policy against this push.
@@ -70425,10 +70449,13 @@ def _cve_scan_worker(actor, target):
         if not entry or not entry.get('ecosystem'):
             skipped += 1
         else:
+            # 8.0.1: the scan name carries the release for Rocky and Alma, also for a list stored
+            # before it did, and the scanner is told whether the list names source packages
             result = cve_scanner.scan_device(dev_id, entry.get('packages') or [],
-                                             entry['ecosystem'], DATA_DIR,
+                                             cve_scanner.entry_ecosystem(entry), DATA_DIR,
                                              cache_ttl=get_cve_cache_seconds(),
-                                             osv_prefetch=osv_prefetch)
+                                             osv_prefetch=osv_prefetch,
+                                             has_meta=entry.get('sources') is True)
             if result.get('error') and not result.get('findings'):
                 errors += 1
             else:

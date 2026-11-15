@@ -61,14 +61,44 @@ now**, **SBOM (CycloneDX)**, **SBOM (SPDX)**, **Baseline** and **Changes since b
 | --- | --- |
 | Debian (`apt`) | `Debian:<major version>` |
 | Ubuntu, and derivatives such as Linux Mint, Zorin OS and Pop!_OS | `Ubuntu` |
-| Rocky Linux (`dnf` or `yum`) | `Rocky Linux` |
-| AlmaLinux | `AlmaLinux` |
+| Rocky Linux (`dnf` or `yum`) | `Rocky Linux:<major version>` |
+| AlmaLinux | `AlmaLinux:<major version>` |
 | Red Hat Enterprise Linux | `Red Hat` |
 | Alpine (`apk`) | `Alpine:v<major.minor>` |
 
 OSV has no Arch Linux feed, so `pacman` hosts report no ecosystem. A Linux host on any other
 distribution shows **unsupported** in the Last scan column and is skipped. The Windows and
 macOS agents send no package list for CVE scanning, so those hosts show **no package list**.
+
+## How a package is matched
+
+OSV files an advisory under the name the distribution's security team uses, and that is not
+always the name of the installed package. What RemotePower asks for depends on the
+distribution:
+
+| Distribution | Asked for by | What that means |
+| --- | --- | --- |
+| Alpine | The origin: the package whose build produced the installed one | `libcrypto3` and `libssl3` are checked as `openssl`. |
+| Rocky Linux | The installed package and its source package | Older advisories name only the source package, newer ones name every package built from it. |
+| AlmaLinux, Red Hat | The installed package | These advisories name every built package. |
+| Debian, Ubuntu | The installed package's own name | A package that has the name of its source package is checked: `openssl`, `curl`, `sudo`, `nginx`. A package named differently is not: `libc6` (source `glibc`), `libssl3` (`openssl`), `openssh-server` (`openssh`) and the kernel images. |
+
+Matching by source package needs an agent from 8.0.1 on. It reports the source package of
+each installed package and, on RPM hosts, the epoch of its version. A host with an older
+agent is asked for package by package, and its host view says what that leaves out. The host
+view of a Debian or Ubuntu host says it as well.
+
+One advisory against one source package is one finding. It carries the source package's name
+and lists the installed packages built from it after **installed as**. `openssl` and
+`openssl-libs` on an AlmaLinux host are one finding where they were two.
+
+Debian and Ubuntu are not matched by source package yet. Their security data lists every
+known CVE of a release, fixed or not, and for a kernel that is more than a thousand entries
+with no fix. Showing those next to the few you can act on needs its own design, so this
+release keeps the old matching for the two and tells you what it leaves out.
+
+Rocky Linux and AlmaLinux are asked for with their major release, so a host on release 9 is
+not shown the advisories of release 10.
 
 ## Fix status
 
@@ -82,7 +112,7 @@ is one of:
 | **Fixed** | An update for this host's release clears it. The finding names the version to install. |
 | **Fixed in a newer release** | The host's release has no fix, a newer release does. The finding names that release and version (for example `Debian:13 8.7.1-1`) and offers nothing to install. |
 | **No fix yet** | No release has a fix. |
-| **Not checked** | The scan name of the distribution does not say which release the host runs: Ubuntu, Rocky Linux, AlmaLinux and Red Hat. Such a finding keeps the fixed version OSV lists and counts as fixable when it has one. |
+| **Not checked** | Ubuntu and Red Hat are scanned without a release, so their entries cannot be told apart. Rocky Linux and AlmaLinux publish an advisory per release together with its fix. In all four a finding keeps the fixed version OSV lists and counts as fixable when it has one. |
 
 The four tiles under the severity counts count the findings that are not ignored
 (**Fixable now**, **Newer release only**, **No fix yet**, **Not checked**). Click a tile to
@@ -92,8 +122,18 @@ findings. Click the tile again, or **Show all** in the host view, to undo it.
 A package that is already at or past the fix of a newer release (a backport, say) counts as
 patched. A fix in an older release never does.
 
+"At or past" follows the distribution's own version order: dpkg for Debian and Ubuntu, the
+RPM order of epoch, version and release for Rocky Linux, AlmaLinux and Red Hat, and the
+Alpine order with its `-r` revision. A version that cannot be read keeps its finding.
+
 If you upgrade from a version before 7.4.6, run **Scan all hosts** once. Findings keep their
 old fixed version until their host is scanned again.
+
+After an upgrade to 8.0.1, run **Scan all hosts** once more. Before it, a Rocky Linux,
+AlmaLinux or Red Hat host showed nothing for a package whose version has an epoch and starts
+with a higher number than that epoch (`openssl`, epoch 1, version 3), however old the
+package was, and an Alpine host showed nothing when a fix differed only in its `-r` revision
+or its letter.
 
 ## Counting only what an update can fix
 
@@ -137,6 +177,10 @@ after patching, or call `POST /api/cve/scan` from a scheduled job with an
   requests.
 - An **OSV circuit breaker** opens after three failed requests in a row and skips OSV work
   for ten minutes, so an OSV outage degrades gracefully instead of stalling scans.
+- If a request fails while the fleet's packages are looked up together, each host is scanned
+  with its own requests instead. A host whose scan fails keeps its last findings.
+- A package with more advisories than one answer holds is read to the end, up to 10,000. Past
+  that, the host view names the package whose list is cut.
 
 ### How severity is chosen
 
@@ -277,6 +321,8 @@ findings do not count. You can keep up to 200 campaigns.
 | Scans fail or skip hosts | The circuit breaker may be open after OSV errors. It closes by itself after ten minutes. |
 | You cleared the alerts and want them back | **Re-alert backlog**. |
 | The count on a card is lower than the table | Counting only what an update can fix is on, or the finding is ignored. |
+| A library has no findings on Debian or Ubuntu | It is matched by its own name, and the advisories are filed under its source package. See [How a package is matched](#how-a-package-is-matched). |
+| An Alpine or Rocky Linux host says its agent does not report source packages | Update the agent, then click **Send package list now** and scan the host. |
 
 ## See also
 

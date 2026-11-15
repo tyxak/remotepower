@@ -4070,36 +4070,168 @@ def get_os_release():
     return out
 
 
-def _host_pkglist_from_db():
+# ─── The installed package list ───────────────────────────────────────────────
+#
+# 8.0.1: each package is reported with the source package it was built from (where the name differs),
+# that source's version (where it differs from the package's own) and the RPM epoch (where there is
+# one). A distribution's security data is kept by source package: "glibc", not "libc6"; "openssl", not
+# "libssl3" or "openssl-libs". A list of installed names alone cannot be matched against it.
+#
+# Each reader below returns (packages, has_sources). has_sources says the list names sources and epochs
+# wherever they apply, so the server can tell "this package is its own source" from "this list was
+# collected without them".
+
+_DPKG_QUERY_FORMAT = ('${db:Status-Abbrev}\\t${Package}\\t${Version}\\t${Architecture}'
+                      '\\t${source:Package}\\t${source:Version}\\n')
+_RPM_QUERY_FORMAT = '%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\t%{EPOCH}\\t%{SOURCERPM}\\n'
+# dpkg keeps a package it has removed for as long as its configuration files remain ("rc" in dpkg -l).
+# Nothing of it runs, so it is not installed software.
+_DPKG_NOT_INSTALLED = ('not-installed', 'config-files')
+_APK_DB_PATHS = ('/lib/apk/db/installed', '/usr/lib/apk/db/installed')
+
+
+def _pkg_row(name, version, arch='', source='', source_version='', epoch=''):
+    """One package of the list. The optional fields are left out when they add nothing."""
+    name, version = (name or '').strip(), (version or '').strip()
+    row = {'name': name, 'version': version, 'arch': (arch or '').strip()}
+    source, source_version, epoch = (source or '').strip(), (source_version or '').strip(), (epoch or '').strip()
+    if source and source != name:
+        row['source'] = source
+    if source_version and source_version != version:
+        row['source_version'] = source_version
+    if epoch.isascii() and epoch.isdigit() and int(epoch) > 0:
+        row['epoch'] = str(int(epoch))
+    return row
+
+
+def _parse_dpkg_query(out):
+    """Rows of _DPKG_QUERY_FORMAT. A dpkg too old to know the source fields prints them empty, and the
+    list then says it has no sources."""
+    pkgs, has_sources = [], False
+    for line in out.splitlines():
+        parts = line.split('\t')
+        if len(parts) < 6 or not parts[1] or not parts[2]:
+            continue
+        # "ii ", "rc ", "hi ": wanted state, current state, error flag
+        if parts[0][1:2] in ('n', 'c'):
+            continue
+        if parts[4].strip():
+            has_sources = True
+        pkgs.append(_pkg_row(parts[1], parts[2], parts[3], parts[4], parts[5]))
+    return pkgs, has_sources
+
+
+def _parse_dpkg_status(text):
+    """The paragraphs of /var/lib/dpkg/status. "Source: gcc-12 (12.2.0-14)" names the source package and,
+    in brackets, its version when that is not the package's own."""
+    pkgs, cur = [], {}
+
+    def flush():
+        state = (cur.get('Status') or '').split()
+        if cur.get('Package') and cur.get('Version') and state and state[-1] not in _DPKG_NOT_INSTALLED:
+            source, _, rest = (cur.get('Source') or '').partition('(')
+            pkgs.append(_pkg_row(cur['Package'], cur['Version'], cur.get('Architecture', ''),
+                                 source, rest.partition(')')[0]))
+
+    for line in text.splitlines():
+        if not line.strip():
+            flush()
+            cur = {}
+            continue
+        if line[:1] in (' ', '\t'):
+            continue                      # folded continuation line
+        k, _, v = line.partition(':')
+        if k in ('Package', 'Version', 'Architecture', 'Status', 'Source'):
+            cur[k] = v.strip()
+    flush()
+    return pkgs, True
+
+
+def _parse_rpm_query(out):
+    """Rows of _RPM_QUERY_FORMAT. rpm prints "(none)" for a package without an epoch and for one that
+    was not built from a source package (an imported key)."""
+    pkgs = []
+    for line in out.splitlines():
+        parts = line.split('\t')
+        if len(parts) < 5 or not parts[0] or not parts[1]:
+            continue
+        source = source_version = ''
+        srpm = parts[4].strip()
+        for suffix in ('.src.rpm', '.nosrc.rpm'):
+            if srpm.endswith(suffix):
+                bits = srpm[:-len(suffix)].rsplit('-', 2)     # name-version-release
+                if len(bits) == 3 and all(bits):
+                    source, source_version = bits[0], bits[1] + '-' + bits[2]
+                break
+        epoch = parts[3].strip()
+        pkgs.append(_pkg_row(parts[0], parts[1], parts[2], source, source_version,
+                             epoch))
+    return pkgs, True
+
+
+def _parse_apk_db(text):
+    """The paragraphs of Alpine's installed database: P is the package, V its version, A its
+    architecture and o its origin, the package whose build produced it."""
+    pkgs, cur = [], {}
+
+    def flush():
+        if cur.get('P') and cur.get('V'):
+            pkgs.append(_pkg_row(cur['P'], cur['V'], cur.get('A', ''), cur.get('o', '')))
+
+    for line in text.splitlines():
+        if not line.strip():
+            flush()
+            cur = {}
+            continue
+        if line[1:2] == ':' and line[0] in 'PVAo':
+            cur[line[0]] = line[2:].strip()
+    flush()
+    return pkgs, True
+
+
+def _read_apk_db():
+    """(packages, has_sources) from the host's Alpine database, or None when there is none to read."""
+    for path in _APK_DB_PATHS:
+        db = Path(host_path(path))
+        try:
+            if db.is_file():
+                return _parse_apk_db(db.read_text(errors='replace'))
+        except Exception:
+            continue
+    return None
+
+
+def _plain_package_rows(argv):
+    """name, version and architecture from a tool that prints them tab-separated, one package a line:
+    the list as it was collected before 8.0.1, for a tool that does not take the newer format. An empty
+    list when the tool fails too."""
+    try:
+        out = subprocess.check_output(argv, text=True, timeout=30, stderr=subprocess.DEVNULL)
+    except Exception:
+        return []
+    pkgs = []
+    for line in out.splitlines():
+        parts = line.split('\t')
+        if len(parts) >= 3 and parts[0] and parts[1]:
+            pkgs.append({'name': parts[0].strip(), 'version': parts[1].strip(), 'arch': parts[2].strip()})
+    return pkgs
+
+
+def _host_pkglist_from_db_ex():
     """Container mode: enumerate the HOST's installed packages by reading its
     package DB directly under HOST_ROOT. dpkg/pacman DBs are plain text, so this
     works no matter what (if any) package tooling the slim agent image ships —
     avoiding the trap where a Debian-based image reports its own packages (or an
-    empty list) instead of the host's. Returns (manager, [pkgs]) or (None, None)
-    when the host's package manager can't be determined."""
+    empty list) instead of the host's. Returns (manager, [pkgs], has_sources), or
+    (None, None, False) when the host's package manager can't be determined."""
     # Debian / Ubuntu — /var/lib/dpkg/status is RFC822-ish paragraphs.
     status = Path(host_path('/var/lib/dpkg/status'))
     if status.exists():
-        pkgs, cur = [], {}
         try:
-            for line in status.read_text(errors='replace').splitlines():
-                if not line.strip():
-                    if cur.get('Package') and 'installed' in cur.get('Status', ''):
-                        pkgs.append({'name': cur['Package'], 'version': cur.get('Version', ''),
-                                     'arch': cur.get('Architecture', '')})
-                    cur = {}
-                    continue
-                if line[:1] in (' ', '\t'):
-                    continue                      # folded continuation line
-                k, _, v = line.partition(':')
-                if k in ('Package', 'Version', 'Architecture', 'Status'):
-                    cur[k] = v.strip()
-            if cur.get('Package') and 'installed' in cur.get('Status', ''):
-                pkgs.append({'name': cur['Package'], 'version': cur.get('Version', ''),
-                             'arch': cur.get('Architecture', '')})
+            pkgs, has_sources = _parse_dpkg_status(status.read_text(errors='replace'))
         except Exception:
-            pass
-        return 'apt', pkgs
+            pkgs, has_sources = [], False
+        return 'apt', pkgs, has_sources
     # Arch — /var/lib/pacman/local/<pkg>/desc, %FIELD% then value on next line.
     pac = Path(host_path('/var/lib/pacman/local'))
     if pac.is_dir():
@@ -4119,7 +4251,7 @@ def _host_pkglist_from_db():
                                  'arch': f.get('ARCH', '')})
         except Exception:
             pass
-        return 'pacman', pkgs
+        return 'pacman', pkgs, False
     # RHEL / Fedora — the rpmdb is a binary store, so we still need the rpm tool,
     # run rooted at the host. If the image lacks rpm we return an HONEST empty
     # list tagged 'dnf' (never a false "0 packages / fully patched").
@@ -4127,68 +4259,63 @@ def _host_pkglist_from_db():
         if shutil.which('rpm'):
             try:
                 out = subprocess.check_output(
-                    ['rpm', '--root', HOST_ROOT, '-qa', '--qf',
-                     '%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\n'],
+                    ['rpm', '--root', HOST_ROOT, '-qa', '--qf', _RPM_QUERY_FORMAT],
                     text=True, timeout=30, stderr=subprocess.DEVNULL)
-                pkgs = []
-                for line in out.splitlines():
-                    parts = line.split('\t')
-                    if len(parts) >= 3 and parts[0] and parts[1]:
-                        pkgs.append({'name': parts[0].strip(), 'version': parts[1].strip(),
-                                     'arch': parts[2].strip()})
-                return 'dnf', pkgs
+                pkgs, has_sources = _parse_rpm_query(out)
+                return 'dnf', pkgs, has_sources
             except Exception:
-                return 'dnf', []
-        return 'dnf', []
-    return None, None
+                return 'dnf', [], False
+        return 'dnf', [], False
+    # Alpine — a plain-text database. Without this branch an Alpine host fell through to the tools of
+    # the agent's own image and was reported with the image's packages.
+    apk = _read_apk_db()
+    if apk is not None:
+        return 'apk', apk[0], apk[1]
+    return None, None, False
 
 
-def get_package_list():
+def _host_pkglist_from_db():
+    """(manager, [pkgs]) of _host_pkglist_from_db_ex, for the callers that only need those."""
+    return _host_pkglist_from_db_ex()[:2]
+
+
+def get_package_list_ex():
     """
     Enumerate all installed packages via the system package manager.
-    Returns (pkg_manager, [{name, version, arch}, ...]).
+    Returns (pkg_manager, [{name, version, arch, ...}, ...], has_sources).
     """
     if IN_CONTAINER:
-        mgr, pkgs = _host_pkglist_from_db()
+        mgr, pkgs, has_sources = _host_pkglist_from_db_ex()
         if mgr is not None:
-            return mgr, pkgs
+            return mgr, pkgs, has_sources
     if Path('/usr/bin/dpkg-query').exists():
         try:
             out = subprocess.check_output(
-                ['dpkg-query', '-W', '-f=${Package}\\t${Version}\\t${Architecture}\\n'],
+                ['dpkg-query', '-W', '-f=' + _DPKG_QUERY_FORMAT],
                 text=True, timeout=30, stderr=subprocess.DEVNULL,
             )
-            pkgs = []
-            for line in out.splitlines():
-                parts = line.split('\t')
-                if len(parts) >= 3 and parts[0] and parts[1]:
-                    pkgs.append({
-                        'name':    parts[0].strip(),
-                        'version': parts[1].strip(),
-                        'arch':    parts[2].strip(),
-                    })
-            return 'apt', pkgs
+            pkgs, has_sources = _parse_dpkg_query(out)
+            if pkgs:
+                return 'apt', pkgs, has_sources
         except Exception:
-            return 'apt', []
+            pass
+        # a dpkg that will not take the format above still gets its list sent, as it was before 8.0.1
+        return 'apt', _plain_package_rows(
+            ['dpkg-query', '-W', '-f=${Package}\\t${Version}\\t${Architecture}\\n']), False
 
     if Path('/usr/bin/rpm').exists():
         try:
             out = subprocess.check_output(
-                ['rpm', '-qa', '--qf', '%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\n'],
+                ['rpm', '-qa', '--qf', _RPM_QUERY_FORMAT],
                 text=True, timeout=30, stderr=subprocess.DEVNULL,
             )
-            pkgs = []
-            for line in out.splitlines():
-                parts = line.split('\t')
-                if len(parts) >= 3 and parts[0] and parts[1]:
-                    pkgs.append({
-                        'name':    parts[0].strip(),
-                        'version': parts[1].strip(),
-                        'arch':    parts[2].strip(),
-                    })
-            return 'dnf', pkgs
+            pkgs, has_sources = _parse_rpm_query(out)
+            if pkgs:
+                return 'dnf', pkgs, has_sources
         except Exception:
-            return 'dnf', []
+            pass
+        return 'dnf', _plain_package_rows(
+            ['rpm', '-qa', '--qf', '%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\n']), False
 
     if Path('/usr/bin/pacman').exists():
         try:
@@ -4205,11 +4332,15 @@ def get_package_list():
                         'version': parts[1].strip(),
                         'arch':    '',
                     })
-            return 'pacman', pkgs
+            return 'pacman', pkgs, False
         except Exception:
-            return 'pacman', []
+            return 'pacman', [], False
 
     if Path('/sbin/apk').exists() or Path('/usr/sbin/apk').exists():
+        # The database names each package's origin; `apk info -v` does not, and is the fallback.
+        apk = _read_apk_db()
+        if apk is not None and apk[0]:
+            return 'apk', apk[0], apk[1]
         try:
             out = subprocess.check_output(
                 ['apk', 'info', '-v'],
@@ -4227,11 +4358,16 @@ def get_package_list():
                         'version': m.group(2),
                         'arch':    '',
                     })
-            return 'apk', pkgs
+            return 'apk', pkgs, False
         except Exception:
-            return 'apk', []
+            return 'apk', [], False
 
-    return 'unknown', []
+    return 'unknown', [], False
+
+
+def get_package_list():
+    """(pkg_manager, [{name, version, arch, ...}, ...]) of get_package_list_ex."""
+    return get_package_list_ex()[:2]
 
 
 def _load_last_pkg_hash():
@@ -4250,11 +4386,16 @@ def _save_last_pkg_hash(h):
 
 
 def _compute_pkg_hash(packages):
-    """Matches server-side cve_scanner.packages_hash() — order-independent."""
-    normalized = sorted(
-        (p.get('name', ''), p.get('version', ''))
-        for p in packages
-    )
+    """Matches server-side cve_scanner.packages_hash() — order-independent.
+
+    8.0.1: a package that names its source or its epoch is hashed with them, so the first list
+    collected with them differs from the last one sent without and goes to the server once."""
+    rows = []
+    for p in packages:
+        row = (p.get('name', ''), p.get('version', ''))
+        more = (p.get('source', ''), p.get('source_version', ''), p.get('epoch', ''))
+        rows.append(row + more if any(more) else row)
+    normalized = sorted(rows)
     return hashlib.sha256(
         json.dumps(normalized, separators=(',', ':')).encode()
     ).hexdigest()[:16]
@@ -4277,7 +4418,7 @@ def send_package_list(creds, force=False):
 
     Returns True if sent.
     """
-    pkg_manager, pkgs = get_package_list()
+    pkg_manager, pkgs, has_sources = get_package_list_ex()
     if not pkgs:
         log.debug(f'No packages enumerable (manager={pkg_manager})')
         return False
@@ -4303,6 +4444,8 @@ def send_package_list(creds, force=False):
         },
         'packages':       pkgs,
     }
+    if has_sources:
+        payload['sources'] = True     # the list names source packages and epochs where they apply
     try:
         resp = http_post(f"{creds['server_url']}/api/packages", payload, timeout=30)
         log.info(f'Submitted {len(pkgs)} packages '
