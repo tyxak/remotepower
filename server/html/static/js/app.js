@@ -3906,29 +3906,29 @@ function renderDevices() {
   });
 }
 
-// v3.3.0: badge for devices whose agent has been queued for uninstall.
-// Two states:
-//   • pending     — uninstall queued, but the agent hasn't heartbeated
-//                   since (so the device might still be running it).
-//   • completed   — last heartbeat happened BEFORE the uninstall was
-//                   queued, OR the agent has been offline long enough
-//                   that we assume it executed and stopped reporting.
+// The badge of a host whose agent was asked to uninstall (v3.3.0). Three states, from what the server knows
+// about the command (8.0.1) and no longer from when the host last checked in:
+//   sent     the heartbeat handed `uninstall` to the agent (agent_uninstall_sent_at)
+//   waiting  asked for and not handed over: the host gets it at its next check-in
+//   queued   the same, for a host that is offline: it gets it when it reports again
+// Until 8.0.1 the Hosts list did not carry the mark, so this never drew anything.
 function _uninstallBadge(d) {
   if (!d.agent_uninstalled) return '';
   const queuedAt = d.agent_uninstalled_at || 0;
-  const lastSeen = d.last_seen || 0;
-  // If the device has heartbeated AFTER the uninstall was queued and
-  // is still online, it hasn't picked up the command yet → "pending".
-  // Otherwise treat the uninstall as completed.
-  const stillRunning = d.online && lastSeen > queuedAt;
-  const cls   = stillRunning ? 'isl-315' : 'isl-315';
-  const label = stillRunning
-    ? 'agent uninstalling…'
-    : 'agent uninstalled';
-  const tip   = stillRunning
-    ? `Queued ${queuedAt ? timeAgo(queuedAt) : ''}; awaiting next heartbeat (~60 s).`
-    : `Agent has been removed from this host. Re-enroll to bring it back.`;
-  return ` <span class="${cls}" title="${escAttr(tip)}">${escHtml(label)}</span>`;
+  const sentAt = d.agent_uninstall_sent_at || 0;
+  const when = queuedAt ? timeAgo(queuedAt) : '';
+  let label, tip;
+  if (sentAt) {
+    label = 'agent uninstalled';
+    tip = `The agent was told to remove itself ${timeAgo(sentAt)}. Re-enroll to bring it back.`;
+  } else if (d.online) {
+    label = 'agent uninstalling…';
+    tip = `Queued ${when}; the host gets the command at its next check-in.`;
+  } else {
+    label = 'agent uninstall queued';
+    tip = `Queued ${when}; the host is offline and gets the command when it reports again.`;
+  }
+  return ` <span class="isl-315" title="${escAttr(tip)}">${escHtml(label)}</span>`;
 }
 
 // v1.11.7: render Devices as an aligned, sortable table. This is the new

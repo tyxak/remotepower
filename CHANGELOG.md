@@ -121,6 +121,19 @@ as WAF refusals. The release page is [docs/v8.0.1.md](docs/v8.0.1.md).
   says who decided (`automatic · fail2ban`). Nothing changes for an installation that does not tick the box. **Held by**
   `tests/test_v801_block_confirmed.py`.
 
+### Hosts
+
+- **Uninstall agent says what became of the command.** Pressing **Uninstall agent** marks the host and queues the command, and the Hosts page has
+  had a badge for that mark since v3.3.0. Three things were wrong. The Hosts list never carried the mark, so the badge never showed. The command
+  goes out with a heartbeat and every heartbeat cleared the mark, so the heartbeat that delivered the uninstall also wrote "agent_reinstalled" to
+  the audit log. And an uninstall that a second admin approved was never marked at all. The mark is now settled where every uninstall passes, the
+  heartbeat that hands commands out: it is stamped when the command goes to the agent, kept for five minutes while the agent removes itself, and
+  cleared with an `agent_reinstalled` audit line only if the agent still reports after that. A request that left the queue before the host got
+  it (a quarantine dropped it, or the queue was cleared) is taken back with `agent_uninstall_dropped`. The badge reads **agent uninstalling…**
+  while the command waits for an online host, **agent uninstall queued** for a host that is offline, and **agent uninstalled** once the command
+  has been handed over. **Held by** `tests/test_v801_uninstall_mark.py` (the real button, heartbeat and Hosts list with the clock set by the
+  test; 15 mutations shown failing).
+
 ## v8.0.0 — "Pil0tMatters" — 2026-11-11
 
 The first release of a new major version, and it changes what a person can adjust and what the agent finds without being asked. You can set the text

@@ -174,6 +174,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v801_attack_classes.py",        # probing and a service's login have kinds: the families, what a report says, what ignoring means, every source, the page and the guides
         "tests/test_v801_agent_request_kinds.py",   # the agent's finer request kinds: the four patterns match what the one matched, and the server knows every kind
         "tests/test_v801_edge_samples.py",          # samples and real times from Cloudflare and the honeypot: the tiers, what is never asked for, the request log's category ids
+        "tests/test_v801_uninstall_mark.py",        # the "agent uninstalled" mark follows the command: stamped by the heartbeat that delivers it, carried by the Hosts list
     )
 
     def test_the_list_is_not_empty(self):

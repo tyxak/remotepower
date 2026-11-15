@@ -16000,6 +16000,12 @@ def handle_devices_list():
             'connected_to': dev.get('connected_to', ''),
             'device_type':  dev.get('device_type', ''),
             'compose_projects_count': len(dev.get('compose_projects', []) or []),
+            # 8.0.1: the uninstall mark. The Hosts page has drawn a badge from it since v3.3.0 and this row never
+            # carried it, so the badge never showed. `sent_at` is when the heartbeat handed the command over (0: still
+            # waiting for the host).
+            'agent_uninstalled': bool(dev.get('agent_uninstalled')),
+            'agent_uninstalled_at': _whole_or_zero(dev.get('agent_uninstalled_at')),
+            'agent_uninstall_sent_at': _whole_or_zero(dev.get('agent_uninstall_sent_at')),
             'compose_projects_ts':    dev.get('compose_projects_ts', 0),
             # 8.0.0: this host's agent holds the push channel open (the small bolt on the Hosts page and in the drawer): online, and said so recently
             'push':         bool(not agentless and is_online and _push_channel_up(dev, now)),
@@ -22430,6 +22436,51 @@ def _log_text(value, limit):
     return re.sub(r'[\x00-\x1f\x7f-\x9f\u2028\u2029]', '?', str(value))[:limit]
 
 
+# How long after the host was told to uninstall a heartbeat still reads as "on its way out". The agent removes itself
+# as soon as it gets the command; a beat later than this is an agent that is still there or was installed again.
+UNINSTALL_SETTLE_S = 300
+_UNINSTALL_MARK_KEYS = ('agent_uninstalled', 'agent_uninstalled_at', 'agent_uninstalled_by', 'agent_uninstall_sent_at')
+
+
+def _whole_or_zero(v):
+    """`v` when it is a whole number above zero, else 0: a stored stamp of the wrong kind must not take a list down."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0
+
+
+def _settle_uninstall_mark(dev_id, now, sent, waiting, still_queued):
+    """Keep the host's "agent uninstalled" mark true to what became of the command. Called from the heartbeat, which
+    is the one place every uninstall passes on its way to the agent, however it was queued (the button, an approval a
+    second admin gave, a command from the API):
+
+      * `sent`: this heartbeat hands `uninstall` to the agent. The mark is made here, with the time, so it is there
+        for an uninstall that was approved or queued some other way too, and "sent" is a fact and not a guess from
+        the host's last check-in.
+      * `waiting` and not `still_queued`: an uninstall was asked for, was never handed over, and is no longer in the
+        queue (a quarantine dropped it, or the queue was cleared). The request is taken back, and the audit log says so.
+
+    Takes the host's own row lock for the one write; the caller holds no lock."""
+    if sent:
+        with _DeviceUpdate(dev_id) as devs:
+            d = devs.get(dev_id)
+            if d is not None:
+                d['agent_uninstalled'] = True
+                d.setdefault('agent_uninstalled_at', now)
+                d['agent_uninstall_sent_at'] = now
+        return
+    if not (waiting and not still_queued):
+        return
+    dropped = False
+    with _DeviceUpdate(dev_id) as devs:
+        d = devs.get(dev_id)
+        if d is not None and d.get('agent_uninstalled') and not d.get('agent_uninstall_sent_at'):
+            for k in _UNINSTALL_MARK_KEYS:
+                d.pop(k, None)
+            dropped = True
+    if dropped:
+        audit_log('system', 'agent_uninstall_dropped',
+                  f'device={dev_id} the uninstall left the queue before the host got it')
+
+
 def handle_heartbeat():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -22548,6 +22599,7 @@ def handle_heartbeat():
     _edge_events_pending = []        # v6.4.0: (event, payload) edge events fired post-lock
     _oom_event_pending = None        # v4.1.0: ('oom_detected', payload) on new OOM kill
     _reinstall_audit_pending = False  # audit AFTER the device lock (audit_log locks too)
+    _uninstall_waiting = False        # 8.0.1: an uninstall was asked for and has not been handed to the agent yet
     _agent_started_pending = None     # v4.10.0: ('agent resumed after graceful stop') payload
     _fail2ban_pending = []            # v5.1.0: ('fail2ban_ban', payload) — new bans, fired post-lock
     _failed_unit_pending = []         # v5.5.0: ('failed_unit', payload) — newly-failed units, post-lock
@@ -22594,15 +22646,23 @@ def handle_heartbeat():
                 dev['last_boot_reason'] = _br
                 dev['last_boot_reason_at'] = now
 
-        # v3.3.0: clear the agent-uninstalled mark if the device is
-        # heartbeating again. Means the operator re-installed the
-        # agent (existing token reused) — the badge on the Devices
-        # page disappears automatically.
+        # v3.3.0: clear the agent-uninstalled mark when the agent reports again: it was installed again (the same
+        # token is reused), or the uninstall did not work.
+        # 8.0.1: "again" means after the command went out and had time to run. The command goes out WITH a
+        # heartbeat, so the beat that carries it is the agent that is still there. Until 8.0.1 every beat cleared
+        # the mark, so the beat that delivered `uninstall` took the mark away and wrote "agent_reinstalled" to the
+        # audit log, and a host that was offline when the button was pressed read as removed while the command
+        # was still waiting for it. A mark with no sent time is a request: what became of it is settled below,
+        # where the queue is read (_settle_uninstall_mark).
         if dev.get('agent_uninstalled'):
-            dev.pop('agent_uninstalled', None)
-            dev.pop('agent_uninstalled_at', None)
-            dev.pop('agent_uninstalled_by', None)
-            _reinstall_audit_pending = True
+            _sent = dev.get('agent_uninstall_sent_at')
+            _sent = _sent if isinstance(_sent, int) and not isinstance(_sent, bool) else 0
+            if _sent and now - _sent >= UNINSTALL_SETTLE_S:
+                for _k in _UNINSTALL_MARK_KEYS:
+                    dev.pop(_k, None)
+                _reinstall_audit_pending = True
+            elif not _sent:
+                _uninstall_waiting = True
 
         # v4.10.0: a normal heartbeat after a graceful-stop notice = the agent
         # restarted → recover the agent_stopped alert (fired AFTER the lock).
@@ -25221,6 +25281,8 @@ def handle_heartbeat():
                 else:
                     live_pending.pop(0); live_cmds[dev_id] = live_pending
                     dispatch_cmd = cmd
+            _uninstall_queued = 'uninstall' in live_pending
+        _settle_uninstall_mark(dev_id, now, dispatch_cmd == 'uninstall', _uninstall_waiting, _uninstall_queued)
         if dropped_cmd is not None:
             audit_log('system', 'quarantine_blocked',
                       f'dev={dev_id} dropped queued command while quarantined')
@@ -25238,6 +25300,8 @@ def handle_heartbeat():
         respond(200, {'command': dispatch_cmd, 'command_sig': _cmd_sig,
                       'command_sig_ts': _cmd_sig_ts, **common_resp})
     else:
+        if _uninstall_waiting:
+            _settle_uninstall_mark(dev_id, now, False, True, False)   # asked for, and nothing is queued any more
         respond(200, {'command': None, **common_resp})
 
 

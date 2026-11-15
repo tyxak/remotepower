@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.1-6">
+<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.1-7">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=8.0.1-6">
+<link rel="stylesheet" href="static/css/styles.css?v=8.0.1-7">
 
 </head>
 <body>
@@ -5144,6 +5144,7 @@
               <p><strong>A report says what kind of probing it was.</strong> A day of reports used to read as one sentence, &ldquo;probing for exposed files and admin pages&rdquo;. A report now names the kind when the source can tell: configuration files, keys and backups; admin, login and debug pages; WordPress; user enumeration; an open proxy; private host names; unusual HTTP methods. RDP, SMB, Telnet and database logins are named too. Under <em>Never report an address when all it did was</em>, ticking the general kind covers its finer kinds, so an ignore list from before means what it meant. A Cloudflare custom rule is read by its description, so say in it what the rule blocks.</p>
               <p><strong>What Cloudflare refused and what the honeypot answered.</strong> With <em>Send up to three request samples with each address</em> ticked, the edge sources also keep the method and path of up to three requests per address, and use the events&rsquo; own times, so a report about one request says one minute and not ten. A report carries a path only when <em>Add a few example requests to reports</em> is ticked. The <em>Request log</em> shows the categories each report was filed under.</p>
               <p><strong>Block what a ban engine already banned.</strong> Tick <em>Also block addresses that fail2ban, CrowdSec or a honeypot has already banned</em> under <em>Settings</em> and such an address is blocked on the host that saw it and, with the Edge blocklist on, banned at the edge, without waiting for a score. Everything that protects an address still applies. A host you do not trust can get an address banned at the edge this way, so leave it off if one is not under your control. It is off until you tick it.</p>
+              <p><strong>Uninstall agent says what happened.</strong> A host whose agent was asked to uninstall now shows a badge on the Hosts page: <em>agent uninstalling…</em> while the command waits for the host, <em>agent uninstall queued</em> while the host is offline, and <em>agent uninstalled</em> once the command has been handed to the agent. The badge was never drawn before, and the audit log said an agent was reinstalled at the moment it was told to uninstall.</p>
               <p><strong>What changes for you.</strong> Hard-reload the dashboard once. Update the Linux agents to get the sensor&rsquo;s log lines (<code>threat sensor: 2 addresses sent (ok)</code>); the Windows and macOS agents change in their version number only. If a service was down today, the day&rsquo;s report counts are dropped once when 8.0.1 first runs, so nothing needs resetting by hand.</p>
               <p><strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
               <p class="hint">See <code>docs/v8.0.1.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
@@ -13637,39 +13638,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=8.0.1-6"></script>
+<script defer src="static/js/app.js?v=8.0.1-7"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-cmdb.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-containers.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-network.js?v=8.0.1-6"></script>
+<script defer src="static/js/app-calendar.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-cmdb.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-containers.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-network.js?v=8.0.1-7"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-compliance.js?v=8.0.1-6"></script>
+<script defer src="static/js/app-hostconfig.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-compliance.js?v=8.0.1-7"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-dns.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-drift.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-cve.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-firewall.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-backups.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-iac.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-proxmox.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-virt.js?v=8.0.1-6"></script>
+<script defer src="static/js/app-ai.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-dns.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-drift.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-cve.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-firewall.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-backups.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-iac.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-proxmox.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-virt.js?v=8.0.1-7"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-remote.js?v=8.0.1-6"></script>
-<script defer src="static/js/app-tickets.js?v=8.0.1-6"></script>
+<script defer src="static/js/app-logs.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-remote.js?v=8.0.1-7"></script>
+<script defer src="static/js/app-tickets.js?v=8.0.1-7"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=8.0.1-6"></script>
+<script defer src="static/js/app-self.js?v=8.0.1-7"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=8.0.1-6"></script>
+<script defer src="static/js/app-tooltip.js?v=8.0.1-7"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -13679,6 +13680,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=8.0.1-6"></script>
+<script defer src="static/js/sw-register.js?v=8.0.1-7"></script>
 </body>
 </html>
