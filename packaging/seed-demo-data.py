@@ -1098,8 +1098,40 @@ def build_ip_intel_intake() -> dict:
     return _ip_intel_documents()[1]
 
 
+def _ip_intel_engine():
+    """(threat_evidence, ip_intel) from the checkout the seeder sits in. What the demo says was reported is what the
+    engine writes for the demo's evidence (the words, the category ids, whether it is enough to report), so the
+    Threat Intel page of the demo cannot say something the product would not."""
+    import importlib
+    sys.path.insert(0, str(_CGI_DIR))
+    try:
+        return importlib.import_module('threat_evidence'), importlib.import_module('ip_intel')
+    finally:
+        sys.path.remove(str(_CGI_DIR))
+
+
+def _ip_intel_filed(engine, ev, seen) -> list:
+    """What was sent to each service for this evidence: the engine's own text and category ids."""
+    te, ii = engine
+    text = ii.evidence_comment(ev)
+    return [{'at': seen, 'prov': prov, 'cats': list(te.categories(ev, prov)), 'comment': text, 'ok': True}
+            for prov in ii.PROVIDERS]
+
+
+def _ip_intel_why_not(engine, ev) -> str:
+    """The reason the engine gives for not reporting this evidence yet. The evidence has to be short of every
+    threshold: a row that says "not reported" while its evidence qualifies is a demo of something that cannot happen."""
+    te, ii = engine
+    ok, why = te.qualifies(ev, ii.DEFAULTS['report_min_count'], ii.DEFAULTS['edge_report_after'],
+                           ii.DEFAULTS['report_waf_after'])
+    if ok:
+        raise SystemExit(f'seed: evidence for {ev.get("ip")} is enough to report ({why}), and the row says it was not')
+    return why
+
+
 def _ip_intel_documents() -> tuple:
     rng = _seeded_random('ip-intel')
+    engine = _ip_intel_engine()
     linux = [d for d in FAKE_DEVICES if _demo_sshgw_opted_in(d)]
     isps = ['Example Hosting GmbH', 'Demo Cloud LLC', 'Sample Telecom', 'Placeholder VPS']
     attackers, blocks = {}, {}
@@ -1134,68 +1166,74 @@ def _ip_intel_documents() -> tuple:
         # something to render.
         web_attack = any(x['unit'] == 'nginx.access' for x in devs.values())
         if web_attack or i % 4 == 0:
-            mix = rng.choice([
-                (['sqli', 'traversal'], 'SQL injection and path traversal'),
-                (['probe', 'scanner'], 'probing for exposed files and admin pages and vulnerability scanning'),
-                (['login_brute'], 'login brute force'),
-                (['rce'], 'remote code execution attempts (CVE-2021-44228)'),
-                (['ssh_brute'], 'SSH brute force')])
+            # what the address did, as attack classes; the words of a report come from the engine, below
+            mix = rng.choice([['sqli', 'traversal'], ['config_probe', 'scanner'], ['login_brute'], ['rce'], ['ssh_brute']])
             n = rng.randint(12, 380)
-            tok = {'web': {f'req:{c}': max(3, n - 7 * k) for k, c in enumerate(mix[0]) if c != 'ssh_brute'}}
+            told = bool(att['reported'])
+            # An address that was not reported yet is short of every threshold: under ten requests, and nothing a WAF
+            # or a ban engine decided. The draws below are made either way, so the rest of the demo stays what it was.
+            if not told:
+                n = min(n, 9)
+            # a class is named by the request kind the sensor sends for it (threat_evidence._REQ_KINDS)
+            req_kind = {'login_brute': 'login', 'config_probe': 'config'}
+            tok = {'web': {f'req:{req_kind.get(c, c)}': max(3, n - 7 * k) if told else max(1, n - 2 * k)
+                           for k, c in enumerate(mix) if c != 'ssh_brute'}}
             src = {'web': n}
             ev = {'ip': ip, 'first': seen - 1800, 'last': seen, 'src': src, 'tok': tok,
-                  'ans': rng.choice([0, 0, 2, 5]), 'blk': n - 3, 'ban': [], 'dec': 0,
-                  'cve': ['CVE-2021-44228'] if 'rce' in mix[0] else []}
-            if 'ssh_brute' in mix[0]:
-                ev.update(src={'f2b': 4}, tok={'f2b': {'jail:sshd': 4}}, ban=['sshd'], ans=0, blk=0)
+                  'ans': rng.choice([0, 0, 2, 5]), 'blk': max(0, n - 3), 'ban': [], 'dec': 0,
+                  'cve': ['CVE-2021-44228'] if 'rce' in mix else []}
+            if 'ssh_brute' in mix:
+                ev.update(src={'f2b': 4}, tok={'f2b': {'jail:sshd': 4}}, ban=['sshd'] if told else [], ans=0, blk=0)
             elif rng.random() < 0.5:
-                ev['src']['waf'] = rng.randint(3, 40)
-                ev['tok']['waf'] = {'crs:942100': ev['src']['waf'], 'crstag:attack-sqli': ev['src']['waf']}
-            if rng.random() < 0.35:
-                ev['ban'] = ['nginx-blocked']
-                ev['src']['f2b'] = 2
-                ev['tok']['f2b'] = {'jail:nginx-blocked': 2}
+                refused = rng.randint(3, 40)
+                if told:
+                    ev['src']['waf'] = refused
+                    ev['tok']['waf'] = {'crs:942100': refused, 'crstag:attack-sqli': refused}
+            if rng.random() < 0.35 and told:
+                # a second jail beside whatever the mix gave, never in its place: the evidence keeps saying what the mix was
+                ev['ban'] = ev['ban'] + ['nginx-blocked']
+                ev['src']['f2b'] = ev['src'].get('f2b', 0) + 2
+                ev['tok'].setdefault('f2b', {})['jail:nginx-blocked'] = 2
             # What each class asked for, as the sensor's samples (8.0.1). A fixed table and no draw from `rng`, so the rest of the
             # demo stays what it was; the traversal path is long enough to be cut, so the page is seen with a path at its limit.
-            asked = {'sqli': ('GET', '/index.php', 403), 'probe': ('GET', '/.env', 404), 'scanner': ('GET', '/wp-login.php', 404),
+            asked = {'sqli': ('GET', '/index.php', 403), 'config_probe': ('GET', '/.env', 404), 'scanner': ('GET', '/wp-login.php', 404),
                      'login_brute': ('POST', '/wp-login.php', 401), 'rce': ('GET', '/cgi-bin/luci/', 403),
                      'traversal': ('GET', ('/' + '..%2f' * 20)[:80] + '...', 403)}
             ev['smp'] = [{'f': 'web', 'm': m, 'p': path, 'c': code, 't': seen - 60 * (k + 1)}
-                         for k, (m, path, code) in enumerate(asked[c] for c in mix[0] if c in asked)]
-            if att['reported']:
+                         for k, (m, path, code) in enumerate(asked[c] for c in mix if c in asked)]
+            if told:
                 att['ev_reported'] = {'at': seen, 'ev': ev}
-                text = f"{mix[1]}: {n} attempts within 30 minutes, seen by web server log (reported by RemotePower)"
-                att['report_log'] = [
-                    {'at': seen, 'prov': 'abuseipdb', 'cats': [16, 21] if 'sqli' in mix[0] else [21], 'comment': text, 'ok': True},
-                    {'at': seen, 'prov': 'sniffcat', 'cats': [12, 21] if 'sqli' in mix[0] else [21], 'comment': text, 'ok': True}]
+                att['report_log'] = _ip_intel_filed(engine, ev, seen)
             else:
                 att['ev'] = ev
-                att['errors'] = {'abuseipdb': f'not reported: {min(9, n)} of 10 attempts so far',
-                                 'sniffcat': f'not reported: {min(9, n)} of 10 attempts so far'}
+                why = _ip_intel_why_not(engine, ev)
+                att['errors'] = {'abuseipdb': f'not reported: {why}', 'sniffcat': f'not reported: {why}'}
         attackers[ip] = att
     # The edge feeds (v7.3.0): what Cloudflare refused and what the honeypot Worker
     # caught are queued under two ids that are not hosts. A few addresses were
     # banned by the honeypot and reported at once, one used a credential the
     # honeypot had handed out, and one is Cloudflare's own refusals, still counting.
+    # Each row: the feed, the evidence, the count, whether it was reported, and what the feed kept of the requests
+    # (8.0.1: method and path, no status). The words and the category ids of a report are the engine's.
     edge_rows = (
-        ('edge:trap', {'src': {'trap': 3}, 'tok': {'trap': {'trap:bait': 2, 'trap:robots': 1}}, 'trp': 1},
-         'probing for exposed files and admin pages and unwanted web crawling', 3, True),
-        ('edge:trap', {'src': {'trap': 1}, 'tok': {'trap': {'trap:canary': 1}}, 'trp': 1},
-         'using a credential planted in a decoy file', 1, True),
-        ('edge:trap', {'src': {'trap': 2}, 'tok': {'trap': {'trap:login': 2}}, 'trp': 1},
-         'probing for exposed files and admin pages', 2, True),
-        ('edge:trap', {'src': {'trap': 1}, 'tok': {'trap': {'trap:impostor': 1}}, 'trp': 0},
-         '', 1, False),
-        ('edge:cloudflare', {'src': {'cf': 14}, 'tok': {'cf': {'req:probe': 9, 'cf:custom': 5}}, 'blk': 14},
-         'probing for exposed files and admin pages', 14, True),
-        ('edge:cloudflare', {'src': {'cf': 2}, 'tok': {'cf': {'cf:waf': 2}}, 'blk': 2},
-         '', 2, False),
+        ('edge:trap', {'src': {'trap': 3}, 'tok': {'trap': {'trap:bait': 2, 'trap:robots': 1}}, 'trp': 1}, 3, True,
+         (('GET', '/.env'), ('GET', '/.git/config'), ('GET', '/old-backups/'))),
+        ('edge:trap', {'src': {'trap': 1}, 'tok': {'trap': {'trap:canary': 1}}, 'trp': 1}, 1, True, (('POST', '/wp-login.php'),)),
+        ('edge:trap', {'src': {'trap': 2}, 'tok': {'trap': {'trap:login': 2}}, 'trp': 1}, 2, True,
+         (('GET', '/phpmyadmin/'), ('GET', '/administrator/'))),
+        ('edge:trap', {'src': {'trap': 1}, 'tok': {'trap': {'trap:impostor': 1}}, 'trp': 0}, 1, False, ()),
+        ('edge:cloudflare', {'src': {'cf': 14}, 'tok': {'cf': {'req:wordpress': 9, 'cf:custom': 5}}, 'blk': 14}, 14, True,
+         (('GET', '/wp-login.php'), ('POST', '/xmlrpc.php'), ('GET', '/wp-content/debug.log'))),
+        # Bot Fight Mode refusals are a weak signal: they count as attempts and not as refusals, so two are not enough
+        ('edge:cloudflare', {'src': {}, 'tok': {'cf': {'cf:bot': 2}}, 'blk': 2}, 2, False, (('GET', '/index.php'),)),
     )
-    for k, (dev, base, phrase, n, reported) in enumerate(edge_rows):
+    for k, (dev, base, n, reported, asked) in enumerate(edge_rows):
         ip = f'192.0.2.{20 + k}'
         seen = now() - rng.randint(300, 86400)
         ev = dict({'ip': ip, 'first': seen - 600, 'last': seen, 'ans': 0, 'blk': 0, 'ban': [],
                    'dec': 0, 'trp': 0, 'cve': []}, **base)
+        ev['smp'] = [{'f': 'trap' if dev == 'edge:trap' else 'cf', 'm': m, 'p': path, 'c': 0, 't': seen - 60 * j}
+                     for j, (m, path) in enumerate(asked)]
         att = {'first_seen': seen - 600, 'last_seen': seen, 'checked_at': seen,
                'devices': {dev: {'count': n, 'unit': 'edge-feed', 'at': seen,
                                  'not_blocked': 'seen at the edge only, so there is no host to block it on'}},
@@ -1208,17 +1246,11 @@ def _ip_intel_documents() -> tuple:
         if reported:
             att['in_list'] = now() - 1500          # the demo's last sync listed what was reported
             att['ev_reported'] = {'at': seen, 'ev': ev}
-            text = (f"{phrase}: {n} attempts within 10 minutes, seen by "
-                    f"{'edge honeypot' if dev == 'edge:trap' else 'Cloudflare WAF'} (reported by RemotePower)")
-            cats = [15, 21] if 'credential' in phrase else [21]
-            att['report_log'] = [
-                {'at': seen, 'prov': 'abuseipdb', 'cats': cats, 'comment': text, 'ok': True},
-                {'at': seen, 'prov': 'sniffcat', 'cats': [11, 21] if 'credential' in phrase else [21],
-                 'comment': text, 'ok': True}]
+            att['report_log'] = _ip_intel_filed(engine, ev, seen)
         else:
             att['ev'] = ev
-            att['errors'] = {'abuseipdb': f'not reported: {n} of 10 attempts so far',
-                             'sniffcat': f'not reported: {n} of 10 attempts so far'}
+            why = _ip_intel_why_not(engine, ev)
+            att['errors'] = {'abuseipdb': f'not reported: {why}', 'sniffcat': f'not reported: {why}'}
         attackers[ip] = att
     # The firewall's own syslog (v7.4.0): a scan it refused, two hits on its decoy port,
     # Suricata and CrowdSec alerts. They sit on the OPNsense row, with a score under the
