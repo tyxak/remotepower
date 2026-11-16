@@ -169,11 +169,64 @@ as WAF refusals. The release page is [docs/v8.0.1.md](docs/v8.0.1.md).
   names. One advisory against one source package is one finding that lists the installed packages after **installed as**, so `openssl` and
   `openssl-libs` on an AlmaLinux host are one finding where they were two. A list from an older agent is asked for package by package, as before.
   The agent sends its list when it changes, and the new fields count as a change, so each host sends once after its agent is updated.
-- **Debian and Ubuntu are not matched by source package yet, and the host view says so.** OSV keeps their advisories under the source package too,
-  so a package with another name (`libc6`, `libssl3`, `openssh-server`, the kernel images) is not checked. Those two distributions list every known
-  CVE of a release, fixed or not: on 2026-11-15 OSV held more than 1,000 entries without a fix for the Debian 12 kernel alone. Showing them next to
-  the few an update can clear needs its own design, so this release keeps the old matching for the two, reports the source packages anyway, and
-  states the gap in the host view and in [the guide](docs/cve.md#how-a-package-is-matched).
+- **Debian and Ubuntu are matched by source package.** OSV keeps their advisories under the source package: `glibc` answers and `libc6`
+  answers nothing. So a host's libraries, its SSH server and its kernel were never checked. With an 8.0.1 agent a Debian or Ubuntu host is asked
+  for by source package and that source's version, and a finding names the source and lists the installed packages after **installed as**. The
+  kernel image is built from a signing package (`linux-signed-amd64`), which OSV does not know; the agent reports the source that package was
+  built from (`linux`), which is in its `Built-Using` field. A host with an older agent is asked for package by package, as before, and so is an
+  Ubuntu derivative whose release is not known (below); the host view says which.
+- **A scan lists what you can act on and counts the rest.** Debian and Ubuntu publish every known CVE of a release, fixed or not: on 2026-11-15
+  OSV answered with more than 1,000 for the Debian 12 kernel alone, and seven common packages of a fully patched Debian 12 host had 150 that no
+  update clears. For these two distributions a scan lists a finding one by one when an update for the host's release clears it, when it is
+  critical or high, or when it is on the known-exploited list. Of the 255 Debian records read that day 113 are critical or high by their CVSS
+  score, so that rule alone does not bound a host: a host lists at most 300 findings and one package at most 50, the known-exploited first,
+  then the critical, then what an update clears, then the high ones without a fix. Everything else is counted in the host's scan result: the
+  total, by severity, by fix status, and the 20 packages that hold the most. The CVE page has a **Counted** column and a line under the tiles,
+  and the host view lists the packages. The counted findings are in none of the numbers, alerts, campaigns or reports; the dashboard tile, the
+  host drawer, the text of a ticket, the assistant's triage tool and the runbook say when a host has a count, so a host with nothing listed
+  and 400 counted is not called clean. An alert compares like with like: a finding that moved into the count on the first scan under the rule
+  is not announced as cleared.
+- **An Ubuntu fix is read for the host's own release, and a fix that needs Ubuntu Pro says so.** Ubuntu was scanned without a release, so a
+  finding named the fixed version of whichever release its advisory listed last and counted as fixable. The release is read from the version
+  the host reports (22.04 is `Ubuntu:22.04:LTS`; Pop!_OS numbers its releases the same way) and a finding is now **Fixed**, **Fixed in a newer
+  release**, **No fix yet** or, new, **Fixed with Ubuntu Pro**: the fix ships in Ubuntu Pro only, which is where every fix of a release past
+  its standard support goes. A fifth tile, **Needs Ubuntu Pro**, counts those. A host that has a package from Ubuntu Pro installed counts such
+  a fix as its own. FIPS builds have fixes of their own and are never read as the host's. Linux Mint, Zorin OS and elementary OS report a
+  version of their own, so their release is not known and they stay matched by installed name.
+- **A notice is not a second finding.** Debian and Ubuntu answer with one record per CVE and, a second time, with the notices that announced
+  the fixes (DSA, DLA, USN, LSN). A notice is left out when the per-CVE records of the same package already tell the host to install a
+  version at or past the notice's own fix. Of the 81 notices that came back on 2026-11-15, 78 had a per-CVE record with the same fix for the
+  same release. Three had none: an update without a CVE of its own. So a notice whose fix nothing else reaches stays a finding; leaving out
+  every notice would have hidden such an update from a host that needs exactly that one.
+- **KEV and EPSS matched nothing on the findings of four distributions.** A Debian, Ubuntu, AlmaLinux or Rocky Linux advisory has no
+  `aliases`; its CVE is named under `upstream`, which was not read. The known-exploited list and the EPSS scores go by CVE ID, so neither
+  badge ever showed on those hosts, "known to be exploited" never made such a finding count or alert, and **KEV only** campaigns saw none.
+- **Severity on Debian comes from the record.** A record carries Debian's urgency on every entry, so the Debian Security Tracker is no longer
+  asked once per record during a scan (it is still asked for a record that carries none). What Debian calls **unimportant** for a package in
+  a release is low on a host of that release, whatever a CVSS score says: of the 38 records that carried such an entry on 2026-11-15, 13
+  score critical or high.
+- **The details of an advisory are read eight at a time, and only when they changed.** One request takes about 0.27 s and a first scan of a
+  Debian or Ubuntu host needs up to 3,000, which one after the other is twelve minutes: past the five minutes after which a scan counts as
+  dead and a second one can be started beside it. They are read eight at once (under two minutes), the scan marks itself alive while it
+  reads, the cache is written as the work goes, and twenty failures in a row end the reading with the scan marked partial. A record is read
+  again when OSV says it changed; with an age alone, every record of a first scan ran out on the same day. **Settings → Security → CVE details
+  cache** now applies only when no change date is known, and its hint says so. The cache keeps the CVSS score and not only the word, so a
+  changed cut-off under **Forecast & CVE tuning** applies to every finding at the next scan; it used to apply as the cache ran out. A record
+  of a shape that cannot be read is one unread record and no longer ends the host's scan.
+- **A remediation campaign over a list of CVE IDs, or over known-exploited findings, matched nothing.** The campaign read `cve_id`, `id` and
+  a `kev` flag off a finding. A scan writes `vuln_id` and `aliases`, and `kev` is put on a finding only while a page is built. Such a campaign
+  counted no host and its first daily sample marked it completed and fired `campaign_completed`. It matches by ID and alias now
+  (`CVE-2024-6387` finds the Debian record of it), in any case, and reads the feed for known-exploited. Its tests had seeded `cve_id`.
+- **The MCP tool `get_cves` failed for every host name.** The hosted endpoint and the sidecar both asked for `/api/devices/<id>/cves`; the
+  route is `/cve`. Both return the host's count beside its findings now, and a test runs every tool of both and checks each path it asks for
+  against the route table.
+- **An SBOM vulnerability pointed at no component** when its finding is filed under a source package (Alpine, Rocky Linux, and now Debian and
+  Ubuntu) or carries the epoch of an RPM version. It points at the installed packages built from that source.
+- **The assistant's fleet summary of the worst CVEs printed "?" for every ID.** It read `id` and `cve_id`.
+- **The host drawer called a host clean that was never scanned**, and its line "No CVEs found." was never printed: it was joined to the row
+  of tiles above it, which is never empty. A host without a scan says **not scanned**.
+- **Three counters read the findings without copying them** (the sidebar badge, Checks, the compliance evaluation): they only count, and the
+  sidebar count runs on every poll of every open tab.
 - **A long advisory list is read to the end.** OSV answers in pages, and only the first was read. Every page is followed now, up to 10,000
   advisories for one package; past that the host view names the package whose list is cut.
 - **One failed request no longer empties the findings of every host.** A fleet scan looks up all packages together first. If a request failed

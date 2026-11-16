@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.1-9">
+<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.1-10">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=8.0.1-9">
+<link rel="stylesheet" href="static/css/styles.css?v=8.0.1-10">
 
 </head>
 <body>
@@ -2504,7 +2504,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">CVE details cache</div>
-            <p class="hint">How long OSV.dev vulnerability details are cached before being re-fetched. Higher = fewer external requests, lower = newer descriptions on existing CVEs. <a href="docs/cve.md" class="c-accent">Documentation</a></p>
+            <p class="hint">The details of an advisory are read from OSV.dev once, and again when OSV.dev reports that the advisory changed. This is the age after which they are read again when no change date is known. <a href="docs/cve.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <div class="form-group mw-160">
                 <label for="cfg-cve-cache-days" class="form-label">Days</label>
@@ -2515,7 +2515,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">CVE counts</div>
-            <p class="hint">The sidebar badge, the severity totals, Needs attention, the risk score and Checks count every CVE finding that is not accepted as a risk. Turn this on to count only the findings an update can clear, plus any on the known-exploited list. Every finding stays on the CVE page, and reports and compliance checks keep counting all of them. <a href="docs/cve.md" class="c-accent">Documentation</a></p>
+            <p class="hint">The sidebar badge, the severity totals, Needs attention, the risk score and Checks count every CVE finding the CVE page lists that is not accepted as a risk. Turn this on to count only the findings an update can clear, plus any on the known-exploited list. Every listed finding stays on the CVE page, and reports and compliance checks keep counting all of them. What a Debian or Ubuntu host has counted per package is in none of these numbers. <a href="docs/cve.md" class="c-accent">Documentation</a></p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-cve-count-fixable-only" class="isl-34">
               <span>Count only CVEs an update can fix, or that are known to be exploited</span>
@@ -5134,21 +5134,19 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v8.0.1 l0gmatters webhook failing destination notification delivery cve vulnerabilities epoch rpm alpine source package installed as scan all hosts threat intel clear clear recorded addresses edge blocklist found by remotepower kept for the edge blocklist request log provider requests log sources api requests abuseipdb sniffcat lookup report blacklist download http status server error no answer daily limit daily report limit used up reports per day lookups per day blacklist downloads per day limits of its own each service not answering sensor report missing address threat sensor agent log fail2ban crowdsec honeypot decoy ban engine block confirmed also block banned score cloudflare edge ban automatic probing kinds categories configuration files keys backups admin login debug pages wordpress user enumeration open proxy private host names unusual http methods rdp smb telnet database ignore general kind request samples edge sources examples category ids">
+          <details class="doc-card" open data-keywords="release notes changelog v8.0.1 l0gmatters webhook failing destination notification delivery cve vulnerabilities epoch rpm alpine debian ubuntu ubuntu pro esm kernel libc6 counted per package kev epss campaign sbom mcp get_cves source package installed as scan all hosts threat intel clear clear recorded addresses edge blocklist found by remotepower kept for the edge blocklist request log provider requests log sources api requests abuseipdb sniffcat lookup report blacklist download http status server error no answer daily limit daily report limit used up reports per day lookups per day blacklist downloads per day limits of its own each service not answering sensor report missing address threat sensor agent log fail2ban crowdsec honeypot decoy ban engine block confirmed also block banned score cloudflare edge ban automatic probing kinds categories configuration files keys backups admin login debug pages wordpress user enumeration open proxy private host names unusual http methods rdp smb telnet database ignore general kind request samples edge sources examples category ids">
             <summary><strong>What's new — v8.0.1 &ldquo;L0gMatters&rdquo;</strong> &mdash; what Threat Intel tells you, and what it does about it.</summary>
             <div class="doc-body">
               <p><strong>Clear empties the table.</strong> With the Edge blocklist on, nearly every address qualified for the list, and Clear used to leave each of those rows whole. They leave the table now. The blocklist keeps each one&rsquo;s last sighting, score and reports, so your Cloudflare list does not shrink, and the answer says <em>Kept for the edge blocklist</em>.</p>
-              <p><strong>A service that does not answer is not counted.</strong> A network failure or an HTTP 5xx from AbuseIPDB or SniffCat no longer counts against <em>Lookups per day</em> or <em>Reports per day</em>. The address waits ten minutes before that service is asked about it again, and a service that fails three times in one pass is left alone for the rest of that pass. The Edge blocklist&rsquo;s blacklist downloads follow the same rule.</p>
-              <p><strong>Each service has limits of its own.</strong> Under <em>Settings</em>, <em>Lookups per day</em>, <em>Reports per day</em> and <em>Blacklist downloads per day</em> can be set for AbuseIPDB and SniffCat separately. A blank box uses the general number, so nothing changes until you fill one in. Use it when a plan allows more than the free one.</p>
+              <p><strong>A service that does not answer is not counted.</strong> A network failure or an HTTP 5xx from AbuseIPDB or SniffCat no longer counts against <em>Lookups per day</em> or <em>Reports per day</em>. The address waits ten minutes before that service is asked about it again, and a service that fails three times in one pass is left alone for the rest of that pass. The Edge blocklist&rsquo;s blacklist downloads follow the same rule. <strong>Each service has limits of its own.</strong> Under <em>Settings</em>, <em>Lookups per day</em>, <em>Reports per day</em> and <em>Blacklist downloads per day</em> can be set for AbuseIPDB and SniffCat separately. A blank box uses the general number, so nothing changes until you fill one in. Use it when a plan allows more than the free one.</p>
               <p><strong>See what was sent, and what was received.</strong> The <em>Request log</em>, on the <em>Log sources</em> tab of Threat Intel, lists the last 150 lines: the requests to AbuseIPDB and SniffCat with the address, the HTTP status, how long it took and the service&rsquo;s own sentence, and each <em>Sensor report</em> your hosts sent, with how many addresses were queued, held back or set aside. If an address you expected is missing, look for it there. Keys, headers and the text of a report are never shown. Only the platform operator sees it.</p>
-              <p><strong>A report says what kind of probing it was.</strong> A day of reports used to read as one sentence, &ldquo;probing for exposed files and admin pages&rdquo;. A report now names the kind when the source can tell: configuration files, keys and backups; admin, login and debug pages; WordPress; user enumeration; an open proxy; private host names; unusual HTTP methods. RDP, SMB, Telnet and database logins are named too. Under <em>Never report an address when all it did was</em>, ticking the general kind covers its finer kinds, so an ignore list from before means what it meant. A Cloudflare custom rule is read by its description, so say in it what the rule blocks.</p>
-              <p><strong>What Cloudflare refused and what the honeypot answered.</strong> With <em>Send up to three request samples with each address</em> ticked, the edge sources also keep the method and path of up to three requests per address, and use the events&rsquo; own times, so a report about one request says one minute and not ten. A report carries a path only when <em>Add a few example requests to reports</em> is ticked. The <em>Request log</em> shows the categories each report was filed under.</p>
+              <p><strong>A report says what kind of probing it was.</strong> A day of reports used to read as one sentence, &ldquo;probing for exposed files and admin pages&rdquo;. A report now names the kind when the source can tell: configuration files, keys and backups; admin, login and debug pages; WordPress; user enumeration; an open proxy; private host names; unusual HTTP methods. RDP, SMB, Telnet and database logins are named too. Under <em>Never report an address when all it did was</em>, ticking the general kind covers its finer kinds, so an ignore list from before means what it meant. A Cloudflare custom rule is read by its description, so say in it what the rule blocks. <strong>What Cloudflare refused and what the honeypot answered.</strong> With <em>Send up to three request samples with each address</em> ticked, the edge sources also keep the method and path of up to three requests per address, and use the events&rsquo; own times, so a report about one request says one minute and not ten. A report carries a path only when <em>Add a few example requests to reports</em> is ticked. The <em>Request log</em> shows the categories each report was filed under.</p>
               <p><strong>Block what a ban engine already banned.</strong> Tick <em>Also block addresses that fail2ban, CrowdSec or a honeypot has already banned</em> under <em>Settings</em> and such an address is blocked on the host that saw it and, with the Edge blocklist on, banned at the edge, without waiting for a score. Everything that protects an address still applies. A host you do not trust can get an address banned at the edge this way, so leave it off if one is not under your control. It is off until you tick it.</p>
               <p><strong>Uninstall agent says what happened.</strong> A host whose agent was asked to uninstall now shows a badge on the Hosts page: <em>agent uninstalling…</em> while the command waits for the host, <em>agent uninstall queued</em> while the host is offline, and <em>agent uninstalled</em> once the command has been handed to the agent. The badge was never drawn before, and the audit log said an agent was reinstalled at the moment it was told to uninstall.</p>
               <p><strong>A notification destination that stopped working.</strong> A revoked webhook address or an expired mail password used to fail quietly, and the alerts simply stopped arriving. RemotePower now raises an alert when a destination has failed three deliveries in a row, in the inbox and through every other destination, and closes it when a delivery gets through again.</p>
-              <p><strong>Vulnerabilities that were not shown.</strong> On Rocky Linux, AlmaLinux and Red Hat a package whose version has an epoch, such as <code>openssl</code>, showed no finding however old it was, and on Alpine a fix that only raised the revision counted as installed. Both are compared in the distribution&rsquo;s own order now. Rocky Linux and AlmaLinux are asked for with their release, a failed request during a fleet scan no longer empties every host&rsquo;s findings, and an updated agent reports the source package of each package, so an Alpine library is checked as the package it was built from. Run <em>Scan all hosts</em> once. Debian and Ubuntu libraries with another name than their source package are still not checked, and the host view says so.</p>
-              <p><strong>What changes for you.</strong> Hard-reload the dashboard once. Update the Linux agents to get the sensor&rsquo;s log lines (<code>threat sensor: 2 addresses sent (ok)</code>); the Windows and macOS agents change in their version number only. If a service was down today, the day&rsquo;s report counts are dropped once when 8.0.1 first runs, so nothing needs resetting by hand.</p>
-              <p><strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
+              <p><strong>Vulnerabilities that were not shown.</strong> On Rocky Linux, AlmaLinux and Red Hat a package whose version has an epoch, such as <code>openssl</code>, showed no finding however old it was, and on Alpine a fix that only raised the revision counted as installed. Both are compared in the distribution&rsquo;s own order now. Rocky Linux and AlmaLinux are asked for with their release, a failed request during a fleet scan no longer empties every host&rsquo;s findings, and an updated agent reports the source package of each package, so an Alpine library is checked as the package it was built from. Run <em>Scan all hosts</em> once. <strong>Found on the way:</strong> The KEV badge and the EPSS percentage never showed on Debian, Ubuntu, AlmaLinux and Rocky Linux findings, and now do. A remediation campaign over a list of CVE IDs, or over known-exploited findings, matched nothing and was marked completed at once. The MCP tool <code>get_cves</code> failed for every host name. An SBOM vulnerability pointed at no component when its finding is filed under a source package. All four are fixed.</p>
+              <p><strong>Debian and Ubuntu are checked by source package.</strong> A library, the SSH server and the kernel of a Debian or Ubuntu host were never checked, because their advisories are filed under the source package. With an updated agent they are. Debian and Ubuntu publish every known CVE of a release, fixed or not, so a scan lists a finding one by one when an update for the host&rsquo;s release clears it, when it is critical or high, or when it is known to be exploited, at most 300 for a host and 50 for a package. The rest is counted per package: see the <em>Counted</em> column and the host view. An Ubuntu fix is read for the host&rsquo;s own release, and a fifth tile, <em>Needs Ubuntu Pro</em>, counts the fixes that ship there only. Expect one <code>cve_found</code> for each such host after its first scan; to hear only about what an update clears, tick <em>Only CVEs an update can fix, or that are known to be exploited</em> beside the severities of <code>cve_found</code> first.</p>
+              <p><strong>What changes for you.</strong> Hard-reload the dashboard once. Update the Linux agents to get the sensor&rsquo;s log lines (<code>threat sensor: 2 addresses sent (ok)</code>); the Windows and macOS agents change in their version number only. If a service was down today, the day&rsquo;s report counts are dropped once when 8.0.1 first runs, so nothing needs resetting by hand. <strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
               <p class="hint">See <code>docs/v8.0.1.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
@@ -8180,15 +8178,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="stat-card" data-stat-tone="good" data-action="setCveFixFilter" data-arg="fixable" role="button" tabindex="0" aria-pressed="false"><div><div class="stat-value c-green" id="cve-fix-fixable">0</div><div class="stat-label">Fixable now</div></div></div>
           <div class="stat-card" data-action="setCveFixFilter" data-arg="newer_release" role="button" tabindex="0" aria-pressed="false"><div><div class="stat-value" id="cve-fix-newer_release">0</div><div class="stat-label">Newer release only</div></div></div>
           <div class="stat-card" data-action="setCveFixFilter" data-arg="none" role="button" tabindex="0" aria-pressed="false"><div><div class="stat-value" id="cve-fix-none">0</div><div class="stat-label">No fix yet</div></div></div>
+          <div class="stat-card" data-action="setCveFixFilter" data-arg="pro" role="button" tabindex="0" aria-pressed="false"><div><div class="stat-value" id="cve-fix-pro">0</div><div class="stat-label">Needs Ubuntu Pro</div></div></div>
           <div class="stat-card" data-action="setCveFixFilter" data-arg="unchecked" role="button" tabindex="0" aria-pressed="false"><div><div class="stat-value c-muted" id="cve-fix-unchecked">0</div><div class="stat-label">Not checked</div></div></div>
         </div>
         <div class="hint mb-8">Fixable now means an update for the host's own release clears it. The counts leave out accepted risks.</div>
+        <div class="hint mb-8" id="cve-rollup-note" hidden><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong></strong></div>
         <div class="hint mb-8" id="cve-count-note" hidden>Counting only CVEs an update can fix, or that are known to be exploited. The severity totals leave out the others; change this in Settings → Security.</div>
         <div class="hint mb-8" id="cve-kev-feed">
           <span id="cve-kev-feed-text"></span>
           <button class="btn-icon cell-sm ml-8" data-action="refreshCveFeeds">Refresh KEV/EPSS feeds</button>
         </div>
-        <div class="table-card"><table><thead id="cve-thead"><tr><th scope="col" data-col="name">Host</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="ecosystem">Ecosystem</th><th scope="col" data-col="kev" class="ta-center" title="Known-Exploited Vulnerabilities — actively exploited in the wild (CISA KEV)">KEV</th><th scope="col" data-col="critical" class="ta-center">Critical</th><th scope="col" data-col="high" class="ta-center">High</th><th scope="col" data-col="medium" class="ta-center">Medium</th><th scope="col" data-col="low" class="ta-center">Low</th><th scope="col" data-col="last_scan">Last scan</th><th scope="col"></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="10" class="empty-state">Click Refresh to load findings. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="cve-thead"><tr><th scope="col" data-col="name">Host</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="ecosystem">Ecosystem</th><th scope="col" data-col="kev" class="ta-center" title="Known-Exploited Vulnerabilities — actively exploited in the wild (CISA KEV)">KEV</th><th scope="col" data-col="critical" class="ta-center">Critical</th><th scope="col" data-col="high" class="ta-center">High</th><th scope="col" data-col="medium" class="ta-center">Medium</th><th scope="col" data-col="low" class="ta-center">Low</th><th scope="col" data-col="counted" class="ta-center" title="Known vulnerabilities counted per package and not listed one by one">Counted</th><th scope="col" data-col="last_scan">Last scan</th><th scope="col"></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="11" class="empty-state">Click Refresh to load findings. </td></tr></tbody></table></div>
         </div><!-- /packages tab -->
 
         <!-- W6-34: container-image CVEs (trivy) -->
@@ -13640,39 +13640,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=8.0.1-9"></script>
+<script defer src="static/js/app.js?v=8.0.1-10"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-cmdb.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-containers.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-network.js?v=8.0.1-9"></script>
+<script defer src="static/js/app-calendar.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-cmdb.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-containers.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-network.js?v=8.0.1-10"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-compliance.js?v=8.0.1-9"></script>
+<script defer src="static/js/app-hostconfig.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-compliance.js?v=8.0.1-10"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-dns.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-drift.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-cve.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-firewall.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-backups.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-iac.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-proxmox.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-virt.js?v=8.0.1-9"></script>
+<script defer src="static/js/app-ai.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-dns.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-drift.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-cve.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-firewall.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-backups.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-iac.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-proxmox.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-virt.js?v=8.0.1-10"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-remote.js?v=8.0.1-9"></script>
-<script defer src="static/js/app-tickets.js?v=8.0.1-9"></script>
+<script defer src="static/js/app-logs.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-remote.js?v=8.0.1-10"></script>
+<script defer src="static/js/app-tickets.js?v=8.0.1-10"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=8.0.1-9"></script>
+<script defer src="static/js/app-self.js?v=8.0.1-10"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=8.0.1-9"></script>
+<script defer src="static/js/app-tooltip.js?v=8.0.1-10"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -13682,6 +13682,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=8.0.1-9"></script>
+<script defer src="static/js/sw-register.js?v=8.0.1-10"></script>
 </body>
 </html>

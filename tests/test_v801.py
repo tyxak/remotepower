@@ -179,6 +179,8 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v801_cve_matching.py",          # what a scan asks OSV and does with the answer, replayed from the recording; the worker; the host view
         "tests/test_v801_agent_package_sources.py", # the agent's package list: source package, epoch, what counts as installed, the Alpine database
         "tests/test_v801_notify_dest_health.py",    # a destination that keeps failing is reported once, through the others, and closed when it delivers
+        "tests/test_v801_deb_source_matching.py",   # Debian and Ubuntu by source package against two recordings: the rule, the ceilings, Ubuntu Pro, the detail stage
+        "tests/test_v801_cve_readers.py",           # campaigns, both MCP tools, the assistant, the SBOM and the "clean" texts read what a scan writes
     )
 
     def test_the_list_is_not_empty(self):

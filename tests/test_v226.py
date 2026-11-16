@@ -45,18 +45,12 @@ _spec_cve.loader.exec_module(cve)
 # ─── CVE comparator ──────────────────────────────────────────────────────
 
 
-import shutil
-_HAS_DPKG = shutil.which('dpkg') is not None
-
-
-@unittest.skipUnless(_HAS_DPKG,
-    'dpkg binary not available (test only runs on Debian/Ubuntu/derivative)')
 class TestAlreadyPatched(unittest.TestCase):
     """The core fix — version comparison gating CVE findings.
 
-    Requires the `dpkg` binary (Debian/Ubuntu). Skipped on Arch / RHEL /
-    macOS / CI runners without dpkg; the production code still falls
-    back safely there (returns False = keep finding).
+    8.0.1: runs everywhere. It was skipped where no `dpkg` binary is installed (this class
+    never ran on a machine without one); the Debian order is computed by the server now
+    (pkg_versions.deb_compare), so there is nothing to skip for.
     """
 
     def test_lua_false_positive_suppressed(self):

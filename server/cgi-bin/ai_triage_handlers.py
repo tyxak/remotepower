@@ -415,8 +415,13 @@ def _triage_tools(dev_id, dev, alert=None):
         rec = (A.load(A.CVE_FINDINGS_FILE) or {}).get(dev_id) or {}
         findings = [f for f in (rec.get('findings') or [])
                     if isinstance(f, dict) and not f.get('ignored')]
+        # 8.0.1: a Debian or Ubuntu scan lists what can be acted on and counts the rest per package
+        counted = A.cve_fixes.rollup_total(rec)
+        more = (f"{counted} more known vulnerabilities are counted per package and not listed "
+                "(mostly medium or lower with no fix for this release)") if counted else ''
         if not findings:
-            return '(no open CVE findings for this host)'
+            return f'(no CVE findings listed for this host; {more})' if more else \
+                '(no open CVE findings for this host)'
         rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
         top = sorted(findings, key=lambda f: rank.get(f.get('severity'), 9))[:20]
         lines = [f"{A.plural(len(findings), 'open finding', 'open findings')}; top by severity:"]
@@ -424,7 +429,11 @@ def _triage_tools(dev_id, dev, alert=None):
             fx = f.get('fixed_version')
             lines.append(f"[{f.get('severity', '?')}] {f.get('vuln_id', '?')} "
                          f"{f.get('package', '?')}"
-                         + (f" → fix in {fx}" if fx else " (no fix yet)"))
+                         + (f" → fix in {fx}" if fx
+                            else " (fixed with Ubuntu Pro)" if f.get('fix_status') == 'pro'
+                            else " (no fix yet)"))
+        if more:
+            lines.append(more)
         return '\n'.join(lines)
 
     def _metrics_trend(args):

@@ -597,7 +597,13 @@ def _keep_samples(e, family, found):
             break
         # a time that was not read is left out (None), so the sample is stamped with the read's own time
         smp.append(
-            {"f": family, "m": f.get("m") or "", "p": f.get("p") or "", "c": 0, "t": f.get("t") or None}
+            {
+                "f": family,
+                "m": f.get("m") or "",
+                "p": f.get("p") or "",
+                "c": 0,
+                "t": f.get("t") or None,
+            }
         )
 
 

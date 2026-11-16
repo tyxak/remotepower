@@ -75,7 +75,10 @@ RULES: dict[str, tuple[Rule, ...]] = {
     "helm.json": (pop(),),
     "image_cves.json": (pop(),),
     "ip_intel.json": (pop("blocks"), pop("attackers", "*", "devices")),
-    "ip_intel_intake.json": (pop("sensors"), drop("log", field="device_id")),  # the log of what hosts sent (8.0.1) names the host on every line
+    "ip_intel_intake.json": (
+        pop("sensors"),
+        drop("log", field="device_id"),
+    ),  # the log of what hosts sent (8.0.1) names the host on every line
     "lldp_neighbors.json": (pop(),),
     "metrics_history.json": (pop(),),
     "patch_age.json": (pop(), unlist("_breaching")),

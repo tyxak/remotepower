@@ -85,11 +85,13 @@ class TestStaleCacheRefetch(unittest.TestCase):
         self.assertIn('DEBIAN-CVE-2024-36357', self._fetched,
                       'pre-2.3.4 cache entry was NOT re-fetched')
         # ...and re-classified to the correct severity + a real source.
-        finding = result['findings'][0]
-        self.assertNotEqual(finding['severity'], 'critical',
-                            'stale critical severity was re-served')
-        self.assertNotEqual(finding['severity_source'], 'unknown')
-        self.assertEqual(finding['severity_source'], 'cvss_v3')
+        # 8.0.1: a medium finding with no fix for the host's release is counted per package on a
+        # Debian host and not stored one by one, so the severity is read where the scan put it:
+        # in the count, and in the record the scan cached.
+        self.assertEqual(result['findings'], [], 'the stale critical severity was re-served')
+        self.assertEqual(result['rollup']['severity'], {'low': 1})          # the vector scores 3.6
+        entry = json.loads((self._tmp / 'cve_details_cache.json').read_text())['DEBIAN-CVE-2024-36357']
+        self.assertEqual((entry['severity'], entry['severity_source']), ('low', 'cvss_v3'))
 
     def test_current_entry_with_source_is_kept(self):
         # A current entry (HAS severity_source, and since 7.4.6 the per-release
@@ -104,6 +106,8 @@ class TestStaleCacheRefetch(unittest.TestCase):
             'cached_at': int(time.time()),
             'fixed_versions': {},
             'eco_fix': {},
+            'v': cve.DETAILS_FORMAT,         # 8.0.1: the format that keeps the CVE names of `upstream`
+            'minor': {},
         }}
         (self._tmp / 'cve_details_cache.json').write_text(json.dumps(cache))
 
@@ -111,7 +115,7 @@ class TestStaleCacheRefetch(unittest.TestCase):
 
         self.assertNotIn('DEBIAN-CVE-2024-36357', self._fetched,
                          'a fresh modern cache entry was needlessly re-fetched')
-        self.assertEqual(result['findings'][0]['severity'], 'medium')
+        self.assertEqual(result['rollup']['severity'], {'medium': 1})     # see the note in the test above
 
     def test_expired_modern_entry_is_refetched(self):
         # A 2.3.4+ entry that HAS aged past the TTL is still refreshed.

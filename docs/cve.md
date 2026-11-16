@@ -16,8 +16,9 @@ with real exploit signals, not just the CVSS score.
 ## The CVE page
 
 The page opens with a severity summary (Critical / High / Medium / Low and hosts scanned),
-four tiles that count the findings by [fix status](#fix-status), and a KEV feed status line.
-Below them is one row per host.
+five tiles that count the findings by [fix status](#fix-status), and a KEV feed status line.
+When Debian or Ubuntu hosts have findings that are [counted and not listed](#what-is-listed-and-what-is-counted),
+a line under the tiles says how many. Below them is one row per host.
 
 | Column | Meaning |
 | --- | --- |
@@ -25,6 +26,7 @@ Below them is one row per host.
 | **Ecosystem** | The OSV ecosystem found from `/etc/os-release` and the package manager (Ubuntu, Debian, Rocky Linux, AlmaLinux, Red Hat or Alpine). |
 | **KEV** | How many findings are in CISA's **Known Exploited Vulnerabilities** catalog, meaning attackers use them in the wild. |
 | **Critical / High / Medium / Low** | Finding counts by severity. |
+| **Counted** | How many more known vulnerabilities the host's scan counted per package and did not list. Debian and Ubuntu only. |
 | **Last scan** | When the host was last scanned, or why it was not: **not scanned**, **no package list** or **unsupported**. |
 
 Rows sort by KEV count first, then by critical and high counts, then by the highest EPSS
@@ -55,6 +57,10 @@ fix, a summary, the aliases and links to the advisories. **Triage** asks the AI 
 finding and **Ignore** accepts the risk. The buttons above the list are **Send package list
 now**, **SBOM (CycloneDX)**, **SBOM (SPDX)**, **Baseline** and **Changes since baseline**.
 
+On a Debian or Ubuntu host the view also shows the count: how many known vulnerabilities are
+counted and not listed, how many of those are critical or high, how many an update would
+clear, and the packages that hold the most with the version installed. Open it with a click.
+
 ## Which hosts are scanned
 
 | Host | Ecosystem |
@@ -65,6 +71,10 @@ now**, **SBOM (CycloneDX)**, **SBOM (SPDX)**, **Baseline** and **Changes since b
 | AlmaLinux | `AlmaLinux:<major version>` |
 | Red Hat Enterprise Linux | `Red Hat` |
 | Alpine (`apk`) | `Alpine:v<major.minor>` |
+
+An Ubuntu host's release is read from the version it reports (22.04). Pop!_OS numbers its
+releases the same way. Other derivatives report a version of their own, which names no Ubuntu
+release; [How a package is matched](#how-a-package-is-matched) says what that changes.
 
 OSV has no Arch Linux feed, so `pacman` hosts report no ecosystem. A Linux host on any other
 distribution shows **unsupported** in the Last scan column and is skipped. The Windows and
@@ -81,29 +91,60 @@ distribution:
 | Alpine | The origin: the package whose build produced the installed one | `libcrypto3` and `libssl3` are checked as `openssl`. |
 | Rocky Linux | The installed package and its source package | Older advisories name only the source package, newer ones name every package built from it. |
 | AlmaLinux, Red Hat | The installed package | These advisories name every built package. |
-| Debian, Ubuntu | The installed package's own name | A package that has the name of its source package is checked: `openssl`, `curl`, `sudo`, `nginx`. A package named differently is not: `libc6` (source `glibc`), `libssl3` (`openssl`), `openssh-server` (`openssh`) and the kernel images. |
+| Debian, Ubuntu | The source package and its version | `libc6` is checked as `glibc`, `libssl3` as `openssl`, `openssh-server` as `openssh` and the kernel image as `linux`. |
 
 Matching by source package needs an agent from 8.0.1 on. It reports the source package of
 each installed package and, on RPM hosts, the epoch of its version. A host with an older
-agent is asked for package by package, and its host view says what that leaves out. The host
-view of a Debian or Ubuntu host says it as well.
+agent is asked for package by package, and its host view says what that leaves out.
+
+A Debian or Ubuntu host is asked for by source package only when its release is known. An
+Ubuntu derivative with a version of its own (Linux Mint, Zorin OS, elementary OS) is asked for
+package by package, whatever its agent reports, and its host view says so.
 
 One advisory against one source package is one finding. It carries the source package's name
 and lists the installed packages built from it after **installed as**. `openssl` and
 `openssl-libs` on an AlmaLinux host are one finding where they were two.
 
-Debian and Ubuntu are not matched by source package yet. Their security data lists every
-known CVE of a release, fixed or not, and for a kernel that is more than a thousand entries
-with no fix. Showing those next to the few you can act on needs its own design, so this
-release keeps the old matching for the two and tells you what it leaves out.
-
 Rocky Linux and AlmaLinux are asked for with their major release, so a host on release 9 is
 not shown the advisories of release 10.
+
+Debian and Ubuntu announce a fix in a notice (a DSA, a USN) and also keep one record per CVE.
+A notice is not a second finding when the records of its CVEs already tell the host to install
+a version at or past the notice's fix. A notice whose fix nothing else reaches stays a finding.
+
+### What is listed and what is counted
+
+Debian and Ubuntu publish every known CVE of a release, fixed or not. The kernel of a Debian 12
+host alone has more than a thousand, most of them with no fix in that release. Listed next to
+the few you can act on they would hide them, so for these two distributions a scan lists a
+finding one by one when:
+
+- an update for the host's release clears it,
+- it is critical or high, or
+- it is on the known-exploited (KEV) list.
+
+A host lists at most 300 findings, and at most 50 for one package. When there are more, the
+known-exploited ones come first, then the critical, then what an update clears (by severity),
+then the high ones without a fix. Within each, the newest CVE comes first.
+
+Everything else is counted. The host's scan keeps how many there are, by severity and by fix
+status, and the 20 packages that hold the most. You see the number in the **Counted** column
+and in the line under the tiles, and the packages in the host view. Nothing is left out without
+being counted.
+
+What is counted is not in the severity tiles, the fix tiles, the Security badge, **Needs
+attention**, the risk score, alerts, campaigns, reports or the SBOM. Those read the listed
+findings. The dashboard tile and the host drawer say when a host has a count and nothing
+listed, so such a host is not shown as clean.
+
+The rule applies to every Debian host, and to every Ubuntu host whose release is known, from
+its next scan, also when its agent is older than 8.0.1. A host scanned before 8.0.1 keeps its
+old findings until it is scanned again.
 
 ## Fix status
 
 A finding records a fixed version, but a fix only helps a host if it reached the release
-that host runs. Debian and Alpine publish a fix per release (Debian 12, Debian 13,
+that host runs. Debian, Ubuntu and Alpine publish a fix per release (Debian 12, Ubuntu 22.04,
 Alpine 3.19), and RemotePower reads the entry for the host's own release. Each finding
 is one of:
 
@@ -112,19 +153,21 @@ is one of:
 | **Fixed** | An update for this host's release clears it. The finding names the version to install. |
 | **Fixed in a newer release** | The host's release has no fix, a newer release does. The finding names that release and version (for example `Debian:13 8.7.1-1`) and offers nothing to install. |
 | **No fix yet** | No release has a fix. |
-| **Not checked** | Ubuntu and Red Hat are scanned without a release, so their entries cannot be told apart. Rocky Linux and AlmaLinux publish an advisory per release together with its fix. In all four a finding keeps the fixed version OSV lists and counts as fixable when it has one. |
+| **Fixed with Ubuntu Pro** | The fix for the host's release ships in Ubuntu Pro only, which is where every fix of a release past its standard support goes. The finding names the Pro version and offers nothing to install. On a host that has a package from Ubuntu Pro installed (its version ends in `+esm1` or `~esm1`), such a finding is **Fixed**. |
+| **Not checked** | Red Hat, and an Ubuntu derivative whose release is not known, are scanned without a release, so their entries cannot be told apart. Rocky Linux and AlmaLinux publish an advisory per release together with its fix. In all of these a finding keeps the fixed version OSV lists and counts as fixable when it has one. |
 
-The four tiles under the severity counts count the findings that are not ignored
-(**Fixable now**, **Newer release only**, **No fix yet**, **Not checked**). Click a tile to
+The five tiles under the severity counts count the findings that are not ignored
+(**Fixable now**, **Newer release only**, **No fix yet**, **Needs Ubuntu Pro**, **Not checked**). Click a tile to
 keep only the hosts that have such a finding, and the host view then lists only those
 findings. Click the tile again, or **Show all** in the host view, to undo it.
 
 A package that is already at or past the fix of a newer release (a backport, say) counts as
 patched. A fix in an older release never does.
 
-"At or past" follows the distribution's own version order: dpkg for Debian and Ubuntu, the
-RPM order of epoch, version and release for Rocky Linux, AlmaLinux and Red Hat, and the
-Alpine order with its `-r` revision. A version that cannot be read keeps its finding.
+"At or past" follows the distribution's own version order: the dpkg order for Debian and
+Ubuntu, the RPM order of epoch, version and release for Rocky Linux, AlmaLinux and Red Hat, and
+the Alpine order with its `-r` revision. The server computes all three itself, so it needs no
+`dpkg` or `rpm` installed. A version that cannot be read keeps its finding.
 
 If you upgrade from a version before 7.4.6, run **Scan all hosts** once. Findings keep their
 old fixed version until their host is scanned again.
@@ -134,6 +177,27 @@ AlmaLinux or Red Hat host showed nothing for a package whose version has an epoc
 with a higher number than that epoch (`openssl`, epoch 1, version 3), however old the
 package was, and an Alpine host showed nothing when a fix differed only in its `-r` revision
 or its letter.
+
+For Debian and Ubuntu the numbers move in both directions on that scan, once the host runs an
+8.0.1 agent:
+
+- Libraries, the SSH server and the kernel are checked for the first time, so a host gets
+  findings it never had. Many of them have no fix for its release. If critical and high are in
+  your alert severities, expect one `cve_found` for each such host. To hear only about what an
+  update clears, turn on **Only CVEs an update can fix, or that are known to be exploited**
+  before you scan (see [Alerts & ignores](#alerts--ignores)).
+- A notice that repeats the findings of its CVEs is no longer a finding of its own, and a medium
+  or low finding without a fix moves into the count, so some numbers go down. This part does
+  not wait for the agent.
+- **Needs attention**, the risk score and Checks read the listed findings, so they rise with
+  them. With [counting only what an update can fix](#counting-only-what-an-update-can-fix) on,
+  they count what you can act on. Reports and the compliance controls count every listed
+  finding either way.
+- The **KEV** badge and the EPSS percentage appear on findings of Debian, Ubuntu, AlmaLinux and
+  Rocky Linux. A distribution's record names its CVE in a field RemotePower did not read, so
+  the two signals matched nothing there. The badge shows after the scan. The percentage follows
+  at the next daily refresh of the feeds, or when you click **Refresh KEV/EPSS feeds**: scores
+  are kept only for the CVEs your hosts have.
 
 ## Counting only what an update can fix
 
@@ -145,16 +209,18 @@ that is a number nobody can act on.
 
 Settings → Security → **CVE counts** has **Count only CVEs an update can fix, or that are known
 to be exploited** (`cve_count_fixable_only`, off by default). With it on, those places
-leave out a finding that is fixed only in a newer release or has no fix yet. A finding on the
-known-exploited (KEV) list always counts, and so does a **Not checked** finding that lists a
-fixed version.
+leave out a finding that is fixed only in a newer release, needs Ubuntu Pro or has no fix yet.
+A finding on the known-exploited (KEV) list always counts, and so does a **Not checked**
+finding that lists a fixed version.
 
-- Every finding stays on the CVE page and in the host view, and the four fix tiles keep
+- Every listed finding stays on the CVE page and in the host view, and the five fix tiles keep
   counting all of them, so you can see what the option leaves out. The CVE page says when the
   option is on.
+- What a Debian or Ubuntu host has [counted per package](#what-is-listed-and-what-is-counted)
+  is in none of these numbers, with the option on or off.
 - Alerts have their own switch (see [Alerts & ignores](#alerts--ignores)). Reports, the
   printable fleet report, compliance checks and the assistant's context keep counting every
-  finding.
+  listed finding.
 - A finding you accepted as a risk never counts in those numbers, with the option on or off.
 - The badge, **Needs attention** and the digest count monitored hosts only: a host you do not
   monitor is silent by choice. The CVE page and the dashboard tile still list its findings.
@@ -172,9 +238,13 @@ after patching, or call `POST /api/cve/scan` from a scheduled job with an
   scan crashes, the marker clears five minutes after its last checkpoint.
 - The scanner **deduplicates packages across the whole fleet** and queries OSV once per
   ecosystem in a batch, so a 100-host fleet is not 100 times the API traffic.
-- OSV answers are cached. **Settings → Security → CVE details cache** sets how long, from 1
-  to 90 days (default 7). A lower value picks up changed descriptions sooner and costs more
-  requests.
+- The details of an advisory are read once and kept. They are read again when OSV reports
+  that the advisory changed, so a scan after the first asks only for what is new or changed.
+  **Settings → Security → CVE details cache** (1 to 90 days, default 7) is the age after which
+  they are read again when OSV gives no change date.
+- The details are read eight at a time. The first scan of a Debian or Ubuntu host reads a few
+  thousand of them, which takes about two minutes. If some cannot be read, the host view says
+  how many; those findings wait in the count as **Not checked** until the next scan reads them.
 - An **OSV circuit breaker** opens after three failed requests in a row and skips OSV work
   for ten minutes, so an OSV outage degrades gracefully instead of stalling scans.
 - If a request fails while the fleet's packages are looked up together, each host is scanned
@@ -186,12 +256,14 @@ after patching, or call `POST /api/cve/scan` from a scheduled job with an
 
 1. The distribution's own rating wins when the OSV record has one (the Debian, Ubuntu and
    similar priority fields), because distributions rate a CVE by how it affects their own
-   packages.
+   packages. That includes Debian's **unimportant**: its judgement that a package is not
+   affected in a way that matters, given per release. Such a finding is low on a host of
+   that release, whatever its CVSS score.
 2. Otherwise the CVSS score decides. The cut-offs are 9.0 for critical, 7.0 for high and 4.0
    for medium. You can change them under Settings → Alert parameters → **Forecast & CVE
-   tuning**.
-3. For Debian hosts with neither, the Debian Security Tracker's urgency is used, capped at
-   medium.
+   tuning**; the next scan applies the new cut-offs to every finding.
+3. For Debian hosts with neither, Debian's urgency is used, capped at medium. It is in the
+   record itself; the Debian Security Tracker is asked only for a record that carries none.
 4. If nothing is known the finding is **unknown**.
 
 ## Prioritisation signals
@@ -225,7 +297,8 @@ Generate a Software Bill of Materials per host or for the whole fleet:
   `group=` or `device_id=` to narrow it.
 - **CycloneDX 1.5** carries the CVE findings as a VEX-style vulnerabilities
   section. **SPDX 2.3** is the packages-and-relationships interchange format. Running
-  container images are included as components.
+  container images are included as components. A finding filed under a source package points
+  at every installed package built from it.
 - **Baseline** snapshots a host's package list (`POST /api/devices/{id}/sbom/baseline`) and
   **Changes since baseline** (`GET /api/devices/{id}/sbom/diff`) lists the packages added,
   removed or changed since then.
@@ -293,7 +366,8 @@ hosts are still affected.
 1. Scroll to **Remediation campaigns** on the CVE page.
 2. Give it a name, an owner and a target date.
 3. Choose the scope: severities (critical, high), **KEV only**, or an explicit list of CVE IDs
-   (the list overrides the severity filter).
+   (the list overrides the severity filter). An ID matches a finding by its own ID or by any of
+   its aliases, so `CVE-2024-6387` finds the Debian, Ubuntu or AlmaLinux record of that CVE.
 4. Click **Create campaign**.
 
 Each campaign shows its affected hosts, its finding count and a burn-down chart that gains one
@@ -321,8 +395,11 @@ findings do not count. You can keep up to 200 campaigns.
 | Scans fail or skip hosts | The circuit breaker may be open after OSV errors. It closes by itself after ten minutes. |
 | You cleared the alerts and want them back | **Re-alert backlog**. |
 | The count on a card is lower than the table | Counting only what an update can fix is on, or the finding is ignored. |
-| A library has no findings on Debian or Ubuntu | It is matched by its own name, and the advisories are filed under its source package. See [How a package is matched](#how-a-package-is-matched). |
-| An Alpine or Rocky Linux host says its agent does not report source packages | Update the agent, then click **Send package list now** and scan the host. |
+| A library has no findings on Debian or Ubuntu | The host's agent is older than 8.0.1, or the host is an Ubuntu derivative whose release is not known. The host view says which. See [How a package is matched](#how-a-package-is-matched). |
+| A host says its agent does not report source packages | Update the agent, then click **Send package list now** and scan the host. |
+| The High count rose after the upgrade to 8.0.1 | Debian and Ubuntu hosts are matched by source package now. Many of the new findings have no fix for the host's release. **Count only CVEs an update can fix** leaves those out of the numbers, and the alert option of the same name out of the alerts. |
+| A host has a number under **Counted** and few findings | See [What is listed and what is counted](#what-is-listed-and-what-is-counted). |
+| A campaign over CVE IDs was marked completed at once | Before 8.0.1 a campaign over a list of IDs, or over known-exploited findings, matched nothing. It reopens with the next daily sample if hosts are affected. |
 
 ## See also
 

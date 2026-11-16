@@ -56,6 +56,11 @@ EXEMPT = {
     'containers-panel-agent': 'three stacked sections (hosts, image updates, '
                               'compose stacks), each its own table; the 7.4.0 CSV '
                               'bars took the wrapper past 12 children',
+    'ipintel-limits-card': 'a settings form of fixed fields: the general limits, each '
+                           'service\'s own limits (8.0.1, which took it to 14 children), '
+                           'the report message, one switch and two text boxes. No row in '
+                           'it comes from data, and a form that scrolls inside a box hides '
+                           'its Save button',
 }
 
 # ~15 rows at the app's row height, plus header and padding.

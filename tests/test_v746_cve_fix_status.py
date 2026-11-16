@@ -122,9 +122,15 @@ class TestTheRulesAsATable(unittest.TestCase):
         self.assertEqual(cve_fixes.classify(fixes, "Alpine:v3.19", "zlib")["status"], "fixed")
 
     def test_a_distribution_without_the_release_in_its_name_is_unknown(self):
-        rec = record("USN-1", "high", [("Ubuntu:22.04:LTS", "1.2-3ubuntu0.1", "zlib")])
+        # 8.0.1: Ubuntu's entries name their release and are kept; Rocky's advisories come one per release
+        rec = record("RLSA-1", "high", [("Rocky Linux:9", "1.2-3.el9", "zlib")])
         self.assertEqual(cve_fixes.extract(rec), {})
-        self.assertEqual(cve_fixes.classify({}, "Ubuntu", "zlib")["status"], "unknown")
+        self.assertEqual(cve_fixes.classify({}, "Rocky Linux:9", "zlib")["status"], "unknown")
+        # and a host scanned under the bare name, with nothing saying which release it runs
+        usn = cve_fixes.extract(record("UBUNTU-CVE-1", "high", [("Ubuntu:22.04:LTS", "1.2-3ubuntu0.1", "zlib")]))
+        self.assertEqual(usn, {"Ubuntu:22.04:LTS": {"zlib": ["1.2-3ubuntu0.1"]}})
+        self.assertEqual(cve_fixes.classify(usn, "Ubuntu", "zlib")["status"], "unknown")
+        self.assertEqual(cve_fixes.classify(usn, "Ubuntu:22.04:LTS", "zlib")["status"], "fixed")
 
     def test_a_record_cached_before_the_entries_were_kept_apart_is_unknown(self):
         self.assertEqual(cve_fixes.classify(None, "Debian:12", "curl")["status"], "unknown")
@@ -185,7 +191,7 @@ class TestTheRulesAsATable(unittest.TestCase):
             {"vuln_id": "G", "fix_status": "fixed", "fixed_version": "1"},  # ignored
         ]
         self.assertEqual(cve_fixes.summarize(findings, {"G"}),
-                         {"fixable": 2, "newer_release": 1, "none": 1, "unchecked": 2})
+                         {"fixable": 2, "newer_release": 1, "none": 1, "pro": 0, "unchecked": 2})
 
     def test_a_known_exploited_finding_is_found_by_any_of_its_names(self):
         kev = {"CVE-2024-2379"}
@@ -263,7 +269,7 @@ class TestAScanOfADebianTwelveHost(_Scan):
     def test_the_counts_of_the_report_come_out_right(self):
         _, out = self.scan("Debian:12", "7.88.1-10+deb12u5", self.IDS)
         self.assertEqual(cve_fixes.summarize(out["findings"], set()),
-                         {"fixable": 1, "newer_release": 2, "none": 1, "unchecked": 0})
+                         {"fixable": 1, "newer_release": 2, "none": 1, "pro": 0, "unchecked": 0})
 
     def test_the_same_record_on_debian_thirteen_is_fixed_where_thirteen_has_the_fix(self):
         found, _ = self.scan("Debian:13", "8.7.0-1", self.IDS)
@@ -508,7 +514,7 @@ class TestTheReportAndTheReadersAgree(_Alerts):
 
     def test_the_summary_and_the_host_carry_the_counts(self):
         report = self.call(api.handle_cve_findings)
-        expected = {"fixable": 2, "newer_release": 1, "none": 1, "unchecked": 0}
+        expected = {"fixable": 2, "newer_release": 1, "none": 1, "pro": 0, "unchecked": 0}
         self.assertEqual(report["summary"]["fix"], expected)
         self.assertEqual(report["devices"][0]["fix"], expected)
 

@@ -1116,8 +1116,10 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
                 continue
             sev = str(c.get('severity', '')).lower()
             if sev in ('critical', 'high'):
+                # 8.0.1: a finding is stored under `vuln_id`. `id` and `cve_id` are in no scan
+                # result, so every line of this summary read "?".
                 worst.append((sev, dev_id,
-                              c.get('id') or c.get('cve_id') or '?',
+                              c.get('vuln_id') or c.get('id') or c.get('cve_id') or '?',
                               c.get('package') or c.get('pkg') or ''))
     if worst:
         rank = {'critical': 0, 'high': 1}

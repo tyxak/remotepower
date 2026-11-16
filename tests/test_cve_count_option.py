@@ -169,7 +169,7 @@ class TestOptionOn(_Fleet):
     def test_the_fix_tiles_and_the_accepted_count_still_cover_every_finding(self):
         """The tiles are how an operator finds what was left out, so they must not follow the option."""
         s = self.page()["summary"]
-        self.assertEqual(s["fix"], {"fixable": 2, "newer_release": 2, "none": 6, "unchecked": 0})
+        self.assertEqual(s["fix"], {"fixable": 2, "newer_release": 2, "none": 6, "pro": 0, "unchecked": 0})
         self.assertEqual(s["ignored"], 1)
 
     def test_each_host_row_follows_the_option(self):

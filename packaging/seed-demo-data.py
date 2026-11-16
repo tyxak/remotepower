@@ -2122,50 +2122,111 @@ def build_cve_findings() -> dict:
     # (vuln_id, severity, package, installed, fixed, summary, published)
     # Severity is lowercase — cve_scanner.summarize_findings buckets by the
     # literal string into {critical,high,medium,low}.
+    #
+    # 8.0.1: a Debian or Ubuntu scan files a finding under the SOURCE package and names the installed
+    # packages built from it, and it stores one by one only what an update clears, what is critical or
+    # high, and what is known to be exploited (cve_fixes.kept); the rest is counted per package in
+    # `rollup`. So the two findings no update clears are high here (they were medium and low, which a
+    # scan would not have stored), the medium and the low one have a fix, and each host carries a
+    # count. tests/test_v801_deb_source_matching.py holds the seed to the rule.
     fake_cves = [
-        ('CVE-2024-12345', 'high',     'openssh-server', '8.9p1-3ubuntu0.1', '8.9p1-3ubuntu0.10', 'Memory disclosure in pre-auth path.',        '2024-05-14'),
-        ('CVE-2024-23456', 'critical', 'libcurl4',       '7.81.0-1ubuntu1.16','7.81.0-1ubuntu1.20','Heap overflow in URL parsing.',             '2024-03-27'),
-        ('CVE-2024-34567', 'medium',   'sudo',           '1.9.9-1ubuntu2.4', '1.9.9-1ubuntu2.5',  'Privilege escalation via env var.',          '2024-06-02'),
-        ('CVE-2024-45678', 'low',      'curl',           '7.81.0-1ubuntu1.16','7.81.0-1ubuntu1.20','Information leak in cookie handling.',       '2024-04-18'),
-        ('CVE-2023-99999', 'high',     'nginx',          '1.18.0-6ubuntu14.4','1.18.0-6ubuntu14.5','Off-by-one in HTTP/2 frame parsing.',        '2023-11-09'),
+        ('CVE-2024-12345', 'high',     'openssh', '1:8.9p1-3ubuntu0.1', '1:8.9p1-3ubuntu0.10', 'Memory disclosure in pre-auth path.',        '2024-05-14'),
+        ('CVE-2024-23456', 'critical', 'curl',    '7.81.0-1ubuntu1.16', '7.81.0-1ubuntu1.20',  'Heap overflow in URL parsing.',              '2024-03-27'),
+        ('CVE-2024-34567', 'high',     'sudo',    '1.9.9-1ubuntu2.4',   '1.9.9-1ubuntu2.5',    'Privilege escalation via env var.',          '2024-06-02'),
+        ('CVE-2024-45678', 'high',     'curl',    '7.81.0-1ubuntu1.16', '7.81.0-1ubuntu1.20',  'Information leak in cookie handling.',       '2024-04-18'),
+        ('CVE-2023-99999', 'high',     'nginx',   '1.18.0-6ubuntu14.4', '1.18.0-6ubuntu14.5',  'Off-by-one in HTTP/2 frame parsing.',        '2023-11-09'),
+        ('CVE-2024-56789', 'medium',   'bash',    '5.1-6ubuntu1',       '5.1-6ubuntu1.1',      'Out-of-bounds write in parameter expansion.', '2024-07-11'),
+        ('CVE-2024-67890', 'low',      'tar',     '1.34+dfsg-1build3',  '1.34+dfsg-1ubuntu0.1.22.04.2', 'Endless loop on a crafted archive.', '2024-01-30'),
+        ('CVE-2025-22222', 'high',     'openssl', '3.0.2-0ubuntu1.16',  '3.0.2-0ubuntu1.21+esm1', 'Timing side channel in ECDSA signing.',     '2025-02-11'),
     ]
-    # v7.4.6 (#57): the fix status a scan now writes for each finding. Two have a fix for the host's own
-    # release, one is fixed only in a newer release, one has no fix yet, and one is on a distribution the
-    # scanner cannot tell apart, which keeps the folded fixed version. A finding that is not "fixed" or
-    # "unknown" names no version to install; tests/test_v746_cve_fix_page.py holds the seeder to that.
+    # v7.4.6 (#57): the fix status a scan writes for each finding. Four have a fix for the host's own
+    # release, one is fixed only in a newer release, one has no fix yet, one (8.0.1) is fixed in Ubuntu
+    # Pro only, and one is on a distribution the scanner cannot tell apart, which keeps the folded fixed
+    # version. A finding that is not "fixed" or "unknown" names no version to install;
+    # tests/test_v746_cve_fix_page.py holds the seeder to that.
     fix_status = {
         'CVE-2024-12345': ('fixed', None),
         'CVE-2024-23456': ('fixed', None),
         'CVE-2024-34567': ('newer_release', {'Debian:13': '1.9.16-1'}),
         'CVE-2024-45678': ('none', None),
         'CVE-2023-99999': ('unknown', None),
+        'CVE-2024-56789': ('fixed', None),
+        'CVE-2024-67890': ('fixed', None),
+        'CVE-2025-22222': ('pro', {'Ubuntu:Pro:22.04:LTS': '3.0.2-0ubuntu1.21+esm1'}),
+    }
+    # the installed packages a finding filed under a source package names
+    binaries = {
+        'openssh': ['openssh-client', 'openssh-server', 'openssh-sftp-server'],
+        'curl': ['curl', 'libcurl4'],
+        'openssl': ['libssl3', 'openssl'],
+        'nginx': ['nginx-core'],
     }
     rng = random.Random(42)
     # Canonical on-disk shape is {dev_id: {findings: [...], scanned_at: ts}} —
     # the same shape a real scan writes, so /api/cve/findings + the device drawer
     # both read it (and the KEV/EPSS overlay in kev_epss.json matches by vuln_id).
     out = {}
+    only_counted = []
     targets = [d['id'] for d in FAKE_DEVICES if not d['agentless']]
     for dev_id in targets:
         n = rng.choices([0, 0, 1, 2, 3, 5], k=1)[0]
         if n == 0:
+            # a patched host still has known vulnerabilities no update clears: it has a count and no list
+            if rng.random() < 0.5:
+                only_counted.append(dev_id)
             continue
         chosen = rng.sample(fake_cves, min(n, len(fake_cves)))
+        if not out:
+            chosen = list(fake_cves)      # one host shows every fix status, whatever the draw gives the others
         out[dev_id] = {
             'scanned_at': now() - 3600 * 6,
+            'ecosystem': 'Ubuntu',
+            'ruled': True,
+            'rollup': _demo_cve_rollup(dev_id),
             'findings': [
                 {'vuln_id': c[0], 'severity': c[1], 'package': c[2],
                  'version': c[3],
                  'fixed_version': c[4] if fix_status[c[0]][0] in ('fixed', 'unknown') else '',
                  'fix_status': fix_status[c[0]][0],
                  **({'fixed_elsewhere': fix_status[c[0]][1]} if fix_status[c[0]][1] else {}),
+                 **({'binaries': binaries[c[2]]} if c[2] in binaries else {}),
                  'summary': c[5],
                  'published': c[6], 'aliases': [],
-                 'references': [f'https://nvd.nist.gov/vuln/detail/{c[0]}']}
+                 # `refs` is the key a scan writes and the page reads. This said `references`, so the
+                 # demo never showed a link to an advisory.
+                 'refs': [f'https://nvd.nist.gov/vuln/detail/{c[0]}']}
                 for c in chosen
             ],
         }
+    for dev_id in only_counted:       # after the hosts with findings: readers take the first as a sample
+        out[dev_id] = {'scanned_at': now() - 3600 * 6, 'ecosystem': 'Ubuntu', 'ruled': True,
+                       'rollup': _demo_cve_rollup(dev_id), 'findings': []}
     return out
+
+
+def _demo_cve_rollup(dev_id) -> dict:
+    """What a scan counts per package for one demo host, in the shape cve_fixes.rollup writes: the total
+    is the sum by severity, the sum by fix status, and the sum of the packages plus the rest."""
+    rng = _seeded_random(dev_id, 'cve-rollup')
+    named = [('linux', '5.15.0-119.129', rng.randint(380, 720)),
+             ('binutils', '2.38-4ubuntu2.6', rng.randint(40, 90)),
+             ('vim', '2:8.2.3995-1ubuntu2.19', rng.randint(20, 60)),
+             ('glibc', '2.35-0ubuntu3.8', rng.randint(4, 12)),
+             ('openssh', '1:8.9p1-3ubuntu0.10', rng.randint(2, 9)),
+             ('python3.10', '3.10.12-1~22.04.7', rng.randint(1, 6))]
+    rest_packages, rest_count = rng.randint(3, 14), rng.randint(6, 40)
+    total = sum(c for _, _, c in named) + rest_count
+    low = total // 4
+    unknown = total // 20
+    pro = total // 15
+    newer = total // 6
+    return {
+        'total': total,
+        'severity': {'medium': total - low - unknown, 'low': low, 'unknown': unknown},
+        'fix': {'newer_release': newer, 'none': total - newer - pro, 'pro': pro},
+        'packages': [{'name': n, 'version': v, 'count': c} for n, v, c in named],
+        'more': {'packages': rest_packages, 'count': rest_count},
+    }
 
 
 def build_kev_epss() -> dict:
@@ -2213,6 +2274,12 @@ _DEMO_INSTALLED_PACKAGES = [
     ('tcpdump', '4.99.1-3ubuntu0.2'),
 ]
 
+# 8.0.1: the source package of an installed package where the name differs, as the agent reports it
+_DEMO_SOURCE_OF = {
+    'libssl3': 'openssl', 'libc6': 'glibc', 'openssh-server': 'openssh', 'nginx-core': 'nginx',
+    'linux-image-generic': 'linux-meta', 'redis-server': 'redis',
+}
+
 # v7.4.9 (Discussion #30): hosts whose apt keeps a package back, because upgrading it needs a package that is not
 # installed yet (a new kernel image). `apt-get upgrade` leaves it, `upgrade --with-new-pkgs` installs it. The names are
 # part of the host's pending list too, as apt counts them, and tests/test_v749_seeder.py holds that. nc01 runs the
@@ -2239,7 +2306,8 @@ def _demo_package_inventory(dev_id):
     never disagree about how many updates a host has pending."""
     rng = _seeded_random(dev_id, 'packages')
     total = rng.randint(160, 420)
-    installed = [{'name': n, 'version': v, 'arch': 'amd64'}
+    installed = [{'name': n, 'version': v, 'arch': 'amd64',
+                  **({'source': _DEMO_SOURCE_OF[n]} if n in _DEMO_SOURCE_OF else {})}
                  for n, v in _DEMO_INSTALLED_PACKAGES]
     # Pad the list out to `total` with generated library names so the software
     # centre's per-package host counts look like a real fleet rather than 20
@@ -2325,13 +2393,16 @@ def build_packages() -> dict:
             'hash':         hashlib.sha256(blob.encode()).hexdigest(),
             'collected_at': now() - rng.randint(60, 3600),
             # ecosystem + count let the CVE report mark the host "scanned"
-            # (without an ecosystem it reads as "unsupported").
-            'ecosystem':    'deb',
+            # (without an ecosystem it reads as "unsupported"). 8.0.1: the name the store's writer
+            # gives an Ubuntu host (it said 'deb', which no scan writes), and the mark of a list
+            # that names source packages, so the host view does not ask for an agent update.
+            'ecosystem':    'Ubuntu',
             'pkg_manager':  'apt',
             'count':        len(installed),
             'packages':     installed,
             'os_id':        'ubuntu',
             'version_id':   '22.04',
+            'sources':      True,
         }
     return out
 

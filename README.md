@@ -209,7 +209,8 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   Edge blocklist on. A service that does not answer is no longer counted against your daily limits, each service can have
   limits of its own, a **Request log** shows what RemotePower sent to AbuseIPDB and SniffCat, what each answered and what your
   hosts' sensors sent, and an address that fail2ban, CrowdSec or a honeypot has already banned can be blocked without a
-  reputation score, if you tick one box.
+  reputation score, if you tick one box. The CVE scan checks Debian and Ubuntu hosts by source package, so their libraries,
+  SSH server and kernel are covered, and shows RPM and Alpine hosts the findings that an epoch or a revision used to hide.
 - **v8.0.0 "Pil0tMatters"** — the first release of a new major version, about what you can adjust and what
   the agent finds on its own. You can set the text size from 80% to 300%, show a long page as tabs or as one
   page, and keep up to eight named layouts for Home. Ten setup tasks have a wizard: a host, a notification

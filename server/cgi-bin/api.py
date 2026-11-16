@@ -11449,6 +11449,10 @@ def _alert_ticket_detail(al, device=None):
         fixable = [f for f in findings if cve_fixes.is_fixable(f)]
         out.append(f'Open CVEs on this host: {len(findings)} total · '
                    f'{len(crit)} critical · {len(fixable)} fixable')
+        _counted = cve_fixes.rollup_total(rec)
+        if _counted:
+            # 8.0.1: a Debian or Ubuntu host. "0 total" beside a few hundred that are counted read as clean.
+            out.append(f'Counted per package and not listed one by one: {_counted} more')
         if findings:
             out.append('')
             _rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
@@ -11457,6 +11461,7 @@ def _alert_ticket_detail(al, device=None):
                 fx = ('  → fix in ' + str(f.get('fixed_version'))
                       if str(f.get('fixed_version') or '').strip()
                       else '  (fixed only in a newer release)' if f.get('fix_status') == 'newer_release'
+                      else '  (fixed with Ubuntu Pro)' if f.get('fix_status') == 'pro'
                       else '  (no fix yet)')
                 out.append(f"  - [{f.get('severity', '?')}] "
                            f"{f.get('vuln_id') or f.get('cve_id') or '?'} · "
@@ -49556,7 +49561,9 @@ def _build_runbook_snapshot(dev_id, devices):
         cve = load(CVE_FINDINGS_FILE).get(dev_id) or {}
         cve_findings = (cve.get('findings') or [])[:10]
     except Exception:
-        cve_findings = []
+        cve, cve_findings = {}, []
+    # 8.0.1: how many more the host's scan counted per package (Debian and Ubuntu)
+    cve_counted = cve_fixes.rollup_total(cve)
     cve_findings = [{
         'id':       f.get('vuln_id'),
         'severity': f.get('severity'),
@@ -49607,6 +49614,7 @@ def _build_runbook_snapshot(dev_id, devices):
         'recent_commands': recent_cmds,
         'recent_journal':  journal,
         'cve_findings':   cve_findings,
+        'cve_counted':    cve_counted,
         'patch_status':   patches,
     }
 
@@ -52678,7 +52686,9 @@ def _cve_high_counts():
         devices = _load_ro(DEVICES_FILE) or {}
         ignore_data = _load_ro(CVE_IGNORE_FILE) or {}
         fixable_only, kev = _cve_count_rule()
-        for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
+        # 8.0.1: read, not copied. Nothing here writes to a finding, and a Debian or Ubuntu fleet matched
+        # by source package holds up to 300 findings a host (see cve_fixes.KEEP_PER_HOST).
+        for did, rec in (_load_ro(CVE_FINDINGS_FILE) or {}).items():
             finds = _counted_cve_findings(did, devices.get(did), (rec or {}).get('findings'),
                                           ignore_data, fixable_only, kev)
             out[did] = sum(1 for f in finds
@@ -56885,7 +56895,9 @@ def handle_home():
                 sev = str(f.get('severity') or '').lower()
                 if sev in counts:
                     counts[sev] += 1
-            cve_devs.append({'device_id': cdev_id, 'counts': counts})
+            cve_devs.append({'device_id': cdev_id, 'counts': counts,
+                             # 8.0.1: what a Debian or Ubuntu scan counted per package and did not list
+                             'counted': cve_fixes.rollup_total(entry)})
     except Exception:
         pass
     cves = {'devices': cve_devs}
@@ -61444,7 +61456,7 @@ def _compute_compliance(devices=None):
     checks = [c for c in _cis_checks() if c[0] not in disabled]
     canonical = _get_agent_sha256()
     cve_counts = {}
-    for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
+    for did, rec in (_load_ro(CVE_FINDINGS_FILE) or {}).items():
         cve_counts[did] = sum(1 for f in (rec or {}).get('findings') or []
                               if str(f.get('severity', '')).lower() in ('critical', 'high'))
     per_check = {cid: {'pass': 0, 'fail': 0, 'na': 0,
@@ -65475,7 +65487,8 @@ def handle_nav_counts():
         # so is every finding that no update can clear (_counted_cve_findings).
         _nc_ignore = _load_ro(CVE_IGNORE_FILE) or {}
         _nc_fixable_only, _nc_kev = _cve_count_rule()
-        for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
+        # 8.0.1: read, not copied (this runs on every poll of every open tab, and nothing here writes)
+        for did, rec in (_load_ro(CVE_FINDINGS_FILE) or {}).items():
             if did not in ids:
                 continue
             crit += sum(1 for f in _counted_cve_findings(did, devices.get(did),
@@ -70376,8 +70389,17 @@ def handle_posture_digest_test():
     respond(200, {'ok': True, 'recipients': n})
 
 
-def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
-    """Fire webhook if new CVEs in the configured severity filter appeared since last scan."""
+def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current, ruled=False, kev=None):
+    """Fire webhook if new CVEs in the configured severity filter appeared since last scan.
+
+    8.0.1: `ruled` says this scan stores only what cve_fixes.kept keeps (a Debian or Ubuntu host: a
+    finding no update clears, of medium severity or lower, is counted per package and not stored). The
+    host's previous result may hold such findings one by one, from before the rule or from before the
+    agent reported source packages. Compared as they are, they read as findings that went away: with
+    medium or low in the alert filter the host announced its vulnerabilities cleared while nothing
+    was patched. So the previous result is read through the same rule first."""
+    if ruled:
+        previous = [f for f in previous if cve_fixes.kept(f, kev)]
     # v6.4.0: the RECOVERY half — the device previously had findings in the
     # severity filter and this scan reports none left (patched/removed) →
     # cve_cleared auto-resolves the open cve_found alert. Checked before the
@@ -70405,13 +70427,13 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
     # the option exists for. So `prev_ids` is the findings that WOULD have alerted last scan. With the option
     # off it is every finding, as before.
     fixable_only = get_cve_alert_fixable_only()
-    kev = _kev_epss()[0] if fixable_only else set()
+    alert_kev = _kev_epss()[0] if fixable_only else set()
     # v3.4.2: `previous` comes off disk (CVE_FINDINGS_FILE) and may be
     # hand-edited / malformed, so a finding missing vuln_id must not 500 the
     # whole /api/cve/scan. Use .get and drop falsy ids.
     prev_ids = {f.get('vuln_id') for f in previous if isinstance(f, dict) and f.get('vuln_id')
                 and (not fixable_only
-                     or (f.get('severity') in severity_filter and cve_fixes.alert_candidate(f, True, kev)))}
+                     or (f.get('severity') in severity_filter and cve_fixes.alert_candidate(f, True, alert_kev)))}
 
     new_alerted = []
     for f in current:
@@ -70422,7 +70444,7 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
             continue
         if f.get('severity') not in severity_filter:
             continue
-        if not cve_fixes.alert_candidate(f, fixable_only, kev):
+        if not cve_fixes.alert_candidate(f, fixable_only, alert_kev):
             continue
         ig = ignore_data.get(vid)
         if cve_ignore_applies(ig, dev_id):
@@ -70613,6 +70635,25 @@ def _cve_scan_worker(actor, target):
     targets = [target] if target else list(store.keys())
     scanned = skipped = errors = 0
     total = len(targets)
+    # 8.0.1: the known-exploited CVE ids, for the rule of what a Debian or Ubuntu scan stores one by one
+    try:
+        _kev_ids = _kev_epss()[0]
+    except Exception:
+        _kev_ids = set()
+    # 8.0.1: one host's scan can read thousands of advisory records. The marker is written between
+    # hosts only, and five minutes of silence reads as a dead scan that may be started again beside
+    # this one, so the scan itself says it is alive, at most every 30 seconds.
+    _marker = {'running': True, 'total': total, 'done': 0, 'scanned': 0, 'skipped': 0, 'errors': 0}
+    _alive_at = [time.time()]
+
+    def _still_alive():
+        if time.time() - _alive_at[0] < 30:
+            return
+        _alive_at[0] = time.time()
+        try:
+            save(CVE_SCAN_STATUS_FILE, dict(_marker, updated=int(time.time())), non_blocking=True)
+        except Exception:
+            pass
     # v5.0.0 (#S1): for a FLEET scan (not a single device), prefetch the
     # deduplicated OSV results across every target in one sweep, so the per-device
     # scans below cost zero OSV calls. Single-device scans keep the direct path.
@@ -70635,14 +70676,18 @@ def _cve_scan_worker(actor, target):
                                              cve_scanner.entry_ecosystem(entry), DATA_DIR,
                                              cache_ttl=get_cve_cache_seconds(),
                                              osv_prefetch=osv_prefetch,
-                                             has_meta=entry.get('sources') is True)
+                                             has_meta=entry.get('sources') is True,
+                                             tick=_still_alive,
+                                             release=cve_scanner.entry_release(entry),
+                                             kev=_kev_ids)
             if result.get('error') and not result.get('findings'):
                 errors += 1
             else:
                 previous = findings_all.get(dev_id, {}).get('findings') or []
                 findings_all[dev_id] = result
                 _detect_new_cve_and_fire_webhook(dev_id, devices, previous,
-                                                 result.get('findings') or [])
+                                                 result.get('findings') or [],
+                                                 ruled=result.get('ruled') is True, kev=_kev_ids)
                 scanned += 1
         # checkpoint progress every few devices so the UI can show a bar
         if i % 3 == 0 or i == total - 1:
@@ -70662,10 +70707,10 @@ def _cve_scan_worker(actor, target):
                 save(CVE_FINDINGS_FILE, findings_all, non_blocking=True)
             except LockBusy:
                 pass          # a contended checkpoint is fine — the next one wins
-            save(CVE_SCAN_STATUS_FILE, {'running': i < total - 1, 'total': total,
-                                            'done': i + 1, 'scanned': scanned,
-                                            'skipped': skipped, 'errors': errors,
-                                            'updated': int(time.time())}, non_blocking=True)
+            _marker.update(running=i < total - 1, done=i + 1, scanned=scanned,
+                           skipped=skipped, errors=errors)
+            _alive_at[0] = time.time()
+            save(CVE_SCAN_STATUS_FILE, dict(_marker, updated=int(time.time())), non_blocking=True)
     save(CVE_FINDINGS_FILE, findings_all)
     save(CVE_SCAN_STATUS_FILE, {'running': False, 'total': total, 'done': total,
                                     'scanned': scanned, 'skipped': skipped,
@@ -70820,23 +70865,35 @@ def _enrich_cve_findings(findings, kev, epss):
     return kev_count, round(epss_max, 4)
 
 
-def _campaign_matches_finding(camp, f):
-    """W2-35: does a CVE finding fall within a campaign's scope?"""
-    cid = str(f.get('cve_id') or f.get('id') or '')
+def _campaign_matches_finding(camp, f, kev=None):
+    """W2-35: does a CVE finding fall within a campaign's scope?
+
+    8.0.1: a finding is known by its `vuln_id` and its other names (`aliases`), and whether it is known
+    to be exploited is answered by the feed (`kev`, the upper-case ids). This read `cve_id` and `id`,
+    which no scan writes, and a `kev` flag that is put on a finding only while a page is built. So a
+    campaign over a list of ids, or over known-exploited findings, matched nothing, counted no host and
+    was marked completed by its first daily sample."""
+    if not isinstance(f, dict):
+        return False
     ids = camp.get('cve_ids') or []
     if ids:
-        return cid in ids
+        wanted = {str(i).upper() for i in ids if isinstance(i, str)}
+        names = set(cve_fixes.finding_ids(f))
+        names.update(str(f.get(k)).upper() for k in ('cve_id', 'id') if f.get(k))
+        return bool(wanted & names)
     sevs = camp.get('severities') or []
     if sevs and str(f.get('severity', '')).lower() not in sevs:
         return False
-    if camp.get('kev_only') and not (f.get('kev') or f.get('known_exploited')):
+    if camp.get('kev_only') and not (f.get('kev') or f.get('known_exploited')
+                                     or cve_fixes.finding_is_kev(f, kev)):
         return False
     return True
 
 
-def _campaign_affected(camp, cve_all, cve_ignore, devices):
+def _campaign_affected(camp, cve_all, cve_ignore, devices, kev=None):
     """Return (affected_host_ids set, matching_finding_count) for a campaign over
-    the current CVE state (ignored findings + stale hosts excluded)."""
+    the current CVE state (ignored findings + stale hosts excluded). `kev` is the set of
+    known-exploited ids (_cve_kev_ids)."""
     hosts, count = set(), 0
     for did, rec in (cve_all or {}).items():
         if did not in devices:
@@ -70845,14 +70902,14 @@ def _campaign_affected(camp, cve_all, cve_ignore, devices):
                                                cve_ignore, did):
             if f.get('ignored'):
                 continue
-            if _campaign_matches_finding(camp, f):
+            if _campaign_matches_finding(camp, f, kev):
                 count += 1
                 hosts.add(did)
     return hosts, count
 
 
-def _campaign_public(camp, cve_all, cve_ignore, devices):
-    hosts, count = _campaign_affected(camp, cve_all, cve_ignore, devices)
+def _campaign_public(camp, cve_all, cve_ignore, devices, kev=None):
+    hosts, count = _campaign_affected(camp, cve_all, cve_ignore, devices, kev)
     return {
         'id': camp.get('id'), 'name': camp.get('name', ''),
         'owner': camp.get('owner', ''), 'cve_ids': camp.get('cve_ids') or [],
@@ -70883,11 +70940,12 @@ def run_cve_campaign_sample_if_due():
     cve_all = load(CVE_FINDINGS_FILE) or {}
     cve_ignore = load(CVE_IGNORE_FILE) or {}
     devices = load(DEVICES_FILE) or {}
+    kev = _cve_kev_ids()
     pending = []
     with _LockedUpdate(CVE_CAMPAIGNS_FILE) as store:
         store['_last_sample'] = now
         for camp in (store.get('campaigns') or []):
-            hosts, _ = _campaign_affected(camp, cve_all, cve_ignore, devices)
+            hosts, _ = _campaign_affected(camp, cve_all, cve_ignore, devices, kev)
             n = len(hosts)
             camp.setdefault('samples', []).append({'ts': now, 'affected': n})
             camp['samples'] = camp['samples'][-120:]

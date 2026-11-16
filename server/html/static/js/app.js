@@ -13045,8 +13045,8 @@ function _registerCveTable() {
     tbody: 'cve-tbody',
     filterInput: 'cve-filter',
     sortHeaders: 'cve-thead',
-    colspan: 10,
-    columns: ['name', 'group', 'ecosystem', 'kev', 'critical', 'high', 'medium', 'low', 'last_scan'],
+    colspan: 11,
+    columns: ['name', 'group', 'ecosystem', 'kev', 'critical', 'high', 'medium', 'low', 'counted', 'last_scan'],
     getColumns: (d) => ({
       name:      d.name || '',
       group:     d.group || '',
@@ -13056,6 +13056,7 @@ function _registerCveTable() {
       high:      d.counts?.high || 0,
       medium:    d.counts?.medium || 0,
       low:       d.counts?.low || 0,
+      counted:   d.rollup || 0,      // 8.0.1: counted per package, not listed one by one
       last_scan: d.scanned_at || 0,
     }),
     row: (d) => {
@@ -13071,7 +13072,7 @@ function _registerCveTable() {
       const prioBtn = cveTotal > 0
         ? `<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_aiPrioritiseCvesBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise this host's CVEs">${_icon('sparkles',14)}</button> `
         : '';
-      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer" tabindex="0"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${(d.kev||0)>0 ? `<td class="ta-center"><span class="kev-badge" title="${d.kev} known-exploited in the wild (CISA KEV)">${d.kev}</span></td>` : '<td class="isl-385 ta-center">0</td>'}${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, 'var(--orange)')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
+      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer" tabindex="0"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${(d.kev||0)>0 ? `<td class="ta-center"><span class="kev-badge" title="${d.kev} known-exploited in the wild (CISA KEV)">${d.kev}</span></td>` : '<td class="isl-385 ta-center">0</td>'}${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, 'var(--orange)')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}${cell(Number(d.rollup) || 0, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
     },
     emptyMsg: 'No hosts enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -21149,8 +21150,11 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
     acc.high     += c.high     || 0;
     acc.medium   += c.medium   || 0;
     acc.low      += c.low      || 0;
+    // 8.0.1: what a Debian or Ubuntu scan counted per package and did not list
+    acc.counted  += (Number.isInteger(d.counted) && d.counted > 0) ? d.counted : 0;
     return acc;
-  }, {critical: 0, high: 0, medium: 0, low: 0});
+  }, {critical: 0, high: 0, medium: 0, low: 0, counted: 0});
+  const countedCves  = cveSummary.counted || 0;
   const criticalCves = cveSummary.critical || 0;
   const highCves     = cveSummary.high     || 0;
   const totalCves    = criticalCves + highCves +
@@ -21201,7 +21205,8 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
         ? `${highCves} high · ${totalCves - criticalCves - highCves} med/low`
         : highCves > 0
           ? `${highCves} high · ${totalCves - highCves} med/low`
-          : totalCves > 0 ? `${totalCves} total (med/low only)` : 'No active CVEs',
+          : totalCves > 0 ? `${totalCves} total (med/low only)`
+            : countedCves > 0 ? `${countedCves} counted per package` : 'No active CVEs',
       cls: criticalCves > 0 ? 'alert' : highCves > 0 ? 'warn' : 'ok',
       nav: 'cve', ic: TICON.cve,
     },
@@ -27098,7 +27103,12 @@ async function _loadAuditSection(key) {
         }
         const crit = (bySev.critical||[]).length;
         const high = (bySev.high||[]).length;
-        badge.innerHTML = crit > 0 ? `<span class="c-red fw-600">${crit} critical</span>` : high > 0 ? `<span class="c-amber">${high} high</span>` : findings.length ? `${findings.length} total` : 'clean';
+        // 8.0.1: a Debian or Ubuntu scan counts per package what it does not list (data.rollup). A host
+        // that has only those is not clean.
+        const counted = (data.rollup && Number.isInteger(data.rollup.total) && data.rollup.total > 0) ? data.rollup.total : 0;
+        // and a host that was never scanned is not clean either
+        const scanned = Number(data.scanned_at) > 0;
+        badge.innerHTML = crit > 0 ? `<span class="c-red fw-600">${crit} critical</span>` : high > 0 ? `<span class="c-amber">${high} high</span>` : findings.length ? `${findings.length} total` : counted ? `${counted} counted` : scanned ? 'clean' : 'not scanned';
         body.innerHTML = `
           <div class="sysinfo-row isl-610">
             ${['critical','high','medium','low'].map(sev => {
@@ -27110,7 +27120,7 @@ async function _loadAuditSection(key) {
               </div>`;
             }).join('')}
           </div>` +
-          ['critical','high','medium','low'].filter(s => bySev[s]?.length).map(sev => {
+          (['critical','high','medium','low'].filter(s => bySev[s]?.length).map(sev => {
             const col = sev==='critical'?'var(--red)':sev==='high'?'var(--amber)':'var(--muted)';
             return `<div class="mb-6">
               <div class="isl-646" data-color="${col}">${sev}</div>
@@ -27122,7 +27132,10 @@ async function _loadAuditSection(key) {
               ${bySev[sev].length>5 ? `<div class="meta-sm-nm">…and ${bySev[sev].length-5} more</div>` : ''}
             </div>`;
           }).join('') ||
-          '<div class="c-green">No CVEs found.</div>';
+          // 8.0.1: in brackets. Joined to the row of tiles above, the list was never empty and this
+          // line was never printed.
+          (counted || !scanned ? '' : '<div class="c-green">No CVEs found.</div>')) +
+          (counted ? `<div class="meta-sm-nm"><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong>${counted}</strong></div>` : '');
         // Cross-feature: CVE findings → a prefilled AI remediation runbook.
         if (crit > 0 || high > 0) {
           const top = (bySev.critical || []).concat(bySev.high || [])

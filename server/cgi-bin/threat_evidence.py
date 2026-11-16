@@ -153,7 +153,12 @@ CLASSES = {
         "sniffcat": (21,),
         "weight": 2,
     },
-    "wordpress": {"phrase": "WordPress probing", "abuseipdb": (21,), "sniffcat": (21,), "weight": 2},
+    "wordpress": {
+        "phrase": "WordPress probing",
+        "abuseipdb": (21,),
+        "sniffcat": (21,),
+        "weight": 2,
+    },
     "user_enum": {"phrase": "user enumeration", "abuseipdb": (21,), "sniffcat": (21,), "weight": 2},
     "proxy_probe": {
         "phrase": "open proxy probing",
@@ -217,8 +222,18 @@ CLASSES = {
         "sniffcat": (17,),
         "weight": 2,
     },
-    "rdp_brute": {"phrase": "RDP brute force", "abuseipdb": (18,), "sniffcat": (17, 22), "weight": 2},
-    "smb_brute": {"phrase": "SMB brute force", "abuseipdb": (18,), "sniffcat": (17, 24), "weight": 2},
+    "rdp_brute": {
+        "phrase": "RDP brute force",
+        "abuseipdb": (18,),
+        "sniffcat": (17, 22),
+        "weight": 2,
+    },
+    "smb_brute": {
+        "phrase": "SMB brute force",
+        "abuseipdb": (18,),
+        "sniffcat": (17, 24),
+        "weight": 2,
+    },
     "telnet_brute": {
         "phrase": "Telnet brute force",
         "abuseipdb": (18,),
@@ -1142,7 +1157,6 @@ def web_only(ev):
     """True when every class the address was seen in is a web one."""
     cls = classes(ev)
     return bool(cls) and all(c in _WEB_CLASSES or c == "login_brute" for c in cls)
-
 
 
 # ── addresses nobody should report or block ────────────────────────────────────

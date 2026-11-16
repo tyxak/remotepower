@@ -198,7 +198,8 @@ def handle_cve_campaigns():
         devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
         camps = [c for c in ((A.load(A.CVE_CAMPAIGNS_FILE) or {}).get('campaigns') or [])
                  if isinstance(c, dict) and _campaign_visible(c)]
-        rows = [A._campaign_public(c, cve_all, cve_ignore, devices) for c in camps]
+        kev = A._cve_kev_ids()
+        rows = [A._campaign_public(c, cve_all, cve_ignore, devices, kev) for c in camps]
         rows.sort(key=lambda r: (r['completed_at'] is not None, -(r.get('created_at') or 0)))
         A.respond(200, {'ok': True, 'campaigns': rows})
     if A.method() != 'POST':
@@ -341,7 +342,9 @@ def handle_cve_findings():
                          'unknown':  0, 'ignored':  0, 'kev': 0,
                          # v7.4.6 (#57): the findings an update can clear, the ones fixed only in a newer
                          # release, the ones with no fix yet and the ones the distribution cannot tell
-                         'fix':      {'fixable': 0, 'newer_release': 0, 'none': 0, 'unchecked': 0},
+                         'fix':      dict.fromkeys(A.cve_fixes.FIX_KEYS, 0),
+                         # 8.0.1: what the scans counted per package and did not store one by one
+                         'rollup':   0,
                          'devices_scanned': 0,
                          'devices_with_findings': 0,
                          'devices_unsupported': 0},
@@ -379,6 +382,7 @@ def handle_cve_findings():
             for k in fix:
                 report['summary']['fix'][k] += fix[k]
             report['summary']['kev'] += kev_count
+            report['summary']['rollup'] += A.cve_fixes.rollup_total(f_entry)
 
         report['devices'].append({
             'device_id':   dev_id,
@@ -391,6 +395,7 @@ def handle_cve_findings():
             'package_count': pkg_entry.get('count', 0),
             'counts':      summary,
             'fix':         fix,          # v7.4.6 (#57)
+            'rollup':      A.cve_fixes.rollup_total(f_entry),   # 8.0.1: counted per package, not listed
             'kev':         kev_count,    # v3.14.0
             'epss_max':    epss_max,     # v3.14.0 (0–1)
         })
@@ -471,9 +476,44 @@ def handle_cve_device(dev_id):
         'error':          f_entry.get('error', ''),
         # 8.0.1: what this scan leaves out (a word, see cve_scanner.coverage) and the packages whose
         # advisory list was longer than a scan reads
-        'coverage':       A.cve_scanner.coverage(ecosystem, pkg_entry.get('sources') is True) if ecosystem else '',
+        'coverage':       (A.cve_scanner.coverage(ecosystem, pkg_entry.get('sources') is True,
+                                                  A.cve_scanner.entry_release(pkg_entry)) if ecosystem else ''),
         'cut':            [str(n) for n in cut if isinstance(n, str)][:20],
+        # 8.0.1: what the scan counted per package and did not store one by one (cve_fixes.split)
+        'rollup':         _rollup_view(f_entry),
     })
+
+
+def _rollup_view(f_entry):
+    """The roll-up of one host's scan result as the page gets it: the numbers, and the packages cut to
+    what the scanner writes. A result without one, or with one of another shape, gives None."""
+    counted = f_entry.get('rollup') if isinstance(f_entry, dict) else None
+    total = A.cve_fixes.rollup_total(f_entry)
+    if not total:
+        return None
+
+    def numbers(value, keys):
+        value = value if isinstance(value, dict) else {}
+        return {k: value[k] for k in keys
+                if isinstance(value.get(k), int) and not isinstance(value.get(k), bool) and value[k] > 0}
+
+    packages = []
+    for row in counted.get('packages') if isinstance(counted.get('packages'), list) else []:
+        if not isinstance(row, dict) or not isinstance(row.get('name'), str):
+            continue
+        count = row.get('count')
+        packages.append({'name': row['name'][:200],
+                         'version': str(row.get('version') or '')[:128],
+                         'count': count if isinstance(count, int) and not isinstance(count, bool) else 0})
+        if len(packages) >= A.cve_fixes.ROLLUP_PACKAGES:
+            break
+    more = numbers(counted.get('more'), ('packages', 'count'))
+    return {'total': total,
+            'severity': numbers(counted.get('severity'), A.cve_fixes.SEVERITIES),
+            'fix': numbers(counted.get('fix'), A.cve_fixes.FIX_KEYS),
+            'packages': packages,
+            'more': {'packages': more.get('packages', 0), 'count': more.get('count', 0)}}
+
 
 
 def _ignore_owner_gate(entry):

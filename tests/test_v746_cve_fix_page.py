@@ -41,6 +41,8 @@ TABLE = (
     {"vuln_id": "h", "fixed_version": "4"},
     {"vuln_id": "i", "fixed_version": ""},
     {"vuln_id": "j"},
+    {"vuln_id": "k", "fix_status": "pro", "fixed_version": ""},                  # 8.0.1: fixed in Ubuntu Pro only
+    {"vuln_id": "l", "fix_status": "pro", "fixed_version": "9"},
 )
 
 
@@ -68,7 +70,7 @@ class TestThePageAndTheServerCountAlike(unittest.TestCase):
             server = cve_fixes.summarize([finding], set())
             self.assertEqual([k for k, n in server.items() if n], [key], finding)
 
-    def test_the_tiles_are_the_four_the_server_counts(self):
+    def test_the_tiles_are_the_ones_the_server_counts(self):
         got = page_bucket(list(TABLE))
         if got is None:
             self.skipTest("node is not installed")
@@ -100,14 +102,14 @@ class TestTheDemoDataKeepsTheContract(unittest.TestCase):
 
     def test_only_a_fixed_or_unknown_finding_names_a_version_to_install(self):
         for f in self.findings:
-            if f["fix_status"] in ("newer_release", "none"):
+            if f["fix_status"] in ("newer_release", "none", "pro"):
                 self.assertEqual(f["fixed_version"], "", f)
             if f["fix_status"] == "fixed":
                 self.assertTrue(f["fixed_version"], f)
 
     def test_a_finding_fixed_in_a_newer_release_says_where(self):
         for f in self.findings:
-            if f["fix_status"] == "newer_release":
+            if f["fix_status"] in ("newer_release", "pro"):      # where the fix is: a newer release, or Ubuntu Pro
                 self.assertTrue(f.get("fixed_elsewhere"), f)
             else:
                 self.assertNotIn("fixed_elsewhere", f)

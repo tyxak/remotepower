@@ -122,7 +122,7 @@ class TestBlocklistDownloads(_Lists):
         self.assertEqual(self.downloads['sniffcat'], 2, 'the first download, and one failed try, not five')
 
     def test_it_is_asked_again_once_the_wait_is_over_and_a_good_answer_counts(self):
-        els = self.stale_failing(1, 3)
+        self.stale_failing(1, 3)
         self.sniff_status = 200
         self.due_now()
         el = self.tick(at=T + 7 * 3600 + 11 * 60)

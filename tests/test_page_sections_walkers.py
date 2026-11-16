@@ -23,6 +23,7 @@ _TESTS = Path(__file__).resolve().parent
 EXEMPT = {
     'test_v740_page_tabs_e2e.py': 'tests the strip and its tiles on the four pages that had them in 7.4.0',
     'test_page_sections_e2e.py': 'tests the tabs, the one-long-page switch and the cards a tab hides',
+    'test_v801_threatintel_e2e.py': 'opens Threat Intel tab by tab and holds each card of 8.0.1 to the tab it belongs in',
 }
 # a context or a page opened straight from the browser (a page made from a context inherits the context's init script)
 _OPEN = re.compile(r'\.new_context\(|\b[\w.]*browser[\w.]*\.new_page\(\)', re.I)

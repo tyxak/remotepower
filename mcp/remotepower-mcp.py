@@ -299,9 +299,13 @@ def tool_get_cves(args):
         if not dev:
             raise RuntimeError(f"No host named '{name}'")
         dev_id = dev.get("id") or dev.get("device_id")
-        data = _api("GET", f"/api/devices/{urllib.parse.quote(dev_id)}/cves")
-        findings = (data or {}).get("findings") or []
-        return {"device": dev.get("name"), "findings": findings}
+        # 8.0.1: the route is /cve. This asked for /cves, which no route answers.
+        data = _api("GET", f"/api/devices/{urllib.parse.quote(dev_id)}/cve") or {}
+        out = {"device": dev.get("name"), "findings": data.get("findings") or []}
+        if isinstance(data.get("rollup"), dict):
+            # a Debian or Ubuntu host: what its scan counted per package and did not list
+            out["counted"] = data["rollup"]
+        return out
     # Fleet-wide
     data = _api("GET", "/api/cve/findings")
     return data or {"findings": []}

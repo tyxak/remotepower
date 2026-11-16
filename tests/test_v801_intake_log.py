@@ -24,7 +24,6 @@ import ipintel_store  # noqa: E402
 from test_v720_threat_sensor_agent import load_agent  # noqa: E402
 from test_v801_provider_down import MIN, T, _Sweep, waf_event  # noqa: E402
 
-import ip_intel  # noqa: E402
 import store_shapes  # noqa: E402
 
 

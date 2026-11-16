@@ -8,10 +8,20 @@ as fixable. This module keeps the entries apart and answers, for the release one
   fixed          an update to the fixed version of the host's own release clears it
   newer_release  the host's release has no fix, a newer release does
   none           no release has a fix yet
-  unknown        the scan name of the distribution does not say which release the host runs (Ubuntu,
-                 Rocky, Alma, Red Hat), or the record was cached before the entries were kept apart
+  pro            (8.0.1) the fix for the host's release is in Ubuntu Pro only
+  unknown        the release the host runs is not known (an Ubuntu derivative with a version of its
+                 own, Red Hat), the distribution publishes an advisory per release together with its
+                 fix (Rocky, Alma), or the record was cached before the entries were kept apart
 
-Only the distributions whose OSV name carries the release (Debian:12, Alpine:v3.19) can be told apart.
+A release is told apart by the name its entries carry: Debian:12, Alpine:v3.19, and since 8.0.1
+Ubuntu:22.04:LTS with Ubuntu:Pro:22.04:LTS beside it. A host scanned under the bare name "Ubuntu" is
+classified under the name of its own release, which the scanner works out from the version the host
+reported.
+
+8.0.1 also keeps here the rule for what a scan stores one by one (`kept`, `split`): OSV lists every
+known CVE of a Debian or Ubuntu release, fixed or not. The kernel of a Debian 12 host alone answers
+with more than a thousand, and seven common packages of a fully patched one with 150 that no update
+clears (read on 2026-11-15).
 
 Nothing here imports api or the network code. The scanner and the alert paths hand in what they hold.
 """
@@ -24,8 +34,9 @@ from typing import Any
 FIXED = "fixed"
 NEWER_RELEASE = "newer_release"
 NONE = "none"
+PRO = "pro"
 UNKNOWN = "unknown"
-STATUSES = (FIXED, NEWER_RELEASE, NONE, UNKNOWN)
+STATUSES = (FIXED, NEWER_RELEASE, NONE, PRO, UNKNOWN)
 
 # Fixed versions kept for one package in one release, and newer releases named on a finding. A record
 # rarely has more than one of either; the caps keep a hand-made or hostile record from filling the cache.
@@ -42,6 +53,12 @@ MAX_NAME_LEN = 200
 
 _DEBIAN = re.compile(r"^Debian:(\d{1,4})$")
 _ALPINE = re.compile(r"^Alpine:v(\d{1,4})\.(\d{1,4})$")
+# Ubuntu names a release "Ubuntu:22.04:LTS" or, between two long-term ones, "Ubuntu:24.10". The fixes of
+# Ubuntu Pro are entries of their own, "Ubuntu:Pro:22.04:LTS". A FIPS name (Ubuntu:Pro:FIPS-updates:...)
+# matches neither pattern: those are other builds of the package with fixes of their own.
+_UBUNTU = re.compile(r"^Ubuntu:(\d{1,2})\.(\d{2})(?::LTS)?$")
+_UBUNTU_PRO = re.compile(r"^Ubuntu:Pro:(\d{1,2})\.(\d{2}):LTS$")
+_UBUNTU_VERSION = re.compile(r"^(\d{1,2})\.(\d{2})$")
 
 
 def release_of(ecosystem: Any) -> tuple[str, tuple[int, ...]] | None:
@@ -57,7 +74,76 @@ def release_of(ecosystem: Any) -> tuple[str, tuple[int, ...]] | None:
     match = _ALPINE.match(ecosystem)
     if match:
         return "Alpine", (int(match.group(1)), int(match.group(2)))
+    match = _UBUNTU.match(ecosystem)
+    if match:
+        return "Ubuntu", (int(match.group(1)), int(match.group(2)))
+    match = _UBUNTU_PRO.match(ecosystem)
+    if match:
+        return "Ubuntu Pro", (int(match.group(1)), int(match.group(2)))
     return None
+
+
+def ubuntu_release_name(version_id: Any) -> str:
+    """The name an Ubuntu release has in a record, from the VERSION_ID of the host: "22.04" gives
+    "Ubuntu:22.04:LTS", "24.10" gives "Ubuntu:24.10". Empty for anything that is not an Ubuntu version
+    (a derivative reports a version of its own, such as 21.3)."""
+    match = _UBUNTU_VERSION.match(str(version_id or "").strip())
+    if not match:
+        return ""
+    major, minor = int(match.group(1)), match.group(2)
+    if minor not in ("04", "10") or major < 14:
+        return ""
+    long_term = minor == "04" and major % 2 == 0
+    return f"Ubuntu:{major}.{minor}:LTS" if long_term else f"Ubuntu:{major}.{minor}"
+
+
+def pro_name(ecosystem: Any) -> str:
+    """The name of the Ubuntu Pro entries beside a long-term release, "" for any other name."""
+    if not isinstance(ecosystem, str):
+        return ""
+    match = _UBUNTU.match(ecosystem)
+    if not match or not ecosystem.endswith(":LTS"):
+        return ""
+    return f"Ubuntu:Pro:{match.group(1)}.{match.group(2)}:LTS"
+
+
+def minor(vuln: Any) -> dict[str, list[str]]:
+    """{ecosystem: [packages]} for the entries of a record that the distribution marks "unimportant": its
+    own judgement that the package is not affected in a way that matters. Debian puts it on the entry of
+    each release (ecosystem_specific.urgency)."""
+    out: dict[str, list[str]] = {}
+    for entry in _as_list(vuln.get("affected") if isinstance(vuln, dict) else None):
+        package = entry.get("package") if isinstance(entry, dict) else None
+        specific = entry.get("ecosystem_specific") if isinstance(entry, dict) else None
+        if not isinstance(package, dict) or not isinstance(specific, dict):
+            continue
+        ecosystem, name, urgency = (
+            package.get("ecosystem"),
+            package.get("name"),
+            specific.get("urgency"),
+        )
+        if (
+            not isinstance(ecosystem, str)
+            or not isinstance(name, str)
+            or not name
+            or len(name) > MAX_NAME_LEN
+            or not isinstance(urgency, str)
+            or urgency.strip().lower().rstrip("*").strip() not in ("unimportant", "negligible")
+            or release_of(ecosystem) is None
+        ):
+            continue
+        names = out.setdefault(ecosystem, [])
+        if name not in names and sum(len(v) for v in out.values()) < MAX_ENTRIES:
+            names.append(name)
+    return out
+
+
+def is_minor(minors: Any, ecosystem: Any, package: str) -> bool:
+    """Does the `minor` map of a record name this package in this release?"""
+    names = (
+        minors.get(ecosystem) if isinstance(minors, dict) and isinstance(ecosystem, str) else None
+    )
+    return isinstance(names, list) and package in names
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -132,11 +218,12 @@ def newer_fixes(fixes: Any, ecosystem: Any, package: str) -> dict[str, list[str]
     return {eco: versions for _, eco, versions in found[:MAX_ELSEWHERE]}
 
 
-def classify(fixes: Any, ecosystem: Any, package: str) -> dict[str, Any]:
+def classify(fixes: Any, ecosystem: Any, package: str, pro: bool = False) -> dict[str, Any]:
     """The status of one package in one host's release, from the `extract` map of its record.
 
     Returns {"status": ..., "fixed": [versions in the host's release], "elsewhere": {ecosystem: [versions]}}.
-    "elsewhere" is filled only for newer_release."""
+    "elsewhere" is filled for newer_release and for pro (the Ubuntu Pro entry and its versions). `pro` says the
+    host has Ubuntu Pro: a fix in the Pro entry of its release is then one an update installs."""
     unknown: dict[str, Any] = {"status": UNKNOWN, "fixed": [], "elsewhere": {}}
     if (
         release_of(ecosystem) is None
@@ -145,10 +232,18 @@ def classify(fixes: Any, ecosystem: Any, package: str) -> dict[str, Any]:
     ):
         return unknown
     here = _fixes_in(fixes, ecosystem, package)
-    if here is None:
+    channel = pro_name(ecosystem)
+    beside = _fixes_in(fixes, channel, package) if channel else None
+    if here is None and beside is None:
         return unknown  # the record names no entry for this package in this release: cannot say
     if here:
         return {"status": FIXED, "fixed": here, "elsewhere": {}}
+    if beside:
+        # A release past its standard support is listed under the Pro name only, and so is a fix that
+        # Ubuntu ships to Pro alone. Without Pro no update brings it.
+        if pro:
+            return {"status": FIXED, "fixed": beside, "elsewhere": {}}
+        return {"status": PRO, "fixed": [], "elsewhere": {channel: beside[:MAX_FIXED_PER_ENTRY]}}
     elsewhere = newer_fixes(fixes, ecosystem, package)
     if elsewhere:
         return {"status": NEWER_RELEASE, "fixed": [], "elsewhere": elsewhere}
@@ -167,6 +262,10 @@ def patched_by(fixes: Any, ecosystem: Any, package: str) -> list[str]:
     ):
         return []
     out = list(_fixes_in(fixes, ecosystem, package) or [])
+    channel = pro_name(ecosystem)
+    if channel:
+        # a host that is at or past the Pro fix has it, whether or not anything said it has Pro
+        out.extend(v for v in (_fixes_in(fixes, channel, package) or []) if v not in out)
     for versions in newer_fixes(fixes, ecosystem, package).values():
         out.extend(v for v in versions if v not in out)
     return out
@@ -180,7 +279,7 @@ def is_fixable(finding: Any) -> bool:
     status = finding.get("fix_status")
     if status == FIXED:
         return True
-    if status in (NEWER_RELEASE, NONE):
+    if status in (NEWER_RELEASE, NONE, PRO):
         return False
     return bool(str(finding.get("fixed_version") or "").strip())
 
@@ -222,19 +321,129 @@ def alert_candidate(finding: Any, fixable_only: bool, kev: Any) -> bool:
     return counted(finding, fixable_only, kev)
 
 
+FIX_KEYS = ("fixable", NEWER_RELEASE, NONE, PRO, "unchecked")
+
+
+def fix_key(finding: Any) -> str:
+    """The tile one finding counts in: fixable, newer_release, none, pro or unchecked."""
+    if is_fixable(finding):
+        return "fixable"
+    status = finding.get("fix_status") if isinstance(finding, dict) else None
+    return status if status in (NEWER_RELEASE, NONE, PRO) else "unchecked"
+
+
 def summarize(findings: Any, ignore_ids: Any) -> dict[str, int]:
     """How many findings an update can clear now, how many are fixed only in a newer release, how many have
-    no fix yet and how many cannot be told. They add up to the findings that are not ignored."""
-    out = {"fixable": 0, NEWER_RELEASE: 0, NONE: 0, "unchecked": 0}
+    no fix yet, how many need Ubuntu Pro and how many cannot be told. They add up to the findings that are
+    not ignored."""
+    out = dict.fromkeys(FIX_KEYS, 0)
     for finding in _as_list(findings):
         if not isinstance(finding, dict) or finding.get("vuln_id") in ignore_ids:
             continue
-        if is_fixable(finding):
-            out["fixable"] += 1
-        elif finding.get("fix_status") == NEWER_RELEASE:
-            out[NEWER_RELEASE] += 1
-        elif finding.get("fix_status") == NONE:
-            out[NONE] += 1
-        else:
-            out["unchecked"] += 1
+        out[fix_key(finding)] += 1
     return out
+
+
+# ── 8.0.1: what a scan stores one by one ─────────────────────────────────────────────────────────────────
+#
+# A finding is stored when an update for the host's release clears it, when it is critical or high, or when it
+# is on the known-exploited list. That alone does not bound a host: 113 of the 255 Debian records read on
+# 2026-11-15 are critical or high by their CVSS score, and a patched Debian 12 host kept 16 for four source
+# packages out of the several hundred it has. So a host keeps at most KEEP_PER_HOST and a package at most
+# KEEP_PER_PACKAGE, the most pressing first, and
+# everything else is counted in a roll-up that says how many, of which severity, of which fix status and in
+# which packages. Nothing is dropped without being counted.
+KEEP_PER_HOST = 300
+KEEP_PER_PACKAGE = 50
+ROLLUP_PACKAGES = 20
+SEVERITIES = ("critical", "high", "medium", "low", "unknown")
+_ID_NUMBER = re.compile(r"(\d{4})-(\d+)(?:-\d+)?$")
+
+
+def kept(finding: Any, kev: Any = None) -> bool:
+    """The rule: is this finding one a scan stores one by one (while there is room)?"""
+    if not isinstance(finding, dict):
+        return False
+    return (
+        is_fixable(finding)
+        or finding.get("severity") in ("critical", "high")
+        or bool(finding.get("kev"))
+        or finding_is_kev(finding, kev)
+    )
+
+
+def _pressing(finding: dict[str, Any], kev: Any) -> tuple[int, int, int]:
+    """The order in which findings take the room: known-exploited, critical, then what an update clears by
+    severity, then high without a fix; within one, the newest CVE first."""
+    severity = finding.get("severity")
+    if bool(finding.get("kev")) or finding_is_kev(finding, kev):
+        rank = 0
+    elif severity == "critical":
+        rank = 1
+    elif is_fixable(finding):
+        rank = {"high": 2, "medium": 3}.get(str(severity), 4)
+    else:
+        rank = 5
+    match = _ID_NUMBER.search(str(finding.get("vuln_id") or ""))
+    year, number = (int(match.group(1)), int(match.group(2))) if match else (0, 0)
+    return rank, -year, -number
+
+
+def rollup(findings: Any) -> dict[str, Any]:
+    """The count of the findings that are not stored one by one: the total, by severity, by fix status, and
+    the ROLLUP_PACKAGES packages that hold the most, with a line for the rest. {} for none."""
+    rows = [f for f in _as_list(findings) if isinstance(f, dict)]
+    if not rows:
+        return {}
+    severity = dict.fromkeys(SEVERITIES, 0)
+    fix = dict.fromkeys(FIX_KEYS, 0)
+    packages: dict[tuple[str, str], int] = {}
+    for finding in rows:
+        level = finding.get("severity")
+        severity[level if level in severity else "unknown"] += 1
+        fix[fix_key(finding)] += 1
+        name = str(finding.get("package") or "")[:MAX_NAME_LEN]
+        version = str(finding.get("version") or "")[:MAX_VERSION_LEN]
+        packages[(name, version)] = packages.get((name, version), 0) + 1
+    ordered = sorted(packages.items(), key=lambda item: (-item[1], item[0]))
+    named = ordered[:ROLLUP_PACKAGES]
+    return {
+        "total": len(rows),
+        "severity": {k: v for k, v in severity.items() if v},
+        "fix": {k: v for k, v in fix.items() if v},
+        "packages": [{"name": n, "version": v, "count": c} for (n, v), c in named],
+        "more": {
+            "packages": len(ordered) - len(named),
+            "count": sum(c for _, c in ordered[len(named) :]),
+        },
+    }
+
+
+def split(
+    findings: Any,
+    kev: Any = None,
+    per_host: int = KEEP_PER_HOST,
+    per_package: int = KEEP_PER_PACKAGE,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """(the findings stored one by one, the roll-up of the rest). The stored ones keep the order they came in."""
+    usable = [f for f in _as_list(findings) if isinstance(f, dict)]
+    wanted = sorted((f for f in usable if kept(f, kev)), key=lambda f: _pressing(f, kev))
+    room: dict[str, int] = {}
+    chosen: set[int] = set()
+    for finding in wanted:
+        if len(chosen) >= per_host:
+            break
+        package = str(finding.get("package") or "")
+        if room.get(package, 0) >= per_package:
+            continue
+        room[package] = room.get(package, 0) + 1
+        chosen.add(id(finding))
+    stored = [f for f in usable if id(f) in chosen]
+    return stored, rollup([f for f in usable if id(f) not in chosen])
+
+
+def rollup_total(record: Any) -> int:
+    """The roll-up's total in a stored scan result, 0 for a result without one or with a damaged one."""
+    roll = record.get("rollup") if isinstance(record, dict) else None
+    total = roll.get("total") if isinstance(roll, dict) else None
+    return total if isinstance(total, int) and not isinstance(total, bool) and total > 0 else 0

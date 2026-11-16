@@ -332,25 +332,56 @@ class TestTheReleaseOfRockyAndAlma(_Scan):
         self.assertEqual(list(found), [('AlmaLinux:9', 'openssl-libs', '3.0.7-16.el9')])
 
 
-class TestDebianAndUbuntuAreAskedAsBefore(unittest.TestCase):
-    """Not matched by source yet (docs/cve.md says why). What the agent reports is stored and not used."""
+class TestDebianAndUbuntuAreAskedBySourceWhenTheReleaseIsKnown(unittest.TestCase):
+    """The plan only. What a scan then finds is in tests/test_v801_deb_source_matching.py."""
 
-    def test_the_plan_is_one_question_per_installed_name(self):
+    PACKAGES = [{'name': 'libc6', 'version': '2.36-9+deb12u7', 'source': 'glibc'},
+                {'name': 'libc-bin', 'version': '2.36-9+deb12u7', 'source': 'glibc'},
+                {'name': 'libgcc-s1', 'version': '12.2.0-14+b1', 'source': 'gcc-12', 'source_version': '12.2.0-14'},
+                {'name': 'openssl', 'version': '3.0.15-1'}]
+
+    def test_one_question_per_source_package_and_its_version(self):
         for ecosystem in ('Debian:12', 'Ubuntu'):
-            units = cve_scanner.plan([{'name': 'libc6', 'version': '2.36-9+deb12u7', 'source': 'glibc'},
-                                      {'name': 'openssl', 'version': '3.0.15-1'}], ecosystem, True)
+            units = cve_scanner.plan(self.PACKAGES, ecosystem, True, True)
             self.assertEqual([(u['name'], u['version'], u['package'], u['binaries']) for u in units],
-                             [('libc6', '2.36-9+deb12u7', 'libc6', []), ('openssl', '3.0.15-1', 'openssl', [])])
+                             [('glibc', '2.36-9+deb12u7', 'glibc', ['libc6', 'libc-bin']),
+                              ('gcc-12', '12.2.0-14', 'gcc-12', ['libgcc-s1']),      # the source's own version
+                              ('openssl', '3.0.15-1', 'openssl', ['openssl'])], ecosystem)
 
-    def test_the_page_is_told_what_that_leaves_out(self):
-        self.assertEqual(cve_scanner.coverage('Debian:12', True), 'own_name')
-        self.assertEqual(cve_scanner.coverage('Ubuntu', False), 'own_name')
-        self.assertEqual(cve_scanner.coverage('Alpine:v3.19', True), '')
-        self.assertEqual(cve_scanner.coverage('Rocky Linux:9', True), '')
-        self.assertEqual(cve_scanner.coverage('Rocky Linux:9', False), 'needs_agent')
-        self.assertEqual(cve_scanner.coverage('AlmaLinux:9', False), '')      # asked by package name, whole
-        self.assertEqual(cve_scanner.coverage('Red Hat', False), '')
-        self.assertEqual(cve_scanner.coverage('', False), '')
+    def test_without_the_release_or_without_sources_it_is_one_question_per_installed_name(self):
+        by_name = [('libc6', '2.36-9+deb12u7', 'libc6', []), ('libc-bin', '2.36-9+deb12u7', 'libc-bin', []),
+                   ('libgcc-s1', '12.2.0-14+b1', 'libgcc-s1', []), ('openssl', '3.0.15-1', 'openssl', [])]
+        for ecosystem in ('Debian:12', 'Ubuntu'):
+            for has_meta, by_source in ((True, False), (False, True), (False, False)):
+                units = cve_scanner.plan(self.PACKAGES, ecosystem, has_meta, by_source)
+                self.assertEqual([(u['name'], u['version'], u['package'], u['binaries']) for u in units], by_name,
+                                 (ecosystem, has_meta, by_source))
+
+    def test_when_a_host_is_asked_by_source(self):
+        by_source = cve_scanner.by_source
+        self.assertTrue(by_source('Debian:12', ''))
+        self.assertTrue(by_source('Debian:12', 'Debian:12'))
+        self.assertTrue(by_source('Ubuntu', 'Ubuntu:22.04:LTS'))
+        self.assertTrue(by_source('Ubuntu', 'Ubuntu:24.10'))
+        self.assertFalse(by_source('Ubuntu', ''))                       # a derivative with a version of its own
+        self.assertFalse(by_source('Ubuntu', 'Ubuntu:Pro:FIPS:20.04:LTS'))
+        for other in ('Alpine:v3.19', 'Rocky Linux:9', 'AlmaLinux:9', 'Red Hat', '', None, 7):
+            self.assertFalse(by_source(other, 'Debian:12'), other)
+
+    def test_the_page_is_told_what_a_scan_leaves_out(self):
+        coverage = cve_scanner.coverage
+        self.assertEqual(coverage('Debian:12', True), '')
+        self.assertEqual(coverage('Debian:12', False), 'needs_agent')
+        self.assertEqual(coverage('Ubuntu', True, 'Ubuntu:22.04:LTS'), '')
+        self.assertEqual(coverage('Ubuntu', False, 'Ubuntu:22.04:LTS'), 'needs_agent')
+        self.assertEqual(coverage('Ubuntu', True), 'no_release')
+        self.assertEqual(coverage('Ubuntu', False), 'no_release')       # a newer agent would not change it
+        self.assertEqual(coverage('Alpine:v3.19', True), '')
+        self.assertEqual(coverage('Rocky Linux:9', True), '')
+        self.assertEqual(coverage('Rocky Linux:9', False), 'needs_agent')
+        self.assertEqual(coverage('AlmaLinux:9', False), '')      # asked by package name, whole
+        self.assertEqual(coverage('Red Hat', False), '')
+        self.assertEqual(coverage('', False), '')
 
 
 class TestThePlan(unittest.TestCase):
@@ -755,18 +786,20 @@ class TestTheHostView(unittest.TestCase):
         return self.run_js('_cveBinariesHtml(%s)' % json.dumps(finding))
 
     def test_each_word_the_server_sends_has_its_sentence(self):
-        for word, part in (('own_name', 'On Debian and Ubuntu a package is checked under its own name.'),
+        for word, part in (('no_release', 'The Ubuntu release this host is based on is not known'),
                            ('needs_agent', 'does not report source packages')):
             html = self.coverage({'coverage': word})
             self.assertIn(part, html)
             self.assertIn(f'data-cve-coverage="{word}"', html)
         # the two words are the ones the scanner can say
-        said = {cve_scanner.coverage(e, m) for e in ('Debian:12', 'Ubuntu', 'Alpine:v3.18', 'Rocky Linux:9',
-                                                     'AlmaLinux:9', 'Red Hat') for m in (False, True)} - {''}
-        self.assertEqual(said, {'own_name', 'needs_agent'})
+        said = {cve_scanner.coverage(e, m, r) for e in ('Debian:12', 'Ubuntu', 'Alpine:v3.18', 'Rocky Linux:9',
+                                                        'AlmaLinux:9', 'Red Hat')
+                for m in (False, True) for r in ('', 'Ubuntu:22.04:LTS', 'Debian:12')} - {''}
+        self.assertEqual(said, {'no_release', 'needs_agent'})
 
     def test_a_word_it_does_not_know_prints_nothing(self):
-        for word in ('', 'other', 'constructor', '__proto__', 'toString', 7, None, ['own_name'], {'a': 1}):
+        for word in ('', 'other', 'own_name', 'constructor', '__proto__', 'toString', 7, None, ['no_release'],
+                     {'a': 1}):
             self.assertEqual(self.coverage({'coverage': word}), '', word)
         self.assertEqual(self.coverage({}), '')
 

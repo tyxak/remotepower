@@ -5,13 +5,13 @@
 // v7.4.6 (#57): which fix status the CVE page is filtered to ('' = all). The tiles under the severity
 // counts say how many findings are in each, and clicking one filters the host table and the host view.
 let cveFixFilter = '';
-const _CVE_FIX_NAME = {fixable: 'Fixable now', newer_release: 'Newer release only', none: 'No fix yet', unchecked: 'Not checked'};
+const _CVE_FIX_NAME = {fixable: 'Fixable now', newer_release: 'Newer release only', none: 'No fix yet', pro: 'Needs Ubuntu Pro', unchecked: 'Not checked'};
 
 // The tile a finding is counted in. The same rule as cve_fixes.summarize on the server: a status of
 // "unknown", or none at all (a finding scanned before 7.4.6), counts by its fixed version.
 function _cveFixKey(f) {
   if (f.fix_status === 'fixed') return 'fixable';
-  if (f.fix_status === 'newer_release' || f.fix_status === 'none') return f.fix_status;
+  if (f.fix_status === 'newer_release' || f.fix_status === 'none' || f.fix_status === 'pro') return f.fix_status;
   return f.fixed_version ? 'fixable' : 'unchecked';
 }
 
@@ -33,7 +33,7 @@ function _renderCveHostTable() {
   const rows = cveFixFilter ? all.filter(d => ((d.fix || {})[cveFixFilter] || 0) > 0) : all;
   tableCtl.render('cves', rows);
   if (cveFixFilter && !rows.length) {
-    document.getElementById('cve-tbody').innerHTML = '<tr><td colspan="10" class="empty-state">No CVE rows match the filter.</td></tr>';
+    document.getElementById('cve-tbody').innerHTML = '<tr><td colspan="11" class="empty-state">No CVE rows match the filter.</td></tr>';
   }
 }
 
@@ -53,10 +53,11 @@ function clearCveFixFilter(devId, devName) {
 // What a finding says about its fix. A fixed version is the one for this host's own release; a finding
 // that is fixed only in a newer release, or in none, says so and names no version to install.
 function _cveFixHtml(f) {
-  if (f.fix_status === 'newer_release') {
+  if (f.fix_status === 'newer_release' || f.fix_status === 'pro') {
+    // 8.0.1: "pro" is a fix that is in Ubuntu Pro only, for the host's own release
     const where = Object.entries(f.fixed_elsewhere || {}).slice(0, 2)
       .map(([eco, v]) => `${escHtml(eco)} ${escHtml(v)}`).join(', ');
-    return ` — <span class="c-muted">Fixed in a newer release</span>${where ? ` <span class="c-muted">(${where})</span>` : ''}`;
+    return ` — <span class="c-muted">${f.fix_status === 'pro' ? 'Fixed with Ubuntu Pro' : 'Fixed in a newer release'}</span>${where ? ` <span class="c-muted">(${where})</span>` : ''}`;
   }
   if (f.fix_status === 'none') return ' — <span class="c-muted">No fix yet</span>';
   return f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : '';
@@ -105,11 +106,11 @@ async function openCveExposure() {
 async function loadCVEReport() {
   _registerCveTable();
   const tbody = document.getElementById('cve-tbody');
-  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr>';
+  tbody.innerHTML = _skeletonRows(11, 5);
   const data = await api('GET', '/cve/findings');
   if (!data) return;
   if (data.error || !data.summary) {
-    _errorState(tbody, loadCVEReport, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 10});
+    _errorState(tbody, loadCVEReport, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 11});
     return;
   }
   cveReportData = data;
@@ -123,6 +124,9 @@ async function loadCVEReport() {
   _renderCveFixTiles(data.summary.fix);
   const countNote = document.getElementById('cve-count-note');
   if (countNote) countNote.hidden = data.counting !== 'fixable_only';
+  // 8.0.1: what the scans counted per package and did not list one by one, for the fleet
+  const rollNote = document.getElementById('cve-rollup-note'), rolled = Number(data.summary.rollup) || 0;
+  if (rollNote) { rollNote.hidden = !rolled; rollNote.lastElementChild.textContent = rolled; }
   _renderCveHostTable();
   loadCveCampaigns();
 }
@@ -315,7 +319,7 @@ async function triggerCVEScan(devId, btn) {
 // 8.0.1: what a scan of this host leaves out. The server sends the word (cve_scanner.coverage), the page
 // holds the sentence, so it is translated like any other text.
 const _CVE_COVERAGE = {
-  own_name: 'On Debian and Ubuntu a package is checked under its own name. A package whose name differs from its source package, such as libc6, libssl3 or openssh-server, is not checked yet.',
+  no_release: 'The Ubuntu release this host is based on is not known, so a package built from a source package with another name, such as libc6, libssl3 or openssh-server, is not checked.',
   needs_agent: 'The agent of this host does not report source packages, so a package built from a source package with another name is not checked. Update the agent, then send the package list again.',
 };
 
@@ -330,11 +334,29 @@ function _cveCoverageHtml(data) {
   return html;
 }
 
+// 8.0.1: what a scan counted per package and did not list one by one (cve_fixes.split on the server): a finding
+// no update for the host's release clears, unless it is critical, high or known to be exploited, and what did not
+// fit under the ceiling of a host or a package. A package name is data, so the rows are not translated.
+function _cveRollupHtml(r) {
+  if (!r || !(r.total > 0)) return '';
+  const n = (o, k) => Number(o && o[k]) || 0;
+  const rows = (Array.isArray(r.packages) ? r.packages : []).map(p => !p ? ''
+    : `<tr><td class="mono-12">${escHtml(p.name || '')}</td><td class="mono-12">${escHtml(p.version || '')}</td><td class="ta-center">${Number(p.count) || 0}</td></tr>`).join('');
+  const more = n(r.more, 'packages') > 0 ? `<div class="hint mt-6"><span>Packages not shown:</span> <span>${n(r.more, 'packages')}</span></div>` : '';
+  const sev = n(r.severity, 'critical') + n(r.severity, 'high') > 0
+    ? `<div class="hint mt-6"><span>Of these, critical or high:</span> <span>${n(r.severity, 'critical') + n(r.severity, 'high')}</span></div>` : '';
+  const fixable = n(r.fix, 'fixable') > 0 ? `<div class="hint mt-6"><span>Of these, cleared by an update:</span> <span>${n(r.fix, 'fixable')}</span></div>` : '';
+  return `<details class="mb-8" data-cve-rollup=""><summary class="hint pointer"><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong>${Number(r.total)}</strong></summary>`
+    + sev + fixable
+    + (rows ? `<div class="scrollable-table-wrap audit-scroll mt-6"><table><thead><tr><th>Package</th><th>Installed</th><th class="ta-center">Count</th></tr></thead><tbody data-no-i18n="">${rows}</tbody></table></div>` : '')
+    + more + '</details>';
+}
+
 // 8.0.1: a finding is filed under the source package; this names the installed packages it covers.
 function _cveBinariesHtml(f) {
   if (!Array.isArray(f.binaries) || !f.binaries.length) return '';
   const more = Number(f.binaries_more) > 0 ? ` +${Number(f.binaries_more)}` : '';
-  return ` <span class="hint" data-cve-binaries=""><span>installed as</span> <span class="mono-12">${escHtml(f.binaries.join(', '))}${more}</span></span>`;
+  return ` <span class="hint" data-cve-binaries=""><span>installed as</span> <span class="mono-12" data-no-i18n="">${escHtml(f.binaries.join(', '))}${more}</span></span>`;
 }
 
 async function openDeviceCVE(devId, devName) {
@@ -357,7 +379,9 @@ async function openDeviceCVE(devId, devName) {
   html += `<div class="mb-14 row-6"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">${_icon('refresh',14)} Send package list now</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="cyclonedx" title="Download a CycloneDX SBOM (with CVE findings) for this host">${_icon('download',14)} SBOM (CycloneDX)</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="spdx" title="Download an SPDX 2.3 SBOM for this host">${_icon('download',14)} SBOM (SPDX)</button><button class="btn-icon" data-action="sbomCaptureBaseline" data-arg="${escAttr(devId)}" title="Snapshot the current package set as the SBOM diff baseline">${_icon('copy',14)} Baseline</button><button class="btn-icon" data-action="sbomShowDiff" data-arg="${escAttr(devId)}" data-arg2="${escAttr(devName)}" title="Show package changes since the captured baseline">${_icon('list',14)} Changes since baseline</button></div>`;
   if (data.error) html += `<div class="isl-388">${escHtml(data.error)}</div>`;
   html += _cveCoverageHtml(data);
-  if (!data.findings.length) { html += '<div class="empty-state">No vulnerabilities found.</div>'; }
+  const roll = _cveRollupHtml(data.rollup);
+  html += roll;
+  if (!data.findings.length) { if (!roll) html += '<div class="empty-state">No vulnerabilities found.</div>'; }
   else {
     // v3.14.0: surface exploited-in-wild + high-EPSS first.
     const _sevRank = {critical: 4, high: 3, medium: 2, low: 1, unknown: 0};
@@ -373,7 +397,7 @@ async function openDeviceCVE(devId, devName) {
       const color = sevColor[f.severity] || 'var(--muted)';
       const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { const u = new URL(r); if (u.protocol !== 'http:' && u.protocol !== 'https:') return ''; return `<a href="${escHtml(r)}" target="_blank" rel="noopener noreferrer" class="c-accent">${escHtml(u.hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
       const aliasesHtml = (f.aliases||[]).map(a => `<code class="isl-389">${escHtml(a)}</code>`).join('');
-      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${escAttr(color)}">${escHtml(f.severity)}</span><code class="isl-393" data-copy="" title="Click to copy">${escHtml(f.vuln_id)}</code>${f.kev ? '<span class="kev-badge" title="Actively exploited in the wild (CISA KEV)">KEV</span>' : ''}${f.epss ? `<span class="epss-chip" title="EPSS — probability of exploitation in the next 30 days">EPSS ${(f.epss*100).toFixed(f.epss>=0.1?0:1)}%</span>` : ''}${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${_cveBinariesHtml(f)}${_cveFixHtml(f)}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
+      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${escAttr(color)}">${escHtml(f.severity)}</span><code class="isl-393" data-copy="" title="Click to copy">${escHtml(f.vuln_id)}</code>${f.kev ? '<span class="kev-badge" title="Actively exploited in the wild (CISA KEV)">KEV</span>' : ''}${f.epss ? `<span class="epss-chip" title="EPSS — probability of exploitation in the next 30 days">EPSS ${(f.epss*100).toFixed(f.epss>=0.1?0:1)}%</span>` : ''}${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong data-no-i18n="">${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${_cveBinariesHtml(f)}${_cveFixHtml(f)}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
     }).join('');
   }
   document.getElementById('cve-detail-body').innerHTML = html;

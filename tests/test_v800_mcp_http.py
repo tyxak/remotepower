@@ -242,12 +242,16 @@ class TestTheTools(unittest.TestCase):
         self.assertEqual(json.loads(text_of(answer))["containers"], [{"name": "app", "image": "i", "status": "Up"}])
 
     def test_get_cves_is_fleet_wide_without_a_name_and_one_host_with_one(self):
-        table = {"/api/devices": DEVS, "/api/cve/findings": {"findings": [{"id": "CVE-1"}]}, "/api/devices/d3/cves": {"findings": [{"id": "CVE-2"}]}}
+        # 8.0.1: /cve, the route there is. This table said /cves, as the tool did, so the test agreed with a path
+        # that no route answers (tests/test_v801_cve_readers.py checks every tool's paths against the route table).
+        table = {"/api/devices": DEVS, "/api/cve/findings": {"findings": [{"id": "CVE-1"}]},
+                 "/api/devices/d3/cve": {"findings": [{"id": "CVE-2"}], "rollup": {"total": 7}}}
         answer, fetch = self.run_tool("get_cves", {}, table)
         self.assertEqual(json.loads(text_of(answer)), {"findings": [{"id": "CVE-1"}]})
         self.assertEqual(fetch.paths, ["/api/cve/findings"])
         answer, _ = self.run_tool("get_cves", {"name": "db01"}, table)
         self.assertEqual(json.loads(text_of(answer))["findings"], [{"id": "CVE-2"}])
+        self.assertEqual(json.loads(text_of(answer))["counted"], {"total": 7})
 
     def test_get_patches(self):
         report = {"devices": [{"device_id": "d1", "name": "web01", "upgradable": 4, "security_updates": 1, "patch_status": "pending", "online": True, "secret_extra": 1},

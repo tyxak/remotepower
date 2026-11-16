@@ -223,8 +223,9 @@ class TestAlpineOrder(unittest.TestCase):
 
 class TestDebianOrder(unittest.TestCase):
     """The Debian order without a dpkg process. Checked on 2026-11-15 against 714 recorded OSV answers for Debian 12
-    and Ubuntu 22.04 (every advisory came back exactly when the version asked was below its fix); that recording
-    is not in the repository yet, so the rules are stated here one at a time."""
+    and Ubuntu 22.04 (every advisory came back exactly when the version asked was below its fix). The part of that
+    recording that is in the repository is held to the order in tests/test_v801_deb_source_matching.py; the rules
+    are stated here one at a time."""
 
     def test_the_rules(self):
         for a, b, want in (('1.0', '1.0-0', 0), ('1.0~rc1', '1.0', -1), ('1.0+b1', '1.0', 1), ('2:1.0', '1:9.0', 1),

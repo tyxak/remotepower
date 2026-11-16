@@ -1294,9 +1294,11 @@ class TestCveCampaigns(_HandlerBase):
         api.CVE_IGNORE_FILE = self.d / 'cve_ignore.json'
         api.save(api.DEVICES_FILE, {'d1': {'name': 'h1'}, 'd2': {'name': 'h2'}})
         api.save(api.CVE_FINDINGS_FILE, {
-            'd1': {'findings': [{'cve_id': 'CVE-2026-1', 'severity': 'critical'},
-                                {'cve_id': 'CVE-2026-2', 'severity': 'high'}]},
-            'd2': {'findings': [{'cve_id': 'CVE-2026-9', 'severity': 'low'}]}})
+            # 8.0.1: `vuln_id`, as a scan writes it. This fixture said `cve_id`, which is what the campaign code
+            # read and no scan result holds, so these tests passed while a real campaign over ids matched nothing.
+            'd1': {'findings': [{'vuln_id': 'CVE-2026-1', 'severity': 'critical'},
+                                {'vuln_id': 'CVE-2026-2', 'severity': 'high'}]},
+            'd2': {'findings': [{'vuln_id': 'CVE-2026-9', 'severity': 'low'}]}})
         self.fired = []
         api.fire_webhook = lambda ev, p: self.fired.append((ev, p))
 

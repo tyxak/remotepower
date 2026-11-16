@@ -335,7 +335,13 @@ class TestEagerJsPayload(unittest.TestCase):
         # server sends a word and the page holds the sentence, so the translation engine can match it), the line that names the installed packages of a
         # finding and the note for a cut advisory list about 600, and the rest is the two functions' wiring and comments. app-cve.js is eager for the
         # reason given at 7.4.6. The translations are in i18n.js, which is not eager.
-        self.assertLess(total, 2_739_000,
+        # 8.0.1 Debian and Ubuntu by source package: 2_742_000. The payload was 2_738_123 and is 2_741_211 now: 3,088 bytes more, 1,854 of them in app-cve.js
+        # and 1,234 in app.js. In app-cve.js it is the block of the host view that shows what a scan counted per package (about 1,100 with its four
+        # sentences, which the translation engine has to find in the page), the fifth tile and its status "Fixed with Ubuntu Pro" (about 250), the line
+        # under the tiles and the attributes that keep a package name from being translated (about 500). In app.js it is the host drawer saying "counted"
+        # or "not scanned" where it said "clean" (about 800 with the reason for each), the dashboard tile's line for a fleet that has only counts (about
+        # 300) and the Counted column of the host table (about 130). The drawer and the dashboard are drawn before any loader could be asked for more.
+        self.assertLess(total, 2_742_000,
                         'the eager JS payload regressed past its budget')
 
 

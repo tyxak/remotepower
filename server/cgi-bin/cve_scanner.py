@@ -4,11 +4,12 @@ RemotePower CVE Scanner — v1.7.0
 (Full version with Ubuntu priority, Debian fallback, Arch unsupported)
 """
 import json
+import os
 import time
 import hashlib
 import re
-import shutil
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 import checks        # v7.0.3: the shared accepted-risk predicate
 import cve_fixes     # v7.4.6 (#57): which release of the host a fix is in (pure)
@@ -84,6 +85,29 @@ def entry_ecosystem(entry) -> str:
     return ecosystem
 
 
+def entry_release(entry) -> str:
+    """The name the host's own release has inside an advisory record, '' when it is not known.
+
+    Debian and Alpine are scanned under that name already. Ubuntu is scanned under the bare name
+    "Ubuntu", which answers for whichever release holds the version asked; its records then list one
+    entry per release, and the host's is found by the version the host reported: 22.04 is
+    "Ubuntu:22.04:LTS". Pop!_OS numbers its releases as Ubuntu does. Any other derivative reports a
+    version of its own (Linux Mint 21.3), which names no Ubuntu release."""
+    ecosystem = entry_ecosystem(entry)
+    if ecosystem == 'Ubuntu':
+        if str(entry.get('os_id') or '').strip().lower() in ('ubuntu', 'pop'):
+            return cve_fixes.ubuntu_release_name(entry.get('version_id'))
+        return ''
+    return ecosystem if cve_fixes.release_of(ecosystem) is not None else ''
+
+
+def by_source(ecosystem, release) -> bool:
+    """Is a Debian or Ubuntu host asked for by source package? Only when its release is known: what
+    comes back is every known CVE of the release, fixed or not, and without the release the scan
+    cannot tell the two apart."""
+    return family(ecosystem) == 'deb' and cve_fixes.release_of(release or ecosystem) is not None
+
+
 def family(ecosystem) -> str:
     """Which package format an ecosystem name stands for: 'deb', 'rpm', 'apk' or ''."""
     if not isinstance(ecosystem, str):
@@ -97,16 +121,20 @@ def family(ecosystem) -> str:
     return ''
 
 
-def coverage(ecosystem, has_meta: bool = False) -> str:
+def coverage(ecosystem, has_meta: bool = False, release: str = '') -> str:
     """What a scan of this host leaves out, as a word the page turns into a sentence.
 
-    'own_name'     Debian and Ubuntu: a package is asked for under its own name, and the advisories are
-                   filed under the source package, so a package named otherwise is not checked
-    'needs_agent'  Alpine and Rocky with a list from an agent that does not report source packages
+    'needs_agent'  the advisories are filed under the source package and the list comes from an agent
+                   that does not report source packages (Debian, Ubuntu, Alpine, Rocky), so a package
+                   named otherwise than its source is not checked
+    'no_release'   an Ubuntu derivative whose own version names no Ubuntu release: it is asked for by
+                   installed name for the same effect, whatever its agent reports
     ''             nothing known to be left out"""
     fam = family(ecosystem)
     if fam == 'deb':
-        return 'own_name'
+        if not by_source(ecosystem, release):
+            return 'no_release'
+        return '' if has_meta else 'needs_agent'
     if not has_meta and (fam == 'apk' or (fam == 'rpm' and ecosystem.startswith('Rocky Linux'))):
         return 'needs_agent'
     return ''
@@ -229,11 +257,11 @@ def _osv_query_all(queries: list) -> list:
 #   Debian and Ubuntu  the source package: "glibc" answers, "libc6" answers nothing
 #
 # So a host is asked for in units. A unit is one (name, version) question, the package its findings are
-# filed under, and the installed packages it speaks for. Alpine is asked by origin, Rocky by both names,
-# and the findings of one source package are one finding however many packages were built from it. That
-# needs what an 8.0.1 agent reports (the source package and the epoch); a list without them is asked for
-# name by name, as before. Debian and Ubuntu are still asked for by the installed name: docs/cve.md says
-# what that leaves out and why it is not switched on here.
+# filed under, and the installed packages it speaks for. Alpine is asked by origin, Debian and Ubuntu by
+# source package and its version, Rocky by both names, and the findings of one source package are one
+# finding however many packages were built from it. That needs what an 8.0.1 agent reports (the source
+# package and the epoch); a list without them is asked for name by name, as before. A Debian or Ubuntu
+# host is asked by source only when its release is known (see `by_source`).
 
 MAX_BINARIES_SHOWN = 30
 
@@ -242,8 +270,9 @@ def _text(value) -> str:
     return str(value or '').strip()
 
 
-def plan(packages, ecosystem, has_meta: bool = False) -> list:
-    """The units to ask the advisory database for, for one host's package list.
+def plan(packages, ecosystem, has_meta: bool = False, deb_by_source: bool = False) -> list:
+    """The units to ask the advisory database for, for one host's package list. `deb_by_source` is
+    `by_source(ecosystem, release)` of the host.
 
     Each unit is {'name', 'version'} (the question), 'package' and 'shown' (the name and version on a
     finding), 'epoch_known' (whether the version carries its epoch) and 'binaries' (the installed packages
@@ -260,7 +289,7 @@ def plan(packages, ecosystem, has_meta: bool = False) -> list:
         if binary and binary not in found['binaries']:
             found['binaries'].append(binary)
 
-    grouped = bool(has_meta) and fam in ('apk', 'rpm')
+    grouped = bool(has_meta) and (fam in ('apk', 'rpm') or (fam == 'deb' and bool(deb_by_source)))
     both_names = grouped and fam == 'rpm' and isinstance(ecosystem, str) and ecosystem.startswith('Rocky Linux')
     sources: dict = {}   # (source, its version-release) -> {'binaries': [...], 'epochs': set()}
     for p in (packages if isinstance(packages, list) else [])[:MAX_PACKAGES]:
@@ -277,6 +306,10 @@ def plan(packages, ecosystem, has_meta: bool = False) -> list:
         source = _text(p.get('source')) or name
         if fam == 'apk':
             unit(source, version, source, True, name)   # a subpackage has its origin's version
+            continue
+        if fam == 'deb':
+            # a Debian package may have another version than its source ("12.2.0-14+b1" of "12.2.0-14")
+            unit(source, _text(p.get('source_version')) or version, source, True, name)
             continue
         epoch = _text(p.get('epoch'))
         if not (epoch.isascii() and epoch.isdigit()) or int(epoch) == 0:
@@ -380,7 +413,8 @@ def prefetch_osv(store: dict, cache_dir: Path) -> dict | None:
         eco = entry_ecosystem(entry)
         if not _ecosystem_supported(eco):
             continue
-        for unit in plan(entry.get("packages") or [], eco, entry.get("sources") is True):
+        for unit in plan(entry.get("packages") or [], eco, entry.get("sources") is True,
+                         by_source(eco, entry_release(entry))):
             key = (eco, unit['name'], unit['version'])
             if key in seen:
                 continue
@@ -661,8 +695,8 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
             return 'low', 'database_specific'
 
     # 2. Ubuntu priority (type 'Ubuntu') — before CVSS.
-    for sev in vuln.get('severity', []):
-        if sev.get('type') == 'Ubuntu':
+    for sev in vuln.get('severity') if isinstance(vuln.get('severity'), list) else []:
+        if isinstance(sev, dict) and sev.get('type') == 'Ubuntu':
             ubuntu_score = str(sev.get('score', '')).lower()
             if ubuntu_score in SEVERITY_ORDER:
                 return ubuntu_score, 'ubuntu_priority'
@@ -675,46 +709,326 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
 
     # 3. CVSS base score — standardised band mapping. Note <4.0 maps
     #    to 'low'/'medium' only; it can never become 'high'.
-    for sev in vuln.get('severity', []):
-        vec = sev.get('score', '')
-        score = _cvss_base_score(vec)
-        if score is not None:
-            vtype = str(sev.get('type') or '').upper()
-            # v6.4.2: name the v4 source honestly. The score is the v3.1 formula
-            # applied to v4's base metrics, not an official v4 base score, and a
-            # consumer that reads the source deserves to know which it got.
-            if vtype.startswith('CVSS_V2'):
-                src = 'cvss_v2'
-            elif vtype.startswith('CVSS_V4') or vec.upper().startswith('CVSS:4'):
-                src = 'cvss_v4_approx'
-            else:
-                src = 'cvss_v3'
-            if score >= _CVSS_BAND_CRITICAL:   return 'critical', src
-            if score >= _CVSS_BAND_HIGH:       return 'high', src
-            if score >= _CVSS_BAND_MEDIUM:     return 'medium', src
-            if score > 0:      return 'low', src
-            return 'low', src
+    rated = _cvss_first(vuln)
+    if rated is not None:
+        return _cvss_band(rated[0]), rated[1]
 
-    # 4. Debian Security Tracker fallback (Debian ecosystems only).
+    # 4. Debian, a record with no score. 8.0.1: the record carries the tracker's urgency on every
+    #    entry (751 of 751 entries of the DEBIAN-CVE records read on 2026-11-15), so the tracker is
+    #    asked only for a record that carries none. It was one request per record, in the scan.
+    #    The urgencies of every release are read, not those of the host's: the result is kept in a
+    #    cache that hosts of several releases share. What one release calls unimportant is applied
+    #    per host when a finding is made (cve_fixes.minor).
     if ecosystem and ecosystem.startswith('Debian:'):
-        vuln_id = vuln.get('id', '')
-        if vuln_id:
-            deb_sev = _debian_severity_fallback(vuln_id)
-            if deb_sev:
-                return deb_sev, 'debian_urgency'
+        urgencies = _record_urgencies(vuln)
+        if urgencies:
+            if all(u in ('unimportant', 'negligible') for u in urgencies):
+                return 'low', 'debian_urgency'
+            # an urgency the tracker did assign reads as the tracker's answer did: never above medium
+            # (see _debian_severity_fallback). None was among the records read on 2026-11-15.
+            if any(u in ('high', 'medium') for u in urgencies):
+                return 'medium', 'debian_urgency'
+            if any(u == 'low' for u in urgencies):
+                return 'low', 'debian_urgency'
+        else:
+            vuln_id = str(vuln.get('id') or '')
+            # the tracker knows CVE ids; an advisory id (DSA-, DLA-) was sent to it as one
+            if vuln_id.startswith(('DEBIAN-CVE-', 'CVE-')):
+                deb_sev = _debian_severity_fallback(vuln_id)
+                if deb_sev:
+                    return deb_sev, 'debian_urgency'
 
     return 'unknown', 'unknown'
+
+
+def _cvss_first(vuln: dict) -> tuple | None:
+    """(base score, source) of the first CVSS entry of a record that can be scored, None for a
+    record without one."""
+    entries = vuln.get('severity') if isinstance(vuln, dict) else None
+    for sev in entries if isinstance(entries, list) else []:
+        vec = sev.get('score') if isinstance(sev, dict) else None
+        if not isinstance(vec, str):
+            continue
+        score = _cvss_base_score(vec)
+        if score is None:
+            continue
+        vtype = str(sev.get('type') or '').upper()
+        # v6.4.2: name the v4 source honestly. The score is the v3.1 formula
+        # applied to v4's base metrics, not an official v4 base score, and a
+        # consumer that reads the source deserves to know which it got.
+        if vtype.startswith('CVSS_V2'):
+            return score, 'cvss_v2'
+        if vtype.startswith('CVSS_V4') or vec.upper().startswith('CVSS:4'):
+            return score, 'cvss_v4_approx'
+        return score, 'cvss_v3'
+    return None
+
+
+def _cvss_band(score: float) -> str:
+    """The severity band of a CVSS base score under the bands in force (set_cvss_bands)."""
+    if score >= _CVSS_BAND_CRITICAL:
+        return 'critical'
+    if score >= _CVSS_BAND_HIGH:
+        return 'high'
+    if score >= _CVSS_BAND_MEDIUM:
+        return 'medium'
+    return 'low'
+
+
+def _record_urgencies(vuln: dict) -> list:
+    """The urgency a record gives its Debian entries, of every release ('unimportant',
+    'not yet assigned'), lower-case. Empty when the record carries none."""
+    out = []
+    for entry in vuln.get('affected') or []:
+        if not isinstance(entry, dict):
+            continue
+        package = entry.get('package')
+        specific = entry.get('ecosystem_specific')
+        if not isinstance(package, dict) or not isinstance(specific, dict):
+            continue
+        if not str(package.get('ecosystem') or '').startswith('Debian:'):
+            continue
+        urgency = specific.get('urgency')
+        if isinstance(urgency, str) and urgency.strip():
+            out.append(urgency.strip().lower().rstrip('*').strip())
+    return out
+
+
+# Debian and Ubuntu: a record per CVE, and the notices that repeat them
+_PER_CVE_IDS = ('DEBIAN-CVE-', 'UBUNTU-CVE-')
+_NOTICE_IDS = ('DSA-', 'DLA-', 'USN-', 'LSN-')
+
+
+def _without_repeated_notices(hits, details: dict, release: str) -> tuple:
+    """(the hits without the notices that repeat other findings, how many were left out).
+
+    Debian and Ubuntu answer with one record per CVE and, a second time, with the notices that
+    announced the fixes (a DSA, a USN). A notice is left out when the per-CVE records of the same
+    package already tell the host to install a version at or past the notice's own fix: it is
+    those findings again. A notice whose fix nothing else reaches stays a finding. Of the 81
+    notices that came back on 2026-11-15, 78 had a per-CVE record with the same fix for the same
+    release and three had none: an update without a CVE of its own, which would have been lost
+    for a host that needs exactly that update.
+
+    `release` is the name of the host's release in a record, '' when it is not known; then every
+    release the notice names has to be reached."""
+    reach: dict = {}    # id(unit) -> {ecosystem: [fixed versions its per-CVE records carry]}
+    for unit, vid in hits:
+        if not str(vid).startswith(_PER_CVE_IDS):
+            continue
+        mine = reach.setdefault(id(unit), {})
+        fixes = (details.get(vid) or {}).get('eco_fix')
+        for eco, packages in (fixes if isinstance(fixes, dict) else {}).items():
+            versions = packages.get(unit['name']) if isinstance(packages, dict) else None
+            mine.setdefault(eco, []).extend(v for v in (versions if isinstance(versions, list) else [])
+                                            if isinstance(v, str))
+    kept, left_out = [], 0
+    for unit, vid in hits:
+        if (str(vid).startswith(_NOTICE_IDS) and id(unit) in reach
+                and _notice_repeats(details.get(vid), unit['name'], reach[id(unit)], release)):
+            left_out += 1
+            continue
+        kept.append((unit, vid))
+    return kept, left_out
+
+
+def _notice_repeats(det, package: str, reach: dict, release: str) -> bool:
+    """Does every fix this notice names for the package have a per-CVE fix at or past it, in the
+    same release? False for a notice whose record was not read, and for one that names no fix for
+    the host's release: what cannot be compared is kept."""
+    fixes = det.get('eco_fix') if isinstance(det, dict) else None
+    if not isinstance(fixes, dict):
+        return False
+    names = [release, cve_fixes.pro_name(release)] if release else list(fixes)
+    named = False
+    for eco in names:
+        packages = fixes.get(eco) if eco else None
+        versions = packages.get(package) if isinstance(packages, dict) else None
+        for version in versions if isinstance(versions, list) else []:
+            if not isinstance(version, str) or not version:
+                continue
+            named = True
+            if not any(_deb_reaches(carried, version) for carried in reach.get(eco, [])):
+                return False
+    return named
+
+
+def _deb_reaches(carried: str, version: str) -> bool:
+    try:
+        return pkg_versions.deb_compare(carried, version) >= 0
+    except ValueError:
+        return False
+
+
+# ── The record of one advisory, and when to read it again ────────────────────
+#
+# A query answer holds ids. Everything else (severity, fixed versions, the CVE names) is in the
+# advisory's own record, one request each, kept in cve_details_cache.json.
+#
+# 8.0.1, measured on 2026-11-15: one request takes about 0.27 s, and a Debian or Ubuntu host asked
+# by source package needs up to 3,000 on its first scan. One after the other that is 12 minutes
+# inside one host's scan, past the five minutes after which the scan marker counts as dead and a
+# second scan can be started beside the first. So the records are read several at once, the marker
+# is refreshed from inside, the cache is written as the work goes (a runner that is killed keeps
+# what it read), and a dead endpoint ends the reading after a few failures in a row.
+DETAILS_FORMAT = 2            # an entry written under another number is read again
+DETAIL_FETCHES_AT_ONCE = 8
+DETAIL_FAILURES_IN_A_ROW = 20
+DETAIL_SAVE_EVERY = 250
+MAX_ALIASES = 40
+SUMMARY_LEN = 500
+_STAMP_RE = re.compile(r'^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?')
+_PRO_VERSION = re.compile(r'[+~]esm\d')
+
+
+def _instant(stamp) -> str:
+    """An RFC 3339 stamp cut to the microsecond. A query answer writes six fraction digits and the
+    record nine for the same instant, so the two differ as text."""
+    match = _STAMP_RE.match(str(stamp or '').strip())
+    if not match:
+        return ''
+    return match.group(1) + '.' + (match.group(2) or '')[:6].ljust(6, '0')
+
+
+def _needs_fetch(cached, seen_modified, ttl: int, now: int) -> bool:
+    """Read the record again? Yes when it is not held, when the entry was written by an older
+    format (it lacks something the scan needs: v2.4.1 the severity source, v7.4.6 the fixes per
+    release, 8.0.1 the CVE names), and when the record changed since. The query answer says when a
+    record last changed, so an unchanged record is not read again however old the entry: with the
+    age alone, every entry of a first scan ran out on the same day and was fetched again. The age
+    decides only when one of the two stamps is missing."""
+    if not isinstance(cached, dict):
+        return True
+    if cached.get('v') != DETAILS_FORMAT or 'severity_source' not in cached or 'eco_fix' not in cached:
+        return True
+    seen, held = _instant(seen_modified), _instant(cached.get('modified'))
+    if seen and held:
+        return seen != held
+    try:
+        age = now - int(cached.get('cached_at') or 0)
+    except (TypeError, ValueError, OverflowError):
+        return True
+    return age > ttl
+
+
+def _cve_names(vuln: dict) -> list:
+    """The other names of an advisory: its aliases and the CVE ids it lists under `upstream`.
+
+    A distribution's record (DEBIAN-CVE-, UBUNTU-CVE-, ALSA-, RLSA-) has no aliases; its CVE id is
+    in `upstream`. Only `aliases` was kept, so the known-exploited list and the EPSS scores, which
+    go by CVE id, matched nothing on any host of those distributions."""
+    out = []
+    for key in ('aliases', 'upstream'):
+        names = vuln.get(key)
+        for name in names if isinstance(names, list) else []:
+            if not isinstance(name, str) or not name or len(name) > 64 or name in out:
+                continue
+            if key == 'upstream' and not name.upper().startswith('CVE-'):
+                continue
+            out.append(name)
+    return out[:MAX_ALIASES]
+
+
+def _detail_entry(vuln: dict, ecosystem: str) -> dict:
+    """What the cache keeps of one record."""
+    severity, severity_source = _severity_from_vuln(vuln, ecosystem)
+    summary = str(vuln.get('summary') or '').strip()
+    if not summary:
+        # a DEBIAN-CVE or UBUNTU-CVE record has no summary, only the description
+        summary = ' '.join(str(vuln.get('details') or '').split())
+    entry = {
+        'v': DETAILS_FORMAT,
+        'summary': summary[:SUMMARY_LEN],
+        'severity': severity,
+        'severity_source': severity_source,   # v2.3.4: classification provenance
+        'aliases': _cve_names(vuln),
+        'published': vuln.get('published', ''),
+        'modified': vuln.get('modified', ''),
+        'refs': [r.get('url', '') for r in (vuln.get('references') or [])[:10] if isinstance(r, dict)],
+        'cached_at': int(time.time()),
+        'fixed_versions': _extract_fixed_versions(vuln),
+        # v7.4.6 (#57): the fixes of every release the record names, apart
+        # (_extract_fixed_versions folds them into one string per package).
+        'eco_fix': cve_fixes.extract(vuln),
+        # 8.0.1: the packages a distribution marks "unimportant", per release
+        'minor': cve_fixes.minor(vuln),
+    }
+    if severity_source.startswith('cvss'):
+        # 8.0.1: the score itself. An unchanged record is no longer read again, so a severity kept as
+        # a word would stay what the bands of that day made it. See _severity_now.
+        rated = _cvss_first(vuln)
+        if rated is not None:
+            entry['score'] = rated[0]
+    return entry
+
+
+def _severity_now(det: dict) -> tuple:
+    """(severity, source) of a cached record. A severity that came from a CVSS score is banded by
+    the bands in force now, so a change under Settings shows on the next scan."""
+    severity, source = det.get('severity', 'unknown'), det.get('severity_source', 'unknown')
+    score = det.get('score')
+    if (isinstance(source, str) and source.startswith('cvss')
+            and isinstance(score, (int, float)) and not isinstance(score, bool)):
+        severity = _cvss_band(score)
+    return severity, source
+
+
+def _fetch_details(wanted, ecosystem: str, details_cache: dict, cache_path: Path, tick=None) -> int:
+    """Read the records of `wanted` into `details_cache`, DETAIL_FETCHES_AT_ONCE at a time, and
+    write the cache. Returns how many could not be read.
+
+    `tick` is called between rounds; the scan worker uses it to keep its marker alive. After
+    DETAIL_FAILURES_IN_A_ROW failures in a row the endpoint is taken to be down and the rest is
+    not asked for: each request waits ten seconds, and 3,000 of those would be eight hours."""
+    ids = sorted(str(v) for v in wanted)
+    unread = streak = since_save = 0
+    changed = False
+    if ids:
+        with ThreadPoolExecutor(max_workers=DETAIL_FETCHES_AT_ONCE) as pool:
+            for start in range(0, len(ids), DETAIL_FETCHES_AT_ONCE):
+                if streak >= DETAIL_FAILURES_IN_A_ROW:
+                    unread += len(ids) - start
+                    break
+                chunk = ids[start:start + DETAIL_FETCHES_AT_ONCE]
+                for vid, vuln in zip(chunk, pool.map(_osv_vuln_details, chunk)):
+                    if not isinstance(vuln, dict) or not vuln:
+                        unread += 1
+                        streak += 1
+                        continue
+                    streak = 0
+                    try:
+                        details_cache[vid] = _detail_entry(vuln, ecosystem)
+                    except Exception:
+                        unread += 1       # a record of a shape this cannot read: one finding without
+                        continue          # its details, not the end of the host's scan
+                    changed = True
+                    since_save += 1
+                if since_save >= DETAIL_SAVE_EVERY:
+                    _save_json(cache_path, details_cache)
+                    since_save = 0
+                if tick is not None:
+                    try:
+                        tick()
+                    except Exception:
+                        pass      # keeping the marker alive must not end the scan
+    if changed:
+        _save_json(cache_path, details_cache)
+    return unread
 
 
 # ── Main scan entrypoint ─────────────────────────────────────────────────────
 
 def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
-                cache_ttl: int = None, osv_prefetch: dict = None, has_meta: bool = False) -> dict:
+                cache_ttl: int = None, osv_prefetch: dict = None, has_meta: bool = False,
+                tick=None, release: str = None, kev=None) -> dict:
     """
     Scan one device's package list against OSV (if ecosystem supported).
 
     `has_meta` says the list came from an agent that reports the source package and the epoch of each
-    package (8.0.1); see `plan` for what that changes.
+    package (8.0.1); see `plan` for what that changes. `tick` is called from time to time while the
+    advisory records are read, so a caller can show that the scan is alive. `release` is the name the
+    host's own release has in a record (`entry_release`); without it the ecosystem's own name is used.
+    `kev` is the set of known-exploited CVE ids, for the rule of what is stored one by one.
     """
     if not packages or not ecosystem:
         return {
@@ -757,7 +1071,13 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     findings = []
 
     # 8.0.1: what to ask for is the plan, not the list (see `plan`)
-    units = plan(packages, ecosystem, has_meta)
+    fam = family(ecosystem)
+    fix_eco = release or ecosystem          # the name of the host's release inside a record
+    release_known = cve_fixes.release_of(fix_eco) is not None
+    units = plan(packages, ecosystem, has_meta, by_source(ecosystem, release))
+    # A host with Ubuntu Pro has a package from it, and a Pro version ends in "+esm1" or "~esm1".
+    pro_host = ecosystem == 'Ubuntu' and any(
+        isinstance(p, dict) and _PRO_VERSION.search(str(p.get('version') or '')) for p in packages)
     queries = [{'package': {'name': u['name'], 'ecosystem': ecosystem}, 'version': u['version']}
                for u in units]
 
@@ -789,10 +1109,12 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     # v1.8.4: cache TTL is configurable via the server's settings
     effective_ttl = cache_ttl if cache_ttl is not None else DETAILS_CACHE_TTL
 
-    # Collect hits and uncached vuln IDs
+    # Collect hits and the advisories whose record has to be read
     vuln_ids_to_fetch = set()
     hits = []
     cut = []      # 8.0.1: the names whose advisory list was longer than the pages that are read
+    duplicates = 0
+    now = int(time.time())
     for idx, result in enumerate(all_results):
         if idx >= len(units):
             break
@@ -801,58 +1123,19 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             continue
         if result.get('truncated') and unit['package'] not in cut:
             cut.append(unit['package'])
-        for v in result.get('vulns') or []:
-            vid = v.get('id') if isinstance(v, dict) else None
-            if vid:
-                hits.append((unit, vid))
-                cached = details_cache.get(vid)
-                # Re-fetch (and so re-classify) a vuln when:
-                #   - it isn't cached at all, OR
-                #   - its cache entry has aged past the TTL, OR
-                #   - v2.4.1: the entry was written by a pre-2.3.4
-                #     RemotePower. Such entries carry a `severity`
-                #     computed by the OLD, BUGGY classifier (the
-                #     AC:H-as-C:H substring bug; un-capped Debian
-                #     urgency) and have NO `severity_source` field.
-                #     A TTL refresh alone never reaches them — the
-                #     entry looks "fresh" — so a stale severity gets
-                #     re-served on every scan. Keying on the absence
-                #     of `severity_source` forces a one-time re-fetch
-                #     and re-classification with the current code.
-                #     Self-healing: no manual cache wipe needed.
-                #   - v7.4.6 (#57): the entry predates the per-release fixes
-                #     (`eco_fix`), so a host cannot be told whether the fix
-                #     reached its own release. Same self-healing refetch.
-                stale_version = cached is not None and (
-                    'severity_source' not in cached or 'eco_fix' not in cached)
-                if cached is None \
-                   or stale_version \
-                   or (int(time.time()) - cached.get('cached_at', 0)) > effective_ttl:
-                    vuln_ids_to_fetch.add(vid)
+        answered = [v for v in (result.get('vulns') or []) if isinstance(v, dict) and v.get('id')]
+        for v in answered:
+            vid = v['id']
+            hits.append((unit, vid))
+            if _needs_fetch(details_cache.get(vid), v.get('modified'), effective_ttl, now):
+                vuln_ids_to_fetch.add(vid)
 
-    # Fetch missing details
-    for vid in vuln_ids_to_fetch:
-        vuln = _osv_vuln_details(vid)
-        if not vuln:
-            continue
-        severity, severity_source = _severity_from_vuln(vuln, ecosystem)
-        details_cache[vid] = {
-            'summary': str(vuln.get('summary') or '')[:500],
-            'details': str(vuln.get('details') or '')[:2000],
-            'severity': severity,
-            'severity_source': severity_source,   # v2.3.4: classification provenance
-            'aliases': (vuln.get('aliases') or [])[:10],
-            'published': vuln.get('published', ''),
-            'modified': vuln.get('modified', ''),
-            'refs': [r.get('url', '') for r in (vuln.get('references') or [])[:10]],
-            'cached_at': int(time.time()),
-            'fixed_versions': _extract_fixed_versions(vuln),
-            # v7.4.6 (#57): the fixes of every release the record names, apart
-            # (_extract_fixed_versions folds them into one string per package).
-            'eco_fix': cve_fixes.extract(vuln),
-        }
+    # Read them, several at once
+    unread = _fetch_details(vuln_ids_to_fetch, ecosystem, details_cache,
+                            cache_dir / 'cve_details_cache.json', tick)
 
-    _save_json(cache_dir / 'cve_details_cache.json', details_cache)
+    if fam == 'deb':
+        hits, duplicates = _without_repeated_notices(hits, details_cache, fix_eco if release_known else '')
 
     # Build findings list
     # v2.2.6: gate each finding on a version comparison. OSV returns a
@@ -887,13 +1170,13 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         det = details_cache.get(vid, {})
         eco_fix = det.get('eco_fix')
         asked = unit['name']
-        fix = cve_fixes.classify(eco_fix, ecosystem, asked)
+        fix = cve_fixes.classify(eco_fix, fix_eco, asked, pro=pro_host)
         if fix['status'] == cve_fixes.UNKNOWN:
             fixed = det.get('fixed_versions', {}).get(asked) or ''
             patched_spec = fixed
         else:
             fixed = ', '.join(fix['fixed'])
-            patched_spec = ', '.join(cve_fixes.patched_by(eco_fix, ecosystem, asked))
+            patched_spec = ', '.join(cve_fixes.patched_by(eco_fix, fix_eco, asked))
         if patched_spec and _already_patched(unit['version'], patched_spec, ecosystem,
                                              epoch_known=unit['epoch_known']):
             suppressed += 1
@@ -905,12 +1188,17 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
                 if name not in finding['_binaries']:
                     finding['_binaries'].append(name)
             continue
+        severity, severity_source = _severity_now(det)
+        if cve_fixes.is_minor(det.get('minor'), fix_eco, asked):
+            # the distribution's own rating wins over a score: Debian calls this package unaffected
+            # in a way that matters, in the host's release
+            severity, severity_source = 'low', 'debian_urgency'
         finding = {
             'package': unit['package'],
             'version': unit['shown'],
             'vuln_id': vid,
-            'severity': det.get('severity', 'unknown'),
-            'severity_source': det.get('severity_source', 'unknown'),
+            'severity': severity,
+            'severity_source': severity_source,
             'summary': det.get('summary', ''),
             'fixed_version': fixed,
             'fix_status': fix['status'],
@@ -937,7 +1225,15 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         f['package'],
     ))
 
-    return {
+    # 8.0.1: what is stored one by one, and what is counted (cve_fixes.split). Only where the scan can
+    # tell whether an update for the host's release clears a finding: Debian, and Ubuntu with a known
+    # release. Those two list every known CVE of the release, fixed or not.
+    ruled = fam == 'deb' and release_known
+    counted = {}
+    if ruled:
+        findings, counted = cve_fixes.split(findings, kev)
+
+    result = {
         'scanned_at': int(time.time()),
         'ecosystem': ecosystem,
         'findings': findings,
@@ -949,6 +1245,20 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         # 8.0.1: the packages whose advisory list was cut (see OSV_MAX_PAGES); empty for a whole list
         'cut': cut[:20],
     }
+    if ruled:
+        result['ruled'] = True          # the alert path compares like with like (see cve_fixes.kept)
+    if counted:
+        result['rollup'] = counted
+    if duplicates:
+        result['duplicates'] = duplicates
+    if unread:
+        # Their severity and fix are not known, so they sit in the count until they are read. With an
+        # error and no finding at all the caller keeps the host's last result instead.
+        result['partial'] = True
+        result['unread'] = unread
+        result['error'] = (f'{unread} of the advisory records could not be read from OSV. Their severity '
+                           'and fix are unknown until the next scan.')
+    return result
 
 
 # ── v2.2.6: version comparison — suppress already-patched findings ───────────
@@ -1004,26 +1314,14 @@ def _already_patched(installed: str, fixed_spec: str, ecosystem: str, epoch_know
 
 
 def _dpkg_ge(installed: str, fixed: str) -> bool:
-    """installed >= fixed using `dpkg --compare-versions`.
+    """installed >= fixed in Debian's version order.
 
-    dpkg is the canonical Debian version comparator. If the binary
-    isn't present (scanner running on a non-Debian host), raise so
-    the caller's except-branch keeps the finding rather than guessing.
-    """
-    import subprocess
-    exe = shutil.which('dpkg')
-    if not exe:
-        # No dpkg on this box — signal "can't tell" to the caller
-        raise RuntimeError('dpkg not available for version comparison')
-    # `dpkg --compare-versions A ge B` exits 0 if A >= B, 1 otherwise.
-    # v5.8.0: `--` terminates option parsing so a version string beginning with
-    # '-' can't be mistaken for a dpkg flag and skew the comparison (integrity).
-    rc = subprocess.run(
-        [exe, '--compare-versions', '--', installed, 'ge', fixed],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        timeout=5,
-    ).returncode
-    return rc == 0
+    8.0.1: computed here (pkg_versions.deb_ge). It used to run `dpkg --compare-versions`: one
+    process per comparison (1,375 for one host of 2,500 advisories, on every scan), and on a
+    server without dpkg it raised, so no Debian or Ubuntu finding was ever left out as already
+    patched there. A version that cannot be read raises ValueError and the caller keeps the
+    finding."""
+    return pkg_versions.deb_ge(installed, fixed)
 
 
 def _tuple_ge(installed: str, fixed: str) -> bool:
@@ -1088,8 +1386,10 @@ def _load_json(path: Path) -> dict:
 
 
 def _save_json(path: Path, data: dict) -> None:
-    tmp = path.with_suffix(path.suffix + '.tmp')
-    tmp.write_text(json.dumps(data, indent=2))
+    # 8.0.1: a temporary name of this process. With one fixed name, two scanners writing at once
+    # replaced each other's file mid-write and one of them raised FileNotFoundError.
+    tmp = path.with_suffix(path.suffix + f'.{os.getpid()}.tmp')
+    tmp.write_text(json.dumps(data, separators=(',', ':')))
     tmp.replace(path)
 
 

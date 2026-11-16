@@ -3,7 +3,7 @@
 
 The rules are in test_v746_cve_fix_status (the scanner, the alerts, the report) and the page's own counting
 function is held against the server's in test_v746_cve_fix_page. What those cannot show is the page: that the
-four tiles hold the numbers the report holds, that clicking one filters the host table and clicking it again
+tiles hold the numbers the report holds, that clicking one filters the host table and clicking it again
 puts the hosts back, that an empty answer says so, that the host view names the fix a finding has (or where
 it is, or that it has none), that the filter follows into the host view and can be undone there, that the
 alert option is on the Settings page and is saved, and that the words come out in another language.
@@ -136,12 +136,20 @@ class _Page(unittest.TestCase):
 
 class TestTheCountsOnThePage(_Page):
 
-    def test_the_four_tiles_hold_the_numbers_of_the_report(self):
+    def test_the_tiles_hold_the_numbers_of_the_report(self):
         self.open_cve()
         fix = self.report()["summary"]["fix"]
+        # A tile counts up from 0 the first time it is shown (statTiles). Read at once, a tile of 19 was still
+        # at 18; with the smaller numbers of the older seed the count had always ended in time.
+        try:
+            self.page.wait_for_function(
+                "fix => Object.entries(fix).every(([k, n]) =>"
+                " parseInt(document.getElementById('cve-fix-' + k).textContent) === n)", arg=fix, timeout=10000)
+        except Exception:
+            pass          # the comparison below says which tile differs
         t = self.tiles()
         self.assertEqual({k: v["n"] for k, v in t.items()}, fix)
-        self.assertEqual(sorted(t), ["fixable", "newer_release", "none", "unchecked"])
+        self.assertEqual(sorted(t), ["fixable", "newer_release", "none", "pro", "unchecked"])
         self.assertGreater(fix["fixable"], 0)
         self.assertGreater(fix["newer_release"], 0)
         self.assertGreater(fix["none"], 0)
@@ -150,7 +158,7 @@ class TestTheCountsOnThePage(_Page):
         self.open_cve()
         self.assertEqual({k: v["label"] for k, v in self.tiles().items()},
                          {"fixable": "Fixable now", "newer_release": "Newer release only",
-                          "none": "No fix yet", "unchecked": "Not checked"})
+                          "none": "No fix yet", "pro": "Needs Ubuntu Pro", "unchecked": "Not checked"})
 
     def test_no_tile_is_pressed_until_one_is_clicked(self):
         self.open_cve()
@@ -184,7 +192,8 @@ class TestTheTilesFilterTheHostTable(_Page):
         self.tile("fixable").click()
         self.tile("none").click()
         self.assertEqual({k: v["on"] for k, v in self.tiles().items()},
-                         {"fixable": "false", "newer_release": "false", "none": "true", "unchecked": "false"})
+                         {"fixable": "false", "newer_release": "false", "none": "true", "pro": "false",
+                          "unchecked": "false"})
 
 
 class TestTheHostView(_Page):
@@ -293,7 +302,8 @@ class TestInAnotherLanguage(_Page):
             "() => [...document.querySelectorAll('#cve-fix-row .stat-label')].some(l => l.textContent.trim() === 'Jetzt behebbar')",
             timeout=20000)
         self.assertEqual([v["label"] for v in self.tiles().values()],
-                         ["Jetzt behebbar", "Nur in neuerer Version", "Noch keine Korrektur", "Nicht geprüft"])
+                         ["Jetzt behebbar", "Nur in neuerer Version", "Noch keine Korrektur", "Erfordert Ubuntu Pro",
+                          "Nicht geprüft"])
 
 
 if __name__ == "__main__":
