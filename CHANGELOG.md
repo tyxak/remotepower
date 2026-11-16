@@ -5,7 +5,7 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
-## v8.0.1 — "L0gMatters" — unreleased (test)
+## v8.0.1 — "L0gMatters" — 2026-11-16 (pre-release on dev; no standalone release)
 
 A release about what Threat Intel tells you and what it does about it. **Clear** empties the table now, even with the Edge blocklist on. A service that
 does not answer is no longer counted against your daily limits, and each service can have limits of its own. A new **Request log** shows what
