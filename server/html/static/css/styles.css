@@ -5444,12 +5444,23 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 /* The two text columns of the attackers table keep room for their words: the table gave them 100 px and each row grew to five lines. */
 .ipi-evidence-cell { min-width: 220px; }
 .ipi-status-cell { min-width: 150px; }
-.ipi-ignore-classes { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 16px; }
-.ipi-ignore-class { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-/* 8.0.1: a general kind of attack sits on a row of its own, with its finer kinds indented under it. */
-.ipi-ignore-general { grid-column: 1 / -1; margin-top: 6px; }
-.ipi-ignore-kind { padding-inline-start: 22px; }
+/* 8.0.1: the kinds that are never reported stand on one set of column lines. Every box is at the start of its column and
+   on the first line of its words, so a name that wraps moves neither its own box nor the names beside it. A general kind
+   is a row of its own under a rule, in a heavier weight, with its finer kinds on the same lines below it. Those were
+   indented in every column, which put the lower half of the list 22px to the side of the upper half. The indent stays
+   where the list is one column wide (under 496px: two columns of 240px and the gap), where it reads as a tree. */
+.ipi-ignore-classes { --ipi-box: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  gap: 4px 16px; align-items: start; container: ipi-ignore / inline-size; }
+.ipi-ignore-class { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.5; }
+/* the line is 13px at 1.5, so this centres the box on the first line whatever its size */
+.ipi-ignore-class > input[type="checkbox"] { margin-top: calc((19.5px - var(--ipi-box)) / 2); }
+.ipi-ignore-general { grid-column: 1 / -1; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--hair); font-weight: 600; }
+.ipi-ignore-kind { padding-inline-start: 0; }
+@container ipi-ignore (max-width: 495px) { .ipi-ignore-kind { padding-inline-start: calc(var(--ipi-box) + 8px); } }
 .ipi-ignore-covered { opacity: .6; }
+.ipi-ignore-classes + .hint { margin-top: 10px; }
+/* a touch screen draws a checkbox at 20px */
+@media (hover: none) and (pointer: coarse) { .ipi-ignore-classes { --ipi-box: 20px; } }
 .ipi-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 12px; }
 .ipi-facts dt { color: var(--muted); }
 .ipi-facts dd { margin: 0; overflow-wrap: anywhere; }

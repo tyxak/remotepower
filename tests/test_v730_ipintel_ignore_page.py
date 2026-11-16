@@ -454,13 +454,23 @@ class TestTheMarkupAndTheRequest(unittest.TestCase):
         rule = re.search(r'\.ipi-ignore-class \{[^}]*\}', _CSS).group(0)
         self.assertIn('font-size: 13px', rule)
 
-    def test_a_general_kind_has_a_row_of_its_own_and_its_kinds_are_indented_under_it(self):
+    def test_a_general_kind_has_a_row_of_its_own_and_its_kinds_are_indented_only_where_the_list_is_one_column(self):
+        # what the rules say; tests/test_v801_threatintel_e2e.py measures the list in a browser, which is where "aligned" is decided
         general = re.search(r'\.ipi-ignore-general \{([^}]*)\}', _CSS)
-        kind = re.search(r'\.ipi-ignore-kind \{([^}]*)\}', _CSS)
-        self.assertTrue(general and kind, 'the two classes the list writes on a label have a rule each')
+        plain = re.search(r'^\.ipi-ignore-kind \{([^}]*)\}', _CSS, re.M)
+        narrow = re.search(r'^@container ipi-ignore \(max-width: (\d+)px\) \{ \.ipi-ignore-kind \{([^}]*)\} \}', _CSS, re.M)
+        self.assertTrue(general and plain and narrow, 'the two classes the list writes on a label have a rule each, and a finer kind has one for a list of one column')
         self.assertRegex(general.group(1), r'grid-column:\s*1\s*/\s*-1\b', 'it spans the grid, so its kinds start on the row below')
-        self.assertRegex(kind.group(1), r'\b(?:padding|margin)-inline-start:\s*[1-9]\d*px',
+        self.assertRegex(plain.group(1), r'padding-inline-start:\s*0\s*;', 'in several columns a finer kind stands on the column line: an indent in every column put the two halves of the list out of line')
+        self.assertRegex(narrow.group(2), r'\bpadding-inline-start:\s*calc\(var\(--ipi-box\) \+ [1-9]\d*px\)',
                          'indented from the side reading starts on, so it is the right side in Arabic')
+        self.assertNotRegex(general.group(1) + plain.group(1) + narrow.group(2), r'\b(?:left|right)\b', 'a physical side does not mirror')
+        # the query is true exactly while the grid has one column: two columns of its least width and one gap do not fit
+        grid = re.search(r'^\.ipi-ignore-classes \{([^}]*)\}', _CSS, re.M).group(1)
+        least = int(re.search(r'minmax\(min\((\d+)px, 100%\), 1fr\)', grid).group(1))
+        gap = int(re.search(r'\bgap:\s*\d+px (\d+)px', grid).group(1))
+        self.assertRegex(grid, r'container:\s*ipi-ignore\s*/\s*inline-size')
+        self.assertEqual(int(narrow.group(1)), 2 * least + gap - 1, 'the width in the query follows the grid: change one and the other moves')
 
     def test_save_sends_both_lists_and_the_server_reads_both(self):
         from request_models import IpIntelSettingsRequest

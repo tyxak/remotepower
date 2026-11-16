@@ -320,6 +320,86 @@ class TestThePage(unittest.TestCase):
         finally:
             self.page.set_viewport_size({'width': 1440, 'height': 900})
 
+    # The list of kinds that are never reported, as a ruler sees it: the grid's own tracks and, for every kind, where its box starts (from the
+    # side reading starts on), how far the middle of the box is from the middle of the first line of its words, and how many lines the words take.
+    # `narrow` names kinds that are squeezed first, so the list holds names that wrap whatever the font and the language.
+    KINDS = """(narrow) => {
+        const box = document.getElementById('ipintel-ignore-classes'), cs = getComputedStyle(box), rtl = cs.direction === 'rtl';
+        for (const id of narrow) box.querySelector('input[data-ipi-class="' + id + '"]').parentElement.style.maxWidth = '150px';
+        const b = box.getBoundingClientRect(), edge = rtl ? b.left + box.clientLeft + box.clientWidth : b.left + box.clientLeft;
+        const from = (r) => Math.round((rtl ? edge - r.right : r.left - edge) * 10) / 10;
+        const kinds = [...box.querySelectorAll('label')].map(l => {
+            const i = l.querySelector('input'), ir = i.getBoundingClientRect(), lr = l.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(l.querySelector('span'));
+            const runs = [...range.getClientRects()].filter(r => r.width > 0).sort((a, c) => a.top - c.top);
+            const first = runs.filter(r => r.top - runs[0].top < 8), last = runs[runs.length - 1];
+            const mid = (Math.min(...first.map(r => r.top)) + Math.max(...first.map(r => r.bottom))) / 2;
+            return {id: i.dataset.ipiClass, general: l.classList.contains('ipi-ignore-general'), kind: l.classList.contains('ipi-ignore-kind'),
+                    box: from(ir), words: Math.min(...runs.map(from)), top: Math.round(lr.top), boxTop: Math.round(ir.top * 10) / 10,
+                    offLine: Math.round((ir.top + ir.height / 2 - mid) * 10) / 10, lines: 1 + Math.round((last.top - runs[0].top) / parseFloat(getComputedStyle(l).fontSize) / 1.2),
+                    width: Math.round(lr.width), end: Math.round((from(lr) + lr.width) * 10) / 10};
+        });
+        for (const id of narrow) box.querySelector('input[data-ipi-class="' + id + '"]').parentElement.style.maxWidth = '';
+        return {tracks: cs.gridTemplateColumns.split(' ').map(parseFloat), gap: parseFloat(cs.columnGap), wide: box.clientWidth,
+                sideways: box.scrollWidth - box.clientWidth, rtl, table: Object.keys(_IPI_CLASS).length, kinds};
+    }"""
+
+    def test_the_kinds_that_are_never_reported_stand_on_the_column_lines(self):
+        """Every box of the list starts on one of the grid's column lines and sits on the first line of its words, in several columns and in
+        one, in English and in Arabic. The first version indented the finer kinds in every column, so the lower half of the list stood 22px
+        to the side of the upper half, and it centred a box on words that wrap, so the box of a two-line name sat between its lines."""
+        self.tab('settings')
+        self.page.wait_for_selector('#ipintel-limits-card:not([hidden])', timeout=15000)
+        self.page.wait_for_function("() => document.querySelectorAll('#ipintel-ignore-classes label').length > 20", timeout=15000)
+        assert self.page.evaluate("async () => { await _ensureI18n(); return !!window.RPi18n; }"), 'i18n.js did not load'
+        columns = set()
+        try:
+            for lang in ('en', 'ar'):
+                self.page.evaluate("(l) => RPi18n.setLang(l, false)", lang)
+                for width, height in ((1440, 900), (1150, 900), (1024, 900), (390, 844)):
+                    self.page.set_viewport_size({'width': width, 'height': height})
+                    self.page.wait_for_timeout(500)
+                    got = self.page.evaluate(self.KINDS, ['waf', 'config_probe'])
+                    where, kinds, tracks = '%s, %dpx wide' % (lang, width), got['kinds'], got['tracks']
+                    self.assertEqual(got['rtl'], lang == 'ar', where)
+                    self.assertEqual(len(kinds), got['table'], '%s: one box for each kind of the page\'s table' % where)
+                    self.assertGreater(len(kinds), 25, 'the control: the list is there')
+                    self.assertLessEqual(got['sideways'], 1, '%s: the list scrolls sideways by %s' % (where, got['sideways']))
+                    wrapped = sorted(k['id'] for k in kinds if k['lines'] > 1)
+                    self.assertTrue({'waf', 'config_probe'} <= set(wrapped), 'the control: the two squeezed names wrap. %s: %r' % (where, wrapped))
+                    for k in kinds:
+                        self.assertLessEqual(abs(k['offLine']), 2.5, '%s: the box of %s is %spx from the middle of its first line (its words take %d lines)'
+                                             % (where, k['id'], k['offLine'], k['lines']))
+                        self.assertLessEqual(k['end'], got['wide'] + 1, '%s: %s runs out of the list' % (where, k['id']))
+                        if k['general']:
+                            self.assertGreaterEqual(k['width'], got['wide'] - 1, '%s: the general kind %s has the row to itself' % (where, k['id']))
+                    columns.add(len(tracks))
+                    if len(tracks) > 1:
+                        step = tracks[0] + got['gap']
+                        lines = [round(i * step, 1) for i in range(len(tracks))]
+                        for k in kinds:
+                            self.assertLessEqual(min(abs(k['box'] - x) for x in lines), 1,
+                                                 '%s: the box of %s starts %spx in, on none of the column lines %r' % (where, k['id'], k['box'], lines))
+                        self.assertEqual(len({round(k['box'] / step) for k in kinds}), len(tracks), 'the control: every column holds a box. %s' % where)
+                    else:
+                        under = {k['words'] for k in kinds if k['general']}
+                        self.assertEqual(len(under), 1, '%s: the words of the general kinds start at one place: %r' % (where, under))
+                        for k in kinds:
+                            want = under.copy().pop() if k['kind'] else 0
+                            self.assertLessEqual(abs(k['box'] - want), 1, '%s: in one column the box of %s starts %spx in; %s'
+                                                 % (where, k['id'], k['box'], 'a finer kind stands under the words of its general kind' if k['kind'] else 'it stands at the edge'))
+                    rows = {}
+                    for k in kinds:
+                        rows.setdefault(k['top'], []).append(k['boxTop'])
+                    for top, tops in rows.items():
+                        self.assertLessEqual(max(tops) - min(tops), 1, '%s: the boxes of the row at %d are not level: %r' % (where, top, tops))
+            self.assertIn(1, columns, 'the control: the list was measured as one column')
+            self.assertGreaterEqual(max(columns), 3, 'the control: and as several, %r' % sorted(columns))
+        finally:
+            self.page.evaluate("() => RPi18n.setLang('en', false)")
+            self.page.set_viewport_size({'width': 1440, 'height': 900})
+
     def test_the_page_threw_nothing(self):
         self.assertEqual(self.errors, [])
 
