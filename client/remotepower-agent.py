@@ -4082,12 +4082,33 @@ def get_os_release():
 # collected without them".
 
 _DPKG_QUERY_FORMAT = ('${db:Status-Abbrev}\\t${Package}\\t${Version}\\t${Architecture}'
-                      '\\t${source:Package}\\t${source:Version}\\n')
+                      '\\t${source:Package}\\t${source:Version}\\t${Built-Using}\\n')
 _RPM_QUERY_FORMAT = '%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\t%{EPOCH}\\t%{SOURCERPM}\\n'
 # dpkg keeps a package it has removed for as long as its configuration files remain ("rc" in dpkg -l).
 # Nothing of it runs, so it is not installed software.
 _DPKG_NOT_INSTALLED = ('not-installed', 'config-files')
 _APK_DB_PATHS = ('/lib/apk/db/installed', '/usr/lib/apk/db/installed')
+
+
+# A signed boot package (the kernel image, grub, shim, fwupd) is its own tiny source package that holds
+# only the signature: "linux-signed-amd64", "grub-efi-amd64-signed". The code in it was built from the
+# source that Built-Using names, with its version, and that is the name the security data knows.
+_SIGNED_SOURCE_RE = re.compile(r'(?:^|-)signed(?:$|-)')
+_BUILT_USING_RE = re.compile(r'^\s*([a-z0-9][a-z0-9+.-]*)\s*\(\s*=\s*([^)\s]+)\s*\)\s*$')
+
+
+def _signed_built_from(source, built_using):
+    """(source, version) a signed package was built from, or None. Only for a source whose name says
+    it is a signed one and whose Built-Using names exactly one source: a statically linked program
+    lists what it embeds there too (busybox-static names glibc, a Go program names dozens), and those
+    are not what the package is."""
+    if not source or not _SIGNED_SOURCE_RE.search(source):
+        return None
+    items = [i for i in (built_using or '').split(',') if i.strip()]
+    if len(items) != 1:
+        return None
+    m = _BUILT_USING_RE.match(items[0])
+    return (m.group(1), m.group(2)) if m else None
 
 
 def _pkg_row(name, version, arch='', source='', source_version='', epoch=''):
@@ -4117,7 +4138,11 @@ def _parse_dpkg_query(out):
             continue
         if parts[4].strip():
             has_sources = True
-        pkgs.append(_pkg_row(parts[1], parts[2], parts[3], parts[4], parts[5]))
+        source, source_version = parts[4].strip(), parts[5].strip()
+        built = _signed_built_from(source, parts[6] if len(parts) > 6 else '')
+        if built:
+            source, source_version = built
+        pkgs.append(_pkg_row(parts[1], parts[2], parts[3], source, source_version))
     return pkgs, has_sources
 
 
@@ -4130,8 +4155,12 @@ def _parse_dpkg_status(text):
         state = (cur.get('Status') or '').split()
         if cur.get('Package') and cur.get('Version') and state and state[-1] not in _DPKG_NOT_INSTALLED:
             source, _, rest = (cur.get('Source') or '').partition('(')
+            source, source_version = source.strip(), rest.partition(')')[0].strip()
+            built = _signed_built_from(source, cur.get('Built-Using', ''))
+            if built:
+                source, source_version = built
             pkgs.append(_pkg_row(cur['Package'], cur['Version'], cur.get('Architecture', ''),
-                                 source, rest.partition(')')[0]))
+                                 source, source_version))
 
     for line in text.splitlines():
         if not line.strip():
@@ -4141,7 +4170,7 @@ def _parse_dpkg_status(text):
         if line[:1] in (' ', '\t'):
             continue                      # folded continuation line
         k, _, v = line.partition(':')
-        if k in ('Package', 'Version', 'Architecture', 'Status', 'Source'):
+        if k in ('Package', 'Version', 'Architecture', 'Status', 'Source', 'Built-Using'):
             cur[k] = v.strip()
     flush()
     return pkgs, True

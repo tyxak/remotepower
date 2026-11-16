@@ -221,6 +221,30 @@ class TestAlpineOrder(unittest.TestCase):
                 self.assertLessEqual(pv.apk_compare(a, b), 0, (a, b))
 
 
+class TestDebianOrder(unittest.TestCase):
+    """The Debian order without a dpkg process. Checked on 2026-11-15 against 714 recorded OSV answers for Debian 12
+    and Ubuntu 22.04 (every advisory came back exactly when the version asked was below its fix); that recording
+    is not in the repository yet, so the rules are stated here one at a time."""
+
+    def test_the_rules(self):
+        for a, b, want in (('1.0', '1.0-0', 0), ('1.0~rc1', '1.0', -1), ('1.0+b1', '1.0', 1), ('2:1.0', '1:9.0', 1),
+                           ('1.0-1', '1.0-1+deb12u1', -1), ('1.0-1~bpo12+1', '1.0-1', -1), ('1.10', '1.9', 1),
+                           ('1.0a', '1.0', 1), ('1.0', '1.0.1', -1), ('09', '9', 0), ('1.0-1ubuntu1', '1.0-1', 1),
+                           ('1.0-1', '1.0-1build1', -1), ('1.1.1f-1ubuntu2.24+esm1', '1.1.1f-1ubuntu2.24', 1),
+                           ('1:1.2.13.dfsg-1', '1:1.2.13.dfsg-1+b1', -1), ('2.36-9+deb12u3', '2.36-9+deb12u10', -1),
+                           ('1:9.2p1-2+deb12u2', '1:9.2p1-2+deb12u3', -1), ('6.1.76-1', '6.1.76+1', -1),
+                           ('99999999999999999999-1', '100000000000000000000-1', -1)):
+            self.assertEqual(pv.deb_compare(a, b), want, (a, b))
+            self.assertEqual(pv.deb_compare(b, a), -want, (b, a))
+        self.assertTrue(pv.deb_ge('2.36-9+deb12u3', '2.36-9+deb12u3'))
+        self.assertFalse(pv.deb_ge('2.36-9+deb12u3', '2.36-9+deb12u4'))
+
+    def test_what_cannot_be_read_raises(self):
+        for bad in ('', None, 7, 'abc', '-1', ':1.0', 'a:1.0', '1.0 -1', '1.0_1', '１.0', 'x' * 300):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                pv.deb_compare(bad, '1.0-1')
+
+
 class TestTheScannerUsesThem(unittest.TestCase):
     """`_already_patched` is the one place that asks, and a version it cannot read keeps the finding."""
 

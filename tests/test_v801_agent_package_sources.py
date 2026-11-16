@@ -176,7 +176,56 @@ class TestDpkgQuery(unittest.TestCase):
     def test_the_format_asks_for_what_the_reader_reads(self):
         fields = AGENT._DPKG_QUERY_FORMAT.replace('\\t', '\t').replace('\\n', '').split('\t')
         self.assertEqual(fields, ['${db:Status-Abbrev}', '${Package}', '${Version}', '${Architecture}',
-                                  '${source:Package}', '${source:Version}'])
+                                  '${source:Package}', '${source:Version}', '${Built-Using}'])
+
+
+class TestASignedPackageNamesWhatItWasBuiltFrom(unittest.TestCase):
+    """The kernel image, grub and shim are signed packages: a source of their own that holds a signature. OSV
+    answers nothing for "linux-signed-amd64" and 1,000 advisories for "linux" (asked 2026-11-15). Built-Using
+    names the source the code came from."""
+
+    LINES = '\n'.join([
+        'ii \tlinux-image-6.1.0-18-amd64\t6.1.76-1\tamd64\tlinux-signed-amd64\t6.1.76+1\tlinux (= 6.1.76-1)',
+        'ii \tgrub-efi-amd64-signed\t1+2.06+13+deb12u1\tamd64\tgrub-efi-amd64-signed\t1+2.06+13+deb12u1\tgrub2 (= 2.06-13+deb12u1)',
+        'ii \tshim-signed\t1.39+15.7-1\tamd64\tshim-signed\t1.39\tshim (= 15.7-1)',
+        'ii \tlinux-image-5.15.0-25-generic\t5.15.0-25.25\tamd64\tlinux-signed\t5.15.0-25.25\tlinux (= 5.15.0-25.25)',
+        'ii \tbusybox-static\t1:1.35.0-4+b3\tamd64\tbusybox\t1:1.35.0-4\tglibc (= 2.36-9)',
+        'ii \tdocker.io\t20.10.24+dfsg1-1+b3\tamd64\tdocker.io\t20.10.24+dfsg1-1\tgolang-1.19 (= 1.19.8-2), golang-x (= 1.0-1)',
+        'ii \tunsigned-thing\t1.0-1\tamd64\tthing-signed\t1.0\tone (= 1), two (= 2)',
+        'ii \tdesigned\t1.0-1\tamd64\tdesigned\t1.0-1\tother (= 9)',
+        'ii \tno-field\t1.0-1\tamd64\tx-signed\t1.0-1',
+    ])
+
+    def setUp(self):
+        self.named = {p['name']: p for p in AGENT._parse_dpkg_query(self.LINES)[0]}
+
+    def test_the_kernel_image_is_filed_under_the_kernel_source(self):
+        self.assertEqual(self.named['linux-image-6.1.0-18-amd64'],
+                         {'name': 'linux-image-6.1.0-18-amd64', 'version': '6.1.76-1', 'arch': 'amd64', 'source': 'linux'})
+        self.assertEqual(self.named['linux-image-5.15.0-25-generic']['source'], 'linux')
+
+    def test_grub_and_shim_too_with_the_version_they_were_built_from(self):
+        self.assertEqual((self.named['grub-efi-amd64-signed']['source'], self.named['grub-efi-amd64-signed']['source_version']),
+                         ('grub2', '2.06-13+deb12u1'))
+        self.assertEqual((self.named['shim-signed']['source'], self.named['shim-signed']['source_version']),
+                         ('shim', '15.7-1'))
+
+    def test_what_a_program_embeds_is_not_what_it_is(self):
+        # a statically linked program lists what it embeds in the same field
+        self.assertEqual(self.named['busybox-static']['source'], 'busybox')
+        self.assertNotIn('source', self.named['docker.io'])
+
+    def test_only_one_named_source_and_only_for_a_signed_one(self):
+        self.assertEqual(self.named['unsigned-thing']['source'], 'thing-signed')      # two sources named: left alone
+        self.assertNotIn('source', self.named['designed'])                            # "designed" is not "signed"
+        self.assertEqual(self.named['no-field']['source'], 'x-signed')                # a dpkg without the field
+
+    def test_the_status_file_says_the_same(self):
+        text = ('Package: linux-image-6.1.0-18-amd64\nStatus: install ok installed\nArchitecture: amd64\n'
+                'Source: linux-signed-amd64 (6.1.76+1)\nVersion: 6.1.76-1\nBuilt-Using: linux (= 6.1.76-1)\n')
+        (pkg,) = AGENT._parse_dpkg_status(text)[0]
+        self.assertEqual(pkg, {'name': 'linux-image-6.1.0-18-amd64', 'version': '6.1.76-1', 'arch': 'amd64',
+                               'source': 'linux'})
 
 
 class TestDpkgStatus(unittest.TestCase):

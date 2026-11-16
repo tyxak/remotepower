@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["rpm_compare", "rpm_ge", "rpm_split", "apk_compare", "apk_ge"]
+__all__ = ["rpm_compare", "rpm_ge", "rpm_split", "apk_compare", "apk_ge", "deb_compare", "deb_ge"]
 
 MAX_LEN = 256
 
@@ -217,3 +217,81 @@ def apk_compare(a: object, b: object) -> int:
 
 def apk_ge(installed: object, fixed: object) -> bool:
     return apk_compare(installed, fixed) >= 0
+
+
+# ── Debian and Ubuntu ────────────────────────────────────────────────────────────────────────────────────
+
+# [epoch:]upstream[-revision]. The scanner used to run `dpkg --compare-versions` once per comparison, which
+# is a process per finding, and on a server without dpkg it could not compare at all and kept every finding.
+# This is the same order, from the Debian policy manual (5.6.12): each part is read as alternating runs of
+# non-digits and digits. In a non-digit run a tilde sorts before everything, even the end of the part, then
+# the end, then letters, then every other character. A digit run is a number.
+_DEB = re.compile(r"^(?:(?P<epoch>[0-9]{1,9}):)?(?P<rest>[0-9A-Za-z.+~:-]+)$")
+
+
+def _deb_rank(char: str) -> int:
+    if char == "~":
+        return -1
+    if char.isdigit():
+        return 0
+    if char.isalpha():
+        return ord(char)
+    return ord(char) + 256
+
+
+def _deb_part(a: str, b: str) -> int:
+    i = j = 0
+    la, lb = len(a), len(b)
+    while i < la or j < lb:
+        while (i < la and not a[i].isdigit()) or (j < lb and not b[j].isdigit()):
+            rank_a = _deb_rank(a[i]) if i < la else 0
+            rank_b = _deb_rank(b[j]) if j < lb else 0
+            if rank_a != rank_b:
+                return 1 if rank_a > rank_b else -1
+            i += 1
+            j += 1
+        while i < la and a[i] == "0":
+            i += 1
+        while j < lb and b[j] == "0":
+            j += 1
+        first = 0
+        while i < la and j < lb and a[i].isdigit() and b[j].isdigit():
+            if not first and a[i] != b[j]:
+                first = 1 if a[i] > b[j] else -1
+            i += 1
+            j += 1
+        if i < la and a[i].isdigit():
+            return 1  # the longer number is the larger
+        if j < lb and b[j].isdigit():
+            return -1
+        if first:
+            return first
+    return 0
+
+
+def _deb_split(version: object) -> tuple[int, str, str]:
+    text = _checked(version)
+    if not text.isascii():
+        raise ValueError("not a Debian package version")
+    match = _DEB.match(text)
+    if not match:
+        raise ValueError("not a Debian package version")
+    upstream, dash, revision = match.group("rest").rpartition("-")
+    if not dash:
+        upstream, revision = match.group("rest"), ""
+    if not upstream or not upstream[0].isdigit():
+        raise ValueError("a Debian version starts with a digit")
+    return int(match.group("epoch") or 0), upstream, revision
+
+
+def deb_compare(a: object, b: object) -> int:
+    """-1, 0 or 1 for a older than, equal to or newer than b, both Debian package versions."""
+    epoch_a, upstream_a, revision_a = _deb_split(a)
+    epoch_b, upstream_b, revision_b = _deb_split(b)
+    if epoch_a != epoch_b:
+        return 1 if epoch_a > epoch_b else -1
+    return _deb_part(upstream_a, upstream_b) or _deb_part(revision_a, revision_b)
+
+
+def deb_ge(installed: object, fixed: object) -> bool:
+    return deb_compare(installed, fixed) >= 0
