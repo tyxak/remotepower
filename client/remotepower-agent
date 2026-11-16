@@ -4470,6 +4470,12 @@ def send_package_list(creds, force=False):
             'ID':         os_release.get('ID', ''),
             'VERSION_ID': os_release.get('VERSION_ID', ''),
             'ID_LIKE':    os_release.get('ID_LIKE', ''),
+            # 8.0.1: the release a derivative is built on. Linux Mint 21.3 says VERSION_ID 21.3 and
+            # UBUNTU_CODENAME jammy, LMDE says DEBIAN_CODENAME bookworm, Devuan says
+            # VERSION_CODENAME daedalus. The security data is kept per release of Ubuntu and Debian.
+            'UBUNTU_CODENAME':  os_release.get('UBUNTU_CODENAME', ''),
+            'DEBIAN_CODENAME':  os_release.get('DEBIAN_CODENAME', ''),
+            'VERSION_CODENAME': os_release.get('VERSION_CODENAME', ''),
         },
         'packages':       pkgs,
     }

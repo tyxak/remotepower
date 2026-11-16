@@ -200,8 +200,17 @@ as WAF refusals. The release page is [docs/v8.0.1.md](docs/v8.0.1.md).
   its standard support goes. A fifth tile, **Needs Ubuntu Pro**, counts those. A host that has a package from Ubuntu Pro installed counts such
   a fix as its own (a Pro version ends in `+esm1` or `~esm1`; a Pro kernel carries no such mark, so a host whose only Pro packages are kernels
   is not recognised). FIPS builds have fixes of their own and are never read as the host's. On an interim release that is no longer followed
-  a finding matched through a newer release's version says **Fixed in a newer release**. Linux Mint, Zorin OS and elementary OS report a
-  version of their own, so their release is not known and they stay matched by installed name.
+  a finding matched through a newer release's version says **Fixed in a newer release**.
+- **A derivative is scanned under the release it is built on.** Linux Mint 21.3, Zorin OS 17 and elementary OS 7 are Ubuntu 22.04 underneath
+  and report a version of their own, so their release was "not known": they stayed matched by installed name, and on a Mint host of the
+  recordings 86 of 92 findings named the fix of another release. The Linux agent now sends the three codename fields of `/etc/os-release`
+  (the Ubuntu one, the Debian one and the release's own) with its package list, and the release comes from the codename of the base. A
+  derivative that numbers its releases as Ubuntu does (KDE neon) is read by its version, with any agent. **Devuan and LMDE were read as
+  clean**: their own number was taken for Debian's, so Devuan 5 was asked for as Debian 5 and LMDE 6 as Debian 6, releases the database
+  holds nothing for. They are scanned as the Debian release they are built on, with any agent and also for a list stored before the upgrade.
+  Kali (2025.3) was asked for as Debian 2025 the same way and now shows **unsupported**. Debian testing, which has a codename and no version,
+  is scanned as the release it will be. The tables hold the names the distributions published; the os-release samples in
+  `tests/test_v801_derivatives.py` are written from the files they ship and were not read from hosts.
 - **A notice is not a second finding.** Debian and Ubuntu answer with one record per CVE and, a second time, with the notices that announced
   the fixes (DSA, DLA, USN, LSN). A notice is left out when the per-CVE records of the same package already tell the host to install a
   version at or past the notice's own fix. Of the 81 notices that came back on 2026-11-15, 78 had a per-CVE record with the same fix for the

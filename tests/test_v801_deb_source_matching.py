@@ -437,8 +437,13 @@ class TestAnUbuntuHost(_Scan):
         for derivative in ({'os_id': 'linuxmint', 'version_id': '21.3'}, {'os_id': 'zorin', 'version_id': '17'},
                            {'os_id': 'ubuntu', 'version_id': ''}, {'os_id': 'ubuntu', 'version_id': 'rolling'},
                            {'os_id': 'ubuntu', 'version_id': '22.4'}, {'os_id': 'ubuntu', 'version_id': '9.10'},
-                           {'os_id': 'linuxmint', 'version_id': '22.04'}, {'version_id': '22.04'}):
+                           {'os_id': 'elementary', 'version_id': '7.1'}, {'version_id': '22'}):
             self.assertEqual(name(dict(derivative, ecosystem='Ubuntu')), '', derivative)
+        # a derivative that numbers its releases as Ubuntu does says it in its version (KDE neon 24.04), and one that
+        # does not says it in the codename an agent from 8.0.1 reports (tests/test_v801_derivatives.py)
+        self.assertEqual(name({'ecosystem': 'Ubuntu', 'os_id': 'neon', 'version_id': '24.04'}), 'Ubuntu:24.04:LTS')
+        self.assertEqual(name({'ecosystem': 'Ubuntu', 'os_id': 'linuxmint', 'version_id': '21.3', 'ubuntu_codename': 'jammy'}),
+                         'Ubuntu:22.04:LTS')
         self.assertEqual(name({'ecosystem': 'Debian:12'}), 'Debian:12')
         self.assertEqual(name({'ecosystem': 'Alpine:v3.19'}), 'Alpine:v3.19')
         self.assertEqual(name({'ecosystem': 'AlmaLinux', 'version_id': '9.4'}), '')
@@ -1503,7 +1508,7 @@ class TestWhatThePagesAreHanded(unittest.TestCase):
     def test_the_words_for_what_a_scan_leaves_out(self):
         for os_id, version, sources, want in (('ubuntu', '22.04', True, ''), ('ubuntu', '22.04', False, 'needs_agent'),
                                               ('linuxmint', '21.3', True, 'no_release'),
-                                              ('linuxmint', '21.3', False, 'no_release')):
+                                              ('linuxmint', '21.3', False, 'needs_agent')):
             entry = {'ecosystem': 'Ubuntu', 'os_id': os_id, 'version_id': version, 'packages': []}
             if sources:
                 entry['sources'] = True

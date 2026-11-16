@@ -61,6 +61,47 @@ OSV_SUPPORTED_ECOSYSTEMS = (
 
 _RELEASED_BY_MAJOR = ('Rocky Linux', 'AlmaLinux')
 
+# 8.0.1: the release a derivative is built on. A derivative numbers its own releases (Linux Mint 21.3,
+# Zorin OS 17, Devuan 5) and the security data is kept per release of Ubuntu and of Debian, so the
+# number says nothing; what its os-release names is the codename of its base (UBUNTU_CODENAME=jammy,
+# DEBIAN_CODENAME=bookworm), or its own (Devuan: VERSION_CODENAME=daedalus). The tables are the names
+# the distributions published, written down here on 2026-11-16; a name that is not in them is a
+# release this version does not know, and the host is then treated as it was before.
+_UBUNTU_BY_CODENAME = {
+    'trusty': '14.04', 'xenial': '16.04', 'bionic': '18.04', 'focal': '20.04', 'jammy': '22.04',
+    'noble': '24.04', 'resolute': '26.04', 'oracular': '24.10', 'plucky': '25.04', 'questing': '25.10',
+}
+_DEBIAN_BY_CODENAME = {
+    'buster': 10, 'bullseye': 11, 'bookworm': 12, 'trixie': 13, 'forky': 14,
+    # Devuan names its releases itself and builds each on one of Debian's
+    'beowulf': 10, 'chimaera': 11, 'daedalus': 12, 'excalibur': 13,
+}
+# A derivative of Debian whose VERSION_ID is its own, for a list from an agent that sends no codename:
+# {ID: {its major: Debian's}}. Devuan 5 is Debian 12; LMDE (Linux Mint Debian Edition) 6 is Debian 12.
+_DEBIAN_BY_OWN_NUMBER = {
+    'devuan': {3: 10, 4: 11, 5: 12, 6: 13},
+    'linuxmint': {4: 10, 5: 11, 6: 12, 7: 13},
+}
+_CODENAME = re.compile(r'^[a-z][a-z0-9-]{0,31}$')
+
+
+def codename(value) -> str:
+    """A release codename as an os-release file gives it, lower-case, or '' for anything else."""
+    text = str(value or '').strip().lower() if isinstance(value, str) else ''
+    return text if _CODENAME.match(text) else ''
+
+
+def _debian_base(os_release: dict, os_id: str, ver_major: str) -> int | None:
+    """The Debian release a derivative is built on: by the codename it names, else by its own number
+    when that is a known one."""
+    for key in ('DEBIAN_CODENAME', 'VERSION_CODENAME'):
+        base = _DEBIAN_BY_CODENAME.get(codename(os_release.get(key)))
+        if base:
+            return base
+    if ver_major.isascii() and ver_major.isdigit():
+        return _DEBIAN_BY_OWN_NUMBER.get(os_id, {}).get(int(ver_major))
+    return None
+
 
 def _with_major(name: str, major: str) -> str:
     """'AlmaLinux' and '9' give 'AlmaLinux:9'. Without a usable number the bare name is kept: it answers
@@ -82,6 +123,13 @@ def entry_ecosystem(entry) -> str:
         return ''
     if ecosystem in _RELEASED_BY_MAJOR:
         return _with_major(ecosystem, str(entry.get('version_id') or '').split('.')[0])
+    os_id = str(entry.get('os_id') or '').strip().lower()
+    if ecosystem.startswith('Debian:') and os_id and os_id != 'debian':
+        # A derivative of Debian. A list stored before 8.0.1 took its own number for Debian's ("Debian:5"
+        # for Devuan 5), so the name is worked out again from what the entry holds.
+        return detect_ecosystem({'ID': os_id, 'ID_LIKE': 'debian', 'VERSION_ID': entry.get('version_id'),
+                                 'DEBIAN_CODENAME': entry.get('debian_codename'),
+                                 'VERSION_CODENAME': entry.get('version_codename')}, 'apt') or ''
     return ecosystem
 
 
@@ -91,13 +139,18 @@ def entry_release(entry) -> str:
     Debian and Alpine are scanned under that name already. Ubuntu is scanned under the bare name
     "Ubuntu", which answers for whichever release holds the version asked; its records then list one
     entry per release, and the host's is found by the version the host reported: 22.04 is
-    "Ubuntu:22.04:LTS". Pop!_OS numbers its releases as Ubuntu does. Any other derivative reports a
-    version of its own (Linux Mint 21.3), which names no Ubuntu release."""
+    "Ubuntu:22.04:LTS". Pop!_OS numbers its releases as Ubuntu does. Another derivative reports a
+    version of its own (Linux Mint 21.3), which names no Ubuntu release: its release is the one its
+    agent says it is built on."""
     ecosystem = entry_ecosystem(entry)
     if ecosystem == 'Ubuntu':
         if str(entry.get('os_id') or '').strip().lower() in ('ubuntu', 'pop'):
             return cve_fixes.ubuntu_release_name(entry.get('version_id'))
-        return ''
+        # 8.0.1: a derivative. An agent from 8.0.1 reports the Ubuntu release it is built on
+        # (Linux Mint 21.3, Zorin OS 17 and elementary OS 7 all say jammy). One that numbers its
+        # releases as Ubuntu does (KDE neon 24.04) says it in its version; 21.3 or 17 name none.
+        built_on = _UBUNTU_BY_CODENAME.get(codename(entry.get('ubuntu_codename')))
+        return cve_fixes.ubuntu_release_name(built_on or entry.get('version_id'))
     return ecosystem if cve_fixes.release_of(ecosystem) is not None else ''
 
 
@@ -127,14 +180,16 @@ def coverage(ecosystem, has_meta: bool = False, release: str = '') -> str:
     'needs_agent'  the advisories are filed under the source package and the list comes from an agent
                    that does not report source packages (Debian, Ubuntu, Alpine, Rocky), so a package
                    named otherwise than its source is not checked
-    'no_release'   an Ubuntu derivative whose own version names no Ubuntu release: it is asked for by
-                   installed name for the same effect, whatever its agent reports
+    'no_release'   an Ubuntu derivative whose agent reports the source packages and names no Ubuntu
+                   release this version knows: it is asked for by installed name for the same effect
     ''             nothing known to be left out"""
     fam = family(ecosystem)
     if fam == 'deb':
-        if not by_source(ecosystem, release):
-            return 'no_release'
-        return '' if has_meta else 'needs_agent'
+        if not has_meta:
+            # an agent from 8.0.1 reports the source packages and, for a derivative, the release it is
+            # built on: updating it is what helps, whichever of the two is missing
+            return 'needs_agent'
+        return '' if by_source(ecosystem, release) else 'no_release'
     if not has_meta and (fam == 'apk' or (fam == 'rpm' and ecosystem.startswith('Rocky Linux'))):
         return 'needs_agent'
     return ''
@@ -150,8 +205,12 @@ def detect_ecosystem(os_release: dict, pkg_manager: str) -> str | None:
     ver_major = ver_id.split('.')[0] if ver_id else ''
 
     if pkg_manager == 'apt':
-        if os_id == 'debian' and ver_major:
-            return f'Debian:{ver_major}'
+        if os_id == 'debian':
+            if ver_major:
+                return f'Debian:{ver_major}'
+            # testing has a codename and no VERSION_ID
+            base = _DEBIAN_BY_CODENAME.get(codename(os_release.get('VERSION_CODENAME')))
+            return f'Debian:{base}' if base else None
         if os_id == 'ubuntu':
             return 'Ubuntu'
         # Ubuntu derivatives (Zorin, Linux Mint, Pop!_OS, elementary, …) carry
@@ -161,8 +220,19 @@ def detect_ecosystem(os_release: dict, pkg_manager: str) -> str | None:
         # (e.g. Zorin 18), which is meaningless as a Debian release number.
         if 'ubuntu' in id_like:
             return 'Ubuntu'
-        if 'debian' in id_like and ver_major:
-            return f'Debian:{ver_major}'
+        if 'debian' in id_like:
+            # 8.0.1: a derivative of Debian is scanned under the Debian release it is built on. Its own
+            # number named another one: Devuan 5 was asked for as Debian 5 and LMDE 6 as Debian 6,
+            # releases of 2009 and 2011 that the database holds nothing for, so the host read as clean.
+            base = _debian_base(os_release, os_id, ver_major)
+            if base:
+                return f'Debian:{base}'
+            if os_id in _DEBIAN_BY_OWN_NUMBER or not (ver_major.isascii() and ver_major.isdigit()):
+                return None       # a release of it this version does not know
+            # One that numbers its releases as Debian does (Raspberry Pi OS, Proxmox VE). A number
+            # that no Debian release has soon is the derivative's own (Kali says 2025, Deepin 23).
+            if 7 <= int(ver_major) <= max(_DEBIAN_BY_CODENAME.values()) + 3:
+                return f'Debian:{int(ver_major)}'
         return None
 
     if pkg_manager == 'dnf':

@@ -69416,10 +69416,16 @@ def handle_packages_submit():
 
     pkg_manager = _sanitize_str(body.get('pkg_manager', ''), 16)
     hint = body.get('ecosystem_hint') or {}
+    if not isinstance(hint, dict):
+        hint = {}
     safe_hint = {
         'ID':         _sanitize_str(hint.get('ID', ''), 32),
         'VERSION_ID': _sanitize_str(hint.get('VERSION_ID', ''), 16),
         'ID_LIKE':    _sanitize_str(hint.get('ID_LIKE', ''), 64),
+        # 8.0.1: the release a derivative is built on (an agent from 8.0.1 sends them)
+        'UBUNTU_CODENAME':  cve_scanner.codename(hint.get('UBUNTU_CODENAME')),
+        'DEBIAN_CODENAME':  cve_scanner.codename(hint.get('DEBIAN_CODENAME')),
+        'VERSION_CODENAME': cve_scanner.codename(hint.get('VERSION_CODENAME')),
     }
 
     ecosystem = cve_scanner.detect_ecosystem(safe_hint, pkg_manager)
@@ -69439,6 +69445,9 @@ def handle_packages_submit():
         'os_id':        safe_hint['ID'],
         'version_id':   safe_hint['VERSION_ID'],
     }
+    for _key in ('UBUNTU_CODENAME', 'DEBIAN_CODENAME', 'VERSION_CODENAME'):
+        if safe_hint[_key]:
+            store[dev_id][_key.lower()] = safe_hint[_key]
     # 8.0.1: the agent says whether its list names source packages and epochs. Without the mark, a package
     # with no source field cannot be told from a list that was collected without them.
     if body.get('sources') is True and pkg_manager in ('apt', 'dnf', 'apk'):

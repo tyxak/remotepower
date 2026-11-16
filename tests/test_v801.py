@@ -181,6 +181,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v801_notify_dest_health.py",    # a destination that keeps failing is reported once, through the others, and closed when it delivers
         "tests/test_v801_deb_source_matching.py",   # Debian and Ubuntu by source package against two recordings: the rule, the ceilings, Ubuntu Pro, the detail stage
         "tests/test_v801_cve_readers.py",           # campaigns, both MCP tools, the assistant, the SBOM and the "clean" texts read what a scan writes
+        "tests/test_v801_derivatives.py",           # Mint, Zorin, elementary, Devuan and LMDE are scanned under the release they are built on
     )
 
     def test_the_list_is_not_empty(self):

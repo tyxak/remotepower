@@ -470,6 +470,7 @@ SHAPES: dict = {
     'metrics_history.json': dict_of(fields(samples=list_of(fields(mounts=list_of())))),
     'notify_health.json': dict_of(fields(fails=OPT_NUM, since=OPT_NUM, last=OPT_NUM, error=OPT_STR, label=OPT_STR)),
     'packages.json': dict_of(fields(collected_at=OPT_NUM, count=OPT_NUM, os_id=OPT_STR, pkg_manager=OPT_STR, version_id=OPT_STR,
+                                    ubuntu_codename=OPT_STR, debian_codename=OPT_STR, version_codename=OPT_STR,
                                     packages=list_of(fields(arch=OPT_STR, name=OPT_STR, version=OPT_STR, source=OPT_STR,
                                                             source_version=OPT_STR, epoch=OPT_STR)))),
     'patch_age.json': dict_of(fields(all_first=OPT_NUM, sec_first=OPT_NUM), skip='_', meta={'_last_run': OPT_NUM, '_breaching': list_of(STR)}),

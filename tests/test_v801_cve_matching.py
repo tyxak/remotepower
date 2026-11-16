@@ -375,7 +375,8 @@ class TestDebianAndUbuntuAreAskedBySourceWhenTheReleaseIsKnown(unittest.TestCase
         self.assertEqual(coverage('Ubuntu', True, 'Ubuntu:22.04:LTS'), '')
         self.assertEqual(coverage('Ubuntu', False, 'Ubuntu:22.04:LTS'), 'needs_agent')
         self.assertEqual(coverage('Ubuntu', True), 'no_release')
-        self.assertEqual(coverage('Ubuntu', False), 'no_release')       # a newer agent would not change it
+        # an older agent on a derivative: an agent from 8.0.1 reports the release it is built on, so updating it helps
+        self.assertEqual(coverage('Ubuntu', False), 'needs_agent')
         self.assertEqual(coverage('Alpine:v3.19', True), '')
         self.assertEqual(coverage('Rocky Linux:9', True), '')
         self.assertEqual(coverage('Rocky Linux:9', False), 'needs_agent')

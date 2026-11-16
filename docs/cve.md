@@ -66,16 +66,23 @@ installed. Open it with a click.
 
 | Host | Ecosystem |
 | --- | --- |
-| Debian (`apt`) | `Debian:<major version>` |
-| Ubuntu, and derivatives such as Linux Mint, Zorin OS and Pop!_OS | `Ubuntu` |
+| Debian (`apt`), and derivatives such as Raspberry Pi OS, Devuan and LMDE | `Debian:<major version>` of the Debian release they are built on |
+| Ubuntu, and derivatives such as Linux Mint, Zorin OS, elementary OS and Pop!_OS | `Ubuntu` |
 | Rocky Linux (`dnf` or `yum`) | `Rocky Linux:<major version>` |
 | AlmaLinux | `AlmaLinux:<major version>` |
 | Red Hat Enterprise Linux | `Red Hat` |
 | Alpine (`apk`) | `Alpine:v<major.minor>` |
 
-An Ubuntu host's release is read from the version it reports (22.04). Pop!_OS numbers its
-releases the same way. Other derivatives report a version of their own, which names no Ubuntu
-release; [How a package is matched](#how-a-package-is-matched) says what that changes.
+An Ubuntu host's release is read from the version it reports (22.04). Pop!_OS and KDE neon
+number their releases the same way. Other derivatives report a version of their own: Linux Mint
+21.3, Zorin OS 17 and elementary OS 7 are all Ubuntu 22.04 underneath. An agent from 8.0.1
+reports the release a derivative is built on, and its fixes are read for that release.
+Without it the release is not known;
+[How a package is matched](#how-a-package-is-matched) says what that changes.
+
+A derivative of Debian is scanned under the Debian release it is built on: Devuan 5 and LMDE 6
+as Debian 12. Before 8.0.1 their own number was taken for Debian's, so they were asked for as
+Debian 5 and Debian 6 and read as clean. Kali has no Debian release and shows **unsupported**.
 
 OSV has no Arch Linux feed, so `pacman` hosts report no ecosystem. A Linux host on any other
 distribution shows **unsupported** in the Last scan column and is skipped. The Windows and
@@ -98,9 +105,10 @@ Matching by source package needs an agent from 8.0.1 on. It reports the source p
 each installed package and, on RPM hosts, the epoch of its version. A host with an older
 agent is asked for package by package, and its host view says what that leaves out.
 
-A Debian or Ubuntu host is asked for by source package only when its release is known. An
-Ubuntu derivative with a version of its own (Linux Mint, Zorin OS, elementary OS) is asked for
-package by package, whatever its agent reports, and its host view says so.
+A Debian or Ubuntu host is asked for by source package only when its release is known. For an
+Ubuntu derivative with a version of its own (Linux Mint, Zorin OS, elementary OS) that needs an
+agent from 8.0.1 as well, because it reports the Ubuntu release the derivative is built on.
+With an older agent such a host is asked for package by package, and its host view says so.
 
 One advisory against one source package is one finding. It carries the source package's name
 and lists the installed packages built from it after **installed as**. `openssl` and
@@ -156,7 +164,7 @@ is one of:
 | **Fixed in a newer release** | The host's release has no fix, a newer release does. The finding names that release and version (for example `Debian:13 8.7.1-1`) and offers nothing to install. |
 | **No fix yet** | No release has a fix. |
 | **Fixed with Ubuntu Pro** | The fix for the host's release ships in Ubuntu Pro only, which is where every fix of a release past its standard support goes. The finding names the Pro version and offers nothing to install. On a host that has a package from Ubuntu Pro installed (its version ends in `+esm1` or `~esm1`), such a finding is **Fixed**. A kernel from Ubuntu Pro carries no such mark, so a host whose only Pro packages are kernels is not recognised. |
-| **Not checked** | Red Hat, and an Ubuntu derivative whose release is not known, are scanned without a release, so their entries cannot be told apart. Rocky Linux and AlmaLinux publish an advisory per release together with its fix. In all of these a finding keeps the fixed version OSV lists and counts as fixable when it has one. |
+| **Not checked** | Red Hat, and an Ubuntu derivative whose release is not known (its agent is older than 8.0.1), are scanned without a release, so their entries cannot be told apart. Rocky Linux and AlmaLinux publish an advisory per release together with its fix. In all of these a finding keeps the fixed version OSV lists and counts as fixable when it has one. |
 
 The five tiles under the severity counts count the listed findings that are not ignored
 (**Fixable now**, **Newer release only**, **No fix yet**, **Needs Ubuntu Pro**, **Not checked**). On a
@@ -409,7 +417,8 @@ findings do not count. You can keep up to 200 campaigns.
 | Scans fail or skip hosts | The circuit breaker may be open after OSV errors. It closes by itself after ten minutes. |
 | You cleared the alerts and want them back | **Re-alert backlog**. |
 | The count on a card is lower than the table | Counting only what an update can fix is on, or the finding is ignored. |
-| A library has no findings on Debian or Ubuntu | The host's agent is older than 8.0.1, or the host is an Ubuntu derivative whose release is not known. The host view says which. See [How a package is matched](#how-a-package-is-matched). |
+| A library has no findings on Debian or Ubuntu | The host's agent is older than 8.0.1. The host view says so. See [How a package is matched](#how-a-package-is-matched). |
+| A Devuan, LMDE or Kali host changed after the upgrade | Devuan and LMDE are scanned under the Debian release they are built on and get the findings they never had. Kali has no Debian release and shows **unsupported** where it showed a scan with nothing in it. |
 | A host says its agent does not report source packages | Update the agent, then click **Send package list now** and scan the host. |
 | The High count rose after the upgrade to 8.0.1 | Debian and Ubuntu hosts are matched by source package now. Many of the new findings have no fix for the host's release. **Count only CVEs an update can fix** leaves those out of the numbers, and the alert option of the same name out of the alerts. |
 | A host has a number under **Counted** and few findings | See [What is listed and what is counted](#what-is-listed-and-what-is-counted). |
