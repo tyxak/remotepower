@@ -63,7 +63,7 @@ class TestFocusAndRightToLeft(unittest.TestCase):
 
     def test_the_focus_ring_of_clipped_controls_sits_inside(self):
         for sel in ("thead th:focus-visible", ".doc-card > summary:focus-visible", ".segmented > button:focus-visible",
-                    "tr.pointer:focus-visible", ".table-card td:focus-visible"):
+                    "tr.pointer:focus-visible", ".table-card td:focus-visible", ".ipi-ignore-classes :focus-visible"):
             with self.subTest(selector=sel):
                 self.assertTrue(css_has(sel, "outline-offset: -2px"))
 

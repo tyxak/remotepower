@@ -9,6 +9,7 @@ keep the card's box at a phone width and be translated.
 Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
 """
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -47,7 +48,8 @@ def setUpModule():
     proc = subprocess.run([sys.executable, str(seeder), '--data-dir', data_dir, '--apply'],
                           capture_output=True, cwd=str(_ROOT), timeout=900)
     if proc.returncode != 0:
-        raise unittest.SkipTest('demo seeder failed: ' + proc.stderr.decode(errors='replace')[-300:])
+        shutil.rmtree(data_dir, ignore_errors=True)
+        browser_required.skip_or_fail('demo seeder failed: ' + proc.stderr.decode(errors='replace')[-300:])
     from e2e_harness import start_stack
     pw = sync_playwright().start()
     try:
@@ -61,7 +63,8 @@ def setUpModule():
     except Exception as exc:
         browser.close()
         pw.stop()
-        raise unittest.SkipTest(f'app stack not available: {exc}')
+        shutil.rmtree(data_dir, ignore_errors=True)
+        browser_required.skip_or_fail(f'app stack not available: {exc}')
     _STATE.update(pw=pw, browser=browser, base=base, shutdown=shutdown, data_dir=data_dir)
 
 
@@ -72,7 +75,6 @@ def tearDownModule():
     finally:
         if _STATE.get('shutdown'):
             _STATE['shutdown']()
-        import shutil
         shutil.rmtree(_STATE.get('data_dir', ''), ignore_errors=True)       # tmpfs: the seeded data dir goes with the module
 
 
@@ -321,33 +323,131 @@ class TestThePage(unittest.TestCase):
             self.page.set_viewport_size({'width': 1440, 'height': 900})
 
     # The list of kinds that are never reported, as a ruler sees it: the grid's own tracks and, for every kind, where its box starts (from the
-    # side reading starts on), how far the middle of the box is from the middle of the first line of its words, and how many lines the words take.
-    # `narrow` names kinds that are squeezed first, so the list holds names that wrap whatever the font and the language.
+    # side reading starts on), how far the middle of the box is from the middle of the first line of its words, how many lines the words take,
+    # which grid row it is in (labels whose heights overlap are one row, whatever each label's own top is: a label that is centred or pushed to
+    # the bottom of its row has another top than the tallest one) and what makes a general kind a heading. `narrow` names kinds that are squeezed
+    # first, so the list holds names that wrap whatever the font and the language. The squeeze is put back whatever happens.
     KINDS = """(narrow) => {
         const box = document.getElementById('ipintel-ignore-classes'), cs = getComputedStyle(box), rtl = cs.direction === 'rtl';
-        for (const id of narrow) box.querySelector('input[data-ipi-class="' + id + '"]').parentElement.style.maxWidth = '150px';
-        const b = box.getBoundingClientRect(), edge = rtl ? b.left + box.clientLeft + box.clientWidth : b.left + box.clientLeft;
-        const from = (r) => Math.round((rtl ? edge - r.right : r.left - edge) * 10) / 10;
-        const kinds = [...box.querySelectorAll('label')].map(l => {
-            const i = l.querySelector('input'), ir = i.getBoundingClientRect(), lr = l.getBoundingClientRect();
-            const range = document.createRange();
-            range.selectNodeContents(l.querySelector('span'));
-            const runs = [...range.getClientRects()].filter(r => r.width > 0).sort((a, c) => a.top - c.top);
-            const first = runs.filter(r => r.top - runs[0].top < 8), last = runs[runs.length - 1];
-            const mid = (Math.min(...first.map(r => r.top)) + Math.max(...first.map(r => r.bottom))) / 2;
-            return {id: i.dataset.ipiClass, general: l.classList.contains('ipi-ignore-general'), kind: l.classList.contains('ipi-ignore-kind'),
-                    box: from(ir), words: Math.min(...runs.map(from)), top: Math.round(lr.top), boxTop: Math.round(ir.top * 10) / 10,
-                    offLine: Math.round((ir.top + ir.height / 2 - mid) * 10) / 10, lines: 1 + Math.round((last.top - runs[0].top) / parseFloat(getComputedStyle(l).fontSize) / 1.2),
-                    width: Math.round(lr.width), end: Math.round((from(lr) + lr.width) * 10) / 10};
-        });
-        for (const id of narrow) box.querySelector('input[data-ipi-class="' + id + '"]').parentElement.style.maxWidth = '';
-        return {tracks: cs.gridTemplateColumns.split(' ').map(parseFloat), gap: parseFloat(cs.columnGap), wide: box.clientWidth,
-                sideways: box.scrollWidth - box.clientWidth, rtl, table: Object.keys(_IPI_CLASS).length, kinds};
+        const squeezed = narrow.map(id => box.querySelector('input[data-ipi-class="' + id + '"]').parentElement);
+        for (const l of squeezed) l.style.maxWidth = '150px';
+        try {
+            const b = box.getBoundingClientRect(), edge = rtl ? b.left + box.clientLeft + box.clientWidth : b.left + box.clientLeft;
+            const from = (r) => Math.round((rtl ? edge - r.right : r.left - edge) * 10) / 10;
+            const kinds = [...box.querySelectorAll('label')].map(l => {
+                const i = l.querySelector('input'), ir = i.getBoundingClientRect(), lr = l.getBoundingClientRect(), ls = getComputedStyle(l);
+                const range = document.createRange();
+                range.selectNodeContents(l.querySelector('span'));
+                const runs = [...range.getClientRects()].filter(r => r.width > 0).sort((a, c) => a.top - c.top);
+                const first = runs.filter(r => r.top - runs[0].top < 8), last = runs[runs.length - 1];
+                const mid = (Math.min(...first.map(r => r.top)) + Math.max(...first.map(r => r.bottom))) / 2;
+                return {id: i.dataset.ipiClass, general: l.classList.contains('ipi-ignore-general'),
+                        box: from(ir), boxW: Math.round(ir.width * 100) / 100, boxH: Math.round(ir.height * 100) / 100, words: Math.min(...runs.map(from)),
+                        top: Math.round(lr.top * 10) / 10, bottom: lr.bottom, boxTop: Math.round(ir.top * 10) / 10,
+                        offLine: Math.round((ir.top + ir.height / 2 - mid) * 10) / 10,
+                        lines: 1 + Math.round((last.top - runs[0].top) / (parseFloat(ls.lineHeight) || 1)),
+                        width: Math.round(lr.width), end: Math.round((from(lr) + lr.width) * 10) / 10,
+                        weight: parseInt(ls.fontWeight, 10), rule: parseFloat(ls.borderTopWidth), ruleStyle: ls.borderTopStyle,
+                        ruleColour: ls.borderTopColor, lead: parseFloat(ls.marginTop) + parseFloat(ls.paddingTop), row: -1};
+            });
+            let row = -1, reach = -Infinity;
+            for (const k of [...kinds].sort((p, q) => p.top - q.top || p.box - q.box)) {
+                if (k.top >= reach - 0.5) { row++; reach = k.bottom; } else reach = Math.max(reach, k.bottom);
+                k.row = row;
+            }
+            return {tracks: cs.gridTemplateColumns.split(' ').map(parseFloat), gap: parseFloat(cs.columnGap), wide: box.clientWidth,
+                    sideways: box.scrollWidth - box.clientWidth, rtl, table: Object.keys(_IPI_CLASS).length, kinds,
+                    cap: parseFloat(cs.maxHeight), window: window.innerHeight, clientH: box.clientHeight, scrollH: box.scrollHeight,
+                    ref: Math.round(document.getElementById('ipintel-report-samples').getBoundingClientRect().width * 100) / 100,
+                    coarse: matchMedia('(pointer: coarse)').matches};
+        } finally {
+            for (const l of squeezed) l.style.maxWidth = '';
+        }
     }"""
+
+    # Where the ring of the focused box is drawn, against the edges of the list that clips it (negative: cut). The ring's outer edge is
+    # the border box grown by the outline's offset and width.
+    RING = """() => {
+        const a = document.activeElement, box = document.getElementById('ipintel-ignore-classes');
+        const cs = getComputedStyle(a), r = a.getBoundingClientRect(), b = box.getBoundingClientRect();
+        const grow = (cs.outlineStyle === 'none' ? 0 : parseFloat(cs.outlineWidth)) + (parseFloat(cs.outlineOffset) || 0);
+        const L = b.left + box.clientLeft, T = b.top + box.clientTop, R = L + box.clientWidth, B = T + box.clientHeight;
+        return {id: a.dataset && a.dataset.ipiClass, style: cs.outlineStyle, visible: a.matches(':focus-visible'),
+                left: r.left - grow - L, top: r.top - grow - T, right: R - (r.right + grow), bottom: B - (r.bottom + grow)};
+    }"""
+
+    # The focused element is a box of the list. Firefox puts a list that overflows (so it can be scrolled from the keyboard) in the tab order before
+    # its boxes, so a walk through the boxes starts at the first Tab that lands on one.
+    IS_BOX = "() => !!document.activeElement && document.activeElement.matches('#ipintel-ignore-classes input')"
+
+    def _the_list_stands_on_its_lines(self, where, got, box):
+        """What one measurement of the list has to show. `box` is the size of a checkbox on this screen."""
+        kinds, tracks = got['kinds'], got['tracks']
+        self.assertEqual(len(kinds), got['table'], '%s: one box for each kind of the page\'s table' % where)
+        self.assertGreater(len(kinds), 25, 'the control: the list is there')
+        self.assertLessEqual(got['sideways'], 1, '%s: the list scrolls sideways by %s' % (where, got['sideways']))
+        wrapped = sorted(k['id'] for k in kinds if k['lines'] > 1)
+        self.assertTrue({'waf', 'config_probe'} <= set(wrapped), 'the control: the two squeezed names wrap. %s: %r' % (where, wrapped))
+        self.assertAlmostEqual(got['ref'], box, delta=0.5, msg='%s: the page\'s own checkbox is %spx, the control for the size of ours' % (where, got['ref']))
+        for k in kinds:
+            self.assertAlmostEqual(k['boxW'], got['ref'], delta=0.5, msg='%s: the box of %s is %spx wide, the page\'s checkboxes are %spx'
+                                   % (where, k['id'], k['boxW'], got['ref']))
+            self.assertAlmostEqual(k['boxH'], got['ref'], delta=0.5, msg='%s: the box of %s is %spx high, the page\'s checkboxes are %spx (the page keeps a '
+                                   'narrower box 16px wide, so a box that is too small shows in its height)' % (where, k['id'], k['boxH'], got['ref']))
+            self.assertLessEqual(abs(k['offLine']), 1.25, '%s: the box of %s is %spx from the middle of its first line (its words take %d lines)'
+                                 % (where, k['id'], k['offLine'], k['lines']))
+            self.assertLessEqual(k['end'], got['wide'] + 1, '%s: %s runs out of the list' % (where, k['id']))
+            self.assertAlmostEqual(k['words'] - k['box'], k['boxW'] + 8, delta=1, msg='%s: the words of %s start %spx after its box, which is %spx wide plus 8px'
+                                   % (where, k['id'], k['words'] - k['box'], k['boxW']))
+        # a general kind reads as a heading: a rule above it with room around it, heavier than the kinds, and a row of its own
+        general = [k for k in kinds if k['general']]
+        self.assertEqual(sorted(k['id'] for k in general), ['probe', 'service_brute'], where)
+        for k in general:
+            self.assertGreaterEqual(k['weight'], 600, '%s: %s is not heavier than its kinds (%s)' % (where, k['id'], k['weight']))
+            self.assertEqual((k['rule'], k['ruleStyle']), (1, 'solid'), '%s: %s has no rule above it' % (where, k['id']))
+            self.assertNotIn(k['ruleColour'], ('rgba(0, 0, 0, 0)', 'transparent'), '%s: the rule above %s cannot be seen' % (where, k['id']))
+            self.assertGreaterEqual(k['lead'], 12, '%s: the rule above %s has no room (%spx)' % (where, k['id'], k['lead']))
+            self.assertGreaterEqual(k['width'], got['wide'] - 1, '%s: the general kind %s has the row to itself' % (where, k['id']))
+        for k in kinds:
+            if not k['general']:
+                self.assertLessEqual(k['weight'], 500, '%s: %s is as heavy as a heading (%s)' % (where, k['id'], k['weight']))
+                self.assertEqual(k['rule'], 0, '%s: %s has a rule above it' % (where, k['id']))
+        # the column lines: the grid's own tracks, and in one column the edge
+        columns = len(tracks)
+        if columns > 1:
+            step = tracks[0] + got['gap']
+            lines = [round(i * step, 1) for i in range(columns)]
+            for k in kinds:
+                self.assertLessEqual(min(abs(k['box'] - x) for x in lines), 1,
+                                     '%s: the box of %s starts %spx in, on none of the column lines %r' % (where, k['id'], k['box'], lines))
+            self.assertEqual(len({round(k['box'] / step) for k in kinds}), columns, 'the control: every column holds a box. %s' % where)
+        else:
+            for k in kinds:
+                self.assertLessEqual(abs(k['box']), 1, '%s: in one column the box of %s starts %spx in, not at the edge' % (where, k['id'], k['box']))
+        # a row is level: the labels of a row, and so the boxes in them, start at the same height whatever the names take (a label
+        # that is centred or pushed down has another top than the tallest one beside it)
+        rows = {}
+        for k in kinds:
+            rows.setdefault(k['row'], []).append(k)
+        if columns > 1:
+            self.assertTrue(any(len({k['lines'] for k in r}) > 1 for r in rows.values()),
+                            'the control: some row holds a name that wraps beside one that does not. %s' % where)
+        for n, r in rows.items():
+            for field in ('top', 'boxTop'):
+                values = [k[field] for k in r]
+                self.assertLessEqual(max(values) - min(values), 1, '%s: the %ss of the row %d are not level: %r' % (where, field, n, [(k['id'], k[field]) for k in r]))
+        # the cap: 62% of the window (scroll-cap-lg), and where the list is wide enough to need no scrolling it needs none; the 340px cap
+        # cut the list inside its first general kind in German at two columns and in English too
+        self.assertAlmostEqual(got['cap'], 0.62 * got['window'], delta=1, msg='%s: the list is capped at %spx, which is not 62%% of the window (%spx)'
+                               % (where, got['cap'], got['window']))
+        if columns > 1:
+            self.assertLessEqual(got['scrollH'] - got['clientH'], 1, '%s: the list scrolls inside itself (%s of %s px)' % (where, got['clientH'], got['scrollH']))
+        else:
+            self.assertGreater(got['scrollH'], got['clientH'] + 50, 'the control: in one column the list is longer than its cap and scrolls inside. %s' % where)
 
     def test_the_kinds_that_are_never_reported_stand_on_the_column_lines(self):
         """Every box of the list starts on one of the grid's column lines and sits on the first line of its words, in several columns and in
-        one, in English and in Arabic. The first version indented the finer kinds in every column, so the lower half of the list stood 22px
+        one, in English, German and Arabic. The first version indented the finer kinds in every column, so the lower half of the list stood 22px
         to the side of the upper half, and it centred a box on words that wrap, so the box of a two-line name sat between its lines."""
         self.tab('settings')
         self.page.wait_for_selector('#ipintel-limits-card:not([hidden])', timeout=15000)
@@ -355,50 +455,99 @@ class TestThePage(unittest.TestCase):
         assert self.page.evaluate("async () => { await _ensureI18n(); return !!window.RPi18n; }"), 'i18n.js did not load'
         columns = set()
         try:
-            for lang in ('en', 'ar'):
+            for lang in ('en', 'de', 'ar'):
                 self.page.evaluate("(l) => RPi18n.setLang(l, false)", lang)
-                for width, height in ((1440, 900), (1150, 900), (1024, 900), (390, 844)):
+                for width, height in ((1440, 900), (1150, 900), (1024, 900), (390, 844), (280, 700)):
                     self.page.set_viewport_size({'width': width, 'height': height})
                     self.page.wait_for_timeout(500)
                     got = self.page.evaluate(self.KINDS, ['waf', 'config_probe'])
-                    where, kinds, tracks = '%s, %dpx wide' % (lang, width), got['kinds'], got['tracks']
-                    self.assertEqual(got['rtl'], lang == 'ar', where)
-                    self.assertEqual(len(kinds), got['table'], '%s: one box for each kind of the page\'s table' % where)
-                    self.assertGreater(len(kinds), 25, 'the control: the list is there')
-                    self.assertLessEqual(got['sideways'], 1, '%s: the list scrolls sideways by %s' % (where, got['sideways']))
-                    wrapped = sorted(k['id'] for k in kinds if k['lines'] > 1)
-                    self.assertTrue({'waf', 'config_probe'} <= set(wrapped), 'the control: the two squeezed names wrap. %s: %r' % (where, wrapped))
-                    for k in kinds:
-                        self.assertLessEqual(abs(k['offLine']), 2.5, '%s: the box of %s is %spx from the middle of its first line (its words take %d lines)'
-                                             % (where, k['id'], k['offLine'], k['lines']))
-                        self.assertLessEqual(k['end'], got['wide'] + 1, '%s: %s runs out of the list' % (where, k['id']))
-                        if k['general']:
-                            self.assertGreaterEqual(k['width'], got['wide'] - 1, '%s: the general kind %s has the row to itself' % (where, k['id']))
-                    columns.add(len(tracks))
-                    if len(tracks) > 1:
-                        step = tracks[0] + got['gap']
-                        lines = [round(i * step, 1) for i in range(len(tracks))]
-                        for k in kinds:
-                            self.assertLessEqual(min(abs(k['box'] - x) for x in lines), 1,
-                                                 '%s: the box of %s starts %spx in, on none of the column lines %r' % (where, k['id'], k['box'], lines))
-                        self.assertEqual(len({round(k['box'] / step) for k in kinds}), len(tracks), 'the control: every column holds a box. %s' % where)
-                    else:
-                        under = {k['words'] for k in kinds if k['general']}
-                        self.assertEqual(len(under), 1, '%s: the words of the general kinds start at one place: %r' % (where, under))
-                        for k in kinds:
-                            want = under.copy().pop() if k['kind'] else 0
-                            self.assertLessEqual(abs(k['box'] - want), 1, '%s: in one column the box of %s starts %spx in; %s'
-                                                 % (where, k['id'], k['box'], 'a finer kind stands under the words of its general kind' if k['kind'] else 'it stands at the edge'))
-                    rows = {}
-                    for k in kinds:
-                        rows.setdefault(k['top'], []).append(k['boxTop'])
-                    for top, tops in rows.items():
-                        self.assertLessEqual(max(tops) - min(tops), 1, '%s: the boxes of the row at %d are not level: %r' % (where, top, tops))
+                    self.assertEqual(got['rtl'], lang == 'ar', '%s, %dpx wide' % (lang, width))
+                    self.assertFalse(got['coarse'], 'the control: this context has a mouse')
+                    self._the_list_stands_on_its_lines('%s, %dpx wide' % (lang, width), got, 16)
+                    columns.add(len(got['tracks']))
             self.assertIn(1, columns, 'the control: the list was measured as one column')
             self.assertGreaterEqual(max(columns), 3, 'the control: and as several, %r' % sorted(columns))
         finally:
             self.page.evaluate("() => RPi18n.setLang('en', false)")
             self.page.set_viewport_size({'width': 1440, 'height': 900})
+
+    def test_a_larger_line_moves_the_box_with_it(self):
+        """The box sits on the first line of its words because its place is worked out from the label's own line, not from a number: a larger
+        font in the label (a browser's minimum font size and a text size both make one) moves it with the words. With the line height written
+        as 19.5px the box of every name stood 5px above its first line at a 20px font."""
+        self.tab('settings')
+        self.page.wait_for_selector('#ipintel-limits-card:not([hidden])', timeout=15000)
+        self.page.wait_for_function("() => document.querySelectorAll('#ipintel-ignore-classes label').length > 20", timeout=15000)
+        tag = self.page.add_style_tag(content='.ipi-ignore-class { font-size: 20px; }')
+        try:
+            self.page.wait_for_timeout(300)
+            got = self.page.evaluate(self.KINDS, ['waf', 'config_probe'])
+            self.assertEqual(got['kinds'][0]['lines'], 1, 'the control: a short name takes one line')
+            self.assertGreater(max(k['lines'] for k in got['kinds']), 2, 'the control: the font is larger, the squeezed names take more lines')
+            for k in got['kinds']:
+                self.assertLessEqual(abs(k['offLine']), 1.25, 'at a 20px font the box of %s is %spx from the middle of its first line' % (k['id'], k['offLine']))
+        finally:
+            self.page.evaluate("(t) => t.remove()", tag)
+
+    def test_a_keyboard_focus_ring_is_not_cut_by_the_list(self):
+        """The list scrolls, so it clips: a ring drawn outside a box in the first column or the first row is cut by the list's own edge.
+        Moving the list from scroll-cap to scroll-cap-lg took it out of the rule that draws the ring inside (outline-offset: -2px) and
+        cut the ring of every box in the first column by 3px; nothing in the suite looked at a ring."""
+        self.tab('settings')
+        self.page.wait_for_selector('#ipintel-limits-card:not([hidden])', timeout=15000)
+        self.page.wait_for_function("() => document.querySelectorAll('#ipintel-ignore-classes label').length > 20", timeout=15000)
+        ids = self.page.evaluate("() => [...document.querySelectorAll('#ipintel-ignore-classes input')].map(i => i.dataset.ipiClass)")
+        self.assertGreater(len(ids), 25, 'the control: the list is there')
+        try:
+            for width, height in ((1440, 900), (390, 844)):
+                self.page.set_viewport_size({'width': width, 'height': height})
+                self.page.wait_for_timeout(400)
+                self.page.focus('#ipintel-ignore')
+                for _ in range(4):
+                    self.page.keyboard.press('Tab')
+                    if self.page.evaluate(self.IS_BOX):
+                        break
+                else:
+                    self.fail('%dpx wide: four Tabs from the box before the list did not reach a box of it' % width)
+                for n, want in enumerate(ids):
+                    if n:
+                        self.page.keyboard.press('Tab')
+                    ring = self.page.evaluate(self.RING)
+                    where = '%dpx wide, %s: %r' % (width, want, ring)
+                    self.assertEqual(ring['id'], want, 'Tab did not go to the next box. ' + where)
+                    self.assertTrue(ring['visible'] and ring['style'] != 'none', 'the focused box shows no ring. ' + where)
+                    # the sides of the list do not scroll, so there the ring is cut or it is not; a list scrolls to a whole pixel, so a box can
+                    # stand up to a pixel past the edge it was scrolled to at the top or the bottom (the old ring was cut by 1.25px and 3px)
+                    for side, room in (('left', 0.5), ('right', 0.5), ('top', 1.0), ('bottom', 1.0)):
+                        self.assertGreaterEqual(ring[side], -room, 'the ring is cut at the %s edge of the list. %s' % (side, where))
+        finally:
+            self.page.set_viewport_size({'width': 1440, 'height': 900})
+
+    def test_on_a_touch_screen_the_boxes_are_the_pages_size_and_on_their_first_line(self):
+        """A phone draws a checkbox at 20px and shows the list in one column. The list takes its box size from the same screen the rest of
+        the page does, and the box still sits on the first line of its words."""
+        ctx = _STATE['browser'].new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True, service_workers='block')
+        ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
+        try:
+            page = ctx.new_page()
+            page.goto(_STATE['base'] + '/index.html')
+            page.fill('#login-user', 'alice')
+            page.fill('#login-pass', 'demo')
+            page.click('#login-form button[type="submit"]')
+            page.wait_for_selector('#app', state='visible', timeout=90000)
+            page.wait_for_timeout(4000)
+            page.evaluate("() => showPage('ipintel')")
+            page.wait_for_selector('#page-ipintel.active', timeout=20000)
+            page.click('#page-ipintel [data-pg-tab-btn="settings"]')
+            page.wait_for_selector('#ipintel-limits-card:not([hidden])', timeout=15000)
+            page.wait_for_function("() => document.querySelectorAll('#ipintel-ignore-classes label').length > 20", timeout=15000)
+            page.wait_for_timeout(500)
+            got = page.evaluate(self.KINDS, ['waf', 'config_probe'])
+            self.assertTrue(got['coarse'], 'the control: this context is a touch screen')
+            self.assertEqual(len(got['tracks']), 1, 'the control: a phone shows the list in one column')
+            self._the_list_stands_on_its_lines('touch, 390px wide', got, 20)
+        finally:
+            ctx.close()
 
     def test_the_page_threw_nothing(self):
         self.assertEqual(self.errors, [])

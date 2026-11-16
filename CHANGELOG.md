@@ -28,7 +28,8 @@ as WAF refusals. The release page is [docs/v8.0.1.md](docs/v8.0.1.md).
   else), the intrusion detection signatures, and a Cloudflare custom rule by its description. A report leaves the general class out when one of
   its kinds explains the address. Configuration files and decoy files are also filed as hacking (15 at AbuseIPDB, 11 at SniffCat); RDP, SMB and
   Telnet carry SniffCat's 22, 24 and 23 (both services' category lists as of 2026-11-15). Ignoring a general class ignores its kinds, so an
-  ignore list from before means what it meant; the page lists the kinds under the general one. A general class stays in a report when its
+  ignore list from before means what it meant; the page lists the kinds under the general one, a ruled heading with its kinds on the same column
+  lines below it, and a box stays on the first line of its name when the name wraps. A general class stays in a report when its
   kinds do not account for it: one request for `.env` and fifty that a source could only call probing are reported as both, and ignoring the one
   kind does not hold that address back. **A rule description that listed `.sql` among the files it blocks was reported as SQL injection**: "sql"
   has to be followed by "injection" now. Four fail2ban jail names gained a class or a truer one (`xrdp`, `samba`, `vnc`, and `mssql-auth`, which

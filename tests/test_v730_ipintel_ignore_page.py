@@ -273,7 +273,7 @@ class TestTheKindsOffered(unittest.TestCase):
         self.assertGreaterEqual(len(alone), 15, 'the control: most kinds stand alone')
         self.assertEqual(ids[:-len(grouped)], alone, 'the others come first, in the order of the page\'s table')
         for b in drawn:
-            role = 'ipi-ignore-general' if b['id'] in ('probe', 'service_brute') else 'ipi-ignore-kind' if b['id'] in grouped else None
+            role = 'ipi-ignore-general' if b['id'] in ('probe', 'service_brute') else None
             self.assertEqual(b['label'], ['ipi-ignore-class'] + ([role] if role else []), b['id'])
         self.assertEqual([b['id'] for b in drawn if b['checked'] or b['disabled']], [], 'nothing saved: nothing ticked, nothing locked')
 
@@ -445,32 +445,84 @@ class TestTheMarkupAndTheRequest(unittest.TestCase):
         self.assertIn('id="ipintel-ignore"', card)
         self.assertIn('id="ipintel-ignore-classes"', card)
         tag = re.search(r'<div[^>]*id="ipintel-ignore-classes"[^>]*>', card).group(0)
-        self.assertIn('scroll-cap', tag, 'a variable-height box is capped (CLAUDE.md box rule)')
+        classes = re.search(r'class="([^"]*)"', tag).group(1).split()
+        # a variable-height box is capped (CLAUDE.md box rule). The large cap, not the 340px one: with two or three columns the list is
+        # 340 to 490px high (German is the longest) and the small cap cut it inside its first general kind
+        self.assertIn('scroll-cap-lg', classes, 'the list is capped at 62% of the window; scroll-cap, scroll-cap-sm and no cap are not that')
+        self.assertFalse({'scroll-cap', 'scroll-cap-sm'} & set(classes), classes)
         self.assertNotRegex(card, r'\son[a-z]+\s*=')
         self.assertNotRegex(card, r'\sstyle\s*=')
 
-    def test_the_checkbox_row_has_styles_and_stays_on_the_type_scale(self):
-        self.assertIn('.ipi-ignore-classes {', _CSS)
-        rule = re.search(r'\.ipi-ignore-class \{[^}]*\}', _CSS).group(0)
-        self.assertIn('font-size: 13px', rule)
+    @staticmethod
+    def _list_rules():
+        """The rules the stylesheet has for the list, as (at-rules around it, selector, {property: value}). Comments are gone, so a
+        comment cannot pass for a style; the order and the spacing of declarations do not matter; a rule that is split in two reads as
+        one, the later declaration winning. Only the list's own block is read, so a brace inside a string elsewhere cannot confuse it."""
+        css = re.sub(r'/\*.*?\*/', '', _CSS, flags=re.S)
+        start = re.search(r'\.ipi-ignore-classes\s*\{', css).start()
+        block = css[start:re.search(r'\.ipi-facts\b', css).start()]
+        out, stack, buf = [], [], ''
+        for ch in block:
+            if ch == '{':
+                stack.append(buf.strip())
+                buf = ''
+            elif ch == '}':
+                if buf.strip() and stack:
+                    decls = {}
+                    for d in buf.split(';'):
+                        if ':' in d:
+                            k, v = d.split(':', 1)
+                            decls[k.strip().lower()] = re.sub(r'\s+', ' ', v.strip())
+                    out.append((tuple(stack[:-1]), stack[-1], decls))
+                buf = ''
+                if stack:
+                    stack.pop()
+            else:
+                buf += ch
+        return out
 
-    def test_a_general_kind_has_a_row_of_its_own_and_its_kinds_are_indented_only_where_the_list_is_one_column(self):
+    def _rule(self, selector):
+        merged = {}
+        for _ctx, sel, decls in self._list_rules():
+            if [x.strip() for x in sel.split(',')] == [selector]:
+                merged.update(decls)
+        self.assertTrue(merged, 'the stylesheet has no rule for %s' % selector)
+        return merged
+
+    @unittest.skipUnless(HAVE_NODE, 'node not installed')
+    def test_every_class_the_list_writes_has_a_rule_and_every_rule_is_for_a_class_the_list_writes(self):
+        """Neither a class nobody styles (it would render unstyled and nothing would say so) nor a rule for a class nothing writes (the
+        indent of the finer kinds stayed in the sheet for a release after the renderer stopped needing it)."""
+        markup = node('_ipiRenderIgnoreClasses(%s); console.log(JSON.stringify(mk("ipintel-ignore-classes").innerHTML));' % json.dumps(['probe']))
+        written = {c for b in boxes(markup) for c in b['label'] if c.startswith('ipi-ignore-')}
+        tag = re.search(r'<div[^>]*id="ipintel-ignore-classes"[^>]*>', _HTML).group(0)
+        written |= {c for c in re.search(r'class="([^"]*)"', tag).group(1).split() if c.startswith('ipi-ignore-')}
+        self.assertEqual(written, {'ipi-ignore-classes', 'ipi-ignore-class', 'ipi-ignore-general', 'ipi-ignore-covered'},
+                         'the control: the list writes the two box classes, the heading class and the locked one (a ticked probe covers kinds)')
+        styled = {c for _ctx, sel, _d in self._list_rules() for c in re.findall(r'\.(ipi-ignore-[a-z-]+)', sel)}
+        self.assertEqual(styled, written)
+
+    def test_the_checkbox_row_has_styles_and_stays_on_the_type_scale(self):
+        grid = self._rule('.ipi-ignore-classes')
+        self.assertEqual(grid.get('display'), 'grid')
+        self.assertTrue(grid.get('grid-template-columns', '').startswith('repeat(auto-fill,'), 'one set of column lines: the grid\'s own tracks')
+        self.assertEqual(self._rule('.ipi-ignore-class').get('font-size'), '13px')
+
+    def test_a_general_kind_has_a_row_of_its_own_and_no_rule_of_the_list_moves_a_box_sideways(self):
         # what the rules say; tests/test_v801_threatintel_e2e.py measures the list in a browser, which is where "aligned" is decided
-        general = re.search(r'\.ipi-ignore-general \{([^}]*)\}', _CSS)
-        plain = re.search(r'^\.ipi-ignore-kind \{([^}]*)\}', _CSS, re.M)
-        narrow = re.search(r'^@container ipi-ignore \(max-width: (\d+)px\) \{ \.ipi-ignore-kind \{([^}]*)\} \}', _CSS, re.M)
-        self.assertTrue(general and plain and narrow, 'the two classes the list writes on a label have a rule each, and a finer kind has one for a list of one column')
-        self.assertRegex(general.group(1), r'grid-column:\s*1\s*/\s*-1\b', 'it spans the grid, so its kinds start on the row below')
-        self.assertRegex(plain.group(1), r'padding-inline-start:\s*0\s*;', 'in several columns a finer kind stands on the column line: an indent in every column put the two halves of the list out of line')
-        self.assertRegex(narrow.group(2), r'\bpadding-inline-start:\s*calc\(var\(--ipi-box\) \+ [1-9]\d*px\)',
-                         'indented from the side reading starts on, so it is the right side in Arabic')
-        self.assertNotRegex(general.group(1) + plain.group(1) + narrow.group(2), r'\b(?:left|right)\b', 'a physical side does not mirror')
-        # the query is true exactly while the grid has one column: two columns of its least width and one gap do not fit
-        grid = re.search(r'^\.ipi-ignore-classes \{([^}]*)\}', _CSS, re.M).group(1)
-        least = int(re.search(r'minmax\(min\((\d+)px, 100%\), 1fr\)', grid).group(1))
-        gap = int(re.search(r'\bgap:\s*\d+px (\d+)px', grid).group(1))
-        self.assertRegex(grid, r'container:\s*ipi-ignore\s*/\s*inline-size')
-        self.assertEqual(int(narrow.group(1)), 2 * least + gap - 1, 'the width in the query follows the grid: change one and the other moves')
+        general = self._rule('.ipi-ignore-general')
+        self.assertEqual(re.sub(r'\s*/\s*', '/', general.get('grid-column', '')), '1/-1', 'it spans the grid, so its kinds start on the row below')
+        # the finer kinds were indented 22px in every column, which put the lower half of the list out of line with the upper half:
+        # no rule of the list may indent a box or a label, in either direction, for any kind
+        sideways = ('padding-left', 'padding-right', 'padding-inline', 'padding-inline-start', 'padding-inline-end', 'margin-left', 'margin-right',
+                    'margin-inline', 'margin-inline-start', 'margin-inline-end', 'left', 'right', 'inset-inline-start', 'inset-inline-end',
+                    'translate', 'transform', 'text-indent')
+        for ctx, sel, decls in self._list_rules():
+            if sel.strip() == '.ipi-ignore-classes':
+                continue            # the grid itself: its own padding is not a kind's indent
+            for prop in sideways:
+                value = decls.get(prop, '0')
+                self.assertRegex(value, r'^(0|0px|none|auto)$', '%s { %s: %s } moves a box sideways, out of the column lines' % (sel, prop, value))
 
     def test_save_sends_both_lists_and_the_server_reads_both(self):
         from request_models import IpIntelSettingsRequest

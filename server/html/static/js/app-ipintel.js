@@ -512,7 +512,7 @@ function _ipiRenderIgnoreClasses(selected) {
   const boxFor = (id) => {
     const g = general[id];
     const covered = !!(g && on.has(g));
-    const cls = g ? ' ipi-ignore-kind' + (covered ? ' ipi-ignore-covered' : '') : (_IPI_FAMILY[id] ? ' ipi-ignore-general' : '');
+    const cls = g ? (covered ? ' ipi-ignore-covered' : '') : (_IPI_FAMILY[id] ? ' ipi-ignore-general' : '');
     return `<label class="ipi-ignore-class${cls}"><input type="checkbox" data-ipi-class="${escAttr(id)}"` +
       (g ? ` data-ipi-general="${escAttr(g)}" data-ipi-own="${on.has(id) ? '1' : '0'}"` : '') +
       `${(on.has(id) || covered) ? ' checked' : ''}${covered ? ' disabled' : ''}> ${_ipiPhrase(_IPI_CLASS[id])}</label>`;
