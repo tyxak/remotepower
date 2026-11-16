@@ -59,7 +59,8 @@ now**, **SBOM (CycloneDX)**, **SBOM (SPDX)**, **Baseline** and **Changes since b
 
 On a Debian or Ubuntu host the view also shows the count: how many known vulnerabilities are
 counted and not listed, how many of those are critical or high, how many an update would
-clear, and the packages that hold the most with the version installed. Open it with a click.
+clear, how many are fixed with Ubuntu Pro, and the packages that hold the most with the version
+installed. Open it with a click.
 
 ## Which hosts are scanned
 
@@ -114,10 +115,11 @@ a version at or past the notice's fix. A notice whose fix nothing else reaches s
 
 ### What is listed and what is counted
 
-Debian and Ubuntu publish every known CVE of a release, fixed or not. The kernel of a Debian 12
-host alone has more than a thousand, most of them with no fix in that release. Listed next to
-the few you can act on they would hide them, so for these two distributions a scan lists a
-finding one by one when:
+Debian and Ubuntu publish every known CVE of a release, fixed or not. In November 2026 the
+kernel of a Debian 12 host alone had about 700 on a host with the newest kernel, none of which
+an update clears, and almost 6,000 on a host whose kernel is a year behind. Listed one by one,
+the findings you need to read would sit among thousands of rows, so for these two
+distributions a scan lists a finding one by one when:
 
 - an update for the host's release clears it,
 - it is critical or high, or
@@ -153,11 +155,13 @@ is one of:
 | **Fixed** | An update for this host's release clears it. The finding names the version to install. |
 | **Fixed in a newer release** | The host's release has no fix, a newer release does. The finding names that release and version (for example `Debian:13 8.7.1-1`) and offers nothing to install. |
 | **No fix yet** | No release has a fix. |
-| **Fixed with Ubuntu Pro** | The fix for the host's release ships in Ubuntu Pro only, which is where every fix of a release past its standard support goes. The finding names the Pro version and offers nothing to install. On a host that has a package from Ubuntu Pro installed (its version ends in `+esm1` or `~esm1`), such a finding is **Fixed**. |
+| **Fixed with Ubuntu Pro** | The fix for the host's release ships in Ubuntu Pro only, which is where every fix of a release past its standard support goes. The finding names the Pro version and offers nothing to install. On a host that has a package from Ubuntu Pro installed (its version ends in `+esm1` or `~esm1`), such a finding is **Fixed**. A kernel from Ubuntu Pro carries no such mark, so a host whose only Pro packages are kernels is not recognised. |
 | **Not checked** | Red Hat, and an Ubuntu derivative whose release is not known, are scanned without a release, so their entries cannot be told apart. Rocky Linux and AlmaLinux publish an advisory per release together with its fix. In all of these a finding keeps the fixed version OSV lists and counts as fixable when it has one. |
 
-The five tiles under the severity counts count the findings that are not ignored
-(**Fixable now**, **Newer release only**, **No fix yet**, **Needs Ubuntu Pro**, **Not checked**). Click a tile to
+The five tiles under the severity counts count the listed findings that are not ignored
+(**Fixable now**, **Newer release only**, **No fix yet**, **Needs Ubuntu Pro**, **Not checked**). On a
+release past its standard support most of what needs Ubuntu Pro is counted and not listed; the
+count in the host view says how many. Click a tile to
 keep only the hosts that have such a finding, and the host view then lists only those
 findings. Click the tile again, or **Show all** in the host view, to undo it.
 
@@ -243,8 +247,10 @@ after patching, or call `POST /api/cve/scan` from a scheduled job with an
   **Settings → Security → CVE details cache** (1 to 90 days, default 7) is the age after which
   they are read again when OSV gives no change date.
 - The details are read eight at a time. The first scan of a Debian or Ubuntu host reads a few
-  thousand of them, which takes about two minutes. If some cannot be read, the host view says
-  how many; those findings wait in the count as **Not checked** until the next scan reads them.
+  thousand of them, which takes about two minutes, and several thousand more when its kernel is
+  far behind (almost 9,000 for a Debian 12 kernel from early 2024, about five minutes more). If
+  some cannot be read, the host view says how many; those findings wait in the count as **Not
+  checked** until the next scan reads them.
 - An **OSV circuit breaker** opens after three failed requests in a row and skips OSV work
   for ten minutes, so an OSV outage degrades gracefully instead of stalling scans.
 - If a request fails while the fleet's packages are looked up together, each host is scanned
@@ -298,7 +304,8 @@ Generate a Software Bill of Materials per host or for the whole fleet:
 - **CycloneDX 1.5** carries the CVE findings as a VEX-style vulnerabilities
   section. **SPDX 2.3** is the packages-and-relationships interchange format. Running
   container images are included as components. A finding filed under a source package points
-  at every installed package built from it.
+  at the installed packages it names: the ones built from that source at the affected version.
+  A new kernel beside the old one is not named for a finding about the old one.
 - **Baseline** snapshots a host's package list (`POST /api/devices/{id}/sbom/baseline`) and
   **Changes since baseline** (`GET /api/devices/{id}/sbom/diff`) lists the packages added,
   removed or changed since then.
@@ -322,6 +329,11 @@ Generate a Software Bill of Materials per host or for the whole fleet:
   attention** and the risk score still count every finding unless you also turn on
   [counting only what an update can fix](#counting-only-what-an-update-can-fix), and a
   `cve_cleared` recovery is sent as before.
+- On a Debian or Ubuntu host an alert is about the listed findings (see
+  [What is listed and what is counted](#what-is-listed-and-what-is-counted)). A new advisory
+  that is counted and not listed raises none. A finding that enters the list only because more
+  pressing ones were patched was there all along and is not announced as new. `cve_cleared` is
+  sent when nothing in your alert severities is left, listed or counted.
 - **Ignore** a CVE on one host or fleet-wide, with a reason (`POST /api/cve/ignore`, scope
   `global` or a host ID).
   Ignored CVEs do not count and are left out of alerts and the re-alert backlog. You can
@@ -382,7 +394,9 @@ findings do not count. You can keep up to 200 campaigns.
   creating or changing campaigns are **admin-only**. Every scan and ignore is written to the
   audit log.
 - With multi-tenancy on (Settings → Security → **Multi-tenancy**), a tenant admin sees and changes
-  only the hosts and records of their own tenant.
+  only the hosts and records of their own tenant. A campaign a tenant admin creates counts that
+  tenant's hosts, in its numbers and in its burn-down. A campaign of the whole installation
+  shows a tenant admin the numbers of their own hosts and no burn-down.
 
 ## Troubleshooting
 

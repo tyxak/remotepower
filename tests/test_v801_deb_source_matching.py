@@ -2,7 +2,7 @@
 
 OSV files a Debian or Ubuntu advisory under the source package: "glibc" answers, "libc6" answers nothing. Asked
 by installed name, a host was never told about its libraries, its SSH server or its kernel. Asked by source
-package, it is told about every known CVE of its release, fixed or not: more than a thousand for the kernel alone.
+package, it is told about every known CVE of its release, fixed or not: thousands for a kernel that is behind.
 
 So the scan asks by source, and stores one by one only what an update for the host's release clears, what is
 critical or high, and what is known to be exploited (`cve_fixes.kept`), at most 300 for a host and 50 for a
@@ -307,10 +307,19 @@ class TestANoticeThatSaysMoreThanTheCveRecords(_Scan):
         result = self.scan_with('DSA-9997-1', ('Debian:11', '1.9.5p2-3+deb11u9'), ('Debian:12', '1.9.13p3-1+deb12u4'))
         self.assertEqual(result['duplicates'], 7)
 
-    def test_a_notice_that_names_no_fix_for_the_hosts_release_is_kept(self):
-        result = self.scan_with('DSA-9996-1', ('Debian:13', '1.9.16p2-3+deb13u1'))
-        self.assertIn('DSA-9996-1', {f['vuln_id'] for f in result['findings']})      # what cannot be compared is kept
+    def test_a_notice_that_names_no_fix_for_the_hosts_release_is_compared_where_it_names_one(self):
+        """A package left over from another release, or a stale release: every release the notice names is compared."""
+        result = self.scan_with('DSA-9996-1', ('Debian:13', '99.0-1'))
+        self.assertIn('DSA-9996-1', {f['vuln_id'] for f in result['findings']})      # nothing reaches it: kept
         self.assertEqual(result['duplicates'], 6)
+
+    def test_and_is_left_out_when_the_cve_records_reach_it_there(self):
+        in_13 = sorted({e[3] for i in DEB.queries[self.SUDO] if i.startswith('DEBIAN-CVE-')
+                        for e in DEB.entries[i] if e[0] == 'Debian:13' and e[1] == 'sudo' and e[3] != '-'})
+        self.assertTrue(in_13, 'the recording holds no Debian 13 fix for sudo: the case would hold nothing')
+        result = self.scan_with('DSA-9995-1', ('Debian:13', in_13[0]))
+        self.assertNotIn('DSA-9995-1', {f['vuln_id'] for f in result['findings']})
+        self.assertEqual(result['duplicates'], 7)
 
     def test_the_comparison_piece_by_piece(self):
         repeats = cve_scanner._notice_repeats
@@ -320,11 +329,14 @@ class TestANoticeThatSaysMoreThanTheCveRecords(_Scan):
         self.assertTrue(repeats(det, 'p', reach, 'Ubuntu:22.04:LTS'))
         self.assertFalse(repeats(det, 'p', reach, ''))                            # 24.04 is not reached
         self.assertTrue(repeats(det, 'p', dict(reach, **{'Ubuntu:24.04:LTS': ['2.4-1ubuntu0.2']}), ''))
-        self.assertFalse(repeats(det, 'p', {'Ubuntu:22.04:LTS': ['2.0-1ubuntu1.5']}, 'Ubuntu:22.04:LTS'))    # its Pro fix
         self.assertFalse(repeats(det, 'p', {'Ubuntu:22.04:LTS': ['2.0-1ubuntu1.2'],
                                             'Ubuntu:Pro:22.04:LTS': ['2.0-1ubuntu1.3+esm1']}, 'Ubuntu:22.04:LTS'))
+        # its standard fix is reached and its Pro fix is past everything the records carry: it says more, and stays
+        self.assertFalse(repeats(det, 'p', {'Ubuntu:22.04:LTS': ['2.0-1ubuntu1.3']}, 'Ubuntu:22.04:LTS'))
         self.assertFalse(repeats(det, 'other', reach, 'Ubuntu:22.04:LTS'))        # names no fix for the package
-        self.assertFalse(repeats(det, 'p', reach, 'Ubuntu:20.04:LTS'))            # nor for the release
+        # it names none for 20.04, so every release it names is compared: 24.04 is not reached, then it is
+        self.assertFalse(repeats(det, 'p', reach, 'Ubuntu:20.04:LTS'))
+        self.assertTrue(repeats(det, 'p', dict(reach, **{'Ubuntu:24.04:LTS': ['2.4-1ubuntu0.9']}), 'Ubuntu:20.04:LTS'))
         self.assertFalse(repeats({'eco_fix': {'Debian:12': {'p': ['not a version']}}}, 'p',
                                  {'Debian:12': ['also not one']}, 'Debian:12'))
         for unread in (None, {}, {'eco_fix': None}, {'eco_fix': 'x'}, 'x', 7):
@@ -332,6 +344,46 @@ class TestANoticeThatSaysMoreThanTheCveRecords(_Scan):
         for odd in ({'eco_fix': {'Debian:12': 'p'}}, {'eco_fix': {'Debian:12': {'p': 'v'}}},
                     {'eco_fix': {'Debian:12': {'p': [None, 7, '']}}}):
             self.assertFalse(repeats(odd, 'p', {'Debian:12': ['9']}, 'Debian:12'), odd)
+
+    def test_a_fix_named_under_ubuntu_pro_is_reached_by_a_standard_update_and_never_the_other_way(self):
+        """A Livepatch notice names the kernel that no longer needs the patch under the Pro name; the records
+        of its CVEs name the same kernel as a standard update (LSN-0102-1 and UBUNTU-CVE-2024-1086, read 2026-11-16)."""
+        repeats = cve_scanner._notice_repeats
+        lsn = {'eco_fix': {'Ubuntu:Pro:22.04:LTS': {'linux': ['5.15.0-101.111']}}}
+        self.assertTrue(repeats(lsn, 'linux', {'Ubuntu:22.04:LTS': ['5.15.0-101.111']}, 'Ubuntu:22.04:LTS'))
+        self.assertTrue(repeats(lsn, 'linux', {'Ubuntu:22.04:LTS': ['5.15.0-105.115']}, 'Ubuntu:22.04:LTS'))
+        self.assertTrue(repeats(lsn, 'linux', {'Ubuntu:22.04:LTS': ['5.15.0-101.111']}, ''))
+        self.assertFalse(repeats(lsn, 'linux', {'Ubuntu:22.04:LTS': ['5.15.0-94.104']}, 'Ubuntu:22.04:LTS'))
+        self.assertFalse(repeats(lsn, 'linux', {'Ubuntu:24.04:LTS': ['6.8.0-100.100']}, 'Ubuntu:22.04:LTS'))
+        # a standard fix is not reached by one that needs Pro
+        usn = {'eco_fix': {'Ubuntu:22.04:LTS': {'p': ['1.0-1ubuntu0.2']}}}
+        self.assertFalse(repeats(usn, 'p', {'Ubuntu:Pro:22.04:LTS': ['1.0-1ubuntu0.9+esm1']}, 'Ubuntu:22.04:LTS'))
+        self.assertEqual(cve_fixes.standard_name('Ubuntu:Pro:22.04:LTS'), 'Ubuntu:22.04:LTS')
+        for other in ('Ubuntu:22.04:LTS', 'Ubuntu:Pro:FIPS:20.04:LTS', 'Debian:12', '', None, 7):
+            self.assertEqual(cve_fixes.standard_name(other), '', other)
+
+    def test_a_livepatch_notice_is_not_a_finding_that_needs_ubuntu_pro(self):
+        """The scan of a 22.04 host without Pro listed LSN-0102-1 as "Fixed with Ubuntu Pro", known to be exploited,
+        beside the finding of its CVE that a standard update clears."""
+        key = ('Ubuntu', 'linux', '5.15.0-91.101')
+        cve = {'id': 'UBUNTU-CVE-2024-1086', 'details': 'nf_tables', 'upstream': ['CVE-2024-1086'],
+               'severity': [{'type': 'Ubuntu', 'score': 'high'}], 'modified': '2026-11-10T08:00:00.123456789Z',
+               'affected': [{'package': {'ecosystem': 'Ubuntu:22.04:LTS', 'name': 'linux'},
+                             'ranges': [{'type': 'ECOSYSTEM', 'events': [{'introduced': '0'}, {'fixed': '5.15.0-101.111'}]}]}]}
+        lsn = {'id': 'LSN-0102-1', 'details': 'Kernel Live Patch Security Notice', 'upstream': ['CVE-2024-1086'],
+               'modified': '2026-11-10T08:00:00.123456789Z',
+               'affected': [{'package': {'ecosystem': 'Ubuntu:Pro:22.04:LTS', 'name': 'linux'},
+                             'ranges': [{'type': 'ECOSYSTEM', 'events': [{'introduced': '0'}, {'fixed': '5.15.0-101.111'}]}]}]}
+        db = Database(UBU, extra={key: ['UBUNTU-CVE-2024-1086', 'LSN-0102-1']}, records={cve['id']: cve, lsn['id']: lsn})
+        with mock.patch.object(cve_scanner, '_osv_querybatch', db.querybatch), \
+                mock.patch.object(cve_scanner, '_osv_vuln_details', db.details):
+            result = cve_scanner.scan_device(HOST, [{'name': 'linux-image-5.15.0-91-generic', 'version': '5.15.0-91.101',
+                                                     'arch': 'amd64', 'source': 'linux'}], 'Ubuntu', self.dir,
+                                             has_meta=True, release='Ubuntu:22.04:LTS', kev={'CVE-2024-1086'})
+        self.assertEqual([(f['vuln_id'], f['fix_status'], f['fixed_version']) for f in result['findings']],
+                         [('UBUNTU-CVE-2024-1086', 'fixed', '5.15.0-101.111')])
+        self.assertEqual(result['duplicates'], 1)
+        self.assertNotIn('rollup', result)
 
     def test_a_package_without_cve_records_keeps_its_notices(self):
         hits = [({'name': 'p'}, 'DSA-1-1'), ({'name': 'p'}, 'USN-2-1')]
@@ -508,7 +560,14 @@ class TestUbuntuPro(_Scan):
                  'Ubuntu:22.04:LTS': {'d': ['3'], 'e': ['4']},
                  'Ubuntu:Pro:FIPS-updates:20.04:LTS': {'f': ['9.fips']}}
         status = lambda p, **kw: cve_fixes.classify(fixes, 'Ubuntu:20.04:LTS', p, **kw)['status']    # noqa: E731
-        self.assertEqual([status(p) for p in 'abcdef'], ['fixed', 'pro', 'pro', 'newer_release', 'unknown', 'unknown'])
+        # "e": the record names no entry for 20.04 and a newer release has the fix (an interim release that is no
+        # longer followed, matched through the version it shares with a newer one). "f": a FIPS build only.
+        self.assertEqual([status(p) for p in 'abcdef'], ['fixed', 'pro', 'pro', 'newer_release', 'newer_release', 'unknown'])
+        self.assertEqual(cve_fixes.classify(fixes, 'Ubuntu:20.04:LTS', 'e')['elsewhere'], {'Ubuntu:22.04:LTS': ['4']})
+        self.assertEqual(cve_fixes.classify(fixes, 'Ubuntu:24.04:LTS', 'e')['status'], 'unknown')     # only an older release
+        # Debian and Alpine name a release in the question, so a record without it says nothing about the host
+        self.assertEqual(cve_fixes.classify({'Debian:13': {'curl': ['8.7.1-1']}}, 'Debian:12', 'curl')['status'], 'unknown')
+        self.assertEqual(cve_fixes.classify({'Alpine:v3.20': {'curl': ['8.7.1-r0']}}, 'Alpine:v3.19', 'curl')['status'], 'unknown')
         self.assertEqual([status(p, pro=True) for p in 'abc'], ['fixed', 'fixed', 'fixed'])
         self.assertEqual(cve_fixes.classify(fixes, 'Ubuntu:20.04:LTS', 'c', pro=True)['fixed'], ['2+esm1'])
         # at or past a Pro fix counts as patched for any host; an interim release has no Pro entries
@@ -756,6 +815,57 @@ class TestReadingTheAdvisoryRecords(unittest.TestCase):
         with mock.patch.object(cve_scanner, '_osv_vuln_details', lambda vid: {'id': vid, 'summary': 's'}):
             self.assertEqual(cve_scanner._fetch_details({'X-1'}, 'Debian:12', {}, self.cache, tick=boom), 0)
 
+    def test_the_temporary_file_of_a_killed_scanner_is_taken_away(self):
+        """Each is a whole copy of the cache and the next scanner has another process id."""
+        old, fresh, other = (self.dir / 'cve_details_cache.json.99991.tmp', self.dir / 'cve_details_cache.json.99992.tmp',
+                             self.dir / 'another.json.5.tmp')
+        for path in (old, fresh, other):
+            path.write_text('{}')
+        long_ago = time.time() - cve_scanner.STALE_TMP_SECONDS - 60
+        os.utime(old, (long_ago, long_ago))
+        os.utime(other, (long_ago, long_ago))
+        cve_scanner._save_json(self.cache, {'a': 1})
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()),
+                         ['another.json.5.tmp', 'cve_details_cache.json', 'cve_details_cache.json.99992.tmp'])
+        self.assertEqual(json.loads(self.cache.read_text()), {'a': 1})
+
+    def test_one_map_of_the_records_serves_a_whole_run(self):
+        self.assertEqual(cve_scanner.load_details(self.dir), {})
+        db = Database(DEB)
+        read, real = [], cve_scanner._load_json
+
+        def load(path):
+            read.append(Path(path).name)
+            return real(path)
+        shared = cve_scanner.load_details(self.dir)
+        with mock.patch.object(cve_scanner, '_osv_querybatch', db.querybatch), \
+                mock.patch.object(cve_scanner, '_osv_vuln_details', db.details), \
+                mock.patch.object(cve_scanner, '_load_json', load):
+            first = cve_scanner.scan_device(HOST, BEHIND, 'Debian:12', self.dir, has_meta=True, details=shared)
+            fetched = len(db.read)
+            second = cve_scanner.scan_device('other', PATCHED, 'Debian:12', self.dir, has_meta=True, details=shared)
+            self.assertNotIn('cve_details_cache.json', read)          # neither scan read the file
+            alone = cve_scanner.scan_device(HOST, BEHIND, 'Debian:12', self.dir, has_meta=True)
+        self.assertIn('cve_details_cache.json', read)                 # a scan that is handed no map does
+        self.assertGreater(len(shared), 90)
+        self.assertEqual(len(db.read), fetched)                       # the second host's records were all in the map
+        self.assertEqual(len(json.loads(self.cache.read_text())), len(shared))
+        self.assertEqual([f['vuln_id'] for f in alone['findings']], [f['vuln_id'] for f in first['findings']])
+        self.assertTrue(second['rollup']['total'])
+
+    def test_an_id_that_is_not_text_is_not_an_advisory(self):
+        """A list or a map for an id cannot be looked up, and ended the scan."""
+        def answers(body):
+            return [{'vulns': [{'id': ['a']}, {'id': {'a': 1}}, {'id': None}, {'id': ''}, {'id': 7}, {},
+                               {'id': 'DEBIAN-CVE-2024-6387', 'modified': '2026-11-10T08:00:00Z'}]} for _q in body]
+        db = Database(DEB)
+        with mock.patch.object(cve_scanner, '_osv_querybatch', answers), \
+                mock.patch.object(cve_scanner, '_osv_vuln_details', db.details):
+            result = cve_scanner.scan_device(HOST, [{'name': 'openssh-server', 'version': '1:9.2p1-2+deb12u2',
+                                                     'source': 'openssh'}], 'Debian:12', self.dir, has_meta=True)
+        self.assertEqual([f['vuln_id'] for f in result['findings']], ['DEBIAN-CVE-2024-6387'])
+        self.assertNotIn('error', result)
+
     def test_two_scanners_do_not_write_through_one_temporary_file(self):
         seen = []
         real_write = Path.write_text
@@ -910,8 +1020,8 @@ class _Captured(Exception):
 
 
 class TestTheAlertComparison(unittest.TestCase):
-    """A host scanned before the rule holds findings the rule now counts. Read as they are, they look like
-    findings that went away."""
+    """What a scan that lists some findings and counts the rest means for the two alerts. Both cases below were
+    found by scripts that scanned a host twice (a kernel update; the first scan under the rule) and read the alerts."""
 
     def setUp(self):
         self.fired = []
@@ -932,38 +1042,198 @@ class TestTheAlertComparison(unittest.TestCase):
     def events(self):
         return [e for e, _p in self.fired]
 
+    def compare(self, previous, current, **kw):
+        self.fired.clear()
+        api._detect_new_cve_and_fire_webhook(HOST, self.devices, previous, current, **kw)
+        return self.events()
+
+    # ── cleared ──
     def test_a_finding_that_moved_into_the_count_is_not_a_finding_that_was_cleared(self):
         before = [finding(1, 'medium', 'none')]
-        api._detect_new_cve_and_fire_webhook(HOST, self.devices, before, [], ruled=True)
-        self.assertEqual(self.events(), [])
+        counted = cve_fixes.rollup(before)
+        self.assertEqual(self.compare(before, [], counted=counted), [])
 
-    def test_read_as_it_is_it_was(self):
-        """The control: without the rule on the previous result the host announces its vulnerabilities cleared."""
-        before = [finding(1, 'medium', 'none')]
-        api._detect_new_cve_and_fire_webhook(HOST, self.devices, before, [], ruled=False)
-        self.assertEqual(self.events(), ['cve_cleared'])
+    def test_read_from_the_list_alone_it_was(self):
+        """The control: the same host without its count announces its vulnerabilities cleared."""
+        self.assertEqual(self.compare([finding(1, 'medium', 'none')], []), ['cve_cleared'])
+
+    def test_a_count_outside_the_alert_severities_does_not_hold_the_alert_open(self):
+        counted = cve_fixes.rollup([finding(2, 'low', 'none'), finding(3, 'unknown', 'unknown')])
+        self.assertEqual(self.compare([finding(1, 'high', 'fixed', fixed='2')], [], counted=counted), ['cve_cleared'])
 
     def test_a_finding_that_really_went_away_still_clears(self):
-        before = [finding(1, 'high', 'fixed', fixed='2')]
-        api._detect_new_cve_and_fire_webhook(HOST, self.devices, before, [], ruled=True)
-        self.assertEqual(self.events(), ['cve_cleared'])
+        self.assertEqual(self.compare([finding(1, 'high', 'fixed', fixed='2')], []), ['cve_cleared'])
+        self.assertEqual(self.compare([finding(1, 'high', 'fixed', fixed='2')], [], counted={}), ['cve_cleared'])
 
+    def test_a_count_of_another_shape_is_no_count(self):
+        for odd in (None, 'x', 7, [], {'severity': 'medium'}, {'severity': {'medium': '3'}}, {'severity': {'medium': True}},
+                    {'severity': {'medium': -2}}, {'severity': {'medium': 0}}):
+            self.assertFalse(cve_fixes.rollup_has(odd, {'medium'}), odd)
+        self.assertTrue(cve_fixes.rollup_has({'severity': {'medium': 3}}, {'critical', 'medium'}))
+        self.assertFalse(cve_fixes.rollup_has({'severity': {'medium': 3}}, {'critical', 'high'}))
+        self.assertFalse(cve_fixes.rollup_has({'severity': {'medium': 3}}, [None, 7, ['medium']]))
+
+    # ── new ──
     def test_a_counted_finding_that_gets_a_fix_alerts_as_new(self):
-        before = [finding(1, 'medium', 'none')]
         after = [finding(1, 'medium', 'fixed', fixed='2')]
-        api._detect_new_cve_and_fire_webhook(HOST, self.devices, before, after, ruled=True)
-        self.assertEqual(self.events(), ['cve_found'])
+        self.assertEqual(self.compare([], after), ['cve_found'])
         self.assertEqual(self.fired[0][1]['count'], 1)
 
-    def test_a_finding_that_was_stored_before_and_still_is_does_not_alert_again(self):
+    def test_a_finding_that_was_listed_before_and_still_is_does_not_alert_again(self):
         same = [finding(1, 'high', 'none')]
-        api._detect_new_cve_and_fire_webhook(HOST, self.devices, same, list(same), ruled=True)
-        self.assertEqual(self.events(), [])
+        self.assertEqual(self.compare(same, list(same)), [])
 
-    def test_a_known_exploited_finding_counts_as_stored_before(self):
-        same = [finding(1, 'medium', 'none')]
-        api._detect_new_cve_and_fire_webhook(HOST, self.devices, same, list(same), ruled=True, kev={'CVE-2024-1'})
-        self.assertEqual(self.events(), [])
+    def kernel(self):
+        """A package with far more to list than its room: 60 critical with a fix, 40 critical and 200 high without."""
+        return ([finding(5000 + i, 'critical', 'fixed', 'linux', fixed='6.1.192-1') for i in range(60)]
+                + [finding(3000 + i, 'critical', 'none', 'linux') for i in range(40)]
+                + [finding(1000 + i, 'high', 'none', 'linux') for i in range(200)])
+
+    def test_findings_that_take_the_places_of_patched_ones_are_not_new(self):
+        """A host installs its kernel update. The fifty that were listed leave, the next fifty take their places."""
+        behind = self.kernel()
+        listed, counted, mark = cve_fixes.select(behind)
+        self.assertEqual((len(listed), counted['total']), (50, 250))
+        self.assertEqual(list(mark), ['packages'])
+        patched = [f for f in behind if f['fix_status'] != 'fixed']
+        now, counted_now, _mark = cve_fixes.select(patched)
+        moved_in = {f['vuln_id'] for f in now} - {f['vuln_id'] for f in listed}
+        self.assertEqual(len(moved_in), 50)                    # every place changed hands
+        self.assertEqual(self.compare(listed, now, counted=counted_now, listed_to=mark), [])
+
+    def test_compared_list_against_list_they_were(self):
+        """The control: without the mark of the scan before, the host is told of fifty new CVEs for having patched."""
+        behind = self.kernel()
+        listed, _c, _mark = cve_fixes.select(behind)
+        now, counted_now, _m = cve_fixes.select([f for f in behind if f['fix_status'] != 'fixed'])
+        self.assertEqual(self.compare(listed, now, counted=counted_now), ['cve_found'])
+        self.assertEqual(self.fired[0][1]['count'], 50)
+
+    def test_an_advisory_that_is_new_and_pressing_enough_to_be_listed_alerts(self):
+        behind = self.kernel()
+        listed, _c, mark = cve_fixes.select(behind)
+        with_new = behind + [finding(9999, 'critical', 'fixed', 'linux', fixed='6.1.200-1')]      # newer than all of them
+        now, counted_now, _m = cve_fixes.select(with_new)
+        self.assertEqual(self.compare(listed, now, counted=counted_now, listed_to=mark), ['cve_found'])
+        self.assertEqual((self.fired[0][1]['count'], self.fired[0][1]['sample'][0]['id']), (1, 'CVE-2024-9999'))
+
+    def test_the_same_at_the_ceiling_of_a_host(self):
+        many = [finding(i, 'high', 'none', f'p{i % 40:02d}') for i in range(1, 401)]
+        listed, _c, mark = cve_fixes.select(many)
+        self.assertEqual((len(listed), list(mark)), (cve_fixes.KEEP_PER_HOST, ['host']))
+        fewer = [f for f in many if f not in listed[:60]]              # sixty of the listed are gone
+        now, counted_now, _m = cve_fixes.select(fewer)
+        self.assertEqual(len({f['vuln_id'] for f in now} - {f['vuln_id'] for f in listed}), 60)
+        self.assertEqual(self.compare(listed, now, counted=counted_now, listed_to=mark), [])
+        self.assertEqual(self.compare(listed, now, counted=counted_now), ['cve_found'])
+
+    def test_another_package_of_the_same_host_is_not_held_back_by_the_kernels_mark(self):
+        listed, _c, mark = cve_fixes.select(self.kernel())
+        now = listed + [finding(77, 'high', 'none', 'openssl')]
+        self.assertEqual(self.compare(listed, now, listed_to=mark), ['cve_found'])
+        self.assertEqual(self.fired[0][1]['sample'][0]['pkg'], 'openssl')
+
+    def test_a_mark_of_another_shape_holds_nothing_back(self):
+        now = [finding(1, 'high', 'none', 'linux')]
+        for odd in (None, 'x', 7, [], {}, {'host': 'far'}, {'host': [1, 2]}, {'host': [1, 2, 'x']}, {'host': [True, 0, 0]},
+                    {'packages': 'linux'}, {'packages': {'linux': None}}, {'packages': {'linux': [1.5, 0, 0]}}):
+            self.assertEqual(self.compare([], now, listed_to=odd), ['cve_found'], odd)
+
+
+class TestTheMark(unittest.TestCase):
+    """cve_fixes.select: how far the room reached, which is what the next scan's alert comparison needs."""
+
+    def test_nothing_was_cut_and_there_is_no_mark(self):
+        stored, counted, mark = cve_fixes.select([finding(1, 'high'), finding(2, 'medium')])
+        self.assertEqual((len(stored), counted['total'], mark), (1, 1, {}))
+        self.assertEqual(cve_fixes.select([]), ([], {}, {}))
+        self.assertEqual(cve_fixes.select('nope'), ([], {}, {}))
+
+    def test_a_package_at_its_ceiling_with_nothing_left_over_has_no_mark(self):
+        exactly = [finding(i, 'high', 'none', 'linux') for i in range(cve_fixes.KEEP_PER_PACKAGE)]
+        stored, counted, mark = cve_fixes.select(exactly)
+        self.assertEqual((len(stored), counted, mark), (cve_fixes.KEEP_PER_PACKAGE, {}, {}))
+
+    def test_the_mark_of_a_package_is_the_last_finding_it_had_room_for(self):
+        many = [finding(i, 'high', 'none', 'linux') for i in range(1, 81)] + [finding(500, 'high', 'none', 'zlib')]
+        stored, _counted, mark = cve_fixes.select(many)
+        last = min(int(f['vuln_id'].rsplit('-', 1)[1]) for f in stored if f['package'] == 'linux')
+        self.assertEqual(mark, {'packages': {'linux': [5, -2024, -last]}})
+        self.assertEqual(last, 31)                              # the newest fifty of eighty
+        # past it or at it: taken for one that was counted. Before it: new
+        self.assertTrue(cve_fixes.beyond(finding(30, 'high', 'none', 'linux'), mark))
+        self.assertTrue(cve_fixes.beyond(finding(31, 'high', 'none', 'linux'), mark))
+        self.assertFalse(cve_fixes.beyond(finding(32, 'high', 'none', 'linux'), mark))
+        self.assertFalse(cve_fixes.beyond(finding(30, 'critical', 'none', 'linux'), mark))      # more pressing by its rank
+        self.assertFalse(cve_fixes.beyond(finding(30, 'high', 'fixed', 'linux', fixed='2'), mark))
+        self.assertFalse(cve_fixes.beyond(finding(30, 'high', 'none', 'zlib'), mark))           # another package
+        self.assertFalse(cve_fixes.beyond(finding(30, 'high', 'none', 'linux', aliases=['CVE-2020-1']), mark, {'CVE-2020-1'}))
+
+    def test_what_is_not_a_finding_or_a_mark(self):
+        for odd in (None, 'x', 7, []):
+            self.assertFalse(cve_fixes.beyond(odd, {'host': [5, 0, 0]}))
+            self.assertFalse(cve_fixes.beyond(finding(1, 'high'), odd))
+
+    def test_a_scan_writes_the_mark_and_the_store_keeps_it(self):
+        import store_shapes
+        many = [{'name': f'lib{i}', 'version': '1-1', 'source': 'big'} for i in range(3)]
+        ids = [f'DEBIAN-CVE-2024-{1000 + i}' for i in range(70)]
+        records = {vid: {'id': vid, 'details': 'd', 'upstream': [vid[7:]], 'modified': '2026-11-10T08:00:00Z',
+                         'severity': [{'type': 'CVSS_V3', 'score': 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'}],
+                         'affected': [{'package': {'ecosystem': 'Debian:12', 'name': 'big'},
+                                       'ranges': [{'type': 'ECOSYSTEM', 'events': [{'introduced': '0'}]}]}]} for vid in ids}
+        db = Database(DEB, extra={('Debian:12', 'big', '1-1'): ids}, records=records)
+        with mock.patch.object(cve_scanner, '_osv_querybatch', db.querybatch), \
+                mock.patch.object(cve_scanner, '_osv_vuln_details', db.details):
+            result = cve_scanner.scan_device(HOST, many, 'Debian:12', Path(tempfile.mkdtemp(prefix='rp-v801-mark-')),
+                                             has_meta=True)
+        self.assertEqual((len(result['findings']), result['rollup']['total']), (50, 20))
+        self.assertEqual(result['listed_to'], {'packages': {'big': [1, -2024, -1020]}})
+        kept = store_shapes.normalize('cve_findings.json', {HOST: json.loads(json.dumps(result))})[HOST]
+        self.assertEqual(kept['listed_to'], result['listed_to'])
+        damaged = store_shapes.normalize('cve_findings.json', {HOST: {'findings': [], 'listed_to': {
+            'host': 'far', 'packages': {'big': ['x', 2], 'ok': [1, -2024, -7]}}}})[HOST]
+        # the store repairs it: text where the three numbers belong is left out
+        self.assertNotIsInstance(damaged['listed_to'].get('host'), str)
+        self.assertEqual(damaged['listed_to']['packages'], {'big': [2], 'ok': [1, -2024, -7]})
+        self.assertFalse(cve_fixes.beyond(finding(1, 'critical', 'none', 'big'), damaged.get('listed_to')))
+        self.assertTrue(cve_fixes.beyond(finding(7, 'critical', 'none', 'ok'), damaged.get('listed_to')))
+
+    def test_a_notice_has_no_year(self):
+        """"USN-6663-1" read like a CVE id was the year 6663, and a notice that stays took the first place."""
+        order = lambda vid: cve_fixes._pressing(dict(finding(1, 'high', 'fixed', fixed='2'), vuln_id=vid), None)    # noqa: E731
+        self.assertEqual(order('USN-6663-1'), (2, 0, 0))
+        self.assertEqual(order('DSA-5954-1'), (2, 0, 0))
+        self.assertEqual(order('DEBIAN-CVE-2026-1'), (2, -2026, -1))
+        self.assertEqual(order('ubuntu-cve-2024-2961'), (2, -2024, -2961))
+        self.assertEqual(order('CVE-2019-9'), (2, -2019, -9))
+        for odd in (None, 7, '', 'ALSA-2024:1234', ['CVE-2024-1']):
+            self.assertEqual(order(odd), (2, 0, 0), odd)
+
+    def test_findings_of_another_shape_do_not_end_a_count(self):
+        """A severity or an id that is a list or a map is no key. Each of these raised."""
+        odd = [dict(finding(1), severity=['high']), dict(finding(2), severity={'a': 1}), dict(finding(3), vuln_id=['x']),
+               dict(finding(4), vuln_id={'a': 1}), dict(finding(5), package=['p'], version={'v': 1}), finding(6, 'high')]
+        counted = cve_fixes.rollup(odd)
+        self.assertEqual((counted['total'], counted['severity']), (6, {'high': 1, 'medium': 3, 'unknown': 2}))
+        stored, rest, _mark = cve_fixes.select(odd)
+        self.assertEqual(len(stored) + rest['total'], 6)
+        self.assertEqual(sum(cve_fixes.summarize(odd, {'CVE-2024-1'}).values()), 5)
+        self.assertEqual(sum(cve_scanner.summarize_findings(odd, {'CVE-2024-1'}).values()), 6)
+        self.assertEqual(cve_scanner.summarize_findings(odd, {'CVE-2024-1'})['ignored'], 1)
+
+    def test_the_words_for_a_count(self):
+        words = cve_fixes.rollup_words
+        self.assertEqual(words({'rollup': {'total': 5962, 'severity': {'critical': 246, 'high': 2039, 'medium': 1033},
+                                           'fix': {'fixable': 5135, 'newer_release': 677, 'pro': 12}}}),
+                         '5962 more known vulnerabilities are counted per package and not listed one by one '
+                         '(2285 critical or high, 5135 cleared by an update, 12 fixed with Ubuntu Pro)')
+        self.assertEqual(words({'rollup': {'total': 3, 'severity': {'low': 3}, 'fix': {'none': 3}}}),
+                         '3 more known vulnerabilities are counted per package and not listed one by one')
+        self.assertEqual(words({'rollup': {'total': 3, 'severity': 'x', 'fix': None}}),
+                         '3 more known vulnerabilities are counted per package and not listed one by one')
+        for none in (None, {}, {'rollup': {}}, {'rollup': {'total': 0}}, {'rollup': 'x'}, 'x'):
+            self.assertEqual(words(none), '', none)
 
 
 class TestTheWorker(unittest.TestCase):
@@ -1039,9 +1309,98 @@ class TestTheWorker(unittest.TestCase):
 
     def test_the_worker_hands_the_scan_what_it_needs(self):
         block = srcpin.py_function((_CGI / 'api.py').read_text(), '_cve_scan_worker')
-        for needle in ('release=cve_scanner.entry_release(entry)', 'kev=_kev_ids', 'tick=_still_alive',
-                       "ruled=result.get('ruled') is True, kev=_kev_ids"):
+        for needle in ('release=cve_scanner.entry_release(entry)', 'kev=_kev_ids, details=_details', 'tick=_still_alive',
+                       "counted=result.get('rollup')", "listed_to=before.get('listed_to')",
+                       '_details = cve_scanner.load_details(DATA_DIR)'):
             self.assertIn(needle, block)
+
+    def test_a_scan_that_raises_is_one_host_that_was_not_scanned(self):
+        """It used to leave the worker: the hosts after it were not scanned and the marker said "running"."""
+        store = api.load(api.PACKAGES_FILE)
+        store['v801second'] = dict(store[HOST], packages=PATCHED, count=len(PATCHED))
+        api.save(api.PACKAGES_FILE, store)
+        api.save(api.DEVICES_FILE, {h: {'id': h, 'name': h, 'token': 't', 'monitored': True} for h in (HOST, 'v801second')})
+        real = cve_scanner.scan_device
+
+        def scan(dev_id, *a, **k):
+            if dev_id == HOST:
+                raise TypeError('a shape nothing here reads')
+            return real(dev_id, *a, **k)
+        with mock.patch.object(cve_scanner, '_osv_querybatch', self.db.querybatch), \
+                mock.patch.object(cve_scanner, '_osv_vuln_details', self.db.details), \
+                mock.patch.object(cve_scanner, '_debian_severity_fallback', lambda cve: None), \
+                mock.patch.object(cve_scanner, 'scan_device', scan):
+            api._cve_scan_worker('tester', None)
+        api._LOAD_CACHE.clear()
+        stored = api.load(api.CVE_FINDINGS_FILE)
+        status = api.load(api.CVE_SCAN_STATUS_FILE)
+        self.assertNotIn(HOST, stored)
+        self.assertEqual(len(stored['v801second']['findings']) + stored['v801second']['rollup']['total'], 26 + 31 + 4 + 4)
+        self.assertEqual((status['running'], status['scanned'], status['errors'], status['done']), (False, 1, 1, 2))
+
+    def test_a_patched_host_whose_scan_could_not_read_every_record_is_stored(self):
+        """It lists nothing, so held to "has findings" it stayed "never scanned" for as long as one record timed out."""
+        jammy = [{'name': 'libc6', 'version': '2.35-0ubuntu3.18', 'arch': 'amd64', 'source': 'glibc'},
+                 {'name': 'openssh-server', 'version': '1:8.9p1-3ubuntu0.18', 'arch': 'amd64', 'source': 'openssh'},
+                 {'name': 'sudo', 'version': '1.9.9-1ubuntu2.7', 'arch': 'amd64'}]
+        api.save(api.PACKAGES_FILE, {HOST: {'ecosystem': 'Ubuntu', 'os_id': 'ubuntu', 'version_id': '22.04',
+                                            'pkg_manager': 'apt', 'sources': True, 'count': 3, 'packages': jammy}})
+        db = Database(UBU)
+        ids = sorted({i for k in db.rec.queries if k[1] in ('glibc', 'openssh', 'sudo') and k[2] in (
+            '2.35-0ubuntu3.18', '1:8.9p1-3ubuntu0.18', '1.9.9-1ubuntu2.7') for i in db.rec.queries[k]})
+        self.assertEqual(len(ids), 5)
+        lost = set(ids[:2])
+        with mock.patch.object(cve_scanner, '_osv_querybatch', db.querybatch), \
+                mock.patch.object(cve_scanner, '_osv_vuln_details', lambda vid: None if vid in lost else db.details(vid)):
+            api._cve_scan_worker('tester', HOST)
+        api._LOAD_CACHE.clear()
+        stored = api.load(api.CVE_FINDINGS_FILE)[HOST]
+        self.assertEqual((stored['findings'], stored['rollup']['total'], stored['unread']), ([], 5, 2))
+        self.assertEqual(stored['rollup']['fix'].get('unchecked'), 2)
+        self.assertIn('2 of the advisory records could not be read', stored['error'])
+        self.assertEqual(api.load(api.CVE_SCAN_STATUS_FILE)['errors'], 0)
+
+    def test_a_scan_that_learned_nothing_leaves_the_last_result(self):
+        api.save(api.CVE_FINDINGS_FILE, {HOST: {'scanned_at': 5, 'findings': [finding(1, 'high')]}})
+
+        def down(body):
+            raise OSError('no route to the database')
+        with mock.patch.object(cve_scanner, '_osv_querybatch', down):
+            api._cve_scan_worker('tester', HOST)
+        api._LOAD_CACHE.clear()
+        self.assertEqual(api.load(api.CVE_FINDINGS_FILE)[HOST]['scanned_at'], 5)
+        self.assertEqual(api.load(api.CVE_SCAN_STATUS_FILE)['errors'], 1)
+
+    def rescan_after_the_updates(self, forget_the_mark):
+        """Scan the host behind, then patched, with room for five findings a package. The events of the second scan."""
+        real = cve_fixes.select
+        api.is_webhook_event_enabled, enabled = (lambda event: True), api.is_webhook_event_enabled
+        try:
+            with mock.patch.object(cve_fixes, 'select', lambda findings, kev=None: real(findings, kev, 300, 5)):
+                first = self.run_scan()
+                self.assertIn('packages', first['listed_to'])
+                self.assertEqual([e for e, _p in self.events], ['cve_found'])
+                store = api.load(api.PACKAGES_FILE)
+                store[HOST] = dict(store[HOST], packages=PATCHED, count=len(PATCHED))
+                api.save(api.PACKAGES_FILE, store)
+                if forget_the_mark:
+                    held = api.load(api.CVE_FINDINGS_FILE)
+                    held[HOST].pop('listed_to')
+                    api.save(api.CVE_FINDINGS_FILE, held)
+                self.events.clear()
+                second = self.run_scan()
+        finally:
+            api.is_webhook_event_enabled = enabled
+        moved_in = {f['vuln_id'] for f in second['findings']} - {f['vuln_id'] for f in first['findings']}
+        self.assertGreater(len(moved_in), 3, 'no finding took a patched one\'s place: the case would hold nothing')
+        return [e for e, _p in self.events]
+
+    def test_a_host_that_installs_its_updates_is_not_told_of_new_findings(self):
+        self.assertEqual(self.rescan_after_the_updates(forget_the_mark=False), [])
+
+    def test_without_the_mark_of_the_scan_before_it_is(self):
+        """The control: the same two scans when the first result does not say how far its room reached."""
+        self.assertEqual(self.rescan_after_the_updates(forget_the_mark=True), ['cve_found'])
 
     def test_the_marker_is_kept_alive_from_inside_a_host(self):
         writes = []
@@ -1164,6 +1523,19 @@ class TestWhatThePagesAreHanded(unittest.TestCase):
         self.assertEqual(counted['packages'], [{'name': 'ok', 'count': 2}])
         self.assertNotIsInstance(counted.get('more'), str)
 
+    def test_the_fields_of_a_finding_that_the_page_prints_are_text(self):
+        import store_shapes
+        damaged = {HOST: {'findings': [{'vuln_id': 'X-1', 'fixed_version': {'a': 1}, 'fix_status': ['pro'],
+                                        'fixed_elsewhere': {'Debian:13': {'toString': 'x'}, 'Debian:14': '8.7.1-1'}},
+                                       {'vuln_id': 'X-2', 'fixed_version': '2.0-1', 'fix_status': 'fixed',
+                                        'fixed_elsewhere': 'Debian:13'}]}}
+        first, second = store_shapes.normalize('cve_findings.json', json.loads(json.dumps(damaged)))[HOST]['findings']
+        for value in (first.get('fixed_version'), first.get('fix_status')):
+            self.assertIn(type(value), (str, type(None)))
+        self.assertEqual(first.get('fixed_elsewhere'), {'Debian:14': '8.7.1-1'})
+        self.assertEqual((second['fixed_version'], second['fix_status']), ('2.0-1', 'fixed'))
+        self.assertNotIsInstance(second.get('fixed_elsewhere'), str)
+
 
 @unittest.skipUnless(HAVE_NODE, 'node not installed')
 class TestThePage(unittest.TestCase):
@@ -1191,6 +1563,31 @@ class TestThePage(unittest.TestCase):
         self.assertIn('<span>Of these, cleared by an update:</span> <span>40</span>', html)
         self.assertIn('<span>Packages not shown:</span> <span>7</span>', html)
         self.assertIn('<td class="mono-12">linux</td><td class="mono-12">6.1.140-1</td><td class="ta-center">1021</td>', html)
+
+    def test_a_count_says_how_much_of_it_needs_ubuntu_pro(self):
+        """The tile counts the listed findings. On a release past its standard support most of what needs Pro is
+        counted: 4 on the tile and 48 in the count, for two hosts of the recordings."""
+        html = self.rollup({'total': 27, 'severity': {'medium': 7, 'low': 20}, 'fix': {'newer_release': 1, 'none': 5, 'pro': 21},
+                            'packages': [{'name': 'openssl', 'version': '1.1.1f-1ubuntu2.23', 'count': 27}],
+                            'more': {'packages': 0, 'count': 0}})
+        self.assertIn('<span>Of these, fixed with Ubuntu Pro:</span> <span>21</span>', html)
+        self.assertNotIn('fixed with Ubuntu Pro', self.rollup(self.GOOD))
+
+    def test_an_object_where_a_number_or_a_name_belongs_is_not_printed_and_does_not_throw(self):
+        hostile = {'toString': 'x'}
+        for value in ({'total': hostile}, {'total': 9, 'severity': {'critical': hostile, 'high': hostile}},
+                      {'total': 9, 'fix': {'fixable': hostile, 'pro': {}}}, {'total': 9, 'more': {'packages': hostile, 'count': {}}},
+                      {'total': 9, 'packages': [{'name': hostile, 'version': {}, 'count': hostile}, {'name': {'a': 1}}]}):
+            html = self.rollup(value)
+            self.assertNotIn('[object Object]', html, value)
+            self.assertNotIn('NaN', html, value)
+        self.assertEqual(self.rollup({'total': '9'}), '')              # the server sends a number
+
+    def test_the_page_and_the_server_file_a_finding_under_the_same_tile(self):
+        cases = [{'fix_status': st, 'fixed_version': fv} for st in ('fixed', 'newer_release', 'none', 'pro', 'unknown', None, '', 'weird')
+                 for fv in ('', ' ', '1.2-3', None, 1, 0)]
+        page = self.run_js('%s.map(_cveFixKey)' % json.dumps(cases), '_cveFixKey')
+        self.assertEqual(page, [cve_fixes.fix_key(c) for c in cases])
 
     def test_a_package_name_is_not_a_word_to_translate(self):
         # "shadow" and "at" are source packages, and words the dictionary holds
@@ -1253,7 +1650,7 @@ class TestThePage(unittest.TestCase):
         table = srcpin.js_function(_APP, '_registerCveTable')
         self.assertIn("'low', 'counted', 'last_scan'", table)
         self.assertIn('colspan: 11', table)
-        self.assertIn("cell(Number(d.rollup) || 0, 'var(--muted)')", table)
+        self.assertIn("cell(typeof d.rollup === 'number' ? d.rollup : 0, 'var(--muted)')", table)
         self.assertEqual(html.count('colspan="10" class="empty-state">Click Refresh to load findings.'), 0)
 
     def test_the_new_texts_are_in_six_languages(self):
@@ -1262,11 +1659,11 @@ class TestThePage(unittest.TestCase):
         texts = ['Needs Ubuntu Pro', 'Fixed with Ubuntu Pro',
                  'Known vulnerabilities counted per package and not listed one by one:',
                  'Known vulnerabilities counted per package and not listed one by one',
-                 'Packages not shown:', 'Of these, critical or high:', 'Of these, cleared by an update:', 'Counted', 'Count',
-                 'Package', 'Installed']
+                 'Packages not shown:', 'Of these, critical or high:', 'Of these, cleared by an update:',
+                 'Of these, fixed with Ubuntu Pro:', 'not scanned', 'Counted', 'Count', 'Package', 'Installed']
         texts += re.findall(r"^  [a-z_]+: '([^']+)',$", re.search(r'^const _CVE_COVERAGE = \{.*?^\};', _PAGE,
                                                                     re.M | re.S).group(0), re.M)
-        self.assertEqual(len(texts), 13)
+        self.assertEqual(len(texts), 15)
         for text in texts:
             self.assertTrue(rows.get(text) and all(rows[text].get(lang) for lang in ('zh', 'hi', 'es', 'ar', 'de', 'fr')),
                             text)

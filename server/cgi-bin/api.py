@@ -11449,10 +11449,10 @@ def _alert_ticket_detail(al, device=None):
         fixable = [f for f in findings if cve_fixes.is_fixable(f)]
         out.append(f'Open CVEs on this host: {len(findings)} total · '
                    f'{len(crit)} critical · {len(fixable)} fixable')
-        _counted = cve_fixes.rollup_total(rec)
+        _counted = cve_fixes.rollup_words(rec)
         if _counted:
             # 8.0.1: a Debian or Ubuntu host. "0 total" beside a few hundred that are counted read as clean.
-            out.append(f'Counted per package and not listed one by one: {_counted} more')
+            out.append(_counted[0].upper() + _counted[1:] + '.')
         if findings:
             out.append('')
             _rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
@@ -70389,17 +70389,21 @@ def handle_posture_digest_test():
     respond(200, {'ok': True, 'recipients': n})
 
 
-def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current, ruled=False, kev=None):
+def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current, kev=None, counted=None, listed_to=None):
     """Fire webhook if new CVEs in the configured severity filter appeared since last scan.
 
-    8.0.1: `ruled` says this scan stores only what cve_fixes.kept keeps (a Debian or Ubuntu host: a
-    finding no update clears, of medium severity or lower, is counted per package and not stored). The
-    host's previous result may hold such findings one by one, from before the rule or from before the
-    agent reported source packages. Compared as they are, they read as findings that went away: with
-    medium or low in the alert filter the host announced its vulnerabilities cleared while nothing
-    was patched. So the previous result is read through the same rule first."""
-    if ruled:
-        previous = [f for f in previous if cve_fixes.kept(f, kev)]
+    8.0.1: a Debian or Ubuntu scan lists what can be acted on and counts the rest (cve_fixes.select), and
+    two things follow for the comparison. `counted` is the roll-up of THIS scan, `listed_to` the mark the
+    scan BEFORE left, `kev` the known-exploited ids the scan used.
+
+    - "Cleared" means nothing in the alert severities is left, listed or counted. On the first scan
+      under the rule a host's medium and low findings without a fix move into the count; read from the
+      list alone that was "nothing left", and the host announced its vulnerabilities cleared while
+      nothing was patched.
+    - A finding that is listed now and was not before is new, unless it was past the room of the scan
+      before (cve_fixes.beyond). A kernel has thousands of findings and room for fifty: when a host
+      installs its update the fifty leave, the next fifty take their places, and compared list against
+      list the host was told of fifty new CVEs for having patched."""
     # v6.4.0: the RECOVERY half — the device previously had findings in the
     # severity filter and this scan reports none left (patched/removed) →
     # cve_cleared auto-resolves the open cve_found alert. Checked before the
@@ -70410,7 +70414,7 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current, ruled=F
         _prev_bad = any(f.get('severity') in _filt for f in previous
                         if isinstance(f, dict))
         _cur_bad = any(f.get('severity') in _filt for f in current
-                       if isinstance(f, dict))
+                       if isinstance(f, dict)) or cve_fixes.rollup_has(counted, _filt)
         if _prev_bad and not _cur_bad:
             _dev = devices.get(dev_id, {})
             fire_webhook('cve_cleared', {
@@ -70446,6 +70450,8 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current, ruled=F
             continue
         if not cve_fixes.alert_candidate(f, fixable_only, alert_kev):
             continue
+        if cve_fixes.beyond(f, listed_to, kev):
+            continue          # it was there at the scan before, counted: listed now, and not new
         ig = ignore_data.get(vid)
         if cve_ignore_applies(ig, dev_id):
             continue
@@ -70645,6 +70651,9 @@ def _cve_scan_worker(actor, target):
     # this one, so the scan itself says it is alive, at most every 30 seconds.
     _marker = {'running': True, 'total': total, 'done': 0, 'scanned': 0, 'skipped': 0, 'errors': 0}
     _alive_at = [time.time()]
+    # 8.0.1: the advisory records, read once for the run and handed to every host's scan. Each scan read
+    # the file itself, and with the records of a kernel in it that is megabytes parsed per host.
+    _details = cve_scanner.load_details(DATA_DIR)
 
     def _still_alive():
         if time.time() - _alive_at[0] < 30:
@@ -70672,22 +70681,35 @@ def _cve_scan_worker(actor, target):
         else:
             # 8.0.1: the scan name carries the release for Rocky and Alma, also for a list stored
             # before it did, and the scanner is told whether the list names source packages
-            result = cve_scanner.scan_device(dev_id, entry.get('packages') or [],
-                                             cve_scanner.entry_ecosystem(entry), DATA_DIR,
-                                             cache_ttl=get_cve_cache_seconds(),
-                                             osv_prefetch=osv_prefetch,
-                                             has_meta=entry.get('sources') is True,
-                                             tick=_still_alive,
-                                             release=cve_scanner.entry_release(entry),
-                                             kev=_kev_ids)
-            if result.get('error') and not result.get('findings'):
+            # 8.0.1: a scan that raises is one host that was not scanned. It used to leave the worker: the
+            # hosts after it were not scanned and the marker said "running" until it went stale.
+            try:
+                result = cve_scanner.scan_device(dev_id, entry.get('packages') or [],
+                                                 cve_scanner.entry_ecosystem(entry), DATA_DIR,
+                                                 cache_ttl=get_cve_cache_seconds(),
+                                                 osv_prefetch=osv_prefetch,
+                                                 has_meta=entry.get('sources') is True,
+                                                 tick=_still_alive,
+                                                 release=cve_scanner.entry_release(entry),
+                                                 kev=_kev_ids, details=_details)
+            except Exception as _scan_err:
+                sys.stderr.write(f'[remotepower] CVE scan of host {_log_field(dev_id, 64)} failed: '
+                                 f'{_log_text(repr(_scan_err), 300)}\n')
+                result = {'findings': [], 'error': 'the scan of this host failed'}
+            # A result with an error and nothing learned leaves the host's last result in place. One that
+            # could not read every record and still counted what the host has is stored: a patched host
+            # lists nothing, and held to "has findings" it stayed "never scanned" for as long as one
+            # record timed out.
+            if result.get('error') and not result.get('findings') and not result.get('rollup'):
                 errors += 1
             else:
-                previous = findings_all.get(dev_id, {}).get('findings') or []
+                before = findings_all.get(dev_id)
+                before = before if isinstance(before, dict) else {}
                 findings_all[dev_id] = result
-                _detect_new_cve_and_fire_webhook(dev_id, devices, previous,
-                                                 result.get('findings') or [],
-                                                 ruled=result.get('ruled') is True, kev=_kev_ids)
+                _detect_new_cve_and_fire_webhook(dev_id, devices, before.get('findings') or [],
+                                                 result.get('findings') or [], kev=_kev_ids,
+                                                 counted=result.get('rollup'),
+                                                 listed_to=before.get('listed_to'))
                 scanned += 1
         # checkpoint progress every few devices so the UI can show a bar
         if i % 3 == 0 or i == total - 1:
@@ -70945,7 +70967,13 @@ def run_cve_campaign_sample_if_due():
     with _LockedUpdate(CVE_CAMPAIGNS_FILE) as store:
         store['_last_sample'] = now
         for camp in (store.get('campaigns') or []):
-            hosts, _ = _campaign_affected(camp, cve_all, cve_ignore, devices, kev)
+            # 8.0.1: a campaign that a tenant made is about that tenant's hosts. The sample runs with no
+            # request, so it counted every tenant's: the burn-down a tenant administrator was shown held
+            # other tenants' hosts, and their campaign stayed open for as long as anyone was affected.
+            _own = camp.get('tenant') if isinstance(camp, dict) else None
+            _hosts_of = devices if _own is None else {
+                k: v for k, v in devices.items() if isinstance(v, dict) and _device_tenant(v) == _own}
+            hosts, _ = _campaign_affected(camp, cve_all, cve_ignore, _hosts_of, kev)
             n = len(hosts)
             camp.setdefault('samples', []).append({'ts': now, 'affected': n})
             camp['samples'] = camp['samples'][-120:]

@@ -301,7 +301,8 @@ def tool_get_cves(args):
         dev_id = dev.get("id") or dev.get("device_id")
         # 8.0.1: the route is /cve. This asked for /cves, which no route answers.
         data = _api("GET", f"/api/devices/{urllib.parse.quote(dev_id)}/cve") or {}
-        out = {"device": dev.get("name"), "findings": data.get("findings") or []}
+        listed = data.get("findings") if isinstance(data.get("findings"), list) else []
+        out = {"device": dev.get("name"), "findings": listed, "listed": len(listed)}
         if isinstance(data.get("rollup"), dict):
             # a Debian or Ubuntu host: what its scan counted per package and did not list
             out["counted"] = data["rollup"]

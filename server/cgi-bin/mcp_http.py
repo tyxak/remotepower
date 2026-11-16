@@ -443,9 +443,13 @@ def tool_get_cves(args, fetch):
         # 8.0.1: the route is /cve. This asked for /cves, which no route answers, so the tool
         # failed for every host name.
         data = fetch(_host_path(dev, "cve")) or {}
+        listed = data.get("findings") if isinstance(data.get("findings"), list) else []
         out = {
             "device": dev.get("name"),
-            "findings": (data.get("findings") or [])[:MAX_ROWS],
+            # 8.0.1: the whole list, and how many it holds. It was cut to 200 here, and the answer that
+            # is cut to fit then gave 200 as the total for a host that lists 300.
+            "findings": listed,
+            "listed": len(listed),
         }
         if isinstance(data.get("rollup"), dict):
             # a Debian or Ubuntu host: what its scan counted per package and did not list

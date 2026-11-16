@@ -199,7 +199,19 @@ def handle_cve_campaigns():
         camps = [c for c in ((A.load(A.CVE_CAMPAIGNS_FILE) or {}).get('campaigns') or [])
                  if isinstance(c, dict) and _campaign_visible(c)]
         kev = A._cve_kev_ids()
-        rows = [A._campaign_public(c, cve_all, cve_ignore, devices, kev) for c in camps]
+        gate = A._tenant_gate()
+        rows = []
+        for c in camps:
+            row = A._campaign_public(c, cve_all, cve_ignore, devices, kev)
+            if gate is not None and c.get('tenant') != gate:
+                # 8.0.1: a campaign of the whole installation, listed to one tenant's administrator. The
+                # numbers above are that tenant's own hosts. The stored samples and the completion were
+                # worked out over every tenant's hosts, so the samples are not shown and the campaign
+                # reads as completed only when this tenant has no host left in it.
+                row['samples'] = []
+                if row['affected_hosts']:
+                    row['completed_at'] = None
+            rows.append(row)
         rows.sort(key=lambda r: (r['completed_at'] is not None, -(r.get('created_at') or 0)))
         A.respond(200, {'ok': True, 'campaigns': rows})
     if A.method() != 'POST':

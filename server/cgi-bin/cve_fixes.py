@@ -19,9 +19,9 @@ classified under the name of its own release, which the scanner works out from t
 reported.
 
 8.0.1 also keeps here the rule for what a scan stores one by one (`kept`, `split`): OSV lists every
-known CVE of a Debian or Ubuntu release, fixed or not. The kernel of a Debian 12 host alone answers
-with more than a thousand, and seven common packages of a fully patched one with 150 that no update
-clears (read on 2026-11-15).
+known CVE of a Debian or Ubuntu release, fixed or not. On 2026-11-16 the newest Debian 12 kernel alone
+answered with 744, none of which an update clears, and one from early 2024 with 8,882; seven common
+packages of a fully patched host answered with 150 that no update clears.
 
 Nothing here imports api or the network code. The scanner and the alert paths hand in what they hold.
 """
@@ -105,6 +105,15 @@ def pro_name(ecosystem: Any) -> str:
     if not match or not ecosystem.endswith(":LTS"):
         return ""
     return f"Ubuntu:Pro:{match.group(1)}.{match.group(2)}:LTS"
+
+
+def standard_name(ecosystem: Any) -> str:
+    """The standard release beside an Ubuntu Pro name ("Ubuntu:Pro:22.04:LTS" gives "Ubuntu:22.04:LTS"),
+    "" for any other name."""
+    if not isinstance(ecosystem, str):
+        return ""
+    match = _UBUNTU_PRO.match(ecosystem)
+    return f"Ubuntu:{match.group(1)}.{match.group(2)}:LTS" if match else ""
 
 
 def minor(vuln: Any) -> dict[str, list[str]]:
@@ -235,7 +244,15 @@ def classify(fixes: Any, ecosystem: Any, package: str, pro: bool = False) -> dic
     channel = pro_name(ecosystem)
     beside = _fixes_in(fixes, channel, package) if channel else None
     if here is None and beside is None:
-        return unknown  # the record names no entry for this package in this release: cannot say
+        # The record names no entry for this package in this release. For Debian and Alpine that cannot be
+        # said more about. An Ubuntu host is matched by the version it has, so it got here through another
+        # release's entry: its own release is no longer followed (an interim release past its nine months)
+        # and has the same version. If a newer release has the fix, that is where the fix is.
+        if release_of(ecosystem)[0] == "Ubuntu":  # type: ignore[index]
+            elsewhere = newer_fixes(fixes, ecosystem, package)
+            if elsewhere:
+                return {"status": NEWER_RELEASE, "fixed": [], "elsewhere": elsewhere}
+        return unknown
     if here:
         return {"status": FIXED, "fixed": here, "elsewhere": {}}
     if beside:
@@ -338,7 +355,10 @@ def summarize(findings: Any, ignore_ids: Any) -> dict[str, int]:
     not ignored."""
     out = dict.fromkeys(FIX_KEYS, 0)
     for finding in _as_list(findings):
-        if not isinstance(finding, dict) or finding.get("vuln_id") in ignore_ids:
+        if not isinstance(finding, dict):
+            continue
+        vid = finding.get("vuln_id")
+        if isinstance(vid, str) and vid in ignore_ids:
             continue
         out[fix_key(finding)] += 1
     return out
@@ -357,7 +377,9 @@ KEEP_PER_HOST = 300
 KEEP_PER_PACKAGE = 50
 ROLLUP_PACKAGES = 20
 SEVERITIES = ("critical", "high", "medium", "low", "unknown")
-_ID_NUMBER = re.compile(r"(\d{4})-(\d+)(?:-\d+)?$")
+# The year and the number of a CVE id, also inside DEBIAN-CVE-2024-6387. A notice has none: "USN-6663-1"
+# read the same way would be the year 6663.
+_ID_NUMBER = re.compile(r"CVE-(\d{4})-(\d+)$", re.IGNORECASE)
 
 
 def kept(finding: Any, kev: Any = None) -> bool:
@@ -400,7 +422,7 @@ def rollup(findings: Any) -> dict[str, Any]:
     packages: dict[tuple[str, str], int] = {}
     for finding in rows:
         level = finding.get("severity")
-        severity[level if level in severity else "unknown"] += 1
+        severity[level if isinstance(level, str) and level in severity else "unknown"] += 1
         fix[fix_key(finding)] += 1
         name = str(finding.get("package") or "")[:MAX_NAME_LEN]
         version = str(finding.get("version") or "")[:MAX_VERSION_LEN]
@@ -419,31 +441,127 @@ def rollup(findings: Any) -> dict[str, Any]:
     }
 
 
+def select(
+    findings: Any,
+    kev: Any = None,
+    per_host: int = KEEP_PER_HOST,
+    per_package: int = KEEP_PER_PACKAGE,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """(the findings stored one by one, the roll-up of the rest, the mark). The stored ones keep the order
+    they came in.
+
+    The mark says how far the room reached: for a package that had more to store than its ceiling, and for
+    the host when it had more than its own, the `_pressing` order of the last finding that was stored. A
+    later scan needs it to tell a finding that is new from one that was there all along, counted, and is
+    listed now only because more pressing ones went away (see `beyond`). {} when nothing was cut."""
+    usable = [f for f in _as_list(findings) if isinstance(f, dict)]
+    wanted = sorted((f for f in usable if kept(f, kev)), key=lambda f: _pressing(f, kev))
+    room: dict[str, int] = {}
+    last: dict[str, list[int]] = {}
+    cut: set[str] = set()
+    host_cut = False
+    reached: list[int] = []
+    chosen: set[int] = set()
+    for finding in wanted:
+        if len(chosen) >= per_host:
+            host_cut = True
+            break
+        package = str(finding.get("package") or "")
+        if room.get(package, 0) >= per_package:
+            cut.add(package)
+            continue
+        room[package] = room.get(package, 0) + 1
+        chosen.add(id(finding))
+        reached = list(_pressing(finding, kev))
+        last[package] = reached
+    stored = [f for f in usable if id(f) in chosen]
+    mark: dict[str, Any] = {}
+    if host_cut and reached:
+        mark["host"] = reached
+    if cut:
+        mark["packages"] = {name: last[name] for name in sorted(cut) if name in last}
+    return stored, rollup([f for f in usable if id(f) not in chosen]), mark
+
+
 def split(
     findings: Any,
     kev: Any = None,
     per_host: int = KEEP_PER_HOST,
     per_package: int = KEEP_PER_PACKAGE,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """(the findings stored one by one, the roll-up of the rest). The stored ones keep the order they came in."""
-    usable = [f for f in _as_list(findings) if isinstance(f, dict)]
-    wanted = sorted((f for f in usable if kept(f, kev)), key=lambda f: _pressing(f, kev))
-    room: dict[str, int] = {}
-    chosen: set[int] = set()
-    for finding in wanted:
-        if len(chosen) >= per_host:
-            break
-        package = str(finding.get("package") or "")
-        if room.get(package, 0) >= per_package:
-            continue
-        room[package] = room.get(package, 0) + 1
-        chosen.add(id(finding))
-    stored = [f for f in usable if id(f) in chosen]
-    return stored, rollup([f for f in usable if id(f) not in chosen])
+    """(the findings stored one by one, the roll-up of the rest): `select` without the mark."""
+    stored, counted_rest, _mark = select(findings, kev, per_host, per_package)
+    return stored, counted_rest
+
+
+def _order(value: Any) -> list[int] | None:
+    """A stored `_pressing` order, or None for anything else."""
+    if (
+        isinstance(value, list)
+        and len(value) == 3
+        and all(isinstance(n, int) and not isinstance(n, bool) for n in value)
+    ):
+        return value
+    return None
+
+
+def beyond(finding: Any, mark: Any, kev: Any = None) -> bool:
+    """Was this finding past the room of the scan that left `mark`? Then it may have been there already,
+    counted and not listed, and a list it enters now is no news.
+
+    A finding that is more pressing than the last one a full package (or a full host) had room for would
+    have been stored then, so it is new. One that is as pressing or less cannot be told from the ones that
+    were counted, and is taken for one of them: an alert that names findings a host had all along, after
+    the host installed its updates, is worse than one new advisory that is listed without an alert.
+    """
+    if not isinstance(finding, dict) or not isinstance(mark, dict):
+        return False
+    here = list(_pressing(finding, kev))
+    host = _order(mark.get("host"))
+    if host is not None and here >= host:
+        return True
+    packages = mark.get("packages")
+    package = _order(
+        packages.get(str(finding.get("package") or "")) if isinstance(packages, dict) else None
+    )
+    return package is not None and here >= package
+
+
+def _count(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def rollup_has(counted_rest: Any, severities: Any) -> bool:
+    """Does a roll-up count a finding of one of these severities?"""
+    by_severity = counted_rest.get("severity") if isinstance(counted_rest, dict) else None
+    if not isinstance(by_severity, dict):
+        return False
+    return any(_count(by_severity.get(s)) for s in severities if isinstance(s, str))
+
+
+def rollup_words(record: Any) -> str:
+    """One sentence about what a stored scan result counted and did not list, from the roll-up's own
+    numbers, "" for a result without one. For the texts that are not a page: a ticket, the assistant.
+    """
+    total = rollup_total(record)
+    if not total:
+        return ""
+    roll = record["rollup"]
+    by_severity = roll.get("severity") if isinstance(roll.get("severity"), dict) else {}
+    by_fix = roll.get("fix") if isinstance(roll.get("fix"), dict) else {}
+    parts = []
+    pressing = _count(by_severity.get("critical")) + _count(by_severity.get("high"))
+    if pressing:
+        parts.append(f"{pressing} critical or high")
+    if _count(by_fix.get("fixable")):
+        parts.append(f"{_count(by_fix.get('fixable'))} cleared by an update")
+    if _count(by_fix.get(PRO)):
+        parts.append(f"{_count(by_fix.get(PRO))} fixed with Ubuntu Pro")
+    said = f"{total} more known vulnerabilities are counted per package and not listed one by one"
+    return said + (f" ({', '.join(parts)})" if parts else "")
 
 
 def rollup_total(record: Any) -> int:
     """The roll-up's total in a stored scan result, 0 for a result without one or with a damaged one."""
     roll = record.get("rollup") if isinstance(record, dict) else None
-    total = roll.get("total") if isinstance(roll, dict) else None
-    return total if isinstance(total, int) and not isinstance(total, bool) and total > 0 else 0
+    return _count(roll.get("total")) if isinstance(roll, dict) else 0

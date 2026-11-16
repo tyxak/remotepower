@@ -444,7 +444,12 @@ SHAPES: dict = {
                                                       packages=list_of(fields(need=('name',), name=STR, version=OPT_STR,
                                                                               count=OPT_NUM)),
                                                       more=fields(packages=OPT_NUM, count=OPT_NUM)),
+                                        # 8.0.1: how far the ceilings reached (cve_fixes.select); three numbers each
+                                        listed_to=fields(host=list_of(NUM), packages=dict_of(list_of(NUM))),
                                         findings=list_of(fields(aliases=LIST, package=OPT_STR, severity=OPT_STR,
+                                                                # 8.0.1: the page prints these three as they are
+                                                                fixed_version=OPT_STR, fix_status=OPT_STR,
+                                                                fixed_elsewhere=dict_of(STR),
                                                                 summary=OPT_STR, version=OPT_STR, vuln_id=OPT_STR,
                                                                 binaries=list_of(STR), binaries_more=OPT_NUM)))),
     'discovery.json': dict_of(fields(hosts=list_of(fields(need=('ip',), ip=STR, mac=OPT_STR, hostname=OPT_STR)))),

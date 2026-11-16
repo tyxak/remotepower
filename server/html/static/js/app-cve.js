@@ -12,7 +12,8 @@ const _CVE_FIX_NAME = {fixable: 'Fixable now', newer_release: 'Newer release onl
 function _cveFixKey(f) {
   if (f.fix_status === 'fixed') return 'fixable';
   if (f.fix_status === 'newer_release' || f.fix_status === 'none' || f.fix_status === 'pro') return f.fix_status;
-  return f.fixed_version ? 'fixable' : 'unchecked';
+  const fv = f.fixed_version;       // text that is not blank, as the server reads it; a number counts as its text
+  return (typeof fv === 'string' && fv.trim()) || (typeof fv === 'number' && fv) ? 'fixable' : 'unchecked';
 }
 
 function _markCveFixTiles() {
@@ -125,7 +126,7 @@ async function loadCVEReport() {
   const countNote = document.getElementById('cve-count-note');
   if (countNote) countNote.hidden = data.counting !== 'fixable_only';
   // 8.0.1: what the scans counted per package and did not list one by one, for the fleet
-  const rollNote = document.getElementById('cve-rollup-note'), rolled = Number(data.summary.rollup) || 0;
+  const rollNote = document.getElementById('cve-rollup-note'), rolled = typeof data.summary.rollup === 'number' ? data.summary.rollup : 0;
   if (rollNote) { rollNote.hidden = !rolled; rollNote.lastElementChild.textContent = rolled; }
   _renderCveHostTable();
   loadCveCampaigns();
@@ -338,16 +339,21 @@ function _cveCoverageHtml(data) {
 // no update for the host's release clears, unless it is critical, high or known to be exploited, and what did not
 // fit under the ceiling of a host or a package. A package name is data, so the rows are not translated.
 function _cveRollupHtml(r) {
-  if (!r || !(r.total > 0)) return '';
-  const n = (o, k) => Number(o && o[k]) || 0;
+  if (!r || typeof r.total !== 'number' || !(r.total > 0)) return '';
+  // a number or nothing, a name or nothing: an object where one belongs is not printed and not converted
+  const num = v => typeof v === 'number' && isFinite(v) && v > 0 ? v : 0;
+  const n = (o, k) => num(o && o[k]);
+  const txt = v => typeof v === 'string' ? v : '';
   const rows = (Array.isArray(r.packages) ? r.packages : []).map(p => !p ? ''
-    : `<tr><td class="mono-12">${escHtml(p.name || '')}</td><td class="mono-12">${escHtml(p.version || '')}</td><td class="ta-center">${Number(p.count) || 0}</td></tr>`).join('');
+    : `<tr><td class="mono-12">${escHtml(txt(p.name))}</td><td class="mono-12">${escHtml(txt(p.version))}</td><td class="ta-center">${num(p.count)}</td></tr>`).join('');
   const more = n(r.more, 'packages') > 0 ? `<div class="hint mt-6"><span>Packages not shown:</span> <span>${n(r.more, 'packages')}</span></div>` : '';
   const sev = n(r.severity, 'critical') + n(r.severity, 'high') > 0
     ? `<div class="hint mt-6"><span>Of these, critical or high:</span> <span>${n(r.severity, 'critical') + n(r.severity, 'high')}</span></div>` : '';
   const fixable = n(r.fix, 'fixable') > 0 ? `<div class="hint mt-6"><span>Of these, cleared by an update:</span> <span>${n(r.fix, 'fixable')}</span></div>` : '';
-  return `<details class="mb-8" data-cve-rollup=""><summary class="hint pointer"><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong>${Number(r.total)}</strong></summary>`
-    + sev + fixable
+  // the tile "Needs Ubuntu Pro" counts the listed ones; on a release past its standard support most are here
+  const pro = n(r.fix, 'pro') > 0 ? `<div class="hint mt-6"><span>Of these, fixed with Ubuntu Pro:</span> <span>${n(r.fix, 'pro')}</span></div>` : '';
+  return `<details class="mb-8" data-cve-rollup=""><summary class="hint pointer"><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong>${r.total}</strong></summary>`
+    + sev + fixable + pro
     + (rows ? `<div class="scrollable-table-wrap audit-scroll mt-6"><table><thead><tr><th>Package</th><th>Installed</th><th class="ta-center">Count</th></tr></thead><tbody data-no-i18n="">${rows}</tbody></table></div>` : '')
     + more + '</details>';
 }

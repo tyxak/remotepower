@@ -341,7 +341,11 @@ class TestEagerJsPayload(unittest.TestCase):
         # under the tiles and the attributes that keep a package name from being translated (about 500). In app.js it is the host drawer saying "counted"
         # or "not scanned" where it said "clean" (about 800 with the reason for each), the dashboard tile's line for a fleet that has only counts (about
         # 300) and the Counted column of the host table (about 130). The drawer and the dashboard are drawn before any loader could be asked for more.
-        self.assertLess(total, 2_742_000,
+        # 8.0.1, what a review of that change found: 2_744_000. The payload is 2_742_522: 1,311 bytes more, 604 in app.js and 707 in app-cve.js. The
+        # host drawer no longer takes the note of a scan for a failed request and prints the note (about 600 with the reason); the count in the host
+        # view says how many need Ubuntu Pro, prints a number or a name only when it is one, and the page files a blank or a numeric fixed version
+        # under the same tile as the server (about 700).
+        self.assertLess(total, 2_744_000,
                         'the eager JS payload regressed past its budget')
 
 

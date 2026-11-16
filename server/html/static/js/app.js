@@ -13056,7 +13056,7 @@ function _registerCveTable() {
       high:      d.counts?.high || 0,
       medium:    d.counts?.medium || 0,
       low:       d.counts?.low || 0,
-      counted:   d.rollup || 0,      // 8.0.1: counted per package, not listed one by one
+      counted:   typeof d.rollup === 'number' ? d.rollup : 0,      // 8.0.1: counted per package, not listed one by one
       last_scan: d.scanned_at || 0,
     }),
     row: (d) => {
@@ -13072,7 +13072,7 @@ function _registerCveTable() {
       const prioBtn = cveTotal > 0
         ? `<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_aiPrioritiseCvesBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise this host's CVEs">${_icon('sparkles',14)}</button> `
         : '';
-      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer" tabindex="0"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${(d.kev||0)>0 ? `<td class="ta-center"><span class="kev-badge" title="${d.kev} known-exploited in the wild (CISA KEV)">${d.kev}</span></td>` : '<td class="isl-385 ta-center">0</td>'}${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, 'var(--orange)')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}${cell(Number(d.rollup) || 0, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
+      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer" tabindex="0"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${(d.kev||0)>0 ? `<td class="ta-center"><span class="kev-badge" title="${d.kev} known-exploited in the wild (CISA KEV)">${d.kev}</span></td>` : '<td class="isl-385 ta-center">0</td>'}${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, 'var(--orange)')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}${cell(typeof d.rollup === 'number' ? d.rollup : 0, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
     },
     emptyMsg: 'No hosts enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -27074,7 +27074,10 @@ async function _loadAuditSection(key) {
       case 'cve': {
         // Use the per-device endpoint which returns the full findings list
         const data = await api('GET', `/devices/${id}/cve`);
-        if (!data || data.error) {
+        // 8.0.1: a refusal has no findings array. `error` in a 200 answer is the scan's own note ("3 of
+        // the advisory records could not be read"); taken for a failed request it sent this block to
+        // the fleet summary, which showed no finding and called a host with 27 medium ones clean.
+        if (!data || !Array.isArray(data.findings)) {
           // Fallback: try fleet summary
           const fleet = await api('GET', '/cve/findings');
           const devCve = (fleet?.devices || []).find(d => d.device_id === id);
@@ -27083,7 +27086,8 @@ async function _loadAuditSection(key) {
             badge.textContent = 'none'; return;
           }
           const c = devCve.counts || {};
-          badge.innerHTML = c.critical > 0 ? `<span class="c-red fw-600">${c.critical} critical</span>` : c.high > 0 ? `<span class="c-amber">${c.high} high</span>` : 'clean';
+          const lesser = (Number(c.medium) || 0) + (Number(c.low) || 0);
+          badge.innerHTML = c.critical > 0 ? `<span class="c-red fw-600">${c.critical} critical</span>` : c.high > 0 ? `<span class="c-amber">${c.high} high</span>` : lesser > 0 ? `${lesser} total` : 'clean';
           body.innerHTML = `<div class="sysinfo-row">` +
             ['critical','high','medium','low'].map(s => {
               const n = c[s]||0;
@@ -27135,7 +27139,8 @@ async function _loadAuditSection(key) {
           // 8.0.1: in brackets. Joined to the row of tiles above, the list was never empty and this
           // line was never printed.
           (counted || !scanned ? '' : '<div class="c-green">No CVEs found.</div>')) +
-          (counted ? `<div class="meta-sm-nm"><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong>${counted}</strong></div>` : '');
+          (counted ? `<div class="meta-sm-nm"><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong>${counted}</strong></div>` : '') +
+          (typeof data.error === 'string' && data.error ? `<div class="meta-sm-nm">${escHtml(data.error)}</div>` : '');
         // Cross-feature: CVE findings → a prefilled AI remediation runbook.
         if (crit > 0 || high > 0) {
           const top = (bySev.critical || []).concat(bySev.high || [])

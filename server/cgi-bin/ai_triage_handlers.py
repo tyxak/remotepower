@@ -416,9 +416,9 @@ def _triage_tools(dev_id, dev, alert=None):
         findings = [f for f in (rec.get('findings') or [])
                     if isinstance(f, dict) and not f.get('ignored')]
         # 8.0.1: a Debian or Ubuntu scan lists what can be acted on and counts the rest per package
-        counted = A.cve_fixes.rollup_total(rec)
-        more = (f"{counted} more known vulnerabilities are counted per package and not listed "
-                "(mostly medium or lower with no fix for this release)") if counted else ''
+        # in the roll-up's own numbers: on a host whose kernel is behind most of what is counted has a
+        # fix and a third is critical or high, so a sentence that guessed "medium or lower" was untrue
+        more = A.cve_fixes.rollup_words(rec)
         if not findings:
             return f'(no CVE findings listed for this host; {more})' if more else \
                 '(no open CVE findings for this host)'

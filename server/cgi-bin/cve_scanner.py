@@ -714,7 +714,7 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
         return _cvss_band(rated[0]), rated[1]
 
     # 4. Debian, a record with no score. 8.0.1: the record carries the tracker's urgency on every
-    #    entry (751 of 751 entries of the DEBIAN-CVE records read on 2026-11-15), so the tracker is
+    #    entry (755 of 755 entries of the DEBIAN-CVE records read on 2026-11-15), so the tracker is
     #    asked only for a record that carries none. It was one request per record, in the scan.
     #    The urgencies of every release are read, not those of the host's: the result is kept in a
     #    cache that hosts of several releases share. What one release calls unimportant is applied
@@ -834,12 +834,29 @@ def _without_repeated_notices(hits, details: dict, release: str) -> tuple:
 
 def _notice_repeats(det, package: str, reach: dict, release: str) -> bool:
     """Does every fix this notice names for the package have a per-CVE fix at or past it, in the
-    same release? False for a notice whose record was not read, and for one that names no fix for
-    the host's release: what cannot be compared is kept."""
+    same release? False for a notice whose record was not read: what cannot be compared is kept.
+
+    A notice that names no fix for the host's own release is about a package left over from another
+    release (after an upgrade), or the release the host reported is stale. It is then compared in
+    every release it names, as for a host whose release is not known."""
     fixes = det.get('eco_fix') if isinstance(det, dict) else None
     if not isinstance(fixes, dict):
         return False
-    names = [release, cve_fixes.pro_name(release)] if release else list(fixes)
+    if release:
+        verdict = _reached(fixes, package, reach, [release, cve_fixes.pro_name(release)])
+        if verdict is not None:
+            return verdict
+    return _reached(fixes, package, reach, list(fixes)) is True
+
+
+def _reached(fixes: dict, package: str, reach: dict, names) -> bool | None:
+    """True when every fix `fixes` names for the package under `names` has a per-CVE fix at or past
+    it, False when one has none, None when it names no fix there.
+
+    A fix named under Ubuntu Pro is also reached by a standard update of the same release: a
+    Livepatch notice (LSN) names the kernel that no longer needs the patch under the Pro name, and the
+    records of its CVEs name the same kernel as a standard update. Never the other way round: a
+    standard fix is not reached by one that needs Pro."""
     named = False
     for eco in names:
         packages = fixes.get(eco) if eco else None
@@ -848,9 +865,13 @@ def _notice_repeats(det, package: str, reach: dict, release: str) -> bool:
             if not isinstance(version, str) or not version:
                 continue
             named = True
-            if not any(_deb_reaches(carried, version) for carried in reach.get(eco, [])):
+            carried = list(reach.get(eco, []))
+            standard = cve_fixes.standard_name(eco)
+            if standard:
+                carried += reach.get(standard, [])
+            if not any(_deb_reaches(c, version) for c in carried):
                 return False
-    return named
+    return True if named else None
 
 
 def _deb_reaches(carried: str, version: str) -> bool:
@@ -876,7 +897,7 @@ DETAIL_FETCHES_AT_ONCE = 8
 DETAIL_FAILURES_IN_A_ROW = 20
 DETAIL_SAVE_EVERY = 250
 MAX_ALIASES = 40
-SUMMARY_LEN = 500
+SUMMARY_LEN = 240           # of a description, for a record that has no summary: a kernel record's runs to pages
 _STAMP_RE = re.compile(r'^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?')
 _PRO_VERSION = re.compile(r'[+~]esm\d')
 
@@ -1018,9 +1039,16 @@ def _fetch_details(wanted, ecosystem: str, details_cache: dict, cache_path: Path
 
 # ── Main scan entrypoint ─────────────────────────────────────────────────────
 
+def load_details(cache_dir: Path) -> dict:
+    """The advisory records read so far, for a caller that scans many hosts and hands the same map to
+    each scan (`details=`). A scan reads the file itself otherwise, once per host: with the records of
+    one Debian 12 kernel in it (8,867 on 2026-11-16) that is 6.5 MB parsed for every host of a fleet scan."""
+    return _load_json(Path(cache_dir) / 'cve_details_cache.json')
+
+
 def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
                 cache_ttl: int = None, osv_prefetch: dict = None, has_meta: bool = False,
-                tick=None, release: str = None, kev=None) -> dict:
+                tick=None, release: str = None, kev=None, details: dict = None) -> dict:
     """
     Scan one device's package list against OSV (if ecosystem supported).
 
@@ -1029,6 +1057,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     advisory records are read, so a caller can show that the scan is alive. `release` is the name the
     host's own release has in a record (`entry_release`); without it the ecosystem's own name is used.
     `kev` is the set of known-exploited CVE ids, for the rule of what is stored one by one.
+    `details` is the map of `load_details`, shared by the scans of one run; it is added to in place.
     """
     if not packages or not ecosystem:
         return {
@@ -1067,7 +1096,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             'partial': True,
         }
 
-    details_cache = _load_json(cache_dir / 'cve_details_cache.json')
+    details_cache = details if isinstance(details, dict) else _load_json(cache_dir / 'cve_details_cache.json')
     findings = []
 
     # 8.0.1: what to ask for is the plan, not the list (see `plan`)
@@ -1123,7 +1152,9 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             continue
         if result.get('truncated') and unit['package'] not in cut:
             cut.append(unit['package'])
-        answered = [v for v in (result.get('vulns') or []) if isinstance(v, dict) and v.get('id')]
+        # an id is text: one of another kind (a list, a map) cannot be looked up and ended the scan
+        answered = [v for v in (result.get('vulns') or [])
+                    if isinstance(v, dict) and isinstance(v.get('id'), str) and v['id']]
         for v in answered:
             vid = v['id']
             hits.append((unit, vid))
@@ -1229,9 +1260,9 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     # tell whether an update for the host's release clears a finding: Debian, and Ubuntu with a known
     # release. Those two list every known CVE of the release, fixed or not.
     ruled = fam == 'deb' and release_known
-    counted = {}
+    counted, listed_to = {}, {}
     if ruled:
-        findings, counted = cve_fixes.split(findings, kev)
+        findings, counted, listed_to = cve_fixes.select(findings, kev)
 
     result = {
         'scanned_at': int(time.time()),
@@ -1249,6 +1280,9 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         result['ruled'] = True          # the alert path compares like with like (see cve_fixes.kept)
     if counted:
         result['rollup'] = counted
+    if listed_to:
+        # how far the ceilings reached, for the next scan's alert comparison (cve_fixes.beyond)
+        result['listed_to'] = listed_to
     if duplicates:
         result['duplicates'] = duplicates
     if unread:
@@ -1391,6 +1425,27 @@ def _save_json(path: Path, data: dict) -> None:
     tmp = path.with_suffix(path.suffix + f'.{os.getpid()}.tmp')
     tmp.write_text(json.dumps(data, separators=(',', ':')))
     tmp.replace(path)
+    _sweep_stale_tmp(path)
+
+
+STALE_TMP_SECONDS = 900
+
+
+def _sweep_stale_tmp(path: Path) -> None:
+    """Remove the temporary files that scanners left beside `path` when they were killed while
+    writing (a restart, the OOM killer). Each is a whole copy of the cache, the next scanner has
+    another process id, and nothing else would ever take them away. One that was written to in the
+    last quarter of an hour may belong to a scanner that is still writing, and is left."""
+    try:
+        now = time.time()
+        for leftover in path.parent.glob(path.name + '.*.tmp'):
+            try:
+                if now - leftover.stat().st_mtime > STALE_TMP_SECONDS:
+                    leftover.unlink()
+            except OSError:
+                continue
+    except OSError:
+        pass
 
 
 def packages_hash(packages: list) -> str:
@@ -1415,10 +1470,13 @@ def summarize_findings(findings: list, ignore_ids: set) -> dict:
     for f in findings:
         if not isinstance(f, dict):      # v7.4.6: a hand-edited store; one bad row must not fail the report
             continue
-        if f.get('vuln_id') in ignore_ids:
+        vid = f.get('vuln_id')
+        if isinstance(vid, str) and vid in ignore_ids:
             out['ignored'] += 1
             continue
         sev = f.get('severity', 'unknown')
+        if not isinstance(sev, str):     # 8.0.1: a list or a map is no key, and ended the report
+            sev = 'unknown'
         out[sev] = out.get(sev, 0) + 1
     return out
 

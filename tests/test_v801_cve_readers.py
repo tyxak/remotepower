@@ -230,6 +230,91 @@ class TestACampaign(_Stored):
         self.assertFalse(api._campaign_matches_finding({'cve_ids': [None, 7]}, self.finding()))
 
 
+class TestACampaignOfATenant(_Stored):
+    """A campaign that a tenant made is about that tenant's hosts. Its daily sample runs with no request, and counted
+    every tenant's: the burn-down a tenant administrator was shown held other tenants' hosts, and the campaign
+    stayed open for as long as anyone was affected. Older than 8.0.1 for a campaign over severities; it showed for
+    a campaign over ids once those matched anything."""
+
+    def setUp(self):
+        super().setUp()
+        devices = api.load(api.DEVICES_FILE)
+        devices[BEHIND_HOST]['tenant'] = 't1'          # holds CVE-2024-6387, and high findings
+        devices[PATCHED_HOST]['tenant'] = 't2'         # does not hold it; has high findings
+        api.save(api.DEVICES_FILE, devices)
+        api._LOAD_CACHE.clear()
+        self.assertTrue([f for f in self.patched['findings'] if f['severity'] == 'high'])
+        self.assertNotIn(SSHD, {f['vuln_id'] for f in self.patched['findings']})
+
+    def campaign(self, cid, tenant, **scope):
+        camp = dict({'id': cid, 'name': cid, 'tenant': tenant, 'owner': 'x', 'cve_ids': [], 'severities': [],
+                     'kev_only': False, 'target_date': '', 'created_at': 1, 'completed_at': None, 'samples': []}, **scope)
+        store = api.load(api.CVE_CAMPAIGNS_FILE) or {}
+        store.setdefault('campaigns', []).append(camp)
+        api.save(api.CVE_CAMPAIGNS_FILE, store)
+        api._LOAD_CACHE.clear()
+
+    def sample(self):
+        with mock.patch.object(api.time, 'time', lambda: 2_000_000_000):
+            api._LOAD_CACHE.clear()
+            api.run_cve_campaign_sample_if_due()
+        api._LOAD_CACHE.clear()
+        return {c['id']: c for c in api.load(api.CVE_CAMPAIGNS_FILE)['campaigns']}
+
+    def test_the_daily_sample_counts_the_hosts_of_the_campaigns_own_tenant(self):
+        self.campaign('of_t2', 't2', cve_ids=['CVE-2024-6387'])
+        self.campaign('of_t1', 't1', cve_ids=['CVE-2024-6387'])
+        self.campaign('of_all', None, cve_ids=['CVE-2024-6387'])
+        self.campaign('t2_high', 't2', severities=['high'])
+        self.campaign('all_high', None, severities=['high'])
+        after = self.sample()
+        affected = {cid: c['samples'][-1]['affected'] for cid, c in after.items()}
+        self.assertEqual(affected, {'of_t2': 0, 'of_t1': 1, 'of_all': 1, 't2_high': 1, 'all_high': 2})
+        # the tenant that has no host in it is done, and is told so once; the others stay open
+        self.assertEqual(after['of_t2']['completed_at'], 2_000_000_000)
+        self.assertEqual([c for c in ('of_t1', 'of_all', 't2_high', 'all_high') if after[c]['completed_at']], [])
+        self.assertEqual([(e, p['id']) for e, p in self.fired], [('campaign_completed', 'of_t2')])
+
+    def listed_to(self, tenant):
+        with mock.patch.object(api, '_tenant_gate', lambda: tenant):
+            status, answer = self.call(api.handle_cve_campaigns)
+        self.assertEqual(status, 200)
+        return {r['id']: r for r in answer['campaigns']}
+
+    def test_a_tenant_administrator_is_shown_their_own_hosts_and_no_history_of_the_others(self):
+        self.campaign('of_t1', 't1', cve_ids=['CVE-2024-6387'])
+        self.campaign('of_all', None, cve_ids=['CVE-2024-6387'])
+        self.campaign('all_high', None, severities=['high'])
+        self.sample()
+        rows = self.listed_to('t2')
+        self.assertEqual(sorted(rows), ['all_high', 'of_all'])                     # not the campaign of t1
+        # a campaign of the whole installation: this tenant's own numbers, and none of the samples over every tenant
+        self.assertEqual((rows['of_all']['affected_hosts'], rows['of_all']['samples']), (0, []))
+        self.assertEqual((rows['all_high']['affected_hosts'], rows['all_high']['samples'], rows['all_high']['completed_at']),
+                         (1, [], None))
+        operator = self.listed_to(None)
+        self.assertEqual(sorted(operator), ['all_high', 'of_all', 'of_t1'])
+        self.assertEqual([x['affected'] for x in operator['all_high']['samples']], [2])
+        self.assertEqual(operator['all_high']['affected_hosts'], 2)
+        self.assertEqual([x['affected'] for x in operator['of_t1']['samples']], [1])      # a tenant's campaign, whole
+
+    def test_a_campaign_that_was_completed_is_not_shown_completed_to_a_tenant_with_a_host_in_it(self):
+        """The stored completion is the whole installation's, from the last daily sample. Until the next one a
+        tenant that has a host in the campaign is shown their own state."""
+        self.campaign('all_high', None, severities=['high'], completed_at=123)
+        self.campaign('of_all', None, cve_ids=['CVE-2024-6387'], completed_at=456)
+        rows = self.listed_to('t2')
+        self.assertEqual((rows['all_high']['affected_hosts'], rows['all_high']['completed_at']), (1, None))
+        self.assertEqual((rows['of_all']['affected_hosts'], rows['of_all']['completed_at']), (0, 456))
+        self.assertEqual(self.listed_to(None)['all_high']['completed_at'], 123)
+
+    def test_a_tenants_own_campaign_keeps_its_history_for_them(self):
+        self.campaign('t2_high', 't2', severities=['high'])
+        self.sample()
+        row = self.listed_to('t2')['t2_high']
+        self.assertEqual(([x['affected'] for x in row['samples']], row['affected_hosts']), ([1], 1))
+
+
 def routes():
     """(method, pattern) for every route the server answers, as tests/test_ui_wiring.py derives them."""
     out = []
@@ -339,7 +424,26 @@ class TestTheMcpToolsReturnAHostsFindings(_Stored):
             nothing = sidecar.tool_get_cves({'name': 'other01'})
         self.assertIn(SSHD, {f['vuln_id'] for f in out['findings']})
         self.assertEqual(out['counted']['total'], self.behind['rollup']['total'])
-        self.assertEqual(nothing, {'device': 'other01', 'findings': []})
+        self.assertEqual(out['listed'], len(self.behind['findings']))
+        self.assertEqual(nothing, {'device': 'other01', 'findings': [], 'listed': 0})
+
+    def test_a_host_that_lists_more_than_an_answer_holds_says_how_many_it_lists(self):
+        """The tool cut the list to 200 and the answer that is cut to fit gave 200 as the total, for a host that
+        lists 300: a hundred findings were in neither number."""
+        one = dict(self.finding(), summary='s' * 240)
+        many = [dict(one, vuln_id=f'DEBIAN-CVE-2024-{10000 + i}') for i in range(300)]
+
+        def fetch(path, method='GET', body=None):
+            if path == '/api/devices':
+                return {'devices': [{'id': 'big01', 'name': 'big01'}]}
+            return {'findings': many, 'rollup': {'total': 186}}
+        out = mcp_http.tool_get_cves({'name': 'big01'}, fetch)
+        self.assertEqual((out['listed'], len(out['findings']), out['counted']), (300, 300, {'total': 186}))
+        fitted = json.loads(mcp_http._fit(out))
+        self.assertIs(fitted['truncated'], True)
+        self.assertEqual((fitted['total'], fitted['listed']), (300, 300))
+        self.assertEqual(fitted['shown'], len(fitted['findings']))
+        self.assertLess(fitted['shown'], 300)
 
 
 class TestTheAssistantsFleetSummary(_Stored):
@@ -388,6 +492,38 @@ class TestAnSbomPointsAtTheInstalledPackages(_Stored):
         sudo = next(f for f in self.behind['findings'] if f['package'] == 'sudo')
         self.assertEqual(self.bom(BEHIND, [sudo])[sudo['vuln_id']], ['sudo'])
 
+    def test_a_source_package_that_is_also_an_installed_package(self):
+        """`curl` is installed and is the source of `libcurl4`. The vulnerability pointed at `curl` and stopped."""
+        packages = [{'name': 'curl', 'version': '7.88.1-10+deb12u5', 'arch': 'amd64'},
+                    {'name': 'libcurl4', 'version': '7.88.1-10+deb12u5', 'arch': 'amd64', 'source': 'curl'},
+                    {'name': 'libcurl3-gnutls', 'version': '7.88.1-10+deb12u5', 'arch': 'amd64', 'source': 'curl'},
+                    {'name': 'bash', 'version': '5.2.15-2+b2', 'arch': 'amd64'}]
+        finding = {'vuln_id': 'DEBIAN-CVE-2024-1', 'package': 'curl', 'version': '7.88.1-10+deb12u5', 'severity': 'high',
+                   'binaries': ['curl', 'libcurl3-gnutls', 'libcurl4']}
+        self.assertEqual(self.bom(packages, [finding])['DEBIAN-CVE-2024-1'], ['curl', 'libcurl3-gnutls', 'libcurl4'])
+
+    def test_the_new_kernel_is_not_named_for_a_finding_about_the_old_one(self):
+        """Both are built from `linux`. The finding names the old image; the SBOM also named the new one and
+        linux-libc-dev, which have the fix."""
+        packages = [{'name': 'linux-image-6.1.0-40-amd64', 'version': '6.1.158-1', 'arch': 'amd64', 'source': 'linux'},
+                    {'name': 'linux-image-6.1.0-48-amd64', 'version': '6.1.192-1', 'arch': 'amd64', 'source': 'linux'},
+                    {'name': 'linux-libc-dev', 'version': '6.1.192-1', 'arch': 'amd64', 'source': 'linux'}]
+        finding = {'vuln_id': 'DEBIAN-CVE-2025-68745', 'package': 'linux', 'version': '6.1.158-1', 'severity': 'critical',
+                   'fixed_version': '6.1.192-1', 'binaries': ['linux-image-6.1.0-40-amd64']}
+        self.assertEqual(self.bom(packages, [finding])['DEBIAN-CVE-2025-68745'], ['linux-image-6.1.0-40-amd64'])
+        # a finding of both kernels names both
+        both = dict(finding, vuln_id='X-2', binaries=['linux-image-6.1.0-40-amd64', 'linux-image-6.1.0-48-amd64'])
+        self.assertEqual(self.bom(packages, [both])['X-2'], ['linux-image-6.1.0-40-amd64', 'linux-image-6.1.0-48-amd64'])
+
+    def test_when_the_names_were_cut_the_list_says_what_was_built_from_the_source(self):
+        packages = [{'name': f'lib{i:02d}', 'version': '2.0-1', 'arch': 'amd64', 'source': 'big'} for i in range(40)]
+        packages += [{'name': 'lib-new', 'version': '3.0-1', 'arch': 'amd64', 'source': 'big'}]
+        finding = {'vuln_id': 'X-1', 'package': 'big', 'version': '2.0-1', 'severity': 'high',
+                   'binaries': [f'lib{i:02d}' for i in range(30)], 'binaries_more': 10}
+        self.assertEqual(self.bom(packages, [finding])['X-1'], [f'lib{i:02d}' for i in range(40)])
+        whole = dict(finding, binaries_more=0)
+        self.assertEqual(len(self.bom(packages, [whole])['X-1']), 30)
+
     def test_an_rpm_finding_whose_version_carries_the_epoch(self):
         packages = [{'name': 'openssl-libs', 'version': '3.0.7-16.el9', 'arch': 'x86_64', 'epoch': '1', 'source': 'openssl'},
                     {'name': 'openssl', 'version': '3.0.7-16.el9', 'arch': 'x86_64', 'epoch': '1', 'source': 'openssl'},
@@ -395,9 +531,12 @@ class TestAnSbomPointsAtTheInstalledPackages(_Stored):
         finding = {'vuln_id': 'ALSA-2024:1', 'package': 'openssl', 'version': '1:3.0.7-16.el9', 'severity': 'high',
                    'binaries': ['openssl', 'openssl-libs']}
         self.assertEqual(self.bom(packages, [finding], 'dnf', 'almalinux')['ALSA-2024:1'], ['openssl', 'openssl-libs'])
-        # from the list alone, when the finding names no installed package
+        # a finding that names no installed package is about the package of its own name
         bare = {'vuln_id': 'ALSA-2024:2', 'package': 'openssl', 'version': '1:3.0.7-16.el9', 'severity': 'high'}
-        self.assertEqual(self.bom(packages, [bare], 'dnf', 'almalinux')['ALSA-2024:2'], ['openssl', 'openssl-libs'])
+        self.assertEqual(self.bom(packages, [bare], 'dnf', 'almalinux')['ALSA-2024:2'], ['openssl'])
+        self.assertEqual(sbom._no_epoch('1:3.0.7-16.el9'), '3.0.7-16.el9')
+        for plain in ('3.0.7-16.el9', 'a:b', ':x', '', None):
+            self.assertEqual(sbom._no_epoch(plain), str(plain or ''), plain)
 
     def test_two_installed_versions_of_one_name(self):
         """An RPM host keeps its old kernels. A finding about one version is about that one."""
@@ -421,9 +560,11 @@ class TestAnSbomPointsAtTheInstalledPackages(_Stored):
             self.assertIsInstance(self.bom(plain, [f])['X-3'], list, odd)
 
     def test_a_vulnerability_points_at_a_bounded_number_of_components(self):
-        many = [{'name': f'linux-thing-{i}', 'version': '6.1.0-1', 'arch': 'amd64', 'source': 'linux'} for i in range(500)]
+        many = [{'name': f'linux-thing-{i}', 'version': '6.1.0-1', 'arch': 'amd64', 'source': 'linux',
+                 'source_version': '6.1.76-1'} for i in range(500)]
         finding = {'vuln_id': 'X-9', 'package': 'linux', 'version': '6.1.76-1', 'severity': 'high'}
         self.assertEqual(len(self.bom(many, [finding])['X-9']), sbom.MAX_AFFECTS)
+        self.assertEqual(self.bom(many, [dict(finding, version='6.1.99-1')])['X-9'], [])       # another version of the source
 
 
 class TestAHostWithOnlyACountIsNotClean(_Stored):
@@ -437,7 +578,8 @@ class TestAHostWithOnlyACountIsNotClean(_Stored):
 
     def test_the_assistants_triage_tool(self):
         source = srcpin.py_function((_CGI / 'ai_triage_handlers.py').read_text(), '_cves')
-        self.assertIn('A.cve_fixes.rollup_total(rec)', source)
+        self.assertIn('more = A.cve_fixes.rollup_words(rec)', source)
+        self.assertNotIn('mostly medium or lower', source)             # a guess, and untrue for a host that is behind
         self.assertIn("return f'(no CVE findings listed for this host; {more})' if more else", source)
         self.assertIn("'(no open CVE findings for this host)'", source)
         self.assertIn('lines.append(more)', source)
@@ -445,10 +587,10 @@ class TestAHostWithOnlyACountIsNotClean(_Stored):
     def test_the_text_of_a_ticket(self):
         text = '\n'.join(self.ticket(PATCHED_HOST))
         self.assertIn('Open CVEs on this host: 0 total', text)
-        self.assertIn(f'Counted per package and not listed one by one: {self.counted} more', text)
-        self.assertNotIn('Counted per package', '\n'.join(self.ticket(OTHER_HOST)))
+        self.assertIn(f'{self.counted} more known vulnerabilities are counted per package and not listed one by one', text)
+        self.assertNotIn('counted per package', '\n'.join(self.ticket(OTHER_HOST)))
         behind = '\n'.join(self.ticket(BEHIND_HOST))
-        self.assertIn(f"Counted per package and not listed one by one: {self.behind['rollup']['total']} more", behind)
+        self.assertIn(f"{self.behind['rollup']['total']} more known vulnerabilities are counted per package", behind)
         self.assertIn(SSHD, behind)
 
     def ticket(self, host):
@@ -515,6 +657,31 @@ console.log(JSON.stringify({badge: badge.innerHTML, body: body.innerHTML}));
             out = self.run_case(unscanned)
             self.assertEqual(out['badge'], 'not scanned', unscanned)
             self.assertNotIn('No CVEs found.', out['body'])
+
+    def test_a_scan_that_could_not_read_every_record_is_not_a_failed_request(self):
+        """`error` in a 200 answer is the scan's own note. Taken for a failure it sent the block to the fleet summary,
+        which showed no finding and called a host with 27 medium ones clean."""
+        block = _APP[_APP.index("      case 'cve': {"):]
+        block = block[:block.index('        const findings = data.findings || [];')]
+        self.assertIn('        if (!data || !Array.isArray(data.findings)) {', block)
+        self.assertNotIn('if (!data || data.error) {', block)
+        note = '3 of the advisory records could not be read from OSV. Their severity and fix are unknown until the next scan.'
+        out = self.run_case({'scanned_at': 5, 'error': note, 'rollup': {'total': 3},
+                             'findings': [{'vuln_id': 'UBUNTU-CVE-2024-2961', 'severity': 'medium', 'package': 'glibc',
+                                           'version': '2.35-0ubuntu3.6'}]})
+        self.assertEqual(out['badge'], '1 total')
+        self.assertIn('UBUNTU-CVE-2024-2961', out['body'])
+        self.assertIn(f'<div class="meta-sm-nm">{note}</div>', out['body'])
+        hostile = self.run_case({'scanned_at': 5, 'findings': [], 'error': '<img src=x onerror=1>'})
+        self.assertNotIn('<img', hostile['body'])
+        for no_note in ('', None, 7, {'a': 1}, ['x']):
+            self.assertEqual(self.run_case({'scanned_at': 5, 'findings': [], 'error': no_note})['body'].count('meta-sm-nm'), 0)
+
+    def test_the_fleet_summary_it_falls_back_to_does_not_call_medium_findings_clean(self):
+        block = _APP[_APP.index("      case 'cve': {"):]
+        block = block[:block.index('        const findings = data.findings || [];')]
+        self.assertIn("const lesser = (Number(c.medium) || 0) + (Number(c.low) || 0);", block)
+        self.assertIn("lesser > 0 ? `${lesser} total` : 'clean';", block)
 
     def test_findings_and_a_count(self):
         out = self.run_case({'scanned_at': 5, 'rollup': {'total': 9},

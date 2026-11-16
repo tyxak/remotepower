@@ -102,11 +102,10 @@ def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=N
     # bom-ref per component, plus an index so vulnerabilities can point back to
     # the affected component by (name, version).
     components = []
-    ref_by_nv = {}
-    # 8.0.1: a finding may be filed under the source package (Alpine, Rocky, Debian, Ubuntu), which is
-    # not an installed package, so the components are also found by their name and by their source.
-    refs_by_name: dict = {}
-    refs_by_source: dict = {}
+    # 8.0.1: what a vulnerability needs to find its components. A finding may be filed under the source
+    # package (Alpine, Rocky, Debian, Ubuntu), which is not an installed package, so each installed
+    # package is kept with the source it was built from and that source's version.
+    installed: list = []
     for i, p in enumerate(packages):
         name = p.get('name', '')
         version = p.get('version', '')
@@ -115,12 +114,14 @@ def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=N
             continue
         purl = _purl(name, version, arch, pkg_manager, os_id)
         ref = f'comp-{i}'
-        ref_by_nv.setdefault((name, version), ref)
-        if isinstance(name, str):
-            refs_by_name.setdefault(name, []).append(ref)
-        source = p.get('source')
-        if isinstance(source, str) and source:
-            refs_by_source.setdefault(source, []).append(ref)
+        if isinstance(name, str) and isinstance(version, str):
+            source = p.get('source')
+            source_version = p.get('source_version')
+            installed.append({
+                'ref': ref, 'name': name, 'version': _no_epoch(version),
+                'source': source if isinstance(source, str) and source else name,
+                'source_version': _no_epoch(source_version if isinstance(source_version, str) and source_version
+                                            else version)})
         comp = {
             'type': 'library',
             'bom-ref': ref,
@@ -182,7 +183,7 @@ def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=N
         'components': components,
     }
 
-    vulns = _cyclonedx_vulns(findings, ref_by_nv, refs_by_name, refs_by_source)
+    vulns = _cyclonedx_vulns(findings, installed)
     if vulns:
         doc['vulnerabilities'] = vulns
     return doc
@@ -191,38 +192,63 @@ def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=N
 MAX_AFFECTS = 200     # components one vulnerability points at (a kernel source builds a few dozen packages)
 
 
-def _affected_refs(f, ref_by_nv, refs_by_name, refs_by_source) -> list:
+def _no_epoch(version) -> str:
+    """A version without its epoch ("1:3.0.7-16.el9" is "3.0.7-16.el9"): a package list holds an RPM
+    version without it and a finding with it."""
+    text = str(version or '')
+    head, colon, rest = text.partition(':')
+    return rest if colon and head.isascii() and head.isdigit() else text
+
+
+def _affected_refs(f, installed) -> list:
     """The components a finding is about.
 
-    The installed package of that name and version when there is one. Otherwise the finding is filed
-    under a source package, or its version carries an epoch the package list does not: then the
-    installed packages the finding names (`binaries`), the package of the finding's own name, and
-    every package the list says was built from that source."""
-    exact = ref_by_nv.get((f.get('package', ''), f.get('version', '')))
-    if exact:
-        return [exact]
-    package = f.get('package')
-    names = [n for n in (f.get('binaries') if isinstance(f.get('binaries'), list) else []) if isinstance(n, str)]
-    if isinstance(package, str) and package and package not in names:
-        names.append(package)
+    A finding filed under a source package names the installed packages it was made for (`binaries`);
+    without them it is about the package of its own name. Of the components with those names, the ones
+    at the finding's version: a host may hold two versions of one name (an old kernel beside the new
+    one) and the finding is about one of them. A name that has no component at that version keeps
+    every component it has. When the names were cut at thirty, or name nothing that is installed, the
+    packages the list says were built from that source at that version are added.
+
+    8.0.1, first version: it took the package of the finding's own name when there was one and stopped
+    (so `libssl3` was not named for a finding about `openssl`), and otherwise every package of the
+    source at any version (so the new kernel, which has the fix, was named for a finding about the old)."""
+    package = f.get('package') if isinstance(f.get('package'), str) else ''
+    version = _no_epoch(f.get('version'))
+    names = [n for n in (f.get('binaries') if isinstance(f.get('binaries'), list) else [])
+             if isinstance(n, str) and n]
+    more = f.get('binaries_more')
+    cut = isinstance(more, int) and not isinstance(more, bool) and more > 0
+    if not names and package:
+        names = [package]
+    wanted = set(names)
+    named = [c for c in installed if c['name'] in wanted]
+    at_version = [c for c in named if version and version in (c['version'], c['source_version'])]
+    held = {c['name'] for c in at_version}
+    picked = at_version + [c for c in named if c['name'] not in held]
+    if cut or not picked:
+        picked += [c for c in installed
+                   if c['source'] == package and version and version in (c['source_version'], c['version'])
+                   and c not in picked]
     refs: list = []
-    for name in names:
-        refs.extend(r for r in (refs_by_name or {}).get(name, []) if r not in refs)
-    if isinstance(package, str):
-        refs.extend(r for r in (refs_by_source or {}).get(package, []) if r not in refs)
+    for c in picked:
+        if c['ref'] not in refs:
+            refs.append(c['ref'])
     return refs[:MAX_AFFECTS]
 
 
-def _cyclonedx_vulns(findings, ref_by_nv, refs_by_name=None, refs_by_source=None) -> list:
+def _cyclonedx_vulns(findings, installed=None) -> list:
     out = []
     for f in (findings or []):
+        if not isinstance(f, dict):
+            continue
         vid = f.get('vuln_id')
         if not vid:
             continue
         sev = (f.get('severity') or 'unknown').lower()
         if sev not in _CDX_SEV:
             sev = 'unknown'
-        affected_refs = _affected_refs(f, ref_by_nv, refs_by_name, refs_by_source)
+        affected_refs = _affected_refs(f, installed or [])
         v = {
             'id': vid,
             'ratings': [{
