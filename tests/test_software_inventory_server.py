@@ -716,6 +716,24 @@ class TestTheSearch(_Fleet):
         self.assertEqual(self.rows('q=odd%20tool&op=lt&version=2.9'), [])
         self.assertEqual(self.rows('q=odd%20tool&op=ge&version=2.9'), [(WIN_A, 'Odd Tool', '2.43.0.windows.1')])
 
+    def test_every_operator_at_the_equal_version_for_an_application(self):
+        """The edge of each comparison: the host whose version is exactly the one asked for. Chrome is 120.0.6099.109 on the
+        Windows host and 120.0.6099.129 on the Mac."""
+        win, mac = (WIN_A, 'Google Chrome', '120.0.6099.109'), (MAC_A, 'Google Chrome', '120.0.6099.129')
+        for op, want in (('lt', []), ('le', [win]), ('eq', [win]), ('ge', [mac, win]), ('gt', [mac])):
+            self.assertEqual(self.rows(f'q=google%20chrome&op={op}&version=120.0.6099.109'), sorted(want), op)
+
+    def test_every_operator_at_the_equal_version_for_a_linux_package_with_an_epoch(self):
+        """A package of a distribution is ordered as its distribution orders it, epoch first: 1:2.34.1 is above 2.34.1, which
+        the order of a vendor's version (the number a version starts with) would read the other way."""
+        def linux(query):
+            return [r for r in self.rows(query) if r[0] == LNX_B]
+        git = (LNX_B, 'git', '1:2.34.1-1ubuntu1.10')
+        for op, want in (('lt', []), ('le', [git]), ('eq', [git]), ('ge', [git]), ('gt', [])):
+            self.assertEqual(linux(f'q=git&exact=1&op={op}&version=1:2.34.1-1ubuntu1.10'), want, op)
+        for op, want in (('gt', [git]), ('ge', [git]), ('lt', []), ('le', []), ('eq', [])):
+            self.assertEqual(linux(f'q=git&exact=1&op={op}&version=2.34.1-1ubuntu1.10'), want, op)       # no epoch: below it
+
     def test_a_linux_search_is_as_it_was(self):
         self.assertEqual(self.rows('q=openssl&op=lt&version=3.0.3'), [(LNX_B, 'openssl', '3.0.2-0ubuntu1.12')])
         self.assertEqual(self.rows('q=openssl&op=ge&version=3.0.3'), [])
@@ -912,6 +930,51 @@ class TestThePolicy(_Fleet):
             found = {v['rule_id']: v for v in api.load(api.SOFTWARE_VIOLATIONS_FILE)[WIN_A]['violations']}
             self.assertEqual(sorted(found), ['m'], [r['version'] for r in perm])        # below 2.20, not below 2.8
             self.assertEqual(found['m']['found'], '2.10', [r['version'] for r in perm])  # the highest of the three, always
+
+    def test_a_version_exactly_at_the_minimum_is_not_below_it(self):
+        """The edge of the rule, for an application and for a package of a distribution, each with its control one above."""
+        def violated(package, minimum, dev):
+            rule = {'id': 'm', 'type': 'min_version', 'package': package, 'version': minimum}
+            return 'm' in self.evaluate([rule]).get(dev, {})
+        self.assertFalse(violated('Google Chrome', '120.0.6099.109', WIN_A))
+        self.assertTrue(violated('Google Chrome', '120.0.6099.110', WIN_A))
+        # openssl 3.0.2-0ubuntu1.12 is the digits 3 0 2 0 1 12 to the order of a Linux package, which a vendor's order reads
+        # as 3.0.2 and some words: it is below 3.0.2.0.1.12 by that order and equal to it by the one of the distribution
+        self.assertFalse(violated('openssl', '3.0.2.0.1.12', LNX_B))
+        self.assertTrue(violated('openssl', '3.0.2.0.1.13', LNX_B))
+
+    def test_a_list_is_judged_with_the_tags_of_its_host_the_moment_it_arrives(self):
+        """A rule for hosts of a tag is the only way to require an application on a Windows or macOS host. Judged with no
+        tags at the ingest it would never apply there, and the page would still show it as a rule."""
+        rule = {'id': 'av', 'type': 'required', 'package': 'Microsoft Defender Antivirus', 'tags': ['windows']}
+        api.save(api.SOFTWARE_POLICY_FILE, {'rules': [rule]})
+        api.save(api.SOFTWARE_VIOLATIONS_FILE, {})
+        self.events.clear()
+        self.send(WIN_A, 'windows', WINDOWS)                         # carries the tag
+        self.send(WIN_B, 'windows', WINDOWS)                         # carries no tag of the rule
+        self.assertEqual([(e, p['rule'], p['name']) for e, p in self.events], [('software_policy_violation', 'av', WIN_A)])
+        api._LOAD_CACHE.clear()
+        self.assertEqual(sorted(api.load(api.SOFTWARE_VIOLATIONS_FILE)), [WIN_A])
+
+    def test_the_stored_violation_of_a_linux_host_has_no_manager_and_that_of_an_application_host_has(self):
+        """The page offers no Fix button where the row names a manager. The answer hides an empty manager, so the row is
+        where a Linux host that was given one shows."""
+        api.save(api.SOFTWARE_POLICY_FILE, {'rules': [self.RULES[0], self.RULES[1]]})        # banned teamviewer, required fail2ban
+        api.save(api.SOFTWARE_VIOLATIONS_FILE, {})
+        self.send(WIN_A, 'windows', WINDOWS)
+        self.send(LNX_B, 'apt', LINUX + [{'name': 'teamviewer', 'version': '15.0', 'arch': 'amd64'}],
+                  hint={'ID': 'ubuntu', 'VERSION_ID': '22.04', 'ID_LIKE': 'debian'})
+        api._LOAD_CACHE.clear()
+        stored = api.load(api.SOFTWARE_VIOLATIONS_FILE)
+        self.assertEqual(stored[WIN_A]['manager'], 'windows')
+        self.assertEqual(sorted(v['rule_id'] for v in stored[LNX_B]['violations']), ['r1', 'r2'])
+        self.assertNotIn('manager', stored[LNX_B])
+        status, answer = self.get(api.handle_software_policy_violations)
+        self.assertEqual(status, 200, answer)
+        by = {(v['device_id'], v['rule_id']): v for v in answer['violations']}
+        self.assertEqual(by[(WIN_A, 'r1')]['manager'], 'windows')
+        self.assertNotIn('manager', by[(LNX_B, 'r1')])
+        self.assertNotIn('manager', by[(LNX_B, 'r2')])
 
     def test_a_required_rule_with_no_tags_is_for_linux_hosts(self):
         found = self.evaluate()
