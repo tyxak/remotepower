@@ -26,8 +26,10 @@ A Windows or macOS host reports the applications it has, under the titles a pers
 
 - Write the name as the **Software center** shows it. It is matched without regard to case, so a
   rule for `teamviewer` finds `TeamViewer`, and the whole name has to match.
-- Versions that are dotted numbers compare as numbers (`14.38.33130` is above `14.9`). Any other
-  version, such as `2023.1 (64-bit)`, compares as text.
+- A version is read by the number it starts with, and the words after it come second: `14.38.33130`
+  is above `14.9`, and `2.43.0.windows.1` is above `2.9` and below `2.100`. A version with no number
+  in front, such as `Beta 3`, is below every version that has one, so a **min_version** rule flags it.
+  An empty version is the lowest of all.
 - A **required** rule with no tags is checked on Linux hosts only. It was written for the packages
   of a Linux distribution, and every Windows host would otherwise break `auditd` the day its agent
   started to send a list. To require an application on a Windows or macOS host, give the rule a

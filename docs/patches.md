@@ -53,8 +53,10 @@ changed since the last one is not sent again. A host keeps at most 5,000 rows, a
 
 - **Names** match without regard to case: a rule or a search for `teamviewer` finds `TeamViewer`. In the Software center
   one title is one row, however hosts spell it.
-- **Versions** that are dotted numbers (`10.0.19045.3693`, `14.38.33130`) compare as numbers, so `14.38` is above `14.9`.
-  Any other version, such as `2023.1 (64-bit)`, compares as text.
+- **Versions** are read by the number they start with, and the words after it come second. `14.38` is above `14.9`, and
+  `2.43.0.windows.1` is above `2.9` and below `2.100`. `2023.1 (64-bit)` is above `2023.1`. A version with no number in front,
+  such as `Beta 3`, is below every version that has one, and an empty version is the lowest. The same two versions always
+  have the same order, so the highest of a name's rows does not depend on the order the agent listed them in.
 - **Not checked for vulnerabilities.** No vulnerability database is matched against the applications of a Windows or macOS
   host, so they are never scanned. See [CVE scanning](cve.md#which-hosts-are-scanned).
 - **Not for the Linux commands.** Package snapshots, **Install software**, uninstall and hold are written for the packages of a

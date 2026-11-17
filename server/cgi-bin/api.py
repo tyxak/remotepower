@@ -61586,8 +61586,8 @@ def _inventory_version_match(installed, op, target, eco, manager=''):
     lt|le|eq|ge|gt; unknown ops / blank target match everything.
 
     `manager` is the inventory manager of the row (`windows`, `macos`, `brew`) when it is an application
-    of such a host, '' for a package of a distribution. A vendor's version is two dotted numbers or it is text
-    (software_inventory.compare_versions), never an order a package manager defines."""
+    of such a host, '' for a package of a distribution. A vendor's version is read by the number it starts with
+    and then as text (software_inventory.compare_versions), never by an order a package manager defines."""
     if not target or op == 'any':
         return True
     if manager in software_inventory.INVENTORY_MANAGERS:
@@ -70599,7 +70599,7 @@ def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager=''):
     `host_manager` is `windows` or `macos` when the list is the applications of a Windows or macOS
     host (software_inventory), and '' for the packages of a Linux distribution. An application is found
     by its name whatever the case (a person typed the rule, a vendor wrote the title), its version is
-    compared as numbers when both are dotted numbers, and a `required` rule with no tags is not judged
+    read by the number it starts with (software_inventory.version_key), and a `required` rule with no tags is not judged
     on such a host: it was written for the packages of a distribution, and every Windows host would be
     in breach of it the day its agent started to send a list.
 

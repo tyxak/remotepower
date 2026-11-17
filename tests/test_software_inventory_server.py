@@ -16,8 +16,10 @@ written from what the Uninstall keys and an Info.plist hold; none was read from 
     a title is no process name), for each caller: a tenant administrator, a read-only user, a role scoped to a tag.
 """
 import importlib.util
+import itertools
 import json
 import os
+import random
 import shutil
 import sys
 import tempfile
@@ -304,24 +306,74 @@ class TestVersions(unittest.TestCase):
         self.assertEqual(self.order('v2.1', '2.1'), 0)
         self.assertEqual(self.order('120.0.6099.109', '120.0.6099.1090'), -1)
 
-    def test_anything_else_is_text_and_never_raises(self):
-        self.assertEqual(self.order('2023.1 (64-bit)', '2023.1'), 1)
+    def test_the_words_after_a_number_are_text_and_a_version_never_raises(self):
+        self.assertEqual(self.order('2023.1 (64-bit)', '2023.1'), 1)               # the words after the number come last
         self.assertEqual(self.order('Beta 3', 'beta 3'), 0)
-        self.assertEqual(self.order('2023.4 (build 9)', '2023.4 (build 10)'), 1)     # text, as the brief says
+        self.assertEqual(self.order('2023.4 (build 9)', '2023.4 (build 10)'), 1)     # text after the number, as the brief says
         self.assertEqual(self.order('', ''), 0)
         self.assertEqual(self.order('', '1.0'), -1)
-        self.assertEqual(self.order('1.0', 'one'), -1)
-        self.assertEqual(self.order('\u0663.\u0664', '10.0'), 1)           # digits of another script are text: int() would read them
+        self.assertEqual(self.order('1.0', 'one'), 1)                       # no number in front: below every version that has one
+        self.assertEqual(self.order('', 'one'), -1)                         # and an empty version is below the rest
+        self.assertEqual(self.order('', '0'), -1)                           # even below the version 0
+        self.assertEqual(self.order('one', '0'), -1)
+        self.assertEqual(self.order('\u0663.\u0664', '0.1'), -1)           # digits of another script are text: read as numbers it is 3.4, above 0.1
         for odd in (None, 7, 4.5, ['1'], {'v': 1}, b'1.0', '9' * 5000, '1.' + '9' * 4400, '٣.٤', 'v', '.', '..', '1..2'):
             self.assertIn(self.order(odd, '1.0'), (-1, 0, 1), repr(odd)[:40])
             self.assertIn(self.order('1.0', odd), (-1, 0, 1), repr(odd)[:40])
 
+    def test_the_number_in_front_decides_before_the_words(self):
+        """Git for Windows writes 2.43.0.windows.1. As text it is above 2.100 and below 2.9; as the number it starts with it is
+        the other way round, which is what a minimum or a search for 2.100 means."""
+        self.assertEqual(self.order('2.43.0.windows.1', '2.100'), -1)
+        self.assertEqual(self.order('2.43.0.windows.1', '2.9'), 1)
+        self.assertEqual(self.order('2.43.0.windows.1', '10.0'), -1)
+        self.assertEqual(self.order('2.43.0.windows.1', '2.43'), 1)
+        self.assertEqual(self.order('2.43.0.windows.1', '2.43.0.windows.2'), -1)
+        self.assertEqual(self.order('15.0.1 (64-bit)', '9.0'), 1)
+        self.assertEqual(self.order('v2.1 beta', '2.1 BETA'), 0)
+        self.assertEqual(self.order('2.0 beta', '2.0.0 beta'), 0)                    # trailing zeros of the number are not a difference
+
+    SAMPLE = ['', '0', '0.0', '1', '1.0', '1.0.1', '1.10', '1.9', '2', '2.5 beta', '2.9', '2.10', '2.43.0.windows.1', '10',
+              'Beta', 'beta 3', 'N/A', 'one', '2023.1', '2023.1 (64-bit)', '2023.4 (build 9)', '2023.4 (build 10)', 'v3',
+              'v3 rc1', '\u0663.\u0664', '14.38.33130.0', '14.38.33130']
+
     def test_the_order_is_an_order(self):
-        sample = ['', '0', '1', '1.0', '1.0.1', '1.10', '1.9', '2', '10', 'Beta', 'beta 3', '2023.1 (64-bit)', 'v3']
+        """Antisymmetric, and transitive over every triple. The first version of this test checked the first only, and the
+        order it was written for had a cycle: 2.10 above 2.9 above "2.5 beta" above 2.10."""
+        sample = self.SAMPLE
         for a in sample:
+            self.assertEqual(self.order(a, a), 0)
             for b in sample:
                 self.assertEqual(self.order(a, b), -self.order(b, a), (a, b))
-            self.assertEqual(self.order(a, a), 0)
+        for a in sample:
+            for b in sample:
+                for c in sample:
+                    if self.order(a, b) <= 0 and self.order(b, c) <= 0:
+                        self.assertLessEqual(self.order(a, c), 0, (a, b, c))
+                    if self.order(a, b) == 0:
+                        self.assertEqual(self.order(a, c), self.order(b, c), (a, b, c))
+
+    def test_the_three_versions_that_made_a_cycle_have_one_order(self):
+        a, b, c = '2.10', '2.9', '2.5 beta'
+        self.assertEqual((self.order(a, b), self.order(b, c), self.order(a, c)), (1, 1, 1))
+
+    def test_a_list_sorts_the_same_whatever_order_it_comes_in(self):
+        keys = lambda rows: [si.version_key(v) for v in rows]  # noqa: E731
+        want = keys(sorted(self.SAMPLE, key=si.version_key))
+        rng = random.Random(7)
+        for _ in range(200):
+            rows = list(self.SAMPLE)
+            rng.shuffle(rows)
+            self.assertEqual(keys(sorted(rows, key=si.version_key)), want)
+        trio = ['2.10', '2.9', '2.5 beta', '2.5', '10.1 (x)']
+        self.assertEqual(len({tuple(keys(sorted(p, key=si.version_key))) for p in itertools.permutations(trio)}), 1)
+        # the highest of a list, the way the policy and the SBOM keep it: a running maximum over compare_versions
+        for perm in itertools.permutations(trio):
+            highest = perm[0]
+            for v in perm[1:]:
+                if self.order(v, highest) > 0:
+                    highest = v
+            self.assertEqual(highest, '10.1 (x)', perm)
 
 
 # ── what the server keeps ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -639,21 +691,30 @@ class TestTheSearch(_Fleet):
         self.assertEqual(len(self.rows(redist('gt', '14.38.33130'))), 0)
         self.assertEqual(self.rows('q=chrome&op=lt&version=120.0.6099.120'), [(WIN_A, 'Google Chrome', '120.0.6099.109')])
 
-    def test_a_version_in_words_is_compared_as_text_and_never_fails(self):
+    def test_a_version_in_words_is_read_by_its_number_then_as_text_and_never_fails(self):
         win = api.load(api.PACKAGES_FILE)
         win[WIN_A]['packages'].append({'name': 'Odd Tool', 'version': '2023.1 (64-bit)', 'manager': 'windows'})
         win[WIN_A]['packages'].append({'name': 'Odd Tool', 'version': '', 'manager': 'windows'})
         win[WIN_A]['packages'].append({'name': 'Odd Tool', 'version': 'Beta 3', 'manager': 'windows'})
         api.save(api.PACKAGES_FILE, win)
-        # a package manager's order reads "Beta 3" and "Alpha 9" as the same version (no digits up front): it is text, and text has an order
-        self.assertEqual(self.rows('q=odd%20tool&op=gt&version=Alpha%209'), [(WIN_A, 'Odd Tool', 'Beta 3')])
-        self.assertEqual(self.rows('q=odd%20tool&op=lt&version=Alpha%209'),
-                         [(WIN_A, 'Odd Tool', ''), (WIN_A, 'Odd Tool', '2023.1 (64-bit)')])
-        # tuple order would read "2023.1 (64-bit)" as equal to "2023.1": it is text, so it is not
+        # a package manager's order reads "Beta 3" and "Alpha 9" as the same version (no digits up front): here they are text,
+        # and text has an order, and it is below every version that starts with a number
+        self.assertEqual(self.rows('q=odd%20tool&op=gt&version=Alpha%209'),
+                         [(WIN_A, 'Odd Tool', '2023.1 (64-bit)'), (WIN_A, 'Odd Tool', 'Beta 3')])
+        self.assertEqual(self.rows('q=odd%20tool&op=lt&version=Alpha%209'), [(WIN_A, 'Odd Tool', '')])
+        # tuple order would read "2023.1 (64-bit)" as equal to "2023.1": the words after the number keep them apart
         self.assertEqual(self.rows('q=odd%20tool&op=eq&version=2023.1'), [])
         self.assertEqual(self.rows('q=odd%20tool&op=eq&version=2023.1%20(64-bit)'), [(WIN_A, 'Odd Tool', '2023.1 (64-bit)')])
         self.assertEqual([r[2] for r in self.rows('q=odd%20tool&op=ge&version=1.0')],
-                         ['2023.1 (64-bit)', 'Beta 3'])                               # "" is below the text "1.0", the others are above
+                         ['2023.1 (64-bit)'])                       # "" and "Beta 3" have no number: they are below 1.0
+
+    def test_a_version_that_starts_with_a_number_is_searched_by_that_number(self):
+        win = api.load(api.PACKAGES_FILE)
+        win[WIN_A]['packages'].append({'name': 'Odd Tool', 'version': '2.43.0.windows.1', 'manager': 'windows'})
+        api.save(api.PACKAGES_FILE, win)
+        self.assertEqual(self.rows('q=odd%20tool&op=lt&version=2.100'), [(WIN_A, 'Odd Tool', '2.43.0.windows.1')])
+        self.assertEqual(self.rows('q=odd%20tool&op=lt&version=2.9'), [])
+        self.assertEqual(self.rows('q=odd%20tool&op=ge&version=2.9'), [(WIN_A, 'Odd Tool', '2.43.0.windows.1')])
 
     def test_a_linux_search_is_as_it_was(self):
         self.assertEqual(self.rows('q=openssl&op=lt&version=3.0.3'), [(LNX_B, 'openssl', '3.0.2-0ubuntu1.12')])
@@ -829,6 +890,28 @@ class TestThePolicy(_Fleet):
         rules = [{'id': 'b', 'type': 'min_version', 'package': 'Build Tool', 'version': '2023.4 (build 10)'}]
         # as numbers (2023, 4, 9) is below (2023, 4, 10); as the text it is, "9" is above "10"
         self.assertNotIn(WIN_A, self.evaluate(rules))
+
+    def test_a_version_that_starts_with_a_number_is_judged_by_that_number(self):
+        """The Git of the sample is 2.43.0.windows.1. Read as text it is below a minimum of 2.9 and above one of 2.100."""
+        def verdict(minimum):
+            return 'g' in self.evaluate([{'id': 'g', 'type': 'min_version', 'package': 'Git', 'version': minimum}]).get(WIN_A, {})
+        self.assertFalse(verdict('2.9'))
+        self.assertFalse(verdict('2.43'))
+        self.assertTrue(verdict('2.100'))
+        self.assertTrue(verdict('10.0'))
+
+    def test_the_verdict_does_not_depend_on_the_order_of_the_rows(self):
+        """One program listed three times: 2.10, 2.9 and "2.5 beta". With an order that had a cycle, the highest the policy kept
+        was the last the running maximum ended on, so the same list gave two verdicts depending on how the agent sorted it."""
+        rows = [{'name': 'Foo', 'version': v, 'manager': 'windows'} for v in ('2.10', '2.9', '2.5 beta')]
+        api.save(api.SOFTWARE_POLICY_FILE, {'rules': [{'id': 'm', 'type': 'min_version', 'package': 'Foo', 'version': '2.20'},
+                                                      {'id': 'ok', 'type': 'min_version', 'package': 'Foo', 'version': '2.8'}]})
+        for perm in itertools.permutations(rows):
+            self.send(WIN_A, 'windows', list(perm))
+            api._LOAD_CACHE.clear()
+            found = {v['rule_id']: v for v in api.load(api.SOFTWARE_VIOLATIONS_FILE)[WIN_A]['violations']}
+            self.assertEqual(sorted(found), ['m'], [r['version'] for r in perm])        # below 2.20, not below 2.8
+            self.assertEqual(found['m']['found'], '2.10', [r['version'] for r in perm])  # the highest of the three, always
 
     def test_a_required_rule_with_no_tags_is_for_linux_hosts(self):
         found = self.evaluate()
@@ -1030,6 +1113,12 @@ class TestTheSbomChanges(_Fleet):
         report = self.changes(MAC_A)
         self.assertEqual(report['changed'], [{'name': 'node', 'from': '10.0', 'to': '11.0'}])
         self.assertEqual(report['counts'], {'added': 0, 'removed': 0, 'changed': 1})
+
+    def test_the_highest_row_of_a_name_does_not_depend_on_the_order_of_the_rows(self):
+        for perm in itertools.permutations(('2.10', '2.9', '2.5 beta')):
+            self.send(WIN_A, 'windows', [{'name': 'Foo', 'version': v} for v in perm])
+            api._LOAD_CACHE.clear()
+            self.assertEqual(api._sbom_pkg_index(WIN_A)[0]['Foo'], '2.10', perm)
 
     def test_a_linux_host_is_read_as_it_was(self):
         """The control: a package with no version is not one of a Linux list (the ingest drops it, and a store edited by hand

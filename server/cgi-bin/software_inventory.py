@@ -42,7 +42,8 @@ MAX_SKIPPED = 1_000_000
 
 _ARCH = re.compile(r"[A-Za-z0-9_.-]{1,16}")
 _DATE = re.compile(r"([0-9]{4})-?([0-9]{2})-?([0-9]{2})")
-_DOTTED = re.compile(r"[0-9]+(?:\.[0-9]+)*")  # ASCII digits: int() reads more than a vendor means
+# ASCII digits: int() reads more than a vendor means
+_LEADING_NUMBER = re.compile(r"[vV]?([0-9]+(?:\.[0-9]+)*)")
 _WHITESPACE_KINDS = ("Zs", "Zl", "Zp")
 
 
@@ -183,29 +184,30 @@ def name_key(row: Any) -> str:
     return str(row.get("name") or "").casefold() if isinstance(row, dict) else ""
 
 
-def _parts(version: Any) -> tuple | None:
-    """The numbers of a version that is dotted numbers (10.0.19045.3693, 14.38.33130, v2.1), else None."""
+def version_key(version: Any) -> tuple:
+    """The sort key of a version that a vendor wrote. Two versions are ordered by their keys, so the order is the same for
+    every pair and a list has one highest version whatever order its rows come in.
+
+    A version is read as the dotted number it starts with (10.0.19045.3693, v2.1, the 2023.1 of "2023.1 (64-bit)") and then
+    as the text that follows it, ignoring case. The numbers are compared part by part with trailing zeros left out, so 1.2 is
+    1.2.0 and 10.0.9 is below 10.0.19045, and 2.43.0.windows.1 is below 2.100 and above 2.9, which a comparison as text would
+    get the other way round. A version that does not start with a number ("Beta 3", "N/A") is text, below every version that
+    does, and an empty version is below the rest. A text longer than a stored field is read as text alone, so that no
+    number of any length is ever converted."""
     text = str(version if version is not None else "").strip()
-    if text[:1] in ("v", "V") and text[1:2] in tuple("0123456789"):
-        text = text[1:]
-    if len(text) > MAX_FIELD or not _DOTTED.fullmatch(text):
-        return None
-    return tuple(int(part) for part in text.split("."))
+    if len(text) <= MAX_FIELD:
+        lead = _LEADING_NUMBER.match(text)
+        if lead:
+            parts = [int(part) for part in lead.group(1).split(".")]
+            while parts and parts[-1] == 0:
+                parts.pop()
+            return (1, tuple(parts), text[lead.end() :].casefold())
+    return (0, (), text.casefold())
 
 
 def compare_versions(a: Any, b: Any) -> int:
-    """-1, 0 or 1: the order of two versions that a vendor wrote.
-
-    Two versions that are dotted numbers are compared as numbers, part by part, with the shorter one padded by
-    zeros (10.0.9 is below 10.0.19045 and 1.2 equals 1.2.0). Anything else is compared as text, ignoring case:
-    the vendor's own words have no order that is better than that, and it never raises. A text that is not a
-    version at all, or is empty, is still ordered."""
-    left, right = _parts(a), _parts(b)
-    if left is not None and right is not None:
-        width = max(len(left), len(right))
-        padded_left = left + (0,) * (width - len(left))
-        padded_right = right + (0,) * (width - len(right))
-        return (padded_left > padded_right) - (padded_left < padded_right)
-    text_left = str(a if a is not None else "").casefold()
-    text_right = str(b if b is not None else "").casefold()
-    return (text_left > text_right) - (text_left < text_right)
+    """-1, 0 or 1: the order of two versions that a vendor wrote (see version_key). It never raises, and
+    it is an order: a below b and b below c is a below c, which the policy and the SBOM rely on when
+    they keep the highest row of a name."""
+    left, right = version_key(a), version_key(b)
+    return (left > right) - (left < right)
