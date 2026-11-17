@@ -19,7 +19,6 @@ POST /api/autopatch/{}/run handle_autopatch_run
 POST /api/compose/fetch handle_compose_fetch
 GET /api/fleet/disk-health handle_disk_health
 GET /api/ignored handle_ignored_list
-GET /api/inbound-webhooks handle_inbound_webhooks_list
 POST /api/install handle_install_packages
 POST /api/ip-intel/block handle_ip_intel_block
 POST /api/ip-intel/edge-list/preview handle_edge_list_preview

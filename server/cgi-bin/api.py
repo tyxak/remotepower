@@ -66512,8 +66512,9 @@ def handle_inbound_webhook(token_str):
     respond(200, {'ok': True, 'alert_id': alert['id'], 'coalesced': coalesced})
 
 
-def _inbound_token_visible(t):
-    """Whether the caller may see or manage this inbound token.
+def _inbound_token_visible(t, scope=False):
+    """Whether the caller may see or manage this inbound token. A loop over many tokens passes `scope`, the caller's device scope
+    (_caller_scope()), read once: reading it verifies the caller's token, which reads the session store.
 
     A token pinned to a device belongs to that device's tenant. A token with no
     pin attributes by tag or by payload across the whole fleet, so under
@@ -66527,9 +66528,11 @@ def _inbound_token_visible(t):
     so a key scoped to the web servers could read a database host's name and
     address from the table, switch its ingest off and delete it."""
     did = str((t or {}).get('scope_device_id') or '')
-    scope = _caller_scope()
-    if did and scope is not None and not _device_in_scope(scope, device_get(did) or {}):
-        return False
+    if did:
+        if scope is False:
+            scope = _caller_scope()
+        if scope is not None and not _device_in_scope(scope, device_get(did) or {}):
+            return False
     if _tenant_gate() is None:
         return True
     return bool(did) and _tenant_visible(device_get(did) or {})
@@ -66538,8 +66541,9 @@ def _inbound_token_visible(t):
 def _inbound_tokens_visible_ids():
     """Ids of the inbound tokens the caller may manage, read before any store
     lock is taken (visibility reads the device store)."""
+    scope = _caller_scope()
     return {t.get('id') for t in ((_load_ro(INBOUND_WEBHOOKS_FILE) or {}).get('tokens') or [])
-            if isinstance(t, dict) and _inbound_token_visible(t)}
+            if isinstance(t, dict) and _inbound_token_visible(t, scope)}
 
 
 def handle_inbound_webhooks_list():
@@ -66547,9 +66551,10 @@ def handle_inbound_webhooks_list():
     require_admin_auth()
     cfg = load(INBOUND_WEBHOOKS_FILE)
     devices = _load_ro(DEVICES_FILE) or {}     # read-only: only looked up below
+    scope = _caller_scope()
     redacted = []
     for t in cfg.get('tokens', []):
-        if not _inbound_token_visible(t):
+        if not _inbound_token_visible(t, scope):
             continue
         copy = {k: v for k, v in t.items() if k != 'token'}
         copy['token_preview'] = str(t.get('token') or '')[:12] + '…'

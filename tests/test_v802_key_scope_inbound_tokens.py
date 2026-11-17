@@ -97,6 +97,25 @@ out["plain_toggle"] = call("PATCH", "/api/inbound-webhooks/iwh_db", "PLAIN", {"e
 out["after_plain_toggle"] = state()
 out["plain_revoke"] = call("DELETE", "/api/inbound-webhooks/iwh_db", "PLAIN")
 out["after_plain_revoke"] = state()
+# reading the caller's scope verifies the caller's token, which reads the session store: a table of 3 tokens and one of 43 read it
+# the same number of times
+reads = []
+real_scope = api._caller_scope
+api._caller_scope = lambda: reads.append(1) or real_scope()
+put("INBOUND_WEBHOOKS_FILE", {"tokens": [tok("iwh_a", "web1"), tok("iwh_b", "db1"), tok("iwh_c", "web1")]})
+del reads[:]
+call("GET", "/api/inbound-webhooks", "SCOPED")
+out["scope_reads_few"] = len(reads)
+del reads[:]
+call("PATCH", "/api/inbound-webhooks/iwh_a", "SCOPED", {"enabled": False})
+out["toggle_reads_few"] = len(reads)
+put("INBOUND_WEBHOOKS_FILE", {"tokens": [tok("iwh_%d" % i, "web1" if i % 2 else "db1") for i in range(43)]})
+del reads[:]
+call("GET", "/api/inbound-webhooks", "SCOPED")
+out["scope_reads_many"] = len(reads)
+del reads[:]
+call("PATCH", "/api/inbound-webhooks/iwh_1", "SCOPED", {"enabled": False})
+out["toggle_reads_many"] = len(reads)
 print(json.dumps(out))
 """
 
@@ -144,6 +163,13 @@ class TestOnTheRealStack(unittest.TestCase):
         self.assertEqual(self.out["after_toggle_in"]["iwh_web"], False)
         self.assertEqual(self.out["scoped_revoke_in"], [200, {"ok": True}])
         self.assertEqual(sorted(self.out["after_revoke_in"]), ["iwh_db", "iwh_fleet"])
+
+    def test_reading_the_callers_scope_does_not_grow_with_the_number_of_tokens(self):
+        for what in ("scope", "toggle"):
+            few, many = self.out[what + "_reads_few"], self.out[what + "_reads_many"]
+            self.assertGreaterEqual(few, 1, "control: the scope was read (%s)" % what)
+            self.assertEqual(many, few, "the table of 43 tokens read the caller's scope %d times where the table of 3 read it %d times "
+                                        "(%s)" % (many, few, what))
 
     def test_a_key_with_no_scope_still_manages_every_token(self):
         self.assertEqual(self.out["plain_toggle"], [200, {"ok": True}])
@@ -213,7 +239,7 @@ class TestEveryRouteOfTheTableOfTokensDecidesByReach(unittest.TestCase):
 
     def test_control_the_scan_finds_a_handler_that_does_not(self):
         src = inspect.getsource(api.handle_inbound_webhooks_list)
-        old = src.replace("_inbound_token_visible(t)", "True")
+        old = src.replace("_inbound_token_visible(t, scope)", "True")
         self.assertNotEqual(old, src, "the anchor did not match")
         self.assertEqual(keyscope_scan.unconfined({"handle_inbound_webhooks_list": old}, self.AWARE, reads=("INBOUND_WEBHOOKS_FILE",)),
                          ["handle_inbound_webhooks_list"])
