@@ -43388,59 +43388,72 @@ def _detect_brute_force(dev_id, dev_name, unit, lines):
     if not any_match:
         return
 
-    bf = load(BRUTE_FORCE_FILE) or {} if backend_exists(BRUTE_FORCE_FILE) else {}
-    dev_bf  = bf.setdefault(dev_id, {})
-    unit_bf = dev_bf.setdefault(unit, {})
-
     cutoff = now - window
-    changed = False
     crossed = []    # (source, attempts) for each source that crossed in these lines
+    told = []       # the brute_force_detected payloads, fired once the lock is released
 
-    for line_entry in lines:
-        line = line_entry if isinstance(line_entry, str) else line_entry.get('line', '')
-        for pat in patterns:
-            m = pat.search(line)
-            if not m:
-                continue
-            src = _brute_src_ip(m.group(1))
-            if not src:
-                continue
+    # Under the lock of the store: every host's log lines reach this function, and a bare load and save lost the window of
+    # one host to the save of another (a source that was counting towards the threshold started again from nothing, so
+    # the alert came late or not at all, and two pushes that crossed together both told it). A list of lines that holds
+    # no source writes nothing but the unchanged document.
+    try:
+        with _LockedUpdate(BRUTE_FORCE_FILE) as bf:
+            dev_bf = bf.get(dev_id)
+            dev_bf = dev_bf if isinstance(dev_bf, dict) else {}
+            unit_bf = dev_bf.get(unit)
+            unit_bf = unit_bf if isinstance(unit_bf, dict) else {}
+            changed = False
 
-            timestamps = unit_bf.get(src, [])
-            timestamps = [t for t in timestamps if t >= cutoff]  # expire old
-            timestamps.append(now)
-            unit_bf[src] = timestamps
-            changed = True
+            for line_entry in lines:
+                line = line_entry if isinstance(line_entry, str) else line_entry.get('line', '')
+                for pat in patterns:
+                    m = pat.search(line)
+                    if not m:
+                        continue
+                    src = _brute_src_ip(m.group(1))
+                    if not src:
+                        continue
 
-            if len(timestamps) == threshold + 1:  # just crossed configured threshold
-                # Queued for AbuseIPDB / SniffCat after the loop, in one write: the
-                # Threat Intel store is one document, so a write per source cost a
-                # botnet's burst of sources seconds on this request. Appends only;
-                # the lookups run in the cadence sweep, never on the heartbeat.
-                crossed.append((src, len(timestamps)))
-                try:
-                    fire_webhook('brute_force_detected', {
-                        'device_id': dev_id,
-                        'name':      dev_name,
-                        'unit':      unit,
-                        'source_ip': src,
-                        'count':     len(timestamps),
-                        'window_s':  window,
-                        'threshold': threshold,
-                    })
-                except Exception:
-                    pass
-            break   # one pattern match per line is enough
+                    timestamps = unit_bf.get(src, [])
+                    timestamps = [t for t in timestamps if t >= cutoff]  # expire old
+                    timestamps.append(now)
+                    unit_bf[src] = timestamps
+                    changed = True
 
-    if crossed:
-        ip_intel_note_attacks(dev_id, unit, crossed, window)
+                    if len(timestamps) == threshold + 1:  # just crossed configured threshold
+                        # Queued for AbuseIPDB / SniffCat after the loop, in one write: the
+                        # Threat Intel store is one document, so a write per source cost a
+                        # botnet's burst of sources seconds on this request. Appends only;
+                        # the lookups run in the cadence sweep, never on the heartbeat.
+                        crossed.append((src, len(timestamps)))
+                        told.append({
+                            'device_id': dev_id,
+                            'name':      dev_name,
+                            'unit':      unit,
+                            'source_ip': src,
+                            'count':     len(timestamps),
+                            'window_s':  window,
+                            'threshold': threshold,
+                        })
+                    break   # one pattern match per line is enough
 
-    if changed:
-        bf[dev_id] = dev_bf
+            if changed:
+                dev_bf[unit] = unit_bf
+                bf[dev_id] = dev_bf
+    except Exception:
+        # the window could not be written (a full disk, a store this process cannot write): the lines were read all
+        # the same, so what crossed is still told below, as it was when the save was the last thing this function did
+        pass
+
+    for payload in told:
         try:
-            save(BRUTE_FORCE_FILE, bf)
+            fire_webhook('brute_force_detected', payload)
         except Exception:
             pass
+
+    # the Threat Intel queue has a lock of its own: it is written after this one is released
+    if crossed:
+        ip_intel_note_attacks(dev_id, unit, crossed, window)
 
 
 def handle_containers_overview() -> None:
