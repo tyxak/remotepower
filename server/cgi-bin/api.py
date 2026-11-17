@@ -31010,7 +31010,7 @@ def _declarative_meta():
         # lossless round-trip. Without a key the URL is redacted to host-only and
         # the import is lossy, so it stays non-importable. inbound_webhooks is its
         # OWN file (no config-secret decrypt path) so it's always lossy.
-        'webhook_destinations':  {'kind': 'cfg_list', 'key': 'webhook_urls',
+        'webhook_destinations':  {'kind': 'cfg_list', 'key': 'webhook_urls', 'id': 'id',      # the id is how an import finds the credentials the export leaves out
                                   'importable': bool(_config_master_key())},
         'inbound_webhooks':      {'kind': 'file_raw', 'file': INBOUND_WEBHOOKS_FILE, 'importable': False},
     }
@@ -31028,7 +31028,8 @@ def _rehydrate_secrets(incoming, current, id_field):
     another after a reorder."""
     def _by_id(items):
         if id_field and isinstance(items, list):
-            return {it.get(id_field): it for it in items if isinstance(it, dict)}
+            # an entry with no id is not an entry to hand credentials to: the entries that have none would all be the one that is last
+            return {it.get(id_field): it for it in items if isinstance(it, dict) and it.get(id_field) not in (None, '')}
         return {}
 
     def _fix(dst, ref):
