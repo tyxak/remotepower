@@ -707,6 +707,11 @@ class TestMacReadsTheApplications(MacTree):
         self.assertEqual(self.names(rows).count('Safari'), 1)
         keys = [r['name'].lower() for r in rows]
         self.assertEqual(keys, sorted(keys))
+        # the same app spelled in another case in a later folder is the same row, and the first folder's spelling is the one kept
+        bundle(self.system, 'safari.app', {'CFBundleName': 'safari', 'CFBundleShortVersionString': '17.2',
+                                           'CFBundleIdentifier': 'com.apple.Safari'})
+        rows, _ = mac.collect_installed_applications()
+        self.assertEqual([n for n in self.names(rows) if n.lower() == 'safari'], ['Safari'])
 
     def test_a_bundle_that_cannot_be_read_is_left_out_and_counted_and_nothing_is_raised(self):
         self.build()

@@ -871,6 +871,23 @@ class TestThePolicy(_Fleet):
         self.send(WIN_A, 'windows', [r for r in WINDOWS if r['name'] != 'TeamViewer'])
         self.assertEqual([e for e, _ in self.events], ['policy_compliant'])
 
+    def test_a_required_rule_with_no_tags_is_not_judged_when_a_windows_or_mac_list_arrives(self):
+        """The rule as it is applied at the ingest, which is where the first list of every Windows host meets it. Read as the
+        packages of a distribution, that list would break `required: fail2ban` on every Windows host the day its agent starts to
+        send one, and nothing would say why. The other tests of the rule go through the re-check of the stored lists."""
+        api.save(api.SOFTWARE_POLICY_FILE, {'rules': [self.RULES[1]]})            # required fail2ban, no tags
+        api.save(api.SOFTWARE_VIOLATIONS_FILE, {})
+        self.events.clear()
+        self.send(WIN_A, 'windows', WINDOWS)
+        self.send(MAC_A, 'macos', MAC)
+        self.assertEqual(self.events, [])
+        api._LOAD_CACHE.clear()
+        self.assertEqual(api.load(api.SOFTWARE_VIOLATIONS_FILE) or {}, {})
+        # the control: the same rule is judged where it was written for, when a Linux list arrives
+        self.send(LNX_B, 'apt', LINUX, hint={'ID': 'ubuntu', 'VERSION_ID': '22.04', 'ID_LIKE': 'debian'})
+        self.assertEqual([(e, p['package'], p['name']) for e, p in self.events],
+                         [('software_policy_violation', 'fail2ban', LNX_B)])
+
 
 class TestTheSbom(_Fleet):
     def dev(self, dev_id):
@@ -955,23 +972,6 @@ class TestTheSbom(_Fleet):
             self.assertTrue(api._build_sbom_doc(dev_id, self.dev(dev_id), 'cyclonedx')['components'])
 
 
-class TestTheExplorer(_Fleet):
-    def test_a_row_says_which_manager_and_publisher_it_has(self):
-        with mock.patch.object(api, 'verify_token', lambda tok=None: ('root', 'admin')):
-            rows = api._qe_packages_rows()
-        chrome = [r for r in rows if r['package'] == 'Google Chrome' and r['device_id'] == WIN_A]
-        self.assertEqual(chrome, [{'device_id': WIN_A, 'device_name': WIN_A, 'package': 'Google Chrome',
-                                   'version': '120.0.6099.109', 'ecosystem': '', 'manager': 'windows',
-                                   'publisher': 'Google LLC', 'installed': '2023-12-15'}])
-        wget = next(r for r in rows if r['package'] == 'wget')
-        self.assertEqual((wget['manager'], wget['publisher']), ('brew', ''))
-        openssl = next(r for r in rows if r['package'] == 'openssl')
-        self.assertEqual((openssl['ecosystem'], openssl['manager']), ('Ubuntu', ''))
-        self.assertEqual(sorted(api._QE_PACKAGE_FIELDS), sorted(
-            ['device_id', 'device_name', 'package', 'version', 'ecosystem', 'manager', 'publisher', 'installed']))
-
-
-if __name__ == '__main__':
 class TestTheSbomChanges(_Fleet):
     """Baseline and Changes since baseline read the list of a host by name. A program of a Windows host that writes no version
     is installed all the same, and one that is added or removed after the baseline has to show in the changes."""
@@ -1030,4 +1030,21 @@ class TestTheSbomChanges(_Fleet):
         self.assertNotIn('no-version', api.load(api.SBOM_BASELINE_FILE)[LNX_B]['packages'])
 
 
+class TestTheExplorer(_Fleet):
+    def test_a_row_says_which_manager_and_publisher_it_has(self):
+        with mock.patch.object(api, 'verify_token', lambda tok=None: ('root', 'admin')):
+            rows = api._qe_packages_rows()
+        chrome = [r for r in rows if r['package'] == 'Google Chrome' and r['device_id'] == WIN_A]
+        self.assertEqual(chrome, [{'device_id': WIN_A, 'device_name': WIN_A, 'package': 'Google Chrome',
+                                   'version': '120.0.6099.109', 'ecosystem': '', 'manager': 'windows',
+                                   'publisher': 'Google LLC', 'installed': '2023-12-15'}])
+        wget = next(r for r in rows if r['package'] == 'wget')
+        self.assertEqual((wget['manager'], wget['publisher']), ('brew', ''))
+        openssl = next(r for r in rows if r['package'] == 'openssl')
+        self.assertEqual((openssl['ecosystem'], openssl['manager']), ('Ubuntu', ''))
+        self.assertEqual(sorted(api._QE_PACKAGE_FIELDS), sorted(
+            ['device_id', 'device_name', 'package', 'version', 'ecosystem', 'manager', 'publisher', 'installed']))
+
+
+if __name__ == '__main__':
     unittest.main()
