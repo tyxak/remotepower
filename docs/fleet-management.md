@@ -70,6 +70,10 @@ tracked as a batch job with per-host status on the Rollouts page.
   the named packages only — no dependency auto-removal or config purge).
 - Gated on the `packages` permission, and honours host quarantine and maintenance
   change-windows like any queued command.
+- The commands are for Linux hosts. A Windows or macOS host in the target is skipped, and the job lists
+  it as *Skipped: not a Linux host*. When no host takes the command at all, the request is refused with
+  HTTP 400, an `error` that says why and the per-host reasons in `per_device`. You see that reason in
+  the toast, and nothing is reported as queued.
 
 ## Reboot, shutdown, Wake-on-LAN
 

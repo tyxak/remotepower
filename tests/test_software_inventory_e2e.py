@@ -364,5 +364,83 @@ class TestTheSoftwareSearch(_Page):
         self.page.wait_for_function("() => document.getElementById('inv-results').textContent.includes('No hosts have a matching package')", timeout=30000)
 
 
+
+class TestInstallOnAWindowsHost(_Page):
+    """Install, uninstall and hold are commands for Linux hosts. Aimed at a Windows host they queue nothing, and the page says
+    so: an error that names the reason, a dialog that stays open, and a job that lists the host as skipped, in a sentence."""
+    ONLY_LINUX = "Install, uninstall and hold run on Linux hosts only. Nothing was queued."
+    SKIPPED = "Skipped: not a Linux host"
+
+    def expect_refusal_of_install(self):
+        """The 400 of /api/install is the expected answer: take it, and the line the browser writes to the console for any
+        4xx, out of what the teardown counts as a failure, once both are seen to be there."""
+        failed = _STACK["problems"]["failed"]
+        refused = [f for f in failed if f.startswith("400 ") and f.endswith("/api/install")]
+        self.assertTrue(refused, failed)
+        failed[:] = [f for f in failed if f not in refused]
+        console = _STACK["problems"]["console"]
+        logged = [c for c in console if "status of 400" in c]
+        self.assertEqual(len(logged), len(refused), console)
+        console[:] = [c for c in console if c not in logged]
+
+    def toasts(self):
+        return self.page.evaluate("() => [...document.querySelectorAll('#toast-container .toast')].map(t => ({cls: t.className, text: t.textContent}))")
+
+    def tearDown(self):
+        try:
+            self.page.evaluate("() => { if (window.__confirm) { window.uiConfirm = window.__confirm; window.__confirm = null; } try { closeModal('one-time-install-modal'); } catch (e) {} }")
+        except Exception:
+            pass
+        super().tearDown()
+
+    def test_the_one_time_install_dialog_stays_open_and_the_toast_says_why_once(self):
+        self.page.evaluate("showPage('rollouts')")
+        self.page.wait_for_timeout(1500)
+        self.page.evaluate("() => openInstallModal()")
+        self.page.fill("#oti-pkgs", "htop")
+        self.page.evaluate("id => { document.getElementById('oti-device').value = id; }", WIN)
+        self.assertEqual(self.page.evaluate("() => document.getElementById('oti-device').value"), WIN)      # control: the host is picked
+        self.page.evaluate("() => { window.__confirm = window.uiConfirm; window.uiConfirm = async () => true; "
+                           "document.querySelectorAll('#toast-container .toast').forEach(t => t.remove()); }")
+        self.page.evaluate("() => runOneTimeInstall()")
+        self.page.wait_for_timeout(600)
+        shown = self.toasts()
+        self.expect_refusal_of_install()
+        self.assertEqual([t for t in shown if "success" in t["cls"]], [], shown)
+        said = [t for t in shown if self.ONLY_LINUX in t["text"]]
+        self.assertEqual(len(said), 1, shown)                                  # said once: api() toasts it and the page stays quiet
+        self.assertIn("error", said[0]["cls"])
+        self.assertTrue(self.page.evaluate("() => !!document.querySelector('#one-time-install-modal.active')"))      # still open
+
+    def test_the_job_lists_the_host_as_skipped_in_a_sentence_in_three_languages(self):
+        from test_v710_i18n_glue import dict_rows
+        body = self.page.evaluate("async id => await api('POST', '/install', {device_ids: [id], packages: 'htop'})", WIN)
+        self.expect_refusal_of_install()
+        self.assertEqual(body["error"], self.ONLY_LINUX)
+        self.assertEqual(body["per_device"][WIN]["reason"], "unsupported")
+        self.page.evaluate("showPage('rollouts')")
+        self.page.wait_for_timeout(1500)
+        self.page.evaluate("id => { _batchExpanded.add(String(id)); return loadBatchJobs(); }", body["job_id"])
+        selector = "#batch-detail-%s .batch-host" % body["job_id"]
+        self.page.wait_for_function("sel => document.querySelectorAll(sel).length >= 1 && !document.querySelector(sel + ' .skeleton')",
+                                    arg=selector, timeout=30000)
+        row = self.page.evaluate("sel => [...document.querySelectorAll(sel)].map(r => r.textContent.trim())[0]", selector)
+        self.assertIn("design-win11", row)                                      # control: the row is the host of the request
+        self.assertIn(self.SKIPPED, row)
+        self.assertNotIn("unsupported", row)
+        words = dict_rows()[self.SKIPPED]
+        self.assertEqual(sorted(words), ["ar", "de", "es", "fr", "hi", "zh"])
+        self.fits("the Rollouts job list")
+        for lang in ("de", "ar"):
+            self.set_language(lang)
+            self.page.wait_for_timeout(800)
+            row = self.page.evaluate("sel => [...document.querySelectorAll(sel)].map(r => r.textContent.trim())[0]", selector)
+            self.assertIn("design-win11", row)
+            self.assertNotIn(self.SKIPPED, row, lang)
+            self.assertIn(words[lang], row, lang)
+            if lang == "ar":
+                self.assertEqual(self.page.evaluate("() => document.documentElement.dir"), "rtl")
+            self.fits(f"the Rollouts job list in {lang}")
+
 if __name__ == "__main__":
     unittest.main()

@@ -60,7 +60,8 @@ changed since the last one is not sent again. A host keeps at most 5,000 rows, a
 - **Not checked for vulnerabilities.** No vulnerability database is matched against the applications of a Windows or macOS
   host, so they are never scanned. See [CVE scanning](cve.md#which-hosts-are-scanned).
 - **Not for the Linux commands.** Package snapshots, **Install software**, uninstall and hold are written for the packages of a
-  Linux distribution. They skip a Windows or macOS host.
+  Linux distribution. They skip a Windows or macOS host, and the job lists it as *Skipped: not a Linux host*. A request whose
+  targets are all such hosts is refused with the reason, and nothing is reported as queued.
 
 ## Packages apt keeps back
 

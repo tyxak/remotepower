@@ -297,7 +297,7 @@ async function runInstall() {
   const r = await api('POST', '/install', body).catch(() => null);
   if (parkedForApproval(r)) return;
   if (r?.ok) toast(`Install queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow progress on Rollouts → Recent jobs`, 'success');
-  else toast(r?.error || 'Failed to queue install', 'error');
+  else failToast(r);
 }
 
 async function runUninstall() {
@@ -314,7 +314,7 @@ async function runUninstall() {
   const r = await api('POST', '/uninstall', body).catch(() => null);
   if (parkedForApproval(r)) return;
   if (r?.ok) toast(`Uninstall queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow progress on Rollouts → Recent jobs`, 'success');
-  else toast(r?.error || 'Failed to queue uninstall', 'error');
+  else failToast(r);
 }
 
 // v3.14.0 (#39): pin/unpin packages so a fleet upgrade-all skips them.
@@ -333,7 +333,7 @@ async function _runHold(hold) {
   const r = await api('POST', hold ? '/packages/hold' : '/packages/unhold', body).catch(() => null);
   if (parkedForApproval(r)) return;
   if (r?.ok) toast(`${verb} queued for ${r.packages.join(', ')} on ${plural(r.queued, 'host', 'hosts')} — follow progress on Rollouts → Recent jobs`, 'success');
-  else toast(r?.error || `Failed to queue ${verb.toLowerCase()}`, 'error');
+  else failToast(r);
 }
 function runHold() { _runHold(true); }
 function runUnhold() { _runHold(false); }
@@ -382,7 +382,7 @@ async function runOneTimeInstall() {
     closeModal('one-time-install-modal');
     if (r.job_id) _batchExpanded.add(r.job_id);   // auto-expand so the user sees per-host progress
     loadBatchJobs();
-  } else toast(r?.error || 'Failed to queue install', 'error');
+  } else failToast(r);
 }
 
 

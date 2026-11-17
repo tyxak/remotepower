@@ -14107,6 +14107,9 @@ const _JOB_ICON = {
   pending: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 8 12 12 14 14"/></svg>',
   skip: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" width="15" height="15"><circle cx="12" cy="12" r="9"/></svg>',
 };
+// Why a host was not queued, as a sentence, where the code alone tells a person nothing: install, uninstall and hold are commands for
+// Linux hosts, so a Windows or macOS host in the target is skipped. The other codes are shown as they come.
+const _JOB_REASON_TEXT = { unsupported: 'Skipped: not a Linux host' };
 
 async function loadBatchJobs() {
   const out = document.getElementById('batch-jobs');
@@ -14185,7 +14188,10 @@ async function _renderJobDetail(id) {
   if (_batchDetailPrev[id] === raw) return;
   _batchDetailPrev[id] = raw;
   box.innerHTML = Object.entries(r.per_device).map(([dev, p]) => {
-    if (!p.queued) return `<div class="batch-host">${_JOB_ICON.skip} <span>${escHtml(p.name || dev)}</span> <span class="c-muted fs-11">(${escHtml(p.reason || 'skipped')})</span></div>`;
+    if (!p.queued) {
+      const why = Object.prototype.hasOwnProperty.call(_JOB_REASON_TEXT, p.reason) ? _JOB_REASON_TEXT[p.reason] : '';
+      return `<div class="batch-host">${_JOB_ICON.skip} <span>${escHtml(p.name || dev)}</span> <span class="c-muted fs-11">${why ? escHtml(why) : `(${escHtml(p.reason || 'skipped')})`}</span></div>`;
+    }
     const st = p.status || 'pending';
     const ico = st === 'done' ? (p.rc === 0 ? _JOB_ICON.ok : _JOB_ICON.fail) : _JOB_ICON.pending;
     const note = st === 'done' ? (p.rc === 0 ? 'installed' : `exit ${p.rc}`) : 'pending…';

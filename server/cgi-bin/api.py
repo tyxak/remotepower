@@ -28125,10 +28125,22 @@ def _handle_pkg_action(kind):
     save(BATCH_JOBS_FILE, jobs_data)
     audit_log(actor, f'{verb}_packages',
               f'job={job_id} pkgs={",".join(names)} targets={len(ids)}')
-    respond(202, {'ok': True, 'packages': names, 'job_id': job_id,
-                  'queued': sum(1 for p in per_device.values() if p.get('queued')),
-                  'total': len(ids), 'per_device': per_device,
-                  'approval_required': bool(parked), 'parked': parked})
+    queued_n = sum(1 for p in per_device.values() if p.get('queued'))
+    answer = {'ok': True, 'packages': names, 'job_id': job_id, 'queued': queued_n,
+              'total': len(ids), 'per_device': per_device,
+              'approval_required': bool(parked), 'parked': parked}
+    if not queued_n and not parked:
+        # Nothing went to any host and nothing waits for approval. A 202 here made the page print "queued ... on 0 hosts" in the
+        # colour of a success. The job and the audit line above stay (they record the attempt), and the reason is the answer:
+        # two fixed sentences, so that each is a dictionary key in the six languages. The names of the hosts go in `skipped`.
+        detail = dict(answer, ok=False,
+                      skipped=sorted(p.get('name') or d for d, p in per_device.items()
+                                     if p.get('reason') == 'unsupported')[:20])
+        if all(p.get('reason') == 'unsupported' for p in per_device.values()):
+            respond(400, {'error': 'Install, uninstall and hold run on Linux hosts only. Nothing was queued.', **detail})
+        respond(400, {'error': 'No host accepted the command, so nothing was queued. '
+                               'Rollouts → Recent jobs lists the reason for each host.', **detail})
+    respond(202, answer)
 
 
 def handle_install_packages():
