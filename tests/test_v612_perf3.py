@@ -352,7 +352,15 @@ class TestEagerJsPayload(unittest.TestCase):
         # second sentence, the name fallback that lets a person who has to change their password open the form (it took the name from /api/me, which that session cannot
         # call) and the banner going once the password is changed. The list of open install commands is app-enrol.js and the wizard's field is in app-wizard.js, both lazy;
         # the dialog and the Settings page are drawn before any loader could be asked for more.
-        self.assertLess(total, 2_749_000,
+        # 8.0.2 date order and clock, smart-group preview: 2_758_000. The payload was 2_742_522 at the 8.0.1 release, 1,478 under the budget, and is
+        # 2_756_892 now: 14,370 bytes more, 14,309 of them in app.js (app-calendar.js 127, app-cmdb.js 66 fewer). The formatter that every date goes
+        # through is 9.4 KB with its comments: the order and clock preferences, the reorder of a date's fields, the cache of formatters and the check
+        # that empties it when the machine changes time zone (1.6 KB of that). Every table and chart draws dates before any loader could be asked
+        # for more, so it stays in the eager core; moving the reorder out would make the first date of a page wait for a fetch. The preview of a smart
+        # group's members is 2.9 KB (the editor is drawn from Settings, which the eager core draws), the dispatcher giving focus back to a button whose
+        # handler disabled it 1.2 KB, and the My Account page's two selects with their save 0.8 KB. The translations are in i18n.js, which is not eager.
+        # Both of the above together (the branches were built apart from the 8.0.1 release, 2_742_522): 2_742_522 + 3_987 + 14_370 = 2_760_879, so the budget is 2_763_000.
+        self.assertLess(total, 2_763_000,
                         'the eager JS payload regressed past its budget')
 
 
