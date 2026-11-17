@@ -77,8 +77,11 @@ To see what a rule matches before you save it, press **Preview members** in the
 editor. It shows how many hosts match and the first 50 of them, for the rules as
 they stand in the form. The count comes from the same check the saved group uses,
 over the same hosts: with tenant isolation on, you see only your own tenant's
-hosts. A preview saves nothing and writes nothing to the audit log. Change a rule
-and the answer is cleared, so it never describes rules it was not made for.
+hosts, and an API key that has a host scope sees only the hosts of that scope, in
+the preview, in the list of groups (their member counts and, with `?members=1`,
+their ids) and in a group's member list. A preview saves nothing and writes
+nothing to the audit log. Change a rule and the answer is cleared, so it never
+describes rules it was not made for.
 
 ## Role scoping
 
