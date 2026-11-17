@@ -8810,7 +8810,7 @@ td:has(> .btn-icon + .btn-icon) { white-space: nowrap; }
 .row-8-center > .form-label, .row-6-center > .form-label, .sb-controls > .form-label, .row-8 > .form-label { margin-bottom: 0; }
 
 /* Focus: a ring inside a scrolling list or the heat map is drawn inside the box that clips it. */
-.scroll-cap :focus-visible, .scroll-cap-sm :focus-visible, .heatmap-grid :focus-visible, .ipi-ignore-classes :focus-visible { outline-offset: -2px; }
+.scroll-cap :focus-visible, .scroll-cap-sm :focus-visible, .scroll-cap-lg :focus-visible, .heatmap-grid :focus-visible, .ipi-ignore-classes :focus-visible { outline-offset: -2px; }
 
 /* Buttons in one row look like one family. Measured on 1,273 rows with two or more controls: the label of `.btn-icon` sat 1 px above
    the others (its line height is 14 px, theirs was `normal`), the filled buttons had no border beside the outlined ones (168 rows),

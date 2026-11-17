@@ -159,6 +159,8 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
 
     FILES = (
         "tests/test_v802.py",    # the release pins themselves
+        "tests/test_scroll_cap_focus_rings_e2e.py",    # the keyboard focus ring of every control in the lists that scroll stays inside their edge (four lists, both engines measured by hand)
+        "tests/test_v800_host_purge.py",               # the addresses a sensor queued for a host leave with it
     )
 
     def test_the_list_is_not_empty(self):
