@@ -42,6 +42,7 @@ _GATE = browser_available() or browser_required.required()
 _STACK = {}
 WIN, MAC = "wks01", "mbp01"
 WIDTHS = (1440, 768, 390)
+SEND_TIP = "Ask the agent to send the software installed on this host now"
 
 WINDOWS_ROWS = [
     {"name": "Google Chrome", "version": "120.0.6099.109", "publisher": "Google LLC", "installed": "2023-12-15", "arch": "x64"},
@@ -282,6 +283,11 @@ class TestTheCvePages(_Page):
         self.page.wait_for_function(
             "() => document.querySelectorAll('#cve-tbody tr td').length > 4 && !document.querySelector('#cve-tbody .skeleton')", timeout=60000)
 
+    def send_tip(self):
+        """The tip (title) of the Send package list now button in the open host view."""
+        return self.page.evaluate("""() => { const b = document.querySelector('#cve-detail-body [data-action-btn="_forcePackageScanBtn"]');
+            return b ? b.title : null; }""")
+
     def last_scan(self, dev_id):
         return self.page.evaluate("""id => { const tr = document.querySelector('#cve-tbody tr[data-arg="' + id + '"]');
             return tr ? {ecosystem: tr.cells[2].textContent, last: tr.querySelector('td.meta-sm-nm').textContent.trim()} : null; }""", dev_id)
@@ -302,6 +308,8 @@ class TestTheCvePages(_Page):
         body = self.page.evaluate("() => document.getElementById('cve-detail-body').textContent")
         self.assertIn("no vulnerability database is matched against it", body)
         self.assertNotIn("No vulnerabilities found", body)
+        # the tip of the button under that sentence does not say the list is compared with OSV
+        self.assertEqual(self.send_tip(), SEND_TIP)
         self.assertIn(str(len(si.clean_list(WINDOWS_ROWS, "windows"))), body)      # the host still says how many packages it has
         self.fits("the host's CVE view", "cve-detail-modal")
 
@@ -319,6 +327,7 @@ class TestTheCvePages(_Page):
         sentence = ("The software of this host is listed, but no vulnerability database is matched against it, so nothing on it is "
                     "checked. No findings here does not mean no vulnerabilities.")
         row = dict_rows()[sentence]
+        tip_row = dict_rows()[SEND_TIP]
         self.cve_page()
         for lang in ("de", "ar"):
             self.set_language(lang)
@@ -328,6 +337,7 @@ class TestTheCvePages(_Page):
             self.page.wait_for_timeout(800)
             shown = self.page.evaluate("() => document.querySelector('#cve-detail-body [data-cve-coverage]').textContent.trim()")
             self.assertEqual(shown, row[lang], lang)
+            self.assertEqual(self.send_tip(), tip_row[lang], lang)           # the tip is a title attribute: the page translates it too
             if lang == "ar":
                 self.assertEqual(self.page.evaluate("() => document.documentElement.dir"), "rtl")
             self.fits(f"the host's CVE view in {lang}", "cve-detail-modal")
