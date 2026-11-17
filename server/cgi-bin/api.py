@@ -66519,10 +66519,19 @@ def _inbound_token_visible(t):
     pin attributes by tag or by payload across the whole fleet, so under
     tenancy it is the platform operator's. The list, edit and revoke handlers
     all took `require_admin_auth()` alone, which a tenant admin passes, so one
-    tenant could switch off or delete another tenant's ingest."""
+    tenant could switch off or delete another tenant's ingest.
+
+    An API key with a device scope manages the tokens pinned to hosts in that
+    scope and no others. Creating or re-pinning a token already refuses a host
+    outside the scope (_scope_block_device); the list, edit and revoke did not,
+    so a key scoped to the web servers could read a database host's name and
+    address from the table, switch its ingest off and delete it."""
+    did = str((t or {}).get('scope_device_id') or '')
+    scope = _caller_scope()
+    if did and scope is not None and not _device_in_scope(scope, device_get(did) or {}):
+        return False
     if _tenant_gate() is None:
         return True
-    did = str((t or {}).get('scope_device_id') or '')
     return bool(did) and _tenant_visible(device_get(did) or {})
 
 
