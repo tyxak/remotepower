@@ -13042,7 +13042,54 @@ function _renderInventoryResults() {
   tableCtl.wireSortOnly('inv-thead', 'inventory', _renderInventoryResults);
 }
 
-async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = _skeletonRows(9); const data = await api('GET', '/patch-report'); if (!data) return; if (data.error || !Array.isArray(data.devices)) { _errorState(tbody, loadPatchReport, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 9}); loadPatchCatalog(); loadPatchSla(); return; } patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All hosts</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); loadPatchSla(); _fleetTargetsCache = null; onInstallTargetChange(); }
+async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = _skeletonRows(9); const data = await api('GET', '/patch-report' + _patchMttpQuery()); if (!data) return; if (data.error || !Array.isArray(data.devices)) { _errorState(tbody, loadPatchReport, {msg: 'Failed to load: ' + (data.error || 'no answer'), colspan: 9}); loadPatchCatalog(); loadPatchSla(); return; } patchReportData = data; _renderPatchMttp(data.mttp); const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All hosts</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); loadPatchSla(); _fleetTargetsCache = null; onInstallTargetChange(); }
+
+// Mean time to patch: the card in the Patches header. The server sends the figures for the fleet in two classes (any update, and the
+// updates the distribution calls security fixes) over the window the select names, and withholds the numbers below `min_n` completed
+// patches. A class with no completed patch shows as nothing, never as zero. Each word is an element of its own, so the translation of
+// the page reaches it, and a number is a text node of its own, so a sentence with a number in it is never one string.
+function _patchMttpQuery() {
+  return document.getElementById('patch-mttp-days')?.value === '90' ? '?mttp_days=90' : '';
+}
+function _mttpAmount(h) {
+  const days = h >= 72;                                       // three days and more read better as days
+  return { num: String(Math.round((days ? h / 24 : h) * 10) / 10), unit: days ? 'days' : 'hours' };
+}
+function _renderPatchMttp(m) {
+  const num = document.getElementById('patch-mttp-num');
+  const unit = document.getElementById('patch-mttp-unit');
+  const det = document.getElementById('patch-mttp-detail');
+  if (!num || !unit || !det) return;
+  const fleet = (m && m.fleet) || {};
+  const mk = (cls, text) => { const e = document.createElement('span'); if (cls) e.className = cls; e.textContent = text; return e; };
+  const line = (...parts) => {
+    const d = document.createElement('div');
+    parts.forEach((p, i) => { if (i) d.appendChild(document.createTextNode(' ')); d.appendChild(p); });
+    return d;
+  };
+  const amount = (h) => { const a = _mttpAmount(h); return [mk('mono-12', a.num), mk('', a.unit)]; };
+  const shown = (c) => !!c && c.hidden === false && [c.mean_h, c.median_h, c.p90_h].every(v => typeof v === 'number' && isFinite(v));
+  const all = fleet.all, sec = fleet.sec;
+  det.replaceChildren(line(mk('', (m && m.window_days) === 90 ? 'Last 90 days' : 'Last 30 days')));
+  if (shown(all)) {
+    const a = _mttpAmount(all.mean_h);
+    num.textContent = a.num;
+    unit.textContent = a.unit;
+    det.appendChild(line(mk('', 'Median'), ...amount(all.median_h), mk('', '·'), mk('', '90th percentile'), ...amount(all.p90_h),
+                         mk('', '·'), mk('', 'Samples (n)'), mk('mono-12', String(all.n))));
+  } else {
+    num.textContent = '—';
+    unit.textContent = '';
+    det.appendChild(!all || !all.n
+      ? line(mk('', 'No completed patches recorded yet'))
+      : line(mk('', 'Not enough data'), mk('', 'Samples (n)'), mk('mono-12', String(all.n)), mk('', 'Minimum'), mk('mono-12', String((m && m.min_n) || 5))));
+  }
+  if (sec && sec.n) {
+    det.appendChild(shown(sec)
+      ? line(mk('', 'Security updates'), ...amount(sec.mean_h), mk('', 'Samples (n)'), mk('mono-12', String(sec.n)))
+      : line(mk('', 'Security updates'), mk('', 'Not enough data'), mk('', 'Samples (n)'), mk('mono-12', String(sec.n))));
+  }
+}
 
 // W1-33: patch-compliance SLA rules + per-device status.
 let _patchSlaRules = [];

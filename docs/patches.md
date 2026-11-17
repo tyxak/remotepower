@@ -13,6 +13,8 @@ which hosts have updates waiting, and which packages are involved.
   **PDF**.
 - The headline **percentage up-to-date counts only online hosts with data** —
   hosts that haven't reported inventory are excluded rather than skewing it.
+- The **Mean time to patch** card under the counts shows how long patching takes
+  (see [Mean time to patch](#mean-time-to-patch)).
 - **Software inventory search** finds a package (optionally an exact name/version) across
   the fleet, and the **patch catalog** inverts the table: pending updates
   aggregated *by package*, showing which update is waiting on how many hosts.
@@ -135,8 +137,37 @@ too long. Add a rule with a scope (the whole fleet, a group or a tag), a
 of them). The first rule that matches a host decides. The age of a pending update
 counts from when the host first showed one and starts again when the host is
 clean. A breach raises `patch_sla_violation` and `patch_sla_ok` when it clears.
-The sweep runs hourly. It only reports: nothing is installed for you. You can
-keep up to 100 rules.
+The sweep runs hourly, and it runs whether or not you have a rule: without one
+nothing is in breach and nothing is raised. It only reports: nothing is
+installed for you. You can keep up to 100 rules.
+
+## Mean time to patch
+
+The **Mean time to patch** card next to the patch counts shows how long patching
+takes. A patch is timed from the first hourly check that saw an update waiting
+on a host to the first check that saw none waiting. The card shows the mean, the
+median and the 90th percentile, and how many completed patches they come from
+(n). Pick **Last 30 days** or **Last 90 days** in the toolbar; the 30 days are
+the default.
+
+- Only completed patches count. A host that never reaches zero pending updates
+  adds nothing, and so does a host that stops reporting its packages.
+- Updates your distribution flags as security fixes are counted on their own line,
+  next to the figure for all updates, for hosts whose package manager reports them.
+- With fewer than five completed patches the card says so, shows n and shows no
+  number. A host with no completed patch is not listed and is never shown as zero.
+- A patch is timed from the check that first saw the update, so an update that
+  was already waiting when you upgraded starts its clock then. The checks run
+  hourly, so a time is accurate to about an hour.
+- It needs no Patch SLA rule. The server keeps the last 200 completed patches of
+  each host, and none older than 400 days.
+- You see the hosts your role and your tenant let you see, and no others.
+
+The same figures are in the `mttp` field of `GET /api/patch-report`: the mean,
+median and 90th percentile in hours for the fleet, for each host that has a
+completed patch in the window and, for the operator of an installation with
+tenants, for each tenant. `?mttp_days=30` or `?mttp_days=90` picks the window;
+any other value gives 30.
 
 ## Acting on updates
 

@@ -5206,6 +5206,10 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
 .isl-132 { position:relative; flex:1; max-width:280px }
 .isl-133 { width:auto; padding:8px 12px; font-size:13px; max-width:220px }
 .isl-134 { grid-template-columns:repeat(5,1fr) }
+/* The mean-time-to-patch card of the Patches header holds three lines, so it sits on a row of its own under the five counts, as wide as
+   the row up to a limit. Squeezed in beside the counts it would take their width, and their labels would wrap. */
+.patch-mttp-card { grid-column: 1 / -1; max-width: 560px; }
+.patch-mttp-detail { display: grid; gap: 4px; margin-top: 8px; }
 .isl-135 { flex:1; min-width:240px; max-width:380px; padding:8px 12px; font-size:13px }
 .isl-136 { grid-template-columns:repeat(5,1fr); margin-bottom:24px }
 .isl-137 { color:var(--orange-ink) }
