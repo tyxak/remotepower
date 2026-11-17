@@ -994,6 +994,8 @@ class TestTheSbom(_Fleet):
         chrome = by['Google Chrome']
         self.assertEqual(chrome['purl'], 'pkg:generic/Google%20Chrome@120.0.6099.109')
         self.assertEqual(chrome['type'], 'application')
+        self.assertEqual(chrome['version'], '120.0.6099.109')       # the purl is built from the version apart: it stays right without it
+        self.assertEqual(by['7-Zip 23.01 (x64)']['version'], '23.01')
         props = {p['name']: p['value'] for p in chrome['properties']}
         self.assertEqual(props['remotepower:publisher'], 'Google LLC')
         self.assertEqual((props['remotepower:arch'], props['remotepower:installed'], props['remotepower:manager']),
@@ -1011,6 +1013,9 @@ class TestTheSbom(_Fleet):
         self.assertEqual(by['Safari']['purl'], 'pkg:generic/Safari@17.2')
         self.assertEqual({p['name']: p['value'] for p in by['Safari']['properties']}['remotepower:id'], 'com.apple.Safari')
         self.assertEqual({p['name']: p['value'] for p in by['wget']['properties']}['remotepower:manager'], 'brew')
+        self.assertEqual((by['Safari']['version'], by['wget']['version']), ('17.2', '1.21.4'))
+        spdx = {p['name']: p for p in sbom.build_spdx(self.dev(MAC_A), self.stored(MAC_A), [])['packages']}
+        self.assertEqual((spdx['Safari']['versionInfo'], spdx['wget']['versionInfo']), ('17.2', '1.21.4'))
 
     def test_a_program_with_no_version_is_still_there(self):
         store = self.stored(WIN_A)
@@ -1029,7 +1034,24 @@ class TestTheSbom(_Fleet):
         by = {p['name']: p for p in spdx['packages']}
         self.assertEqual(by['Google Chrome']['supplier'], 'Organization: Google LLC')
         self.assertEqual(by['Google Chrome']['externalRefs'][0]['referenceLocator'], 'pkg:generic/Google%20Chrome@120.0.6099.109')
+        self.assertEqual(by['Google Chrome']['versionInfo'], '120.0.6099.109')
+        self.assertEqual(by['7-Zip 23.01 (x64)']['versionInfo'], '23.01')
         self.assertNotIn('supplier', by['Windows Driver Package - Intel (e1dexpress) Net'])
+
+    def test_every_version_of_the_stored_list_is_in_both_documents_and_a_missing_one_is_left_out(self):
+        """Derived from the list the host sent, not from the rows a test remembers: the version of each row is in the
+        component and in the package, and a row that has none has no `version` and no `versionInfo` at all."""
+        for dev_id in (WIN_A, MAC_A):
+            store = self.stored(dev_id)
+            store['packages'] = store['packages'] + [{'name': 'No Version App', 'version': '', 'manager': store['pkg_manager']}]
+            want = sorted((p['name'], p['version'] or None) for p in store['packages'])
+            self.assertGreater(len([1 for _, v in want if v]), 3)
+            self.assertEqual(len([1 for _, v in want if not v]), 1)
+            doc = sbom.build_cyclonedx(self.dev(dev_id), store, [])
+            self.assertEqual(sorted((c['name'], c.get('version')) for c in doc['components']), want, dev_id)
+            spdx = sbom.build_spdx(self.dev(dev_id), store, [])
+            self.assertEqual(sorted((q['name'], q.get('versionInfo')) for q in spdx['packages']
+                                    if q['SPDXID'].startswith('SPDXRef-Package-')), want, dev_id)
 
     def test_a_document_says_how_many_entries_were_left_out_of_the_list(self):
         """The list of a Windows host is not all that is installed: updates and system components are left out, and a document that
