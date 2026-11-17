@@ -11861,13 +11861,14 @@ async function saveSmartGroup() {
 // 8.0.1: what the rules in the editor match, before the group is saved. POST /api/smart-groups/preview works it out with the function
 // a saved group's members come from and changes nothing; the answer is a count and the first 50 hosts. A host's name is its own word,
 // so it is drawn as text and never built into markup. A change to a rule empties the box (the answer was made for other rules), and an
-// answer that comes back after that is dropped.
+// answer that comes back after that is dropped. The button is not disabled here: the dispatcher does that for any button whose handler
+// returns a promise (_btnInflight: dimmed, aria-busy, a second press ignored, and focus given back when the answer is in). A handler
+// that disabled its own button made the dispatcher step aside, and focus stayed on <body> after a press from the keyboard.
 let _sgPreviewSeq = 0;
 function _clearSmartGroupPreview() {
   _sgPreviewSeq++;
-  const box = document.getElementById('sg-preview'), btn = document.getElementById('sg-preview-btn');
+  const box = document.getElementById('sg-preview');
   if (box) box.innerHTML = '';
-  if (btn) btn.disabled = false;
 }
 function _wireSmartGroupPreview() {
   const modal = document.getElementById('smart-group-modal');
@@ -11879,15 +11880,13 @@ function _wireSmartGroupPreview() {
   modal.addEventListener('change', stale);
 }
 async function previewSmartGroup() {
-  const box = document.getElementById('sg-preview'), btn = document.getElementById('sg-preview-btn');
+  const box = document.getElementById('sg-preview');
   if (!box) return;
   const seq = ++_sgPreviewSeq;
   box.textContent = 'Checking…';
-  if (btn) btn.disabled = true;
   let r = null;
   try { r = await api('POST', '/smart-groups/preview', { rules: _smartGroupRulesFromForm() }); } catch (_) { r = null; }   // a network failure rejects
   if (seq !== _sgPreviewSeq) return;
-  if (btn) btn.disabled = false;
   if (!r || r.error || !Array.isArray(r.hosts)) {
     box.innerHTML = `<span class="c-red fs-12">${escHtml((r && r.error) || 'Could not preview the members')}</span>`;
     return;
@@ -32515,9 +32514,16 @@ function _homeNavAction(btn) {
 // data-action-btn paths (the latter previously had no feedback at all).
 // Restore is guarded: a handler that re-renders/replaces the button is
 // unaffected (the old node is simply discarded).
-function _btnInflight(el, ret) {
+function _btnInflight(el, ret, hadFocusBefore) {
   if (!ret || typeof ret.then !== 'function'
-      || !el || el.tagName !== 'BUTTON' || el.disabled) return;
+      || !el || el.tagName !== 'BUTTON') return;
+  if (el.disabled) {
+    // The handler has taken its own button out of play already (the older ones disable it before their first await), and the browser
+    // dropped the focus to <body> with it. The button's state is the handler's. The focus is ours to give back once the handler is
+    // done, and only the dispatcher saw, before the handler ran, whether the button had it.
+    if (hadFocusBefore) { const back = () => _btnFocusBack(el); ret.then(back, back); }
+    return;
+  }
   // Disabling the button that has focus drops focus to <body>. A keyboard user would start again from the
   // top of the page after every async click, so give it back when the button is enabled again.
   const hadFocus = document.activeElement === el;
@@ -32538,15 +32544,21 @@ function _btnInflight(el, ret) {
     el.disabled = false;
     el.classList.remove('btn-inflight');
     el.removeAttribute('aria-busy');
-    if (hadFocus && document.contains(el) && (!document.activeElement || document.activeElement === document.body)) {
-      try { el.focus({preventScroll: true}); } catch (_) {}
-    }
+    if (hadFocus) _btnFocusBack(el);
     if (document.contains(el)) {
       el.classList.add('btn-done');
       setTimeout(() => el.classList.remove('btn-done'), 500);
     }
   };
   ret.then(_restore, _restore);
+}
+// Gives focus back to a button that lost it by being disabled, when nothing has taken it since. A disabled element leaves focus on
+// <body>; a dialog the handler opened, or a field the person moved to, has it by then and keeps it. A button the handler left disabled
+// for good cannot take it.
+function _btnFocusBack(el) {
+  if (!document.contains(el) || el.disabled) return;
+  if (document.activeElement && document.activeElement !== document.body) return;
+  try { el.focus({preventScroll: true}); } catch (_) {}
 }
 
 // Delegated click handler for page-level buttons using data-action / data-arg
@@ -32607,9 +32619,10 @@ document.addEventListener('click', e => {
       return;
     }
     const boolArg = btnEl.dataset.argBool;
+    const _bhad = document.activeElement === btnEl;      // read before the handler runs: one that disables its own button loses it
     const _bret = (boolArg !== undefined) ? fn(btnEl, boolArg === 'true')
                                           : fn(btnEl);
-    _btnInflight(btnEl, _bret);
+    _btnInflight(btnEl, _bret, _bhad);
     return;
   }
 
@@ -32653,8 +32666,9 @@ document.addEventListener('click', e => {
   // still running, its button dims and stops accepting clicks (kills the
   // double-submit class app-wide with zero per-handler wiring). Restore is
   // guarded so a handler that re-renders/replaces the button is unaffected.
+  const _had = document.activeElement === el;           // read before the handler runs: one that disables its own button loses it
   const _ret = fn(...args);
-  _btnInflight(el, _ret);
+  _btnInflight(el, _ret, _had);
 
   if (el.dataset.action2) {
     const fn2 = _dispatchFn(el.dataset.action2);

@@ -13,7 +13,10 @@ test_v801_smart_group_preview drives the handler. This signs in as an administra
 * a form with no rule answers with the same words as a save, in the box;
 * the saved group that follows has the members the preview listed;
 * it fits: no sideways scroll at 1440, 768 and 390 px, in English, German and Arabic (where the page mirrors), the button is reachable
-  by keyboard and drawn with a focus ring, and nothing logs a console error, a page error or a failed request on the way.
+  by keyboard and drawn with a focus ring, and nothing logs a console error, a page error or a failed request on the way;
+* focus: after a press from the keyboard (Enter or Space) the button is dimmed and aria-busy while the answer is on its way, a second
+  press changes nothing, and focus is on the button again when the answer is in. The same holds for a button whose handler disables
+  it itself, which a scan of the async handlers a data-action starts finds in 35 others (it counts a flag set anywhere in the body).
 
 The button has a text label, so there is no icon-only button to check. The filename carries 'e2e', so make test-fast skips it; the
 serial gate runs it.
@@ -323,6 +326,55 @@ class TestTheSmartGroupPreviewInABrowser(unittest.TestCase):
         page.focus("#sg-preview-btn")
         page.keyboard.press("Enter")
         page.wait_for_function("() => /hosts? match/.test(document.getElementById('sg-preview').innerText)", timeout=30000)
+        self.clean(page)
+
+    def test_focus_is_on_the_button_when_the_answer_is_in_after_a_press_from_the_keyboard(self):
+        """Pressing the button used to disable it from inside its own handler, and a disabled control that has focus leaves it on the
+        body: a keyboard user started again from the top of the page and a screen reader lost its place. The dispatcher dims the button
+        while the answer comes (aria-busy), ignores a second press, and gives focus back when the answer is in."""
+        page = self.login()
+        self.open_editor(page)
+        page.fill("#sg-group", "web")
+        # a slow answer, so that the presses below land while it is in flight; the page's own api() answers after it
+        page.evaluate("""() => { window.__previews = 0; const real = window.api;
+          window.api = async (m, p, b) => { if (p === '/smart-groups/preview') { window.__previews++; await new Promise(r => setTimeout(r, 700)); }
+                                            return real(m, p, b); }; }""")
+        where = """() => { const b = document.getElementById('sg-preview-btn'), a = document.activeElement;
+                           return { id: a.id || a.tagName, busy: b.getAttribute('aria-busy'), disabled: b.disabled,
+                                    previews: window.__previews }; }"""
+        for first, again in (("Enter", "Enter"), ("Space", "Enter")):
+            with self.subTest(key=first):
+                page.evaluate("() => { _clearSmartGroupPreview(); window.__previews = 0; }")        # the box is empty again, as a change to a rule leaves it
+                page.focus("#sg-preview-btn")
+                page.keyboard.press(first)
+                page.wait_for_timeout(200)                         # the answer is held for 700 ms: this is while it is on its way
+                busy = page.evaluate("() => document.getElementById('sg-preview-btn').getAttribute('aria-busy')")
+                self.assertEqual(busy, "true", "the dispatcher did not mark the button busy while the answer was on its way")
+                page.keyboard.press(again)                         # one more press changes nothing
+                page.wait_for_function("() => /hosts? match/.test(document.getElementById('sg-preview').innerText)", timeout=30000)
+                page.wait_for_function("() => !document.getElementById('sg-preview-btn').disabled", timeout=10000)
+                got = page.evaluate(where)
+                self.assertEqual(got, {"id": "sg-preview-btn", "busy": None, "disabled": False, "previews": 1}, got)
+        self.clean(page)
+
+    def test_a_button_whose_handler_disables_it_gets_focus_back_too(self):
+        """Older handlers disable the button they were started from, before their first await (a scan of the async handlers a data-action
+        starts finds 35 besides this one that set a disabled flag in their body). The control is the browser: it drops focus when the
+        focused button is disabled; the dispatcher read the focus before the handler ran and gives it back."""
+        page = self.login()
+        got = page.evaluate("""async () => {
+            const b = document.createElement('button'); b.id = 'kb-self'; b.textContent = 'x'; document.body.appendChild(b);
+            window.kbSelfDisable = async () => { b.disabled = true; await new Promise(r => setTimeout(r, 150)); b.disabled = false; };
+            b.setAttribute('data-action', 'kbSelfDisable'); b.focus();
+            b.click();
+            const during = document.activeElement === b;
+            await new Promise(r => setTimeout(r, 500));
+            const after = document.activeElement === b;
+            b.remove();
+            return { during, after };
+        }""")
+        self.assertFalse(got["during"], "control: the browser leaves focus on the body when the focused button is disabled")
+        self.assertTrue(got["after"], "focus was not given back to the button its handler had disabled: %s" % got)
         self.clean(page)
 
 

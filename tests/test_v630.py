@@ -336,9 +336,16 @@ class TestWave2QuickWins(unittest.TestCase):
         self.assertIn("aria-busy", chunk)
         # restore must run on BOTH resolve and reject
         self.assertIn("ret.then(_restore, _restore)", chunk)
-        # BOTH dispatch paths route through it
-        self.assertIn("_btnInflight(el, _ret)", app)
-        self.assertIn("_btnInflight(btnEl, _bret)", app)
+        # BOTH dispatch paths route through it, and each says whether the button had focus before its handler ran: a handler that
+        # disables its own button loses the focus first, and only the dispatcher can tell (a call that drops the third argument gives
+        # focus back to nobody)
+        self.assertIn("_btnInflight(el, _ret, _had)", app)
+        self.assertIn("_btnInflight(btnEl, _bret, _bhad)", app)
+        self.assertIn("const _had = document.activeElement === el;", app)
+        self.assertIn("const _bhad = document.activeElement === btnEl;", app)
+        # and it is read before the handler is called, not after
+        self.assertLess(app.index("const _had = document.activeElement === el;"), app.index("const _ret = fn(...args);"))
+        self.assertLess(app.index("const _bhad = document.activeElement === btnEl;"), app.index("const _bret = (boolArg !== undefined)"))
 
     def test_data_copy_handler_and_sites(self):
         app = _js("app.js")

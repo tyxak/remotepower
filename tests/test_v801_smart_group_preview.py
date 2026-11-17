@@ -944,8 +944,14 @@ vm.runInContext(fs.readFileSync(clientPath, 'utf8'), ctx, { filename: 'client.js
 const scenarios = JSON.parse(fs.readFileSync(scenarioPath, 'utf8'));
 const PRELUDE = `
   const els = {};
-  const mk = (id, o) => (els[id] = Object.assign({ id, value: '', checked: false, disabled: false, innerHTML: '', textContent: '',
-    dataset: {}, listeners: {}, addEventListener(t, f) { (this.listeners[t] = this.listeners[t] || []).push(f); } }, o || {}));
+  const writes = [];     // every write to a control's disabled flag: the editor's functions have to make none (the dispatcher owns it)
+  const mk = (id, o) => {
+    const e = Object.assign({ id, value: '', checked: false, innerHTML: '', textContent: '',
+      dataset: {}, listeners: {}, addEventListener(t, f) { (this.listeners[t] = this.listeners[t] || []).push(f); } }, o || {});
+    let off = false;
+    Object.defineProperty(e, 'disabled', { configurable: true, get() { return off; }, set(v) { writes.push([id, !!v]); off = !!v; } });
+    return (els[id] = e);
+  };
   ['sg-name', 'sg-group', 'sg-tag', 'sg-os', 'sg-mem', 'sg-disk', 'sg-cpu', 'sg-drift', 'sg-reboot', 'sg-preview', 'sg-preview-btn',
    'smart-group-modal', 'smart-group-modal-title'].forEach(id => mk(id));
   document = { getElementById: id => els[id] || null };
@@ -965,6 +971,28 @@ const PRELUDE = `
   }
   process.stdout.write(JSON.stringify(out));
 })();
+"""
+
+# The preview button as a browser has it, for the scenarios that run the dispatcher's own helpers (_btnInflight, _btnFocusBack): a control
+# that is disabled while it has focus leaves focus on the body. `dispatch(fn)` is what the page's click handler does around a handler
+# call: it reads whether the button has focus before the handler runs and passes that on.
+_BROWSER_BUTTON = """
+      const btn = els['sg-preview-btn'];
+      const body = { id: 'body' };
+      document.body = body; document.contains = () => true; document.activeElement = btn;
+      let off = false; const classes = new Set(); const attrs = {};
+      Object.defineProperty(btn, 'disabled', { configurable: true, get() { return off; }, set(v) {
+        writes.push(['btn', !!v]); off = !!v; if (off && document.activeElement === btn) document.activeElement = body; } });
+      btn.tagName = 'BUTTON';
+      btn.classList = { add: c => classes.add(c), remove: c => classes.delete(c) };
+      btn.setAttribute = (k, v) => { attrs[k] = v; };
+      btn.removeAttribute = k => { delete attrs[k]; };
+      btn.focus = () => { if (!off) document.activeElement = btn; };
+      setTimeout = () => 0;
+      const state = () => ({ disabled: off, busy: attrs['aria-busy'] || null, inflight: classes.has('btn-inflight'),
+                             focus: document.activeElement === btn, text: els['sg-preview'].textContent });
+      const dispatch = (fn, o) => { const had = document.activeElement === btn; const ret = fn();
+                                    _btnInflight(btn, ret, o && o.note === false ? undefined : had); return ret; };
 """
 
 _SCENARIOS = {
@@ -993,7 +1021,7 @@ _SCENARIOS = {
       const hosts = Array.from({ length: 50 }, (_, i) => ({ id: 'h' + i, name: 'host-' + i }));
       answer({ count: 120, limit: 50, hosts });
       await previewSmartGroup();
-      return { html: els['sg-preview'].innerHTML, calls, disabled: els['sg-preview-btn'].disabled };""",
+      return { html: els['sg-preview'].innerHTML, calls, disabled: els['sg-preview-btn'].disabled, writes };""",
     "one_host": """
       els['sg-group'].value = 'web'; answer({ count: 1, limit: 50, hosts: [{ id: 'h0', name: 'only' }] });
       await previewSmartGroup(); return els['sg-preview'].innerHTML;""",
@@ -1009,20 +1037,20 @@ _SCENARIOS = {
       await previewSmartGroup(); return els['sg-preview'].innerHTML;""",
     "an_error_is_text": """
       answer({ error: 'at least one rule is required' });
-      await previewSmartGroup(); return { html: els['sg-preview'].innerHTML, disabled: els['sg-preview-btn'].disabled };""",
+      await previewSmartGroup(); return { html: els['sg-preview'].innerHTML, disabled: els['sg-preview-btn'].disabled, writes };""",
     "an_error_with_markup_is_text": """
       answer({ error: '<b onmouseover=1>x</b>' });
       await previewSmartGroup(); return els['sg-preview'].innerHTML;""",
     "a_failed_request": """
       api = async () => { throw new Error('network'); };
-      await previewSmartGroup(); return { html: els['sg-preview'].innerHTML, disabled: els['sg-preview-btn'].disabled };""",
+      await previewSmartGroup(); return { html: els['sg-preview'].innerHTML, disabled: els['sg-preview-btn'].disabled, writes };""",
     "no_answer": """
       api = async () => null;
       await previewSmartGroup(); return els['sg-preview'].innerHTML;""",
     "a_malformed_answer": """
       answer({ count: 'many', hosts: 'all' });
       await previewSmartGroup(); return els['sg-preview'].innerHTML;""",
-    "the_button_is_off_while_it_waits": """
+    "the_handler_leaves_the_button_to_the_dispatcher": """
       let release; const pending = new Promise(r => { release = r; });
       api = async () => pending;
       els['sg-group'].value = 'web';
@@ -1030,7 +1058,7 @@ _SCENARIOS = {
       const during = { disabled: els['sg-preview-btn'].disabled, text: els['sg-preview'].textContent };
       release({ count: 5, limit: 50, hosts: [] });
       await run;
-      return { during, after: els['sg-preview-btn'].disabled, html: els['sg-preview'].innerHTML };""",
+      return { during, after: els['sg-preview-btn'].disabled, html: els['sg-preview'].innerHTML, writes };""",
     "an_answer_after_a_rule_changed_is_dropped": """
       _wireSmartGroupPreview();
       let release; const pending = new Promise(r => { release = r; });
@@ -1041,7 +1069,48 @@ _SCENARIOS = {
       els['smart-group-modal'].listeners.input[0]({ target: els['sg-tag'] });      // the person typed in a rule
       release({ count: 9, limit: 50, hosts: [{ id: 'a', name: 'A' }] });
       await run;
-      return { html: els['sg-preview'].innerHTML, disabled: els['sg-preview-btn'].disabled };""",
+      return { html: els['sg-preview'].innerHTML, disabled: els['sg-preview-btn'].disabled, writes };""",
+    # The dispatcher's side, with the real _btnInflight and _btnFocusBack against a button as a browser has it: a control that is
+    # disabled while it has focus leaves focus on the body. `dispatch` is what the click handler does around a handler call.
+    "dispatcher_dims_the_button_and_gives_focus_back": _BROWSER_BUTTON + """
+      els['sg-group'].value = 'web';
+      let release; const pending = new Promise(r => { release = r; });
+      api = async () => pending;
+      const ret = dispatch(previewSmartGroup);
+      const during = state();
+      release({ count: 1, limit: 50, hosts: [{ id: 'h', name: 'H' }] });
+      await ret;
+      return { during, after: state(), writes, html: els['sg-preview'].innerHTML };""",
+    "a_button_whose_handler_disables_it_gets_focus_back": _BROWSER_BUTTON + """
+      let release; const pending = new Promise(r => { release = r; });
+      const ret = dispatch(async () => { btn.disabled = true; await pending; btn.disabled = false; });
+      const during = state();
+      release();
+      await ret;
+      return { during, after: state() };""",
+    "control_without_the_note_a_disabled_button_stays_without_focus": _BROWSER_BUTTON + """
+      let release; const pending = new Promise(r => { release = r; });
+      const ret = dispatch(async () => { btn.disabled = true; await pending; btn.disabled = false; }, { note: false });
+      release();
+      await ret;
+      return { after: state() };""",
+    "focus_that_moved_is_not_taken_back": _BROWSER_BUTTON + """
+      const field = { id: 'a-field' };
+      let release; const pending = new Promise(r => { release = r; });
+      const ret = dispatch(async () => { btn.disabled = true; await pending; btn.disabled = false; });
+      document.activeElement = field;                    // the person tabbed to a field, or a dialog took focus
+      release();
+      await ret;
+      return { after: state(), onField: document.activeElement === field };""",
+    "a_button_left_disabled_does_not_take_focus": _BROWSER_BUTTON + """
+      let release; const pending = new Promise(r => { release = r; });
+      const ret = dispatch(async () => { btn.disabled = true; await pending; });
+      release();
+      await ret;
+      return { after: state() };""",
+    "a_handler_that_returns_nothing_is_left_alone": _BROWSER_BUTTON + """
+      const ret = dispatch(() => { btn.disabled = true; });
+      return { after: state(), same: ret === undefined };""",
     "a_rule_empties_the_box_and_the_name_does_not": """
       _wireSmartGroupPreview(); _wireSmartGroupPreview();
       const seen = { inputs: els['smart-group-modal'].listeners.input.length, changes: els['smart-group-modal'].listeners.change.length };
@@ -1182,11 +1251,49 @@ class TestTheEditorFunctionsInV8(unittest.TestCase):
         self.assertIn("Could not preview the members", self.out["no_answer"])
         self.assertIn("Could not preview the members", self.out["a_malformed_answer"])
 
-    def test_the_button_is_off_while_the_server_works(self):
-        r = self.out["the_button_is_off_while_it_waits"]
-        self.assertEqual(r["during"], {"disabled": True, "text": "Checking…"})
-        self.assertFalse(r["after"])
+    def test_the_handler_never_writes_the_buttons_disabled_flag(self):
+        """The button's busy state belongs to the dispatcher (_btnInflight). A handler that disabled its own button made the dispatcher
+        step aside, so nothing gave focus back after a press from the keyboard: it stayed on the body."""
+        for name in ("count_and_names", "an_error_is_text", "a_failed_request", "the_handler_leaves_the_button_to_the_dispatcher",
+                     "an_answer_after_a_rule_changed_is_dropped"):
+            with self.subTest(scenario=name):
+                self.assertEqual(self.out[name]["writes"], [], "the editor's own functions wrote a disabled flag")
+        r = self.out["the_handler_leaves_the_button_to_the_dispatcher"]
+        self.assertEqual(r["during"], {"disabled": False, "text": "Checking…"})
         self.assertIn("<strong>5</strong> hosts match", r["html"])
+
+    def test_the_dispatcher_dims_the_button_while_the_server_works_and_gives_focus_back(self):
+        r = self.out["dispatcher_dims_the_button_and_gives_focus_back"]
+        self.assertEqual(r["during"], {"disabled": True, "busy": "true", "inflight": True, "focus": False, "text": "Checking…"})
+        self.assertEqual({k: r["after"][k] for k in ("disabled", "busy", "inflight", "focus")},
+                         {"disabled": False, "busy": None, "inflight": False, "focus": True})
+        self.assertIn("<strong>1</strong> host matches", r["html"])
+        self.assertEqual(r["writes"], [["btn", True], ["btn", False]], "the handler wrote the flag as well as the dispatcher")
+
+    def test_a_button_whose_handler_disables_it_gets_focus_back_too(self):
+        """Older handlers disable the button they were started from, before their first await: a scan of the 810 async handlers that a
+        data-action starts finds 35 besides this one that set a disabled flag in their body. The dispatcher read nothing before them
+        and stepped aside, so the focus they dropped never came back."""
+        r = self.out["a_button_whose_handler_disables_it_gets_focus_back"]
+        self.assertEqual((r["during"]["disabled"], r["during"]["focus"], r["during"]["busy"]), (True, False, None),
+                         "the handler's own state is left to the handler")
+        self.assertEqual((r["after"]["disabled"], r["after"]["focus"]), (False, True))
+
+    def test_control_without_the_note_the_focus_is_lost_as_it_was(self):
+        """The instrument can see the defect: the same handler and a dispatcher that did not read the focus first."""
+        self.assertEqual(self.out["control_without_the_note_a_disabled_button_stays_without_focus"]["after"]["focus"], False)
+
+    def test_focus_that_moved_meanwhile_is_not_taken_back(self):
+        r = self.out["focus_that_moved_is_not_taken_back"]
+        self.assertTrue(r["onField"], "focus was taken from the field the person had moved to")
+        self.assertFalse(r["after"]["focus"])
+
+    def test_a_button_left_disabled_does_not_take_focus_and_a_sync_handler_is_untouched(self):
+        self.assertEqual(self.out["a_button_left_disabled_does_not_take_focus"]["after"], {
+            "disabled": True, "busy": None, "inflight": False, "focus": False, "text": ""})
+        r = self.out["a_handler_that_returns_nothing_is_left_alone"]
+        self.assertTrue(r["same"])
+        self.assertEqual((r["after"]["busy"], r["after"]["inflight"]), (None, False))
 
     def test_an_answer_made_for_other_rules_is_dropped(self):
         r = self.out["an_answer_after_a_rule_changed_is_dropped"]
