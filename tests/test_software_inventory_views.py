@@ -154,6 +154,19 @@ class TestTheHostsCveView(unittest.TestCase):
         self.assertIn('No vulnerabilities found', body)
         self.assertNotIn(NO_MATCHER, body)
 
+    SEND = r'data-action-btn="_forcePackageScanBtn"[^>]*title="([^"]*)"'
+
+    def test_the_send_button_does_not_promise_a_comparison_with_osv_for_a_host_nothing_is_checked_of(self):
+        """The tip under the sentence that says nothing is checked used to say the CVE scanner compares the list against OSV."""
+        title = re.search(self.SEND, _Page.open_device_cve(dict(self.NOTHING, coverage='no_matcher'))).group(1)
+        self.assertEqual(title, 'Ask the agent to send the software installed on this host now')
+        self.assertNotIn('OSV', title)
+
+    def test_the_send_button_of_a_scanned_host_still_names_the_comparison(self):
+        """The control: the other tip is not gone for every host."""
+        title = re.search(self.SEND, _Page.open_device_cve(dict(self.NOTHING, coverage='', ecosystem='Debian:12', scanned_at=9))).group(1)
+        self.assertEqual(title, 'Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV')
+
     def test_the_drawers_summary_says_not_checked_and_has_no_tiles_of_zeros(self):
         out = _Page.audit_cve(dict(self.NOTHING, coverage='no_matcher'))
         self.assertEqual(out['badge'], 'not checked')
@@ -166,6 +179,19 @@ class TestTheHostsCveView(unittest.TestCase):
         self.assertEqual(out['badge'], 'clean')
         self.assertIn('No CVEs found', out['body'])
         self.assertIn('sysinfo-pill', out['body'])
+
+
+class TestTheChangesSinceTheBaseline(unittest.TestCase):
+    def test_a_program_with_no_version_has_a_dash_and_not_a_blank_cell(self):
+        """A program of a Windows host may write no version, and the changes now list one that was added or removed."""
+        body = _Page.sbom_diff({'baseline_at': 5, 'counts': {'added': 2, 'removed': 1, 'changed': 1},
+                                'added': [{'name': 'Quiet App', 'version': ''}, {'name': 'Loud App', 'version': '2.0'}],
+                                'removed': [{'name': 'Old Quiet', 'version': ''}],
+                                'changed': [{'name': 'node', 'from': '', 'to': '1.0'}]})
+        cells = re.findall(r'<td class="c-(?:green|red|muted)">(.*?)</td>', body)
+        self.assertEqual(cells, ['—', '2.0', '—', '— → <span class="c-amber">1.0</span>'])
+        for name in ('Quiet App', 'Loud App', 'Old Quiet', 'node'):
+            self.assertIn(f'<code>{name}</code>', body)
 
 
 class TestTheCvePageRow(unittest.TestCase):
@@ -181,19 +207,6 @@ const tableCtl = {register: c => { cfg = c; }};
 const timeAgoHtml = ts => 'ago';
 const _icon = () => '';
 _registerCveTable();
-class TestTheChangesSinceTheBaseline(unittest.TestCase):
-    def test_a_program_with_no_version_has_a_dash_and_not_a_blank_cell(self):
-        """A program of a Windows host may write no version, and the changes now list one that was added or removed."""
-        body = _Page.sbom_diff({'baseline_at': 5, 'counts': {'added': 2, 'removed': 1, 'changed': 1},
-                                'added': [{'name': 'Quiet App', 'version': ''}, {'name': 'Loud App', 'version': '2.0'}],
-                                'removed': [{'name': 'Old Quiet', 'version': ''}],
-                                'changed': [{'name': 'node', 'from': '', 'to': '1.0'}]})
-        cells = re.findall(r'<td class="c-(?:green|red|muted)">(.*?)</td>', body)
-        self.assertEqual(cells, ['—', '2.0', '—', '— → <span class="c-amber">1.0</span>'])
-        for name in ('Quiet App', 'Loud App', 'Old Quiet', 'node'):
-            self.assertIn(f'<code>{name}</code>', body)
-
-
 const d = {device_id: 'h1', name: 'host one', group: '', ecosystem: 'unsupported', status: %s, scanned_at: %d, kev: 0,
            counts: {critical: 0, high: 0, medium: 0, low: 0}, rollup: 0};
 console.log(JSON.stringify({row: cfg.row(d)}));''' % (json.dumps(status), scanned_at)])
@@ -268,7 +281,8 @@ class TestTheNewSentences(unittest.TestCase):
     def test_both_are_in_six_languages(self):
         from test_v710_i18n_glue import dict_rows
         rows = dict_rows()
-        for text in (NO_MATCHER + ', so nothing on it is checked. No findings here does not mean no vulnerabilities.', self.HINT):
+        for text in (NO_MATCHER + ', so nothing on it is checked. No findings here does not mean no vulnerabilities.', self.HINT,
+                     'Ask the agent to send the software installed on this host now'):
             self.assertTrue(rows.get(text), text[:60])
             self.assertEqual(sorted(rows[text]), ['ar', 'de', 'es', 'fr', 'hi', 'zh'], text[:60])
             for lang, value in rows[text].items():
