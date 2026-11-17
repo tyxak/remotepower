@@ -245,7 +245,9 @@ retry from the dead-letter queue counts as getting through.
 - The alert names the destination by the name you gave it, or by its host when it has none.
   The address itself is never written into the alert, because for most chat services the
   path is the credential.
-- Removing a destination or switching it off closes its alert.
+- Removing a destination or switching it off closes its alert and takes its mark away when you save, not when the next
+  event is sent. The same holds when a settings document you apply from a file, or a settings revision you restore, removes
+  it or switches it off. A destination that is switched off shows no mark.
 - On **Settings → Notifications**, the card of a destination that has failed three or more
   deliveries in a row carries a red **Failing** mark, with how many deliveries failed in a row and
   the kind of the last error: timed out, unreachable, name lookup failed, TLS or certificate
@@ -259,6 +261,8 @@ retry from the dead-letter queue counts as getting through.
   the old settings. Renaming the destination or changing its filters leaves the mark and the alert
   as they are. The same holds when a destination comes back with another address, format or
   credentials in a settings document you apply from a file, or in a settings revision you restore.
+  A settings document you export and apply back unchanged leaves every mark and alert as they are,
+  also when the addresses in it are encrypted (a config master key is set).
 - With one destination only, the inbox is where you will see it. A second destination, even
   a plain email, is what makes a failing one reach you.
 

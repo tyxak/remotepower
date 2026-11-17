@@ -126,7 +126,7 @@ def handle_config_revision_restore():
     A.record_config_revision(current, rev['config'], f'{actor} (pre-restore)')
     # a destination that comes back with another address, format or credentials starts again, as when the Settings page saves it
     try:
-        A._notify_health_forget_edited(current.get('webhook_urls'), rev['config'].get('webhook_urls'))
+        A._notify_destinations_changed(current.get('webhook_urls'), rev['config'].get('webhook_urls'))
     except Exception as e:
         A.sys.stderr.write(f'[remotepower] destination health not cleared after a restore: {type(e).__name__}: {e}\n')
     if governance:

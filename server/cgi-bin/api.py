@@ -10034,6 +10034,17 @@ _NOTIFY_DELIVERY_FIELDS = ('url', 'format', 'pushover_token', 'pushover_user', '
                            'telegram_chat_id', 'matrix_token', 'hmac_secret', 'headers')
 
 
+def _notify_delivery_view(entry):
+    """What a destination is delivered with, as plain values, so that two copies of it can be compared.
+
+    A settings document written while a config master key is armed carries the address, the header values and the Pushover user as `enc:v2:` ciphertext, with a new nonce for
+    every export, where the store holds the text itself. Compared as they were, an import that changed nothing differed in every field and cleared every streak. Both copies
+    are read through the decryption the settings store uses when it is read (it hands the text back unchanged without a key), and a field that is missing reads as None on both
+    sides."""
+    view = {f: copy.deepcopy(entry.get(f)) for f in _NOTIFY_DELIVERY_FIELDS}
+    return _config_secrets_inbound(CONFIG_FILE, view)
+
+
 def _notify_health_forget_edited(before, after):
     """Forget the failed streak of a destination whose delivery settings were edited, and close its alert, as removing it does.
 
@@ -10043,7 +10054,7 @@ def _notify_health_forget_edited(before, after):
     keys = []
     for e in (after if isinstance(after, list) else []):
         was = old.get(str(e['id'])) if isinstance(e, dict) and e.get('id') else None
-        if was is not None and any(was.get(f) != e.get(f) for f in _NOTIFY_DELIVERY_FIELDS):
+        if was is not None and _notify_delivery_view(was) != _notify_delivery_view(e):
             keys.append(_notify_dest_key(e))
     if not keys:
         return
@@ -10089,6 +10100,17 @@ def _notify_health_prune(cfg):
         fire_webhook('notify_dest_recovered', {
             'name': get_server_name(), 'label': shown,
             'detail': f'Notification destination "{shown}" was removed or switched off.'})
+
+
+def _notify_destinations_changed(before, after):
+    """What a write of the destination list does to the failure streaks, once the list is written and with no lock held, since closing an alert delivers.
+
+    Three things write the list: the Settings save, a settings document applied from a file and a restored settings revision, and each calls this and nothing else. A
+    destination that arrives with another address, format or credentials starts again (`_notify_health_forget_edited`), and one that was removed or switched off is forgotten
+    now (`_notify_health_prune`, which reads the saved settings), where it used to wait for the next event to fan out: the Failing mark of a destination switched off
+    stayed on its card, and its alert open, until something fired."""
+    _notify_health_forget_edited(before, after)
+    _notify_health_prune(_config_ro())
 
 
 def _log_webhook(event, url, status, detail=''):
@@ -31188,7 +31210,7 @@ def _declarative_apply(doc, actor, dry_run=True):
         if 'webhook_urls' in cfg_writes:
             # a destination that arrives with another address, format or credentials starts again, as when the Settings page saves it; no lock is held, since closing its alert delivers
             try:
-                _notify_health_forget_edited(dests_before, cfg_writes['webhook_urls'])
+                _notify_destinations_changed(dests_before, cfg_writes['webhook_urls'])
             except Exception as _e:
                 sys.stderr.write(f'[remotepower] destination health not cleared after an import: {type(_e).__name__}: {_e}\n')
         for path, inner, value in file_writes:
@@ -31600,7 +31622,7 @@ def handle_config_get():
             # showing nothing would make the field unusable.
             r['header_names'] = sorted((e.get('headers') or {}).keys())
             _failing = _dest_failing.get(_notify_dest_key(e))
-            if _failing:
+            if _failing and e.get('enabled') is not False:         # a switched-off destination delivers nothing, so it is not failing to
                 r['fail_streak'], r['fail_class'] = _failing
             redacted.append(r)
         safe['webhook_urls'] = redacted
@@ -34626,7 +34648,7 @@ def handle_config_save():
     # config write, with no lock held, since closing the alert delivers.
     if 'webhook_urls' in body:
         try:
-            _notify_health_forget_edited(_cfg_before.get('webhook_urls'), cfg.get('webhook_urls'))
+            _notify_destinations_changed(_cfg_before.get('webhook_urls'), cfg.get('webhook_urls'))
         except Exception as _e:
             sys.stderr.write(f'[remotepower] destination health not cleared after an edit: {type(_e).__name__}: {_e}\n')
     # v5.6.x: prune orphaned monitor_history for monitors just deleted/renamed

@@ -13,7 +13,13 @@ refuses the certificate or answers an HTTP status by host name. Held to:
   * the class is the right word for each kind of failure (a connection refused, a timeout, a name that does not resolve, a certificate, 401, 404, 503, a blocked
     address, a destination missing its credentials) and `other` for anything else, whatever junk the stored text holds;
   * the two fields hold no address, no host, no part of the path (which is a credential) and nothing a remote system said;
-  * editing what a destination is delivered with clears its streak and closes its alert; renaming it or changing its filters does not;
+  * editing what a destination is delivered with clears its streak and closes its alert; renaming it or changing its filters does not. Each of the fields in
+    `_NOTIFY_DELIVERY_FIELDS` is edited in turn through the real Settings save (a list of cases that must cover the whole tuple), and a streak that never raised an alert
+    is forgotten without an announcement;
+  * a settings document exported and applied back unchanged keeps every streak, with a config master key armed (the only case in which the destinations are importable and
+    the address is ciphertext, new on every export) as much as without one, and one real change in it still clears;
+  * a destination that is removed or switched off is forgotten when the list is saved, by the Settings save, an applied document and a restored revision alike, and a stale
+    streak of a switched-off destination is not drawn;
   * the administrator of the operator's organisation sees the mark, and a read-only user, an mcp key, an auditor, a finance user, a custom role and a tenant's
     administrator read the list exactly as before, with a streak or without.
 """
@@ -467,6 +473,319 @@ class TestWhoSeesTheMark(_Failing):
             text = json.dumps(out, default=str)
             self.assertNotIn('fail_streak', text, path)
             self.assertNotIn('fail_class', text, path)
+
+
+# What each field of `_NOTIFY_DELIVERY_FIELDS` needs to be edited for real: a destination of a format that uses it, and the change. The list is held to the tuple by a test of its
+# own, so a field added to the tuple without a case here fails instead of going unchecked. The destinations are on addresses that deliver (the fake network answers every host
+# but `down.example.org`): the announcement that an edit cleared a streak is delivered through the destinations too, and one that still failed would start a streak of its own
+# a moment later, which is true and is not what is being looked at here.
+HEALTHY = dict(A, url='https://up.example.org/hook')
+DELIVERY_CASES = {
+    'url': (dict(A), {'url': 'https://elsewhere.example.org/hook'}),
+    'format': (dict(HEALTHY), {'format': 'discord'}),
+    'pushover_token': (dict(A, format='pushover', url='https://api.pushover.net/1/messages.json', pushover_token='tok1', pushover_user='usr1'), {'pushover_token': 'tok2'}),
+    'pushover_user': (dict(A, format='pushover', url='https://api.pushover.net/1/messages.json', pushover_token='tok1', pushover_user='usr1'), {'pushover_user': 'usr2'}),
+    'token': (dict(A, format='github', url='https://api.github.com/repos/o/r/issues', token='pat1'), {'token': 'pat2'}),
+    'itsm_user': (dict(A, format='servicenow', url='https://x.service-now.com/api/now/table/incident', itsm_user='u1', itsm_secret='s1'), {'itsm_user': 'u2'}),
+    'itsm_secret': (dict(A, format='servicenow', url='https://x.service-now.com/api/now/table/incident', itsm_user='u1', itsm_secret='s1'), {'itsm_secret': 's2'}),
+    'jira_project': (dict(A, format='jira', url='https://x.atlassian.net/rest/api/2/issue', itsm_user='u1', itsm_secret='s1', jira_project='OPS', jira_issuetype='Task'),
+                     {'jira_project': 'SEC'}),
+    'jira_issuetype': (dict(A, format='jira', url='https://x.atlassian.net/rest/api/2/issue', itsm_user='u1', itsm_secret='s1', jira_project='OPS', jira_issuetype='Task'),
+                       {'jira_issuetype': 'Bug'}),
+    'telegram_chat_id': (dict(A, format='telegram', url='https://api.telegram.org/bot1/sendMessage', telegram_chat_id='111'), {'telegram_chat_id': '222'}),
+    'matrix_token': (dict(A, format='matrix', url='https://hs.example.org/_matrix/client/v3/rooms/r/send/m.room.message', matrix_token='m1'), {'matrix_token': 'm2'}),
+    'hmac_secret': (dict(HEALTHY, hmac_secret='s3cret'), {'hmac_secret': 's3cret-2'}),
+    'headers': (dict(HEALTHY, headers={'X-Api-Key': 'k1'}), {'headers': {'X-Api-Key': 'k2'}}),
+}
+
+
+class TestEveryDeliveryFieldClearsIt(_Failing):
+
+    def recovered(self):
+        return [p for e, p in self.told if e == 'notify_dest_recovered']
+
+    def start_over(self, dest, fails=4):
+        self.api.save(self.api.ALERTS_FILE, {'alerts': []})
+        self.api.save(self.api.NOTIFY_HEALTH_FILE, {})
+        self.destinations([dest, B])
+        self.plant(fails)
+        del self.told[:]
+
+    def test_the_cases_cover_every_field_of_the_tuple_and_nothing_else(self):
+        self.assertEqual(sorted(DELIVERY_CASES), sorted(self.api._NOTIFY_DELIVERY_FIELDS),
+                         'a field of _NOTIFY_DELIVERY_FIELDS with no case here is a field nobody has watched clear a streak')
+        self.assertEqual(len(set(self.api._NOTIFY_DELIVERY_FIELDS)), len(self.api._NOTIFY_DELIVERY_FIELDS), 'no field twice')
+
+    def test_each_case_changes_the_field_it_is_named_for(self):
+        for field, (dest, change) in DELIVERY_CASES.items():
+            with self.subTest(field):
+                self.assertEqual(sorted(change), [field])
+                self.assertNotEqual(dest.get(field), change[field], 'the edit is a change')
+
+    def test_saving_each_destination_as_it_is_leaves_the_streak(self):
+        """The control of the test below: what is saved here is stored as it was sent, so a clear after an edit is the edit's doing and not the form's."""
+        for field, (dest, _change) in DELIVERY_CASES.items():
+            with self.subTest(field):
+                self.start_over(dest)
+                st, out = self.save([dest, B])
+                self.assertEqual(st, 200, out)
+                self.assertEqual(self.mark(), (4, 'unreachable'), 'saving it unchanged leaves the streak')
+                self.assertEqual(self.recovered(), [])
+
+    def test_editing_each_field_clears_the_streak_and_announces_that_it_was_edited(self):
+        for field, (dest, change) in DELIVERY_CASES.items():
+            with self.subTest(field):
+                self.start_over(dest)
+                self.assertEqual(self.mark(), (4, 'unreachable'), 'control: the destination is failing')
+                st, out = self.save([dict(dest, **change), B])
+                self.assertEqual(st, 200, out)
+                self.assertEqual(self.mark(), (None, None), f'editing {field} left the mark')
+                self.assertNotIn('wh:wh_a', self.health())
+                got = self.recovered()
+                self.assertEqual(len(got), 1, f'editing {field} announced {len(got)} recoveries')
+                self.assertIn('was edited', got[0]['detail'])
+
+    def test_a_streak_that_never_raised_an_alert_is_forgotten_by_an_edit_and_nothing_is_announced(self):
+        for fails in (1, 2):
+            with self.subTest(fails=fails):
+                self.start_over(dict(A), fails=fails)
+                self.assertFalse(self.health()['wh:wh_a']['alerted'], 'control: no alert was raised for it')
+                st, out = self.save([dict(A, url='https://elsewhere.example.org/hook'), B])
+                self.assertEqual(st, 200, out)
+                self.assertNotIn('wh:wh_a', self.health(), 'the count starts again')
+                self.assertEqual(self.recovered(), [], 'and nobody is told something recovered that was never reported as failing')
+
+    def test_a_streak_that_never_raised_an_alert_is_forgotten_by_a_switch_off_and_nothing_is_announced(self):
+        self.start_over(dict(A), fails=2)
+        st, out = self.save([dict(A, enabled=False), B])
+        self.assertEqual(st, 200, out)
+        self.assertNotIn('wh:wh_a', self.health())
+        self.assertEqual(self.recovered(), [])
+
+
+class TestAnImportThatChangesNothing(_Failing):
+    """A settings document can be applied back only when a config master key is armed: the export then holds the address, the header values and the Pushover user as
+    ciphertext (a new nonce on every export) where the store holds the text. The first version compared the two as they were and cleared every streak on an import that
+    changed nothing, and sent a recovery for each of them."""
+
+    def setUp(self):
+        saved = os.environ.get('RP_CONFIG_KEY')
+        os.environ['RP_CONFIG_KEY'] = 'k' * 40
+
+        def back():
+            if saved is None:
+                os.environ.pop('RP_CONFIG_KEY', None)
+            else:
+                os.environ['RP_CONFIG_KEY'] = saved
+        self.addCleanup(back)
+        super().setUp()
+        self.assertTrue(self.api.backup_crypto.available(), 'cryptography is a dependency of the test job: without it this module proves nothing')
+        # wh_a delivers (its streak is planted: a delivery that got through would end it), wh_p still fails (a delivery to it counts one more and does not end it)
+        self.rich = dict(A, url=f'https://up.example.org/services/{SECRET}', headers={'X-Api-Key': 'abc123'}, hmac_secret='s3cret')
+        self.push = dict(B, id='wh_p', name='Push', format='pushover', url='https://api.pushover.net/1/messages.json', pushover_token='tok', pushover_user='usr')
+        self.net.behave['api.pushover.net'] = 'refuse'
+        self.destinations([self.rich, B, self.push])
+        self.api.save(self.api.NOTIFY_HEALTH_FILE, {
+            'wh:wh_a': {'fails': 5, 'since': 1, 'last': 2, 'error': 'URLError [generic]: [Errno 111] Connection refused', 'label': 'Chat ops', 'alerted': True},
+            'wh:wh_p': {'fails': 3, 'since': 1, 'last': 2, 'error': 'HTTP 401 [pushover]: nope', 'label': 'Push', 'alerted': True}})
+        self.api._LOAD_CACHE.clear()
+        del self.told[:]
+
+    def export(self):
+        doc = self.api._build_declarative_config()
+        self.assertTrue(self.api._declarative_meta()['webhook_destinations']['importable'], 'control: the destinations are importable with the key armed')
+        return doc
+
+    def apply(self, doc):
+        res = self.api._declarative_apply(doc, 'tester', dry_run=False)
+        self.assertTrue(res['ok'], res)
+        self.assertNotIn('skipped', res['report']['webhook_destinations'], res)
+        self.api._LOAD_CACHE.clear()
+
+    def streaks(self):
+        return {k: v['fails'] for k, v in self.health().items()}
+
+    def test_the_document_holds_ciphertext_and_the_store_the_text(self):
+        doc = self.export()
+        dests = {d['id']: d for d in doc['resources']['webhook_destinations']}
+        self.assertTrue(dests['wh_a']['url'].startswith('enc:v2:'))
+        self.assertTrue(dests['wh_a']['headers']['X-Api-Key'].startswith('enc:v2:'))
+        self.assertTrue(dests['wh_p']['pushover_user'].startswith('enc:v2:'))
+        stored = {d['id']: d for d in self.api.load(self.api.CONFIG_FILE)['webhook_urls']}
+        self.assertEqual(stored['wh_a']['url'], self.rich['url'], 'the store reads back as text')
+        self.assertNotEqual(self.export()['resources']['webhook_destinations'][0]['url'], dests['wh_a']['url'], 'and no two exports are the same: the nonce is new each time')
+
+    def test_an_export_applied_back_untouched_keeps_every_streak_and_says_nothing(self):
+        for round_ in range(2):                     # the second export is another set of ciphertexts for the same text
+            with self.subTest(round=round_):
+                self.apply(self.export())
+                self.assertEqual(self.streaks(), {'wh:wh_a': 5, 'wh:wh_p': 3})
+                self.assertEqual([p for e, p in self.told if e == 'notify_dest_recovered'], [])
+                self.assertEqual(self.mark('wh_a'), (5, 'unreachable'))
+
+    def test_an_export_with_one_address_changed_clears_that_destination_and_no_other(self):
+        doc = self.export()
+        for d in doc['resources']['webhook_destinations']:
+            if d['id'] == 'wh_a':
+                d['url'] = self.api._cfg_enc('https://elsewhere.example.org/hook')
+        self.apply(doc)
+        self.assertNotIn('wh:wh_a', self.streaks(), 'control: a real change through the same path still clears')
+        self.assertGreaterEqual(self.streaks().get('wh:wh_p', 0), 3, 'and the other destination keeps its own (the announcement fails through it once more)')
+        self.assertEqual(len([1 for e, _p in self.told if e == 'notify_dest_recovered']), 1)
+
+    def test_a_changed_header_or_pushover_user_clears_it_and_a_re_sealed_one_does_not(self):
+        doc = self.export()
+        for d in doc['resources']['webhook_destinations']:
+            if d['id'] == 'wh_a':
+                d['headers'] = {'X-Api-Key': self.api._cfg_enc('abc123')}           # the same text, sealed again
+            if d['id'] == 'wh_p':
+                d['pushover_user'] = self.api._cfg_enc('usr')
+        self.apply(doc)
+        self.assertEqual(self.streaks(), {'wh:wh_a': 5, 'wh:wh_p': 3})
+        doc = self.export()
+        for d in doc['resources']['webhook_destinations']:
+            if d['id'] == 'wh_a':
+                d['headers'] = {'X-Api-Key': self.api._cfg_enc('another')}
+        self.apply(doc)
+        self.assertNotIn('wh:wh_a', self.streaks())
+        self.assertGreaterEqual(self.streaks().get('wh:wh_p', 0), 3)
+
+    def test_the_view_compares_ciphertext_and_text_of_the_same_value_as_equal(self):
+        view = self.api._notify_delivery_view
+        sealed = dict(self.rich, url=self.api._cfg_enc(self.rich['url']), headers={'X-Api-Key': self.api._cfg_enc('abc123')})
+        self.assertEqual(view(sealed), view(self.rich))
+        self.assertNotEqual(view(dict(sealed, url=self.api._cfg_enc('https://other.example.org/hook'))), view(self.rich))
+        self.assertEqual(view({'id': 'x'}), view({'id': 'y', 'url': None}), 'a field that is missing reads as None on both sides')
+        self.assertNotIn('name', view(self.rich), 'only what it is delivered with')
+
+
+class TestTheViewWithoutAKey(_Failing):
+
+    def test_without_a_key_the_text_is_compared_as_it_is(self):
+        self.assertFalse(self.api._config_master_key(), 'control: no key is armed here')
+        view = self.api._notify_delivery_view
+        self.assertEqual(view(A), view(dict(A, name='Renamed')))
+        self.assertNotEqual(view(A), view(dict(A, url='https://elsewhere.example.org/hook')))
+        self.assertEqual(view(dict(A, url='enc:v2:abc')), view(dict(A, url='enc:v2:abc')), 'a value that looks sealed is only text when there is no key to open it')
+        self.assertNotEqual(view(dict(A, url='enc:v2:abc')), view(dict(A, url='enc:v2:abd')))
+
+
+class TestSwitchedOffIsForgottenWhenTheListIsSaved(_Failing):
+
+    def failing(self):
+        self.event(3)
+        self.assertGreaterEqual(self.mark()[0], 3, 'control: it is failing')
+        self.assertEqual(len(self.open_alerts()), 1, 'control: the alert is open')
+        del self.told[:]
+
+    def recovered(self):
+        return [p for e, p in self.told if e == 'notify_dest_recovered']
+
+    def test_a_switch_off_by_the_settings_save_takes_the_mark_and_the_alert_at_once(self):
+        self.failing()
+        st, out = self.save([dict(A, enabled=False), B])
+        self.assertEqual(st, 200, out)
+        listed = {d['id']: d for d in self.config()['webhook_urls']}['wh_a']
+        self.assertIs(listed['enabled'], False)
+        self.assertNotIn('fail_streak', listed)
+        self.assertNotIn('fail_class', listed)
+        self.assertNotIn('wh:wh_a', self.health())
+        self.assertEqual(self.open_alerts(), [])
+        got = self.recovered()
+        self.assertEqual(len(got), 1)
+        self.assertIn('removed or switched off', got[0]['detail'])
+        self.assertNotIn(SECRET, json.dumps(got))
+
+    def test_removing_the_destination_does_the_same(self):
+        self.failing()
+        st, out = self.save([B])
+        self.assertEqual(st, 200, out)
+        self.assertNotIn('wh:wh_a', self.health())
+        self.assertEqual(self.open_alerts(), [])
+        self.assertEqual(len(self.recovered()), 1)
+
+    def test_switching_it_on_again_starts_the_count_at_nothing(self):
+        self.failing()
+        self.save([dict(A, enabled=False), B])
+        self.save([A, B])
+        self.assertEqual(self.mark(), (None, None))
+        self.event(1)
+        self.assertEqual(self.fails(), 1, 'the first failure after it came back is the first')
+
+    def test_the_other_destination_keeps_its_streak(self):
+        self.destinations([A, dict(B, url='https://also-down.example.org/hook')])
+        self.net.behave['also-down.example.org'] = 'timeout'
+        self.event(3)
+        both = (self.mark('wh_a')[0], self.mark('wh_b')[0])
+        self.assertTrue(all(n and n >= 3 for n in both), both)
+        st, out = self.save([dict(A, enabled=False), dict(B, url='https://also-down.example.org/hook')])
+        self.assertEqual(st, 200, out)
+        self.assertNotIn('wh:wh_a', self.health())
+        self.assertGreaterEqual(self.mark('wh_b')[0] or 0, both[1])
+
+    def test_a_save_that_does_not_touch_the_list_touches_no_streak(self):
+        self.failing()
+        had = self.health()
+        st, out = self.request('/api/config', 'POST', body={'server_name': 'renamed-server'})
+        self.assertEqual(st, 200, out)
+        self.assertEqual(self.health(), had)
+        self.assertEqual(self.recovered(), [])
+
+    def test_a_streak_stored_for_a_switched_off_destination_is_not_drawn(self):
+        """However it got there (a switch-off made by editing the store, or a streak that landed just before the save): the card of a destination that delivers nothing
+        is not marked as failing."""
+        self.destinations([dict(A, enabled=False), B])
+        self.plant(4)
+        self.assertIn('wh:wh_a', self.health(), 'control: the streak is stored')
+        listed = {d['id']: d for d in self.config()['webhook_urls']}['wh_a']
+        self.assertIs(listed['enabled'], False)
+        self.assertNotIn('fail_streak', listed)
+        self.assertNotIn('fail_class', listed)
+        self.destinations([dict(A, enabled=True), B])
+        self.assertEqual(self.mark(), (4, 'unreachable'), 'control: switched on, the same stored streak is drawn')
+
+    def test_the_hook_reads_the_saved_settings_and_not_the_lists_it_was_handed(self):
+        """Code that decides what still exists reads the settings as saved. The two lists a writer hands over are what changed, and they name one destination."""
+        self.failing()
+        had = self.health()
+        self.api._notify_destinations_changed([B], [dict(B, name='Renamed')])
+        self.assertEqual(self.health(), had, 'a list that does not mention the failing destination does not forget it')
+        self.assertEqual(self.recovered(), [])
+
+
+class TestSwitchedOffByTheOtherWritersOfTheList(_Failing):
+
+    def failing(self):
+        self.event(3)
+        self.assertGreaterEqual(self.mark()[0], 3, 'control')
+        self.assertEqual(len(self.open_alerts()), 1, 'control: the alert is open')
+
+    def test_a_settings_document_that_switches_it_off_forgets_it(self):
+        real = self.api._declarative_meta
+
+        def meta():
+            m = real()
+            m['webhook_destinations'] = dict(m['webhook_destinations'], importable=True)
+            return m
+        self.api._declarative_meta = meta
+        self.failing()
+        doc = {'schema': self.api.DECLARATIVE_SCHEMA, 'resources': {'webhook_destinations': [dict(A, enabled=False), B]}}
+        res = self.api._declarative_apply(doc, 'tester', dry_run=False)
+        self.assertTrue(res['ok'], res)
+        self.assertNotIn('skipped', res['report']['webhook_destinations'], res)
+        self.api._LOAD_CACHE.clear()
+        self.assertNotIn('wh:wh_a', self.health())
+        self.assertEqual(self.open_alerts(), [])
+
+    def test_a_restored_revision_that_has_it_switched_off_forgets_it(self):
+        self.failing()
+        self.api.save(self.api.CONFIG_REVS_FILE, {'revisions': [{'id': 'rev-1', 'ts': 1, 'user': 'x', 'changed_keys': ['webhook_urls'],
+                                                                 'config': {'webhook_urls': [dict(A, enabled=False), B], 'webhook_block_local': False}}]})
+        self.api._LOAD_CACHE.clear()
+        st, out = self.request('/api/config/revisions/restore', 'POST', body={'id': 'rev-1'})
+        self.assertEqual(st, 200, out)
+        self.assertNotIn('wh:wh_a', self.health())
+        self.assertEqual(self.open_alerts(), [])
 
 
 if __name__ == '__main__':
