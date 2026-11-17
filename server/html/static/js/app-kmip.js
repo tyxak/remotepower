@@ -233,7 +233,7 @@ function _renderKmipLog() {
     started: 'neutral', admin: 'warn',
   };
   tbody.innerHTML = rows.map(r => `<tr>
-    <td class="mono fs-11">${escHtml(new Date((r.ts || 0) * 1000).toLocaleString(_localeTag()))}</td>
+    <td class="mono fs-11">${escHtml(_fmtAbsTs(r.ts || 0))}</td>
     <td><span class="status-pill ${kindBadge[r.kind] || 'neutral'}">${escHtml((r.kind || '').replace(/_/g, ' '))}</span></td>
     <td>${escHtml(r.client || r.actor || '—')}</td>
     <td>${escHtml((r.op || '').replace(/_/g, ' ') || '—')}</td>

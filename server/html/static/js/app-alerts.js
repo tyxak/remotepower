@@ -405,7 +405,7 @@ function _alertsHeatStrip() {
     const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
     const n = byDay.get(key) || 0;
     const lvl = n === 0 ? 0 : Math.min(4, 1 + Math.floor((n / max) * 3));
-    cells.push(`<span class="alert-heat-cell heat-l${lvl}" title="${escAttr(d.toLocaleDateString(_localeTag()))}: ${n} alert${n === 1 ? '' : 's'}"></span>`);
+    cells.push(`<span class="alert-heat-cell heat-l${lvl}" title="${escAttr(_fmtDateText(d, 'date', undefined, _localeTag()))}: ${n} alert${n === 1 ? '' : 's'}"></span>`);
   }
   return `<span class="alert-heat-row" title="Alert volume per day (last 6 weeks, loaded alerts)">${cells.join('')}</span>`;
 }

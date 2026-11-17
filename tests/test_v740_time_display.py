@@ -95,7 +95,8 @@ class TestTimeAgoHtml(unittest.TestCase):
         src = (_JS / 'app.js').read_text()
         esc = re.search(r'^function escHtml\(.*$', src, re.M).group(0)
         parts = [esc] + [srcpin.js_function(src, n) for n in (
-            '_localeTag', '_fmtAgo', '_fmtAbsTs', '_timeDisplayAbsolute', 'timeAgo', '_relAgo', 'timeAgoHtml')]
+            '_localeTag', '_fmtAgo', '_fmtAbsTs', '_dateOrder', '_clockPref', '_fmtDateText',
+            '_timeDisplayAbsolute', 'timeAgo', '_relAgo', 'timeAgoHtml')]
         cls.ctx = MiniRacer()
         cls.ctx.eval('var window = {}; var _uiPrefs = {};\n' + '\n'.join(parts))
 

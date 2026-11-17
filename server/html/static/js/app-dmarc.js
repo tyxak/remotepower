@@ -156,7 +156,7 @@ function _renderDmarcReports() {
   });
   rtb.innerHTML = rows.length ? rows.map(r => {
     const s = r.summary || {};
-    const win = r.date_begin ? `${_fmtAbsDate(r.date_begin)} – ${new Date((r.date_end || r.date_begin) * 1000).toLocaleDateString(_localeTag())}` : '—';
+    const win = r.date_begin ? `${_fmtAbsDate(r.date_begin)} – ${_fmtAbsDate(r.date_end || r.date_begin)}` : '—';
     const fail = s.fail || 0;
     return `<tr><td>${escHtml(r.org_name || '—')}</td><td class="fw-500">${escHtml(r.domain || '')}</td><td>${escHtml(r.policy || '—')}</td><td class="hint">${win}</td><td>${s.total || 0}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td></tr>`;
   }).join('') : '<tr><td colspan="7" class="hint">No reports ingested yet.</td></tr>';

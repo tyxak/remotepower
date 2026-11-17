@@ -6010,6 +6010,22 @@
         hi: 'इंटरफ़ेस भाषा चुनें। आपके खाते में सहेजी जाती है और सभी डिवाइसों में सिंक होती है।',
         es: 'Elija el idioma de la interfaz. Se guarda en su cuenta y se sincroniza entre dispositivos.',
         ar: 'اختر لغة الواجهة. تُحفظ في حسابك وتُزامن عبر الأجهزة.' },
+    // ── My Account: date order and clock, next to the language ──
+    'Date order':  { fr: 'Ordre de la date', de: 'Datumsreihenfolge', zh: '日期顺序', hi: 'तारीख का क्रम', es: 'Orden de la fecha', ar: 'ترتيب التاريخ' },
+    'Automatic':   { fr: 'Automatique', de: 'Automatisch', zh: '自动', hi: 'स्वचालित', es: 'Automático', ar: 'تلقائي' },
+    'Day first (31/12/2026)':   { fr: "Jour d'abord (31/12/2026)", de: 'Tag zuerst (31.12.2026)', zh: '日在前（31/12/2026）', hi: 'दिन पहले (31/12/2026)', es: 'Día primero (31/12/2026)', ar: 'اليوم أولاً (31/12/2026)' },
+    'Month first (12/31/2026)': { fr: "Mois d'abord (12/31/2026)", de: 'Monat zuerst (12/31/2026)', zh: '月在前（12/31/2026）', hi: 'महीना पहले (12/31/2026)', es: 'Mes primero (12/31/2026)', ar: 'الشهر أولاً (12/31/2026)' },
+    'Year first (2026-12-31)':  { fr: "Année d'abord (2026-12-31)", de: 'Jahr zuerst (2026-12-31)', zh: '年在前（2026-12-31）', hi: 'साल पहले (2026-12-31)', es: 'Año primero (2026-12-31)', ar: 'السنة أولاً (2026-12-31)' },
+    '24-hour (14:30)':          { fr: '24 heures (14:30)', de: '24-Stunden (14:30)', zh: '24 小时制（14:30）', hi: '24 घंटे (14:30)', es: '24 horas (14:30)', ar: '24 ساعة (14:30)' },
+    '12-hour (2:30 PM)':        { fr: '12 heures (2:30 PM)', de: '12-Stunden (2:30 PM)', zh: '12 小时制（下午2:30）', hi: '12 घंटे (2:30 PM)', es: '12 horas (2:30 p. m.)', ar: '12 ساعة (2:30 م)' },
+    'Automatic follows the interface language. Date order sets whether a date reads day first, month first or year first, and Clock sets 24-hour or 12-hour time. Saved to your account, so it follows you to other browsers.':
+      {fr: "« Automatique » suit la langue de l'interface. L'ordre de la date indique si une date commence par le jour, le mois ou l'année, et l'horloge choisit l'heure sur 24 ou sur 12 heures. Enregistré dans votre compte, il vous suit donc dans les autres navigateurs.",
+        de: 'Automatisch folgt der Oberflächensprache. Die Datumsreihenfolge legt fest, ob ein Datum mit dem Tag, dem Monat oder dem Jahr beginnt, und die Uhr legt 24-Stunden- oder 12-Stunden-Zeit fest. Wird im Konto gespeichert und gilt daher auch in anderen Browsern.',
+        zh: '自动会跟随界面语言。日期顺序决定日期按日在前、月在前还是年在前显示，时钟决定使用 24 小时制还是 12 小时制。已保存到您的账户，因此会同步到其他浏览器。',
+        hi: 'स्वचालित इंटरफ़ेस भाषा के अनुसार चलता है। तारीख का क्रम तय करता है कि तारीख दिन पहले, महीना पहले या साल पहले लिखी जाए, और घड़ी 24 घंटे या 12 घंटे का समय तय करती है। आपके खाते में सहेजा जाता है, इसलिए यह दूसरे ब्राउज़र में भी आपके साथ रहता है।',
+        es: 'Automático sigue el idioma de la interfaz. El orden de la fecha define si una fecha se lee con el día primero, el mes primero o el año primero, y el reloj define si la hora es de 24 o de 12 horas. Se guarda en su cuenta, así que le acompaña a otros navegadores.',
+        ar: 'يتبع الوضع التلقائي لغة الواجهة. يحدد ترتيب التاريخ ما إذا كان التاريخ يُكتب باليوم أولاً أو الشهر أولاً أو السنة أولاً، وتحدد الساعة ما إذا كان الوقت بنظام 24 ساعة أو 12 ساعة. يُحفظ في حسابك فيتبعك إلى المتصفحات الأخرى.' },
+    'Date and time format saved': { fr: "Format de la date et de l'heure enregistré", de: 'Datums- und Zeitformat gespeichert', zh: '日期和时间格式已保存', hi: 'तारीख और समय का प्रारूप सहेजा गया', es: 'Formato de fecha y hora guardado', ar: 'تم حفظ تنسيق التاريخ والوقت' },
     // ── a few common actions ──
     'Save':        { fr: 'Enregistrer', de: 'Speichern', zh: '保存', hi: 'सहेजें', es: 'Guardar', ar: 'حفظ' },
     'Cancel':      { fr: 'Annuler', de: 'Abbrechen', zh: '取消', hi: 'रद्द करें', es: 'Cancelar', ar: 'إلغاء' },

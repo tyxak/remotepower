@@ -10007,6 +10007,20 @@ async function loadAccount() {
         toast(`Temperatures now shown in ${tu.value === 'f' ? 'Fahrenheit' : 'Celsius'}`, 'success');
       };
     } }
+  // 8.0.1: how dates are ordered and which clock is read, apart from the language. Both are saved to the account (ui_prefs),
+  // the way the language is; Automatic is the absence of the key, the language's own style. Pages draw their dates when they load,
+  // so a page already open shows the new form the next time it loads.
+  const dateFormatSelects = [['acct-date-order', 'date_order'], ['acct-clock', 'clock']];
+  dateFormatSelects.forEach(([id, key]) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    sel.value = (_uiPrefs && _uiPrefs[key]) || 'auto';
+    sel.onchange = async () => {
+      if (sel.value === 'auto') delete _uiPrefs[key]; else _uiPrefs[key] = sel.value;
+      await flushUiPrefs();
+      toast('Date and time format saved', 'success');
+    };
+  });
   // v6.1.2 (#39): new-alert chime + browser notification (both default off).
   { const ch = document.getElementById('cfg-alert-chime');
     if (ch) {
@@ -10357,10 +10371,10 @@ const _METRIC_SERIES = [
 function _fmtTs(ts, spanSecs) {
   const d = new Date(ts * 1000);
   if (spanSecs > 3 * 86400)
-    return d.toLocaleDateString(_localeTag(), { month: 'short', day: '2-digit' });
+    return _fmtDateText(d, 'date', { month: 'short', day: '2-digit' }, _localeTag());
   if (spanSecs > 86400)
-    return d.toLocaleString(_localeTag(), { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  return d.toLocaleTimeString(_localeTag(), { hour: '2-digit', minute: '2-digit' });
+    return _fmtDateText(d, 'ts', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }, _localeTag());
+  return _fmtDateText(d, 'time', { hour: '2-digit', minute: '2-digit' }, _localeTag());
 }
 function _metricPts(samples, key) {
   return samples.map(m => ({ ts: m.ts, v: m[key] }))
@@ -10712,17 +10726,142 @@ function _fmtAgo(n, unit) {
 // locale, so an operator who picked another language in the app still got the
 // browser's date format. These three are the funnel — route timestamp
 // rendering through them, never a bare toLocale*String(). `ts` is UNIX seconds.
+// All of them end in _fmtDateText below, which is where the date order and the clock
+// preference of the account apply.
 function _fmtAbsTs(ts, opts) {
-  try { return new Date(Number(ts || 0) * 1000).toLocaleString(_localeTag(), opts || undefined); }
+  try { return _fmtDateText(new Date(Number(ts || 0) * 1000), 'ts', opts, _localeTag()); }
   catch (_) { return ''; }
 }
 function _fmtAbsDate(ts, opts) {
-  try { return new Date(Number(ts || 0) * 1000).toLocaleDateString(_localeTag(), opts || undefined); }
+  try { return _fmtDateText(new Date(Number(ts || 0) * 1000), 'date', opts, _localeTag()); }
   catch (_) { return ''; }
 }
 function _fmtAbsTime(ts, opts) {
-  try { return new Date(Number(ts || 0) * 1000).toLocaleTimeString(_localeTag(), opts || undefined); }
+  try { return _fmtDateText(new Date(Number(ts || 0) * 1000), 'time', opts, _localeTag()); }
   catch (_) { return ''; }
+}
+
+// ─── Date order and clock, apart from the language ──────────────────────────────────────────────────────────────
+// The language chooses the words and the digits. Two preferences of the account choose the rest: ui_prefs.date_order
+// (dmy, mdy or ymd) and ui_prefs.clock (h24 or h12). A key that is not there is Automatic, which is the language's own
+// style, so nobody sees a change until they pick one. _fmtDateText is the one place that turns a Date into text for a
+// person: the helpers above and the few callers that already hold a Date end here, and tests/test_v801_date_prefs.py
+// holds every other toLocale*String call at its ceiling.
+function _dateOrder() {
+  const o = (typeof _uiPrefs !== 'undefined' && _uiPrefs) ? _uiPrefs.date_order : '';
+  return (o === 'dmy' || o === 'mdy' || o === 'ymd') ? o : 'auto';
+}
+function _clockPref() {
+  const c = (typeof _uiPrefs !== 'undefined' && _uiPrefs) ? _uiPrefs.clock : '';
+  return (c === 'h24' || c === 'h12') ? c : 'auto';
+}
+// kind: 'ts' (date and time, as toLocaleString), 'date' (toLocaleDateString) or 'time' (toLocaleTimeString).
+// tag: the locale to write in; _localeTag() for the interface language, undefined for the browser's own.
+// With both preferences on Automatic, or an invalid date, or an engine without Intl, this is the plain toLocale*String
+// call it always was.
+function _fmtDateText(d, kind, opts, tag) {
+  const order = _dateOrder(), clock = _clockPref();
+  if ((order !== 'auto' || clock !== 'auto') && d.getTime() === d.getTime()
+      && typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+    try { return _fmtDateTextPrefs(d, kind, opts, tag, order, clock); }
+    catch (_) { /* an engine that refuses the combination: the language's own form below */ }
+  }
+  if (kind === 'date') return d.toLocaleDateString(tag, opts || undefined);
+  if (kind === 'time') return d.toLocaleTimeString(tag, opts || undefined);
+  return d.toLocaleString(tag, opts || undefined);
+}
+// One formatter per language and set of options: building one costs far more than using it, and a table of a few hundred rows
+// asks for the same one every row.
+function _dtf(tag, o) {
+  const cache = _dtf.cache || (_dtf.cache = new Map());
+  const key = String(tag) + '|' + JSON.stringify(o);
+  let f = cache.get(key);
+  if (!f) {
+    if (cache.size >= 60) cache.clear();
+    f = new Intl.DateTimeFormat(tag, o);
+    cache.set(key, f);
+  }
+  return f;
+}
+function _fmtDateTextPrefs(d, kind, opts, tag, order, clock) {
+  const o = Object.assign({}, opts);
+  const has = k => o[k] !== undefined;
+  if (!has('dateStyle') && !has('timeStyle')) {
+    // what toLocale*String adds when the caller names no field of the kind it writes (ECMA-402, ToDateTimeOptions)
+    let none = true;
+    if (kind !== 'time' && ['weekday', 'year', 'month', 'day'].some(has)) none = false;
+    if (kind !== 'date' && ['dayPeriod', 'hour', 'minute', 'second', 'fractionalSecondDigits'].some(has)) none = false;
+    if (none) {
+      if (kind !== 'time') { o.year = 'numeric'; o.month = 'numeric'; o.day = 'numeric'; }
+      if (kind !== 'date') { o.hour = 'numeric'; o.minute = 'numeric'; o.second = 'numeric'; }
+    }
+    // year first is written 2026-11-07, with the zero
+    if (order === 'ymd' && (o.month === 'numeric' || o.month === '2-digit')) {
+      o.month = '2-digit';
+      if (o.day) o.day = '2-digit';
+    }
+  }
+  if (clock !== 'auto') { delete o.hour12; o.hourCycle = clock === 'h24' ? 'h23' : 'h12'; }
+  const f = _dtf(tag, o);
+  const plain = f.format(d);
+  return order === 'auto' ? plain : _dateInOrder(f.formatToParts(d), order, plain);
+}
+// Writes the day, month and year of formatToParts() output in the order asked for. What the language put around them
+// stays where it was (a weekday, the time, the comma before it), and so do its numbers, its month and weekday names and its
+// digits; words that only joined the fields in the old order ("de" in Spanish) go. With nothing to reorder, or an order the
+// language already has, the text is `plain`, what format() wrote for the same instant. (V8's format() writes a plain space
+// where formatToParts() keeps the narrow no-break space ICU puts before AM and PM; the pieces below follow format().)
+function _dateInOrder(parts, order, plain) {
+  const narrow = plain.indexOf('\u202f') >= 0;
+  const norm = s => (narrow ? s : s.replace(/\u202f/g, ' '));
+  const text = ps => ps.map(p => norm(p.value)).join('');
+  const isField = p => p.type === 'day' || p.type === 'month' || p.type === 'year';
+  const at = [];
+  parts.forEach((p, i) => { if (isField(p)) at.push(i); });
+  if (at.length < 2) return plain;
+  // the fields must stand in one run with only literals between them; a weekday or an era inside it, or a field twice
+  // (another calendar), is left as the language wrote it
+  for (let i = at[0]; i <= at[at.length - 1]; i++) {
+    if (!isField(parts[i]) && parts[i].type !== 'literal') return plain;
+  }
+  if (new Set(at.map(i => parts[i].type)).size !== at.length) return plain;
+  // Chinese writes a unit after a number (年 月 日): it moves with its number
+  const unitOf = lit => { const m = /^[年月日]/.exec(lit); return m ? m[0] : ''; };
+  const last = at[at.length - 1];
+  const after = parts[last + 1] && parts[last + 1].type === 'literal' ? norm(parts[last + 1].value) : null;
+  const fields = at.map((i, k) => {
+    const lit = k + 1 < at.length ? text(parts.slice(i + 1, at[k + 1])) : (after === null ? '' : after);
+    return { type: parts[i].type, value: parts[i].value, unit: unitOf(lit), lit: lit };
+  });
+  const lead = text(parts.slice(0, at[0]));
+  const tail = (after === null ? '' : after.slice(fields[fields.length - 1].unit.length))
+    + text(parts.slice(after === null ? last + 1 : last + 2));
+  const month = fields.find(f => f.type === 'month');
+  const withUnit = fields.some(f => f.unit);
+  // Nov, November: words, not digits. Any script's digits count; the property escape is built at run time so a browser without
+  // it reads the script and falls back to the digit sets the interface languages use (the page does the same for \p{L}).
+  const digits = _dateInOrder.digits || (_dateInOrder.digits = (function () {
+    try { return new RegExp('^\\p{Nd}+$', 'u'); } catch (_e) { return /^[\d\u0660-\u0669\u06f0-\u06f9\u0966-\u096f]+$/; }
+  })());
+  const named = !!month && !withUnit && !digits.test(month.value);
+  const want = ({ dmy: ['day', 'month', 'year'], mdy: ['month', 'day', 'year'], ymd: ['year', 'month', 'day'] })[order]
+    .filter(t => fields.some(f => f.type === t));
+  const numericYmd = order === 'ymd' && !named && !withUnit;
+  if (!numericYmd && want.every((t, i) => fields[i].type === t)) return plain;
+  let sep = withUnit ? '' : named ? ' ' : (fields[0].lit || '/');
+  // numbers in year first order are the ISO form, 2026-11-07, in the language's own digits
+  if (numericYmd) sep = /[\/.-]/.test(sep) ? sep.replace(/[\/.]/, '-') : '-';
+  const by = {};
+  fields.forEach(f => { by[f.type] = f; });
+  return lead + want.map(t => by[t].value + by[t].unit).join(sep) + tail;
+}
+// A calendar day in UTC. Automatic writes 2026-11-07, as the places that call this always did; with a date order chosen, the
+// same day is written in that order in the language's own digits and separators.
+function _fmtIsoDay(ts) {
+  const d = new Date(Number(ts) * 1000);
+  if (d.getTime() !== d.getTime()) return '';
+  if (_dateOrder() === 'auto') return d.toISOString().slice(0, 10);
+  return _fmtDateText(d, 'date', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'UTC' }, _localeTag());
 }
 function fmtMoney(amount, currency) {
   const n = Number(amount || 0);
@@ -10736,7 +10875,7 @@ function fmtMoney(amount, currency) {
     + (cur ? ' ' + cur : '');
 }
 
-function fmtDate(ts, opts) { try { return new Date((ts || 0) * 1000).toLocaleDateString(_localeTag(), opts || {}); } catch (_) { return ''; } }
+function fmtDate(ts, opts) { try { return _fmtDateText(new Date((ts || 0) * 1000), 'date', opts, _localeTag()); } catch (_) { return ''; } }
 
 async function loadStorageBackendStatus() {
   const el = document.getElementById('storage-backend-status');
@@ -13031,7 +13170,7 @@ function exportPatchPdf() {
     return `<tr><td>${escHtml(d.name || d.hostname || '?')}</td><td>${escHtml(d.group || '—')}</td><td>${escHtml(d.os || '—')}</td><td>${escHtml(d.pkg_manager || '—')}</td><td class="${cls}">${escHtml(status)}</td></tr>`;
   }).join('');
   rep.innerHTML = `
-    <div class="pr-head"><div><h1>Patch report</h1><div class="pr-meta">${escHtml(scope)} · generated ${escHtml(new Date().toLocaleString(_localeTag()))}</div></div></div>
+    <div class="pr-head"><div><h1>Patch report</h1><div class="pr-meta">${escHtml(scope)} · generated ${escHtml(_fmtDateText(new Date(), 'ts', undefined, _localeTag()))}</div></div></div>
     <div class="pr-cards">
       <div class="pr-card"><div class="pr-k">Hosts</div><div class="pr-v">${total}</div></div>
       <div class="pr-card"><div class="pr-k">Up to date</div><div class="pr-v">${patched}</div></div>
@@ -17235,7 +17374,7 @@ function _ctrLogsMeta(extra) {
   const el = _ctrLogsEl('meta');
   if (!el) return;
   const bits = [];
-  if (_ctrLogs.fetchedAt) bits.push(`fetched ${new Date(_ctrLogs.fetchedAt).toLocaleTimeString(_localeTag())}`);
+  if (_ctrLogs.fetchedAt) bits.push(`fetched ${_fmtDateText(new Date(_ctrLogs.fetchedAt), 'time', undefined, _localeTag())}`);
   const lines = _ctrLogs.raw ? _ctrLogs.raw.split('\n').length : 0;
   if (lines) bits.push(`${lines} line${lines === 1 ? '' : 's'}`);
   if (_ctrLogs.rc != null && _ctrLogs.rc !== 0) bits.push(`exit ${_ctrLogs.rc}`);
@@ -30466,7 +30605,7 @@ function _renderForecastTable() {
       : m.beyond_horizon
         ? `<span title="Fills at the current rate, but more than 2 years out — not an actionable risk">&gt;2 yr</span>`
         : d2f == null ? 'no fill' : _fmtDays(d2f);
-    const fill = (m.stalled || m.noisy || m.beyond_horizon) ? '—' : (m.fill_date_ts ? new Date(m.fill_date_ts * 1000).toISOString().slice(0, 10) : '—');
+    const fill = (m.stalled || m.noisy || m.beyond_horizon) ? '—' : (m.fill_date_ts ? _fmtIsoDay(m.fill_date_ts) : '—');
     // Mounts collapsed into this row because they're the same filesystem
     // (btrfs subvolumes, bind mounts) — show "+N" with the full list on hover.
     const shared = Array.isArray(m.shared_mounts) ? m.shared_mounts : [m.path];
@@ -30550,7 +30689,7 @@ function _renderForecastResTable() {
       : d2s == null ? 'no saturation' : _fmtDays(d2s);
     const when = (r.saturated || r.stalled || r.noisy || r.below_floor || r.beyond_horizon)
       ? '—'
-      : (r.saturation_date_ts ? new Date(r.saturation_date_ts * 1000).toISOString().slice(0, 10) : '—');
+      : (r.saturation_date_ts ? _fmtIsoDay(r.saturation_date_ts) : '—');
     return `<tr>
       <td class="fw-500">${escHtml(r.device_name || '')}</td>
       <td>${escHtml(r.label || r.metric || '')}</td>
@@ -30600,7 +30739,7 @@ function _renderForecastChart() {
   const X = ts => padL + ((ts - tMin) / xspan) * plotW;
   const Y = gb => padT + (1 - Math.min(gb, yMax) / yMax) * plotH;
   const clampY = y => Math.max(padT, Math.min(padT + plotH, y));
-  const fmtDate = ts => new Date(ts * 1000).toISOString().slice(0, 10);
+  const fmtDate = ts => _fmtIsoDay(ts);
 
   // Gradient defs — unique ids per render (SVG ids are document-global).
   const gid = 'fcg' + (++_forecastGradSeq);

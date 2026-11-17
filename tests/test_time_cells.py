@@ -18,7 +18,7 @@ What stays exact is listed below, one line for each call, with its kind:
   rule    when a suppression rule or an acknowledgement was made: audit data
   toast   a transient message
 
-This test lists every call of `_fmtAbsTs`, `_fmtAbsDate`, `_fmtAbsTime`, `fmtDate` or a Date's `toLocale*String` in the scripts, outside
+This test lists every call of `_fmtAbsTs`, `_fmtAbsDate`, `_fmtAbsTime`, `fmtDate`, `_fmtDateText` or a Date's `toLocale*String` in the scripts, outside
 comments and attribute values, and compares it with the list: a new call fails, and so does a listed one that is gone, so the list only
 shrinks. test_sidebar_page_fixes_e2e.py flips the setting on fourteen pages of the demo and reads the converted cells.
 """
@@ -29,11 +29,13 @@ import unittest
 
 _JS = pathlib.Path(__file__).resolve().parent.parent / 'server' / 'html' / 'static' / 'js'
 
+# _fmtDateText is the formatter every helper ends in (it turns a Date into text and applies the date order and the clock of the
+# account), so a caller that holds a Date and calls it directly is an exact time like the rest.
 _CALL = re.compile(
-    r'(?<![\w.])(?:_fmtAbsTs|_fmtAbsDate|_fmtAbsTime|fmtDate)\([^()]*(?:\([^()]*\)[^()]*)*\)'
+    r'(?<![\w.])(?:_fmtAbsTs|_fmtAbsDate|_fmtAbsTime|fmtDate|_fmtDateText)\([^()]*(?:\([^()]*\)[^()]*)*\)'
     r'|\.(?:toLocaleDateString|toLocaleTimeString)\('
     r'|new Date\([^()]*(?:\([^()]*\)[^()]*)*\)\.toLocaleString\(')
-_DEFINITION = re.compile(r'(?:async\s+)?function\s+(?:_fmtAbs\w+|fmtDate|_absTs)\b')
+_DEFINITION = re.compile(r'(?:async\s+)?function\s+(?:_fmtAbs\w+|_fmtDateText\w*|fmtDate|_absTs)\b')
 
 
 def _in_attribute(line, pos):
@@ -68,8 +70,9 @@ ALLOWED = {
     ('app-billing.js', '_fmtAbsDate(inv.issued_at)'): (1, 'record', 'the date an invoice was issued'),
     ('app-billing.js', '_fmtAbsDate(q.valid_until)'): (1, 'future', 'until when a quote holds'),
     ('app-business-services.js', '_fmtAbsTs(h.ts)'): (1, 'log', 'state changes of a business service'),
-    ('app-dmarc.js', '.toLocaleDateString('): (1, 'record', 'the end of the period a DMARC report covers'),
+    ('app-calendar.js', "_fmtDateText(d, 'ts', {month: 'long', year: 'numeric'}, undefined)"): (1, 'chart', 'the month heading of the calendar'),
     ('app-dmarc.js', '_fmtAbsDate(r.date_begin)'): (1, 'record', 'the start of the period a DMARC report covers'),
+    ('app-dmarc.js', '_fmtAbsDate(r.date_end || r.date_begin)'): (1, 'record', 'the end of the period a DMARC report covers'),
     ('app-dns.js', '_fmtAbsDate(r.next_renew_ts)'): (1, 'future', 'the next renewal of a certificate'),
     ('app-dns.js', '_fmtAbsTs(e.ts)'): (1, 'log', 'the ACME timeline'),
     ('app-dns.js', '_fmtAbsTs(l.ts)'): (1, 'log', 'the ACME command logs'),
@@ -79,7 +82,7 @@ ALLOWED = {
     ('app-drift.js', '_fmtAbsTs(older.ts)'): (1, 'log', 'the older version in a diff'),
     ('app-hostconfig.js', '_fmtAbsTime(data.current_collected_at)'): (1, 'toast', 'loading the current host config'),
     ('app-kmip.js', '_fmtAbsDate(ts)'): (1, 'record', 'the lifecycle dates of a key'),
-    ('app-kmip.js', 'new Date((r.ts || 0) * 1000).toLocaleString('): (1, 'log', 'the KMIP operations log'),
+    ('app-kmip.js', '_fmtAbsTs(r.ts || 0)'): (1, 'log', 'the KMIP operations log'),
     ('app-logs.js', '_fmtAbsTime(l.ts)'): (1, 'log', 'a log line'),
     ('app-logs.js', '_fmtAbsTs(l.ts)'): (1, 'log', 'a log search hit'),
     ('app-network.js', '_fmtAbsDate(c.expires_at)'): (1, 'future', 'a certificate expires on a date'),
@@ -94,8 +97,14 @@ ALLOWED = {
     ('app-tickets.js', '_fmtAbsTs(m.ts)'): (2, 'record', 'the messages and the timeline of a ticket'),
     ('app-tickets.js', '_fmtAbsTs(t.sla_due)'): (1, 'future', 'when a ticket is due'),
     ('app-vpn.js', '_fmtAbsDate(ts)'): (1, 'future', 'a VPN key expires on a date'),
-    ('app.js', '.toLocaleDateString('): (2, 'funnel', 'the chart axis helper and _fmtAbsDate'),
-    ('app.js', '.toLocaleTimeString('): (3, 'funnel', 'the chart axis helper, _fmtAbsTime, and the fetched-at of the container log viewer'),
+    ('app.js', '.toLocaleDateString('): (1, 'funnel', 'the one native call of _fmtDateText, for a date'),
+    ('app.js', '.toLocaleTimeString('): (1, 'funnel', 'the one native call of _fmtDateText, for a time'),
+    ('app.js', "_fmtDateText(d, 'date', { month: 'short', day: '2-digit' }, _localeTag"): (1, 'funnel', 'the chart axis helper, over a few days'),
+    ('app.js', "_fmtDateText(d, 'date', { year: 'numeric', month: '2-digit', day: '2-d"): (1, 'funnel', '_fmtIsoDay, a calendar day in UTC'),
+    ('app.js', "_fmtDateText(d, 'time', { hour: '2-digit', minute: '2-digit' }, _local"): (1, 'funnel', 'the chart axis helper, within a day'),
+    ('app.js', "_fmtDateText(d, 'ts', { month: 'short', day: '2-digit', hour: '2-digit"): (1, 'funnel', 'the chart axis helper, over a day or two'),
+    ('app.js', "_fmtDateText(new Date(), 'ts', undefined, _localeTag())"): (1, 'record', 'the printed patch report is stamped with the time it was made'),
+    ('app.js', "_fmtDateText(new Date(_ctrLogs.fetchedAt), 'time', undefined, _localeT"): (1, 'fact', 'when the container log in view was fetched'),
     ('app.js', '_fmtAbsDate(a.until)'): (1, 'future', 'when a log alert mute lapses'),
     ('app.js', '_fmtAbsDate(k.expires_at)'): (1, 'future', 'an API key expires on a date'),
     ('app.js', "_fmtAbsDate(ts, { month: 'short', day: 'numeric' })"): (1, 'chart', 'the date axis of a chart'),
@@ -127,8 +136,6 @@ ALLOWED = {
     ('app.js', 'fmtDate(p[0])'): (1, 'chart', 'the forecast chart'),
     ('app.js', 'fmtDate(tMax)'): (1, 'chart', 'the forecast chart'),
     ('app.js', 'fmtDate(tMin)'): (1, 'chart', 'the forecast chart'),
-    ('app.js', 'new Date().toLocaleString('): (1, 'record', 'the printed patch report is stamped with the time it was made'),
-    ('app.js', 'new Date(Number(ts || 0) * 1000).toLocaleString('): (1, 'funnel', '_fmtAbsTs'),
 }
 
 

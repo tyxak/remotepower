@@ -817,6 +817,11 @@ UI_EFFECTS                 = ('full', 'reduced')
 # aircraft cockpit screens (vendored under static/vendor/fonts), is an option. A reading preference kept in ui_prefs like the look,
 # with no instance default or lock because it is not branding. Must mirror TYPEFACES in app.js.
 UI_TYPEFACES               = ('system', 'b612')
+# How a date is ordered and which clock a person reads, apart from the interface language. Both are per-account and change only what is
+# drawn (a stored time stays a UNIX second). A key that is not stored is Automatic: the language's own order and clock, which is what
+# everyone had before the two existed. Must mirror _dateOrder() and _clockPref() in app.js.
+UI_DATE_ORDERS             = ('dmy', 'mdy', 'ymd')
+UI_CLOCKS                  = ('h24', 'h12')
 
 # ─── v1.11.10: enrollment tokens & metric alerting ───────────────────────────
 
@@ -36246,7 +36251,8 @@ def handle_user_passwd():
 # Top-level (not per table) keys follow below: default_ssh_username, postit, temp_unit, time_display, alert_chime,
 # alert_notify, signature, team, pinned_devices, views, dashboard (the saved Home layout) and, since 7.4.9, look ('pilot'|'classic'),
 # effects ('full'|'reduced') and typeface ('system'|'b612'), and since 8.0.0 dashboard_sets (named Home layouts) with dashboard_set
-# (the one in use). A key that is not listed in _sanitise_ui_prefs is dropped on save, so a new one is added there.
+# (the one in use), and since 8.0.1 date_order ('dmy'|'mdy'|'ymd') and clock ('h24'|'h12'). A key that is not listed in
+# _sanitise_ui_prefs is dropped on save, so a new one is added there.
 #
 # Schema enforced by :func:`_sanitise_ui_prefs` — the client can send anything,
 # but we strip everything we don't recognise so a future field rename or
@@ -36325,6 +36331,15 @@ def _sanitise_ui_prefs(raw):
     typeface = raw.get('typeface')
     if isinstance(typeface, str) and typeface in UI_TYPEFACES:
         out['typeface'] = typeface
+
+    # 8.0.1: the order a date is written in and the clock, apart from the language. Automatic is the absence of the key, so the
+    # client sends only a choice; anything that is not one of the known words is dropped, and the language's own style applies.
+    date_order = raw.get('date_order')
+    if isinstance(date_order, str) and date_order in UI_DATE_ORDERS:
+        out['date_order'] = date_order
+    clock = raw.get('clock')
+    if isinstance(clock, str) and clock in UI_CLOCKS:
+        out['clock'] = clock
 
     # Per-user email signature (HTML) appended to outbound ticket emails.
     signature = raw.get('signature')

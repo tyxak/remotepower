@@ -824,8 +824,8 @@ function cmdbRenderDocs(docs) {
   // one body and no sense of what else was there. The titles are the index;
   // opening one is a click.
   list.innerHTML = docs.map((doc) => {
-    const created = doc.created_at ? new Date(doc.created_at * 1000).toISOString().split('T')[0] : '';
-    const updated = doc.updated_at ? new Date(doc.updated_at * 1000).toISOString().split('T')[0] : '';
+    const created = doc.created_at ? _fmtIsoDay(doc.created_at) : '';
+    const updated = doc.updated_at ? _fmtIsoDay(doc.updated_at) : '';
     const meta = (created === updated || !created)
       ? (updated ? `updated ${updated}` : '')
       : `created ${created}, updated ${updated}`;

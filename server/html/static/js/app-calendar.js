@@ -15,7 +15,8 @@ const CAL_COLORS = ['blue', 'green', 'amber', 'red', 'purple', 'teal', 'slate'];
 function calSafeColor(c) { return CAL_COLORS.includes(c) ? c : 'blue'; }
 
 function calFmtMonthTitle(d) {
-  return d.toLocaleString(undefined, {month: 'long', year: 'numeric'});
+  // The browser's own language, as the title has always been written (undefined); the date order of the account applies.
+  return _fmtDateText(d, 'ts', {month: 'long', year: 'numeric'}, undefined);
 }
 
 function calNav(delta) {

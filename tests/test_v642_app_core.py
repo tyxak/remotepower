@@ -612,7 +612,8 @@ class TestLocaleAwareDates(unittest.TestCase):
     """6. Timestamps must follow the in-app language picker, not the browser."""
 
     def _ctx(self):
-        return _ctx("_localeTag", "_fmtAbsTs", "_fmtAbsDate", "_fmtAbsTime", extra="""
+        # the helpers end in _fmtDateText, which reads the date order and the clock of the account (both Automatic here)
+        return _ctx("_localeTag", "_fmtAbsTs", "_fmtAbsDate", "_fmtAbsTime", "_dateOrder", "_clockPref", "_fmtDateText", extra="""
           var seen = [];
           Date.prototype.toLocaleString     = function (l) { seen.push(['s', l]); return 'S'; };
           Date.prototype.toLocaleDateString = function (l) { seen.push(['d', l]); return 'D'; };
@@ -650,7 +651,7 @@ class TestLocaleAwareDates(unittest.TestCase):
     def test_helpers_take_the_unix_seconds_the_call_sites_pass(self):
         """The sweep rewrote `new Date(x * 1000)` to `_fmtAbsTs(x)` — the *1000
         has to live in the helper or every timestamp lands in 1970."""
-        ctx = _ctx("_localeTag", "_fmtAbsTs")
+        ctx = _ctx("_localeTag", "_fmtAbsTs", "_dateOrder", "_clockPref", "_fmtDateText")
         ctx.eval("Date.prototype.toLocaleString = function () { return String(this.getTime()); };")
         self.assertEqual(ctx.eval("_fmtAbsTs(1700000000)"), "1700000000000")
         self.assertEqual(ctx.eval("_fmtAbsTs(null)"), "0")

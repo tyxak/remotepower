@@ -1414,6 +1414,28 @@
           <div class="section-title" data-i18n="Language">Language</div>
           <p class="hint" data-i18n="Choose the interface language. Saved to your account and synced across devices.">Choose the interface language. Saved to your account and synced across devices.</p>
           <select id="acct-lang" class="form-input input-auto" aria-label="Interface language"></select>
+          <!-- 8.0.1: how dates are ordered and which clock is read, apart from the language. Saved to the account (ui_prefs)
+               like the language; Automatic is the language's own style. app.js loadAccount() wires both. -->
+          <p class="hint mt-16" data-i18n="Automatic follows the interface language. Date order sets whether a date reads day first, month first or year first, and Clock sets 24-hour or 12-hour time. Saved to your account, so it follows you to other browsers.">Automatic follows the interface language. Date order sets whether a date reads day first, month first or year first, and Clock sets 24-hour or 12-hour time. Saved to your account, so it follows you to other browsers.</p>
+          <div class="settings-row">
+            <div class="form-group isl-49">
+              <label for="acct-date-order" class="form-label">Date order</label>
+              <select id="acct-date-order" class="form-input">
+                <option value="auto">Automatic</option>
+                <option value="dmy">Day first (31/12/2026)</option>
+                <option value="mdy">Month first (12/31/2026)</option>
+                <option value="ymd">Year first (2026-12-31)</option>
+              </select>
+            </div>
+            <div class="form-group isl-49">
+              <label for="acct-clock" class="form-label">Clock</label>
+              <select id="acct-clock" class="form-input">
+                <option value="auto">Automatic</option>
+                <option value="h24">24-hour (14:30)</option>
+                <option value="h12">12-hour (2:30 PM)</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <!-- v3.14.0 (#46): appearance — theme + accent (stored locally per browser). -->
