@@ -21,7 +21,7 @@ listens on the managed host.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.10+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-8.0.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-8.0.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -205,6 +205,7 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
+- **v8.0.2 "C0verMatters"** — what was missing from pages you already use: hosts and operating systems a page could not reach, and settings and numbers it did not have.
 - **v8.0.1 "L0gMatters"** — what Threat Intel tells you and what it does about it. Clear empties the table even with the
   Edge blocklist on. A service that does not answer is no longer counted against your daily limits, each service can have
   limits of its own, a **Request log** shows what RemotePower sent to AbuseIPDB and SniffCat, what each answered and what your
@@ -248,12 +249,6 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
   were started, checks run from a host's own agent, a backup copy to an S3-compatible bucket that a
   server can be restored from, the CPU time split into I/O wait, steal and the rest, drawn over two days, and named time periods that quiet hours,
   after-hours detection, the ticket SLA clock and maintenance windows share. Update the agents.
-- **v7.4.8 "Hon3stMatters"** — three screens that said something untrue. A Problems row
-  that read "never" under Updated shows when its host last reported. A sensor limit that is
-  not a temperature (an NVMe drive with no threshold reported 65,261.8 °C) is no limit. A
-  Debian or Ubuntu host with a package apt keeps back, a new kernel image for one, reads as
-  having updates pending and not as fully patched.
-
 ## Security
 
 Every release gets a security review and a penetration test. The bar is that

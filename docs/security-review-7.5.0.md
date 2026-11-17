@@ -12,7 +12,7 @@ is left, and none of it is a way to attack an installation. Each fix has tests, 
 taken out.
 
 The agents have to be updated for the agent fixes (the agent version is 7.5.0). The server fixes need no action except where a note
-in [v7.5.0.md](v7.5.0.md) says so.
+in the 7.5.0 release notes says so.
 
 ## What changed that a reviewer should look at
 

@@ -48,7 +48,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '8.0.1'
+VERSION = '8.0.2'
 
 # v6.4.3: the docstring's " does NOT read" list, machine-readable.
 # See the Windows agent's copy for why it lives here rather than in the test.

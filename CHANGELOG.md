@@ -5,6 +5,11 @@ All notable changes to RemotePower. Newest first.
 Per-release notes (`docs/vX.Y.Z.md`) and security reviews are kept for the last three
 releases only; for an older release the entry below is the record.
 
+## v8.0.2 — "C0verMatters" — unreleased (test)
+
+A release that fills in what was missing from pages you already use: hosts and operating systems a page could not reach, and settings and numbers it did not have.
+Each entry says what it adds and what it leaves out. The release page is [docs/v8.0.2.md](docs/v8.0.2.md).
+
 ## v8.0.1 — "L0gMatters" — 2026-11-16 (pre-release on dev; no standalone release)
 
 A release about what Threat Intel tells you and what it does about it. **Clear** empties the table now, even with the Edge blocklist on. A service that
