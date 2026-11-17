@@ -70588,16 +70588,20 @@ def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager=''):
     by its name whatever the case (a person typed the rule, a vendor wrote the title), its version is
     compared as numbers when both are dotted numbers, and a `required` rule with no tags is not judged
     on such a host: it was written for the packages of a distribution, and every Windows host would be
-    in breach of it the day its agent started to send a list."""
+    in breach of it the day its agent started to send a list.
+
+    The rules are judged from this host's list alone, outside any lock. The row of this host is then written
+    under the lock of the store and the events are told after it is released."""
     inventory_host = software_inventory.manager_of(host_manager)
     policy = _software_policy()
     rules = policy.get('rules') or []
-    store = load(SOFTWARE_VIOLATIONS_FILE) if backend_exists(SOFTWARE_VIOLATIONS_FILE) else {}
-    if not isinstance(store, dict):
-        store = {}
     if not rules:
-        if store.pop(dev_id, None) is not None:
-            save(SOFTWARE_VIOLATIONS_FILE, store)
+        # nothing to judge: a row an earlier ruleset left for this host goes. The lock is taken only when there is a
+        # row to drop, so a fleet with no policy does not rewrite the store on every push.
+        stored = _load_ro(SOFTWARE_VIOLATIONS_FILE) if backend_exists(SOFTWARE_VIOLATIONS_FILE) else {}
+        if isinstance(stored, dict) and dev_id in stored:
+            with _LockedUpdate(SOFTWARE_VIOLATIONS_FILE) as store:
+                store.pop(dev_id, None)
         return []
 
     tagset = {str(t) for t in (tags or [])}
@@ -70659,37 +70663,42 @@ def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager=''):
                                    'detail': f'{pkg} {have or "?"} is below minimum {want}',
                                    'note': _sanitize_str(rule.get('note', ''), 200)})
 
-    prev_keys = {v.get('rule_id') for v in (store.get(dev_id, {}) or {}).get('violations', [])}
-    # A rule that WAS violated and no longer is — the operator fixed it, so the
-    # alert must close itself rather than wait to be resolved by hand.
+    # The rules are judged above from this host's list alone. Only the row of this host is written, and under the lock
+    # of the store: every host sends its list into it, and two lists that arrived together (a fleet of Windows hosts
+    # starting after a patch night) took one another's rows away with a bare load and save, so a host whose row was
+    # lost read as newly in breach at its next push and the alert fired a second time.
+    with _LockedUpdate(SOFTWARE_VIOLATIONS_FILE) as store:
+        before = store.get(dev_id)
+        before = before if isinstance(before, dict) else {}
+        prev_keys = {v.get('rule_id') for v in (before.get('violations') or []) if isinstance(v, dict)}
+        if violations:
+            row = {'name': dev_name, 'checked_at': int(time.time()), 'violations': violations}
+            if inventory_host:
+                # the page offers no install or remove button for these: the commands behind it are for Linux packages
+                row['manager'] = inventory_host
+            store[dev_id] = row
+        else:
+            store.pop(dev_id, None)
+
+    # Told after the lock is released (collect, then fire), and only for what the locked read found of this host's
+    # earlier row. A rule that WAS violated and no longer is: the operator fixed it, so the alert must close itself
+    # rather than wait to be resolved by hand.
+    told = []
     for gone in sorted(prev_keys - {v['rule_id'] for v in violations}):
-        if not gone:
-            continue
-        try:
-            fire_webhook('policy_compliant', {'device_id': dev_id, 'name': dev_name,
-                                              'rule': gone})
-        except Exception:
-            pass
+        if gone:
+            told.append(('policy_compliant', {'device_id': dev_id, 'name': dev_name, 'rule': gone}))
     for v in violations:
         if v['rule_id'] not in prev_keys:
-            try:
-                fire_webhook('software_policy_violation', {
-                    'device_id': dev_id, 'name': dev_name,
-                    'rule': v['rule_id'], 'package': v['package'],
-                    'detail': v['detail'],
-                })
-            except Exception:
-                pass
-
-    if violations:
-        store[dev_id] = {'name': dev_name, 'checked_at': int(time.time()),
-                         'violations': violations}
-        if inventory_host:
-            # the page offers no install or remove button for these: the commands behind it are for Linux packages
-            store[dev_id]['manager'] = inventory_host
-    else:
-        store.pop(dev_id, None)
-    save(SOFTWARE_VIOLATIONS_FILE, store)
+            told.append(('software_policy_violation', {
+                'device_id': dev_id, 'name': dev_name,
+                'rule': v['rule_id'], 'package': v['package'],
+                'detail': v['detail'],
+            }))
+    for event, payload in told:
+        try:
+            fire_webhook(event, payload)
+        except Exception:
+            pass
     return violations
 
 
