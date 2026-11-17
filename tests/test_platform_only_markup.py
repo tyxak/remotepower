@@ -121,6 +121,15 @@ class TestTheWiring(unittest.TestCase):
         # right after the answer is stored and before anything that can throw on a half-built page
         self.assertLess(body.index('_applyPlatformOnly();'), body.index("document.getElementById('topbar-avatar')"))
 
+    def test_showpage_applies_the_marks_to_a_page_it_has_just_cloned(self):
+        # Settings is an inert <template> that showPage clones on the first visit: the card is not in the page when /api/me answers, so the
+        # call in loadMe reaches nothing on the first visit. (The rendered module test_export_buttons_tenant_e2e drives both orders.)
+        js = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        body = srcpin.js_function(js, 'showPage')
+        clone = body.index('_tpl.content.cloneNode(true)')
+        after = body[clone:body.index('_markNavSeen(name)', clone)]
+        self.assertIn('_applyPlatformOnly();', after, 'a page cloned from its template is not marked: the card would be drawn for a tenant administrator')
+
     def test_the_timeline_replay_uses_the_same_test(self):
         # one definition of "platform operator" in the client: the replay button used to carry its own copy of the expression
         js = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()

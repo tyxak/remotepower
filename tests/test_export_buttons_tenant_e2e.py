@@ -9,6 +9,9 @@ downloaded" or "Calendar exported" over it. This module drives the real page, wi
   card beside it is shown, so the tab did draw;
 * a tenant administrator who presses Export anyway (the card shown again by hand, a real click on the drawn button) is saved no file and the
   page says "Export failed", never "Backup downloaded"; the calendar button behaves the same;
+* the card is hidden on both paths by which it reaches the page: Settings is an inert template that showPage clones on the first visit (the
+  mark has to be applied to the clone), and a reload on #settings/backups clones it before /api/me has answered (the mark has to be applied
+  when the answer comes);
 * the platform operator, in the same stack, is shown the card and is saved a real ZIP (it opens, holds users.json, and that file carries no
   password hash) and a real calendar, with the success toast. These two are the controls of the two above: the recorder of downloads and of
   toasts is believed when it has been seen to record.
@@ -124,25 +127,31 @@ def _until(fn, seconds=20, step=0.2):
     return last
 
 
+def _login(user):
+    """A fresh browser context signed in as `user`, with every download kept and every toast recorded."""
+    ctx = _STATE['browser'].new_context(viewport={'width': 1440, 'height': 900}, service_workers='block', accept_downloads=True)
+    ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); "
+                        "localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")
+    page = ctx.new_page()
+    downloads = []
+    page.on('download', lambda d: downloads.append(d))
+    page.goto(_STATE['base'] + '/index.html')
+    page.fill('#login-user', user)
+    page.fill('#login-pass', PW)
+    page.click('#login-form button[type="submit"]')
+    page.wait_for_selector('#app', state='visible', timeout=90000)
+    page.wait_for_function("() => typeof _meCache !== 'undefined' && _meCache && _meCache.username", timeout=60000)
+    page.evaluate(_WATCH_TOASTS)
+    return ctx, page, downloads
+
+
 @unittest.skipUnless(_GATE, SKIP_REASON)
 class _Session(unittest.TestCase):
     user = ''
 
     @classmethod
     def setUpClass(cls):
-        cls.ctx = _STATE['browser'].new_context(viewport={'width': 1440, 'height': 900}, service_workers='block', accept_downloads=True)
-        cls.ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); "
-                                "localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")
-        cls.page = cls.ctx.new_page()
-        cls.downloads = []
-        cls.page.on('download', lambda d: cls.downloads.append(d))
-        cls.page.goto(_STATE['base'] + '/index.html')
-        cls.page.fill('#login-user', cls.user)
-        cls.page.fill('#login-pass', PW)
-        cls.page.click('#login-form button[type="submit"]')
-        cls.page.wait_for_selector('#app', state='visible', timeout=90000)
-        cls.page.wait_for_function("() => typeof _meCache !== 'undefined' && _meCache && _meCache.username", timeout=60000)
-        cls.page.evaluate(_WATCH_TOASTS)
+        cls.ctx, cls.page, cls.downloads = _login(cls.user)
 
     @classmethod
     def tearDownClass(cls):
@@ -165,10 +174,13 @@ class _Session(unittest.TestCase):
         page.wait_for_selector('#settings-pane-backups .section-title >> text=Scheduled backup', state='visible', timeout=30000)
 
     def show_the_card_by_hand(self):
-        """What an old page, or a person with the developer tools open, would have: the card drawn although the page hid it. Put back after the test,
-        because the page is shared by the tests of a class."""
-        self.page.evaluate("() => { const c = document.querySelector('#settings-pane-backups [data-platform-only]'); if (c) c.classList.remove('hidden'); }")
-        self.addCleanup(self.page.evaluate, "() => { if (typeof _applyPlatformOnly === 'function') _applyPlatformOnly(); }")
+        """What an old page, or a person with the developer tools open, would have: the card drawn although the page hid it. The page is shared by
+        the tests of a class, so the card is put back exactly as it was. It is not put back by calling the function the page uses to hide it:
+        that would hide the card for the next test whether or not the page ever did."""
+        was = self.page.evaluate("""() => { const c = document.querySelector('#settings-pane-backups [data-platform-only]');
+            if (!c) return null; const h = c.classList.contains('hidden'); c.classList.remove('hidden'); return h; }""")
+        self.addCleanup(self.page.evaluate, """(h) => { const c = document.querySelector('#settings-pane-backups [data-platform-only]');
+            if (c && h) c.classList.add('hidden'); }""", was)
 
     def card_buttons_drawn(self):
         return self.page.evaluate("""() => ['exportBackup', 'downloadBackup', 'pickRestoreFile', 'openS3Restore'].map(a => {
@@ -225,6 +237,63 @@ class TestTenantAdministrator(_Session):
         page.wait_for_timeout(500)
         self.assertEqual([d.suggested_filename for d in self.downloads], [], 'a file was saved from a refused calendar export')
         self.assertFalse([t for t in self.toasts() if 'Calendar exported' in t], self.toasts())
+
+
+# the marked card is in the Settings template, so these tests log in anew: a page that has opened Settings once cannot show what the first visit does
+_CARD_STATE = """() => { const c = document.querySelector('[data-platform-only]');
+    return c ? {hidden: c.classList.contains('hidden'), drawn: c.getBoundingClientRect().height > 0} : null; }"""
+# logs, for the clone of a template, whether /api/me had answered by then (installed before the page's own scripts run, so it watches the document
+# itself: its root element does not exist yet)
+_WATCH_CLONE = """() => { window.__clone = null;
+    new MutationObserver(() => { if (window.__clone === null && document.querySelector('[data-platform-only]')) {
+        window.__clone = {meKnown: typeof _meCache !== 'undefined' && !!_meCache}; } }).observe(document, {childList: true, subtree: true}); }"""
+
+
+class _FirstVisit:
+    """Settings ships as an inert <template> that showPage clones on the first visit. The card is not in the page when /api/me answers, so
+    marking it only then reaches nothing; and a reload on a Settings tab clones the page before /api/me has answered, so marking it only at
+    the clone reaches a page that does not know the caller yet. Each of the two orders has its own line in the page, and each is driven here."""
+    user = ''
+    drawn = None
+
+    def setUp(self):
+        self.ctx, self.page, self.downloads = _login(self.user)
+        self.addCleanup(self.ctx.close)
+
+    def test_the_first_visit_and_a_reload_on_the_backups_tab(self):
+        page = self.page
+        self.assertIsNone(page.evaluate(_CARD_STATE), 'Settings is already in the page: this is not its first visit')
+        page.evaluate("showPage('settings')")                               # the first visit: the template is cloned now, /api/me answered long ago
+        first = page.evaluate(_CARD_STATE)
+        self.assertIsNotNone(first, 'the card did not arrive with the page')
+        self.assertEqual(first['hidden'], not self.drawn, 'first visit: %s' % first)
+        page.click('#settings-tab-btn-backups')
+        page.wait_for_selector('#settings-pane-backups .section-title >> text=Scheduled backup', state='visible', timeout=30000)
+        self.assertEqual(page.evaluate(_CARD_STATE)['drawn'], self.drawn, 'first visit, on the Backups tab')
+        # a reload on the tab: the page is cloned from the address before /api/me has answered
+        page.evaluate("() => { location.hash = '#settings/backups'; }")
+        page.add_init_script("(" + _WATCH_CLONE + ")()")
+        page.reload()
+        page.wait_for_selector('#app', state='visible', timeout=90000)
+        page.wait_for_function("() => typeof _meCache !== 'undefined' && _meCache && _meCache.username", timeout=60000)
+        page.wait_for_selector('#settings-pane-backups .section-title >> text=Scheduled backup', state='visible', timeout=60000)
+        clone = page.evaluate("() => window.__clone")
+        self.assertEqual(clone, {'meKnown': False}, 'the premise of this test is that the page is cloned before /api/me answers: %s' % clone)
+        after = page.evaluate(_CARD_STATE)
+        self.assertEqual(after['hidden'], not self.drawn, 'after a reload on the tab: %s' % after)
+        self.assertEqual(after['drawn'], self.drawn, 'after a reload on the tab: %s' % after)
+
+
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestFirstVisitOfATenantAdministrator(_FirstVisit, unittest.TestCase):
+    user = 'adminB'
+    drawn = False
+
+
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestFirstVisitOfThePlatformOperator(_FirstVisit, unittest.TestCase):
+    user = 'operator'
+    drawn = True
 
 
 class TestPlatformOperator(_Session):

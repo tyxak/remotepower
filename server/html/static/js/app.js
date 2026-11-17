@@ -3323,6 +3323,8 @@ function showPage(name, btn, opts) {
       _tpl.parentNode.insertBefore(_tpl.content.cloneNode(true), _tpl);
       // 8.0.0: an element the page names a module for (Fleet Query's Talks to and Detection fields) is cloned with its `d-none`, and the gate ran before there was a clone to find
       if (window._modules) _applyModuleElementGates(window._modules);
+      // the same for what only the platform operator is shown: Settings is a template, so its Backup & restore card did not exist when /api/me answered
+      _applyPlatformOnly();
     }
   }
   _markNavSeen(name);
@@ -9763,7 +9765,8 @@ function _isPlatformOperator() {
 }
 // An element marked data-platform-only is something the server refuses to everyone but the platform operator (the backup downloads and
 // restores, today). It is not drawn for anyone else, because a button that can only fail is noise. Nothing is hidden until /api/me has
-// answered, so a failed read leaves the page as it was and the server still decides.
+// answered, so a failed read leaves the page as it was and the server still decides. It runs when /api/me answers (for what is in the
+// document) and when showPage clones a lazy page from its template (for what was not there yet): either can come first.
 function _applyPlatformOnly() {
   if (!_meCache) return;
   const hide = !_isPlatformOperator();
