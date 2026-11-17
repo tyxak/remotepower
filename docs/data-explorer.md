@@ -7,7 +7,7 @@ It is **read-only**, and it is scoped to what you can already see: a query
 cannot return a host your role or tenant would hide from you elsewhere.
 
 Not to be confused with **[Fleet Query](fleet-query.md)** (**Fleet → Query**), which is the quick
-host filter made of ready-made boxes. Data Explorer works on ten kinds of rows, not only hosts,
+host filter made of ready-made boxes. Data Explorer works on fourteen kinds of rows, not only hosts,
 and its API accepts nested AND/OR/NOT conditions.
 
 ## Using the page
@@ -24,7 +24,7 @@ and its API accepts nested AND/OR/NOT conditions.
 The page builds a flat AND list because that covers most questions. For OR and NOT, call the API
 (see [API](#api)); the same engine runs both.
 
-## The thirteen entities
+## The fourteen entities
 
 The page lists them by these names.
 
@@ -43,6 +43,7 @@ The page lists them by these names.
 | `apps` | (host, app the agent found on it) | "which hosts run Jellyfin, and which of those listen on loopback only" |
 | `traffic` | (host, direction, remote address, port, program) | "which hosts talk to an address they never used before, and how much do they send it" |
 | `detections` | (host, finding of the last Detections sweep) | "which hosts have a critical finding, and which rule found it" |
+| `hardware` | host | "which hosts have this CPU", "which hosts are this make and model", "which hosts have a disk of this model" |
 
 ## Conditions
 
@@ -284,6 +285,29 @@ is on.
 What the last [Detections](detections.md) sweep found, one row for each finding. `rule` is the rule's id (`interpreter_egress`) and `rule_title` its name, `severity` is the one the
 rule found, `detail` is the sentence of the alert, and `raised_at` is empty for a finding that was held back or has not been raised yet. A host shows its five worst findings. The
 entity is listed, and answers, only while the Detections module is on.
+
+### `hardware`
+
+`device_id`, `device_name`, `group`, `site`, `os`, `monitored`, `vendor`, `model`, `serial`, `chassis`, `cpu_model`, `cpu_count`,
+`mem_total_mb`, `memory_modules`, `memory_installed_mb`, `memory_type`, `memory_speed`, `disk_total_gb`, `disk_count`, `disk_models`,
+`raid_arrays`, `gpu_count`, `gpu_models`, `reported_at`.
+
+What the agents already report about each host, one row for each host you can see. `vendor`, `model` and `serial` come from the
+host's DMI or WMI record (a Linux agent needs root to read them), `cpu_model` and the memory, disk and graphics columns from the
+host's own report and its hardware record, the same data as the host's Hardware tab. `memory_type` and `memory_speed` list the
+different values the host's memory modules report (`DDR4`, `2933 MT/s`), and `memory_installed_mb` is the total of the modules.
+`disk_count` counts the disks that report SMART, and `disk_models` lists their models. `reported_at` is when the host's hardware
+record was last stored.
+
+A host that has not reported something has empty cells there, and a count is empty rather than zero for a list the host never sent,
+so `{"field": "vendor", "op": "exists"}` leaves out the hosts whose agent could not read the DMI record. Examples:
+`{"field": "cpu_model", "op": "contains", "value": "EPYC"}` finds hosts by processor, and
+`{"and": [{"field": "vendor", "op": "eq", "value": "Dell Inc."}, {"field": "model", "op": "contains", "value": "R740"}]}` finds hosts
+by make and model.
+
+The serial number is shown to the people who see it on the host's Hardware tab, for the hosts their role and tenant let them see.
+Serial numbers of memory modules and disks are not in the entity. No agent reports a BIOS version, so the entity has no field to ask
+for an old BIOS.
 
 ## Saved queries
 

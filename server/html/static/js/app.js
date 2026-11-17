@@ -11228,6 +11228,10 @@ const _QE_OPS = [
 ];
 let _qeFieldsByEntity = {};
 let _qeLastRows = [];
+// What one row of an entity is, for the entities that have a line to say it. The sentence is the whole text node, so the page translation reaches it.
+const _QE_ENTITY_HINTS = {
+  hardware: "One row for each host: its maker, model and serial number, its processor, memory modules, disks and graphics cards. A host that has not reported its hardware has empty cells. Serial numbers are shown to the people who see them on the host's Hardware tab.",
+};
 
 async function loadQueryPage() {
   const r = await api('GET', '/query/fields').catch(() => null);
@@ -11246,6 +11250,9 @@ function _qeCurrentFields() {
 
 function qeEntityChanged() {
   const fields = _qeCurrentFields();
+  const hint = document.getElementById('qe-entity-hint');
+  const entity = document.getElementById('qe-entity')?.value || '';
+  if (hint) hint.textContent = Object.prototype.hasOwnProperty.call(_QE_ENTITY_HINTS, entity) ? _QE_ENTITY_HINTS[entity] : '';
   const sortSel = document.getElementById('qe-sort');
   if (sortSel) sortSel.innerHTML = '<option value="">(none)</option>' +
     fields.map(f => `<option value="${escAttr(f)}">${escHtml(f)}</option>`).join('');

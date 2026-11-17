@@ -35150,6 +35150,95 @@ def _qe_detections_rows():
 _QE_DETECTIONS_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'device_id', 'device_name', 'rule', 'rule_title', 'severity', 'detail', 'address', 'port', 'program', 'raised_at', 'monitored')}
 
+def _hardware_serials_visible():
+    """Whether the caller reads serial numbers in the Data Explorer.
+
+    They are shown to the people who see them on the host's Hardware tab. That tab asks for a signed-in caller and nothing more
+    (`GET /api/devices/<id>/hardware`), and leaves the rest to the host scope: a role's scope and a tenant. Every row of the hardware
+    entity has already been through that scope, so the answer is yes for every caller that reaches a row. This one function holds the
+    rule. When the tab starts hiding serials from a role, this is where the Data Explorer follows, and the query, the batch and a saved
+    query all follow with it, because each of them reads the rows this decides."""
+    return True
+
+
+def _qe_text(v, cap=128):
+    """A text cell: the text of a string or a number, trimmed and cut, and an empty cell for anything else (a list, a map, a boolean, nothing)."""
+    if isinstance(v, bool) or not isinstance(v, (str, int, float)) or (isinstance(v, float) and not math.isfinite(v)):
+        return ''
+    return str(v).strip()[:cap]
+
+
+def _qe_number(v):
+    """A number cell: a finite number, or an empty cell (nothing, text, a boolean)."""
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
+
+
+def _qe_distinct(values, cap=200):
+    """The different non-empty texts of `values`, in the order they first appear, joined by a comma and a space."""
+    seen = []
+    for v in values:
+        t = _qe_text(v)
+        if t and t not in seen:
+            seen.append(t)
+    return ', '.join(seen)[:cap]
+
+
+def _qe_hardware_rows():
+    """One row for each host the caller may see: what the host is (maker, model, serial number, chassis), its processor, memory modules,
+    disks, graphics cards and RAID arrays, from what the agents already report (the host's own record and its hardware record, the same
+    ones the host drawer's Hardware tab reads). A host that never reported hardware is a row with empty cells, never an error, and a count
+    is empty (not zero) for a list the host never sent. Serial numbers of memory modules and disks are not cells: the system serial is the
+    only one, and only for a caller `_hardware_serials_visible` lets read it."""
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
+    store = (_load_ro(HARDWARE_FILE) or {}) if backend_exists(HARDWARE_FILE) else {}
+    serials = _hardware_serials_visible()
+    out = []
+    for dev_id, d in devices.items():
+        if not isinstance(d, dict):
+            continue
+        si = d.get('sysinfo') if isinstance(d.get('sysinfo'), dict) else {}
+        rec = store.get(dev_id) if isinstance(store, dict) else None
+        rec = rec if isinstance(rec, dict) else {}
+        hw = rec.get('hardware') if isinstance(rec.get('hardware'), dict) else {}
+        system = hw.get('system') if isinstance(hw.get('system'), dict) else {}
+        mem = hw.get('memory') if isinstance(hw.get('memory'), list) else None
+        mods = [m for m in (mem or []) if isinstance(m, dict)]
+        sizes = [rag_index._dimm_mb(m.get('size')) for m in mods]
+        smart = rec.get('smart') if isinstance(rec.get('smart'), list) else None
+        disks = [x for x in (smart or []) if isinstance(x, dict)]
+        gpus = rec.get('gpus') if isinstance(rec.get('gpus'), list) else None
+        cards = [g for g in (gpus or []) if isinstance(g, dict)]
+        raid = hw.get('raid') if isinstance(hw.get('raid'), list) else None
+        out.append({
+            'device_id': dev_id, 'device_name': d.get('name', dev_id),
+            'group': _qe_text(d.get('group')), 'site': _qe_text(d.get('site')), 'os': _qe_text(d.get('os')),
+            'monitored': d.get('monitored', True) is not False,
+            'vendor': _qe_text(system.get('manufacturer')), 'model': _qe_text(system.get('product')),
+            'serial': _qe_text(system.get('serial')) if serials else '',
+            'chassis': _qe_text(si.get('chassis')),
+            'cpu_model': _qe_text(si.get('cpu')), 'cpu_count': _qe_number(si.get('cpu_count')),
+            'mem_total_mb': _qe_number(si.get('mem_total_mb')),
+            'memory_modules': len(mods) if mem is not None else None,
+            # the total of the modules, only when every module's size reads as one (a "No Module Installed" slot is never a module)
+            'memory_installed_mb': round(sum(sizes)) if sizes and all(x is not None for x in sizes) else None,
+            'memory_type': _qe_distinct(m.get('type') for m in mods),
+            'memory_speed': _qe_distinct(m.get('speed') for m in mods),
+            'disk_total_gb': _qe_number(si.get('disk_total_gb')),
+            'disk_count': len(disks) if smart is not None else None,
+            'disk_models': _qe_distinct(x.get('model') for x in disks),
+            'raid_arrays': len(raid) if raid is not None else None,
+            'gpu_count': len(cards) if gpus is not None else None,
+            'gpu_models': _qe_distinct(g.get('name') for g in cards),
+            'reported_at': _qe_number(rec.get('ts')),
+        })
+    return out
+
+
+_QE_HARDWARE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'device_name', 'group', 'site', 'os', 'monitored', 'vendor', 'model', 'serial', 'chassis', 'cpu_model', 'cpu_count',
+    'mem_total_mb', 'memory_modules', 'memory_installed_mb', 'memory_type', 'memory_speed', 'disk_total_gb', 'disk_count', 'disk_models',
+    'raid_arrays', 'gpu_count', 'gpu_models', 'reported_at')}
+
 # An entity that belongs to a module is listed, and answers, only while that module is on.
 _QE_ENTITY_MODULE = {'traffic': 'traffic', 'detections': 'detections'}
 
@@ -35176,6 +35265,7 @@ _QE_ENTITIES = {
     'apps':       (_qe_apps_rows, _QE_APP_FIELDS),
     'traffic':    (_qe_traffic_rows, _QE_TRAFFIC_FIELDS),
     'detections': (_qe_detections_rows, _QE_DETECTIONS_FIELDS),
+    'hardware':   (_qe_hardware_rows, _QE_HARDWARE_FIELDS),
 }
 
 QUERY_TEMPLATES_FILE = DATA_DIR / 'query_templates.json'   # v6.1.1
