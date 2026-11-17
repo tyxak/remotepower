@@ -6770,6 +6770,12 @@
     "Scoped credential added": { "fr": "Identifiant à portée limitée ajouté", "de": "Bereichsgebundene Zugangsdaten hinzugefügt", "zh": "已添加限定范围的凭据", "hi": "Scoped क्रेडेंशियल जोड़ा गया", "es": "Credencial con ámbito añadida", "ar": "أُضيف اعتماد محدود النطاق" },
     "Signature saved": { "fr": "Signature enregistrée", "de": "Signatur gespeichert", "zh": "签名已保存", "hi": "हस्ताक्षर सहेजा गया", "es": "Firma guardada", "ar": "حُفظ التوقيع" },
     "Smart group saved": { "fr": "Groupe dynamique enregistré", "de": "Intelligente Gruppe gespeichert", "zh": "智能分组已保存", "hi": "स्मार्ट समूह सहेजा गया", "es": "Grupo inteligente guardado", "ar": "حُفظت المجموعة الذكية" },
+    // the smart-group editor's preview: a count ("12" + "hosts match", two text nodes), the first names and a note
+    "Preview members": { "fr": "Aperçu des membres", "de": "Mitglieder in der Vorschau", "zh": "预览成员", "hi": "सदस्यों का पूर्वावलोकन", "es": "Vista previa de los miembros", "ar": "معاينة الأعضاء" },
+    "hosts match": { "fr": "hôtes correspondent", "de": "Hosts passen", "zh": "台主机匹配", "hi": "होस्ट मेल खाते हैं", "es": "hosts coinciden", "ar": "مضيفات مطابقة" },
+    "host matches": { "fr": "hôte correspond", "de": "Host passt", "zh": "台主机匹配", "hi": "होस्ट मेल खाता है", "es": "host coincide", "ar": "مضيف مطابق" },
+    "The first 50 are shown.": { "fr": "Les 50 premiers sont affichés.", "de": "Die ersten 50 werden angezeigt.", "zh": "显示前 50 台。", "hi": "पहले 50 दिखाए गए हैं।", "es": "Se muestran los primeros 50.", "ar": "يُعرض أول 50." },
+    "Could not preview the members": { "fr": "Impossible d'afficher l'aperçu des membres", "de": "Die Vorschau der Mitglieder ist fehlgeschlagen", "zh": "无法预览成员", "hi": "सदस्यों का पूर्वावलोकन नहीं हो सका", "es": "No se pudo mostrar la vista previa de los miembros", "ar": "تعذّرت معاينة الأعضاء" },
     "Stack created": { "fr": "Stack créé", "de": "Stack erstellt", "zh": "堆栈已创建", "hi": "Stack बनाया गया", "es": "Stack creado", "ar": "أُنشئت الحزمة" },
     "Stack deleted": { "fr": "Stack supprimé", "de": "Stack gelöscht", "zh": "堆栈已删除", "hi": "Stack हटाया गया", "es": "Stack eliminado", "ar": "حُذفت الحزمة" },
     "Status page saved": { "fr": "Page de statut enregistrée", "de": "Statusseite gespeichert", "zh": "状态页已保存", "hi": "स्थिति पृष्ठ सहेजा गया", "es": "Página de estado guardada", "ar": "حُفظت صفحة الحالة" },

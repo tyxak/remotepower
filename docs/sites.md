@@ -73,6 +73,13 @@ accepted (a custom role's group list, a service baseline), or pick **smart group
 as a ring type in a staged rollout. Names use lowercase letters, digits, `-` and
 `_`. You can keep up to 100, and only admins manage them.
 
+To see what a rule matches before you save it, press **Preview members** in the
+editor. It shows how many hosts match and the first 50 of them, for the rules as
+they stand in the form. The count comes from the same check the saved group uses,
+over the same hosts: with tenant isolation on, you see only your own tenant's
+hosts. A preview saves nothing and writes nothing to the audit log. Change a rule
+and the answer is cleared, so it never describes rules it was not made for.
+
 ## Role scoping
 
 Custom roles can be restricted to specific sites. Super-admins always see every
@@ -91,6 +98,7 @@ allowed to see.
 | PATCH | `/api/devices/{id}/site` | `{site}`. Assign a host, or `""` to unassign. Admin. |
 | GET | `/api/report/site/{id}` | Per-site posture report. |
 | GET, POST | `/api/device-profiles`, `/api/smart-groups` | Host profiles and smart groups. Admin. |
+| POST | `/api/smart-groups/preview` | `{rules}`, the shape a smart group is created with. Counts the hosts the rules match and names the first 50: `{count, limit, hosts: [{id, name}]}`. Changes nothing. Admin. |
 
 ## With multi-tenancy
 

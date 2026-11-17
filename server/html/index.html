@@ -13186,6 +13186,11 @@ nextcloud mem=95 sustain=6</pre>
   </div>
   <div class="form-group"><label class="form-row"><input type="checkbox" id="sg-drift"> <span class="form-label">Has configuration drift</span></label></div>
   <div class="form-group"><label class="form-row"><input type="checkbox" id="sg-reboot"> <span class="form-label">Reboot required</span></label></div>
+  <!-- 8.0.1: the hosts the rules above match, before the group is saved. previewSmartGroup() fills #sg-preview and any change to a rule empties it. -->
+  <div class="form-group">
+    <button class="btn-secondary" id="sg-preview-btn" data-action="previewSmartGroup">Preview members</button>
+    <div id="sg-preview" class="mt-8" role="status" aria-live="polite"></div>
+  </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="smart-group-modal">Cancel</button><button class="btn-primary" data-action="saveSmartGroup">Save group</button></div>
 </div></div>
 

@@ -1069,6 +1069,98 @@ def _stub_operations(paths: dict[str, Any], routes: list[tuple[str, str]] | None
             op[m]["parameters"] = params
 
 
+def _path_smart_group_preview() -> dict[str, Any]:
+    """8.0.1: the preview of a smart-group rule. The request is the rules of the create call (a name may be there and is ignored);
+    the answer is how many hosts the rules match and the first 50 of them."""
+    rules = {
+        "type": "object",
+        "description": "The rules of the group, all ANDed. At least one is required; a value outside its range is dropped, as it is when a group is saved.",
+        "properties": {
+            "group": {"type": "string", "maxLength": 128},
+            "group_in": {"type": "array", "items": {"type": "string"}, "maxItems": 50},
+            "tag": {"type": "string", "maxLength": 128},
+            "tags_any": {"type": "array", "items": {"type": "string"}, "maxItems": 50},
+            "tags_all": {"type": "array", "items": {"type": "string"}, "maxItems": 50},
+            "site": {"type": "string", "maxLength": 128},
+            "os_contains": {"type": "string", "maxLength": 128},
+            "agent_version_contains": {"type": "string", "maxLength": 128},
+            "monitored": {"type": "boolean"},
+            "agentless": {"type": "boolean"},
+            "reboot_required": {"type": "boolean"},
+            "drift": {"type": "boolean"},
+            "mem_gt": {"type": "number", "minimum": 0, "maximum": 100},
+            "disk_gt": {"type": "number", "minimum": 0, "maximum": 100},
+            "cpu_gt": {"type": "number", "minimum": 0, "maximum": 100},
+            "swap_gt": {"type": "number", "minimum": 0, "maximum": 100},
+        },
+    }
+    host = {
+        "type": "object",
+        "properties": {"id": {"type": "string"}, "name": {"type": "string", "maxLength": 128}},
+    }
+    return {
+        "/smart-groups/preview": {
+            "post": {
+                "tags": ["Hosts"],
+                "summary": "Preview the members of a smart-group rule before saving it",
+                "operationId": "previewSmartGroup",
+                "description": (
+                    "Counts the hosts the rules match and names the first 50, worked out by the "
+                    "same function that works out a saved group's members, for the tenant the "
+                    "caller would save the group under. It is read-only: nothing is stored and "
+                    "nothing is audited. The rules are checked as a save checks them, so a rule "
+                    "that cannot be saved is refused here with the same message. Admin only, as "
+                    "viewing the groups is."
+                ),
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["rules"],
+                                "properties": {"rules": rules},
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "How many hosts match, and the first ones.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "count": {
+                                            "type": "integer",
+                                            "description": "All the hosts that match.",
+                                        },
+                                        "limit": {
+                                            "type": "integer",
+                                            "description": "How many names an answer carries (50).",
+                                        },
+                                        "hosts": {
+                                            "type": "array",
+                                            "description": "The first `limit` matches, in the order a saved group lists them.",
+                                            "items": host,
+                                        },
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "400": {
+                        "description": "The rules are empty or cannot be saved (a value that is not a number, rules that are not an object)."
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"description": "Admin role required."},
+                },
+            }
+        }
+    }
+
+
 def _path_method_in_handler() -> dict[str, Any]:
     """7.5.0: the six routes whose handler enforces the method itself, so the dispatcher reconstruction (which needs an explicit
     `m == '<VERB>'` in the branch) and the stub pass skipped them. The methods and the gates are what each handler enforces:
@@ -1573,6 +1665,7 @@ def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None)
     paths.update(_path_ingest())
     paths.update(_path_identity())
     paths.update(_path_method_in_handler())
+    paths.update(_path_smart_group_preview())
     _stub_operations(paths, routes)
 
     return {

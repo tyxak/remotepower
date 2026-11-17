@@ -11814,13 +11814,14 @@ async function loadSmartGroups() {
       + `<button class="btn-icon c-danger-outline" data-action="deleteSmartGroup" data-arg="${escAttr(g.name)}">Delete</button></div>`;
   }).join('');
 }
-function openSmartGroupCreate() { _smartGroupEdit = null; _fillSmartGroupForm({ name: '', rules: {} }); document.getElementById('sg-name').disabled = false; document.getElementById('smart-group-modal-title').textContent = 'New smart group'; openModal('smart-group-modal'); }
+function openSmartGroupCreate() { _smartGroupEdit = null; _fillSmartGroupForm({ name: '', rules: {} }); document.getElementById('sg-name').disabled = false; document.getElementById('smart-group-modal-title').textContent = 'New smart group'; _wireSmartGroupPreview(); openModal('smart-group-modal'); }
 function editSmartGroup(i) {
   const g = _smartGroups[i]; if (!g) return;
   _smartGroupEdit = g.name;
   _fillSmartGroupForm(g);
   document.getElementById('sg-name').disabled = true;   // name is the id — immutable
   document.getElementById('smart-group-modal-title').textContent = 'Edit smart group';
+  _wireSmartGroupPreview();
   openModal('smart-group-modal');
 }
 function _fillSmartGroupForm(g) {
@@ -11830,8 +11831,10 @@ function _fillSmartGroupForm(g) {
   set('sg-name', g.name || ''); set('sg-group', r.group); set('sg-tag', r.tag); set('sg-os', r.os_contains);
   set('sg-mem', r.mem_gt); set('sg-disk', r.disk_gt); set('sg-cpu', r.cpu_gt);
   chk('sg-drift', r.drift); chk('sg-reboot', r.reboot_required);
+  _clearSmartGroupPreview();   // an answer belongs to the rules it was made for, not to the form that is opened over it
 }
-async function saveSmartGroup() {
+// The rules of the editor as a save sends them. Saving and previewing both read the form here, so what is previewed is what is saved.
+function _smartGroupRulesFromForm() {
   const val = id => (document.getElementById(id)?.value || '').trim();
   const num = id => { const v = parseFloat(val(id)); return isNaN(v) ? null : v; };
   const rules = {};
@@ -11843,12 +11846,57 @@ async function saveSmartGroup() {
   if (num('sg-cpu') !== null) rules.cpu_gt = num('sg-cpu');
   if (document.getElementById('sg-drift')?.checked) rules.drift = true;
   if (document.getElementById('sg-reboot')?.checked) rules.reboot_required = true;
+  return rules;
+}
+async function saveSmartGroup() {
+  const val = id => (document.getElementById(id)?.value || '').trim();
+  const rules = _smartGroupRulesFromForm();
   if (!Object.keys(rules).length) { toast('Add at least one rule', 'error'); return; }
   const r = _smartGroupEdit
     ? await api('PATCH', `/smart-groups/${encodeURIComponent(_smartGroupEdit)}`, { rules })
     : await api('POST', '/smart-groups', { name: val('sg-name'), rules });
   if (r && (r.ok || r.name)) { toast('Smart group saved', 'success'); closeModal('smart-group-modal'); loadSmartGroups(); }
   else toast((r && r.error) || 'Save failed', 'error');
+}
+// 8.0.1: what the rules in the editor match, before the group is saved. POST /api/smart-groups/preview works it out with the function
+// a saved group's members come from and changes nothing; the answer is a count and the first 50 hosts. A host's name is its own word,
+// so it is drawn as text and never built into markup. A change to a rule empties the box (the answer was made for other rules), and an
+// answer that comes back after that is dropped.
+let _sgPreviewSeq = 0;
+function _clearSmartGroupPreview() {
+  _sgPreviewSeq++;
+  const box = document.getElementById('sg-preview'), btn = document.getElementById('sg-preview-btn');
+  if (box) box.innerHTML = '';
+  if (btn) btn.disabled = false;
+}
+function _wireSmartGroupPreview() {
+  const modal = document.getElementById('smart-group-modal');
+  if (!modal || modal.dataset.previewWired) return;
+  modal.dataset.previewWired = '1';
+  // every field of the editor is a rule except the name
+  const stale = e => { const id = (e.target && e.target.id) || ''; if (id.indexOf('sg-') === 0 && id !== 'sg-name') _clearSmartGroupPreview(); };
+  modal.addEventListener('input', stale);
+  modal.addEventListener('change', stale);
+}
+async function previewSmartGroup() {
+  const box = document.getElementById('sg-preview'), btn = document.getElementById('sg-preview-btn');
+  if (!box) return;
+  const seq = ++_sgPreviewSeq;
+  box.textContent = 'Checking…';
+  if (btn) btn.disabled = true;
+  let r = null;
+  try { r = await api('POST', '/smart-groups/preview', { rules: _smartGroupRulesFromForm() }); } catch (_) { r = null; }   // a network failure rejects
+  if (seq !== _sgPreviewSeq) return;
+  if (btn) btn.disabled = false;
+  if (!r || r.error || !Array.isArray(r.hosts)) {
+    box.innerHTML = `<span class="c-red fs-12">${escHtml((r && r.error) || 'Could not preview the members')}</span>`;
+    return;
+  }
+  const n = Number(r.count) || 0;
+  box.innerHTML = `<div class="fs-12"><strong>${n}</strong> ${n === 1 ? 'host matches' : 'hosts match'}</div>`
+    + (r.hosts.length ? `<div class="scroll-cap-sm mt-4">${r.hosts.map(h =>
+        `<div class="fs-12 c-muted" data-sg-host data-id="${escAttr(h.id)}">${escHtml(h.name || h.id)}</div>`).join('')}</div>` : '')
+    + (n > r.hosts.length ? `<div class="hint mt-4">The first ${r.hosts.length} are shown.</div>` : '');
 }
 // v6.3.1: undoable (deferred commit) — was a danger-confirm.
 async function deleteSmartGroup(name) {

@@ -1999,6 +1999,17 @@ for _hp_name in ('host_probe_validate', 'host_monitors_for', 'host_probe_ingest'
                  'satellite_probe_validate', 'monitor_spec'):
     globals()[_hp_name] = getattr(host_probe_handlers_mod, _hp_name)
 del _hp_name
+
+# 8.0.1: the members of a smart-group rule before it is saved: rules in, a count and the first 50 hosts out. One handler, so a bound
+# module of its own; the matcher it calls (_materialize_smart_group) stays with the rest of the smart-group code below.
+_sg_spec = _tk_ilu.spec_from_file_location(
+    'smart_group_handlers', Path(__file__).parent / 'smart_group_handlers.py')
+smart_group_handlers_mod = _tk_ilu.module_from_spec(_sg_spec)
+_sg_spec.loader.exec_module(smart_group_handlers_mod)
+smart_group_handlers_mod.bind(globals())
+for _sg_name in ('handle_smart_group_preview',):
+    globals()[_sg_name] = getattr(smart_group_handlers_mod, _sg_name)
+del _sg_name
 from checks import (  # noqa: F401  (test_checks_module pins api._custom_checks_for)
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -77505,6 +77516,7 @@ def _build_exact_routes():
         ('POST', '/api/snmp/trap-rules'): handle_snmp_trap_rules,
         ('POST', '/api/snmp/trap-rules/test'): handle_snmp_trap_rule_test,
         ('POST', '/api/smart-groups'): handle_smart_groups,
+        ('POST', '/api/smart-groups/preview'): handle_smart_group_preview,
         # W5-3: rack registry + elevation view.
         ('GET', '/api/racks'): handle_racks,
         ('POST', '/api/racks'): handle_racks,
