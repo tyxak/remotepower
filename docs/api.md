@@ -57,7 +57,10 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 |--------|----------|------|-------------|
 | `POST` | `/api/login` | - | Login, returns session token |
 | `POST` | `/api/enroll/pin` | admin | Generate enrollment PIN |
-| `POST` | `/api/enroll/register` | - | Register host with PIN (pass `device_id` for re-enroll) |
+| `POST` | `/api/enroll/register` | - | Register host with a PIN or an enrollment token (pass `device_id` for re-enroll) |
+| `POST` | `/api/enrollment-tokens` | admin | Make an enrollment token. Body: `expires_in`, `default_group`, `default_tags`, `label`, `allowed_cidrs`, `max_uses` (1 to 1000 hosts, default 1) |
+| `GET` | `/api/enrollment-tokens` | admin | List the open tokens: `prefix`, `uses`, `max_uses`, `uses_left`, time left (never the token) |
+| `DELETE` | `/api/enrollment-tokens/{prefix}` | admin | Revoke a token by the prefix the list shows |
 | `POST` | `/api/heartbeat` | host | Client keepalive + fetch commands |
 
 ### Schedule

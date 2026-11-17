@@ -251,6 +251,7 @@ if _AVAILABLE:
         default_tags: list[str] = []
         label: str = ''
         allowed_cidrs: Any = None      # 7.4.9: the networks the token may be used from; the handler reads and refuses
+        max_uses: Any = None           # how many hosts may enrol with it; the handler accepts a whole number from 1 to 1000 and refuses anything else
 
         _v_expires = field_validator('expires_in', mode='before')(_coerce_int_strict)
         _v_group = field_validator('default_group', mode='before')(_coerce_str_falsy_empty)

@@ -11841,14 +11841,16 @@ def check_for_update(server_url, force=False):
 
 # ─── Enrollment ────────────────────────────────────────────────────────────────
 def enroll_with_token(server_url, token, device_name=None):
-    """Non-interactive enrollment using a pre-shared one-time-use token.
+    """Non-interactive enrollment using a pre-shared token.
 
     v1.11.10: companion to interactive PIN enrollment for use from
     Ansible / cloud-init / golden-image scripts. The token is created
     on the server side via POST /api/enrollment-tokens (admin-only,
-    returns a 32+ char string), passed to this function, and consumed
-    atomically — same token can't be used twice. Token may carry
-    default group / tags that get applied at registration.
+    returns a 32+ char string) and passed to this function. It enrols
+    one host unless it was made for more (``max_uses``, up to 1000, for
+    group policy, golden images and autoscaling groups); the server counts
+    each host atomically. Token may carry default group / tags that get
+    applied at registration.
 
     Resolves the token from arguments in this order:
 
@@ -11924,15 +11926,14 @@ def enroll_with_token(server_url, token, device_name=None):
     save_credentials(new_creds)
     print(f"✓ Enrolled. Host ID: {resp['device_id']}")
     print(f"  Credentials saved to {CREDS_FILE}")
-    # Best-effort: clear the on-disk token file so it can't be re-used
-    # accidentally (the server already invalidated it on the wire, but
-    # leaving it on disk is a footgun if a second copy of the agent
-    # tried to enroll).
+    # Best-effort: clear the on-disk token file. This host is enrolled and no
+    # longer needs it, and a token that can enrol more hosts (max_uses) is not
+    # one to leave readable on every host that used it.
     try:
         token_file = Path('/etc/remotepower/enroll-token')
         if token_file.exists():
             token_file.unlink()
-            print("  Cleared /etc/remotepower/enroll-token (one-time use)")
+            print("  Removed /etc/remotepower/enroll-token (this host is enrolled and no longer needs it)")
     except Exception:
         pass
     return new_creds

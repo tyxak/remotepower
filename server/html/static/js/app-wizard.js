@@ -293,7 +293,7 @@ const _WIZ_WATCH_LIMIT_S = 300;         // after five minutes the wait says some
 function _wizEnrollDef() {
   return {
     title: 'Add a host',
-    init: () => ({ kind: 'linux', group: '', tags: '', cidrs: '', ttl: '86400', sig: '', token: '', ca: '', pin: '', pinAt: 0, pinSince: 0, tokenSince: 0, since: 0,
+    init: () => ({ kind: 'linux', group: '', tags: '', cidrs: '', ttl: '86400', uses: '1', usesMade: 1, sig: '', token: '', ca: '', pin: '', pinAt: 0, pinSince: 0, tokenSince: 0, since: 0,
                    arrived: null, arrivedCount: 0, watching: false, watchFrom: 0, late: false, groups: null }),
     steps: [
       { label: 'Type', render: _wizEnrollType, next: _wizEnrollTypeNext },
@@ -358,21 +358,40 @@ function _wizEnrollSettings(st, body) {
                     hint: 'Addresses or networks the install may connect from, such as 10.0.0.0/24. Leave empty to allow any address.',
                     onInput: v => { st.cidrs = v; } });
   _wizField(body, { id: 'wiz-ttl', label: 'Valid for', value: st.ttl, options: _WIZ_ENROLL_TTL, onInput: v => { st.ttl = v; } });
+  const uses = _wizField(body, { id: 'wiz-uses', label: 'Hosts that can use it', type: 'number', value: st.uses, onInput: v => { st.uses = v; _wizUsesNote(st); } });
+  uses.min = '1';
+  uses.max = '1000';
+  uses.inputMode = 'numeric';
+  const note = _wizNode('div', 'hint mb-6', 'Anyone who holds this command can enroll that many hosts until it expires. Revoking it stops it.');
+  note.id = 'wiz-uses-note';
+  note.setAttribute('role', 'status');
+  note.setAttribute('aria-live', 'polite');
+  body.appendChild(note);
+  _wizUsesNote(st);
 }
 
-// Makes the one-time token with what the person chose. The same settings give the same token: going back and forward does not make another.
+// The warning under "Hosts that can use it" shows only when the command may enrol more than one host.
+function _wizUsesNote(st) {
+  const n = document.getElementById('wiz-uses-note');
+  if (n) n.classList.toggle('d-none', !(Number(st.uses) > 1));
+}
+
+// Makes the token with what the person chose. The same settings give the same token: going back and forward does not make another.
 async function _wizEnrollMint(st) {
   const tags = st.tags.split(',').map(s => s.trim()).filter(Boolean);
-  const sig = JSON.stringify([st.kind, st.group.trim(), tags, st.cidrs.trim(), st.ttl]);
+  const uses = String(st.uses).trim() === '' ? 0 : Number(st.uses);
+  if (!Number.isInteger(uses) || uses < 1 || uses > 1000) { _wizMsg('Enter a whole number of hosts from 1 to 1000', 'wiz-uses'); return false; }
+  const sig = JSON.stringify([st.kind, st.group.trim(), tags, st.cidrs.trim(), st.ttl, uses]);
   if (st.token && st.sig === sig) { st.since = st.tokenSince; return true; }
   const body = { label: 'guided-add-host', expires_in: Number(st.ttl) };
   if (st.group.trim()) body.default_group = st.group.trim();
   if (tags.length) body.default_tags = tags;
   if (st.cidrs.trim()) body.allowed_cidrs = st.cidrs.trim();
+  if (uses > 1) body.max_uses = uses;
   const r = await api('POST', '/enrollment-tokens', body);
-  if (!r || r.error || !r.token) { _wizMsg((r && r.error) || 'Could not create the install command. Try again.', r && r.error ? 'wiz-cidrs' : ''); return false; }
+  if (!r || r.error || !r.token) { _wizMsg((r && r.error) || 'Could not create the install command. Try again.', r && r.error ? (/max_uses/.test(r.error) ? 'wiz-uses' : 'wiz-cidrs') : ''); return false; }
   st.tokenSince = r.created ? Number(r.created) : Math.floor(Date.now() / 1000) - 5;
-  Object.assign(st, { token: r.token, ca: r.ca_fingerprint || '', since: st.tokenSince, sig, arrived: null, arrivedCount: 0, late: false });
+  Object.assign(st, { token: r.token, ca: r.ca_fingerprint || '', since: st.tokenSince, sig, usesMade: uses, arrived: null, arrivedCount: 0, late: false });
   return true;
 }
 
@@ -423,7 +442,9 @@ function _wizEnrollInstall(st, body) {
     } else {
       _wizCommand(body, 'wiz-cmd-docker', 'Docker host', 'Save as docker-compose.yml on the host, then run docker compose up -d.', dockerComposeText(server, st.token));
     }
-    body.appendChild(_wizNode('div', 'hint', 'The command works once and stops working after the time you chose.'));
+    body.appendChild(_wizNode('div', 'hint', st.usesMade > 1
+      ? 'The command works for as many hosts as you set, and stops working after the time you chose or when you revoke it.'
+      : 'The command works once and stops working after the time you chose.'));
   }
   const watch = _wizNode('div', 'wiz-watch');
   watch.id = 'wiz-watch';

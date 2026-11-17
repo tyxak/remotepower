@@ -3107,7 +3107,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js', 'app-traffic.js', 'app-detections.js'];   // 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites. 8.0.0: app-traffic.js, the Traffic tab of the Threat Intel page and the drawer's Traffic section (fetched when either shows and the module is on). 8.0.0: app-detections.js, the Detections tab of the Threat Intel page (fetched when the tab shows and the module is on).
+const _LAZY_NON_PAGE_MODULES = ['app-enrol.js', 'app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js', 'app-traffic.js', 'app-detections.js'];   // app-enrol.js, the list of open install commands in the Enroll dialog (fetched when the dialog opens). 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites. 8.0.0: app-traffic.js, the Traffic tab of the Threat Intel page and the drawer's Traffic section (fetched when either shows and the module is on). 8.0.0: app-detections.js, the Detections tab of the Threat Intel page (fetched when the tab shows and the module is on).
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -4143,7 +4143,27 @@ async function clearWebhookLog() { if (!await uiConfirm({ message: 'Clear the we
 function openDetail(id, name) {
   // v2.9.0: replaced by device drawer
   openDeviceDrawer(id, name, 'audit');
-}function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
+}function openEnrollModal() { generateNewPin(); enrollOpenRefresh(); openModal('enroll-modal'); }
+// "Hosts that can use it" in the Enroll dialog: how many hosts one token may enrol (the server's max_uses). 1 is the default and is not sent.
+// Gives 0, with a message and the field marked, when it is not a whole number from 1 to 1000.
+function _enrollMaxUses() {
+  const el = document.getElementById('enroll-max-uses');
+  const n = el && el.value.trim() !== '' ? Number(el.value) : 1;
+  if (!Number.isInteger(n) || n < 1 || n > 1000) {
+    toast('Enter a whole number of hosts from 1 to 1000', 'error', { transient: true });
+    if (el) { el.setAttribute('aria-invalid', 'true'); el.focus(); }
+    return 0;
+  }
+  if (el) el.removeAttribute('aria-invalid');
+  return n;
+}
+// The warning under the field shows only when more than one host may use the command.
+function enrollUsesNote() {
+  const el = document.getElementById('enroll-max-uses'), note = document.getElementById('enroll-uses-note');
+  if (el && note) note.classList.toggle('d-none', !(Number(el.value) > 1));
+}
+// The list of open install commands at the foot of the dialog is drawn by app-enrol.js (fetched when the dialog opens; the wizards are not).
+function enrollOpenRefresh() { _loadJsModule('app-enrol.js').then(() => { if (typeof enrolOpenList === 'function') enrolOpenList(); }); }
 // 8.0.0: the wizards and the step-by-step forms are app-wizard.js, fetched on first use; these are the entry points index.html names.
 function wizOpen(name) {
   const more = name === 'syslog' || name === 'flow' || name === 'satellite' || name === 'push' || name === 'sshgw';        // 8.0.0: the sidecar wizards are app-wizard-sidecars.js, fetched after the runner
@@ -4220,25 +4240,34 @@ volumes:
 async function generateDockerEnroll() {
   const box = document.getElementById('enroll-docker-result');
   if (!box) return;
+  const uses = _enrollMaxUses();
+  if (!uses) return;
   box.textContent = '';
   const minting = document.createElement('div');
-  minting.className = 'c-muted'; minting.textContent = 'Minting one-time token…';
+  minting.className = 'c-muted'; minting.textContent = 'Minting token…';
   box.appendChild(minting);
   let data;
   try {
-    data = await api('POST', '/enrollment-tokens', { label: 'docker-host', expires_in: 86400 });
+    data = await api('POST', '/enrollment-tokens', uses > 1 ? { label: 'docker-host', expires_in: 86400, max_uses: uses } : { label: 'docker-host', expires_in: 86400 });
   } catch (e) {
     box.textContent = '';
     toast('Could not mint enrollment token (admin only)', 'error');
     return;
   }
-  const token = (data && data.token) || '';
+  if (!data || !data.token) {      // api() resolves on a refusal: there is no token to print into a compose file
+    box.textContent = '';
+    toast((data && data.error) || 'Could not mint enrollment token (admin only)', 'error');
+    return;
+  }
+  const token = data.token;
   const server = window.location.origin;
   const compose = dockerComposeText(server, token);
   box.textContent = '';
   const hint = document.createElement('div');
   hint.className = 'hint mb-6';
-  hint.textContent = 'Save as docker-compose.yml on the host, then: docker compose up -d — the token is one-time and expires in 24h.';
+  hint.textContent = uses > 1
+    ? 'Save as docker-compose.yml on each host, then: docker compose up -d — the token works for the number of hosts you set and expires in 24h.'
+    : 'Save as docker-compose.yml on the host, then: docker compose up -d — the token is one-time and expires in 24h.';
   const pre = document.createElement('pre');
   pre.id = 'enroll-docker-pre';
   pre.className = 'ff-mono fs-12 enroll-docker-pre';
@@ -4251,6 +4280,7 @@ async function generateDockerEnroll() {
   box.appendChild(hint);
   box.appendChild(pre);
   box.appendChild(copyBtn);
+  enrollOpenRefresh();
   // Same silent-modal problem as the quick-install path — a container that
   // never starts, or a token the compose file never reached, looked identical
   // to success from in here.
@@ -4359,19 +4389,26 @@ function quickInstallLines(server, token, caFp) {
 async function generateQuickInstall() {
   const box = document.getElementById('enroll-quick-result');
   if (!box) return;
+  const uses = _enrollMaxUses();
+  if (!uses) return;
   box.textContent = '';
   const minting = document.createElement('div');
-  minting.className = 'c-muted'; minting.textContent = 'Minting one-time token…';
+  minting.className = 'c-muted'; minting.textContent = 'Minting token…';
   box.appendChild(minting);
   let data;
   try {
-    data = await api('POST', '/enrollment-tokens', { label: 'quick-install', expires_in: 86400 });
+    data = await api('POST', '/enrollment-tokens', uses > 1 ? { label: 'quick-install', expires_in: 86400, max_uses: uses } : { label: 'quick-install', expires_in: 86400 });
   } catch (e) {
     box.textContent = '';
     toast('Could not mint enrollment token (admin only)', 'error');
     return;
   }
-  const token = (data && data.token) || '';
+  if (!data || !data.token) {      // api() resolves on a refusal: there is no token to print into a command
+    box.textContent = '';
+    toast((data && data.error) || 'Could not mint enrollment token (admin only)', 'error');
+    return;
+  }
+  const token = data.token;
   const server = window.location.origin;
   box.textContent = '';
   // v6.2.0: one-time token, one line per OS. Each downloads the agent from this
@@ -4405,8 +4442,11 @@ async function generateQuickInstall() {
   box.appendChild(block('Windows', 'Run in an elevated PowerShell (Win+X → Terminal (Admin)). Needs Python 3.8+.', win, 1));
   const foot = document.createElement('div');
   foot.className = 'hint mt-6';
-  foot.textContent = 'One-time token, expires in 24h. Downloads the agent from this server, verifies its checksum, enrols, and the host appears by its hostname.';
+  foot.textContent = uses > 1
+    ? 'This token works for the number of hosts you set, and expires in 24h. Downloads the agent from this server, verifies its checksum, enrols, and the host appears by its hostname.'
+    : 'One-time token, expires in 24h. Downloads the agent from this server, verifies its checksum, enrols, and the host appears by its hostname.';
   box.appendChild(foot);
+  enrollOpenRefresh();
   _startEnrollWatch(Math.round(Date.now() / 1000));
 }
 function copyQuickEnroll(idx) {

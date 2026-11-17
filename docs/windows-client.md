@@ -44,7 +44,8 @@ semantics. Everything below notes which mechanism a command targets.
 ### One-liner (recommended)
 
 In the dashboard, click **Enroll host** on the Hosts page and then **Quick install
-command**. It shows a one-liner with a one-time enrollment token baked in. On the target host, in an **elevated**
+command**. It shows a one-liner with an enrollment token baked in (one host, unless you raise
+**Hosts that can use it** first). On the target host, in an **elevated**
 PowerShell:
 
 ```powershell
@@ -60,7 +61,7 @@ On a bare box this single command does everything:
 3. **Downloads the agent** from the server and **verifies its SHA-256**.
 4. **Installs `psutil` + `pywin32`** into that machine Python, and registers
    pywin32's service DLLs (`pywin32_postinstall`, the fix for service error 1053).
-5. **Enrolls** with the baked one-time token.
+5. **Enrolls** with the baked token.
 6. **Registers and starts the service** (falls back to a scheduled task only if
    `pywin32` is unavailable).
 
@@ -85,8 +86,9 @@ powershell -ExecutionPolicy Bypass -File install-windows.ps1 `
 
 Two credentials enroll a host; **don't mix up the flags**:
 
-- **Enrollment token** — a long (16–256 char) one-time string, e.g. the `t=…`
-  value baked into the one-liner. Pass with **`--token`** / `-Token`.
+- **Enrollment token** — a long (16–256 char) string, e.g. the `t=…`
+  value baked into the one-liner. It enrols one host unless it was made for more
+  (**Hosts that can use it**), which is how you run one command on many hosts from group policy or Intune. Pass with **`--token`** / `-Token`.
 - **PIN** — a **6-digit** code from **Enroll host**. Pass with **`--pin`** /
   `-Pin`. The agent also reads `REMOTEPOWER_ENROLL_PIN` and `REMOTEPOWER_ENROLL_TOKEN` from the
   environment, and the installers use them, so neither shows up in the process list *(7.5.0)*.

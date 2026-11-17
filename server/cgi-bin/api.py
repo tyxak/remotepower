@@ -44,8 +44,8 @@ DEVICES_FILE     = DATA_DIR / 'devices.json'
 DEVICE_PROFILES_FILE = DATA_DIR / 'device_profiles.json'   # W5-7 named config bundles
 SMART_GROUPS_FILE = DATA_DIR / 'smart_groups.json'         # W5-6 saved-query dynamic groups
 PINS_FILE        = DATA_DIR / 'pins.json'
-# v1.11.10: pre-shared one-time-use tokens for non-interactive enrollment.
-# Created via POST /api/enrollment-tokens (admin-only). Same shape as
+# v1.11.10: pre-shared tokens for non-interactive enrollment (one host each unless made
+# for more with max_uses). Created via POST /api/enrollment-tokens (admin-only). Same shape as
 # pins.json but tokens are 32-char URL-safe random strings instead of
 # 6-digit PINs, and they carry optional default group/tags/expiry.
 ENROLL_TOKENS_FILE = DATA_DIR / 'enrollment_tokens.json'
@@ -826,6 +826,10 @@ UI_TYPEFACES               = ('system', 'b612')
 # endpoint's `expires_in` parameter (capped at 7 days).
 DEFAULT_ENROLL_TOKEN_TTL = 24 * 3600
 MAX_ENROLL_TOKEN_TTL     = 7 * 24 * 3600
+# How many hosts one enrolment token may enrol (`max_uses` on the create call, "Hosts that can use it" in the dialog). A token is
+# single use unless the caller asks for more. The ceiling is a product limit, so that one leaked command cannot stand for a whole
+# fleet, and a larger rollout is split over several tokens that can each be revoked.
+MAX_ENROLL_TOKEN_USES    = 1000
 
 # Default metric alert thresholds. These match the values discussed in
 # v1.11.10 planning and are documented in the Settings page. Per-device
@@ -6888,7 +6892,7 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     '/api/agent/mac/version',      # v6.3.0: macOS agent self-update (token-free, like the others)
     '/api/agent/mac/download',
     '/api/agent/mac/signature',    # v6.4.2: as above, macOS leg
-    '/api/agent/win/install',      # v6.2.0: Windows onboarding one-liner (baked one-time token)
+    '/api/agent/win/install',      # v6.2.0: Windows onboarding one-liner (baked enrolment token)
     '/api/agent/install',
     '/api/csp-report',
     '/api/health',
@@ -22016,28 +22020,32 @@ def handle_enroll_pin():
     respond(200, {'pin': pin, 'expires': now + PIN_TTL})
 
 
-# ─── v1.11.10: API enrollment via one-time pre-shared tokens ────────────────
+# ─── v1.11.10: API enrollment via pre-shared tokens ─────────────────────────
 #
 # Three endpoints:
 #   POST   /api/enrollment-tokens          (admin) → create a token
 #   GET    /api/enrollment-tokens          (admin) → list non-expired tokens
 #   DELETE /api/enrollment-tokens/{token}  (admin) → revoke a token
 #
-# Tokens are consumed atomically by handle_enroll_register() — the registration
-# call deletes the token before creating the device, so a leaked token can't
-# enroll twice. If a request races (two agents holding the same token enroll
-# at the same instant), exactly one wins; the other gets HTTP 403. That's
-# the expected behaviour for "one-time use".
+# A token enrols one host unless it was made with `max_uses`, up to MAX_ENROLL_TOKEN_USES.
+# handle_enroll_register() takes one of its uses under the store lock before it creates
+# the device, so a leaked token can't enroll more hosts than it was made for. If requests
+# race (two agents holding the last use of a token enroll at the same instant), exactly one
+# wins; the other gets HTTP 403. That's the expected behaviour for a token whose uses are
+# spent. A use that ends without a host (the fleet is at its host limit, or a re-enrolling
+# host sent the wrong host token) is given back; see _settle_enrol_token_use().
 #
 # Token storage shape (in enrollment_tokens.json):
 #   {
-#     "<token>": {
+#     "<sha256 of the token>": {
 #       "created":       <unix_ts>,
 #       "expires":       <unix_ts>,
 #       "actor":         "<username who created it>",
 #       "default_group": "servers",       # optional — applied at enrollment
 #       "default_tags":  ["prod","linux"], # optional
-#       "label":         "ansible-batch-2026-05-06"  # optional, free-form
+#       "label":         "ansible-batch-2026-05-06",  # optional, free-form
+#       "max_uses":      50,              # optional — only written above 1 (absent means 1)
+#       "uses":          12               # optional — hosts that have enrolled with it so far (absent means 0)
 #     },
 #     ...
 #   }
@@ -22049,6 +22057,72 @@ def _purge_expired_enroll_tokens(tokens, now):
     for t in expired:
         tokens.pop(t, None)
     return tokens
+
+
+def _enrol_token_counts(meta):
+    """``(uses, cap)`` of one enrolment token row: how many hosts have enrolled with it, and how many may.
+
+    A row made before ``max_uses`` existed has no such field and is a single-use token. A number that cannot be read is read the
+    strict way (cap 1, uses spent), so a damaged row never lets in more hosts than it was made for."""
+    meta = meta if isinstance(meta, dict) else {}
+    raw_cap = meta.get('max_uses')
+    if raw_cap is None:
+        cap = 1
+    elif isinstance(raw_cap, int) and not isinstance(raw_cap, bool):
+        cap = max(1, min(MAX_ENROLL_TOKEN_USES, raw_cap))
+    else:
+        cap = 1
+    raw_uses = meta.get('uses')
+    if raw_uses is None:
+        uses = 0
+    elif isinstance(raw_uses, int) and not isinstance(raw_uses, bool) and raw_uses >= 0:
+        uses = raw_uses
+    else:
+        uses = cap
+    return uses, cap
+
+
+def _clean_enroll_max_uses(raw):
+    """How many hosts a new enrolment token may enrol, as ``(max_uses, error)``. Absent or null is one, as it always was.
+
+    Only a whole number from 1 to MAX_ENROLL_TOKEN_USES is accepted. Text, a float, a boolean, a list and a number outside the range
+    are refused instead of being read as something close to what was meant: this number is how many hosts one leaked command can
+    enrol, so a guess in the generous direction is the wrong one."""
+    if raw is None:
+        return 1, None
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1 or raw > MAX_ENROLL_TOKEN_USES:
+        return None, f'max_uses must be a whole number from 1 to {MAX_ENROLL_TOKEN_USES}'
+    return raw, None
+
+
+def _settle_enrol_token_use(claim, ok):
+    """Finish the claim ``handle_enroll_register`` took on one use of a token, once the host step has an answer.
+
+    The claim is taken under the token store's lock before the host is created, so that N requests racing for the last uses
+    cannot enrol more than N hosts; the host store has its own lock and the two cannot be held together. This is the second
+    half, a separate short lock:
+
+    * the host was enrolled (a new host, or a known host enrolling again): a token whose uses are now spent is deleted, as a
+      single-use token always was; one with uses left stays as the claim left it;
+    * the host was refused (the fleet is at its host limit, a known host sent the wrong host token): the use is given back.
+
+    A token that was revoked in between has no row any more, and nothing is put back: giving a use back must never bring a revoked
+    token to life. A failure here is swallowed with a note on stderr. The host exists by now, and answering 500 would lose the
+    credentials the agent is waiting for; a row left spent is refused on its next use and leaves with the expiry."""
+    key = claim[0]
+    try:
+        with _LockedUpdate(ENROLL_TOKENS_FILE) as tokens:
+            row = tokens.get(key)
+            if not isinstance(row, dict):
+                return
+            uses, cap = _enrol_token_counts(row)
+            if ok:
+                if uses >= cap:
+                    del tokens[key]
+            elif uses > 0:
+                row['uses'] = uses - 1
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] enrolment token settle failed: {type(e).__name__}\n')
 
 
 def _self_signed_ca_fingerprint():
@@ -22067,16 +22141,18 @@ def _self_signed_ca_fingerprint():
 
 
 def handle_enroll_token_create():
-    """``POST /api/enrollment-tokens`` — generate a one-time-use enrollment token.
+    """``POST /api/enrollment-tokens`` — generate an enrollment token. It enrols one host unless ``max_uses`` says more.
 
     Body (all optional):
         expires_in    — seconds until expiry. Default 24h, capped at 7 days.
         default_group — group string applied to the device on enrollment.
         default_tags  — list of tag strings applied on enrollment.
         label         — free-form description shown in the listing endpoint.
+        max_uses      — how many hosts may enrol with it, a whole number from 1 (the default) to
+                        MAX_ENROLL_TOKEN_USES. It is fixed when the token is made: nothing raises it afterwards.
 
     Response:
-        ``{token, expires, created, label, ca_fingerprint}`` — the token is shown
+        ``{token, expires, created, label, max_uses, ca_fingerprint}`` — the token is shown
         ONCE here; we never return it again from the GET endpoint (only the
         truncated prefix), so the caller must capture it now. ``ca_fingerprint``
         is the SHA-256 of this server's own self-signed CA, or '' when it has none.
@@ -22114,6 +22190,10 @@ def handle_enroll_token_create():
     allowed_cidrs, _cidr_err = _clean_enroll_cidrs(body.get('allowed_cidrs'))
     if _cidr_err:
         respond(400, {'error': _cidr_err})
+    # how many hosts may enrol with it (absent = one, as before)
+    max_uses, _uses_err = _clean_enroll_max_uses(body.get('max_uses'))
+    if _uses_err:
+        respond(400, {'error': _uses_err})
 
     # Generate the token. 32 url-safe bytes → 43 chars after base64. That's
     # enough entropy that brute-forcing at the rate-limit isn't a concern.
@@ -22139,17 +22219,21 @@ def handle_enroll_token_create():
         }
         if allowed_cidrs:
             tokens[_hash_device_token(token)]['allowed_cidrs'] = allowed_cidrs
+        if max_uses > 1:        # a single-use token keeps the row it always had
+            tokens[_hash_device_token(token)]['max_uses'] = max_uses
         _tok_tenant = _enrol_tenant()
         if _tok_tenant:
             tokens[_hash_device_token(token)]['tenant'] = _tok_tenant
     audit_log(actor, 'enrollment_token_created',
               f'label="{label}" expires_in={ttl}s group="{default_group}" tags={clean_tags}'
-              + (f' only_from={allowed_cidrs}' if allowed_cidrs else ''))
+              + (f' only_from={allowed_cidrs}' if allowed_cidrs else '')
+              + (f' max_uses={max_uses}' if max_uses > 1 else ''))
     respond(201, {
         'token':   token,
         'expires': now + ttl,
         'created': now,
         'label':   label,
+        'max_uses': max_uses,
         'allowed_cidrs': allowed_cidrs,
         'ca_fingerprint': _self_signed_ca_fingerprint(),
     })
@@ -22182,6 +22266,11 @@ def handle_enroll_token_list():
               and _enrol_credential_visible(v)}
     out = []
     for token, meta in tokens.items():
+        _uses, _cap = _enrol_token_counts(meta)
+        if _uses >= _cap:
+            # All its uses are taken, so it is not open any more and is not listed (a single-use token never was once used).
+            # The row can linger for a moment while the last host is registered, or until it expires if that step failed.
+            continue
         out.append({
             # v5.4.1: the key is now a hash; show the stored `prefix` (legacy
             # plaintext-keyed tokens fall back to the key's first 8 chars).
@@ -22193,6 +22282,9 @@ def handle_enroll_token_list():
             'default_tags':  meta.get('default_tags', []) or [],
             'label':         meta.get('label', ''),
             'allowed_cidrs': [c for c in (meta.get('allowed_cidrs') or []) if isinstance(c, str)][:MAX_ENROLL_CIDRS],   # 7.4.9
+            'max_uses':      _cap,
+            'uses':          _uses,
+            'uses_left':     _cap - _uses,
             'remaining_seconds': max(0, meta.get('expires', 0) - now),
         })
     out.sort(key=lambda t: t['created'], reverse=True)
@@ -22235,8 +22327,10 @@ def handle_enroll_token_revoke(token_prefix: str):
             respond(400, {'error': f'{len(matches)} tokens share that prefix — use a longer prefix'})
         full = matches[0]
         label = tokens[full].get('label', '')
+        _used, _of = _enrol_token_counts(tokens[full])
         del tokens[full]
-    audit_log(actor, 'enrollment_token_revoked', f'prefix={prefix} label="{label}"')
+    audit_log(actor, 'enrollment_token_revoked',
+              f'prefix={prefix} label="{label}"' + (f' used={_used}/{_of}' if _of > 1 else ''))
     respond(200, {'ok': True})
 
 
@@ -22297,31 +22391,35 @@ def handle_enroll_register():
     body = _read_valid(request_models.EnrollRegisterRequest)
 
     # v1.11.10: enrollment can use either a 6-digit PIN (interactive) OR
-    # a long pre-shared one-time-use token (non-interactive — Ansible,
-    # cloud-init, etc.). Either path validates and consumes its credential
-    # before creating the device. Both are atomic because the check-and-delete
-    # happens UNDER THE STORE LOCK — not merely because the delete precedes the
-    # device create, which is what this comment used to claim. Ordering alone
-    # does not stop two concurrent enrolls from both passing the existence
-    # check; only the lock does.
+    # a long pre-shared token (non-interactive — Ansible, cloud-init,
+    # group policy, a golden image). Either path validates and takes its
+    # credential before creating the device. Both are atomic because the
+    # check-and-take happens UNDER THE STORE LOCK — not merely because it
+    # precedes the device create, which is what this comment used to claim.
+    # Ordering alone does not stop two concurrent enrolls from both passing
+    # the check; only the lock does.
     pin = str(body.get('pin', '')).strip()
     enroll_token = str(body.get('enrollment_token', '')).strip()
     default_group = ''
     default_tags = []
     enrol_tenant = ''
+    _claim = None        # (token key, use number, cap, display prefix) once this request holds one use of a token
 
     if enroll_token:
-        # Token path. The token must exist, not be expired, and gets
-        # deleted as part of consumption. Default group/tags from the
-        # token apply unless the agent explicitly provides its own.
+        # Token path. The token must exist, not be expired and have a use left;
+        # the request takes one of its uses under the lock. A single-use token
+        # has exactly one. Default group/tags/tenant come from the token row, the
+        # same for every use.
         if len(enroll_token) < 16 or len(enroll_token) > 256:
             respond(400, {'error': 'Invalid enrollment token format'})
-        # v6.4.0 (SECURITY): consume under the store lock. This was a lock-free
+        # v6.4.0 (SECURITY): take the use under the store lock. This was a lock-free
         # load → check → delete → save, so two concurrent enrolls racing the
         # same one-time token could BOTH pass the existence check and both
         # enroll — while the docs promised "consumed atomically, can't enroll
-        # twice". The lock makes the check-and-delete a real single-use gate
-        # (the 403 respond inside the lock aborts the save and releases it).
+        # twice". The lock makes the check-and-take a real gate (the 403 respond
+        # inside the lock aborts the save and releases it): N requests racing
+        # for a token with N uses left enrol exactly N hosts, and the row stays
+        # until _settle_enrol_token_use() knows whether the host was made.
         now = int(time.time())
         _eh = _hash_device_token(enroll_token)
         with _LockedUpdate(ENROLL_TOKENS_FILE) as tokens:
@@ -22343,7 +22441,11 @@ def handle_enroll_register():
             if _refused:
                 _refused_prefix = str(meta.get("prefix") or "")[:8]
             else:
-                del tokens[_ekey]
+                _uses, _cap = _enrol_token_counts(meta)
+                if _uses >= _cap:       # every use is taken (a row left spent by an interrupted request, or the last use is in flight)
+                    respond(403, {'error': 'Invalid or expired enrollment token'})
+                meta['uses'] = _uses + 1
+                _claim = (_ekey, _uses + 1, _cap, str(meta.get('prefix') or _ekey)[:8])
         if _refused:      # outside the lock: an audit entry queued inside a scope that then raises is discarded with it
             audit_log('enroll', 'enrollment_token_refused_source',
                       f'prefix={_refused_prefix} from={_sanitize_str(_get_client_ip(), 64)}')
@@ -22472,6 +22574,14 @@ def handle_enroll_register():
                                  f'via={"token" if enroll_token else "pin"}')
                 outcome = ('new', dev_id, new_token)
 
+    # The token's use: kept if the host was enrolled, given back if it was refused (see _settle_enrol_token_use).
+    if _claim:
+        _enrolled = outcome[0] in ('new', 'reenroll')
+        _settle_enrol_token_use(_claim, _enrolled)
+        if _enrolled and pending_audit:
+            # every use is on the record with the host it enrolled; the token itself never is, only the prefix the list shows
+            pending_audit = (pending_audit[0],
+                             f'{pending_audit[1]} token_prefix={_claim[3]} use={_claim[1]}/{_claim[2]}')
     if pending_audit:
         audit_log('enroll', pending_audit[0], pending_audit[1])
     if outcome[0] == 'new':
@@ -37048,14 +37158,14 @@ def handle_win_agent_download():
 #     curl -fsSL <server>/install | sh -s -- --token <enrollment-token>
 # and SSH-push just runs that same line on a remote host. POSIX sh (dash-safe).
 # @@SERVER@@ is replaced per-request. No secret is embedded — the caller supplies
-# the one-time --token; the server URL is public — so this stays auth-exempt like
+# the --token; the server URL is public — so this stays auth-exempt like
 # the agent binary download it pulls.
 _AGENT_INSTALL_SH = r'''#!/bin/sh
 # RemotePower agent installer  ·  served by @@SERVER@@
 #   curl -fsSL @@SERVER@@/install | sh -s -- --token <enrollment-token> [--ca-fingerprint FP] [--name NAME]
 set -eu
 RP_SERVER="@@SERVER@@"
-RP_TOKEN="@@TOKEN@@"   # baked one-time enrolment token (empty if not a baked link)
+RP_TOKEN="@@TOKEN@@"   # baked enrolment token (empty if not a baked link)
 # Staging hook, as in install-client.sh: RP_INSTALL_ROOT installs into another root
 # and waives the root check. The unit file still names the real binary path.
 ROOT="${RP_INSTALL_ROOT:-}"
@@ -37205,9 +37315,10 @@ def _render_agent_install(environ):
     host = environ.get('HTTP_HOST') or environ.get('SERVER_NAME') or 'localhost'
     host = re.sub(r'[^A-Za-z0-9.:\[\]\-]', '', host)[:255]   # defensive
     proto = _scheme_of(environ.get)
-    # Baked token: "Add device" mints a one-time token and links
+    # Baked token: "Add device" mints a token and links
     # <server>/install?t=<token>, so the operator runs a SINGLE wget|sh with NO
-    # args — the device enrols itself and shows up by hostname.
+    # args — the device enrols itself and shows up by hostname. The token enrols
+    # one host unless it was made for more (max_uses): this script does not count.
     qs = urllib.parse.parse_qs(environ.get('QUERY_STRING', ''))
     token = (qs.get('t') or qs.get('token') or [''])[0]
     token = re.sub(r'[^A-Za-z0-9._\-]', '', token)[:128]
@@ -37219,7 +37330,7 @@ def _render_agent_install(environ):
 def handle_agent_install():
     """GET /api/agent/install (and /install) — serve the one-line agent
     installer with this server's URL baked in. Auth-exempt: it embeds no secret
-    (the caller passes a one-time --token) and the server URL is public, exactly
+    (the caller passes the --token) and the server URL is public, exactly
     like the agent binary it downloads."""
     # v6.1.0: os.environ is process-global — correct under CGI (fresh process
     # per request) but WRONG under the persistent gunicorn/Flask tier (now the
@@ -37236,12 +37347,12 @@ def handle_agent_install():
 
 # v6.2.0: the Windows onboarding one-liner. Parity with the Linux /install shell
 # script — the operator runs ONE command in an elevated PowerShell and the host
-# enrols itself. Server URL + one-time token are baked in per request, so:
+# enrols itself. Server URL + enrolment token are baked in per request, so:
 #   powershell -ExecutionPolicy Bypass -Command "iwr '<server>/install.ps1?t=<tok>' -UseBasicParsing | iex"
 # The served script self-checks for elevation and Python (with human error
 # messages — this is onboarding), downloads the agent from THIS server, verifies
 # its sha256, enrols with the baked token, and registers the scheduled task. No
-# secret is embedded beyond the one-time token, so it stays auth-exempt like the
+# secret is embedded beyond the enrolment token, so it stays auth-exempt like the
 # Linux installer and the agent download it pulls.
 _AGENT_INSTALL_PS1 = r'''# RemotePower Windows agent installer  ·  served by @@SERVER@@
 # Run in an ELEVATED PowerShell:
@@ -37426,7 +37537,7 @@ def _render_win_install(environ):
 
 def handle_win_install():
     """GET /install.ps1 (and /api/agent/win/install) — the Windows onboarding
-    one-liner installer with this server's URL + one-time token baked in.
+    one-liner installer with this server's URL + enrolment token baked in.
     Auth-exempt for the same reason as the Linux /install."""
     body = _render_win_install(getattr(_RCTX, 'environ', None) or os.environ).encode()
     print("Status: 200 OK")

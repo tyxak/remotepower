@@ -7394,6 +7394,10 @@ svg { stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .enroll-docker-pre { max-height:280px; overflow:auto; white-space:pre;
   background:var(--surface2); color:var(--text); padding:10px 12px;
   border:1px solid var(--border); border-radius:6px; margin-top:8px; }
+/* The install commands that are still open, at the foot of the Enroll dialog. A row wraps instead of running off a narrow screen. */
+.enroll-open-row { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; padding:6px 0; border-bottom:1px solid var(--border); }
+.enroll-open-row:last-child { border-bottom:0; }
+.enroll-open-main { flex:1 1 200px; min-width:0; overflow-wrap:anywhere; }
 /* v4.7.0: homelab software integrations (Settings → Integrations). */
 /* Status is shown with the canonical .status-pill (themed, with a dot). The
    card flows naturally; the LIST is scroll-capped (.scroll-cap) per the

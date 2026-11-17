@@ -30,7 +30,7 @@ persists its credentials to the `rp-agent-creds` volume, and reports from then o
 Restarts reuse the saved credentials. There's no PIN to type.
 
 Prefer not to use the UI? Mint a token through the API (`POST /api/enrollment-tokens`,
-admin; it lasts 24 hours unless you send `expires_in` in seconds, at most 7 days) and use
+admin; it lasts 24 hours unless you send `expires_in` in seconds, at most 7 days, and enrols one host unless you send `max_uses`) and use
 [`docker/docker-compose.agent.yml`](../docker/docker-compose.agent.yml)
 from the repo, setting `RP_SERVER` and `RP_ENROLL_TOKEN`.
 
@@ -42,7 +42,7 @@ file when you want the host watched by a container and the host OS left alone.
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
 | `RP_SERVER` | first boot | — | Server URL, e.g. `https://remote.example.com` |
-| `RP_ENROLL_TOKEN` | first boot | — | One-time enrollment token, good for 24 hours (also accepts `REMOTEPOWER_ENROLL_TOKEN`) |
+| `RP_ENROLL_TOKEN` | first boot | — | Enrollment token, good for 24 hours by default and for one host unless it was made for more (also accepts `REMOTEPOWER_ENROLL_TOKEN`) |
 | `RP_DEVICE_NAME` | no | host's hostname | Host display name |
 | `RP_CA_FINGERPRINT` | no | — | Pin a self-signed server's CA (SHA-256). The agent fetches `/ca.crt` over plain HTTP and refuses it unless the fingerprint matches. Add it when your server uses its own CA. |
 | `RP_INTERVAL` | no | `60` | Heartbeat interval (seconds) |

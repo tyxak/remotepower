@@ -630,7 +630,7 @@ cmd_agent() {
       return 2
     fi
     banner; section "Pushing agent over SSH"
-    [ "${#hosts[@]}" -gt 1 ] && note "one enrolment token enrols ONE host — mint one token per host in the dashboard."
+    [ "${#hosts[@]}" -gt 1 ] && note "a token enrols as many hosts as it was made for (one by default) — make it for ${#hosts[@]} hosts (Enroll host → Hosts that can use it) or mint one token per host."
     local one="curl -fsSL '${server}/install' | ${sudo:+$sudo }sh -s -- --token '${token}'"
     local h rc=0
     for h in "${hosts[@]}"; do

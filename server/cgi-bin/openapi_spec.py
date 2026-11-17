@@ -1168,6 +1168,72 @@ def _path_method_in_handler() -> dict[str, Any]:
     }
 
 
+def _path_enrollment_tokens() -> dict[str, Any]:
+    """Enrolment tokens: make one, list the open ones, revoke one. A token enrols one host unless `max_uses` says more (up to 1000)."""
+    _ok = {"200": {"description": "OK"}, "401": {"$ref": "#/components/responses/Unauthorized"}}
+    _admin = {**_ok, "403": {"description": "Admin role required."}}
+    return {
+        "/enrollment-tokens": {
+            "get": {
+                "tags": ["Agents"],
+                "summary": "List the open enrollment tokens",
+                "description": (
+                    "Each token that can still enrol a host: its display `prefix` (never the token), `label`, `default_group`, "
+                    "`default_tags`, `allowed_cidrs`, how many hosts have enrolled with it (`uses`), how many may (`max_uses`), "
+                    "how many are left (`uses_left`) and the seconds it has left. A tenant administrator sees only its own tenant's."
+                ),
+                "responses": _admin,
+            },
+            "post": {
+                "tags": ["Agents"],
+                "summary": "Make an enrollment token",
+                "description": (
+                    "Returns `token` once; it is never shown again. The token enrols one host unless `max_uses` is a whole number "
+                    "from 1 to 1000, which is how many hosts may enrol with it (group policy, Intune, a golden image, an autoscaling "
+                    "group). The number is fixed when the token is made. A host that enrols again counts again; a host that is refused "
+                    "does not use one up. Every use is audited with the host's id."
+                ),
+                "requestBody": {
+                    "required": False,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "expires_in": {"type": "integer", "minimum": 60, "maximum": 604800,
+                                                   "description": "Seconds until it expires. Default 86400, at most 7 days."},
+                                    "max_uses": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 1,
+                                                 "description": "How many hosts may enrol with it. A string, a float, zero and a negative number are refused."},
+                                    "default_group": {"type": "string"},
+                                    "default_tags": {"type": "array", "items": {"type": "string"}},
+                                    "label": {"type": "string", "maxLength": 128},
+                                    "allowed_cidrs": {"type": "array", "items": {"type": "string"},
+                                                      "description": "Addresses or networks the token may be used from."},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "201": {"description": "Made. Carries token, expires, created, label, max_uses, allowed_cidrs and ca_fingerprint."},
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"description": "Admin role required."},
+                },
+            },
+        },
+        "/enrollment-tokens/{prefix}": {
+            "delete": {
+                "tags": ["Agents"],
+                "summary": "Revoke an enrollment token",
+                "description": "Stops further use at once. The prefix is the one the list shows (at least 4 characters).",
+                "parameters": [{"name": "prefix", "in": "path", "required": True, "schema": {"type": "string"}}],
+                "responses": {**_admin, "404": {"description": "No matching token."}},
+            }
+        },
+    }
+
+
 def _path_virt() -> dict[str, Any]:
     """v5.6.0: virtualization lifecycle across Proxmox/vSphere/OpenShift/vCloud."""
     _id = {
@@ -1331,13 +1397,15 @@ def _path_identity() -> dict[str, Any]:
                 "tags": ["Agents"],
                 "summary": "Agent self-registration against an enrollment token",
                 "description": (
-                    "Exchanges a one-time enrollment token for a per-host "
-                    "agent token. Called by the installer, not by operators."
+                    "Exchanges an enrollment token (or a PIN) for a per-host "
+                    "agent token. A token enrols one host unless it was made with "
+                    "`max_uses` (see POST /enrollment-tokens); each host that enrols "
+                    "takes one of its uses. Called by the installer, not by operators."
                 ),
                 "responses": {
                     "200": {"description": "Registered; returns the host token."},
                     "400": {"$ref": "#/components/responses/BadRequest"},
-                    "403": {"description": "Unknown, expired or already-used token."},
+                    "403": {"description": "Unknown, expired, revoked or used-up token."},
                 },
             }
         },
@@ -1501,6 +1569,7 @@ def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None)
     paths.update(_path_vault())
     paths.update(_path_auth_misc())
     paths.update(_path_virt())
+    paths.update(_path_enrollment_tokens())
     paths.update(_path_ingest())
     paths.update(_path_identity())
     paths.update(_path_method_in_handler())

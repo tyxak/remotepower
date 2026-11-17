@@ -63,7 +63,8 @@ over SSH:
 sudo bash install.sh agent push --server https://your-server --token <token> user@host
 ```
 
-One enrollment token enrolls one host, so mint one token per host. Tear an install
+A token enrolls one host unless you made it for more (see
+[install.md](install.md#one-command-for-many-hosts)). Tear an install
 down with `sudo bash install.sh uninstall` (add `--purge` to remove the data too). See
 [install.md](install.md) for the full quick-start.
 
@@ -155,10 +156,11 @@ would send launchd's output somewhere nothing reads. The boot file normally stay
 empty. It only catches a traceback that escapes Python logging, and the agent
 truncates it if it ever passes 1 MB.
 
-For fleet enrollment from cloud-init or Ansible, mint one-time enrollment tokens with
+For fleet enrollment from cloud-init or Ansible, mint enrollment tokens with
 `POST /api/enrollment-tokens` instead of using a PIN. A token lasts 24 hours by default
-(7 days at most), enrolls one host, and can carry a default group and tags. See
-[install.md](install.md).
+(7 days at most), enrolls one host unless you send `max_uses` (a whole number from 1 to 1000,
+for group policy, Intune, golden images and autoscaling groups), and can carry a default group and tags. See
+[install.md](install.md#one-command-for-many-hosts).
 
 **Limit a token to a network** *(7.4.9)*. A token that leaks from a build log or a chat is good from anywhere until it
 expires or is used. Add `allowed_cidrs` when you mint it, a list of addresses or networks (or one string separated by

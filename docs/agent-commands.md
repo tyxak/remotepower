@@ -22,14 +22,15 @@ systemctl restart remotepower-agent
 |---|---|---|
 | `--server URL` | `enroll`, `re-enroll`, `enroll-token` | The server's address. The agent only speaks HTTPS and adds `https://` when you leave it out. |
 | `--pin PIN` | `enroll`, `re-enroll` | The 6-digit PIN from **Hosts → Enroll host**. Skips the prompt. It can also come from `$REMOTEPOWER_ENROLL_PIN`, which keeps it out of the process list *(7.5.0)*. |
-| `--token TOKEN` | `enroll-token` | A one-time enrollment token. It can also come from `$REMOTEPOWER_ENROLL_TOKEN` or the file `/etc/remotepower/enroll-token`. |
+| `--token TOKEN` | `enroll-token` | An enrollment token. It can also come from `$REMOTEPOWER_ENROLL_TOKEN` or the file `/etc/remotepower/enroll-token`. |
 | `--name NAME` | `enroll-token` | The host's display name. Defaults to its hostname. |
 | `--interval SECONDS` | `run` | Poll interval. Defaults to 60. |
 
 `enroll-token` is the unattended route for Ansible, cloud-init and golden images. Mint
-the token with `POST /api/enrollment-tokens`: it is single use, lasts 24 hours by
-default (7 days at most), and can carry a default group, tags and a label. See
-[install.md](install.md).
+the token with `POST /api/enrollment-tokens`: it enrols one host unless you send `max_uses`
+(up to 1000 hosts from one token), lasts 24 hours by default (7 days at most), and can carry a
+default group, tags and a label. After a successful enrolment the agent deletes
+`/etc/remotepower/enroll-token` from that host. See [install.md](install.md#one-command-for-many-hosts).
 
 The agent keeps its settings in `/etc/remotepower/agent.conf` and its credentials in
 `/etc/remotepower/credentials` (mode 600, root only). When you stop the service

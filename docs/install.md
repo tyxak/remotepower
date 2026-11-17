@@ -37,9 +37,10 @@ powershell -ExecutionPolicy Bypass -Command "iwr 'https://your-server/install.ps
 ```
 
 Either downloads the **signed** agent, verifies its checksum, enrols with the
-baked one-time token, and the host appears **by its hostname** within ~60 seconds.
+token in the link, and the host appears **by its hostname** within ~60 seconds.
 **Quick install command** hands you both lines with a fresh token that works for 24
-hours. The **Enroll host** window also shows a 6-digit PIN that expires after 10 minutes,
+hours and enrols one host. To use one command on many hosts, see
+[One command for many hosts](#one-command-for-many-hosts). The **Enroll host** window also shows a 6-digit PIN that expires after 10 minutes,
 for installers that ask for one. (Windows details, service control, and the offline
 `install-windows.ps1` script: [windows-client.md](windows-client.md).)
 
@@ -71,11 +72,36 @@ sudo bash install.sh agent push --server https://your-server --token <token> use
 ```
 
 Each invocation enrols exactly the hosts you name, signing in to each over SSH to install and
-start the agent. One enrollment token enrols **one** host, so mint a token per host in the
-dashboard and run the command once for each. Add `--no-sudo` if you connect as root.
+start the agent. A token enrols **one** host unless you made it for more, so for several hosts
+either mint a token per host, or make one token for that many hosts and pass the same `--token`
+to each (see [One command for many hosts](#one-command-for-many-hosts)). Add `--no-sudo` if you connect as root.
 
 **Uninstall:** `sudo bash install.sh uninstall` (keeps your data; `--purge` to
 wipe it) · agent: `wget -qO- https://your-server/install | sudo sh -s -- --uninstall`.
+
+### One command for many hosts
+
+Group policy, Intune, a golden image and an autoscaling group run one install command on many hosts.
+A token made for that works for a number of hosts you choose and then stops.
+
+- **Make it.** In **Hosts → Enroll host**, set **Hosts that can use it** (1 to 1000, default 1) before you
+  choose **Quick install command** or **Generate Docker compose**. The **Guide me** wizard has the same field on its
+  **Settings** step. Through the API it is `max_uses` on `POST /api/enrollment-tokens`; it has to be a whole number from 1 to 1000.
+- **What counts as a use.** Each host that enrols with the token. A host that enrols again counts again. A host that is
+  refused (the fleet is at its host limit, or a known host sent the wrong host token) does not use one up.
+- **How long it lasts.** Until its uses are spent or it expires: 24 hours by default, 7 days at most, as for any token.
+  Nothing raises the number later; make another token instead.
+- **What each host gets.** The same as from a single-use token: the tenant of the administrator who made it, and its
+  group, tags and network limit (`allowed_cidrs`).
+- **See it and stop it.** **Enroll host** lists the commands that are still open as *used 2 of 10*, with the time they have
+  left and a **Revoke** button. `GET /api/enrollment-tokens` returns `uses`, `max_uses` and `uses_left` for each, and
+  never the token. Revoking stops further use at once. The audit log has a line for every host that enrolled, with the
+  host's id and the first characters of the token, and never the token.
+
+Anyone who holds the command can enrol that many hosts until it expires, so keep it where only your rollout tooling
+can read it, make it for the number of hosts you expect, give it a short life, and limit it to your own networks with
+`allowed_cidrs`. The server accepts 10 enrolment attempts a minute from one address. Hosts that start at once behind one
+NAT address get a 429 after the tenth, the installer stops, and the refused hosts have not used a use: run it again.
 
 ---
 

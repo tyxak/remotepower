@@ -27,7 +27,9 @@ The Enroll dialog shows a PIN, a one-line command and a Docker file on one scree
    - **Group** and **Tags** are put on the host when it enrols. Groups that exist already are offered as you type.
    - **Only from these networks** limits where the install may connect from, for example `10.0.0.0/24`. The server checks the address the
      install connects from. A command used from somewhere else is refused and stays valid for the right place. Leave it empty to allow any address.
-   - **Valid for** is one hour, 24 hours or 7 days. The command works once.
+   - **Valid for** is one hour, 24 hours or 7 days.
+   - **Hosts that can use it** is how many hosts may enrol with the command, from 1 to 1000. It is 1 by default, and the command works once.
+     Above 1 the wizard warns that anyone who holds the command can enrol that many hosts until it expires, and that revoking it stops it.
 
    A PIN carries none of this, so a PIN install skips this step.
 3. **Install.** The command for the type you chose, with a **Copy** button. Below it the wizard waits for the host and says when it
@@ -38,7 +40,7 @@ The Enroll dialog shows a PIN, a one-line command and a Docker file on one scree
 
 Going back and forward with the same settings does not make a second token. The tokens you make here are listed with the label
 `guided-add-host`. The group and tags are the token's own defaults, the same ones `POST /api/enrollment-tokens` takes
-(`default_group`, `default_tags`, `allowed_cidrs`).
+(`default_group`, `default_tags`, `allowed_cidrs`, `max_uses`).
 
 ## Add a notification destination
 

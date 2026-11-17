@@ -345,7 +345,11 @@ class TestEagerJsPayload(unittest.TestCase):
         # host drawer no longer takes the note of a scan for a failed request and prints the note (about 600 with the reason); the count in the host
         # view says how many need Ubuntu Pro, prints a number or a name only when it is one, and the page files a blank or a numeric fixed version
         # under the same tile as the server (about 700).
-        self.assertLess(total, 2_744_000,
+        # Enrolment for many hosts: 2_747_000. The payload was 2_742_522 and is 2_745_024 now: 2,502 bytes more. index.html is about 1,150 of them (the "Hosts that can use it" field
+        # of the Enroll dialog with its notice, the section for the open install commands, and the in-app guide's paragraph about tokens) and app.js about 1,350 (the number's check
+        # and the notice's toggle, the minted token being checked before it is printed into a command, the sentences that differ above one host, and the call that fetches the list).
+        # The list itself is app-enrol.js and the wizard's field is in app-wizard.js, both lazy; the Enroll dialog is drawn before any loader could be asked for more.
+        self.assertLess(total, 2_747_000,
                         'the eager JS payload regressed past its budget')
 
 
