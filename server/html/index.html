@@ -3367,7 +3367,7 @@
                     data-action="downloadDebugLog" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><use href="#ic-c923885c"/></svg>Download server debug log</button>
           </div>
 
-          <div class="settings-section">
+          <div class="settings-section" data-platform-only>
             <div class="section-title">Backup &amp; restore</div>
             <p class="hint">Two kinds of backup. The <strong>redacted export</strong> is a ZIP with API keys and integration secrets stripped — safe to store or share. The <strong>full disaster-recovery backup</strong> is a tar.gz of the <em>entire</em> data directory <em>including</em> the encrypted credentials vault and integration secrets — it can fully rebuild this controller, so keep it private. <strong>Restore</strong> applies a full backup and <em>overwrites current data</em>; a safety snapshot of the existing data is taken first (under <code>restore-snapshots/</code> in the data dir). <a href="docs/backups.md" class="c-accent">Documentation</a></p>
             <div class="sb-controls">

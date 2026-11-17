@@ -577,17 +577,10 @@ _consumeOidcHashToken();
 let _readOnlyMode = false;
 
 // ── v3.12.0: iCal import / export ────────────────────────────────────────────
+// Through _downloadAuthed, which looks at the status: a user of another tenant is refused the calendar (it is the operator organisation's),
+// and the refusal used to be saved as the .ics file with "Calendar exported" over it.
 function exportCalendarIcs() {
-  fetch('/api/calendar.ics', { headers: { 'X-Token': getToken() } })
-    .then(r => r.blob())
-    .then(b => {
-      const url = URL.createObjectURL(b);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'remotepower-calendar.ics'; a.click();
-      URL.revokeObjectURL(url);
-      toast('Calendar exported', 'success');
-    })
-    .catch(() => toast('Export failed', 'error'));
+  _downloadAuthed('/api/calendar.ics', 'remotepower-calendar.ics', 'Calendar exported');
 }
 function importCalendarIcs() { document.getElementById('cal-import-file')?.click(); }
 document.addEventListener('change', e => {

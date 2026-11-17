@@ -9757,10 +9757,23 @@ async function _renderAvatar(el, username) {
   } catch (e) { /* keep initials */ }
 }
 
+// The platform operator is an administrator of the default tenant (the server's _caller_is_superadmin); with tenancy off every administrator is one.
+function _isPlatformOperator() {
+  return !!(_meCache && _meCache.admin && (!_meCache.tenant || _meCache.tenant === 'default'));
+}
+// An element marked data-platform-only is something the server refuses to everyone but the platform operator (the backup downloads and
+// restores, today). It is not drawn for anyone else, because a button that can only fail is noise. Nothing is hidden until /api/me has
+// answered, so a failed read leaves the page as it was and the server still decides.
+function _applyPlatformOnly() {
+  if (!_meCache) return;
+  const hide = !_isPlatformOperator();
+  document.querySelectorAll('[data-platform-only]').forEach(el => el.classList.toggle('hidden', hide));
+}
 async function loadMe() {
   const me = await api('GET', '/me');
   if (!me) return null;
   _meCache = me;
+  _applyPlatformOnly();
   const av = document.getElementById('topbar-avatar');
   const nm = document.getElementById('topbar-username');
   // v6.0.0: the account row lives in the sidebar footer — "user · role"
@@ -28720,7 +28733,7 @@ function _renderTimeline() {
   const total = items.length;
   const page = items.slice(0, _timelineShown);
   // 8.0.0: sending a past event through the channels again is the platform operator's (the server refuses a tenant's administrator), so it is offered to the same people
-  const canReplay = !!(_meCache && _meCache.admin && (!_meCache.tenant || _meCache.tenant === 'default'));
+  const canReplay = _isPlatformOperator();
   const rows = page.map(it => {
     const sev = _TIMELINE_SEV[it.severity] || 'sev-low';
     const whenAbs = _fmtAbsTs((it.ts || 0));
