@@ -21,6 +21,10 @@ As of the v6.2.0 second wave it also reports SMART disk health, hardware invento
 posture set for the Checks catalog (BitLocker / firewall / Defender / WU service),
 and evaluates agent-side custom checks incl. a `windows_service` type.
 
+It also sends the installed software: the Uninstall keys of the registry (read only) go to POST /api/packages as a list of
+applications, at the first poll, about every six hours, and when the server asks for a package scan. A list that has not changed
+since the last one sent is not sent again.
+
 Still Linux-only, and honestly so (v6.4.1 audit — the heartbeat-response keys
 this agent does NOT read): OpenSCAP (`force_scap_scan` /
 `scap_profile` — `oscap` is a Linux tool with Linux SCAP content, and the
@@ -1179,6 +1183,246 @@ def get_winget_updates():
         return {}          # winget not installed — not an error
     except Exception:
         return {}
+
+
+# ─── installed software ──────────────────────────────────────────────────────
+#
+# What the Programs and Features list holds, read from the Uninstall keys of the registry and sent to POST /api/packages the way the
+# Linux agent sends the packages of its distribution: a list that has not changed since the last one sent is not sent again, and
+# the server's force-scan command (`force_package_scan`, the Scan now and Send list buttons) sends it whatever the hash says. The
+# server reads it as a list of applications (pkg_manager `windows`): the software views show it and the software policy is
+# checked against it. Nothing is matched against a vulnerability database.
+#
+# Read only: a key is opened for reading and its values are read. No registry hive is loaded, saved or written to. A program that
+# one user installed for that user alone lives under HKEY_CURRENT_USER and is not in the machine's keys, so it is not listed: the
+# agent runs as SYSTEM and does not load the registry of a user who is not signed in.
+
+PACKAGE_LIST_EVERY = 360        # polls between two looks at the list: about 6 hours at a 60 s poll, as on the Linux agent
+MAX_INVENTORY_SEND = 5000       # rows in one report: the server keeps no more than that
+MAX_INVENTORY_BYTES = 1500000   # bytes of one report: the web server refuses a request over 2 MB
+MAX_INVENTORY_FIELD = 200       # characters of a name, a version or a publisher: the server keeps no more
+_UNINSTALL_KEY = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+_UNINSTALL_KEY_32 = r'SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+_MAX_UNINSTALL_SUBKEYS = 20000  # a key that never says it has no more subkeys does not keep the agent here
+_PKG_HASH_FILE = 'pkg_hash'     # in the data directory: the hash of the list that was sent last
+_inventory_cfg = {'force': False}   # the server's one-shot "send the list now", set by the heartbeat answer
+
+
+def _reg_text(winreg, key, name):
+    """A value of an open key as text, or '' when it is missing or is not text."""
+    try:
+        value, _kind = winreg.QueryValueEx(key, name)
+    except OSError:
+        return ''
+    return value.strip() if isinstance(value, str) else ''
+
+
+def _reg_flag(winreg, key, name):
+    """True when a value of an open key is 1 (a DWORD, as SystemComponent is written, or the text "1")."""
+    try:
+        value, _kind = winreg.QueryValueEx(key, name)
+    except OSError:
+        return False
+    if isinstance(value, int):
+        return value == 1
+    return isinstance(value, str) and value.strip() == '1'
+
+
+def _install_date(text):
+    """An InstallDate (YYYYMMDD) as YYYY-MM-DD, or '' for anything that is not a date between 1990 and 2100."""
+    text = (text or '').strip()
+    if len(text) == 8:      # strptime would read 2023121 as the first of December, and refuses digits of other scripts
+        try:
+            parsed = time.strptime(text, '%Y%m%d')
+        except ValueError:
+            return ''
+        if 1990 <= parsed.tm_year <= 2100:
+            return f'{parsed.tm_year:04d}-{parsed.tm_mon:02d}-{parsed.tm_mday:02d}'
+    return ''
+
+
+def _native_arch():
+    """The architecture of the programs of the plain Uninstall key: those of this machine's own kind."""
+    machine = (platform.machine() or '').lower()
+    if machine in ('amd64', 'x86_64', 'x64'):
+        return 'x64'
+    if machine in ('arm64', 'aarch64'):
+        return 'arm64'
+    if machine in ('x86', 'i386', 'i486', 'i586', 'i686'):
+        return 'x86'
+    return ''
+
+
+def _read_uninstall_key(winreg, path, view, arch):
+    """([row, ...], skipped) for one Uninstall key of HKEY_LOCAL_MACHINE.
+
+    An entry is left out, and counted, when it has no DisplayName (a key that is not a program), when SystemComponent is 1
+    (a component the list hides from the person) or when it names a ParentKeyName (an update or a hotfix of another
+    program). `view` is the registry view to read: the 64-bit one, so that a 32-bit Python on a 64-bit Windows reads the
+    same keys as a 64-bit one. A key that is not there or cannot be opened leaves nothing and counts nothing."""
+    rows, skipped = [], 0
+    try:
+        root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path, 0, winreg.KEY_READ | view)
+    except OSError:
+        return rows, skipped
+    try:
+        for index in range(_MAX_UNINSTALL_SUBKEYS):
+            try:
+                sub = winreg.EnumKey(root, index)
+            except OSError:
+                break                           # the key says it has no more subkeys the way the registry does: by raising
+            try:
+                key = winreg.OpenKey(root, sub, 0, winreg.KEY_READ | view)
+            except OSError:
+                continue
+            try:
+                name = _reg_text(winreg, key, 'DisplayName')
+                if not name or _reg_flag(winreg, key, 'SystemComponent') or _reg_text(winreg, key, 'ParentKeyName'):
+                    skipped += 1
+                    continue
+                row = {'name': name[:MAX_INVENTORY_FIELD],
+                       'version': _reg_text(winreg, key, 'DisplayVersion')[:MAX_INVENTORY_FIELD],
+                       'arch': arch, 'manager': 'windows'}
+                publisher = _reg_text(winreg, key, 'Publisher')[:MAX_INVENTORY_FIELD]
+                if publisher:
+                    row['publisher'] = publisher
+                installed = _install_date(_reg_text(winreg, key, 'InstallDate'))
+                if installed:
+                    row['installed'] = installed
+                rows.append(row)
+            finally:
+                winreg.CloseKey(key)
+    finally:
+        winreg.CloseKey(root)
+    return rows, skipped
+
+
+def _program_order(row):
+    """Rows sorted by name, then version and architecture; of two that are one program, the one that says more comes first, so the
+    row that is kept does not depend on the order the registry listed the keys in."""
+    return (row['name'].lower(), row['version'], row['arch'], not row.get('publisher'), not row.get('installed'),
+            row.get('publisher', ''), row.get('installed', ''), row['name'])
+
+
+def collect_installed_programs():
+    """([row, ...], skipped) of the programs in the Uninstall keys of this machine, sorted by name; ([], 0) off Windows.
+
+    The plain key holds the programs of this machine's own kind (x64 on a 64-bit Windows) and the WOW6432Node key those of
+    32-bit programs, so the architecture of a row is the one of the key it came from. A program that both keys name with the
+    same name, version and architecture is one row. `skipped` is how many entries were left out (see _read_uninstall_key).
+    A key that cannot be read leaves out its programs and nothing else."""
+    try:
+        import winreg
+    except Exception:
+        return [], 0
+    view = getattr(winreg, 'KEY_WOW64_64KEY', 0)
+    rows, skipped = [], 0
+    for path, arch in ((_UNINSTALL_KEY, _native_arch()), (_UNINSTALL_KEY_32, 'x86')):
+        try:
+            got, left = _read_uninstall_key(winreg, path, view, arch)
+        except Exception as e:
+            log.debug('installed programs: %s could not be read: %s', path, e)
+            continue
+        rows.extend(got)
+        skipped += left
+    seen, out = set(), []
+    for row in sorted(rows, key=_program_order):
+        ident = (row['name'].lower(), row['version'], row['arch'])
+        if ident not in seen:
+            seen.add(ident)
+            out.append(row)
+    return out, skipped
+
+
+def collect_software_inventory():
+    """(pkg_manager, [row, ...], skipped) of what this host reports to POST /api/packages."""
+    rows, skipped = collect_installed_programs()
+    return 'windows', rows, skipped
+
+
+def _load_last_pkg_hash():
+    try:
+        with open(os.path.join(_data_dir(), _PKG_HASH_FILE), 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except Exception:
+        return ''
+
+
+def _save_last_pkg_hash(h):
+    try:
+        with open(os.path.join(_data_dir(), _PKG_HASH_FILE), 'w', encoding='utf-8') as f:
+            f.write(h)
+    except Exception:
+        pass
+
+
+def _compute_pkg_hash(packages):
+    """The fingerprint of a list: the same rows in any order give the same hash, and a change to any field of any row gives another."""
+    rows = sorted((str(p.get('manager', '')), str(p.get('name', '')), str(p.get('version', '')), str(p.get('arch', '')),
+                   str(p.get('publisher', '')), str(p.get('installed', '')), str(p.get('id', ''))) for p in packages)
+    return hashlib.sha256(json.dumps(rows, separators=(',', ':')).encode()).hexdigest()[:16]
+
+
+def _fit_inventory(rows):
+    """The rows one report may carry: at most MAX_INVENTORY_SEND, and few enough bytes for the web server to take the request.
+    A list is sorted by name, so the rows that do not fit are the same ones each time."""
+    out, size = [], 0
+    for row in rows[:MAX_INVENTORY_SEND]:
+        size += len(json.dumps(row, separators=(',', ':'))) + 1
+        if size > MAX_INVENTORY_BYTES:
+            break
+        out.append(row)
+    if len(out) < len(rows):
+        log.warning('Software list cut from %d to %d rows (a report holds at most %d rows and %d bytes)',
+                    len(rows), len(out), MAX_INVENTORY_SEND, MAX_INVENTORY_BYTES)
+    return out
+
+
+def send_package_list(creds, force=False):
+    """Collect the installed software and push it to /api/packages.
+
+    As on the Linux agent the list is submitted only when it has changed since the last one the server took (a hash gate: a list
+    rarely moves on a stable host), and `force=True` bypasses the gate, because the point of an operator's "send it now" is
+    that it goes whatever the hash says. Nothing is sent for a host that has no list to send, and nothing is raised: the
+    heartbeat is not the place for a failed read of the registry to be heard. Returns True if sent."""
+    pkg_manager, rows, skipped = collect_software_inventory()
+    if not rows:
+        log.debug('No software enumerable (manager=%s)', pkg_manager)
+        return False
+    rows = _fit_inventory(rows)
+    new_hash = _compute_pkg_hash(rows)
+    if not force and new_hash == _load_last_pkg_hash():
+        log.debug('Software list unchanged - skipping submission')
+        return False
+    payload = {
+        'device_id':   creds.get('device_id', ''),
+        'token':       creds.get('token', ''),
+        'pkg_manager': pkg_manager,
+        'packages':    rows,
+        'skipped':     skipped,
+    }
+    try:
+        resp = _post_json(f"{creds.get('server_url', '')}/api/packages", payload, timeout=30)
+        log.info('Submitted %d software rows (%d entries left out, changed=%s)',
+                 len(rows), skipped, resp.get('changed', False) if isinstance(resp, dict) else False)
+        _save_last_pkg_hash(new_hash)
+        return True
+    except Exception as e:
+        log.warning('Software list submission failed: %s', e)
+        return False
+
+
+def _submit_software_inventory(creds, poll_count):
+    """The installed-software report, on the cadence of the Linux agent's package list: at the first poll, every
+    PACKAGE_LIST_EVERY polls, and at once when the server asked for it. Best-effort: a failure never breaks the beat."""
+    force = _inventory_cfg.get('force', False)
+    if not (poll_count <= 1 or poll_count % PACKAGE_LIST_EVERY == 0 or force):
+        return
+    _inventory_cfg['force'] = False
+    try:
+        send_package_list(creds, force=force)
+    except Exception as e:
+        log.debug('software list: %s', e)
 
 
 # PowerShell: Windows Defender posture. Pipe-delimited so parsing needs no JSON
@@ -3995,6 +4239,7 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         global _force_sysinfo, _backup_monitors
         if resp.get('force_package_scan'):
             _force_sysinfo = True   # refresh sysinfo (Windows Update pending) next beat
+            _inventory_cfg['force'] = True   # and send the installed-software list, whatever its hash says
         if resp.get('force_sysinfo'):
             _force_sysinfo = True   # v7.4.6 (#56): an alert was resolved by hand: report now
         _bm = resp.get('backup_monitors')
@@ -4081,6 +4326,11 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _submit_file_logs(creds, poll_count)
     except Exception as _e:
         log.debug('file_log submit error: %s', _e)
+    # the installed-software list rides its own POST, on the Linux agent's package-list cadence; best-effort the same way
+    try:
+        _submit_software_inventory(creds, poll_count)
+    except Exception as _e:
+        log.debug('software list submit error: %s', _e)
     return resp, new_pending
 
 
