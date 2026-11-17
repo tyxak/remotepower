@@ -18,8 +18,23 @@ name, and click **Add rule**.
   package at all is not a violation of this rule type, so pair it with a
   **required** rule if the package must exist.
 
-Package names are matched exactly, as the host's package manager spells them (`httpd`
-on Red Hat family hosts, `apache2` on Debian family hosts, so write one rule for each).
+On a Linux host, package names are matched exactly, as the host's package manager spells them
+(`httpd` on Red Hat family hosts, `apache2` on Debian family hosts, so write one rule for each).
+
+A Windows or macOS host reports the applications it has, under the titles a person reads (see
+[Software inventory](patches.md#software-inventory)). For those hosts:
+
+- Write the name as the **Software center** shows it. It is matched without regard to case, so a
+  rule for `teamviewer` finds `TeamViewer`, and the whole name has to match.
+- Versions that are dotted numbers compare as numbers (`14.38.33130` is above `14.9`). Any other
+  version, such as `2023.1 (64-bit)`, compares as text.
+- A **required** rule with no tags is checked on Linux hosts only. It was written for the packages
+  of a Linux distribution, and every Windows host would otherwise break `auditd` the day its agent
+  started to send a list. To require an application on a Windows or macOS host, give the rule a
+  tag that host carries. **banned** and **min_version** rules apply to every host that has a list.
+- The **Fix** button on a violation is not offered for them: install and uninstall are commands for
+  Linux hosts, and a Windows or macOS host would answer with an error. Remove or update the
+  application on the host itself.
 
 Each rule can be **scoped to host tags** (comma-separated). A rule with tags applies
 only to hosts that carry at least one of them, for example to require a package only on
@@ -29,7 +44,8 @@ only to hosts that carry at least one of them, for example to require a package 
 
 - Rules are checked against the package list that agents already report, so no extra
   scan runs. A host is checked each time it sends a fresh package list, which happens
-  every few hundred heartbeats and whenever you click **Scan packages** for it.
+  every few hundred heartbeats and whenever you click **Scan packages** for it. A Windows
+  or macOS host sends the list of its applications the same way.
 - When you save the rules, every host with a known package list is checked again
   straight away, so the **Current violations** table reflects the new rules at once.
 - **Current violations** shows Host, Rule, Package, Expected and Found, and you can

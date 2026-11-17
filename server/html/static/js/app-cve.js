@@ -322,6 +322,7 @@ async function triggerCVEScan(devId, btn) {
 const _CVE_COVERAGE = {
   no_release: 'The Ubuntu release this host is based on is not known, so a package built from a source package with another name, such as libc6, libssl3 or openssh-server, is not checked.',
   needs_agent: 'The agent of this host does not report source packages, so a package built from a source package with another name is not checked. Update the agent, then send the package list again.',
+  no_matcher: 'The software of this host is listed, but no vulnerability database is matched against it, so nothing on it is checked. No findings here does not mean no vulnerabilities.',
 };
 
 function _cveCoverageHtml(data) {
@@ -387,7 +388,7 @@ async function openDeviceCVE(devId, devName) {
   html += _cveCoverageHtml(data);
   const roll = _cveRollupHtml(data.rollup);
   html += roll;
-  if (!data.findings.length) { if (!roll) html += '<div class="empty-state">No vulnerabilities found.</div>'; }
+  if (!data.findings.length) { if (!roll && data.coverage !== 'no_matcher') html += '<div class="empty-state">No vulnerabilities found.</div>'; }
   else {
     // v3.14.0: surface exploited-in-wild + high-EPSS first.
     const _sevRank = {critical: 4, high: 3, medium: 2, low: 1, unknown: 0};

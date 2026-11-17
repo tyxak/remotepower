@@ -180,7 +180,12 @@ neither dormant nor ignored. `exists` is false when the file is gone. See [drift
 
 ### `packages`
 
-`device_id`, `device_name`, `package`, `version`, `ecosystem`.
+`device_id`, `device_name`, `package`, `version`, `ecosystem`, `manager`, `publisher`, `installed`.
+
+`manager` is `windows` for a program of a Windows host, `macos` for an application of a Mac and
+`brew` for one of its Homebrew packages. It is empty for a package of a Linux distribution, which
+has an `ecosystem` instead. `publisher` and `installed` (the install date, `YYYY-MM-DD`) are filled
+for Windows programs, and are empty where the host does not report them.
 
 Versions are strings, so compare them with `contains` (`"3.0."`) rather than
 `gt` — a string comparison would put `3.10` before `3.9`.

@@ -13420,6 +13420,7 @@ function _registerCveTable() {
         'not_scanned': '<span class="c-muted">●</span> not scanned',
         'no_packages': '<span class="c-muted">●</span> no package list',
         'unsupported': '<span class="c-amber">●</span> unsupported',
+        'no_matcher':  '<span class="c-amber">●</span> not checked',
       }[d.status] || d.status;
       const scanText = d.scanned_at ? timeAgoHtml(d.scanned_at) : statusBadge;
       const cell = (n, color) => n > 0 ? `<td class="isl-384" data-color="${color}">${n}</td>` : '<td class="isl-385">0</td>';
@@ -19264,7 +19265,7 @@ function _renderSwViolations() {
     <td>${escHtml(r.package)}</td>
     <td class="hint">${escHtml(r.expected || '—')}</td>
     <td data-color="var(--red)">${escHtml(r.found || '—')}</td>
-    <td><div class="user-actions">${canFix
+    <td><div class="user-actions">${canFix && !r.manager
       ? `<button class="btn-icon btn-xs" data-action="swPolFixViolation" data-arg="${escAttr('d-' + (r.device_id || ''))}" data-arg2="${escAttr(r.package || '')}" data-arg3="${escAttr(r.type || '')}" title="${r.type === 'banned' ? 'Uninstall this package from this host' : 'Install or upgrade this package on this host'}">${_icon('wrench', 13)}</button>`
       : ''}</div></td>
   </tr>`).join('');
@@ -27451,6 +27452,13 @@ async function _loadAuditSection(key) {
               return `<div class="sysinfo-pill"><div class="label">${s}</div>
                <div class="value isl-644 ${vc}">${n}</div></div>`;
             }).join('') + '</div>';
+          break;
+        }
+        // a list nothing is matched against (the applications of a Windows or macOS host): the tiles of zeros and "clean" would say
+        // the opposite of what is true
+        if (data.coverage === 'no_matcher') {
+          badge.textContent = 'not checked';
+          body.innerHTML = _cveCoverageHtml(data);
           break;
         }
         const findings = data.findings || [];

@@ -1645,8 +1645,9 @@ class TestThePage(unittest.TestCase):
     def test_the_host_view_and_the_fleet_table_show_the_count(self):
         view = srcpin.js_function(_PAGE, 'openDeviceCVE')
         self.assertIn('const roll = _cveRollupHtml(data.rollup);', view)
-        self.assertIn("if (!data.findings.length) { if (!roll) html += '<div class=\"empty-state\">No vulnerabilities found.</div>'; }",
-                      view)
+        # a host whose list nothing is matched against says so above, and does not also say it has no vulnerabilities
+        self.assertIn("if (!data.findings.length) { if (!roll && data.coverage !== 'no_matcher') "
+                      "html += '<div class=\"empty-state\">No vulnerabilities found.</div>'; }", view)
         loader = srcpin.js_function(_PAGE, 'loadCVEReport')
         self.assertIn("document.getElementById('cve-rollup-note')", loader)
         html = (ROOT / 'server' / 'html' / 'index.html').read_text()
@@ -1668,7 +1669,7 @@ class TestThePage(unittest.TestCase):
                  'Of these, fixed with Ubuntu Pro:', 'not scanned', 'Counted', 'Count', 'Package', 'Installed']
         texts += re.findall(r"^  [a-z_]+: '([^']+)',$", re.search(r'^const _CVE_COVERAGE = \{.*?^\};', _PAGE,
                                                                     re.M | re.S).group(0), re.M)
-        self.assertEqual(len(texts), 15)
+        self.assertEqual(len(texts), 16)             # the sixteenth is the sentence for a list nothing is matched against (no_matcher)
         for text in texts:
             self.assertTrue(rows.get(text) and all(rows[text].get(lang) for lang in ('zh', 'hi', 'es', 'ar', 'de', 'fr')),
                             text)

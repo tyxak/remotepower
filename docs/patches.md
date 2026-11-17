@@ -18,6 +18,45 @@ which hosts have updates waiting, and which packages are involved.
 - **Software inventory search** finds a package (optionally an exact name/version) across
   the fleet, and the **patch catalog** inverts the table: pending updates
   aggregated *by package*, showing which update is waiting on how many hosts.
+  See [Software inventory](#software-inventory) for what each system reports.
+
+## Software inventory
+
+Every agent reports the software installed on its host. The **Software** tab of this page, the **Software center** on the
+[Software Policy](software-policy.md) page, the software metering in [Reports](reports.md), the SBOM and the `packages` entity of
+the [Data Explorer](data-explorer.md) all read that one list. What a host reports depends on its system:
+
+| System | What is listed | Where the agent reads it | What a row holds |
+| --- | --- | --- | --- |
+| Linux | The packages of the distribution | `dpkg`, `rpm`, `apk` or `pacman` | Name, version, architecture; the source package and the epoch where the package format has them |
+| Windows | The programs of **Programs and Features** | The Uninstall keys of the registry, the 64-bit one and the 32-bit one (read only) | Name, version, publisher, install date, architecture |
+| macOS | The applications in `/Applications`, `/System/Applications` and the `Applications` folder of each account, and the Homebrew formulae and casks | The `Info.plist` of each application bundle, and `brew list --versions` | Name, version, bundle identifier; a row for each version of a Homebrew package |
+
+The agent sends its list when it starts, about every six hours, and when you ask for it: **Scan packages** in the
+quick actions of a host, **Scan now** in its Packages section, or **Send list** on the CVE page. A list that has not
+changed since the last one is not sent again. A host keeps at most 5,000 rows, and a name, version or publisher at most
+200 characters.
+
+### What a Windows or macOS host leaves out
+
+- **Windows:** updates and hotfixes, components that Windows hides from the list, and keys that have no name. The agent counts
+  them and sends the count. A program that was installed for one user alone is kept in that user's own registry. The agent reads
+  the registry of the machine only, so such a program is not listed.
+- **macOS:** a bundle that is a symlink (the agent never follows one out of an application folder), a bundle whose
+  `Info.plist` is missing or cannot be read, and folders more than one level inside an application folder. If Homebrew is
+  installed and the agent cannot read its list, the agent sends no list at all that time instead of a list without the
+  Homebrew rows. If the agent cannot run Homebrew as the account that owns it, it sends the applications only.
+
+### How the views read such a list
+
+- **Names** match without regard to case: a rule or a search for `teamviewer` finds `TeamViewer`. In the Software center
+  one title is one row, however hosts spell it.
+- **Versions** that are dotted numbers (`10.0.19045.3693`, `14.38.33130`) compare as numbers, so `14.38` is above `14.9`.
+  Any other version, such as `2023.1 (64-bit)`, compares as text.
+- **Not checked for vulnerabilities.** No vulnerability database is matched against the applications of a Windows or macOS
+  host, so they are never scanned. See [CVE scanning](cve.md#which-hosts-are-scanned).
+- **Not for the Linux commands.** Package snapshots, **Install software**, uninstall and hold are written for the packages of a
+  Linux distribution. They skip a Windows or macOS host.
 
 ## Packages apt keeps back
 

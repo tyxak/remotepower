@@ -8,7 +8,8 @@ with real exploit signals, not just the CVSS score.
 
 - A Linux host whose agent reports a package list. The agent sends one when it starts and
   about every six hours after that. **Send list** on the page, or **Send package list now** in
-  the host view, asks for it at once.
+  the host view, asks for it at once. A Windows or macOS host also sends the software installed on
+  it, but that list is not scanned (see [Which hosts are scanned](#which-hosts-are-scanned)).
 - A distribution OSV covers (see [Which hosts are scanned](#which-hosts-are-scanned)).
 - A server that can reach `api.osv.dev` and the two feeds behind the priority signals
   (CISA KEV and FIRST EPSS).
@@ -27,7 +28,7 @@ a line under the tiles says how many. Below them is one row per host.
 | **KEV** | How many findings are in CISA's **Known Exploited Vulnerabilities** catalog, meaning attackers use them in the wild. |
 | **Critical / High / Medium / Low** | Finding counts by severity. |
 | **Counted** | How many more known vulnerabilities the host's scan counted per package and did not list. Debian and Ubuntu only. |
-| **Last scan** | When the host was last scanned, or why it was not: **not scanned**, **no package list** or **unsupported**. |
+| **Last scan** | When the host was last scanned, or why it was not: **not scanned**, **no package list**, **unsupported** or **not checked**. |
 
 Rows sort by KEV count first, then by critical and high counts, then by the highest EPSS
 score, so the dangerous hosts rise to the top.
@@ -85,8 +86,19 @@ as Debian 12. Before 8.0.1 their own number was taken for Debian's, so they were
 Debian 5 and Debian 6 and read as clean. Kali has no Debian release and shows **unsupported**.
 
 OSV has no Arch Linux feed, so `pacman` hosts report no ecosystem. A Linux host on any other
-distribution shows **unsupported** in the Last scan column and is skipped. The Windows and
-macOS agents send no package list for CVE scanning, so those hosts show **no package list**.
+distribution shows **unsupported** in the Last scan column and is skipped.
+
+### Windows and macOS hosts
+
+The Windows and macOS agents send the software installed on the host: the programs in the Uninstall keys of the registry, or the
+application bundles and the Homebrew packages of a Mac. [Software inventory](patches.md#software-inventory) says what each one
+reports. That list is shown in the software views, but **CVE matching for Windows and macOS applications is not done**: the names
+of applications (`Google Chrome`, `7-Zip 23.01 (x64)`) are not names any advisory database is filed under, and a scan under the
+wrong name would find nothing and read as clean.
+
+So such a host shows **not checked** in the Last scan column, is never scanned, and is never asked of OSV. Its host view says that
+nothing on it is checked, and has no "No vulnerabilities found" line, because an empty list there would say the opposite of what is
+true.
 
 ## How a package is matched
 
@@ -314,6 +326,12 @@ Generate a Software Bill of Materials per host or for the whole fleet:
   container images are included as components. A finding filed under a source package points
   at the installed packages it names: the ones built from that source at the affected version.
   A new kernel beside the old one is not named for a finding about the old one.
+- A Windows or macOS host's SBOM lists its applications as `pkg:generic/<name>@<version>` components (no `@<version>` when the
+  program wrote none), typed `application`. The publisher is the property `remotepower:publisher` of a CycloneDX component and the
+  supplier of an SPDX package; the architecture, the install date, the bundle identifier and the manager (`windows`, `macos` or
+  `brew`) are properties of the component too. No vulnerability is attached, because none is looked for. When the agent left entries
+  out (updates, system components), the document says how many: the property `remotepower:left_out` in CycloneDX, the comment of the
+  creation info in SPDX.
 - **Baseline** snapshots a host's package list (`POST /api/devices/{id}/sbom/baseline`) and
   **Changes since baseline** (`GET /api/devices/{id}/sbom/diff`) lists the packages added,
   removed or changed since then.
@@ -410,8 +428,9 @@ findings do not count. You can keep up to 200 campaigns.
 
 | Problem | What to check |
 | --- | --- |
-| A host shows **unsupported** | It reported a package list, but its distribution has no OSV ecosystem (Arch, openSUSE, Fedora and others). |
-| A host shows **no package list** | The agent has not sent one yet, or it is a Windows or macOS agent. Click **Send list**, or wait for the next report. |
+| A host shows **unsupported** | It reported a package list, but its distribution has no OSV ecosystem (Arch, openSUSE, Fedora and others). Its host view says that nothing on it is checked. |
+| A host shows **not checked** | It is a Windows or macOS host. Its software is listed, and nothing is matched against a vulnerability database. |
+| A host shows **no package list** | The agent has not sent one yet. Click **Send list**, or wait for the next report. A Windows or macOS agent older than the one that sends its software list sends none. |
 | The KEV column is 0 everywhere | The feed may not have loaded. Read the status line under the tiles and click **Refresh KEV/EPSS feeds**. |
 | **A scan is already running** | One scan runs at a time. Wait for `GET /api/cve/scan-status` to finish; a crashed scan unlocks five minutes after its last checkpoint. |
 | Scans fail or skip hosts | The circuit breaker may be open after OSV errors. It closes by itself after ten minutes. |

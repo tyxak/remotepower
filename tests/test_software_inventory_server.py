@@ -919,6 +919,26 @@ class TestTheSbom(_Fleet):
         self.assertEqual(by['Google Chrome']['externalRefs'][0]['referenceLocator'], 'pkg:generic/Google%20Chrome@120.0.6099.109')
         self.assertNotIn('supplier', by['Windows Driver Package - Intel (e1dexpress) Net'])
 
+    def test_a_document_says_how_many_entries_were_left_out_of_the_list(self):
+        """The list of a Windows host is not all that is installed: updates and system components are left out, and a document that
+        does not say so is read as if it were whole."""
+        doc = sbom.build_cyclonedx(self.dev(WIN_A), self.stored(WIN_A), [])
+        props = {p['name']: p['value'] for p in doc['metadata']['component']['properties']}
+        self.assertEqual(props['remotepower:left_out'], '41')
+        self.assertIn('41 entries', sbom.build_spdx(self.dev(WIN_A), self.stored(WIN_A), [])['creationInfo']['comment'])
+        # nothing left out, nothing said; and a Linux list says nothing, whatever a hand-edited store holds
+        for dev_id in (MAC_A, LNX_B):
+            entry = self.stored(dev_id)
+            if dev_id == LNX_B:
+                entry['skipped'] = 12
+            props = {p['name'] for p in sbom.build_cyclonedx(self.dev(dev_id), entry, [])['metadata']['component']['properties']}
+            self.assertNotIn('remotepower:left_out', props, dev_id)
+            self.assertNotIn('comment', sbom.build_spdx(self.dev(dev_id), entry, [])['creationInfo'], dev_id)
+        for odd in (True, '41', -3, 4.5, None):
+            entry = dict(self.stored(WIN_A), skipped=odd)
+            props = {p['name'] for p in sbom.build_cyclonedx(self.dev(WIN_A), entry, [])['metadata']['component']['properties']}
+            self.assertNotIn('remotepower:left_out', props, odd)
+
     def test_a_linux_component_is_as_it_was(self):
         doc = sbom.build_cyclonedx(self.dev(LNX_B), self.stored(LNX_B), [])
         openssl = next(c for c in doc['components'] if c['name'] == 'openssl')

@@ -238,11 +238,22 @@ Parity with the Linux agent for the core management surface:
 | **Custom checks** (file/job/log/service) | yes | yes; `windows_service` type |
 | Security posture → Checks | (n/a) | BitLocker, Firewall (per profile), Defender real-time + signature age, Windows Update service |
 | Compliance scan | OpenSCAP | not ported (oscap is Linux-only; use the cross-platform CIS baseline). Triggering an OpenSCAP scan on a Windows/macOS host now returns an honest "Linux only, skipped" instead of a silent no-op |
-| **Scan packages now** (`force_package_scan`) | apt/dnf refresh | Windows Update pending refresh |
+| **Installed software** | `dpkg` / `rpm` / `apk` / `pacman` package list | The Uninstall keys of the registry (read only), sent to the software views; see [Software inventory](patches.md#software-inventory) |
+| **Scan packages now** (`force_package_scan`) | apt/dnf refresh and the package list | Windows Update pending refresh and the installed-software list |
 | **Update agent now** (`force_agent_upgrade`) | signed self-update | signed self-update |
 | **Backup-freshness monitors** (`backup_monitors`) | mtime + size | mtime + size |
 | Runs as | systemd service | **Windows service** (services.msc); scheduled-task fallback |
 | Read-only audit mode | `/etc/remotepower/audit-mode` | `%ProgramData%\RemotePower\audit-mode` |
+
+### Installed software
+
+The agent reads the programs of the machine from the Uninstall key under
+`HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` and from its `WOW6432Node` twin, which holds the
+32-bit programs. It only reads: it opens keys for reading and never loads, saves or writes a registry hive. An entry with no
+name, a component Windows hides from the list (`SystemComponent` is 1) and an update or a hotfix of another program (it names a
+`ParentKeyName`) are left out and counted. A program that was installed for one user alone lives in that user's own registry
+and is not listed. [Software inventory](patches.md#software-inventory) says how the server shows the list, and
+[CVE scanning](cve.md#windows-and-macos-hosts) why it is not checked for vulnerabilities.
 
 ### Interpreter selection (`exec:` vs `ps:` vs `cmd:`)
 
@@ -404,6 +415,7 @@ Everything lives under `%ProgramData%\RemotePower\`:
 | `agent.json` | credentials (server URL, host id, token) — ACL-locked |
 | `agent.log` | rotating agent log |
 | `eventlog_cursor.json` | per-channel Event Log RecordId cursor |
+| `pkg_hash` | the fingerprint of the installed-software list the server took last; the list is sent again only when it changes |
 | `audit-mode` | marker: read-only mode (refuse write commands) |
 | `release.pub` | pinned release public key (enables signature enforcement) |
 | `require-signed-updates` | marker: refuse any unsigned self-update |

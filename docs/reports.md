@@ -174,8 +174,11 @@ rest of the product and do not change anything.
   `@ cost` for what one licence costs and `| alias1, alias2` to fold name variants into
   one entry (`nginx = 10 @ 49.99 | nginx-core`); a limit of 0 only counts. An entry over
   its limit is flagged, and *reclaimable* counts hosts where the software is installed but
-  not seen in running processes or listening ports. You can track up to 100 items. Saving
-  needs an administrator. See [Licence cost](#licence-cost) for the money columns.
+  not seen in running processes or listening ports. A name is matched without regard to
+  case, and it counts the applications of Windows and macOS hosts too. Those are never
+  reclaimable: an application is listed under its title (`Google Chrome`) and runs under
+  another name (`chrome.exe`), so the two cannot be compared. You can track up to 100
+  items. Saving needs an administrator. See [Licence cost](#licence-cost) for the money columns.
 - **Uptime (SLA)** — per-host and fleet uptime over 7, 30 or 90 days; see
   [sla.md](sla.md).
 

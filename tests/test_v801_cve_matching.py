@@ -827,12 +827,12 @@ class TestTheHostView(unittest.TestCase):
         self.assertIn('_cveCoverageHtml(data)', view)
         self.assertIn('_cveBinariesHtml(f)', view)
 
-    def test_the_four_texts_are_in_six_languages(self):
+    def test_the_five_texts_are_in_six_languages(self):
         from test_v710_i18n_glue import dict_rows
         rows = dict_rows()
         words = re.findall(r"^  [a-z_]+: '([^']+)',$", re.search(r'^const _CVE_COVERAGE = \{.*?^\};', _PAGE,
                                                                  re.M | re.S).group(0), re.M)
-        self.assertEqual(len(words), 2)
+        self.assertEqual(len(words), 3)              # the third is the one for a list nothing is matched against (no_matcher)
         for text in words + ['The advisory list of these packages was longer than a scan reads, so it is cut:',
                              'installed as']:
             self.assertIn(text, _PAGE)

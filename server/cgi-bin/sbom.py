@@ -93,6 +93,18 @@ def _ts(epoch=None) -> str:
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(epoch))
 
 
+def _left_out(pkg_entry) -> int:
+    """How many entries the agent of a Windows or macOS host left out of its list (updates, system components, bundles it could not
+    read), or 0. The list of such a host is not the whole of what is installed, and a document that does not say so is read as if it were."""
+    n = pkg_entry.get('skipped') if software_inventory.is_inventory_host(pkg_entry.get('pkg_manager')) else 0
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else 0
+
+
+def _left_out_property(pkg_entry) -> list:
+    n = _left_out(pkg_entry)
+    return [{'name': 'remotepower:left_out', 'value': str(n)}] if n else []
+
+
 def _inventory_properties(row, manager) -> list:
     """The properties of the component of an application of a Windows or macOS host: the manager the row names,
     and what it holds beside a name and a version (the architecture, the publisher, the install date, the bundle
@@ -208,7 +220,7 @@ def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=N
                     {'name': 'remotepower:hostname', 'value': dev.get('hostname', '')},
                     {'name': 'remotepower:ecosystem', 'value': pkg_entry.get('ecosystem', '')},
                     {'name': 'remotepower:collected_at', 'value': _ts(collected_at) if collected_at else ''},
-                ],
+                ] + _left_out_property(pkg_entry),
             },
         },
         'components': components,
@@ -429,6 +441,11 @@ def build_spdx(dev, pkg_entry, findings, *, server_version='', containers=None) 
         'packages': spdx_packages,
         'relationships': relationships,
     }
+    left_out = _left_out(pkg_entry)
+    if left_out:
+        doc['creationInfo']['comment'] = (
+            f'{left_out} entries were left out of the software list of this host: updates, system components and '
+            'bundles that could not be read.')
     return doc
 
 
