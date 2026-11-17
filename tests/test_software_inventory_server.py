@@ -972,4 +972,62 @@ class TestTheExplorer(_Fleet):
 
 
 if __name__ == '__main__':
+class TestTheSbomChanges(_Fleet):
+    """Baseline and Changes since baseline read the list of a host by name. A program of a Windows host that writes no version
+    is installed all the same, and one that is added or removed after the baseline has to show in the changes."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.SBOM_BASELINE_FILE, {})
+        self.addCleanup(lambda: api.save(api.SBOM_BASELINE_FILE, {}))
+
+    def baseline(self, dev_id):
+        status, answer = self.get(api.handle_sbom_baseline, '', dev_id, verb='POST')
+        self.assertEqual(status, 200, answer)
+        return answer
+
+    def changes(self, dev_id):
+        status, answer = self.get(api.handle_sbom_diff, '', dev_id)
+        self.assertEqual(status, 200, answer)
+        return answer
+
+    def test_a_program_that_writes_no_version_is_in_the_baseline_and_in_the_changes(self):
+        self.send(WIN_A, 'windows', WINDOWS + [{'name': 'Quiet App', 'version': '', 'publisher': 'Acme'}])
+        self.assertEqual(self.baseline(WIN_A)['count'], len(WINDOWS) + 1)
+        # it goes, and another that writes no version comes
+        self.send(WIN_A, 'windows', WINDOWS + [{'name': 'Other Quiet App', 'version': ''}])
+        report = self.changes(WIN_A)
+        self.assertEqual(report['added'], [{'name': 'Other Quiet App', 'version': ''}])
+        self.assertEqual(report['removed'], [{'name': 'Quiet App', 'version': ''}])
+        self.assertEqual(report['counts'], {'added': 1, 'removed': 1, 'changed': 0})
+
+    def test_a_list_of_programs_that_write_no_version_has_a_baseline(self):
+        self.send(WIN_B, 'windows', [{'name': 'Only Quiet App', 'version': ''}])
+        self.assertEqual(self.baseline(WIN_B)['count'], 1)
+
+    def test_a_name_that_two_rows_share_is_compared_by_its_highest_version(self):
+        """Homebrew keeps the old version beside the new one. The agent sorts its rows as text, so the last of node 10.0, 11.0
+        and 9.0 is 9.0: read by the last row, the arrival of 11.0 would show as no change."""
+        rows = [r for r in MAC if r['name'] != 'wget']
+
+        def node(*versions):
+            return rows + [{'name': 'node', 'version': v, 'manager': 'brew'} for v in versions]
+        self.send(MAC_A, 'macos', node('10.0', '9.0'))
+        self.baseline(MAC_A)
+        self.send(MAC_A, 'macos', node('10.0', '11.0', '9.0'))
+        report = self.changes(MAC_A)
+        self.assertEqual(report['changed'], [{'name': 'node', 'from': '10.0', 'to': '11.0'}])
+        self.assertEqual(report['counts'], {'added': 0, 'removed': 0, 'changed': 1})
+
+    def test_a_linux_host_is_read_as_it_was(self):
+        """The control: a package with no version is not one of a Linux list (the ingest drops it, and a store edited by hand
+        or written by an old release may hold it), and it stays out of the index."""
+        store = api.load(api.PACKAGES_FILE)
+        store[LNX_B]['packages'].append({'name': 'no-version', 'version': '', 'arch': 'amd64'})
+        api.save(api.PACKAGES_FILE, store)
+        self.assertEqual(self.baseline(LNX_B)['count'], len(LINUX))
+        api._LOAD_CACHE.clear()
+        self.assertNotIn('no-version', api.load(api.SBOM_BASELINE_FILE)[LNX_B]['packages'])
+
+
     unittest.main()

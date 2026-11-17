@@ -72333,13 +72333,23 @@ def _stream_json_download(obj, filename):
 
 
 def _sbom_pkg_index(dev_id):
-    """name -> version map of a device's installed packages (for SBOM diffs)."""
+    """name -> version map of a device's installed packages (for SBOM diffs).
+
+    A program of a Windows or macOS host may write no version, and it is still installed (the SBOM names it without
+    one), so it is kept here with an empty version: left out, a program added or removed since the baseline would never
+    show in the changes. Homebrew keeps an old version beside the new one, so a name that two rows share keeps the
+    higher version, whatever order the rows came in."""
     entry = (load(PACKAGES_FILE).get(dev_id) or {})
+    inventory = software_inventory.is_inventory_host(entry.get('pkg_manager'))
     idx = {}
     for pk in (entry.get('packages') or []):
         n = pk.get('name'); v = pk.get('version')
-        if n and v:
-            idx[str(n)] = str(v)
+        if not n or not (v or inventory):
+            continue
+        name, version = str(n), str(v or '')
+        if inventory and name in idx and software_inventory.compare_versions(version, idx[name]) <= 0:
+            continue
+        idx[name] = version
     return idx, int(entry.get('collected_at', 0) or 0)
 
 

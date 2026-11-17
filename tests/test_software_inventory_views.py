@@ -122,6 +122,21 @@ _loadAuditSection('cve').then(() => console.log(JSON.stringify(out)));
 ''' % json.dumps(data)
         return node(script)
 
+    @staticmethod
+    def sbom_diff(data):
+        """The window of the changes since the baseline."""
+        script = '\n'.join([re.search(r'^function escHtml\(.*$', _APP, re.M).group(0), fn(_APP, 'sbomShowDiff')]) + '''
+const out = {body: ''};
+const els = {'sbom-diff-title': {}, 'sbom-diff-body': {set innerHTML(v) { out.body = v; }}};
+const document = {getElementById: id => els[id]};
+const api = async () => (%s);
+const toast = () => {};
+const _fmtAbsTs = ts => 'when';
+const openModal = () => {};
+sbomShowDiff('h1', 'host one').then(() => console.log(JSON.stringify(out)));
+''' % json.dumps(data)
+        return node(script)['body']
+
 
 class TestTheHostsCveView(unittest.TestCase):
     NOTHING = {'findings': [], 'ecosystem': 'unsupported', 'packages_count': 187, 'collected_at': 5, 'scanned_at': 0,
@@ -166,6 +181,19 @@ const tableCtl = {register: c => { cfg = c; }};
 const timeAgoHtml = ts => 'ago';
 const _icon = () => '';
 _registerCveTable();
+class TestTheChangesSinceTheBaseline(unittest.TestCase):
+    def test_a_program_with_no_version_has_a_dash_and_not_a_blank_cell(self):
+        """A program of a Windows host may write no version, and the changes now list one that was added or removed."""
+        body = _Page.sbom_diff({'baseline_at': 5, 'counts': {'added': 2, 'removed': 1, 'changed': 1},
+                                'added': [{'name': 'Quiet App', 'version': ''}, {'name': 'Loud App', 'version': '2.0'}],
+                                'removed': [{'name': 'Old Quiet', 'version': ''}],
+                                'changed': [{'name': 'node', 'from': '', 'to': '1.0'}]})
+        cells = re.findall(r'<td class="c-(?:green|red|muted)">(.*?)</td>', body)
+        self.assertEqual(cells, ['—', '2.0', '—', '— → <span class="c-amber">1.0</span>'])
+        for name in ('Quiet App', 'Loud App', 'Old Quiet', 'node'):
+            self.assertIn(f'<code>{name}</code>', body)
+
+
 const d = {device_id: 'h1', name: 'host one', group: '', ecosystem: 'unsupported', status: %s, scanned_at: %d, kev: 0,
            counts: {critical: 0, high: 0, medium: 0, low: 0}, rollup: 0};
 console.log(JSON.stringify({row: cfg.row(d)}));''' % (json.dumps(status), scanned_at)])

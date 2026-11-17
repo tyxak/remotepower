@@ -30360,9 +30360,10 @@ async function sbomShowDiff(devId, devName) {
     ? `<div class="fw-500 mt-12 mb-4">${title} (${rows.length})</div><div class="scrollable-table-wrap audit-scroll"><table class="fs-12"><tbody>${rows.map(fmt).join('')}</tbody></table></div>`
     : '';
   let html = `<div class="fs-12 c-muted mb-8">Baseline: ${escHtml(when)} — <span class="c-green">+${c.added || 0} added</span> · <span class="c-red">−${c.removed || 0} removed</span> · <span class="c-amber">${c.changed || 0} changed</span></div>`;
-  html += section('Added', r.added || [], x => `<tr><td><code>${escHtml(x.name)}</code></td><td class="c-green">${escHtml(x.version)}</td></tr>`);
-  html += section('Removed', r.removed || [], x => `<tr><td><code>${escHtml(x.name)}</code></td><td class="c-red">${escHtml(x.version)}</td></tr>`);
-  html += section('Version changed', r.changed || [], x => `<tr><td><code>${escHtml(x.name)}</code></td><td class="c-muted">${escHtml(x.from)} → <span class="c-amber">${escHtml(x.to)}</span></td></tr>`);
+  // a program of a Windows or macOS host may write no version: a dash says so, a blank cell reads as a page that failed to draw
+  html += section('Added', r.added || [], x => `<tr><td><code>${escHtml(x.name)}</code></td><td class="c-green">${escHtml(x.version || '—')}</td></tr>`);
+  html += section('Removed', r.removed || [], x => `<tr><td><code>${escHtml(x.name)}</code></td><td class="c-red">${escHtml(x.version || '—')}</td></tr>`);
+  html += section('Version changed', r.changed || [], x => `<tr><td><code>${escHtml(x.name)}</code></td><td class="c-muted">${escHtml(x.from || '—')} → <span class="c-amber">${escHtml(x.to || '—')}</span></td></tr>`);
   if (!(c.added || c.removed || c.changed)) html += '<div class="c-muted">No package changes since the baseline.</div>';
   document.getElementById('sbom-diff-title').textContent = `SBOM changes — ${devName || devId}`;
   document.getElementById('sbom-diff-body').innerHTML = html;

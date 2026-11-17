@@ -334,7 +334,8 @@ Generate a Software Bill of Materials per host or for the whole fleet:
   creation info in SPDX.
 - **Baseline** snapshots a host's package list (`POST /api/devices/{id}/sbom/baseline`) and
   **Changes since baseline** (`GET /api/devices/{id}/sbom/diff`) lists the packages added,
-  removed or changed since then.
+  removed or changed since then. On a Windows or macOS host a program that wrote no version is in the
+  list too, shown with a dash. Where Homebrew keeps two versions of one package, the higher one is compared.
 
 ## Alerts & ignores
 
