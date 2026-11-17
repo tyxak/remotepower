@@ -10770,10 +10770,34 @@ function _fmtDateText(d, kind, opts, tag) {
   if (kind === 'time') return d.toLocaleTimeString(tag, opts || undefined);
   return d.toLocaleString(tag, opts || undefined);
 }
+// A formatter reads the machine's time zone when it is built, and the browser does not tell a page when the zone changes (a laptop
+// that travels, a phone that follows the network's zone). One kept for hours writes the old zone's hours while toLocale*String, which
+// asks each time, follows the machine. So each use asks whether the zone moved, and a zone that differs from the one the formatters
+// were built under empties the cache. The offset is one cheap native call and shows a move to a zone with other hours at once. The
+// name needs a formatter, which is the cost the cache avoids, so it is read when the offset changes and otherwise every 10 seconds at
+// most (a move between zones that keep the same hours today and keep other rules for other dates). A clock that moved back is read
+// at once. A change of offset inside one zone (summer time) finds the same name and keeps the formatters. An engine that cannot name
+// its zone drops them on any change of offset.
+const _DTF_ZONE_RECHECK_MS = 10000;
+function _dtfZoneMoved() {
+  const seen = _dtfZoneMoved.seen || (_dtfZoneMoved.seen = { at: 0, offset: 0, zone: null });
+  const now = Date.now();
+  const offset = new Date(now).getTimezoneOffset();
+  if (seen.zone !== null && offset === seen.offset && now >= seen.at && now - seen.at < _DTF_ZONE_RECHECK_MS) return false;
+  const before = seen.offset;
+  seen.at = now;
+  seen.offset = offset;
+  let zone = '';
+  try { zone = new Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (_) { zone = ''; }
+  const moved = seen.zone !== null && (zone !== seen.zone || (zone === '' && offset !== before));
+  seen.zone = zone;
+  return moved;
+}
 // One formatter per language and set of options: building one costs far more than using it, and a table of a few hundred rows
 // asks for the same one every row.
 function _dtf(tag, o) {
   const cache = _dtf.cache || (_dtf.cache = new Map());
+  if (_dtfZoneMoved()) cache.clear();
   const key = String(tag) + '|' + JSON.stringify(o);
   let f = cache.get(key);
   if (!f) {

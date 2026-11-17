@@ -15,6 +15,9 @@ What this module holds:
   checked against what the engine itself writes, never against a copy of the rule: Automatic is exactly today's output, the clock
   alone is the engine's own `hourCycle`, an order the language already has is its own text, and in every case the numbers and the
   words are the ones the engine wrote, in the digits it wrote them in (Arabic, Persian and Devanagari digits included);
+* a time zone that changes while the page stays open: the formatters the page keeps are dropped when the zone is not the one they
+  were built under (the zone is read again every 10 seconds, not for every cell), so a tab left open on a laptop that travels does
+  not go on writing the old zone's hours;
 * an invalid date never throws and reads as it always did, and an engine without Intl (the V8 of the repo's load harness) keeps
   the language's own form;
 * `_fmtIsoDay`, which wrote a calendar day by hand in five places, still writes the UTC day (not the browser's day) and now follows
@@ -22,6 +25,7 @@ What this module holds:
 * a ratchet: a direct `toLocale*String` call anywhere in the client, outside `_fmtDateText`, fails. The sites that format a
   number are listed one by one and can only shrink.
 """
+import calendar
 import collections
 import json
 import os
@@ -778,6 +782,138 @@ class TestTheFormatterKeepsItsManners(unittest.TestCase):
 
 
 # ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# a time zone that changes while the page stays open
+# ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+# Runs steps against the real client in one node process: ["run", code] evaluates in the page and returns the value, ["tz", zone]
+# moves the machine to another zone while the page stays loaded (node tells V8 when TZ is assigned, as a browser does when the
+# system zone changes), ["advance", ms] moves the page's clock. Date.now is the page's own clock for the zone check; the formatters
+# the page builds are counted in __built.
+_ZONE_RUNNER = r"""
+const vm = require('vm'), fs = require('fs');
+const [clientPath, stepsPath] = process.argv.slice(2);
+const ctx = vm.createContext({ console });
+vm.runInContext(fs.readFileSync(clientPath, 'utf8'), ctx, { filename: 'client.js' });
+const run = code => vm.runInContext(code, ctx);
+run("window = { RPi18n: { current: 'en' } };");
+run(`var __now = 1790000000000; Date.now = () => __now; var __built = 0;
+  (function () { const Real = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = function (...a) { __built++; return new Real(...a); }; })();`);
+const out = [];
+for (const [kind, arg] of JSON.parse(fs.readFileSync(stepsPath, 'utf8'))) {
+  if (kind === 'tz') process.env.TZ = arg;
+  else if (kind === 'advance') run('__now += ' + Number(arg) + ';');
+  else out.push(run(arg));
+}
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+def run_zone(zone, steps):
+    d = Path(tempfile.mkdtemp(prefix="rp-datezone-"))
+    _TMP.append(d)
+    (d / "runner.js").write_text(_ZONE_RUNNER, encoding="utf-8")
+    (d / "client.js").write_text(_jsload_harness.concat(), encoding="utf-8")
+    (d / "steps.json").write_text(json.dumps(steps), encoding="utf-8")
+    proc = subprocess.run([_NODE, str(d / "runner.js"), str(d / "client.js"), str(d / "steps.json")], capture_output=True,
+                          env=dict(os.environ, TZ=zone), timeout=300)
+    if proc.returncode != 0:
+        raise AssertionError("node failed:\n" + proc.stderr.decode(errors="replace")[-1500:])
+    return json.loads(proc.stdout.decode("utf-8"))
+
+
+@unittest.skipUnless(_GATE_NODE, "node is not installed")
+class TestAZoneChangeWhileThePageIsOpen(unittest.TestCase):
+    """The browser does not tell a page that the time zone changed (a laptop that travels, a phone that follows the network's zone). A
+    formatter reads the zone when it is built and the page keeps one per language and options, so with a date order or a clock chosen
+    a tab left open kept writing the old zone's hours, while Automatic, which asks the engine each time, followed the machine.
+
+    Each use asks whether the zone moved. A move to a zone with other hours today is seen at once (the offset is a cheap native call);
+    a move between zones that keep the same hours today and other rules in summer is seen at the next recheck, every 10 seconds."""
+
+    TS = calendar.timegm((2026, 11, 7, 14, 5, 3))
+    ASK = "_fmtAbsTs(%d)" % TS
+    NATIVE = "new Date(%d * 1000).toLocaleString('en', { hourCycle: 'h23' })" % TS
+    CLOCK = ("run", "_uiPrefs = { clock: 'h24' }; 0")
+    # London and Abidjan both read UTC+0 on a day in November and differ in summer: the page's clock is put on such a day and the
+    # text asked for is a July one
+    NOVEMBER = ("run", "__now = %d; 0" % (calendar.timegm((2026, 11, 7, 12, 0, 0)) * 1000))
+    JULY = calendar.timegm((2026, 7, 15, 12, 0, 0))
+    JULY_ASK = "_fmtAbsTs(%d)" % JULY
+    JULY_NATIVE = "new Date(%d * 1000).toLocaleString('en', { hourCycle: 'h23' })" % JULY
+
+    def test_a_move_to_a_zone_with_other_hours_is_seen_at_once(self):
+        got = run_zone("Europe/Copenhagen", [
+            self.CLOCK, ("run", self.ASK), ("run", self.NATIVE), ("tz", "Asia/Tokyo"), ("run", self.ASK), ("run", self.NATIVE)])
+        _prefs, before, engine_before, after, engine_after = got
+        self.assertEqual(before, engine_before, "control: in the first zone the page writes what the engine writes")
+        self.assertEqual(after, engine_after, "the page still writes the hours of the zone it was in")
+        self.assertNotEqual(before, after, "control: the two zones read a different hour for the same instant")
+        self.assertIn("15:05:03", before)
+        self.assertIn("23:05:03", after)
+
+    def test_a_move_to_a_zone_with_the_same_hours_today_is_seen_at_the_next_recheck(self):
+        got = run_zone("Europe/London", [
+            self.CLOCK, self.NOVEMBER, ("run", self.JULY_ASK), ("tz", "Africa/Abidjan"), ("advance", 11000), ("run", self.JULY_ASK),
+            ("run", self.JULY_NATIVE)])
+        _prefs, _day, before, after, engine = got
+        self.assertIn("13:00:00", before, "control: London keeps summer time in July")
+        self.assertEqual(after, engine, "the page still writes the hours of the zone it was in")
+        self.assertIn("12:00:00", after, "control: Abidjan does not")
+
+    def test_a_clock_that_moved_back_is_read_at_once(self):
+        got = run_zone("Europe/London", [
+            self.CLOCK, self.NOVEMBER, ("run", self.JULY_ASK), ("tz", "Africa/Abidjan"), ("advance", -3600000), ("run", self.JULY_ASK),
+            ("run", self.JULY_NATIVE)])
+        self.assertEqual(got[3], got[4])
+
+    def test_automatic_follows_the_zone_at_once_the_instrument_sees_the_change(self):
+        native = "new Date(%d * 1000).toLocaleString('en')" % self.TS
+        got = run_zone("Europe/Copenhagen", [
+            ("run", "_uiPrefs = {}; 0"), ("run", self.ASK), ("tz", "Asia/Tokyo"), ("run", self.ASK), ("run", native)])
+        self.assertNotEqual(got[1], got[2], "control: the zone change reached the page")
+        self.assertEqual(got[2], got[3])
+
+    def test_the_zone_is_asked_for_by_name_every_few_seconds_and_not_for_every_cell(self):
+        """Building a formatter is the cost the cache avoids, and the zone's name is read by building one: a table of a thousand
+        cells builds the formatter once and the name is read once per recheck, not once per cell."""
+        batch = "(function () { for (let i = 0; i < 1000; i++) { __now += 1; _fmtAbsTs(%d + i); } return __built; })()" % self.TS
+        got = run_zone("Europe/Copenhagen", [self.CLOCK, ("run", batch), ("advance", 25000), ("run", batch)])
+        self.assertGreaterEqual(got[1], 2, "control: the formatter and the zone read were counted")
+        self.assertLessEqual(got[1], 4, "1000 cells built %d formatters" % got[1])
+        self.assertLessEqual(got[2], 6, "1000 more cells, 25 seconds on, built %d formatters in all" % got[2])
+
+    def test_a_zone_that_did_not_change_keeps_its_formatters(self):
+        got = run_zone("Europe/Copenhagen", [
+            self.CLOCK, ("run", "globalThis.__kept = _dtf('en', { month: 'numeric' }); 0"), ("advance", 11000),
+            ("run", "__kept === _dtf('en', { month: 'numeric' })"), ("advance", 60000), ("run", "__kept === _dtf('en', { month: 'numeric' })")])
+        self.assertEqual(got[2], True, "a recheck that found the same zone emptied the cache")
+        self.assertEqual(got[3], True)
+
+    def test_summer_time_is_not_a_move(self):
+        """The offset changes when the clocks go back, and the name of the zone does not: the formatters are kept."""
+        oct24 = calendar.timegm((2026, 10, 24, 12, 0, 0)) * 1000
+        oct26 = calendar.timegm((2026, 10, 26, 12, 0, 0)) * 1000
+        got = run_zone("Europe/Copenhagen", [
+            self.CLOCK, ("run", "__now = %d; 0" % oct24), ("run", "new Date(__now).getTimezoneOffset()"),
+            ("run", "globalThis.__kept = _dtf('en', { month: 'numeric' }); 0"),
+            ("run", "__now = %d; 0" % oct26), ("run", "new Date(__now).getTimezoneOffset()"),
+            ("run", "__kept === _dtf('en', { month: 'numeric' })")])
+        self.assertEqual((got[2], got[5]), (-120, -60), "control: the clocks went back between the two days")
+        self.assertEqual(got[6], True, "a change of offset inside one zone emptied the cache")
+
+    def test_an_engine_that_cannot_name_its_zone_still_formats_and_follows_a_change_of_hours(self):
+        got = run_zone("Europe/Copenhagen", [
+            self.CLOCK,
+            ("run", "(function () { const prev = Intl.DateTimeFormat; Intl.DateTimeFormat = function (...a) {"
+                    " if (!a.length) throw new Error('no zone'); return new prev(...a); }; })(); 0"),
+            ("run", self.ASK), ("tz", "Asia/Tokyo"), ("run", self.ASK), ("run", self.NATIVE)])
+        self.assertIn("15:05:03", got[2])
+        self.assertEqual(got[3], got[4])
+        self.assertIn("23:05:03", got[3])
+
+
+# ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # an engine without Intl: the V8 of the repo's load harness
 # ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -841,8 +977,8 @@ class TestInTheLoadHarnessV8(unittest.TestCase):
 _NATIVE = re.compile(r"\.toLocale(?:Date|Time)?String\(|\bIntl\.DateTimeFormat\b")
 
 # What may hold a native call, by function. _fmtDateText holds the three methods (and tests that Intl exists); _dtf builds the
-# formatters it reuses.
-ALLOWED_HOLDERS = {"app.js": ("_fmtDateText", "_dtf")}
+# formatters it reuses; _dtfZoneMoved reads the zone the formatters were built under, to drop them when it changes.
+ALLOWED_HOLDERS = {"app.js": ("_fmtDateText", "_dtf", "_dtfZoneMoved")}
 
 # Pages that load no app.js: the public status page, the printable report, the customer portal and the fleet query page. The helper
 # does not exist there and they have no language picker or account, so the browser's own locale is the right answer. File -> how many.
@@ -929,15 +1065,17 @@ class TestNoDateGoesAroundTheFormatter(unittest.TestCase):
 
     def test_the_holders_are_the_only_place_and_the_scan_knows_where_they_end(self):
         src = "function _fmtDateText(d, k) {\n  return d.toLocaleString(tag);\n}\nfunction _dtf(t, o) { return new Intl.DateTimeFormat(t, o); }\n" \
+              "function _dtfZoneMoved() { return new Intl.DateTimeFormat().resolvedOptions().timeZone; }\n" \
               "function other(d) { return d.toLocaleString(tag); }\n"
         got = native_calls("app.js", src)
-        self.assertEqual([h for _m, _r, h in got], ["_fmtDateText", "_dtf", ""])
+        self.assertEqual([h for _m, _r, h in got], ["_fmtDateText", "_dtf", "_dtfZoneMoved", ""])
 
     def test_the_population_is_the_whole_client(self):
         files, outside, inside = census()
         self.assertGreater(len(files), 60, "control: the scripts were found")
         self.assertGreater(len(outside) + len(inside), 18, "control: the calls were found")
-        self.assertEqual(len(inside), 5, "the formatter holds three methods, one feature test and one constructor")
+        self.assertEqual(len(inside), 6, "the formatter holds three methods, one feature test and one constructor, and the zone probe "
+                                         "holds one more constructor")
 
     def test_a_date_does_not_go_around_the_formatter(self):
         _files, outside, _inside = census()
