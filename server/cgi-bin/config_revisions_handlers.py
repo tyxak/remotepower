@@ -118,6 +118,11 @@ def handle_config_revision_restore():
         current = dict(cur)
         cur.clear()
         cur.update(rev['config'])
+    # The revision may remember fewer passwords than the settings it replaces, or none: what no longer counts is deleted now, as a save of
+    # the setting does. After the lock above is released, because this takes the users store's own.
+    _depth = A._password_history_depth_of(rev['config'])
+    if _depth < A._password_history_depth_of(current):
+        A._trim_password_histories(_depth)
     A.record_config_revision(current, rev['config'], f'{actor} (pre-restore)')
     if governance:
         A.audit_log(actor, 'governance_config_change',

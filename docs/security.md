@@ -218,8 +218,9 @@ defences in place (kept current):
   The history is private to the account. Only a hash is kept, in the scheme the account's password uses, and at most one fewer
   than the number you set. It is never in an API answer, in a log line or in the audit log, and it is not in the redacted export
   you download from **Settings → Backups**, which carries no account credential at all: no password hash, TOTP secret or recovery
-  code. Lowering the number, or turning it off, deletes what no longer counts. The full backup restores accounts, so it holds the
-  history next to the password hashes: keep it private, and set `RP_BACKUP_PASSPHRASE` so that the archives on disk are encrypted.
+  code. Lowering the number, or turning it off, deletes what no longer counts, whether you do it in Settings or by restoring an
+  older revision of the settings. The full backup restores accounts, so it holds the history next to the password hashes: keep it
+  private, and set `RP_BACKUP_PASSPHRASE` so that the archives on disk are encrypted.
 
   Checking a new password against the history takes one password check for each password kept, which is slow at the largest
   setting. A caller can ask for that check ten times a minute; after that the change is refused with a 429 until the minute has

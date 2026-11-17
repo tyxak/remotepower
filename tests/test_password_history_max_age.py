@@ -714,6 +714,37 @@ class TestSettings(_Policy):
         self.assertNotIn('password_history', self.rec('alice'), 'off deletes the stored hashes')
         self.assertNotIn('password_history', self.rec('bob'))
 
+    def test_restoring_an_older_revision_of_the_settings_trims_the_history_the_same_way(self):
+        """A revision is the settings as they were before a save. Restoring one that remembers fewer passwords (here none) deletes what no
+        longer counts, as the save of the setting does."""
+        self.assertEqual(self.settings(password_history=5)[0], 200)             # the revision of the settings with the history off
+        cur = PW[0]
+        for n in range(4):
+            nxt = 'Revision-Passw0rd!%d' % n
+            self.assertEqual(self.change('alice', cur, nxt)[0], 200)
+            cur = nxt
+        self.assertEqual(len(self.history('alice')), 4, 'control: at five, the history keeps the four earlier passwords')
+        st, d = self.call('GET', '/api/config/revisions', token=self.root_token)
+        self.assertEqual(st, 200, d)
+        rid = d['revisions'][0]['id']
+        st, d = self.call('POST', '/api/config/revisions/restore', {'id': rid}, self.root_token)
+        self.assertEqual(st, 200, d)
+        self.assertEqual(self.call('GET', '/api/config', token=self.root_token)[1]['password_history'], 0, 'control: the revision was restored')
+        self.assertNotIn('password_history', self.rec('alice'), 'the history outlived the setting that kept it')
+        self.assertNotIn('password_history', self.rec('bob'))
+
+    def test_restoring_a_revision_that_remembers_as_many_or_more_keeps_what_is_stored(self):
+        self.assertEqual(self.settings(password_history=2)[0], 200)
+        self.assertEqual(self.change('alice', PW[0], PW[1])[0], 200)
+        self.assertEqual(self.settings(password_history=5)[0], 200)
+        before = self.history('alice')
+        self.assertEqual(len(before), 1)
+        st, d = self.call('GET', '/api/config/revisions', token=self.root_token)
+        rid = d['revisions'][0]['id']                                             # the settings as they were before the second save: history 2
+        self.assertEqual(self.call('POST', '/api/config/revisions/restore', {'id': rid}, self.root_token)[0], 200)
+        self.assertEqual(self.call('GET', '/api/config', token=self.root_token)[1]['password_history'], 2)
+        self.assertEqual(self.history('alice'), before, 'a depth that is still 2 or more keeps the one earlier password it needs')
+
     def test_raising_the_depth_does_not_touch_what_is_stored(self):
         self.settings(password_history=2)
         self.change('alice', PW[0], PW[1])

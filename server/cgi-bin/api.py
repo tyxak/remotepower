@@ -4062,18 +4062,28 @@ PASSWORD_MAX_AGE_DAYS_MAX = 3650
 PASSWORD_HISTORY_CHECKS_PER_MINUTE = 10
 
 
-def _config_count(key, top):
-    """A whole-number setting from 0 to `top`. Anything the settings document holds that is not one reads as 0, which is off."""
+def _config_count_of(cfg, key, top):
+    """A whole-number setting of a settings document, from 0 to `top`. Anything the document holds that is not one reads as 0, which is off."""
     try:
-        n = int(_config_ro().get(key) or 0)
-    except (TypeError, ValueError, OverflowError):
+        n = int((cfg or {}).get(key) or 0)
+    except (TypeError, ValueError, OverflowError, AttributeError):
         return 0
     return max(0, min(top, n))
 
 
+def _config_count(key, top):
+    """The same for the live settings."""
+    return _config_count_of(_config_ro(), key, top)
+
+
+def _password_history_depth_of(cfg):
+    """How many of a user's last passwords a new password may not equal under this settings document, the one they have now included. 0 is off."""
+    return _config_count_of(cfg, 'password_history', PASSWORD_HISTORY_MAX)
+
+
 def _password_history_depth():
-    """How many of a user's last passwords a new password may not equal, the one they have now included. 0 is off."""
-    return _config_count('password_history', PASSWORD_HISTORY_MAX)
+    """The same for the live settings."""
+    return _password_history_depth_of(_config_ro())
 
 
 def _stored_password_history(rec):
@@ -34441,9 +34451,8 @@ def handle_config_save():
                 _live.pop(k, None)
     # The passwords remembered were cut down or switched off: what no longer counts is deleted now. (After the lock above is released:
     # this takes the users store's own.)
-    _ph_old = _cfg_before.get('password_history') if isinstance(_cfg_before.get('password_history'), int) else 0
-    _ph_new = cfg.get('password_history') if isinstance(cfg.get('password_history'), int) else 0
-    if _ph_new < _ph_old:
+    _ph_new = _password_history_depth_of(cfg)
+    if _ph_new < _password_history_depth_of(_cfg_before):
         _trim_password_histories(_ph_new)
     # v5.6.x: prune orphaned monitor_history for monitors just deleted/renamed
     # (see the 'monitors' block above). Done after the config save so we hold no
