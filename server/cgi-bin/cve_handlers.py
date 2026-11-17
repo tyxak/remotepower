@@ -380,7 +380,9 @@ def handle_cve_findings():
         if not pkg_entry:
             status = 'no_packages'
         elif not ecosystem:
-            status = 'unsupported'
+            # the applications of a Windows or macOS host are listed and not checked: "unsupported" says the
+            # distribution has no OSV feed, which is not what is wrong with a list of applications
+            status = 'no_matcher' if A.software_inventory.is_inventory_host(pkg_entry.get('pkg_manager')) else 'unsupported'
             report['summary']['devices_unsupported'] += 1
         elif not f_entry:
             status = 'not_scanned'
@@ -488,8 +490,9 @@ def handle_cve_device(dev_id):
         'error':          f_entry.get('error', ''),
         # 8.0.1: what this scan leaves out (a word, see cve_scanner.coverage) and the packages whose
         # advisory list was longer than a scan reads
-        'coverage':       (A.cve_scanner.coverage(ecosystem, pkg_entry.get('sources') is True,
-                                                  A.cve_scanner.entry_release(pkg_entry)) if ecosystem else ''),
+        # 'no_matcher': there is a list and nothing it names is checked: the applications of a Windows or
+        # macOS host, the packages of Arch
+        'coverage':       A.cve_scanner.entry_coverage(pkg_entry),
         'cut':            [str(n) for n in cut if isinstance(n, str)][:20],
         # 8.0.1: what the scan counted per package and did not store one by one (cve_fixes.split)
         'rollup':         _rollup_view(f_entry),

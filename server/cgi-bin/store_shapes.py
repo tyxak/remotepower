@@ -471,8 +471,12 @@ SHAPES: dict = {
     'notify_health.json': dict_of(fields(fails=OPT_NUM, since=OPT_NUM, last=OPT_NUM, error=OPT_STR, label=OPT_STR)),
     'packages.json': dict_of(fields(collected_at=OPT_NUM, count=OPT_NUM, os_id=OPT_STR, pkg_manager=OPT_STR, version_id=OPT_STR,
                                     ubuntu_codename=OPT_STR, debian_codename=OPT_STR, version_codename=OPT_STR,
+                                    skipped=OPT_NUM,
+                                    # a row of a Windows or macOS host's list also has the manager of the row, the publisher,
+                                    # the install date and, for a Mac application, the bundle identifier (software_inventory.py)
                                     packages=list_of(fields(arch=OPT_STR, name=OPT_STR, version=OPT_STR, source=OPT_STR,
-                                                            source_version=OPT_STR, epoch=OPT_STR)))),
+                                                            source_version=OPT_STR, epoch=OPT_STR, manager=OPT_STR,
+                                                            publisher=OPT_STR, installed=OPT_STR, id=OPT_STR)))),
     'patch_age.json': dict_of(fields(all_first=OPT_NUM, sec_first=OPT_NUM), skip='_', meta={'_last_run': OPT_NUM, '_breaching': list_of(STR)}),
     # `done` holds the completed pairs [first_seen, cleared_at, kind] the mean time to patch is read from; a row that is not a list is left out.
     # They are a store of their own, apart from the stamps above, so that the small store every request reads does not grow with the history

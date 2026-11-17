@@ -38,6 +38,7 @@ LINT_SRC := server/cgi-bin/safe_opener.py \
             server/cgi-bin/disk_mounts.py \
             server/cgi-bin/cve_fixes.py \
             server/cgi-bin/pkg_versions.py \
+            server/cgi-bin/software_inventory.py \
             server/cgi-bin/problems.py \
             server/cgi-bin/threat_evidence.py \
             server/cgi-bin/edge_evidence.py \
@@ -88,6 +89,7 @@ TYPECHECK_SRC := server/cgi-bin/safe_opener.py \
                  server/cgi-bin/disk_mounts.py \
                  server/cgi-bin/cve_fixes.py \
                  server/cgi-bin/pkg_versions.py \
+                 server/cgi-bin/software_inventory.py \
                  server/cgi-bin/problems.py \
                  server/cgi-bin/logsig.py \
                  server/cgi-bin/threat_evidence.py \

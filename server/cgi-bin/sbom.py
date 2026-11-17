@@ -20,6 +20,12 @@ to, so downstream tools (Dependency-Track, Grype, …) can re-resolve vulns:
     dnf    -> pkg:rpm/<distro>/<name>@<version>?arch=<arch>
     apk    -> pkg:apk/alpine/<name>@<version>?arch=<arch>
     pacman -> pkg:alpm/arch/<name>@<version>?arch=<arch>
+
+The application lists of Windows and macOS hosts (pkg_manager ``windows`` or ``macos``, and ``brew`` for the Homebrew
+rows of a Mac) have no distribution to name, so a component gets ``pkg:generic/<name>@<version>`` (no ``@<version>`` when the
+program wrote none) and is typed ``application``. The publisher rides as the property ``remotepower:publisher`` of a CycloneDX
+component and as the ``supplier`` of an SPDX package; the architecture, the install date and the bundle identifier are kept
+the same way. No vulnerability is attached to such a component, because none is looked for.
 """
 
 from __future__ import annotations
@@ -27,6 +33,8 @@ from __future__ import annotations
 import hashlib
 import time
 from urllib.parse import quote
+
+import software_inventory  # the application lists of Windows and macOS hosts (pure)
 
 SPEC_CYCLONEDX = '1.5'
 SPEC_SPDX = 'SPDX-2.3'
@@ -48,6 +56,10 @@ _PURL_TYPE = {
 def _purl(name: str, version: str, arch: str, pkg_manager: str, os_id: str) -> str:
     """Build a package URL (purl) for one package. Falls back to the generic
     ``pkg:generic/`` type when the package manager isn't recognised."""
+    if (pkg_manager or '').lower() in software_inventory.INVENTORY_MANAGERS:
+        # an application of a Windows or macOS host: no distribution, so no namespace and no arch qualifier
+        base = f'pkg:generic/{quote(name, safe="")}'
+        return base + (f'@{quote(version, safe="")}' if version else '')
     ptype, default_ns = _PURL_TYPE.get((pkg_manager or '').lower(), ('generic', ''))
     ns = (os_id or default_ns or '').lower().strip()
     qn = quote(name, safe='')
@@ -81,6 +93,18 @@ def _ts(epoch=None) -> str:
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(epoch))
 
 
+def _inventory_properties(row, manager) -> list:
+    """The properties of the component of an application of a Windows or macOS host: the manager the row names,
+    and what it holds beside a name and a version (the architecture, the publisher, the install date, the bundle
+    identifier of a Mac application)."""
+    props = [{'name': 'remotepower:manager', 'value': manager}]
+    for key, label in (('arch', 'arch'), ('publisher', 'publisher'), ('installed', 'installed'), ('id', 'id')):
+        value = row.get(key)
+        if isinstance(value, str) and value:
+            props.append({'name': f'remotepower:{label}', 'value': value})
+    return props
+
+
 # CycloneDX severity vocabulary is lowercase; our findings already use it, but
 # normalise unknown/none to "unknown" which is a valid CycloneDX rating.
 _CDX_SEV = {'critical', 'high', 'medium', 'low', 'info', 'none', 'unknown'}
@@ -110,9 +134,12 @@ def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=N
         name = p.get('name', '')
         version = p.get('version', '')
         arch = p.get('arch', '')
-        if not name or not version:
+        # a row of an application list (Windows, macOS, Homebrew) may have no version: a program does not
+        # have to write one, and the host still has it
+        inv = software_inventory.row_manager(p, pkg_manager)
+        if not name or (not version and not inv):
             continue
-        purl = _purl(name, version, arch, pkg_manager, os_id)
+        purl = _purl(name, version, arch, inv or pkg_manager, os_id)
         ref = f'comp-{i}'
         if isinstance(name, str) and isinstance(version, str):
             source = p.get('source')
@@ -123,13 +150,17 @@ def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=N
                 'source_version': _no_epoch(source_version if isinstance(source_version, str) and source_version
                                             else version)})
         comp = {
-            'type': 'library',
+            'type': 'application' if inv else 'library',
             'bom-ref': ref,
             'name': name,
             'version': version,
             'purl': purl,
         }
-        if arch:
+        if inv and not version:
+            del comp['version']
+        if inv:
+            comp['properties'] = _inventory_properties(p, inv)
+        elif arch:
             comp['properties'] = [{'name': 'remotepower:arch', 'value': arch}]
         components.append(comp)
 
@@ -321,10 +352,11 @@ def build_spdx(dev, pkg_entry, findings, *, server_version='', containers=None) 
     for i, p in enumerate(packages):
         pname = p.get('name', '')
         pver = p.get('version', '')
-        if not pname or not pver:
+        inv = software_inventory.row_manager(p, pkg_manager)   # see build_cyclonedx
+        if not pname or (not pver and not inv):
             continue
         pid = _spdx_id('Package', i)
-        purl = _purl(pname, pver, p.get('arch', ''), pkg_manager, os_id)
+        purl = _purl(pname, pver, p.get('arch', ''), inv or pkg_manager, os_id)
         ext_refs = [{
             'referenceCategory': 'PACKAGE-MANAGER',
             'referenceType': 'purl',
@@ -336,7 +368,7 @@ def build_spdx(dev, pkg_entry, findings, *, server_version='', containers=None) 
                 'referenceType': 'advisory',
                 'referenceLocator': f'https://osv.dev/vulnerability/{quote(vid, safe="")}',
             })
-        spdx_packages.append({
+        spdx_pkg = {
             'SPDXID': pid,
             'name': pname,
             'versionInfo': pver,
@@ -344,7 +376,14 @@ def build_spdx(dev, pkg_entry, findings, *, server_version='', containers=None) 
             'filesAnalyzed': False,
             'copyrightText': 'NOASSERTION',
             'externalRefs': ext_refs,
-        })
+        }
+        if inv:
+            if not pver:
+                del spdx_pkg['versionInfo']
+            publisher = p.get('publisher')
+            if isinstance(publisher, str) and publisher:
+                spdx_pkg['supplier'] = f'Organization: {publisher}'     # SPDX has no free properties: the supplier is the publisher
+        spdx_packages.append(spdx_pkg)
         relationships.append({
             'spdxElementId': host_id,
             'relatedSpdxElement': pid,

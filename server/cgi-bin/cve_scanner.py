@@ -15,6 +15,7 @@ import checks        # v7.0.3: the shared accepted-risk predicate
 import cve_fixes     # v7.4.6 (#57): which release of the host a fix is in (pure)
 import pkg_versions  # 8.0.1: the version order of RPM and Alpine packages (pure)
 import safe_opener   # v6.4.3: no file/ftp/data on an outbound opener
+import software_inventory  # the lists of Windows and macOS hosts, which no advisory database is filed under (pure)
 import urllib.error
 import urllib.parse
 from pathlib import Path
@@ -118,6 +119,10 @@ def entry_ecosystem(entry) -> str:
     to wait for the host to send its list again."""
     if not isinstance(entry, dict):
         return ''
+    # the list of a Windows or macOS host is applications, and no advisory is filed under their names. Whatever
+    # `ecosystem` says (a store edited by hand, a list that changed kind), nothing is asked of OSV for it.
+    if software_inventory.is_inventory_host(entry.get('pkg_manager')):
+        return ''
     ecosystem = entry.get('ecosystem')
     if not isinstance(ecosystem, str):
         return ''
@@ -193,6 +198,18 @@ def coverage(ecosystem, has_meta: bool = False, release: str = '') -> str:
     if not has_meta and (fam == 'apk' or (fam == 'rpm' and ecosystem.startswith('Rocky Linux'))):
         return 'needs_agent'
     return ''
+
+
+def entry_coverage(entry) -> str:
+    """What a scan of a stored package list leaves out, as the word `coverage` uses, or 'no_matcher' when it leaves out
+    all of it: the list is there and the host has no ecosystem a database is filed under (the applications of a
+    Windows or macOS host, the packages of Arch and openSUSE). A page that reads "no findings" for such a host says
+    the opposite of what is true, so the word is the one thing it has to print."""
+    ecosystem = entry_ecosystem(entry)
+    if ecosystem:
+        return coverage(ecosystem, entry.get('sources') is True, entry_release(entry))
+    packages = entry.get('packages') if isinstance(entry, dict) else None
+    return 'no_matcher' if isinstance(packages, list) and packages else ''
 
 
 def detect_ecosystem(os_release: dict, pkg_manager: str) -> str | None:

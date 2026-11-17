@@ -916,6 +916,7 @@ IPINTEL_SCAN_FILE   = DATA_DIR / 'ip_intel_scan.json'
 sys.path.insert(0, str(Path(__file__).parent))
 import cve_scanner
 import cve_fixes   # v7.4.6 (#57): fix status per release, the fixable-only alert rule, the KEV match (pure)
+import software_inventory   # the application lists of Windows and macOS hosts: what a row holds, how names and versions compare (pure)
 import importers
 import geoip as geoip_mod   # W6-41: offline MMDB reader (GeoIP enrichment)
 import prometheus_export
@@ -28086,6 +28087,12 @@ def _handle_pkg_action(kind):
     for dev_id in ids:
         if dev_id not in devices:
             per_device[dev_id] = {'queued': False, 'reason': 'not_found'}
+        elif _device_os_family(devices[dev_id]) != 'linux':
+            # the command is a shell script for apt, dnf, yum, zypper, pacman and apk. A Windows or macOS agent
+            # would run it in PowerShell or its own shell and answer with an error nobody reads, after a success toast;
+            # and their application lists (software_inventory) now put such hosts on the Software Policy page
+            per_device[dev_id] = {'queued': False, 'reason': 'unsupported',
+                                  'name': devices[dev_id].get('name', dev_id)}
         else:
             queueable.append(dev_id)
     # 7.5.0: through the gateway every other bulk command uses. This path wrote the queue itself and checked only quarantine, so
@@ -35101,6 +35108,7 @@ def _qe_packages_rows():
             continue
         dname = devices.get(dev_id, {}).get('name', dev_id)
         eco = (entry or {}).get('ecosystem', '') if isinstance(entry, dict) else ''
+        host_manager = (entry or {}).get('pkg_manager') if isinstance(entry, dict) else ''
         for pkg in ((entry or {}).get('packages') or [] if isinstance(entry, dict) else []):
             if not isinstance(pkg, dict):
                 continue
@@ -35109,6 +35117,10 @@ def _qe_packages_rows():
                 'package': pkg.get('name') or '',
                 'version': pkg.get('version') or '',
                 'ecosystem': eco,
+                # what a Windows or macOS host's list holds beyond a name and a version ('' on a Linux host)
+                'manager': software_inventory.row_manager(pkg, host_manager),
+                'publisher': pkg.get('publisher') or '',
+                'installed': pkg.get('installed') or '',
             })
             if len(out) >= _QE_SCAN_CAP:
                 return out
@@ -35116,7 +35128,7 @@ def _qe_packages_rows():
 
 
 _QE_PACKAGE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
-    'device_id', 'device_name', 'package', 'version', 'ecosystem')}
+    'device_id', 'device_name', 'package', 'version', 'ecosystem', 'manager', 'publisher', 'installed')}
 
 
 def _qe_ports_rows():
@@ -61553,14 +61565,22 @@ def _cve_fixable_by_device():
     return out
 
 
-def _inventory_version_match(installed, op, target, eco):
+def _inventory_version_match(installed, op, target, eco, manager=''):
     """Best-effort version comparison for inventory search. Uses dpkg ordering
     for Debian/Ubuntu when the binary is present, else the CVE scanner's tuple
     comparator (unlike CVE suppression, which fail-safe *keeps* findings, here
     an unparseable version is shown rather than silently hidden). `op` ∈
-    lt|le|eq|ge|gt; unknown ops / blank target match everything."""
+    lt|le|eq|ge|gt; unknown ops / blank target match everything.
+
+    `manager` is the inventory manager of the row (`windows`, `macos`, `brew`) when it is an application
+    of such a host, '' for a package of a distribution. A vendor's version is two dotted numbers or it is text
+    (software_inventory.compare_versions), never an order a package manager defines."""
     if not target or op == 'any':
         return True
+    if manager in software_inventory.INVENTORY_MANAGERS:
+        order = software_inventory.compare_versions(installed, target)
+        return {'lt': order < 0, 'le': order <= 0, 'ge': order >= 0, 'gt': order > 0,
+                'eq': order == 0}.get(op, True)
 
     def _ge(a, b):
         """a >= b, or None if uncomparable."""
@@ -61701,16 +61721,22 @@ def handle_inventory_metering():
         for did, entry in store.items():
             if did not in devices:
                 continue   # v3.5.0 RBAC v2: out of caller scope
-            if not any(any(n in str(p.get('name') or '').lower() for n in needles)
-                       for p in (entry or {}).get('packages') or []):
+            matched = [p for p in (entry or {}).get('packages') or []
+                       if any(n in str(p.get('name') or '').lower() for n in needles)]
+            if not matched:
                 continue
             dev = devices.get(did) or {}
             label = dev.get('name', did)
             hosts.append(label)
             # Reclamation: installed but not seen running. Only judge it when we
             # actually have process/port telemetry, else it's not a candidate.
+            # and only when the name can be a process: the title of a Windows or macOS application
+            # ("Google Chrome") is never the name of its process ("chrome.exe"), so every such host would be
+            # reported as one that does not use what it has installed.
             sysinfo = dev.get('sysinfo') or {}
-            if (sysinfo.get('top_processes') or sysinfo.get('listening_ports')) \
+            judged = any(software_inventory.row_manager(p, (entry or {}).get('pkg_manager'))
+                         not in software_inventory.DISPLAY_NAME_MANAGERS for p in matched)
+            if judged and (sysinfo.get('top_processes') or sysinfo.get('listening_ports')) \
                     and not _software_in_use(dev, needles):
                 reclaimable.append(label)
         cnt = len(hosts)
@@ -62577,13 +62603,15 @@ def handle_inventory_search():
         if dev_id not in devices:
             continue   # v3.5.0 RBAC v2: out of caller scope
         eco = (entry or {}).get('ecosystem', '')
+        host_manager = (entry or {}).get('pkg_manager')
         dname = (devices.get(dev_id) or {}).get('name', dev_id)
         for p in (entry or {}).get('packages') or []:
             name = p.get('name') or ''
             nl = name.lower()
             if (nl == q) if exact else (q in nl):
                 ver = p.get('version') or ''
-                if not _inventory_version_match(ver, op, target, eco):
+                if not _inventory_version_match(ver, op, target, eco,
+                                                software_inventory.row_manager(p, host_manager)):
                     continue
                 results.append({'device_id': dev_id, 'device_name': dname,
                                 'package': name, 'version': ver})
@@ -62610,20 +62638,33 @@ def handle_inventory_catalog():
     devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     # package -> {version -> set(device_id)}
     agg = {}
+    # an application of a Windows or macOS host is keyed by its name in lower case, since a vendor's title is
+    # not always spelled the same ("Git" and "git"), and shown under the spelling most hosts use
+    spelled = {}        # key -> {spelling: how many rows}
+    distro_names = set()
     for dev_id, entry in store.items():
         if dev_id not in devices:
             continue
+        host_manager = (entry or {}).get('pkg_manager')
         for p in (entry or {}).get('packages') or []:
             name = p.get('name') or ''
             if not name or (q and q not in name.lower()):
                 continue
+            if software_inventory.row_manager(p, host_manager):
+                key = software_inventory.name_key(p)
+                spelled.setdefault(key, {})[name] = spelled.get(key, {}).get(name, 0) + 1
+            else:
+                key = name
+                distro_names.add(name)
             ver = str(p.get('version') or '').strip() or '—'
-            agg.setdefault(name, {}).setdefault(ver, set()).add(dev_id)
+            agg.setdefault(key, {}).setdefault(ver, set()).add(dev_id)
     CAP = 1000
     def _dname(did):
         return (devices.get(did) or {}).get('name', did)
     rows = []
     for name, vers in agg.items():
+        if name in spelled and name not in distro_names:
+            name = sorted(spelled[name].items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
         hosts = set()
         for s in vers.values():
             hosts |= s
@@ -63059,6 +63100,11 @@ def _ps_build_entries():
     for dev_id, rec in store.items():
         if dev_id not in devices:
             continue
+        # the applications of a Windows or macOS host are not packages a snapshot can pin: its drift report and
+        # the command that enforces it are written for apt, dnf and yum, and a title like "Google Chrome" is no
+        # package name to hand to them
+        if software_inventory.is_inventory_host(rec.get('pkg_manager')):
+            continue
         for pkg in (rec.get('packages') or []):
             name, version = pkg.get('name'), pkg.get('version')
             if not name or not version:
@@ -63225,7 +63271,13 @@ def handle_patch_snapshot_drift(sid):
         devices = {k: v for k, v in devices.items() if tag in (v.get('tags') or [])}
     pkg_store = load(PACKAGES_FILE) or {}
     out = []
+    checked = 0
     for dev_id, dev in devices.items():
+        # a pin is the version of a package of a distribution; the applications of a Windows or macOS host
+        # (and a Homebrew formula that shares a name with one) are not compared with it
+        if software_inventory.is_inventory_host((pkg_store.get(dev_id) or {}).get('pkg_manager')):
+            continue
+        checked += 1
         installed = {p.get('name'): p.get('version')
                     for p in (pkg_store.get(dev_id, {}).get('packages') or [])
                     if p.get('name') and p.get('version')}
@@ -63236,7 +63288,7 @@ def handle_patch_snapshot_drift(sid):
             out.append({'device_id': dev_id, 'device_name': dev.get('name', dev_id),
                         'mismatches': mismatches})
     respond(200, {'ok': True, 'snapshot_id': sid, 'tag': tag,
-                  'devices_checked': len(devices), 'devices_drifted': len(out), 'drift': out})
+                  'devices_checked': checked, 'devices_drifted': len(out), 'drift': out})
 
 
 # v6.1.1: real per-package version-pinned enforcement for 3 of the 4 package
@@ -63329,6 +63381,11 @@ def handle_patch_snapshot_enforce(sid):
     dev_cmds = {}
     results = {}
     for dev_id in devices:
+        # the command below is apt, dnf and yum. The applications of a Windows or macOS host are not packages
+        # of those, whatever name they share with one
+        if software_inventory.is_inventory_host((pkg_store.get(dev_id) or {}).get('pkg_manager')):
+            results[dev_id] = {'ok': True, 'queued': False, 'reason': 'not applicable to a Windows or macOS host'}
+            continue
         installed = {p.get('name'): p.get('version')
                     for p in (pkg_store.get(dev_id, {}).get('packages') or [])
                     if p.get('name') and p.get('version')}
@@ -70413,13 +70470,21 @@ def handle_packages_submit():
     if len(raw_pkgs) > MAX_PACKAGE_LIST:
         raw_pkgs = raw_pkgs[:MAX_PACKAGE_LIST]
 
-    packages = []
-    for entry in raw_pkgs:
-        safe = _sanitize_package_entry(entry)
-        if safe:
-            packages.append(safe)
-
     pkg_manager = _sanitize_str(body.get('pkg_manager', ''), 16)
+    # the agent of a Windows or macOS host sends the applications it holds under a manager of its own
+    # (`windows`, `macos`). They are not packages of a distribution, so they are read by their own rules
+    # (software_inventory) and nothing about them reaches the vulnerability scan.
+    inventory = software_inventory.is_inventory_host(pkg_manager)
+    packages = []
+    if inventory:
+        pkg_manager = software_inventory.manager_of(pkg_manager)
+        packages = software_inventory.clean_list(raw_pkgs, pkg_manager)
+    else:
+        for entry in raw_pkgs:
+            safe = _sanitize_package_entry(entry)
+            if safe:
+                packages.append(safe)
+
     hint = body.get('ecosystem_hint') or {}
     if not isinstance(hint, dict):
         hint = {}
@@ -70433,36 +70498,44 @@ def handle_packages_submit():
         'VERSION_CODENAME': cve_scanner.codename(hint.get('VERSION_CODENAME')),
     }
 
+    if inventory:
+        # an os-release is the hint of a Linux host: for applications it names nothing the lists are filed under
+        safe_hint = dict.fromkeys(safe_hint, '')
+
     ecosystem = cve_scanner.detect_ecosystem(safe_hint, pkg_manager)
 
-    store = load(PACKAGES_FILE)
     new_hash = cve_scanner.packages_hash(packages)
-    existing = store.get(dev_id, {})
-    store[dev_id] = {
-        'hash':         new_hash,
-        'collected_at': int(time.time()),
-        'ecosystem':    ecosystem or '',
-        'pkg_manager':  pkg_manager,
-        'count':        len(packages),
-        'packages':     packages,
-        # v3.4.1: structured os-release for EOL detection. The agent already
-        # sends these in ecosystem_hint; persisting them avoids an agent change.
-        'os_id':        safe_hint['ID'],
-        'version_id':   safe_hint['VERSION_ID'],
-    }
-    for _key in ('UBUNTU_CODENAME', 'DEBIAN_CODENAME', 'VERSION_CODENAME'):
-        if safe_hint[_key]:
-            store[dev_id][_key.lower()] = safe_hint[_key]
-    # 8.0.1: the agent says whether its list names source packages and epochs. Without the mark, a package
-    # with no source field cannot be told from a list that was collected without them.
-    if body.get('sources') is True and pkg_manager in ('apt', 'dnf', 'apk'):
-        store[dev_id]['sources'] = True
-    save(PACKAGES_FILE, store)
+    # under the store's lock. Every host sends its list into the one store, and two lists that arrived
+    # together (a fleet of Windows hosts starting after a patch night) lost one another's with a bare load and save.
+    with _LockedUpdate(PACKAGES_FILE) as store:
+        existing = store.get(dev_id, {})
+        store[dev_id] = {
+            'hash':         new_hash,
+            'collected_at': int(time.time()),
+            'ecosystem':    ecosystem or '',
+            'pkg_manager':  pkg_manager,
+            'count':        len(packages),
+            'packages':     packages,
+            # v3.4.1: structured os-release for EOL detection. The agent already
+            # sends these in ecosystem_hint; persisting them avoids an agent change.
+            'os_id':        safe_hint['ID'],
+            'version_id':   safe_hint['VERSION_ID'],
+        }
+        for _key in ('UBUNTU_CODENAME', 'DEBIAN_CODENAME', 'VERSION_CODENAME'):
+            if safe_hint[_key]:
+                store[dev_id][_key.lower()] = safe_hint[_key]
+        # the agent says whether its list names source packages and epochs. Without the mark, a package
+        # with no source field cannot be told from a list that was collected without them.
+        if body.get('sources') is True and pkg_manager in ('apt', 'dnf', 'apk'):
+            store[dev_id]['sources'] = True
+        # how many entries the agent of a Windows or macOS host left out (updates, system components)
+        if inventory:
+            store[dev_id]['skipped'] = software_inventory.clean_skipped(body.get('skipped'))
 
     # v3.11.0: evaluate the fleet software policy against this push.
     try:
         _eval_software_policy(dev_id, dev.get('name', dev_id),
-                              packages, dev.get('tags') or [])
+                              packages, dev.get('tags') or [], host_manager=pkg_manager)
     except Exception as e:
         sys.stderr.write(f"[remotepower] software policy eval failed "
                          f"dev={dev_id}: {e}\n")
@@ -70506,9 +70579,17 @@ def _ver_key(v):
     return tuple(int(x) for x in parts) if parts else (-1,)
 
 
-def _eval_software_policy(dev_id, dev_name, packages, tags):
+def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager=''):
     """Evaluate the policy for one device, persist its violations, and fire
-    software_policy_violation for any newly-introduced violation."""
+    software_policy_violation for any newly-introduced violation.
+
+    `host_manager` is `windows` or `macos` when the list is the applications of a Windows or macOS
+    host (software_inventory), and '' for the packages of a Linux distribution. An application is found
+    by its name whatever the case (a person typed the rule, a vendor wrote the title), its version is
+    compared as numbers when both are dotted numbers, and a `required` rule with no tags is not judged
+    on such a host: it was written for the packages of a distribution, and every Windows host would be
+    in breach of it the day its agent started to send a list."""
+    inventory_host = software_inventory.manager_of(host_manager)
     policy = _software_policy()
     rules = policy.get('rules') or []
     store = load(SOFTWARE_VIOLATIONS_FILE) if backend_exists(SOFTWARE_VIOLATIONS_FILE) else {}
@@ -70520,10 +70601,24 @@ def _eval_software_policy(dev_id, dev_name, packages, tags):
         return []
 
     tagset = {str(t) for t in (tags or [])}
-    installed = {}
+    installed = {}      # a package of a distribution, by the name its package manager spells
+    held = {}           # an application of a Windows or macOS host, by its name in lower case: its highest version
     for p in (packages or []):
         if isinstance(p, dict) and p.get('name'):
-            installed[str(p['name'])] = str(p.get('version', '') or '')
+            version = str(p.get('version', '') or '')
+            if inventory_host or software_inventory.row_manager(p):
+                key = software_inventory.name_key(p)
+                if key not in held or software_inventory.compare_versions(version, held[key]) > 0:
+                    held[key] = version
+            else:
+                installed[str(p['name'])] = version
+
+    def find(name):
+        """(version, whether it is an application) of what is installed under this name, or None."""
+        if name in installed:
+            return installed[name], False
+        key = name.casefold()
+        return (held[key], True) if key in held else None
 
     violations = []
     for rule in rules:
@@ -70536,22 +70631,29 @@ def _eval_software_policy(dev_id, dev_name, packages, tags):
         rtags = {str(t) for t in (rule.get('tags') or [])}
         if rtags and not (rtags & tagset):
             continue   # rule scoped to tags this device doesn't carry
+        if rtype == 'required' and inventory_host and not rtags:
+            continue   # written for the packages of a distribution: see the docstring
         rid = rule.get('id') or f'{rtype}:{pkg}'
-        if rtype == 'banned' and pkg in installed:
+        found = find(pkg)
+        if rtype == 'banned' and found is not None:
             violations.append({'rule_id': rid, 'type': rtype, 'package': pkg,
                                'expected': 'not installed',
-                               'found': installed[pkg] or 'installed',
+                               'found': found[0] or 'installed',
                                'detail': f'banned package {pkg} is installed',
                                'note': _sanitize_str(rule.get('note', ''), 200)})
-        elif rtype == 'required' and pkg not in installed:
+        elif rtype == 'required' and found is None:
             violations.append({'rule_id': rid, 'type': rtype, 'package': pkg,
                                'expected': 'installed', 'found': 'missing',
                                'detail': f'required package {pkg} is missing',
                                'note': _sanitize_str(rule.get('note', ''), 200)})
-        elif rtype == 'min_version' and pkg in installed:
+        elif rtype == 'min_version' and found is not None:
             want = str(rule.get('version', '') or '')
-            have = installed[pkg]
-            if want and _ver_key(have) < _ver_key(want):
+            have, is_app = found
+            if is_app:
+                below = software_inventory.compare_versions(have, want) < 0
+            else:
+                below = _ver_key(have) < _ver_key(want)
+            if want and below:
                 violations.append({'rule_id': rid, 'type': rtype, 'package': pkg,
                                    'expected': f'>= {want}', 'found': have or '?',
                                    'detail': f'{pkg} {have or "?"} is below minimum {want}',
@@ -70582,6 +70684,9 @@ def _eval_software_policy(dev_id, dev_name, packages, tags):
     if violations:
         store[dev_id] = {'name': dev_name, 'checked_at': int(time.time()),
                          'violations': violations}
+        if inventory_host:
+            # the page offers no install or remove button for these: the commands behind it are for Linux packages
+            store[dev_id]['manager'] = inventory_host
     else:
         store.pop(dev_id, None)
     save(SOFTWARE_VIOLATIONS_FILE, store)
@@ -70598,7 +70703,8 @@ def _reeval_software_policy_all():
         dev = devices.get(dev_id) or {}
         try:
             v = _eval_software_policy(dev_id, dev.get('name', dev_id),
-                                      rec.get('packages') or [], dev.get('tags') or [])
+                                      rec.get('packages') or [], dev.get('tags') or [],
+                                      host_manager=rec.get('pkg_manager'))
             total += len(v)
         except Exception:
             pass
@@ -70664,9 +70770,15 @@ def handle_software_policy_violations():
     for dev_id, rec in (store or {}).items():
         if dev_id not in devices:
             continue
+        # `manager` is set for the host of an application list (windows, macos): the page offers no install
+        # or remove button for one, since the commands behind it are for the packages of a Linux distribution
+        mgr = software_inventory.manager_of(rec.get('manager'))
         for v in (rec.get('violations') or []):
-            out.append({'device_id': dev_id, 'device': rec.get('name', dev_id),
-                        'checked_at': rec.get('checked_at'), **v})
+            row = {'device_id': dev_id, 'device': rec.get('name', dev_id), 'checked_at': rec.get('checked_at')}
+            if mgr:
+                row['manager'] = mgr
+            row.update(v)
+            out.append(row)
     respond(200, {'violations': out, 'count': len(out)})
 
 
@@ -71690,7 +71802,9 @@ def _cve_scan_worker(actor, target):
             osv_prefetch = None
     for i, dev_id in enumerate(targets):
         entry = store.get(dev_id)
-        if not entry or not entry.get('ecosystem'):
+        # the applications of a Windows or macOS host are listed, not scanned: no advisory is filed under
+        # their names (software_inventory), whatever `ecosystem` says
+        if not entry or not entry.get('ecosystem') or software_inventory.is_inventory_host(entry.get('pkg_manager')):
             skipped += 1
         else:
             # 8.0.1: the scan name carries the release for Rocky and Alma, also for a list stored
