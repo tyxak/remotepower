@@ -11,7 +11,9 @@ on the demo seed, in one Chromium session:
 * the sentence under a command says "one-time" only for a command that works once;
 * the new elements at 1440, 768 and 390 px: no horizontal overflow, no console error, no failed request, no 4xx or 5xx answer;
 * English, German and Arabic (right to left): the label, the notice and the list's words translate, and nothing overflows in either direction;
-* a keyboard reaches the field and the Revoke button, with the visible focus ring, and Enter on Revoke asks before it does anything.
+* a keyboard reaches the field and the Revoke button, with the visible focus ring, and Enter on Revoke asks before it does anything;
+* a token whose label is markup (any administrator may write one, and the operator's list shows every tenant's) is drawn as text: the chip
+  holds no element and nothing in it runs, with a control that shows the same kind of markup does run when a page draws it as HTML.
 
 Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
 """
@@ -49,6 +51,7 @@ _COUNTER = itertools.count(1)
 
 # the strings of the new elements, in the languages the page is checked in (the dictionary is read from i18n.js, so a typo fails here)
 LABEL = 'Hosts that can use it'
+MARKUP_LABEL = '<img src=x onerror="window.__label_ran=1">tenant-label'      # what a hostile administrator would type as a token's label
 NOTE = 'Anyone who holds this command can enroll that many hosts until it expires. Revoking it stops it.'
 
 
@@ -370,6 +373,48 @@ class TestEnrollDialog(_Base):
         for t in _tokens(page, 'quick-install'):
             _api(page, 'DELETE', '/enrollment-tokens/' + t['prefix'].rstrip('…'))
         page.fill('#enroll-max-uses', '1')
+
+
+class TestAStoredLabelIsText(_Base):
+    """A token's label is free text from any administrator, a tenant administrator included, and the platform operator's list of open install
+    commands shows every tenant's tokens. A label drawn as HTML would be a stored script in the operator's page. Until this class nothing failed
+    when the one line that sets the chip's text was changed to innerHTML (see test_enrol_list_draws_text for the source side)."""
+
+    def test_a_label_that_is_markup_is_drawn_as_text_and_nothing_in_it_runs(self):
+        page = self.page
+        page.evaluate("() => { delete window.__label_ran; }")
+        made = _api(page, 'POST', '/enrollment-tokens', {'label': MARKUP_LABEL, 'max_uses': 3})
+        self.assertEqual(made.get('max_uses'), 3, made)
+        try:
+            # the server keeps the label exactly as typed: if it ever cleaned the markup out, the checks below would see nothing and mean nothing
+            mine = [t for t in _tokens(page) if t.get('label') == MARKUP_LABEL]
+            self.assertEqual(len(mine), 1, 'the server did not keep the label as it was typed: %s' % [t.get('label') for t in _tokens(page)])
+            _open_enroll_dialog(page)
+            row = page.locator('#enroll-open-list .enroll-open-row', has_text=mine[0]['prefix'])
+            self.assertEqual(row.count(), 1, 'the token is not in the list: %s' % _row_text(page))
+            chip = row.locator('.wiz-chip')
+            self.assertEqual(chip.count(), 1)
+            self.assertEqual(chip.inner_text(), MARKUP_LABEL, 'the chip does not show the label as it was typed')
+            self.assertEqual(chip.evaluate("e => e.children.length"), 0, 'the label was drawn as elements: %s' % chip.evaluate("e => e.innerHTML"))
+            self.assertEqual(page.locator('#enroll-open-list img').count(), 0)
+            page.wait_for_timeout(600)                       # an image that failed to load fires its handler after the page has drawn it
+            self.assertFalse(page.evaluate("() => window.__label_ran === 1"), 'the markup in a label ran in the operator\'s page')
+        finally:
+            _api(page, 'DELETE', '/enrollment-tokens/' + made['token'][:8])
+
+    def test_the_instrument_sees_markup_that_runs(self):
+        """The control of the test above: markup of the same kind, drawn as HTML by a page in this very browser, does run its handler. Without it
+        "nothing ran" would be a statement about the browser, not about the dialog."""
+        page = self.page
+        ran = page.evaluate("""() => new Promise(done => {
+            window.__control_ran = 0;
+            const d = document.createElement('div');
+            document.body.appendChild(d);
+            d.innerHTML = '<img src="data:," onerror="window.__control_ran=1">tenant-label';
+            setTimeout(() => { d.remove(); done(window.__control_ran === 1); }, 600);
+        })""")
+        self.assertTrue(ran, 'markup drawn as HTML did not run here: the check above cannot see a label that runs')
+        self.problems.clear()                                # the control's own image fails to decode on purpose
 
 
 class _DialogLayout:
