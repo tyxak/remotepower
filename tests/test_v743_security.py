@@ -84,6 +84,10 @@ def _call_as(handler, body, verb):
     api.get_json_body = lambda: json.loads(json.dumps(body))
     api.get_json_obj = api.get_json_body
     api.audit_log = lambda *a, **k: box.setdefault("audit", []).append((a, k))
+    # A handler decides whether to read a body from CONTENT_LENGTH (handle_oidc_test does). Nothing here sent one, so the answer depended on what an
+    # earlier module left in the process environment: unittest's single process happened to hold a non-zero value, a run of this file alone did not.
+    length_before = os.environ.get("CONTENT_LENGTH")
+    os.environ["CONTENT_LENGTH"] = str(len(json.dumps(body))) if body is not None else "0"
 
     def _resp(status, data=None):
         box["status"], box["body"] = status, data
@@ -97,6 +101,10 @@ def _call_as(handler, body, verb):
     finally:
         for n, v in saved.items():
             setattr(api, n, v)
+        if length_before is None:
+            os.environ.pop("CONTENT_LENGTH", None)
+        else:
+            os.environ["CONTENT_LENGTH"] = length_before
     api._LOAD_CACHE.clear()
     return box
 

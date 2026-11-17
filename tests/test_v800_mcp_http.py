@@ -478,6 +478,12 @@ class _Served(unittest.TestCase):
     """handle_mcp() as it is served: the thread-local context of a request, the real auth and gate chain, only verify_token replaced."""
 
     def setUp(self):
+        # pytest puts its own capture object in sys.stdout for every test, which drops the proxy setUpModule installed (unittest never does).
+        # Without the proxy a nested read prints its response into pytest's capture and the bridge reads an empty answer as "HTTP 500".
+        if not isinstance(sys.stdout, _OutProxy):
+            before = sys.stdout
+            sys.stdout = _OutProxy(before)
+            self.addCleanup(setattr, sys, "stdout", before)
         api.save(api.CONFIG_FILE, {"mcp_module_enabled": True, "tenancy_enforced": True})
         api.save(api.TENANTS_FILE, {"tenantA": {"name": "A", "status": "active", "created": 1}, "tenantB": {"name": "B", "status": "active", "created": 1}})
         api.save(api.USERS_FILE, {"alice": {"role": "admin", "password_hash": "x", "created": 1},
