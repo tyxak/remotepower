@@ -99,7 +99,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | `GET` | `/api/users` | | List users (with role, MFA state, sign-in source and last sign-in) |
 | `POST` | `/api/users` | admin | Create user (pass `role` — a built-in role or any custom role you've defined) |
 | `DELETE` | `/api/users/:name` | admin | Delete user |
-| `POST` | `/api/users/passwd` | | Change password |
+| `POST` | `/api/users/passwd` | | Change a password: your own with `old_password`, or another account's as an administrator. A password the account used recently is a 400 when `password_history` is set, and more than ten such checks a minute from one caller is a 429 |
 
 ### API Keys
 | Method | Endpoint | Auth | Description |
@@ -120,10 +120,10 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 |--------|----------|------|-------------|
 | `GET` | `/api/history` | | Command history log |
 | `GET` | `/api/config` | | Get config |
-| `POST` | `/api/config` | admin | Save config |
+| `POST` | `/api/config` | admin | Save config. `password_history` (0 to 24) and `password_max_age_days` (0 to 3650) are whole numbers, 0 is off, and a value outside the range is a 400 that saves none of the body |
 | `GET` | `/api/agent/version` | - | Agent version + SHA-256 |
 | `GET` | `/api/version` | | Server version + GitHub check |
-| `GET` | `/api/export` | admin | Download ZIP backup |
+| `GET` | `/api/export` | admin | Download ZIP backup (redacted: no API key values, no secrets in the settings, no account credentials). With tenant isolation on, the platform operator only |
 | `GET` | `/api/digest` | | Summary (total, online, patches, recent cmds) |
 | `GET` | `/api/patch-report` | | Full patch report (JSON) |
 | `GET` | `/api/patch-report/csv` | | Patch report as CSV (`?group=X&device_id=Y`) |

@@ -18,7 +18,7 @@ Many of these controls are **opt-in** — see the linked feature docs and
 | RBAC — admin/viewer/auditor/finance + custom roles scoped to groups/tags/sites | CC6.1, CC6.3 | A.5.15, A.8.2, A.8.3 |
 | MFA — TOTP + WebAuthn/passkeys; per-role MFA **enforcement** | CC6.1 | A.5.17, A.8.5 |
 | SSO — OIDC / SAML 2.0 / LDAP + SCIM 2.0 provisioning; group→role matrix; SSO-only mode | CC6.1, CC6.2, CC6.3 | A.5.16, A.5.18 |
-| Password policy — length / classes / HaveIBeenPwned breach check **(operator)** | CC6.1 | A.5.17 |
+| Password policy — length / classes / HaveIBeenPwned breach check / passwords remembered / maximum age **(operator)** | CC6.1 | A.5.17 |
 | Joiner/mover/leaver — SCIM deprovision revokes access + live sessions at once | CC6.2, CC6.3 | A.5.16, A.5.18 |
 | Session controls — concurrent-session caps, idle timeout, active-session revoke | CC6.1 | A.8.5 |
 | Service accounts — API keys hashed at rest, per-key host **scope**, source-IP allowlist, rate limit, expiry | CC6.1 | A.5.16, A.8.2 |

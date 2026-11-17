@@ -191,7 +191,9 @@ Password**. You need your current password. Every session signed in as you is si
 out, the one you are using included, so you sign in again with the new password.
 Passwords are stored with bcrypt (cost 12), or with salted PBKDF2 where
 bcrypt is not installed. A default-password banner stays until the account's
-"must change password" flag is cleared.
+"must change password" flag is cleared. Under **Settings → Security → Password policy** you
+can also stop people reusing their last passwords and set a maximum password age; see
+[security.md](security.md).
 
 ### 4.2 Turn on two-factor authentication
 

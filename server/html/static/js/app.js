@@ -1074,6 +1074,7 @@ async function doLogin() {
       // v2.3.2: remember whether this account is still on the default
       // password so showApp() can raise a warning banner.
       window._mustChangePassword = !!data.must_change_password;
+      window._passwordExpired = !!data.password_expired;      // the banner says "expired", not "default password"
       showApp();
     } else {
       err.textContent = 'Invalid username or password';
@@ -1200,7 +1201,9 @@ async function showApp() {
       banner = document.createElement('div');
       banner.id = 'default-pw-banner';
       banner.style.cssText = 'background:var(--red-soft,#3a1f1f);border-bottom:1px solid var(--red-edge,#7f1d1d);color:var(--red,#f87171);padding:10px 16px;font-size:13px;text-align:center;cursor:pointer';
-      banner.innerHTML = '\u26a0 This account is using the default password. <strong>Change it now</strong> \u2014 click here.';
+      banner.innerHTML = window._passwordExpired
+        ? '\u26a0 Your password has expired. <strong>Change it now</strong> \u2014 click here.'
+        : '\u26a0 This account is using the default password. <strong>Change it now</strong> \u2014 click here.';
       banner.onclick = () => gotoPasswordChange();
       document.body.insertBefore(banner, document.body.firstChild);
     }
@@ -2126,6 +2129,7 @@ async function api(method, path, body, extra) {
       // endpoint directly while still on the default password.
       if (parsed && parsed.must_change_password) {
         window._mustChangePassword = true;
+        if (parsed.password_expired) window._passwordExpired = true;
         if (typeof toast === 'function') {
           toast('Change your password first — every other action is blocked.', 'error');
         }
@@ -5265,7 +5269,9 @@ function openPasswd(username) { document.getElementById('passwd-username').value
 // signed-in user here instead; the admin Users-table row keeps using openPasswd
 // with an explicit username, which is the only case that may target someone else.
 function openMyPasswd() {
-  const who = (typeof _meCache !== 'undefined' && _meCache && _meCache.username) || '';
+  // A session that has to change its password cannot read /api/me (every route but the change answers 403), so _meCache holds that answer
+  // and no name; the name the sign-in stored is the fallback. Without it a default, an expired or a reset password could not be changed here.
+  const who = (typeof _meCache !== 'undefined' && _meCache && _meCache.username) || getMe() || '';
   if (!who) { toast('Could not determine the signed-in account', 'error'); return; }
   openPasswd(who);
 }
@@ -5291,7 +5297,15 @@ function gotoPasswordChange() {
     try { openPasswd(who); } catch (_) {}
   }, 150);
 }
-async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error', {transient: true}); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); } else failToast(data); }
+// The signed-in account has just changed its own password. That lifts a must-change gate (a default password, an expired one, an
+// administrator's reset), so the banner that asked for it goes and the page stops treating the session as gated.
+function _passwordChangedHere() {
+  window._mustChangePassword = false;
+  window._passwordExpired = false;
+  const b = document.getElementById('default-pw-banner');
+  if (b) b.style.display = 'none';
+}
+async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error', {transient: true}); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); if (username === getMe()) _passwordChangedHere(); } else failToast(data); }
 
 // v6.1.1 (#33): step-up re-auth. A handful of sensitive actions (minting or
 // promoting an admin account) 403 with {code:'step_up_required'} unless the
@@ -5822,6 +5836,8 @@ async function loadSettings() {
     _setv('cfg-pw-min-length', data.password_min_length);
     _setv('cfg-pw-classes', data.password_require_classes);
     _setv('cfg-pw-breach', data.password_breach_check);
+    _setv('cfg-pw-history', data.password_history);
+    _setv('cfg-pw-max-age', data.password_max_age_days);
     _setv('cfg-max-devices', data.max_devices ?? 50000);
     _setv('cfg-audit-hmac-rotate-days', data.audit_hmac_auto_rotate_days ?? 0);
   _setv('cfg-slo-target', data.slo_target_percent ?? 99.9);   // v5.4.1 (F3)
@@ -6456,6 +6472,8 @@ async function saveSettings(btn) {
     payload.password_min_length = parseInt(document.getElementById('cfg-pw-min-length')?.value || '0', 10) || 0;
     payload.password_require_classes = !!document.getElementById('cfg-pw-classes')?.checked;
     payload.password_breach_check = !!document.getElementById('cfg-pw-breach')?.checked;
+    payload.password_history = parseInt(document.getElementById('cfg-pw-history')?.value || '0', 10) || 0;
+    payload.password_max_age_days = parseInt(document.getElementById('cfg-pw-max-age')?.value || '0', 10) || 0;
     payload.max_devices = parseInt(document.getElementById('cfg-max-devices')?.value || '50000', 10) || 50000;
     payload.audit_hmac_auto_rotate_days = parseInt(document.getElementById('cfg-audit-hmac-rotate-days')?.value || '0', 10) || 0;
   payload.slo_target_percent = parseFloat(document.getElementById('cfg-slo-target')?.value || '99.9') || 99.9;   // v5.4.1 (F3)
@@ -14679,6 +14697,7 @@ async function loginWithPasskey() {
     store.setItem('rp_token', res.token);
     store.setItem('rp_me', res.username || username);
     window._mustChangePassword = !!res.must_change_password;
+    window._passwordExpired = !!res.password_expired;
     showApp();
   } else toast(res?.error || 'Passkey sign-in failed', 'error');
 }

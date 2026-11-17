@@ -200,6 +200,37 @@ defences in place (kept current):
 - **Passwords** are hashed with **bcrypt** (cost 12); where bcrypt is unavailable
   the server falls back to PBKDF2-HMAC-SHA256 at 600 000 iterations (OWASP minimum)
   with per-account salts. Legacy hashes are auto-upgraded on next login.
+- **Password policy** (**Settings → Security → Password policy**). A minimum length, three of four character classes and a
+  breach-list check apply to new passwords. Two more rules are off until you set them:
+  - **Passwords remembered** (0 to 24): a user cannot choose any of their last N passwords, the one they have now included.
+    At 3, a user can change P1 to P2, P3 and P4, and the fourth change, back to P1, is accepted.
+  - **Maximum password age** (0 to 3650 days): a local password older than that has to be changed when its owner next signs in,
+    before anything else works (the same gate as a default password). An account with no recorded change date, one from before
+    this setting existed, starts its clock at its own first sign-in after you turn the age on, never all at once. Turning the
+    age off later does not lift a change that is already required: an account that was told to change its password at its last
+    sign-in still has to.
+
+  The history applies when a person changes their own password, when an administrator resets one, and at the first-login change
+  of an account an administrator made. The age is checked when a local password is used to sign in. Neither applies to accounts
+  that sign in with OIDC, SAML or LDAP, or to API keys and service tokens: those have no local password to age. A script that
+  signs in with a user name and a password is a local sign-in like any other and is aged the same way, so give it an API key.
+
+  The history is private to the account. Only a hash is kept, in the scheme the account's password uses, and at most one fewer
+  than the number you set. It is never in an API answer, in a log line or in the audit log, and it is not in the redacted export
+  you download from **Settings → Backups**, which carries no account credential at all: no password hash, TOTP secret or recovery
+  code. Lowering the number, or turning it off, deletes what no longer counts. The full backup restores accounts, so it holds the
+  history next to the password hashes: keep it private, and set `RP_BACKUP_PASSPHRASE` so that the archives on disk are encrypted.
+
+  Checking a new password against the history takes one password check for each password kept, which is slow at the largest
+  setting. A caller can ask for that check ten times a minute; after that the change is refused with a 429 until the minute has
+  passed. A change that is refused for any reason writes nothing.
+
+  Only the platform operator can change these settings: with tenancy on, a tenant administrator cannot. The change is on the
+  audit log by setting name. A password change, an administrator's reset and a change refused because the password was used
+  recently are on the audit log too, with the account's name and never the password. A refused change leaves the account as it
+  was. The offline `remotepower-passwd` tool is the break-glass route: it sets a password without these checks and without a
+  history or a change date, so an account it changes keeps its old date and is asked to change at its next sign-in if that date
+  is past the limit.
 - **Login rate limiting** uses an exponential backoff ladder
   (10 s → 1 min → 5 min → 30 min → 2 h) and a dummy-verify on missing users to
   prevent timing-based account enumeration.

@@ -4052,6 +4052,145 @@ def _validate_password_policy(plain, username=''):
     return True, ''
 
 
+# Password history and a maximum password age: two instance-wide settings next to the rules above. Both default to 0 (off), so an
+# install that sets neither behaves as it did and keeps no extra data.
+PASSWORD_HISTORY_MAX = 24
+PASSWORD_MAX_AGE_DAYS_MAX = 3650
+# Checking a new password against the history costs one password check for each password kept (at the largest setting, 24 bcrypt checks,
+# several seconds of one worker). Only a caller who already knows the account's current password gets that far, so the number of times
+# a caller can ask in a minute is capped: a person choosing a password needs a few, and nobody can tie up the workers with it.
+PASSWORD_HISTORY_CHECKS_PER_MINUTE = 10
+
+
+def _config_count(key, top):
+    """A whole-number setting from 0 to `top`. Anything the settings document holds that is not one reads as 0, which is off."""
+    try:
+        n = int(_config_ro().get(key) or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    return max(0, min(top, n))
+
+
+def _password_history_depth():
+    """How many of a user's last passwords a new password may not equal, the one they have now included. 0 is off."""
+    return _config_count('password_history', PASSWORD_HISTORY_MAX)
+
+
+def _stored_password_history(rec):
+    """The earlier password hashes of an account record, newest first: a list of text, whatever else the file holds."""
+    raw = rec.get('password_history') if isinstance(rec, dict) else None
+    return [h for h in raw if isinstance(h, str) and h][:PASSWORD_HISTORY_MAX] if isinstance(raw, list) else []
+
+
+def _password_reused(plain, current_hash, history, depth):
+    """True when `plain` is the account's current password or one of the earlier ones that still count at this depth. Depth N counts
+    the current password and the N-1 before it. Every candidate is checked, so the time taken does not say which one matched."""
+    hit = False
+    for h in [current_hash] + list(history)[:max(0, depth - 1)]:
+        if isinstance(h, str) and h and verify_password(plain, h):
+            hit = True
+    return hit
+
+
+def _remember_password(rec, old_hash, depth):
+    """Put the hash that a change replaces at the front of the account's history and keep what still counts: at most depth-1 earlier
+    hashes (the password the account has is the other one), never more than PASSWORD_HISTORY_MAX. Depth 0 keeps nothing and drops what
+    was kept. A placeholder hash (an account with no local password) is not a password and is not kept. Only hashes, in the scheme
+    the account's own password uses; nothing readable."""
+    depth = max(0, min(PASSWORD_HISTORY_MAX, int(depth or 0)))
+    kept = _stored_password_history(rec)
+    if isinstance(old_hash, str) and old_hash and not old_hash.startswith('!'):
+        kept.insert(0, old_hash)
+    kept = kept[:max(0, depth - 1)]
+    if depth and kept:
+        rec['password_history'] = kept
+    else:
+        rec.pop('password_history', None)
+
+
+def _set_password(rec, own, new_hash, depth):
+    """Store a new password on an account record: the hash, when it was set, and the history. A person who changes their own clears the
+    must-change flag. An administrator's reset sets it: they have just invented the password and are about to pass it on."""
+    old = rec.get('password_hash') or ''
+    rec['password_hash'] = new_hash
+    rec['password_changed_at'] = int(time.time())           # v5.4.1 (D1); the maximum age counts from it
+    _remember_password(rec, old, depth)
+    rec.pop('password_expired', None)
+    if own:
+        rec.pop('must_change_password', None)
+    else:
+        rec['must_change_password'] = True
+
+
+def _trim_password_histories(depth):
+    """The depth was lowered or turned off: the stored hashes that no longer count are deleted from every account now, not at some later
+    change. Under the users store's lock, and tolerant of a record that is not a map."""
+    with _LockedUpdate(USERS_FILE) as users:
+        for rec in users.values():
+            if isinstance(rec, dict) and 'password_history' in rec:
+                kept = _stored_password_history(rec)[:max(0, depth - 1)]
+                if depth and kept:
+                    rec['password_history'] = kept
+                else:
+                    rec.pop('password_history', None)
+
+
+def _password_age_gate(username):
+    """The maximum password age, applied when a LOCAL password has just been accepted at sign-in (an LDAP, OIDC or SAML sign-in never
+    comes here, and an API key has no password). Returns the account's flags as they are now, or None when the age is off.
+
+    A password older than the limit sets the existing must-change flag, which the gate that runs before every route turns into a 403
+    for everything but the change itself, and marks it as an expiry so that the page says so. The change clears both. An account with no
+    recorded change date (one made before the date was kept) has its clock started here, at its own sign-in, and only while the age is
+    on: turning the age on never expires a whole directory of such accounts at once. An account already flagged for another reason (a
+    default password, an administrator's reset) keeps that reason."""
+    days = _config_count('password_max_age_days', PASSWORD_MAX_AGE_DAYS_MAX)
+    if not days:
+        return None
+    now = int(time.time())
+
+    def flags_of(rec):
+        return {'must_change_password': bool(rec.get('must_change_password')),
+                'password_expired': bool(rec.get('password_expired'))}
+
+    # Most sign-ins have nothing to write (the password is inside the limit), and a write takes the users store's lock and rewrites the
+    # whole store: look first, without the lock, and take it only for an account that needs a change.
+    seen = (_load_ro(USERS_FILE) or {}).get(username)
+    if not isinstance(seen, dict):
+        return None
+    if not _password_age_action(seen, days, now):
+        return flags_of(seen)
+    expired = False
+    with _LockedUpdate(USERS_FILE) as users:
+        rec = users.get(username)
+        if not isinstance(rec, dict):
+            return None
+        action = _password_age_action(rec, days, now)     # read again under the lock: the account may have changed since
+        if action == 'stamp':
+            rec['password_changed_at'] = now
+        elif action == 'expire':
+            rec['must_change_password'] = True
+            rec['password_expired'] = True
+            expired = True
+        flags = flags_of(rec)
+    if expired:      # outside the lock: the recorders queue what is called inside one
+        audit_log(username, 'password_expired', f'older than {days} days: a change is required at this sign-in')
+    return flags
+
+
+def _password_age_action(rec, days, now):
+    """What the maximum age does to one account at a local sign-in: 'stamp' (no usable change date, so the clock starts now), 'expire'
+    (older than the limit and not already flagged for another reason) or '' (nothing to write)."""
+    changed = rec.get('password_changed_at')
+    # A date that cannot be a day this password was set (text, a boolean, zero or less, NaN, infinity, or more than a day ahead of the
+    # clock) is no date: reading it as one would make an account whose record was damaged never expire, so its clock starts now instead.
+    if isinstance(changed, bool) or not isinstance(changed, (int, float)) or not 0 < changed <= now + 86400:
+        return 'stamp'
+    if now - changed > days * 86400 and not rec.get('must_change_password'):
+        return 'expire'
+    return ''
+
+
 def _sso_only_blocks(user):
     """v5.4.1 (D2): when `sso_only` is enabled AND an IdP (OIDC/SAML) is actually
     configured, refuse local-password-store logins so the org can mandate IdP
@@ -15981,6 +16120,10 @@ def handle_login():
     # could guess second-factor codes without ever reaching the lockout. It is
     # cleared below, once the second factor has passed too.
     if ldap_user_info is None:
+        # The maximum password age: a local password has just been accepted. (An LDAP sign-in has no local password to age.)
+        _aged = _password_age_gate(username)
+        if _aged:
+            user = dict(user, **_aged)
         # Only rehash on local auth — LDAP users have placeholder hashes
         maybe_rehash(username, password, stored)
 
@@ -16069,6 +16212,8 @@ def handle_login():
         # warning banner. Set on the seeded default admin, cleared
         # when the password is changed.
         'must_change_password': bool(user.get('must_change_password')),
+        # the page says "your password has expired" and not "this account is using the default password"
+        'password_expired': bool(user.get('password_expired')),
         'must_enroll_mfa': _mfa_enrollment_required(user),   # v4.2.0 (A3)
     })
 
@@ -31249,6 +31394,8 @@ def handle_config_get():
     safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
     safe.setdefault('password_require_classes', False)  # v5.4.1 (D1)
     safe.setdefault('password_breach_check',  False)  # v5.4.1 (D1): HIBP k-anon, opt-in
+    safe.setdefault('password_history',       0)      # passwords remembered (0 = off, at most 24)
+    safe.setdefault('password_max_age_days',  0)      # a local password older than this is changed at sign-in (0 = off, at most 3650)
     safe.setdefault('sso_only',               False)  # v5.4.1 (D2): mandate IdP auth
     safe.setdefault('sso_default_tenant',     '')     # v6.4.3: tenant for JIT-provisioned SSO users
     safe.setdefault('idle_timeout_minutes',   0)      # v5.4.1 (D3): 0 = off
@@ -34237,6 +34384,19 @@ def handle_config_save():
         cfg['password_require_classes'] = bool(body['password_require_classes'])
     if 'password_breach_check' in body:      # D1
         cfg['password_breach_check'] = bool(body['password_breach_check'])
+    # Passwords remembered (0 to 24) and the maximum password age (0 to 3650 days). Both are the platform operator's: this whole handler
+    # refuses a tenant administrator above. A value that is not a whole number in range is refused, not clamped (a number typed
+    # past the end must not become a different rule than the one the person meant), and a refused save stores none of its keys.
+    # Blank turns the rule off, as it does for the thresholds on the same page.
+    for _pk, _ptop in (('password_history', PASSWORD_HISTORY_MAX), ('password_max_age_days', PASSWORD_MAX_AGE_DAYS_MAX)):
+        if _pk in body:
+            _pv = body[_pk]
+            if _pv is None or _pv == '':
+                cfg.pop(_pk, None)
+            elif isinstance(_pv, bool) or not isinstance(_pv, int) or not 0 <= _pv <= _ptop:
+                respond(400, {'error': 'The value must be a whole number within the range this setting allows.', 'field': _pk, 'min': 0, 'max': _ptop})
+            else:
+                cfg[_pk] = _pv
     if 'sso_only' in body:                   # D2
         cfg['sso_only'] = bool(body['sso_only'])
     if 'idle_timeout_minutes' in body:       # D3
@@ -34279,6 +34439,12 @@ def handle_config_save():
                 _live[k] = cfg[k]
             else:
                 _live.pop(k, None)
+    # The passwords remembered were cut down or switched off: what no longer counts is deleted now. (After the lock above is released:
+    # this takes the users store's own.)
+    _ph_old = _cfg_before.get('password_history') if isinstance(_cfg_before.get('password_history'), int) else 0
+    _ph_new = cfg.get('password_history') if isinstance(cfg.get('password_history'), int) else 0
+    if _ph_new < _ph_old:
+        _trim_password_histories(_ph_new)
     # v5.6.x: prune orphaned monitor_history for monitors just deleted/renamed
     # (see the 'monitors' block above). Done after the config save so we hold no
     # other lock when taking the MON_HIST_FILE lock. Guarded on the monitors
@@ -35949,7 +36115,9 @@ def handle_user_passwd():
     # a password rotation could be silently reverted by any concurrent
     # writer holding an older snapshot of the whole users dict — including
     # a UI-prefs save, which every logged-in operator triggers constantly.
+    depth = _password_history_depth()        # 0 = off: the change below is then exactly what it was before the history existed
     bad_old_password = False
+    check = None                             # (current hash, earlier hashes), read under the lock, when the history has to be consulted
     with _LockedUpdate(USERS_FILE) as users:
         _, requester_role = verify_token(get_token_from_request())
 
@@ -35976,29 +36144,48 @@ def handle_user_passwd():
                 bad_old_password = True       # counted once the users lock is released
 
         if not bad_old_password:
-            users[username]['password_hash'] = hash_password(new_pw)
-            users[username]['password_changed_at'] = int(time.time())   # v5.4.1 (D1)
-            # v2.3.2: once the password is changed, clear the default-password
-            # warning flag so the UI banner stops showing.
-            #
-            # v6.4.2: but only for a SELF-change. An admin resetting someone else's
-            # password has just invented one and is about to send it over Slack or
-            # read it down the phone — the very case the flag exists for. Clearing it
-            # there meant the forgotten-password path ended with a shared secret the
-            # product never asked anyone to replace. Setting it makes the next login
-            # go through the existing change-password gate, which is already built:
-            # _enforce_password_change() runs pre-dispatch and the client already shows
-            # the banner. So this is one line, not a feature.
-            if username == requester:
-                users[username].pop('must_change_password', None)
+            if depth:
+                # Comparing the new password with up to 24 old hashes is slow by design, so it is done below, outside the lock.
+                check = (user.get('password_hash') or '', _stored_password_history(user))
             else:
-                users[username]['must_change_password'] = True
+                # v2.3.2: once the password is changed, clear the default-password
+                # warning flag so the UI banner stops showing.
+                #
+                # v6.4.2: but only for a SELF-change. An admin resetting someone else's
+                # password has just invented one and is about to send it over Slack or
+                # read it down the phone — the very case the flag exists for. Clearing it
+                # there meant the forgotten-password path ended with a shared secret the
+                # product never asked anyone to replace. Setting it makes the next login
+                # go through the existing change-password gate, which is already built:
+                # _enforce_password_change() runs pre-dispatch and the client already shows
+                # the banner. So this is one line, not a feature.
+                _set_password(users[username], username == requester, hash_password(new_pw), 0)
 
     if bad_old_password:
         _record_login_failure(username, 'reauth')
         respond(403, {'error': 'Old password incorrect'})
+    if check is not None:
+        # The new password may not equal the current one or the ones before it that still count. The comparison runs outside the lock, and
+        # the write below takes it again and refuses if the account changed in between: a refused change writes nothing at all, and a
+        # change that went through is the only thing that adds to the history.
+        if not _ip_ratelimit('pwhist', 'u:' + str(requester), PASSWORD_HISTORY_CHECKS_PER_MINUTE, window=60):
+            respond(429, {'error': 'Too many password changes. Wait a minute and try again.'})
+        if _password_reused(new_pw, check[0], check[1], depth):
+            audit_log(requester, 'password_change_refused', f'username={username} reason=used_recently')
+            respond(400, {'error': 'This password was used recently. Choose one you have not used before.'})
+        new_hash = hash_password(new_pw)
+        with _LockedUpdate(USERS_FILE) as users:
+            user = users.get(username)
+            if not user:
+                respond(404, {'error': 'User not found'})
+            if (user.get('password_hash') or '') != check[0]:
+                respond(409, {'error': 'The password changed while this request was running. Try again.'})
+            _set_password(user, username == requester, new_hash, depth)
     if username == requester:
         _clear_login_failures(username, 'reauth')
+    # On the record, with whose password and who changed it, never the password or its hash. An administrator's reset is the step that
+    # takes an account over, and it left no line at all.
+    audit_log(requester, 'password_change' if username == requester else 'password_reset', f'username={username}')
 
     # Sign the account out of its sessions on a password change. 7.5.0: a person who changes their OWN password keeps the session they
     # did it in, which is what the page says ("signs out every other session"), what the guide says, and what the page assumes (it
@@ -58864,6 +59051,10 @@ def handle_drift_get_content(dev_id):
     respond(200, {'path': path, 'captures': enriched})
 
 
+# The fields of an account record that are credentials. The export that is safe to share leaves them out of users.json.
+_EXPORT_ACCOUNT_CREDENTIALS = frozenset({'password_hash', 'password_history', 'totp_secret', 'totp_pending', 'recovery_codes'})
+
+
 def handle_export():
     """Export backup ZIP.
 
@@ -58871,7 +59062,9 @@ def handle_export():
     password / token fields in config.json — the Proxmox API token
     secret, the SMTP password, and the LDAP bind password. Before
     v2.3.1 config.json went into the ZIP unchanged, so a backup file
-    carried live credentials; that's the leak this closes.
+    carried live credentials; that's the leak this closes. The accounts in
+    users.json carry no credential either (_EXPORT_ACCOUNT_CREDENTIALS); the
+    full backup keeps them, because it restores accounts.
 
     Also triggers _run_data_backup(triggered_by='export') so the
     server-status backup state is updated and a tar.gz snapshot is
@@ -58923,6 +59116,15 @@ def handle_export():
                     _redact_config_secrets_inplace(raw)             # name-based (*_password/_secret/_token/api_key/…)
                     _redact_nonname_config_secrets(raw, mask=True)  # + the non-name-caught set (URLs w/ creds, cloud secret_key, …)
                 zf.writestr('config.json', json.dumps(raw, indent=2))
+            elif name == 'users.json':
+                # This is the export that the docs call safe to share, so an account in it carries no credential: not the password
+                # hash, the password history (the hashes of earlier passwords), the TOTP secret or the one waiting to be confirmed, nor
+                # the recovery codes. Each is something a guess can be checked against or a second factor is made from. The full backup
+                # keeps them, because it restores accounts.
+                raw = _load_ro(f)
+                zf.writestr('users.json', json.dumps(
+                    {u: ({k: v for k, v in r.items() if k not in _EXPORT_ACCOUNT_CREDENTIALS} if isinstance(r, dict) else r)
+                     for u, r in (raw.items() if isinstance(raw, dict) else ())}, indent=2))
             else:
                 zf.writestr(name, json.dumps(_load_ro(f), indent=2))
     data = buf.getvalue(); ts = time.strftime('%Y%m%d-%H%M%S')
@@ -63007,9 +63209,14 @@ def handle_security_posture():
         'Investigate immediately — audit entries were altered or removed.')
     # v5.4.1 enterprise-hardening controls surfaced on the posture page.
     _pml = int(cfg.get('password_min_length') or 0)
+    # the passwords remembered and the maximum age are named when they are on, so that "off" is never printed above rules that are on
+    _pwh = _password_history_depth()
+    _pwa = _config_count('password_max_age_days', PASSWORD_MAX_AGE_DAYS_MAX)
+    _pw_more = (f', remembers {_pwh}' if _pwh else '') + (f', expires after {_pwa}d' if _pwa else '')
     add('password_policy', 'Password policy enforced', _pml > 0,
-        f'min length {_pml}' + (', classes' if cfg.get('password_require_classes') else '')
-        + (', breach-check' if cfg.get('password_breach_check') else '') if _pml else 'off',
+        (f'min length {_pml}' + (', classes' if cfg.get('password_require_classes') else '')
+         + (', breach-check' if cfg.get('password_breach_check') else '') + _pw_more) if _pml
+        else (f'no minimum length{_pw_more}' if _pw_more else 'off'),
         'Set a minimum length (12+ recommended) under Settings → Security → Password policy.',
         fix_tab='security')
     _idle = int(cfg.get('idle_timeout_minutes') or 0)
@@ -63335,6 +63542,7 @@ def handle_webauthn_login_complete():
     respond(200, {'ok': True, 'token': token, 'role': u.get('role', 'admin'),
                   'username': username,
                   'must_change_password': bool(u.get('must_change_password')),
+                  'password_expired': bool(u.get('password_expired')),      # the banner says "expired" for this account as it does after a password sign-in
                   'must_enroll_mfa': _mfa_enrollment_required(u)})
 
 
@@ -64284,6 +64492,7 @@ def handle_me():
         'ldap':                 bool(u.get('ldap_dn')),
         'created':              u.get('created'),
         'must_change_password': bool(u.get('must_change_password')),
+        'password_expired': bool(u.get('password_expired')),
         'must_enroll_mfa': _mfa_enrollment_required(u),   # v4.2.0 (A3)
         # v3.14.0: per-account sidebar favorites, so they follow the user
         # across devices/browsers instead of living only in localStorage.
@@ -76693,6 +76902,7 @@ def _enforce_password_change():
                    'Change it via POST /api/users/passwd before using '
                    'any other endpoint.'),
         'must_change_password': True,
+        'password_expired': bool(user.get('password_expired')),
     })
 
 

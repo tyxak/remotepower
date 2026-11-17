@@ -160,7 +160,8 @@ triage and prompt customization. See [ai.md](ai.md) and [rag.md](rag.md).
 The trust-boundary controls and the security opt-ins:
 
 - Access: **IP allowlist**, **change approval** (a second admin approves chosen
-  commands), **account guardrails**, **password policy**, **session length**, **agent
+  commands), **account guardrails**, **password policy** (length, character classes, breach check, passwords
+  remembered and a maximum age: see [security.md](security.md)), **session length**, **agent
   mutual TLS**, **agentless SSH**.
 - **Multi-tenancy**, its isolation-coverage report and the tenant list.
 - **Audit log**, **audit log forwarding**, **compliance exports** and **Config as

@@ -345,11 +345,14 @@ class TestEagerJsPayload(unittest.TestCase):
         # host drawer no longer takes the note of a scan for a failed request and prints the note (about 600 with the reason); the count in the host
         # view says how many need Ubuntu Pro, prints a number or a name only when it is one, and the page files a blank or a numeric fixed version
         # under the same tile as the server (about 700).
-        # Enrolment for many hosts: 2_747_000. The payload was 2_742_522 and is 2_745_024 now: 2,502 bytes more. index.html is about 1,150 of them (the "Hosts that can use it" field
-        # of the Enroll dialog with its notice, the section for the open install commands, and the in-app guide's paragraph about tokens) and app.js about 1,350 (the number's check
-        # and the notice's toggle, the minted token being checked before it is printed into a command, the sentences that differ above one host, and the call that fetches the list).
-        # The list itself is app-enrol.js and the wizard's field is in app-wizard.js, both lazy; the Enroll dialog is drawn before any loader could be asked for more.
-        self.assertLess(total, 2_747_000,
+        # Enrolment for many hosts and the password policy: 2_749_000. The payload was 2_742_522 and is 2_746_509 now: 3,987 bytes more, all of it in app.js (the eager
+        # scripts are what this test adds up; index.html is not in the sum). Enrolment is 2,502 of them: the check of the number of hosts and the toggle of its notice, the
+        # minted token being checked before it is printed into a command, the sentences that differ above one host, and the call that fetches the list. The password
+        # policy is 1,485: the two Settings fields' load and save, the flag that says the password expired (from a password sign-in and from a passkey one) and the banner's
+        # second sentence, the name fallback that lets a person who has to change their password open the form (it took the name from /api/me, which that session cannot
+        # call) and the banner going once the password is changed. The list of open install commands is app-enrol.js and the wizard's field is in app-wizard.js, both lazy;
+        # the dialog and the Settings page are drawn before any loader could be asked for more.
+        self.assertLess(total, 2_749_000,
                         'the eager JS payload regressed past its budget')
 
 

@@ -2709,11 +2709,15 @@
               <input type="text" id="cfg-sso-default-tenant" class="form-input mw-160" placeholder="default">
               <p class="hint">Which tenant a user created by OIDC / SAML / SCIM / LDAP belongs to. Only meaningful with multi-tenancy enforced. While this is blank, an IdP group that maps to <strong>admin</strong> would produce an admin in the default tenant — a platform operator who can see every tenant — so RemotePower creates that user as a viewer instead and records why. Set this (to <code>default</code> if that is what you want) to get the mapped role. <a href="docs/sso.md" class="c-accent">Documentation</a></p></div>
             <div class="section-title mt-16">Password policy</div>
-            <p class="hint">Applied to new users and password changes (existing passwords are never invalidated). Opt-in — leave length at 0 to keep the current behaviour.</p>
+            <p class="hint">Applied to new users and password changes. The length and character rules never invalidate a password someone already has; the maximum age does, at that person's next sign-in. Every rule is off until you set it.</p>
             <div class="settings-row"><label class="form-label" for="cfg-pw-min-length">Minimum length (0 = off; 12+ recommended)</label>
               <input type="number" id="cfg-pw-min-length" class="form-input mw-160" min="0" max="256" placeholder="0"></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-pw-classes"> Require at least 3 character classes (lower / upper / digit / symbol)</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-pw-breach"> Reject breached passwords (checks HaveIBeenPwned by k-anonymity — only a SHA-1 prefix leaves the server; fails open if unreachable)</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-pw-history">Passwords remembered (0 = off, at most 24). At 3, a new password cannot be the one in use now or either of the two before it</label>
+              <input type="number" id="cfg-pw-history" class="form-input mw-160" min="0" max="24" placeholder="0"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-pw-max-age">Maximum password age in days (0 = off, at most 3650). A local password older than this has to be changed at the next sign-in. Accounts that sign in through LDAP, OIDC or SAML are not affected</label>
+              <input type="number" id="cfg-pw-max-age" class="form-input mw-160" min="0" max="3650" placeholder="0"></div>
             <div class="settings-row"><label class="form-label" for="cfg-max-devices">Maximum enrolled hosts (enroll is refused past this; existing hosts unaffected)</label>
               <input type="number" id="cfg-max-devices" class="form-input mw-160" min="1" max="10000000" placeholder="50000"></div>
             <div class="settings-row"><label class="form-label" for="cfg-audit-hmac-rotate-days">Auto-rotate the audit-chain signing key every N days (0 = off — use "Rotate signing key" on the Audit page to rotate manually instead)</label>

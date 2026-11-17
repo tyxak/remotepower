@@ -28,7 +28,7 @@ browser they follow you. The ones marked *this browser only* below do not.
 | Section | What it does |
 | --- | --- |
 | **Permissions** | A read-only list of what your role lets you do. An administrator changes it under **Users & roles**; you cannot grant yourself more. |
-| **Password** | Change the password you sign in with. You must enter your current password, and every other session is signed out afterwards. |
+| **Password** | Change the password you sign in with. You must enter your current password, and every other session is signed out afterwards. If your administrator has set a number of passwords to remember, you cannot choose one you used recently. If they have set a maximum age, a password older than that has to be changed when you next sign in, before anything else works. |
 | **Two-factor authentication (2FA)** | Add a one-time code from an authenticator app. Scan the QR code, confirm one code, and store the recovery codes somewhere safe, because they are shown once. Each recovery code works once. **Regenerate recovery codes** replaces them and asks for your password. |
 | **Passkeys (WebAuthn)** | Phishing-resistant sign-in with a security key, your phone, or this device's biometrics. You can register more than one and remove any of them. A passkey also satisfies a policy that requires MFA. The section is hidden when the server has no passkey support. |
 | **Active sessions** | Every browser currently signed in as you, with when it was last used. Revoke anything you do not recognise, or use **Sign out all other sessions**. |

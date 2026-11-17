@@ -336,7 +336,7 @@ _CONFIG_NUMBERS = (
     'metric_recovery_buffer', 'metric_samples_retention_days', 'min_online_ttl', 'monitor_history_max',
     'monitor_history_retention_days', 'monitor_interval', 'netconfig_backup_interval_s', 'nic_drop_alert_min',
     'nic_err_alert_min', 'offline_missed_polls', 'online_ttl', 'oom_recent_window_seconds',
-    'os_eol_soon_days', 'otlp_interval', 'otlp_traces_interval', 'password_min_length',
+    'os_eol_soon_days', 'otlp_interval', 'otlp_traces_interval', 'password_history', 'password_max_age_days', 'password_min_length',
     'patch_alert_threshold', 'patch_na_warn_count', 'proxmox_backup_warn_days', 'proxmox_snapshot_warn_days',
     'reliability_crit', 'reliability_high', 'reliability_medium', 'reliability_reboot_churn_min',
     'reliability_wear_high_pct', 'resolver_failures_before_alert', 'risk_level_critical', 'risk_level_high',
@@ -489,7 +489,8 @@ SHAPES: dict = {
     'runbooks.json': dict_of(),
     # ── a map keyed by something else ───────────────────────────────────────────────────────────────────────────────────
     'apikeys.json': dict_of(),
-    'users.json': dict_of(),
+    # an account's change date is subtracted from the clock (the maximum password age) and its history is read as a list of hashes
+    'users.json': dict_of(fields(password_changed_at=OPT_NUM, password_history=list_of(STR))),
     'tenants.json': dict_of(fields(name=STR), keep=True),
     'sites.json': dict_of(fields(name=STR)),
     'racks.json': dict_of(fields(height_u=OPT_NUM, name=STR, site=OPT_STR)),
