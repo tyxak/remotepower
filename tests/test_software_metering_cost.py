@@ -11,6 +11,8 @@ Driven through the real handlers and the real dispatcher, and held to:
   * a rule with no cost has no amount (None), a rule that is free has 0.00, a rule that owns nothing (limit 0) is neither short nor spare;
   * hostile costs (negative, 1e308, NaN, a string, three decimals, a sign, an exponent, a separator, a non-ASCII digit, a boolean, a list) refuse the whole save and
     leave the stored rules as they were; a stored cost that is not an amount (a hand edit) is read as no cost;
+  * so does a cost written as a number the body reader cannot hold (NaN, Infinity, 1e999, an integer of 21 digits or more), which the reader turns into null: the save is
+    told apart from "no cost" by reading the body a second time, and an explicit null, an empty text and a blank are still no cost;
   * the currency is the one of the billing settings;
   * the amounts go to an administrator and to finance of the operator's own organisation, and to nobody else: not to a viewer, not to a tenant's administrator,
     and neither the report nor `GET /api/config` carries them; the counts still go to everyone, for the hosts they may see.
@@ -85,6 +87,19 @@ class _Metering(RequestCase):
     def save_rules(self, rules, token='k'):
         return self.request('/api/config', 'POST', token=token, body={'software_meters': rules})
 
+    def save_raw(self, text, token='k'):
+        """The body as raw text, for what json.dumps cannot write: 1e999, and a number of 21 digits as its sender wrote it."""
+        raw = text.encode()
+
+        def go():
+            os.environ.update(PATH_INFO='/api/config')
+            self.api._RCTX.stdin = raw
+            self.api.main()
+        try:
+            return request_harness._run(self.api, go, None, method='POST', env={'HTTP_AUTHORIZATION': 'Bearer ' + token, 'QUERY_STRING': '', 'CONTENT_LENGTH': str(len(raw))})
+        finally:
+            self.api._RCTX.stdin = None
+
 
 class TestTheAmounts(_Metering):
 
@@ -145,14 +160,52 @@ class TestTheCostsAreSaved(_Metering):
             self.assertIsInstance(self.saved()[0]['unit_cost'], str)
 
     def test_no_cost_is_no_key(self):
-        # NaN and Infinity are not JSON, and neither is an integer of 20 digits or more: the body reader reads them as null, so they arrive as no cost
-        # and never reach a store
-        for sent in (None, '', '   ', float('nan'), float('inf'), -float('inf'), 10 ** 30):
+        # an explicit null, an empty text and a blank say there is no cost. NaN, Infinity and a number of 21 digits are not null, though the body reader reads them as
+        # null: they are refused (test_a_cost_the_body_reader_cannot_hold_is_refused_and_is_not_read_as_no_cost)
+        for sent in (None, '', '   '):
             st, out = self.save_rules([{'name': 'nginx', 'limit': 3, 'unit_cost': sent}])
             self.assertEqual(st, 200, out)
             self.assertEqual(self.saved(), [{'name': 'nginx', 'limit': 3}], repr(sent))
         st, out = self.save_rules([{'name': 'nginx', 'limit': 3}])
         self.assertEqual((st, self.saved()), (200, [{'name': 'nginx', 'limit': 3}]))
+
+    def test_a_cost_the_body_reader_cannot_hold_is_refused_and_is_not_read_as_no_cost(self):
+        before = self.saved()
+        self.assertTrue(before, 'control: there are stored rules for a refusal to leave alone')
+        for cost in ('NaN', 'Infinity', '-Infinity', '1e999', '-1e999', '1E+400', '1' + '0' * 20, '9' * 40, '-' + '1' * 21, '12.5e9999'):
+            with self.subTest(cost=cost[:30]):
+                st, out = self.save_raw('{"software_meters":[{"name":"nginx","limit":3,"unit_cost":%s}]}' % cost)
+                self.assertEqual(st, 400, (cost, out))
+                self.assertIn('software meter cost', out['error'])
+                self.assertEqual(self.saved(), before, 'nothing was stored')
+        for sent in (float('nan'), float('inf'), -float('inf'), 10 ** 30):         # the same through json.dumps
+            st, out = self.save_rules([{'name': 'nginx', 'limit': 3, 'unit_cost': sent}])
+            self.assertEqual(st, 400, (sent, out))
+            self.assertEqual(self.saved(), before)
+
+    def test_the_same_numbers_anywhere_else_in_the_body_are_not_a_cost_and_are_not_refused(self):
+        control = '{"software_meters":[{"name":"nginx","limit":3,"unit_cost":%s}]}'
+        for cost, want in (('null', None), ('""', None), ('49.99', '49.99'), ('"49.99"', '49.99')):
+            st, out = self.save_raw(control % cost)
+            self.assertEqual(st, 200, (cost, out))
+            self.assertEqual(self.saved(), [dict({'name': 'nginx', 'limit': 3}, **({'unit_cost': want} if want else {}))], cost)
+        for text in ('{"software_meters":[{"name":"Infinity","limit":3,"unit_cost":5}]}',               # a word of the name
+                     '{"software_meters":[{"name":"nginx","limit":1e999,"unit_cost":5}]}',               # a limit the reader cannot hold is 0, as it was
+                     '{"software_meters":[{"name":"nginx","limit":3,"unit_cost":5,"aliases":["NaN"]}]}',
+                     '{"server_name":"NaN","software_meters":[{"name":"nginx","limit":3,"unit_cost":5}]}'):
+            st, out = self.save_raw(text)
+            self.assertEqual(st, 200, (text, out))
+
+    def test_the_refusal_points_at_the_meter_that_has_the_cost_and_not_at_its_neighbours(self):
+        before = self.saved()
+        bad = '{"software_meters":[{"name":"","limit":1,"unit_cost":NaN},{"name":"nginx","limit":3,"unit_cost":NaN}]}'
+        st, out = self.save_raw(bad)
+        self.assertEqual(st, 400, out)                                   # the second meter has the cost, whatever the first one is
+        self.assertEqual(self.saved(), before)
+        skipped = '{"software_meters":[{"name":"","limit":1,"unit_cost":NaN},{"name":"nginx","limit":3,"unit_cost":5}]}'
+        st, out = self.save_raw(skipped)
+        self.assertEqual(st, 200, out)                                   # a meter with no name is not kept, so it is not looked at, as before
+        self.assertEqual(self.saved(), [{'name': 'nginx', 'limit': 3, 'unit_cost': '5.00'}])
 
     def test_a_cost_that_is_not_an_amount_refuses_the_whole_save_and_changes_nothing(self):
         before = self.saved()

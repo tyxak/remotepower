@@ -190,10 +190,12 @@ Give an item a cost and the table adds **Unit cost**, **Cost to buy** (what the 
 above your licences would cost) and **Cost to reclaim** (what the spare licences cost), with a
 **Fleet total** under the table. A cost is an amount from 0 to 1,000,000 with at most two
 decimals (`49.99`); anything else, such as three decimals, a minus sign or `1e3`, is refused
-and nothing is saved. A cost of 0 is a free item and shows 0.00. An item with no cost shows no
-amount (a dash, not zero) and is left out of the cost totals; **Rules without a cost** says
-how many. Amounts are exact to the cent, and the currency is the one in the billing settings
-(USD until you change it).
+and nothing is saved. Through the API, `NaN`, `Infinity`, `1e999` and a whole number of 21
+digits or more are refused too (a JSON reader turns them into null, which would otherwise read
+as no cost); for no cost, leave the cost out or send `null` or an empty text. A cost of 0 is a
+free item and shows 0.00. An item with no cost shows no amount (a dash, not zero) and is left
+out of the cost totals; **Rules without a cost** says how many. Amounts are exact to the cent,
+and the currency is the one in the billing settings (USD until you change it).
 
 Costs are money of the organisation that runs the installation, so only an administrator and the
 finance role of that organisation see them. Everyone else sees the counts, for the hosts they

@@ -5134,6 +5134,31 @@ def _json_loads(text):
     return json.loads(text, parse_constant=_json_nonfinite)
 
 
+class _Unreadable:
+    """Stands where `_json_loads` puts null for a number it cannot hold, in a second reading of a request body made for the fields that have to tell "no value" from "a value
+    that cannot be held"."""
+    def __repr__(self):
+        return '<unreadable number>'
+
+
+_UNREADABLE = _Unreadable()
+_NONFINITE_WORD = re.compile(r'\b(?:NaN|-?Infinity)\b')
+
+
+def _json_loads_marking(text):
+    """json.loads that reads exactly the numbers `_json_loads` turns into null as `_UNREADABLE` instead: NaN and Infinity, a float that overflows, an integer of 21 digits or more."""
+    def number(convert):
+        def read(t):
+            try:
+                v = convert(t)
+            except (ValueError, OverflowError):
+                return _UNREADABLE
+            return v if (not isinstance(v, float) or math.isfinite(v)) else _UNREADABLE
+        return read
+    return json.loads(text, parse_constant=lambda _c: _UNREADABLE,
+                      parse_int=number(lambda t: _UNREADABLE if len(t.lstrip('-')) > 20 else int(t)), parse_float=number(float))
+
+
 def _shape_fix(path, data, raw_text=None):
     """store_shapes.normalize for the store at `path`. A repair is never what makes a read fail.
 
@@ -7342,6 +7367,23 @@ def _scrub_surrogates(v):
     if isinstance(v, dict):
         return {(_scrub_surrogates(k) if isinstance(k, str) else k): _scrub_surrogates(x) for k, x in v.items()}
     return v
+
+
+def _unreadable_meter_costs():
+    """The positions in `software_meters` of the request body whose `unit_cost` is a number the reader turned into null (NaN, Infinity, 1e999, an integer of 21 digits or more).
+
+    The body reader reads such a number as null, and null is how a rule says it has no cost, so the two cannot be told apart from what the handler is given. The text of the
+    body is read a second time, only when it holds one of those numbers at all, with a reader that keeps them apart. Empty when it does not, or when the body is not an object."""
+    try:
+        raw = get_body()
+        text = raw if isinstance(raw, str) else raw.decode('utf-8', 'replace')
+        if not (_UNHOLDABLE_NUMBER.search(text) or _NONFINITE_WORD.search(text)):
+            return set()
+        tree = _json_loads_marking(text)
+    except Exception:
+        return set()
+    meters = tree.get('software_meters') if isinstance(tree, dict) else None
+    return {i for i, m in enumerate(meters if isinstance(meters, list) else []) if isinstance(m, dict) and m.get('unit_cost') is _UNREADABLE}
 
 
 def get_json_obj():
@@ -33002,7 +33044,8 @@ def handle_config_save():
     if 'software_meters' in body:
         raw = body['software_meters'] if isinstance(body['software_meters'], list) else []
         meters = []
-        for m in raw[:100]:
+        _unreadable = _unreadable_meter_costs()      # the positions whose cost is a number the body reader turned into null
+        for _pos, m in enumerate(raw[:100]):
             if not isinstance(m, dict):
                 continue
             nm = _sanitize_str(m.get('name', ''), 128)
@@ -33026,6 +33069,8 @@ def handle_config_save():
             # amount refuses the whole save: a figure that was quietly dropped or rounded would be money nobody agreed to.
             if 'unit_cost' in m:
                 try:
+                    if _pos in _unreadable:
+                        raise ValueError('not an amount')           # NaN, Infinity and a number too big to hold are not "no cost", though the reader made them null
                     _cents = _meter_cost_cents(m.get('unit_cost'))
                 except (ValueError, ArithmeticError):
                     respond(400, {'error': 'a software meter cost must be an amount from 0 to 1,000,000 with at most two decimals'})
