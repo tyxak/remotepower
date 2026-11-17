@@ -4149,7 +4149,25 @@ async function clearWebhookLog() { if (!await uiConfirm({ message: 'Clear the we
 function openDetail(id, name) {
   // v2.9.0: replaced by device drawer
   openDeviceDrawer(id, name, 'audit');
-}function openEnrollModal() { generateNewPin(); enrollOpenRefresh(); openModal('enroll-modal'); }
+}
+// What an earlier opening left in the Enroll dialog is cleared when it opens again. "Hosts that can use it" goes back to 1: the Docker block has
+// no field of its own and reads this one, so a 400 left there made the next Docker file, or the next quick command, a token for 400 hosts
+// with nothing on screen to say so but the number. The commands printed for the earlier number go too, because one of them copied for a single
+// machine enrols as many hosts as it was made for, and so does the line that waits for a host to check in. The list of open commands at the
+// foot is the record of what was made, and it is read again on every opening.
+function _enrollReset() {
+  const f = document.getElementById('enroll-max-uses');
+  if (f) { f.value = '1'; f.removeAttribute('aria-invalid'); }
+  enrollUsesNote();
+  for (const id of ['enroll-quick-result', 'enroll-docker-result']) {
+    const box = document.getElementById(id);
+    if (box) box.textContent = '';
+  }
+  _stopEnrollWatch();
+  const status = _enrollStatusEl();
+  if (status) { status.className = 'enroll-watch'; status.textContent = ''; }
+}
+function openEnrollModal() { _enrollReset(); generateNewPin(); enrollOpenRefresh(); openModal('enroll-modal'); }
 // "Hosts that can use it" in the Enroll dialog: how many hosts one token may enrol (the server's max_uses). 1 is the default and is not sent.
 // Gives 0, with a message and the field marked, when it is not a whole number from 1 to 1000.
 function _enrollMaxUses() {

@@ -12,6 +12,8 @@ on the demo seed, in one Chromium session:
 * the new elements at 1440, 768 and 390 px: no horizontal overflow, no console error, no failed request, no 4xx or 5xx answer;
 * English, German and Arabic (right to left): the label, the notice and the list's words translate, and nothing overflows in either direction;
 * a keyboard reaches the field and the Revoke button, with the visible focus ring, and Enter on Revoke asks before it does anything;
+* the dialog opens from scratch every time: after a command for 400 hosts a second opening has the number back at 1, no notice, no printed
+  command, and the next Docker file the page makes is a token for one host;
 * a token whose label is markup (any administrator may write one, and the operator's list shows every tenant's) is drawn as text: the chip
   holds no element and nothing in it runs, with a control that shows the same kind of markup does run when a page draws it as HTML.
 
@@ -328,6 +330,41 @@ class TestEnrollDialog(_Base):
         mine = [t for t in _tokens(page, 'quick-install') if t['max_uses'] == 1]
         self.assertTrue(mine, 'the default token is made for one host')
         self.assertTrue(_until(lambda: _row_text(page, 'used 0 of 1')))
+
+    def test_opening_the_dialog_again_starts_afresh_and_the_next_docker_file_is_for_one_host(self):
+        page = self.page
+        _open_enroll_dialog(page)
+        page.fill('#enroll-max-uses', '400')
+        page.click('button[data-action="generateQuickInstall"]')
+        page.wait_for_selector('#enroll-quick-pre-0', timeout=30000)
+        big = [t for t in _tokens(page, 'quick-install') if t['max_uses'] == 400]
+        self.assertEqual(len(big), 1)
+        self.assertTrue(_visible(page, '#enroll-uses-note'))
+        page.fill('#enroll-max-uses', '0')                           # a refused number leaves its mark on the field too
+        page.click('button[data-action="generateDockerEnroll"]')
+        page.wait_for_selector('#enroll-max-uses[aria-invalid="true"]')
+        page.evaluate("closeModal('enroll-modal')")
+        page.wait_for_selector('#enroll-modal:not(.active)', state='attached')
+        before = {t['prefix'] for t in _tokens(page)}
+        try:
+            _open_enroll_dialog(page)                                # the real button on the real page, a second time
+            f = page.locator('#enroll-max-uses')
+            self.assertEqual(f.input_value(), '1', 'the number an earlier opening left is still in the field')
+            self.assertIsNone(f.get_attribute('aria-invalid'), 'the invalid mark of an earlier opening is still on the field')
+            self.assertFalse(_visible(page, '#enroll-uses-note'), 'the warning for more than one host shows on a field that says 1')
+            self.assertEqual(page.inner_html('#enroll-quick-result').strip(), '', 'the command made for 400 hosts is still printed')
+            self.assertEqual(page.inner_html('#enroll-docker-result').strip(), '')
+            # the list of open commands is the record of what was made, and it still holds the token for 400
+            self.assertTrue(_until(lambda: _row_text(page, 'used 0 of 400')), _row_text(page))
+            # and the click that used to make a Docker file for 400 hosts makes one for a single host
+            page.click('button[data-action="generateDockerEnroll"]')
+            page.wait_for_selector('#enroll-docker-pre', timeout=30000)
+            new = [t for t in _tokens(page) if t['prefix'] not in before]
+            self.assertEqual([t['max_uses'] for t in new], [1], 'the next Docker file is not for one host')
+        finally:
+            for t in _tokens(page):
+                if t['label'] in ('quick-install', 'docker-host'):
+                    _api(page, 'DELETE', '/enrollment-tokens/' + t['prefix'].rstrip('…'))
 
     def test_the_docker_compose_takes_the_number_too(self):
         page = self.page
