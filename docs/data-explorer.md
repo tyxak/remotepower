@@ -15,7 +15,8 @@ and its API accepts nested AND/OR/NOT conditions.
 1. Choose the **Entity** (see below).
 2. Click **Add condition**. Each condition is a field, an operator and a value. Use as many as you
    need. The page joins them with AND. The operator **in** takes a comma-separated list, and **is
-   set** needs no value. A value that looks like a number is sent as a number.
+   set** needs no value. The page sends a value exactly as you typed it, and the server reads it
+   against the field, so `7302` finds the hosts whose processor model contains 7302.
 3. Optionally choose **Sort by** and a direction.
 4. Click **Run query**. The table shows the first rows and says how many matched.
 5. To keep the query, type a template name, tick **Shared with team** if you want that, and click
@@ -62,6 +63,14 @@ Combine them with `and`, `or` and `not`, nested up to six deep:
 
 Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `contains`
 (case-insensitive substring), `in` (value is a list), `exists`.
+
+A value is read against the field it meets, so digits work for a text field and for a number
+field. A text field and a number are compared as text: `{"field": "cpu_model", "op": "contains",
+"value": 7302}` and `"7302"` find the same hosts. A number field and text that is only a decimal
+number (`"8"`, `"1.5"`) are compared as numbers. A true/false field and the words `true` and
+`false`, in any case, are compared as the flag. Anything else finds nothing: a word against a
+number field, a number against a true/false field, and `gt` or `lt` on a text field, which is
+never read as a number. Text is compared as written, so the serial `00123` is not equal to `123`.
 
 `exists` means *present and not empty*, which is worth knowing for the
 tri-state fields below.

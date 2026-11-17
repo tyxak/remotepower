@@ -6,12 +6,14 @@ The entity list and the field lists are built from `GET /api/query/fields`, so t
   * `hardware` is in the entity select and its fields are in the sort select; choosing it shows the sentence that says what a row is;
   * a query over it returns rows of the seeded hosts with the maker, model and serial the demo seeded, and the table of 24 columns stays inside its own scroll box:
     no horizontal overflow of the page at 1440, 768 and 390 pixels, in English and in Arabic (right to left);
+  * digits typed alone into a text field (a processor model 7302, a memory speed 2933) are sent as text and find the same hosts as the value with a word beside it;
   * German and Arabic reach the sentence (it is the dictionary's text, not English left in place);
   * no console error, page error or failed request while the page loads, the entity changes and the query runs.
 
 The page gains no control (the hint is text), so there is no new focus ring or icon-only button to check; the entity select was already reachable by keyboard.
 Named *e2e* so it stays off `make test-fast`.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -136,6 +138,33 @@ class TestTheEntityInABrowser(unittest.TestCase):
         self.assertIn('pmx01', ids)
         self.assertNotIn('tnas', ids, 'a Supermicro host is not a Dell host')
         self.assertTrue(all(r[got['cols'].index('vendor')] == 'Dell Inc.' for r in got['rows']))
+
+    def ids(self, field, op, value):
+        got = self.run_query(field, op, value)
+        if not got['cols']:                                     # "No matching rows." has no header
+            return set()
+        i = got['cols'].index('device_id')
+        return {r[i] for r in got['rows']}
+
+    def test_digits_typed_alone_are_sent_as_text_and_find_the_hosts_the_same_value_with_a_word_finds(self):
+        """The page used to send digits alone as a number, and a text field never matches one: a processor model typed as 7302 or a memory speed typed as 2933 found nothing,
+        while 'EPYC 7302' and '2933 MT/s' found hosts."""
+        sent = []
+        listener = lambda r: sent.append(json.loads(r.post_data)) if r.url.endswith('/api/query') and r.method == 'POST' else None
+        self.page.on('request', listener)
+        try:
+            for field, digits, with_a_word in (('cpu_model', '7302', 'EPYC 7302'), ('memory_speed', '2933', '2933 MT/s')):
+                by_word = self.ids(field, 'contains', with_a_word)
+                self.assertTrue(by_word, f'control: the seeded data holds {with_a_word} in {field}')
+                by_digits = self.ids(field, 'contains', digits)
+                where = sent[-1]['where']
+                self.assertEqual((where['field'], where['op'], where['value']), (field, 'contains', digits), 'what the page sent')
+                self.assertIsInstance(where['value'], str)
+                self.assertEqual(by_digits, by_word, field)
+            self.assertEqual(self.ids('cpu_count', 'gt', '2') & self.ids('cpu_count', 'gt', '1'), self.ids('cpu_count', 'gt', '2'), 'a number field still reads the text as a number')
+            self.assertTrue(self.ids('cpu_count', 'gt', '2'), 'control: the seeded hosts have more than two cores')
+        finally:
+            self.page.remove_listener('request', listener)
 
     def test_nothing_overflows_at_three_widths_in_english_and_in_arabic(self):
         problems = {}

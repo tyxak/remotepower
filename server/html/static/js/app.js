@@ -11290,9 +11290,9 @@ function _qeBuildWhere() {
     if (!field || !op) return null;
     if (op === 'exists') return { field, op };
     if (op === 'in') return { field, op, value: raw.split(',').map(s => s.trim()).filter(Boolean) };
-    const num = Number(raw);
-    const value = (raw !== '' && !isNaN(num)) ? num : raw;
-    return { field, op, value };
+    // The text as it was typed. The page cannot know the kind of a field, and the server can (it reads the text against each cell: a number for a number field, text for a text field),
+    // so a processor model 7302 or a serial 00123 is not turned into a number here and loses what it was.
+    return { field, op, value: raw };
   }).filter(Boolean);
   if (!nodes.length) return null;
   return nodes.length === 1 ? nodes[0] : { and: nodes };

@@ -235,9 +235,52 @@ class TestQueriedLikeTheOthers(_Fleet):
         self.assertEqual(st, 200, out)
 
     def test_hostile_values_find_nothing_and_raise_nothing(self):
-        for where in ({'field': 'cpu_count', 'op': 'gt', 'value': 'abc'}, {'field': 'cpu_model', 'op': 'contains', 'value': 7}, {'field': 'cpu_model', 'op': 'in', 'value': 'x'},
-                      {'field': 'cpu_count', 'op': 'lt', 'value': None}, {'field': 'vendor', 'op': 'eq', 'value': {'a': 1}}, {'field': 'vendor', 'op': 'eq', 'value': '\u0000' * 50}):
+        for where in ({'field': 'cpu_count', 'op': 'gt', 'value': 'abc'}, {'field': 'cpu_model', 'op': 'in', 'value': 'x'}, {'field': 'cpu_model', 'op': 'contains', 'value': {'a': 1}},
+                      {'field': 'cpu_count', 'op': 'lt', 'value': None}, {'field': 'vendor', 'op': 'eq', 'value': {'a': 1}}, {'field': 'vendor', 'op': 'eq', 'value': '\u0000' * 50},
+                      {'field': 'cpu_count', 'op': 'eq', 'value': 'many'}, {'field': 'cpu_count', 'op': 'gt', 'value': '1e999'}, {'field': 'cpu_model', 'op': 'contains', 'value': [7]}):
             self.assertEqual(self.names(where), [], where)
+
+    def test_a_number_is_not_a_hostile_value_for_a_text_field(self):
+        """It used to be listed here as one. It is what the page sent for a processor model typed as digits (7302), and a host with that processor was not found."""
+        self.assertEqual(self.names({'field': 'cpu_model', 'op': 'contains', 'value': 7}), ['lap01'], 'the i7 of the one laptop that has a 7 in its processor model')
+
+
+class TestDigitsTypedAlone(_Fleet):
+    """The page sends the text of a box as it is typed, and the server reads it against each cell. A processor model, a memory speed or a serial number typed as digits
+    alone finds the hosts it is part of, as the same text with a word beside it always did; a client that sends a number gets the same answer."""
+
+    def setUp(self):
+        super().setUp()
+        self.api._entity_write_one(self.api.HARDWARE_FILE, 'bare01', {'hardware': {'system': {'manufacturer': 'Acme', 'product': 'Box', 'serial': '0042'}}, 'ts': NOW})
+        self.api._LOAD_CACHE.clear()
+
+    def test_digits_alone_find_the_hosts_the_same_digits_with_a_word_find(self):
+        for typed, with_a_word, field in (('6130', 'Gold 6130', 'cpu_model'), ('2933', '2933 MT/s', 'memory_speed'), ('2666', '2666 MT/s', 'memory_speed')):
+            by_digits = sorted(self.names({'field': field, 'op': 'contains', 'value': typed}))
+            self.assertTrue(by_digits, f'control: {typed} is in the data')
+            self.assertEqual(by_digits, sorted(self.names({'field': field, 'op': 'contains', 'value': with_a_word})), typed)
+            self.assertEqual(by_digits, sorted(self.names({'field': field, 'op': 'contains', 'value': int(typed)})), 'and a client that sends the number gets the same hosts')
+        self.assertEqual(sorted(self.names({'field': 'cpu_model', 'op': 'contains', 'value': '6130'})), ['g01', 'web01', 'web02'])
+        self.assertEqual(self.names({'field': 'memory_speed', 'op': 'contains', 'value': '2933'}), ['web01'])
+
+    def test_a_serial_of_digits_is_equal_to_itself_as_text_and_the_zeros_are_part_of_it(self):
+        for where, want in (({'field': 'serial', 'op': 'eq', 'value': '0042'}, ['bare01']), ({'field': 'serial', 'op': 'eq', 'value': 42}, []),
+                            ({'field': 'serial', 'op': 'in', 'value': ['0042', 'SN-WEB01']}, ['bare01', 'web01']), ({'field': 'serial', 'op': 'contains', 'value': 42}, ['bare01']),
+                            ({'field': 'serial', 'op': 'contains', 'value': '42'}, ['bare01'])):
+            self.assertEqual(sorted(self.names(where)), want, where)
+
+    def test_text_that_is_a_number_finds_the_hosts_in_a_number_field(self):
+        for where, want in (({'field': 'cpu_count', 'op': 'eq', 'value': '32'}, ['g01', 'web01']), ({'field': 'cpu_count', 'op': 'in', 'value': ['16', '8']}, ['lap01', 'mac01', 'web02']),
+                            ({'field': 'cpu_count', 'op': 'gt', 'value': '16'}, ['g01', 'web01']), ({'field': 'cpu_count', 'op': 'lte', 'value': ' 8 '}, ['lap01', 'mac01']),
+                            ({'field': 'cpu_count', 'op': 'ne', 'value': '32'}, ['bare01', 'lap01', 'mac01', 'web02']), ({'field': 'mem_total_mb', 'op': 'gte', 'value': '64000.0'}, ['g01', 'web01'])):
+            self.assertEqual(sorted(self.names(where)), want, where)
+            if where['op'] in ('eq', 'gt'):
+                numeric = dict(where, value=float(where['value']) if '.' in where['value'] else int(where['value']))
+                self.assertEqual(sorted(self.names(numeric)), want, 'and the number says the same: ' + str(numeric))
+
+    def test_the_flag_field_answers_to_the_words_true_and_false(self):
+        self.assertEqual(sorted(self.names({'field': 'monitored', 'op': 'eq', 'value': 'true'})), sorted(DEVICES))
+        self.assertEqual(self.names({'field': 'monitored', 'op': 'eq', 'value': 'false'}), [])
 
 
 class TestTheSerialRule(_Fleet):
