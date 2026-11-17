@@ -32,6 +32,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import browser_required
+import e2e_plant
 
 try:
     from playwright.sync_api import sync_playwright
@@ -50,7 +51,7 @@ def count(packages, needle):
 
 def plant_rules(data_dir):
     """Three rules from the seeded inventory; returns the rules and what the report must say of them."""
-    packages = json.loads((Path(data_dir) / 'packages.json').read_text())
+    packages = e2e_plant.load(data_dir, 'PACKAGES_FILE')
     names = sorted({str(p['name']).lower() for e in packages.values() for p in e.get('packages', []) if p.get('name')})
     scored = sorted(((count(packages, n), n) for n in names), key=lambda x: (-x[0], x[1]))
     c1, n1 = scored[0]
@@ -58,11 +59,8 @@ def plant_rules(data_dir):
     assert c1 >= 4 and len(mid) >= 2, scored[:6]
     (c2, n2), (c3, n3) = mid[0], mid[1]
     rules = [{'name': n1, 'limit': c1 - 2, 'unit_cost': '19.99'}, {'name': n2, 'limit': c2 + 3, 'unit_cost': '123.45'}, {'name': n3, 'limit': c3 + 1}]
-    cfg_path = Path(data_dir) / 'config.json'
-    cfg = json.loads(cfg_path.read_text())
-    cfg['software_meters'] = rules
-    cfg_path.write_text(json.dumps(cfg))
-    (Path(data_dir) / 'billing.json').write_text(json.dumps({'currency': 'EUR'}))
+    e2e_plant.update(data_dir, 'CONFIG_FILE', {'software_meters': rules})
+    e2e_plant.save(data_dir, 'BILLING_FILE', {'currency': 'EUR'})
     expect = {
         n1: {'installed': c1, 'owned': c1 - 2, 'short': 2, 'short_cost': '39.98', 'spare': 0, 'spare_cost': '0.00', 'unit': '19.99'},        # 2 x 19.99
         n2: {'installed': c2, 'owned': c2 + 3, 'short': 0, 'short_cost': '0.00', 'spare': 3, 'spare_cost': '370.35', 'unit': '123.45'},      # 3 x 123.45

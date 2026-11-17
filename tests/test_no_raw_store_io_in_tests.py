@@ -39,7 +39,9 @@ _TESTS = Path(__file__).resolve().parent
 # Shrink-only. Every remaining site was reviewed and is either a real file or a
 # non-store artefact. Lower this when a site is converted; never raise it
 # without saying why in the commit message.
-RAW_STORE_IO_CEILING = 36
+# 33: the two files exempted below (the CVE scanner's own cache and the agent's own state file) held seven of the 40 sites this found at 8.0.2, and none of the seven is a
+# server store; the other 33 are as reviewed before.
+RAW_STORE_IO_CEILING = 33
 
 # `<something>.json` handled as a filesystem path.
 _PATTERNS = (
@@ -58,6 +60,13 @@ EXEMPT_FILES = {
         'not a storage key being written behind the backend\'s back.',
     'test_v800_demo_look.py':
         'reads the config the SEEDER wrote into its output directory, as test_v702_seeder_shapes does: the seeder writes real JSON files before any backend exists.',
+    'test_v241.py':
+        'plants and reads the details cache of the CVE scanner module, a file in the cache directory the scanner is handed (`scan_device(..., cache_dir)`, here a temporary '
+        'one): the scanner owns that directory and the format of the entries, and the test is about what the scanner does with an entry it finds there. No server store is '
+        'read behind the backend.',
+    'test_v801_agent_samples.py':
+        'reads the state file the AGENT writes (`THREAT_STATE_FILE`, in a directory of the test\'s own): an agent keeps its own file on the host it runs on, and what the test '
+        'holds is what that file leaves out. It is not a server store.',
     'test_v702_seeder_shapes.py':
         'reads the SEEDER\'s output directory, which the seeder writes as real '
         'JSON files before any backend exists — that directory is the subject '

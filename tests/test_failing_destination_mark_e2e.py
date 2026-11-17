@@ -30,6 +30,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import browser_required
+import e2e_plant
 
 try:
     from playwright.sync_api import sync_playwright
@@ -46,14 +47,11 @@ def plant(data_dir):
         'wh:' + FAILING: {'fails': 4, 'since': now - 3600, 'last': now - 60, 'error': 'URLError [discord]: timed out', 'label': 'Discord', 'alerted': True},
         'wh:' + QUIET: {'fails': 2, 'since': now - 600, 'last': now - 60, 'error': 'HTTP 500 [pushover]: boom', 'label': 'Pushover', 'alerted': False},
     }
-    (Path(data_dir) / 'notify_health.json').write_text(json.dumps(health))
-    cfg_path = Path(data_dir) / 'config.json'
-    cfg = json.loads(cfg_path.read_text())
-    cfg['notifications_test_mode'] = True               # a would-be delivery is logged and not sent, and a dry run is neither a success nor a failure
-    # the Settings form posts these four with every save and the demo has never stored them: a missing key and the default the form writes out read as a change
+    e2e_plant.save(data_dir, 'NOTIFY_HEALTH_FILE', health)
+    # notifications_test_mode: a would-be delivery is logged and not sent, and a dry run is neither a success nor a failure.
+    # The Settings form posts the other four with every save and the demo has never stored them: a missing key and the default the form writes out read as a change
     # to the save, which then asks for a step-up. An installation whose settings were saved once has them, so the test starts from there.
-    cfg.update({'mfa_required_roles': [], 'sso_only': False, 'audit_worm_path': '', 'tenancy_enforced': False})
-    cfg_path.write_text(json.dumps(cfg))
+    e2e_plant.update(data_dir, 'CONFIG_FILE', {'notifications_test_mode': True, 'mfa_required_roles': [], 'sso_only': False, 'audit_worm_path': '', 'tenancy_enforced': False})
 
 
 class TestTheMarkInABrowser(unittest.TestCase):
@@ -201,7 +199,7 @@ class TestTheMarkInABrowser(unittest.TestCase):
         self.assertEqual([t for t in self.cards().values() if t], [])
         gone = page.evaluate("async () => (await api('GET', '/config')).webhook_urls.filter(d => d.fail_streak).length")
         self.assertEqual(gone, 0, 'it does not come back with the next read')
-        health = json.loads((Path(self.data_dir) / 'notify_health.json').read_text())
+        health = e2e_plant.load(self.data_dir, 'NOTIFY_HEALTH_FILE')
         self.assertNotIn('wh:' + FAILING, health)
         self.assertIn('wh:' + QUIET, health, 'the other streak is left as it was')
 

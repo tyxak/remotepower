@@ -14,7 +14,6 @@ The card holds no icon-only button, so there is no btn-icon to check; its icon i
 
 Named *e2e* so it stays off `make test-fast`.
 """
-import json
 import os
 import shutil
 import subprocess
@@ -30,6 +29,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import browser_required
+import e2e_plant
 
 try:
     from playwright.sync_api import sync_playwright
@@ -44,20 +44,18 @@ def plant_pairs(data_dir):
     """Completed patches for seven seeded hosts: seven of 'all' (6, 12, 24, 30, 48, 100 and 200 hours, cleared in the last 20 days), three of 'sec' (4, 8, 16 hours)
     and one old one, 50 hours cleared 40 days ago, which only the 90-day window reaches. The sweep is held off for an hour so it does not add pairs of its own."""
     now = int(time.time())
-    hosts = sorted(json.loads((Path(data_dir) / 'devices.json').read_text()))[:7]
+    hosts = sorted(e2e_plant.load(data_dir, 'DEVICES_FILE'))[:7]
     assert len(hosts) == 7, hosts
-    path = Path(data_dir) / 'patch_age.json'
-    age = json.loads(path.read_text()) if path.exists() else {}
+    pairs = {}
     for i, (h, hours) in enumerate(zip(hosts, (6, 12, 24, 30, 48, 100, 200))):
         done = [[now - (i + 1) * DAY - hours * HOUR, now - (i + 1) * DAY, 'all']]
         if i < 3:
             done.append([now - (i + 1) * DAY - (4 * (i + 1)) * HOUR, now - (i + 1) * DAY, 'sec'])
         if i == 0:
             done.insert(0, [now - 40 * DAY - 50 * HOUR, now - 40 * DAY, 'all'])
-        age.setdefault(h, {})['done'] = done
-    age['_last_run'] = now
-    age['_breaching'] = age.get('_breaching') or []
-    path.write_text(json.dumps(age))
+        pairs[h] = {'done': done}
+    e2e_plant.save(data_dir, 'PATCH_DONE_FILE', pairs)         # the pairs have a store of their own: the aging store every request reads does not carry them
+    e2e_plant.update(data_dir, 'PATCH_AGE_FILE', {'_last_run': now})
     return hosts
 
 
