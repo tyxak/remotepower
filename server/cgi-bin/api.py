@@ -31512,6 +31512,11 @@ def handle_config_get():
             redacted.append(r)
         safe['webhook_urls'] = redacted
 
+    # What a software licence costs is money of the organisation that runs the installation: the settings document does not carry it to a
+    # caller `_meter_costs_visible` does not allow, or the report's rule would be one request away from being read as a setting.
+    if isinstance(safe.get('software_meters'), list) and not _meter_costs_visible():
+        safe['software_meters'] = [{k: v for k, v in m.items() if k != 'unit_cost'} if isinstance(m, dict) else m for m in safe['software_meters']]
+
     # webhook_events: build from explicit dict, falling back to legacy flags
     explicit = cfg.get('webhook_events') or {}
     derived_events = {}
@@ -32902,6 +32907,15 @@ def handle_config_save():
             entry = {'name': nm, 'limit': lim}
             if aliases:
                 entry['aliases'] = aliases
+            # An optional cost of one licence, stored as text with two decimals ("49.99"), never as a float. A cost that is not an
+            # amount refuses the whole save: a figure that was quietly dropped or rounded would be money nobody agreed to.
+            if 'unit_cost' in m:
+                try:
+                    _cents = _meter_cost_cents(m.get('unit_cost'))
+                except (ValueError, ArithmeticError):
+                    respond(400, {'error': 'a software meter cost must be an amount from 0 to 1,000,000 with at most two decimals'})
+                if _cents is not None:
+                    entry['unit_cost'] = _meter_cents_text(_cents)
             meters.append(entry)
         cfg['software_meters'] = meters
 
@@ -61369,19 +61383,78 @@ def _software_in_use(dev, needles):
     return False
 
 
+METER_COST_MAX_CENTS = 100_000_000          # one licence costs at most 1,000,000.00
+_METER_COST_RE = re.compile(r'[0-9]{1,7}(?:\.[0-9]{1,2})?')
+
+
+def _meter_cost_cents(raw):
+    """The cost of one licence as whole cents, None when there is none, ValueError (or ArithmeticError) when `raw` is not an amount.
+
+    An amount is a number or a string of ASCII digits with at most two decimals, from 0 to 1,000,000. Nothing is rounded: a third decimal,
+    a sign, an exponent, a thousands separator, a non-number (NaN, infinity), a boolean or any other kind of value is refused, and so is
+    a float that is not exactly an amount (0.1 + 0.2). The arithmetic is on `Decimal` and whole cents; a float never carries money here."""
+    from decimal import Decimal
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    if isinstance(raw, bool):
+        raise ValueError('not an amount')
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not _METER_COST_RE.fullmatch(text):
+            raise ValueError('not an amount')
+        amount = Decimal(text)
+    elif isinstance(raw, int):
+        amount = Decimal(raw)
+    elif isinstance(raw, float):
+        if not math.isfinite(raw):
+            raise ValueError('not an amount')
+        amount = Decimal(repr(raw))
+    else:
+        raise ValueError('not an amount')
+    if amount < 0 or amount.as_tuple().exponent < -2:
+        raise ValueError('not an amount')
+    cents = int(amount * 100)
+    if cents > METER_COST_MAX_CENTS:
+        raise ValueError('not an amount')
+    return cents
+
+
+def _meter_cents_text(cents):
+    """Whole cents as an amount with two decimals: 4999 -> "49.99"."""
+    return f'{cents // 100}.{cents % 100:02d}'
+
+
+def _meter_costs_visible():
+    """Whether the caller reads what a software licence costs. It is money the organisation that runs this installation pays, so it goes
+    where the billing figures go: to an administrator and to the finance role, and only to a caller of the operator's own organisation
+    (a tenant's administrator reads the counts of its own hosts against the allowance, and no price)."""
+    if not _caller_in_operator_org():
+        return False
+    role = (verify_token(get_token_from_request())[1] or '')
+    return bool(_resolve_role(role).get('admin')) or role == 'finance'
+
+
 def handle_inventory_metering():
     """GET /api/inventory/metering — installed count vs allowance for tracked
-    software (config `software_meters`: [{name, limit, aliases?}]); flags
+    software (config `software_meters`: [{name, limit, aliases?, unit_cost?}]); flags
     over-deployment. Matches package names (substring, plus normalization
     aliases) in the collected inventory, and flags reclamation candidates —
     hosts where the software is installed but not seen running. Auth:
-    require_auth."""
+    require_auth.
+
+    The licences owned are the rule's limit (0 means "just count": nothing is owned, so nothing is short or spare). Short is the installs
+    above the limit and spare the limit above the installs, each with what it costs at the rule's unit cost: whole cents, as text with two
+    decimals, None for a rule that has no cost (never "0.00", which is a rule that is free). The totals add up the rules that have a
+    cost and say how many that have an allowance have none. The amounts, the unit costs and the currency (the one of the billing
+    settings) go only to callers `_meter_costs_visible` allows; the counts go to everyone, for the hosts the caller may see."""
     require_auth()
     meters = (load(CONFIG_FILE) or {}).get('software_meters') or []
     store = load(PACKAGES_FILE) or {}
     devices = _load_ro(DEVICES_FILE) or {}
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
+    costs = _meter_costs_visible()
     out = []
+    tot = {'short_cents': 0, 'spare_cents': 0, 'short': 0, 'spare': 0, 'unpriced': 0}
     for m in meters[:100]:
         raw = str(m.get('name') or '').strip()
         if not raw:
@@ -61409,14 +61482,40 @@ def handle_inventory_metering():
                     and not _software_in_use(dev, needles):
                 reclaimable.append(label)
         cnt = len(hosts)
-        out.append({'name': raw, 'limit': limit, 'installed': cnt,
-                    'over': bool(limit and cnt > limit),
-                    'aliases': [a for a in (m.get('aliases') or []) if str(a).strip()][:20],
-                    'reclaimable': len(reclaimable),
-                    'reclaim_hosts': sorted(reclaimable)[:60],
-                    'devices': sorted(hosts)[:60]})
+        cents = None
+        if costs:
+            try:
+                cents = _meter_cost_cents(m.get('unit_cost'))
+            except (ValueError, ArithmeticError):
+                cents = None        # a hand-edited setting that is not an amount is no cost
+        short = max(0, cnt - limit) if limit else None
+        spare = max(0, limit - cnt) if limit else None
+        row = {'name': raw, 'limit': limit, 'installed': cnt,
+               'over': bool(limit and cnt > limit),
+               'aliases': [a for a in (m.get('aliases') or []) if str(a).strip()][:20],
+               'reclaimable': len(reclaimable),
+               'reclaim_hosts': sorted(reclaimable)[:60],
+               'devices': sorted(hosts)[:60],
+               'owned': limit or None, 'shortfall': short, 'surplus': spare,
+               'unit_cost': _meter_cents_text(cents) if cents is not None else None,
+               'shortfall_cost': None, 'surplus_cost': None}
+        if short is not None:
+            tot['short'] += short
+            tot['spare'] += spare
+            if cents is not None:
+                row['shortfall_cost'] = _meter_cents_text(short * cents)
+                row['surplus_cost'] = _meter_cents_text(spare * cents)
+                tot['short_cents'] += short * cents
+                tot['spare_cents'] += spare * cents
+            elif costs:
+                tot['unpriced'] += 1
+        out.append(row)
     out.sort(key=lambda r: (not r['over'], -r['installed']))
-    respond(200, {'meters': out})
+    totals = {'shortfall': tot['short'], 'surplus': tot['spare'], 'shortfall_cost': None, 'surplus_cost': None, 'rules_without_cost': None}
+    if costs:
+        totals.update(shortfall_cost=_meter_cents_text(tot['short_cents']), surplus_cost=_meter_cents_text(tot['spare_cents']),
+                      rules_without_cost=tot['unpriced'])
+    respond(200, {'meters': out, 'currency': billing_mod.currency(_billing_cfg()) if costs else None, 'totals': totals})
 
 
 def handle_fleet_query():

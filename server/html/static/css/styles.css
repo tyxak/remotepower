@@ -5210,6 +5210,8 @@ td.row-6 > .btn-icon + .btn-icon { margin-left: 0; }
    the row up to a limit. Squeezed in beside the counts it would take their width, and their labels would wrap. */
 .patch-mttp-card { grid-column: 1 / -1; max-width: 560px; }
 .patch-mttp-detail { display: grid; gap: 4px; margin-top: 8px; }
+/* The fleet total under the software metering table: a label and a figure each, wrapping onto the next line on a narrow screen. */
+.metering-totals { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-top: 8px; font-size: 12px; }
 .isl-135 { flex:1; min-width:240px; max-width:380px; padding:8px 12px; font-size:13px }
 .isl-136 { grid-template-columns:repeat(5,1fr); margin-bottom:24px }
 .isl-137 { color:var(--orange-ink) }

@@ -29148,6 +29148,50 @@ async function loadReportsIntegrity() {
 }
 
 // v3.4.2: software metering / license compliance.
+// A rule can carry what one licence costs: "name = limit @ cost". The server sends the amounts as text with two decimals, and only to a
+// caller who may read money, so a report with no `currency` is drawn with no cost column at all. An amount is grouped in thousands from
+// its text and never goes through a float, and the table's sort and its CSV export read the same columns (_meterColumns), the amounts
+// as numbers.
+const _METER_COST_RE = /^[0-9]{1,7}(\.[0-9]{1,2})?$/;
+function _meterMoney(text, currency) {
+  const m = /^([0-9]+)\.([0-9]{2})$/.exec(String(text === null || text === undefined ? '' : text));
+  if (!m) return '—';
+  return (currency ? currency + ' ' : '') + m[1].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + m[2];
+}
+function _meterColumns(m, currency) {
+  const money = (t) => (t === null || t === undefined || t === '') ? null : Number(t);
+  const count = (n) => (n === null || n === undefined) ? null : n;
+  const c = { software: m.name, installed: m.installed, owned: count(m.owned) };
+  if (currency) c.unit_cost = money(m.unit_cost);
+  c.shortfall = count(m.shortfall);
+  if (currency) c.shortfall_cost = money(m.shortfall_cost);
+  c.surplus = count(m.surplus);
+  if (currency) c.surplus_cost = money(m.surplus_cost);
+  c.reclaim = m.reclaimable || 0;
+  if (currency) c.currency = currency;
+  return c;
+}
+// The rule lines of the editor: "name = limit @ cost | alias1, alias2", the cost and the aliases optional. `bad` is set when a cost is
+// not an amount, and then nothing is saved: the server refuses it too, and a cost left out would be money nobody agreed to.
+function _parseMeterLines(text) {
+  let bad = false;
+  const meters = String(text || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const pipe = l.split('|');
+    const aliases = (pipe[1] || '').split(',').map(s => s.trim()).filter(Boolean);
+    const m = pipe[0].split('=');
+    const name = (m[0] || '').trim();
+    const rest = (m[1] || '0').split('@');
+    const limit = parseInt((rest[0] || '0').trim(), 10) || 0;
+    const cost = (rest[1] || '').trim();
+    if (!name) return null;
+    if (cost !== '' && !_METER_COST_RE.test(cost)) { bad = true; return null; }
+    const entry = { name, limit };
+    if (cost !== '') entry.unit_cost = cost;
+    if (aliases.length) entry.aliases = aliases;
+    return entry;
+  }).filter(Boolean);
+  return { meters, bad };
+}
 async function loadReportsMetering() {
   const out = document.getElementById('metering-results');
   if (!out) return;
@@ -29155,9 +29199,9 @@ async function loadReportsMetering() {
   const cfg = await api('GET', '/config').catch(() => null);
   const ta = document.getElementById('metering-config');
   if (ta && cfg && Array.isArray(cfg.software_meters)) {
-    // Syntax: "name = limit" with optional "| alias1, alias2" normalization.
+    // Syntax: "name = limit", an optional "@ cost" and an optional "| alias1, alias2" normalization.
     ta.value = cfg.software_meters.map(m => {
-      const base = `${m.name} = ${m.limit || 0}`;
+      const base = `${m.name} = ${m.limit || 0}` + (m.unit_cost ? ` @ ${m.unit_cost}` : '');
       const al = (m.aliases || []).filter(Boolean);
       return al.length ? `${base} | ${al.join(', ')}` : base;
     }).join('\n');
@@ -29166,40 +29210,58 @@ async function loadReportsMetering() {
   if (!r) { out.innerHTML = ''; return; }
   const meters = Array.isArray(r.meters) ? r.meters : [];
   if (!meters.length) { out.innerHTML = '<div class="c-muted">No software meters configured yet.</div>'; return; }
-  const sorted = tableCtl.sortRows('metering', meters.slice(), m => ({
-    software: m.name, installed: m.installed, reclaim: m.reclaimable || 0,
-  }));
+  const cur = r.currency || '';
+  const sorted = tableCtl.sortRows('metering', meters.slice(), m => _meterColumns(m, cur));
+  const none = '<span class="c-muted">—</span>';
+  const count = (n, cls) => (n === null || n === undefined) ? none : (n > 0 && cls ? `<span class="${cls}">${n}</span>` : String(n));
+  const money = (t) => (t === null || t === undefined) ? none : escHtml(_meterMoney(t, cur));
   const rows = sorted.map(m => {
     const cls = m.over ? 'c-red fw-500' : '';
-    const lim = m.limit ? ` / ${m.limit}` : '';
     const aliasNote = (m.aliases && m.aliases.length) ? `<div class="fs-11 c-muted">+ ${escHtml(m.aliases.join(', '))}</div>` : '';
     const reclaim = m.reclaimable
       ? `<span class="c-amber" title="Installed but not seen running on: ${escAttr((m.reclaim_hosts || []).join(', '))}">${m.reclaimable} reclaimable</span>`
       : '<span class="c-muted">—</span>';
-    return `<tr><td>${escHtml(m.name)}${aliasNote}</td><td class="${cls}">${m.installed}${lim}${m.over ? ' ⚠' : ''}</td>`
+    return `<tr><td>${escHtml(m.name)}${aliasNote}</td><td class="${cls}">${m.installed}${m.over ? ' ⚠' : ''}</td>`
+      + `<td>${count(m.owned)}</td>`
+      + (cur ? `<td>${money(m.unit_cost)}</td>` : '')
+      + `<td>${count(m.shortfall, 'c-red fw-500')}</td>`
+      + (cur ? `<td>${money(m.shortfall_cost)}</td>` : '')
+      + `<td>${count(m.surplus, 'c-amber')}</td>`
+      + (cur ? `<td>${money(m.surplus_cost)}</td>` : '')
       + `<td class="fs-12">${reclaim}</td>`
       + `<td class="fs-12 c-muted">${escHtml(m.devices.join(', '))}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead id="metering-thead"><tr><th data-col="software">Software</th><th data-col="installed">Installed</th><th data-col="reclaim">Reclaim</th><th>Hosts</th></tr></thead><tbody>${rows}</tbody></table></div>`
-    + `<div class="fs-11 c-muted mt-4">Reclaimable = installed but not seen in running processes / listening ports. Syntax: <code>name = limit | alias1, alias2</code> (aliases map name variants onto one entry).</div>`;
+  const head = '<th data-col="software">Software</th><th data-col="installed">Installed</th><th data-col="owned">Owned</th>'
+    + (cur ? '<th data-col="unit_cost">Unit cost</th>' : '')
+    + '<th data-col="shortfall">Short by</th>'
+    + (cur ? '<th data-col="shortfall_cost">Cost to buy</th>' : '')
+    + '<th data-col="surplus">Spare</th>'
+    + (cur ? '<th data-col="surplus_cost">Cost to reclaim</th>' : '')
+    + '<th data-col="reclaim">Reclaim</th><th>Hosts</th>';
+  const t = r.totals || {};
+  // a space after each part: the parts are flex items, which lay out without it, and the text of the line (what a screen reader reads) needs it
+  const figure = (label, value) => `<span><span class="c-muted">${label}</span> <span class="mono-12">${value}</span></span> `;
+  const totals = meters.some(m => m.owned)
+    ? '<div class="metering-totals"><span class="fw-500">Fleet total</span> '
+      + figure('Short by', t.shortfall || 0)
+      + (cur ? figure('Cost to buy', escHtml(_meterMoney(t.shortfall_cost, cur))) : '')
+      + figure('Spare', t.surplus || 0)
+      + (cur ? figure('Cost to reclaim', escHtml(_meterMoney(t.surplus_cost, cur))) : '')
+      + (cur && t.rules_without_cost
+        ? `<span><span class="c-muted" title="A rule with no cost has no amount, so it is not in the cost totals.">Rules without a cost</span> <span class="mono-12">${t.rules_without_cost}</span></span> `
+        : '')
+      + '</div>'
+    : '';
+  out.innerHTML = `<div class="table-card"><table><thead id="metering-thead"><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`
+    + totals
+    + `<div class="fs-11 c-muted mt-4">Reclaimable = installed but not seen in running processes / listening ports. Syntax: <code>name = limit @ cost | alias1, alias2</code> (the cost of one licence and the aliases are optional; aliases map name variants onto one entry).</div>`;
   tableCtl.wireSortOnly('metering-thead', 'metering', loadReportsMetering);
 }
 
 async function saveMetering() {
   const ta = document.getElementById('metering-config');
-  const meters = (ta.value || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
-    // "name = limit | alias1, alias2"
-    const pipe = l.split('|');
-    const left = pipe[0];
-    const aliases = (pipe[1] || '').split(',').map(s => s.trim()).filter(Boolean);
-    const m = left.split('=');
-    const name = (m[0] || '').trim();
-    const limit = parseInt((m[1] || '0').trim(), 10) || 0;
-    if (!name) return null;
-    const entry = { name, limit };
-    if (aliases.length) entry.aliases = aliases;
-    return entry;
-  }).filter(Boolean);
+  const { meters, bad } = _parseMeterLines(ta.value);
+  if (bad) { toast('A cost is an amount such as 49.99, with at most two decimals', 'error'); return; }
   const r = await api('POST', '/config', { software_meters: meters }).catch(() => null);
   if (!r || r.error) { failToast(r); return; }
   const st = document.getElementById('metering-status'); if (st) st.textContent = `${plural(meters.length, 'meter', 'meters')} saved`;

@@ -14,6 +14,7 @@ the storage layer so the SQL backends see them, and `request()`, which runs `mai
 
 The tenants are only in force when a test stores `tenancy_enforced`.
 """
+import json
 import os
 import shutil
 import sys
@@ -44,6 +45,7 @@ ROLES = {'roles': [
 
 
 class RequestCase(unittest.TestCase):
+    FAKE_FIRE = True            # a test that needs the real fan-out of notifications sets this to False and spies on `fire_webhook` itself
 
     def setUp(self):
         self.api = _fresh_api()
@@ -52,7 +54,8 @@ class RequestCase(unittest.TestCase):
         self.api._caller_effective_tenant = lambda user: TENANT.get(user, 'default')
         self.api.audit_log = lambda *a, **k: None
         self.fired = []
-        self.api.fire_webhook = lambda ev, payload=None, *a, **k: self.fired.append((ev, payload))
+        if self.FAKE_FIRE:
+            self.api.fire_webhook = lambda ev, payload=None, *a, **k: self.fired.append((ev, payload))
         self.api.save(self.api.ROLES_FILE, ROLES)
         self.api._LOAD_CACHE.clear()
 
@@ -70,10 +73,12 @@ class RequestCase(unittest.TestCase):
 
         def go():
             os.environ.update(PATH_INFO=path)
+            self._body_for_rereading(body)
             self.api.main()
         try:
             return _run(self.api, go, body, method=method, env={'HTTP_AUTHORIZATION': 'Bearer ' + token, 'QUERY_STRING': query})
         finally:
+            self.api._RCTX.stdin = None
             for n, v in saved.items():
                 if v is None:
                     os.environ.pop(n, None)
@@ -82,4 +87,15 @@ class RequestCase(unittest.TestCase):
 
     def call(self, fn, *args, body=None, method='GET', token='k', query=''):
         """A handler run as a request, without the dispatcher: (status, body)."""
-        return _run(self.api, lambda: fn(*args), body, method=method, env={'HTTP_AUTHORIZATION': 'Bearer ' + token, 'QUERY_STRING': query})
+        def go():
+            self._body_for_rereading(body)
+            return fn(*args)
+        try:
+            return _run(self.api, go, body, method=method, env={'HTTP_AUTHORIZATION': 'Bearer ' + token, 'QUERY_STRING': query})
+        finally:
+            self.api._RCTX.stdin = None
+
+    def _body_for_rereading(self, body):
+        """The body as the WSGI server holds it: bytes the request context keeps, so a handler that reads it twice (the settings save reads it to
+        check it and again to use it) reads it twice. Standard input, which a test double hands out once, is what a CGI process had."""
+        self.api._RCTX.stdin = None if body is None else json.dumps(body).encode()

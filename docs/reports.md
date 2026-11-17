@@ -169,14 +169,42 @@ rest of the product and do not change anything.
   matching day of the week and four-hour block; it falls back to the flat baseline
   until about two weeks of data exist. `GET /api/fleet/anomalies?z=` takes a
   threshold from 1.5 to 6.
-- **Software metering** — install counts of named software against an allowance,
-  from the package inventory. Enter one line per item as `name = limit`, optionally
-  `| alias1, alias2` to fold name variants into one entry; a limit of 0 only counts.
-  An entry over its limit is flagged, and *reclaimable* counts hosts where the
-  software is installed but not seen in running processes or listening ports. You
-  can track up to 100 items. Saving needs an administrator.
+- **Software metering** — install counts of named software against the licences you
+  own, from the package inventory. Enter one line per item as `name = limit`, optionally
+  `@ cost` for what one licence costs and `| alias1, alias2` to fold name variants into
+  one entry (`nginx = 10 @ 49.99 | nginx-core`); a limit of 0 only counts. An entry over
+  its limit is flagged, and *reclaimable* counts hosts where the software is installed but
+  not seen in running processes or listening ports. You can track up to 100 items. Saving
+  needs an administrator. See [Licence cost](#licence-cost) for the money columns.
 - **Uptime (SLA)** — per-host and fleet uptime over 7, 30 or 90 days; see
   [sla.md](sla.md).
+
+### Licence cost
+
+The limit of a software meter is the number of licences you own. For each item the table shows
+the installs (**Installed**), the licences you own (**Owned**), how many installs are above
+them (**Short by**) and how many licences are above the installs (**Spare**). A limit of 0
+means "just count": nothing is owned, so nothing is short or spare.
+
+Give an item a cost and the table adds **Unit cost**, **Cost to buy** (what the installs
+above your licences would cost) and **Cost to reclaim** (what the spare licences cost), with a
+**Fleet total** under the table. A cost is an amount from 0 to 1,000,000 with at most two
+decimals (`49.99`); anything else, such as three decimals, a minus sign or `1e3`, is refused
+and nothing is saved. A cost of 0 is a free item and shows 0.00. An item with no cost shows no
+amount (a dash, not zero) and is left out of the cost totals; **Rules without a cost** says
+how many. Amounts are exact to the cent, and the currency is the one in the billing settings
+(USD until you change it).
+
+Costs are money of the organisation that runs the installation, so only an administrator and the
+finance role of that organisation see them. Everyone else sees the counts, for the hosts they
+may see, and no cost column; the settings they read (`GET /api/config`) carry no cost either. A
+tenant's administrator reads the installs of its own hosts against the licences, and no price.
+
+The table's **CSV** button downloads the same columns in the same order: `software`,
+`installed`, `owned`, `unit_cost`, `shortfall`, `shortfall_cost`, `surplus`, `surplus_cost`,
+`reclaim` and `currency` (the three cost columns and the currency only for a user who sees
+costs). `GET /api/inventory/metering` returns the rows and a `totals` object, with the
+amounts as text with two decimals.
 
 ## API
 
