@@ -232,6 +232,8 @@ class TestTheRowsOfAList(unittest.TestCase):
         self.assertEqual(si.clean_text('a​b‍c'), 'abc')                           # zero-width format characters
         self.assertEqual(si.clean_text('lone \ud800 surrogate'), 'lone surrogate')           # one that cannot be written
         self.assertEqual(si.clean_text('a \t b\r\n c d e'), 'a b c d e')
+        for ws in ('\t', '\n', '\r', '\x0b', '\x0c', '\r\n'):
+            self.assertEqual(si.clean_text('Foo' + ws + 'Bar'), 'Foo Bar', repr(ws))          # white space between words is a space, not nothing
         self.assertEqual(len(si.clean_text('x' * 5000)), 200)
         self.assertEqual(si.clean_text('x' * 199 + ' ' + 'y' * 50), 'x' * 199)               # no trailing space left by the cut
         for none in (None, 5, ['a'], {'a': 1}, b'bytes', True):
@@ -272,6 +274,12 @@ class TestTheRowsOfAList(unittest.TestCase):
         self.assertEqual([(r['name'], r['version'], r['arch']) for r in rows],
                          [('Python 3.12.1 (64-bit)', '3.12.1', 'x64'), ('Python 3.12.1 (64-bit)', '3.12.2', 'x64'),
                           ('Python 3.12.1 (64-bit)', '3.12.1', 'x86')])
+        # two applications of one name and version that differ only in their bundle identifier are two applications
+        twins = si.clean_list([{'name': 'Helper', 'version': '1.0', 'id': 'com.a.helper'},
+                               {'name': 'Helper', 'version': '1.0', 'id': 'com.b.helper'},
+                               {'name': 'HELPER', 'version': '1.0', 'id': 'com.a.helper'},
+                               {'name': 'Helper', 'version': '1.0'}], 'macos')
+        self.assertEqual([r.get('id', '') for r in twins], ['com.a.helper', 'com.b.helper', ''])
         many = [{'name': f'App {i}', 'version': '1'} for i in range(si.MAX_PACKAGES + 700)]
         self.assertEqual(len(si.clean_list(many, 'macos')), si.MAX_PACKAGES)
         self.assertEqual(si.MAX_PACKAGES, 5000)

@@ -131,6 +131,7 @@ class FakeWinreg:
         self.opened = []
         self.reached_for = []
         self.access = []
+        self.reserved = []
         self.endless = endless              # {path: n}: EnumKey of that key answers n subkeys, then OSError
 
     def __getattr__(self, name):
@@ -145,6 +146,9 @@ class FakeWinreg:
     def OpenKey(self, key, sub_key, reserved=0, access=0x20019):          # noqa: N802 (the real name)
         self.calls.append('OpenKey')
         self.access.append(access)
+        self.reserved.append(reserved)
+        if reserved != 0:                   # the real winreg.OpenKey: "reserved is a reserved integer, and must be zero"
+            raise OSError(87, 'The parameter is incorrect')
         if key == self.HKEY_LOCAL_MACHINE:
             if sub_key not in self.tree:
                 raise FileNotFoundError(2, 'The system cannot find the file specified')
@@ -279,6 +283,14 @@ class TestWindowsReadsTheUninstallKeys(unittest.TestCase):
             self.assertEqual(access & READ_ONLY_BITS, 0, hex(access))
             self.assertTrue(access & self.fake.KEY_WOW64_64KEY, hex(access))   # the 64-bit view, whatever the Python's own kind is
         self.assertEqual(self.fake.leaks(), [])
+
+    def test_every_key_is_opened_with_reserved_zero_as_the_real_module_requires(self):
+        """The stand-in refuses another value as the real one does, so a key opened with 1 reads nothing here, as it would there:
+        the whole list would be empty on a host with every test green."""
+        rows, _ = read_registry(self.fake)
+        self.assertEqual(len(rows), 13)
+        self.assertGreater(len(self.fake.reserved), 30)                   # both roots and every subkey
+        self.assertEqual(set(self.fake.reserved), {0})
 
     def test_a_key_that_is_missing_leaves_the_other(self):
         rows, skipped = read_registry(registry(UNINSTALL_64))
@@ -567,6 +579,58 @@ class TestTheServerTakesWhatTheWindowsAgentSends(_Server, _Sender):
         self.assertEqual(api.load(api.PACKAGES_FILE)[self.HOST]['hash'], before)
 
 
+class TestAWindowsAgentThatIsStartedAgain(unittest.TestCase):
+    """A restart is a fresh module with the data directory of the last run. The flag that asks for the list at once starts
+    off (the setUp of the sender resets it, which hides what it starts as), so a list the server already has is not sent again."""
+
+    def test_the_first_poll_after_a_restart_sends_nothing_when_the_list_has_not_changed(self):
+        data = _tmp('rp-softinv-restart-')
+        creds = {'device_id': 'sinvagent1', 'token': 'tok-sinvagent1', 'server_url': 'https://rp.example.com'}
+        sent = []
+        with mock.patch.dict(sys.modules, {'winreg': registry(UNINSTALL_64, UNINSTALL_32)}), \
+                mock.patch.dict(os.environ, {'RP_DATA_DIR': data}):
+            for run in (1, 2, 3):
+                agent = _load(f'rp_softinv_win_restart{run}', ROOT / 'client' / 'remotepower-agent-win.py')
+                self.assertEqual(agent._inventory_cfg, {'force': False}, run)
+                with mock.patch.object(agent, '_post_json', lambda url, payload, timeout=20: sent.append(run) or {'ok': True}):
+                    agent._submit_software_inventory(creds, 1)
+                    agent._submit_software_inventory(creds, 2)
+        self.assertEqual(sent, [1])                          # the first run told the server; the restarts found nothing new
+
+
+class TestTheLimitsOfTheTwoAgents(unittest.TestCase):
+    """Held for both agents, since the twin-drift test compares their functions and not their constants."""
+    AGENTS = (('windows', win), ('macos', mac))
+
+    def test_the_cadence_and_the_limits_are_what_the_server_and_the_web_server_take(self):
+        import software_inventory as si
+        for name, agent in self.AGENTS:
+            self.assertEqual((agent.PACKAGE_LIST_EVERY, agent.MAX_INVENTORY_SEND, agent.MAX_INVENTORY_BYTES, agent.MAX_INVENTORY_FIELD),
+                             (360, 5000, 1500000, 200), name)
+            self.assertEqual((agent.MAX_INVENTORY_SEND, agent.MAX_INVENTORY_FIELD), (si.MAX_PACKAGES, si.MAX_FIELD), name)
+            self.assertEqual(agent._PKG_HASH_FILE, 'pkg_hash', name)
+
+    def test_a_report_holds_exactly_5000_rows(self):
+        rows = [{'name': f'App {i:05d}', 'version': '1', 'manager': 'x'} for i in range(5600)]
+        for name, agent in self.AGENTS:
+            fit = agent._fit_inventory(rows)
+            self.assertEqual((len(fit), fit[0], fit[-1]), (5000, rows[0], rows[4999]), name)
+            self.assertEqual(agent._fit_inventory(rows[:5000]), rows[:5000], name)           # exactly the limit: nothing is cut
+            self.assertEqual(len(agent._fit_inventory(rows[:4999])), 4999, name)
+
+    def test_a_report_holds_exactly_the_bytes_the_web_server_takes(self):
+        def row_of(size):
+            """A row whose compact JSON and the separator after it are `size` bytes."""
+            filler = size - 1 - len(json.dumps({'name': ''}, separators=(',', ':')))
+            row = {'name': 'x' * filler}
+            assert len(json.dumps(row, separators=(',', ':'))) + 1 == size
+            return row
+        for name, agent in self.AGENTS:
+            self.assertEqual(len(agent._fit_inventory([row_of(1000)] * 1501)), 1500, name)        # 1,500,000 bytes fit, one more does not
+            self.assertEqual(len(agent._fit_inventory([row_of(1000)] * 1499 + [row_of(1001)])), 1499, name)       # one byte over
+            self.assertEqual(len(agent._fit_inventory([row_of(1000)] * 1499 + [row_of(1000)])), 1500, name)       # exactly the limit
+
+
 class TestTheFingerprintOfAList(unittest.TestCase):
     """The same function in both agents. The rows of a list in any order are one list: the registry is read in no order a person
     can rely on, and a hash that depended on it would send an unchanged list again and again."""
@@ -724,6 +788,12 @@ class TestMacReadsTheApplications(MacTree):
         self.assertEqual(by['Name Only']['version'], '4')
         self.assertEqual((by['Odd Types']['version'], 'id' in by['Odd Types']), ('1.0', False))
 
+    def test_the_bundle_name_is_used_when_the_folder_is_called_something_else_and_there_is_no_display_name(self):
+        bundle(self.apps, 'Folder Differs.app', {'CFBundleName': 'What The Bundle Says', 'CFBundleVersion': '5'})
+        names = self.names(mac.collect_installed_applications()[0])
+        self.assertIn('What The Bundle Says', names)
+        self.assertNotIn('Folder Differs', names)
+
     def test_the_version_is_the_short_version_then_the_bundle_version(self):
         self.build()
         by = {r['name']: r for r in mac.collect_installed_applications()[0]}
@@ -796,6 +866,47 @@ class TestMacReadsTheApplications(MacTree):
             rows, skipped = mac.collect_installed_applications()
         self.assertNotIn('Pipe', self.names(rows))
         self.assertEqual(skipped, 2)
+
+    def test_two_bundles_that_differ_only_in_their_identifier_are_two_rows_and_a_repeat_is_one(self):
+        helper = {'CFBundleName': 'Helper', 'CFBundleShortVersionString': '1.0'}
+        bundle(self.apps, 'Helper.app', dict(helper, CFBundleIdentifier='com.a.helper'))
+        bundle(self.user, 'Helper.app', dict(helper, CFBundleIdentifier='com.b.helper'))
+        bundle(self.system, 'Helper.app', dict(helper, CFBundleIdentifier='com.a.helper'))      # a repeat of the first
+        rows, _ = mac.collect_installed_applications()
+        self.assertEqual(sorted(r['id'] for r in rows if r['name'] == 'Helper'), ['com.a.helper', 'com.b.helper'])
+
+    def test_the_account_the_agent_runs_as_is_read_once_and_its_left_out_bundles_are_counted_once(self):
+        """~/Applications of the agent's own account is also an account under /Users, and a folder listed twice is read twice."""
+        users = self.root / 'UsersDir'
+        (users / 'alice' / 'Applications').mkdir(parents=True)
+        bundle(users / 'alice' / 'Applications', 'Broken.app', None)                             # left out, and counted
+        bundle(users / 'alice' / 'Applications', 'Fine.app', {'CFBundleName': 'Fine', 'CFBundleVersion': '1'})
+        with mock.patch.object(mac, '_USERS_DIR', str(users)), mock.patch.dict(os.environ, {'HOME': str(users / 'alice')}), \
+                mock.patch.object(mac, '_application_folders', _REAL_APPLICATION_FOLDERS):
+            folders = [f for f in mac._application_folders() if f.startswith(str(users))]
+        self.assertEqual(folders, [str(users / 'alice' / 'Applications')])
+        with mock.patch.object(mac, '_application_folders', lambda: folders):
+            rows, skipped = mac.collect_installed_applications()
+        self.assertEqual(self.names(rows), ['Fine'])
+        self.assertEqual(skipped, 1)
+
+    def test_a_folder_that_cannot_be_listed_is_passed_over_and_the_others_are_read(self):
+        self.build()
+        real, seen = os.scandir, []
+
+        def refuse_the_first(fd):
+            seen.append(fd)
+            if len(seen) == 1:
+                raise PermissionError(1, 'Operation not permitted')
+            return real(fd)
+        with mock.patch.object(mac.os, 'scandir', refuse_the_first):
+            rows, skipped = mac.collect_installed_applications()
+        self.assertGreater(len(seen), 1)
+        names = self.names(rows)
+        self.assertNotIn('Google Chrome', names)                  # only /Applications has it, and that is the folder that could not be listed
+        self.assertIn('Calendar', names)
+        self.assertIn('Tool', names)
+        self.assertEqual(skipped, 0)                              # nothing to count in a folder that cannot be seen
 
     def test_a_folder_that_is_missing_or_not_a_folder_is_nothing(self):
         (self.root / 'plain-file').write_text('x')
@@ -1174,6 +1285,24 @@ class TestMacSendsWhatChanged(MacBrew, _Sender):
         self.heartbeat({'force_package_scan': True}, 5)
         self.assertTrue(mac._force_sysinfo)
         mac._force_sysinfo = False
+
+
+class TestAMacAgentThatIsStartedAgain(MacBrew):
+    """As for the Windows agent: a fresh module, the data directory of the last run, a list that has not changed."""
+
+    def test_the_first_poll_after_a_restart_sends_nothing_when_the_list_has_not_changed(self):
+        self.build()
+        creds = {'device_id': 'sinvagent1', 'token': 'tok-sinvagent1', 'server_url': 'https://rp.example.com'}
+        folders, sent = [str(self.apps), str(self.system), str(self.user)], []
+        with mock.patch.dict(os.environ, {'RP_DATA_DIR': _tmp('rp-softinv-restart-')}):
+            for run in (1, 2, 3):
+                agent = _load(f'rp_softinv_mac_restart{run}', ROOT / 'client' / 'remotepower-agent-mac.py')
+                self.assertEqual(agent._inventory_cfg, {'force': False}, run)
+                with mock.patch.object(agent, '_application_folders', lambda: folders), \
+                        mock.patch.object(agent, '_post_json', lambda url, payload, timeout=20: sent.append(run) or {'ok': True}):
+                    agent._submit_software_inventory(creds, 1)
+                    agent._submit_software_inventory(creds, 2)
+        self.assertEqual(sent, [1])
 
 
 class TestTheServerTakesWhatTheMacAgentSends(MacBrew, _Server, _Sender):
