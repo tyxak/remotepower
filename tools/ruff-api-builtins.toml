@@ -584,6 +584,7 @@ builtins = [
     "handle_security_advisory",
     "handle_security_advisory_brief",
     "handle_site_report",
+    "handle_smart_group_preview",
     "handle_snmp_trap_rule",
     "handle_snmp_trap_rule_test",
     "handle_snmp_trap_rules",
