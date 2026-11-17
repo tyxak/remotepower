@@ -252,7 +252,8 @@ The agent reads the programs of the machine from the Uninstall key under
 32-bit programs. It only reads: it opens keys for reading and never loads, saves or writes a registry hive. An entry with no
 name, a component Windows hides from the list (`SystemComponent` is 1) and an update or a hotfix of another program (it names a
 `ParentKeyName`) are left out and counted. A program that was installed for one user alone lives in that user's own registry
-and is not listed. [Software inventory](patches.md#software-inventory) says how the server shows the list, and
+and is not listed. A program that Windows does not record under these keys, such as an app from the Microsoft Store, is not
+listed either. [Software inventory](patches.md#software-inventory) says how the server shows the list, and
 [CVE scanning](cve.md#windows-and-macos-hosts) why it is not checked for vulnerabilities.
 
 ### Interpreter selection (`exec:` vs `ps:` vs `cmd:`)

@@ -41,9 +41,11 @@ changed since the last one is not sent again. A host keeps at most 5,000 rows, a
 
 - **Windows:** updates and hotfixes, components that Windows hides from the list, and keys that have no name. The agent counts
   them and sends the count. A program that was installed for one user alone is kept in that user's own registry. The agent reads
-  the registry of the machine only, so such a program is not listed.
+  the registry of the machine only, so such a program is not listed. A program that Windows does not record under those keys at
+  all, such as an app from the Microsoft Store or a portable program that was only copied to a folder, is not listed either.
 - **macOS:** a bundle that is a symlink (the agent never follows one out of an application folder), a bundle whose
-  `Info.plist` is missing or cannot be read, and folders more than one level inside an application folder. If Homebrew is
+  `Info.plist` is missing or cannot be read, and folders more than one level inside an application folder. An application kept
+  outside those folders, on an external disk or in a Downloads folder, is not listed. If Homebrew is
   installed and the agent cannot read its list, the agent sends no list at all that time instead of a list without the
   Homebrew rows. If the agent cannot run Homebrew as the account that owns it, it sends the applications only.
 
