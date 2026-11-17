@@ -94,6 +94,7 @@ KEEP = {
 NOT_IN_THE_SEED = {
     ('fleet_events.json', 1): 'the shape the purge used to look for (a top-level device_id); the seed writes events the way the server does',
     ('automation_rules.json', 0): 'the seeded rule that names a host is already switched off',
+    ('ip_intel_intake.json', 2): 'the seeded intake queue is empty (the pass drains it every minute); test_what_a_sensor_queued_for_the_host_goes_with_it drives the real producer',
 }
 
 
@@ -285,6 +286,25 @@ class TestThroughTheRealPurge(unittest.TestCase):
         self.assertNotIn('device_id', rows[0], 'the server keeps the host under `payload`, which is where the old filter never looked')
         self.purge()
         self.assertEqual([r['payload']['device_id'] for r in api.load(api.FLEET_EVENTS_FILE)['events']], ['zz2'])
+
+    def test_what_a_sensor_queued_for_the_host_goes_with_it(self):
+        """The queue of addresses waiting for the next pass names the host that saw each one, and the gate cannot see it (the seeded queue is empty).
+        Driven through the producer the agents' intake uses, so the shape is the one the server writes."""
+        import threat_evidence
+        api, now = self.api, int(time.time())
+
+        def event(ip):
+            return threat_evidence.normalize_event({'ip': ip, 'first': now - 60, 'last': now, 'src': {'web': 12}, 'tok': {'web': {'req:probe': 12}}},
+                                                   now=now, families=threat_evidence.AGENT_SOURCES)
+        api.save(api.IPINTEL_INTAKE_FILE, {})
+        self.assertEqual(api.ip_intel_note_evidence('zz1', [event('185.220.101.8')], {'sources': [], 'dropped': 0}, now)['queued'], 1)
+        self.assertEqual(api.ip_intel_note_evidence('zz2', [event('185.220.101.9')], {'sources': [], 'dropped': 0}, now)['queued'], 1)
+        api._LOAD_CACHE.clear()
+        self.assertEqual(sorted(x['device_id'] for x in api.load(api.IPINTEL_INTAKE_FILE)['queue']), ['zz1', 'zz2'])
+        self.purge()
+        after = api.load(api.IPINTEL_INTAKE_FILE)
+        self.assertEqual([x['device_id'] for x in after['queue']], ['zz2'], 'the address zz1 saw leaves with it; zz2 keeps its own')
+        self.assertNotIn('zz1', after['sensors'])
 
     def test_a_pending_approval_for_the_host_is_declined_and_the_others_are_left(self):
         api, now = self.api, int(time.time())

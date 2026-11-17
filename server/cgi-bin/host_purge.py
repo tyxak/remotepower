@@ -78,7 +78,8 @@ RULES: dict[str, tuple[Rule, ...]] = {
     "ip_intel_intake.json": (
         pop("sensors"),
         drop("log", field="device_id"),
-    ),  # the log of what hosts sent (8.0.1) names the host on every line
+        drop("queue", field="device_id"),
+    ),  # the log of what hosts sent (8.0.1) names the host on every line, and so does each address a sensor queued for the next pass
     "lldp_neighbors.json": (pop(),),
     "metrics_history.json": (pop(),),
     "patch_age.json": (pop(), unlist("_breaching")),
