@@ -67741,12 +67741,25 @@ def handle_ai_exec_propose():
 
 # ── Confirmation queue endpoints (admin-only, called from the dashboard) ────
 
+def _confirmation_in_reach(c, devices, visible):
+    """Whether the caller may see and decide this confirmation: its host is in the caller's tenant (the 6.1.1 gate) and, for a caller
+    with a device scope, in that scope. A confirmation is a command waiting for a second administrator, and approving it runs the
+    command, so an API key with a device scope that could approve one for a host outside its scope would run a command there.
+    `visible` is _confined_host_ids(): None for a caller nothing confines, else the ids the caller can see (read before any lock)."""
+    did = c.get('device_id')
+    if not _tenant_visible(devices.get(did) or {}):
+        return False
+    return visible is None or did in visible
+
+
 def handle_confirmations_list():
     """GET /api/confirmations — admin sees pending MCP confirmations for
     devices in their own tenant (v6.1.1 broad sweep: this used to show
     every tenant's pending confirmations to any admin, not just a platform
-    superadmin -- same class as the _mcp_handle fix above)."""
+    superadmin -- same class as the _mcp_handle fix above). An API key with
+    a device scope sees the confirmations of the hosts in that scope."""
     require_admin_auth()
+    visible = _confined_host_ids()
     # Prune expired while we read
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
         _expired = _prune_confirmations(store)
@@ -67759,7 +67772,7 @@ def handle_confirmations_list():
     out = []
     for c in arr:
         d = devs.get(c.get('device_id'), {}) or {}
-        if not _tenant_visible(d):
+        if not _confirmation_in_reach(c, devs, visible):
             continue
         c2 = dict(c)
         c2['device_name'] = d.get('name', '')
@@ -67778,6 +67791,7 @@ def handle_confirmation_approve(conf_id):
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     entry = None
     _expired = []
+    visible = _confined_host_ids()          # read before the store lock: it reads the host store
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
         _expired = _prune_confirmations(store)
         for c in store.get('confirmations', []):
@@ -67788,8 +67802,9 @@ def handle_confirmation_approve(conf_id):
             respond(404, {'error': 'confirmation not found'})
         # v6.1.1 (broad sweep): 404, not 403 -- a cross-tenant admin
         # shouldn't learn the id exists, matching the list endpoint's
-        # tenant filter above.
-        if not _tenant_visible((load(DEVICES_FILE) or {}).get(entry.get('device_id')) or {}):
+        # tenant filter above. The same answer for a host outside the
+        # device scope of an API key: approving runs the command there.
+        if not _confirmation_in_reach(entry, load(DEVICES_FILE) or {}, visible):
             respond(404, {'error': 'confirmation not found'})
         if entry.get('status') != 'pending':
             respond(409, {'error': f'confirmation already {entry.get("status")}'})
@@ -67843,16 +67858,17 @@ def handle_confirmations_clear():
     missed this bulk clear, so a tenant admin was wiping every OTHER tenant's
     resolved confirmations too (their audit trail of what an AI/maker-checker
     action did). Keep an entry if it is pending OR belongs to a device this caller
-    cannot see."""
+    cannot see (another tenant's, or outside the device scope of an API key)."""
     actor = require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
     devices = load(DEVICES_FILE) or {}
+    visible = _confined_host_ids()
     removed = 0
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
         before = store.get('confirmations', [])
         kept = [c for c in before
                 if c.get('status') == 'pending'
-                or not _tenant_visible(devices.get(c.get('device_id')) or {})]
+                or not _confirmation_in_reach(c, devices, visible)]
         removed = len(before) - len(kept)
         store['confirmations'] = kept
     audit_log(actor, 'mcp_confirmations_cleared', f'removed={removed}')
@@ -67868,12 +67884,13 @@ def handle_confirmation_reject(conf_id):
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
     devs = load(DEVICES_FILE) or {}
+    visible = _confined_host_ids()
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
         for c in store.get('confirmations', []):
             if c.get('id') == conf_id:
                 # v6.1.1 (broad sweep): 404, not 403 -- see approve's
-                # matching tenant check.
-                if not _tenant_visible(devs.get(c.get('device_id')) or {}):
+                # matching tenant and device scope check.
+                if not _confirmation_in_reach(c, devs, visible):
                     break
                 if c.get('status') != 'pending':
                     respond(409, {'error': f'confirmation already {c.get("status")}'})

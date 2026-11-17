@@ -25,7 +25,6 @@ token lookup stubbed (a stub of `require_admin_auth` passes a handler that has n
   sends are the rules a save sends, names and ids are escaped, an error is shown as text, an answer that comes back after a rule
   changed is dropped, and the six languages are there.
 """
-import ast
 import inspect
 import json
 import os
@@ -34,7 +33,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 
@@ -42,6 +40,7 @@ os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _jsload_harness  # noqa: E402
 import browser_required  # noqa: E402
+import keyscope_scan  # noqa: E402
 import routing_harness  # noqa: E402  (imports the api module from server/cgi-bin)
 import srcpin  # noqa: E402
 from i18n_engine import dict_rows  # noqa: E402
@@ -596,21 +595,8 @@ _KEY_SCOPE_AWARE = ("_confined_host_ids", "_scope_filter_devices")
 
 def unconfined(sources):
     """The handlers that read hosts or a stored member list and call no helper that folds the caller's device scope. Read by syntax
-    tree: a name in a comment or a docstring is not a call."""
-    out = []
-    for name, src in sorted(sources.items()):
-        reads, calls = False, set()
-        for node in ast.walk(ast.parse(textwrap.dedent(src))):
-            if isinstance(node, ast.Call):
-                fn = node.func
-                calls.add(fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else "")
-            if isinstance(node, ast.Name) and node.id == "DEVICES_FILE" or isinstance(node, ast.Attribute) and node.attr == "DEVICES_FILE":
-                reads = True
-            if isinstance(node, ast.Constant) and node.value == "members":
-                reads = True
-        if reads and not calls & set(_KEY_SCOPE_AWARE):
-            out.append(name)
-    return out
+    tree (tests/keyscope_scan.py): a name in a comment or a docstring is not a call."""
+    return keyscope_scan.unconfined(sources, _KEY_SCOPE_AWARE, reads=("DEVICES_FILE",), words=("members",))
 
 
 class TestEveryRouteOfTheFamilyAnswersOverTheHostsOfTheCaller(unittest.TestCase):
