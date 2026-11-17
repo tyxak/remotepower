@@ -361,7 +361,7 @@ class TestEagerJsPayload(unittest.TestCase):
         # handler disabled it 1.2 KB, and the My Account page's two selects with their save 0.8 KB. The translations are in i18n.js, which is not eager.
         # Both of the above together (the branches were built apart from the 8.0.1 release, 2_742_522): 2_742_522 + 3_987 + 14_370 = 2_760_879, so the budget is 2_763_000.
         # 8.0.2 Mean time to patch, licence cost, the failing destination mark and the hardware entity: 2_754_000. The payload was 2_742_522 at 8.0.1, 1,478 under the budget,
-        # and is 2_751_666 now: 9,144 bytes more, all of it in app.js, which made the budget fail by 7,830 when the four features were in. The Mean time to patch card on the
+        # and is 2_751_666 now: 9,144 bytes more, all of it in app.js, which made the budget fail by 7,621 when the four features were in. The Mean time to patch card on the
         # Patches header (its renderer, the window select and the figure formatter) is 2,887; the cost columns of the metering table, its fleet total, the `@ cost` part of the
         # editor's line parser and the CSV columns are 3,962; the Failing mark of a notification destination (the table of ten kinds, the line on the card and its tooltip) is
         # 1,546; the sentence under the Data Explorer's entity select is 704; and the Data Explorer sending a value as typed, with its note, is 45. The Patches header, the
