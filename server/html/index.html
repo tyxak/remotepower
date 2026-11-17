@@ -1414,7 +1414,7 @@
           <div class="section-title" data-i18n="Language">Language</div>
           <p class="hint" data-i18n="Choose the interface language. Saved to your account and synced across devices.">Choose the interface language. Saved to your account and synced across devices.</p>
           <select id="acct-lang" class="form-input input-auto" aria-label="Interface language"></select>
-          <!-- 8.0.1: how dates are ordered and which clock is read, apart from the language. Saved to the account (ui_prefs)
+          <!-- 8.0.2: how dates are ordered and which clock is read, apart from the language. Saved to the account (ui_prefs)
                like the language; Automatic is the language's own style. app.js loadAccount() wires both. -->
           <p class="hint mt-16" data-i18n="Automatic follows the interface language. Date order sets whether a date reads day first, month first or year first, and Clock sets 24-hour or 12-hour time. Saved to your account, so it follows you to other browsers.">Automatic follows the interface language. Date order sets whether a date reads day first, month first or year first, and Clock sets 24-hour or 12-hour time. Saved to your account, so it follows you to other browsers.</p>
           <div class="settings-row">
@@ -13186,7 +13186,7 @@ nextcloud mem=95 sustain=6</pre>
   </div>
   <div class="form-group"><label class="form-row"><input type="checkbox" id="sg-drift"> <span class="form-label">Has configuration drift</span></label></div>
   <div class="form-group"><label class="form-row"><input type="checkbox" id="sg-reboot"> <span class="form-label">Reboot required</span></label></div>
-  <!-- 8.0.1: the hosts the rules above match, before the group is saved. previewSmartGroup() fills #sg-preview and any change to a rule empties it. -->
+  <!-- 8.0.2: the hosts the rules above match, before the group is saved. previewSmartGroup() fills #sg-preview and any change to a rule empties it. -->
   <div class="form-group">
     <button class="btn-secondary" id="sg-preview-btn" data-action="previewSmartGroup">Preview members</button>
     <div id="sg-preview" class="mt-8" role="status" aria-live="polite"></div>

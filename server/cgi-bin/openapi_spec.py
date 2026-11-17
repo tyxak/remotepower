@@ -1070,7 +1070,7 @@ def _stub_operations(paths: dict[str, Any], routes: list[tuple[str, str]] | None
 
 
 def _path_smart_group_preview() -> dict[str, Any]:
-    """8.0.1: the preview of a smart-group rule. The request is the rules of the create call (a name may be there and is ignored);
+    """8.0.2: the preview of a smart-group rule. The request is the rules of the create call (a name may be there and is ignored);
     the answer is how many hosts the rules match and the first 50 of them."""
     rules = {
         "type": "object",

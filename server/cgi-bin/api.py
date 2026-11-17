@@ -2000,7 +2000,7 @@ for _hp_name in ('host_probe_validate', 'host_monitors_for', 'host_probe_ingest'
     globals()[_hp_name] = getattr(host_probe_handlers_mod, _hp_name)
 del _hp_name
 
-# 8.0.1: the members of a smart-group rule before it is saved: rules in, a count and the first 50 hosts out. One handler, so a bound
+# 8.0.2: the members of a smart-group rule before it is saved: rules in, a count and the first 50 hosts out. One handler, so a bound
 # module of its own; the matcher it calls (_materialize_smart_group) stays with the rest of the smart-group code below.
 _sg_spec = _tk_ilu.spec_from_file_location(
     'smart_group_handlers', Path(__file__).parent / 'smart_group_handlers.py')
@@ -36284,7 +36284,7 @@ def handle_user_passwd():
 # Top-level (not per table) keys follow below: default_ssh_username, postit, temp_unit, time_display, alert_chime,
 # alert_notify, signature, team, pinned_devices, views, dashboard (the saved Home layout) and, since 7.4.9, look ('pilot'|'classic'),
 # effects ('full'|'reduced') and typeface ('system'|'b612'), and since 8.0.0 dashboard_sets (named Home layouts) with dashboard_set
-# (the one in use), and since 8.0.1 date_order ('dmy'|'mdy'|'ymd') and clock ('h24'|'h12'). A key that is not listed in
+# (the one in use), and since 8.0.2 date_order ('dmy'|'mdy'|'ymd') and clock ('h24'|'h12'). A key that is not listed in
 # _sanitise_ui_prefs is dropped on save, so a new one is added there.
 #
 # Schema enforced by :func:`_sanitise_ui_prefs` — the client can send anything,
@@ -36365,7 +36365,7 @@ def _sanitise_ui_prefs(raw):
     if isinstance(typeface, str) and typeface in UI_TYPEFACES:
         out['typeface'] = typeface
 
-    # 8.0.1: the order a date is written in and the clock, apart from the language. Automatic is the absence of the key, so the
+    # 8.0.2: the order a date is written in and the clock, apart from the language. Automatic is the absence of the key, so the
     # client sends only a choice; anything that is not one of the known words is dropped, and the language's own style applies.
     date_order = raw.get('date_order')
     if isinstance(date_order, str) and date_order in UI_DATE_ORDERS:

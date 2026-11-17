@@ -10007,7 +10007,7 @@ async function loadAccount() {
         toast(`Temperatures now shown in ${tu.value === 'f' ? 'Fahrenheit' : 'Celsius'}`, 'success');
       };
     } }
-  // 8.0.1: how dates are ordered and which clock is read, apart from the language. Both are saved to the account (ui_prefs),
+  // 8.0.2: how dates are ordered and which clock is read, apart from the language. Both are saved to the account (ui_prefs),
   // the way the language is; Automatic is the absence of the key, the language's own style. Pages draw their dates when they load,
   // so a page already open shows the new form the next time it loads.
   const dateFormatSelects = [['acct-date-order', 'date_order'], ['acct-clock', 'clock']];
@@ -11882,7 +11882,7 @@ async function saveSmartGroup() {
   if (r && (r.ok || r.name)) { toast('Smart group saved', 'success'); closeModal('smart-group-modal'); loadSmartGroups(); }
   else toast((r && r.error) || 'Save failed', 'error');
 }
-// 8.0.1: what the rules in the editor match, before the group is saved. POST /api/smart-groups/preview works it out with the function
+// 8.0.2: what the rules in the editor match, before the group is saved. POST /api/smart-groups/preview works it out with the function
 // a saved group's members come from and changes nothing; the answer is a count and the first 50 hosts. A host's name is its own word,
 // so it is drawn as text and never built into markup. A change to a rule empties the box (the answer was made for other rules), and an
 // answer that comes back after that is dropped. The button is not disabled here: the dispatcher does that for any button whose handler
