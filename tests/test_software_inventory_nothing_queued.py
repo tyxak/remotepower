@@ -101,11 +101,11 @@ class _Fleet(unittest.TestCase):
             api.save(store, {})
         api._LOAD_CACHE.clear()
 
-    def post(self, handler, device_ids, packages='htop'):
+    def post(self, handler, device_ids, packages='htop', user=('root', 'admin')):
         api._LOAD_CACHE.clear()
         with mock.patch.object(api, 'method', lambda: 'POST'), \
                 mock.patch.object(api, 'get_json_obj', lambda: {'device_ids': device_ids, 'packages': packages}), \
-                mock.patch.object(api, 'verify_token', lambda tok=None: ('root', 'admin')):
+                mock.patch.object(api, 'verify_token', lambda tok=None: user):
             try:
                 getattr(api, handler)()
             except _Captured as c:
@@ -186,6 +186,50 @@ class TestTheServerAnswer(_Fleet):
         unchanged = unchanged_by_engine([ONLY_LINUX, NO_HOST, SKIPPED])
         if unchanged is not None:
             self.assertEqual({lang: s for lang, s in unchanged.items() if s}, {})
+
+
+class TestTheCallers(_Fleet):
+    """The answer names the hosts that were skipped, so it is read as each kind of caller: a tenant administrator sees the hosts of
+    its own tenant and no others, and a read-only user is refused before anything is recorded."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.CONFIG_FILE, {'tenancy_enforced': True})
+        api.save(api.TENANTS_FILE, {'tenantA': {'name': 'Tenant A', 'status': 'active'},
+                                    'tenantB': {'name': 'Tenant B', 'status': 'active'}})
+        api.save(api.USERS_FILE, {'alice': {'tenant_id': 'tenantA', 'role': 'admin'},
+                                  'carol': {'tenant_id': 'tenantA', 'role': 'viewer'},
+                                  'root': {'tenant_id': 'default', 'role': 'admin'}})
+        api.save(api.DEVICES_FILE, {
+            WIN: _device(WIN, 'Windows 11 (Build 22631)', tenant='tenantA'),
+            LNX: _device(LNX, 'Ubuntu 22.04', tenant='tenantA'),
+            MAC: _device(MAC, 'macOS 14.5 (23F79)', tenant='tenantB')})
+        api._LOAD_CACHE.clear()
+
+    def test_a_tenant_administrator_is_told_about_its_own_hosts_only(self):
+        status, answer = self.post('handle_install_packages', [WIN, MAC], user=('alice', 'admin'))
+        self.assertEqual(status, 400, answer)
+        self.assertEqual(answer['error'], ONLY_LINUX)
+        self.assertEqual(answer['skipped'], [WIN])
+        self.assertEqual(sorted(answer['per_device']), [WIN])
+        self.assertNotIn(MAC, json.dumps(answer))                   # the other tenant's host is in no field of the answer
+
+    def test_a_tenant_administrator_cannot_name_a_host_of_another_tenant_at_all(self):
+        status, answer = self.post('handle_install_packages', [MAC], user=('alice', 'admin'))
+        self.assertEqual(status, 400, answer)
+        self.assertEqual(answer, {'error': 'No valid host targets'})
+        self.assertEqual(self.queue(), {})
+        api._LOAD_CACHE.clear()
+        self.assertEqual((api.load(api.BATCH_JOBS_FILE) or {}).get('jobs') or {}, {})
+
+    def test_a_read_only_user_is_refused_and_nothing_is_recorded(self):
+        for handler in ('handle_install_packages', 'handle_uninstall_packages', 'handle_hold_packages'):
+            status, answer = self.post(handler, [WIN], user=('carol', 'viewer'))
+            self.assertEqual(status, 403, (handler, answer))
+            self.assertNotIn('per_device', answer)
+        self.assertEqual(self.queue(), {})
+        api._LOAD_CACHE.clear()
+        self.assertEqual((api.load(api.BATCH_JOBS_FILE) or {}).get('jobs') or {}, {})
 
 
 # ── the pages, under node, with the real answers ─────────────────────────────────────────────────────────────────────────
