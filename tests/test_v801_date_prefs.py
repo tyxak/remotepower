@@ -17,6 +17,8 @@ What this module holds:
   words are the ones the engine wrote, in the digits it wrote them in (Arabic, Persian and Devanagari digits included);
 * an invalid date never throws and reads as it always did, and an engine without Intl (the V8 of the repo's load harness) keeps
   the language's own form;
+* `_fmtIsoDay`, which wrote a calendar day by hand in five places, still writes the UTC day (not the browser's day) and now follows
+  the date order;
 * a ratchet: a direct `toLocale*String` call anywhere in the client, outside `_fmtDateText`, fails. The sites that format a
   number are listed one by one and can only shrink.
 """
@@ -669,6 +671,65 @@ class TestAnInvalidDate(unittest.TestCase):
     def test_the_text_of_an_invalid_date_is_the_engines_not_a_default_of_ours(self):
         """Control: the engine itself answers 'Invalid Date' for toLocaleString, so the expectation above is not an invention."""
         self.assertEqual({r["native"] for r in self.results if "error" not in r}, {"Invalid Date"})
+
+
+@unittest.skipUnless(_GATE_NODE, "node is not installed")
+class TestACalendarDayStaysTheUtcDay(unittest.TestCase):
+    """`_fmtIsoDay` writes the UTC day of an instant (a forecast date, the date a document was made), as it always did: 2026-11-07 on
+    Automatic, whatever the zone of the browser. With a date order chosen it writes that same day in that order, in the language's own
+    digits, and year first is the same text as Automatic (bar a right to left mark)."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not _NODE:
+            browser_required.skip_or_fail("node is not installed")
+        cls.jobs = []
+        for lang in LANGS:
+            for order in ORDERS:
+                for inst in INSTANTS:
+                    cls.jobs.append({"lang": lang, "order": order, "clock": "auto", "shape": "iso", "kind": "date", "opts": None,
+                                     "expr": "[_fmtIsoDay(TS), new Date(TS * 1000).toISOString().slice(0, 10)]", "instant": inst,
+                                     "parts": False})
+        cls.by_zone = {z: run_node(z, cls.jobs) for z in ZONES}
+
+    def test_it_is_the_utc_day_in_every_zone_and_every_order(self):
+        bad, checked = [], 0
+        for zone, results in self.by_zone.items():
+            for j, r in zip(self.jobs, results):
+                if "error" in r:
+                    bad.append("%s %s %s: threw %s" % (zone, j["lang"], j["order"], r["error"]))
+                    continue
+                got, iso = r["actual"]
+                y, m, d = (int(x) for x in iso.split("-"))
+                if j["order"] == "auto":
+                    ok = got == iso
+                elif j["order"] == "ymd":
+                    ascii_text = "".join(str(unicodedata.digit(c)) if c.isdecimal() else c for c in got)
+                    ok = re.sub(r"[^\d-]", "", ascii_text) == iso
+                elif j["order"] == "dmy":
+                    ok = numbers(got) == [d, m, y]
+                else:
+                    ok = numbers(got) == [m, d, y]
+                checked += 1
+                if not ok:
+                    bad.append("%s %s %s %s: %r for %s" % (zone, j["lang"], j["order"], j["instant"], got, iso))
+        self.assertEqual(bad[:8], [])
+        self.assertEqual(checked, len(ZONES) * len(self.jobs))
+
+    def test_control_the_instants_are_another_day_where_the_browser_is(self):
+        """If the local day and the UTC day were always the same, a formatter that took the local one would pass."""
+        differs = 0
+        for results in self.by_zone.values():
+            for r in results:
+                loc = r["local"]
+                if (loc["y"], loc["mo"], loc["d"]) != tuple(int(x) for x in r["actual"][1].split("-")):
+                    differs += 1
+        self.assertGreater(differs, 200)
+
+    def test_an_invalid_day_is_empty_where_it_used_to_throw(self):
+        results = run_node("UTC", [{"lang": "en", "order": order, "clock": "auto", "shape": "iso", "kind": "date", "opts": None,
+                                    "expr": "_fmtIsoDay('abc')", "instant": {"raw": 0}, "parts": False} for order in ORDERS])
+        self.assertEqual([r["actual"] for r in results], ["", "", "", ""])
 
 
 @unittest.skipUnless(_GATE_NODE, "node is not installed")
