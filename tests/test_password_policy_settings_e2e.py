@@ -8,8 +8,9 @@ sees and can do, on the demo seed, in one Chromium session:
   refuse a number past their limit with the server's sentence and save nothing, and are reached by keyboard with the visible focus ring;
 * English, German and Arabic (right to left): the labels and the hint translate and nothing runs off the screen, at 1440, 768 and 390 px;
 * no console error, no failed request and no 4xx or 5xx answer that the page was not meant to get;
-* the banner of a password that has expired says so ("Your password has expired"), and an account on a default password still gets the
-  banner it always had; clicking either opens the change form.
+* the banner of a password that has expired says so ("Your password has expired", also in German and in Arabic, where the bar stays inside
+  the screen), and an account on a default password still gets the banner it always had; clicking either opens the change form;
+* the page's own list of problems is shown to fill (a failed request, a console error and a 404 are recorded; a request the page cancelled is not).
 
 Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
 """
@@ -400,6 +401,15 @@ class TestTheBanner(unittest.TestCase):
             page.evaluate("async () => { await _ensureI18n(); RPi18n.setLang('de', false); }")
             self.assertTrue(_until(lambda: 'Ihr Passwort ist abgelaufen' in page.inner_text('#default-pw-banner'), 20, 0.2),
                             'the banner is not translated: %r' % page.inner_text('#default-pw-banner'))
+            # Arabic, drawn right to left: the sentence is translated and the bar stays inside the screen
+            page.evaluate("async () => { await _ensureI18n(); RPi18n.setLang('ar', false); }")
+            self.assertTrue(_until(lambda: 'انتهت صلاحية كلمة المرور' in page.inner_text('#default-pw-banner'), 20, 0.2),
+                            'the banner is not translated into Arabic: %r' % page.inner_text('#default-pw-banner'))
+            self.assertEqual(page.evaluate("() => document.documentElement.dir"), 'rtl')
+            bar = page.evaluate("() => { const r = document.getElementById('default-pw-banner').getBoundingClientRect(); "
+                                "return {left: r.left, right: r.right, vw: document.documentElement.clientWidth, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1}; }")
+            self.assertFalse(bar['sideways'], 'the page scrolls sideways with the banner in Arabic')
+            self.assertTrue(bar['left'] >= -1 and bar['right'] <= bar['vw'] + 1, 'the banner runs off the screen in Arabic: %s' % bar)
             page.evaluate("() => RPi18n.setLang('en', false)")
             # the banner takes the person to the Password section of My Account, and its button opens the form
             page.click('#default-pw-banner')
