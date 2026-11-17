@@ -463,7 +463,7 @@ def _build_fleet_report(site_id=None):
                            'total_pending': total_pending,
                            # W1-33: hosts currently past a patch-SLA deadline
                            'sla_violations': len(A._eval_patch_sla(
-                               devices, A._config_ro(), dict(A.load(A.PATCH_AGE_FILE) or {}),
+                               devices, A._config_ro(), A._patch_age_stamps(),
                                now)[1])},
         'cve':            cve,
         'health':         {'score': health['score'], 'grade': health['grade'],

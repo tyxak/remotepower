@@ -473,7 +473,8 @@ SHAPES: dict = {
                                     ubuntu_codename=OPT_STR, debian_codename=OPT_STR, version_codename=OPT_STR,
                                     packages=list_of(fields(arch=OPT_STR, name=OPT_STR, version=OPT_STR, source=OPT_STR,
                                                             source_version=OPT_STR, epoch=OPT_STR)))),
-    'patch_age.json': dict_of(fields(all_first=OPT_NUM, sec_first=OPT_NUM), skip='_', meta={'_last_run': OPT_NUM, '_breaching': list_of(STR)}),
+    # `done` holds the completed pairs [first_seen, cleared_at, kind] the mean time to patch is read from; a row that is not a list is left out
+    'patch_age.json': dict_of(fields(all_first=OPT_NUM, sec_first=OPT_NUM, done=list_of(LIST)), skip='_', meta={'_last_run': OPT_NUM, '_breaching': list_of(STR)}),
     'pii_findings.json': dict_of(fields(findings=list_of(fields(count=OPT_NUM, kind=OPT_STR, path=OPT_STR)))),
     'scap.json': dict_of(fields(available_profiles=list_of(STR), failed_rules=LIST, fail=OPT_NUM, score=OPT_NUM)),
     'secret_findings.json': dict_of(fields(findings=list_of(fields(fingerprint=OPT_STR, line=OPT_NUM)), _seen=LIST)),

@@ -44203,12 +44203,145 @@ def _patch_sla_rule_for(dev, rules):
     return None
 
 
-def _eval_patch_sla(devices, cfg, age, now):
+# Mean time to patch. The aging store keeps when each class of update was first seen on a host (all_first, sec_first) and drops the
+# stamp when the host has none left. Before a stamp goes, the sweep files the pair (first seen, cleared) in the same host entry, in the
+# same locked write, so the time from "an update was waiting" to "none is waiting" can be measured afterwards. `done` is a list of
+# [first_seen, cleared_at, kind], oldest first. kind is 'all' (any update) or 'sec' (an update the distribution calls a security fix).
+# It is a ring: at most PATCH_DONE_PER_HOST pairs for a host and none older than PATCH_DONE_DAYS.
+PATCH_DONE_PER_HOST = 200
+PATCH_DONE_DAYS = 400
+PATCH_MTTP_WINDOWS = (30, 90)       # the windows the Patches page can ask for, in days; the first one is the default
+PATCH_MTTP_MIN_N = 5                # fewer completed pairs than this is not a figure and is not shown as one
+_PATCH_KINDS = ('all', 'sec')
+
+
+def _is_finite_number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _patch_done_add(st, first, now, kind):
+    """File one completed pair in a host's aging entry `st`. Nothing is filed when the stamp is not a number or lies in the future (a
+    clock that stepped back), and a pair is never filed twice for the same stamp, so a sweep that runs twice over one stamp is safe."""
+    if not _is_finite_number(first) or first > now:
+        return
+    done = st.get('done')
+    if not isinstance(done, list):
+        done = st['done'] = []
+    row = [int(first), int(now), kind]
+    if done and done[-1] == row:
+        return
+    done.append(row)
+    cutoff = now - PATCH_DONE_DAYS * 86400
+    done[:] = [r for r in done if isinstance(r, list) and len(r) >= 3 and _is_finite_number(r[1]) and r[1] >= cutoff]
+    del done[:-PATCH_DONE_PER_HOST]
+
+
+def _patch_done_hours(entry, kind, cutoff, until=None):
+    """Hours from first seen to cleared for each pair of `kind` in one host's aging entry that was cleared from `cutoff` to `until`
+    (no upper limit when it is None). A row that is not two numbers and a kind, one that reads as cleared before it was first seen and
+    one cleared in the future cannot have been filed by the sweep, so a hand edit like that is left out rather than counted as a time."""
+    done = entry.get('done') if isinstance(entry, dict) else None
+    if not isinstance(done, list):
+        return []
+    out = []
+    for r in done:
+        if not (isinstance(r, list) and len(r) >= 3 and r[2] == kind and _is_finite_number(r[0]) and _is_finite_number(r[1])):
+            continue
+        if r[1] < cutoff or r[1] < r[0] or (until is not None and r[1] > until):
+            continue
+        out.append((r[1] - r[0]) / 3600.0)
+    return out
+
+
+def _mttp_stats(hours, hosts=None):
+    """{n, hidden, mean_h, median_h, p90_h} for a list of durations in hours. The figures are None, not zero, below PATCH_MTTP_MIN_N
+    pairs: a mean of two patches is not a statement about a fleet. The median of an even count is the mean of the two in the middle;
+    the 90th percentile is the nearest rank, the smallest value that 90% of the pairs do not exceed. `hosts` is how many hosts the
+    pairs came from."""
+    n = len(hours)
+    out = {'n': n, 'hidden': n < PATCH_MTTP_MIN_N, 'mean_h': None, 'median_h': None, 'p90_h': None}
+    if hosts is not None:
+        out['hosts'] = hosts
+    if out['hidden']:
+        return out
+    s = sorted(hours)
+    mid = n // 2
+    median = s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2.0
+    out['mean_h'] = round(sum(s) / n, 2)
+    out['median_h'] = round(median, 2)
+    out['p90_h'] = round(s[(9 * n + 9) // 10 - 1], 2)
+    return out
+
+
+def _patch_mttp(devices, age, now, days, by_tenant=False):
+    """Mean time to patch for the hosts in `devices`, from the pairs of `age` that were cleared in the last `days` days.
+
+    `devices` is the set the caller may see, so a tenant or a scoped role only ever reads its own hosts' pairs. A host with no pair in
+    the window is not listed (nothing was recorded, which is not zero). `by_tenant` adds a figure per tenant for the caller who sees
+    every tenant. Read-only over `age`."""
+    cutoff = now - days * 86400
+    fleet = {k: [] for k in _PATCH_KINDS}
+    fleet_hosts = dict.fromkeys(_PATCH_KINDS, 0)
+    tenants, hosts = {}, {}
+    for dev_id, dev in devices.items():
+        entry = age.get(dev_id)
+        if not isinstance(entry, dict) or not isinstance(dev, dict):
+            continue
+        per_host = {}
+        for kind in _PATCH_KINDS:
+            hrs = _patch_done_hours(entry, kind, cutoff, now)
+            if not hrs:
+                continue
+            per_host[kind] = _mttp_stats(hrs)
+            fleet[kind].extend(hrs)
+            fleet_hosts[kind] += 1
+            if by_tenant:
+                t = tenants.setdefault(_device_tenant(dev), {'h': {k: [] for k in _PATCH_KINDS}, 'n': dict.fromkeys(_PATCH_KINDS, 0)})
+                t['h'][kind].extend(hrs)
+                t['n'][kind] += 1
+        if per_host:
+            hosts[dev_id] = per_host
+    out = {'window_days': days, 'min_n': PATCH_MTTP_MIN_N,
+           'fleet': {k: _mttp_stats(fleet[k], fleet_hosts[k]) for k in _PATCH_KINDS},
+           'hosts': hosts}
+    if by_tenant:
+        out['tenants'] = {tid: {k: _mttp_stats(t['h'][k], t['n'][k]) for k in _PATCH_KINDS} for tid, t in sorted(tenants.items())}
+    return out
+
+
+def _mttp_window():
+    """The window the request asked for (`?mttp_days=`): one of PATCH_MTTP_WINDOWS, the first when it is missing or is anything else."""
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    try:
+        days = int((qs.get('mttp_days') or [''])[0])
+    except (TypeError, ValueError, OverflowError):
+        return PATCH_MTTP_WINDOWS[0]
+    return days if days in PATCH_MTTP_WINDOWS else PATCH_MTTP_WINDOWS[0]
+
+
+def _patch_age_stamps():
+    """A private copy of the aging store without the completed pairs, for the evaluators that only read it. The pairs are most of the
+    store's size and an evaluator never looks at them, so a copy of them would be paid for on every call."""
+    out = {}
+    for k, v in (_load_ro(PATCH_AGE_FILE) or {}).items():
+        if isinstance(v, dict):
+            out[k] = {s: v[s] for s in ('all_first', 'sec_first') if s in v}
+        elif isinstance(v, list):
+            out[k] = list(v)
+        else:
+            out[k] = v
+    return out
+
+
+def _eval_patch_sla(devices, cfg, age, now, record=False):
     """W1-33 core: for each device, stamp/clear first-seen timestamps for pending
     (all) and security updates in `age`, then evaluate the matching SLA rule.
     Returns (rows, violations) where rows is per-device compliance for the UI and
     violations is the set of currently-breaching device ids. Pure over its args
-    (mutates `age` in place); the caller persists + fires."""
+    (mutates `age` in place); the caller persists + fires.
+
+    With `record` set (the sweep that persists `age`), a stamp that is cleared because the host now reports zero updates is first
+    filed as a completed pair, for the mean time to patch. A host whose count is unknown clears its stamp as before and files nothing."""
     rules = cfg.get('patch_sla') or []
     rows, breaching = [], set()
     for dev_id, dev in devices.items():
@@ -44224,11 +44357,16 @@ def _eval_patch_sla(devices, cfg, age, now):
         if allc and allc > 0:
             st.setdefault('all_first', now)
         else:
-            st.pop('all_first', None)
+            first = st.pop('all_first', None)
+            if record and allc == 0:
+                _patch_done_add(st, first, now, 'all')
         if secc and secc > 0:
             st.setdefault('sec_first', now)
         else:
-            st.pop('sec_first', None)
+            first = st.pop('sec_first', None)
+            # No update waiting at all means no security update is waiting, so a host that does not count the two apart closes both pairs.
+            if record and (secc == 0 or (secc is None and allc == 0)):
+                _patch_done_add(st, first, now, 'sec')
         rule = _patch_sla_rule_for(dev, rules)
         if not rule:
             continue
@@ -44259,22 +44397,25 @@ def _eval_patch_sla(devices, cfg, age, now):
 
 def run_patch_sla_if_due():
     """W1-33: patch-compliance SLA sweep. Updates the first-seen aging store and
-    fires edge-triggered patch_sla_violation / patch_sla_ok per host. Cheap when
-    no rules are configured; _config_ro gate on the not-due path. Webhooks fire
-    AFTER the store save (collect-then-fire)."""
-    if not (_config_ro().get('patch_sla') or []):
-        return
+    fires edge-triggered patch_sla_violation / patch_sla_ok per host. Webhooks fire
+    AFTER the store save (collect-then-fire).
+
+    The sweep runs whether or not a rule is set: the first-seen stamps and the completed pairs feed the mean time to patch on the
+    Patches page, and a rule only decides which hosts are in breach (no rule, no breach, no alert). The due check reads the shared
+    cached store, since this runs on every request and the store carries every host's pairs. The read-modify-write takes the store's
+    lock and looks at the clock again inside it, so two workers that both find the sweep due do not both file the same pairs."""
     now = int(time.time())
-    age = load(PATCH_AGE_FILE) or {}
-    if now - int(age.get('_last_run', 0) or 0) < PATCH_SLA_INTERVAL:
+    if now - int((_load_ro(PATCH_AGE_FILE) or {}).get('_last_run', 0) or 0) < PATCH_SLA_INTERVAL:
         return
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}       # the evaluator only reads it
     cfg = _config_ro()
-    prev = set(age.get('_breaching') or [])      # read BEFORE eval mutates age
-    rows, breaching = _eval_patch_sla(devices, cfg, age, now)
-    age['_breaching'] = sorted(breaching)
-    age['_last_run'] = now
-    save(PATCH_AGE_FILE, age)
+    rows, breaching, prev = [], set(), set()
+    with _LockedUpdate(PATCH_AGE_FILE) as age:
+        if now - int(age.get('_last_run', 0) or 0) >= PATCH_SLA_INTERVAL:
+            prev = set(age.get('_breaching') or [])      # read BEFORE eval mutates age
+            rows, breaching = _eval_patch_sla(devices, cfg, age, now, record=True)
+            age['_breaching'] = sorted(breaching)
+            age['_last_run'] = now
     # edge-triggered fires
     row_by_id = {r['device_id']: r for r in rows}
     pending = []
@@ -44297,9 +44438,8 @@ def handle_patch_sla():
     require_auth()
     now = int(time.time())
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})  # SEC: per-tenant/scope
-    age = load(PATCH_AGE_FILE) or {}
     # read-only eval over a COPY so the GET never writes the store
-    rows, _ = _eval_patch_sla(devices, _config_ro(), dict(age), now)
+    rows, _ = _eval_patch_sla(devices, _config_ro(), _patch_age_stamps(), now)
     respond(200, {'ok': True, 'rows': rows,
                   'rules': _config_ro().get('patch_sla') or [],
                   'violations': sum(1 for r in rows if r['breached'])})
@@ -49388,7 +49528,7 @@ def _compliance_facts(devices=None):
     sla_bad = []
     try:
         if cfg.get('patch_sla'):
-            _sla_rows, _ = _eval_patch_sla(devices, cfg, dict(load(PATCH_AGE_FILE) or {}), int(time.time()))
+            _sla_rows, _ = _eval_patch_sla(devices, cfg, _patch_age_stamps(), int(time.time()))
             sla_bad = [f"{r['name']} ({r['detail']})" for r in _sla_rows if r.get('breached')]
     except Exception:
         sla_bad = []
@@ -56326,7 +56466,7 @@ def _compute_fleet_risk():
     try:
         if _config_ro().get('patch_sla'):
             _rows, _ = _eval_patch_sla(devices, _config_ro(),
-                                       dict(load(PATCH_AGE_FILE) or {}), now)
+                                       _patch_age_stamps(), now)
             sla_detail = {r['device_id']: (r.get('detail') or 'past the patch SLA')
                           for r in _rows if r.get('breached')}
     except Exception:
@@ -62257,6 +62397,10 @@ def handle_patch_report():
 
     report['summary']['cve_fixable_total'] = sum(cve_fixable.values())
     report['devices'].sort(key=lambda x: (-(x.get('upgradable') or 0), x['name'].lower()))
+    # Mean time to patch, from the pairs the aging sweep filed. `devices` is the set this caller may see, so the figures only ever
+    # cover those hosts; the per-tenant split is for the caller who sees every tenant (and lists the tenants of the hosts it can see).
+    report['mttp'] = _patch_mttp(devices, _load_ro(PATCH_AGE_FILE) or {}, now, _mttp_window(),
+                                 by_tenant=_tenancy_enforced() and _tenant_gate() is None)
     respond(200, report)
 
 
