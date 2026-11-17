@@ -94,6 +94,13 @@ def tearDownModule():
         shutil.rmtree(_STATE.get('data_dir', ''), ignore_errors=True)
 
 
+def _record_failed_request(problems, r):
+    """Keep a failed request. One the page cancelled itself (a poll it replaced, a fetch it gave up on as the view changed) is aborted,
+    which is not a failure of anything, and is left out."""
+    if 'ERR_ABORTED' not in str(r.failure):
+        problems.append('request failed: %s %s' % (r.url[-80:], r.failure))
+
+
 def _signed_in_context(width, height):
     """A fresh browser context signed in as the demo operator, with every console error, page error, failed request and 4xx or 5xx answer kept."""
     ctx = _STATE['browser'].new_context(viewport={'width': width, 'height': height}, service_workers='block')
@@ -103,7 +110,7 @@ def _signed_in_context(width, height):
     problems = []
     page.on('pageerror', lambda e: problems.append('pageerror: %s' % str(e)[:300]))
     page.on('console', lambda m: problems.append('console error: %s' % m.text[:300]) if m.type == 'error' else None)
-    page.on('requestfailed', lambda r: problems.append('request failed: %s %s' % (r.url[-80:], r.failure)))
+    page.on('requestfailed', lambda r: _record_failed_request(problems, r))
     page.on('response', lambda r: problems.append('HTTP %d: %s' % (r.status, r.url[-80:])) if r.status >= 400 else None)
     page.goto(_STATE['base'] + '/index.html')
     page.fill('#login-user', 'alice')                    # the seeder builds its own operator accounts: there is no 'admin'
@@ -553,6 +560,42 @@ class TestArabicPhone(_Language, _Base):
 class TestGermanPhone(_Language, _Base):
     lang = 'de'
     width, height = 390, 800
+
+
+class _Req:
+    """What a browser hands the listener of a failed request: its url and the reason."""
+
+    def __init__(self, url, failure):
+        self.url, self.failure = url, failure
+
+
+@unittest.skipUnless(_GATE, SKIP_REASON)
+class TestTheInstrument(unittest.TestCase):
+    """Every test above ends by asking whether the page reported a problem, so an empty list is believed only after the list has been seen
+    to fill: a failed request, a console error and a 404 are recorded, and a request the page cancelled itself is not."""
+
+    def test_a_cancelled_request_is_left_out_and_any_other_failure_is_kept(self):
+        seen = []
+        _record_failed_request(seen, _Req('http://host/api/nav-counts', 'net::ERR_ABORTED'))
+        self.assertEqual(seen, [], 'a request the page cancelled was kept')
+        for why in ('net::ERR_CONNECTION_REFUSED', 'net::ERR_CONNECTION_RESET', 'net::ERR_TIMED_OUT', 'net::ERR_FAILED', None):
+            _record_failed_request(seen, _Req('http://host/api/nav-counts', why))
+        self.assertEqual(len(seen), 5, seen)
+
+    def test_the_page_level_list_records_a_failed_request_a_console_error_and_a_404(self):
+        ctx, page, problems = _signed_in_context(1440, 900)
+        try:
+            page.evaluate("""async () => {
+              await fetch('http://127.0.0.1:9/control-unreachable', {mode: 'no-cors'}).catch(() => {});
+              await fetch('/api/control-not-a-route').catch(() => {});
+              console.error('control: a console error');
+            }""")
+            _until(lambda: any('control-not-a-route' in p for p in problems) and any('control-unreachable' in p for p in problems), 10)
+            self.assertTrue(any(p.startswith('request failed: ') and 'control-unreachable' in p for p in problems), problems)
+            self.assertTrue(any(p.startswith('HTTP 404') and 'control-not-a-route' in p for p in problems), problems)
+            self.assertIn('console error: control: a console error', problems)
+        finally:
+            ctx.close()
 
 
 if __name__ == '__main__':
