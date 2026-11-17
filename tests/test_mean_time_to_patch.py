@@ -2,14 +2,14 @@
 """Mean time to patch: the time from the first sweep that saw an update waiting on a host to the first sweep that saw none.
 
 The aging store (patch_age.json) kept when each class of update was first seen on a host and dropped the stamp when the host had none left, so nothing recorded how
-long a patch took. The sweep now files the pair (first seen, cleared, kind) in the host's own entry, in the same locked write, and the Patches page reads the figures from
-`GET /api/patch-report` (`mttp`).
+long a patch took. The sweep now files the pair (first seen, cleared, kind) in a store of its own, patch_done.json (the aging store is read on every request and the pairs
+grow with the history, so they are not kept together: tests/test_patch_age_split.py holds that), and the Patches page reads the figures from `GET /api/patch-report` (`mttp`).
 
 Driven through the real sweep (`run_patch_sla_if_due`), the real handler and the real dispatcher, with the statistics held to numbers worked out by hand:
 
   * the pair is filed when the host reports none left, for both classes, with or without a patch SLA rule, and never when the count is unknown;
   * the ring: at most 200 pairs a host and none older than 400 days, no pair twice for one stamp, nothing for a stamp that is not a number or lies ahead of the clock;
-  * the read-only evaluators (the SLA page, the reports, the risk score, the Patches page) never file a pair and never copy the pairs;
+  * the read-only evaluators (the SLA page, the reports, the risk score, the Patches page) never file a pair;
   * mean, median and 90th percentile (nearest rank) in hours, the count n, nothing shown below five pairs, nothing for a host with no pair;
   * the window (30 or 90 days, anything else is 30), hostile values of it, a store from before this change, a store with damaged rows;
   * one organisation reads its own hosts' pairs and no other's, a scoped role likewise, and only the operator of the installation gets the split per tenant.
@@ -68,9 +68,21 @@ class _Base(unittest.TestCase):
         self.api.save(self.api.PATCH_AGE_FILE, age)
         self.api._LOAD_CACHE.clear()
 
+    def plant_done(self, done):
+        """The completed pairs, in the store the sweep files them in: {host: {'done': [[first, cleared, kind], ...]}}."""
+        self.api.save(self.api.PATCH_DONE_FILE, done)
+        self.api._LOAD_CACHE.clear()
+
     def age(self):
         self.api._LOAD_CACHE.clear()
         return self.api.load(self.api.PATCH_AGE_FILE)
+
+    def done(self):
+        self.api._LOAD_CACHE.clear()
+        return self.api.load(self.api.PATCH_DONE_FILE)
+
+    def pairs_of(self, host_id):
+        return (self.done().get(host_id) or {}).get('done')
 
     def sweep(self, at):
         """One run of the sweep at a fixed time, as a request of its own."""
@@ -164,35 +176,36 @@ class TestFilingThePair(_Base):
         self.two(4, 2)
         self.sweep(T0)
         self.assertEqual((self.age()['d1'].get('all_first'), self.age()['d1'].get('sec_first')), (T0, T0))
-        self.assertNotIn('done', self.age()['d1'], 'nothing is filed while the update is waiting')
+        self.assertNotIn('d1', self.done(), 'nothing is filed while the update is waiting')
         self.sweep(T0 + 2 * HOUR)                                   # still waiting
         self.two(0, 0)
         self.sweep(T0 + 6 * HOUR)
+        self.assertEqual(self.pairs_of('d1'), [[T0, T0 + 6 * HOUR, 'all'], [T0, T0 + 6 * HOUR, 'sec']])
         d = self.age()['d1']
-        self.assertEqual(d['done'], [[T0, T0 + 6 * HOUR, 'all'], [T0, T0 + 6 * HOUR, 'sec']])
         self.assertNotIn('all_first', d)
         self.assertNotIn('sec_first', d)
+        self.assertNotIn('done', d, 'the aging store holds the stamps and no pairs: it is the store every request reads')
 
     def test_the_security_pair_closes_before_the_other_when_the_security_updates_go_first(self):
         self.two(4, 2)
         self.sweep(T0)
         self.two(3, 0)
         self.sweep(T0 + 3 * HOUR)
-        d = self.age()['d1']
-        self.assertEqual(d['done'], [[T0, T0 + 3 * HOUR, 'sec']])
-        self.assertEqual(d['all_first'], T0, 'the other updates are still waiting, and their clock has not stopped')
+        self.assertEqual(self.pairs_of('d1'), [[T0, T0 + 3 * HOUR, 'sec']])
+        self.assertEqual(self.age()['d1']['all_first'], T0, 'the other updates are still waiting, and their clock has not stopped')
         self.two(0, 0)
         self.sweep(T0 + 8 * HOUR)
-        self.assertEqual(self.age()['d1']['done'], [[T0, T0 + 3 * HOUR, 'sec'], [T0, T0 + 8 * HOUR, 'all']])
+        self.assertEqual(self.pairs_of('d1'), [[T0, T0 + 3 * HOUR, 'sec'], [T0, T0 + 8 * HOUR, 'all']])
 
     def test_it_does_not_need_a_patch_sla_rule_and_a_rule_does_not_change_what_is_filed(self):
         for cfg in ({}, {'patch_sla': [{'match_type': 'all', 'sec_days': 7, 'all_days': 30}]}):
             self.api.save(self.api.PATCH_AGE_FILE, {})
+            self.api.save(self.api.PATCH_DONE_FILE, {})
             self.put({'d1': host('one', 4, 2)}, **cfg)
             self.sweep(T0)
             self.put({'d1': host('one', 0, 0)}, **cfg)
             self.sweep(T0 + 5 * HOUR)
-            self.assertEqual(self.age()['d1']['done'], [[T0, T0 + 5 * HOUR, 'all'], [T0, T0 + 5 * HOUR, 'sec']], cfg)
+            self.assertEqual(self.pairs_of('d1'), [[T0, T0 + 5 * HOUR, 'all'], [T0, T0 + 5 * HOUR, 'sec']], cfg)
 
     def test_without_a_rule_nothing_is_in_breach_and_nothing_is_fired(self):
         self.two(4, 2)
@@ -216,7 +229,7 @@ class TestFilingThePair(_Base):
         self.put({'d1': host('one', None, None)})                  # the agent stopped reporting packages
         self.sweep(T0 + 2 * HOUR)
         d = self.age()['d1']
-        self.assertNotIn('done', d, 'an unknown count is not "none left"')
+        self.assertNotIn('d1', self.done(), 'an unknown count is not "none left"')
         self.assertNotIn('all_first', d)
 
     def test_a_host_that_does_not_count_security_apart_closes_both_when_none_is_left(self):
@@ -225,7 +238,7 @@ class TestFilingThePair(_Base):
         self.api.save(self.api.PATCH_AGE_FILE, dict(self.age(), d1={'all_first': T0, 'sec_first': T0}))
         self.two(0, None)
         self.sweep(T0 + 2 * HOUR)
-        self.assertEqual(self.age()['d1']['done'], [[T0, T0 + 2 * HOUR, 'all'], [T0, T0 + 2 * HOUR, 'sec']])
+        self.assertEqual(self.pairs_of('d1'), [[T0, T0 + 2 * HOUR, 'all'], [T0, T0 + 2 * HOUR, 'sec']])
 
     def test_unmonitored_and_agentless_hosts_are_not_swept(self):
         self.put({'u': host('u', 4, 2, monitored=False), 'a': host('a', 4, 2, agentless=True)})
@@ -234,15 +247,31 @@ class TestFilingThePair(_Base):
         self.sweep(T0 + 2 * HOUR)
         age = self.age()
         self.assertEqual([k for k in age if not k.startswith('_')], [])
+        self.assertEqual(self.done(), {})
 
-    def test_a_host_that_is_gone_takes_its_pairs_with_it(self):
-        self.two(4, 2)
+    def test_the_sweep_drops_the_stamps_of_a_host_that_is_gone_and_leaves_its_history(self):
+        """The stamps are re-made by the next sweep if the host comes back, so dropping them is housekeeping. The pairs cannot be re-made, so the sweep
+        never prunes them: a host leaves the pairs store when the host is deleted (test_the_purge_of_a_host_takes_its_pairs_with_it)."""
+        self.put({'d1': host('one', 4, 2), 'd2': host('two', 4, 2)})
         self.sweep(T0)
-        self.two(0, 0)
+        self.put({'d1': host('one', 0, 0), 'd2': host('two', 4, 2)})
         self.sweep(T0 + 2 * HOUR)
-        self.assertIn('done', self.age()['d1'])
-        self.put({})
+        self.assertEqual(len(self.pairs_of('d1')), 2)
+        self.put({'d2': host('two', 4, 2)})                         # d1 is not in the device store any more
         self.sweep(T0 + 4 * HOUR)
+        self.assertNotIn('d1', self.age(), 'the stamps entry of a host that is gone is housekeeping')
+        self.assertIn('d2', self.age())
+        self.assertEqual(len(self.pairs_of('d1')), 2, 'and its history is not the sweep\'s to delete')
+
+    def test_the_purge_of_a_host_takes_its_pairs_with_it(self):
+        self.put({'d1': host('one', 4, 2), 'd2': host('two', 4, 2)})
+        self.sweep(T0)
+        self.put({'d1': host('one', 0, 0), 'd2': host('two', 0, 0)})
+        self.sweep(T0 + 2 * HOUR)
+        self.assertEqual((len(self.pairs_of('d1')), len(self.pairs_of('d2'))), (2, 2), 'control: both hosts have a history')
+        self.assertTrue(self.api._purge_device('d1'))
+        self.assertNotIn('d1', self.done())
+        self.assertEqual(len(self.pairs_of('d2')), 2, 'and the other host keeps its own')
         self.assertNotIn('d1', self.age())
 
     def test_the_sweep_runs_once_an_hour_and_not_twice_for_one_stamp(self):
@@ -250,19 +279,45 @@ class TestFilingThePair(_Base):
         self.sweep(T0)
         self.two(0, 0)
         self.sweep(T0 + 10)                                         # inside the hour: not due
-        self.assertNotIn('done', self.age()['d1'])
+        self.assertNotIn('d1', self.done())
         self.sweep(T0 + HOUR)
         self.sweep(T0 + HOUR + 10)                                  # the same hour again
-        self.assertEqual(len(self.age()['d1']['done']), 2)
+        self.assertEqual(len(self.pairs_of('d1')), 2)
 
-    def test_the_sweep_takes_the_lock_of_the_store(self):
-        self.two(4, 2)
-        calls = []
+    def spy_on_the_locks(self):
+        """Every _LockedUpdate the code asks for, by store name, and how many were open at once at the deepest."""
+        calls, depth, deepest = [], [0], [0]
         real = self.api._LockedUpdate
-        self.api._LockedUpdate = lambda path, non_blocking=False: (calls.append(Path(path).name), real(path, non_blocking))[1]
+
+        class Spy:
+            def __init__(self, path, non_blocking=False):
+                self.inner = real(path, non_blocking)
+                calls.append(Path(path).name)
+
+            def __enter__(self):
+                depth[0] += 1
+                deepest[0] = max(deepest[0], depth[0])
+                return self.inner.__enter__()
+
+            def __exit__(self, *exc):
+                try:
+                    return self.inner.__exit__(*exc)
+                finally:
+                    depth[0] -= 1
+        self.api._LockedUpdate = Spy
         self.addCleanup(setattr, self.api, '_LockedUpdate', real)
+        return calls, deepest
+
+    def test_the_sweep_takes_the_lock_of_the_aging_store_and_of_the_pairs_only_when_it_files_one(self):
+        self.two(4, 2)
+        calls, deepest = self.spy_on_the_locks()
         self.sweep(T0)
-        self.assertEqual(calls, ['patch_age.json'], 'one locked read-modify-write, of the aging store')
+        self.assertEqual(calls, ['patch_age.json'], 'nothing cleared: one locked read-modify-write, of the aging store, and the pairs store is not touched')
+        self.two(0, 0)
+        del calls[:]
+        self.sweep(T0 + 5 * HOUR)
+        self.assertEqual(calls, ['patch_age.json', 'patch_done.json'], 'a stamp cleared: the aging store, then the pairs store')
+        self.assertEqual(deepest[0], 1, 'one after the other and never one inside the other: the SQL backends share one connection, and a lock inside a lock is a nested BEGIN')
 
     def test_a_worker_that_finds_the_sweep_due_after_another_has_run_it_files_nothing_more(self):
         """The due check outside the lock reads a view that is a moment old. Inside the lock the clock is read again, so two workers that
@@ -271,9 +326,9 @@ class TestFilingThePair(_Base):
         self.sweep(T0)
         self.two(0, 0)
         self.sweep(T0 + 5 * HOUR)
-        self.assertEqual(len(self.age()['d1']['done']), 2)
-        # a second worker's view from before the first one ran: stamps present and the old clock
-        self.api.save(self.api.PATCH_AGE_FILE, dict(self.age(), d1={'all_first': T0, 'sec_first': T0, 'done': self.age()['d1']['done']}))
+        self.assertEqual(len(self.pairs_of('d1')), 2)
+        # a second worker's view from before the first one ran: the stamps are there again and the clock is the old one
+        self.api.save(self.api.PATCH_AGE_FILE, dict(self.age(), d1={'all_first': T0, 'sec_first': T0}))
         real_ro = self.api._load_ro
         stale = {'_last_run': T0}
         self.api._load_ro = lambda path: stale if Path(path).name == 'patch_age.json' else real_ro(path)
@@ -281,7 +336,7 @@ class TestFilingThePair(_Base):
         self.api.time.time = lambda: T0 + 5 * HOUR + 30             # the store says it ran 30 seconds ago
         self.api.run_patch_sla_if_due()
         self.api._load_ro = real_ro
-        self.assertEqual(len(self.age()['d1']['done']), 2, 'the second worker must not file the pair again')
+        self.assertEqual(len(self.pairs_of('d1')), 2, 'the second worker must not file the pair again')
         self.assertEqual(self.age()['d1']['all_first'], T0, 'and must not touch the stamps')
 
 
@@ -322,10 +377,11 @@ class TestTheRing(_Base):
     def test_the_ring_is_kept_through_the_sweep(self):
         done = [[T0 - (300 - i) * HOUR, T0 - (300 - i) * HOUR + 600, 'all'] for i in range(200)]
         self.put({'d1': host('one', 4, 2)})
-        self.plant_age({'d1': {'all_first': T0, 'done': list(done)}, '_last_run': 0})
+        self.plant_age({'d1': {'all_first': T0}, '_last_run': 0})
+        self.plant_done({'d1': {'done': list(done)}})
         self.put({'d1': host('one', 0, 0)})
         self.sweep(T0 + 2 * HOUR)
-        got = self.age()['d1']['done']
+        got = self.pairs_of('d1')
         self.assertEqual(len(got), 200)
         self.assertEqual((got[-1], got[-2]), ([T0, T0 + 2 * HOUR, 'all'], done[-1]), 'the new pair is last')
         self.assertEqual(got[0], done[1], 'and the oldest one made room')
@@ -336,19 +392,22 @@ class TestWhatOnlyReadsNeverFiles(_Base):
     def setUp(self):
         super().setUp()
         self.put({'d1': host('one', 0, 0)})
-        self.plant_age({'d1': {'all_first': T0 - 5 * HOUR, 'sec_first': T0 - 5 * HOUR, 'done': [[T0 - 99 * HOUR, T0 - 90 * HOUR, 'all']]}, '_last_run': int(time.time())})
+        self.plant_age({'d1': {'all_first': T0 - 5 * HOUR, 'sec_first': T0 - 5 * HOUR}, '_last_run': int(time.time())})
+        self.plant_done({'d1': {'done': [[T0 - 99 * HOUR, T0 - 90 * HOUR, 'all']]}})
 
     def raw(self):
-        return json.dumps(self.age(), sort_keys=True)
+        return json.dumps([self.age(), self.done()], sort_keys=True)
 
-    def test_the_evaluator_files_only_when_it_is_asked_to(self):
+    def test_the_evaluator_collects_only_when_it_is_asked_to(self):
         age = {'d1': {'all_first': T0 - 5 * HOUR, 'sec_first': T0 - 5 * HOUR}}
         devices = {'d1': host('one', 0, 0)}
         self.api._eval_patch_sla(devices, {}, age, T0)
-        self.assertNotIn('done', age['d1'], 'the default is read-only')
+        self.assertEqual(age['d1'], {}, 'the default is read-only: the stamps are cleared in the copy it was given and nothing is collected')
         age2 = {'d1': {'all_first': T0 - 5 * HOUR}}
-        self.api._eval_patch_sla(devices, {}, age2, T0, record=True)
-        self.assertEqual(age2['d1']['done'], [[T0 - 5 * HOUR, T0, 'all']])
+        record = []
+        self.api._eval_patch_sla(devices, {}, age2, T0, record=record)
+        self.assertEqual(record, [('d1', T0 - 5 * HOUR, 'all')])
+        self.assertEqual(age2['d1'], {}, 'and the evaluator files nothing itself: the aging entry holds no pair')
 
     def test_the_patch_sla_page_leaves_the_store_as_it_was(self):
         before = self.raw()
@@ -362,14 +421,14 @@ class TestWhatOnlyReadsNeverFiles(_Base):
         self.assertEqual(st, 200, got)
         self.assertEqual(self.raw(), before)
 
-    def test_the_stamps_copy_has_no_pairs_and_changing_it_changes_nothing(self):
+    def test_the_stamps_copy_is_the_aging_store_and_changing_it_changes_nothing(self):
         copy = self.api._patch_age_stamps()
         self.assertEqual(copy['d1'], {'all_first': T0 - 5 * HOUR, 'sec_first': T0 - 5 * HOUR})
         self.assertIn('_last_run', copy)
         copy['d1']['all_first'] = 1
         copy['d1']['x'] = 2
         self.assertEqual(self.api._patch_age_stamps()['d1'], {'all_first': T0 - 5 * HOUR, 'sec_first': T0 - 5 * HOUR})
-        self.assertEqual(self.age()['d1']['done'], [[T0 - 99 * HOUR, T0 - 90 * HOUR, 'all']])
+        self.assertEqual(self.pairs_of('d1'), [[T0 - 99 * HOUR, T0 - 90 * HOUR, 'all']])
 
 
 def pairs(*hours_ago_and_len, kind='all', now=None):
@@ -381,8 +440,11 @@ def pairs(*hours_ago_and_len, kind='all', now=None):
 class _Route(_Base):
 
     def plant(self, entries, devices=None, **cfg):
+        """`entries` is {host: {'done': [...]}}, which goes to the pairs store. The aging store holds a due stamp that is recent, so that the sweep a request runs
+        for itself does not run, and no stamps."""
         self.put(devices or {k: host(k) for k in entries}, **cfg)
-        self.plant_age(dict(entries, _last_run=int(time.time()), _breaching=[]))
+        self.plant_done(entries)
+        self.plant_age({'_last_run': int(time.time()), '_breaching': []})
 
     def mttp(self, token='k', query='', path='/api/patch-report'):
         st, out = self.request(path, token=token, query=query)
@@ -448,26 +510,13 @@ class TestTheFigures(_Route):
         self.assertEqual((got['n'], got['hidden'], got['mean_h'], got['median_h'], got['p90_h']), (4, True, None, None, None))
 
     def test_an_empty_store_says_no_pair_at_all(self):
-        self.api.save(self.api.PATCH_AGE_FILE, {})
+        self.api.save(self.api.PATCH_DONE_FILE, {})
         self.api._LOAD_CACHE.clear()
         m = self.mttp()
         self.assertEqual(m['hosts'], {})
         for k in ('all', 'sec'):
             self.assertEqual((m['fleet'][k]['n'], m['fleet'][k]['hidden'], m['fleet'][k]['mean_h']), (0, True, None))
         self.assertNotIn('tenants', m)
-
-    def test_a_store_from_before_this_change_still_loads_and_the_sweep_adds_the_pairs_to_it(self):
-        old = {'web01': {'all_first': T0 - 5 * HOUR, 'sec_first': T0 - 5 * HOUR}, 'web02': {}, '_last_run': 0, '_breaching': ['web01']}
-        self.put({'web01': host('web01', 3, 1), 'web02': host('web02')})
-        self.plant_age(old)
-        m = self.mttp()
-        self.assertEqual((m['fleet']['all']['n'], m['hosts']), (0, {}))
-        self.put({'web01': host('web01', 0, 0), 'web02': host('web02')})
-        self.plant_age(old)
-        self.sweep(T0)
-        d = self.age()['web01']
-        self.assertEqual(d['done'], [[T0 - 5 * HOUR, T0, 'all'], [T0 - 5 * HOUR, T0, 'sec']])
-        self.assertEqual(self.age()['_breaching'], [])
 
     def test_damaged_rows_are_skipped_and_the_good_ones_still_count(self):
         good = pairs((24, 2))
@@ -481,6 +530,27 @@ class TestTheFigures(_Route):
                    devices={k: host(k) for k in ('web01', 'web02', 'web03', 'web04')})
         m = self.mttp()
         self.assertEqual(sorted(m['hosts']), ['web04'])
+
+
+class TestAnInstallFromBeforeThisChange(_Route):
+    """What every install that was running before the pairs had a store of their own has: stamps, a due stamp, and no patch_done.json."""
+
+    def setUp(self):
+        _Base.setUp(self)           # nothing is planted: there is no pairs store at all
+
+    def test_an_install_with_an_aging_store_and_no_pairs_store_still_loads_and_the_sweep_makes_the_pairs_store(self):
+        old = {'web01': {'all_first': T0 - 5 * HOUR, 'sec_first': T0 - 5 * HOUR}, 'web02': {}, '_last_run': 0, '_breaching': ['web01']}
+        self.put({'web01': host('web01', 3, 1), 'web02': host('web02')})
+        self.plant_age(old)
+        self.assertFalse(self.api.backend_exists(self.api.PATCH_DONE_FILE), 'control: there is no pairs store')
+        m = self.mttp()
+        self.assertEqual((m['fleet']['all']['n'], m['hosts']), (0, {}))
+        self.put({'web01': host('web01', 0, 0), 'web02': host('web02')})
+        self.plant_age(old)
+        self.sweep(T0)
+        self.assertEqual(self.pairs_of('web01'), [[T0 - 5 * HOUR, T0, 'all'], [T0 - 5 * HOUR, T0, 'sec']])
+        self.assertEqual(self.age()['_breaching'], [])
+        self.assertNotIn('done', self.age()['web01'])
 
 
 class TestWhoReadsWhat(_Route):

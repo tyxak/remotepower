@@ -83,6 +83,9 @@ RULES: dict[str, tuple[Rule, ...]] = {
     "lldp_neighbors.json": (pop(),),
     "metrics_history.json": (pop(),),
     "patch_age.json": (pop(), unlist("_breaching")),
+    "patch_done.json": (
+        pop(),
+    ),  # the completed patches of the host, for the mean time to patch (8.0.2)
     "pii_findings.json": (pop(),),
     "runbooks.json": (
         pop(),
