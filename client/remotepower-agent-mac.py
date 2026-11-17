@@ -24,6 +24,10 @@ this agent does NOT read): OpenSCAP (`force_scap_scan` /
 Everything else the server sends is honoured here — when closing one of these,
 also update this list and the Windows agent's.
 
+It also sends the installed software: the application bundles (each one's Info.plist) and, when Homebrew is installed, its formulae
+and casks go to POST /api/packages as a list of applications, at the first poll, about every six hours, and when the server asks for a
+package scan. A list that has not changed since the last one sent is not sent again.
+
 Usage:
     remotepower-agent-mac --enroll --server https://rp.example --pin 123456
     remotepower-agent-mac --run        # heartbeat loop (run under launchd)
@@ -37,13 +41,16 @@ import logging
 import os
 import stat
 import platform
+import plistlib
 import re
 import shutil
+import signal
 import socket
 import ssl
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -2483,6 +2490,320 @@ def brew_outdated():
     except Exception:
         return None
 
+# ─── installed software ──────────────────────────────────────────────────────
+#
+# The application bundles of this Mac (each one's Contents/Info.plist, read with plistlib) and its Homebrew formulae and casks, sent
+# to POST /api/packages the way the Linux agent sends the packages of its distribution: a list that has not changed since the last
+# one sent is not sent again, and the server's force-scan command (`force_package_scan`, the Scan now and Send list buttons) sends it
+# whatever the hash says. The server reads it as a list of applications (pkg_manager `macos`; a row is `macos` for a bundle and
+# `brew` for a Homebrew package): the software views show it and the software policy is checked against it. Nothing is matched
+# against a vulnerability database.
+#
+# Read only, and a symlink is never followed out of an application folder: every step down to an Info.plist (the folder, the
+# bundle, its Contents, the plist) is opened from the step before it with O_NOFOLLOW, so a bundle that is a symlink to an
+# application somewhere else is left out and counted, and one cannot be swapped for a link to /etc between a check and the read.
+# Homebrew runs as the account that owns it, never as root (see _brew_run_kwargs), and what it prints is read up to a limit.
+
+PACKAGE_LIST_EVERY = 360        # polls between two looks at the list: about 6 hours at a 60 s poll, as on the Linux agent
+MAX_INVENTORY_SEND = 5000       # rows in one report: the server keeps no more than that
+MAX_INVENTORY_BYTES = 1500000   # bytes of one report: the web server refuses a request over 2 MB
+MAX_INVENTORY_FIELD = 200       # characters of a name, a version or an identifier: the server keeps no more
+_PKG_HASH_FILE = 'pkg_hash'     # in the data directory: the hash of the list that was sent last
+_inventory_cfg = {'force': False}   # the server's one-shot "send the list now", set by the heartbeat answer
+
+_USERS_DIR = '/Users'
+MAX_USER_FOLDERS = 200          # accounts under /Users whose Applications folder is read
+MAX_APP_ENTRIES = 5000          # entries of one folder that are looked at
+MAX_PLIST_BYTES = 1024 * 1024   # an Info.plist is a few KB; one over a megabyte is not read
+BREW_TIMEOUT = 60               # seconds `brew list` may take
+MAX_BREW_BYTES = 512 * 1024     # bytes of `brew list` output that are read: the list of a large Homebrew is a few tens of KB
+_DIR_OPEN = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0) | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_CLOEXEC', 0)
+_FILE_OPEN = os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_CLOEXEC', 0)
+
+
+def _application_folders():
+    """The folders this Mac keeps applications in: the system's and the shared one, ~/Applications of the account the agent runs
+    as and the Applications folder of every account under /Users (the agent runs as root under launchd, whose ~ holds none)."""
+    folders = ['/Applications', '/System/Applications', os.path.expanduser('~/Applications')]
+    try:
+        users = sorted(os.listdir(_USERS_DIR))
+    except OSError:
+        users = []
+    for name in [u for u in users if not u.startswith('.') and u not in ('Shared', 'Guest')][:MAX_USER_FOLDERS]:
+        folders.append(os.path.join(_USERS_DIR, name, 'Applications'))
+    out = []
+    for folder in folders:
+        if folder not in out:
+            out.append(folder)
+    return out
+
+
+def _read_info_plist(parent_fd, name):
+    """The parsed Contents/Info.plist of the bundle `name` inside the folder open as `parent_fd`, or None when there is none, when
+    it is over MAX_PLIST_BYTES or when it does not parse (a binary and an XML list both do). A bundle, a Contents folder or a plist
+    that is a symlink is not followed, and a FIFO named Info.plist is opened without waiting for a writer."""
+    app_fd = contents_fd = plist_fd = None
+    try:
+        app_fd = os.open(name, _DIR_OPEN, dir_fd=parent_fd)
+        contents_fd = os.open('Contents', _DIR_OPEN, dir_fd=app_fd)
+        plist_fd = os.open('Info.plist', _FILE_OPEN, dir_fd=contents_fd)
+        if os.fstat(plist_fd).st_size > MAX_PLIST_BYTES:
+            return None
+        parsed = plistlib.loads(os.read(plist_fd, MAX_PLIST_BYTES + 1))     # a FIFO or a folder named Info.plist reads as nothing
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+    finally:
+        for fd in (plist_fd, contents_fd, app_fd):
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+
+def _scan_open_folder(folder_fd, bundles, depth):
+    """Add (folder name without .app, Info.plist) for each application bundle in the folder open as `folder_fd`, and in the folders
+    inside it down to `depth` levels, to `bundles`. Returns how many bundles were left out: a bundle with no readable Info.plist, a
+    symlink or a file named like one. A bundle is not entered, and a symlinked folder is not followed."""
+    left_out = 0
+    try:
+        with os.scandir(folder_fd) as listing:
+            entries = sorted(listing, key=lambda e: e.name)[:MAX_APP_ENTRIES]
+    except OSError:
+        return 0
+    for entry in entries:
+        name = entry.name
+        if name.endswith('.app'):
+            plist = _read_info_plist(folder_fd, name)
+            if plist is None:
+                left_out += 1
+                continue
+            bundles.append((name[:-4], plist))
+        elif depth > 1 and not name.startswith('.'):
+            try:
+                sub_fd = os.open(name, _DIR_OPEN, dir_fd=folder_fd)      # O_DIRECTORY and O_NOFOLLOW: a file, a FIFO and a symlink are refused
+            except OSError:
+                continue
+            try:
+                left_out += _scan_open_folder(sub_fd, bundles, depth - 1)
+            finally:
+                os.close(sub_fd)
+    return left_out
+
+
+def _app_row(folder_name, plist):
+    """One row of the list for a bundle: the name is CFBundleDisplayName, else CFBundleName, else the name of the folder; the
+    version is CFBundleShortVersionString, else CFBundleVersion; the identifier (com.apple.Safari) is CFBundleIdentifier. A value
+    that is not text, or is blank, is not used."""
+    def text(*keys):
+        for key in keys:
+            value = plist.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ''
+    row = {'name': (text('CFBundleDisplayName', 'CFBundleName') or folder_name.strip())[:MAX_INVENTORY_FIELD],
+           'version': text('CFBundleShortVersionString', 'CFBundleVersion')[:MAX_INVENTORY_FIELD],
+           'manager': 'macos'}
+    ident = text('CFBundleIdentifier')[:MAX_INVENTORY_FIELD]
+    if ident:
+        row['id'] = ident
+    return row
+
+
+def collect_installed_applications():
+    """([row, ...], skipped): the applications of this Mac, from /Applications, /System/Applications and the Applications folder of
+    each account, down to one level of folders inside each (Utilities, a vendor's folder). `skipped` counts the bundles left out
+    (see _scan_open_folder). One app that two folders hold is one row. ([], 0) when there are none, as on a host that is not a Mac."""
+    bundles, skipped = [], 0
+    for folder in _application_folders():
+        try:
+            root_fd = os.open(folder, _DIR_OPEN)
+        except OSError:
+            continue
+        try:
+            skipped += _scan_open_folder(root_fd, bundles, 2)
+        finally:
+            os.close(root_fd)
+    rows, seen = [], set()
+    for folder_name, plist in bundles:
+        row = _app_row(folder_name, plist)
+        if not row['name']:
+            skipped += 1
+            continue
+        ident = (row['name'].lower(), row['version'], row.get('id', ''))
+        if ident not in seen:
+            seen.add(ident)
+            rows.append(row)
+    rows.sort(key=lambda r: (r['name'].lower(), r['version'], r.get('id', '')))
+    return rows, skipped
+
+
+def _run_capped(argv, timeout, cap, **kwargs):
+    """The first `cap` bytes of what a command prints, as text; None when it cannot be started, does not finish in `timeout`
+    seconds, exits with an error or prints more than `cap` bytes (it is killed then, with whatever it started). A list that is cut
+    is never returned: its missing end would read as packages that are not installed."""
+    try:
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                start_new_session=True, **kwargs)
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return None
+    killed = []
+
+    def kill():
+        if proc.poll() is None:
+            killed.append(True)
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)      # the command and what it started: its own session, so its own group
+            except OSError:
+                proc.kill()
+    timer = threading.Timer(timeout, kill)
+    timer.start()
+    too_long = False
+    try:
+        data = proc.stdout.read(cap + 1)
+        too_long = len(data) > cap
+        if too_long:
+            kill()
+        proc.wait()
+    except Exception:
+        kill()
+        proc.wait()
+        return None
+    finally:
+        timer.cancel()
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+    if too_long or killed or proc.returncode != 0:
+        return None
+    return data.decode('utf-8', 'replace')
+
+
+def collect_brew_packages():
+    """[row, ...] of the Homebrew formulae and casks installed, one row for each version kept (`brew list --versions`).
+
+    [] when Homebrew is not installed, or when the agent cannot run it as the account that owns it (see _brew_run_kwargs). None
+    when it is installed and its list could not be read: it timed out, failed, or printed more than MAX_BREW_BYTES. The caller then
+    sends no list at all that round, because a list without the Homebrew rows would take them from the server's copy as if they had
+    been removed."""
+    brew = _brew_path()
+    if not brew:
+        return []
+    run_as = _brew_run_kwargs(brew)
+    if run_as is None:
+        return []
+    rows = []
+    for kind in ('--formula', '--cask'):
+        text = _run_capped([brew, 'list', kind, '--versions'], BREW_TIMEOUT, MAX_BREW_BYTES, **run_as)
+        if text is None:
+            return None
+        for line in text.splitlines()[:MAX_INVENTORY_SEND]:
+            parts = line.split()
+            if not parts or len(parts[0]) > MAX_INVENTORY_FIELD:
+                continue
+            for version in (parts[1:] or [''])[:20]:
+                rows.append({'name': parts[0], 'version': version[:MAX_INVENTORY_FIELD], 'manager': 'brew'})
+    return rows
+
+
+def collect_software_inventory():
+    """(pkg_manager, [row, ...], skipped) of what this host reports to POST /api/packages: its applications and, when Homebrew is
+    installed, its Homebrew packages. No rows when Homebrew is installed and cannot be read (see collect_brew_packages)."""
+    brew = collect_brew_packages()
+    if brew is None:
+        log.warning('Homebrew is installed and its list could not be read: the software list is not sent this time')
+        return 'macos', [], 0
+    apps, skipped = collect_installed_applications()
+    rows = sorted(apps + brew, key=lambda r: (r['name'].lower(), r['version'], r['manager'], r.get('id', '')))
+    return 'macos', rows, skipped
+
+
+def _load_last_pkg_hash():
+    try:
+        with open(os.path.join(_data_dir(), _PKG_HASH_FILE), 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except Exception:
+        return ''
+
+
+def _save_last_pkg_hash(h):
+    try:
+        with open(os.path.join(_data_dir(), _PKG_HASH_FILE), 'w', encoding='utf-8') as f:
+            f.write(h)
+    except Exception:
+        pass
+
+
+def _compute_pkg_hash(packages):
+    """The fingerprint of a list: the same rows in any order give the same hash, and a change to any field of any row gives another."""
+    rows = sorted((str(p.get('manager', '')), str(p.get('name', '')), str(p.get('version', '')), str(p.get('arch', '')),
+                   str(p.get('publisher', '')), str(p.get('installed', '')), str(p.get('id', ''))) for p in packages)
+    return hashlib.sha256(json.dumps(rows, separators=(',', ':')).encode()).hexdigest()[:16]
+
+
+def _fit_inventory(rows):
+    """The rows one report may carry: at most MAX_INVENTORY_SEND, and few enough bytes for the web server to take the request.
+    A list is sorted by name, so the rows that do not fit are the same ones each time."""
+    out, size = [], 0
+    for row in rows[:MAX_INVENTORY_SEND]:
+        size += len(json.dumps(row, separators=(',', ':'))) + 1
+        if size > MAX_INVENTORY_BYTES:
+            break
+        out.append(row)
+    if len(out) < len(rows):
+        log.warning('Software list cut from %d to %d rows (a report holds at most %d rows and %d bytes)',
+                    len(rows), len(out), MAX_INVENTORY_SEND, MAX_INVENTORY_BYTES)
+    return out
+
+
+def send_package_list(creds, force=False):
+    """Collect the installed software and push it to /api/packages.
+
+    As on the Linux agent the list is submitted only when it has changed since the last one the server took (a hash gate: a list
+    rarely moves on a stable host), and `force=True` bypasses the gate, because the point of an operator's "send it now" is
+    that it goes whatever the hash says. Nothing is sent for a host that has no list to send, and nothing is raised: the
+    heartbeat is not the place for a failed read of the registry to be heard. Returns True if sent."""
+    pkg_manager, rows, skipped = collect_software_inventory()
+    if not rows:
+        log.debug('No software enumerable (manager=%s)', pkg_manager)
+        return False
+    rows = _fit_inventory(rows)
+    new_hash = _compute_pkg_hash(rows)
+    if not force and new_hash == _load_last_pkg_hash():
+        log.debug('Software list unchanged - skipping submission')
+        return False
+    payload = {
+        'device_id':   creds.get('device_id', ''),
+        'token':       creds.get('token', ''),
+        'pkg_manager': pkg_manager,
+        'packages':    rows,
+        'skipped':     skipped,
+    }
+    try:
+        resp = _post_json(f"{creds.get('server_url', '')}/api/packages", payload, timeout=30)
+        log.info('Submitted %d software rows (%d entries left out, changed=%s)',
+                 len(rows), skipped, resp.get('changed', False) if isinstance(resp, dict) else False)
+        _save_last_pkg_hash(new_hash)
+        return True
+    except Exception as e:
+        log.warning('Software list submission failed: %s', e)
+        return False
+
+
+def _submit_software_inventory(creds, poll_count):
+    """The installed-software report, on the cadence of the Linux agent's package list: at the first poll, every
+    PACKAGE_LIST_EVERY polls, and at once when the server asked for it. Best-effort: a failure never breaks the beat."""
+    force = _inventory_cfg.get('force', False)
+    if not (poll_count <= 1 or poll_count % PACKAGE_LIST_EVERY == 0 or force):
+        return
+    _inventory_cfg['force'] = False
+    try:
+        send_package_list(creds, force=force)
+    except Exception as e:
+        log.debug('software list: %s', e)
+
 
 def _exec_timeout_override(cmd):
     """v5.0.0 (#F3): parse the optional exec:to=<seconds>: prefix → clamped int or None."""
@@ -2936,6 +3257,7 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         global _force_sysinfo, _backup_monitors, _watched_agent_checks, _watched_files
         if resp.get('force_package_scan'):
             _force_sysinfo = True   # refresh sysinfo (incl. brew outdated) next beat
+            _inventory_cfg['force'] = True   # and send the installed-software list, whatever its hash says
         if resp.get('force_sysinfo'):
             _force_sysinfo = True   # v7.4.6 (#56): an alert was resolved by hand: report now
         _bm = resp.get('backup_monitors')
@@ -3036,6 +3358,11 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _submit_file_logs(creds, poll_count)
     except Exception as _e:
         log.debug('file_log submit error: %s', _e)
+    # the installed-software list rides its own POST, on the Linux agent's package-list cadence; best-effort the same way
+    try:
+        _submit_software_inventory(creds, poll_count)
+    except Exception as _e:
+        log.debug('software list submit error: %s', _e)
     return resp, new_pending
 
 

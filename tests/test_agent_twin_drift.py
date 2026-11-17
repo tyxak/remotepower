@@ -77,6 +77,11 @@ TWINNED = {
     '_glob_files', 'expand_watch_entries',
     # the non-blocking regular-file open every read of a path another user can reach goes through (7.4.2)
     '_open_regular',
+    # the installed-software report: the hash gate, the cap on what one report holds, the send and the cadence. Only what each system
+    # reads (the Uninstall keys, the application bundles and Homebrew) differs, and a one-sided fix to the rest would make one
+    # platform send a list the web server refuses, or send it again and again, while the other did not.
+    '_load_last_pkg_hash', '_save_last_pkg_hash', '_compute_pkg_hash', '_fit_inventory', 'send_package_list',
+    '_submit_software_inventory',
 }
 
 

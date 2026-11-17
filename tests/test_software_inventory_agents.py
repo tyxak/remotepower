@@ -11,10 +11,13 @@ Neither agent could run here, so what they read is replaced by the real thing's 
 
 Each module of the pair is held to the contract the server reads: what an agent sends goes through the real handler.
 """
+import contextlib
 import importlib.util
 import json
 import os
+import plistlib
 import shutil
+import signal
 import sys
 import tempfile
 import unittest
@@ -46,6 +49,7 @@ def _load(name, path):
 
 
 win = _load('rp_softinv_win_agent', ROOT / 'client' / 'remotepower-agent-win.py')
+mac = _load('rp_softinv_mac_agent', ROOT / 'client' / 'remotepower-agent-mac.py')
 api = _load('api_softinv_agents', _CGI / 'api.py')
 
 
@@ -560,6 +564,544 @@ class TestTheServerTakesWhatTheWindowsAgentSends(_Server, _Sender):
         self.take(payload)
         api._LOAD_CACHE.clear()
         self.assertEqual(api.load(api.PACKAGES_FILE)[self.HOST]['hash'], before)
+
+
+# ── macOS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+class TookTooLong(BaseException):
+    """Not an Exception, so that the `except Exception` of the code under test does not take it for one of its own failures."""
+
+
+@contextlib.contextmanager
+def deadline(seconds):
+    """Fail the test, instead of hanging it, when what is inside does not finish: a read that waits on a planted FIFO would hang it."""
+    def late(signum, frame):
+        raise TookTooLong(f'did not finish in {seconds} s')
+    old = signal.signal(signal.SIGALRM, late)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
+def bundle(folder, name, plist, fmt=plistlib.FMT_XML, raw=None, contents=True):
+    """An application bundle under `folder`: <name>/Contents/Info.plist, written by plistlib (or `raw` bytes)."""
+    app = Path(folder) / name
+    if contents:
+        (app / 'Contents').mkdir(parents=True)
+        if raw is not None:
+            (app / 'Contents' / 'Info.plist').write_bytes(raw)
+        elif plist is not None:
+            (app / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps(plist, fmt=fmt))
+    else:
+        app.mkdir(parents=True)
+    return app
+
+
+SAFARI = {'CFBundleName': 'Safari', 'CFBundleDisplayName': 'Safari', 'CFBundleShortVersionString': '17.2',
+          'CFBundleVersion': '19617.1.17.11.12', 'CFBundleIdentifier': 'com.apple.Safari', 'LSMinimumSystemVersion': '14.0'}
+CHROME = {'CFBundleName': 'Chrome', 'CFBundleDisplayName': 'Google Chrome', 'CFBundleShortVersionString': '120.0.6099.129',
+          'CFBundleVersion': '6099.129', 'CFBundleIdentifier': 'com.google.Chrome'}
+
+
+class MacTree(unittest.TestCase):
+    """A tree of application folders in a temporary directory, with what the real ones hold and what a hostile account could leave."""
+
+    def setUp(self):
+        self.root = Path(_tmp('rp-softinv-mac-'))
+        self.apps = self.root / 'Applications'
+        self.system = self.root / 'System' / 'Applications'
+        self.user = self.root / 'Users' / 'alice' / 'Applications'
+        for d in (self.apps, self.system, self.user):
+            d.mkdir(parents=True)
+        self.outside = self.root / 'outside'
+        self.outside.mkdir()
+        # the application folders the agent reads: the three of a Mac, each in the tree
+        p = mock.patch.object(mac, '_application_folders', lambda: [str(self.apps), str(self.system), str(self.user)])
+        p.start()
+        self.addCleanup(p.stop)
+
+    def build(self):
+        bundle(self.apps, 'Safari.app', SAFARI, plistlib.FMT_BINARY)                        # a binary property list
+        bundle(self.apps, 'Google Chrome.app', CHROME, plistlib.FMT_XML)                    # an XML one
+        bundle(self.system, 'Calendar.app', {'CFBundleName': 'Calendar', 'CFBundleShortVersionString': '14.0',
+                                              'CFBundleIdentifier': 'com.apple.iCal'})
+        bundle(self.user, 'Tool.app', {'CFBundleName': 'Tool', 'CFBundleVersion': '3', 'CFBundleIdentifier': 'org.example.tool'})
+        bundle(self.apps, 'Name Only.app', {'CFBundleVersion': '4'})
+        bundle(self.apps, 'Display Wins.app', {'CFBundleDisplayName': 'Fancy Name', 'CFBundleName': 'plain',
+                                                'CFBundleShortVersionString': '1.0'})
+        bundle(self.apps, 'Odd Types.app', {'CFBundleDisplayName': 5, 'CFBundleName': ['x'], 'CFBundleShortVersionString': b'\x00\x01',
+                                            'CFBundleVersion': '1.0', 'CFBundleIdentifier': ['no']})
+        bundle(self.apps, 'Blank Names.app', {'CFBundleDisplayName': '   ', 'CFBundleName': '', 'CFBundleVersion': '2'})
+        (self.apps / 'Utilities').mkdir()
+        bundle(self.apps / 'Utilities', 'Terminal.app', {'CFBundleName': 'Terminal', 'CFBundleShortVersionString': '2.14',
+                                                         'CFBundleIdentifier': 'com.apple.Terminal'})
+        (self.apps / 'Utilities' / 'Deeper').mkdir()
+        bundle(self.apps / 'Utilities' / 'Deeper', 'TooDeep.app', {'CFBundleName': 'Too Deep'})
+        bundle(self.user, 'Safari.app', SAFARI)                                              # the same app, in a second folder
+        (self.apps / '.hidden').mkdir()
+        bundle(self.apps / '.hidden', 'InHidden.app', {'CFBundleName': 'In Hidden'})
+        (self.apps / '.DS_Store').write_bytes(b'x')
+        (self.apps / 'readme.txt').write_text('hi')
+
+    def hostile(self):
+        """Everything that is left out of the list, and counted: 9 bundles."""
+        bundle(self.apps, 'Broken.app', None, raw=b'<?xml version="1.0"?><plist><dict><key>CFBundleName</key><string>Broken')
+        bundle(self.apps, 'Garbage.app', None, raw=b'bplist00 not a property list at all')
+        bundle(self.apps, 'List.app', ['not', 'a', 'dict'])
+        bundle(self.apps, 'Huge.app', None, raw=plistlib.dumps({'CFBundleName': 'Huge', 'CFBundleVersion': '1'}) + b' ' * (1024 * 1024 + 4096))
+        bundle(self.apps, 'NoPlist.app', None)
+        bundle(self.apps, 'NoContents.app', None, contents=False)
+        (self.apps / 'File.app').write_text('a file that is named like a bundle')
+        bundle(self.apps, '.app', {'CFBundleVersion': '1'})                                  # a folder whose name is nothing: no name at all
+        outside_app = bundle(self.outside, 'Outside Secret.app', {'CFBundleName': 'Outside Secret', 'CFBundleVersion': '9'})
+        os.symlink(outside_app, self.apps / 'Link.app')                                      # a bundle that is a symlink
+        return outside_app
+
+    def names(self, rows):
+        return sorted(r['name'] for r in rows)
+
+
+class TestMacReadsTheApplications(MacTree):
+    def test_every_bundle_is_a_row_with_the_name_the_version_and_the_identifier(self):
+        self.build()
+        rows, skipped = mac.collect_installed_applications()
+        by = {r['name']: r for r in rows}
+        self.assertEqual(by['Safari'], {'name': 'Safari', 'version': '17.2', 'manager': 'macos', 'id': 'com.apple.Safari'})
+        self.assertEqual(by['Google Chrome'], {'name': 'Google Chrome', 'version': '120.0.6099.129', 'manager': 'macos',
+                                               'id': 'com.google.Chrome'})
+        self.assertEqual(by['Calendar']['id'], 'com.apple.iCal')
+        self.assertEqual(by['Tool']['version'], '3')                                         # no short version: CFBundleVersion
+        self.assertEqual(skipped, 0)
+
+    def test_the_name_is_the_display_name_then_the_bundle_name_then_the_folder(self):
+        self.build()
+        rows, _ = mac.collect_installed_applications()
+        names = self.names(rows)
+        self.assertIn('Fancy Name', names)                                                   # CFBundleDisplayName beats CFBundleName
+        self.assertNotIn('plain', names)
+        self.assertIn('Name Only', names)                                                    # neither: the folder, without .app
+        self.assertIn('Odd Types', names)                                                    # a value that is not text is not used
+        self.assertIn('Blank Names', names)                                                  # nor is a blank one
+        by = {r['name']: r for r in rows}
+        self.assertEqual(by['Name Only']['version'], '4')
+        self.assertEqual((by['Odd Types']['version'], 'id' in by['Odd Types']), ('1.0', False))
+
+    def test_the_version_is_the_short_version_then_the_bundle_version(self):
+        self.build()
+        by = {r['name']: r for r in mac.collect_installed_applications()[0]}
+        self.assertEqual(by['Safari']['version'], '17.2')                                    # not 19617.1.17.11.12
+        self.assertEqual(by['Blank Names']['version'], '2')
+
+    def test_one_level_of_folders_is_read_and_no_more(self):
+        self.build()
+        names = self.names(mac.collect_installed_applications()[0])
+        self.assertIn('Terminal', names)
+        self.assertNotIn('Too Deep', names)
+        self.assertNotIn('In Hidden', names)                                                 # a hidden folder is not an application folder
+
+    def test_an_app_two_folders_hold_is_one_row_and_the_rows_are_sorted(self):
+        self.build()
+        rows, _ = mac.collect_installed_applications()
+        self.assertEqual(self.names(rows).count('Safari'), 1)
+        keys = [r['name'].lower() for r in rows]
+        self.assertEqual(keys, sorted(keys))
+
+    def test_a_bundle_that_cannot_be_read_is_left_out_and_counted_and_nothing_is_raised(self):
+        self.build()
+        self.hostile()
+        rows, skipped = mac.collect_installed_applications()
+        names = self.names(rows)
+        for gone in ('Broken', 'Garbage', 'List', 'Huge', 'NoPlist', 'NoContents', 'File', 'Link', 'Outside Secret'):
+            self.assertNotIn(gone, names)
+        self.assertEqual(skipped, 9)                                                         # five that do not read, the file, the empty one, the link, the nameless one
+        self.assertIn('Safari', names)                                                       # and the rest is still there
+
+    def test_a_symlink_is_never_followed_out_of_a_folder(self):
+        self.build()
+        outside = self.hostile()
+        # a Contents folder that is a link to a folder with a plist in it
+        evil = self.apps / 'Evil.app'
+        evil.mkdir()
+        os.symlink(outside / 'Contents', evil / 'Contents')
+        # an Info.plist that is a link to a plist outside
+        linked = self.apps / 'PlistLink.app'
+        (linked / 'Contents').mkdir(parents=True)
+        os.symlink(outside / 'Contents' / 'Info.plist', linked / 'Contents' / 'Info.plist')
+        # a folder that is a link to a folder of applications
+        os.symlink(self.outside, self.apps / 'Linked Folder')
+        # the whole application folder of an account is a link
+        for d in (self.user,):
+            for child in d.iterdir():
+                shutil.rmtree(child)
+            d.rmdir()
+        os.symlink(self.outside, self.user)
+        rows, skipped = mac.collect_installed_applications()
+        names = self.names(rows)
+        self.assertNotIn('Outside Secret', names)
+        for gone in ('Evil', 'PlistLink'):
+            self.assertNotIn(gone, names)
+        self.assertEqual(skipped, 11)                                                        # the nine, Evil and PlistLink
+
+    def test_a_planted_fifo_is_not_waited_for(self):
+        """A name an account can write may be a FIFO, and opening one for reading waits for a writer that never comes."""
+        self.build()
+        app = bundle(self.apps, 'Pipe.app', None)
+        os.mkfifo(app / 'Contents' / 'Info.plist')                 # as the plist
+        os.mkfifo(self.apps / 'Pipe Bundle.app')                   # as the bundle
+        os.mkfifo(self.apps / 'pipe-folder')                       # as a folder that might hold bundles
+        with deadline(10):
+            rows, skipped = mac.collect_installed_applications()
+        self.assertNotIn('Pipe', self.names(rows))
+        self.assertEqual(skipped, 2)
+
+    def test_a_folder_that_is_missing_or_not_a_folder_is_nothing(self):
+        (self.root / 'plain-file').write_text('x')
+        with mock.patch.object(mac, '_application_folders', lambda: [str(self.root / 'nowhere'), str(self.root / 'plain-file')]):
+            self.assertEqual(mac.collect_installed_applications(), ([], 0))
+
+    def test_every_descriptor_is_closed(self):
+        self.build()
+        self.hostile()
+        before = set(os.listdir('/proc/self/fd')) if os.path.isdir('/proc/self/fd') else None
+        for _ in range(3):
+            mac.collect_installed_applications()
+        if before is not None:
+            self.assertEqual(set(os.listdir('/proc/self/fd')) - before, set())
+
+    def test_the_text_of_a_row_is_capped(self):
+        bundle(self.apps, 'Long.app', {'CFBundleDisplayName': 'N' * 500, 'CFBundleShortVersionString': '9' * 500,
+                                       'CFBundleIdentifier': 'i' * 500})
+        row, = mac.collect_installed_applications()[0]
+        self.assertEqual([len(row[k]) for k in ('name', 'version', 'id')], [200, 200, 200])
+
+    def test_the_folders_are_the_system_ones_the_agents_own_and_each_account(self):
+        users = self.root / 'UsersDir'
+        for name in ('alice', 'bob', 'Shared', 'Guest', '.localized', '.hidden'):
+            (users / name).mkdir(parents=True)
+        (users / 'afile').write_text('x')
+        home = self.root / 'home-of-the-agent'
+        with mock.patch.object(mac, '_USERS_DIR', str(users)), mock.patch.dict(os.environ, {'HOME': str(home)}), \
+                mock.patch.object(mac, '_application_folders', _REAL_APPLICATION_FOLDERS):
+            folders = mac._application_folders()
+        self.assertEqual(folders[:3], ['/Applications', '/System/Applications', str(home / 'Applications')])
+        self.assertEqual([f for f in folders[3:]], [str(users / n / 'Applications') for n in ('afile', 'alice', 'bob')])
+
+
+_REAL_APPLICATION_FOLDERS = mac._application_folders
+
+
+FAKE_BREW = '''#!{python}
+import os, sys, time
+mode = os.environ.get('FAKE_BREW_MODE', 'ok')
+marker = os.environ.get('FAKE_BREW_MARKER')
+if marker:
+    open(marker, 'a').write(' '.join(sys.argv[1:]) + '\\n')
+args = sys.argv[1:]
+if mode == 'fail':
+    sys.stdout.write('wget 1.21.4\\n')
+    sys.exit(1)
+if mode == 'hang':
+    sys.stdout.write('wget 1.21.4\\n')
+    sys.stdout.flush()
+    time.sleep(60)
+if mode == 'flood':
+    sys.stdout.write(('x' * 99 + '\\n') * 100000)
+    sys.exit(0)
+if mode == 'empty':
+    sys.exit(0)
+if mode == 'endless':
+    while True:
+        sys.stdout.write('x' * 99 + '\\n')
+if args == ['list', '--formula', '--versions']:
+    sys.stdout.write('wget 1.21.4\\npython@3.12 3.12.1\\nnode 21.7.1 22.0.0\\n\\n   \\n' + 'z' * 300 + ' 1.0\\nzlib\\n')
+elif args == ['list', '--cask', '--versions']:
+    sys.stdout.write('firefox 125.0.1\\niterm2 3.4.23\\n')
+else:
+    sys.exit(3)
+'''
+
+
+class MacBrew(MacTree):
+    def setUp(self):
+        super().setUp()
+        self.bin = self.root / 'bin'
+        self.bin.mkdir()
+        self.marker = self.root / 'brew-was-run'
+        brew = self.bin / 'brew'
+        brew.write_text(FAKE_BREW.format(python=sys.executable))
+        brew.chmod(0o755)
+        env = mock.patch.dict(os.environ, {'PATH': str(self.bin), 'FAKE_BREW_MODE': 'ok', 'FAKE_BREW_MARKER': str(self.marker)})
+        env.start()
+        self.addCleanup(env.stop)
+        # the places a real Homebrew is: not on this machine, and the test must not depend on whether it is
+        real_exists = os.path.exists
+        p = mock.patch.object(mac.os.path, 'exists', lambda path: False if str(path) in ('/opt/homebrew/bin/brew', '/usr/local/bin/brew')
+                              else real_exists(path))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def set_mode(self, mode):
+        os.environ['FAKE_BREW_MODE'] = mode
+
+
+class TestMacReadsHomebrew(MacBrew):
+    def test_a_row_for_each_version_of_each_formula_and_cask(self):
+        rows = mac.collect_brew_packages()
+        got = sorted((r['name'], r['version']) for r in rows)
+        self.assertEqual(got, [('firefox', '125.0.1'), ('iterm2', '3.4.23'), ('node', '21.7.1'), ('node', '22.0.0'),
+                               ('python@3.12', '3.12.1'), ('wget', '1.21.4'), ('zlib', '')])
+        self.assertEqual({r['manager'] for r in rows}, {'brew'})
+        self.assertEqual(self.marker.read_text().split('\n')[:2], ['list --formula --versions', 'list --cask --versions'])
+
+    def test_a_blank_line_and_a_name_that_is_too_long_are_passed_over(self):
+        names = {r['name'] for r in mac.collect_brew_packages()}
+        self.assertNotIn('z' * 300, names)
+        self.assertFalse([n for n in names if not n.strip()])
+
+    def test_no_brew_is_no_rows_and_nothing_is_run(self):
+        os.environ['PATH'] = str(self.root / 'empty-bin')
+        self.assertEqual(mac.collect_brew_packages(), [])
+        self.assertFalse(self.marker.exists())
+
+    def test_a_brew_that_prints_nothing_is_a_brew_with_nothing_installed(self):
+        self.set_mode('empty')
+        self.assertEqual(mac.collect_brew_packages(), [])
+
+    def test_a_list_that_failed_timed_out_or_was_cut_is_not_a_list(self):
+        """None, not []: a Homebrew whose list could not be read has packages installed, and an empty answer would take them
+        from the server's copy as if they had been removed."""
+        self.set_mode('fail')
+        self.assertIsNone(mac.collect_brew_packages())
+        self.set_mode('hang')
+        with mock.patch.object(mac, 'BREW_TIMEOUT', 1), deadline(30):
+            self.assertIsNone(mac.collect_brew_packages())
+        self.set_mode('flood')
+        with deadline(30):
+            self.assertIsNone(mac.collect_brew_packages())
+        self.assertEqual(mac.MAX_BREW_BYTES, 512 * 1024)
+        self.assertEqual(mac.BREW_TIMEOUT, 60)
+
+    def test_what_a_command_prints_is_read_up_to_the_limit_and_the_command_is_killed(self):
+        self.set_mode('flood')
+        with mock.patch.object(mac, 'MAX_BREW_BYTES', 1000), deadline(30):
+            self.assertIsNone(mac._run_capped([str(self.bin / 'brew'), 'list'], 30, 1000))
+        self.set_mode('ok')
+        self.assertEqual(mac._run_capped([str(self.bin / 'brew'), 'list', '--cask', '--versions'], 30, 1000),
+                         'firefox 125.0.1\niterm2 3.4.23\n')
+        self.assertIsNone(mac._run_capped([str(self.bin / 'brew'), 'list', '--cask', '--versions'], 30, 10))   # 10 bytes is not enough
+        self.assertIsNone(mac._run_capped([str(self.root / 'no-such-command')], 30, 1000))
+
+    def test_a_command_that_hangs_does_not_outlive_the_agents_wait(self):
+        self.set_mode('hang')
+        with deadline(30):
+            self.assertIsNone(mac._run_capped([str(self.bin / 'brew'), 'list'], 1, 1000))
+
+    def test_a_command_that_never_stops_printing_is_read_to_the_limit_and_no_further(self):
+        self.set_mode('endless')
+        with deadline(30):
+            self.assertIsNone(mac._run_capped([str(self.bin / 'brew'), 'list'], 30, 4096))
+
+    def test_a_command_that_printed_too_much_and_has_already_exited_is_still_cut(self):
+        """The cut is not left to the kill: a command that wrote more than the limit and exited at once has no one to kill."""
+        class Done:
+            pid = 99999999
+            returncode = 0
+
+            class stdout:                                                    # noqa: N801
+                data = b'x' * 2000
+
+                @classmethod
+                def read(cls, n):
+                    return cls.data[:n]
+
+                @staticmethod
+                def close():
+                    pass
+
+            def poll(self):
+                return 0
+
+            def wait(self, timeout=None):
+                return 0
+        with mock.patch.object(mac.subprocess, 'Popen', lambda *a, **k: Done()):
+            self.assertIsNone(mac._run_capped(['x'], 30, 1000))
+            self.assertEqual(mac._run_capped(['x'], 30, 2000), 'x' * 2000)       # exactly the limit is not too much
+
+    def test_brew_runs_as_its_owner_and_never_as_root_when_the_owner_is_not_known(self):
+        with mock.patch.object(mac, '_brew_run_kwargs', lambda brew: None):
+            self.assertEqual(mac.collect_brew_packages(), [])
+        self.assertFalse(self.marker.exists())                                              # it was not run
+        seen = {}
+        real = mac._run_capped
+
+        def spy(argv, timeout, cap, **kw):
+            seen.update(kw)
+            return real(argv, timeout, cap)
+        with mock.patch.object(mac, '_brew_run_kwargs', lambda brew: {'env': dict(os.environ, FROM_OWNER='1')}), \
+                mock.patch.object(mac, '_run_capped', spy):
+            mac.collect_brew_packages()
+        self.assertEqual(seen['env']['FROM_OWNER'], '1')
+
+
+class TestMacSoftwareInventory(MacBrew):
+    def test_the_host_reports_its_applications_and_its_homebrew_packages_under_one_manager(self):
+        self.build()
+        manager, rows, skipped = mac.collect_software_inventory()
+        self.assertEqual(manager, 'macos')
+        self.assertEqual({r['manager'] for r in rows}, {'macos', 'brew'})
+        names = [r['name'].lower() for r in rows]
+        self.assertEqual(names, sorted(names))
+        self.assertIn(('wget', 'brew'), {(r['name'], r['manager']) for r in rows})
+        self.assertIn(('Safari', 'macos'), {(r['name'], r['manager']) for r in rows})
+
+    def test_a_homebrew_that_cannot_be_read_sends_no_list_at_all(self):
+        self.build()
+        self.set_mode('fail')
+        self.assertEqual(mac.collect_software_inventory(), ('macos', [], 0))
+        sent = []
+        with mock.patch.object(mac, '_post_json', lambda *a, **k: sent.append(a) or {}), \
+                mock.patch.dict(os.environ, {'RP_DATA_DIR': _tmp('rp-softinv-data-')}):
+            self.assertFalse(mac.send_package_list({'device_id': 'd', 'token': 't', 'server_url': 'https://x'}, force=True))
+        self.assertEqual(sent, [])
+
+    def test_a_mac_without_homebrew_still_reports_its_applications(self):
+        self.build()
+        os.environ['PATH'] = str(self.root / 'empty-bin')
+        manager, rows, skipped = mac.collect_software_inventory()
+        self.assertEqual({r['manager'] for r in rows}, {'macos'})
+        self.assertTrue(rows)
+
+    def test_a_host_with_nothing_to_report_reports_nothing(self):
+        os.environ['PATH'] = str(self.root / 'empty-bin')
+        self.assertEqual(mac.collect_software_inventory(), ('macos', [], 0))
+
+
+class TestMacSendsWhatChanged(MacBrew, _Sender):
+    agent = mac
+
+    def setUp(self):
+        MacBrew.setUp(self)
+        _Sender.setUp(self)
+        self.build()
+        self.hostile()
+
+    def patches(self):
+        def post(url, payload, timeout=20):
+            self.sent.append((url, payload))
+            if isinstance(self.answer, Exception):
+                raise self.answer
+            return self.answer
+        return [(mac, '_post_json', post)]
+
+    def test_the_list_goes_to_the_packages_route_under_the_manager_macos(self):
+        self.assertTrue(mac.send_package_list(self.creds))
+        (url, payload), = self.sent
+        self.assertEqual(url, 'https://rp.example.com/api/packages')
+        self.assertEqual(payload['pkg_manager'], 'macos')
+        self.assertEqual(payload['skipped'], 9)
+        self.assertEqual({r['manager'] for r in payload['packages']}, {'macos', 'brew'})
+        self.assertEqual((payload['device_id'], payload['token']), ('sinvagent1', 'tok-sinvagent1'))
+
+    def test_an_unchanged_list_is_not_sent_again_and_a_force_sends_it(self):
+        self.assertTrue(mac.send_package_list(self.creds))
+        self.assertFalse(mac.send_package_list(self.creds))
+        self.assertTrue(mac.send_package_list(self.creds, force=True))
+        self.assertEqual(len(self.sent), 2)
+
+    def test_an_app_that_arrives_is_a_change(self):
+        mac.send_package_list(self.creds)
+        bundle(self.apps, 'New.app', {'CFBundleName': 'New', 'CFBundleShortVersionString': '1.0'})
+        self.assertTrue(mac.send_package_list(self.creds))
+        self.assertFalse(mac.send_package_list(self.creds))
+        self.set_mode('empty')                                                                # every Homebrew package removed: a change
+        self.assertTrue(mac.send_package_list(self.creds))
+
+    def test_a_failed_send_is_not_remembered(self):
+        self.answer = RuntimeError('server returned HTTP 502')
+        self.assertFalse(mac.send_package_list(self.creds))
+        self.assertEqual(mac._load_last_pkg_hash(), '')
+        self.answer = {'ok': True}
+        self.assertTrue(mac.send_package_list(self.creds))
+
+    def test_the_report_fits_what_the_web_server_takes(self):
+        for i in range(3400):                                # 3,400 rows of 200-character fields are 2.2 MB
+            bundle(self.apps, f'App {i:05d}.app', {'CFBundleDisplayName': f'{i:05d} ' + 'N' * 190,
+                                                   'CFBundleShortVersionString': '9' * 200, 'CFBundleIdentifier': 'i' * 200})
+        self.assertTrue(mac.send_package_list(self.creds))
+        (_, payload), = self.sent
+        self.assertLess(len(json.dumps(payload)), 2 * 1024 * 1024)
+        self.assertGreater(len(payload['packages']), 1000)
+        self.assertLess(len(payload['packages']), 3400)
+
+    def test_the_cadence_and_the_flag_are_the_windows_agents(self):
+        looked = []
+        with mock.patch.object(mac, 'send_package_list', lambda creds, force=False: looked.append(force)):
+            for poll in (1, 2, 359, 361):
+                mac._submit_software_inventory(self.creds, poll)
+            mac._submit_software_inventory(self.creds, 360)
+            self.assertEqual(looked, [False, False])
+            mac._inventory_cfg['force'] = True
+            mac._submit_software_inventory(self.creds, 7)
+            mac._submit_software_inventory(self.creds, 8)
+            self.assertEqual(looked, [False, False, True])
+        self.assertEqual(mac.PACKAGE_LIST_EVERY, 360)
+
+    def heartbeat(self, answer, poll_count):
+        posts = []
+
+        def post(url, payload, timeout=20):
+            posts.append(url.rsplit('/api/', 1)[-1])
+            return dict(answer) if url.endswith('/api/heartbeat') else {'ok': True, 'changed': True}
+        with mock.patch.object(mac, '_post_json', post), mock.patch.object(mac, 'build_heartbeat', lambda *a, **k: {}):
+            mac.heartbeat_once(self.creds, poll_count)
+        return posts
+
+    def test_the_server_asking_for_a_scan_makes_the_beat_send_the_list(self):
+        mac.send_package_list(self.creds)
+        self.assertEqual(self.heartbeat({}, 5), ['heartbeat'])
+        self.assertEqual(self.heartbeat({'force_package_scan': True}, 6), ['heartbeat', 'packages'])
+        self.assertEqual(self.heartbeat({}, 7), ['heartbeat'])
+        self.assertEqual(self.heartbeat({}, 1), ['heartbeat'])                                # unchanged: not sent at the first poll either
+
+    def test_the_other_things_the_flag_does_are_still_done(self):
+        mac._force_sysinfo = False
+        self.heartbeat({'force_package_scan': True}, 5)
+        self.assertTrue(mac._force_sysinfo)
+        mac._force_sysinfo = False
+
+
+class TestTheServerTakesWhatTheMacAgentSends(MacBrew, _Server, _Sender):
+    agent = mac
+
+    def setUp(self):
+        MacBrew.setUp(self)
+        _Sender.setUp(self)
+        _Server.setUp(self)
+        self.build()
+        self.hostile()
+
+    def patches(self):
+        def post(url, payload, timeout=20):
+            self.sent.append((url, payload))
+            return self.answer
+        return [(mac, '_post_json', post)]
+
+    def test_every_row_is_kept_with_its_manager_and_its_identifier(self):
+        mac.send_package_list(self.creds)
+        (_, payload), = self.sent
+        entry = self.take(payload)
+        self.assertEqual(entry['pkg_manager'], 'macos')
+        self.assertEqual(entry['skipped'], 9)
+        self.assertEqual(entry['ecosystem'], '')
+        sent = {(p['name'], p['manager'], p['version']): p for p in payload['packages']}
+        kept = {(p['name'], p['manager'], p['version']): p for p in entry['packages']}
+        self.assertEqual(set(kept), set(sent))
+        safari = kept[('Safari', 'macos', '17.2')]
+        self.assertEqual(safari['id'], 'com.apple.Safari')
+        self.assertEqual(kept[('wget', 'brew', '1.21.4')]['manager'], 'brew')
+        self.assertEqual(entry['count'], len(sent))
 
 
 if __name__ == '__main__':
