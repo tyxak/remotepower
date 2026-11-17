@@ -810,6 +810,18 @@ class TestThePolicy(_Fleet):
         rules[0]['version'] = '14.9'
         self.assertNotIn(WIN_A, self.evaluate(rules))                      # 14.38 is above 14.9, though "14.3" sorts below "14.9"
 
+    def test_an_application_a_host_holds_twice_is_judged_by_its_highest_version(self):
+        """A host can hold two versions of one title: a runtime kept beside its successor, a Homebrew formula and a cask of one name."""
+        store = api.load(api.PACKAGES_FILE)
+        store[WIN_A]['packages'] += [{'name': 'Runtime Tool', 'version': '1.0', 'manager': 'windows'},
+                                     {'name': 'RUNTIME TOOL', 'version': '3.0', 'manager': 'windows'},
+                                     {'name': 'Runtime Tool', 'version': '2.0', 'manager': 'windows'}]
+        api.save(api.PACKAGES_FILE, store)
+        rules = [{'id': 'm', 'type': 'min_version', 'package': 'runtime tool', 'version': '2.5'}]
+        self.assertNotIn(WIN_A, self.evaluate(rules))                    # 3.0 is above 2.5, though 1.0 and 2.0 are not
+        rules[0]['version'] = '3.5'
+        self.assertEqual(self.evaluate(rules)[WIN_A]['m']['found'], '3.0')       # and the highest is the one that is shown
+
     def test_a_version_in_words_is_compared_as_text(self):
         store = api.load(api.PACKAGES_FILE)
         store[WIN_A]['packages'].append({'name': 'Build Tool', 'version': '2023.4 (build 9)', 'manager': 'windows'})

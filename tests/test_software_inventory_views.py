@@ -8,7 +8,9 @@ the real scripts with stubs for what they call; none of the assertions reads the
   * the host's CVE view and the drawer's CVE summary say that nothing on the host is checked, and print no "No vulnerabilities
     found" or "clean" under it (an empty list there would say the opposite of what is true);
   * the Software Policy page offers no install or remove button for a violation of such a host, and does for the rest;
-  * the two new sentences are in the dictionary in all six languages, and the sentence in the page is the key;
+  * the two new sentences and the tip of the Send button of such a host are in the dictionary in all six languages, and the sentence in
+    the page is the key;
+  * the window of the changes since the baseline prints a dash where a program wrote no version;
   * what the guides say is what the code does: the file the Windows agent writes, the limits, the manager words, the anchors.
 """
 import json

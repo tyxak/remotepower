@@ -20,6 +20,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -566,7 +567,25 @@ class TestTheServerTakesWhatTheWindowsAgentSends(_Server, _Sender):
         self.assertEqual(api.load(api.PACKAGES_FILE)[self.HOST]['hash'], before)
 
 
-# ── macOS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+class TestTheFingerprintOfAList(unittest.TestCase):
+    """The same function in both agents. The rows of a list in any order are one list: the registry is read in no order a person
+    can rely on, and a hash that depended on it would send an unchanged list again and again."""
+    ROWS = [{'name': 'B', 'version': '2', 'arch': 'x64', 'manager': 'windows', 'publisher': 'P', 'installed': '2023-01-01'},
+            {'name': 'A', 'version': '1', 'arch': 'x86', 'manager': 'windows'},
+            {'name': 'C', 'version': '', 'manager': 'macos', 'id': 'com.example.c'}]
+
+    def test_the_same_rows_in_any_order_are_the_same_list(self):
+        for agent in (win, mac):
+            same = agent._compute_pkg_hash(self.ROWS)
+            self.assertEqual(agent._compute_pkg_hash(list(reversed(self.ROWS))), same)
+            self.assertEqual(agent._compute_pkg_hash(self.ROWS[1:] + self.ROWS[:1]), same)
+            self.assertEqual(len(same), 16)
+            # the control: other rows are another list
+            self.assertNotEqual(agent._compute_pkg_hash(self.ROWS[:2]), same)
+            self.assertNotEqual(agent._compute_pkg_hash([]), same)
+
+
+# ── macOS──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 class TookTooLong(BaseException):
     """Not an Exception, so that the `except Exception` of the code under test does not take it for one of its own failures."""
 
@@ -583,6 +602,23 @@ def deadline(seconds):
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old)
+
+
+def _running(pid):
+    """Is the process alive? A killed child that nobody has waited for yet is a zombie, and counts as gone."""
+    try:
+        with open(f'/proc/{pid}/stat') as f:
+            return f.read().rsplit(')', 1)[1].split()[0] != 'Z'
+    except OSError:
+        return False
+
+
+def _kill_from(pidfile):
+    """End the process whose id a fake program wrote to `pidfile`, if it wrote one and it is still there."""
+    try:
+        os.kill(int(Path(pidfile).read_text()), signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
 
 
 def bundle(folder, name, plist, fmt=plistlib.FMT_XML, raw=None, contents=True):
@@ -781,6 +817,24 @@ class TestMacReadsTheApplications(MacTree):
         row, = mac.collect_installed_applications()[0]
         self.assertEqual([len(row[k]) for k in ('name', 'version', 'id')], [200, 200, 200])
 
+    def test_a_folder_with_a_very_long_list_is_read_up_to_the_cap(self):
+        for i in range(6):
+            bundle(self.apps, f'App {i}.app', {'CFBundleName': f'App {i}', 'CFBundleVersion': '1'})
+        with mock.patch.object(mac, 'MAX_APP_ENTRIES', 3):
+            rows, _ = mac.collect_installed_applications()
+        self.assertEqual(self.names(rows), ['App 0', 'App 1', 'App 2'])                  # the first by name, the same ones each time
+        self.assertEqual(mac.MAX_APP_ENTRIES, 5000)
+
+    def test_no_more_than_the_cap_of_accounts_under_users_are_read(self):
+        users = self.root / 'UsersDir'
+        for name in ('a', 'b', 'c', 'd'):
+            (users / name).mkdir(parents=True)
+        with mock.patch.object(mac, '_USERS_DIR', str(users)), mock.patch.object(mac, 'MAX_USER_FOLDERS', 2), \
+                mock.patch.object(mac, '_application_folders', _REAL_APPLICATION_FOLDERS):
+            folders = mac._application_folders()
+        self.assertEqual(folders[3:], [str(users / n / 'Applications') for n in ('a', 'b')])
+        self.assertEqual(mac.MAX_USER_FOLDERS, 200)
+
     def test_the_folders_are_the_system_ones_the_agents_own_and_each_account(self):
         users = self.root / 'UsersDir'
         for name in ('alice', 'bob', 'Shared', 'Guest', '.localized', '.hidden'):
@@ -819,6 +873,23 @@ if mode == 'empty':
 if mode == 'endless':
     while True:
         sys.stdout.write('x' * 99 + '\\n')
+if mode == 'many':
+    if args == ['list', '--formula', '--versions']:
+        sys.stdout.write('tool ' + ' '.join('1.' + str(i) for i in range(25)) + '\\n')
+    else:
+        sys.stdout.write('cask 1.0\\n')
+    sys.exit(0)
+if mode == 'lines':
+    kind = 'pkg' if args == ['list', '--formula', '--versions'] else 'cask'
+    sys.stdout.write(''.join(kind + str(i) + ' 1.0\\n' for i in range(6)))
+    sys.exit(0)
+if mode == 'grandchild':
+    import subprocess
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])
+    open(os.environ['FAKE_BREW_CHILD'], 'w').write(str(child.pid))
+    sys.stdout.write('wget 1.21.4\\n')
+    sys.stdout.flush()
+    time.sleep(300)
 if args == ['list', '--formula', '--versions']:
     sys.stdout.write('wget 1.21.4\\npython@3.12 3.12.1\\nnode 21.7.1 22.0.0\\n\\n   \\n' + 'z' * 300 + ' 1.0\\nzlib\\n')
 elif args == ['list', '--cask', '--versions']:
@@ -902,6 +973,34 @@ class TestMacReadsHomebrew(MacBrew):
         self.set_mode('hang')
         with deadline(30):
             self.assertIsNone(mac._run_capped([str(self.bin / 'brew'), 'list'], 1, 1000))
+
+    @unittest.skipUnless(os.path.isdir('/proc/self'), 'a look at another process needs /proc')
+    def test_a_command_that_hangs_is_killed_with_what_it_started(self):
+        """Homebrew is a script that starts other programs, and a timeout that ends only the script leaves them running."""
+        self.set_mode('grandchild')
+        pidfile = self.root / 'grandchild.pid'
+        self.addCleanup(_kill_from, pidfile)                      # not left running for 300 s if the code under test did not end it
+        with mock.patch.dict(os.environ, {'FAKE_BREW_CHILD': str(pidfile)}), deadline(30):
+            self.assertIsNone(mac._run_capped([str(self.bin / 'brew'), 'list'], 1, 1000))
+        pid = int(pidfile.read_text())
+        for _ in range(100):
+            if not _running(pid):
+                break
+            time.sleep(0.05)
+        self.assertFalse(_running(pid), 'a program the command started is still running')
+
+    def test_no_more_than_20_versions_of_a_formula_are_kept(self):
+        self.set_mode('many')
+        rows = mac.collect_brew_packages()
+        tool = [r['version'] for r in rows if r['name'] == 'tool']
+        self.assertEqual((len(tool), tool[:2]), (20, ['1.0', '1.1']))
+        self.assertEqual([r['name'] for r in rows if r['name'] != 'tool'], ['cask'])
+
+    def test_the_lines_of_a_list_are_read_up_to_the_cap(self):
+        self.set_mode('lines')
+        with mock.patch.object(mac, 'MAX_INVENTORY_SEND', 3):
+            names = [r['name'] for r in mac.collect_brew_packages()]
+        self.assertEqual(names, ['pkg0', 'pkg1', 'pkg2', 'cask0', 'cask1', 'cask2'])
 
     def test_a_command_that_never_stops_printing_is_read_to_the_limit_and_no_further(self):
         self.set_mode('endless')
