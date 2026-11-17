@@ -9985,6 +9985,81 @@ def _note_delivery(key, label, ok, error=''):
         fire_webhook(*announce)
 
 
+def _notify_error_class(text):
+    """Which kind of failure a stored failure text describes, as one word of a closed list the Settings page words. The text itself is never shown: it can
+    carry what a remote system answered, and the page has no use for more than the kind. A text of no known shape is `other`."""
+    t = str(text or '').lower()
+    m = re.match(r'http (\d{3})\b', t)
+    if m:
+        code = int(m.group(1))
+        if code in (401, 403):
+            return 'auth'
+        if 400 <= code < 500:
+            return 'http_4xx'
+        if 500 <= code < 600:
+            return 'http_5xx'
+    if 'blocked: target resolves' in t:
+        return 'blocked'
+    if 'invalid scheme' in t or ('missing' in t and 'settings' in t):
+        return 'config'
+    if 'timed out' in t or 'timeout' in t:
+        return 'timeout'
+    if any(w in t for w in ('name or service not known', 'getaddrinfo', 'name resolution', 'nodename nor servname', 'no address associated')):
+        return 'dns'
+    if any(w in t for w in ('ssl', 'certificate', 'tls', 'handshake')):
+        return 'tls'
+    if any(w in t for w in ('refused', 'unreachable', 'no route', 'reset by peer', 'broken pipe', 'connection')):
+        return 'unreachable'
+    return 'other'
+
+
+def _notify_failing_destinations():
+    """{destination key: (deliveries failed in a row, kind of the last error)} for each destination at or past the streak that raises the alert.
+
+    What the Settings card shows beside a failing destination. The address and the text a remote system answered stay in the store: only the count and one
+    word of the closed list of `_notify_error_class` leave it."""
+    state = _load_ro(NOTIFY_HEALTH_FILE) if backend_exists(NOTIFY_HEALTH_FILE) else None
+    failing = {}
+    for key, row in (state.items() if isinstance(state, dict) else ()):
+        fails = _whole_or_zero(row.get('fails')) if isinstance(row, dict) else 0
+        if fails >= NOTIFY_FAIL_STREAK:
+            failing[key] = (fails, _notify_error_class(row.get('error')))
+    return failing
+
+
+# What a destination is delivered with: where, how, and as whom. A change to one of these makes the failures counted so far about a destination that is gone.
+_NOTIFY_DELIVERY_FIELDS = ('url', 'format', 'pushover_token', 'pushover_user', 'token', 'itsm_user', 'itsm_secret', 'jira_project', 'jira_issuetype',
+                           'telegram_chat_id', 'matrix_token', 'hmac_secret', 'headers')
+
+
+def _notify_health_forget_edited(before, after):
+    """Forget the failed streak of a destination whose delivery settings were edited, and close its alert, as removing it does.
+
+    The streak is kept under the destination's id, and an edit keeps the id, so without this the mark of a destination whose address was just fixed would stay
+    until something got through. Only a change to what it is delivered with counts (`_NOTIFY_DELIVERY_FIELDS`): renaming it or changing its filters does not."""
+    old = {str(e['id']): e for e in (before if isinstance(before, list) else []) if isinstance(e, dict) and e.get('id')}
+    keys = []
+    for e in (after if isinstance(after, list) else []):
+        was = old.get(str(e['id'])) if isinstance(e, dict) and e.get('id') else None
+        if was is not None and any(was.get(f) != e.get(f) for f in _NOTIFY_DELIVERY_FIELDS):
+            keys.append(_notify_dest_key(e))
+    if not keys:
+        return
+    state = _load_ro(NOTIFY_HEALTH_FILE) if backend_exists(NOTIFY_HEALTH_FILE) else None
+    if not isinstance(state, dict) or not any(k in state for k in keys):
+        return
+    closed = []
+    with _LockedUpdate(NOTIFY_HEALTH_FILE) as store:
+        for key in keys:
+            row = store.pop(key, None)
+            if isinstance(row, dict) and row.get('alerted') is True:
+                closed.append(_sanitize_str(str(row.get('label') or ''), 80) or 'destination')
+    for shown in closed:
+        fire_webhook('notify_dest_recovered', {
+            'name': get_server_name(), 'label': shown,
+            'detail': f'Notification destination "{shown}" was edited, so its earlier failures no longer count.'})
+
+
 def _notify_health_prune(cfg):
     """Forget the streak of a destination that is no longer there or is switched off, and close
     its alert: nothing will ever be delivered to it again, so nothing else would."""
@@ -31101,10 +31176,18 @@ def _declarative_apply(doc, actor, dry_run=True):
         report['settings'] = {'skipped': 'expected an object'}
 
     if not dry_run and (cfg_writes or file_writes):
+        dests_before = None
         if cfg_writes:
             with _LockedUpdate(CONFIG_FILE) as cfg:
+                dests_before = copy.deepcopy(cfg.get('webhook_urls')) if 'webhook_urls' in cfg_writes else None
                 for k, v in cfg_writes.items():
                     cfg[k] = v
+        if 'webhook_urls' in cfg_writes:
+            # a destination that arrives with another address, format or credentials starts again, as when the Settings page saves it; no lock is held, since closing its alert delivers
+            try:
+                _notify_health_forget_edited(dests_before, cfg_writes['webhook_urls'])
+            except Exception as _e:
+                sys.stderr.write(f'[remotepower] destination health not cleared after an import: {type(_e).__name__}: {_e}\n')
         for path, inner, value in file_writes:
             if inner is None:
                 save(path, value)
@@ -31487,6 +31570,10 @@ def handle_config_get():
     # field) but never sees the actual value.
     if 'webhook_urls' in safe and isinstance(safe['webhook_urls'], list):
         redacted = []
+        # a destination that has failed NOTIFY_FAIL_STREAK deliveries in a row says so, with how many and the kind of its last error: two fields. Never the
+        # address, never the text a remote system answered. Only for the caller who manages the destinations (the operator's administrator), since the
+        # destinations are the installation's: everyone else reads the list exactly as before.
+        _dest_failing = _notify_failing_destinations() if _cfg_is_admin else {}
         for e in safe['webhook_urls']:
             if not isinstance(e, dict):
                 continue
@@ -31509,6 +31596,9 @@ def handle_config_get():
             # one without re-typing the others; a header name is not a secret and
             # showing nothing would make the field unusable.
             r['header_names'] = sorted((e.get('headers') or {}).keys())
+            _failing = _dest_failing.get(_notify_dest_key(e))
+            if _failing:
+                r['fail_streak'], r['fail_class'] = _failing
             redacted.append(r)
         safe['webhook_urls'] = redacted
 
@@ -34529,6 +34619,13 @@ def handle_config_save():
     _ph_new = _password_history_depth_of(cfg)
     if _ph_new < _password_history_depth_of(_cfg_before):
         _trim_password_histories(_ph_new)
+    # A destination whose address, format or credentials were just changed starts again: the failures counted so far were about the old one. After the
+    # config write, with no lock held, since closing the alert delivers.
+    if 'webhook_urls' in body:
+        try:
+            _notify_health_forget_edited(_cfg_before.get('webhook_urls'), cfg.get('webhook_urls'))
+        except Exception as _e:
+            sys.stderr.write(f'[remotepower] destination health not cleared after an edit: {type(_e).__name__}: {_e}\n')
     # v5.6.x: prune orphaned monitor_history for monitors just deleted/renamed
     # (see the 'monitors' block above). Done after the config save so we hold no
     # other lock when taking the MON_HIST_FILE lock. Guarded on the monitors

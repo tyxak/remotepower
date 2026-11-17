@@ -124,6 +124,11 @@ def handle_config_revision_restore():
     if _depth < A._password_history_depth_of(current):
         A._trim_password_histories(_depth)
     A.record_config_revision(current, rev['config'], f'{actor} (pre-restore)')
+    # a destination that comes back with another address, format or credentials starts again, as when the Settings page saves it
+    try:
+        A._notify_health_forget_edited(current.get('webhook_urls'), rev['config'].get('webhook_urls'))
+    except Exception as e:
+        A.sys.stderr.write(f'[remotepower] destination health not cleared after a restore: {type(e).__name__}: {e}\n')
     if governance:
         A.audit_log(actor, 'governance_config_change',
                     detail='keys=' + ','.join(governance[:20]) + ' (revision restore)')

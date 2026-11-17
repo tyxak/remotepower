@@ -34074,6 +34074,22 @@ const _WEBHOOK_FORMATS = [
   ['matrix',    'Matrix',         'https://your-homeserver/_matrix/client/v3/rooms/<roomId>/send/m.room.message'],
   ['generic',   'Generic JSON',   'https://your-receiver.example.com/webhook'],
 ];
+// a destination that has failed several deliveries in a row is marked on its card, with how many and the kind of its last error. The server sends
+// the two fields only to the administrator who manages the destinations, and the kind is one word of a closed list, never the address and never what the
+// receiver answered. Each word is an element of its own and the count a text node of its own, so the translation of the page reaches all of it.
+const _DEST_FAIL_CLASSES = {
+  timeout: 'Timed out', unreachable: 'Unreachable', dns: 'Name lookup failed', tls: 'TLS or certificate error', auth: 'Credentials rejected',
+  http_4xx: 'Rejected (HTTP 4xx)', http_5xx: 'Receiver error (HTTP 5xx)', blocked: 'Blocked address', config: 'Settings incomplete', other: 'Delivery error',
+};
+function _destFailingHtml(d) {
+  const n = Number(d && d.fail_streak);
+  if (!(n > 0) || !isFinite(n)) return '';
+  const cls = d.fail_class;
+  const kind = typeof cls === 'string' && Object.prototype.hasOwnProperty.call(_DEST_FAIL_CLASSES, cls) ? _DEST_FAIL_CLASSES[cls] : _DEST_FAIL_CLASSES.other;
+  return `<div class="dest-failing" title="Deliveries to this destination have failed several times in a row. The mark clears when one gets through, or when you save a new address, format or credentials for it.">`
+    + `<span class="mon-status down">Failing</span> <span class="c-muted">Failed in a row</span> <span class="mono-12">${Math.floor(n)}</span> `
+    + `<span class="c-muted">Last error</span> <span>${kind}</span></div>`;
+}
 function renderWebhookDests() {
   const wrap = document.getElementById('webhook-dests');
   if (!wrap) return;
@@ -34110,6 +34126,7 @@ function renderWebhookDests() {
           <button class="btn-icon isl-739" title="Test — fire a 'test' event to this destination" data-action="testWebhookDest" data-arg="${idx}">Test</button>
           <button class="btn-icon isl-740 c-danger-outline" title="Remove" data-action="removeWebhookDest" data-arg="${idx}">${_icon('trash',14)}</button>
         </div>
+        ${_destFailingHtml(d)}
         <div class="isl-741">
           <select data-field="format" class="form-input isl-742" aria-label="Format" data-change="updateWebhookDest" data-change-arg="${idx}">${fmtOpts}</select>
           <input type="url" data-field="url" class="form-input input-url-dest" placeholder="${escAttr(_WEBHOOK_FORMATS.find(f => f[0]===d.format)?.[2] || 'https://...')}" value="${escAttr(d.url || '')}">

@@ -246,6 +246,19 @@ retry from the dead-letter queue counts as getting through.
   The address itself is never written into the alert, because for most chat services the
   path is the credential.
 - Removing a destination or switching it off closes its alert.
+- On **Settings → Notifications**, the card of a destination that has failed three or more
+  deliveries in a row carries a red **Failing** mark, with how many deliveries failed in a row and
+  the kind of the last error: timed out, unreachable, name lookup failed, TLS or certificate
+  error, credentials rejected, rejected (an HTTP 4xx answer), receiver error (an HTTP 5xx answer),
+  blocked address, settings incomplete, or delivery error for anything else. The mark never shows
+  the address or what the receiver answered. Only the administrator of the installation sees it;
+  `GET /api/config` adds `fail_streak` and `fail_class` to that destination for that caller and for
+  nobody else.
+- The mark goes when a delivery gets through. It also goes, with its alert, when you change a
+  destination's address, format or credentials and save: the failures counted so far were about
+  the old settings. Renaming the destination or changing its filters leaves the mark and the alert
+  as they are. The same holds when a destination comes back with another address, format or
+  credentials in a settings document you apply from a file, or in a settings revision you restore.
 - With one destination only, the inbox is where you will see it. A second destination, even
   a plain email, is what makes a failing one reach you.
 
