@@ -17686,7 +17686,13 @@ def handle_smart_groups():
     smart group matched against the WHOLE fleet, and GET .../members (below)
     returned other tenants' device ids+names outright. Groups now stamp the
     creating admin's tenant and are gated/materialized against it, mirroring
-    the fix already applied to saved query templates."""
+    the fix already applied to saved query templates.
+
+    An API key with a device scope is an administrator that sees only part of
+    the fleet. A group's member list is stored for the whole tenant (the
+    cadence recomputes it every minute with no caller), so what a caller is
+    told about the members, ids and count, is narrowed on every read to the
+    hosts that caller can see; the create call answers with no host at all."""
     actor = require_admin_auth()
     if method() == 'GET':
         groups = load(SMART_GROUPS_FILE) or {}
@@ -17698,12 +17704,23 @@ def handle_smart_groups():
         # asked for on a list that mostly renders member COUNTS.
         _sg_qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
         want_members = str((_sg_qs.get('members') or [''])[0]).lower() in ('1', 'true', 'yes')
-        out = [{'name': k, 'rules': v.get('rules') or {},
-                'member_count': len(v.get('members') or []),
-                **({'members': list(v.get('members') or [])} if want_members else {}),
-                'evaluated_ts': v.get('evaluated_ts')}
-               for k, v in groups.items() if k != '_meta' and isinstance(v, dict)
-               and (gate is None or (v.get('tenant') or DEFAULT_TENANT) == gate)]
+        # A member list is worked out every minute over the whole tenant, whoever reads it. An API key with a device scope reads the
+        # members it could see in the host list, and the count is the count of those: the whole number would tell the key how many
+        # hosts outside its scope a rule matches. None for a caller that nothing confines (the common case: no extra work).
+        visible = _confined_host_ids()
+        out = []
+        for k, v in groups.items():
+            if k == '_meta' or not isinstance(v, dict):
+                continue
+            if gate is not None and (v.get('tenant') or DEFAULT_TENANT) != gate:
+                continue
+            ids = list(v.get('members') or [])
+            if visible is not None:
+                ids = [did for did in ids if did in visible]
+            out.append({'name': k, 'rules': v.get('rules') or {},
+                        'member_count': len(ids),
+                        **({'members': ids} if want_members else {}),
+                        'evaluated_ts': v.get('evaluated_ts')})
         respond(200, {'smart_groups': sorted(out, key=lambda g: g['name'])})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -17733,7 +17750,7 @@ def handle_smart_groups():
 def handle_smart_group(name):
     """GET /api/smart-groups/{name}/members — current members; PATCH — update
     rules; DELETE — remove. Admin, own tenant only (v6.1.1 broad sweep — see
-    handle_smart_groups)."""
+    handle_smart_groups); the members listed are the ones the caller can see."""
     actor = require_admin_auth()
     name = re.sub(r'[^a-z0-9_-]', '', str(name).lower())[:48]
     if method() == 'DELETE':
@@ -17766,6 +17783,11 @@ def handle_smart_group(name):
         respond(404, {'error': 'smart group not found'})
     devices = load(DEVICES_FILE) or {}
     members = g.get('members') or []
+    # the members this caller could read from the host list: the stored list was worked out over the whole tenant, so an API key
+    # with a device scope (or a tenant administrator, for the minute after a host changed tenant) reads the part of it in reach
+    visible = _confined_host_ids()
+    if visible is not None:
+        members = [did for did in members if did in visible]
     respond(200, {'name': name, 'evaluated_ts': g.get('evaluated_ts'),
                   'members': [{'id': did, 'name': (devices.get(did) or {}).get('name', did)}
                               for did in members]})

@@ -11,6 +11,10 @@ token lookup stubbed (a stub of `require_admin_auth` passes a handler that has n
 
 * the shapes the brief names: an empty rule, a rule that matches every host, a rule that matches none, the cap of 50 over 120
   hosts, an invalid rule, a tenant administrator who must not see, or count, another tenant's hosts;
+* an API key with a device scope, which confines even an administrator's key: the preview, the list of groups (counts, and ids with
+  ?members=1) and a group's members answer over the hosts of the scope and no others, with real keys through the real token check and
+  once more through the real route table, and a ratchet over every route of the family so that the next one cannot read hosts
+  without it;
 * that the preview and a saved group agree: for each rule the same count and the same members, in the same order, whether the
   group is created or edited, over a fleet under the cap and over one past it;
 * the gate (administrators only, as viewing the groups is), that the call changes nothing (no store written, no audit line), that a
@@ -21,6 +25,8 @@ token lookup stubbed (a stub of `require_admin_auth` passes a handler that has n
   sends are the rules a save sends, names and ids are escaped, an error is shown as text, an answer that comes back after a rule
   changed is dropped, and the six languages are there.
 """
+import ast
+import inspect
 import json
 import os
 import re
@@ -28,6 +34,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -52,8 +59,8 @@ def tearDownModule():
         shutil.rmtree(d, ignore_errors=True)
 
 FILES = ("DEVICES_FILE", "SMART_GROUPS_FILE", "USERS_FILE", "TENANTS_FILE", "CONFIG_FILE", "ROLES_FILE", "AUDIT_LOG_FILE",
-         "DRIFT_STATE_FILE")
-STUBS = ("verify_token", "get_token_from_request", "method", "get_json_body", "respond", "audit_log")
+         "DRIFT_STATE_FILE", "APIKEYS_FILE", "TOKENS_FILE")
+STUBS = ("verify_token", "get_token_from_request", "method", "get_json_body", "respond", "audit_log", "_env")
 
 
 class _Base(unittest.TestCase):
@@ -76,6 +83,8 @@ class _Base(unittest.TestCase):
         api.method = lambda: self.http_method
         api.get_json_body = lambda: self.body
         api.audit_log = lambda *a, **k: self.audit.append((a, k))
+        self.qs = ""
+        api._env = lambda key, default=None: self.qs if key == "QUERY_STRING" else self._stubs["_env"](key, default)
 
         def _respond(status, body=None):
             self.cap["status"], self.cap["body"] = status, body
@@ -379,6 +388,357 @@ class TestTenants(_Base):
         self.hosts()
         status, body = self.preview({"group": "web"})
         self.assertEqual((status, body["count"]), (200, 16))
+
+
+class TestAnApiKeyWithADeviceScope(_Base):
+    """An API key can carry a device scope, and the scope confines even an administrator's key: it is how a service account is given
+    part of the fleet. GET /api/devices answers such a key with the hosts of its scope. A smart group is a view over hosts, so the
+    preview, the list of groups (member counts, and with ?members=1 the ids) and a group's members have to answer over the same
+    hosts and no others: a count over the whole fleet would say how many hosts outside the scope carry a tag or sit in a group, and
+    the names would be the hosts themselves.
+
+    Driven with real keys through the real token check. Only the read of the token from the request is stubbed, because that is what
+    puts a key's scope on the request and a stub of the check itself would put nothing there."""
+
+    HOSTS = {
+        "web1": {"name": "web-one", "group": "web", "site": "dc1", "tags": ["prod", "edge"], "os": "Debian 12", "monitored": True},
+        "web2": {"name": "web-two", "group": "web", "site": "dc2", "tags": ["prod"], "os": "Debian 12", "monitored": True},
+        "db1": {"name": "db-payroll-a", "group": "db", "site": "dc1", "tags": ["prod", "payroll"], "os": "Debian 12", "monitored": True},
+        "db2": {"name": "db-payroll-b", "group": "db", "site": "dc2", "tags": ["prod", "payroll", "edge"], "os": "Debian 12",
+                "monitored": True},
+        "cache1": {"name": "cache-one", "group": "cache", "site": "dc1", "tags": [], "os": "Debian 12", "monitored": True},
+    }
+    EVERYONE = sorted(HOSTS)
+    # token -> (the scope stored on the key, the hosts of that scope). Three kinds of scope, one of each type a key may have.
+    SCOPES = {
+        "KEY-WEB": ({"type": "groups", "values": ["web"]}, ["web1", "web2"]),
+        "KEY-EDGE": ({"type": "tags", "values": ["edge"]}, ["db2", "web1"]),
+        "KEY-DC1": ({"type": "sites", "values": ["dc1"]}, ["cache1", "db1", "web1"]),
+    }
+
+    def setUp(self):
+        super().setUp()
+        api.verify_token = self._stubs["verify_token"]
+        self.token = "KEY-ALL"
+        api.get_token_from_request = lambda: self.token
+        keys = {"all": {"name": "no scope", "key_hash": api._apikey_hash("KEY-ALL"), "user": "api", "role": "admin", "active": True,
+                        "created": 1}}
+        for i, (token, (scope, _hosts)) in enumerate(self.SCOPES.items()):
+            keys["k%d" % i] = {"name": "scoped %d" % i, "key_hash": api._apikey_hash(token), "user": "api", "role": "admin",
+                               "active": True, "created": 1, "scope": scope}
+        self.put("APIKEYS_FILE", keys)
+        self.put("DEVICES_FILE", self.HOSTS)
+
+    def ids(self, body):
+        return [h["id"] for h in body["hosts"]]
+
+    def groups(self, members=False):
+        self.qs = "members=1" if members else ""
+        status, body = self.call(api.handle_smart_groups, method="GET")
+        self.assertEqual(status, 200, body)
+        return {g["name"]: g for g in body["smart_groups"]}
+
+    def seed_groups(self):
+        """Two groups as the cadence leaves them: the members of a rule over the whole fleet."""
+        self.token = "KEY-ALL"
+        self.assertEqual(self.create("everyone", {"monitored": True}), self.EVERYONE)
+        self.assertEqual(self.create("payroll", {"tag": "payroll"}), ["db1", "db2"])
+
+    def test_control_the_scope_is_on_the_request_and_the_host_list_follows_it(self):
+        """The instrument. The fleet read through the host list's own filter is confined by each scoped key and not by the other
+        one; without this a pass below could be a scope that never reached the request."""
+        for token, (scope, hosts) in self.SCOPES.items():
+            self.token = token
+            self.assertEqual(api._caller_scope(), scope, token)
+            self.assertEqual(sorted(api._scope_filter_devices(api._load_ro(api.DEVICES_FILE))), hosts, token)
+        self.token = "KEY-ALL"
+        self.assertIsNone(api._caller_scope())
+        self.assertEqual(sorted(api._scope_filter_devices(api._load_ro(api.DEVICES_FILE))), self.EVERYONE)
+
+    def test_the_preview_counts_and_lists_the_hosts_of_the_scope_and_no_others(self):
+        for token, (_scope, hosts) in self.SCOPES.items():
+            with self.subTest(key=token):
+                self.token = token
+                status, body = self.preview({"monitored": True})                  # a rule that every host matches
+                self.assertEqual(status, 200, body)
+                self.assertEqual((body["count"], self.ids(body)), (len(hosts), hosts))
+                text = json.dumps(body)
+                self.assertEqual([h["name"] for i, h in self.HOSTS.items() if i not in hosts and h["name"] in text], [],
+                                 "the name of a host outside the scope is in the answer")
+
+    def test_a_rule_that_only_hosts_outside_the_scope_match_matches_nothing(self):
+        """The count is an answer too: 2 for the payroll tag would tell the key that two hosts it cannot see carry that tag."""
+        self.token = "KEY-WEB"
+        for rules in ({"tags_any": ["payroll"]}, {"group": "db"}, {"group_in": ["db", "cache"]}, {"tag": "payroll", "monitored": True},
+                      {"os_contains": "debian", "group": "cache"}):
+            with self.subTest(rules=rules):
+                self.assertEqual(self.preview(rules), (200, {"count": 0, "limit": 50, "hosts": []}))
+        self.token = "KEY-ALL"
+        self.assertEqual(self.preview({"tags_any": ["payroll"]})[1]["count"], 2, "control: those hosts are in the fleet")
+        self.assertEqual(self.preview({"group": "db"})[1]["count"], 2)
+
+    def test_a_key_with_no_scope_and_a_signed_in_administrator_still_see_every_host(self):
+        """The other direction: nothing changes for a caller that nothing confines."""
+        self.token = "KEY-ALL"
+        status, body = self.preview({"monitored": True})
+        self.assertEqual((status, body["count"], self.ids(body)), (200, 5, self.EVERYONE))
+        api.verify_token = lambda token: ("jakob", "admin")                       # a session: no key, so no key scope
+        status, body = self.preview({"monitored": True})
+        self.assertEqual((status, body["count"], self.ids(body)), (200, 5, self.EVERYONE))
+
+    def test_the_list_counts_and_names_only_the_members_in_reach(self):
+        self.seed_groups()
+        for token, (_scope, hosts) in self.SCOPES.items():
+            with self.subTest(key=token):
+                self.token = token
+                rows = self.groups(members=True)
+                for name, whole in (("everyone", self.EVERYONE), ("payroll", ["db1", "db2"])):
+                    reach = [i for i in whole if i in hosts]
+                    self.assertEqual(rows[name]["members"], reach, name)
+                    self.assertEqual(rows[name]["member_count"], len(reach), name)
+                # without ?members=1 there is no list of ids, and the count is still the number in reach
+                rows = self.groups()
+                self.assertTrue(all("members" not in g for g in rows.values()))
+                self.assertEqual(rows["everyone"]["member_count"], len(hosts))
+                self.assertEqual(rows["payroll"]["member_count"], len([i for i in ("db1", "db2") if i in hosts]))
+        self.token = "KEY-ALL"
+        rows = self.groups(members=True)
+        self.assertEqual((rows["everyone"]["member_count"], rows["payroll"]["member_count"]), (5, 2), "control: whole for a caller no scope confines")
+        self.assertEqual(rows["everyone"]["members"], self.EVERYONE)
+
+    def test_a_groups_members_route_lists_only_the_members_in_reach(self):
+        self.seed_groups()
+        for token, (_scope, hosts) in self.SCOPES.items():
+            with self.subTest(key=token):
+                self.token = token
+                status, body = self.call(api.handle_smart_group, "everyone", method="GET")
+                self.assertEqual(status, 200, body)
+                self.assertEqual([m["id"] for m in body["members"]], hosts)
+                self.assertEqual([m["name"] for m in body["members"]], [self.HOSTS[i]["name"] for i in hosts])
+        self.token = "KEY-WEB"
+        status, body = self.call(api.handle_smart_group, "payroll", method="GET")
+        self.assertEqual((status, body["members"]), (200, []), "a group whose members are all out of reach lists none, and still exists")
+        self.token = "KEY-ALL"
+        status, body = self.call(api.handle_smart_group, "everyone", method="GET")
+        self.assertEqual([m["id"] for m in body["members"]], self.EVERYONE)
+
+    def test_the_stored_list_is_the_whole_tenants_and_the_cadence_agrees(self):
+        """Create and edit answer with no host and store the tenant-wide list, which is what the cadence works out every minute with
+        no caller. The narrowing is on the read: a list narrowed when it is saved would change by itself a minute later."""
+        self.token = "KEY-WEB"
+        status, body = self.call(api.handle_smart_groups, body={"name": "by-key", "rules": {"monitored": True}})
+        self.assertEqual(status, 201, body)
+        self.assertEqual(sorted(body), ["name", "ok", "scope_value"], "no host is in the answer to a create")
+        stored = self.read("SMART_GROUPS_FILE")["by-key"]["members"]
+        self.assertEqual(stored, self.EVERYONE)
+        groups = self.read("SMART_GROUPS_FILE")
+        groups["_meta"] = {"last_run": 0}
+        self.put("SMART_GROUPS_FILE", groups)
+        api.run_smart_groups_if_due()
+        self.assertEqual(self.read("SMART_GROUPS_FILE")["by-key"]["members"], stored, "the cadence stored another list")
+        self.assertEqual([m["id"] for m in self.call(api.handle_smart_group, "by-key", method="GET")[1]["members"]], ["web1", "web2"])
+        status, _b = self.call(api.handle_smart_group, "by-key", method="PATCH", body={"rules": {"tag": "payroll"}})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.read("SMART_GROUPS_FILE")["by-key"]["members"], ["db1", "db2"], "an edit stores the tenant-wide list too")
+        self.assertEqual(self.call(api.handle_smart_group, "by-key", method="GET")[1]["members"], [])
+        self.token = "KEY-ALL"
+        self.assertEqual([m["id"] for m in self.call(api.handle_smart_group, "by-key", method="GET")[1]["members"]], ["db1", "db2"])
+
+    def test_a_key_scoped_to_a_smart_group_previews_the_hosts_that_group_matches(self):
+        self.put("SMART_GROUPS_FILE", {"webs": {"rules": {"group": "web"}, "members": ["web1", "web2"], "tenant": api.DEFAULT_TENANT}})
+        keys = self.read("APIKEYS_FILE")
+        keys["ksg"] = {"name": "smart", "key_hash": api._apikey_hash("KEY-SMART"), "user": "api", "role": "admin", "active": True,
+                       "created": 1, "scope": {"type": "groups", "values": ["smart:webs"]}}
+        self.put("APIKEYS_FILE", keys)
+        self.token = "KEY-SMART"
+        status, body = self.preview({"monitored": True})
+        self.assertEqual((status, body["count"], self.ids(body)), (200, 2, ["web1", "web2"]))
+
+    def test_a_key_of_a_tenant_is_held_by_the_tenant_and_by_its_scope(self):
+        self.put("TENANTS_FILE", {"default": {"name": "Default", "builtin": True}, "acme": {"name": "Acme", "status": "active"}})
+        self.put("CONFIG_FILE", {"tenancy_enforced": True})
+        self.put("DEVICES_FILE", {
+            "a1": {"name": "acme-web", "tenant": "acme", "group": "web", "monitored": True},
+            "a2": {"name": "acme-db", "tenant": "acme", "group": "db", "monitored": True},
+            "d1": {"name": "default-web", "tenant": "default", "group": "web", "monitored": True}})
+        keys = self.read("APIKEYS_FILE")
+        keys["ka"] = {"name": "acme", "key_hash": api._apikey_hash("KEY-ACME"), "user": "api", "role": "admin", "active": True,
+                      "created": 1, "tenant_id": "acme"}
+        keys["kaw"] = {"name": "acme web", "key_hash": api._apikey_hash("KEY-ACME-WEB"), "user": "api", "role": "admin", "active": True,
+                       "created": 1, "tenant_id": "acme", "scope": {"type": "groups", "values": ["web"]}}
+        self.put("APIKEYS_FILE", keys)
+        self.token = "KEY-ACME"
+        status, body = self.preview({"monitored": True})
+        self.assertEqual((status, self.ids(body)), (200, ["a1", "a2"]), "the tenant alone")
+        self.token = "KEY-ACME-WEB"
+        status, body = self.preview({"monitored": True})
+        self.assertEqual((status, body["count"], self.ids(body)), (200, 1, ["a1"]), "the tenant, then the scope")
+        self.assertEqual(self.preview({"group": "db"})[1]["count"], 0)
+
+
+def _family():
+    """{handler name: source} of every handler a /api/smart-groups route reaches, found the way the application finds its handlers."""
+    out = {}
+    for (_m, path), fn in api._build_exact_routes().items():
+        if path.startswith("/api/smart-groups"):
+            out[fn.__name__] = inspect.getsource(fn)
+    for kind, _methods, a, b, name, _src in api._PATTERN_ROUTE_DEFS:
+        path = a if kind == "eq" else a + "{}" + b if kind == "pat" else ""
+        if path.startswith("/api/smart-groups"):
+            out[name] = inspect.getsource(getattr(api, name))
+    return out
+
+
+# What a handler does that tells a caller about hosts: it reads the fleet, or it reads a group's stored member list.
+# What makes the answer the caller's own: a helper that folds `_caller_scope()` (the role's scope and the API key's), and the tenant.
+_KEY_SCOPE_AWARE = ("_confined_host_ids", "_scope_filter_devices")
+
+
+def unconfined(sources):
+    """The handlers that read hosts or a stored member list and call no helper that folds the caller's device scope. Read by syntax
+    tree: a name in a comment or a docstring is not a call."""
+    out = []
+    for name, src in sorted(sources.items()):
+        reads, calls = False, set()
+        for node in ast.walk(ast.parse(textwrap.dedent(src))):
+            if isinstance(node, ast.Call):
+                fn = node.func
+                calls.add(fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else "")
+            if isinstance(node, ast.Name) and node.id == "DEVICES_FILE" or isinstance(node, ast.Attribute) and node.attr == "DEVICES_FILE":
+                reads = True
+            if isinstance(node, ast.Constant) and node.value == "members":
+                reads = True
+        if reads and not calls & set(_KEY_SCOPE_AWARE):
+            out.append(name)
+    return out
+
+
+class TestEveryRouteOfTheFamilyAnswersOverTheHostsOfTheCaller(unittest.TestCase):
+    """The preview was added with a tenant filter and no scope filter, beside a list and a members route that had neither. A rule the
+    code applies in most places and misses in one is found by listing every site, so this lists them: every handler a smart-group
+    route reaches, and for each one that reads hosts or a stored member list, the helper that makes the answer the caller's own."""
+
+    def test_the_scan_sees_the_family(self):
+        family = _family()
+        self.assertEqual(sorted(family), ["handle_smart_group", "handle_smart_group_preview", "handle_smart_groups"])
+        for name, src in family.items():
+            self.assertGreater(len(src.splitlines()), 8, name + " has no source to read")
+
+    def test_every_handler_that_reads_hosts_folds_the_callers_scope(self):
+        self.assertEqual(unconfined(_family()), [],
+                         "these smart-group handlers read hosts or a member list with no helper that folds the API key's device scope "
+                         "(_confined_host_ids, _scope_filter_devices): a key with a scope would read the whole tenant through them")
+
+    def test_control_the_scan_finds_a_handler_that_does_not(self):
+        bad = "def handle_x():\n    devices = A._load_ro(A.DEVICES_FILE) or {}\n    return A._tenant_filter_devices(devices)\n"
+        good = "def handle_x():\n    devices = A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})\n    return devices\n"
+        members = "def handle_x(g):\n    return len(g.get('members') or [])\n"
+        in_a_comment = "def handle_x():\n    # _scope_filter_devices(...)\n    '''_confined_host_ids()'''\n    return load(DEVICES_FILE)\n"
+        elsewhere = "def handle_x():\n    return 1\n"
+        self.assertEqual(unconfined({"bad": bad, "good": good, "members": members, "comment": in_a_comment, "none": elsewhere}),
+                         ["bad", "comment", "members"])
+
+    def test_control_the_old_preview_is_found(self):
+        src = inspect.getsource(api.handle_smart_group_preview)
+        old = src.replace("A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})", "A._load_ro(A.DEVICES_FILE) or {}")
+        self.assertNotEqual(old, src, "the anchor did not match")
+        self.assertEqual(unconfined({"handle_smart_group_preview": old}), ["handle_smart_group_preview"])
+
+
+_STACK_DRIVER = r"""
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+sys.dont_write_bytecode = True
+import wsgi
+api = wsgi.api
+client = wsgi.application.test_client()
+
+
+def put(attr, obj):
+    api.save(getattr(api, attr), obj)
+    api._invalidate_load_cache(getattr(api, attr))
+
+
+put("CONFIG_FILE", {})
+put("USERS_FILE", {"boss": {"role": "admin", "tenant_id": "default", "created": 1}})
+put("DEVICES_FILE", {
+    "web1": {"name": "web-one", "group": "web", "os": "Debian 12", "monitored": True},
+    "web2": {"name": "web-two", "group": "web", "os": "Debian 12", "monitored": True},
+    "db1": {"name": "db-payroll", "group": "db", "os": "Debian 12", "monitored": True, "tags": ["payroll"]}})
+key = lambda token, **extra: dict({"name": token, "key_hash": api._apikey_hash(token), "user": "api", "role": "admin", "active": True,
+                                   "created": 1}, **extra)
+put("APIKEYS_FILE", {"k1": key("SCOPED", scope={"type": "groups", "values": ["web"]}), "k2": key("PLAIN")})
+
+
+def call(method, path, token, body=None):
+    kw = {"headers": {"X-Token": token}}
+    if body is not None:
+        kw["data"] = json.dumps(body)
+        kw["content_type"] = "application/json"
+    r = getattr(client, method.lower())(path, **kw)
+    return [r.status_code, json.loads(r.data.decode() or "null")]
+
+
+out = {}
+for who in ("SCOPED", "PLAIN"):
+    out[who] = {
+        "devices": call("GET", "/api/devices", who),
+        "preview": call("POST", "/api/smart-groups/preview", who, {"rules": {"os_contains": "debian"}}),
+        "payroll": call("POST", "/api/smart-groups/preview", who, {"rules": {"tags_any": ["payroll"]}}),
+        "create": call("POST", "/api/smart-groups", who, {"name": "g-" + who.lower(), "rules": {"os_contains": "debian"}}),
+    }
+    out[who]["list"] = call("GET", "/api/smart-groups?members=1", who)
+    out[who]["members"] = call("GET", "/api/smart-groups/g-" + who.lower() + "/members", who)
+print(json.dumps(out))
+"""
+
+
+class TestOnTheRealStack(unittest.TestCase):
+    """The same question through the real route table, the real request gates and the real token check (Flask test client over
+    api.main()), in a process of its own on a data directory of its own: nothing is stubbed."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import flask  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("flask is not installed")
+        d = Path(tempfile.mkdtemp(prefix="rp-sgstack-"))
+        _TMP.append(d)
+        (d / "driver.py").write_text(_STACK_DRIVER, encoding="utf-8")
+        data = d / "data"
+        data.mkdir()
+        proc = subprocess.run([sys.executable, str(d / "driver.py"), str(_ROOT / "server" / "cgi-bin")], capture_output=True, text=True,
+                              env=dict(os.environ, RP_DATA_DIR=str(data)), timeout=300)
+        if proc.returncode != 0:
+            raise AssertionError("the driver failed:\n" + proc.stderr[-1500:])
+        cls.out = json.loads(proc.stdout.strip().splitlines()[-1])
+
+    @staticmethod
+    def names(call):
+        return sorted(h["name"] for h in call[1])
+
+    def test_control_the_host_list_is_confined_for_the_scoped_key_and_whole_for_the_other(self):
+        self.assertEqual((self.out["SCOPED"]["devices"][0], self.names(self.out["SCOPED"]["devices"])), (200, ["web-one", "web-two"]))
+        self.assertEqual(self.names(self.out["PLAIN"]["devices"]), ["db-payroll", "web-one", "web-two"])
+
+    def test_the_preview_answers_over_the_hosts_of_the_scope(self):
+        scoped = self.out["SCOPED"]
+        self.assertEqual(scoped["preview"][0], 200)
+        self.assertEqual((scoped["preview"][1]["count"], sorted(h["name"] for h in scoped["preview"][1]["hosts"])), (2, ["web-one", "web-two"]))
+        self.assertEqual(scoped["payroll"][1]["count"], 0, "the key was told how many hosts outside its scope carry the tag")
+        self.assertEqual(self.out["PLAIN"]["preview"][1]["count"], 3)
+        self.assertEqual(self.out["PLAIN"]["payroll"][1]["count"], 1)
+
+    def test_a_group_a_scoped_key_creates_is_listed_and_read_through_the_scope(self):
+        scoped, plain = self.out["SCOPED"], self.out["PLAIN"]
+        self.assertEqual(scoped["create"][0], 201)
+        mine = next(g for g in scoped["list"][1]["smart_groups"] if g["name"] == "g-scoped")
+        self.assertEqual((mine["member_count"], sorted(mine["members"])), (2, ["web1", "web2"]))
+        self.assertEqual(sorted(m["name"] for m in scoped["members"][1]["members"]), ["web-one", "web-two"])
+        theirs = next(g for g in plain["list"][1]["smart_groups"] if g["name"] == "g-plain")
+        self.assertEqual((theirs["member_count"], sorted(theirs["members"])), (3, ["db1", "web1", "web2"]))
+        self.assertEqual(sorted(m["name"] for m in plain["members"][1]["members"]), ["db-payroll", "web-one", "web-two"])
 
 
 class TestWhoMayAskAndWhatItChanges(_Base):

@@ -54,9 +54,11 @@ def handle_smart_group_preview():
 
     Admin only, as viewing the groups is. A tenant administrator previews against their own tenant's hosts and no others: the
     pool is narrowed exactly as it is when the group is saved, so the preview of a rule and the members of the group saved from it
-    are the same list. Rules are checked as a save checks them (a malformed number, rules that are not an object, and an empty
-    set are all refused with the same 400), and a body that names hosts or scopes is not read for them: the rules are the only
-    part of the body that is used."""
+    are the same list. An API key that has a device scope previews against the hosts of that scope and no others, as the host
+    list does: a count over every host would tell it how many hosts outside its scope carry a tag or a group, and the names would
+    be the hosts themselves. Rules are checked as a save checks them (a malformed number, rules that are not an object, and an
+    empty set are all refused with the same 400), and a body that names hosts or scopes is not read for them: the rules are the
+    only part of the body that is used."""
     actor = A.require_admin_auth()
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
@@ -65,8 +67,10 @@ def handle_smart_group_preview():
     if not rules:
         A.respond(400, {'error': 'at least one rule is required'})
     tenant = A._caller_effective_tenant(actor)
-    # a shared read-only view of the fleet: nothing below writes to it, and a copy of a large host list is the one cost that grows
-    devices = A._load_ro(A.DEVICES_FILE) or {}
+    # the fleet as this caller may see it: a key with a device scope reads the hosts of its scope and a tenant administrator the
+    # hosts of the tenant. For a caller that neither confines, this is the shared read-only view itself: nothing below writes to it,
+    # and a copy of a large host list is the one cost that grows
+    devices = A._scope_filter_devices(A._load_ro(A.DEVICES_FILE) or {})
     ids = A._materialize_smart_group(rules, devices, tenant)
     hosts = []
     for did in ids[:PREVIEW_HOSTS]:
