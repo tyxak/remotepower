@@ -11872,6 +11872,9 @@ _PLATFORM_ROUTES = (
     # restore drill, the test message to the operator's webhook destinations and the push daemon's reachability check. Each asks
     # for an administrator, so a tenant administrator downloaded every tenant's data and the installation's secrets.
     ('/api/backup',                  None,           ()),
+    # the ZIP of every store: the hosts and the accounts of every tenant, and the settings. The monitors list under it is the operator
+    # organisation's own and stays open to the operator's users.
+    ('/api/export',                  None,           ('/monitors',)),
     ('/api/webhook/test',            _WRITE_METHODS, ()),
     ('/api/push-daemon',             None,           ()),
     # 7.4.9 (a sweep of every handler that carries no tenant test): operations on the installation itself, and uses of the operator's
@@ -35959,6 +35962,11 @@ def handle_user_passwd():
 
         user = users.get(username)
         if not user: respond(404, {'error': 'User not found'})
+        # SECURITY: 404 for an account outside the caller's tenant, as handle_user_update and handle_user_delete answer. A tenant
+        # administrator passes the administrator check above, so without this it could set the password of the platform operator (or of
+        # any other tenant's account) and sign in as it.
+        if username != requester and not _user_tenant_visible(username):
+            respond(404, {'error': 'User not found'})
 
         # Changing own password always requires old password
         if username == requester:

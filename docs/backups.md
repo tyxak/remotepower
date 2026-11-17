@@ -149,7 +149,8 @@ RemotePower can back up **itself** so you can rebuild the server after a loss.
   export** (a ZIP with API keys and integration secrets stripped, safe to share) or a
   **full backup** (`.tar.gz`). The full backup can rebuild the controller, including
   the encrypted credentials vault and integration secrets, so keep it private.
-  `GET /api/export` and `GET /api/backup/download`.
+  `GET /api/export` and `GET /api/backup/download`. Both hold every tenant's hosts and accounts, so with tenant isolation
+  on only the platform operator can download either.
 - **Encrypted archives.** Set `RP_BACKUP_PASSPHRASE` in the server's environment and
   archives are written as `.tar.gz.enc`: AES-256-GCM with a PBKDF2-SHA256 key
   (600,000 iterations), read and written in 64 KiB chunks. The passphrase comes only
