@@ -43,7 +43,7 @@ updates:
     commit-message:
       prefix: "deps"
 
-  # Base images of the server, agent and scanner containers (python:3.14-slim)
+  # Base images of the server, agent and scanner containers (python:3.15-slim)
   - package-ecosystem: "docker"
     directory: "/"
     schedule:

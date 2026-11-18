@@ -14,7 +14,7 @@ properly on the next update.
 - **Three Actions have a newer release that is still inside the seven-day cooldown, so the pins stay.** `docker/login-action` 4.8.0 (published
   2026-11-05, pinned 4.7.0), `sigstore/cosign-installer` 4.1.3 (2026-11-04, pinned 4.1.2) and `github/codeql-action` 4.39.3 (committed 2026-11-04,
   pinned 4.39.2). The earliest day each can be taken is 2026-11-11 for the last two and 2026-11-12 for the first; the other seven pins are the latest
-  releases. The scanner image's nuclei (3.11.1, 2026-08-08) is the latest. The server and agent images build from `python:3.14-slim`, a floating tag
+  releases. The scanner image's nuclei (3.11.1, 2026-08-08) is the latest. The server and agent images build from `python:3.15-slim`, a floating tag
   that moved on 2026-11-08.
 - **The server's Python dependencies are not pinned, so what a new install gets is what `make ci-parity` resolves.** `pip-audit` over that list
   (bcrypt, cryptography, dnspython, webauthn, pysaml2, flask, gunicorn, pydantic, psycopg, mini-racer) finds no known vulnerability. The development
