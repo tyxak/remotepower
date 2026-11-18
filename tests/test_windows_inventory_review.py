@@ -11,7 +11,9 @@ applied one at a time (with the anchor checked first, and a green control before
     InstallationType and the server decides "server" from it.
   * A Windows Update search that failed leaves the count the host had. Two readers took that count for the count now: the check of a queued
     upgrade said "didn't take" about a count older than the upgrade, and the patch reports said "fully patched" about a zero of 40 days ago.
-  * (later commits add the corpus and the time cell.)
+  * The four signals the Windows items persist (build, shares, TPM, search state) were in no chunk of the corpus that fleet knowledge is built
+    from, which tests/test_v643_rag_signal_coverage.py reads as a forgotten signal.
+  * (a later commit adds the time cell.)
 
 The Windows agent cannot run here; its parsing is driven through the stand-ins of win_host_support.py.
 """
@@ -36,6 +38,7 @@ for _p in (str(_CGI), str(_HERE)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import rag_index  # noqa: E402
 import win_host_support as S  # noqa: E402
 import windows_host as wh  # noqa: E402
 
@@ -639,6 +642,84 @@ class TestEveryClassifierOfTheCountReadsItsAge(unittest.TestCase):
     def test_the_check_of_a_queued_upgrade(self):
         node = self.functions()["api.py:_upgrade_verify_status"]
         self.assertIn("count_predates", self.calls(node))
+
+
+# ── what fleet knowledge is told ──────────────────────────────────────────────────────────────────────────────────────────
+class TestTheCorpusKnowsTheWindowsSignals(unittest.TestCase):
+    """build_live_state_corpus is where an operator's question about the fleet meets what the product knows. Each of these drives the real
+    builder with a host that has the signal, and with the shapes a stored host can hold instead."""
+
+    def docs(self, **si):
+        host = {"id": "w1", "name": "WIN-ONE", "os": "Windows 11 (Build 22631)", "last_seen": int(time.time()), "monitored": True, "sysinfo": si}
+        return {d["id"]: d["text"] for d in rag_index.build_live_state_corpus([host], now=int(time.time()))}
+
+    def text(self, **si):
+        return "\n".join(self.docs(**si).values())
+
+    def test_the_positive_control_the_builder_emits_the_chunks(self):
+        docs = self.docs(uptime="1d", win_build={"build": "22631"})
+        self.assertIn("live/w1#summary", docs)
+
+    def test_the_build_is_in_the_summary_chunk(self):
+        docs = self.docs(win_build={"build": "22631", "ubr": 3593, "display_version": "23H2", "edition": "Professional", "product": "Windows 10 Pro"})
+        self.assertIn("windows build: Windows 11 Pro 23H2 (build 22631.3593)", docs["live/w1#summary"])
+        self.assertNotIn("windows build", self.text(uptime="1d"))
+
+    def test_the_tpm_is_in_the_posture_chunk_and_a_flag_that_was_not_reported_is_not_false(self):
+        for tpm, line in (({"present": True, "ready": True, "enabled": True, "spec": "2.0"}, "TPM: present, ready, specification 2.0"),
+                          ({"present": True, "ready": False}, "TPM: present, NOT ready"),
+                          ({"present": True, "enabled": False}, "TPM: present, disabled"),
+                          ({"present": True}, "TPM: present"),
+                          ({"present": False}, "TPM: none")):
+            with self.subTest(tpm=tpm):
+                self.assertIn(line, self.docs(tpm=tpm)["live/w1#posture"])
+        for tpm in ({"ready": True}, {"spec": "2.0"}, {}, "x", [1], 5, None):
+            with self.subTest(tpm=tpm):
+                self.assertNotIn("TPM", self.text(tpm=tpm), "a TPM that was never reported is not 'none'")
+
+    def test_the_shares_are_counted_and_never_named(self):
+        shares = {"count": 2, "admin_count": 3, "items": [{"name": "Finance", "path": "C:\\Secrets\\Finance", "description": "payroll", "encrypted": True},
+                                                          {"name": "Public", "path": "D:\\Public", "description": ""}]}
+        text = self.text(shares=shares)
+        self.assertIn("file shares exported by the host: 2", self.docs(shares=shares)["live/w1#posture"])
+        for word in ("Finance", "Secrets", "payroll", "Public"):
+            self.assertNotIn(word, text, "a share name, path or description reached the corpus")
+        self.assertIn("file shares exported by the host: 0", self.text(shares={"count": 0, "admin_count": 3, "items": []}))
+        for shares in ("x", [1], 5, {}, {"items": "x"}):
+            self.assertNotIn("file shares", self.text(shares=shares), shares)
+
+    def test_the_search_is_in_the_patch_chunk(self):
+        n = int(time.time())
+        patches = lambda state, **more: self.docs(packages={"manager": "windows-update", "upgradable": 0}, wu_search=state, **more)["live/w1#patches"]  # noqa: E731
+        self.assertIn("Windows Update search: working", patches({"at": n, "ok": True, "ok_at": n}))
+        failing = patches({"at": n, "ok": False, "error_class": "access", "ok_at": 1731400000})
+        self.assertIn("Windows Update search: FAILING (access); the pending-update count is from 2024-11-12", failing)
+        self.assertIn("no search has worked yet", patches({"at": n, "ok": False, "error_class": "service", "ok_at": 0}))
+        self.assertIn("FAILING (unknown)", patches({"at": n, "ok": False, "error_class": "<script>alert(1)</script>", "ok_at": 5}))
+        self.assertNotIn("<script>", patches({"at": n, "ok": False, "error_class": "<script>alert(1)</script>", "ok_at": 5}))
+        self.assertNotIn("Windows Update search", self.text(packages={"manager": "apt", "upgradable": 2}))
+        for state in ("x", 5, [1], {"ok": "yes"}, {"at": 5}, None):
+            self.assertNotIn("Windows Update search", self.text(packages={"manager": "apt", "upgradable": 2}, wu_search=state), state)
+
+    def test_a_failing_host_does_not_change_its_chunk_from_one_day_to_the_next(self):
+        """A date, not "N days ago": the corpus is rebuilt when a source changes, and a chunk that said "3 days ago" would be a new chunk (and,
+        with an embedding provider, a new vector) every day the search stays broken."""
+        host = {"id": "w1", "name": "WIN-ONE", "os": "Windows 11", "last_seen": 1731500000, "monitored": True, "sysinfo": {
+            "packages": {"manager": "windows-update", "upgradable": 2},
+            "wu_search": {"at": 1731500000, "ok": False, "error_class": "service", "ok_at": 1731400000}}}
+        a = {d["id"]: d["text"] for d in rag_index.build_live_state_corpus([host], now=1731500000)}
+        b = {d["id"]: d["text"] for d in rag_index.build_live_state_corpus([host], now=1731500000 + 2 * 86400)}
+        self.assertEqual(a["live/w1#patches"], b["live/w1#patches"])
+
+    def test_the_header_of_the_posture_chunk_names_what_it_holds(self):
+        text = self.docs(tpm={"present": True})["live/w1#posture"]
+        self.assertIn("TPM, file shares", text.splitlines()[0])
+
+    def test_no_stored_shape_stops_the_builder(self):
+        for si in ({"win_build": "x", "tpm": [1], "shares": "x", "wu_search": 5}, {"win_build": {"build": "²²²"}, "tpm": {"present": "yes"}},
+                   {"win_build": [1], "tpm": 5, "shares": [1], "wu_search": {"ok": False, "ok_at": "x", "error_class": ["x"]}, "packages": "x"}):
+            with self.subTest(si=si):
+                self.assertGreater(len(self.docs(**si)), 0)
 
 
 if __name__ == "__main__":

@@ -53,6 +53,7 @@ import time
 
 import app_catalog
 import checks
+import windows_host
 
 
 # ── Tokenisation ─────────────────────────────────────────────────────────────
@@ -621,6 +622,12 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
         for k in ('kernel', 'platform', 'os_pretty'):
             if si.get(k):
                 summary.append(f"{k}: {si[k]}")
+        # 8.0.2: the build a Windows host reports, as one label ("Windows 11 Pro 23H2 (build 22631.3593)"). The `os` text above is what the agent
+        # sends, and ProductName says "Windows 10" on many hosts that run Windows 11, so "which hosts are still on Windows 10" is answered here.
+        # The revision moves once a month, with a cumulative update, so the chunk is not rewritten more often than that.
+        _wbuild = windows_host.os_label(si.get('win_build'))
+        if _wbuild:
+            summary.append(f"windows build: {_wbuild}")
         if dev.get('tags'):
             summary.append("tags: " + ', '.join(map(str, dev['tags'])))
         # v7.4.5 (#55): every address the host holds, so "which hosts have a public address" can be answered,
@@ -879,6 +886,25 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
                           + (f" (start type {wp['wu_start']})" if wp.get('wu_start') else ''))
             if wl:
                 posture.append("Windows security posture:\n  " + '\n  '.join(wl))
+        # 8.0.2: the TPM and the file shares a Windows agent reports. Each flag is said only when the host said it (the cleaner leaves out one
+        # that a probe could not read, which is not the same as false). The shares are counted and not named: a share name and its path are
+        # an operator's own text, and a cloud embedding provider would take them off the box for a question that the count answers.
+        _tpm = windows_host.clean_tpm(si.get('tpm'))
+        if _tpm and _tpm.get('present') is False:
+            posture.append("TPM: none")
+        elif _tpm and _tpm.get('present') is True:
+            _tl = ["present"]
+            if _tpm.get('ready') is not None:
+                _tl.append("ready" if _tpm['ready'] else "NOT ready")
+            if _tpm.get('enabled') is False:
+                _tl.append("disabled")
+            if _tpm.get('spec'):
+                _tl.append(f"specification {_tpm['spec']}")
+            posture.append("TPM: " + ", ".join(_tl))
+        _shares = si.get('shares')
+        _nshares = _shares.get('count') if isinstance(_shares, dict) else None
+        if isinstance(_nshares, int) and not isinstance(_nshares, bool) and _nshares >= 0:
+            posture.append(f"file shares exported by the host: {_nshares} (the default administrative shares are not counted)")
         # v6.4.0: macOS posture parity with Windows.
         mp = si.get('mac_posture')
         if isinstance(mp, dict):
@@ -1021,6 +1047,7 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
                 f"errors, clock skew, default-gateway reachability, OOM kills, "
                 f"mail-queue depth"
                 + (", Windows security" if isinstance(wp, dict) else "")
+                + (", TPM, file shares" if _tpm or _nshares is not None else "")
                 + "):\n" + '\n'.join(posture),
                 title=f"{name} — posture", device=dev_id, ts=ts))
 
@@ -1058,6 +1085,17 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
             patch_lines.append(f"vendor security updates pending: {sec_updates}")
         if _pkg.get('manager'):
             patch_lines.append(f"package manager: {_pkg['manager']}")
+        # 8.0.2: how the last Windows Update search of a Windows host went. A search that failed leaves the count the host had, so the count is
+        # only as good as the search behind it. A date and not "N days ago", so the chunk is not rewritten (and embedded again) every day.
+        _ws = si.get('wu_search')
+        if isinstance(_ws, dict) and isinstance(_ws.get('ok'), bool):
+            if _ws['ok']:
+                patch_lines.append("Windows Update search: working")
+            else:
+                _why = _ws.get('error_class') if _ws.get('error_class') in windows_host.SEARCH_CLASSES else 'unknown'
+                _taken = windows_host.kept_count_time(si)
+                patch_lines.append(f"Windows Update search: FAILING ({_why}); "
+                                   + (f"the pending-update count is from {_utc_date(_taken)}" if _taken else "no search has worked yet"))
         if reboot_required:
             patch_lines.append("reboot required: yes"
                                + (f" ({si.get('reboot_reason')})"
