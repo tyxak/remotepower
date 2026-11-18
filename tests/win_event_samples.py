@@ -5,8 +5,16 @@ noise around the fields it reads as well as the fields themselves. The values ar
 status, an IP address, a task definition escaped inside a Data element, a 1102 that keeps its fields in UserData) are Windows's.
 
 Nothing here runs on Windows: these are what a Windows host would print, written by hand from the documented schemas.
+
+An event is stamped with the time it is built, as a real one is, because the server drops a log line that is older than its ring keeps (six hours): a sample with a stamp
+written into this file turned a test that goes through the log handler red six hours after the day the file was written. A test that is about the stamp itself passes
+`ts=FIXED_TS` and compares with `FIXED_TS_MS`.
 """
+import time
 from xml.sax.saxutils import escape
+
+FIXED_TS = '2026-11-18T00:23:45.1234567Z'
+FIXED_TS_MS = 1794961425000        # what the agent reads FIXED_TS as: milliseconds since the epoch, UTC
 
 NS = 'http://schemas.microsoft.com/win/2004/08/events/event'
 
@@ -17,10 +25,12 @@ PROVIDERS = {
 }
 
 
-def event_xml(eid, rid, channel, provider, data=None, userdata=None, ts='2026-11-18T00:23:45.1234567Z', qualifiers=None,
+def event_xml(eid, rid, channel, provider, data=None, userdata=None, ts=None, qualifiers=None,
               computer='DESK01.corp.example.com', level=0):
-    """One <Event> element as wevtutil prints it: no XML declaration, single-quoted attributes, one line."""
+    """One <Event> element as wevtutil prints it: no XML declaration, single-quoted attributes, one line. `ts` is the stamp, now when it is not given."""
     name, guid = provider
+    if ts is None:
+        ts = time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(time.time())) + '.1234567Z'     # time.time(), not the C clock: a test that moves the clock moves the samples with it
     q = " Qualifiers='%s'" % qualifiers if qualifiers is not None else ''
     out = ["<Event xmlns='%s'><System><Provider Name='%s' Guid='%s'/><EventID%s>%d</EventID><Version>0</Version><Level>%d</Level>"
            "<Task>12546</Task><Opcode>0</Opcode><Keywords>0x8010000000000000</Keywords><TimeCreated SystemTime='%s'/>"

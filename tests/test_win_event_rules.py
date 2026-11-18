@@ -21,6 +21,7 @@ Nothing runs on Windows: the event log is a fake that answers in wevtutil's form
 has) is in the hand-over.
 """
 import importlib.util
+import io
 import json
 import os
 import re
@@ -189,10 +190,10 @@ class TestTheEightEvents(unittest.TestCase):
     def test_each_event_becomes_one_event_and_one_line(self):
         for build, eid, channel in S.EIGHT:
             with self.subTest(eid):
-                events = win._winevt_parse(build())
+                events = win._winevt_parse(build(ts=S.FIXED_TS))
                 self.assertEqual(len(events), 1)
                 ev = events[0]
-                self.assertEqual((ev['id'], ev['ts']), (eid, 1794961425000))     # 2026-11-18T00:23:45Z
+                self.assertEqual((ev['id'], ev['ts']), (eid, S.FIXED_TS_MS))     # 2026-11-18T00:23:45Z
                 self.assertEqual(win._winevt_line(ev), self.EXPECTED[eid])
 
     def test_a_service_event_with_qualifiers_and_a_userdata_event_both_read(self):
@@ -465,12 +466,12 @@ class TestTheCursor(unittest.TestCase):
     def test_what_happens_after_is_sent_once_oldest_first_and_never_again(self):
         self.log.add('Security', S.failed_logon)
         self.poll()
-        a = self.log.add('Security', S.failed_logon, user='a')
+        a = self.log.add('Security', S.failed_logon, user='a', ts=S.FIXED_TS)
         self.log.add('Security', S.account_locked_out)             # another id of the channel: not asked for
         b = self.log.add('Security', S.failed_logon, user='b')
         units = self.poll()
         self.assertEqual(_sent(units), {'eventlog.Security.4625': [a, b]})
-        self.assertEqual(units['eventlog.Security.4625'][0]['ts'], 1794961425000)
+        self.assertEqual(units['eventlog.Security.4625'][0]['ts'], S.FIXED_TS_MS)
         self.assertEqual(self.poll(), {})
         c = self.log.add('Security', S.audit_log_cleared)
         self.assertEqual(_sent(self.poll()), {'eventlog.Security.1102': [c]})
@@ -1115,6 +1116,28 @@ class TestTheWholeChain(_Server):
         stored = api.load(api.LOG_WATCH_FILE)['win1']['units']['eventlog.Security.4625']
         self.assertEqual(len(stored), 19)
         self.assertEqual(len({e['line'] for e in stored}), 19)
+
+
+class TestTheSamplesDoNotDependOnTheDay(unittest.TestCase):
+    """The samples carried a stamp written into the file. The server drops a log line older than its ring keeps (six hours), so the chain test was green for six hours on the day it
+    was written and red from then on. A sample is stamped with the time it is built, and the chain is run here with the clock moved to where the old stamp would have failed it."""
+
+    def test_a_sample_is_stamped_with_the_time_it_is_built_and_a_moved_clock_moves_it(self):
+        ev = win._winevt_parse(S.failed_logon())[0]
+        self.assertLess(abs(ev['ts'] / 1000.0 - time.time()), 60)
+        real = time.time
+        with mock.patch('time.time', lambda: real() + 30 * 86400):
+            moved = win._winevt_parse(S.failed_logon())[0]
+        self.assertLess(abs(moved['ts'] / 1000.0 - (real() + 30 * 86400)), 60)
+        self.assertEqual(win._winevt_parse(S.failed_logon(ts=S.FIXED_TS))[0]['ts'], S.FIXED_TS_MS, 'a test about the stamp itself can still fix it')
+
+    def test_the_whole_chain_passes_at_the_edge_of_the_ring_and_a_month_on(self):
+        real = time.time
+        for label, offset in (('now', 0), ('5 h 59 min on', 5 * 3600 + 59 * 60), ('6 h 01 min on', 6 * 3600 + 60), ('a month on', 30 * 86400)):
+            with self.subTest(label):
+                with mock.patch('time.time', lambda: real() + offset):
+                    result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(unittest.TestSuite([TestTheWholeChain('test_from_the_rule_to_the_alert')]))
+                self.assertTrue(result.wasSuccessful(), [t[1][-300:] for t in result.failures + result.errors])
 
 
 # ── the dialog's templates ───────────────────────────────────────────────────
