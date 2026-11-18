@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.2-4">
+<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.2-5">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=8.0.2-4">
+<link rel="stylesheet" href="static/css/styles.css?v=8.0.2-5">
 
 </head>
 <body>
@@ -5160,10 +5160,18 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v8.0.2 c0vermatters">
+          <details class="doc-card" open data-keywords="release notes changelog v8.0.2 c0vermatters security tenant administrator tenant isolation another tenant password export api key host scope confirmations inbound tokens smart group members access log install link nginx credentials two-factor recovery codes enrol enroll enrolment token hosts many max_uses hosts that can use it used 2 of 10 revoke group policy golden image docker password policy password history passwords remembered maximum password age expired sign out 72 bytes bcrypt audit log date format date order day first month first year first clock 24 hour 12 hour my account language smart group preview members preview mean time to patch mttp patches median 90th percentile patch report hardware data explorer cpu model make model serial disk raid graphics bios digits software metering licence license cost cost to buy cost to reclaim spare short by windows macos software inventory uninstall keys registry applications homebrew sbom not checked cve install uninstall hold notification destination failing failed deliveries mark settings focus ring keyboard scrolling list export failed backup">
             <summary><strong>What's new — v8.0.2 &ldquo;C0verMatters&rdquo;</strong> &mdash; what was missing from pages you already use.</summary>
             <div class="doc-body">
-              <p><strong>What changes for you.</strong> Hard-reload the dashboard once. Update the agents to get what changed on them.</p>
+              <p><strong>Security.</strong> With tenant isolation on, a tenant administrator could set the password of an account in another tenant, the platform operator&rsquo;s included, and could download the export of every tenant. Both belong to the platform operator now. This is in 8.0.0 and in the 8.0.1 pre-release. The export you can share also carried every account&rsquo;s password hash, two-factor secret and recovery codes; it carries none now, so treat the hashes and secrets in any export you handed out as exposed. An API key with a host scope could reach the pending confirmations, the inbound tokens and the smart-group members of hosts outside its scope, and cannot now. The install link, which holds the enrolment token, is no longer written to the nginx access log; if you edited the nginx snippet, add <code>access_log off;</code> to its two install blocks.</p>
+              <p><strong>One install command for many hosts.</strong> Set <em>Hosts that can use it</em> (1 to 1000, default 1) in <em>Enroll host</em> or in the Add a host wizard, and one command or Docker file enrols that many hosts. Each host that enrols takes one use, the list of open commands shows <em>used 2 of 10</em> with a <em>Revoke</em>, and the window opens at 1 every time. Anyone who holds the command can enrol that many hosts until it expires, so make it for the number you expect and revoke it when the rollout is done.</p>
+              <p><strong>Remember passwords and set a maximum age.</strong> Under <em>Settings</em> &rarr; <em>Security</em> &rarr; <em>Password policy</em>, <em>Passwords remembered</em> (0 to 24) stops a person from choosing a recent password again, and <em>Maximum password age</em> (0 to 3650 days) makes a local password past the limit be changed at the next sign-in. Both are off until you set them, only the platform operator sets them, and accounts that sign in through LDAP, OIDC, SAML or a passkey are not aged. Password changes and administrators&rsquo; resets are on the audit log now. A new password over 72 bytes is refused with a message instead of an error page.</p>
+              <p><strong>Software on Windows and macOS hosts.</strong> The Windows agent reads the programs in the Uninstall keys of the registry, and the Mac agent the applications in the Applications folders and the Homebrew packages. The lists reach the software search, the Software center, the software policy, software metering, the SBOM and the Data Explorer. Names match without regard to case, and dotted versions compare as numbers. No vulnerability database is matched against applications, so the CVE page says <em>not checked</em> for these hosts instead of showing no findings. Install, uninstall and hold are Linux commands: a request that queues nothing is now an error that says why. Update the Windows and macOS agents to get it.</p>
+              <p><strong>How long patching takes.</strong> The Patches page has a <em>Mean time to patch</em> card: the mean, the median and the 90th percentile of the time from the first hourly check that saw an update waiting on a host to the check that saw none waiting, over the last 30 or 90 days, with the number of completed patches behind them. Below five completed patches it shows no number. History starts when you upgrade. <code>GET /api/patch-report</code> carries the same figures as <code>mttp</code>.</p>
+              <p><strong>Hosts by hardware in the Data Explorer.</strong> A new <em>hardware</em> entity has one row for each host you can see, with 24 fields from what the agents already report: maker, model and serial number, CPU model and count, memory modules, disks, RAID arrays and graphics cards. Ask for hosts by CPU model, by make and model, or with a disk of a given model. There is no BIOS version, because no agent reports one. Digits typed alone in a condition, such as a processor model 7302, now find hosts.</p>
+              <p><strong>What a licence costs.</strong> Add <code>@ 49.99</code> to a software metering rule (<code>nginx = 10 @ 49.99</code>) and the table shows the licences you own, how many installs are above them with what buying them costs, how many licences are spare with what they cost, and a fleet total, in the currency of your billing settings. A rule with no cost shows no amount, not zero. Only an administrator and the finance role of your own organisation see the money.</p>
+              <p><strong>Smaller changes.</strong> <em>My Account</em> &rarr; <em>Profile</em> &rarr; <em>Language</em> has <em>Date order</em> (day, month or year first) and <em>Clock</em> (24 or 12 hour), saved to your account and apart from the language. The smart-group editor has a <em>Preview members</em> button that shows how many hosts the rules match, and the first 50, before you save. <em>Settings</em> &rarr; <em>Notifications</em> marks a destination that keeps failing, with how many deliveries failed in a row and the kind of the last error. Keyboard focus rings are no longer cut off in four scrolling lists, and focus returns to a button whose handler disabled it. A refused export is no longer saved as a file.</p>
+              <p><strong>What changes for you.</strong> Hard-reload the dashboard once. Update the Windows and macOS agents to get their software lists; the Linux agent changes in its version number and in one message it prints after it enrols with a token. Nothing turns on by itself: the password rules are off until you set them, and a token enrols one host until you make it for more. Mean time to patch fills in as hosts patch. <strong>Not run on real hosts.</strong> The Windows and macOS code was tested with stand-ins for the registry, the application folders and Homebrew. <strong>Translations.</strong> The text this release added is available in Chinese, Hindi, Spanish, Arabic, German and French. A native speaker has not read it yet; if a line reads wrong, tell us.</p>
               <p class="hint">See <code>docs/v8.0.2.md</code>. Older releases &rarr; <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
@@ -13667,39 +13675,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=8.0.2-4"></script>
+<script defer src="static/js/app.js?v=8.0.2-5"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-cmdb.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-containers.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-network.js?v=8.0.2-4"></script>
+<script defer src="static/js/app-calendar.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-cmdb.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-containers.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-network.js?v=8.0.2-5"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-compliance.js?v=8.0.2-4"></script>
+<script defer src="static/js/app-hostconfig.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-compliance.js?v=8.0.2-5"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-dns.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-drift.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-cve.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-firewall.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-backups.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-iac.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-proxmox.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-virt.js?v=8.0.2-4"></script>
+<script defer src="static/js/app-ai.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-dns.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-drift.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-cve.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-firewall.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-backups.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-iac.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-proxmox.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-virt.js?v=8.0.2-5"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-remote.js?v=8.0.2-4"></script>
-<script defer src="static/js/app-tickets.js?v=8.0.2-4"></script>
+<script defer src="static/js/app-logs.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-remote.js?v=8.0.2-5"></script>
+<script defer src="static/js/app-tickets.js?v=8.0.2-5"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=8.0.2-4"></script>
+<script defer src="static/js/app-self.js?v=8.0.2-5"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=8.0.2-4"></script>
+<script defer src="static/js/app-tooltip.js?v=8.0.2-5"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -13709,6 +13717,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=8.0.2-4"></script>
+<script defer src="static/js/sw-register.js?v=8.0.2-5"></script>
 </body>
 </html>

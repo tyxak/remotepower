@@ -37,11 +37,7 @@ EXEMPT = {
 }
 
 # (file, text) -> who changes it. These are still wrong today; the entry is removed in the commit that fixes the line.
-PENDING = {
-    ('README.md', 'A token enrols one host, so mint one per host.'): 'README.md: the release notes pass changes it',
-    ('docs/features.md', 'One-time tokens for Ansible/cloud-init/golden images'): 'docs/features.md: the release notes pass changes the row',
-    ('docs/features.md', 'ride in the one-time token'): 'docs/features.md: the release notes pass changes the row',
-}
+PENDING = {}     # the release notes pass has changed the three lines it listed (README.md and two rows of docs/features.md); a line found later is listed here with its owner
 
 
 def population():

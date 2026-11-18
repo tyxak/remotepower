@@ -161,6 +161,58 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v802.py",    # the release pins themselves
         "tests/test_scroll_cap_focus_rings_e2e.py",    # the keyboard focus ring of every control in the lists that scroll stays inside their edge (four lists, both engines measured by hand)
         "tests/test_v800_host_purge.py",               # the addresses a sensor queued for a host leave with it
+        # Enrolment and sign-in
+        "tests/test_enroll_token_many_hosts.py",              # max_uses: 1 to 1000, a use taken under the lock and given back for a refused host, racing requests, the list, revoke and the audit line
+        "tests/test_enroll_many_hosts_e2e.py",                # the Enroll dialog and the Add a host wizard in a browser: the field, the notice, the open commands, the next opening
+        "tests/test_enroll_many_hosts_i18n.py",               # every string of that work in all six languages
+        "tests/test_enrol_dialog_opens_afresh.py",            # the dialog opens at one host each time, whatever an earlier opening left behind
+        "tests/test_enrol_list_draws_text.py",                # a token's label is drawn as text, never as markup, in the source and in a browser
+        "tests/test_install_link_is_not_logged.py",           # the install link's token stays out of nginx's access log, in both shipped snippets
+        "tests/test_token_wording.py",                        # no shipped text says a token works once or for one host without saying what changes that
+        "tests/test_password_history_max_age.py",             # passwords remembered and a maximum age through the real routes: the fourth change back to the first at 3, expiry and its clearing, who is not aged, the audit lines, the export
+        "tests/test_password_policy_settings_e2e.py",         # the two Settings fields and the expired-password banner in a browser, in English, German and Arabic
+        "tests/test_password_policy_i18n.py",                 # every string of that work in all six languages
+        "tests/test_long_password.py",                        # a password over 72 bytes is refused with a message, and the five places that hash a password handle one
+        "tests/test_session_gates_allow_logout.py",           # every gate that holds a session behind a step lets it sign out
+        # Security
+        "tests/test_tenant_password_reset_and_export.py",     # a tenant administrator cannot set another tenant's password or download the export of every tenant
+        "tests/test_downloads_check_the_status.py",           # a download that saves the answer without its status saves the error: the class is held at zero
+        "tests/test_platform_only_markup.py",                 # what the page hides from everyone but the platform operator is what the server refuses them, in both directions
+        "tests/test_export_buttons_tenant_e2e.py",            # the export buttons pressed in a browser as a tenant administrator and as the platform operator
+        "tests/test_v802_key_scope_confirmations.py",         # an API key with a host scope lists, approves, rejects and clears only the confirmations of its own hosts
+        "tests/test_v802_key_scope_inbound_tokens.py",        # the same key manages only the inbound tokens pinned to its own hosts
+        # Software
+        "tests/test_software_inventory_server.py",            # the ingest of Windows and macOS lists, the policy, the search, the SBOM and the order of versions
+        "tests/test_software_inventory_agents.py",            # the two agents against a stand-in registry, application bundles in a temporary folder and a script in place of Homebrew
+        "tests/test_software_inventory_views.py",             # what each page and guide says about the software of a Windows or macOS host, run under node
+        "tests/test_software_inventory_nothing_queued.py",    # install, uninstall and hold answer 400 with the reason when no host takes the command
+        "tests/test_software_inventory_e2e.py",               # the pages that show such a host's software, in a browser over the demo, in three languages
+        "tests/test_software_violations_lock.py",             # the violations store is written under its lock when twelve hosts send their lists together
+        "tests/test_host_written_store_locks.py",             # no store a host writes is read and saved without its lock (the class, found by syntax tree)
+        # Patching, reports and the Data Explorer
+        "tests/test_mean_time_to_patch.py",                   # the sweep files each completed patch; the mttp field, the five-patch minimum, scope and tenant
+        "tests/test_mean_time_to_patch_ui.py",                # the card's words and the function that draws it, under node
+        "tests/test_mean_time_to_patch_e2e.py",               # the card at three widths in a browser
+        "tests/test_patch_age_split.py",                      # a request reads the small aging store and not the completed patches; a failed read of the host store empties nothing
+        "tests/test_fleet_read_failed_prunes.py",             # a failed read of the host store is not an empty fleet: four sweeps keep what they hold, and every function with that shape is found by syntax tree
+        "tests/test_data_explorer_hardware.py",               # the hardware entity: its rows, the queries, the serial number checked role by role
+        "tests/test_data_explorer_hardware_ui.py",            # the line under the entity select that says what a row is
+        "tests/test_data_explorer_hardware_e2e.py",           # the entity in the Data Explorer page, in a browser on the demo
+        "tests/test_query_value_types.py",                    # a value is read against the field it meets: every operator against text, number, flag and empty cells
+        "tests/test_data_explorer_value_ui.py",               # the page sends the text as typed
+        "tests/test_software_metering_cost.py",               # the cost of a licence: exact amounts, hostile costs, who sees money
+        "tests/test_software_metering_cost_ui.py",            # the metering table and its rule editor under node
+        "tests/test_software_metering_cost_e2e.py",           # the columns, the total, the CSV and a refused cost, in a browser
+        # Notifications and settings
+        "tests/test_failing_destination_mark.py",             # the Failing mark through the real route after real failed deliveries, role by role; an edit clears it
+        "tests/test_failing_destination_mark_ui.py",          # what the mark says and how it is drawn
+        "tests/test_failing_destination_mark_e2e.py",         # the mark on the right card in a browser, in three languages
+        "tests/test_declarative_destination_credentials.py",  # a settings document applied back keeps every destination credential; an unchanged import changes nothing
+        # Interface (these four keep the test_v801 name they were written under)
+        "tests/test_v801_date_prefs.py",                      # date order and clock under node with real ICU: seven languages, four orders, three clocks, a change of time zone
+        "tests/test_v801_date_prefs_e2e.py",                  # My Account's two selects and a chosen order on the audit log, in a browser
+        "tests/test_v801_smart_group_preview.py",             # the preview route: the saved group's own matcher, tenant and key scope, who may ask, nothing written
+        "tests/test_v801_smart_group_preview_e2e.py",         # the editor's button in a browser, and focus staying on it
     )
 
     def test_the_list_is_not_empty(self):

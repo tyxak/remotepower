@@ -142,7 +142,9 @@ wget -qO- "https://your-server/install?t=<token>" | sudo sh
 The host appears in the dashboard within about 60 seconds, which is the default
 poll interval. For several hosts at once,
 `install.sh agent push --server <url> --token <token> user@h1 user@h2 …` pushes
-the agent over your own SSH. A token enrols one host, so mint one per host.
+the agent over your own SSH. A token enrols one host unless you make it for
+more (**Hosts that can use it** in the Enroll window), so mint one per host or
+one for all of them.
 
 **Upgrading.** `git pull origin main && sudo bash install.sh update` handles
 both a plain code update and a conversion from a pre-6.1.0 install. Windows and
@@ -205,7 +207,12 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 ### Recent releases
 
-- **v8.0.2 "C0verMatters"** — what was missing from pages you already use: hosts and operating systems a page could not reach, and settings and numbers it did not have.
+- **v8.0.2 "C0verMatters"** — what was missing from pages you already use. One enrolment token can enrol many hosts, passwords can be
+  remembered and can age, and each person chooses how dates and the clock are written. Windows and macOS hosts send the software installed
+  on them, so the software views no longer leave them blank. The Patches page shows how long patching takes, the Data Explorer lists hosts
+  by their hardware, and software metering can carry what a licence costs. It also closes a flaw that let a tenant administrator set another
+  tenant's password and download every tenant's data, and one that let an API key with a host scope reach hosts outside it. Update the
+  Windows and macOS agents.
 - **v8.0.1 "L0gMatters"** — what Threat Intel tells you and what it does about it. Clear empties the table even with the
   Edge blocklist on. A service that does not answer is no longer counted against your daily limits, each service can have
   limits of its own, a **Request log** shows what RemotePower sent to AbuseIPDB and SniffCat, what each answered and what your

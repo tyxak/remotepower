@@ -75,7 +75,9 @@ class TestSettingsDocCard(unittest.TestCase):
         """Pins WHY the sentence had to go, so nobody re-adds it from memory."""
         hits = []
         for p in (_ROOT / "server" / "cgi-bin").glob("*.py"):
-            if re.search(r"forgot.?password|password_reset|reset-password", p.read_text(), re.I):
+            # a flow a person starts without being signed in: a "forgot password" page or route, a reset link or token. The audit action named
+            # password_reset (an administrator set someone's password, written since 8.0.2) is not one.
+            if re.search(r"forgot.?password|reset-password|password_reset_(?:token|link|request|email)|reset_token", p.read_text(), re.I):
                 hits.append(p.name)
         self.assertEqual(hits, [], f"a reset flow now exists in {hits} — document it")
 

@@ -75,7 +75,8 @@ holds long-form docs that don't fit there.
   changed: an authorization check on every route as 26 kinds of caller, hostile input on every route, the three agents
   and their installers, the web client and the web server headers, the interface, and the documents. Five high, seventeen
   medium and twelve low findings, all fixed, the scans and the mutation checks behind them, and what is still open.
-- **[v8.0.2.md](v8.0.2.md)** — "C0verMatters": what was missing from pages you already use.
+- **[v8.0.2.md](v8.0.2.md)** — "C0verMatters": one enrolment token for many hosts, password history and a maximum age, the software of Windows and
+  macOS hosts, mean time to patch, hardware in the Data Explorer and licence cost, and a fix for a tenant administrator who reached other tenants' data.
 - **[v8.0.1.md](v8.0.1.md)** — "L0gMatters": Clear empties the Threat Intel table even with the Edge blocklist on, a service that does not
   answer is no longer counted against your daily limits, each service has limits of its own, a Request log shows what was sent to AbuseIPDB and
   SniffCat and what your hosts' sensors sent, and an address a ban engine banned can be blocked without a score. The CVE scan checks Debian

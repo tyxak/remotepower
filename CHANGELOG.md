@@ -7,8 +7,304 @@ releases only; for an older release the entry below is the record.
 
 ## v8.0.2 — "C0verMatters" — unreleased (test)
 
-A release that fills in what was missing from pages you already use: hosts and operating systems a page could not reach, and settings and numbers it did not have.
-Each entry says what it adds and what it leaves out. The release page is [docs/v8.0.2.md](docs/v8.0.2.md).
+A release that fills in what was missing from pages you already use. One enrolment token can enrol many hosts, passwords can be remembered and can
+age, and each person can choose how dates and the clock are written. A smart group can be previewed before you save it, the Patches page shows how
+long patching takes, the Data Explorer lists hosts by their hardware, software metering can carry what a licence costs, and a notification destination
+that keeps failing is marked in Settings. Windows and macOS hosts send the software installed on them, so the software views no longer leave them
+blank. **It also closes a flaw that is older than this release:** with tenant isolation on, a tenant administrator could set the password of an
+account in another tenant, the platform operator's included, and could download the export of every tenant. It was found while testing the password
+history, and it comes first below. Only the Windows and macOS agents changed what they do; the Linux agent changed in one message it prints. The
+release page is [docs/v8.0.2.md](docs/v8.0.2.md).
+
+### Security
+
+- **A tenant administrator could set another tenant's password and download every tenant's data.** With tenant isolation on, two routes asked for an
+  administrator and never asked whose data they touched. `POST /api/users/passwd` set the password of any account: the platform operator's, or one in
+  another tenant, where the other account routes already answered "not found". `GET /api/export` is the ZIP of every store: the hosts and the accounts
+  of every tenant, with their password hashes, and the settings. Both belong to the platform operator now. A tenant administrator who names another
+  tenant's account gets the answer for an account that does not exist, the export answers 403 as the full backup does, and the Backup & restore card
+  in Settings is drawn for the operator only. With tenant isolation off nothing changes, and `GET /api/export/monitors`, the operator organisation's
+  own list, stays open to its users. This is in 8.0.0 and in the 8.0.1 pre-release, and in 7.5.0, the oldest release it was checked in; treat earlier
+  releases the same. An administrator's password reset was not on the audit log before this release, so the log cannot show whether the first route
+  was used: if you have tenant administrators you do not fully trust, change the platform operator's password after you update. **Held by**
+  `tests/test_tenant_password_reset_and_export.py`, which drives both routes as a tenant administrator, as the platform operator, as a viewer and on
+  an installation with tenancy off, and fails on the old code.
+
+- **The export you can share carried every account's credentials.** The ZIP from **Settings → Backups → Export** leaves out API keys and integration
+  secrets, and the guides call it safe to share. Its `users.json` was written as it is stored: each account's password hash, its two-factor secret
+  (and the one waiting to be confirmed) and its recovery codes. It holds none of them now, and none of the password history described below. The
+  accounts and everything else in them are still there. The full backup keeps them, because it restores accounts: keep it private, and set
+  `RP_BACKUP_PASSPHRASE` so that the archives on disk are encrypted. **If you gave an export from 8.0.1 or an earlier release to anyone, treat the
+  password hashes and two-factor secrets in it as exposed:** have those people change their passwords and set up two-factor authentication again.
+  **Held by** `tests/test_password_history_max_age.py` (the class `TestTheRedactedExportCarriesNoCredential`).
+
+- **An API key with a host scope reached hosts outside it.** A key can be given part of the fleet, and the scope confines even an administrator's key:
+  `GET /api/devices` answers it with the hosts of its scope. Three groups of routes asked about the tenant and not about the scope. In the
+  **confirmation ledger** a key limited to the web servers could list the pending confirmation of a database host, approve it, which queued the
+  command on that host, reject it and clear its history. With the **inbound tokens** it could read the name and address of a host a token is pinned
+  to, switch that host's intake off and delete the token. With the **smart groups** the list gave the member count of the whole tenant and, with
+  `?members=1`, the ids, and a group's member list named every member. A host outside the key's scope is answered as another tenant's host is, with a
+  404 that does not confirm the id exists, and nothing changes: no command is queued and a confirmation stays pending. A key with no scope behaves as
+  before. The smart-group preview, new in this release, follows the same rule. This is in 8.0.0 and in the 8.0.1 pre-release. **Held by**
+  `tests/test_v802_key_scope_confirmations.py`, `tests/test_v802_key_scope_inbound_tokens.py` and `tests/test_v801_smart_group_preview.py`, which use
+  real keys through the real route table and check both directions: a scoped key sees less, and a key with no scope sees what it saw.
+
+- **The install link is no longer written to the web server's access log.** The Quick install command puts the enrolment token in the link
+  (`/install?t=` and `/install.ps1?t=`), and nginx prints the request line whole, query string included. A token for one host stops working once that
+  host has enrolled; one made for many hosts (below) stays good until its uses are spent or it expires, 7 days at most, so the log would have held
+  working tokens for as long as it was kept. The two install locations of both shipped nginx snippets have `access_log off` now, and the app server
+  writes no access log of its own. An update copies the snippet into place; **if you edited it, add `access_log off;` to the two install blocks
+  yourself**, and do the same in a proxy of your own in front of the server. A copy of the command also stays in the shell history of each host, so
+  revoke the command when the rollout is done. There is no nginx on the machine this was built on: the directive is checked as text and against a
+  model of nginx's location rules, not on a running server. **Held by** `tests/test_install_link_is_not_logged.py`.
+
+### Enrolment and sign-in
+
+- **One enrolment token can enrol many hosts.** Group policy, golden images and autoscaling groups run one install command on many hosts, and a token
+  enrolled exactly one. `POST /api/enrollment-tokens` takes `max_uses`, a whole number from 1 to 1000, and **Hosts that can use it** in **Enroll
+  host** and in the Add a host wizard sets it. The default is 1, and a token made without it is stored and behaves as before. Anything else (text, a
+  decimal, a boolean, zero, a number above 1000) is a 400 and makes no token, and nothing raises the number later. Each host that enrols takes one use
+  under the token store's lock, so twelve requests racing for three uses enrol three hosts. A host that enrols again counts again; a host that is
+  refused (the fleet is at its host limit, or a known host sent the wrong host token) gives the use back. **Enroll host** lists the commands that are
+  still open as *used 2 of 10*, with the time they have left and a **Revoke**, and `GET /api/enrollment-tokens` returns `uses`, `max_uses` and
+  `uses_left`, never the token. Revoking stops further use at once. The audit log has a line for each host that enrolled, with the host's id, the
+  first characters of the token and how far it got (`use=2/10`). The window opens at 1 host each time: a number left from an earlier command would
+  have made the next Docker file a token for 400 hosts. Anyone who holds a command can enrol that many hosts until it expires, so make it for the
+  number you expect, give it a short life and limit it to your networks with `allowed_cidrs`. The server accepts 10 enrolment attempts a minute from
+  one address, so hosts that start at once behind one NAT address get a 429 after the tenth: run the installer again, because a refused host has not
+  used a use. The guides, the in-app Documentation page and the nginx comments no longer call a token one-time. The Linux agent now says why it
+  removes `/etc/remotepower/enroll-token` after it enrols; the Windows and macOS agents only post the token. **Held by**
+  `tests/test_enroll_token_many_hosts.py` (the route, the lock, the race, the audit line), `tests/test_enroll_many_hosts_e2e.py` (the window and the
+  wizard in a browser), `tests/test_enroll_many_hosts_i18n.py` (the new sentences in all six languages), `tests/test_enrol_dialog_opens_afresh.py`,
+  `tests/test_enrol_list_draws_text.py` (a token's label is drawn as text, in the source and in a browser) and `tests/test_token_wording.py`.
+
+- **Passwords remembered and a maximum password age.** **Settings → Security → Password policy** has two new rules. Both are 0, which is off, so an
+  installation that sets neither behaves as before and stores nothing extra. **Passwords remembered** (`password_history`, 0 to 24): a new password
+  cannot be the one in use or any of the ones before it, N in all. At 3 a person changes P1 to P2, P3 and P4, and the fourth change, back to P1, is
+  accepted. Only hashes are kept, in the scheme the account's password uses and at most N-1 of them, and lowering the number or turning it off deletes
+  what no longer counts at once, also when you restore an older revision of the settings. **Maximum password age** (`password_max_age_days`, 0 to
+  3650): a local password older than the limit has to be changed at the sign-in that used it, through the gate a default password already uses, so
+  nothing else works until the change is made; the one other thing such a session can do is sign out. An account with no recorded change date starts
+  its clock at its own first sign-in after you turn the age on, never all at once. Accounts that sign in through LDAP, OIDC, SAML or a passkey are not
+  aged, and API keys and service tokens have no password; a script that signs in with a user name and a password is aged like anyone else, so give it
+  an API key. Turning the age off later does not lift a change an account was already told to make. Only the platform operator can set either rule,
+  and a value outside the range is a 400 that saves none of the settings in the same request. Checking the history costs one password check for each
+  password kept, so a caller can ask ten times a minute and gets a 429 after that. The history is in no answer, log line or audit line. Password
+  changes, administrators' resets (which left no line at all) and changes refused for a repeat are on the audit log now, with the account's name and
+  never a password. The full backup keeps the history because it restores accounts. The offline `remotepower-passwd` tool is the break-glass route and
+  sets a password with none of these checks. **Held by** `tests/test_password_history_max_age.py` (the real routes),
+  `tests/test_password_policy_settings_e2e.py` (the two fields and the expired-password banner in a browser, in English, German and Arabic) and
+  `tests/test_password_policy_i18n.py`.
+
+- **A new password longer than 72 bytes is refused with a message.** bcrypt reads 72 bytes at most (72 letters or digits, fewer characters with
+  accents or other scripts) and bcrypt 5 refuses more, so a new password of 73 to 1024 bytes answered an internal server error, after the change had
+  spent its rate-limit slot. It is a 400 that says so now, before any lock or check. Passwords already stored are not touched, and an account made at
+  install, or with `remotepower-passwd`, with a longer password is stored with PBKDF2 and signs in as usual. The password tool and the three
+  installers hash a longer password with PBKDF2 as well, so a long `RP_ADMIN_PASS` in a Docker file (an `openssl rand -hex 64`, say) starts the
+  container instead of ending in a traceback; the entrypoint's fallback for an image without bcrypt had been a bare SHA-256 hash that the server does
+  not accept. **Held by** `tests/test_long_password.py`.
+
+- **A session held for a password change can sign out.** An account whose password is the default, was reset by an administrator or is past its
+  maximum age is held by a gate that answers 403 to everything but the change. The page signs out with `POST /api/logout`, which was not on that
+  gate's list, so the request was refused and the session stayed alive on the server until its token expired. It is allowed now and ends the session
+  like any other. The gates for read-only mode and for two-factor enrolment already allowed it, and a test derives the gates from the code and fails
+  for a new one that does not. **Held by** `tests/test_session_gates_allow_logout.py`.
+
+### Software
+
+- **Windows and macOS hosts send the software installed on them.** Those hosts were blank in the software search, the Software center, the software
+  policy, software metering, the SBOM and the CVE page. The Windows agent reads the programs of Programs and Features from the Uninstall keys of the
+  registry, the 64-bit one and its 32-bit twin, and only reads: it opens keys for reading and never loads, saves or writes a hive. The macOS agent
+  reads the application bundles in `/Applications`, `/System/Applications` and each account's `Applications` folder from their `Info.plist`, and the
+  Homebrew formulae and casks; it never follows a symlink out of an application folder, and it runs Homebrew as the account that owns it, never as
+  root. Both send the list when they start, about every six hours and when you ask (**Scan packages**, **Scan now**, **Send list**), and not again
+  while it is unchanged. A host keeps at most 5,000 rows, with at most 200 characters in a name, a version or a publisher. Updates and hotfixes,
+  components Windows hides and bundles that cannot be read are left out and counted. **Not listed:** a program installed for one user alone, an app
+  from the Microsoft Store, a portable program, and a Mac application kept outside those folders. Update the Windows and macOS agents to get it.
+  **Nothing here ran on a real Windows or macOS host.** The agents were tested with a stand-in for the registry, application bundles written to a
+  temporary folder and a script in place of Homebrew, and the symlink and pipe cases ran on Linux. **Held by**
+  `tests/test_software_inventory_agents.py`, `tests/test_software_inventory_server.py` (the ingest, the policy, the search, the SBOM, the Data
+  Explorer) and, in a browser over the demo, `tests/test_software_inventory_e2e.py`.
+
+- **Every software view reads such a list as it is, and the CVE page says it checks none of it.** Names match without regard to case, and a version is
+  read by the number it starts with, so 14.38 is above 14.9 and `2.43.0.windows.1` is above 2.9 and below 2.100; a version with no number in front
+  sorts below every version that has one. The same two versions always have the same order, so the highest row of a name does not depend on the order
+  the agent listed the rows in. A **required** rule with no tags is checked on Linux hosts only, because it was written for the packages of a
+  distribution and every Windows host would have broken `auditd`; **banned** and **min_version** rules apply to every host that has a list, and the
+  **Fix** button is not offered for a Windows or macOS host. The SBOM lists an application as `pkg:generic/<name>@<version>`, with the publisher as a
+  property of the component (the supplier of an SPDX package), and says how many entries the agent left out; **Baseline** and **Changes since
+  baseline** keep a program that writes no version, and compare the higher of two Homebrew versions of a name. Metering counts applications and never
+  calls one reclaimable, because a title such as `Google Chrome` is not the name of its process. **No vulnerability database is matched against
+  applications**, because their titles are not names any advisory is filed under, and a scan under a wrong name would read as clean. The CVE page says
+  **not checked** for these hosts, where it said *unsupported* or *no package list*, and the host view says that nothing on it is checked, in place of
+  "No vulnerabilities found". Package snapshots, **Install software**, uninstall and hold are written for Linux packages and skip these hosts. **Held
+  by** `tests/test_software_inventory_views.py` (what each page says, run under node, and the guides held to the code) and
+  `tests/test_software_inventory_server.py`.
+
+- **Install, uninstall and hold say when they queued nothing.** A Windows or macOS host in the target was skipped, and when every host was skipped the
+  server still answered 202 `ok: true, queued: 0`, so the page printed "Install queued for htop on 0 hosts" in the colour of a success and closed the
+  dialog, and the job listed the host as "(unsupported)". The server answers 400 now, with a sentence that says why, the per-host reasons and the
+  names of the hosts it skipped (the caller's own, never another tenant's); the job and the audit line are still written, the one-time install dialog
+  stays open, and the job shows *Skipped: not a Linux host*. A request that queued one host and skipped two is still a 202, and one parked for
+  approval is still a success. **Held by** `tests/test_software_inventory_nothing_queued.py`.
+
+### Patching, reports and the Data Explorer
+
+- **Mean time to patch.** The Patches page has a new card, and `GET /api/patch-report` a new `mttp` field, that say how long patching takes: from the
+  hourly check that first saw an update waiting on a host to the check that saw none waiting. The card shows the mean, the median and the 90th
+  percentile with the number of completed patches behind them (n), over the last 30 or 90 days (a select beside the host filter; `?mttp_days=30` or
+  `90`), for all updates and, on a line of its own, for the updates your distribution calls security fixes. With fewer than five completed patches it
+  says so and shows no number; a host with none is left out and never shown as zero; from three days up the figures read in days. The `mttp` field
+  also holds the figures for each host and, for the operator of an installation with tenants, for each tenant, over the hosts the caller may see.
+  **History starts at the upgrade.** Nothing was recorded before, so the card reads "No completed patches recorded yet" until hosts have patched, and
+  an update that was already waiting when you upgraded starts its clock then. A host that never reaches zero pending updates adds nothing. The sweep
+  that does the timing runs hourly on every installation now, with or without a Patch SLA rule (it returned at once without one); without a rule
+  nothing is in breach and nothing is raised. It keeps the last 200 completed patches of each host and none older than 400 days, in a store of its own
+  that a request never parses. The recording was tested by calling the sweep at chosen times, not over a week of real sweeps. **Held by**
+  `tests/test_mean_time_to_patch.py`, `tests/test_mean_time_to_patch_ui.py` (the card's words and the function that draws it),
+  `tests/test_mean_time_to_patch_e2e.py` (the card at three widths in a browser) and `tests/test_patch_age_split.py` (a request reads the small aging
+  store and not the completed patches).
+
+- **The Data Explorer lists hosts by their hardware.** A new `hardware` entity has one row for each host you can see, with 24 fields from what the
+  agents already report: maker, model and serial number (the DMI or WMI record), chassis, CPU model and count, memory total, module count, installed
+  size, type and speed, disk size, count and models, RAID arrays, graphics card count and models, and when the hardware was last stored. "Hosts by CPU
+  model", "hosts by make and model" and "hosts with a disk of this model" are queries now, in the page, in a batch and as a saved query. A host that
+  has not reported its hardware is a row of empty cells, and a count the host never sent is empty, not zero. The serial number follows the host's
+  Hardware tab: everyone who sees it there sees it here, for the hosts their role and tenant allow, and one function holds that rule. The serial
+  numbers of memory modules and disks are in no row. **There is no BIOS version**, because no agent reports one, so "BIOS older than X" cannot be
+  asked; that needs a read on each of the three agents. Nothing new is collected, and the rows for Windows and macOS hosts were built from the stored
+  record shape, not read from a live agent. **Held by** `tests/test_data_explorer_hardware.py` (the rows, the queries and the serial checked role by
+  role), `tests/test_data_explorer_hardware_ui.py` and, in a browser, `tests/test_data_explorer_hardware_e2e.py`.
+
+- **Digits typed alone find hosts in the Data Explorer.** The page turned any box text that parses as a number into a number, so `contains 7302` on a
+  processor model and `eq 2933` on a memory speed found nothing, although "EPYC 7302" and "2933 MT/s" matched, and `007` became 7 before it left the
+  page. The page sends the text as typed now, and the server reads the value against the field it meets: a text field and a number are compared as
+  text, a number field and text that is only a decimal number as numbers, a true/false field and the words `true` and `false` as the flag. Anything
+  else finds nothing and raises nothing, and a text field is never read as a number. A client that sends the number gets the same hosts, so saved
+  queries and the API keep working. **Held by** `tests/test_query_value_types.py` (the engine, every operator against every kind of cell) and
+  `tests/test_data_explorer_value_ui.py` (the page).
+
+- **Software metering can carry what a licence costs.** A rule is `name = limit @ cost | aliases`, for example `nginx = 10 @ 49.99`, and the limit is
+  the number of licences you own. With a cost the table adds **Owned**, **Unit cost**, **Short by**, **Cost to buy**, **Spare** and **Cost to
+  reclaim**, with a fleet total under it that says how many rules had no cost to add up. The CSV carries the same columns, and the amounts are in the
+  currency of your billing settings, written as the code before the amount (EUR 1,234.50). A cost is an amount from 0 to 1,000,000 with at most two
+  decimals, stored as text and worked out to the cent (3 × 19.99 is 59.97). A rule with no cost shows no amount, not 0.00, and a cost of 0 is a free
+  rule; a limit of 0 owns nothing, so nothing is short or spare. Anything else is refused and nothing is saved: three decimals, a sign, an exponent, a
+  thousands separator, `NaN`, `Infinity`, a number too big to hold, a boolean or a list. **Only an administrator and the finance role of the
+  operator's own organisation see money**, in the table and in `GET /api/config`, which carried the whole rule to every signed-in role; everyone else,
+  a tenant's administrator included, sees the counts for the hosts they may see and no price. **Held by** `tests/test_software_metering_cost.py`
+  (exact amounts worked out by hand, hostile costs, who reads what), `tests/test_software_metering_cost_ui.py` and, in a browser,
+  `tests/test_software_metering_cost_e2e.py`.
+
+### Notifications and settings
+
+- **Settings → Notifications marks a destination that keeps failing.** 8.0.1 raises an alert at the third failed delivery in a row, and the
+  destination list did not say so. The card of a destination with three or more failures in a row now carries a red **Failing** mark, how many
+  deliveries failed in a row and the kind of the last error: timed out, unreachable, name lookup failed, TLS or certificate error, credentials
+  rejected, rejected, receiver error, blocked address, settings incomplete or delivery error. It never shows the address or what the receiver
+  answered, and only the installation's administrator sees it (`fail_streak` and `fail_class` on the destination in `GET /api/config`). A destination
+  that failed three events shows 4, because the alert about it is delivered through every destination, the failing one included. The mark goes when a
+  delivery gets through, and when you change the destination's address, format or credentials, which also closes its alert because the failures so far
+  were about the old settings; renaming it or changing its filters leaves both. Switching a destination off, or removing it, takes its mark and its
+  alert away when you save and not when the next event is sent. The mark is read with the settings, so it changes when the page loads again. The mail
+  server's own failures are also raised as an alert and have no card in this list, so they are not marked. **Held by**
+  `tests/test_failing_destination_mark.py` (the real route after real failed deliveries, role by role), `tests/test_failing_destination_mark_ui.py`
+  and, in a browser on the demo, `tests/test_failing_destination_mark_e2e.py`.
+
+- **A settings document applied back puts the credentials back.** With a config master key set, the destinations of a settings document can be
+  imported. The export carries each destination's address, header values and Pushover user as ciphertext and every other secret (an HMAC secret, the
+  Pushover, GitHub and Matrix tokens, a ServiceNow or Jira secret) as `(redacted)`, and the import is meant to put the secrets back from what is
+  stored, matched by id. The table of collections gave the destinations no id, so nothing was found, and applying an export unchanged replaced each of
+  those credentials with the text `(redacted)`. Reproduced on the 8.0.1 tag. The destinations are matched by `id` now, and an entry with no id is
+  matched to nothing and keeps its placeholder. The preview of an import lists a destination as added, changed or removed by id, calls it changed only
+  when a field differs from what is stored, and names the field and never a value; an export applied back unchanged changes nothing and leaves every
+  Failing mark and open alert as it was. **Held by** `tests/test_declarative_destination_credentials.py` (every credential field of every format that
+  has one, through export and apply, twice).
+
+### Interface
+
+- **Date order and clock are account choices, apart from the language.** An English interface wrote `11/7/2026, 2:05:03 PM` for a person in Europe,
+  and the only way to change it was to change the language. **My Account → Profile → Language** has two selects beside the language picker: **Date
+  order** (Automatic, day first, month first, year first) and **Clock** (Automatic, 24-hour, 12-hour). Both are saved to the account, so they follow a
+  person to another browser. **Automatic writes exactly what the page wrote before, for every language.** A choice keeps the language's own month
+  names, digits and separators: day first reads 7/11/2026 in English and 7.11.2026 in German, and year first is always written 2026-11-07. Tables,
+  chart axes, the calendar heading, the patch report and the audit log follow it. E-mails, CSV and other exports keep their own formats; the public
+  status page, the customer portal, the printable report and the fleet query page load no `app.js`, so they keep the browser's own style; a date field
+  in a form follows the browser. A tab left open follows a change of time zone. Only Node's engine and Chromium were run: Firefox and Safari take
+  their month abbreviations and 12-hour spacing from their own engines. **Held by** `tests/test_v801_date_prefs.py` (the real client code in node over
+  seven languages, four orders and three clocks, each case checked against what the engine itself writes) and `tests/test_v801_date_prefs_e2e.py`.
+  Both files keep the `test_v801` name they were written under.
+
+- **Preview a smart group's members before you save it.** The smart-group editor has a **Preview members** button that shows "N hosts match" and the
+  first 50 host names, for the rules as they stand in the form (`POST /api/smart-groups/preview`, administrators only). The count comes from the
+  function that works out a saved group's members, over the same hosts, so what you see is what the group will hold: with tenant isolation on you see
+  and count only your own tenant's hosts, and an API key with a host scope sees only the hosts of that scope. The rules are validated as a save
+  validates them, an empty rule set included, and a preview stores nothing and writes nothing to the audit log. Changing a rule clears the answer, and
+  an answer that arrives after that is dropped. The preview shows what the form holds: rules a group has from the API that the editor has no field for
+  are not in it. **Held by** `tests/test_v801_smart_group_preview.py` and, in a browser, `tests/test_v801_smart_group_preview_e2e.py`.
+
+- **Keyboard focus rings are not cut off in four lists.** The ring of a control in the AI Insights cards, a Knowledge base article, the Links page and
+  a CMDB asset's documents was drawn outside the control and cut by the list's own edge, by 2 to 3 pixels (15 of the first 60 AI cards at the side,
+  every document heading on all four sides; measured in Chromium and Firefox). It is drawn inside the list now, as in the other scrolling lists.
+  **Held by** `tests/test_scroll_cap_focus_rings_e2e.py`, which walks the controls of the four lists in a browser, has a control that moves the ring
+  outside again, and fails for a new scrolling list that nothing measures.
+
+- **Focus comes back to a button whose handler disabled it.** Pressing **Preview members** with the keyboard left focus on the page body: the handler
+  disabled its own button while the request ran, a disabled control gives up focus, and a screen reader lost its place. The page already dims a
+  button, marks it busy and gives focus back for every button whose handler returns a promise, and it stepped aside when the button was already
+  disabled. Other handlers set a disabled flag themselves in the same way, so the dispatcher now gives focus back to such a button when the handler is
+  done; it does not take focus from a field the person moved to or a dialog that opened. **Held by** `tests/test_v801_smart_group_preview_e2e.py`
+  (Enter and Space on the button in a browser) and `tests/test_v630.py` (the two dispatch sites).
+
+- **A refused export is not saved as a file.** The redacted export and the calendar export read the answer as a file without looking at its status, so
+  a tenant administrator who pressed **Export** was saved a `backup.zip` that held the 403 answer, under a green "Backup downloaded". Both buttons
+  refuse a failed answer now: nothing is saved and the page says **Export failed**. Every other place that reads an answer as a file already checked
+  the status, and a test holds the class at zero. **Held by** `tests/test_downloads_check_the_status.py`, `tests/test_platform_only_markup.py` (what
+  the page hides from everyone but the operator is what the server refuses them, in both directions) and, in a browser,
+  `tests/test_export_buttons_tenant_e2e.py`.
+
+- **The time of a request sample on the Threat Intel page is exact on hover.** It was printed as a relative time with no tooltip, inside markup, where
+  the page's rule is relative in place and exact on hover. **Held by** `tests/test_v740_time_display.py`.
+
+### Fixes found on the way
+
+- **A failed read of the host list no longer empties what the sweeps keep for each host.** When the host store cannot be read (an unparsable file with
+  no backup, a dropped database connection), the read answers an empty result, which is also what an installation with no hosts reads as, and a sweep
+  that drops the entries of hosts the store does not hold took the first for the second. Five sweeps had that shape: the Patch SLA aging, the health
+  history (a score a day for each host, 180 days), the metric roll-ups (kept about two years), the thermal roll-ups and the dependency edges. They
+  keep what they hold now, write one line to the server log and try again at the next pass. The health sampler also records no day on a failed read:
+  an empty fleet scores 100, so the series had got a point of a perfect score for a fleet nobody could read, and the day's gate closed on it. The
+  metric roll-ups also had no rule for deleting a host, and have one. An installation emptied behind the product's back keeps the rows of its last
+  host until a host is enrolled. **Held by** `tests/test_fleet_read_failed_prunes.py` (four of the sweeps, each with a good read that lacks a host,
+  with an empty read and with no hosts, and every function of the server with that shape found by syntax tree) and `tests/test_patch_age_split.py`
+  (the Patch SLA's own).
+
+- **Two stores that hosts write are written under their lock.** The software policy's violations store was read and saved with no lock held across the
+  pair, so twelve hosts that sent their lists together kept three violation rows of twelve, and a host whose row was lost read as newly in breach at
+  its next push. The brute-force detector kept the window of every host in one document the same way, so a source that was counting towards the
+  threshold started again from nothing and the alert came late or not at all. Both take the lock now, and the events and the Threat Intel queue are
+  written after it is released. A count of the functions that a host-authenticated handler reaches and that read and save a store without its lock
+  found the brute-force window and three that are left (the long-poll slot, and the JSON-backend branches of a chart sample and a monitor history);
+  those are listed with their reasons, and a ratchet holds the class. **Held by** `tests/test_software_violations_lock.py` and
+  `tests/test_host_written_store_locks.py`.
+
+- **Deleting a host clears the addresses its sensor queued.** The Threat Intel intake keeps a queue of addresses for the next pass, each naming the
+  host whose sensor saw it. The purge cleared the host's sensor record and its lines in the request log and left the queue. A pass refuses to block
+  for a host that is gone, so nothing acted on the addresses, but they named a host that no longer exists. **Held by** `tests/test_v800_host_purge.py`
+  (the real producer and the real purge).
+
+### Tests and tooling
+
+- **Two test files that passed under unittest and failed under pytest pass under both.** `tests/test_v800_mcp_http.py` lost the output proxy its setup
+  installs, because pytest replaces `sys.stdout` for every test (15 tests failed); `tests/test_v743_security.py` sent no content length, so its answer
+  depended on what an earlier module had left in the process environment. `make test-fast` no longer has to be read around them.
+
+- **Guards that hold a class, not one case.** The ratchets for the key scope, for the locks of the stores hosts write, for downloads that skip the
+  status, for texts that call an enrolment token one-time and for the Enroll window's list read their population from the code or from the shipped
+  files, and each was shown failing on the old code. The three browser modules of this release plant their stores through the storage layer
+  (`tests/e2e_plant.py`), which brings `tests/test_no_raw_store_io_in_tests.py` back under its ceiling. The eager JavaScript budget in
+  `tests/test_v612_perf3.py` is set from the merged tree, with where the bytes of each feature went, and the lint list of bound handler names
+  (`tools/ruff-api-builtins.toml`) was regenerated for the smart-group preview.
 
 ## v8.0.1 — "L0gMatters" — 2026-11-16 (pre-release on dev; no standalone release)
 
