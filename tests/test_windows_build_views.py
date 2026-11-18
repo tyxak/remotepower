@@ -9,18 +9,15 @@ are measured in test_windows_host_e2e. Here:
   * the Fleet Query page has the control and its criterion reaches the server as `win_build`.
 """
 import json
-import os
 import re
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 _JS = ROOT / "server" / "html" / "static" / "js"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-winbuild-views-"))
 
 import i18n_engine  # noqa: E402
 import srcpin  # noqa: E402

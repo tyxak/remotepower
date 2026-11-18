@@ -10,18 +10,15 @@ definition updates apart. The page functions that print them run under node, tak
   * every phrase the page prints is a key of the dictionary in all six languages, and the real engine translates it.
 """
 import json
-import os
 import re
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 _JS = ROOT / "server" / "html" / "static" / "js"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-wusearch-views-"))
 
 import i18n_engine  # noqa: E402
 import srcpin  # noqa: E402
