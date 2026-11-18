@@ -5648,6 +5648,44 @@ def _entity_write_one(store_file, dev_id, value, non_blocking=True):
         pass
 
 
+def _entity_update_one(store_file, dev_id, fn, non_blocking=True):
+    """Change ONE row of an entity store so that no other writer gets between the read and the write: `fn(row)` is handed the stored row (None when there is none) and
+    returns the row to store; returning None leaves the row alone. Returns True when a row was written and False when nothing was: `fn` returned None, or a lock that was
+    held could not be got in the grace the other helpers give (non_blocking, the default, as for the heartbeat's other side blobs: the same data comes again at the next
+    report). With non_blocking=False a lock that stays held raises LockBusy.
+
+    `fn` runs inside the lock: it must be pure, with no store access and no notification (collect what to send, send it after). A DB backend does the read and the write in one
+    transaction (storage.entity_update), the row repaired by the shape registry like every single-row read; the JSON backend holds the store's lock around both, the
+    granularity it has. `_entity_read_one` then `_entity_write_one` is two steps: two requests that read the same row each write and each act on what they read."""
+    _m = _dbmod()
+    if _m is not None and _is_entity_store(store_file):
+        def _repaired(row):
+            if row is not None:
+                row = _shape_fix_row(store_file, dev_id, row)
+                if row is _ROW_LEFT_OUT:
+                    row = None
+            return fn(row)
+        try:
+            done = _m.entity_update(store_file, dev_id, _repaired, non_blocking)
+        except _m.LockBusyError:
+            if not non_blocking:
+                raise LockBusy(store_file, 0)
+            return False
+        _invalidate_load_cache(store_file)
+        return bool(done)
+    try:
+        with _LockedUpdate(store_file, non_blocking=non_blocking) as store:
+            new = fn(store.get(dev_id) if isinstance(store, dict) else None)
+            if new is None:
+                return False
+            store[dev_id] = new
+    except LockBusy:
+        if not non_blocking:
+            raise
+        return False
+    return True
+
+
 _PEEK_MISS = object()      # sentinel: no valid cached document this request
 
 

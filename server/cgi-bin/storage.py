@@ -1062,6 +1062,45 @@ def entity_set(path, key, value):
         _touch(conn, name)
 
 
+def entity_update(path, key, fn, non_blocking=False):
+    """Read one entity row, hand it to `fn` and store what `fn` returns, in one write transaction, so that no other writer changes the row between the read and the write
+    (api._entity_update_one). `fn(row)` gets the stored row, or None when there is none, and returns the row to store; returning None leaves the row as it is. It runs inside
+    the write lock: no database access, no notification. Returns whether a row was written. `non_blocking` gives a contended lock the grace the other helpers give it and
+    raises LockBusyError when it is still held."""
+    conn = _connect(_dir(path))
+    name = _name(path)
+    if non_blocking:
+        conn.execute('PRAGMA busy_timeout=100')
+    try:
+        with _Tx(conn, immediate=True):
+            row = conn.execute('SELECT doc FROM entity WHERE file=? AND k=?', (name, key)).fetchone()
+            current = json.loads(row['doc']) if row is not None else None
+            if row is None:
+                cold = conn.execute('SELECT doc FROM kv WHERE path=?', (name,)).fetchone()  # a row still in the blob of a file that was promoted (see entity_get)
+                if cold is not None:
+                    try:
+                        blob = json.loads(cold['doc'])
+                        current = blob.get(key) if isinstance(blob, dict) else None
+                    except Exception:
+                        current = None
+            new = fn(current)
+            if new is None:
+                return False
+            conn.execute(
+                'INSERT INTO entity(file, k, doc) VALUES(?,?,?) '
+                'ON CONFLICT(file, k) DO UPDATE SET doc=excluded.doc',
+                (name, key, _dumps(new)))
+            _touch(conn, name)
+            return True
+    except sqlite3.OperationalError as exc:
+        if non_blocking and 'locked' in str(exc).lower():
+            raise LockBusyError(path)
+        raise
+    finally:
+        if non_blocking:
+            conn.execute('PRAGMA busy_timeout=10000')
+
+
 def list_append(path, entry, cap=None):
     """Append one element to a wrapped-list file and optionally prune to the
     newest `cap` elements — O(1)/O(overflow), not O(list). Returns the list of

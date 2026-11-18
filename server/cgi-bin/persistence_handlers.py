@@ -58,40 +58,36 @@ def _persistence_ingest(dev_id, dev_name, raw, now):
     read whole for several inventories in a row.
 
     Called from the heartbeat after the devices lock is released. A snapshot that is not one of this version, or not a map, is dropped; nothing here raises, so a bad one
-    cannot fail the heartbeat that carried it. The row is written the way the other per-host stores are (one row, best effort, skipped under lock contention), and an alert
-    goes out only once the row that remembers it has been read back: a skipped write leaves the stored inventory as it was, the same new entries show again at the next
-    snapshot, and an alert sent for a row that was not kept would be sent a second time."""
-    sent, sent_unread = [], []
+    cannot fail the heartbeat that carried it. The row is read, compared and written as one step (`_entity_update_one`), so that two reports of one host that arrive together
+    cannot both read the row, both find the same entry new and both alert: the second one compares with what the first wrote. The step is best effort, as the other per-host
+    stores are: when a lock that is held cannot be got, nothing is written and nothing is sent, the same new entries show again at the next snapshot, and an alert for a row
+    that was not kept would be sent a second time. The alerts go out after the step, from what it decided, never from inside the lock."""
+    out = {}
     try:
         snap = P.clean_snapshot(raw)
         if snap is None:
             return
-        prev = A._entity_read_one(A.PERSISTENCE_FILE, dev_id, {})
-        if not isinstance(prev, dict):
-            prev = {}  # a row that is not a map is replaced, not read
-        rec, _added, _removed = P.apply_snapshot(prev, snap, now)
-        over = dict(rec.get("over") or {})  # new entries past the log: the alert counts them, and sending it clears them from the row
-        due, gone = P.due_alert(rec, now)
-        if due or gone:
-            P.mark_alerted(rec, due, gone, now)
-        unread = P.due_unread(rec)
-        if unread:
-            P.mark_unread(rec, unread)
-        A._entity_write_one(A.PERSISTENCE_FILE, dev_id, rec)
-        if due or unread:
-            kept = A._entity_read_one(A.PERSISTENCE_FILE, dev_id, {}) or {}
-            if isinstance(kept, dict) and kept.get("ts") == now:
-                if due and kept.get("alert_ts") == now:
-                    sent = due
-                inv = kept.get("inv") if isinstance(kept.get("inv"), dict) else {}
-                if unread and all(isinstance(inv.get(d["cat"]), dict) and inv[d["cat"]].get("warned") is True for d in unread):
-                    sent_unread = unread
+
+        def step(prev):
+            rec, _added, _removed = P.apply_snapshot(prev if isinstance(prev, dict) else {}, snap, now)  # a row that is not a map is replaced, not read
+            over = dict(rec.get("over") or {})  # new entries past the log: the alert counts them, and sending it clears them from the row
+            due, gone = P.due_alert(rec, now)
+            if due or gone:
+                P.mark_alerted(rec, due, gone, now)
+            unread = P.due_unread(rec)
+            if unread:
+                P.mark_unread(rec, unread)
+            out.update(due=due, over=over, unread=unread)
+            return rec
+
+        if not A._entity_update_one(A.PERSISTENCE_FILE, dev_id, step):
+            return
     except Exception as e:
         sys.stderr.write(f"[remotepower] persistence ingest failed dev={dev_id}: {type(e).__name__}: {e}\n")
         return
     for event, build, entries in (
-        ("persistence_added", lambda e: P.alert_payload(e, over), sent),
-        ("persistence_unread", P.unread_payload, sent_unread),
+        ("persistence_added", lambda e: P.alert_payload(e, out["over"]), out["due"]),
+        ("persistence_unread", P.unread_payload, out["unread"]),
     ):
         if not entries:
             continue

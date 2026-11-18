@@ -1232,6 +1232,36 @@ def entity_set(path, key, value):
         _touch(c, name)
 
 
+def entity_update(path, key, fn, non_blocking=False):
+    """Read one entity row, hand it to `fn` and store what `fn` returns, in one transaction that holds the file's advisory lock, so that no other writer changes the row
+    between the read and the write (api._entity_update_one). `fn(row)` gets the stored row, or None when there is none, and returns the row to store; returning None leaves
+    the row as it is. It runs inside the lock: no database access, no notification. Returns whether a row was written. `non_blocking` raises LockBusyError when the lock is
+    still held after the short retry budget."""
+    conn = _connect(_dir(path))
+    name = _name(path)
+    with _Tx(conn) as c:
+        _acquire(c, name, non_blocking)
+        row = c.execute('SELECT doc FROM entity WHERE file=%s AND k=%s', (name, key)).fetchone()
+        current = json.loads(row['doc']) if row is not None else None
+        if row is None:
+            cold = c.execute('SELECT doc FROM kv WHERE path=%s', (name,)).fetchone()  # a row still in the blob of a file that was promoted (see entity_get)
+            if cold is not None:
+                try:
+                    blob = json.loads(cold['doc'])
+                    current = blob.get(key) if isinstance(blob, dict) else None
+                except Exception:
+                    current = None
+        new = fn(current)
+        if new is None:
+            return False
+        c.execute(
+            'INSERT INTO entity(file, k, doc) VALUES(%s,%s,%s) '
+            'ON CONFLICT(file, k) DO UPDATE SET doc=excluded.doc',
+            (name, key, _dumps(new)))
+        _touch(c, name)
+        return True
+
+
 def list_append(path, entry, cap=None):
     return list_append_chained(path, lambda _prev: entry, cap=cap)
 

@@ -1315,16 +1315,39 @@ class TestFromTheHeartbeatToTheAlert(_Server):
         feed = [e for e in (api.load(api.FLEET_EVENTS_FILE) or {}).get('events', []) if e['event'] == 'persistence_added']
         self.assertEqual(len(feed), 1, 'a mute silences the paging channels, the history stays')
 
-    def test_the_write_is_checked_before_the_alert_goes_out_so_a_skipped_write_alerts_once_later(self):
+    def test_a_row_that_was_not_kept_sends_nothing_so_a_skipped_write_alerts_once_later(self):
         self.beat('win1', snap_of(run=[A]))
-        real = api._entity_write_one
-        with mock.patch.object(api, '_entity_write_one', lambda *a, **k: None):            # the write is skipped under lock contention
+        with mock.patch.object(api, '_entity_update_one', lambda *a, **k: False):            # the lock was held and the grace ran out: nothing was written
             self.beat('win1', snap_of(run=[A, B]))
         self.assertEqual(self.fired, [], 'an alert for a row that was not kept would be sent twice')
         self.assertEqual(self.stored('win1')['log'], [])
-        api._entity_write_one = real
         self.beat('win1', snap_of(run=[A, B]))
         self.assertEqual(len(self.fired), 1, 'the same new entry shows again at the next snapshot')
+
+    def test_two_reports_of_one_host_that_arrive_together_alert_once(self):
+        """Both read the row before either writes (a barrier where the comparison is made). They are one step now: the second compares with what the first wrote, or is
+        skipped and its entries show again at the next report. Either way one alert goes out for the one new entry."""
+        import threading
+        self.beat('win1', snap_of(run=[A]))
+        barrier, real = threading.Barrier(2), P.apply_snapshot
+
+        def meeting(prev, snap, now):
+            out = real(prev, snap, now)
+            try:
+                barrier.wait(timeout=0.6)
+            except threading.BrokenBarrierError:
+                pass
+            return out
+        snap = snap_of(run=[A, B])
+        now = int(time.time()) + 900
+        with mock.patch.object(P, 'apply_snapshot', meeting):
+            threads = [threading.Thread(target=api._persistence_ingest, args=('win1', 'win1', snap, now)) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(30)
+        self.assertEqual([e for e, _p in self.fired if e == 'persistence_added'], ['persistence_added'], 'one new entry, one alert')
+        self.assertEqual([(e['op'], e['name']) for e in self.stored('win1')['log']], [('added', 'Updater')], 'and one row in the log')
 
     WHOLE = [['Run', 'n%03d' % i, ''] for i in range(100)]
     CUT = {'ok': True, 'cut': True, 'items': [['Run', 'n%03d' % i, ''] for i in range(130)]}
@@ -1383,11 +1406,9 @@ class TestFromTheHeartbeatToTheAlert(_Server):
         self.beat('win1', snap_of(run=self.WHOLE))
         for _ in range(2):
             self.beat('win1', snap_of(run=self.CUT))
-        real = api._entity_write_one
-        with mock.patch.object(api, '_entity_write_one', lambda *a, **k: None):
+        with mock.patch.object(api, '_entity_update_one', lambda *a, **k: False):
             self.beat('win1', snap_of(run=self.CUT))
         self.assertEqual(self.notices(), [])
-        api._entity_write_one = real
         self.beat('win1', snap_of(run=self.CUT))
         self.assertEqual(len(self.notices()), 1)
         self.assertTrue(self.stored('win1')['inv']['run']['warned'])
