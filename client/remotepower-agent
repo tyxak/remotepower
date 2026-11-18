@@ -3522,10 +3522,13 @@ _PKG_REFRESH_WORDS = (
                     'gpg check failed', 'failed to download metadata', 'cannot download repomd', 'untrusted signature',
                     'bad signature', 'signature verification failed', 'valid metadata not found', 'is invalid')),
 )
-# The lines a manager prints while it is still waiting for somebody else's lock. Seen after PKG_REFRESH_LOCK_WAIT_S, they end the run.
+# The lines a manager prints while it is waiting for somebody else's lock. As the manager's latest message for PKG_REFRESH_LOCK_WAIT_S
+# seconds in a row, they end the run (see _pkg_refresh_waits_for_a_lock).
 _PKG_REFRESH_LOCK_RE = re.compile(
     r'waiting for (?:cache )?lock|could not get lock|waiting for process with pid|holding the yum lock|'
     r'unable to acquire the dpkg|system management is locked|unable to lock database|zypp is locked', re.I)
+# A class whose words come after a lock's own mean the run got past the lock and failed for that reason.
+_PKG_REFRESH_AFTER_LOCK = ('disk', 'network', 'repository')
 
 _PKG_REFRESH_LAST = None            # the last record, read from the state file the first time it is asked for
 _PKG_REFRESH_LOCK = threading.Lock()
@@ -3533,12 +3536,31 @@ _PKG_RESCAN_NOW = False             # a refresh ran by itself: the next poll rea
 
 
 def _pkg_refresh_class_of(text):
-    """The fixed class a manager's own words fall under, or '' when none of them do."""
+    """The fixed class a manager's own words fall under, or '' when none of them do. The classes are tried in order, with one
+    exception: a lock the manager waited for and got past (words of another failure come after its last lock words) is not what ended
+    the run, so a refresh that waited a moment and then could not reach a repository is a network failure and not a busy manager."""
     low = re.sub(r'\s+', ' ', (text or '').lower())
     for cls, words in _PKG_REFRESH_WORDS:
-        if any(w in low for w in words):
-            return cls
+        if not any(w in low for w in words):
+            continue
+        if cls == 'lock':
+            after = low[max(low.rfind(w) + len(w) for w in words if w in low):]
+            if any(w in after for c, ws in _PKG_REFRESH_WORDS if c in _PKG_REFRESH_AFTER_LOCK for w in ws):
+                continue
+        return cls
     return ''
+
+
+def _pkg_refresh_waits_for_a_lock(text):
+    """True when the manager's latest message is that it waits for another process's lock. The latest message is the last line that is
+    neither blank nor indented: an indented line carries on the line above it (yum prints the process that holds its lock on lines
+    indented under its own). A lock line that something else follows is history, the manager went on, so the manager is judged on the
+    output since it last made progress and never on the whole of what it printed."""
+    for line in reversed(re.split(r'[\r\n]+', text or '')):
+        if not line.strip() or line[:1] in (' ', '\t'):
+            continue
+        return bool(_PKG_REFRESH_LOCK_RE.search(line))
+    return False
 
 
 def _pkg_refresh_classify(source, rc, text):
@@ -3590,8 +3612,8 @@ def _pkg_refresh_stop(proc):
 
 
 def _pkg_refresh_exec(argv, env_extra=None, timeout=PKG_REFRESH_TIMEOUT_S, lock_wait=PKG_REFRESH_LOCK_WAIT_S):
-    """(rc, text, how). `how` is 'done' (it finished), 'timeout' (still running at the limit, ended), 'lock' (after lock_wait
-    seconds it was still printing that it waits for another process's lock, ended) or 'missing' (it could not be started).
+    """(rc, text, how). `how` is 'done' (it finished), 'timeout' (still running at the limit, ended), 'lock' (for lock_wait seconds
+    in a row its latest message was that it waits for another process's lock, ended) or 'missing' (it could not be started).
     The command gets no input, the C locale (its words are read as English) and its own process group."""
     env = dict(os.environ, LC_ALL='C', LANG='C', DEBIAN_FRONTEND='noninteractive')
     env.update(env_extra or {})
@@ -3625,7 +3647,7 @@ def _pkg_refresh_exec(argv, env_extra=None, timeout=PKG_REFRESH_TIMEOUT_S, lock_
 
     reader = threading.Thread(target=drain, daemon=True)
     reader.start()
-    started, how = time.monotonic(), 'done'
+    started, how, locked_since = time.monotonic(), 'done', None
     try:
         while True:
             try:
@@ -3633,13 +3655,20 @@ def _pkg_refresh_exec(argv, env_extra=None, timeout=PKG_REFRESH_TIMEOUT_S, lock_
                 break
             except subprocess.TimeoutExpired:
                 pass
-            waited = time.monotonic() - started
-            if waited >= timeout:
+            now = time.monotonic()
+            if now - started >= timeout:
                 how = 'timeout'
                 break
-            if waited >= lock_wait and _PKG_REFRESH_LOCK_RE.search(b''.join(chunks).decode('utf-8', 'replace')):
-                how = 'lock'
-                break
+            # A manager that waited a moment for a lock and went on has said so earlier in its output and is not stuck: only one whose
+            # latest message is still the wait counts, and only for as long as that has been so.
+            if _pkg_refresh_waits_for_a_lock(b''.join(chunks)[-8192:].decode('utf-8', 'replace')):
+                if locked_since is None:
+                    locked_since = now
+                elif now - locked_since >= lock_wait:
+                    how = 'lock'
+                    break
+            else:
+                locked_since = None
         if how != 'done':
             _pkg_refresh_stop(proc)
     finally:
@@ -3695,8 +3724,9 @@ def _pkg_refresh_run(timeout=None, lock_wait=None, which=None):
     if how == 'missing':
         return _pkg_refresh_record('failed', source, 'unknown')
     if how == 'timeout':
-        # A command that sat on another process's lock until the limit is a lock problem, not a slow network.
-        return _pkg_refresh_record('failed', source, 'lock' if _pkg_refresh_class_of(text) == 'lock' else 'timeout')
+        # A command that sat on another process's lock until the limit is a lock problem, not a slow network. One that waited for a
+        # lock earlier and ran on is not: only its latest message counts.
+        return _pkg_refresh_record('failed', source, 'lock' if _pkg_refresh_waits_for_a_lock(text) else 'timeout')
     if how == 'lock':
         return _pkg_refresh_record('failed', source, 'lock')
     status, cls = _pkg_refresh_classify(source, rc, text)

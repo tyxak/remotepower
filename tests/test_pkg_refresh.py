@@ -177,6 +177,14 @@ WARNING: Ignoring https://dl-cdn.alpinelinux.org/alpine/v3.19/community/x86_64/A
 OK: 5120 distinct packages available"""
 CHECKUPDATES = "linux 6.6.1-1 -> 6.7.2-1\nopenssl 3.2.0-1 -> 3.2.1-1"
 CHECKUPDATES_NET = "error: failed retrieving file 'core.db' from mirror.example.org : Could not resolve host: mirror.example.org"
+# A lock the manager waited for and got past, and then a failure of another kind: the lock is not what ended the run.
+APT_LOCK_THEN_NET = ("Waiting for cache lock: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 5678 (unattended-upgr)\n"
+                     + APT_NET)
+DNF_LOCK_THEN_NET = DNF_LOCK + "\n" + DNF_NET
+# A lock failure that ends in a line with no word of the lock in it (apk's second line says the database could not be opened).
+APK_LOCK = ("ERROR: Unable to lock database: Resource temporarily unavailable\n"
+            "ERROR: Failed to open apk database: Resource temporarily unavailable")
+PACMAN_LOCK = "error: failed to init transaction (unable to lock database)\nerror: could not lock database: File exists"
 
 # (source, rc, text) -> (status, class)
 SAMPLES = (
@@ -186,6 +194,7 @@ SAMPLES = (
     ("apt", 100, APT_PARTIAL, "partial", "repository"),
     ("apt", 100, APT_LOCK, "failed", "lock"),
     ("apt", 100, APT_LOCK_WAITED, "failed", "lock"),
+    ("apt", 100, APT_LOCK_THEN_NET, "failed", "network"),
     ("apt", 100, APT_NOT_ROOT, "failed", "permission"),
     ("apt", 100, APT_DISK, "failed", "disk"),
     ("apt", 100, "", "failed", "unknown"),
@@ -193,6 +202,7 @@ SAMPLES = (
     ("dnf", 1, DNF_NET, "failed", "network"),
     ("dnf", 0, DNF_PARTIAL, "partial", "repository"),
     ("dnf", 1, DNF_LOCK, "failed", "lock"),
+    ("dnf", 1, DNF_LOCK_THEN_NET, "failed", "network"),
     ("yum", 0, DNF_OK, "ok", ""),
     ("zypper", 0, ZYPPER_OK, "ok", ""),
     ("zypper", 106, ZYPPER_SKIPPED, "partial", "repository"),
@@ -200,7 +210,9 @@ SAMPLES = (
     ("zypper", 5, ZYPPER_ROOT, "failed", "permission"),
     ("apk", 0, APK_OK, "ok", ""),
     ("apk", 99, APK_NET, "failed", "network"),
+    ("apk", 99, APK_LOCK, "failed", "lock"),
     ("apk", 0, APK_PARTIAL, "partial", "network"),
+    ("pacman", 1, PACMAN_LOCK, "failed", "lock"),
     ("pacman", 0, CHECKUPDATES, "ok", ""),
     ("pacman", 2, "", "ok", ""),                        # checkupdates answers 2 when nothing is waiting
     ("pacman", 1, CHECKUPDATES_NET, "failed", "network"),
@@ -434,6 +446,152 @@ class TestARun(_Tmp):
         with mock.patch.object(agent, "IN_CONTAINER", False):
             rec = agent._pkg_refresh_run(which=which_in(self.bin))
         self.assertEqual((rec["status"], rec["error_class"], rec["source"]), ("unsupported", "no_manager", ""))
+
+
+# What each manager prints about another process's lock, as it prints it. Written out in full on purpose: the watchdog is only as good as
+# the words it reads, and a list cut down to one manager's phrase must fail here.
+LOCK_MESSAGES = (
+    ("apt", "Waiting for cache lock: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 5678 (unattended-upgr)"),
+    ("apt", "E: Could not get lock /var/lib/apt/lists/lock. It is held by process 1234 (apt-get)"),
+    ("apt", "E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?"),
+    ("dnf", "Waiting for process with pid 4321 to finish."),
+    ("yum", "Another app is currently holding the yum lock; waiting for it to exit..."),
+    ("zypper", "System management is locked by the application with pid 1234 (zypper). Close this application before trying again."),
+    ("apk", "ERROR: Unable to lock database: Resource temporarily unavailable"),
+    ("pacman", "error: failed to init transaction (unable to lock database)"),
+)
+# yum names the process that holds its lock on lines indented under the message, and says it again every few seconds.
+YUM_WAITING = """Existing lock /var/run/yum.pid: another copy is running as pid 1234.
+Another app is currently holding the yum lock; waiting for it to exit...
+  The other application is: PackageKit
+    Memory : 128 M RSS (1.2 GB VSZ)
+    Started: Wed Nov 18 08:00:11 2026 - 00:12 ago
+    State  : Sleeping, pid: 1234"""
+
+
+def script(*steps):
+    """A shell script from steps: ("say", text) prints text and a newline, ("sleep", seconds) waits."""
+    out = []
+    for kind, arg in steps:
+        out.append(f"cat <<'RP_END'\n{arg}\nRP_END\n" if kind == "say" else f"sleep {arg}\n")
+    return "".join(out)
+
+
+def alive(pid):
+    """True while the process runs. A zombie (killed, not yet collected by whoever adopted it) is gone for this purpose."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] not in ("Z", "X")
+    except (OSError, IndexError):
+        return False
+
+
+class TestTheLockWatchdog(_Tmp):
+    """A refresh stuck on another process's lock is ended and told as a lock; one that waited a moment and went on is left alone. The
+    manager is judged on its latest message and for as long as that has been its latest, never on everything it printed: dnf says
+    "Waiting for process with pid N to finish." once and then says nothing more about it, so the line stayed in the output for the rest of
+    the run and a healthy refresh that had waited three seconds for a timer's dnf was ended at the lock wait and reported as busy."""
+
+    def go(self, name, body, timeout=30, lock_wait=1):
+        tool(self.bin, name, body)
+        t0 = time.monotonic()
+        with mock.patch.object(agent, "IN_CONTAINER", False):
+            rec = agent._pkg_refresh_run(timeout=timeout, lock_wait=lock_wait, which=which_in(self.bin))
+        return rec, time.monotonic() - t0
+
+    def test_a_manager_that_stays_on_its_lock_message_is_ended_and_told_as_a_lock(self):
+        for name, text in (("apt-get", LOCK_MESSAGES[0][1]), ("dnf", LOCK_MESSAGES[3][1]), ("zypper", LOCK_MESSAGES[5][1])):
+            with self.subTest(manager=name):
+                shutil.rmtree(self.bin)
+                self.bin.mkdir()
+                rec, took = self.go(name, script(("say", text), ("sleep", 60)))
+                self.assertEqual((rec["status"], rec["error_class"]), ("failed", "lock"))
+                self.assertLess(took, 8, "the wait is a second here and the command would have run for a minute")
+
+    def test_every_managers_lock_message_is_one_the_watchdog_reads(self):
+        """Each message of each manager, alone and with a progress line before it. The control below says the population is not empty
+        and that ordinary output is not read as a lock."""
+        self.assertEqual({m for m, _t in LOCK_MESSAGES}, {"apt", "dnf", "yum", "zypper", "apk", "pacman"})
+        for manager, text in LOCK_MESSAGES:
+            with self.subTest(manager=manager, text=text[:40]):
+                self.assertTrue(agent._pkg_refresh_waits_for_a_lock(text))
+                self.assertTrue(agent._pkg_refresh_waits_for_a_lock("Hit:1 http://deb.debian.org/debian bookworm InRelease\n" + text))
+        for text in (APT_OK, DNF_OK, ZYPPER_OK, APK_OK, CHECKUPDATES, "", "\n\n", "locked", "Fetched 198 kB in 1s (275 kB/s)"):
+            with self.subTest(ordinary=text[:30]):
+                self.assertFalse(agent._pkg_refresh_waits_for_a_lock(text))
+
+    def test_a_lock_message_that_something_else_follows_is_history(self):
+        for manager, text in LOCK_MESSAGES:
+            with self.subTest(manager=manager):
+                self.assertFalse(agent._pkg_refresh_waits_for_a_lock(text + "\nFedora 39 - x86_64   12 MB/s |  38 MB     00:03"))
+                self.assertFalse(agent._pkg_refresh_waits_for_a_lock(text + "\nHit:1 http://deb.debian.org/debian bookworm InRelease\n"))
+        # a carriage return ends a line too: apt rewrites its status line on a terminal
+        self.assertFalse(agent._pkg_refresh_waits_for_a_lock(LOCK_MESSAGES[0][1] + "\r0% [Working]"))
+        self.assertTrue(agent._pkg_refresh_waits_for_a_lock("0% [Working]\r" + LOCK_MESSAGES[0][1]))
+
+    def test_yums_holder_lines_under_the_message_are_part_of_the_wait(self):
+        self.assertTrue(agent._pkg_refresh_waits_for_a_lock(YUM_WAITING))
+        self.assertTrue(agent._pkg_refresh_waits_for_a_lock(YUM_WAITING + "\n" + YUM_WAITING.split("\n", 1)[1]), "said again, as yum does")
+        self.assertFalse(agent._pkg_refresh_waits_for_a_lock(YUM_WAITING + "\nLoaded plugins: fastestmirror"))
+        rec, took = self.go("yum", script(("say", YUM_WAITING), ("sleep", 60)))
+        self.assertEqual((rec["source"], rec["status"], rec["error_class"]), ("yum", "failed", "lock"))
+        self.assertLess(took, 8)
+
+    def test_a_manager_that_waited_for_a_lock_and_went_on_is_left_alone(self):
+        """The shape of the defect, scaled down: the lock is free after 0.4 s, the refresh needs 3 s more, the lock wait is 1 s."""
+        steps = [("say", LOCK_MESSAGES[3][1]), ("sleep", 0.4)]
+        for i in range(10):
+            steps += [("say", f"Fedora 39 - x86_64   12 MB/s | {i} MB     00:0{i}"), ("sleep", 0.3)]
+        steps.append(("say", "Metadata cache created."))
+        rec, took = self.go("dnf", script(*steps))
+        self.assertEqual((rec["status"], rec["error_class"]), ("ok", ""))
+        self.assertGreater(took, 3, "it ran past the lock wait, which is what makes this a test")
+
+    def test_one_line_after_the_wait_is_enough_even_when_the_manager_then_goes_quiet(self):
+        """A manager with little to say (apk prints a line per repository) is not stuck because it is silent after the wait."""
+        rec, took = self.go("apk", script(("say", LOCK_MESSAGES[6][1].replace("ERROR: Unable to lock database: Resource temporarily unavailable",
+                                                                                  "waiting for lock: Unable to lock database")),
+                                          ("sleep", 0.3), ("say", "fetch https://dl-cdn.alpinelinux.org/alpine/v3.19/main/x86_64/APKINDEX.tar.gz"),
+                                          ("sleep", 3), ("say", "OK: 22983 distinct packages available")))
+        self.assertEqual((rec["status"], rec["error_class"]), ("ok", ""))
+        self.assertGreater(took, 3)
+
+    def test_the_wait_is_counted_from_the_message_and_not_from_the_start_of_the_run(self):
+        """A manager that works for three seconds and then waits for a lock has waited for none of the first three. Counted from the
+        start of the run, the lock wait would be over the moment the message appears."""
+        rec, took = self.go("dnf", script(("say", "Fedora 39 - x86_64   12 MB/s |  38 MB     00:03"), ("sleep", 3),
+                                          ("say", LOCK_MESSAGES[3][1]), ("sleep", 60)), lock_wait=1)
+        self.assertEqual((rec["status"], rec["error_class"]), ("failed", "lock"))
+        self.assertGreater(took, 3.8, "ended at the message and not a lock wait after it")
+        self.assertLess(took, 12)
+
+    def test_a_second_wait_is_counted_from_its_own_message(self):
+        """The manager waited, went on for a few seconds, and waits again (a second lock, or the same holder back). Each wait has the
+        whole lock wait to end: the first one does not count against the second."""
+        rec, took = self.go("dnf", script(("say", LOCK_MESSAGES[3][1]), ("sleep", 0.3), ("say", "Fedora 39 - x86_64   12 MB/s |  38 MB     00:03"),
+                                          ("sleep", 2.5), ("say", LOCK_MESSAGES[3][1]), ("sleep", 60)), lock_wait=1)
+        self.assertEqual((rec["status"], rec["error_class"]), ("failed", "lock"))
+        self.assertGreater(took, 3.5, "ended at the second message: the first wait was counted into it")
+        self.assertLess(took, 12)
+
+    def test_at_the_limit_a_run_is_a_lock_only_if_it_is_still_on_one(self):
+        # still on the message when the limit comes: a lock
+        rec, _took = self.go("dnf", script(("say", LOCK_MESSAGES[3][1]), ("sleep", 60)), timeout=2, lock_wait=60)
+        self.assertEqual((rec["status"], rec["error_class"]), ("failed", "lock"))
+        # it waited a moment, went on, and was slow: the limit, not a busy manager
+        rec, _took = self.go("dnf", script(("say", LOCK_MESSAGES[3][1]), ("sleep", 0.3), ("say", "Fedora 39 - x86_64   12 MB/s |  38 MB     00:03"),
+                                           ("sleep", 60)), timeout=2, lock_wait=60)
+        self.assertEqual((rec["status"], rec["error_class"]), ("failed", "timeout"))
+
+    def test_a_lock_the_run_got_past_is_not_the_class_of_a_later_failure(self):
+        """The same class at the other end: a finished run that waited for a lock and then could not reach a repository failed on the
+        network. The samples (APT_LOCK_THEN_NET, DNF_LOCK_THEN_NET) are in the table above; this is the rule they hold."""
+        self.assertEqual(agent._pkg_refresh_class_of(DNF_LOCK_THEN_NET), "network")
+        self.assertEqual(agent._pkg_refresh_class_of(APT_LOCK_THEN_NET), "network")
+        self.assertEqual(agent._pkg_refresh_class_of(DNF_LOCK), "lock", "the lock is still the class when nothing follows it")
+        self.assertEqual(agent._pkg_refresh_class_of(APK_LOCK), "lock", "and when what follows is not a failure of another class")
+        self.assertEqual(agent._pkg_refresh_class_of(DNF_NET + "\n" + DNF_LOCK), "lock", "a lock that came after the failure is the later event")
+        self.assertEqual(agent._pkg_refresh_class_of(APT_NOT_ROOT), "permission", "rights still outrank the lock they are about")
 
 
 class TestTheRecord(_Tmp):
