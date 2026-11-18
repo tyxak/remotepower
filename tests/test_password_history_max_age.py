@@ -158,7 +158,9 @@ class _Policy(unittest.TestCase):
         return self.call('POST', '/api/users/passwd', {'username': name, 'old_password': old, 'new_password': new}, token)
 
     def reset(self, name, new):
-        """An administrator sets someone else's password."""
+        """An administrator sets someone else's password, after the fresh sign-in check that asks for."""
+        st, d = self.call('POST', '/api/auth/step-up', {'password': ROOT_PW}, self.root_token)
+        self.assertEqual(st, 200, d)
         return self.call('POST', '/api/users/passwd', {'username': name, 'new_password': new}, self.root_token)
 
     def settings(self, **kw):
@@ -552,6 +554,8 @@ class TestAResetByATenantAdministratorWritesHistory(_Policy):
         self.tadmin = self.sign_in('tadmin', PW[2])['token']
 
     def test_the_history_is_written_and_a_repeat_of_the_old_password_is_refused(self):
+        st, d = self.call('POST', '/api/auth/step-up', {'password': PW[2]}, self.tadmin)      # setting somebody else's password asks for it
+        self.assertEqual(st, 200, d)
         st, d = self.call('POST', '/api/users/passwd', {'username': 'tuser', 'new_password': PW[5]}, self.tadmin)
         self.assertEqual(st, 200, d)
         self.assertTrue(api.verify_password(PW[5], self.rec('tuser')['password_hash']))

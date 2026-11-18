@@ -327,7 +327,7 @@ taken from `RP_WEBTERM_SECRET`.
 | `no enrolment token` | The link has no `?t=` part, or you ran the plain `/install` URL. Copy the line from **Quick install command**, or add `--token`. |
 | The PIN is refused | A PIN works once and expires after 10 minutes. Open **Enroll host** again for a new one. |
 | The host does not appear within a minute or two | Check that the host can reach the server on its HTTPS port, and read the agent log with `journalctl -u remotepower-agent`. |
-| I forgot the admin password | Another admin can reset it on the **Users** page. On the JSON backend you can also use `remotepower-passwd` (see *User management*). It does not work on SQLite or Postgres. |
+| I forgot the admin password | Another admin can reset it on the **Users** page. They are asked to confirm their own password first. On the JSON backend you can also use `remotepower-passwd` (see *User management*). It does not work on SQLite or Postgres. |
 | An agent needs to be removed from a host | `wget -qO- https://your-server/install \| sudo sh -s -- --uninstall`, then delete the host in the dashboard. |
 
 ---

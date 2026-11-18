@@ -27,8 +27,12 @@ _spec.loader.exec_module(api)
 OLD, NEW = "Old-Passw0rd-Str0ng!x", "New-Passw0rd-Str0ng!y"
 
 
-def row(user):
-    return {"user": user, "created": int(time.time()), "ttl": 3600, "ip": "192.0.2.1"}
+def row(user, stepped_up=False):
+    """A session row. `stepped_up` stamps a fresh re-authentication, which setting somebody else's password asks for."""
+    r = {"user": user, "created": int(time.time()), "ttl": 3600, "ip": "192.0.2.1"}
+    if stepped_up:
+        r["step_up_at"] = int(time.time())
+    return r
 
 
 class _Base(unittest.TestCase):
@@ -42,7 +46,7 @@ class _Base(unittest.TestCase):
                                   "root": {"password_hash": api.hash_password(OLD), "role": "admin"}})
         raw_hashed = hashlib.sha256(b"tokH").hexdigest()
         api.save(api.TOKENS_FILE, {"tokA": row("alice"), "tokB": row("alice"), raw_hashed: row("alice"), "tokC": row("bob"),
-                                   "tokR": row("root")})
+                                   "tokR": row("root", stepped_up=True)})
         api._LOAD_CACHE.clear()
 
     def tearDown(self):

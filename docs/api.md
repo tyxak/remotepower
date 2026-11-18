@@ -100,7 +100,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | `GET` | `/api/users` | | List users (with role, MFA state, sign-in source and last sign-in) |
 | `POST` | `/api/users` | admin | Create user (pass `role` — a built-in role or any custom role you've defined). A password over 72 bytes is a 400 |
 | `DELETE` | `/api/users/:name` | admin | Delete user |
-| `POST` | `/api/users/passwd` | | Change a password: your own with `old_password`, or another account's as an administrator. A password the account used recently is a 400 when `password_history` is set, and more than ten such checks a minute from one caller is a 429. A new password over 72 bytes is a 400 |
+| `POST` | `/api/users/passwd` | | Change a password: your own with `old_password`, or another account's as an administrator who has confirmed their own password in the last ten minutes (`POST /api/auth/step-up`). An API key cannot, so it gets a 403 with `step_up_required`. A password the account used recently is a 400 when `password_history` is set, and more than ten such checks a minute from one caller is a 429. A new password over 72 bytes is a 400 |
 
 ### API Keys
 | Method | Endpoint | Auth | Description |

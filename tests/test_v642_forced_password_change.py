@@ -14,6 +14,7 @@ Run: python3 -m pytest tests/test_v642_forced_password_change.py -q
 import os
 import sys
 import tempfile
+import time
 import unittest
 import importlib.util
 from pathlib import Path
@@ -41,11 +42,16 @@ class _Base(unittest.TestCase):
         api.method = lambda: "POST"
         api.get_token_from_request = lambda: "tok"
         api.save(api.USERS_FILE, {})
+        # the caller's session has just re-entered its password: setting somebody else's password asks for that (require_step_up reads
+        # the token store, which is the real one)
+        api.save(api.TOKENS_FILE, {api._token_hash("tok"): {"user": "root", "created": int(time.time()), "ttl": 3600,
+                                                              "step_up_at": int(time.time())}})
         api._LOAD_CACHE.clear()
 
     def tearDown(self):
         for n, v in self._orig.items():
             setattr(api, n, v)
+        api.save(api.TOKENS_FILE, {})        # the session row of setUp is not left for the next module that shares the data directory
         api._LOAD_CACHE.clear()
 
     def _call(self, fn, body, *a):

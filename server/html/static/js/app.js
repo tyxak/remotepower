@@ -5325,7 +5325,7 @@ function _passwordChangedHere() {
   const b = document.getElementById('default-pw-banner');
   if (b) b.style.display = 'none';
 }
-async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error', {transient: true}); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); if (username === getMe()) _passwordChangedHere(); } else failToast(data); }
+async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error', {transient: true}); return; } const data = await withStepUp(() => api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw})); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); if (username === getMe()) _passwordChangedHere(); } else if (data?.code !== 'step_up_required') failToast(data); }
 
 // v6.1.1 (#33): step-up re-auth. A handful of sensitive actions (minting or
 // promoting an admin account) 403 with {code:'step_up_required'} unless the

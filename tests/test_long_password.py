@@ -211,6 +211,9 @@ class TestANewPasswordOverTheLimitIsRefusedWithAMessage(_Base):
     def test_an_administrators_reset_is_held_to_it_too(self):
         st, d = self.call('POST', '/api/users/passwd', {'username': 'alice', 'new_password': _pw(73)}, self.root_token)
         self.assertEqual((st, (d or {}).get('error')), (400, MESSAGE), (st, d))
+        # setting somebody else's password asks for a fresh sign-in check, as creating an administrator does
+        st, d = self.call('POST', '/api/auth/step-up', {'password': ROOT_PW}, self.root_token)
+        self.assertEqual(st, 200, d)
         st, d = self.call('POST', '/api/users/passwd', {'username': 'alice', 'new_password': _pw(72)}, self.root_token)
         self.assertEqual(st, 200, d)
 

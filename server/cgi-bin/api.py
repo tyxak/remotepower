@@ -36893,6 +36893,15 @@ def handle_user_passwd():
         if username != requester and not _user_tenant_visible(username):
             respond(404, {'error': 'User not found'})
 
+        # SECURITY: setting somebody else's password takes that account over: the caller signs in as it with the password it just chose, and
+        # an administrator's account carries every power that asks for a step-up (a new administrator, the governance switches). Creating an
+        # administrator and promoting one both ask, because "an API key has no human present to re-auth" and so can never mint one; this
+        # route reached the same end without asking, so an administrator key took over the operator's own account and stepped up as it.
+        # Answered after the 404s above, so a cross-tenant name still looks like a name that does not exist. Own password: the old
+        # password is the proof, below.
+        if username != requester:
+            require_step_up()
+
         # Changing own password always requires old password
         if username == requester:
             if not _check_login_ratelimit(username, 'reauth'):

@@ -143,6 +143,11 @@ class TestWhoMayResetWhom(unittest.TestCase):
     def reset_as(self, token, name, new):
         return self.call('POST', '/api/users/passwd', {'username': name, 'new_password': new}, token)
 
+    def step_up(self, token, password):
+        """Setting somebody else's password asks for a fresh sign-in check: the administrator types their own password first."""
+        st, d = self.call('POST', '/api/auth/step-up', {'password': password}, token)
+        self.assertEqual(st, 200, d)
+
     def snapshot(self, name):
         return json.dumps(self.rec(name), sort_keys=True)
 
@@ -163,12 +168,14 @@ class TestWhoMayResetWhom(unittest.TestCase):
         self.assertEqual(self.reset_as(self.tadmin, 'root', PW[5]), self.reset_as(self.tadmin, 'no-such-account', PW[5]))
 
     def test_it_can_set_the_password_of_an_account_of_its_own_tenant(self):
+        self.step_up(self.tadmin, PW[2])
         st, d = self.reset_as(self.tadmin, 'tuser', PW[5])
         self.assertEqual(st, 200, d)
         self.assertTrue(api.verify_password(PW[5], self.rec('tuser')['password_hash']))
         self.assertTrue(self.rec('tuser')['must_change_password'], 'an administrator chose it, so the person changes it at the first sign-in')
 
     def test_the_platform_operator_can_set_the_password_of_an_account_of_any_tenant(self):
+        self.step_up(self.root_token, ROOT_PW)
         self.assertEqual(self.reset_as(self.root_token, 'tuser', PW[5])[0], 200)
         self.assertEqual(self.reset_as(self.root_token, 'alice', PW[5])[0], 200)
 
@@ -185,6 +192,7 @@ class TestWhoMayResetWhom(unittest.TestCase):
 
     def test_with_tenancy_off_every_administrator_sets_every_password_as_before(self):
         self.set_cfg(tenancy_enforced=False)
+        self.step_up(self.tadmin, PW[2])
         self.assertEqual(self.reset_as(self.tadmin, 'alice', PW[5])[0], 200)
 
     # ── the export ──────────────────────────────────────────────────────────────────────────────────────────────────────────
