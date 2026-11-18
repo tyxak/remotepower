@@ -677,6 +677,37 @@ class TestTheHeartbeat(_Host):
         self.assertEqual((pkg["upgradable"], pkg["upgradable_names"]), (4, DEFINITIONS + ["a", "b"]))
         self.assertNotIn("definition_updates", pkg)
 
+    def test_only_a_failed_search_keeps_the_count(self):
+        """The stored report is replaced by each beat, so a count is kept on a beat that says its search failed and on no other. A beat that
+        sends no count and no state (an agent from before the state existed, a host whose package manager vanished), a search that worked and
+        sent no count, and a state that is not one all leave no count and no time behind, as they did before the state existed."""
+        now = int(time.time())
+        counted = {"hostname": "WIN-SEARCH-1", "packages": {"manager": "windows-update", "upgradable": 3, "upgradable_names": PENDING}}
+        for label, sysinfo in (
+            ("no count and no state", {"hostname": "WIN-SEARCH-1"}),
+            ("a search that worked and sent no count", {"hostname": "WIN-SEARCH-1", "wu_search": {"at": now, "ok": True}}),
+            ("a state whose ok is not true or false", {"hostname": "WIN-SEARCH-1", "wu_search": {"at": now, "ok": "no"}}),
+            ("a state that is not a map", {"hostname": "WIN-SEARCH-1", "wu_search": "failed"}),
+        ):
+            with self.subTest(beat=label):
+                self.send_raw(counted)
+                seeded = self.stored()
+                self.assertEqual((seeded["packages"]["upgradable"], "pkg_scan_ts" in seeded), (3, True), "control: the host has a count")
+                self.send_raw(sysinfo)
+                si = self.stored()
+                self.assertNotIn("packages", si, "the count of an earlier report was kept by a beat that did not say its search failed")
+                self.assertNotIn("pkg_scan_ts", si, "the time of an earlier count was kept by a beat that did not say its search failed")
+        self.send_raw(counted)
+        self.send_raw({"hostname": "WIN-SEARCH-1", "wu_search": {"at": now, "ok": False, "error_class": "service"}})
+        kept = self.stored()
+        self.assertEqual((kept["packages"]["upgradable"], "pkg_scan_ts" in kept), (3, True), "control: a failed search does keep it")
+
+    def test_a_search_that_worked_and_found_nothing_is_a_count_of_zero_and_not_a_kept_one(self):
+        self.send_raw({"hostname": "WIN-SEARCH-1", "packages": {"manager": "windows-update", "upgradable": 3, "upgradable_names": PENDING}})
+        self.send_raw({"hostname": "WIN-SEARCH-1", "wu_search": {"at": int(time.time()), "ok": True},
+                       "packages": {"manager": "windows-update", "upgradable": 0, "upgradable_names": []}})
+        self.assertEqual(self.stored()["packages"]["upgradable"], 0)
+
     def test_the_checks_page_shows_the_row_and_the_mute_applies(self):
         self.send(fake_run(3, "RP_WU_ERROR:80070005:NotSpecified\r\n"))
         status, body = S.call(api, api.handle_device_checks, self.DEV)
