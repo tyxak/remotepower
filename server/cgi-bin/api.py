@@ -984,6 +984,7 @@ from secure_eq import secure_eq as _secure_eq   # constant-time comparison of se
 import store_shapes                             # the shape each store file is expected to have, and its repair (7.4.9)
 import host_purge                               # 8.0.0: what deleting a host removes from the stores that name it (pure)
 import upgrade_mode as upgrade_mode_mod   # a host's apt upgrade mode, Standard or Extended (Discussion #30; pure)
+import pkg_refresh as pkg_refresh_mod   # the state of a host's package-list refresh: {at, status, source, error_class} (pure)
 import zfs_stats as zfs_stats_mod   # 7.4.9: a host's ZFS cache counters and datasets, validated (pure)
 import peer_direction as peer_direction_mod   # v7.4.6 (#58): which way an observed TCP connection runs (pure)
 import thermal_sensors as thermal_sensors_mod   # a temperature history for every sensor, not only the hottest (pure)
@@ -1984,6 +1985,16 @@ patch_plan_handlers_mod.bind(globals())
 for _pp_name in ('handle_device_patch_preview', 'request_patch_preview', 'patch_preview_ingest'):
     globals()[_pp_name] = getattr(patch_plan_handlers_mod, _pp_name)
 del _pp_name
+
+# Package list refresh: "Check for updates now" on a Linux host, and the setting that refreshes before each scheduled scan.
+_pr_spec = _tk_ilu.spec_from_file_location(
+    'pkg_refresh_handlers', Path(__file__).parent / 'pkg_refresh_handlers.py')
+pkg_refresh_handlers_mod = _tk_ilu.module_from_spec(_pr_spec)
+_pr_spec.loader.exec_module(pkg_refresh_handlers_mod)
+pkg_refresh_handlers_mod.bind(globals())
+for _pr_name in ('handle_device_pkg_refresh',):   # the heartbeat reaches refresh_before_scan_for through the module
+    globals()[_pr_name] = getattr(pkg_refresh_handlers_mod, _pr_name)
+del _pr_name
 
 # 7.4.9: the container hardening audit. Two routes, so a bound module.
 _ca_spec = _tk_ilu.spec_from_file_location(
@@ -23569,6 +23580,12 @@ def handle_heartbeat():
                     'enabled': bool(_au.get('enabled')),
                     'mechanism': _sanitize_str(str(_au.get('mechanism', '')), 48),
                 }
+            # When the host's package lists were last refreshed, and how it went. safe_si is a whitelist, so a field named
+            # nowhere in it never reaches the Packages section. Every value is from a fixed set (pkg_refresh.clean), so
+            # the agent sends no free text here; a record that is not one is left out and the host reads as "never".
+            _pkr = pkg_refresh_mod.clean(si.get('pkg_refresh'), now)
+            if _pkr is not None:
+                safe_si['pkg_refresh'] = _pkr
             # v6.4.1: resolved sshd posture (root login / password auth). The
             # Security Advisory's whole identity layer keys off this — it was
             # written against the field for releases while nothing collected or
@@ -26024,6 +26041,14 @@ def handle_heartbeat():
             common_resp['traffic_every'] = traffic_handlers_mod.sampling_every()
     except Exception as _tre:
         sys.stderr.write(f"[remotepower] traffic setting dispatch failed: {type(_tre).__name__}: {_tre}\n")
+    # The setting "refresh the lists before each scheduled scan". A Linux agent is sent the key only while the setting is on and the
+    # host may take an action right now (maintenance mode, quarantine, audit mode and a closed change window all hold it); a host that
+    # was told before stops refreshing as soon as the key stops coming. Off by default, so nothing about a scan changes until then.
+    try:
+        if pkg_refresh_handlers_mod.refresh_before_scan_for(dev_id, saved_dev):
+            common_resp['refresh_lists_before_scan'] = True
+    except Exception as _rle:
+        sys.stderr.write(f"[remotepower] package list refresh setting dispatch failed: {type(_rle).__name__}: {_rle}\n")
 
     # v4.9.0: one-shot directive — tell the agent to harvest its acme.sh DNS
     # credentials on the next poll (admin clicked "Import from agent"). Cleared
@@ -26703,6 +26728,10 @@ def _command_kind(command):
         return 'upgrade'
     if s.startswith('winget:'):
         return 'upgrade'      # third-party app patching is still patching
+    # The package list refresh installs nothing, so it is not an upgrade; it is a scan for updates, and the `scan` kind is the one an
+    # operator can put behind four-eyes approval for it. Unmapped it would classify 'other', which no setting can gate.
+    if s == pkg_refresh_mod.VERB:
+        return 'scan'
     # v6.4.0: the conditional patch-window verb is still a reboot for
     # approval-gating purposes (same class as the bare-`upgrade` fix above —
     # an unmapped verb classifies 'other' and silently bypasses four-eyes).
@@ -26777,6 +26806,8 @@ def _command_summary(command):
             body = body.split(':', 1)[1]           # the per-command timeout prefix is not part of the script
         lines = [ln for ln in body.strip().splitlines() if ln.strip()]
         return 'run: ' + (lines[0].strip()[:150] if lines else '') + (' …' if len(lines) > 1 else '')
+    if s == pkg_refresh_mod.VERB:
+        return 'refresh the package lists'
     return s
 
 
@@ -27069,6 +27100,9 @@ _VERB_OS_SUPPORT = {
     'netscan':         ('linux',),
     'suspend':         ('linux',),
     'upgrade':         ('windows', 'darwin'),   # Linux patches via exec:<bash>
+    # "Check for updates now": the Linux agent refreshes its package lists with the distribution's own command. The Windows and
+    # macOS agents have no such command and answer "unsupported command", so the queue refuses it for them with a message.
+    pkg_refresh_mod.VERB: ('linux',),
 }
 _OS_LABEL = {'linux': 'Linux', 'windows': 'Windows', 'darwin': 'macOS'}
 
@@ -27511,6 +27545,8 @@ def _humanize_queued_command(cmd):
         return {'kind': 'compose', 'summary': s[8:][:200]}
     if s.startswith('acme:'):
         return {'kind': 'acme', 'summary': s[5:][:200]}
+    if s == pkg_refresh_mod.VERB:
+        return {'kind': 'scan', 'summary': 'refresh the package lists'}
     if s in ('reboot', 'shutdown', 'update', 'uninstall', 'scan'):
         return {'kind': s, 'summary': s}
     return {'kind': 'other', 'summary': s[:200]}
@@ -31589,6 +31625,7 @@ def handle_config_get():
     safe.setdefault('monitor_webhook_enabled', True)
     safe.setdefault('cve_webhook_enabled', True)
     safe.setdefault('cve_alert_fixable_only', False)
+    safe.setdefault('pkg_refresh_before_scan', False)   # refresh a Linux host's package lists before each scheduled scan; off keeps what a scan has always done
     safe.setdefault('cve_count_fixable_only', False)
     safe.setdefault('service_webhook_enabled', True)
     safe.setdefault('monitor_interval', 300)
@@ -32536,6 +32573,14 @@ def handle_config_save():
         if _fc is not True and _fc is not False:
             respond(400, {'error': 'cve_count_fixable_only must be true or false'})
         cfg['cve_count_fixable_only'] = _fc
+
+    if 'pkg_refresh_before_scan' in body:
+        # A switch that makes every Linux host run its package manager as root takes a real true or false and nothing else:
+        # bool("false") is True, and a client that meant "off" must not turn it on. Fixed sentence, so it can be translated.
+        _rl = body['pkg_refresh_before_scan']
+        if _rl is not True and _rl is not False:
+            respond(400, {'error': 'pkg_refresh_before_scan must be true or false'})
+        cfg['pkg_refresh_before_scan'] = _rl
 
     if 'service_webhook_enabled' in body:
         cfg['service_webhook_enabled'] = bool(body['service_webhook_enabled'])
@@ -79109,6 +79154,7 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('GET',), '/api/mailwatch', '', 'handle_mailwatch_overview', "pi == '/api/mailwatch' and m == 'GET'"),
     ('eq', ('POST',), '/api/status-token', '', 'handle_status_token', "pi == '/api/status-token' and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/scan-packages', 'handle_force_package_scan', "pi.startswith('/api/devices/') and pi.endswith('/scan-packages') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/refresh-package-lists', 'handle_device_pkg_refresh', "pi.startswith('/api/devices/') and pi.endswith('/refresh-package-lists') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/log-sweep/run', 'handle_log_sweep_run', "pi.startswith('/api/devices/') and pi.endswith('/log-sweep/run') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/log-sweep/diagnose', 'handle_log_sweep_diagnose', "pi.startswith('/api/devices/') and pi.endswith('/log-sweep/diagnose') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/log-sweep', 'handle_log_sweep_get', "pi.startswith('/api/devices/') and pi.endswith('/log-sweep') and m == 'GET'"),

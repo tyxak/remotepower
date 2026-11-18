@@ -95,6 +95,61 @@ and takes the distro's own security flag from that.
 - **Update the agent.** The agent does the counting, so a host shows these packages once its agent has
   this. dnf, yum and pacman hosts are unchanged.
 
+## Refreshing the package lists
+
+**Scan now** only re-reads what the package manager already knows. It asks no repository for anything, so a host whose lists are a
+week old reports a week-old answer. **Check for updates now** asks first. Open a Linux host, open **Packages** under **Software** on
+its **Audit** tab, and choose **Check for updates now**. The host runs its own refresh command, then reads what is pending against
+the new lists, and reports both at its next check-in (about a minute).
+
+The command is fixed. Nothing in it comes from the server, and the agent gives it no input and a limit of 120 seconds:
+
+| Package manager | The agent runs |
+|---|---|
+| apt | `apt-get update` |
+| dnf | `dnf makecache --refresh` |
+| yum | `yum makecache` |
+| zypper | `zypper --non-interactive refresh` |
+| apk | `apk update` |
+| Arch (pacman) | `checkupdates` from pacman-contrib, when it is installed |
+
+On Arch the agent never runs `pacman -Sy`. It refreshes the databases without upgrading anything, and the next
+`pacman -S <package>` against newer databases is a partial upgrade that can leave the host broken. Without `checkupdates`
+the answer is "not refreshed: no safe way on this distribution". Install `pacman-contrib` to get a refresh.
+
+If another package manager process holds the lock, the agent waits at most 30 seconds and then gives up with the class **the
+package manager was busy**. A refresh that is still running after 120 seconds is ended.
+
+**How it went** shows beside the **Lists refreshed** time on the Packages section. The agent sends one of four statuses and a
+class from a fixed list, and never the package manager's own output:
+
+| Status | Meaning |
+|---|---|
+| Succeeded | The lists are fresh. |
+| Partly succeeded | Some repositories were refreshed and some were not. The class says why (amber). |
+| Failed | Nothing was refreshed. The class says why (red). |
+| Not refreshed | The host cannot do it: no safe way on Arch, no package manager the agent knows, or a container (grey). |
+
+The classes are: the package manager was busy, the repositories could not be reached, a repository answered with an error, no space
+left or a read-only file system, not allowed to write the lists, it did not finish in 120 seconds, no safe way on this distribution,
+no package manager the agent can refresh, not available in a container, and the reason is not known.
+
+**Who and when.** Anyone who may patch the host (the **patch** permission, scoped to the host) can ask. The request is a queued
+command, so server maintenance mode, a quarantined host, an agent in [audit mode](agent-commands.md#read-only-audit-mode) and a maintenance window that holds
+commands apply to it. It can go through change approval: put the **Scan** kind under **Settings → Security → Change approval** and
+the refresh waits for a second admin. It is not available for Windows and macOS hosts, for hosts without an agent, or from the
+containerized agent, which would refresh its own image's lists and not the host's. `POST /api/devices/{id}/refresh-package-lists`
+asks for one.
+
+**Before each scheduled scan.** **Settings → Security → Package lists** has **Refresh the package lists before each scheduled scan**.
+It is off by default, and with it off a scan does what it always did. With it on, each Linux host refreshes its lists just before its
+scheduled scan. A host that is quarantined, in audit mode, in maintenance mode or outside a change window that holds commands
+scans without the refresh.
+
+The **Package index updated recently** check template also counts a refresh the agent ran itself, so the check works on dnf, zypper
+and apk hosts. A check applied from the template before this was added keeps its two apt paths: edit its path to add
+`/var/lib/remotepower/pkg-refresh-ok`, or apply the template again. A refresh that failed does not make the lists look fresh.
+
 ## Upgrade mode
 
 A host that uses apt runs its upgrades in one of two modes:

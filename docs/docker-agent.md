@@ -95,6 +95,9 @@ It reports "not available" instead of misleading host data for:
   from the container. (Install the native agent on the host if you need these.)
 - **Self-update** — the binary is baked into the image; upgrade by pulling a
   newer image tag, never in place.
+- **Check for updates now** — refreshing the package lists would refresh the lists of the agent's own
+  image, or write into a host file system that was mounted read-only. The host's
+  [Packages section](patches.md#refreshing-the-package-lists) says "not available in a container".
 - **Pending-update count on non-Debian hosts** — the installed-package inventory works on
   Debian/Ubuntu, Arch and Alpine hosts, but the "updates available" count is computed for
   apt hosts only. For dnf, pacman and apk hosts it stays *unknown*, never a false `0`. CVE scanning

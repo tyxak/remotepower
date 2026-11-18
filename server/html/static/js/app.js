@@ -6139,6 +6139,8 @@ async function loadSettings() {
   if (_fixOnly) _fixOnly.checked = data.cve_alert_fixable_only === true;
   const _cntOnly = document.getElementById('cfg-cve-count-fixable-only');
   if (_cntOnly) _cntOnly.checked = data.cve_count_fixable_only === true;
+  const _pkgRefOn = document.getElementById('cfg-pkg-refresh-before-scan');
+  if (_pkgRefOn) _pkgRefOn.checked = data.pkg_refresh_before_scan === true;
 
   // v1.8.6: SMTP
   document.getElementById('cfg-smtp-enabled').checked = !!data.smtp_enabled;
@@ -6354,6 +6356,7 @@ async function saveSettings(btn) {
     cve_severity_filter,
     cve_alert_fixable_only: (document.getElementById('cfg-cve-fixable-only') || {}).checked === true,
     cve_count_fixable_only: (document.getElementById('cfg-cve-count-fixable-only') || {}).checked === true,
+    pkg_refresh_before_scan: (document.getElementById('cfg-pkg-refresh-before-scan') || {}).checked === true,
     patch_alert_threshold: (() => { const el = document.getElementById('cfg-patch-threshold'); return el ? (parseInt(el.value) || 0) : 0; })(),
     session_ttl_short:     sessShortHours * 3600,
     session_ttl_long:      sessLongDays * 86400,
@@ -24002,6 +24005,50 @@ async function forcePackageScan(devId, name, btn) {
   }
 }
 
+// "Check for updates now": the host refreshes its package lists with the distribution's own command, then reads what is pending.
+// The agent reports how it went as {at, status, source, error_class}, every value from a fixed set, and the Packages section draws
+// it from those words only: nothing the agent sent is printed as it came.
+const _PKG_REFRESH_STATUS = {
+  ok:          ['Succeeded', 'var(--green)'],
+  partial:     ['Partly succeeded', 'var(--amber)'],
+  failed:      ['Failed', 'var(--red)'],
+  unsupported: ['Not refreshed', 'var(--muted)'],
+};
+const _PKG_REFRESH_CLASS = {
+  lock:        'the package manager was busy',
+  network:     'the repositories could not be reached',
+  repository:  'a repository answered with an error',
+  disk:        'no space left, or a read-only file system',
+  permission:  'not allowed to write the lists',
+  timeout:     'it did not finish in 120 seconds',
+  no_safe_way: 'no safe way on this distribution',
+  no_manager:  'no package manager the agent can refresh',
+  container:   'not available in a container',
+  unknown:     'the reason is not known',
+};
+function _pkgRefreshPill(pr) {
+  if (!pr || typeof pr !== 'object' || !_PKG_REFRESH_STATUS[pr.status]) {
+    return '<div class="sysinfo-pill"><div class="label">Lists refreshed</div><div class="value">Never</div></div>';
+  }
+  const [word, color] = _PKG_REFRESH_STATUS[pr.status];
+  const why = pr.status === 'ok' ? '' : (_PKG_REFRESH_CLASS[pr.error_class] || _PKG_REFRESH_CLASS.unknown);
+  return `<div class="sysinfo-pill"><div class="label">Lists refreshed</div><div class="value">${timeAgoHtml(pr.at)} <span class="pill" data-color="${color}">${word}</span></div>`
+    + (why ? `<div class="hint">${why}</div>` : '') + '</div>';
+}
+// A queued command: it reaches the host at its next check-in, and it can be parked for a second admin. api() resolves on a
+// refusal (and on 202), so the answer is read from the body.
+async function pkgRefreshNow(devId, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api('POST', `/devices/${encodeURIComponent(devId)}/refresh-package-lists`, {});
+    if (parkedForApproval(r)) return;
+    if (r && r.ok) toast('Refresh queued: the host runs it at its next check-in', 'success');
+    else failToast(r);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // v2.4.7: status endpoint token management.
 async function generateStatusToken() {
   if (!await uiConfirm({ message: 'Generate a status token? Any previous token stops working.', confirmText: 'Generate', danger: true })) return;
@@ -27329,15 +27376,22 @@ async function _loadAuditSection(key) {
         const upg  = (typeof pkg.upgradable === 'number') ? pkg.upgradable : '?';
         // A Windows host: the Defender definition updates the count leaves out, and how its last search went.
         const defs = (typeof pkg.definition_updates === 'number' && pkg.definition_updates > 0) ? pkg.definition_updates : 0;
+        // A Linux host with an agent can refresh its package lists on request; no other host has the command (the server
+        // refuses it with a message), so the button and the state are only drawn for one.
+        const canRefresh = !(_drawerDeviceData || {}).agentless
+          && !/windows|mac|darwin/i.test(String((_drawerDeviceData || {}).os || ''));
         body.innerHTML = `
           <div class="sysinfo-row isl-610">
             <div class="sysinfo-pill"><div class="label">Manager</div><div class="value">${escHtml(pkg.manager||'unknown')}</div></div>
             <div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value isl-635 ${upg>0?'c-amber':'c-green'}">${upg}</div></div>
             <div class="sysinfo-pill"><div class="label">Last scan</div><div class="value">${data?.sysinfo?.pkg_scan_ts ? timeAgoHtml(data.sysinfo.pkg_scan_ts) : '—'}</div></div>
             ${defs ? `<div class="sysinfo-pill"><div class="label">Definition updates</div><div class="value" title="Defender definition updates are counted here and left out of the pending updates.">${defs}</div></div>` : ''}
+            ${canRefresh ? _pkgRefreshPill(data?.sysinfo?.pkg_refresh) : ''}
           </div>
           ${_wuSearchLine(data?.sysinfo?.wu_search, 'mb-8')}
-          <button class="btn-secondary" data-action-btn="_forcePackageScanBtn" data-dev-id="${id}" data-dev-name="${escAttr(_drawerDeviceName)}" >⟳ Scan now</button>`;
+          <button class="btn-secondary" data-action-btn="_forcePackageScanBtn" data-dev-id="${id}" data-dev-name="${escAttr(_drawerDeviceName)}" >⟳ Scan now</button>
+          ${canRefresh ? `<button class="btn-secondary" data-action-btn="_pkgRefreshBtn" data-dev-id="${escAttr(id)}">${_icon('refresh', 14)} Check for updates now</button>
+          <p class="hint mt-8">Scan now reads what the package manager already knows. Check for updates now asks the repositories for fresh lists first, then reads what is pending.</p>` : ''}`;
         badge.textContent = upg > 0 ? `${upg} upgradable` : 'up to date';
         break;
       }
@@ -32618,6 +32672,9 @@ const _drawerActMap = new Map();
 // ── CSP L1: wrapper functions for this-passing and complex onclick= patterns ─
 function _forcePackageScanBtn(btn) {
   forcePackageScan(btn.dataset.devId, btn.dataset.devName || '', btn);
+}
+function _pkgRefreshBtn(btn) {
+  pkgRefreshNow(btn.dataset.devId, btn);
 }
 function _copySecretBtn(btn) {
   navigator.clipboard?.writeText(btn.dataset.secret);

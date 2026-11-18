@@ -2429,14 +2429,16 @@ CHECK_BASELINE_CATALOG = (
         "cat": "Freshness — scheduled jobs",
         "id": "apt_update_fresh",
         "type": "job_fresh",
-        "param": "/var/lib/apt/periodic/update-success-stamp|/var/lib/apt/lists",
+        "param": "/var/lib/apt/periodic/update-success-stamp|/var/lib/apt/lists|/var/lib/remotepower/pkg-refresh-ok",
         "name": "Package index updated recently",
         "extras": {"max_age_hours": 48},
         "desc": "If apt stopped updating, your patch data (and CVE view) is silently "
         "stale. Checks the apt-daily success stamp AND the package-list "
         "directory mtime (updated by every `apt update`, even a manual one) "
         "and uses the freshest — so it works whether or not unattended-"
-        "upgrades is configured.",
+        "upgrades is configured. A refresh the agent runs itself (Check for "
+        "updates now, in the host's Packages section) counts as well, which "
+        "is what makes the check work on dnf, zypper and apk hosts.",
     },
     {
         "cat": "Freshness — scheduled jobs",

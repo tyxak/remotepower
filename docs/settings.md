@@ -174,7 +174,8 @@ The trust-boundary controls and the security opt-ins:
   discovery (mDNS)**, **appliance config archive**, **warranty auto-lookup** and
   **login geolocation**.
 - **Credential checkout** (just-in-time access to CMDB credentials), **UPS
-  auto-shutdown**, **CVE details cache** and **CVE counts**.
+  auto-shutdown**, **CVE details cache**, **CVE counts** and **Package lists** (refresh a host's
+  lists before each scheduled scan, see [patches.md](patches.md#refreshing-the-package-lists)).
 - **Maintenance mode**, **Content-Security-Policy reporting**, **active sessions**.
 - **Self-signed certificate**, **Import a certificate (.p12 / .pfx)** and the
   **Transport security (HSTS)** report.

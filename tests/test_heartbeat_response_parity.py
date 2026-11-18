@@ -117,6 +117,10 @@ DECLARED = {
     # 8.0.0: how often (seconds) the agent samples its connections for the Traffic view, 0 = never. Only the Linux agent has `ss` and the kernel's byte
     # counters for each socket, and only it reads the key; the server sends it to Linux agents alone, 0 included, so that switching the module off reaches one.
     'traffic_every':        ('linux',),
+    # The setting "refresh the package lists before each scheduled scan". Only the Linux agent has the command that does it (the other two answer
+    # "unsupported command" to `pkg_refresh`), and the server sends the key to a Linux host alone, and only while the setting is on and the host
+    # may take an action (pkg_refresh_handlers.refresh_before_scan_for).
+    'refresh_lists_before_scan': ('linux',),
     # v7.0.2: the eight keys from the `common_resp = { ... }` literal. They
     # were outside the extraction above, so none of them had a row here.
     'poll_interval':        _ALL,

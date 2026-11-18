@@ -179,6 +179,7 @@ def _require_signed_updates():
 #  10. backup verify          collect_backup_verify()    refused (v7.0.3)
 #  11. restore drill          run_restore_drills()       refused (v7.0.3)
 #  12. host probes            _probe_update()            refused (7.4.9)
+#  13. package list refresh   refresh_package_lists()    refused
 #
 # 10 and 11 spawn `restic`/`borg`/`tar` as root against a repository the server
 # names, and 11 also creates and deletes a directory tree. They are CONFIG-driven
@@ -188,6 +189,10 @@ def _require_signed_updates():
 # 12 runs the checks the server assigned: it opens connections and runs ping to addresses the server names, so a hostile
 # server could use an audited host to look around its network. The server is told (the heartbeat carries audit_mode) and
 # shows the host as one that does not probe.
+#
+# 13 runs the distribution's own refresh command (`apt-get update` and its kin) as root, which writes the host's package lists.
+# The command is fixed and takes nothing from the server, but it changes the host, so it is refused here whether the operator's
+# button or the scheduled setting asked for it.
 #
 # A new channel that writes to the host, spawns a process, or moves a file
 # belongs on this list with its own _audit_mode() check — the flag is only worth
@@ -3468,6 +3473,321 @@ def get_patch_info():
             result['upgradable'] = None
             log.warning(f'pacman patch check failed: {e}')
     return result
+
+
+# ─── Refreshing the package lists ─────────────────────────────────────────────
+#
+# `Scan packages` (get_patch_info and send_package_list) re-reads what the package manager already knows. It asks no
+# repository for anything, so a host whose lists are a week old reports a week-old answer and nothing says so. This asks:
+# the distribution's own fixed command, a time limit, no input, a bounded wait for the lock, and the outcome kept as a
+# state the server shows: {at, status, source, error_class}. The manager's own words are read here to classify the outcome
+# and are never sent; only the fixed class leaves the host.
+#
+# Arch is the exception. `pacman -Sy` refreshes the sync databases without upgrading, and the next `pacman -S foo` against
+# newer databases is a partial upgrade that can leave the system broken, so it is never run from here. checkupdates
+# (pacman-contrib) syncs a private copy of the databases and is the one safe way; without it the answer is "no safe way".
+#
+# A refresh writes the host's package state, so audit mode refuses it (item 13 in the list near the top of this file).
+
+PKG_REFRESH_TIMEOUT_S = 120         # the whole command, start to finish
+PKG_REFRESH_LOCK_WAIT_S = 30        # how long another package manager process may hold the lock before the refresh gives up
+PKG_REFRESH_OUTPUT_CAP = 65536      # bytes of the manager's own output kept in memory to be read
+PKG_REFRESH_STATE = 'pkg-refresh.json'
+PKG_REFRESH_STAMP = 'pkg-refresh-ok'   # written on ok and partial only, so the "Package index updated recently" check can read it
+
+_PKG_REFRESH_STATUSES = ('ok', 'partial', 'failed', 'unsupported')
+_PKG_REFRESH_SOURCES = ('apt', 'dnf', 'yum', 'zypper', 'apk', 'pacman')
+_PKG_REFRESH_CLASSES = ('', 'lock', 'network', 'repository', 'disk', 'permission', 'timeout',
+                        'no_safe_way', 'no_manager', 'container', 'unknown')
+
+# What each manager says, lower-cased and with runs of white space as one space. The first class with a match wins, so the
+# causes that stop the whole run come before the ones a single repository can have. Permission comes before lock: a manager
+# that cannot open its lock file for want of rights says "Unable to lock" and "Permission denied" together, and the rights are the cause.
+_PKG_REFRESH_WORDS = (
+    ('permission', ('permission denied', 'are you root', 'superuser privileges', 'root privileges', 'operation not permitted',
+                    'you need to be root', 'must be root')),
+    ('lock', ('could not get lock', 'unable to acquire the dpkg', 'unable to lock', 'waiting for cache lock',
+              'is another process using it', 'waiting for process with pid', 'holding the yum lock',
+              'system management is locked', 'zypp is locked', 'another app is currently holding')),
+    ('disk', ('no space left on', 'read-only file system', 'not enough free space', 'disk full')),
+    ('network', ('temporary failure resolving', 'temporary failure in name resolution', 'could not resolve', "couldn't resolve",
+                 'name or service not known', 'could not connect', 'connection failed', 'connection timed out',
+                 'connection refused', 'network is unreachable', 'no route to host', 'cannot initiate the connection',
+                 'failed to connect', 'timeout was reached', 'timed out', 'curl error (6)', 'curl error (7)',
+                 'curl error (28)', 'curl error (35)', 'network error', 'dns lookup error', 'temporary error (try again later)',
+                 'could not handshake', 'unable to connect', 'no address associated with hostname')),
+    ('repository', ('404 not found', '403 forbidden', '410 gone', 'status code: 404', 'status code: 403', 'status code: 410',
+                    'does not have a release file', 'no longer has a release file', 'is not signed', 'no_pubkey',
+                    'the following signatures', 'expkeysig', 'keyexpired', 'badsig', 'is not valid yet', 'hash sum mismatch',
+                    'gpg check failed', 'failed to download metadata', 'cannot download repomd', 'untrusted signature',
+                    'bad signature', 'signature verification failed', 'valid metadata not found', 'is invalid')),
+)
+# The lines a manager prints while it is still waiting for somebody else's lock. Seen after PKG_REFRESH_LOCK_WAIT_S, they end the run.
+_PKG_REFRESH_LOCK_RE = re.compile(
+    r'waiting for (?:cache )?lock|could not get lock|waiting for process with pid|holding the yum lock|'
+    r'unable to acquire the dpkg|system management is locked|unable to lock database|zypp is locked', re.I)
+
+_PKG_REFRESH_LAST = None            # the last record, read from the state file the first time it is asked for
+_PKG_REFRESH_LOCK = threading.Lock()
+_PKG_RESCAN_NOW = False             # a refresh ran by itself: the next poll reads what is pending against the new lists
+
+
+def _pkg_refresh_class_of(text):
+    """The fixed class a manager's own words fall under, or '' when none of them do."""
+    low = re.sub(r'\s+', ' ', (text or '').lower())
+    for cls, words in _PKG_REFRESH_WORDS:
+        if any(w in low for w in words):
+            return cls
+    return ''
+
+
+def _pkg_refresh_classify(source, rc, text):
+    """(status, error_class) of one finished refresh command, from its exit code and what it printed."""
+    text = text or ''
+    cls = _pkg_refresh_class_of(text)
+    low = re.sub(r'\s+', ' ', text.lower())
+    if source == 'apt':
+        lines = text.splitlines()
+        failed = [l for l in lines if l.startswith(('Err:', 'E:'))
+                  or (l.startswith('W:') and ('Failed to fetch' in l or 'index files failed' in l))]
+        got = [l for l in lines if l.startswith(('Hit:', 'Get:'))]
+        if rc == 0 and not failed:
+            return 'ok', ''
+        if cls in ('lock', 'permission', 'disk'):
+            return 'failed', cls                   # the run never got as far as the repositories
+        return ('partial' if got else 'failed'), (cls or 'unknown')
+    if source == 'pacman':
+        # checkupdates: 0 = updates are waiting, 2 = none, anything else could not sync.
+        return ('ok', '') if rc in (0, 2) else ('failed', cls or 'unknown')
+    if source == 'zypper':
+        if rc == 0 and 'skipping repository' not in low:
+            return 'ok', ''
+        if rc == 7:
+            return 'failed', 'lock'
+        if rc == 5:
+            return 'failed', 'permission'
+        return ('partial' if rc in (0, 106) else 'failed'), (cls or 'unknown')
+    # dnf, yum, apk: a clean exit with nothing about a failed repository is ok; a clean exit with some is partial.
+    some = any(w in low for w in ('ignoring repositories', 'failed to download metadata', 'warning: ignoring', 'curl error',
+                                  'cannot download', 'error: failed'))
+    if rc == 0:
+        return ('partial', cls or 'unknown') if some else ('ok', '')
+    return 'failed', cls or 'unknown'
+
+
+def _pkg_refresh_stop(proc):
+    """End a refresh command and everything it started: TERM to its process group, then KILL if it is still there."""
+    for sig, wait in ((signal.SIGTERM, 3), (signal.SIGKILL, 3)):
+        try:
+            os.killpg(proc.pid, sig)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=wait)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def _pkg_refresh_exec(argv, env_extra=None, timeout=PKG_REFRESH_TIMEOUT_S, lock_wait=PKG_REFRESH_LOCK_WAIT_S):
+    """(rc, text, how). `how` is 'done' (it finished), 'timeout' (still running at the limit, ended), 'lock' (after lock_wait
+    seconds it was still printing that it waits for another process's lock, ended) or 'missing' (it could not be started).
+    The command gets no input, the C locale (its words are read as English) and its own process group."""
+    env = dict(os.environ, LC_ALL='C', LANG='C', DEBIAN_FRONTEND='noninteractive')
+    env.update(env_extra or {})
+    try:
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                env=env, start_new_session=True)
+    except OSError:
+        return -1, '', 'missing'
+    chunks, size = [], [0]
+    fd = proc.stdout.fileno()
+
+    def drain():
+        # os.read on the descriptor, not the buffered file: close() of a buffered file waits for a read that is still
+        # blocked, and a process the manager started can hold the pipe open after the manager itself is gone. The reader
+        # closes the pipe itself when it is done, so the descriptor is never closed (and its number reused) under a read.
+        try:
+            while True:
+                raw = os.read(fd, 4096)
+                if not raw:
+                    return
+                if size[0] < PKG_REFRESH_OUTPUT_CAP:
+                    chunks.append(raw)
+                    size[0] += len(raw)
+        except (OSError, ValueError):
+            return
+        finally:
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    started, how = time.monotonic(), 'done'
+    try:
+        while True:
+            try:
+                proc.wait(timeout=0.25)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            waited = time.monotonic() - started
+            if waited >= timeout:
+                how = 'timeout'
+                break
+            if waited >= lock_wait and _PKG_REFRESH_LOCK_RE.search(b''.join(chunks).decode('utf-8', 'replace')):
+                how = 'lock'
+                break
+        if how != 'done':
+            _pkg_refresh_stop(proc)
+    finally:
+        reader.join(2)
+    return (proc.returncode if proc.returncode is not None else -1), b''.join(chunks).decode('utf-8', 'replace'), how
+
+
+def _pkg_refresh_plan(which=None, lock_wait=PKG_REFRESH_LOCK_WAIT_S):
+    """(source, argv, env) of the refresh command for this host, or (source, None, error_class) when there is none to run.
+    Nothing in the command comes from the server or from anything on the host but the path of the tool."""
+    which = which or _which
+    path = which('apt-get')
+    if path:
+        # APT::Sandbox::User=root is what the upgrade command sets too: under a service sandbox apt cannot hand its download
+        # method to the _apt user, and the lists would not be fetched.
+        return 'apt', [path, '-o', f'DPkg::Lock::Timeout={lock_wait}', '-o', 'APT::Sandbox::User=root', 'update'], {}
+    for name in ('dnf', 'dnf5'):
+        path = which(name)
+        if path:
+            return 'dnf', [path, '-y', 'makecache', '--refresh'], {}
+    path = which('yum')
+    if path:
+        return 'yum', [path, '-y', 'makecache'], {}
+    path = which('zypper')
+    if path:
+        return 'zypper', [path, '--non-interactive', 'refresh'], {'ZYPP_LOCK_TIMEOUT': str(lock_wait)}
+    path = which('apk')
+    if path:
+        return 'apk', [path, '--wait', str(lock_wait), 'update'], {}
+    if which('pacman'):
+        path = which('checkupdates')
+        if path:
+            return 'pacman', [path], {}
+        return 'pacman', None, 'no_safe_way'
+    return '', None, 'no_manager'
+
+
+def _pkg_refresh_record(status, source, error_class):
+    return {'at': int(time.time()), 'status': status, 'source': source, 'error_class': error_class}
+
+
+def _pkg_refresh_run(timeout=None, lock_wait=None, which=None):
+    """One refresh, start to finish: the record {at, status, source, error_class}. Never raises."""
+    timeout = PKG_REFRESH_TIMEOUT_S if timeout is None else timeout
+    lock_wait = PKG_REFRESH_LOCK_WAIT_S if lock_wait is None else lock_wait
+    if IN_CONTAINER:
+        # The agent would refresh the lists of its own image, or write into a host file system it was given read-only.
+        return _pkg_refresh_record('unsupported', '', 'container')
+    source, argv, extra = _pkg_refresh_plan(which, lock_wait)
+    if argv is None:
+        return _pkg_refresh_record('unsupported', source, extra)
+    rc, text, how = _pkg_refresh_exec(argv, extra, timeout, lock_wait)
+    if how == 'missing':
+        return _pkg_refresh_record('failed', source, 'unknown')
+    if how == 'timeout':
+        # A command that sat on another process's lock until the limit is a lock problem, not a slow network.
+        return _pkg_refresh_record('failed', source, 'lock' if _pkg_refresh_class_of(text) == 'lock' else 'timeout')
+    if how == 'lock':
+        return _pkg_refresh_record('failed', source, 'lock')
+    status, cls = _pkg_refresh_classify(source, rc, text)
+    return _pkg_refresh_record(status, source, cls)
+
+
+def _pkg_refresh_clean(raw):
+    """A record read back from disk, or None when it is not one of ours."""
+    if not isinstance(raw, dict):
+        return None
+    at = raw.get('at')
+    if not isinstance(at, int) or isinstance(at, bool) or at <= 0:
+        return None
+    if raw.get('status') not in _PKG_REFRESH_STATUSES:
+        return None
+    source = raw.get('source') if raw.get('source') in _PKG_REFRESH_SOURCES else ''
+    cls = raw.get('error_class')
+    return {'at': at, 'status': raw['status'], 'source': source,
+            'error_class': cls if cls in _PKG_REFRESH_CLASSES else 'unknown'}
+
+
+def _pkg_refresh_last():
+    """The last record this agent made, or None. It survives a restart, because the state file does."""
+    global _PKG_REFRESH_LAST
+    if _PKG_REFRESH_LAST is None:
+        rec = None
+        try:
+            raw = _safe_state_read(PKG_REFRESH_STATE)
+            rec = _pkg_refresh_clean(json.loads(raw)) if raw else None
+        except (ValueError, TypeError):
+            rec = None
+        _PKG_REFRESH_LAST = rec or {}
+    return _PKG_REFRESH_LAST or None
+
+
+def _pkg_refresh_remember(rec):
+    global _PKG_REFRESH_LAST
+    _PKG_REFRESH_LAST = rec
+    _safe_state_write(PKG_REFRESH_STATE, json.dumps(rec, separators=(',', ':')))
+    if rec['status'] in ('ok', 'partial'):
+        _safe_state_write(PKG_REFRESH_STAMP, f"{rec['at']}\n")
+
+
+_PKG_REFRESH_CLASS_TEXT = {
+    'lock': 'another package manager process held the lock', 'network': 'the repositories could not be reached',
+    'repository': 'a repository answered with an error', 'disk': 'no space left, or a read-only file system',
+    'permission': 'not allowed to write the lists', 'timeout': f'it did not finish in {PKG_REFRESH_TIMEOUT_S} seconds',
+    'unknown': 'the reason is not one the agent knows',
+}
+
+
+def _pkg_refresh_line(rec):
+    """The one fixed line the command history keeps for a refresh. Nothing the package manager printed is in it."""
+    src = f" ({rec['source']})" if rec.get('source') else ''
+    cls = rec.get('error_class') or ''
+    if rec['status'] == 'ok':
+        return f'package lists refreshed{src}'
+    if rec['status'] == 'unsupported':
+        why = {'no_safe_way': 'no safe way on this distribution', 'container': 'not available in a container',
+               'no_manager': 'no package manager this agent can refresh'}.get(cls, cls)
+        return f'not refreshed: {why}'
+    what = 'partly refreshed' if rec['status'] == 'partial' else 'not refreshed'
+    return f'package lists {what}{src}: {_PKG_REFRESH_CLASS_TEXT.get(cls, cls)}'
+
+
+def refresh_package_lists(timeout=None, lock_wait=None, which=None):
+    """Refresh the package lists with the distribution's own command and remember how it went. Returns the record
+    {at, status, source, error_class}, or None when audit mode refuses it (nothing is recorded then). Never raises."""
+    if _audit_mode():
+        log.warning('Audit mode (read-only): refusing to refresh the package lists')
+        return None
+    try:
+        with _PKG_REFRESH_LOCK:
+            rec = _pkg_refresh_run(timeout, lock_wait, which)
+            _pkg_refresh_remember(rec)
+    except Exception as e:
+        log.warning(f'package list refresh failed: {type(e).__name__}')
+        rec = _pkg_refresh_record('failed', '', 'unknown')
+    log.info(f'package lists: {_pkg_refresh_line(rec)}')
+    return rec
+
+
+def _run_pkg_refresh_command(cmd):
+    """`pkg_refresh`, the operator's "Check for updates now". The result is the one fixed line. The pending list is read again
+    on the next poll, against the new lists, and goes out with the system information."""
+    global _PKG_RESCAN_NOW
+    rec = refresh_package_lists()
+    if rec is None:
+        return {'cmd': cmd, 'output': 'refused: agent is in audit (read-only) mode', 'rc': 126}
+    _PKG_RESCAN_NOW = True
+    return {'cmd': cmd, 'output': _pkg_refresh_line(rec), 'rc': 0 if rec['status'] in ('ok', 'partial') else 1}
 
 
 # ─── v3.4.2: third-party (non-OS) package updates ─────────────────────────────
@@ -13026,6 +13346,10 @@ def execute_command(cmd):
         # anything. A crafted command can't reach `docker rm -f -v $(…)`
         # because we never let the shell see the string.
         return _run_container_action(cmd)
+    elif cmd == 'pkg_refresh':
+        # "Check for updates now": the distribution's own fixed command refreshes the package lists (audit mode was refused
+        # above, and refresh_package_lists asks again). The server never supplies a word of the command.
+        return _run_pkg_refresh_command(cmd)
     elif cmd == 'speedtest':
         # v3.4.0: on-demand internet speed test. Result rides the same
         # command-result channel as exec; the server recognises it by the
@@ -16742,6 +17066,7 @@ def _threat_sensor_thread(creds, holder, stop_event, every=THREAT_EVERY_S, first
 
 def heartbeat(creds, interval=POLL_INTERVAL):
     global _FORCE_CHECK_EVAL   # a rebaseline (guard action) forces the next sysinfo report
+    global _PKG_RESCAN_NOW     # a package list refresh that ran by itself: read what is pending again on this poll
     server = creds['server_url']; dev_id = creds['device_id']; token = creds['token']
     log.info(f"RemotePower agent v{VERSION} starting. Server: {server}, Host ID: {dev_id}")
     log.info(f"Poll: {interval}s | sysinfo every {SYSINFO_EVERY} polls | patches every {PATCH_EVERY} polls")
@@ -16808,6 +17133,8 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v2.4.5: set true when the server requests an out-of-band package
     # scan; consumed (and cleared) on the next poll.
     force_pkg_scan = False
+    # The setting "refresh the lists before each scheduled scan", pushed by the server. Off until a response says otherwise.
+    refresh_lists_on = False
     # v3.0.2: one-shot ACME rescan request from server (operator clicked
     # "Force rescan" after renewing via CLI; skips the hourly cadence).
     force_acme_rescan = False
@@ -17055,7 +17382,16 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 
         if run_patch:
             log.debug(f"Poll {poll_count}: running patch check")
+            if refresh_lists_on:
+                # The setting is off unless the operator turned it on, and the server sends it only while the host may take
+                # an action (not in maintenance, quarantined or outside a change window). Audit mode is checked inside.
+                refresh_package_lists()
             cached_patch = get_patch_info(); send_sysinfo = True
+        elif _PKG_RESCAN_NOW:
+            # A refresh that ran on its own (the operator's "Check for updates now"): what is pending, read against the new lists.
+            log.debug(f"Poll {poll_count}: reading the pending updates after a list refresh")
+            cached_patch = get_patch_info(); send_sysinfo = True
+        _PKG_RESCAN_NOW = False
 
         # v1.7.0: submit package inventory for CVE scanning (hash-gated)
         # v2.4.5: also send immediately when the server set the
@@ -17580,6 +17916,15 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     sysinfo['canary_status'] = cst
             except Exception as e:
                 log.debug(f'canary status error: {e}')
+            try:
+                # When the package lists were last refreshed from here, and how it went: {at, status, source, error_class}.
+                # Inside `if send_sysinfo:` and AFTER `sysinfo = {...}` (the v6.1.2 scope gotcha). Nothing is sent before the
+                # first refresh. The record is read from the state file, so it outlives an agent restart.
+                _pkr = _pkg_refresh_last()
+                if _pkr:
+                    sysinfo['pkg_refresh'] = _pkr
+            except Exception as e:
+                log.debug(f'package list refresh state error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
             # v6.2.2: delta sysinfo — drop the heavy fields whose content is
@@ -17844,6 +18189,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_package_scan'):
                 force_pkg_scan = True
                 log.info('Server requested a package scan')
+            # The setting "refresh the lists before each scheduled scan". A busy (202) answer carries no settings, so its
+            # silence must not read as "off". Linux hosts are sent the key only while the setting is on.
+            if resp.get('busy') is not True:
+                refresh_lists_on = bool(resp.get('refresh_lists_before_scan'))
             # v7.4.6 (#56): an alert was resolved by hand, so report now. Needs attention and Checks read the
             # last report, and the system information goes out only every SYSINFO_EVERY polls.
             if resp.get('force_sysinfo'):
