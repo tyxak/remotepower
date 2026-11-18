@@ -238,8 +238,9 @@ the host sent. A signed kernel package and the unsigned one it holds are built f
 Nothing is guessed from a package name.
 
 A kernel finding is only marked **Reboot to apply** for a package whose version order the server can read (Debian and
-Ubuntu, RPM and Alpine versions). The reboot signals the host already has (the reboot-required flag, **kernel_outdated**) are
-unchanged. The Windows and macOS agents report no kernel.
+Ubuntu, RPM and Alpine versions), and only a finding of the running kernel is: a package that is not a kernel never reads
+**Reboot to apply**, whatever kernel is installed beside the running one. The reboot signals the host already has (the
+reboot-required flag, **kernel_outdated**) are unchanged. The Windows and macOS agents report no kernel.
 
 ## Fix status
 
