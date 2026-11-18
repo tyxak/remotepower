@@ -4,7 +4,9 @@
 Each class below is one finding of that review. Every guard in it was watched failing against the old code: the mutations that were
 applied one at a time (with the anchor checked first, and a green control before) are listed in the commit that added the class.
 
-  * A host read on its own by a SQL backend skipped the shape registry that every other read of the store goes through.
+  * A host read on its own by a SQL backend skipped the shape registry that every other read of the store goes through, and so did the row of
+    an entity store (containers, update logs, metrics, rollups) read on its own: both now go through one repairing function each, and a test
+    enumerates the callers.
   * A stored build that is text of digits `int()` refuses ("²²²") took the whole Hosts list down: the readers of a stored build now take it
     through the cleaner that ingest uses, and the digits are ASCII digits wherever a build or a version is read.
   * Windows 10 and 11 Enterprise multi-session has an EditionID that starts with "Server" and is a client system: the agent reads
@@ -720,6 +722,110 @@ class TestTheCorpusKnowsTheWindowsSignals(unittest.TestCase):
                    {"win_build": [1], "tpm": 5, "shares": [1], "wu_search": {"ok": False, "ok_at": "x", "error_class": ["x"]}, "packages": "x"}):
             with self.subTest(si=si):
                 self.assertGreater(len(self.docs(**si)), 0)
+
+
+class TestAnEntityRowReadOnItsOwnIsRepairedToo(_OnSqlite):
+    """The entity stores (containers, update logs, metrics, rollups) are read one row at a time on the SQL backends, by `_entity_read_one` and by
+    the metrics window readers, which skipped the registry as `device_get` did."""
+
+    STORES = ("CONTAINERS_FILE", "UPDATE_LOGS_FILE", "METRICS_FILE", "THERMAL_ROLLUP_FILE", "CMD_OUTPUT_FILE")
+    MISSING = object()
+
+    def setUp(self):
+        super().setUp()
+        self._entity_files = {}
+        for attr in self.STORES:
+            self._entity_files[attr] = getattr(api, attr)
+            setattr(api, attr, self.dir / Path(getattr(api, attr)).name)
+
+    def tearDown(self):
+        for attr, value in self._entity_files.items():
+            setattr(api, attr, value)
+        super().tearDown()
+
+    def put(self, attr, doc):
+        path = getattr(api, attr)
+        api.save(path, doc)
+        api._LOAD_CACHE.clear()
+        return path
+
+    def test_each_row_read_on_its_own_is_the_row_the_whole_store_gives(self):
+        for attr, row in (
+            ("CONTAINERS_FILE", {"items": "x"}),
+            ("CONTAINERS_FILE", {"items": [5, None, {"restart_count": "3", "name": "web"}]}),
+            ("UPDATE_LOGS_FILE", "not a list"),
+            ("UPDATE_LOGS_FILE", [{"cmd": "apt"}, "x", 5]),
+            ("METRICS_FILE", [{"ts": "17", "cpu": 1}, 5, {"cpu": 2}, {"ts": 18, "cpu": 3}]),
+            ("METRICS_FILE", "x"),
+        ):
+            with self.subTest(store=attr, row=row):
+                path = self.put(attr, {"h1": row})
+                whole = api.load(path).get("h1", self.MISSING)
+                single = api._entity_read_one(path, "h1", self.MISSING)
+                self.assertEqual(single, whole, "the single-row read left the row as it was stored")
+
+    def test_the_repair_is_real_and_not_a_comparison_of_two_unrepaired_rows(self):
+        path = self.put("CONTAINERS_FILE", {"h1": {"items": [5, None, {"restart_count": "3", "name": "web"}]}})
+        self.assertEqual(storage.entity_get(path, "h1")["items"][0], 5, "control: the stored row holds the number")
+        self.assertEqual(api._entity_read_one(path, "h1"), {"items": [{"restart_count": 3, "name": "web"}]})
+
+    def test_a_row_the_registry_leaves_out_is_a_row_that_is_not_there(self):
+        path = self.put("UPDATE_LOGS_FILE", {"h1": "not a list", "h2": [{"cmd": "apt"}]})
+        self.assertEqual(api._entity_read_one(path, "h1", ["default"]), ["default"])
+        self.assertEqual(api._entity_read_one(path, "h2", ["default"]), [{"cmd": "apt"}])
+        self.assertEqual(api._entity_read_one(path, "nobody", ["default"]), ["default"])
+
+    def test_the_metrics_window_a_page_reads_holds_only_samples(self):
+        self.put("METRICS_FILE", {"h1": [{"ts": "17", "cpu": 1}, 5, {"cpu": 2}, {"ts": 18, "cpu": 3}]})
+        window = api._recent_metric_window("h1")
+        self.assertTrue(all(isinstance(s, dict) for s in window), "a row of the window that is not a sample was left in")
+        self.assertEqual([s.get("ts") for s in window], [17, None, 18], "a stamp stored as text is read as the number it holds")
+        self.put("METRICS_FILE", {"h1": "x"})
+        self.assertEqual(api._recent_metric_window("h1"), [])
+
+    def test_the_settings_of_a_rollup_are_read_with_their_own_shape(self):
+        path = self.put("THERMAL_ROLLUP_FILE", {"_meta": {"last_run": "17"}, "h1": {"last_ts": 5}})
+        self.assertEqual(api._entity_read_one(path, "_meta", {}), {"last_run": 17})
+        self.assertEqual(api._entity_read_one(path, "_meta", {}), api.load(path)["_meta"])
+
+    def test_a_store_the_registry_does_not_list_comes_back_unchanged(self):
+        import store_shapes
+        self.assertNotIn(Path(api.CMD_OUTPUT_FILE).name, store_shapes.SHAPES, "control: this store has no shape")
+        path = self.put("CMD_OUTPUT_FILE", {"h1": "anything", "h2": [1, "x", None]})
+        self.assertEqual(api._entity_read_one(path, "h1"), "anything")
+        self.assertEqual(api._entity_read_one(path, "h2"), [1, "x", None])
+
+
+class TestEveryReadOfOneRowGoesThroughTheRepair(unittest.TestCase):
+    """Enumerated from the code: a call of the storage module's `entity_get` or `device_get` is made in one function each (`_entity_get_fixed`,
+    `device_get`), which repair the row. A third reader that asks the backend itself fails here."""
+
+    def calls(self, attrs):
+        found = []
+        for path in sorted(_CGI.glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            parents = {}
+            for node in ast.walk(tree):
+                for child in ast.iter_child_nodes(node):
+                    parents[child] = node
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in attrs:
+                    recv = node.func.value
+                    if isinstance(recv, ast.Name) and recv.id in ("A", "api"):
+                        continue        # api.device_get itself, which is the repairing function
+                    fn = node
+                    while fn is not None and not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        fn = parents.get(fn)
+                    found.append((path.name, fn.name if fn else "<module>", node.func.attr))
+        return found
+
+    def test_the_backend_is_asked_for_one_entity_row_by_one_function(self):
+        found = [c for c in self.calls({"entity_get"}) if c[0] != "storage.py" and c[0] != "storage_pg.py"]
+        self.assertEqual(found, [("api.py", "_entity_get_fixed", "entity_get")], "a function asks the backend for an entity row itself")
+
+    def test_the_backend_is_asked_for_one_host_by_one_function(self):
+        found = [c for c in self.calls({"device_get"}) if c[0] not in ("storage.py", "storage_pg.py")]
+        self.assertEqual(found, [("api.py", "device_get", "device_get")], "a function asks the backend for a host row itself")
 
 
 if __name__ == "__main__":

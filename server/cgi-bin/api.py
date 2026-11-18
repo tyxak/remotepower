@@ -5544,6 +5544,18 @@ def _is_entity_store(store_file):
         return False
 
 
+def _entity_get_fixed(store_file, key, default=None):
+    """`entity_get` of the active DB backend with the registry's repair applied to the row (`_shape_fix_row`): a single-row SELECT skips
+    `_load_uncached`, so without this a row of a registered entity store reached its reader as it was stored. A row the registry leaves
+    out reads as a row that is not there. Every read of one entity row on a DB backend goes through this function (a test enumerates
+    the callers); a store the registry does not list comes back unchanged."""
+    row = _dbmod().entity_get(store_file, key, _ROW_LEFT_OUT)
+    if row is _ROW_LEFT_OUT:
+        return default
+    row = _shape_fix_row(store_file, key, row)
+    return default if row is _ROW_LEFT_OUT else row
+
+
 def _entity_read_one(store_file, dev_id, default=None):
     """v5.0.0 (perf): O(1) per-device read for an ENTITY-promoted store
     (containers/update_logs/cmds/uptime) on a DB backend, instead of load()ing
@@ -5552,7 +5564,7 @@ def _entity_read_one(store_file, dev_id, default=None):
     _m = _dbmod()
     if _m is not None and _is_entity_store(store_file):
         try:
-            return _m.entity_get(store_file, dev_id, default)
+            return _entity_get_fixed(store_file, dev_id, default)
         except Exception:
             pass
     # v7.0.2 (perf): copy the ROW, not the whole store.
@@ -24885,7 +24897,7 @@ def handle_heartbeat():
         # heartbeat just to touch one device's list. Mirrors the metrics path.
         _cob = _dbmod()
         if _cob is not None:
-            outputs = {dev_id: (_cob.entity_get(CMD_OUTPUT_FILE, dev_id) or [])}
+            outputs = {dev_id: (_entity_get_fixed(CMD_OUTPUT_FILE, dev_id) or [])}
         else:
             outputs = load(CMD_OUTPUT_FILE)
         if dev_id not in outputs:
@@ -26117,7 +26129,7 @@ def _backfill_metrics(dev_id, samples, now):
     _m = _dbmod()
     if _m is not None:
         try:
-            window = _m.entity_get(METRICS_FILE, dev_id) or []
+            window = _entity_get_fixed(METRICS_FILE, dev_id) or []
         except Exception:
             window = []
         seen = {int(w.get('ts') or 0) for w in window}
@@ -26243,7 +26255,7 @@ def _record_metrics(dev_id, sysinfo):
                     # whatever the old window blob holds, so history isn't empty
                     # for 30 days.
                     try:
-                        seed = _m.entity_get(METRICS_FILE, dev_id) or []
+                        seed = _entity_get_fixed(METRICS_FILE, dev_id) or []
                     except Exception:
                         seed = []
                     for s in seed:
@@ -26323,7 +26335,7 @@ def _recent_metric_window(dev_id):
     if pts:
         return pts
     try:
-        return _m.entity_get(METRICS_FILE, dev_id) or []
+        return _entity_get_fixed(METRICS_FILE, dev_id) or []
     except Exception:
         return []
 
