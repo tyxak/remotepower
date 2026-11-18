@@ -10684,6 +10684,17 @@ nextcloud mem=95 sustain=6</pre>
           <div id="drawer-detections-body" class="scroll-cap-sm"><!-- rendered by JS --></div>
         </div>
 
+        <!-- 8.0.2: what starts by itself on this Windows host, and what was added or removed since its first inventory (app-persistence.js fills it and shows it when the host has sent an inventory) -->
+        <div class="drawer-section mt-16" id="drawer-persistence-section" hidden>
+          <div class="section-title">Persistence</div>
+          <p class="hint">What starts by itself on this Windows host: Run keys, the Winlogon shell, services that run from a temporary or user folder, scheduled tasks that are not Microsoft's, and startup folders. Once a first inventory is on record, a new entry raises an alert. <a href="docs/windows-client.md" id="drawer-persistence-doc" class="c-accent" target="_blank" rel="noopener">Documentation</a></p>
+          <div id="drawer-persistence-when" class="row-8-center"><!-- rendered by JS --></div>
+          <div class="app-name mt-8">Changes</div>
+          <div id="drawer-persistence-changes" class="scroll-cap-sm"><!-- rendered by JS --></div>
+          <div class="app-name mt-8">On the host now</div>
+          <div id="drawer-persistence-list" class="scroll-cap"><!-- rendered by JS --></div>
+        </div>
+
         <!-- 8.0.0: the business services this host is a part of, directly or through another service (app-business-services.js fills it and shows it when there is one) -->
         <div class="drawer-section mt-16" id="drawer-services-section" hidden>
           <div class="section-title">Business services that depend on this host</div>

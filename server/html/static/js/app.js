@@ -3111,7 +3111,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-enrol.js', 'app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js', 'app-traffic.js', 'app-detections.js'];   // app-enrol.js, the list of open install commands in the Enroll dialog (fetched when the dialog opens). 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites. 8.0.0: app-traffic.js, the Traffic tab of the Threat Intel page and the drawer's Traffic section (fetched when either shows and the module is on). 8.0.0: app-detections.js, the Detections tab of the Threat Intel page (fetched when the tab shows and the module is on).
+const _LAZY_NON_PAGE_MODULES = ['app-enrol.js', 'app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js', 'app-traffic.js', 'app-detections.js', 'app-persistence.js'];   // app-enrol.js, the list of open install commands in the Enroll dialog (fetched when the dialog opens). 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites. 8.0.0: app-traffic.js, the Traffic tab of the Threat Intel page and the drawer's Traffic section (fetched when either shows and the module is on). 8.0.0: app-detections.js, the Detections tab of the Threat Intel page (fetched when the tab shows and the module is on). 8.0.2: app-persistence.js, the Persistence section of the host drawer (fetched when a drawer opens).
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -19708,7 +19708,7 @@ const EVENT_CLASS = {
   'log_alert': 'warn',
   'mailbox_threshold': 'warn', 'mailbox_recovered': 'ok',
   'command_queued': 'info', 'command_executed': 'info',
-  'brute_force_detected': 'critical', 'ssh_key_added': 'warn',
+  'brute_force_detected': 'critical', 'ssh_key_added': 'warn', 'persistence_added': 'warn',   // 8.0.2: a new startup entry on a Windows host
   'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok', 'backup_size_anomaly': 'critical', 'canary_accessed': 'critical',
   'backup_verify_failed': 'critical', 'backup_verified': 'ok', 'rollout_halted': 'critical',
   'tls_expiry': 'warn', 'ct_new_certificate': 'warn', 'snapshot_old': 'warn', 'snapshot_recovered': 'ok',
@@ -22381,7 +22381,7 @@ function _renderHomeActivity(fleetEvents) {
     'drift_detected', 'mailbox_threshold', 'mailbox_recovered', 'custom_script_fail', 'custom_script_recover',
     'custom_check_failed', 'custom_check_recovered',
     'config_drift', 'tls_expiry', 'ct_new_certificate', 'reboot_required', 'reboot_cleared', 'snapshot_old', 'snapshot_recovered',
-    'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_size_anomaly', 'backup_verify_failed', 'backup_verified', 'restore_drill_failed', 'restore_drill_ok', 'rollout_halted',
+    'new_port_detected', 'ssh_key_added', 'persistence_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_size_anomaly', 'backup_verify_failed', 'backup_verified', 'restore_drill_failed', 'restore_drill_ok', 'rollout_halted',
     // v5.0.0 (#C3): break-glass credential reveal requested
     'vault_break_glass',
     // v5.0.0 (#R1): server self disk-space watchdog
@@ -22575,6 +22575,8 @@ function _renderHomeActivity(fleetEvents) {
         break;
       case 'ssh_key_added':
         detail = `${p.user}: ${p.fingerprint||'new key'}`; break;
+      case 'persistence_added':
+        detail = `${p.detail || 'new startup entry'}${p.sample ? ' — ' + (Array.isArray(p.sample) ? p.sample[0] : p.sample) : ''}`; break;
       case 'new_port_detected':
         detail = `${p.proto||'tcp'}/${p.port}${p.process ? ` (${p.process})` : ''}`; break;
       case 'backup_stale':
@@ -22635,6 +22637,7 @@ function _homeActivityAttrs(event, p) {
     case 'agent_stopped': case 'agent_started':
     case 'mailbox_threshold': case 'mailbox_recovered': case 'reboot_required': case 'reboot_cleared':
     case 'new_port_detected': case 'ssh_key_added': case 'traffic_watch':   // 8.0.0: the host's page has the Traffic section
+    case 'persistence_added':   // 8.0.2: the host's page has the Persistence section
     case 'backup_size_anomaly':
     case 'brute_force_detected': case 'backup_stale': case 'backup_recovered':
     case 'backup_verify_failed': case 'backup_verified':
@@ -25347,6 +25350,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   _loadJsModule('app-appdiscovery.js').then(() => { if (typeof loadDrawerApps === 'function') loadDrawerApps(id); });   // 8.0.0: the apps found on this host
   if (window._modules && window._modules.traffic) _loadJsModule('app-traffic.js').then(() => { if (typeof loadDrawerTraffic === 'function') loadDrawerTraffic(id); });   // 8.0.0: what this host's connections moved
   if (window._modules && window._modules.detections) _loadJsModule('app-detections.js').then(() => { if (typeof loadDrawerDetections === 'function') loadDrawerDetections(id); });   // 8.0.0: what the Detections rules found on this host
+  _loadJsModule('app-persistence.js').then(() => { if (typeof loadDrawerPersistence === 'function') loadDrawerPersistence(id); });   // 8.0.2: what starts by itself on this Windows host
   _loadJsModule('app-business-services.js').then(() => { if (typeof loadDrawerServices === 'function') loadDrawerServices(id); });   // 8.0.0: the services this host is part of
 }
 

@@ -87,6 +87,7 @@ RULES: dict[str, tuple[Rule, ...]] = {
     "patch_done.json": (
         pop(),
     ),  # the completed patches of the host, for the mean time to patch (8.0.2)
+    "persistence.json": (pop(),),  # what starts by itself on the host and the log of what was added and removed (8.0.2)
     "pii_findings.json": (pop(),),
     "runbooks.json": (
         pop(),

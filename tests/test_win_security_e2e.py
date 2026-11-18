@@ -472,5 +472,169 @@ class TestLogRuleTemplatePicker(_Rendered):
         self.assertEqual(self.problems, [])
 
 
+def _persistence_record(hostile):
+    """The row of persistence.json for a Windows host as the server writes it: a baseline an hour ago, then a snapshot in which one Run value is new (its name is markup and
+    its command is a path of 240 characters with no space in it), one is gone, a startup file is new, the services list was cut and the scheduled tasks could not be read."""
+    sys.path.insert(0, str(_CGI))
+    import persistence as P
+    long_path = 'C:\\\\Users\\\\bob\\\\' + 'A' * 150 + '\\\\payload.exe'
+    first = {'v': 1,
+             'run': {'ok': True, 'cut': False, 'items': [['Run', 'OneDrive', '"C:\\\\Program Files\\\\OneDrive.exe" /background'], ['Run', 'Old', 'C:\\\\Old\\\\old.exe']]},
+             'winlogon': {'ok': True, 'cut': False, 'items': [['Winlogon', 'Shell', 'explorer.exe'], ['Winlogon', 'Userinit', 'C:\\\\Windows\\\\system32\\\\userinit.exe,']]},
+             'services': {'ok': True, 'cut': False, 'items': [['Service', 'Updater', 'C:\\\\Users\\\\bob\\\\AppData\\\\Local\\\\Temp\\\\upd.exe -k run']]},
+             'tasks': {'ok': True, 'cut': False, 'items': [['\\\\Vendor', 'Task1', 'C:\\\\Vendor\\\\t.exe /x']]},
+             'startup': {'ok': True, 'cut': False, 'items': [['All users', 'OneNote.lnk', '1893 bytes']]}}
+    second = dict(first)
+    second['run'] = {'ok': True, 'cut': False, 'items': [first['run']['items'][0], ['Run', hostile, long_path + ' --token abc123']]}
+    second['services'] = {'ok': True, 'cut': True, 'items': first['services']['items']}
+    second['tasks'] = {'ok': False, 'cut': False, 'items': []}
+    second['startup'] = {'ok': True, 'cut': False, 'items': first['startup']['items'] + [['User bob', 'evil.lnk', '700 bytes']]}
+    t0 = int(time.time()) - 7200
+    rec, _added, _removed = P.apply_snapshot({}, P.clean_snapshot(first), t0)
+    rec, _added, _removed = P.apply_snapshot(rec, P.clean_snapshot(second), t0 + 3600)
+    return rec
+
+
+def _snapshot(*run):
+    """A snapshot a host would send, for the check-ins of the alert test: the Run values given, every other place read and empty."""
+    snap = {'v': 1}
+    for cat in ('run', 'winlogon', 'services', 'tasks', 'startup'):
+        snap[cat] = {'ok': True, 'cut': False, 'items': [list(r) for r in run] if cat == 'run' else []}
+    return snap
+
+
+class TestPersistenceSection(_Rendered):
+    """G14: the Persistence section of a host's page, and what a new entry's text does in the inbox and the feed."""
+    HOSTILE = '<img src=x onerror=window.__pwned=1>'
+    HOSTS = {'winhost': {'os': 'Windows 11 Pro', 'token': 'e2e-pers-token'}, 'linhost': {'os': 'Debian GNU/Linux 12', 'token': 'e2e-lin-token'},
+             'winalert': {'os': 'Windows 10 Pro', 'token': 'e2e-alert-token'}}
+
+    @classmethod
+    def build_data_dir(cls):
+        cls.STORES = {'PERSISTENCE_FILE': {'winhost': _persistence_record(cls.HOSTILE)}}
+        return super().build_data_dir()
+
+    def open_drawer(self, page, host='winhost', wait=True):
+        page.evaluate("h => openDeviceDrawer(h, h)", host)
+        page.wait_for_selector('#device-drawer.open', timeout=20000)
+        if wait:
+            page.wait_for_selector('#drawer-persistence-section', state='visible', timeout=20000)
+
+    def test_the_section_lists_the_changes_and_what_is_on_the_host_now_and_a_name_is_only_text(self):
+        page = self.open_app()
+        self.open_drawer(page)
+        text = page.inner_text('#drawer-persistence-section')
+        for want in ('Persistence', 'First inventory', 'Last inventory', 'Changes', 'On the host now', 'Added', 'Removed', 'Run key', 'Service', 'Startup folder',
+                     'OneDrive', 'Old', 'evil.lnk', 'Updater', 'Task1', 'explorer.exe', self.HOSTILE):
+            self.assertIn(want, text, want)
+        self.assertEqual(page.evaluate("() => document.querySelectorAll('#drawer-persistence-section .patch-badge').length"), 3, 'two added, one removed')
+        self.assertEqual(page.evaluate("() => [...document.querySelectorAll('#drawer-persistence-changes .patch-badge')].map(b => b.textContent.trim())"),
+                         ['Added', 'Added', 'Removed'])
+        self.assertIn('This place could not be read at the last inventory. It is shown as it was.', text)
+        self.assertIn('This list was cut at its limit, so changes in it are not tracked.', text)
+        self.assertNotIn('abc123', text, 'a password in a command line never reaches the page')
+        self.assertIn('[REDACTED]', text)
+        self.assertIsNone(page.query_selector('#drawer-persistence-section img'), 'the name of an entry became an element of the page')
+        self.assertIsNone(page.evaluate("() => window.__pwned || null"))
+        self.assertEqual(self.problems, [])
+
+    def test_a_host_that_is_not_a_windows_one_has_no_section_and_asks_for_nothing(self):
+        page = self.open_app()
+        requests = []
+        page.on('request', lambda r: requests.append(r.url))
+        self.open_drawer(page, 'linhost', wait=False)
+        page.wait_for_timeout(2500)
+        self.assertFalse(page.is_visible('#drawer-persistence-section'))
+        self.assertEqual([u for u in requests if u.endswith('/persistence')], [], 'no request for a host that cannot have an inventory')
+        page.evaluate("() => closeDeviceDrawer()")
+        self.open_drawer(page, 'winhost')
+        self.assertTrue([u for u in requests if u.endswith('/devices/winhost/persistence')], 'the control: a Windows host does ask')
+
+    def test_the_section_fits_at_three_widths_in_english_german_and_arabic_with_a_path_that_has_no_space_in_it(self):
+        for width, height in WIDTHS:
+            page = self.open_app(width, height)
+            self.open_drawer(page)
+            for lang in ('en',) + LANGS:
+                with self.subTest(width=width, lang=lang):
+                    self.set_lang(page, lang)
+                    if lang == 'ar':
+                        self.assertEqual(page.evaluate("document.documentElement.dir"), 'rtl')
+                    self.assertEqual(self.no_horizontal_overflow(page, '#drawer-persistence-section'), [])
+                    # the two lists scroll up and down; a command that cannot break would make them scroll sideways instead, which the measure above does not count
+                    sideways = page.evaluate("() => ['drawer-persistence-changes', 'drawer-persistence-list'].map(id => { const e = document.getElementById(id); return e.scrollWidth - e.clientWidth; })")
+                    self.assertEqual([n > 1 for n in sideways], [False, False], 'a list scrolls sideways: %s' % sideways)
+            self.assertEqual(self.problems, [])
+
+    def test_the_instruments_can_say_no(self):
+        page = self.open_app(768, 1024)
+        self.open_drawer(page)
+        page.evaluate("""() => { const d = document.createElement('div'); d.id = 'plant'; d.textContent = 'x';
+                                 d.style.minWidth = '3000px'; document.querySelector('#drawer-persistence-when').appendChild(d); }""")
+        self.assertTrue(self.no_horizontal_overflow(page, '#drawer-persistence-section'), 'the measure missed a 3000 px element')
+        page.evaluate("() => document.getElementById('plant').remove()")
+        self.assertEqual(self.no_horizontal_overflow(page, '#drawer-persistence-section'), [])
+        page.evaluate("() => { const e = document.getElementById('drawer-persistence-doc'); e.style.outline = 'none'; e.style.boxShadow = 'none'; }")
+        page.focus('#drawer-persistence-section .section-title')
+        got = self.tab_to(page, 'drawer-persistence-doc')
+        self.assertIsNotNone(got)
+        self.assertFalse(got['ring'], 'a control with its ring switched off was reported as having one')
+
+    def test_every_label_reads_in_german_and_arabic(self):
+        page = self.open_app()
+        self.open_drawer(page)
+        for lang in LANGS:
+            self.set_lang(page, lang)
+            page.wait_for_timeout(300)
+            checks = [('#drawer-persistence-section .section-title', 'Persistence')]
+            for want in ('First inventory', 'Last inventory', 'Changes', 'On the host now', 'Added', 'Removed', 'Run key', 'Startup folder', 'Service',
+                         'This place could not be read at the last inventory. It is shown as it was.', 'This list was cut at its limit, so changes in it are not tracked.'):
+                checks.append((None, want))
+            for sel, key in checks:
+                want = page.evaluate("k => RPi18n.t(k)", key)
+                with self.subTest(lang=lang, key=key[:40]):
+                    self.assertNotEqual(want, key, 'the dictionary has no entry')
+                    if sel:
+                        self.assertEqual(page.evaluate("s => document.querySelector(s).textContent.trim()", sel), want)
+                    else:
+                        self.assertTrue(page.evaluate("w => [...document.querySelectorAll('#drawer-persistence-section *')].some(e => e.children.length === 0 && e.textContent.trim() === w)", want),
+                                        '%s is not shown as %s' % (key, want))
+            hint = page.evaluate("() => document.querySelector('#drawer-persistence-section p.hint').firstChild.textContent.trim()")
+            want = page.evaluate("k => RPi18n.t(k)", "What starts by itself on this Windows host: Run keys, the Winlogon shell, services that run from a temporary or user folder, "
+                                                      "scheduled tasks that are not Microsoft's, and startup folders. Once a first inventory is on record, a new entry raises an alert.")
+            self.assertEqual(hint, want)
+
+    def test_the_documentation_link_is_reached_by_keyboard_with_a_visible_focus_ring(self):
+        page = self.open_app()
+        self.open_drawer(page)
+        page.focus('#drawer-persistence-section .section-title')
+        got = self.tab_to(page, 'drawer-persistence-doc')
+        self.assertIsNotNone(got, 'the link is not on the tab path')
+        self.assertTrue(got['ring'], 'the link has no visible focus ring: %s' % got)
+
+    def test_a_new_entry_whose_name_is_markup_is_text_in_the_inbox_and_the_feed(self):
+        keep = ['Run', 'OneDrive', '"C:\\\\Program Files\\\\OneDrive.exe" /background']
+        st, resp = post_json(self.base, '/api/heartbeat', {'device_id': 'winalert', 'token': 'e2e-alert-token', 'sysinfo': {'persistence': _snapshot(keep)}})
+        self.assertEqual(st, 200, resp)
+        st, resp = post_json(self.base, '/api/heartbeat', {'device_id': 'winalert', 'token': 'e2e-alert-token',
+                                                           'sysinfo': {'persistence': _snapshot(keep, ['Run', self.HOSTILE, 'C:\\\\Users\\\\bob\\\\x.exe --password hunter2'])}})
+        self.assertEqual(st, 200, resp)
+        page = self.open_app()
+        page.evaluate("() => showPage('alerts')")
+        page.wait_for_function("() => { const p = document.getElementById('page-alerts'); return !!p && p.textContent.includes('New startup entry on winalert'); }", timeout=30000)
+        body = page.inner_text('#page-alerts')
+        self.assertIn(self.HOSTILE, body, 'the name is on the page as text')
+        self.assertIn('Run key: ', body)
+        self.assertNotIn('hunter2', body)
+        self.assertEqual(page.evaluate("() => document.querySelectorAll('img[src=\"x\"]').length"), 0)
+        self.assertIsNone(page.evaluate("() => window.__pwned || null"))
+        page.evaluate("() => showPage('home')")
+        page.wait_for_function("() => document.getElementById('page-home').textContent.includes('1 new startup entry')", timeout=30000)
+        self.assertIn(self.HOSTILE, page.evaluate("() => document.getElementById('page-home').textContent"), 'the feed row quotes the entry')
+        self.assertEqual(page.evaluate("() => document.querySelectorAll('img[src=\"x\"]').length"), 0, 'the activity feed shows the name as text too')
+        self.assertIsNone(page.evaluate("() => window.__pwned || null"))
+        self.assertEqual([p for p in self.problems if not (p[0] == 'http' and p[1] == 404 and p[2].endswith('/x'))
+                          and not (p[0] == 'console' and '404' in p[1])], [])
+
+
 if __name__ == '__main__':
     unittest.main()

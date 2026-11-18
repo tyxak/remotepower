@@ -15,7 +15,9 @@ at parity with Linux:
     RecordId cursor + Event IDs (→ the host's journal; log rules read the events they name,
     `eventlog.<Channel>.<id>`), watched
     services (→ Services page), top processes + proc_names (→ process checks),
-    local users + privileged-group tripwire, reboot-required detection
+    local users + privileged-group tripwire, reboot-required detection,
+    an inventory of what starts by itself (Run keys, the Winlogon shell, services that run from a user folder, scheduled tasks that are not Microsoft's,
+    startup folders) every 15 minutes at most, so that a new entry can be seen
 
 As of the v6.2.0 second wave it also reports SMART disk health, hardware inventory
 (WMI), config drift (file hashing), containers (docker CLI), a Windows security-
@@ -2149,9 +2151,14 @@ def _wevtutil_args(channel, event_id=None, after=0, count=_WINEVT_PER_ID, newest
 
 
 def _winevt_decode(raw):
-    """wevtutil's bytes as text. It writes the console's code page to a pipe; a byte order mark, when there is one, says which."""
+    """The bytes a Windows tool printed to a pipe (wevtutil, schtasks) as text. They are the console's code page, or UTF-16: a byte order mark says so when there is one, and
+    without one the zero bytes of ASCII text written as UTF-16 do."""
     if raw[:2] in (b'\xff\xfe', b'\xfe\xff'):
         return raw.decode('utf-16', 'replace')
+    if raw[:1] == b'\x00':                           # UTF-16 without a byte order mark: the zero byte between the letters of ASCII text gives it away
+        return raw.decode('utf-16-be', 'replace')
+    if b'\x00' in raw[:64]:
+        return raw.decode('utf-16-le', 'replace')
     return raw.decode('utf-8-sig', 'replace')
 
 
@@ -4428,6 +4435,363 @@ def _eval_registry_check(c, wr=None):
     return 'critical', _reg_text('%s, expected %s' % (shown, _reg_wants(op, expect)))
 
 
+# ── persistence inventory ────────────────────────────────────────────────────
+#
+# What starts by itself is where a person who has got in leaves a way back. At most every 15 minutes (a wall-clock due time kept on disk, so a restart of the agent does
+# not start one) the agent lists five places and sends the list as sysinfo.persistence, on a system information check-in (every 12th, so about every 24 minutes at the
+# default poll interval of 60 seconds); the server keeps the last one and logs what is new and what is gone
+# (server/cgi-bin/persistence.py cleans and compares it again, it does not rely on this):
+#   run        the Run and RunOnce keys of HKLM, in the 64-bit view and in the 32-bit view
+#   winlogon   the Shell and Userinit values of the Winlogon key
+#   services   the services whose program is in a temporary or user folder (HKLM\SYSTEM\CurrentControlSet\Services, ImagePath)
+#   tasks      the scheduled tasks that are not Microsoft's (schtasks /query /xml): the folder, the name and what each runs
+#   startup    the files in the startup folder of all users and of each user profile
+# Paths and names only: no signature is checked and no program is opened. Everything is read and nothing is written. Each place is read on its own, and one that
+# fails is sent as not read (ok false), never as empty, so the server does not take a place it could not read for a place that was cleared. The probes share a time budget
+# and a place that did not get its turn is sent as not read; a list longer than its cap is sent cut; nothing here raises out of the heartbeat.
+# An entry is [place, name, what it runs]. What it runs can hold a password (a Run value of an installer, a task's arguments): a value after a name that looks like a
+# secret is replaced before it is sent.
+_PERSIST_VERSION = 1
+_PERSIST_EVERY_S = 900               # at most one inventory in 15 minutes
+_PERSIST_BUDGET_S = 25               # seconds all the probes may take together
+_PERSIST_TS_FILE = 'persistence_ts'
+_PERSIST_CAPS = {'run': 100, 'winlogon': 4, 'services': 100, 'tasks': 200, 'startup': 100}
+_PERSIST_FIELD_MAX = (120, 120, 240)
+_PERSIST_RUN_BASE = 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\'
+_PERSIST_WINLOGON_KEY = 'SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'
+_PERSIST_SERVICES_KEY = 'SYSTEM\\CurrentControlSet\\Services'
+_PERSIST_MAX_SERVICE_KEYS = 5000     # service keys read: a machine has hundreds
+_PERSIST_PROFILES_MAX = 50
+_PERSIST_STARTUP_PER_FOLDER = 50
+_PERSIST_TASKS_OUT_MAX = 16 * 1024 * 1024
+_PERSIST_USER_FRAGMENTS = ('\\temp\\', '\\tmp\\', '\\appdata\\', '\\users\\', '\\documents and settings\\', '\\$recycle.bin\\')
+_PERSIST_USER_VARIABLES = ('%temp%', '%tmp%', '%userprofile%', '%appdata%', '%localappdata%', '%public%', '%homepath%')
+_PERSIST_TASK_RX = re.compile(r'<Task[\s>].*?</Task>', re.S)
+_PERSIST_SECRET_NAME = r'(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|private[_-]?key|client[_-]?secret|access[_-]?key|credential|authorization|auth[_-]?(?:token|key|secret)|bearer)'
+_PERSIST_SECRET_FLAG = re.compile(r'(?i)((?:^|\s)(?:--?|/)[\w.-]*' + _PERSIST_SECRET_NAME + r'[\w.-]*)(\s*[=:]\s*|\s+)("[^"]*"|\'[^\']*\'|\S+)')
+_PERSIST_SECRET_KV = re.compile(r'(?i)(\b[\w.-]*' + _PERSIST_SECRET_NAME + r'[\w.-]*)(\s*[=:]\s*)("[^"]*"|\'[^\']*\'|\S+)')
+_PERSIST_URL_CREDENTIAL = re.compile(r'(://[^/\s:@]{1,64}:)[^/\s@]{1,128}(@)')
+_PERSIST_SKIP_PROFILES = ('public', 'all users', 'default user')
+_PERSIST_NOT_READ = {'ok': False, 'cut': False, 'items': []}
+
+
+def _persist_text(value, limit):
+    """A text from the host for the list: control characters and the characters that reorder or hide text become spaces, white space is folded, and it is cut."""
+    return _winevt_clean(value, limit)
+
+
+def _persist_command(value):
+    """What an entry runs, for the list: cleaned, cut, and without the value of anything named like a password or a key."""
+    s = _persist_text(value, _PERSIST_FIELD_MAX[2] * 2)
+    s = _PERSIST_SECRET_FLAG.sub(r'\1\2[REDACTED]', s)
+    s = _PERSIST_SECRET_KV.sub(r'\1\2[REDACTED]', s)
+    return _PERSIST_URL_CREDENTIAL.sub(r'\1[REDACTED]\2', s)[:_PERSIST_FIELD_MAX[2]]
+
+
+def _persist_entry(place, name, data=''):
+    return [_persist_text(place, _PERSIST_FIELD_MAX[0]), _persist_text(name, _PERSIST_FIELD_MAX[1]) or '(default)', _persist_command(data)]
+
+
+def _persist_expand(text, env):
+    """`%NAME%` replaced by the value the SYSTEM account has for it, when it has one."""
+    return re.sub(r'%([^%\\]{1,40})%', lambda m: env.get(m.group(1).lower(), m.group(0)), text)
+
+
+def _persist_user_path(text, env=None):
+    """Whether a command line runs something from a temporary or user folder. Path rules only: the text as it stands (a `%TEMP%` or `%APPDATA%` in it is the user's own, whatever
+    it expands to for SYSTEM) and as the system expands it, searched for a temp, tmp, AppData, Users, Documents and Settings or recycle bin folder."""
+    low = str(text or '').lower().replace('/', '\\')
+    if any(v in low for v in _PERSIST_USER_VARIABLES):
+        return True
+    low = _persist_expand(low, env or {})
+    return any(f in low for f in _PERSIST_USER_FRAGMENTS)
+
+
+def _persist_end_of_data(e):
+    """Whether an OSError from EnumValue or EnumKey is the end of the list (ERROR_NO_MORE_ITEMS, 259) and not a read that failed."""
+    return getattr(e, 'winerror', None) == 259 or getattr(e, 'errno', None) == 259
+
+
+def _persist_run_items(wr, deadline):
+    """Run and RunOnce of HKLM in both views: {ok, cut, items} with an entry [place, name, command] for each value."""
+    items, ok, cut = [], True, False
+    read, v64, v32 = getattr(wr, 'KEY_READ', 0x20019), getattr(wr, 'KEY_WOW64_64KEY', 0x100), getattr(wr, 'KEY_WOW64_32KEY', 0x200)
+    for flag, suffix in ((v64, ''), (v32, ' (32-bit)')):
+        for keyname in ('Run', 'RunOnce'):
+            if time.time() > deadline:
+                return {'ok': False, 'cut': cut, 'items': items}
+            try:
+                key = wr.OpenKey(wr.HKEY_LOCAL_MACHINE, _PERSIST_RUN_BASE + keyname, 0, read | flag)
+            except FileNotFoundError:
+                continue                                  # a key that is not there holds nothing
+            except OSError:
+                ok = False
+                continue
+            try:
+                i = 0
+                while True:
+                    try:
+                        name, data, typ = wr.EnumValue(key, i)
+                    except OSError as e:
+                        if not _persist_end_of_data(e):
+                            ok = False                    # anything but "no more data" is a read that failed half way
+                        break
+                    i += 1
+                    if len(items) >= _PERSIST_CAPS['run'] + 1:
+                        cut = True
+                        break
+                    items.append(_persist_entry(keyname + suffix, name, _reg_normalize(data, typ, wr)))
+            finally:
+                try:
+                    wr.CloseKey(key)
+                except OSError:
+                    pass
+    return {'ok': ok, 'cut': cut, 'items': items}
+
+
+def _persist_winlogon_items(wr):
+    items, ok = [], True
+    for name in ('Shell', 'Userinit'):
+        state, got = _reg_read(_PERSIST_WINLOGON_KEY, name, wr)
+        if state == 'ok':
+            data, typ = got
+            items.append(_persist_entry('Winlogon', name, _reg_normalize(data, typ, wr)))
+        elif state == 'error':
+            ok = False
+    return {'ok': ok, 'cut': False, 'items': items}
+
+
+def _persist_service_items(wr, deadline, env):
+    """Services whose ImagePath runs a program from a temporary or user folder. A service key that cannot be read is passed over (it cannot be judged now); the place is
+    not read only when its parent key cannot be opened or the time ran out."""
+    access = getattr(wr, 'KEY_READ', 0x20019) | getattr(wr, 'KEY_WOW64_64KEY', 0x100)
+    try:
+        base = wr.OpenKey(wr.HKEY_LOCAL_MACHINE, _PERSIST_SERVICES_KEY, 0, access)
+    except OSError:
+        return dict(_PERSIST_NOT_READ)
+    found, ok = [], True
+    try:
+        names, i = [], 0
+        while len(names) < _PERSIST_MAX_SERVICE_KEYS:
+            try:
+                names.append(wr.EnumKey(base, i))
+            except OSError as e:
+                if not _persist_end_of_data(e):
+                    ok = False                            # the list of services stopped half way: what was found is not all there is
+                break
+            i += 1
+        sz, expand = getattr(wr, 'REG_SZ', 1), getattr(wr, 'REG_EXPAND_SZ', 2)
+        for n, svc in enumerate(names):
+            if n % 50 == 0 and time.time() > deadline:
+                ok = False
+                break
+            try:
+                key = wr.OpenKey(base, svc, 0, access)
+            except OSError:
+                continue
+            try:
+                path, typ = wr.QueryValueEx(key, 'ImagePath')
+            except OSError:
+                continue
+            finally:
+                try:
+                    wr.CloseKey(key)
+                except OSError:
+                    pass
+            if typ in (sz, expand) and isinstance(path, str) and _persist_user_path(path, env):
+                found.append(_persist_entry('Service', svc, path))
+    finally:
+        try:
+            wr.CloseKey(base)
+        except OSError:
+            pass
+    found.sort(key=lambda e: e[1].lower())
+    return {'ok': ok, 'cut': len(found) > _PERSIST_CAPS['services'], 'items': found[:_PERSIST_CAPS['services'] + 1]}
+
+
+def _persist_task_fields(chunk):
+    """(path, [actions], enabled) of one <Task>...</Task> as schtasks prints it. The standard library's parser reads it when it can (a character XML forbids is made a
+    space first, and a declaration is never parsed); a task it cannot parse is still read, field by field, so a task written to be unreadable is not left out."""
+    path, actions, enabled = '', [], True
+    if '<!' not in chunk and len(chunk) <= _WINEVT_PARSE_MAX:
+        import xml.etree.ElementTree as ET
+        try:
+            root = ET.fromstring(_WINEVT_BAD_REF.sub(_winevt_valid_ref, _WINEVT_BAD_CHAR.sub(' ', chunk)))
+        except ET.ParseError:
+            root = None
+        if root is not None:
+            def local(tag):
+                return tag.rsplit('}', 1)[-1] if isinstance(tag, str) else ''
+            for el in root.iter():
+                t = local(el.tag)
+                if t == 'URI' and not path:
+                    path = el.text or ''
+                elif t == 'Settings':                     # <Settings><Enabled>false</Enabled>: the task exists and starts nothing (a trigger has its own Enabled)
+                    if any(local(c.tag) == 'Enabled' and (c.text or '').strip().lower() == 'false' for c in el):
+                        enabled = False
+                elif t == 'Exec':
+                    parts = {local(c.tag): (c.text or '') for c in el}
+                    actions.append(((parts.get('Command') or '') + ' ' + (parts.get('Arguments') or '')).strip())
+                elif t == 'ComHandler':
+                    parts = {local(c.tag): (c.text or '') for c in el}
+                    actions.append('COM handler ' + (parts.get('ClassId') or ''))
+            return path.strip(), [a for a in actions if a], enabled
+    from xml.sax.saxutils import unescape
+    m = re.search(r'<URI>([^<]{1,1000})</URI>', chunk)
+    path = unescape(m.group(1)) if m else ''
+    for m in re.finditer(r'<Command>([^<]{1,2000})</Command>(?:\s*<Arguments>([^<]{0,2000})</Arguments>)?', chunk):
+        actions.append(unescape((m.group(1) + ' ' + (m.group(2) or '')).strip()))
+    for m in re.finditer(r'<ClassId>([^<]{1,100})</ClassId>', chunk):
+        actions.append('COM handler ' + unescape(m.group(1)))
+    return path.strip(), actions, not re.search(r'<Settings>.*?<Enabled>\s*false\s*</Enabled>', chunk, re.S | re.I)
+
+
+def _persist_parse_tasks(text, env):
+    """(found, any_task): the tasks of schtasks' output that are not Microsoft's, as entries [folder, name, actions], and whether the text held a task at all.
+
+    A task whose folder is \\Microsoft or below it is left out unless one of its actions runs a program from a temporary or user folder (a name that looks like a
+    system task is where a person hides one). A disabled task starts nothing and is left out."""
+    chunks = _PERSIST_TASK_RX.findall(text) if isinstance(text, str) else []
+    found = []
+    for chunk in chunks[:5000]:
+        path, actions, enabled = _persist_task_fields(chunk)
+        if not enabled:
+            continue
+        folder, _sep, name = path.rpartition('\\')
+        folder = folder or '\\'
+        what = ' | '.join(actions)
+        if (folder.lower() + '\\').startswith('\\microsoft\\') and not any(_persist_user_path(a, env) for a in actions):
+            continue
+        found.append(_persist_entry(folder, name or '(unnamed)', what))
+    return found, bool(chunks)
+
+
+def _persist_run_command(args, timeout):
+    """schtasks' output as text, or None when it did not run, did not finish, failed, or said more than it should."""
+    try:
+        r = subprocess.run(args, capture_output=True, timeout=timeout, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        return None
+    if r.returncode != 0 or len(r.stdout or b'') > _PERSIST_TASKS_OUT_MAX:
+        return None
+    return _winevt_decode(r.stdout or b'')
+
+
+def _persist_task_items(run, deadline, env):
+    left = deadline - time.time()
+    if left < 2:
+        return dict(_PERSIST_NOT_READ)
+    text = run([_system_bin('schtasks'), '/query', '/xml'], min(20, left))
+    if text is None:
+        return dict(_PERSIST_NOT_READ)
+    found, any_task = _persist_parse_tasks(text, env)
+    if not any_task:
+        return dict(_PERSIST_NOT_READ)                    # a Windows with no task at all is not the answer; an error message is
+    found.sort(key=lambda e: (e[0].lower(), e[1].lower()))
+    return {'ok': True, 'cut': len(found) > _PERSIST_CAPS['tasks'], 'items': found[:_PERSIST_CAPS['tasks'] + 1]}
+
+
+def _persist_entry_size(e):
+    """Size in bytes of a file in a startup folder (a replaced file shows as a changed entry), -1 for a folder or when it cannot be read."""
+    try:
+        return e.stat().st_size if e.is_file() else -1
+    except OSError:
+        return -1
+
+
+def _persist_startup_items(env, deadline):
+    """The files of the startup folder of all users and of each profile under Users. A folder that does not exist holds nothing; one that cannot be read makes the place not read."""
+    pd = env.get('programdata') or 'C:\\ProgramData'
+    folders = [('All users', os.path.join(pd, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'StartUp'))]
+    users_dir = os.path.join((env.get('systemdrive') or 'C:') + os.sep, 'Users')
+    ok = True
+    try:
+        with os.scandir(users_dir) as it:
+            profiles = sorted(e.name for e in it if e.is_dir() and e.name.lower() not in _PERSIST_SKIP_PROFILES)[:_PERSIST_PROFILES_MAX]
+    except FileNotFoundError:
+        profiles = []
+    except OSError:
+        profiles, ok = [], False
+    for p in profiles:
+        folders.append(('User ' + p, os.path.join(users_dir, p, 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')))
+    found = []
+    for place, folder in folders:
+        if time.time() > deadline:
+            return {'ok': False, 'cut': False, 'items': found}
+        try:
+            with os.scandir(folder) as it:
+                entries = sorted(((e.name, _persist_entry_size(e)) for e in it), key=lambda t: t[0].lower())
+        except FileNotFoundError:
+            continue
+        except OSError:
+            ok = False
+            continue
+        n = 0
+        for fname, size in entries:
+            if fname.lower() == 'desktop.ini':
+                continue
+            n += 1
+            if n > _PERSIST_STARTUP_PER_FOLDER:
+                ok = False                                # a folder this long is not read whole
+                break
+            found.append(_persist_entry(place, fname + ('\\' if size < 0 else ''), ('%d bytes' % size) if size >= 0 else ''))
+    return {'ok': ok, 'cut': len(found) > _PERSIST_CAPS['startup'], 'items': found[:_PERSIST_CAPS['startup'] + 1]}
+
+
+def collect_persistence(wr=None, run=None, env=None, budget=None):
+    """The inventory of the five places as one snapshot (see the block comment above). `wr`, `run` and `env` are what the probes read through, so that a test hands in
+    a registry, a schtasks and a set of folders of its own; on a host they are the real ones. Never raises: a probe that fails is a place that was not read."""
+    deadline = time.time() + (_PERSIST_BUDGET_S if budget is None else budget)
+    env = env if env is not None else {k.lower(): v for k, v in os.environ.items()}
+    run = run or _persist_run_command
+    if wr is None:
+        try:
+            import winreg as wr
+        except Exception:
+            wr = None
+    probes = (
+        ('run', lambda: _persist_run_items(wr, deadline)),
+        ('winlogon', lambda: _persist_winlogon_items(wr)),
+        ('services', lambda: _persist_service_items(wr, deadline, env)),
+        ('tasks', lambda: _persist_task_items(run, deadline, env)),
+        ('startup', lambda: _persist_startup_items(env, deadline)),
+    )
+    snap = {'v': _PERSIST_VERSION}
+    for cat, probe in probes:
+        try:
+            part = probe() if (wr is not None or cat in ('tasks', 'startup')) else None
+        except Exception:
+            part = None
+        snap[cat] = part if isinstance(part, dict) else dict(_PERSIST_NOT_READ)
+    return snap
+
+
+def _persist_load_ts():
+    try:
+        with open(os.path.join(_data_dir(), _PERSIST_TS_FILE), 'r', encoding='utf-8') as f:
+            return float((f.read() or '').strip())
+    except Exception:
+        return 0.0
+
+
+def _persist_save_ts(ts):
+    try:
+        with open(os.path.join(_data_dir(), _PERSIST_TS_FILE), 'w', encoding='utf-8') as f:
+            f.write(str(ts))
+    except OSError:
+        pass
+
+
+def collect_persistence_if_due():
+    """The snapshot, when 15 minutes have gone since the last one (the time is kept on disk), else None. The time is written once the snapshot is made, so a snapshot
+    that fails halfway is made again at the next check-in and one that works is not."""
+    if time.time() - _persist_load_ts() < _PERSIST_EVERY_S:
+        return None
+    snap = collect_persistence()
+    _persist_save_ts(time.time())
+    return snap
+
+
 def _eval_one_agent_check_win(c):
     ctype = c.get('type')
     param = str(c.get('param', ''))
@@ -4924,6 +5288,14 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         accounts = get_local_accounts()        # local users → account audit card
         if accounts:
             payload['accounts'] = accounts
+        # What starts by itself on this host (Run keys, the Winlogon shell, services that run from a user folder, scheduled tasks, startup folders): a snapshot at most
+        # every 15 minutes, on its own due time, so most of these check-ins carry none.
+        try:
+            _pers = collect_persistence_if_due()
+            if _pers:
+                payload['sysinfo']['persistence'] = _pers
+        except Exception:
+            pass
         # v6.2.0: SMART + hardware inventory (parity) — feed the existing
         # _ingest_hardware pipeline (failure prediction, wear trend, asset page).
         try:

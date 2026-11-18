@@ -200,6 +200,10 @@ ENTITY_FILES = {
     # 8.0.0: detections.json -- per host, what the Detections rules found at the last sweep and when each finding was raised ({device_id: {found, alerted}}), one row
     # per host, and none for a host with nothing found. Born an ENTITY file, so there is no cold blob to migrate.
     'detections.json',
+    # 8.0.2: persistence.json -- per Windows host, what starts by itself (the last inventory by place), the log of what was added and removed, the time of the first
+    # inventory and of the last alert ({device_id: {v, ts, baseline, alert_ts, inv, log}}), one row per host, written when a host reports an inventory (at most every 15
+    # minutes). Born an ENTITY file, so there is no cold blob to migrate.
+    'persistence.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

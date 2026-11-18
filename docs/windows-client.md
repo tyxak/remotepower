@@ -239,6 +239,7 @@ Parity with the Linux agent for the core management surface:
 | **Containers** | docker/podman/k8s | docker CLI (Desktop / Windows containers) |
 | **Custom checks** (file/job/log/service) | yes | yes; `windows_service` type, and a read-only [`registry`](checks.md#windows-registry-values) type (one `HKLM` value through `winreg`) |
 | Security posture → Checks | (n/a) | BitLocker, Firewall (per profile), Defender real-time + signature age, Windows Update service |
+| **Persistence inventory** | (n/a) | What starts by itself, listed every 15 minutes at most: see [Persistence inventory](#persistence-inventory) |
 | Compliance scan | OpenSCAP | not ported (oscap is Linux-only; use the cross-platform CIS baseline). Triggering an OpenSCAP scan on a Windows/macOS host now returns an honest "Linux only, skipped" instead of a silent no-op |
 | **Installed software** | `dpkg` / `rpm` / `apk` / `pacman` package list | The Uninstall keys of the registry (read only), sent to the software views; see [Software inventory](patches.md#software-inventory) |
 | **Scan packages now** (`force_package_scan`) | apt/dnf refresh and the package list | Windows Update pending refresh and the installed-software list |
@@ -318,6 +319,36 @@ budget of 40 seconds, and a probe that fails or that the host cannot answer send
 
 Both are fields of the [Data Explorer](data-explorer.md#windows-hosts) (`shares_count`, `tpm_present`, `tpm_ready`) and
 criteria of [Fleet Query](fleet-query.md) (**Shares >**, **TPM**). There is no alert and no check for either.
+### Persistence inventory
+
+A person who has got into a Windows host usually leaves something that starts again by itself. The agent lists those places at most every 15 minutes, and RemotePower tells you when a new entry appears. The list is on the **Persistence** section of the host's page (open the host, on the first tab).
+
+What the agent lists, and where it looks:
+
+| Place | What is listed |
+|---|---|
+| Run key | The values of `Run` and `RunOnce` under `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion`, in the 64-bit and the 32-bit view |
+| Winlogon value | `Shell` and `Userinit` under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon` |
+| Service | Services whose program is in a temporary or user folder (`\Temp\`, `\AppData\`, `\Users\`, the recycle bin, or a `%TEMP%`, `%APPDATA%` or `%USERPROFILE%` path) |
+| Scheduled task | Enabled tasks that are not Microsoft's: the folder, the name and what each runs. A task under `\Microsoft` is listed only when it runs a program from a temporary or user folder |
+| Startup folder | The files in the startup folder of all users and of each user profile, with their size, so that a replaced file shows |
+
+The agent reads paths and names. It does not check a signature, open a program or change anything.
+
+The list is taken on a system information check-in (every 12th), and only when 15 minutes have gone since the last one. With the default poll interval of 60 seconds that means about every 24 minutes. A host that has just been enrolled, or whose agent has just started, sends its first list at once.
+
+How a change is found:
+
+- **The first inventory is the baseline.** Nothing in it raises an alert, so a new host, or an agent that has just been updated to read more, is quiet. Each place has its own baseline.
+- **A new entry raises one alert** (event `persistence_added`, in the Alerts inbox and Recent Activity). It says how many entries are new and quotes the first three. A command that was changed counts as a new entry next to a removed one, so a `Shell` that was pointed somewhere else raises an alert.
+- **A removed entry is logged and does not raise an alert.** The log of added and removed entries is on the host's page, newest first, up to 200 entries.
+- **One alert for a host in an hour at most.** An entry that arrives while the hour is running is not lost: it goes out with the next alert if it is still on the host.
+- **A place the agent could not read, or that was too long, is not compared.** An empty answer is not read as "everything was removed". The page shows the place as it was, and says so. The limits are 100 Run values, 100 services, 200 tasks and 100 startup files.
+- **A password in a command line is replaced** (the value after a name such as `password`, `token` or `secret`, and the password of a URL) before the list leaves the host and again on the server. This is a second line of defence: look at what your installers write into a Run key.
+
+An alert for this event is in the Alerts inbox and Recent Activity by default. It does not page and has no Needs Attention card, because installers add startup entries too. Turn the webhook on for the kind *New startup entries on Windows hosts* in the notification routing, and mute the event for one host from its alert, as for any other alert.
+
+Deleting a host deletes its inventory and its log. The agent keeps the time of its last inventory in `%ProgramData%\RemotePower\persistence_ts`.
 
 ### Interpreter selection (`exec:` vs `ps:` vs `cmd:`)
 
@@ -481,6 +512,7 @@ Everything lives under `%ProgramData%\RemotePower\`:
 | `eventlog_cursor.json` | per-channel Event Log RecordId cursor |
 | `pkg_hash` | the fingerprint of the installed-software list the server took last; the list is sent again only when it changes |
 | `winevent_cursor.json` | for each Event Log channel and event id a log rule reads, the RecordId of the last event sent |
+| `persistence_ts` | the time of the last persistence inventory, so that a restart of the agent does not start another within 15 minutes |
 | `audit-mode` | marker: read-only mode (refuse write commands) |
 | `release.pub` | pinned release public key (enables signature enforcement) |
 | `require-signed-updates` | marker: refuse any unsigned self-update |

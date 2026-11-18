@@ -220,6 +220,16 @@ class TestTheEightEvents(unittest.TestCase):
         self.assertIn('Müller', win._winevt_decode(b'\xff\xfe' + text.encode('utf-16-le')))
         self.assertEqual(win._winevt_parse(win._winevt_decode(b'\xff\xfe' + text.encode('utf-16-le')))[0]['data']['TargetUserName'], 'Müller')
 
+    def test_utf16_without_a_byte_order_mark_is_read_as_utf16_and_not_as_text_with_zero_bytes_in_it(self):
+        text = S.failed_logon(user='Müller')
+        for codec in ('utf-16-le', 'utf-16-be'):
+            with self.subTest(codec):
+                got = win._winevt_decode(text.encode(codec))
+                self.assertEqual(got, text)
+                self.assertEqual(win._winevt_parse(got)[0]['data']['TargetUserName'], 'Müller')
+        self.assertEqual(win._winevt_decode(b''), '')
+        self.assertEqual(win._winevt_decode('plain text'.encode('utf-8')), 'plain text')
+
     def test_an_event_with_unnamed_data_and_one_the_agent_has_no_format_for_is_still_a_line(self):
         xml = S.event_xml(4624, 99, 'Security', S.PROVIDERS['Security'], [(None, 'first'), (None, 'second')])
         ev = win._winevt_parse(xml)[0]

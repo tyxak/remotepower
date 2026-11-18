@@ -6834,6 +6834,8 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .app-row:last-child { border-bottom: 0; }
 .app-name { font-weight: 600; }
 .app-end { margin-left: auto; }
+/* 8.0.2: the command line of a startup entry on the host's page: it breaks anywhere, so a long path never pushes the drawer wider */
+.pers-cmd { min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; }
 /* v3.4.2: automation rules list */
 .auto-rule { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
 .auto-rule.auto-off { opacity: 0.6; }

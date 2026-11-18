@@ -377,7 +377,12 @@ class TestEagerJsPayload(unittest.TestCase):
         # the label of the build is about 60; the Fleet Query's build criterion and its control 67; the patch report's search line 47. The drawer and the Hosts
         # list are drawn before any loader could be asked for more, so the helpers stay in the eager core. The translations are in i18n.js, which is not eager.
         # The budget is 2_780_000, 1,849 over what is measured.
-        self.assertLess(total, 2_780_000,
+        # 8.0.2 Windows event rules and the Persistence section: 2_750_000. The payload was 2_742_522 and is 2_748_781 now: 6,259 bytes more, 5,591 in app-logs.js and 668 in app.js.
+        # app-logs.js holds the eight ready-made Windows rules of the Add log rule dialog with the note each one shows (about 4,700), the picker's fill and the two calls that show
+        # and hide it; app-logs.js is eager, and the dialog fills its form from the rules in it. app.js has the drawer's call for the Persistence section, the module in the lazy list
+        # and the new event in the activity feed's four places. The Persistence renderer is a lazy module (app-persistence.js).
+        # With the Windows event rules and the Persistence section on top of the Windows host items (6,259 bytes more than the 8.0.1 payload of 2_742_522 by themselves): the budget is 2_787_000 until the lead measures the merged tree.
+        self.assertLess(total, 2_787_000,
                         'the eager JS payload regressed past its budget')
 
 

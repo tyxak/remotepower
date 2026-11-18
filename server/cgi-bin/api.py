@@ -456,6 +456,7 @@ DISK_NAMES_FILE  = DATA_DIR / 'disk_names.json'        # v7.4.3 (#47): {device_i
 DISKIO_HIST_FILE = DATA_DIR / 'diskio_history.json'    # v7.4.3 (#49): {device_id: {disk: [[ts, busy%, read MB/s, write MB/s, IOPS, await ms], ...]}}
 TRAFFIC_FILE = DATA_DIR / 'traffic.json'                  # 8.0.0: {device_id: {first, at, sample, series, seen, seen_out, alerted}} -- what a host's TCP connections moved (traffic.py)
 DETECTIONS_FILE = DATA_DIR / 'detections.json'            # 8.0.0: {device_id: {found, alerted}} -- what the Detections rules found at the last sweep and when each was raised (detections.py)
+PERSISTENCE_FILE = DATA_DIR / 'persistence.json'          # {device_id: {v, ts, baseline, alert_ts, inv, log}} -- what starts by itself on a Windows host and what was added and removed (persistence.py)
 _DISKIO_HIST_MIN_GAP = 60       # seconds between two samples of one disk
 _DISKIO_HIST_MAX = 120          # samples kept per disk
 CPUTIME_HIST_FILE = DATA_DIR / 'cputime_history.json'   # 7.4.9: {device_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]} in percent
@@ -1218,6 +1219,18 @@ for _ad_name in (
 ):
     globals()[_ad_name] = getattr(app_discovery_handlers_mod, _ad_name)
 del _ad_name
+
+# the autostart inventory of a Windows host and what changed in it: the heartbeat side (ingest, one alert) and the host's page.
+_pe_spec = _tk_ilu.spec_from_file_location(
+    'persistence_handlers', Path(__file__).parent / 'persistence_handlers.py')
+persistence_handlers_mod = _tk_ilu.module_from_spec(_pe_spec)
+_pe_spec.loader.exec_module(persistence_handlers_mod)
+persistence_handlers_mod.bind(globals())
+for _pe_name in (
+        '_persistence_ingest', 'handle_device_persistence',
+):
+    globals()[_pe_name] = getattr(persistence_handlers_mod, _pe_name)
+del _pe_name
 
 # 8.0.0: the Traffic view -- what each host's established TCP connections moved (the Linux agent's `traffic` sample), one host's page, the fleet's, and the watch list.
 _tr_spec = _tk_ilu.spec_from_file_location(
@@ -2524,6 +2537,13 @@ EVENT_REGISTRY = {
         lifecycle='point',
         label='SSH authorized key added to host', kind='ssh_key',
         title='SSH Key Added to Host', severity='high', priority=4, tags='warning,key'),
+    # 8.0.2: a new entry in what starts by itself on a Windows host (a Run key, the Winlogon shell, a service that runs from a user folder, a scheduled task, a
+    # startup file) after the host's first inventory. It records something that HAPPENED, so nothing observes it going away (lifecycle='point'): the operator
+    # confirms it. One alert for a host in an hour at most, carrying every new entry (persistence.py).
+    'persistence_added': dict(
+        lifecycle='point',
+        label='A new startup entry appeared on a Windows host', kind='persistence',
+        title='New Startup Entry on Host', severity='medium', priority=4, tags='warning,gear'),
     'brute_force_detected': dict(
         lifecycle='point',
         label='Brute-force login attempts detected', kind='brute_force',
@@ -10910,6 +10930,7 @@ CHANNEL_KIND_DEFS = (
     ('reboot', 'Pending reboot', 'operational'),
     ('new_port', 'New listening ports', 'operational'),
     ('ssh_key', 'SSH key changes', 'operational'),
+    ('persistence', 'New startup entries on Windows hosts', 'security'),   # 8.0.2
     ('snmp', 'SNMP polling', 'operational'),
     ('mcp', 'MCP confirmation expired', 'operational'),
     ('hardware', 'Hardware health (SMART/kernel)', 'operational'),
@@ -11050,6 +11071,10 @@ CHANNEL_KIND_DEFAULTS = {
     'enrollment': {'needs_attention': False},
     # v7.4.0: a report to AbuseIPDB or SniffCat is a record of what was done, like an enrollment.
     'threat_report': {'needs_attention': False, 'webhook': False},
+    # 8.0.2: a new startup entry is a real signal, and installers add them too (an updater's scheduled task, a Run key), so by default it is in the Alerts
+    # inbox and Recent Activity, dated and searchable, and does not page. Nothing computes a Needs Attention card for it. Turn the webhook on in Settings ->
+    # Notifications to be told as it happens.
+    'persistence': {'needs_attention': False, 'webhook': False},
 }
 
 
@@ -11447,6 +11472,9 @@ def _alert_title(event, payload):
                 f'from {p.get("source_ip", "?")} on {p.get("unit", "ssh")}')
     if event == 'ssh_key_added':
         return f'New SSH key on {name}: {p.get("user", "?")} ({p.get("fingerprint", "?")})'
+    if event == 'persistence_added':
+        n = p.get('count')
+        return f'New startup {"entry" if n == 1 else "entries"} on {name}'
     if event == 'new_port_detected':
         proc = p.get('process') or '?'
         return (f'New listening port on {name}: '
@@ -25638,6 +25666,16 @@ def handle_heartbeat():
         _ingest_custom_check_results(dev_id, saved_dev['name'])
     except Exception as e:
         sys.stderr.write(f"[remotepower] custom check ingest failed dev={dev_id}: {e}\n")
+
+    # 8.0.2: what starts by itself on a Windows host (the agent's `sysinfo.persistence`, at most every 15 minutes): kept, compared with the last inventory, and one alert
+    # for what is new once the host has a first inventory on record. It is read from the body and not from the stored sysinfo, which does not keep it (the stored copy is
+    # the whitelist safe_si, and a list this long does not belong in the devices store). The word of a host that is not a Windows one is not read.
+    _pers_si = body.get('sysinfo')
+    if isinstance(_pers_si, dict) and _pers_si.get('persistence') is not None and _device_os_family(saved_dev) == 'windows':
+        try:
+            _persistence_ingest(dev_id, saved_dev.get('name', dev_id), _pers_si['persistence'], now)
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] persistence ingest failed dev={dev_id}: {e}\n")
 
     # v3.4.0: hardware health (SMART / kernel / inventory). Fires
     # smart_failure / kernel_outdated edge-triggered. Best-effort.
@@ -79181,6 +79219,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/apps/monitor', 'handle_device_app_monitor', "pi.startswith('/api/devices/') and pi.endswith('/apps/monitor') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/apps/dismiss', 'handle_device_app_dismiss', "pi.startswith('/api/devices/') and pi.endswith('/apps/dismiss') and m == 'POST'"),
     ('eq', ('GET',), '/api/app-discovery', '', 'handle_app_discovery', "pi == '/api/app-discovery' and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/persistence', 'handle_device_persistence', "pi.startswith('/api/devices/') and pi.endswith('/persistence') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/traffic', 'handle_device_traffic', "pi.startswith('/api/devices/') and pi.endswith('/traffic') and m == 'GET'"),
     ('eq', ('GET',), '/api/traffic/fleet', '', 'handle_traffic_fleet', "pi == '/api/traffic/fleet' and m == 'GET'"),
     ('eq', ('GET',), '/api/traffic/config', '', 'handle_traffic_config_get', "pi == '/api/traffic/config' and m == 'GET'"),

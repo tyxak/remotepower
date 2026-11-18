@@ -1116,6 +1116,10 @@ def _webhook_message(event, payload):
         fp = payload.get("fingerprint", "")
         extra = f" fingerprint {fp}" if fp else ""
         return f"{name}: SSH key added for user {user}{extra}"
+    elif event == "persistence_added":
+        sample = payload.get("sample") or []
+        first = f" — {sample[0]}" if isinstance(sample, list) and sample else ""
+        return f'{name}: {payload.get("detail", "new startup entry")}{first}'
     elif event == "brute_force_detected":
         unit = payload.get("unit", "?")
         src_ip = payload.get("source_ip", "?")

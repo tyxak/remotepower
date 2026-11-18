@@ -54,6 +54,7 @@ _HOST_DRAWER = (
     'av_infected', 'av_warning', 'av_clean', 'mount_issue', 'readonly_fs',
     'win_bitlocker_off', 'mac_filevault_off',
     'traffic_watch',   # 8.0.0: the host's page has the Traffic section
+    'persistence_added',   # 8.0.2: the host's page has the Persistence section
 )
 _KMIP = ('kmip_cert_expiring', 'kmip_cert_renewed')
 _CHECKS = ('failed_unit', 'failed_unit_cleared')
