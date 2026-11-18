@@ -27123,6 +27123,25 @@ _VERB_OS_SUPPORT = {
 }
 _OS_LABEL = {'linux': 'Linux', 'windows': 'Windows', 'darwin': 'macOS'}
 
+# The first agent release that implements a verb, and the sentence the operator reads when a host's agent is older. An agent that does not
+# know a command logs "Unknown command" and sends no result, so a verb queued for one is a success toast followed by silence. The sentence
+# is fixed text (the version is the table's `MIN_AGENT`, and docs/patches.md names it) so that it can be translated.
+_VERB_MIN_AGENT = {
+    pkg_refresh_mod.VERB: (pkg_refresh_mod.MIN_AGENT, 'the agent on this host is too old to refresh package lists: update the agent first'),
+}
+
+
+def _verb_needs_newer_agent(dev, command):
+    """The sentence to answer with when this host's agent is older than the release that has `command`, else None.
+
+    A host that has not reported a version is not called old: nothing is known of it, and the sentence would be a guess. An exact verb
+    only (`pkg_refresh` takes no argument); a verb with an argument would be matched by prefix like `_verb_unsupported_on`."""
+    rule = _VERB_MIN_AGENT.get(str(command))
+    version = (dev or {}).get('version')
+    if rule is None or not version or _ver_tuple(version) >= rule[0]:
+        return None
+    return rule[1]
+
 
 def _verb_unsupported_on(dev, command):
     """(verb, family) when this device's agent cannot run `command`, else None.
@@ -27180,6 +27199,10 @@ def _command_block_reason(dev, command):
         _ok = ', '.join(_OS_LABEL.get(f, f) for f in _VERB_OS_SUPPORT[_verb])
         return (409, f'The {_fam and _OS_LABEL.get(_fam, _fam)} agent does not implement '
                      f'"{_verb.rstrip(":")}" — it is available on {_ok} hosts only.')
+    # An agent from before the verb drops it in silence. The same refusal as the one above, for the other way a verb can be missing.
+    _old = _verb_needs_newer_agent(dev, command)
+    if _old:
+        return (409, _old)
     return None
 
 

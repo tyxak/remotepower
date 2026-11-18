@@ -147,13 +147,16 @@ no package manager the agent can refresh, not available in a container, and the 
 command, so server maintenance mode, a quarantined host, an agent in [audit mode](agent-commands.md#read-only-audit-mode) and a maintenance window that holds
 commands apply to it. It can go through change approval: put the **Scan** kind under **Settings → Security → Change approval** and
 the refresh waits for a second admin. It is not available for Windows and macOS hosts, for hosts without an agent, or from the
-containerized agent, which would refresh its own image's lists and not the host's. `POST /api/devices/{id}/refresh-package-lists`
+containerized agent, which would refresh its own image's lists and not the host's. The agent has to be version 8.0.2 or later. An older
+agent does not know the command and drops it without an answer, so the request is refused with a 409 and the sentence "the agent on this
+host is too old to refresh package lists: update the agent first", and nothing is queued. `POST /api/devices/{id}/refresh-package-lists`
 asks for one.
 
 **Before each scheduled scan.** **Settings → Security → Package lists** has **Refresh the package lists before each scheduled scan**.
 It is off by default, and with it off a scan does what it always did. With it on, each Linux host refreshes its lists just before its
 scheduled scan. A host that is quarantined, in audit mode, in maintenance mode or outside a change window that holds commands
-scans without the refresh. The scan is the same as ever, on Arch too (see above).
+scans without the refresh, and so does a host with an agent older than 8.0.2, which does not know the setting. The scan is the same as
+ever, on Arch too (see above).
 
 The **Package index updated recently** check template also counts a refresh the agent ran itself, so the check works on dnf, zypper
 and apk hosts. A check applied from the template before this was added keeps its two apt paths: edit its path to add

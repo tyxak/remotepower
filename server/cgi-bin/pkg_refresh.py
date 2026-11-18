@@ -13,6 +13,10 @@ Pure functions only, so the heartbeat ingest and the tests share one reading of 
 # The command verb the server queues for "Check for updates now". Linux only (api._VERB_OS_SUPPORT).
 VERB = 'pkg_refresh'
 
+# The first agent release that has the verb. An older agent logs "Unknown command" and drops it without a result, so the operator would see
+# "Refresh queued" and nothing would ever change: the server refuses to queue it for an agent below this version (api._VERB_MIN_AGENT).
+MIN_AGENT = (8, 0, 2)
+
 STATUSES = ('ok', 'partial', 'failed', 'unsupported')
 SOURCES = ('', 'apt', 'dnf', 'yum', 'zypper', 'apk', 'pacman')
 CLASSES = ('', 'lock', 'network', 'repository', 'disk', 'permission', 'timeout',

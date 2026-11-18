@@ -68,6 +68,7 @@ _spec.loader.exec_module(api)
 import pkg_refresh as pr_mod  # noqa: E402  (the server's own copy of the fixed sets)
 import agent_capabilities as pr_caps  # noqa: E402  (the install hint the panel gives for Arch)
 import env_guard  # noqa: E402
+from i18n_engine import LANGS, dict_rows  # noqa: E402
 from routing_harness import routes_to  # noqa: E402
 
 
@@ -1299,6 +1300,99 @@ class TestTheEndpoint(_Server):
         self.assertIn("scan", api._APPROVAL_KINDS_ALL, "an operator can only gate a kind the settings offer")
         self.assertEqual(api._humanize_queued_command("pkg_refresh"), {"kind": "scan", "summary": "refresh the package lists"})
         self.assertEqual(api._VERB_OS_SUPPORT["pkg_refresh"], ("linux",))
+
+
+class TestAnAgentThatPredatesTheVerb(_Server):
+    """An agent that does not know `pkg_refresh` logs "Unknown command", sends no result and loses the entry, so a server that queued it for
+    one answered "Refresh queued" and nothing ever changed. The agent from 8.0.2 on has it; the server refuses to queue it below that."""
+
+    SENTENCE = "the agent on this host is too old to refresh package lists: update the agent first"
+
+    def set_version(self, dev, version):
+        devices = api.load(api.DEVICES_FILE)
+        if version is None:
+            devices[dev].pop("version", None)
+        else:
+            devices[dev]["version"] = version
+        api.save(api.DEVICES_FILE, devices)
+        api._LOAD_CACHE.clear()
+
+    def ask(self, dev="d1"):
+        return self.call(api.handle_device_pkg_refresh, dev)
+
+    def test_an_agent_older_than_the_verb_is_refused_with_a_sentence_and_nothing_is_queued(self):
+        for version in ("8.0.1", "8.0.0", "7.5.0", "8.0", "1.0.0", "garbage"):
+            with self.subTest(version=version):
+                self.set_version("d1", version)
+                self.assertEqual(self.ask(), (409, {"error": self.SENTENCE}))
+                self.assertEqual(self.queue(), {})
+
+    def test_an_agent_from_the_release_that_has_it_and_later_ones_are_queued(self):
+        """Compared as numbers: 8.0.10 is later than 8.0.2, which a comparison of the text gets the wrong way round."""
+        for version in ("8.0.2", "8.0.3", "8.0.10", "8.1.0", "9.0.0", "8.0.2-rc1"):
+            with self.subTest(version=version):
+                api.save(api.CMDS_FILE, {})
+                self.set_version("d1", version)
+                self.assertEqual(self.ask(), (200, {"ok": True}))
+                self.assertEqual(self.queue(), {"d1": ["pkg_refresh"]})
+
+    def test_a_host_that_has_not_reported_a_version_is_not_called_old(self):
+        """Nothing is known of it, and "too old" would be a guess (a host that enrolled has one; this is a record made by hand)."""
+        for version in (None, ""):
+            with self.subTest(version=version):
+                api.save(api.CMDS_FILE, {})
+                self.set_version("d1", version)
+                self.assertEqual(self.ask()[0], 200)
+                self.assertEqual(self.queue(), {"d1": ["pkg_refresh"]})
+
+    def test_the_shared_gate_refuses_it_on_every_path_and_only_that_verb(self):
+        """_command_block_reason is what a batch, the MCP tools and the approval executor meet: the verb is refused there, not only in the
+        handler. A host with an old agent is not blocked from anything else by it."""
+        self.set_version("d1", "8.0.1")
+        old = api.load(api.DEVICES_FILE)["d1"]
+        self.assertEqual(api._command_block_reason(old, "pkg_refresh"), (409, self.SENTENCE))
+        for other in ("reboot", "scan", "svc:nginx:restart", "poll_interval:60"):
+            self.assertIsNone(api._command_block_reason(old, other), other)
+        self.set_version("d1", "8.0.2")
+        self.assertIsNone(api._command_block_reason(api.load(api.DEVICES_FILE)["d1"], "pkg_refresh"))
+
+    def test_the_refusal_comes_before_a_second_admin_is_asked(self):
+        """A change that can never run is not parked for approval."""
+        self.set_config(change_approval_enabled=True, approval_gated_kinds=["scan"])
+        self.set_version("d1", "8.0.1")
+        self.assertEqual(self.ask()[0], 409)
+        self.assertEqual(self.pending(), [])
+        self.set_version("d1", "8.0.2")
+        self.assertEqual(self.ask()[0], 202)
+        self.assertEqual(len(self.pending()), 1)
+
+    def test_the_other_refusals_still_come_first_and_say_their_own_sentence(self):
+        """A Windows host with an old agent is told it is not a Linux host, not that its agent is old."""
+        self.set_version("dw", "8.0.1")
+        status, body = self.ask("dw")
+        self.assertEqual((status, body["error"]), (409, "the package list refresh is available for Linux hosts only"))
+
+    def test_the_minimum_is_the_release_the_verb_came_in_and_the_agent_that_has_it_is_not_below_it(self):
+        self.assertEqual(pr_mod.MIN_AGENT, (8, 0, 2))
+        shipped = tuple(int(x) for x in agent.VERSION.split("."))
+        self.assertGreaterEqual(shipped, pr_mod.MIN_AGENT, "the agent that has the verb would be refused by its own server")
+        with mock.patch.object(agent, "_audit_mode", lambda: True):
+            known = agent.execute_command(pr_mod.VERB)
+        self.assertEqual(known["rc"], 126, "the agent at this version knows the verb (an agent that does not answers nothing)")
+        self.assertEqual(api._VERB_MIN_AGENT[pr_mod.VERB][0], pr_mod.MIN_AGENT)
+
+    def test_the_documentation_names_the_version_and_the_sentence(self):
+        text = " ".join((ROOT / "docs" / "patches.md").read_text(encoding="utf-8").split())
+        version = ".".join(str(n) for n in pr_mod.MIN_AGENT)
+        self.assertIn(f"The agent has to be version {version} or later", text)
+        self.assertIn(self.SENTENCE, text)
+        self.assertIn(f"a host with an agent older than {version}, which does not know the setting", text)
+
+    def test_the_sentence_has_all_six_languages(self):
+        rows = dict_rows()
+        self.assertIn(self.SENTENCE, rows)
+        self.assertEqual(sorted(set(LANGS) - rows[self.SENTENCE]), [])
+        self.assertEqual(api._VERB_MIN_AGENT[pr_mod.VERB][1], self.SENTENCE, "the sentence the server sends is the one that was translated")
 
 
 class TestAHostOutsideTheCallersTenant(unittest.TestCase):
