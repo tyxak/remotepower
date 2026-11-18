@@ -279,7 +279,7 @@ and when you press **Scan now**. Two things about the answer are worth knowing.
   was taken after the upgrade.
 
 You see the search on the host's **Packages** card and in its patch report (*Last search 12 minutes ago, ok*, or in amber
-*Last search failed (access); count taken 5 days ago*; the Time display setting under My Account > Appearance shows the
+*Last search failed (access); count taken 5d ago*; the Time display setting under My Account > Appearance shows the
 exact time instead). The Checks page has a row, **Windows Update search**, that turns amber after 3 days without a
 successful search and red after 14. Silence it for one host like any other row.
 
