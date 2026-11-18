@@ -609,7 +609,7 @@ function _ipiDetailHtml(a) {
   // The text of a request is the sender's, so every part is escaped here as well as rebuilt on the server.
   const asked = (e.samples || []).map(s =>
     `<div class="ipi-sample"><code>${escHtml([s.m, s.p].filter(Boolean).join(' '))}</code>${s.c ? ' ' + escHtml(String(s.c)) : ''} ` +
-    `<span class="hint">${_ipiPhrase(_IPI_SOURCE[s.f] || s.f)}${s.t ? ' · ' + escHtml(timeAgo(s.t)) : ''}</span></div>`);
+    `<span class="hint">${_ipiPhrase(_IPI_SOURCE[s.f] || s.f)}${s.t ? ' · ' + timeAgoHtml(s.t) : ''}</span></div>`);
   if (asked.length) facts.push([_ipiPhrase('Requests'), asked.join('')]);
   if (a.listed) {
     const l = a.listed;

@@ -13,7 +13,6 @@ either measured here, measured by the Threat Intel module, or listed with the re
 
 Self-skips without playwright / Chromium / gunicorn, and runs under the default storage backend only.
 """
-import json
 import os
 import re
 import shutil
@@ -126,7 +125,7 @@ class TestTheRingsInTheListsThatScroll(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         ctx = _STATE['browser'].new_context(viewport={'width': 1440, 'height': 900}, service_workers='block')
-        ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); } catch (e) {}")
+        ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); localStorage.setItem('rp_autohide_sidebar', '0'); localStorage.setItem('rp_pagetabs', 'stacked'); } catch (e) {}")
         cls.ctx, cls.page = ctx, ctx.new_page()
         cls.page.goto(_STATE['base'] + '/index.html')
         cls.page.fill('#login-user', 'alice')            # the seeder builds its own operator accounts: there is no 'admin'
@@ -134,12 +133,9 @@ class TestTheRingsInTheListsThatScroll(unittest.TestCase):
         cls.page.click('#login-form button[type="submit"]')
         cls.page.wait_for_selector('#app', state='visible', timeout=90000)
         cls.page.wait_for_timeout(4000)
-        cls.asset = None                                  # a host whose CMDB record has documents, for the last list
-        try:
-            cmdb = json.loads((Path(_STATE['data_dir']) / 'cmdb.json').read_text(encoding='utf-8'))
-            cls.asset = next((k for k, v in cmdb.items() if isinstance(v, dict) and v.get('docs')), None)
-        except (OSError, ValueError):
-            pass
+        # a host whose CMDB record has documents, for the last list: asked of the app, which is where a person would find one
+        cls.asset = cls.page.evaluate("""async () => { const r = await api('GET', '/cmdb'); const list = Array.isArray(r) ? r : ((r && (r.assets || r.items)) || []);
+                                          const a = list.find(x => x && x.has_documentation); return a ? a.device_id : null; }""")
         cls.page.evaluate('(d) => { window.__cmdbDocAsset = d; }', cls.asset)
 
     @classmethod

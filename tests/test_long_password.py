@@ -444,20 +444,30 @@ class TestEveryPlaceThatHashesWithBcryptIsListedAndGuarded(unittest.TestCase):
     SKIP_DIRS = {'.git', 'tests', 'docs', '.ruff_cache', '__pycache__', 'node_modules', 'dist', '.codeql-cache'}
     GUARD = re.compile(r'<=\s*72|>\s*72|_over_bcrypt_limit\(|_BCRYPT_MAX_BYTES')
 
+    def _paths(self):
+        """The tracked files of the repository, which leaves out what a build leaves in a directory git ignores (a makepkg tree under packaging/aur holds a
+        symlink that points at a path of the install, and a walk of the disk fell over it). A tree with no .git is walked, and its symlinks are left alone."""
+        try:
+            out = subprocess.run(['git', 'ls-files', '-z'], cwd=_ROOT, capture_output=True, timeout=60, check=True).stdout.decode().split('\0')
+            paths = [_ROOT / rel for rel in out if rel]
+        except (OSError, subprocess.SubprocessError):
+            paths = []
+            for dirpath, dirs, files in os.walk(_ROOT):
+                dirs[:] = [d for d in dirs if d not in self.SKIP_DIRS]
+                paths.extend(Path(dirpath) / name for name in files)
+        return [p for p in paths if p.is_file() and not p.is_symlink() and not (set(p.relative_to(_ROOT).parts) & self.SKIP_DIRS)]
+
     def walk(self):
         found = {}
-        for dirpath, dirs, files in os.walk(_ROOT):
-            dirs[:] = [d for d in dirs if d not in self.SKIP_DIRS]
-            for name in files:
-                p = Path(dirpath) / name
-                if p.suffix not in ('.py', '.sh', '') or p.stat().st_size > 6_000_000:
-                    continue
-                try:
-                    text = p.read_text()
-                except (UnicodeDecodeError, OSError):
-                    continue
-                if 'hashpw(' in text:
-                    found[str(p.relative_to(_ROOT))] = text
+        for p in self._paths():
+            if p.suffix not in ('.py', '.sh', '') or p.stat().st_size > 6_000_000:
+                continue
+            try:
+                text = p.read_text()
+            except (UnicodeDecodeError, OSError):
+                continue
+            if 'hashpw(' in text:
+                found[str(p.relative_to(_ROOT))] = text
         return found
 
     def test_the_places_are_the_five_and_a_new_one_has_to_be_added_here(self):
