@@ -55,6 +55,9 @@ const out = {body: '', badge: ''};
 const els = {'audit-body-packages': {set innerHTML(v) { out.body = v; }}, 'audit-badge-packages': {set textContent(v) { out.badge = v; }}};
 const document = {getElementById: id => els[id]};
 let _drawerDeviceId = 'h1', _drawerDeviceName = 'host one';
+let _drawerAuditLoaded = {};
+// a Windows host: the drawer draws the refresh pill and its button for a Linux host only (the package list refresh is a Linux agent verb)
+let _drawerDeviceData = {os: 'Windows 11 Pro', agentless: false};
 const _skeletonBlock = () => '';
 const api = async () => ({sysinfo: %s});
 _loadAuditSection('packages').then(() => console.log(JSON.stringify(out)));
