@@ -57001,6 +57001,11 @@ def _maybe_sample_health(now=None):
             fleet = store.setdefault('fleet', [])
             if fleet and fleet[-1].get('date') == day:
                 return  # already sampled today
+            existing_ids = set(load(DEVICES_FILE) or {})
+            # An empty host store while the history names hosts is a failed read: an empty fleet scores 100, so the day would be recorded as perfect, and the
+            # prune below would take the history of every host (_fleet_read_failed). Nothing is recorded; the next request tries again.
+            if _fleet_read_failed(existing_ids, store.get('devices') or {}, 'the health history'):
+                return
             health = _fleet_health()
             fleet.append({'date': day, 'ts': now,
                           'score': health['score'], 'grade': health['grade']})
@@ -57018,11 +57023,8 @@ def _maybe_sample_health(now=None):
             # unmonitored devices, so pruning by the sampled set would wipe an
             # unmonitored host's accumulated history — and it would restart from
             # zero when re-monitored. Keep any id still present in the store.
-            existing_ids = set(load(DEVICES_FILE) or {})
-            # an empty host store while the history names hosts is a failed read, and the prune would take the history of the whole fleet (_fleet_read_failed)
-            if not _fleet_read_failed(existing_ids, devices, 'the health history'):
-                for gone in [k for k in devices if k not in existing_ids]:
-                    del devices[gone]
+            for gone in [k for k in devices if k not in existing_ids]:
+                del devices[gone]
     except Exception as e:
         sys.stderr.write(f'[remotepower] health sample failed: {e}\n')
 

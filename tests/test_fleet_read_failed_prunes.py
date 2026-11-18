@@ -52,6 +52,12 @@ class _Fleet(_Base):
         real = self.api._load_uncached
         self.api._load_uncached = lambda path: ({} if Path(path).name == 'devices.json' else real(path))
         self.addCleanup(setattr, self.api, '_load_uncached', real)
+        self._real_load = real
+        self.api._LOAD_CACHE.clear()
+
+    def good_read(self):
+        """The read works again."""
+        self.api._load_uncached = self._real_load
         self.api._LOAD_CACHE.clear()
 
     def without_a_host(self, gone='h3'):
@@ -85,13 +91,20 @@ class TestTheHealthHistory(_Fleet):
         self.sweep()
         self.assertEqual(self.names(self.api.HEALTH_HIST_FILE, 'devices'), ['h0', 'h1', 'h2'], 'control: the prune still works')
 
-    def test_an_empty_read_drops_nothing_and_still_samples_the_day(self):
+    def test_an_empty_read_drops_nothing_records_no_day_and_the_next_good_read_records_it(self):
+        """An empty fleet scores 100: the day would have gone into the series as a perfect one, and the daily gate would have closed on it."""
         self.empty_read()
         self.sweep()
         got = self.stored(self.api.HEALTH_HIST_FILE)
         self.assertEqual(sorted(got['devices']), HOSTS, 'the history of every host is still there')
-        self.assertTrue(all(len(s) == 1 for s in got['devices'].values()))
-        self.assertEqual(len(got['fleet']), 2, 'the fleet series has its sample for the day, so the daily gate is closed and the next request does not run the sweep again')
+        self.assertTrue(all(len(s) == 1 for s in got['devices'].values()), 'and no point was added to it')
+        self.assertEqual([f['date'] for f in got['fleet']], ['2026-01-01'], 'no perfect score was recorded for a fleet nobody could read')
+        self.good_read()
+        self.sweep()
+        got = self.stored(self.api.HEALTH_HIST_FILE)
+        self.assertEqual(len(got['fleet']), 2, 'the day was not given up: the next request that reads the hosts records it')
+        self.assertEqual(sorted(got['devices']), HOSTS)
+        self.assertTrue(all(len(s) == 2 for s in got['devices'].values()))
 
     def test_an_installation_with_no_hosts_and_no_history_is_sampled_as_before(self):
         self.put({})
