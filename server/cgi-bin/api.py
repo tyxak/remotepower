@@ -62827,7 +62827,9 @@ def _upgrade_verify_status(dev, now):
     # v3.9.0: agent hasn't re-reported a current package count yet. Keep waiting,
     # but if the host has been online for over an hour with still no fresh count,
     # give up quietly rather than hang the badge — a re-scan can be forced.
-    if not isinstance(cur, int):
+    # 8.0.2: a Windows host whose last search failed carries the count it had before, and a count that was taken before the upgrade was queued
+    # says nothing about whether the upgrade took, so it waits for one taken after it, as a host that sent no count does.
+    if not isinstance(cur, int) or windows_host_mod.count_predates(dev.get('sysinfo'), qa):
         return None if (online and aged) else 'pending'
     if cur < before:
         return 'ok'
@@ -62870,7 +62872,8 @@ def handle_patch_report():
     for dev_id, dev in devices.items():
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
-        upgradable = pkg.get('upgradable')
+        # 8.0.2: the count of a Windows host whose search has been failing for days is not read as the host's count now (`stale_count` has it)
+        upgradable, stale_count = windows_host_mod.readable_count(si, pkg.get('upgradable'), now)
         security_updates = pkg.get('security_updates')   # v5.0.0: distro-flagged
         pkg_manager = pkg.get('manager', 'unknown')
         is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
@@ -62937,6 +62940,9 @@ def handle_patch_report():
             'last_seen': dev.get('last_seen', 0),
             'pkg_manager': pkg_manager,
             'upgradable': upgradable,
+            # {upgradable, taken_at} of a count that a failed search left and that is too old to read as the count now (then `upgradable` is
+            # null and the status is no_data); null for every other host
+            'stale_count': stale_count,
             'security_updates': security_updates,
             'firmware': firmware,
             'patch_status': 'unknown',
@@ -62997,7 +63003,7 @@ def handle_patch_report_device(dev_id):
     now = int(time.time())
     si = dev.get('sysinfo', {})
     pkg = si.get('packages', {})
-    upgradable = pkg.get('upgradable')
+    upgradable, stale_count = windows_host_mod.readable_count(si, pkg.get('upgradable'), now)   # 8.0.2: see handle_patch_report
     security_updates = pkg.get('security_updates')   # v5.0.0: distro-flagged
     is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
 
@@ -63025,6 +63031,7 @@ def handle_patch_report_device(dev_id):
         'version': dev.get('version', ''),
         'pkg_manager': pkg.get('manager', 'unknown'),
         'upgradable': upgradable,
+        'stale_count': stale_count,   # see handle_patch_report
         'security_updates': security_updates,
         'patch_status': 'no_data' if upgradable is None else ('fully_patched' if upgradable == 0 else 'patches_available'),
         # A Windows host: how its last Windows Update search went (a failed search leaves the count it had), and the
@@ -63102,7 +63109,7 @@ def handle_patch_report_csv():
     for dev_id, dev in sorted(devices.items(), key=lambda x: str(x[1].get('name', '')).lower()):
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
-        upgradable = pkg.get('upgradable')
+        upgradable, _stale = windows_host_mod.readable_count(si, pkg.get('upgradable'), now)   # 8.0.2: see handle_patch_report
         security_updates = pkg.get('security_updates')   # v5.0.0: distro-flagged
         is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
         status = 'no_data' if (upgradable is None or not is_online) else ('fully_patched' if upgradable == 0 else 'patches_available')
@@ -63146,7 +63153,7 @@ def handle_patch_report_xml():
     for dev_id, dev in sorted(devices.items(), key=lambda x: str(x[1].get('name', '')).lower()):
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
-        upgradable = pkg.get('upgradable')
+        upgradable, _stale = windows_host_mod.readable_count(si, pkg.get('upgradable'), now)   # 8.0.2: see handle_patch_report
         security_updates = pkg.get('security_updates')   # v5.0.0: distro-flagged
         is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
         d_el = SubElement(devs_el, 'Device')

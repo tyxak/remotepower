@@ -273,7 +273,10 @@ and when you press **Scan now**. Two things about the answer are worth knowing.
 - **The search is reported.** Each report says when the search ran, whether it worked and where it asked: Windows Update,
   or a WSUS server that a policy points the host at. A search that failed says why in one word: `timeout`, `access`,
   `service`, `network` or `unknown`. It never sends the text of the error. A failed search does not clear the count and
-  does not refresh it. The host keeps the count it had and says when that count was taken.
+  does not refresh it. The host keeps the count it had and says when that count was taken. For 3 days that count is still
+  what the reports use. After that it is too old to say the host is patched, so the patch reports list the host as No data
+  and keep the count and its date beside it (`stale_count`), and the badge of an upgrade you queued waits for a count that
+  was taken after the upgrade.
 
 You see the search on the host's **Packages** card and in its patch report (*Last search 12 minutes ago, ok*, or in amber
 *Last search failed (access); the count is from 2026-11-12*). The Checks page has a row, **Windows Update search**, that

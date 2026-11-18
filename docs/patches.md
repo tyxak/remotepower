@@ -21,7 +21,10 @@ which hosts have updates waiting, and which packages are involved.
   See [Software inventory](#software-inventory) for what each system reports.
 - A Windows host's count leaves out the Defender definition updates, which Windows offers several times a day, and its
   patch report says when the last Windows Update search ran and whether it worked. A search that failed keeps the count the
-  host had and names the date of it. See [Windows Update](windows-client.md#windows-update).
+  host had and names the date of it. After 3 days of failed searches that count is too old to call the host patched, so the
+  host is listed as **No data** (the report's `upgradable` is `null`, and `stale_count` holds the count and the time it was
+  taken), and the check of an upgrade you queued waits for a count taken after it. See
+  [Windows Update](windows-client.md#windows-update).
 
 ## Software inventory
 

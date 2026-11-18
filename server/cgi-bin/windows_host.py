@@ -171,6 +171,45 @@ def keep_last_count(safe_si: dict[str, Any], prev_si: object) -> bool:
     return kept
 
 
+def kept_count_time(si: object) -> int | None:
+    """When the pending-update count a host carries was taken, if it is a count `keep_last_count` kept (the last
+    search of the host failed). None when it is not a kept count: the last search worked, or the host sent no
+    search state (a Linux or macOS host, an agent from before the state existed), and the count is read as it
+    always was. 0 when it is a kept count and nothing says when it was taken."""
+    if not isinstance(si, dict):
+        return None
+    state = si.get("wu_search")
+    if not isinstance(state, dict) or state.get("ok") is not False:
+        return None
+    return _stamp(state.get("ok_at")) or _stamp(si.get("pkg_scan_ts"))
+
+
+def count_predates(si: object, since: int) -> bool:
+    """True when the count a host carries is a kept one that was taken before `since`. An upgrade that was queued at
+    `since` cannot be told to have worked, or not, from a count that is older than the upgrade."""
+    taken = kept_count_time(si)
+    return taken is not None and taken < since
+
+
+def readable_count(
+    si: object, count: Any, now: int, days: int = SEARCH_WARN_DAYS
+) -> tuple[Any, dict[str, Any] | None]:
+    """(the count a report may print as the host's count now, the record of the count it may not).
+
+    A host whose last search failed keeps the count it had. For `days` days that is still the best count there
+    is; past them it is not the count the host has now, and a report that says "fully patched" from a zero of 40
+    days ago, or counts the host's pending updates from it, says what nobody knows. The count is then None, as it
+    was before a failed search kept it, and the second value says what it was and when it was taken
+    ({"upgradable": 3, "taken_at": 1731400000}); `taken_at` is 0 when nothing says. Every other count comes
+    back as it is, with None beside it."""
+    if isinstance(count, bool) or not isinstance(count, int):
+        return count, None
+    taken = kept_count_time(si)
+    if taken is None or now - taken < days * 86400:
+        return count, None
+    return None, {"upgradable": count, "taken_at": taken}
+
+
 def _ago(seconds: int) -> str:
     """'12 minutes', '3 hours', '5 days' for a span of seconds."""
     seconds = max(0, int(seconds))

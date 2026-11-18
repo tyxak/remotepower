@@ -9,10 +9,14 @@ applied one at a time (with the anchor checked first, and a green control before
     through the cleaner that ingest uses, and the digits are ASCII digits wherever a build or a version is read.
   * Windows 10 and 11 Enterprise multi-session has an EditionID that starts with "Server" and is a client system: the agent reads
     InstallationType and the server decides "server" from it.
-  * (later commits add the count a failed search leaves, the corpus and the time cell.)
+  * A Windows Update search that failed leaves the count the host had. Two readers took that count for the count now: the check of a queued
+    upgrade said "didn't take" about a count older than the upgrade, and the patch reports said "fully patched" about a zero of 40 days ago.
+  * (later commits add the corpus and the time cell.)
 
 The Windows agent cannot run here; its parsing is driven through the stand-ins of win_host_support.py.
 """
+import ast
+import io
 import os
 import shutil
 import sys
@@ -381,6 +385,260 @@ class TestAMultiSessionClientIsNotAServer(unittest.TestCase):
         self.assertEqual(next(r for r in rows if r["id"] == "avd")["os_detail"], "Windows 11 Enterprise 23H2 (build 22631.3593)")
         self.assertEqual(api._qe_device_posture(si)["win_family"], "Windows 11")
         self.assertGreater(now, 0)
+
+
+# ── the count a failed search leaves ──────────────────────────────────────────────────────────────────────────────────────
+# Every time below is counted from a clock read when the test runs, never when the module is imported: a gate imports every module first and
+# runs them minutes later, and a host whose last_seen is that old is offline.
+DAY = 86400
+
+
+def win_host(name, now, count, taken, state, pkg_scan_ts=None, last_seen=None, **extra):
+    """A Windows host with `count` pending updates that were taken at `taken` and the search state `state` ("worked", "failed", a state of its
+    own, or None for a host that sent none). pkg_scan_ts is `taken` unless it is given, and False leaves it out."""
+    si = {"uptime": "1d", "packages": {"manager": "windows-update", "upgradable": count, "upgradable_names": ["KB%d" % i for i in range(count)]}}
+    if pkg_scan_ts is not False:
+        si["pkg_scan_ts"] = taken if pkg_scan_ts is None else pkg_scan_ts
+    if state == "worked":
+        si["wu_search"] = {"at": now - 600, "ok": True, "source": "windows-update-agent", "error_class": "", "ok_at": now - 600, "fail_since": 0}
+    elif state == "failed":
+        si["wu_search"] = {"at": now - 600, "ok": False, "source": "windows-update-agent", "error_class": "service", "ok_at": taken,
+                           "fail_since": now - 3600}
+    elif isinstance(state, dict):
+        si["wu_search"] = state
+    row = host_row(name, last_seen=now if last_seen is None else last_seen, sysinfo=si)
+    row.update(extra)
+    return row
+
+
+def store(hosts):
+    """The hosts as they are built: save() keeps last_seen from going back, and a host that is offline has to be able to be saved as one."""
+    api.save(api.DEVICES_FILE, hosts, clamp_last_seen=False)
+    api._LOAD_CACHE.clear()
+
+
+def stored(dev_id):
+    api._LOAD_CACHE.clear()
+    return api.load(api.DEVICES_FILE)[dev_id]
+
+
+class TestTheCheckOfAQueuedUpgradeAgainstAKeptCount(unittest.TestCase):
+    """_upgrade_verify_status compares the count snapshotted when an upgrade was queued with the latest count. A host whose last search failed
+    carries the count it had, so a count taken before the upgrade was read as "the upgrade did not take". It waits for a count that was taken
+    after the upgrade, the way it waits for a host that has sent none."""
+
+    def setUp(self):
+        self.now = int(time.time())
+
+    def status(self, count, taken_ago, state, queued_ago=5400, before=3, **kw):
+        now = self.now
+        row = win_host("w", now, count, now - taken_ago, state, upgrade_queued_at=now - queued_ago, upgrade_pending_before=before, **kw)
+        store({"w": row})
+        return api._upgrade_verify_status(stored("w"), now)
+
+    def test_a_kept_count_that_is_older_than_the_upgrade_proves_nothing(self):
+        self.assertIsNone(self.status(3, 7200, "failed"), "an online host, an hour after the queue: gives up quietly as a host with no count does")
+        self.assertEqual(self.status(3, 7200, "failed", queued_ago=1800), "pending")
+        self.assertEqual(self.status(3, 7200, "failed", last_seen=self.now - 86400), "pending", "an offline host waits")
+
+    def test_the_controls_a_count_that_was_taken_after_the_upgrade_still_decides(self):
+        self.assertEqual(self.status(3, 600, "worked"), "stalled", "a search that worked after the upgrade and found the same count")
+        self.assertEqual(self.status(1, 600, "worked"), "ok")
+        self.assertEqual(self.status(1, 1800, "failed"), "ok", "the count after the upgrade was taken, and the search failed later")
+        self.assertEqual(self.status(3, 1800, "failed"), "stalled", "a count taken after the upgrade, unchanged, with a later failure")
+
+    def test_a_host_that_sent_no_state_is_read_as_it_always_was(self):
+        self.assertEqual(self.status(3, 600, None), "stalled")
+        self.assertEqual(self.status(3, 7200, None), "stalled", "a Linux host's count is never read as a kept one, whatever its age")
+        self.assertEqual(self.status(3, 0, None, pkg_scan_ts=False), "stalled", "no time at all")
+        self.assertEqual(self.status(1, 7200, None), "ok")
+
+    def test_a_search_that_failed_and_has_no_time_for_its_count_is_a_count_that_predates(self):
+        row = win_host("w", self.now, 3, 0, "failed", pkg_scan_ts=False, upgrade_queued_at=self.now - 5400, upgrade_pending_before=3)
+        store({"w": row})
+        self.assertIsNone(api._upgrade_verify_status(stored("w"), self.now))
+
+    def test_the_whole_way_through_the_heartbeat(self):
+        """The case of the review: a count of 3, an upgrade queued 90 minutes ago, and a beat that says the search failed."""
+        now = self.now
+        host = win_host("w", now, 3, now - 7200, None, upgrade_queued_at=now - 5400, upgrade_pending_before=3, token="tok-w")   # no state yet
+        store({"w": host})
+        status, body = S.beat(api, "w", "tok-w", {"hostname": "w", "wu_search": {"at": int(time.time()), "ok": False, "error_class": "service"}})
+        self.assertEqual(status, 200, body)
+        row = stored("w")
+        self.assertEqual(row["sysinfo"]["packages"]["upgradable"], 3, "control: the count was kept")
+        self.assertIsNone(api._upgrade_verify_status(row, now))
+
+
+def export_text(handler):
+    """What an export handler (CSV or XML) writes to the web server: it prints headers and a blank line and then the file, and exits."""
+    saved = api.verify_token
+    api.verify_token = lambda token: ("alice", "admin")
+    api._RCTX.environ = {"REQUEST_METHOD": "GET", "QUERY_STRING": "", "HTTP_X_TOKEN": "t"}
+    raw = io.BytesIO()
+    out = io.TextIOWrapper(raw, encoding="utf-8", write_through=True)
+    try:
+        with mock.patch.object(sys, "stdout", out):
+            try:
+                handler()
+            except SystemExit:
+                pass
+    finally:
+        api.verify_token = saved
+        api._RCTX.environ = None
+        api._LOAD_CACHE.clear()
+    out.flush()
+    return raw.getvalue().decode("utf-8").split("\n\n", 1)[1]
+
+
+class TestThePatchReportsAgainstAKeptCount(unittest.TestCase):
+    """Four functions turn the count into "no data", "fully patched" or "patches available". A host whose search has failed for three days or more
+    is "no data" in all four, with the count it had and its date in the two JSON reports; a failed search for less is still the count it had."""
+
+    def setUp(self):
+        n = self.now = int(time.time())
+        # name -> (the host, the status all four answer)
+        self.hosts = {
+            "worked0": (win_host("worked0", n, 0, n - 600, "worked"), "fully_patched"),
+            "failed_a_day0": (win_host("failed_a_day0", n, 0, n - DAY, "failed"), "fully_patched"),
+            "just_under0": (win_host("just_under0", n, 0, n - (3 * DAY - 3600), "failed"), "fully_patched"),
+            "just_over0": (win_host("just_over0", n, 0, n - (3 * DAY + 3600), "failed"), "no_data"),
+            "stale0": (win_host("stale0", n, 0, n - 40 * DAY, "failed"), "no_data"),
+            "stale5": (win_host("stale5", n, 5, n - 20 * DAY, "failed"), "no_data"),
+            "failed_a_day5": (win_host("failed_a_day5", n, 5, n - DAY, "failed"), "patches_available"),
+            "never_counted": (win_host("never_counted", n, 0, 0, "failed", pkg_scan_ts=False), "no_data"),
+            "time_from_the_scan": (win_host("time_from_the_scan", n, 0, 0, "failed", pkg_scan_ts=n - 40 * DAY), "no_data"),
+            "recent_scan_no_ok_at": (win_host("recent_scan_no_ok_at", n, 0, 0, "failed", pkg_scan_ts=n - 600), "fully_patched"),
+            "delta_beats0": (win_host("delta_beats0", n, 0, n - 600, "worked", pkg_scan_ts=n - 40 * DAY), "fully_patched"),
+            "worked_but_old_ok_at": (win_host("worked_but_old_ok_at", n, 0, 0, {"at": n - 60, "ok": True, "ok_at": n - 40 * DAY}), "fully_patched"),
+            "linux0": (win_host("linux0", n, 0, n - 40 * DAY, None), "fully_patched"),
+            "no_state3": (win_host("no_state3", n, 3, n - 40 * DAY, None), "patches_available"),
+        }
+        self.want = {k: v[1] for k, v in self.hosts.items()}
+        store({k: v[0] for k, v in self.hosts.items()})
+
+    def test_the_fleet_report(self):
+        status, body = S.call(api, api.handle_patch_report)
+        self.assertEqual(status, 200)
+        rows = {r["device_id"]: r for r in body["devices"]}
+        self.assertEqual({k: r["patch_status"] for k, r in rows.items()}, self.want)
+        count = lambda s: sum(1 for v in self.want.values() if v == s)  # noqa: E731
+        patched, with_patches = count("fully_patched"), count("patches_available")
+        self.assertEqual((body["summary"]["devices_fully_patched"], body["summary"]["devices_with_patches"], body["summary"]["devices_no_data"]),
+                         (patched, with_patches, count("no_data")))
+        self.assertEqual(body["summary"]["patch_percentage"], round(patched / (patched + with_patches) * 100, 1))
+        self.assertEqual(body["summary"]["total_pending_patches"], 5 + 3)
+
+    def test_the_count_and_its_date_stay_in_the_report(self):
+        n = self.now
+        status, body = S.call(api, api.handle_patch_report)
+        rows = {r["device_id"]: r for r in body["devices"]}
+        self.assertEqual((rows["stale0"]["upgradable"], rows["stale0"]["stale_count"]), (None, {"upgradable": 0, "taken_at": n - 40 * DAY}))
+        self.assertEqual(rows["stale5"]["stale_count"], {"upgradable": 5, "taken_at": n - 20 * DAY})
+        self.assertEqual(rows["never_counted"]["stale_count"], {"upgradable": 0, "taken_at": 0})
+        for name in ("worked0", "failed_a_day0", "just_under0", "linux0", "no_state3", "delta_beats0"):
+            self.assertIsNone(rows[name]["stale_count"], name)
+        self.assertEqual((rows["failed_a_day5"]["upgradable"], rows["no_state3"]["upgradable"]), (5, 3))
+
+    def test_the_report_of_one_host(self):
+        for name, want in self.want.items():
+            with self.subTest(host=name):
+                status, body = S.call(api, api.handle_patch_report_device, name)
+                self.assertEqual(status, 200)
+                self.assertEqual(body["patch_status"], want)
+                self.assertEqual(body["stale_count"] is not None, want == "no_data", "the record of the count is there for the hosts that are no data")
+        status, body = S.call(api, api.handle_patch_report_device, "stale0")
+        self.assertEqual((body["upgradable"], body["stale_count"], body["wu_search"]["ok"]),
+                         (None, {"upgradable": 0, "taken_at": self.now - 40 * DAY}, False))
+
+    def test_the_csv_export(self):
+        import csv
+        rows = list(csv.reader(io.StringIO(export_text(api.handle_patch_report_csv))))
+        head, body = rows[0], {r[0]: r for r in rows[1:]}
+        status_col, count_col = head.index("Patch Status"), head.index("Pending Updates")
+        self.assertEqual({k: r[status_col] for k, r in body.items()}, self.want)
+        self.assertEqual((body["stale0"][count_col], body["failed_a_day5"][count_col]), ("N/A", "5"))
+
+    def test_the_xml_export(self):
+        from xml.etree import ElementTree as ET
+        root = ET.fromstring(export_text(api.handle_patch_report_xml).split("?>", 1)[1])
+        got = {d.find("Name").text: d.find("PatchStatus").text for d in root.iter("Device")}
+        self.assertEqual(got, self.want)
+        self.assertEqual(root.find("Summary/NoData").text, str(sum(1 for v in self.want.values() if v == "no_data")))
+
+
+class TestTheHelpersOfTheKeptCount(unittest.TestCase):
+    def setUp(self):
+        self.now = int(time.time())
+
+    def test_a_count_that_is_not_a_kept_one_comes_back_as_it_is(self):
+        for si in (None, "x", {}, {"wu_search": None}, {"wu_search": "x"}, {"wu_search": {"ok": True, "ok_at": 1}}, {"wu_search": {"ok": "no"}}):
+            with self.subTest(si=si):
+                self.assertEqual(wh.readable_count(si, 3, self.now), (3, None))
+                self.assertIsNone(wh.kept_count_time(si))
+                self.assertFalse(wh.count_predates(si, self.now))
+
+    def test_what_is_not_a_count_is_never_a_stale_one(self):
+        failed = {"wu_search": {"ok": False, "ok_at": 1}}
+        for count in (None, True, False, 1.5, "3", [3]):
+            with self.subTest(count=count):
+                self.assertEqual(wh.readable_count(failed, count, self.now), (count, None))
+
+    def test_the_time_of_a_kept_count(self):
+        self.assertEqual(wh.kept_count_time({"wu_search": {"ok": False, "ok_at": 100}, "pkg_scan_ts": 50}), 100)
+        self.assertEqual(wh.kept_count_time({"wu_search": {"ok": False, "ok_at": 0}, "pkg_scan_ts": 50}), 50)
+        self.assertEqual(wh.kept_count_time({"wu_search": {"ok": False}}), 0)
+        for hostile in ("100", [100], 10**30, -5, True, None):
+            self.assertEqual(wh.kept_count_time({"wu_search": {"ok": False, "ok_at": hostile}, "pkg_scan_ts": hostile}), 0, hostile)
+
+    def test_the_limit_is_a_whole_number_of_days_and_the_day_it_is_reached_is_stale(self):
+        now = self.now
+        failed = {"wu_search": {"ok": False, "ok_at": now - 2 * DAY}}
+        self.assertEqual(wh.readable_count(failed, 7, now, days=3), (7, None))
+        self.assertEqual(wh.readable_count(failed, 7, now, days=2), (None, {"upgradable": 7, "taken_at": now - 2 * DAY}), "at exactly the limit")
+        self.assertEqual(wh.readable_count(failed, 7, now - 1, days=2), (7, None), "one second short of it")
+        self.assertEqual(wh.SEARCH_WARN_DAYS, 3, "the limit of the reports is the one at which the Checks row turns amber")
+
+
+class TestEveryClassifierOfTheCountReadsItsAge(unittest.TestCase):
+    """Enumerated from the code, not from a list of names: every function of the server that turns the count into "fully patched" asks
+    `readable_count` first, and the check of a queued upgrade asks `count_predates`. A fifth classifier, or one of these without the call,
+    fails here."""
+
+    def functions(self):
+        out = {}
+        for path in sorted(_CGI.glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    out[f"{path.name}:{node.name}"] = node
+        return out
+
+    @staticmethod
+    def calls(node):
+        names = set()
+        for n in ast.walk(node):
+            if isinstance(n, ast.Call):
+                f = n.func
+                names.add(f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", ""))
+        return names
+
+    @staticmethod
+    def strings(node):
+        return {n.value for n in ast.walk(node) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+
+    def test_the_four_patch_reports(self):
+        funcs = self.functions()
+        classifiers = {k for k, node in funcs.items() if "fully_patched" in self.strings(node)}
+        self.assertEqual(sorted(classifiers), ["api.py:handle_patch_report", "api.py:handle_patch_report_csv", "api.py:handle_patch_report_device",
+                                               "api.py:handle_patch_report_xml"], "a function that says 'fully patched' is new: read its count's age")
+        for k in sorted(classifiers):
+            with self.subTest(function=k):
+                self.assertIn("readable_count", self.calls(funcs[k]))
+
+    def test_the_check_of_a_queued_upgrade(self):
+        node = self.functions()["api.py:_upgrade_verify_status"]
+        self.assertIn("count_predates", self.calls(node))
 
 
 if __name__ == "__main__":
