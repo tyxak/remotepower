@@ -5377,7 +5377,7 @@ def _fleet_read_failed(devices, stored, what):
     next pass. `what` names the store in the line written to the server log."""
     if devices or not _store_names_hosts(stored):
         return False
-    sys.stderr.write(f'[remotepower] WARN: devices.json reads as empty while {what} names hosts; not pruning {what} this time\n')
+    sys.stderr.write(f'[remotepower] WARN: devices.json reads as empty yet entries for hosts exist in {what}; not pruning {what} this time\n')
     return True
 
 

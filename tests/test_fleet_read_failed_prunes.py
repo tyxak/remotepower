@@ -243,7 +243,7 @@ class TestTheHelper(unittest.TestCase):
             buf.truncate(0)
             buf.seek(0)
             self.failed({'h1': {}}, {'h1': {}})
-        self.assertIn('devices.json reads as empty while the test store names hosts', quiet)
+        self.assertIn('devices.json reads as empty yet entries for hosts exist in the test store', quiet)
         self.assertEqual(buf.getvalue(), '')
 
 
