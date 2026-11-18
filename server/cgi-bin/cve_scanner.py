@@ -521,9 +521,11 @@ def entry_package_coverage(entry, record=None, with_packages: bool = True) -> di
 # had not booted into was offered as an update to install. The agent reports the release it runs (uname -r) and, for
 # each installed kernel image, the release that image owns: the file /boot/vmlinuz-<release>, or the modules directory
 # on Alpine, whose kernel file is named by flavour. Exactly one installed package owning the running release is the
-# running kernel. Then only that kernel's package is asked about and counted, the kernels that are installed and do
-# not run are left out, and a finding of the running kernel that one of them would clear is `reboot`. Where the
-# package cannot be told with certainty the plan is the one it always was, and the block says that and why.
+# running kernel. Then only that kernel's package is asked about and counted (on RPM with the packages built together
+# with it: kernel-core owns the file, kernel-modules is the same kernel), the kernels that are installed and do not run
+# are left out with the packages built from them, and a finding of the running kernel that one of them would clear is
+# `reboot`. Where the package cannot be told with certainty the plan is the one it always was, and the block says that
+# and why.
 
 MAX_KERNEL_IMAGES = 16
 _KERNEL_RELEASE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+~-]{0,79}$')
@@ -568,6 +570,12 @@ def _has_kernel_package(fam: str, packages) -> bool:
                                  if isinstance(p, dict))
 
 
+def _built_from(p) -> tuple:
+    """The source package a listed package was built from and that source's version, read as `plan` reads them: a package
+    that names no source is its own, and one that names no source version has its own."""
+    return (_text(p.get('source')) or _text(p.get('name')), _text(p.get('source_version')) or _text(p.get('version')))
+
+
 def kernel_state(report, packages, units, fam: str):
     """(the block a scan stores as `kernel`, the places of the units that hold the running kernel's package, and for
     each other installed kernel image ([the places of its units], its label)).
@@ -600,9 +608,24 @@ def kernel_state(report, packages, units, fam: str):
     for k, u in enumerate(units):
         for row in u.get('rows', ()):
             by_row.setdefault(row, []).append(k)
+    # An RPM kernel is several packages built together (kernel, kernel-core, kernel-modules, kernel-modules-core, ...), the
+    # plan asks about each by its own name and version, and the agent names only kernel-core, the one that owns the file. The
+    # others carry the advisories of the same kernel, so the units of every package built from the same source package at
+    # the same version as an image are that kernel's units. A Debian or Alpine unit is already one source and its version,
+    # so there it is the unit of the image.
+    built: dict = {}
+    if fam == 'rpm':
+        for i, p in enumerate((packages if isinstance(packages, list) else [])[:MAX_PACKAGES]):
+            if isinstance(p, dict):
+                built.setdefault(_built_from(p), []).append(i)
 
     def held_by(image):
-        return by_row.get(rows_of.get((image['name'], image['version'])), [])
+        row = rows_of.get((image['name'], image['version']))
+        places = list(by_row.get(row, []))           # the image's own units first: the version a finding is held against
+        if row is not None and built:
+            for mate in built.get(_built_from(packages[row]), ()):
+                places += [k for k in by_row.get(mate, []) if k not in places]
+        return places
 
     owners = [im for im in images if im.get('release') == rep['release']]
     if not owners:
@@ -1540,7 +1563,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     # from one source (Alpine, and RPM from an agent that reports the source) are one finding that names
     # them, and a package listed twice (two architectures) is no longer two findings.
     suppressed = 0
-    filed = {}
+    carried: dict = {}       # (package, id) -> [(how early a kernel clears it, unit, fix, fixed, that kernel's label)], in plan order
     for unit, vid in hits:
         det = details_cache.get(vid, {})
         eco_fix = det.get('eco_fix')
@@ -1559,24 +1582,29 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         # 8.0.2: a finding of the kernel that runs, which a kernel installed beside it would clear. The kernel that
         # would is the first of them (newest first) whose version is at or past the fix, by the same rule that leaves
         # out a finding the installed version is past: nothing is cleared here that would not be left out there.
-        reboot_to = ''
+        reboot_to, nth = '', len(later)
         if later and unit.get('kernel') == 'running' and patched_spec:
-            for other in later:
+            for n, other in enumerate(later):
                 if _already_patched(other['version'], patched_spec, ecosystem, epoch_known=other['epoch_known']):
-                    reboot_to = other['label']
+                    reboot_to, nth = other['label'], n
                     break
-        key = (unit['package'], vid)
-        finding = filed.get(key)
-        if finding is not None:
-            for name in unit['binaries']:
-                if name not in finding['_binaries']:
-                    finding['_binaries'].append(name)
-            continue
+        carried.setdefault((unit['package'], vid), []).append((nth, unit, fix, fixed, reboot_to))
+    for (_package, vid), group in carried.items():
+        # One advisory against one package is one finding, whichever of the units that hold the package hit it first
+        # (the list of an RPM host comes in the order of its database, which is no order). What a unit of the running
+        # kernel that an installed kernel clears says is the finding's: a reboot applies it, and the newest of those
+        # kernels is the one named. Otherwise the first unit carries it, as it always did.
+        _, unit, fix, fixed, reboot_to = min(group, key=lambda g: g[0])
+        det = details_cache.get(vid, {})
+        asked = unit['name']
         severity, severity_source = _severity_now(det)
         if cve_fixes.is_minor(det.get('minor'), fix_eco, asked):
             # the distribution's own rating wins over a score: Debian calls this package unaffected
             # in a way that matters, in the host's release
             severity, severity_source = 'low', 'debian_urgency'
+        names = []
+        for _, held, _, _, _ in group:
+            names += [name for name in held['binaries'] if name not in names]
         finding = {
             'package': unit['package'],
             'version': unit['shown'],
@@ -1589,13 +1617,12 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             'aliases': det.get('aliases', []),
             'refs': det.get('refs', []),
             'published': det.get('published', ''),
-            '_binaries': list(unit['binaries']),
+            '_binaries': names,
         }
         if fix['elsewhere']:
             finding['fixed_elsewhere'] = {eco: ', '.join(vs) for eco, vs in fix['elsewhere'].items()}
         if reboot_to:
             finding['reboot_to'] = reboot_to
-        filed[key] = finding
         findings.append(finding)
     for finding in findings:
         names = sorted(finding.pop('_binaries'))

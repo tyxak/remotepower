@@ -216,7 +216,10 @@ change.
 When exactly one installed package owns the running release, the scan:
 
 - asks about, and counts, the findings of that package's version only. The kernels that are installed and do not run are
-  left out, with the rest of the packages built from them (the host view says how many packages that is);
+  left out, with the rest of the packages built from them (the host view says how many packages that is). On an RPM host the
+  kernel is several packages built together (`kernel`, `kernel-core`, `kernel-modules`, `kernel-modules-core`) and only
+  `kernel-core` owns the file, so every package built from the same source package at that version goes with it, and a
+  kernel finding reads the same whatever order the host lists its packages in;
 - marks a finding of the running kernel as **Reboot to apply** when a kernel installed beside it is at or past the fix, by
   the rule that leaves out a finding the installed version is past. The finding keeps the version that has the fix and names
   the kernel (`linux-image-6.1.0-48-amd64 6.1.192-1`);
