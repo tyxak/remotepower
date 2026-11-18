@@ -223,7 +223,9 @@ def search_row(
 # and EditionID.
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
-_BUILD = re.compile(r"\d{3,6}")
+# ASCII digits only. `\d` takes the decimal digits of every script, and `str.isdigit()` takes a superscript two as well, which `int()`
+# refuses: a build read with either could be a number to one function and an error to the next.
+_BUILD = re.compile(r"[0-9]{3,6}")
 _DISPLAY = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,15}")
 
 
@@ -237,6 +239,10 @@ def _text(value: object, limit: int) -> str:
 def clean_win_build(raw: object) -> dict[str, Any] | None:
     """The build as it is stored with the host: build (digits), ubr (a whole number), display_version,
     edition and product. A field that is not what it should be is left out; None when nothing is left.
+
+    The readers (`os_label`, `win_family`, `build_fields`) take the stored record through this function as
+    well, so a record that a hand edit, an import or a restore left with a value that ingest would have
+    refused is read the way ingest would have stored it.
     """
     if not isinstance(raw, dict):
         return None
@@ -286,25 +292,30 @@ _EDITIONS = {
 
 
 def _is_server(win_build: dict[str, Any]) -> bool:
+    """Whether a build record that `clean_win_build` cleaned is a server."""
     return "server" in str(win_build.get("product", "")).lower() or str(
         win_build.get("edition", "")
     ).lower().startswith("server")
 
 
-def win_family(win_build: object) -> str:
-    """'Windows 11', 'Windows 10', ... for a client system; the product name for a server; '' when the
-    build says nothing."""
-    if not isinstance(win_build, dict):
-        return ""
-    if _is_server(win_build):
-        return str(win_build.get("product", ""))
-    build = win_build.get("build")
-    if isinstance(build, str) and build.isdigit():
+def _family(wb: dict[str, Any]) -> str:
+    """`win_family` for a record that `clean_win_build` has cleaned."""
+    if _is_server(wb):
+        return str(wb.get("product", ""))
+    build = wb.get("build")
+    if isinstance(build, str) and _BUILD.fullmatch(build):
         for first, family in _CLIENT_FAMILIES:
             if int(build) >= first:
                 return family
-    named = _CLIENT_NAME.match(str(win_build.get("product", "")))
+    named = _CLIENT_NAME.match(str(wb.get("product", "")))
     return named.group(0) if named else ""
+
+
+def win_family(win_build: object) -> str:
+    """'Windows 11', 'Windows 10', ... for a client system; the product name for a server; '' when the
+    build says nothing. The record is cleaned first, as ingest cleans it: a stored value that ingest
+    would have refused is not read."""
+    return _family(clean_win_build(win_build) or {})
 
 
 def _client_edition(win_build: dict[str, Any], family: str) -> str:
@@ -320,38 +331,41 @@ def _client_edition(win_build: dict[str, Any], family: str) -> str:
 
 
 def os_label(win_build: object) -> str:
-    """'Windows 11 Pro 23H2 (build 22631.3593)' for a host that reported its build, else ''."""
-    if not isinstance(win_build, dict) or not win_build.get("build"):
+    """'Windows 11 Pro 23H2 (build 22631.3593)' for a host that reported its build, else ''. The record is
+    cleaned first, as ingest cleans it (a build that is not digits is no build, a text is capped).
+    """
+    wb = clean_win_build(win_build) or {}
+    if not wb.get("build"):
         return ""
-    family = win_family(win_build)
+    family = _family(wb)
     parts = [family] if family else []
-    if not _is_server(win_build):
-        edition = _client_edition(win_build, family)
+    if not _is_server(wb):
+        edition = _client_edition(wb, family)
         if edition.lower().startswith("windows"):
             # a product name this table does not know: it names itself, so it replaces the family
             parts = []
         if edition:
             parts.append(edition)
-    if win_build.get("display_version"):
-        parts.append(str(win_build["display_version"]))
-    number = str(win_build["build"])
-    if isinstance(win_build.get("ubr"), int):
-        number += f".{win_build['ubr']}"
+    if wb.get("display_version"):
+        parts.append(str(wb["display_version"]))
+    number = str(wb["build"])
+    if "ubr" in wb:
+        number += f".{wb['ubr']}"
     parts.append(f"(build {number})")
     return " ".join(parts)
 
 
 def build_fields(si: object) -> dict[str, Any]:
-    """The Data Explorer's six fields for the build; None for what the host never reported."""
-    wb = si.get("win_build") if isinstance(si, dict) else None
-    wb = wb if isinstance(wb, dict) else {}
+    """The Data Explorer's six fields for the build; None for what the host never reported. The record is
+    cleaned first, as ingest cleans it."""
+    wb = clean_win_build(si.get("win_build") if isinstance(si, dict) else None) or {}
     return {
         "win_build": wb.get("build") or None,
-        "win_ubr": wb.get("ubr") if isinstance(wb.get("ubr"), int) else None,
+        "win_ubr": wb.get("ubr"),
         "win_display_version": wb.get("display_version") or None,
         "win_edition": wb.get("edition") or None,
         "win_product": wb.get("product") or None,
-        "win_family": win_family(wb) or None,
+        "win_family": _family(wb) or None,
     }
 
 
@@ -402,7 +416,7 @@ def shares_count(si: object) -> int | None:
 
 # ── the TPM ───────────────────────────────────────────────────────────────────────────────────────────
 
-_SPEC = re.compile(r"\d{1,2}(?:\.\d{1,2})?")
+_SPEC = re.compile(r"[0-9]{1,2}(?:\.[0-9]{1,2})?")  # ASCII digits, as `_BUILD`
 
 
 def clean_tpm(raw: object) -> dict[str, Any] | None:

@@ -5,7 +5,9 @@ Each class below is one finding of that review. Every guard in it was watched fa
 applied one at a time (with the anchor checked first, and a green control before) are listed in the commit that added the class.
 
   * A host read on its own by a SQL backend skipped the shape registry that every other read of the store goes through.
-  * (later commits add the stored build, the multi-session edition, the count a failed search leaves, the corpus and the time cell.)
+  * A stored build that is text of digits `int()` refuses ("²²²") took the whole Hosts list down: the readers of a stored build now take it
+    through the cleaner that ingest uses, and the digits are ASCII digits wherever a build or a version is read.
+  * (later commits add the count a failed search leaves, the corpus and the time cell.)
 
 The Windows agent cannot run here; its parsing is driven through the stand-ins of win_host_support.py.
 """
@@ -16,6 +18,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _TMP = tempfile.mkdtemp(prefix="rp-winreview-")
 os.environ.setdefault("RP_DATA_DIR", _TMP)
@@ -28,9 +31,13 @@ for _p in (str(_CGI), str(_HERE)):
         sys.path.insert(0, _p)
 
 import win_host_support as S  # noqa: E402
+import windows_host as wh  # noqa: E402
 
 import api  # noqa: E402
 import storage  # noqa: E402
+import store_shapes  # noqa: E402
+
+agent = S.load_agent("rp_winreview_agent")
 
 
 def tearDownModule():
@@ -175,6 +182,125 @@ class TestTheRepairIsTheSameOnJson(unittest.TestCase):
             api.DEVICES_FILE = saved_file
             api._LOAD_CACHE.clear()
             shutil.rmtree(scratch, ignore_errors=True)
+
+
+# ── a stored build that is not a build ────────────────────────────────────────────────────────────────────────────────────
+def host_row(name, win_build=None, **over):
+    now = int(time.time())
+    row = {"name": name, "hostname": name, "os": "Windows 11", "token": "t", "last_seen": now, "enrolled": now, "tags": [], "group": "",
+           "agentless": False, "sysinfo": {"uptime": "1d"}}
+    if win_build is not None:
+        row["sysinfo"]["win_build"] = win_build
+    row.update(over)
+    return row
+
+
+# Each of these is a build string `str.isdigit()` accepts or a stored value of another kind. "²²²" is the one that took the Hosts list down:
+# isdigit() is true for it and int() refuses it.
+HOSTILE_BUILDS = ["²²²", "①②③", "٢٢٦٣١", "２２６３１", "2263²", "9" * 1000, "22 631", "", "x22631", "-22631", None, 22631, [], {}, True]
+
+
+class TestAStoredBuildThatIsNotANumber(unittest.TestCase):
+    def test_the_readers_do_not_raise_on_any_of_them(self):
+        for build in HOSTILE_BUILDS:
+            record = {"build": build, "product": "Windows 10 Pro", "ubr": 5, "display_version": "23H2"}
+            with self.subTest(build=build):
+                label, family = wh.os_label(record), wh.win_family(record)
+                fields = wh.build_fields({"win_build": record})
+                if isinstance(build, int) and not isinstance(build, bool):
+                    continue    # a number stored where text goes: the registry reads it as its text (a test below)
+                self.assertEqual(label, "", "a build that is not 3 to 6 ASCII digits is no build, so there is no label")
+                self.assertIsNone(fields["win_build"])
+                self.assertEqual(family, "Windows 10", "the family then comes from the product name, as for a host that sent no build")
+
+    def test_a_control_character_at_the_end_is_trimmed_the_way_ingest_trims_it(self):
+        self.assertEqual(wh.os_label({"build": "22631\x00", "product": "Windows 10 Pro"}), wh.os_label({"build": "22631", "product": "Windows 10 Pro"}))
+
+    def test_the_control_a_real_build_still_reads(self):
+        record = {"build": "22631", "product": "Windows 10 Pro", "ubr": 3593, "display_version": "23H2", "edition": "Professional"}
+        self.assertEqual(wh.os_label(record), "Windows 11 Pro 23H2 (build 22631.3593)")
+        self.assertEqual(wh.win_family(record), "Windows 11")
+
+    def test_the_second_layer_alone_does_not_raise_either(self):
+        """`_family` checks the build itself before it calls int(), so a caller that skipped the cleaner would still not raise."""
+        for build in ("²²²", "①②③", "٢٢٦٣١", "9" * 1000):
+            with self.subTest(build=build):
+                self.assertEqual(wh._family({"build": build, "product": "Windows 10 Pro"}), "Windows 10")
+
+    def test_a_stored_text_is_capped_and_a_stored_revision_is_a_number(self):
+        label = wh.os_label({"build": "22631", "product": "P" * 5000, "edition": "E" * 5000, "display_version": "<img src=x onerror=alert(1)>",
+                             "ubr": True})
+        self.assertLess(len(label), 200)
+        self.assertNotIn("<img", label)
+        self.assertNotIn("True", label)
+        self.assertNotIn(".True", label)
+        self.assertEqual(wh.os_label({"build": "22631", "ubr": 10**9}), "Windows 11 (build 22631)")
+        self.assertEqual(wh.build_fields({"win_build": {"build": "22631", "ubr": True}})["win_ubr"], None)
+
+    def test_the_digits_of_other_scripts_are_no_build_at_ingest_either(self):
+        for build in ("٢٢٦٣١", "２２６３１", "²²²", "२२६३१"):
+            with self.subTest(build=build):
+                self.assertIsNone(wh.clean_win_build({"build": build}))
+        self.assertEqual(wh.clean_win_build({"build": "22631"}), {"build": "22631"})
+
+    def test_the_tpm_specification_is_ascii_digits_too(self):
+        self.assertEqual(wh.clean_tpm({"present": True, "spec": "٢.٠"}), {"present": True})
+        self.assertEqual(wh.clean_tpm({"present": True, "spec": "2.0"}), {"present": True, "spec": "2.0"})
+
+    def test_the_registry_reads_a_number_stored_as_text_and_the_other_way_round(self):
+        doc = {"h": {"name": "h", "sysinfo": {"win_build": {"build": 22631, "ubr": "3593", "product": 5, "display_version": 23}}}}
+        fixed = store_shapes.normalize("devices.json", doc)["h"]["sysinfo"]["win_build"]
+        self.assertEqual(fixed, {"build": "22631", "ubr": 3593, "product": "5", "display_version": "23"})
+        for wrong in ("x", 5, [1], None):
+            doc = {"h": {"name": "h", "sysinfo": {"win_build": wrong}}}
+            self.assertEqual(store_shapes.normalize("devices.json", doc)["h"]["sysinfo"]["win_build"], {}, wrong)
+
+    def test_the_pages_that_read_a_stored_build_answer_for_every_hostile_one(self):
+        hosts = {"good": host_row("good", {"build": "22631", "ubr": 1})}
+        for i, build in enumerate(HOSTILE_BUILDS):
+            hosts[f"hostile{i}"] = host_row(f"hostile{i}", {"build": build, "product": "Windows 10 Pro", "ubr": True, "installation_type": ["x"]})
+        hosts["plain"] = host_row("plain")
+        api.save(api.DEVICES_FILE, hosts)
+        api._LOAD_CACHE.clear()
+
+        def explorer():
+            api.respond(200, api._qe_devices_rows())
+
+        for name, handler, kw in (("hosts list", api.handle_devices_list, {}), ("data explorer", explorer, {}),
+                                  ("fleet query", api.handle_fleet_query, {"query": "win_build=windows"})):
+            with self.subTest(page=name):
+                status, body = S.call(api, handler, **kw)
+                self.assertEqual(status, 200, body)
+        status, rows = S.call(api, api.handle_devices_list)
+        by_id = {r["id"]: r for r in rows}
+        self.assertEqual(by_id["good"]["os_detail"], "Windows 11 (build 22631.1)")
+        self.assertIn("plain", by_id, "a host with no build is still in the list")
+        self.assertEqual(len(rows), len(hosts), "the Hosts list lost a row")
+
+
+class TestTheAgentReadsDigitsAsAsciiDigits(unittest.TestCase):
+    def test_a_registry_number_of_superscripts_is_not_a_number(self):
+        for text in ("²", "²²²", "①", "٣٥٩٣"):
+            with self.subTest(text=text):
+                fake = S.FakeWinreg({S.NT_KEY: {"UBR": (text, S.SZ)}})
+                with mock.patch.dict(sys.modules, {"winreg": fake}):
+                    handle = fake.OpenKey(fake.HKEY_LOCAL_MACHINE, S.NT_KEY)
+                    self.assertIsNone(agent._reg_number(fake, handle, "UBR"))
+        fake = S.FakeWinreg({S.NT_KEY: {"UBR": (" 3593 ", S.SZ)}})
+        self.assertEqual(agent._reg_number(fake, fake.OpenKey(fake.HKEY_LOCAL_MACHINE, S.NT_KEY), "UBR"), 3593)
+
+    def test_a_build_number_of_superscripts_says_nothing(self):
+        for build in ("²²²", "①②③"):
+            with self.subTest(build=build):
+                fake = S.FakeWinreg({S.NT_KEY: S.nt_values(CurrentBuildNumber=(build, S.SZ), CurrentBuild=None)})
+                with mock.patch.dict(sys.modules, {"winreg": fake}):
+                    self.assertEqual(agent.get_win_build(), {})
+
+    def test_the_family_the_agent_names_from_a_build_that_is_not_digits(self):
+        with mock.patch("platform.win32_ver", return_value=("10", "10.0.²²²", "", "Multiprocessor Free")):
+            self.assertEqual(agent.get_os_info(), "Windows 10 (Build ²²²)", "int() raised and the fallback text was sent instead")
+        with mock.patch("platform.win32_ver", return_value=("10", "10.0.22631", "", "Multiprocessor Free")):
+            self.assertEqual(agent.get_os_info(), "Windows 11 (Build 22631)")
 
 
 if __name__ == "__main__":

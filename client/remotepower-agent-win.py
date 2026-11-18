@@ -376,7 +376,7 @@ def get_os_info():
         build = (ver or '').split('.')[-1]
         # platform.win32_ver() answers "10" for Windows 11 on some Pythons, as the ProductName value of the registry does on
         # many builds of Windows 11. The family of a client system comes from its build number: 22000 and up is Windows 11.
-        if rel == '10' and build.isdigit() and int(build) >= 22000:
+        if rel == '10' and build.isascii() and build.isdigit() and int(build) >= 22000:
             rel = '11'
         name = f'Windows {rel}' if rel else platform.system()
         return f'{name} (Build {build})' if build else name
@@ -2233,7 +2233,8 @@ def _reg_number(winreg, key, name):
         return None
     if isinstance(value, int):
         return value
-    if isinstance(value, str) and value.strip().isdigit():
+    # ASCII digits only: str.isdigit() is true for a superscript two, which int() refuses
+    if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
         return int(value.strip())
     return None
 
@@ -2263,7 +2264,7 @@ def get_win_build():
         product = _reg_text(winreg, key, 'ProductName')
     finally:
         winreg.CloseKey(key)
-    if not build.isdigit():
+    if not (build.isascii() and build.isdigit()):
         return {}
     out = {'build': build[:8]}
     if ubr is not None and 0 <= ubr <= 999999:
