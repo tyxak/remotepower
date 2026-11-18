@@ -217,6 +217,7 @@ Parity with the Linux agent for the core management surface:
 |---|---|---|
 | Core metrics (CPU/mem/disk/net) | psutil | psutil (optional; reduced set without it) |
 | OS version and build | `/etc/os-release` | The build, revision, display version, edition and product name from the registry (see [Windows version and build](#windows-version-and-build)) |
+| File shares and TPM | not collected | `Get-SmbShare`, `Get-Tpm` and `Win32_Tpm` (see [File shares and the TPM](#file-shares-and-the-tpm)) |
 | Reboot / shutdown | `systemctl` | `shutdown /r`/`/s` |
 | **reboot-required** detection | `/run/reboot-required` | registry (CBS / WindowsUpdate / PendingFileRenameOperations) |
 | Remote command | `exec:` (shell) | `exec:` (PowerShell); explicit **`ps:`** / **`cmd:`** verbs |
@@ -292,6 +293,23 @@ build numbers (Windows Server 2025 and Windows 11 24H2 are both 26100).
 The [Data Explorer](data-explorer.md#windows-hosts) has the fields (`win_build`, `win_ubr`, `win_display_version`,
 `win_edition`, `win_product`, `win_family`), so "which hosts are still on Windows 10" and "which Windows 11 hosts are behind
 revision 3593" are queries. [Fleet Query](fleet-query.md) has **Windows build contains**.
+
+### File shares and the TPM
+
+With the system information the agent also asks for the file shares the host exports (`Get-SmbShare`) and for its TPM
+(`Get-Tpm`, and the `Win32_Tpm` class for the version of the specification). Each is its own PowerShell, they share a time
+budget of 40 seconds, and a probe that fails or that the host cannot answer sends nothing. What is not sent is not read as
+"none": a TPM that was never reported is not a host without one.
+
+- **Shares.** A share whose name ends in `$` (`ADMIN$`, `C$`, `IPC$` and any other hidden one) is administrative: the agent
+  counts those and does not list them. The other shares are listed with their name, path, description and whether the share
+  is encrypted, at most 100, and the count says how many there are. The host drawer shows the number in the **Shares** row of
+  System info and the shares themselves under it.
+- **TPM.** Present, ready and enabled, as Windows reports them, and the version of the specification (`2.0`). The **TPM** row
+  of System info reads, for example, *present · ready · spec 2.0*, *present · not ready* or *none*.
+
+Both are fields of the [Data Explorer](data-explorer.md#windows-hosts) (`shares_count`, `tpm_present`, `tpm_ready`) and
+criteria of [Fleet Query](fleet-query.md) (**Shares >**, **TPM**). There is no alert and no check for either.
 
 ### Interpreter selection (`exec:` vs `ps:` vs `cmd:`)
 

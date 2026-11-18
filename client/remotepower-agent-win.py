@@ -2274,6 +2274,142 @@ def get_win_build():
     return out
 
 
+# ─── exported file shares and the TPM ────────────────────────────────────────────────────────────────────────────
+#
+# Two slow probes, each its own PowerShell, run with the system information (every twelfth poll) and held to a time budget between them:
+# a probe that fails, or that the host cannot answer (no Get-SmbShare without the Server service, no Get-Tpm on a Server Core without
+# the module), sends nothing, and what is not sent is not read as "none". The answers are parsed here and capped; the server cleans them
+# again (windows_host.clean_shares, clean_tpm).
+
+SLOW_PROBE_BUDGET_S = 40        # seconds the two probes may take together
+SLOW_PROBE_EACH_S = 20          # and the longest one of them may take
+MAX_PROBE_OUTPUT = 2000000      # characters of an answer that are parsed: a longer one is taken as no answer, so a huge list is never turned into objects
+MAX_SHARES_SENT = 100           # the shares one report lists; `count` still says how many there are
+MAX_SHARES_READ = 5000          # rows of the answer that are looked at
+
+# PowerShell: the shares, as JSON, with ConvertTo-Json -InputObject so that one share is still a list. A share that ends in $ is
+# administrative (ADMIN$, C$, IPC$ and any hidden one): the agent counts those and does not list them.
+_SHARES_PS = (
+    "$ErrorActionPreference='Stop';"
+    "$s=@(Get-SmbShare | ForEach-Object { [pscustomobject]@{name=[string]$_.Name; path=[string]$_.Path;"
+    " description=[string]$_.Description; encrypted=[bool]$_.EncryptData} });"
+    "ConvertTo-Json -InputObject $s -Compress -Depth 3"
+)
+
+# PowerShell: the TPM. Get-Tpm says whether one is present, ready and enabled; Win32_Tpm says which specification it follows. A part
+# that the host cannot answer is left out of the object, so a missing answer is never a false.
+_TPM_PS = (
+    "$ErrorActionPreference='SilentlyContinue';"
+    "$t=Get-Tpm;"
+    "$w=Get-CimInstance -Namespace 'root\\cimv2\\Security\\MicrosoftTpm' -ClassName Win32_Tpm;"
+    "$o=@{};"
+    "if($t){$o.present=[bool]$t.TpmPresent;$o.ready=[bool]$t.TpmReady;$o.enabled=[bool]$t.TpmEnabled};"
+    "if($w){$o.spec=[string]$w.SpecVersion};"
+    "ConvertTo-Json -InputObject $o -Compress"
+)
+
+
+def _parse_smb_shares(stdout):
+    """The answer of _SHARES_PS as {count, admin_count, items}, or None when it is not an answer. Pure.
+
+    `count` is the number of shares an operator made (every name that does not end in $), `admin_count` the number that end in $, and
+    `items` the first MAX_SHARES_SENT by name: {name, path, description, encrypted}. An answer with no row at all is not
+    an answer: a running Server service always has IPC$, so nothing at all means the cmdlet could not look."""
+    if not stdout or len(stdout) > MAX_PROBE_OUTPUT:
+        return None
+    try:
+        data = json.loads(stdout.strip())
+    except ValueError:
+        return None
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        return None
+    admin, shares = 0, []
+    for row in data[:MAX_SHARES_READ]:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get('name') or '').strip()
+        if not name:
+            continue
+        if name.endswith('$'):
+            admin += 1
+            continue
+        item = {'name': name[:80], 'path': str(row.get('path') or '')[:260], 'description': str(row.get('description') or '')[:200]}
+        if isinstance(row.get('encrypted'), bool):
+            item['encrypted'] = row['encrypted']
+        shares.append(item)
+    if not shares and not admin:
+        return None
+    shares.sort(key=lambda r: (r['name'].lower(), r['name']))
+    return {'count': len(shares), 'admin_count': admin, 'items': shares[:MAX_SHARES_SENT]}
+
+
+def _parse_tpm(stdout):
+    """The answer of _TPM_PS as {present, ready, enabled, spec}, or None. Pure.
+
+    A flag is kept only when it is true or false. `spec` is the version of the specification at the front of Win32_Tpm's SpecVersion
+    ("2.0, 0, 1.59" -> "2.0")."""
+    try:
+        data = json.loads((stdout or '').strip() or 'null')
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    out = {}
+    for key in ('present', 'ready', 'enabled'):
+        if isinstance(data.get(key), bool):
+            out[key] = data[key]
+    spec = data.get('spec')
+    m = re.match(r'\s*(\d{1,2}(?:\.\d{1,2})?)(?![\d.])', spec) if isinstance(spec, str) else None
+    if m:
+        out['spec'] = m.group(1)
+    return out or None
+
+
+def _run_probe_ps(script, timeout):
+    """The output of a PowerShell probe, or None when it did not run, ran out of time or failed."""
+    try:
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', script],
+                           capture_output=True, text=True, timeout=timeout,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def get_smb_shares(timeout=SLOW_PROBE_EACH_S):
+    """The file shares this host exports ({count, admin_count, items}), or {} (off Windows, or the probe could not look)."""
+    if not sys.platform.startswith('win'):
+        return {}
+    return _parse_smb_shares(_run_probe_ps(_SHARES_PS, timeout)) or {}
+
+
+def get_tpm(timeout=SLOW_PROBE_EACH_S):
+    """The TPM of this host ({present, ready, enabled, spec}, whatever the host could answer), or {}."""
+    if not sys.platform.startswith('win'):
+        return {}
+    return _parse_tpm(_run_probe_ps(_TPM_PS, timeout)) or {}
+
+
+def collect_slow_probes(budget=SLOW_PROBE_BUDGET_S):
+    """{'shares': ..., 'tpm': ...} for what the host answered, within `budget` seconds in all. A probe that is not reached in time, that
+    raises or that has no answer leaves its key out."""
+    out = {}
+    deadline = time.monotonic() + budget
+    for key, probe in (('shares', get_smb_shares), ('tpm', get_tpm)):
+        left = deadline - time.monotonic()
+        if left < 3:
+            break
+        try:
+            got = probe(timeout=min(SLOW_PROBE_EACH_S, left))
+        except Exception:
+            continue
+        if got:
+            out[key] = got
+    return out
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available; otherwise a best-effort subset
     so a host without psutil still reports OS/uptime/hostname."""
@@ -2301,6 +2437,16 @@ def collect_sysinfo():
         wb = get_win_build()
         if wb:
             info['win_build'] = wb
+    except Exception:
+        pass
+    # The file shares the host exports and its TPM, from two slow probes held to a time budget; each leaves its key out when the host
+    # could not answer.
+    try:
+        slow = collect_slow_probes()
+        if 'shares' in slow:
+            info['shares'] = slow['shares']
+        if 'tpm' in slow:
+            info['tpm'] = slow['tpm']
     except Exception:
         pass
     # v6.2.0: agent-side custom checks — evaluate the server-pushed set on-host

@@ -363,7 +363,7 @@ def clean_shares(raw: object) -> dict[str, Any] | None:
     `admin_count` (the names that end in $: the default shares and any other hidden one, counted and not
     listed) and `items`, at most MAX_SHARES rows of name, path, description and whether the share is
     encrypted. None when `raw` is not a report."""
-    if not isinstance(raw, dict):
+    if not isinstance(raw, dict) or not any(k in raw for k in ("items", "count", "admin_count")):
         return None
     rows = raw.get("items")
     items: list[dict[str, Any]] = []

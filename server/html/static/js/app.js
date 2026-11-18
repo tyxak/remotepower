@@ -26639,6 +26639,30 @@ function _wuSearchLine(ws, cls) {
   return `<div class="fs-12 c-amber ${cls || ''}"><span>Last search failed</span> (<span>${why}</span>); ${from}${via}</div>`;
 }
 
+// A host's TPM (sysinfo.tpm) as one line: "present · ready · spec 2.0", "none" for a host that reported no TPM, null when it never said.
+// The server keeps a flag only when it is true or false and the specification only as a version number (windows_host.clean_tpm).
+function _tpmText(t) {
+  if (!t || typeof t !== 'object') return null;
+  if (t.present === false) return 'none';
+  const bits = [];
+  if (t.present === true) bits.push('present');
+  if (t.ready === true) bits.push('ready'); else if (t.ready === false) bits.push('not ready');
+  if (t.enabled === false) bits.push('disabled');
+  if (typeof t.spec === 'string' && t.spec) bits.push('spec ' + t.spec);
+  return bits.length ? bits.join(' · ') : null;
+}
+
+// The shares a Windows host exports (sysinfo.shares) as chips in a box that scrolls, since a host can list a hundred: the name, the path
+// and, when the share is encrypted, the word. The description and the path are in the tip. Nothing here is markup the host chose.
+function _sharesChips(sh) {
+  if (!sh || !Array.isArray(sh.items) || !sh.items.length) return '';
+  const more = Math.max(0, (Number(sh.count) || 0) - sh.items.length);
+  return `<div class="mb-8 scroll-cap-sm">` + sh.items.map(x =>
+    `<span class="cmd-badge fs-11" title="${escAttr([x.path, x.description].filter(Boolean).join(' — '))}">${escHtml(String(x.name))}`
+    + `${x.path ? ` <code>${escHtml(String(x.path))}</code>` : ''}${x.encrypted === true ? ' <span class="c-green">encrypted</span>' : ''}</span> `
+  ).join('') + (more ? `<span class="hint">+${more}</span>` : '') + `</div>`;
+}
+
 async function _loadAuditSection(key) {
   const id   = _drawerDeviceId;
   const body = document.getElementById(`audit-body-${key}`);
@@ -26792,6 +26816,12 @@ async function _loadAuditSection(key) {
           ['Windows Firewall', si.win_posture && (si.win_posture.firewall || []).length
                           ? si.win_posture.firewall.map(p => `${p.name} ${p.enabled ? 'on' : 'OFF'}`).join(', ') : null],
           ['Windows Update', (si.win_posture && si.win_posture.wu_service) || null],
+          // The file shares a Windows host exports (the default administrative ones are counted and not listed; the shares themselves are
+          // under the pills) and its TPM.
+          ['Shares', (si.shares && typeof si.shares.count === 'number')
+                          ? plural(si.shares.count, 'share', 'shares')
+                            + (si.shares.admin_count ? ` · ${si.shares.admin_count} administrative, not listed` : '') : null],
+          ['TPM', _tpmText(si.tpm)],
           // v7.0.2: three more Windows posture fields the sanitizer persists and
           // the Checks engine + advisory both evaluate, which had no pill here —
           // so the drawer showed four of the eight and read as complete.
@@ -26922,6 +26952,7 @@ async function _loadAuditSection(key) {
           pills.filter(([,v])=>v!=null).map(([l,v])=>
             `<div class="sysinfo-pill"><div class="label">${l}</div><div class="value">${escHtml(String(v))}</div></div>`
           ).join('') + `</div>`;
+        h += _sharesChips(si.shares);
         if ((si.network||[]).length) {
           h += `<div class="mb-8">` +
             si.network.map(n=>
@@ -29711,6 +29742,7 @@ const _FQ_FIELDS = {
   // v4.1.0: resource + posture + identity filters
   cpu_gt: 'fq-cpu', swap_gt: 'fq-swap', load_gt: 'fq-load',
   kernel: 'fq-kernel-c', platform: 'fq-platform', win_build: 'fq-winbuild',
+  shares_gt: 'fq-shares', tpm: 'fq-tpm',
   drift: 'fq-drift', mount_issue: 'fq-mount', port_world: 'fq-portworld',
   storage_degraded: 'fq-storage', clock_skew: 'fq-clock',
   gateway_unreachable: 'fq-gw', oom_recent: 'fq-oom',

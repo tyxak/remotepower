@@ -6935,6 +6935,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <div class="form-group"><label class="form-label">Weak SSH config</label><select id="fq-sshweak" class="form-input" aria-label="Weak SSH config"><option value="">any</option><option value="1">yes</option></select></div>
               <div class="form-group"><label class="form-label">Auto-updates off</label><select id="fq-auoff" class="form-input" aria-label="Auto-updates off"><option value="">any</option><option value="1">yes</option></select></div>
               <div class="form-group"><label class="form-label">Disk not encrypted</label><select id="fq-encoff" class="form-input" aria-label="Disk not encrypted"><option value="">any</option><option value="1">yes</option></select></div>
+              <div class="form-group"><label class="form-label">Shares &gt;</label><input type="number" id="fq-shares" class="form-input" min="0" placeholder="—" aria-label="Shares &gt;"></div>
+              <div class="form-group"><label class="form-label">TPM</label><select id="fq-tpm" class="form-input" aria-label="TPM"><option value="">any</option><option value="missing">no TPM</option><option value="present">TPM present</option><option value="ready">TPM ready</option><option value="notready">not ready</option></select></div>
               </div>
             </details>
           </div>

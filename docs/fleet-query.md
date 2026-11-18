@@ -21,7 +21,7 @@ leaves the groups as they are.
 | Patching | Pending updates over N, **Security updates** over N, Reboot required, Kernel outdated, 3rd-party updates pending, Integrity (agent file verified, mismatch or unknown), **CVE (crit+high)** at least N |
 | Resources | Busiest disk %, Memory %, CPU %, Swap %, Load (1 minute), busiest Inode %, File descriptors %, Conntrack % |
 | Problems | Failed units, Timer failed, Config drift, Mount issue, Storage degraded, Clock skew (NTP), Gateway unreachable, Recent OOM kill, Container stopped, Container restarting, SMART failed, UPS on battery, Over temperature |
-| Security posture | World-exposed port, Brute-force active, No host firewall, Weak SSH config, Auto-updates off, **Disk not encrypted** |
+| Security posture | World-exposed port, Brute-force active, No host firewall, Weak SSH config, Auto-updates off, **Disk not encrypted**, **Shares >** (file shares a Windows host exports, not counting the default administrative ones), **TPM** (no TPM, a TPM that is present, one that is ready, or one that is present and not ready) |
 
 Notes:
 
@@ -42,6 +42,10 @@ Notes:
 - **No host firewall**, **Auto-updates off** and **Disk not encrypted** cover Linux, Windows and
   macOS hosts (LUKS, BitLocker and FileVault). **Weak SSH config** needs the host to report its
   sshd settings (Linux). A host that could not report the value does not match.
+- **Shares >** and **TPM** read what the Windows agent reports (see
+  [File shares and the TPM](windows-client.md#file-shares-and-the-tpm)). *No TPM* matches a host that said it has none,
+  not a host that never said, and *Not ready* matches a TPM that is present and not ready. A Linux or macOS host, and a
+  Windows host whose probe could not answer, matches none of the choices.
 - Unmonitored hosts are included unless you set **Monitored** to *monitored*, so inventory
   questions get complete answers.
 - You only see the hosts your role and tenant allow.
@@ -80,7 +84,7 @@ matching hosts.
 ## API
 
 `GET /api/fleet/query` takes the same criteria as query parameters (`group`, `tag`, `os`,
-`version`, `win_build`, `has_package`, `app`, `online`, `pending_gt`, `security_gt`, `cve_min`, `disk_gt`,
+`version`, `win_build`, `shares_gt`, `tpm` (`missing`, `present`, `ready` or `notready`), `has_package`, `app`, `online`, `pending_gt`, `security_gt`, `cve_min`, `disk_gt`,
 `firewall_off`, `encryption_off`, `ssh_weak`, and so on). Add `format=csv` or `format=xml` to download instead of JSON. Saved
 queries are under `/api/query/templates`. See [api.md](api.md) for authentication.
 

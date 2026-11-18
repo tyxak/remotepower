@@ -124,8 +124,11 @@ waiting.
 | `win_display_version` | `23H2`, `24H2`; the release id (`1909`) on a build from before 20H2 |
 | `win_edition`, `win_product` | the edition id (`Professional`) and the product name as the registry keeps it |
 | `win_family` | `Windows 11`, `Windows 10` and so on, from the build number; the product name for a server |
+| `shares_count` | the file shares an operator made on the host. The default administrative ones (`ADMIN$`, `C$`, `IPC$`, any name ending in `$`) are not counted |
+| `tpm_present`, `tpm_ready` | the TPM as Windows reports it: true or false |
 
-All of them are empty for a host that never reported a build, such as a Linux or macOS host. Use `win_family`, not
+All of them are empty for a host that never reported them, such as a Linux or macOS host, or a Windows host whose probe could not answer: `tpm_present` of `false` means the host said it has
+no TPM, and an empty one means it never said. Use `win_family`, not
 `win_product`, to find the hosts that are still on Windows 10: the product name of many Windows 11 hosts says
 "Windows 10". See [Windows version and build](windows-client.md#windows-version-and-build).
 
