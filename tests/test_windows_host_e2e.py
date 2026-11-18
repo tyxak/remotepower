@@ -380,7 +380,7 @@ class TestTheDrawer(_Page):
     def test_a_failed_search_is_amber_and_says_how_old_the_count_is(self):
         self.open_drawer(WIN10, "design-win10", "packages")
         text = self.page.evaluate("() => document.getElementById('audit-body-packages').textContent.replace(/\\s+/g, ' ')")
-        self.assertRegex(text, r"Last search failed \(access\); count taken 5 days ago")
+        self.assertRegex(text, r"Last search failed \(access\); count taken 5d ago")
         self.assertIn("WSUS", text)
         self.assertNotIn("Definition updates", text, "a host with no definition updates has no pill")
         line = self.search_line()
@@ -427,7 +427,7 @@ class TestThePatchReport(_Page):
         self.page.evaluate("() => closeModal('device-patch-modal')")
         self.open_report(WIN10, "design-win10")
         bad = self.page.evaluate("() => document.getElementById('device-patch-body').textContent.replace(/\\s+/g, ' ')")
-        self.assertRegex(bad, r"Last search failed \(access\); count taken 5 days ago")
+        self.assertRegex(bad, r"Last search failed \(access\); count taken 5d ago")
         self.assertIn("No data", bad, "a count that a failed search left five days ago is not the host's count now")
         self.assertNotIn("5 patches pending", bad)
         self.fits("the patch report of a host whose search failed", "device-patch-modal")
