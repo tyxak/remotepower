@@ -517,7 +517,8 @@ class TestThePagesAreHandedIt(_Fleet):
         status, report = self.get(api.handle_cve_findings)
         self.assertEqual(status, 200, report)
         total = report['summary']['covered']
-        self.assertEqual(total, {'listed': 18, 'checked': 7, 'not_checked': 11, 'reasons': {'no_source': 2, 'no_matcher': 9}})
+        self.assertEqual(total, {'listed': 18, 'checked': 7, 'not_checked': 11, 'reasons': {'no_source': 2, 'no_matcher': 9},
+                                 'hosts_unstated': 0})
         self.assertEqual([(r['name'], r['not_checked']) for r in report['summary']['most_not_checked']],
                          [(self.WIN, 8), (self.DEB_OLD, 2), (self.ARCH, 1)])
         rows = {r['device_id']: r for r in report['devices']}
@@ -528,12 +529,14 @@ class TestThePagesAreHandedIt(_Fleet):
     def test_a_tenant_administrator_is_told_of_their_own_hosts_only(self):
         status, report = self.as_tenant_admin(api.handle_cve_findings)
         self.assertEqual(status, 200, report)
-        self.assertEqual(report['summary']['covered'], {'listed': 9, 'checked': 7, 'not_checked': 2, 'reasons': {'no_source': 2}})
+        self.assertEqual(report['summary']['covered'], {'listed': 9, 'checked': 7, 'not_checked': 2, 'reasons': {'no_source': 2},
+                                                         'hosts_unstated': 0})
         self.assertEqual([r['name'] for r in report['summary']['most_not_checked']], [self.DEB_OLD])
         self.assertEqual(sorted(r['device_id'] for r in report['devices']), sorted([self.DEB_NEW, self.DEB_OLD]))
         # the other tenant's, as theirs
         status, report = self.as_tenant_admin(api.handle_cve_findings, user=('bruno', 'admin'))
-        self.assertEqual(report['summary']['covered'], {'listed': 9, 'checked': 0, 'not_checked': 9, 'reasons': {'no_matcher': 9}})
+        self.assertEqual(report['summary']['covered'], {'listed': 9, 'checked': 0, 'not_checked': 9, 'reasons': {'no_matcher': 9},
+                                                         'hosts_unstated': 0})
         self.assertEqual([r['name'] for r in report['summary']['most_not_checked']], [self.WIN, self.ARCH])
 
     def test_a_read_only_user_reads_the_same_numbers_and_the_other_tenants_host_is_not_theirs(self):

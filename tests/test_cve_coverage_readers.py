@@ -252,6 +252,81 @@ class TestAHostNothingIsMatchedAgainst(base._Fleet):
         self.assertEqual({r['device_id']: r['not_checked'] for r in home['cves']['devices']}, {self.DEB_NEW: 0, self.DEB_OLD: 2})
 
 
+class TestTheFleetLineSaysHowManyHostsItDoesNotCount(base._Fleet):
+    """The fleet line of the CVE page adds up the account of each host. After an upgrade a scanned host has a record from before
+    the block existed, and an upgrade starts no scan: it was in neither number, and "Packages checked: 0 / 8" read as the whole
+    of a fleet of thirty scanned hosts. The report says how many such hosts there are."""
+
+    def summary(self, **kw):
+        status, report = self.get(api.handle_cve_findings, **kw)
+        self.assertEqual(status, 200, report)
+        return report['summary']['covered']
+
+    def scanned_before_the_block(self, *hosts):
+        store = api.load(api.CVE_FINDINGS_FILE)
+        for host in hosts:
+            store[host].pop('covered')
+        api.save(api.CVE_FINDINGS_FILE, store)
+        api._LOAD_CACHE.clear()
+
+    def test_a_fleet_whose_scans_all_state_their_packages_has_no_host_left_out(self):
+        covered = self.summary()
+        self.assertEqual(covered['hosts_unstated'], 0)
+        self.assertEqual(covered['listed'], 18)
+
+    def test_a_scanned_host_without_the_block_is_counted_in_neither_number_and_is_named_as_left_out(self):
+        self.scanned_before_the_block(self.DEB_NEW)
+        covered = self.summary()
+        self.assertEqual(covered['hosts_unstated'], 1)
+        self.assertEqual((covered['listed'], covered['not_checked']), (12, 11))        # the 6 packages of that host are not in it
+
+    def test_a_host_that_was_never_scanned_is_not_one_of_them_and_a_host_nothing_is_matched_against_is_not_either(self):
+        store = api.load(api.CVE_FINDINGS_FILE)
+        store.pop(self.DEB_NEW)
+        api.save(api.CVE_FINDINGS_FILE, store)
+        api._LOAD_CACHE.clear()
+        covered = self.summary()
+        self.assertEqual(covered['hosts_unstated'], 0)       # no record at all: the table says "not scanned"
+        self.assertEqual(covered['listed'], 12)              # WIN and ARCH state theirs from their lists
+
+    def test_a_host_with_no_list_of_packages_is_not_one_of_them(self):
+        devices = api.load(api.DEVICES_FILE)
+        devices['covbare'] = self.device('covbare', 'tenantA', 'Switch')              # no agent list, so nothing to scan
+        api.save(api.DEVICES_FILE, devices)
+        api._LOAD_CACHE.clear()
+        status, report = self.get(api.handle_cve_findings)
+        self.assertEqual(status, 200, report)
+        self.assertEqual({r['device_id']: r['status'] for r in report['devices']}['covbare'], 'no_packages')
+        self.assertEqual(report['summary']['covered']['hosts_unstated'], 0)
+
+    def test_after_an_upgrade_the_line_counts_every_host_it_leaves_out(self):
+        """Thirty scanned Debian hosts whose records are from before the block, beside the four hosts of the fleet."""
+        devices, packages, findings = api.load(api.DEVICES_FILE), api.load(api.PACKAGES_FILE), {}
+        for i in range(30):
+            dev_id = f'old{i:02d}'
+            devices[dev_id] = self.device(dev_id, 'tenantA', 'Debian 12')
+            packages[dev_id] = {'ecosystem': 'Debian:12', 'pkg_manager': 'apt', 'count': 1500, 'os_id': 'debian',
+                                'version_id': '12', 'sources': True, 'packages': [{'name': 'bash', 'version': '5.2.15-2'}] * 3}
+            findings[dev_id] = {'scanned_at': 5, 'ecosystem': 'Debian:12', 'findings': []}
+        api.save(api.DEVICES_FILE, devices)
+        api.save(api.PACKAGES_FILE, packages)
+        api.save(api.CVE_FINDINGS_FILE, dict(api.load(api.CVE_FINDINGS_FILE), **findings))
+        api._LOAD_CACHE.clear()
+        covered = self.summary()
+        self.assertEqual(covered['hosts_unstated'], 30)
+        self.assertEqual(covered['listed'], 18)              # what the four hosts of the fleet state is still what it was
+
+    def test_a_tenant_administrator_and_a_read_only_user_read_their_own_tenants_number(self):
+        self.scanned_before_the_block(self.DEB_NEW, self.DEB_OLD)
+        self.assertEqual(self.summary()['hosts_unstated'], 2)
+        status, report = self.as_tenant_admin(api.handle_cve_findings)
+        self.assertEqual((status, report['summary']['covered']['hosts_unstated']), (200, 2))
+        status, report = self.as_tenant_admin(api.handle_cve_findings, user=('bruno', 'admin'))
+        self.assertEqual((status, report['summary']['covered']['hosts_unstated']), (200, 0))
+        status, report = self.as_read_only(api.handle_cve_findings)
+        self.assertEqual((status, report['summary']['covered']['hosts_unstated']), (200, 2))
+
+
 class TestNoReaderTakesAStoredBlockAlone(unittest.TestCase):
     """Every place in the server that reads a key called `covered`, found by syntax tree, and what each one reads. A reader of
     the block a scan stored on a host's record that is not one of these sees nothing for a host nothing is matched against,

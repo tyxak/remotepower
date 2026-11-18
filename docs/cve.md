@@ -21,7 +21,7 @@ six tiles that count the findings by [fix status](#fix-status), and a KEV feed s
 When Debian or Ubuntu hosts have findings that are [counted and not listed](#what-is-listed-and-what-is-counted),
 a line under the tiles says how many. When some of the packages were [not checked](#which-packages-were-checked),
 another line gives the fleet total, the reasons, and the five hosts with the most of them; a click on a host opens
-its view. Below them is one row per host.
+its view. After an upgrade the same line says how many scanned hosts it does not count yet. Below them is one row per host.
 
 | Column | Meaning |
 | --- | --- |
@@ -138,7 +138,9 @@ checked on a host that is asked by source package. Telling those apart needs the
 each package, which it does not.
 
 A host is told its packages were checked from the scan after the upgrade. Until then its view says nothing of its
-packages, except that a host nothing is matched against says so at once, because no scan is made of it. The assistant's
+packages, and the fleet total does not hold it: the line under the tiles says **Hosts scanned before the upgrade, not
+counted until they are scanned again** and how many they are, because an upgrade starts no scan. A host nothing is
+matched against says so at once, because no scan is made of it. The assistant's
 CVE tool, the runbook and the text of a ticket say it too for such a host. The dashboard tile says **None found in the
 packages that could be checked**, and is not green, when no monitored host shows a finding and part of the fleet is not
 matched against anything.

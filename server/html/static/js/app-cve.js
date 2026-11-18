@@ -140,20 +140,26 @@ async function loadCVEReport() {
 
 // 8.0.2: how many of the packages the hosts listed their scans checked, and the hosts with the most that they did not
 // (cve_scanner.entry_package_coverage per host, summed by handle_cve_findings). Shown when something was not checked:
-// a fleet with no finding is clean only in the packages that could be checked.
+// a fleet with no finding is clean only in the packages that could be checked. The totals hold the hosts whose last scan
+// states what it checked. A scanned host whose scan is from before that is in neither number, and an upgrade starts no
+// scan, so the note says how many they are, and with none of the others it has no totals to print.
 function _renderCveCoveredNote(total, hosts) {
   const note = document.getElementById('cve-covered-note');
   if (!note) return;
   const num = v => typeof v === 'number' && isFinite(v) && v >= 0 ? Math.floor(v) : 0;
   const fmt = v => num(v).toLocaleString(_localeTag());
-  const missed = total && typeof total === 'object' ? num(total.not_checked) : 0;
-  note.hidden = !missed;
-  if (!missed) return;
-  document.getElementById('cve-covered-total').textContent = `${fmt(total.checked)} / ${fmt(total.listed)}`;
+  const sums = total && typeof total === 'object' ? total : {};
+  const missed = num(sums.not_checked), listed = num(sums.listed), unstated = num(sums.hosts_unstated);
+  note.hidden = !missed && !unstated;
+  if (note.hidden) return;
+  document.getElementById('cve-covered-line').hidden = !listed;
+  document.getElementById('cve-covered-total').textContent = `${fmt(sums.checked)} / ${fmt(listed)}`;
   document.getElementById('cve-covered-missed').textContent = fmt(missed);
-  const reasons = total.reasons && typeof total.reasons === 'object' ? total.reasons : {};
+  const reasons = sums.reasons && typeof sums.reasons === 'object' ? sums.reasons : {};
   document.getElementById('cve-covered-reasons').innerHTML = Object.keys(_CVE_NOT_CHECKED).filter(r => num(reasons[r]) > 0)
     .map(r => `<span>${escHtml(_CVE_NOT_CHECKED[r])}</span> <strong>${fmt(reasons[r])}</strong>`).join(' · ');
+  document.getElementById('cve-covered-unstated').hidden = !unstated;
+  document.getElementById('cve-covered-unstated-n').textContent = fmt(unstated);
   const top = (Array.isArray(hosts) ? hosts : []).filter(h => h && typeof h.device_id === 'string' && num(h.not_checked) > 0).slice(0, 5);
   document.getElementById('cve-covered-hosts').innerHTML = top.length
     ? `<span>Most not checked:</span> ` + top.map(h => `<button class="btn-icon cell-sm" data-action="openDeviceCVE" data-arg="${escAttr(h.device_id)}" data-arg2="${escAttr(String(h.name || h.device_id))}"><span data-no-i18n="">${escHtml(String(h.name || h.device_id))}</span> <span>${fmt(h.not_checked)} / ${fmt(h.listed)}</span></button>`).join(' ')

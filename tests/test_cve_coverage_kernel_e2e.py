@@ -19,7 +19,11 @@ tests/data and advisory records written for the kernel), and planted through the
   * opnsense.lab has an agent that sends no source names: two of its three packages were not checked;
   * jellyfin.lab has nothing found in the one package that could be checked: it says so, and does not say it is clean;
   * truenas.lab has nothing found and every package was checked: it says no vulnerabilities, as it always did;
-  * design-win11 is a Windows host: its applications are listed and nothing is matched against them.
+  * design-win11 is a Windows host: its applications are listed and nothing is matched against them;
+  * gitea.lab runs the older kernel and has 70 findings that the newer one holds the fix for: 50 are listed, and the 20 that
+    the ceiling of a package counts instead say, in the roll-up of its view, that a reboot clears them;
+  * pihole.lab was scanned before a scan stated its packages (its record has no such block): the line under the tiles says that
+    it does not count such hosts, and how many they are.
 
 Controls come first: the measure of overflow must see a box wider than the screen, the planted records must hold what each case
 needs, and the focus ring detector must see a ring taken away. Self-skips without playwright, chromium and gunicorn.
@@ -58,9 +62,9 @@ _STACK = {}
 WIDTHS = (1440, 768, 390)
 TILE_KEYS = ["fixable", "reboot", "newer_release", "none", "pro", "unchecked"]
 
-PMX, HA, FW, JF, NAS, WIN = "pmx01", "ha01", "fw01", "jf01", "tnas", "wks01"
+PMX, HA, FW, JF, NAS, WIN, GT, PI = "pmx01", "ha01", "fw01", "jf01", "tnas", "wks01", "gt01", "pi1"
 NAMES = {PMX: "proxmox.lab", HA: "home-assistant.lab", FW: "opnsense.lab", JF: "jellyfin.lab", NAS: "truenas.lab",
-         WIN: "design-win11"}
+         WIN: "design-win11", GT: "gitea.lab", PI: "pihole.lab"}
 
 
 # ── the records a scan writes ────────────────────────────────────────────────────────────────────────────────────────────
@@ -97,6 +101,13 @@ ANSWERS = {("Debian:12", "linux", "6.1.158-1"): [A, B, C, D, E], ("Debian:12", "
            ("Debian:12", "sudo", "1.9.13p3-1+deb12u9"): [S]}
 
 
+# 70 medium findings of the kernel, each fixed in the version the newer installed kernel is at: a scan lists a reboot finding
+# beside the ones an update clears, up to 50 for a package (cve_fixes.KEEP_PER_PACKAGE), and counts the rest
+MANY = ["DEBIAN-CVE-2099-%04d" % (1000 + i) for i in range(70)]
+MANY_RECORDS = {vid: _advisory(vid, "6.1.192-1", "medium") for vid in MANY}
+MANY_ANSWERS = {("Debian:12", "linux", "6.1.158-1"): MANY, ("Debian:12", "linux", "6.1.192-1"): []}
+
+
 class _Lenient(Database):
     """An answer of nothing for a package the recording never held, which is what a package with no advisory is answered."""
 
@@ -110,8 +121,8 @@ class _Lenient(Database):
         return out
 
 
-def _scan(packages, kernel=None, has_meta=True):
-    db = _Lenient(DEB, extra=ANSWERS, records=RECORDS)
+def _scan(packages, kernel=None, has_meta=True, answers=None, records=None):
+    db = _Lenient(DEB, extra=ANSWERS if answers is None else answers, records=RECORDS if records is None else records)
     cache = Path(tempfile.mkdtemp(prefix="rp-covker-scan-"))
     try:
         with mock.patch.object(cve_scanner, "_osv_querybatch", db.querybatch), \
@@ -151,6 +162,13 @@ def scenario():
     clean = OTHERS[:3]
     out[NAS] = (_entry(clean), _scan(clean))
     out[WIN] = (_entry(si.clean_list(WINDOWS_ROWS, "windows"), manager="windows"), None)
+    packages = KERNELS + OTHERS
+    out[GT] = (_entry(packages, running), _scan(packages, running, answers=MANY_ANSWERS, records=MANY_RECORDS))
+    # a scan from before the account of what was checked and the kernel it ran: the record has neither
+    old = _scan(OTHERS[:2])
+    old.pop("covered")
+    old.pop("kernel", None)
+    out[PI] = (_entry(OTHERS[:2]), old)
     return out
 
 
@@ -367,6 +385,12 @@ class TestTheControls(_Page):
         self.assertEqual((nas["findings"], nas["covered"]["not_checked"]), ([], 0))
         self.assertGreater(nas["covered"]["checked"], 0)
         self.assertIsNone(hosts[WIN][1])
+        gt = hosts[GT][1]
+        self.assertEqual((len(gt["findings"]), {f["fix_status"] for f in gt["findings"]}), (50, {"reboot"}))
+        self.assertEqual(gt["rollup"]["fix"], {"reboot": 20})
+        pi = hosts[PI][1]
+        self.assertNotIn("covered", pi)
+        self.assertNotIn("kernel", pi)
 
     def test_the_ring_detector_sees_a_ring_taken_away(self):
         self.open_cve()
@@ -388,7 +412,8 @@ class TestTheTiles(_Page):
         self.assertEqual(got["reboot"]["label"], "Reboot to apply")
         fix = self.report()["summary"]["fix"]
         self.assertEqual({k: v["n"] for k, v in got.items()}, fix)
-        self.assertEqual(fix["reboot"], 2)                       # the two findings of proxmox.lab that the newer kernel holds the fix for
+        # the two findings of proxmox.lab that the newer kernel holds the fix for, and the 50 that gitea.lab lists
+        self.assertEqual(fix["reboot"], 2 + len(_STACK["hosts"][GT][1]["findings"]))
         self.assertEqual({v["on"] for v in got.values()}, {"false"})
         # the grid of the row was written for five tiles: the sixth must not stand alone on a second row of a wide screen
         tops = self.page.evaluate("() => [...document.querySelectorAll('#cve-fix-row .stat-card')].map(el => Math.round(el.getBoundingClientRect().top))")
@@ -401,7 +426,7 @@ class TestTheTiles(_Page):
         self.assertGreater(len(every), 2)
         self.page.locator('#cve-fix-row [data-arg="reboot"]').click()
         self.assertEqual(self.tiles()["reboot"]["on"], "true")
-        self.assertEqual(self.hosts_shown(), [NAMES[PMX]])
+        self.assertEqual(sorted(self.hosts_shown()), sorted([NAMES[PMX], NAMES[GT]]))
         self.page.locator('#cve-fix-row [data-arg="reboot"]').click()
         self.assertEqual(self.tiles()["reboot"]["on"], "false")
         self.assertEqual(self.hosts_shown(), every)
@@ -419,7 +444,7 @@ class TestTheNoteUnderTheTiles(_Page):
         self.open_cve()
         covered = self.report()["summary"]["covered"]
         hosts = _STACK["hosts"]
-        listed = sum(len(hosts[h][0]["packages"]) for h in (WIN,)) + sum(hosts[h][1]["covered"]["listed"] for h in (PMX, HA, FW, JF, NAS))
+        listed = sum(len(hosts[h][0]["packages"]) for h in (WIN,)) + sum(hosts[h][1]["covered"]["listed"] for h in (PMX, HA, FW, JF, NAS, GT))
         self.assertEqual(covered["listed"], listed, "the report sums the planted hosts and no other")
         self.assertEqual(covered["not_checked"], 8 + 2 + 3)
         self.assertEqual(covered["reasons"], {"no_matcher": 8, "no_source": 5})
@@ -545,6 +570,79 @@ class TestThePackagesThatWereChecked(_Page):
         self.assertNotIn("No CVEs found", body)
 
 
+class TestTheCountedRestOfAHostThatRunsAnOlderKernel(_Page):
+    """gitea.lab lists 50 findings the newer installed kernel holds the fix for and counts 20 more: the roll-up of its view says
+    that a reboot clears those too."""
+    LINE = "Of these, fixed by an installed kernel, reboot to apply:"
+
+    def rollup(self):
+        return self.page.evaluate("""() => { const d = document.querySelector('#cve-detail-body details[data-cve-rollup]');
+            return d ? {open: d.open, lines: [...d.querySelectorAll('div.hint')].map(e => e.innerText.replace(/\\s+/g, ' ').trim())} : null; }""")
+
+    def test_the_view_says_that_a_reboot_clears_the_counted_rest(self):
+        self.open_cve()
+        self.open_host(GT)
+        self.page.locator("#cve-detail-body details[data-cve-rollup] summary").click()
+        got = self.rollup()
+        self.assertIsNotNone(got)
+        self.assertTrue(got["open"])
+        self.assertEqual(got["lines"], [f"{self.LINE} 20"])
+        self.fits("the roll-up of gitea.lab, opened", "cve-detail-modal")
+
+    def test_the_line_comes_out_in_german_and_in_arabic_and_fits(self):
+        from test_v710_i18n_glue import dict_rows
+        row = dict_rows()[self.LINE]
+        self.open_cve()
+        for lang in ("de", "ar"):
+            self.assertTrue(row[lang] and row[lang] != self.LINE, lang)
+            self.set_language(lang)
+            self.open_host(GT)
+            self.page.locator("#cve-detail-body details[data-cve-rollup] summary").click()
+            self.assertEqual(self.rollup()["lines"], [f"{row[lang]} 20"], lang)
+            if lang == "ar":
+                self.assertEqual(self.page.evaluate("() => document.documentElement.dir"), "rtl")
+            self.fits(f"the roll-up of gitea.lab in {lang}", "cve-detail-modal")
+            self.page.evaluate("() => closeModal('cve-detail-modal')")
+        self.set_language("en")
+
+
+class TestTheHostsTheNoteDoesNotCount(_Page):
+    """pihole.lab was scanned before a scan stated its packages. It is in neither number of the note, and an upgrade starts no
+    scan, so the note says how many scanned hosts it leaves out."""
+    SENTENCE = "Hosts scanned before the upgrade, not counted until they are scanned again:"
+
+    def shown(self):
+        return self.page.evaluate("""() => { const e = document.getElementById('cve-covered-unstated');
+            return {hidden: e.hidden, n: document.getElementById('cve-covered-unstated-n').textContent.trim(),
+                    text: e.innerText.replace(/\\s+/g, ' ').trim(), line: !document.getElementById('cve-covered-line').hidden}; }""")
+
+    def test_the_note_says_how_many_scanned_hosts_it_does_not_count(self):
+        self.open_cve()
+        unstated = self.report()["summary"]["covered"]["hosts_unstated"]
+        self.assertGreaterEqual(unstated, 1)               # the control: the planted record of pihole.lab, and the demo's own
+        got = self.shown()
+        self.assertFalse(got["hidden"])
+        self.assertTrue(got["line"])                       # the totals of the hosts that state theirs are still there
+        self.assertEqual(got["n"], f"{unstated:,}".replace(",", ""))
+        self.assertEqual(got["text"], f"{self.SENTENCE} {got['n']}")
+
+    def test_it_fits_at_the_three_widths_and_comes_out_in_german_and_in_arabic(self):
+        from test_v710_i18n_glue import dict_rows
+        row = dict_rows()[self.SENTENCE]
+        self.open_cve()
+        self.fits("the note under the tiles")
+        for lang in ("de", "ar"):
+            self.assertTrue(row[lang] and row[lang] != self.SENTENCE, lang)
+            self.set_language(lang)
+            got = self.shown()
+            self.assertIn(row[lang], got["text"], lang)
+            self.assertNotIn(self.SENTENCE, self.note(), lang)
+            if lang == "ar":
+                self.assertEqual(self.page.evaluate("() => document.documentElement.dir"), "rtl")
+            self.fits(f"the note under the tiles in {lang}")
+        self.set_language("en")
+
+
 class TestFromTheKeyboard(_Page):
     def ring(self, selector):
         self.page.keyboard.press("Tab")                 # a key first, so that a script's focus() counts as the keyboard's for :focus-visible
@@ -568,7 +666,7 @@ class TestFromTheKeyboard(_Page):
         self.ring('#cve-fix-row [data-arg="reboot"]')
         self.page.keyboard.press("Enter")
         self.page.wait_for_function("() => document.querySelector('#cve-fix-row [data-arg=\"reboot\"]').getAttribute('aria-pressed') === 'true'", timeout=10000)
-        self.assertEqual(self.hosts_shown(), [NAMES[PMX]])
+        self.assertEqual(sorted(self.hosts_shown()), sorted([NAMES[PMX], NAMES[GT]]))
         self.page.keyboard.press("Enter")
         self.page.wait_for_function("() => document.querySelector('#cve-fix-row [data-arg=\"reboot\"]').getAttribute('aria-pressed') === 'false'", timeout=10000)
         self.open_host(FW)

@@ -357,8 +357,10 @@ def handle_cve_findings():
                          'fix':      dict.fromkeys(A.cve_fixes.FIX_KEYS, 0),
                          # 8.0.1: what the scans counted per package and did not store one by one
                          'rollup':   0,
-                         # 8.0.2: how many of the packages the hosts listed were checked, and why the rest were not
-                         'covered':  {'listed': 0, 'checked': 0, 'not_checked': 0, 'reasons': {}},
+                         # 8.0.2: how many of the packages the hosts listed were checked, and why the rest were not.
+                         # `hosts_unstated` is how many scanned hosts are in neither number: their last scan is from
+                         # before the block existed, and an upgrade starts no scan.
+                         'covered':  {'listed': 0, 'checked': 0, 'not_checked': 0, 'reasons': {}, 'hosts_unstated': 0},
                          'devices_scanned': 0,
                          'devices_with_findings': 0,
                          'devices_unsupported': 0},
@@ -410,6 +412,10 @@ def handle_cve_findings():
                 most_not_checked.append({'device_id': dev_id, 'name': dev.get('name', dev_id),
                                          'listed': covered['listed'], 'not_checked': covered['not_checked'],
                                          'reasons': covered['reasons']})
+        elif status == 'scanned':
+            # scanned before 8.0.2: the record says nothing of its packages, so the totals do not hold them. Said as a
+            # number, or "Packages checked: 0 / 8" beside thirty scanned hosts reads as if they were the ones not checked.
+            report['summary']['covered']['hosts_unstated'] += 1
 
         report['devices'].append({
             'device_id':   dev_id,

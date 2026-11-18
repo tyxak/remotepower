@@ -172,6 +172,80 @@ class TestTheRollupOfTheHostViewSaysWhatARebootClears(unittest.TestCase):
         self.assertEqual(sum(1 for _ in re.finditer(r'^\s*"Of these, fixed by an installed kernel, reboot to apply:":', _I18N, re.M)), 1)
 
 
+# ── the fleet note of the CVE page ──────────────────────────────────────────────────────────────────────────────────────
+def fleet_note(total, hosts=()):
+    """The elements of the note under the tiles after the real `_renderCveCoveredNote` ran: {id: {hidden, text, html}}."""
+    reasons = re.search(r'^const _CVE_NOT_CHECKED = \{.*?^\};', _PAGE, re.M | re.S).group(0)
+    script = '''
+const escHtml = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
+const escAttr = escHtml;
+var _localeTag = () => 'en-US';
+const els = {};
+const el = id => els[id] || (els[id] = {id, hidden: true, textContent: '', innerHTML: ''});
+const document = {getElementById: id => el(id)};
+%s
+%s
+_renderCveCoveredNote(%s, %s);
+console.log(JSON.stringify(els));
+''' % (reasons, srcpin.js_function(_PAGE, '_renderCveCoveredNote'), json.dumps(total), json.dumps(list(hosts)))
+    return node(script)
+
+
+@NEEDS_NODE
+class TestTheFleetNoteSaysHowManyHostsItDoesNotCount(unittest.TestCase):
+    """A scanned host whose last scan is from before a scan stated its packages is in neither number of the note, and an upgrade
+    starts no scan. The note says how many such hosts there are, and with none of the others it has no totals to print."""
+    SENTENCE = 'Hosts scanned before the upgrade, not counted until they are scanned again:'
+
+    def test_the_totals_of_the_hosts_that_state_theirs_and_the_number_of_the_others(self):
+        els = fleet_note({'listed': 8, 'checked': 0, 'not_checked': 8, 'reasons': {'no_matcher': 8}, 'hosts_unstated': 30})
+        self.assertFalse(els['cve-covered-note']['hidden'])
+        self.assertFalse(els['cve-covered-line']['hidden'])
+        self.assertEqual(els['cve-covered-total']['textContent'], '0 / 8')
+        self.assertFalse(els['cve-covered-unstated']['hidden'])
+        self.assertEqual(els['cve-covered-unstated-n']['textContent'], '30')
+
+    def test_with_none_of_the_others_stating_theirs_there_are_no_totals_to_print(self):
+        els = fleet_note({'listed': 0, 'checked': 0, 'not_checked': 0, 'reasons': {}, 'hosts_unstated': 30})
+        self.assertFalse(els['cve-covered-note']['hidden'])
+        self.assertTrue(els['cve-covered-line']['hidden'])          # "0 / 0" would read as a fleet with nothing on it
+        self.assertEqual((els['cve-covered-unstated']['hidden'], els['cve-covered-unstated-n']['textContent']), (False, '30'))
+
+    def test_a_fleet_that_states_everything_it_checked_is_not_hidden_while_hosts_are_left_out(self):
+        els = fleet_note({'listed': 8, 'checked': 8, 'not_checked': 0, 'reasons': {}, 'hosts_unstated': 2})
+        self.assertFalse(els['cve-covered-note']['hidden'])
+        self.assertEqual(els['cve-covered-total']['textContent'], '8 / 8')
+        self.assertEqual(els['cve-covered-unstated-n']['textContent'], '2')
+
+    def test_a_fleet_with_packages_not_checked_and_no_host_left_out_has_no_line_for_them(self):
+        els = fleet_note({'listed': 1909, 'checked': 1834, 'not_checked': 75, 'reasons': {'no_source': 75}, 'hosts_unstated': 0})
+        self.assertFalse(els['cve-covered-note']['hidden'])
+        self.assertFalse(els['cve-covered-line']['hidden'])
+        self.assertTrue(els['cve-covered-unstated']['hidden'])
+        self.assertEqual(els['cve-covered-unstated-n']['textContent'], '0')
+
+    def test_nothing_left_out_and_nothing_missed_is_a_note_that_is_not_there(self):
+        for total in ({'listed': 8, 'checked': 8, 'not_checked': 0, 'reasons': {}, 'hosts_unstated': 0},
+                      {'listed': 8, 'checked': 8, 'not_checked': 0, 'reasons': {}}, {}, None, 7, 'x'):
+            self.assertTrue(fleet_note(total)['cve-covered-note']['hidden'], total)
+
+    def test_what_is_not_a_whole_count_is_not_a_count(self):
+        for odd in ('x', -1, {}, [3], None, True, float('nan')):
+            els = fleet_note({'listed': 8, 'checked': 8, 'not_checked': 0, 'reasons': {}, 'hosts_unstated': odd})
+            self.assertTrue(els['cve-covered-note']['hidden'], odd)
+        els = fleet_note({'listed': 0, 'hosts_unstated': 2.9})
+        self.assertEqual(els['cve-covered-unstated-n']['textContent'], '2')          # a count is whole
+
+    def test_the_sentence_has_a_place_in_the_markup_and_the_six_languages(self):
+        for ident in ('cve-covered-line', 'cve-covered-unstated', 'cve-covered-unstated-n'):
+            self.assertEqual(_HTML.count(f'id="{ident}"'), 1, ident)
+        self.assertIn(f'<span>{self.SENTENCE}</span>', _HTML)
+        from test_v710_i18n_glue import dict_rows
+        row = dict_rows().get(self.SENTENCE)
+        self.assertTrue(row and all(row.get(lang) for lang in ('zh', 'hi', 'es', 'ar', 'de', 'fr')), row)
+        self.assertEqual(sum(1 for _ in re.finditer(r'^\s*"' + re.escape(self.SENTENCE) + '":', _I18N, re.M)), 1)
+
+
 # ── what the count option says it counts ────────────────────────────────────────────────────────────────────────────────
 class TestEveryTextThatStatesWhatTheCountOptionCountsNamesTheReboot(unittest.TestCase):
     """With the option on, a finding counts and alerts when an update clears it, when it is known to be exploited, and, since
