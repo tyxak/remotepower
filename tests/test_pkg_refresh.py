@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 import sys
 import tempfile
 import time
@@ -592,6 +593,67 @@ class TestTheLockWatchdog(_Tmp):
         self.assertEqual(agent._pkg_refresh_class_of(APK_LOCK), "lock", "and when what follows is not a failure of another class")
         self.assertEqual(agent._pkg_refresh_class_of(DNF_NET + "\n" + DNF_LOCK), "lock", "a lock that came after the failure is the later event")
         self.assertEqual(agent._pkg_refresh_class_of(APT_NOT_ROOT), "permission", "rights still outrank the lock they are about")
+
+
+class TestAnEndedRefreshTakesEverythingItStartedWithIt(_Tmp):
+    """A refresh that is ended must leave nothing of the manager behind: a package manager spawns helpers (download methods, hooks), and
+    one that keeps running holds the lock the operator wanted to be free."""
+
+    def end(self, body, timeout=1):
+        tool(self.bin, "apt-get", body)
+        with mock.patch.object(agent, "IN_CONTAINER", False):
+            return agent._pkg_refresh_run(timeout=timeout, lock_wait=30, which=which_in(self.bin))
+
+    def test_the_helpers_of_the_manager_go_with_it(self):
+        pid, child = self.d / "pid", self.d / "child"
+        try:
+            rec = self.end(f'sleep 60 &\necho $! > "{child}"\necho $$ > "{pid}"\nwait\n')
+            self.assertEqual((rec["status"], rec["error_class"]), ("failed", "timeout"))
+            time.sleep(0.3)
+            self.assertFalse(alive(int(pid.read_text())), "the manager is still running")
+            self.assertFalse(alive(int(child.read_text())), "a process the manager started is still running: only the manager itself was ended")
+        finally:
+            for f in (pid, child):
+                try:
+                    os.kill(int(f.read_text()), signal.SIGKILL)
+                except (OSError, ValueError):
+                    pass
+
+    def test_a_manager_that_ignores_the_first_signal_is_killed(self):
+        pid = self.d / "pid"
+        t0 = time.monotonic()
+        try:
+            rec = self.end(f'trap \'\' TERM\necho $$ > "{pid}"\nwhile :; do sleep 0.2; done\n')
+            took = time.monotonic() - t0
+            self.assertEqual((rec["status"], rec["error_class"]), ("failed", "timeout"))
+            self.assertFalse(alive(int(pid.read_text())), "a manager that ignores TERM is still running after the refresh was reported ended")
+            self.assertLess(took, 15)
+        finally:
+            try:
+                os.kill(int(pid.read_text()), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
+
+    def test_the_command_does_not_inherit_the_agents_own_input(self):
+        """The fake manager says whether it can read what is on its input. The runner's own input is /dev/null under a service, nohup or CI
+        (end of file whether or not the refresh closes it) and a terminal when somebody runs the module by hand, so the first test of the
+        input could not fail where it mattered. Here the agent's input is a pipe with something in it."""
+        r, w = os.pipe()
+        os.write(w, b"typed by somebody\n")
+        os.close(w)
+        saved = os.dup(0)
+        os.dup2(r, 0)
+        try:
+            tool(self.bin, "apt-get", speaks(self.log, APT_OK, 0))
+            with mock.patch.object(agent, "IN_CONTAINER", False):
+                rec = agent._pkg_refresh_run(which=which_in(self.bin), timeout=20, lock_wait=10)
+        finally:
+            os.dup2(saved, 0)
+            os.close(saved)
+            os.close(r)
+        self.assertEqual(rec["status"], "ok")
+        self.assertIn("STDIN-EOF", self.logged())
+        self.assertNotIn("STDIN-DATA", self.logged(), "the manager read what was on the agent's own input")
 
 
 class TestTheRecord(_Tmp):
