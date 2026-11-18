@@ -25,7 +25,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
-from srcpin import js_function
+from srcpin import js_function, py_function
 import importlib.machinery
 import importlib.util
 import os
@@ -52,9 +52,13 @@ class TestForcedPackageBypass(unittest.TestCase):
         self.assertIn('def send_package_list(creds, force=False)', self.src)
 
     def test_hash_gate_skipped_when_forced(self):
-        # The unchanged-list short-circuit must be guarded by `not force`.
-        self.assertIn('if not force and new_hash == _load_last_pkg_hash()',
-                      self.src)
+        # The unchanged-list short-circuit must be guarded by `not force`. Since 8.0.2 the gate is the hash of the
+        # list with the digest of the running kernel (a reboot into another kernel changes nothing in the list and
+        # the list is sent again); test_cve_kernel_state sends the list through it and holds that.
+        body = py_function(self.src, 'send_package_list')
+        self.assertIn('if not force and gate == _load_last_pkg_hash()', body)
+        self.assertIn('gate = new_hash + (', body)
+        self.assertIn('_kernel_digest(kernel)', body)
 
     def test_forced_call_passes_force(self):
         # The heartbeat's forced path must call with force=force_pkg_scan.

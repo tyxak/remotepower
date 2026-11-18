@@ -4440,6 +4440,9 @@ def _compute_pkg_hash(packages):
 # it owns. An image whose release cannot be read is reported without one: the server does not guess from a name.
 
 MAX_KERNEL_IMAGES = 16
+# rpm is asked once for each kernel file. A broken rpm database makes each question wait out its time limit, so the
+# questions together get this long, and the list is sent with what was read by then.
+KERNEL_READ_SECONDS = 30
 _KERNEL_RELEASE_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+~-]{0,79}$')
 _KERNEL_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+\-:~]{0,127}$')
 _DPKG_KERNEL_IMAGE_RE = re.compile(r'^linux-image-(?:unsigned-)?[0-9]')
@@ -4490,13 +4493,17 @@ def _kernel_images_rpm():
         names = sorted(n for n in os.listdir(host_path('/boot')) if n.startswith('vmlinuz-'))
     except Exception:
         return out
+    deadline = time.time() + KERNEL_READ_SECONDS
     for fname in names[:MAX_KERNEL_IMAGES]:
         release = _kernel_release(fname[len('vmlinuz-'):])
+        left = deadline - time.time()
         if not release:
             continue
+        if left <= 0:
+            break
         argv = ['rpm'] + (['--root', HOST_ROOT] if HOST_ROOT else []) + [
             '-qf', '--qf', '%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\n', '/boot/' + fname]
-        rc, text = _safe_run(argv, timeout=15)
+        rc, text = _safe_run(argv, timeout=min(15, left))
         if rc != 0:
             continue
         for line in text.splitlines():

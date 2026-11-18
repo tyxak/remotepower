@@ -22,6 +22,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -246,6 +247,28 @@ class TestWhatTheAgentReadsOnRpm(_Host):
         for argv in seen:
             self.assertEqual(argv[:3], ['rpm', '--root', str(self.root)])
             self.assertTrue(argv[-1].startswith('/boot/vmlinuz-'), argv)        # a path on the host, not under the root
+
+    def test_an_rpm_that_hangs_holds_the_report_for_the_budget_and_no_longer(self):
+        """A broken rpm database makes every question wait out its time limit. The questions share one budget, and the report
+        goes out with what was read by then (here nothing: the first question was never answered)."""
+        script = self.bin / 'rpm'
+        script.write_text('#!/bin/sh\nexec /bin/sleep 60\n')
+        self.patch(self.agent, 'KERNEL_READ_SECONDS', 2)
+        asked = []
+        real = self.agent._safe_run
+
+        def run(argv, timeout=10):
+            asked.append(timeout)
+            return real(argv, timeout)
+        self.patch(self.agent, '_safe_run', run)
+        self.running('5.14.0-362.8.1.el9_3.x86_64')
+        start = time.monotonic()
+        got = self.agent.get_kernel_report('dnf', [])
+        took = time.monotonic() - start
+        self.assertEqual(got, {'release': '5.14.0-362.8.1.el9_3.x86_64', 'images': []})
+        self.assertLess(took, 8, 'the questions did not stop at the budget')
+        self.assertEqual(len(asked), 1, 'rpm was asked again after the budget was spent: %r' % asked)
+        self.assertLessEqual(asked[0], 2, 'a question was given more time than the budget holds')
 
     def test_a_host_with_no_rpm_reports_the_release_alone(self):
         self.patch(self.agent, '_safe_run', lambda argv, timeout=10: (-1, '<error: no rpm>'))
