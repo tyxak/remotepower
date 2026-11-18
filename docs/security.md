@@ -200,6 +200,10 @@ defences in place (kept current):
 - **Passwords** are hashed with **bcrypt** (cost 12); where bcrypt is unavailable
   the server falls back to PBKDF2-HMAC-SHA256 at 600 000 iterations (OWASP minimum)
   with per-account salts. Legacy hashes are auto-upgraded on next login.
+  bcrypt reads at most 72 bytes of a password, so a new password over 72 bytes (72 letters or digits, fewer characters if it
+  uses accents, symbols or other scripts) is refused with a 400 that says so, in the page and in the API. An account made at
+  install, or with `remotepower-passwd`, with a longer password is stored with PBKDF2 and signs in as usual; the upgrade at
+  sign-in leaves it as it is.
 - **Password policy** (**Settings → Security → Password policy**). A minimum length, three of four character classes and a
   breach-list check apply to new passwords. Two more rules are off until you set them:
   - **Passwords remembered** (0 to 24): a user cannot choose any of their last N passwords, the one they have now included.

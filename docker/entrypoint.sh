@@ -134,14 +134,21 @@ if [ ! -f "$USERS_FILE" ] && [ "$PG_HAS_USERS" != "yes" ]; then
     # The quoted heredoc delimiter ('PYEOF') disables all shell expansion.
     RP_ADMIN_USER="$RP_ADMIN_USER" RP_ADMIN_PASS="$RP_ADMIN_PASS" USERS_FILE="$USERS_FILE" \
         rp_py <<'PYEOF'
-import json, time, hashlib, os
+import json, time, hashlib, os, secrets
 user = os.environ['RP_ADMIN_USER']
 pw   = os.environ['RP_ADMIN_PASS']
 try:
     import bcrypt
-    pw_hash = bcrypt.hashpw(pw.encode(), bcrypt.gensalt(12)).decode()
 except ImportError:
-    pw_hash = hashlib.sha256(pw.encode()).hexdigest()
+    bcrypt = None
+# bcrypt reads 72 bytes at most (bcrypt 5 refuses more), so a longer password (an `openssl rand -hex 64` in a compose file) gets the salted
+# PBKDF2 hash the server also reads, as api.py's hash_password() does. The fallback used to be a bare SHA-256, which the server no longer accepts.
+if bcrypt is not None and len(pw.encode()) <= 72:
+    pw_hash = bcrypt.hashpw(pw.encode(), bcrypt.gensalt(12)).decode()
+else:
+    salt = secrets.token_bytes(16)
+    iters = 600_000
+    pw_hash = f'pbkdf2${iters}${salt.hex()}${hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, iters).hex()}'
 path = os.environ['USERS_FILE']
 users = {
     user: {

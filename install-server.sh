@@ -583,9 +583,13 @@ from pathlib import Path
 plain = os.environ['RP_ADMIN_PASS']
 try:
     import bcrypt
+except ImportError:
+    bcrypt = None
+# bcrypt reads 72 bytes at most (bcrypt 5 refuses more), so a longer password gets the PBKDF2 hash the server also reads, as api.py's hash_password() does
+if bcrypt is not None and len(plain.encode()) <= 72:
     pw_hash = bcrypt.hashpw(plain.encode(), bcrypt.gensalt(12)).decode()
     hash_type = 'bcrypt'
-except ImportError:
+else:
     salt = secrets.token_bytes(16)
     iters = 600_000
     dk = hashlib.pbkdf2_hmac('sha256', plain.encode(), salt, iters)

@@ -3981,10 +3981,28 @@ def _pbkdf2_hash(plain: str, salt: bytes = None,
     dk = hashlib.pbkdf2_hmac('sha256', plain.encode(), salt, iterations)
     return f'pbkdf2${iterations}${salt.hex()}${dk.hex()}'
 
+# bcrypt reads the first 72 BYTES of a password and no more. The bcrypt package before 5.0 cut a longer one there without a word (nothing
+# after byte 72 counted); 5.0 and later refuse it with a ValueError, which was an HTTP 500 for a new password, after the rate-limit slot of
+# the change had been spent. The forms take up to 1024 characters and a character is up to four bytes, so 25 euro signs are 75 bytes and
+# as long as 75 letters. Two rules follow from that, and tests/test_long_password.py lists every place that hashes a password with bcrypt
+# and holds each one to them:
+#   * hash_password() never raises for a password: bcrypt where it can take the password whole, the salted PBKDF2 scheme below otherwise
+#     (the offline tools and the installers do the same), so a caller that forgot to check gets a hash the server can verify;
+#   * a NEW password over the limit is refused by _validate_password_policy() with a message that says so, and is not stored as PBKDF2:
+#     verifying PBKDF2 takes about half the time of a bcrypt check, and the difference would tell anyone who can sign in which accounts
+#     have a long password (the reason _dummy_password_hash() exists).
+_BCRYPT_MAX_BYTES = 72
+
+
+def _over_bcrypt_limit(plain):
+    """True when `plain` is longer than the 72 bytes (UTF-8) that bcrypt reads."""
+    return len(plain.encode()) > _BCRYPT_MAX_BYTES
+
+
 def hash_password(plain):
-    if _BCRYPT:
+    if _BCRYPT and not _over_bcrypt_limit(plain):
         return _bcrypt.hashpw(plain.encode(), _bcrypt.gensalt(12)).decode()
-    # No bcrypt — salted PBKDF2 rather than the old bare sha256.
+    # No bcrypt, or a password it cannot take whole — salted PBKDF2 rather than the old bare sha256.
     return _pbkdf2_hash(plain)
 
 
@@ -4030,7 +4048,11 @@ def _password_breached(plain):
 def _validate_password_policy(plain, username=''):
     """v5.4.1 (D1): enterprise password policy. OPT-IN — every knob defaults OFF
     (`password_min_length`=0), so existing installs + the test suite are unchanged
-    until an admin configures it (Settings → Security). Returns (ok, message)."""
+    until an admin configures it (Settings → Security). Returns (ok, message).
+    One rule is not a knob and runs first: a password over the 72 bytes bcrypt can hash is refused whatever is set."""
+    if _BCRYPT and _over_bcrypt_limit(plain):
+        return False, ('Password must be at most 72 bytes (72 letters or digits; fewer characters if it uses accents, symbols '
+                       'or other scripts)')
     cfg = _config_ro()
     try:
         min_len = int(cfg.get('password_min_length') or 0)
@@ -4242,8 +4264,9 @@ def maybe_rehash(username, plain, stored):
     """After a successful login, upgrade the stored hash to bcrypt once bcrypt
     becomes available on a server that had been using the PBKDF2 fallback.
     (Legacy pre-2.3.2 unsalted-SHA-256 hashes are no longer accepted by
-    verify_password, so they never reach here — they're reset out-of-band.)"""
-    if _BCRYPT and not stored.startswith('$2'):
+    verify_password, so they never reach here — they're reset out-of-band.)
+    A password over bcrypt's 72 bytes keeps its PBKDF2 hash: hashing it again would give the same scheme back, on every sign-in."""
+    if _BCRYPT and not _over_bcrypt_limit(plain) and not stored.startswith('$2'):
         with _LockedUpdate(USERS_FILE) as users:
             if username in users:
                 users[username]['password_hash'] = hash_password(plain)

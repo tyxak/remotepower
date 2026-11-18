@@ -380,8 +380,12 @@ from pathlib import Path
 plain = os.environ['RP_ADMIN_PASS']
 try:
     import bcrypt
-    h = bcrypt.hashpw(plain.encode(), bcrypt.gensalt(12)).decode(); t = 'bcrypt'
 except ImportError:
+    bcrypt = None
+# bcrypt reads 72 bytes at most (bcrypt 5 refuses more), so a longer password gets the PBKDF2 hash the server also reads, as api.py's hash_password() does
+if bcrypt is not None and len(plain.encode()) <= 72:
+    h = bcrypt.hashpw(plain.encode(), bcrypt.gensalt(12)).decode(); t = 'bcrypt'
+else:
     salt = secrets.token_bytes(16); it = 600_000
     h = f"pbkdf2${it}${salt.hex()}${hashlib.pbkdf2_hmac('sha256', plain.encode(), salt, it).hex()}"; t = 'pbkdf2'
 p = Path(os.environ['RP_USERS'])

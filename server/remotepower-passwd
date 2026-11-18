@@ -21,14 +21,23 @@ except ImportError:
 # Iterations match api.py's _PBKDF2_ITERATIONS (OWASP floor for PBKDF2-SHA256).
 _PBKDF2_ITERATIONS = 600_000
 
+# bcrypt reads the first 72 bytes of a password and bcrypt 5 refuses a longer one. Like api.py's hash_password(), a password it cannot take
+# whole gets the PBKDF2 hash below, which the server verifies for any account (a long password cannot be a traceback here).
+_BCRYPT_MAX_BYTES = 72
+
 def hash_password(plain: str) -> str:
-    if _BCRYPT:
+    over = len(plain.encode()) > _BCRYPT_MAX_BYTES
+    if _BCRYPT and not over:
         return _bcrypt.hashpw(plain.encode(), _bcrypt.gensalt(12)).decode()
-    # No bcrypt: salted PBKDF2-HMAC-SHA256 in the exact self-describing format
-    # api.py's verify_password understands — NOT bare unsalted SHA-256 (which is
-    # fast and rainbow-table-able). Pure stdlib, no extra dependency.
-    print("Warning: bcrypt not installed, using salted PBKDF2-HMAC-SHA256.")
-    print("         For bcrypt instead: pip3 install bcrypt")
+    # No bcrypt, or a password it cannot take whole: salted PBKDF2-HMAC-SHA256 in the
+    # exact self-describing format api.py's verify_password understands — NOT bare
+    # unsalted SHA-256 (which is fast and rainbow-table-able). Pure stdlib, no extra
+    # dependency.
+    if not _BCRYPT:
+        print("Warning: bcrypt not installed, using salted PBKDF2-HMAC-SHA256.")
+        print("         For bcrypt instead: pip3 install bcrypt")
+    else:
+        print("Note: the password is longer than 72 bytes, which bcrypt cannot hash: using salted PBKDF2-HMAC-SHA256.")
     salt = secrets.token_bytes(16)
     dk = hashlib.pbkdf2_hmac('sha256', plain.encode(), salt, _PBKDF2_ITERATIONS)
     return f'pbkdf2${_PBKDF2_ITERATIONS}${salt.hex()}${dk.hex()}'
