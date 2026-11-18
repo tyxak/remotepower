@@ -394,7 +394,6 @@ const _CVE_NOT_CHECKED = {
   no_source: 'No source name',
   no_matcher: 'No matcher for the package manager',
   no_release: 'Release not known',
-  not_published: 'Not published by the distribution',
   ceiling: 'Past the limit of packages a scan reads',
   unanswered: 'Not answered in full by the data source',
 };

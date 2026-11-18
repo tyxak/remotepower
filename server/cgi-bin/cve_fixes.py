@@ -596,7 +596,6 @@ def rollup_total(record: Any) -> int:
 #   no_matcher     nothing is matched against this host's packages at all (Arch, openSUSE, the applications of a
 #                  Windows or macOS host)
 #   no_release     a Debian or Ubuntu derivative whose release is not known: the data is kept per release
-#   not_published  the distribution does not publish it (an RPM host's imported GPG keys)
 #   ceiling        it comes after the first 10,000 packages, which is as many as a scan reads
 #   unanswered     the data source did not finish its answer for it (a list of advisories cut at the last page)
 #
@@ -606,10 +605,9 @@ def rollup_total(record: Any) -> int:
 NO_SOURCE = "no_source"
 NO_MATCHER = "no_matcher"
 NO_RELEASE = "no_release"
-NOT_PUBLISHED = "not_published"
 CEILING = "ceiling"
 UNANSWERED = "unanswered"
-REASONS = (NO_SOURCE, NO_MATCHER, NO_RELEASE, NOT_PUBLISHED, CEILING, UNANSWERED)
+REASONS = (NO_SOURCE, NO_MATCHER, NO_RELEASE, CEILING, UNANSWERED)
 MAX_NOT_CHECKED_LISTED = 200
 MAX_PACKAGES_READ = 10000
 
@@ -619,7 +617,6 @@ REASON_WORDS = {
     NO_SOURCE: "have no source name",
     NO_MATCHER: "have no matcher for this host's package manager",
     NO_RELEASE: "cannot be checked because the release is not known",
-    NOT_PUBLISHED: "are not published by the distribution",
     CEILING: f"come after the first {MAX_PACKAGES_READ:,} packages, which is as many as a scan reads",
     UNANSWERED: "were not answered in full by the data source",
 }

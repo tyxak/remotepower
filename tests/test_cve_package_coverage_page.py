@@ -24,7 +24,7 @@ _PAGE = (_JS / 'app-cve.js').read_text()
 _I18N = (_JS / 'i18n.js').read_text()
 _HTML = (ROOT / 'server' / 'html' / 'index.html').read_text()
 HAVE_NODE = shutil.which('node') is not None
-REASONS = ('no_source', 'no_matcher', 'no_release', 'not_published', 'ceiling', 'unanswered')
+REASONS = ('no_source', 'no_matcher', 'no_release', 'ceiling', 'unanswered')
 
 
 class TestThePageNamesEveryReason(unittest.TestCase):
@@ -197,7 +197,7 @@ console.log(JSON.stringify({badge: badge.innerHTML, body: body.innerHTML}));
 
 
 class TestTheNewTextsAreInSixLanguages(unittest.TestCase):
-    TEXTS = ['No source name', 'No matcher for the package manager', 'Release not known', 'Not published by the distribution',
+    TEXTS = ['No source name', 'No matcher for the package manager', 'Release not known',
              'Past the limit of packages a scan reads', 'Not answered in full by the data source', 'Packages checked:',
              'Not checked:', 'None found in the packages that could be checked:',
              'None found, but none of the packages could be checked.', 'Packages not checked:',

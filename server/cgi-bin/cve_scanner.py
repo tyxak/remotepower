@@ -352,9 +352,11 @@ def _osv_query_all(queries: list) -> list:
 
 MAX_BINARIES_SHOWN = 30
 
-# 8.0.2: an RPM host lists the GPG keys it has imported as packages. They are records of a key and not built
-# from a source package, so no distribution publishes them and no advisory is filed under them.
-_NOT_PUBLISHED = ('gpg-pubkey',)
+# 8.0.2: an RPM host lists the GPG keys it has imported as packages. They are records of a key in its database, not
+# software and not built from a source package, so no advisory is filed under them. They are not asked about, and they are
+# not counted among the packages a scan checked or missed: counted as missed they would stop every RPM host from ever
+# reading clean.
+_KEY_RECORDS = ('gpg-pubkey',)
 
 
 def _text(value) -> str:
@@ -392,7 +394,7 @@ def plan(packages, ecosystem, has_meta: bool = False, deb_by_source: bool = Fals
         name, version = _text(p.get('name')), _text(p.get('version'))
         if not name or not version:
             continue
-        if fam == 'rpm' and name in _NOT_PUBLISHED:
+        if fam == 'rpm' and name in _KEY_RECORDS:
             continue
         if not grouped:
             # an RPM list without epochs: the version is asked for as it is, which answers with every
@@ -442,16 +444,16 @@ _WORD_REASON = {'needs_agent': cve_fixes.NO_SOURCE, 'no_release': cve_fixes.NO_R
                 'no_matcher': cve_fixes.NO_MATCHER}
 
 
-def package_coverage(packages, units, answers, word: str, cut=(), ecosystem: str = '', left_out=()) -> dict:
+def package_coverage(packages, units, answers, word: str, cut=(), left_out=()) -> dict:
     """The per-package outcome of one scan, as the block a host's record keeps (`covered`, see cve_fixes).
 
     `packages` is the list as stored, `units` what `plan` made of it and `answers` what the data source
     returned for each unit (a {'vulns': [...]} or None), in the same order. `word` is the coverage word of the
     host (`coverage`, `entry_coverage`) and `cut` the places of the units whose answer was cut at the last page.
     A row without a name, or without a version where a version is needed to ask, is not a package and is not
-    counted. `left_out` is the places of the packages of kernels that are installed and do not run (`plan_host`):
-    nothing of them is asked about or counted, so they are not listed here either."""
-    fam = family(ecosystem)
+    counted, and neither is the record of a GPG key an RPM host has imported (`_KEY_RECORDS`). `left_out` is the places of
+    the packages of kernels that are installed and do not run (`plan_host`): nothing of them is asked about or counted, so
+    they are not listed here either."""
     by_row: dict = {}
     for k, u in enumerate(units):
         for row in u.get('rows', ()):
@@ -470,7 +472,7 @@ def package_coverage(packages, units, answers, word: str, cut=(), ecosystem: str
     for i, p in enumerate(packages if isinstance(packages, list) else []):
         name = _text(p.get('name')) if isinstance(p, dict) else ''
         version = _text(p.get('version')) if isinstance(p, dict) else ''
-        if not name or (not version and word != 'no_matcher') or i in left_out:
+        if not name or (not version and word != 'no_matcher') or i in left_out or name in _KEY_RECORDS:
             continue
         listed += 1
         mine = by_row.get(i, [])
@@ -478,8 +480,6 @@ def package_coverage(packages, units, answers, word: str, cut=(), ecosystem: str
             reason = cve_fixes.NO_MATCHER
         elif i >= MAX_PACKAGES:
             reason = cve_fixes.CEILING
-        elif fam == 'rpm' and name in _NOT_PUBLISHED:
-            reason = cve_fixes.NOT_PUBLISHED
         elif not mine:
             reason = cve_fixes.UNANSWERED        # nothing was asked about it, so nothing was answered
         elif any(k in cut for k in mine):
@@ -508,8 +508,13 @@ def entry_package_coverage(entry, record=None, with_packages: bool = True) -> di
         return None
     if with_packages:
         return cve_fixes.covered_view(package_coverage(entry.get('packages'), [], [], 'no_matcher'))
-    count = entry.get('count')
-    n = count if isinstance(count, int) and not isinstance(count, bool) and count > 0 else 0
+    # the same number without building the rows: the packages that have a name, and not the records of imported keys
+    packages = entry.get('packages')
+    if isinstance(packages, list):
+        n = sum(1 for p in packages if isinstance(p, dict) and _text(p.get('name')) and _text(p.get('name')) not in _KEY_RECORDS)
+    else:
+        count = entry.get('count')
+        n = count if isinstance(count, int) and not isinstance(count, bool) and count > 0 else 0
     return cve_fixes.covered_view({'listed': n, 'reasons': {cve_fixes.NO_MATCHER: n}}, False)
 
 
@@ -1659,7 +1664,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         'cut': cut[:20],
         # 8.0.2: which of the packages the host listed were checked, and why the others were not
         'covered': package_coverage(listed_packages, units, all_results,
-                                    coverage(ecosystem, has_meta, release or ''), cut_units, ecosystem,
+                                    coverage(ecosystem, has_meta, release or ''), cut_units,
                                     left_out=kernel_left_out),
     }
     if kernel_block:

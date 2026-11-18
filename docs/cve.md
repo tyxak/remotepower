@@ -119,9 +119,12 @@ for every other package one reason it did not:
 | **No source name** | The data is filed under the source package, and the list of the host names none: the agent is older than 8.0.1. On a host that is asked for package by package, a package whose answer named an advisory still counts as checked, because the answer shows the name was the right one. |
 | **No matcher for the package manager** | Nothing on the host is matched against a database: the applications of a Windows or macOS host, the packages of Arch and openSUSE, a distribution OSV has no feed for. |
 | **Release not known** | A Debian or Ubuntu derivative whose release the scan does not know, so the data, which is kept per release, cannot be asked for. |
-| **Not published by the distribution** | An RPM host's imported GPG keys (`gpg-pubkey`). They are records of a key, not built from a source package, and no advisory is filed under them. |
 | **Past the limit of packages a scan reads** | A scan reads the first 10,000 packages of a list. |
 | **Not answered in full by the data source** | The advisory list of the package was longer than the pages a scan reads (see [Scanning](#scanning)). |
+
+An RPM host also lists the GPG keys it has imported (`gpg-pubkey`). They are records of a key in its database, not
+software, and no advisory is filed under them, so they are in neither number, and an RPM host whose other packages were
+all checked reads clean.
 
 The host's record keeps the count of each reason and the first 200 packages that were not checked, never the whole
 list. The CVE page, the host view, the host drawer, the dashboard tile, the assistant's CVE tool, the text of a

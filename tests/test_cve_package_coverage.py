@@ -105,8 +105,7 @@ def adds_up(test, block):
 
 class TestTheReasonsAreAFixedSet(unittest.TestCase):
     def test_the_set(self):
-        self.assertEqual(cve_fixes.REASONS, ('no_source', 'no_matcher', 'no_release', 'not_published', 'ceiling',
-                                            'unanswered'))
+        self.assertEqual(cve_fixes.REASONS, ('no_source', 'no_matcher', 'no_release', 'ceiling', 'unanswered'))
         self.assertEqual(sorted(cve_fixes.REASON_WORDS), sorted(cve_fixes.REASONS))
         self.assertEqual(cve_fixes.MAX_NOT_CHECKED_LISTED, 200)
 
@@ -156,7 +155,10 @@ class TestAScanSaysWhatItChecked(unittest.TestCase):
         self.assertEqual(cve_scanner.coverage('Ubuntu', False, ''), 'needs_agent')
         self.assertEqual(scan(UBU, packages, 'Ubuntu', has_meta=False)['covered']['reasons'], {'no_source': 1})
 
-    def test_the_keys_an_rpm_host_has_imported_are_not_published_by_the_distribution(self):
+    def test_the_keys_an_rpm_host_has_imported_are_not_packages_and_do_not_stop_it_reading_clean(self):
+        """rpm -qa lists every GPG key in the database of the host as a package named gpg-pubkey. Counted as packages that were
+        not checked they made every RPM host read "none found in the packages that could be checked", however well it was
+        patched."""
         packages = [{'name': 'bash', 'version': '5.1.8-9.el9', 'arch': 'x86_64'},
                     {'name': 'gpg-pubkey', 'version': 'b86b3716-61e69f29', 'arch': ''},
                     {'name': 'gpg-pubkey', 'version': '8483c65d-5ccc5b19', 'arch': ''}]
@@ -168,9 +170,16 @@ class TestAScanSaysWhatItChecked(unittest.TestCase):
         for ecosystem in ('AlmaLinux:9', 'Rocky Linux:9', 'Red Hat'):
             asked.clear()
             block = scan_with(querybatch, packages, ecosystem, has_meta=True)['covered']
-            self.assertEqual((block['listed'], block['checked'], block['reasons']), (3, 1, {'not_published': 2}), ecosystem)
+            self.assertEqual((block['listed'], block['checked'], block['reasons'], block['packages']), (1, 1, {}, []), ecosystem)
             self.assertEqual(sorted(set(asked)), ['bash'], ecosystem)       # nothing was asked about a key
             adds_up(self, block)
+            # the readers say the plain thing for a host that has no finding
+            self.assertEqual((cve_fixes.coverage_words(block), cve_fixes.none_found_words(block)), ('', ''), ecosystem)
+        # a host that is not matched against anything leaves them out of its number too, by either way of asking
+        entry = {'ecosystem': '', 'pkg_manager': 'zypper', 'count': 3, 'packages': packages}
+        for with_packages in (True, False):
+            view = cve_scanner.entry_package_coverage(entry, {}, with_packages=with_packages)
+            self.assertEqual((view['listed'], view['not_checked'], view['reasons']), (1, 1, {'no_matcher': 1}), with_packages)
 
     def test_an_rpm_host_asked_by_name_whole_is_checked_and_a_rocky_list_without_sources_is_not(self):
         packages = [{'name': 'bash', 'version': '5.1.8-9.el9', 'arch': 'x86_64'}]
@@ -200,7 +209,7 @@ class TestAScanSaysWhatItChecked(unittest.TestCase):
         packages = [{'name': f'p{i}', 'version': '1.0'} for i in range(cve_scanner.MAX_PACKAGES + 1)]
         units = cve_scanner.plan(packages, 'AlmaLinux:9', True)
         self.assertEqual(len(units), cve_scanner.MAX_PACKAGES)
-        block = cve_scanner.package_coverage(packages, units, [{}] * len(units), '', (), 'AlmaLinux:9')
+        block = cve_scanner.package_coverage(packages, units, [{}] * len(units), '')
         self.assertEqual((block['listed'], block['checked'], block['reasons']), (10001, 10000, {'ceiling': 1}))
         self.assertEqual(block['packages'], [{'name': 'p10000', 'version': '1.0', 'reason': 'ceiling'}])
 
@@ -255,10 +264,9 @@ class TestAScanSaysWhatItChecked(unittest.TestCase):
         self.assertEqual(by_name, {'openssl': [0, 1], 'openssl-libs': [1]})
 
     def test_a_host_nothing_is_matched_against_counts_every_package_as_not_checked(self):
-        for ecosystem in ('', 'Arch Linux'):
-            block = cve_scanner.package_coverage(WINDOWS, [], [], 'no_matcher', (), ecosystem)
-            self.assertEqual((block['listed'], block['checked'], block['reasons']), (8, 0, {'no_matcher': 8}))
-            adds_up(self, block)
+        block = cve_scanner.package_coverage(WINDOWS, [], [], 'no_matcher')
+        self.assertEqual((block['listed'], block['checked'], block['reasons']), (8, 0, {'no_matcher': 8}))
+        adds_up(self, block)
         # a program that writes no version is still on the list of its host
         self.assertEqual(cve_scanner.package_coverage([{'name': 'Tool', 'version': ''}], [], [], 'no_matcher')['listed'], 1)
 
@@ -269,12 +277,12 @@ class TestAScanSaysWhatItChecked(unittest.TestCase):
 
 
 class TestTheViewOfABlock(unittest.TestCase):
-    BLOCK = {'listed': 1901, 'checked': 1834, 'not_checked': 67, 'reasons': {'no_source': 52, 'not_published': 15},
+    BLOCK = {'listed': 1901, 'checked': 1834, 'not_checked': 67, 'reasons': {'no_source': 52, 'no_release': 15},
              'packages': [{'name': 'libfoo', 'version': '1.0', 'reason': 'no_source'}], 'more': 66}
 
     def test_a_good_block_is_read_as_it_is(self):
         view = cve_fixes.covered_view(self.BLOCK)
-        self.assertEqual(view['reasons'], {'no_source': 52, 'not_published': 15})
+        self.assertEqual(view['reasons'], {'no_source': 52, 'no_release': 15})
         self.assertEqual((view['listed'], view['checked'], view['not_checked'], view['more']), (1901, 1834, 67, 66))
         self.assertEqual(view['packages'], self.BLOCK['packages'])
         self.assertNotIn('packages', cve_fixes.covered_view(self.BLOCK, with_packages=False))
@@ -282,7 +290,7 @@ class TestTheViewOfABlock(unittest.TestCase):
     def test_the_words(self):
         self.assertEqual(cve_fixes.coverage_words(self.BLOCK),
                          'Checked 1,834 of 1,901 packages; 67 not checked: 52 have no source name, '
-                         '15 are not published by the distribution.')
+                         '15 cannot be checked because the release is not known.')
         self.assertEqual(cve_fixes.none_found_words(self.BLOCK), 'none found in the 1,834 packages that could be checked')
         nothing = {'listed': 9, 'reasons': {'no_matcher': 9}}
         self.assertEqual(cve_fixes.none_found_words(nothing), 'none found, but none of the 9 packages could be checked')
@@ -317,7 +325,7 @@ class TestTheViewOfABlock(unittest.TestCase):
         for odd in (None, 7, 'x', {}, {'reasons': 'x'}):
             cve_fixes.covered_add(total, odd)
         self.assertEqual(total, {'listed': 1909, 'checked': 1834, 'not_checked': 75,
-                                 'reasons': {'no_source': 52, 'not_published': 15, 'no_matcher': 8}})
+                                 'reasons': {'no_source': 52, 'no_release': 15, 'no_matcher': 8}})
 
 
 class TestTheStoreHoldsTheBlock(unittest.TestCase):
