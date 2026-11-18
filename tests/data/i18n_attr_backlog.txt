@@ -140,7 +140,6 @@ remotepower
 remotepower-admins
 remotepower@example.com
 road-warriors
-root
 root@pam!remotepower
 rotate-nginx-logs.sh
 sec-ops=auditor finance-team=finance sre=admin

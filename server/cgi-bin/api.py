@@ -985,6 +985,7 @@ import store_shapes                             # the shape each store file is e
 import host_purge                               # 8.0.0: what deleting a host removes from the stores that name it (pure)
 import upgrade_mode as upgrade_mode_mod   # a host's apt upgrade mode, Standard or Extended (Discussion #30; pure)
 import pkg_refresh as pkg_refresh_mod   # the state of a host's package-list refresh: {at, status, source, error_class} (pure)
+import agent_capabilities as agent_capabilities_mod   # what a Linux agent can see on its host: the cleaning of its report and the panel (pure)
 import zfs_stats as zfs_stats_mod   # 7.4.9: a host's ZFS cache counters and datasets, validated (pure)
 import peer_direction as peer_direction_mod   # v7.4.6 (#58): which way an observed TCP connection runs (pure)
 import thermal_sensors as thermal_sensors_mod   # a temperature history for every sensor, not only the hottest (pure)
@@ -1995,6 +1996,16 @@ pkg_refresh_handlers_mod.bind(globals())
 for _pr_name in ('handle_device_pkg_refresh',):   # the heartbeat reaches refresh_before_scan_for through the module
     globals()[_pr_name] = getattr(pkg_refresh_handlers_mod, _pr_name)
 del _pr_name
+
+# What an agent can see on its host: the panel in the host drawer. One route, so a bound module.
+_cp_spec = _tk_ilu.spec_from_file_location(
+    'capabilities_handlers', Path(__file__).parent / 'capabilities_handlers.py')
+capabilities_handlers_mod = _tk_ilu.module_from_spec(_cp_spec)
+_cp_spec.loader.exec_module(capabilities_handlers_mod)
+capabilities_handlers_mod.bind(globals())
+for _cp_name in ('handle_device_capabilities',):
+    globals()[_cp_name] = getattr(capabilities_handlers_mod, _cp_name)
+del _cp_name
 
 # 7.4.9: the container hardening audit. Two routes, so a bound module.
 _ca_spec = _tk_ilu.spec_from_file_location(
@@ -23254,7 +23265,7 @@ def _agent_mtls_ok(dev_id):
 _METRIC_SEEDED = set()
 
 _DELTA_SYSINFO_FIELDS = ('packages', 'listening_ports', 'network',
-                         'ssh_hostkeys', 'usb', 'autoupdate', 'ssh_config')
+                         'ssh_hostkeys', 'usb', 'autoupdate', 'ssh_config', 'capabilities')
 
 
 def _log_field(value, limit):
@@ -23586,6 +23597,12 @@ def handle_heartbeat():
             _pkr = pkg_refresh_mod.clean(si.get('pkg_refresh'), now)
             if _pkr is not None:
                 safe_si['pkg_refresh'] = _pkr
+            # What the agent can see on its host (root or not, container, which tools and logs it has). Cleaned to a fixed set of keys,
+            # fixed tool names and log kinds, booleans and short strings (agent_capabilities.clean); a delta field, so a report that
+            # changed nothing arrives as an omission and is merged back from the stored copy below.
+            _caps = agent_capabilities_mod.clean(si.get('capabilities'))
+            if _caps is not None:
+                safe_si['capabilities'] = _caps
             # v6.4.1: resolved sshd posture (root login / password auth). The
             # Security Advisory's whole identity layer keys off this — it was
             # written against the field for releases while nothing collected or
@@ -79155,6 +79172,7 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('POST',), '/api/status-token', '', 'handle_status_token', "pi == '/api/status-token' and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/scan-packages', 'handle_force_package_scan', "pi.startswith('/api/devices/') and pi.endswith('/scan-packages') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/refresh-package-lists', 'handle_device_pkg_refresh', "pi.startswith('/api/devices/') and pi.endswith('/refresh-package-lists') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/capabilities', 'handle_device_capabilities', "pi.startswith('/api/devices/') and pi.endswith('/capabilities') and m == 'GET'"),
     ('pat', ('POST',), '/api/devices/', '/log-sweep/run', 'handle_log_sweep_run', "pi.startswith('/api/devices/') and pi.endswith('/log-sweep/run') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/log-sweep/diagnose', 'handle_log_sweep_diagnose', "pi.startswith('/api/devices/') and pi.endswith('/log-sweep/diagnose') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/log-sweep', 'handle_log_sweep_get', "pi.startswith('/api/devices/') and pi.endswith('/log-sweep') and m == 'GET'"),

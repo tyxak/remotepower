@@ -39,6 +39,29 @@ journalctl -u remotepower-agent -f
 curl -v https://your-server/api/heartbeat
 ```
 
+**A host has no ports, no disk health, no firewall or no temperatures**
+
+Open the host, go to its **Audit** tab and open **What this agent can see** under **System**. A Linux agent reports it with its
+system information (about every ten minutes). It shows:
+
+- whether the agent runs as **root** (a firewall, a disk and the audit rules are unreadable otherwise), the agent's version and
+  Python, the distribution, and the init system;
+- each **missing tool**, the feature that needs it, and how to fix it: an install command for the host's package manager to copy,
+  or a short sentence where no command is right for every host (`systemctl` comes with systemd, a package manager with the base
+  system, and the package of Docker, OpenSCAP and CrowdSec differs by distribution). A tool a feature does not need on this host
+  is not listed as missing: another distribution's package manager, `systemctl` on a host that does not run systemd, and the
+  second of two tools that do the same job (`ufw` when `nftables` is there);
+- the **logs the threat sensor found**, including any extra log you gave it, whether the agent can open each, and never a line of
+  them.
+
+A tool you install shows up at the agent's next report. A tool marked *optional* belongs to a feature most hosts do without
+(Docker, IPMI, Lynis, OpenSCAP, auditd, fail2ban, CrowdSec). A Windows or macOS host has no such report, and neither does a Linux
+agent from before this panel: it says "This agent has not reported what it can see" until you update the agent.
+
+In a container the agent reads the host's files through the paths mapped into it, and the panel lists those paths. It cannot run
+the host's own tools, so a missing tool says **not available in a container** and not an install command (see
+[docker-agent.md](docker-agent.md)).
+
 **Shutdown/reboot queued but nothing happens**
 - Executes on the client's next poll (up to 60s by default)
 - Agent must run as root: `systemctl cat remotepower-agent | grep User`

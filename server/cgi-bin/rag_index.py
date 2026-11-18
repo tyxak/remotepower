@@ -55,6 +55,7 @@ import app_catalog
 import checks
 import windows_host
 import pkg_refresh as pkg_refresh_mod
+import agent_capabilities as agent_capabilities_mod
 
 
 # ── Tokenisation ─────────────────────────────────────────────────────────────
@@ -1041,6 +1042,25 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
             posture.append(f"chassis type: {_ch}")
         if si.get('zram'):
             posture.append("zram compressed swap is in use")
+        # What the agent can see on its host: "which hosts have no smartctl" and "which agents do not run as root" had a drawer section and no
+        # corpus entry. Every name comes from the server's own table (a tool and the feature it is for), and a log is counted and never named,
+        # so nothing a host sends adds free text to the corpus. A tool a container cannot have, or one this host does not need, is not listed:
+        # only what a person could install.
+        _cp = agent_capabilities_mod.panel(si.get('capabilities'), agent_capabilities_mod.manager_of(si))
+        if _cp.get('reported'):
+            _cl = []
+            if _cp.get('root') is False:
+                _cl.append("the agent is NOT running as root")
+            if _cp.get('container') is True:
+                _cl.append("the agent runs in a container")
+            _gone = [f"{_r['name']} ({_r['feature']})" for _r in _cp.get('tools', []) if _r.get('status') == 'missing']
+            if _gone:
+                _cl.append("tools the agent cannot find: " + ', '.join(_gone[:10]))
+            _shut = sum(1 for _e in _cp.get('logs', []) if _e.get('readable') is False)
+            if _shut:
+                _cl.append(f"{_shut} log(s) the threat sensor cannot open")
+            if _cl:
+                posture.append("what the agent can see:\n  " + '\n  '.join(_cl))
         if posture:
             docs.append(make_doc(
                 f"live/{dev_id}#posture", 'live_state', 'device_posture',

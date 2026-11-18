@@ -95,6 +95,9 @@ It reports "not available" instead of misleading host data for:
   from the container. (Install the native agent on the host if you need these.)
 - **Self-update** — the binary is baked into the image; upgrade by pulling a
   newer image tag, never in place.
+- **The host's own tools** — the agent runs the tools of its image, not the host's. The host's
+  [What this agent can see](troubleshooting.md) panel lists which host paths are mapped into the
+  container, and says **not available in a container** for a tool it cannot run.
 - **Check for updates now** — refreshing the package lists would refresh the lists of the agent's own
   image, or write into a host file system that was mounted read-only. The host's
   [Packages section](patches.md#refreshing-the-package-lists) says "not available in a container".

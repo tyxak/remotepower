@@ -58,6 +58,7 @@ _ROOT = pathlib.Path(__file__).resolve().parent.parent
 _API = _ROOT / 'server' / 'cgi-bin' / 'api.py'
 _CHECKS = _ROOT / 'server' / 'cgi-bin' / 'checks.py'
 _INTEGRATIONS = _ROOT / 'server' / 'cgi-bin' / 'integrations.py'
+_CAPS = _ROOT / 'server' / 'cgi-bin' / 'agent_capabilities.py'
 _I18N = _ROOT / 'server' / 'html' / 'static' / 'js' / 'i18n.js'
 _NODE = shutil.which('node')
 
@@ -161,6 +162,23 @@ def _registries():
     out['integrations._STATS.label'] = [
         (_literal(row) or (None, None, None))[1] for rows in stats.values for row in (rows.elts if isinstance(rows, ast.List) else [])]
 
+    # What a Linux agent can see (host drawer): the feature each tool is for, the note of a tool with no install command, the kinds of log and the two
+    # notices are sent by the server from its own fixed table, so the panel is English in six languages until each sentence has an entry. TOOLS is a
+    # tuple of dict displays that build their package lists with helper calls, which literal_eval refuses, so the sentences of each row are read from
+    # the display itself.
+    caps = ast.parse(_CAPS.read_text(encoding='utf-8'))
+
+    def _row_text(row, key):
+        for k, v in zip(row.keys, row.values):
+            if isinstance(k, ast.Constant) and k.value == key and isinstance(v, ast.Constant):
+                return v.value
+        return None
+
+    out['agent_capabilities.TOOLS.feature'] = [_row_text(row, 'feature') for row in _top_level_value(caps, 'TOOLS').elts]
+    out['agent_capabilities.TOOLS.note'] = [_row_text(row, 'note') for row in _top_level_value(caps, 'TOOLS').elts]
+    out['agent_capabilities.LOG_KINDS'] = list((_literal(_top_level_value(caps, 'LOG_KINDS')) or {}).values())
+    out['agent_capabilities.NOTICES'] = list((_literal(_top_level_value(caps, 'NOTICES')) or {}).values())
+
     return {k: sorted({s for s in v if isinstance(s, str) and s.strip()})
             for k, v in out.items()}
 
@@ -181,6 +199,10 @@ _FLOOR = {
     'CHECK_BASELINE_CATALOG.name': 60,
     'CHECK_BASELINE_CATALOG.desc': 60,
     'integrations._STATS.label': 60,
+    'agent_capabilities.TOOLS.feature': 20,
+    'agent_capabilities.TOOLS.note': 4,
+    'agent_capabilities.LOG_KINDS': 5,
+    'agent_capabilities.NOTICES': 2,
 }
 
 

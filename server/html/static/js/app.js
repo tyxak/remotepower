@@ -26481,6 +26481,9 @@ const _AUDIT_SECTIONS = [
   {key: 'backups',   title: 'Backups',           icon: 'hardDrive',group: 'System'},
   {key: 'snmp',      title: 'SNMP',              icon: 'radio',    group: 'System'},
   {key: 'hostcfg',   title: 'Host Config',       icon: 'settings', group: 'System'},
+  // What the agent can see on its host: root or not, container or not, which tools and logs it has, with a fix per missing tool.
+  // Only a Linux agent reports it, so the section is left out for any other host (see _renderDrawerAuditSections).
+  {key: 'capabilities', title: 'What this agent can see', icon: 'eye', group: 'System'},
   // v7.4.2 (#44): what runs on this host that the host cannot report itself.
   {key: 'integrations', title: 'Integrations on this host', icon: 'link', group: 'Integrations'},
 ];
@@ -26559,7 +26562,9 @@ function _renderDrawerAuditSections() {
   // click), so we attach the toggle listener directly after rendering.
   // v3.3.4: RouterOS (MikroTik) card — agentless devices only (that's how
   // routers are added); irrelevant on Linux agent hosts.
-  const sections = _AUDIT_SECTIONS.slice();
+  // Only a Linux agent reports what it can see; a Windows or macOS host and a host without an agent have nothing to show.
+  const _linuxAgent = !(_drawerDeviceData || {}).agentless && !/windows|mac|darwin/i.test(String((_drawerDeviceData || {}).os || ''));
+  const sections = _AUDIT_SECTIONS.filter(s => s.key !== 'capabilities' || _linuxAgent);
   if (_drawerDeviceData && _drawerDeviceData.agentless) {
     sections.push({key: 'routeros', title: 'RouterOS (MikroTik)', icon: 'radio',  group: 'Integrations'});
     sections.push({key: 'opnsense', title: 'OPNsense',            icon: 'shield', group: 'Integrations'});
@@ -27393,6 +27398,74 @@ async function _loadAuditSection(key) {
           ${canRefresh ? `<button class="btn-secondary" data-action-btn="_pkgRefreshBtn" data-dev-id="${escAttr(id)}">${_icon('refresh', 14)} Check for updates now</button>
           <p class="hint mt-8">Scan now reads what the package manager already knows. Check for updates now asks the repositories for fresh lists first, then reads what is pending.</p>` : ''}`;
         badge.textContent = upg > 0 ? `${upg} upgradable` : 'up to date';
+        break;
+      }
+
+      // What this agent can see on its host. The server sends rows from its own fixed table (the feature a tool is for, an install
+      // hint per package manager); a hint is shown as text to copy, never a button. Everything is escaped, and a log is a path and
+      // a yes or no: the agent never reads a line of it.
+      case 'capabilities': {
+        const r = await api('GET', `/devices/${id}/capabilities`);
+        if (!r || !r.reported) {
+          // An agent from before this panel never reports it, and that is what most hosts without a report are: say so.
+          body.innerHTML = '<div class="c-muted">This agent has not reported what it can see. An up-to-date agent reports it with its full report, about every ten minutes. An older agent never does: update it.</div>';
+          badge.textContent = 'Not reported';
+          return;
+        }
+        const tools = Array.isArray(r.tools) ? r.tools : [];
+        const gone = tools.filter(t => t.status === 'missing' || t.status === 'unavailable');
+        const nMissing = Number(r.missing) || 0, nUnavail = Number(r.unavailable) || 0;
+        // The number and the word are separate text nodes, so the word is translated: "3 missing" as one string could not be.
+        badge.innerHTML = nMissing ? `${nMissing} <span>missing</span>` : (nUnavail ? `${nUnavail} <span>unavailable</span>` : 'Nothing missing');
+        const pill = (label, value) => `<div class="sysinfo-pill"><div class="label">${label}</div><div class="value">${value}</div></div>`;
+        const ag = r.agent || {};
+        let h = '<div class="sysinfo-row isl-610">'
+          + pill('Agent', escHtml(ag.version || '—'))
+          + pill('Python', escHtml(ag.python || '—'))
+          + pill('Runs as', r.root === true ? 'root' : (r.root === false ? 'not root' : '—'))
+          + pill('Mode', r.container === true ? 'Container' : 'Host')
+          + (r.distro ? pill('Distribution', escHtml(r.distro)) : '')
+          + (r.init ? pill('Init', escHtml(r.init)) : '')
+          + '</div>';
+        for (const n of (Array.isArray(r.notices) ? r.notices : [])) h += `<div class="hint mb-8">${escHtml(n)}</div>`;
+        if (gone.length) {
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Missing tools</div>
+            <div class="scrollable-table-wrap audit-scroll"><table class="isl-627">
+            <thead><tr class="c-muted"><th class="isl-628">Tool</th><th>Needed for</th><th>How to fix</th></tr></thead>
+            <tbody>` + gone.map(t =>
+              `<tr><td class="isl-629"><code>${escHtml(t.name)}</code></td>
+                <td>${escHtml(t.feature)}${t.optional ? ' <span class="pill" data-color="var(--muted)">Optional</span>' : ''}</td>
+                <td class="fs-11">${t.status === 'unavailable' ? 'not available in a container' : (t.hint ? `<code>${escHtml(t.hint)}</code>` : (t.note ? escHtml(t.note) : '—'))}</td></tr>`
+            ).join('') + '</tbody></table></div>';
+        }
+        const found = tools.filter(t => t.status === 'present');
+        if (found.length) {
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Tools found</div><div class="scroll-cap-sm">`
+            + found.map(t => `<span class="pill" data-color="var(--green)">${escHtml(t.name)}</span>`).join(' ') + '</div>';
+        }
+        const idle = tools.filter(t => t.status === 'not_needed');
+        if (idle.length) {
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Tools not needed on this host</div><div class="scroll-cap-sm">`
+            + idle.map(t => `<span class="pill" data-color="var(--muted)">${escHtml(t.name)}</span>`).join(' ') + '</div>';
+        }
+        if (r.container === true) {
+          const mapped = Array.isArray(r.mapped) ? r.mapped : [];
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Host paths mapped into the container</div>`
+            + (mapped.length ? `<div class="scroll-cap-sm">${mapped.map(p => `<code>${escHtml(p)}</code>`).join(' ')}</div>`
+                             : '<div class="hint">No host path is mapped into the container.</div>');
+        }
+        const logs = Array.isArray(r.logs) ? r.logs : [];
+        if (logs.length) {
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Logs the threat sensor found</div>
+            <div class="scrollable-table-wrap audit-scroll"><table class="isl-627">
+            <thead><tr class="c-muted"><th class="isl-628">Log</th><th>Path</th><th class="ta-center">Readable</th></tr></thead>
+            <tbody>` + logs.map(l =>
+              `<tr><td class="isl-629">${escHtml(l.label || '')}</td>
+                <td class="fs-11"><code>${escHtml(l.path || '')}</code></td>
+                <td class="ta-center ${l.readable ? 'c-green' : 'c-red'}">${l.readable ? 'Yes' : 'No'}</td></tr>`
+            ).join('') + '</tbody></table></div>';
+        }
+        body.innerHTML = h;
         break;
       }
 

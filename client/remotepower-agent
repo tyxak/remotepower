@@ -5046,6 +5046,10 @@ def _which(prog, _cache={}):
     agent's lifetime and this is called dozens of times per heartbeat
     (stat-walking PATH each call). (A plain dict rather than @lru_cache so the
     function source stays decorator-free for source-extraction tests.)
+    The one exception is collect_capabilities: it looks at the host itself on every
+    report and forgets an answer kept here that it finds wrong (_which_refresh), so
+    a tool installed or removed after the agent started is seen from the next
+    report on, and the "What this agent can see" panel and the collectors agree.
 
     v3.13.0: also searches the standard sbin dirs even when they're absent from
     a minimal service PATH — firewall tools (iptables/nft) live in /usr/sbin and
@@ -14915,7 +14919,7 @@ def compute_drift_report(paths, patterns_out=None):
 # the response's delta_resend. Never omitted until the server has advertised
 # `delta_ok` — a new agent against an old server keeps sending full payloads.
 _DELTA_SYSINFO_FIELDS = ('packages', 'listening_ports', 'network',
-                         'ssh_hostkeys', 'usb', 'autoupdate', 'ssh_config')
+                         'ssh_hostkeys', 'usb', 'autoupdate', 'ssh_config', 'capabilities')
 
 
 def _stable_hash(value):
@@ -15668,6 +15672,139 @@ def _ts_discover(cfg, now):
             add(f2b, {'path': real, 'configured': True})
     return {'at': int(now), 'web': web, 'err': err, 'waf': waf, 'f2b': f2b, 'fw': fw, 'ids': ids,
             'cs': bool(_which('cscli')) and not IN_CONTAINER, 'proxied': bool(proxied)}
+
+
+# ── What this agent can see ───────────────────────────────────────────────────
+#
+# Many features are invisible without some tool, and each missing one used to show up as a single signal (psutil, ss) or as an empty
+# page, with no place that lists them for a host. This builds ONE structure, sent with the system information: whether the agent runs
+# as root, whether it runs in a container and which host paths are mapped into it, which of the tools it uses are on the host, which
+# logs the threat sensor found and whether it can open them (the paths, never a line of them), and the agent's own version and Python.
+# The server cleans it (agent_capabilities.clean), keeps it with the host, and says per missing tool which feature needs it and how
+# to fix it.
+#
+# Nothing is run to build it: a tool is looked for by file name, a log by stat and access, the distribution by os-release and the
+# init system by the name of process 1. Every host file goes through host_path(), so in a container it is the host that is read.
+
+# (the key the server knows a tool by, the file names looked for, first found counts). The keys are the server's own list
+# (agent_capabilities.TOOLS) and tests/test_agent_capabilities.py holds the two together. `apt` is looked for as apt-get, the program
+# the agent runs; `firewalld` as firewall-cmd; and the rpm family has any of dnf, dnf5 and yum.
+CAPABILITY_TOOLS = (
+    ('ss', ('ss',)), ('smartctl', ('smartctl',)), ('lsblk', ('lsblk',)), ('ufw', ('ufw',)), ('firewalld', ('firewall-cmd',)),
+    ('iptables', ('iptables',)), ('nft', ('nft',)), ('journalctl', ('journalctl',)), ('systemctl', ('systemctl',)),
+    ('docker', ('docker',)), ('podman', ('podman',)), ('apt', ('apt-get',)), ('dnf', ('dnf', 'dnf5', 'yum')),
+    ('zypper', ('zypper',)), ('apk', ('apk',)), ('pacman', ('pacman',)), ('needrestart', ('needrestart',)),
+    ('dmidecode', ('dmidecode',)), ('sensors', ('sensors',)), ('ipmitool', ('ipmitool',)), ('lynis', ('lynis',)),
+    ('oscap', ('oscap',)), ('auditctl', ('auditctl',)), ('fail2ban-client', ('fail2ban-client',)), ('cscli', ('cscli',)),
+)
+# The kinds of log the threat sensor's discovery sorts what it finds into, and the host paths whose mapping a container reports.
+CAPABILITY_LOG_KINDS = ('web', 'err', 'waf', 'f2b', 'fw', 'ids')
+CAPABILITY_MAPPED = ('/etc', '/proc', '/sys', '/var/lib', '/var/log')
+CAPABILITY_LOG_CAP = 40             # logs reported at most; a host with more says so by having 40
+CAPABILITY_PATH_CAP = 200           # characters of a log path
+
+
+def _capability_dirs():
+    """Where a tool is looked for: the PATH of this process, then the standard directories, which is where _which looks."""
+    dirs = [d for d in os.environ.get('PATH', '').split(':') if d]
+    for d in ('/usr/sbin', '/sbin', '/usr/bin', '/bin', '/usr/local/sbin', '/usr/local/bin'):
+        if d not in dirs:
+            dirs.append(d)
+    return dirs
+
+
+def _capability_find(names, dirs):
+    """The first of these file names that is an executable file in one of these directories, or None."""
+    for name in names:
+        for d in dirs:
+            full = os.path.join(d, name)
+            if os.path.isfile(full) and os.access(full, os.X_OK):
+                return full
+    return None
+
+
+def _which_refresh(name, present):
+    """Keep _which in step with the host as the report found it. _which remembers its answer for the life of the process, so a tool
+    installed after the agent started was missed by every collector until a restart; the report forgets a wrong answer and the
+    next lookup is right."""
+    try:
+        cache = _which.__defaults__[0]
+        if name in cache and bool(cache[name]) != present:
+            del cache[name]
+    except (AttributeError, IndexError, KeyError, TypeError):
+        pass
+
+
+def _capability_token(raw, limit=32):
+    """A short lower-case word for a field that is a name (a distribution id, an init system): letters, digits and . _ + - only."""
+    return re.sub(r'[^a-z0-9._+-]', '', str(raw or '').lower())[:limit]
+
+
+def _capability_mapped(path):
+    """True when a host path is there to read: a directory with something in it, under the host root in a container."""
+    try:
+        if not os.path.isdir(host_path(path)):
+            return False
+        with os.scandir(host_path(path)) as entries:
+            return any(True for _ in entries)
+    except OSError:
+        return False
+
+
+def _capability_readable(path):
+    """True when the agent can open this log file. Only stat and access: not a byte of the file is read."""
+    try:
+        real = os.path.realpath(host_path(path))
+        return os.path.isfile(real) and os.access(real, os.R_OK)
+    except (OSError, ValueError):
+        return False
+
+
+def collect_capabilities(tool_dirs=None, threat_cfg=None):
+    """What this agent can see on its host, as one small dict (see the block comment above). Never raises: a part that cannot be
+    found out is left out of the dict, not guessed. `tool_dirs` is for tests; the agent looks where _which looks. `threat_cfg` is the
+    threat sensor's setting from the server, whose extra log paths are logs the sensor reads too."""
+    caps = {}
+    try:
+        caps['root'] = os.geteuid() == 0
+    except (AttributeError, OSError):
+        pass
+    caps['container'] = bool(IN_CONTAINER)
+    if IN_CONTAINER:
+        caps['mapped'] = [p for p in CAPABILITY_MAPPED if _capability_mapped(p)]
+    init = _capability_token(_safe_read('/proc/1/comm', 64).strip())
+    if init:
+        caps['init'] = init
+    try:
+        rel = get_os_release()
+        if _capability_token(rel.get('ID')):
+            caps['distro'] = _capability_token(rel.get('ID'))
+        like = ' '.join(t for t in (_capability_token(w) for w in str(rel.get('ID_LIKE') or '').split()[:4]) if t)
+        if like:
+            caps['like'] = like[:64]
+    except Exception:
+        pass
+    dirs = tool_dirs if tool_dirs is not None else _capability_dirs()
+    tools = {}
+    for key, names in CAPABILITY_TOOLS:
+        tools[key] = bool(_capability_find(names, dirs))
+        if tool_dirs is None:
+            for name in names:
+                _which_refresh(name, bool(_capability_find((name,), dirs)))
+    caps['tools'] = tools
+    try:
+        disc = _ts_discover(threat_cfg if isinstance(threat_cfg, dict) else {}, time.time())
+        logs = []
+        for kind in CAPABILITY_LOG_KINDS:
+            for entry in disc.get(kind) or []:
+                path = entry.get('path') if isinstance(entry, dict) else None
+                if isinstance(path, str) and path.startswith('/') and len(logs) < CAPABILITY_LOG_CAP:
+                    logs.append({'kind': kind, 'path': path[:CAPABILITY_PATH_CAP], 'readable': _capability_readable(path)})
+        caps['logs'] = logs
+    except Exception as e:
+        log.debug(f'capabilities: log discovery failed: {type(e).__name__}')
+    caps['agent'] = {'version': _capability_token(VERSION), 'python': _capability_token(platform.python_version())}
+    return caps
 
 
 # ── turning a log format into a line parser ───────────────────────────────────
@@ -17925,6 +18062,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     sysinfo['pkg_refresh'] = _pkr
             except Exception as e:
                 log.debug(f'package list refresh state error: {e}')
+            try:
+                # What this agent can see (root or not, container, which tools and logs it has). One structure, a few KB at
+                # most, and nothing is sent when it cannot be built. Inside `if send_sysinfo:` and AFTER `sysinfo = {...}`
+                # (the v6.1.2 scope gotcha); it is a delta field, so a report that changes nothing leaves it out.
+                sysinfo['capabilities'] = collect_capabilities(threat_cfg=_threat_holder.get('cfg'))
+            except Exception as e:
+                log.debug(f'capabilities error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
             # v6.2.2: delta sysinfo — drop the heavy fields whose content is
