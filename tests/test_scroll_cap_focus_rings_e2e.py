@@ -108,7 +108,7 @@ LISTS = (
     dict(name='Knowledge base article', page='kb', box='#kb-view',
          prepare="""async () => { const el = document.querySelector('#kb-list .kb-item'); if (el) el.click(); await new Promise(r => setTimeout(r, 1800)); }"""),
     dict(name='Links', page='links', box='#links-grid', prepare=None),
-    dict(name='CMDB documents', page='cmdb', box='#cmdb-docs-list',
+    dict(name='CMDB documents', page='cmdb', box='#cmdb-docs-list', minimum=1,       # the first asset with a document may have just the one: its heading is the first and the last row
          prepare="""async () => { const id = window.__cmdbDocAsset; if (!id) return; await cmdbOpenAsset(id); await new Promise(r => setTimeout(r, 1200));
                     const tab = document.querySelector('#cmdb-tab-btn-docs'); if (tab) tab.click(); await new Promise(r => setTimeout(r, 600)); }"""),
 )
@@ -169,7 +169,7 @@ class TestTheRingsInTheListsThatScroll(unittest.TestCase):
                 if spec['name'] == 'CMDB documents':
                     self.assertTrue(self.asset, 'the control: the seed has an asset with documents')
                 rows = self.walk(spec)
-                self.assertGreaterEqual(len(rows), 2, 'the control: the list holds controls, %r' % rows)
+                self.assertGreaterEqual(len(rows), spec.get('minimum', 2), 'the control: the list holds controls, %r' % rows)
                 for row in rows:
                     where = '%s: %r' % (spec['name'], row)
                     self.assertTrue(row['visible'] and row['style'] != 'none', 'the focused control shows no ring. ' + where)
