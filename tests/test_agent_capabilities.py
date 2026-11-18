@@ -664,7 +664,7 @@ class TestThePanel(unittest.TestCase):
 
     def test_a_missing_tool_names_its_feature_and_the_install_command_of_the_hosts_package_manager(self):
         for distro, expect in (("debian", "apt install iproute2"), ("ubuntu", "apt install iproute2"), ("fedora", "dnf install iproute"),
-                               ("arch", "pacman -S iproute2"), ("alpine", "apk add iproute2"), ("opensuse-leap", "zypper install iproute2")):
+                               ("arch", "pacman -Syu iproute2"), ("alpine", "apk add iproute2"), ("opensuse-leap", "zypper install iproute2")):
             with self.subTest(distro=distro):
                 row = rows_of(panel_of(host(distro)))["ss"]
                 self.assertEqual((row["status"], row["feature"], row["hint"]), ("missing", "Listening ports and connections", expect))
@@ -972,7 +972,7 @@ class TestTheEndpoint(_Server):
     def test_the_package_manager_the_host_reported_picks_the_hint_when_the_distribution_does_not(self):
         caps = host("weirdos")
         self.beat(sysinfo={"uptime": "up", "capabilities": caps, "packages": {"manager": "pacman"}})
-        self.assertEqual(rows_of(self.get()[1])["smartctl"]["hint"], "pacman -S smartmontools")
+        self.assertEqual(rows_of(self.get()[1])["smartctl"]["hint"], "pacman -Syu smartmontools")
 
     def test_it_needs_a_signed_in_user(self):
         self.WHO = None

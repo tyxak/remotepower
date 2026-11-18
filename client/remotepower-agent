@@ -3477,15 +3477,18 @@ def get_patch_info():
 
 # ─── Refreshing the package lists ─────────────────────────────────────────────
 #
-# `Scan packages` (get_patch_info and send_package_list) re-reads what the package manager already knows. It asks no
-# repository for anything, so a host whose lists are a week old reports a week-old answer and nothing says so. This asks:
+# `Scan packages` (get_patch_info and send_package_list) re-reads what the package manager already has: on apt the lists as they
+# were last downloaded, so a host whose lists are a week old reports a week-old answer and nothing says so. (dnf's check-update
+# refreshes metadata that has run out by itself, and the scan on Arch syncs the databases: see below.) This asks first:
 # the distribution's own fixed command, a time limit, no input, a bounded wait for the lock, and the outcome kept as a
 # state the server shows: {at, status, source, error_class}. The manager's own words are read here to classify the outcome
 # and are never sent; only the fixed class leaves the host.
 #
 # Arch is the exception. `pacman -Sy` refreshes the sync databases without upgrading, and the next `pacman -S foo` against
-# newer databases is a partial upgrade that can leave the system broken, so it is never run from here. checkupdates
-# (pacman-contrib) syncs a private copy of the databases and is the one safe way; without it the answer is "no safe way".
+# newer databases is a partial upgrade that can leave the system broken, so the refresh never runs it. checkupdates
+# (pacman-contrib) syncs a private copy of the databases and is the one safe way; without it the answer is "no safe way",
+# nothing is run and no scan follows. The scan itself (get_patch_info) is not part of this and is unchanged: it syncs the
+# databases with `pacman -Sy` before it lists what is pending, and the documentation says so.
 #
 # A refresh writes the host's package state, so audit mode refuses it (item 13 in the list near the top of this file).
 
@@ -3532,7 +3535,8 @@ _PKG_REFRESH_AFTER_LOCK = ('disk', 'network', 'repository')
 
 _PKG_REFRESH_LAST = None            # the last record, read from the state file the first time it is asked for
 _PKG_REFRESH_LOCK = threading.Lock()
-_PKG_RESCAN_NOW = False             # a refresh ran by itself: the next poll reads what is pending against the new lists
+_PKG_RESCAN_NOW = False             # a refresh changed the lists: the next poll reads what is pending against them
+_PKG_REPORT_NOW = False             # a refresh ran by itself, whatever came of it: the next poll sends the system information, so its record reaches the server
 
 
 def _pkg_refresh_class_of(text):
@@ -3810,13 +3814,17 @@ def refresh_package_lists(timeout=None, lock_wait=None, which=None):
 
 
 def _run_pkg_refresh_command(cmd):
-    """`pkg_refresh`, the operator's "Check for updates now". The result is the one fixed line. The pending list is read again
-    on the next poll, against the new lists, and goes out with the system information."""
-    global _PKG_RESCAN_NOW
+    """`pkg_refresh`, the operator's "Check for updates now". The result is the one fixed line. The record goes out with the system
+    information on the next poll. When the lists were refreshed (ok, or partly) the pending list is read again then, against them. When
+    they were not (nothing could run here, or it failed) nothing about the host changed, so no scan follows: on Arch a scan syncs the
+    databases with `pacman -Sy`, and "no safe way on this distribution" must not be followed by exactly that."""
+    global _PKG_RESCAN_NOW, _PKG_REPORT_NOW
     rec = refresh_package_lists()
     if rec is None:
         return {'cmd': cmd, 'output': 'refused: agent is in audit (read-only) mode', 'rc': 126}
-    _PKG_RESCAN_NOW = True
+    _PKG_REPORT_NOW = True
+    if rec['status'] in ('ok', 'partial'):
+        _PKG_RESCAN_NOW = True
     return {'cmd': cmd, 'output': _pkg_refresh_line(rec), 'rc': 0 if rec['status'] in ('ok', 'partial') else 1}
 
 
@@ -17233,7 +17241,8 @@ def _threat_sensor_thread(creds, holder, stop_event, every=THREAT_EVERY_S, first
 
 def heartbeat(creds, interval=POLL_INTERVAL):
     global _FORCE_CHECK_EVAL   # a rebaseline (guard action) forces the next sysinfo report
-    global _PKG_RESCAN_NOW     # a package list refresh that ran by itself: read what is pending again on this poll
+    global _PKG_RESCAN_NOW     # a package list refresh that changed the lists: read what is pending again on this poll
+    global _PKG_REPORT_NOW     # any refresh that ran by itself: send the system information on this poll, so the record is seen
     server = creds['server_url']; dev_id = creds['device_id']; token = creds['token']
     log.info(f"RemotePower agent v{VERSION} starting. Server: {server}, Host ID: {dev_id}")
     log.info(f"Poll: {interval}s | sysinfo every {SYSINFO_EVERY} polls | patches every {PATCH_EVERY} polls")
@@ -17555,10 +17564,14 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 refresh_package_lists()
             cached_patch = get_patch_info(); send_sysinfo = True
         elif _PKG_RESCAN_NOW:
-            # A refresh that ran on its own (the operator's "Check for updates now"): what is pending, read against the new lists.
+            # A refresh that ran on its own and changed the lists (the operator's "Check for updates now"): what is pending, read against them.
             log.debug(f"Poll {poll_count}: reading the pending updates after a list refresh")
             cached_patch = get_patch_info(); send_sysinfo = True
+        elif _PKG_REPORT_NOW:
+            # One that changed nothing (it could not run, or it failed): only its record goes out, and no scan is made for it.
+            send_sysinfo = True
         _PKG_RESCAN_NOW = False
+        _PKG_REPORT_NOW = False
 
         # v1.7.0: submit package inventory for CVE scanning (hash-gated)
         # v2.4.5: also send immediately when the server set the

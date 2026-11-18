@@ -24,7 +24,9 @@ LOG_CAP = 40
 PATH_CAP = 200
 
 # install command per package manager, then the package: "apt install smartmontools". A hint, never something the server runs.
-INSTALL = {'apt': 'apt install', 'dnf': 'dnf install', 'zypper': 'zypper install', 'apk': 'apk add', 'pacman': 'pacman -S'}
+# Arch is `-Syu`, not `-S`: the agent's package scan on Arch syncs the host's databases with `pacman -Sy` (client: get_patch_info), so
+# a scanned host has databases newer than its packages, and `pacman -S <package>` on it is the partial upgrade Arch warns about.
+INSTALL = {'apt': 'apt install', 'dnf': 'dnf install', 'zypper': 'zypper install', 'apk': 'apk add', 'pacman': 'pacman -Syu'}
 MANAGERS = tuple(INSTALL)
 
 

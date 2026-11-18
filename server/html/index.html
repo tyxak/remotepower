@@ -2546,7 +2546,7 @@
           </div>
           <div class="settings-section">
             <div class="section-title">Package lists</div>
-            <p class="hint">A scan reads what a host's package manager already knows, so it is only as current as the lists the host last downloaded. Turn this on and each Linux host refreshes its lists just before its scheduled scan: apt-get update, dnf makecache, zypper refresh or apk update, and on Arch only with checkupdates, never pacman -Sy. It is off by default, and with it off a scan does what it always did. A host that is quarantined, in audit mode, in maintenance mode or outside a change window scans without the refresh. <a href="docs/patches.md#refreshing-the-package-lists" class="c-accent">Documentation</a></p>
+            <p class="hint">A scan reads what a host's package manager already has, which on an apt host is only as current as the lists it last downloaded. Turn this on and each Linux host refreshes its lists just before its scheduled scan: apt-get update, dnf makecache, zypper refresh or apk update, and on Arch checkupdates when pacman-contrib is installed. The scan itself is unchanged, and on Arch it syncs the databases with pacman -Sy, as before. It is off by default, and with it off a scan does what it always did. A host that is quarantined, in audit mode, in maintenance mode or outside a change window scans without the refresh. <a href="docs/patches.md#refreshing-the-package-lists" class="c-accent">Documentation</a></p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-pkg-refresh-before-scan" class="isl-34">
               <span>Refresh the package lists before each scheduled scan</span>

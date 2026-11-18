@@ -97,10 +97,10 @@ and takes the distro's own security flag from that.
 
 ## Refreshing the package lists
 
-**Scan now** only re-reads what the package manager already knows. It asks no repository for anything, so a host whose lists are a
-week old reports a week-old answer. **Check for updates now** asks first. Open a Linux host, open **Packages** under **Software** on
-its **Audit** tab, and choose **Check for updates now**. The host runs its own refresh command, then reads what is pending against
-the new lists, and reports both at its next check-in (about a minute).
+**Scan now** reads what the package manager already has. On an apt host that is the lists as they were last downloaded, so a host whose
+lists are a week old reports a week-old answer. **Check for updates now** asks the repositories first. Open a Linux host, open
+**Packages** under **Software** on its **Audit** tab, and choose **Check for updates now**. The host runs its own refresh command. When
+that refreshed the lists, it reads what is pending against them. Either way it reports how it went at its next check-in (about a minute).
 
 The command is fixed. Nothing in it comes from the server, and the agent gives it no input and a limit of 120 seconds:
 
@@ -113,9 +113,15 @@ The command is fixed. Nothing in it comes from the server, and the agent gives i
 | apk | `apk update` |
 | Arch (pacman) | `checkupdates` from pacman-contrib, when it is installed |
 
-On Arch the agent never runs `pacman -Sy`. It refreshes the databases without upgrading anything, and the next
-`pacman -S <package>` against newer databases is a partial upgrade that can leave the host broken. Without `checkupdates`
-the answer is "not refreshed: no safe way on this distribution". Install `pacman-contrib` to get a refresh.
+**On Arch** the refresh is `checkupdates`. It syncs a private copy of the databases and leaves the host's own alone, so it cannot cause
+a partial upgrade. Without `checkupdates` the answer is "not refreshed: no safe way on this distribution": nothing is run and no scan
+follows. Install `pacman-contrib` to get a refresh.
+
+The scan is a different command and has not changed. On Arch it syncs the host's databases with `pacman -Sy` before it lists what is
+pending, whenever it runs: **Scan now**, the scheduled scan, and the read that follows a refresh that worked. A host that has been
+scanned has databases newer than its installed packages, and `pacman -S <package>` on it is the partial upgrade Arch warns about:
+packages built against libraries the host does not have yet. Install with `pacman -Syu <package>` instead. The **What this agent can
+see** panel gives that command for a missing tool.
 
 If another package manager process holds the lock, the agent waits at most 30 seconds and then gives up with the class **the
 package manager was busy**. A refresh that is still running after 120 seconds is ended.
@@ -129,6 +135,9 @@ class from a fixed list, and never the package manager's own output:
 | Partly succeeded | Some repositories were refreshed and some were not. The class says why (amber). |
 | Failed | Nothing was refreshed. The class says why (red). |
 | Not refreshed | The host cannot do it: no safe way on Arch, no package manager the agent knows, or a container (grey). |
+
+Only a refresh that worked (Succeeded or Partly succeeded) is followed by a read of what is pending. After Failed or Not refreshed the
+host sends how it went and nothing else changes.
 
 The classes are: the package manager was busy, the repositories could not be reached, a repository answered with an error, no space
 left or a read-only file system, not allowed to write the lists, it did not finish in 120 seconds, no safe way on this distribution,
@@ -144,7 +153,7 @@ asks for one.
 **Before each scheduled scan.** **Settings → Security → Package lists** has **Refresh the package lists before each scheduled scan**.
 It is off by default, and with it off a scan does what it always did. With it on, each Linux host refreshes its lists just before its
 scheduled scan. A host that is quarantined, in audit mode, in maintenance mode or outside a change window that holds commands
-scans without the refresh.
+scans without the refresh. The scan is the same as ever, on Arch too (see above).
 
 The **Package index updated recently** check template also counts a refresh the agent ran itself, so the check works on dnf, zypper
 and apk hosts. A check applied from the template before this was added keeps its two apt paths: edit its path to add

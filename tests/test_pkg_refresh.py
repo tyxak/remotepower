@@ -29,6 +29,7 @@ import logging
 import os
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -55,14 +56,17 @@ def _load(path, name):
 
 
 agent = _load(ROOT / "client" / "remotepower-agent.py", "agent_pkg_refresh")
+_REAL_PATCH_INFO = None     # set below, once the agent is loaded: the real scan, which the loop tests replace and one test runs under instruments
 win_agent = _load(ROOT / "client" / "remotepower-agent-win.py", "win_agent_pkg_refresh")
 mac_agent = _load(ROOT / "client" / "remotepower-agent-mac.py", "mac_agent_pkg_refresh")
+_REAL_PATCH_INFO = agent.get_patch_info
 
 _spec = importlib.util.spec_from_file_location("api_pkg_refresh", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 import pkg_refresh as pr_mod  # noqa: E402  (the server's own copy of the fixed sets)
+import agent_capabilities as pr_caps  # noqa: E402  (the install hint the panel gives for Arch)
 import env_guard  # noqa: E402
 from routing_harness import routes_to  # noqa: E402
 
@@ -724,7 +728,7 @@ class TestTheCommand(_Tmp):
         super().setUp()
         for p in (mock.patch.object(agent, "STATE_DIR", self.state), mock.patch.object(agent, "IN_CONTAINER", False),
                   mock.patch.object(agent, "_audit_mode", lambda: False), mock.patch.object(agent, "_PKG_REFRESH_LAST", None),
-                  mock.patch.object(agent, "_PKG_RESCAN_NOW", False)):
+                  mock.patch.object(agent, "_PKG_RESCAN_NOW", False), mock.patch.object(agent, "_PKG_REPORT_NOW", False)):
             p.start()
             self.addCleanup(p.stop)
         self.which = which_in(self.bin)
@@ -738,6 +742,7 @@ class TestTheCommand(_Tmp):
         res = self.send("apt-get", APT_OK, 0)
         self.assertEqual(res, {"cmd": "pkg_refresh", "output": "package lists refreshed (apt)", "rc": 0})
         self.assertTrue(agent._PKG_RESCAN_NOW)
+        self.assertTrue(agent._PKG_REPORT_NOW)
 
     def test_a_failure_answers_with_its_class_in_words_and_a_non_zero_code(self):
         canary = "CANARY-4711"
@@ -750,6 +755,36 @@ class TestTheCommand(_Tmp):
         res = self.send("apt-get", APT_PARTIAL, 100)
         self.assertEqual(res["rc"], 0)
         self.assertTrue(res["output"].startswith("package lists partly refreshed (apt)"))
+        self.assertTrue(agent._PKG_RESCAN_NOW, "some lists changed: what is pending is read against them")
+
+    def test_a_refresh_that_changed_nothing_is_reported_and_is_not_followed_by_a_scan(self):
+        """A failed refresh and one that could not run changed no list, so reading what is pending again would only be a scan nobody asked
+        for. On Arch that scan is `pacman -Sy`, and "no safe way on this distribution" was followed by exactly that. The record still goes
+        out on the next poll (the flag that sends the system information), so the Packages section says how it went."""
+        for name, text, rc in (("apt-get", APT_NET, 100), ("apt-get", APT_LOCK, 100), ("dnf", DNF_NET, 1)):
+            with self.subTest(failed=name, rc=rc):
+                shutil.rmtree(self.bin)
+                self.bin.mkdir()
+                agent._PKG_RESCAN_NOW = agent._PKG_REPORT_NOW = False
+                res = self.send(name, text, rc)
+                self.assertEqual(res["rc"], 1)
+                self.assertFalse(agent._PKG_RESCAN_NOW, "a refresh that failed was followed by a read of the pending list")
+                self.assertTrue(agent._PKG_REPORT_NOW, "and its record would never be sent")
+        for label, tools in (("arch without checkupdates", ("pacman",)), ("no package manager", ())):
+            with self.subTest(unsupported=label):
+                shutil.rmtree(self.bin)
+                self.bin.mkdir()
+                ran = self.d / f"ran-{len(tools)}.log"
+                for n in tools:
+                    tool(self.bin, n, speaks(ran, "SHOULD NOT RUN", 0))
+                agent._PKG_RESCAN_NOW = agent._PKG_REPORT_NOW = False
+                with mock.patch.object(agent, "_which", self.which):
+                    res = agent.execute_command("pkg_refresh")
+                self.assertEqual(res["rc"], 1)
+                self.assertTrue(res["output"].startswith("not refreshed"), res)
+                self.assertFalse(agent._PKG_RESCAN_NOW)
+                self.assertTrue(agent._PKG_REPORT_NOW)
+                self.assertFalse(ran.exists(), "something was run")
 
     def test_audit_mode_refuses_the_command_before_anything_runs(self):
         tool(self.bin, "apt-get", speaks(self.log, APT_OK, 0))
@@ -758,6 +793,7 @@ class TestTheCommand(_Tmp):
         self.assertEqual(res["rc"], 126)
         self.assertEqual(self.logged(), "")
         self.assertFalse(agent._PKG_RESCAN_NOW)
+        self.assertFalse(agent._PKG_REPORT_NOW, "nothing happened, so there is nothing to report")
 
     def test_the_refusal_inside_the_function_also_holds(self):
         """execute_command refuses in audit mode first; the function asks again, so the scheduled path cannot get round it."""
@@ -809,10 +845,11 @@ _QUIET = (
 )
 
 
-def drive(answers, rounds, patch_every=None, run_result=None):
+def drive(answers, rounds, patch_every=None, run_result=None, patch_fn=None):
     """Run the real heartbeat() loop for `rounds` polls. `answers` are the server's answers in order (the last one repeats); a
     command in one is executed by the real execute_command. With `run_result` the real refresh_package_lists runs and only the
-    package manager is replaced by that record; without it refresh_package_lists is a recorder.
+    package manager is replaced by that record; without it refresh_package_lists is a recorder. `patch_fn` stands in for the pending-list
+    read (get_patch_info) when the caller wants to run the real one under its own instruments.
     Returns (posts, events): every heartbeat body the agent sent, and the order the refresh and the pending-list read happened in."""
     tmp = Path(tempfile.mkdtemp(prefix="hb-", dir=_TMP))
     state = {"n": 0}
@@ -835,7 +872,7 @@ def drive(answers, rounds, patch_every=None, run_result=None):
 
     def fake_patch(*a, **k):
         events.append("patch")
-        return {"manager": "apt", "upgradable": 4}
+        return patch_fn() if patch_fn else {"manager": "apt", "upgradable": 4}
 
     patches = [
         mock.patch.object(agent, "http_post", post),
@@ -846,6 +883,7 @@ def drive(answers, rounds, patch_every=None, run_result=None):
         mock.patch.object(agent, "_require_signed_commands", lambda: False),
         mock.patch.object(agent, "get_patch_info", fake_patch),
         mock.patch.object(agent, "_PKG_RESCAN_NOW", False),
+        mock.patch.object(agent, "_PKG_REPORT_NOW", False),
         mock.patch.object(agent, "_PKG_REFRESH_LAST", None),
     ]
     if run_result is None:
@@ -898,8 +936,127 @@ class TestTheAgentsLoop(unittest.TestCase):
 
     def test_a_refresh_that_fails_is_reported_too(self):
         rec = {"at": int(time.time()), "status": "failed", "source": "apt", "error_class": "network"}
-        posts, _events = drive([{"command": "pkg_refresh"}, {}], rounds=3, run_result=rec)
+        posts, events = drive([{"command": "pkg_refresh"}, {}], rounds=3, run_result=rec)
         self.assertEqual((posts[1].get("sysinfo") or {}).get("pkg_refresh"), rec)
+        self.assertEqual(events, [], "no list changed, so the pending list is not read again")
+        self.assertIsNone((posts[1].get("sysinfo") or {}).get("packages"), "nothing was scanned, so no scan result goes out")
+
+    def test_a_refresh_that_could_not_run_is_reported_and_is_not_followed_by_a_scan(self):
+        for rec in ({"at": int(time.time()), "status": "unsupported", "source": "pacman", "error_class": "no_safe_way"},
+                    {"at": int(time.time()), "status": "unsupported", "source": "", "error_class": "no_manager"},
+                    {"at": int(time.time()), "status": "unsupported", "source": "", "error_class": "container"}):
+            with self.subTest(error_class=rec["error_class"]):
+                posts, events = drive([{"command": "pkg_refresh"}, {}], rounds=3, run_result=rec)
+                self.assertEqual((posts[1].get("sysinfo") or {}).get("pkg_refresh"), rec, "the Packages section would never say why")
+                self.assertEqual(events, [], "a scan followed a refresh that ran nothing")
+
+    def test_a_partial_refresh_is_followed_by_a_read_of_the_pending_list(self):
+        rec = {"at": int(time.time()), "status": "partial", "source": "apt", "error_class": "repository"}
+        posts, events = drive([{"command": "pkg_refresh"}, {}], rounds=3, run_result=rec)
+        self.assertEqual(events, ["patch"])
+        self.assertEqual((posts[1].get("sysinfo") or {}).get("pkg_refresh"), rec)
+
+
+# ── what the scan does on Arch, which the documentation describes ────────────
+class _SubprocessRecorder:
+    """Stands in for `subprocess` inside get_patch_info: records every argv and runs nothing."""
+    CalledProcessError = subprocess.CalledProcessError
+    TimeoutExpired = subprocess.TimeoutExpired
+    STDOUT, DEVNULL, PIPE = subprocess.STDOUT, subprocess.DEVNULL, subprocess.PIPE
+
+    def __init__(self):
+        self.calls = []
+
+    def check_output(self, argv, **kw):
+        self.calls.append(list(argv))
+        return "--disable-sandbox\n" if argv[:2] == ["pacman", "-S"] else ""
+
+    def check_call(self, argv, **kw):
+        self.calls.append(list(argv))
+        return 0
+
+
+class _OnlyPacman:
+    """Stands in for `Path` inside get_patch_info: only /usr/bin/pacman exists, as on an Arch host."""
+
+    def __init__(self, p):
+        self.p = str(p)
+
+    def exists(self):
+        return self.p == "/usr/bin/pacman"
+
+
+def arch_scan():
+    """The agent's real pending-updates read on an Arch host, under instruments: (what it answered, every command it ran)."""
+    rec = _SubprocessRecorder()
+    with mock.patch.object(agent, "subprocess", rec), mock.patch.object(agent, "Path", _OnlyPacman), \
+            mock.patch.object(agent, "IN_CONTAINER", False), mock.patch.object(agent, "get_third_party_updates", lambda *a, **k: {}), \
+            mock.patch.object(agent, "_count_pacman_security", lambda *a, **k: None):
+        out = _REAL_PATCH_INFO()
+    return out, rec.calls
+
+
+class TestWhatTheScanDoesOnArch(unittest.TestCase):
+    """The documentation says two things that were once one wrong sentence ("on Arch the agent never runs pacman -Sy"): the refresh uses
+    checkupdates and never touches the host's databases, and the scan, which is not part of the refresh, syncs them with `pacman -Sy`. The
+    scan was followed after "no safe way on this distribution", so the click that said nothing could be done synced the databases."""
+
+    @staticmethod
+    def after_a_click(rec):
+        calls = []
+
+        def scan():
+            out, ran = arch_scan()
+            calls.extend(ran)
+            return out
+        posts, events = drive([{"command": "pkg_refresh"}, {}], rounds=3, run_result=rec, patch_fn=scan)
+        return posts, events, calls
+
+    def test_the_scan_syncs_the_databases_with_pacman_Sy_before_it_lists_what_is_pending(self):
+        out, calls = arch_scan()
+        sy = [c for c in calls if c[:2] == ["pacman", "-Sy"]]
+        self.assertEqual(len(sy), 1, calls)
+        self.assertIn(["pacman", "-Qu"], calls)
+        self.assertLess(calls.index(sy[0]), calls.index(["pacman", "-Qu"]), "the sync comes first")
+        self.assertEqual(out["manager"], "pacman")
+
+    def test_no_safe_way_is_not_followed_by_a_scan_and_so_not_by_pacman_Sy(self):
+        rec = {"at": int(time.time()), "status": "unsupported", "source": "pacman", "error_class": "no_safe_way"}
+        posts, events, calls = self.after_a_click(rec)
+        self.assertEqual(events, [], "a scan was made after the answer that nothing could be done")
+        self.assertEqual(calls, [], "a pacman command ran after \"no safe way on this distribution\"")
+        self.assertEqual((posts[1].get("sysinfo") or {}).get("pkg_refresh"), rec, "and the answer still reaches the host's page")
+
+    def test_a_refresh_that_worked_is_followed_by_the_scan_which_is_what_the_documentation_says_it_does(self):
+        rec = {"at": int(time.time()), "status": "ok", "source": "pacman", "error_class": ""}
+        _posts, events, calls = self.after_a_click(rec)
+        self.assertEqual(events, ["patch"])
+        sy = [c for c in calls if c[:2] == ["pacman", "-Sy"]]
+        self.assertEqual(len(sy), 1, "the scan on Arch syncs the databases, and the documentation says so: " + repr(calls))
+
+
+class TestWhatTheDocumentsSayAboutArch(unittest.TestCase):
+    DOCS = {"docs/patches.md": ROOT / "docs" / "patches.md",
+            "the Settings hint": ROOT / "server" / "html" / "index.html",
+            "its translations": ROOT / "server" / "html" / "static" / "js" / "i18n.js"}
+
+    def test_nothing_says_the_agent_never_runs_pacman_Sy(self):
+        for name, path in self.DOCS.items():
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(where=name):
+                self.assertIn("pacman -Sy", text, "the control: each of these does talk about it")
+                self.assertNotRegex(text, r"never (?:runs? )?`?pacman -Sy", "the scan on Arch runs it")
+                self.assertNotIn("only with checkupdates", text)
+                self.assertNotIn("asks no repository", text, "on Arch the scan syncs the databases")
+
+    def test_they_say_what_the_scan_does(self):
+        self.assertRegex((ROOT / "docs" / "patches.md").read_text(encoding="utf-8"), r"syncs the host's databases with `pacman -Sy` before it lists")
+        hint = (ROOT / "server" / "html" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("on Arch it syncs the databases with pacman -Sy, as before", hint)
+
+    def test_the_install_hint_for_arch_is_the_command_the_documentation_gives(self):
+        self.assertEqual(pr_caps.INSTALL["pacman"], "pacman -Syu")
+        self.assertIn("`pacman -Syu <package>`", (ROOT / "docs" / "patches.md").read_text(encoding="utf-8"))
 
 
 # ── the check template ───────────────────────────────────────────────────────
