@@ -172,5 +172,47 @@ class TestTheRollupOfTheHostViewSaysWhatARebootClears(unittest.TestCase):
         self.assertEqual(sum(1 for _ in re.finditer(r'^\s*"Of these, fixed by an installed kernel, reboot to apply:":', _I18N, re.M)), 1)
 
 
+# ── what the count option says it counts ────────────────────────────────────────────────────────────────────────────────
+class TestEveryTextThatStatesWhatTheCountOptionCountsNamesTheReboot(unittest.TestCase):
+    """With the option on, a finding counts and alerts when an update clears it, when it is known to be exploited, and, since
+    8.0.2, when an installed kernel already holds the fix and a reboot applies it (cve_fixes.counted and alert_candidate).
+    Only docs/cve.md said so: the Settings hint, its label, the note of the CVE page and the alert option still said that
+    an update is what clears a finding that counts. The texts are found by what they state, in the dictionary every
+    string of the page is a key of, so a text added later is held to it too."""
+    REBOOT = {'zh': '重启', 'hi': 'रीबूट', 'es': 'reinici', 'ar': 'إعادة تشغيل', 'de': 'Neustart', 'fr': 'redémarr'}
+
+    @staticmethod
+    def population():
+        from test_v710_i18n_glue import dict_rows
+        return {k: v for k, v in dict_rows().items()
+                if ('known to be exploited' in k or 'known-exploited' in k) and 'update' in k.lower()}
+
+    def test_the_population_is_the_five_places_and_not_empty(self):
+        texts = self.population()
+        self.assertGreaterEqual(len(texts), 5, sorted(texts))
+        for known in ('Count only CVEs an update or a reboot can fix, or that are known to be exploited',
+                      'Only CVEs an update or a reboot can fix, or that are known to be exploited'):
+            self.assertIn(known, texts)
+
+    def test_each_one_names_the_reboot_in_english_and_in_the_six_languages(self):
+        for text, translations in self.population().items():
+            self.assertIn('reboot', text, text)
+            for lang, word in self.REBOOT.items():
+                self.assertIn(word, translations.get(lang, ''), f'{lang}: {text}')
+
+    def test_each_one_is_the_text_a_page_shows(self):
+        for text in self.population():
+            self.assertTrue(any(text in source for source in (_HTML, _APP, _PAGE)), text)
+
+    def test_the_rule_they_state_is_the_one_the_server_applies(self):
+        import cve_fixes
+        reboot = {'vuln_id': 'CVE-2099-1', 'severity': 'medium', 'fix_status': 'reboot'}
+        nothing = {'vuln_id': 'CVE-2099-2', 'severity': 'medium', 'fix_status': 'none'}
+        self.assertTrue(cve_fixes.counted(reboot, True))
+        self.assertTrue(cve_fixes.alert_candidate(reboot, True, set()))
+        self.assertFalse(cve_fixes.counted(nothing, True))
+        self.assertFalse(cve_fixes.alert_candidate(nothing, True, set()))
+
+
 if __name__ == '__main__':
     unittest.main()

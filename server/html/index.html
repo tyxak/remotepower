@@ -2537,10 +2537,10 @@
           </div>
           <div class="settings-section">
             <div class="section-title">CVE counts</div>
-            <p class="hint">The sidebar badge, the severity totals, Needs attention, the risk score and Checks count every CVE finding the CVE page lists that is not accepted as a risk. Turn this on to count only the findings an update can clear, plus any on the known-exploited list. Every listed finding stays on the CVE page, and reports and compliance checks keep counting all of them. What a Debian or Ubuntu host has counted per package is in none of these numbers. <a href="docs/cve.md" class="c-accent">Documentation</a></p>
+            <p class="hint">The sidebar badge, the severity totals, Needs attention, the risk score and Checks count every CVE finding the CVE page lists that is not accepted as a risk. Turn this on to count only the findings an update or a reboot can clear, plus any on the known-exploited list. Every listed finding stays on the CVE page, and reports and compliance checks keep counting all of them. What a Debian or Ubuntu host has counted per package is in none of these numbers. <a href="docs/cve.md" class="c-accent">Documentation</a></p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-cve-count-fixable-only" class="isl-34">
-              <span>Count only CVEs an update can fix, or that are known to be exploited</span>
+              <span>Count only CVEs an update or a reboot can fix, or that are known to be exploited</span>
             </label>
             <p class="hint">The alert option is separate. It sits beside the severities of cve_found in Settings → Notifications.</p>
           </div>
@@ -8221,7 +8221,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="cve-covered-reasons" class="mt-6"></div>
           <div id="cve-covered-hosts" class="mt-6"></div>
         </div>
-        <div class="hint mb-8" id="cve-count-note" hidden>Counting only CVEs an update can fix, or that are known to be exploited. The severity totals leave out the others; change this in Settings → Security.</div>
+        <div class="hint mb-8" id="cve-count-note" hidden>Counting only CVEs an update or a reboot can fix, or that are known to be exploited. The severity totals leave out the others; change this in Settings → Security.</div>
         <div class="hint mb-8" id="cve-kev-feed">
           <span id="cve-kev-feed-text"></span>
           <button class="btn-icon cell-sm ml-8" data-action="refreshCveFeeds">Refresh KEV/EPSS feeds</button>

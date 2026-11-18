@@ -473,9 +473,9 @@ class TestTheScreens(unittest.TestCase):
         text = (HTML / "static" / "js" / "i18n.js").read_text()
         keys = [
             "CVE counts",
-            "Count only CVEs an update can fix, or that are known to be exploited",
+            "Count only CVEs an update or a reboot can fix, or that are known to be exploited",
             "The alert option is separate. It sits beside the severities of cve_found in Settings → Notifications.",
-            "Counting only CVEs an update can fix, or that are known to be exploited. The severity totals leave out the others; change this in Settings → Security.",
+            "Counting only CVEs an update or a reboot can fix, or that are known to be exploited. The severity totals leave out the others; change this in Settings → Security.",
             "cve_count_fixable_only must be true or false",
         ]
         for k in keys:

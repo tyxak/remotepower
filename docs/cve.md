@@ -295,7 +295,7 @@ For Debian and Ubuntu the numbers move in both directions on that scan, once the
 - Libraries, the SSH server and the kernel are checked for the first time, so a host gets
   findings it never had. Many of them have no fix for its release. If critical and high are in
   your alert severities, expect one `cve_found` for each such host. To hear only about what an
-  update clears, turn on **Only CVEs an update can fix, or that are known to be exploited**
+  update clears, turn on **Only CVEs an update or a reboot can fix, or that are known to be exploited**
   before you scan (see [Alerts & ignores](#alerts--ignores)).
 - A notice that repeats the findings of its CVEs is no longer a finding of its own, and a medium
   or low finding without a fix moves into the count, so some numbers go down. This part does
@@ -318,8 +318,8 @@ attention**, the risk score, **Checks**, the scheduled posture digest and the CV
 Fleet query. On a host with hundreds of findings that no update for its release can clear,
 that is a number nobody can act on.
 
-Settings → Security → **CVE counts** has **Count only CVEs an update can fix, or that are known
-to be exploited** (`cve_count_fixable_only`, off by default). With it on, those places
+Settings → Security → **CVE counts** has **Count only CVEs an update or a reboot can fix, or that
+are known to be exploited** (`cve_count_fixable_only`, off by default). With it on, those places
 leave out a finding that is fixed only in a newer release, needs Ubuntu Pro or has no fix yet.
 A finding on the known-exploited (KEV) list always counts, and so does a **Not checked**
 finding that lists a fixed version and one that only needs a **reboot**: it is something to do.
@@ -439,11 +439,12 @@ Generate a Software Bill of Materials per host or for the whole fleet:
   severities to alert on (`cve_severity_filter`, critical and high by default) and the
   switch for the event itself. `cve_webhook_enabled` is the older key for the same switch; a
   per-event setting wins over it.
-- **Only CVEs an update can fix, or that are known to be exploited** (the same row,
+- **Only CVEs an update or a reboot can fix, or that are known to be exploited** (the same row,
   `cve_alert_fixable_only`, off by default) keeps `cve_found` for the findings someone can act
   on. A finding fixed only in a newer release, or with no fix yet, stays on the CVE page and
-  raises no alert. One on the known-exploited (KEV) list always alerts, whatever its fix
-  status. A finding that waited for a fix alerts when the fix arrives. **Re-alert backlog**
+  raises no alert. A finding that an installed kernel already fixes (**Reboot to apply**)
+  alerts, because a reboot is something to do. One on the known-exploited (KEV) list always
+  alerts, whatever its fix status. A finding that waited for a fix alerts when the fix arrives. **Re-alert backlog**
   follows the same rule. The severity filter and the ignore list still apply, **Needs
   attention** and the risk score still count every finding unless you also turn on
   [counting only what an update can fix](#counting-only-what-an-update-can-fix), and a
@@ -536,7 +537,7 @@ findings do not count. You can keep up to 200 campaigns.
 | A finding says **Reboot to apply** and the host was rebooted | Scan the host again. The agent sends its list when the kernel changes, but the scan runs when you start it. |
 | A host has no findings and says **None found in the packages that could be checked** | Some of its packages were not checked. Open its view for the reasons and the first 200 packages. See [Which packages were checked](#which-packages-were-checked). |
 | A host's view says nothing of which packages were checked | It was scanned before 8.0.2. Scan it again. |
-| The High count rose after the upgrade to 8.0.1 | Debian and Ubuntu hosts are matched by source package now. Many of the new findings have no fix for the host's release. **Count only CVEs an update can fix** leaves those out of the numbers, and the alert option of the same name out of the alerts. |
+| The High count rose after the upgrade to 8.0.1 | Debian and Ubuntu hosts are matched by source package now. Many of the new findings have no fix for the host's release. **Count only CVEs an update or a reboot can fix** leaves those out of the numbers, and the alert option of the same name out of the alerts. |
 | A host has a number under **Counted** and few findings | See [What is listed and what is counted](#what-is-listed-and-what-is-counted). |
 | A campaign over CVE IDs was marked completed at once | Before 8.0.1 a campaign over a list of IDs, or over known-exploited findings, matched nothing. It reopens with the next daily sample if hosts are affected. |
 

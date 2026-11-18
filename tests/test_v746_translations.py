@@ -40,8 +40,8 @@ NEW = (
     ("Fixed in a newer release", CVE),
     ("No fix yet", CVE),
     # #57: the alert option in Settings
-    ("Only CVEs an update can fix, or that are known to be exploited", APP),
-    ("A finding that no update for this host's release clears stays on the CVE page and raises no alert. "
+    ("Only CVEs an update or a reboot can fix, or that are known to be exploited", APP),
+    ("A finding that neither an update for this host's release nor a reboot clears stays on the CVE page and raises no alert. "
      "One on the known-exploited list always alerts.", APP),
 )
 

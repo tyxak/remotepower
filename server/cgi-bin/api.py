@@ -3925,15 +3925,17 @@ def get_cve_severity_filter():
 
 
 def get_cve_alert_fixable_only():
-    """v7.4.6 (#57): with this on, cve_found is raised only for a finding an update can clear or one on the
-    known-exploited list. Off by default, so an install keeps alerting as it did."""
+    """v7.4.6 (#57): with this on, cve_found is raised only for a finding an update can clear (or, since 8.0.2, a
+    reboot: an installed kernel holds the fix) or one on the known-exploited list. Off by default, so an install keeps
+    alerting as it did."""
     return _config_ro().get('cve_alert_fixable_only') is True
 
 
 def get_cve_count_fixable_only():
     """With this on, the numbers an operator reads (sidebar badge, severity tiles, Needs attention, the risk
-    score, Checks) count only a CVE finding an update can clear or one on the known-exploited list. Off by
-    default: leaving findings out of a score is a choice, and an upgrade must not make it."""
+    score, Checks) count only a CVE finding an update can clear (or, since 8.0.2, a reboot: an installed kernel
+    holds the fix) or one on the known-exploited list. Off by default: leaving findings out of a score is a
+    choice, and an upgrade must not make it."""
     return _config_ro().get('cve_count_fixable_only') is True
 
 
@@ -53656,8 +53658,8 @@ def _cve_count_rule():
 
 def _counted_cve_findings(dev_id, dev, findings, ignore_data, fixable_only, kev):
     """The findings of one host that count toward a number an operator reads (sidebar badge, severity tiles,
-    Checks): not accepted as risk and, with the count option on, only those an update can clear or that are
-    known to be exploited. The stored dicts, not copies, so the caller must not write to them."""
+    Checks): not accepted as risk and, with the count option on, only those an update or a reboot can clear or
+    that are known to be exploited. The stored dicts, not copies, so the caller must not write to them."""
     if not isinstance(findings, list):
         return []
     if not isinstance(ignore_data, dict):
