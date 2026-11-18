@@ -700,6 +700,45 @@ class TestAWrongTypedReportIsNeverRefused(unittest.TestCase):
                 self.assertEqual(caps_mod.family({"distro": distro}, "pacman"), "pacman", "and then the manager the host reported")
 
 
+class TestNoCheckOfHostTextEndsInADollar(unittest.TestCase):
+    """`$` also matches in front of a final newline, so `^[a-z0-9._+-]{1,32}$` keeps "debian\\n" and the family table, which looks the name up
+    as a whole, no longer knows the distribution. A value a host sent is held to its documented shape with \\Z (or fullmatch). The modules that
+    read what a host reports are held to it by their syntax tree: a pattern that ends in `$` and is compiled or matched here fails."""
+
+    MODULES = ("agent_capabilities.py", "pkg_refresh.py", "pkg_refresh_handlers.py", "capabilities_handlers.py")
+
+    @staticmethod
+    def patterns(path):
+        import ast
+        found = []
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("compile", "match", "search", "fullmatch")
+                    and node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
+                found.append(node.args[0].value)
+        return found
+
+    def test_no_pattern_in_these_modules_ends_in_a_dollar(self):
+        every = {m: self.patterns(_CGI / m) for m in self.MODULES}
+        self.assertGreaterEqual(len(every["agent_capabilities.py"]), 3, "the control: the patterns of the module were found")
+        self.assertTrue(any(p.endswith("\\Z") for p in every["agent_capabilities.py"]), "and the ones that check a name end in \\Z")
+        bad = {m: [p for p in ps if p.endswith("$") and not p.endswith("\\$")] for m, ps in every.items()}
+        self.assertEqual({m: ps for m, ps in bad.items() if ps}, {})
+
+    def test_the_scan_sees_a_pattern_that_does(self):
+        """The control for the scan: the shapes this class takes (compile, match, search) are found in a module that has them."""
+        import ast
+        import textwrap
+        src = textwrap.dedent("""
+            import re
+            A = re.compile(r'^[a-z]+$')
+            re.match(r'[a-z]+$', 'x')
+            re.search('x$', 'x')
+        """)
+        found = [n.args[0].value for n in ast.walk(ast.parse(src))
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("compile", "match", "search", "fullmatch")]
+        self.assertEqual(found, ["^[a-z]+$", "[a-z]+$", "x$"])
+
+
 # ── the panel ────────────────────────────────────────────────────────────────
 def panel_of(caps, manager=""):
     return caps_mod.panel(caps, manager)
