@@ -2372,13 +2372,13 @@ def _submit_event_logs(creds, poll_count):
 
     The cursors a first sight or a cleared log changed are saved at once; the ones that mark events as sent are saved only after the server took them."""
     global _winevt_cursor
+    if _winevt_cursor is None:                        # the first call since the agent started: what is on disk is what the last run left, and it is read before anything is decided
+        _winevt_cursor = _load_winevt_cursor()
     if not _eventlog_watch:
         if _winevt_cursor:                            # nothing is asked for now: a later ask starts from a fresh first sight, not from a stale record
             _winevt_cursor = {}
             _save_winevt_cursor(_winevt_cursor)
         return
-    if _winevt_cursor is None:
-        _winevt_cursor = _load_winevt_cursor()
     units, baseline, advance = _winevt_collect(_eventlog_watch, _winevt_cursor)
     merged = {ch: v for ch, v in _winevt_cursor.items() if ch in _eventlog_watch and isinstance(v, dict)}
     merged.update({ch: dict(v) for ch, v in baseline.items()})

@@ -728,6 +728,35 @@ class TestTheSubmitStep(unittest.TestCase):
         win._submit_event_logs(self.creds, 3)
         self.assertEqual(self.posts, [], 'an event from the gap is not news')
 
+    def test_a_restart_that_finds_no_rule_clears_the_cursor_the_last_run_left_and_a_later_rule_starts_fresh(self):
+        """The agent restarts as the last rule goes (a self-update, a reboot): its first answer already has no rule, and no cursor has been loaded yet."""
+        win._eventlog_watch = {'Security': [4625]}
+        win._submit_event_logs(self.creds, 1)
+        for _ in range(3):
+            self.log.add('Security', S.failed_logon)
+        win._submit_event_logs(self.creds, 2)
+        self.assertEqual(self.cursor_file(), {'Security': {'4625': 3}}, 'the run before the restart left a record')
+        win._eventlog_watch, win._winevt_cursor = {}, None                       # the restart: no rule and nothing loaded
+        win._submit_event_logs(self.creds, 3)
+        self.assertEqual(self.cursor_file(), {}, 'the stale record is gone, not kept for the next rule')
+        for _ in range(120):
+            self.log.add('Security', S.failed_logon)                             # what happens while there is no rule
+        win._eventlog_watch, win._winevt_cursor = {'Security': [4625]}, None     # and another restart as the rule comes back
+        self.posts.clear()
+        win._submit_event_logs(self.creds, 4)
+        self.assertEqual(self.posts, [], 'a rule that is added is a first sight: nothing is sent for the gap')
+        self.assertEqual(self.cursor_file(), {'Security': {'4625': 123}})
+
+    def test_with_no_rule_the_file_is_read_once_and_not_written_again_and_a_bad_file_is_not_a_problem(self):
+        Path(self.dir, win._WINEVT_CURSOR_FILE).write_text('{not json', encoding='utf-8')
+        win._submit_event_logs(self.creds, 1)
+        win._submit_event_logs(self.creds, 2)
+        self.assertEqual((self.log.calls, self.posts, win._winevt_cursor), ([], [], {}))
+        path = Path(self.dir, win._WINEVT_CURSOR_FILE)
+        Path(self.dir, win._WINEVT_CURSOR_FILE).write_text('{"Security": {"4625": 9}}', encoding='utf-8')
+        win._submit_event_logs(self.creds, 3)                                    # already loaded as {} for this run: the file is not read at every check-in
+        self.assertEqual(path.read_text(encoding='utf-8'), '{"Security": {"4625": 9}}')
+
     def test_a_cursor_file_is_not_trusted_for_its_types(self):
         Path(self.dir, win._WINEVT_CURSOR_FILE).write_text(
             json.dumps({'Security': {'4625': 'x', '1102': -5, '4740': True, '4720': 2.5}, 'Evil': {'1': 1}}), encoding='utf-8')
