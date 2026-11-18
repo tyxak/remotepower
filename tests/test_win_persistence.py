@@ -1122,6 +1122,124 @@ class TestAStandardUserCannotSilenceAPlace(unittest.TestCase):
         self.assertEqual(added, ['alice-new.lnk'])
 
 
+class TestWhatTheInventoryHoldsTo(unittest.TestCase):
+    """What the inventory does that no other test fails for when a line of it is changed: which paths are a user's, the numbers the guide gives (the other tests read the constants, so a changed
+    constant moved the test with it), the time each probe may take, the rule that a task with markup in it is not handed to the XML parser, how far the server reads a list, and one case for
+    each name that marks a secret."""
+
+    def setUp(self):
+        self.folders = Folders()
+        self.addCleanup(self.folders.remove)
+
+    # path -> whether it is a program in a temporary or user folder; written out, one row for each rule, and rows that must not match
+    PATHS = [
+        ('C:\\Users\\bob\\x.exe', True), ('D:\\Users\\x.exe', True), ('C:\\ProgramData\\Temp\\x.exe', True), ('D:\\tmp\\x.exe', True),
+        ('C:\\Windows\\System32\\config\\systemprofile\\AppData\\Roaming\\Vendor\\agent.exe', True),    # the SYSTEM profile: AppData with no Users and no Temp in the path
+        ('E:\\AppData\\x.exe', True), ('D:\\Documents and Settings\\All Users\\x.exe', True), ('C:\\$Recycle.Bin\\S-1-5-21\\x.exe', True),
+        ('"C:\\Users\\bob\\x.exe" -k run', True), ('c:/users/bob/x.exe', True), ('\\??\\C:\\Windows\\Temp\\x.sys', True),
+        ('%TEMP%\\x.exe', True), ('%tmp%\\x.exe', True), ('%USERPROFILE%\\x.exe', True), ('%APPDATA%\\x.exe', True), ('%LocalAppData%\\x.exe', True),
+        ('%PUBLIC%\\x.exe', True), ('%HOMEPATH%\\x.exe', True),
+        ('C:\\Program Files\\Vendor\\a.exe', False), ('C:\\Windows\\System32\\svchost.exe -k netsvcs', False), ('%SystemRoot%\\System32\\spoolsv.exe', False),
+        ('"C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18\\MsMpEng.exe"', False), ('C:\\Tools\\users.exe', False), ('C:\\Windows\\tempo\\x.exe', False),
+    ]
+
+    def test_which_paths_are_a_users_one_by_one(self):
+        for path, want in self.PATHS:
+            with self.subTest(path):
+                self.assertEqual(win._persist_user_path(path, self.folders.env()), want)
+
+    def test_the_path_rule_is_the_one_the_guide_gives(self):
+        self.assertEqual(win._PERSIST_USER_FRAGMENTS, ('\\temp\\', '\\tmp\\', '\\appdata\\', '\\users\\', '\\documents and settings\\', '\\$recycle.bin\\'))
+        self.assertEqual(win._PERSIST_USER_VARIABLES, ('%temp%', '%tmp%', '%userprofile%', '%appdata%', '%localappdata%', '%public%', '%homepath%'))
+
+    def test_the_numbers_the_guide_gives_are_the_numbers_in_the_agent_and_on_the_server(self):
+        self.assertEqual((win._PERSIST_EVERY_S, win._PERSIST_BUDGET_S, win._PERSIST_FIELD_MAX, win._PERSIST_TASKS_OUT_MAX), (900, 25, (120, 120, 240), 16 * 1024 * 1024))
+        self.assertEqual((P.ALERT_EVERY_S, P.LOG_MAX, P.PER_SNAPSHOT_MAX, P.SAMPLE_LINES, P.SAMPLE_CHARS, P.UNREAD_AFTER), (3600, 200, 50, 3, 200, 3))
+        self.assertEqual(P.FIELD_MAX, win._PERSIST_FIELD_MAX)
+
+    def test_the_probes_share_25_seconds_and_a_place_that_got_no_turn_is_not_read(self):
+        seen = []
+        quiet = {'ok': True, 'cut': False, 'items': []}
+        with mock.patch.object(win, '_persist_run_items', lambda wr, deadline: seen.append(deadline - time.time()) or dict(quiet)):
+            win.collect_persistence(wr=FakeRegistry(), run=lambda a, t: '', env=self.folders.env())
+        self.assertTrue(24 < seen[0] <= 25, seen)
+
+    def test_schtasks_is_given_20_seconds_or_what_is_left_and_nothing_if_under_two(self):
+        given = []
+
+        def run(args, timeout):
+            given.append(timeout)
+            return schtasks_output()
+        self.assertTrue(win._persist_task_items(run, time.time() + 25, self.folders.env())['ok'])
+        self.assertEqual(given, [20])
+        win._persist_task_items(run, time.time() + 9.5, self.folders.env())
+        self.assertTrue(9 < given[-1] <= 9.5, given)
+        self.assertFalse(win._persist_task_items(run, time.time() + 1.5, self.folders.env())['ok'])
+        self.assertEqual(len(given), 2, 'under two seconds: it did not run')
+
+    def test_the_command_that_lists_the_tasks_is_given_the_time_it_was_asked_for(self):
+        with mock.patch.object(win.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout=b'')) as run:
+            win._persist_run_command(['schtasks'], 17)
+        self.assertEqual(run.call_args.kwargs['timeout'], 17)
+
+    def test_a_task_with_a_comment_or_cdata_in_it_is_never_handed_to_the_xml_parser_and_an_ordinary_one_is(self):
+        import xml.etree.ElementTree as ET
+        real, calls = ET.fromstring, []
+        plain = task_xml('\\Vendor\\Updater', 'C:\\Vendor\\u.exe', '-k run', declaration=False)
+        chunks = {'a comment': plain.replace('<Triggers>', '<!-- a note --><Triggers>'), 'cdata': plain.replace('<Arguments>-k run</Arguments>', '<Arguments><![CDATA[-k run]]></Arguments>'),
+                  'a declaration': plain.replace('<Triggers>', '<!DOCTYPE t [<!ENTITY e "boom">]><Triggers>')}
+        with mock.patch.object(ET, 'fromstring', lambda text, *a, **k: calls.append(text) or real(text, *a, **k)):
+            for what, chunk in chunks.items():
+                path, actions, enabled = win._persist_task_fields(chunk)
+                self.assertEqual(path, '\\Vendor\\Updater', what + ': still read, field by field')
+            self.assertEqual(calls, [], 'none of them reached the parser')
+            self.assertEqual(win._persist_task_fields(plain)[0], '\\Vendor\\Updater')
+            self.assertEqual(len(calls), 1, 'the control: an ordinary task does')
+
+    def test_a_task_is_parsed_up_to_the_size_limit_and_not_past_it(self):
+        import xml.etree.ElementTree as ET
+        real, calls = ET.fromstring, []
+        base = task_xml('\\Vendor\\Updater', 'C:\\Vendor\\u.exe', None, declaration=False)
+        for extra, parsed in ((0, True), (1, False)):
+            filler = win._WINEVT_PARSE_MAX - len(base) - len('<Priority></Priority>') + extra
+            chunk = base.replace('</Settings>', '<Priority>%s</Priority></Settings>' % ('7' * filler))
+            self.assertEqual(len(chunk), win._WINEVT_PARSE_MAX + extra)
+            del calls[:]
+            with mock.patch.object(ET, 'fromstring', lambda text, *a, **k: calls.append(1) or real(text, *a, **k)):
+                self.assertEqual(win._persist_task_fields(chunk)[0], '\\Vendor\\Updater')
+            self.assertEqual(bool(calls), parsed, 'a task of %d characters' % len(chunk))
+
+    def test_the_server_reads_three_times_the_cap_of_a_list_and_calls_a_longer_one_cut(self):
+        cap = P.CAPS['run']
+        dup = ['Run', 'same', 'x']
+        rows = [dup] * (cap * 3) + [['Run', 'zz-after-the-reach', 'x']]
+        cleaned = P.clean_snapshot({'v': P.VERSION, 'run': {'ok': True, 'cut': False, 'items': rows}})['run']
+        self.assertEqual((cleaned['items'], cleaned['cut']), ([dup], True), 'a row past 3 x the cap is not read, and the list says it was cut')
+        rows = [dup] * (cap * 3 - 1) + [['Run', 'zz-last-read', 'x']]
+        cleaned = P.clean_snapshot({'v': P.VERSION, 'run': {'ok': True, 'cut': False, 'items': rows}})['run']
+        self.assertEqual(([e[1] for e in cleaned['items']], cleaned['cut']), (['same', 'zz-last-read'], False), 'the last row of the reach is read and the list is not cut')
+
+    SECRET_NAMES = ('pass', 'password', 'passwd', 'passphrase', 'pwd', 'secret', 'token', 'api_key', 'api-key', 'apikey', 'private_key', 'private-key', 'privatekey', 'client_secret',
+                    'client-secret', 'clientsecret', 'access_key', 'access-key', 'accesskey', 'credential', 'authorization', 'auth_token', 'auth-key', 'auth_secret', 'bearer', 'shared_key',
+                    'sharedkey', 'signing_key', 'signingkey', 'PASSWORD', 'Api_Key', 'Bearer')
+
+    def test_every_name_that_marks_a_secret_has_its_value_replaced_in_each_form_by_both_places(self):
+        for name in self.SECRET_NAMES:
+            for text, kept in (('tool.exe --%s hunter2 --x' % name, '--%s [REDACTED] --x' % name), ('tool.exe /%s:hunter2 /x' % name, '/%s:[REDACTED] /x' % name),
+                               ('tool.exe %s=hunter2;' % name, '%s=[REDACTED]' % name), ('tool.exe -%s "two words" -x' % name, '-%s [REDACTED] -x' % name)):
+                with self.subTest(name=name, text=text):
+                    for out in (P.redact_command(text), win._persist_command(text), win._reg_redact(text)):
+                        self.assertNotIn('hunter2', out)
+                        self.assertNotIn('two words', out)
+                        self.assertIn(kept, out)
+
+    def test_the_names_that_are_not_a_secret_are_left_alone_in_the_same_forms(self):
+        for name in ('user', 'server', 'path', 'mode', 'host', 'config', 'level', 'name'):
+            text = 'tool.exe --%s value1 /%s:value2 %s=value3' % (name, name, name)
+            for out in (P.redact_command(text), win._persist_command(text), win._reg_redact(text)):
+                self.assertEqual(out, text)
+
+
 class TestHowOften(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix='rp-persist-ts-')

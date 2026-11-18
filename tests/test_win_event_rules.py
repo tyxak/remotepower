@@ -637,6 +637,109 @@ class TestTheWatchTheServerSends(unittest.TestCase):
         self.assertEqual(watch([]), {})
 
 
+class TestWhatTheReaderHoldsTo(unittest.TestCase):
+    """What the event reader does that no other test fails for when a line of it is changed: the cursors of a log that was cleared, the filter and the order of an answer, the numbers the
+    guide gives (the other tests read them from the constants, so a changed constant moved the test with it), and the rule that a chunk with markup in it is not handed to the XML parser."""
+
+    def setUp(self):
+        self.log = FakeEventLog()
+        self.cursor = {}
+
+    def poll(self, watch):
+        units, baseline, advance = win._winevt_collect(watch, self.cursor, run=self.log.run)
+        merged = {ch: v for ch, v in self.cursor.items() if ch in watch}
+        merged.update({ch: dict(v) for ch, v in baseline.items()})
+        self.cursor.clear()
+        self.cursor.update(merged)
+        for ch, ids in advance.items():
+            self.cursor.setdefault(ch, {}).update(ids)
+        return units
+
+    def test_the_numbers_the_guide_gives_are_the_numbers_in_the_agent(self):
+        self.assertEqual((win._WINEVT_MAX_IDS, win._WINEVT_PER_ID, win._WINEVT_MAX_LINES, win._WINEVT_MAX_RUNS, win._WINEVT_BUDGET_S, win._WINEVT_RUN_TIMEOUT_S),
+                         (12, 50, 300, 40, 40, 20))
+        self.assertEqual((win._WINEVT_FIELD_MAX, win._WINEVT_COMMAND_MAX, win._WINEVT_LINE_MAX, win._WINEVT_MAX_ID), (64, 120, 400, 65535))
+
+    def test_a_log_that_was_cleared_is_read_from_its_start_for_every_id_and_not_only_for_the_ones_above_its_newest_record(self):
+        watch = {'Security': [4625, 1102]}
+        for _ in range(25):
+            self.log.add('Security', S.failed_logon)
+        self.poll(watch)                                            # first sight: both cursors at the newest record, 25
+        self.cursor['Security']['1102'] = 2                         # the cursor of the rare id is low, as it is after a few of its events
+        self.log.clear('Security')
+        cleared = self.log.add('Security', S.audit_log_cleared)     # record 1: the clearing itself
+        failed = [self.log.add('Security', S.failed_logon) for _ in range(9)]       # records 2 to 10: under the cursor of 4625, which is what shows the log was cleared
+        units = self.poll(watch)
+        self.assertEqual(_sent(units), {'eventlog.Security.1102': [cleared], 'eventlog.Security.4625': failed}, 'the clearing event (1102) is found though its own cursor was below the newest record')
+
+    def test_an_answer_with_records_at_or_below_the_cursor_and_out_of_order_is_filtered_and_sorted_before_the_cursor_moves(self):
+        def run(args):
+            if '/rd:true' in args:                                  # the probe for the newest record
+                return S.failed_logon(rid=9)
+            return '\n'.join(S.failed_logon(rid=r, user='u%d' % r) for r in (8, 3, 6, 4, 9, 5))      # what a host may answer: 3 and 4 are not later than 4
+        units, _baseline, advance = win._winevt_collect({'Security': [4625]}, {'Security': {'4625': 4}}, run=run)
+        self.assertEqual(_sent(units), {'eventlog.Security.4625': [5, 6, 8, 9]}, 'only the later ones, oldest first')
+        self.assertEqual(advance, {'Security': {'4625': 9}}, 'the cursor moves to the last one sent and never back')
+
+    def test_one_check_in_sends_300_lines_and_no_more(self):
+        watch = {'Security': [4625, 4740, 4720, 4732, 4697, 4698, 1102]}
+        self.poll(watch)
+        builders = (S.failed_logon, S.account_locked_out, S.user_created, S.member_added, S.service_installed_security, S.scheduled_task_created, S.audit_log_cleared)
+        for build in builders:
+            for _ in range(50):
+                self.log.add('Security', build)                     # 7 ids and 50 events each: 350, which is more than a check-in carries
+        self.assertEqual(sum(len(v) for v in self.poll(watch).values()), 300)
+        self.assertEqual(sum(len(v) for v in self.poll(watch).values()), 50, 'and the rest comes at the next one')
+
+    def test_the_seconds_a_check_in_may_take_are_40_and_what_is_left_is_read_next_time(self):
+        watch = {'Security': [4625, 4740, 4720]}
+        self.poll(watch)
+        want = {4625: self.log.add('Security', S.failed_logon), 4740: self.log.add('Security', S.account_locked_out), 4720: self.log.add('Security', S.user_created)}
+        clock = {'t': 1000.0}
+        real_run, before = self.log.run, len(self.log.calls)
+
+        def slow(args):
+            clock['t'] += 30.0                                      # every wevtutil run takes 30 seconds
+            return real_run(args)
+        with mock.patch.object(win.time, 'time', lambda: clock['t']):
+            units, baseline, advance = win._winevt_collect(watch, self.cursor, run=slow)
+        self.assertEqual(len(self.log.calls) - before, 2, 'the probe, one id, and then 60 seconds are over: no third query')
+        self.assertEqual(len(units), 1)
+        self.assertEqual(sum(len(v) for v in advance.values()), 1, 'one id moved, the others wait behind their cursors')
+        self.assertEqual(sorted(want), [4625, 4720, 4740])
+
+    def test_a_run_of_wevtutil_may_take_20_seconds(self):
+        with mock.patch.object(win.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout=b'')) as run:
+            win._winevt_run(['wevtutil.exe', 'qe', 'Security'])
+        self.assertEqual(run.call_args.kwargs['timeout'], 20)
+
+    def test_a_chunk_with_a_declaration_a_comment_or_cdata_is_never_handed_to_the_xml_parser_and_an_ordinary_one_is(self):
+        import xml.etree.ElementTree as ET
+        real, calls = ET.fromstring, []
+        plain = S.failed_logon(rid=1)
+        chunks = {'a comment': plain.replace('<EventData>', '<EventData><!-- a note -->'),
+                  'cdata': plain.replace("<Data Name='TargetUserName'>bob</Data>", "<Data Name='TargetUserName'><![CDATA[bob]]></Data>"),
+                  'a declaration': plain.replace('<EventData>', '<EventData><!DOCTYPE x [<!ENTITY e "boom">]>')}
+        with mock.patch.object(ET, 'fromstring', lambda text, *a, **k: calls.append(text) or real(text, *a, **k)):
+            for what, chunk in chunks.items():
+                events = win._winevt_parse(chunk)
+                self.assertEqual((len(events), events[0]['id'], events[0]['rid'], events[0]['data']), (1, 4625, 1, {}), what + ': kept, without its fields')
+            self.assertEqual(calls, [], 'none of them reached the parser')
+            events = win._winevt_parse(plain)
+            self.assertEqual(len(calls), 1, 'the control: an ordinary event does')
+            self.assertEqual(events[0]['data']['TargetUserName'], 'bob')
+
+    def test_a_chunk_is_parsed_up_to_the_size_limit_and_not_past_it(self):
+        base = S.failed_logon(rid=1)
+        for extra, parsed in ((0, True), (1, False)):
+            pad = win._WINEVT_PARSE_MAX - len(base.replace('</EventData>', "<Data Name='P'></Data></EventData>")) + extra
+            chunk = base.replace('</EventData>', "<Data Name='P'>%s</Data></EventData>" % ('x' * pad))
+            self.assertEqual(len(chunk), win._WINEVT_PARSE_MAX + extra)
+            (ev,) = win._winevt_parse(chunk)
+            self.assertEqual(bool(ev['data']), parsed, 'a chunk of %d characters' % len(chunk))
+        self.assertEqual(win._WINEVT_PARSE_MAX, 256 * 1024)
+
+
 class TestTheSubmitStep(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix='rp-winevt-agent-')

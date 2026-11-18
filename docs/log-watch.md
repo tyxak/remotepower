@@ -92,7 +92,8 @@ How it works:
   the newest record of the log, so turning a rule on does not raise an alert for
   history. A report the server did not take is read again. At most 50 events for
   one event id and 300 lines in all go in one report, and the rest follows in the
-  next one.
+  next one. One check-in makes at most 40 `wevtutil` runs and spends at most 40
+  seconds on them, and a single run is given 20.
 - **A cleared log is noticed.** When the log's newest record is older than the last
   one the agent sent, the log has been cleared and its records started again, and
   the agent reads what is there now, the clearing itself (event 1102) included.
