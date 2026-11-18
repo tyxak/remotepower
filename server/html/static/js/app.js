@@ -27403,7 +27403,7 @@ async function _loadAuditSection(key) {
 
       // What this agent can see on its host. The server sends rows from its own fixed table (the feature a tool is for, an install
       // hint per package manager); a hint is shown as text to copy, never a button. Everything is escaped, and a log is a path and
-      // a yes or no: the agent never reads a line of it.
+      // a yes or no: the agent never reads a line of it. A path is dir="ltr": in a right-to-left page "/etc" would read "etc/".
       case 'capabilities': {
         const r = await api('GET', `/devices/${id}/capabilities`);
         if (!r || !r.reported) {
@@ -27451,7 +27451,7 @@ async function _loadAuditSection(key) {
         if (r.container === true) {
           const mapped = Array.isArray(r.mapped) ? r.mapped : [];
           h += `<div class="mt-16 mb-8 fw-500 fs-13">Host paths mapped into the container</div>`
-            + (mapped.length ? `<div class="scroll-cap-sm">${mapped.map(p => `<code>${escHtml(p)}</code>`).join(' ')}</div>`
+            + (mapped.length ? `<div class="scroll-cap-sm">${mapped.map(p => `<code dir="ltr">${escHtml(p)}</code>`).join(' ')}</div>`
                              : '<div class="hint">No host path is mapped into the container.</div>');
         }
         const logs = Array.isArray(r.logs) ? r.logs : [];
@@ -27461,7 +27461,7 @@ async function _loadAuditSection(key) {
             <thead><tr class="c-muted"><th class="isl-628">Log</th><th>Path</th><th class="ta-center">Readable</th></tr></thead>
             <tbody>` + logs.map(l =>
               `<tr><td class="isl-629">${escHtml(l.label || '')}</td>
-                <td class="fs-11"><code>${escHtml(l.path || '')}</code></td>
+                <td class="fs-11"><code dir="ltr">${escHtml(l.path || '')}</code></td>
                 <td class="ta-center ${l.readable ? 'c-green' : 'c-red'}">${l.readable ? 'Yes' : 'No'}</td></tr>`
             ).join('') + '</tbody></table></div>';
         }

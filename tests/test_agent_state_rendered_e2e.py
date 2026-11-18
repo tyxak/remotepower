@@ -177,6 +177,22 @@ _SIDEWAYS = """() => {
 }"""
 
 
+# The x of the first, the second and the last character of every path in the capabilities section (a log's path and a mapped path: the ones that
+# start with a slash). Left to right they rise; a path whose slash is drawn at the far end has the first character to the right of the last.
+_PATH_ORDER = """() => {
+  const out = [];
+  for (const el of document.querySelectorAll('#audit-body-capabilities code')) {
+    const text = el.textContent;
+    if (!text.startsWith('/') || !el.firstChild) continue;
+    const node = el.firstChild;
+    const x = i => { const r = document.createRange(); r.setStart(node, i); r.setEnd(node, i + 1); return Math.round(r.getBoundingClientRect().left); };
+    const n = text.length;
+    out.push({text, firstX: x(0), secondX: x(1), lastX: x(n - 1), slashAtRightEnd: x(0) > x(n - 1)});
+  }
+  return out;
+}"""
+
+
 @unittest.skipUnless(_GATE, SKIP_REASON)
 class TestThePackagesAndCapabilitiesCards(unittest.TestCase):
 
@@ -441,6 +457,30 @@ class TestThePackagesAndCapabilitiesCards(unittest.TestCase):
         self.assertNotIn("Refresh queued", toast["text"])
         self.assertNotIn("success", toast["cls"])
         self.assertNotIn("pkg_refresh", queued, "a parked change is not in the host's queue")
+        self.assertEqual(self.new_problems(), {})
+
+    def test_a_path_reads_left_to_right_in_arabic_and_the_measure_sees_one_that_does_not(self):
+        """In a right-to-left page the slash that starts a path is a neutral character that takes the page's direction and is drawn at the
+        end: "/etc" read "etc/". The position of the first, the second and the last character of each path is measured. The control turns
+        the attribute off on one path and the measure must see it reversed: an instrument that cannot see the defect proves nothing."""
+        hosts = _STACK["hosts"]
+        for label, wanted in (("ok", 3), ("failed", 3)):
+            with self.subTest(host=label):
+                self.open_sections(hosts[label], "capabilities")
+                for lang in ("en", "ar"):
+                    self.page.evaluate("l => RPi18n.setLang(l, false)", lang)
+                    self.page.wait_for_timeout(400)
+                    rows = self.page.evaluate(_PATH_ORDER)
+                    self.assertEqual(len(rows), wanted, f"the control: the paths of the {label} host were found")
+                    for r in rows:
+                        self.assertTrue(r["firstX"] < r["secondX"] < r["lastX"], f"{lang}: a path is not drawn from left to right: {r}")
+                self.page.evaluate("l => RPi18n.setLang(l, false)", "ar")
+                self.page.wait_for_timeout(300)
+                self.page.evaluate("() => document.querySelector('#audit-body-capabilities code[dir=\"ltr\"]').removeAttribute('dir')")
+                self.assertTrue(any(r["slashAtRightEnd"] for r in self.page.evaluate(_PATH_ORDER)),
+                                "the measure did not see a path drawn the wrong way round")
+                self.page.evaluate("() => RPi18n.setLang('en', false)")
+                self.page.evaluate("closeDeviceDrawer()")
         self.assertEqual(self.new_problems(), {})
 
     def test_the_settings_card_is_reached_by_keyboard_saves_and_fits(self):
