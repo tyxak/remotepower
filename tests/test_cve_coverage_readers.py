@@ -21,6 +21,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import test_cve_coverage_page_review as page  # noqa: E402
 import test_cve_package_coverage as base  # noqa: E402
 
 api = base.api
@@ -126,11 +127,14 @@ class TestAHostNothingIsMatchedAgainst(base._Fleet):
         api.save(api.CVE_FINDINGS_FILE, store)
         api._LOAD_CACHE.clear()
 
-    def home(self, **kw):
+    def home_body(self, **kw):
         with mock.patch.object(api, 'verify_token', kw.pop('verify', lambda tok=None: ('root', 'admin'))):
             status, body = self.get(api.handle_home, **kw)
         self.assertEqual(status, 200, body)
-        return {r['device_id']: r for r in body['cves']['devices']}
+        return body
+
+    def home(self, **kw):
+        return {r['device_id']: r for r in self.home_body(**kw)['cves']['devices']}
 
     # the assistant's tool
     def test_the_assistants_tool_says_none_of_the_packages_could_be_checked(self):
@@ -189,9 +193,30 @@ class TestAHostNothingIsMatchedAgainst(base._Fleet):
                          {self.DEB_NEW: 0, self.DEB_OLD: 2, self.WIN: 8, self.ARCH: 1})
         self.assertTrue(all(v['counted'] == 0 and not any(v['counts'].values()) for v in rows.values()))
 
+    @page.NEEDS_NODE
+    def test_the_tile_the_payload_makes_is_not_green_over_hosts_nothing_is_matched_against(self):
+        """The payload of the real handler through the real tile. Every host that is scanned was checked whole and shows nothing:
+        only the two hosts nothing is matched against make the tile say that part of the fleet was not looked at."""
+        self.without_findings()
+        devices = api.load(api.DEVICES_FILE)
+        devices.pop(self.DEB_OLD)                                  # the one whose own scan says that 2 of its 3 were not checked
+        api.save(api.DEVICES_FILE, devices)
+        body = self.home_body()
+        self.assertEqual({r['device_id']: r['not_checked'] for r in body['cves']['devices']},
+                         {self.DEB_NEW: 0, self.WIN: 8, self.ARCH: 1})
+        got = page.tile_of(body['devices'], body['cves']['devices'])
+        self.assertEqual((got['cls'], got['sub']), ('', 'None found in the packages that could be checked'))
+        # and without the two it is the green it was
+        for dev_id in (self.WIN, self.ARCH):
+            devices.pop(dev_id)
+        api.save(api.DEVICES_FILE, devices)
+        body = self.home_body()
+        got = page.tile_of(body['devices'], body['cves']['devices'])
+        self.assertEqual((got['cls'], got['sub']), ('ok', 'No active CVEs'))
+
     def test_the_dashboard_does_not_read_every_list_of_the_fleet_while_a_host_shows_a_finding(self):
         """The tile says the findings then, and the packages store holds every package of every host."""
-        (rows, reads) = self.reads_of_the_packages_store(lambda: self.home())
+        rows, reads = self.reads_of_the_packages_store(lambda: self.home())
         self.assertTrue(any(any(v['counts'].values()) or v['counted'] for v in rows.values()))   # the control: there are some
         self.assertEqual(reads, 0)
         self.assertEqual((rows[self.DEB_OLD]['not_checked'], rows[self.WIN]['not_checked']), (2, 0))
