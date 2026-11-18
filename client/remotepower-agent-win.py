@@ -12,7 +12,8 @@ at parity with Linux:
     files: (file manager) / poll-interval / uninstall / signed self-update
   * posture: Windows Update + winget (→ Patches, with remediation), Defender AV,
     listening ports (→ Exposure), Event Log incl. the Security channel with a
-    RecordId cursor + Event IDs (→ Logs/journal + log_watch rules), watched
+    RecordId cursor + Event IDs (→ the host's journal; log rules read the events they name,
+    `eventlog.<Channel>.<id>`), watched
     services (→ Services page), top processes + proc_names (→ process checks),
     local users + privileged-group tripwire, reboot-required detection
 
@@ -1741,10 +1742,11 @@ def collect_listening_ports():
 #
 # Now: per-channel RecordId cursors persisted to disk. Each poll fetches only
 # events NEWER than the cursor, advances the cursor to the newest fetched, and
-# emits one line per event PREFIXED WITH THE EVENT ID so the server's regex
-# log_watch rules can key on it (e.g. a rule matching "[4625]" alerts on failed
-# logons). First run per channel baselines to the newest few, so a fresh agent
-# doesn't dump the entire history into one heartbeat.
+# emits one line per event PREFIXED WITH THE EVENT ID. These lines go to the host's
+# journal in its drawer and nowhere else: no log rule reads them (a rule reads the
+# `eventlog.<Channel>.<id>` units that _submit_event_logs sends). First run per
+# channel baselines to the newest few, so a fresh agent doesn't dump the entire
+# history into one heartbeat.
 _EVENTLOG_CHANNELS = ('System', 'Application', 'Security')
 _EVENTLOG_PER_POLL = 80          # cap per channel per poll (server stores ≤200 total)
 _EVENTLOG_BASELINE = 20          # first-run: emit only the newest N, then cursor forward
@@ -2041,6 +2043,339 @@ def _submit_file_logs(creds, poll_count):
     except Exception as e:
         log.debug('file_log: submission failed: %s', e)
         _file_log_state = _load_file_log_state()
+
+
+# ── Windows event log rules ──────────────────────────────────────────────────
+#
+# A log rule matches the lines of one unit, and a Windows host has no journal, so the events a rule names are sent as units called after the channel and the event id:
+# `eventlog.Security.4625` holds the failed logons of the Security log. The units to read are the ones in the `log_watch` list of the heartbeat answer: the host's own
+# rules, and the event units of the fleet-wide rules that the server adds at the end of the list (win_events.fleet_unit_rules). From there it is an ordinary log rule:
+# the lines go to POST /api/logs, the way the file tails above do, and the server's pattern, threshold, severity and `log_alert` apply. (The journal lines of
+# get_event_log_journal go to the host's page only; no rule reads them.)
+#
+# The reader is wevtutil, run with an argument list and never through a shell, and nothing the server or an event wrote is in an argument: a channel from a fixed list and
+# numbers. For each (channel, event id) the agent keeps the record id of the last event it sent and asks only for the events after it, oldest first, so nothing repeats
+# and nothing is skipped:
+#   * a (channel, id) it has not seen starts at the newest record of the channel: the history is not replayed into an alert
+#   * at most 50 events for an id and 300 lines in all at a check-in, and at most 40 wevtutil runs in 40 seconds; what is not read stays after its cursor for the next one
+#   * a cursor moves only after the server took the lines (a failed post is read again; every line carries its record id, so the server drops one it already has)
+#   * a cleared log starts its record ids again, so the newest record of a channel being below a cursor sets that channel's cursors to 0: what is there now, the
+#     clearing itself (1102) included, is all new
+#
+# An event is sent as one line built from its fields, not from its message: the message is in the language of the host. A text in it (a name typed in a failed logon, a
+# workstation, a service's file) can have been written by anyone, so it is cut at 64 characters, control characters and the characters that reorder or hide text become
+# spaces, and it is written in double quotes with any double quote inside it turned into a single one; what is a machine's own (an address, an id, a status) keeps only the
+# characters such a value has. The fixed words and the machine fields come first, so a pattern anchored at the start of the line is not matched by anything a person typed.
+_WINEVT_CHANNELS = ('Security', 'System', 'Application')
+_WINEVT_MAX_IDS = 12                 # event ids read from one channel: each is a wevtutil run at every check-in
+_WINEVT_MAX_ID = 65535
+_WINEVT_PER_ID = 50                  # events read for one id at one check-in (the server keeps 100 lines for a unit)
+_WINEVT_MAX_LINES = 300              # lines sent at one check-in, all units together
+_WINEVT_MAX_RUNS = 40                # wevtutil runs at one check-in
+_WINEVT_BUDGET_S = 40                # seconds all of them may take
+_WINEVT_RUN_TIMEOUT_S = 20
+_WINEVT_STDOUT_MAX = 4 * 1024 * 1024
+_WINEVT_FIELD_MAX = 64
+_WINEVT_COMMAND_MAX = 120
+_WINEVT_LINE_MAX = 400
+_WINEVT_DATA_MAX = 60                # fields read from one event
+_WINEVT_CURSOR_FILE = 'winevent_cursor.json'
+_WINEVT_HIDDEN = frozenset('\u00ad\u200b\u200c\u200d\u200e\u200f\u2028\u2029\u202a\u202b\u202c\u202d\u202e\u2060\u2066\u2067\u2068\u2069\ufeff')
+_WINEVT_TOKEN_CHARS = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:%+-')
+_WINEVT_UNIT = re.compile(r'eventlog\.(Security|System|Application)\.([1-9][0-9]{0,4})')
+_WINEVT_EVENT = re.compile(r'<Event[\s>].*?</Event>', re.S)
+_WINEVT_RID = re.compile(r'<EventRecordID>\s*([0-9]{1,18})\s*</EventRecordID>')
+_WINEVT_EID = re.compile(r'<EventID[^>]*>\s*([0-9]{1,5})\s*</EventID>')
+_WINEVT_TIME = re.compile(r"<TimeCreated[^>]*SystemTime=['\"]([^'\"]{1,40})['\"]")
+_WINEVT_BAD_CHAR = re.compile('[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f' + chr(0xfffe) + chr(0xffff) + ']')
+_WINEVT_BAD_REF = re.compile(r'&#(?:[xX]([0-9a-fA-F]{1,8})|([0-9]{1,10}));')
+_WINEVT_PARSE_MAX = 256 * 1024       # an event longer than this is kept without its fields
+_WINEVT_MAX_EVENTS = 1000            # events taken from one answer
+_WINEVT_TASK_CMD = re.compile(r'<Command>([^<]{1,2000})</Command>(?:\s*<Arguments>([^<]{0,2000})</Arguments>)?')
+_eventlog_watch = {}                 # {channel: [event ids]} the rules in the last heartbeat answer ask for
+_winevt_cursor = None                # {channel: {event id: record id}}, read from disk when first needed
+
+# What each event is, and which of its fields are written, in this order: machine values first (a 'tok' keeps the characters such a value has), then the texts (a 'q' is
+# cut, cleaned and quoted). An id that is not here is written with its provider and the first fields of the event.
+_WINEVT_FORMATS = {
+    4625: ('failed logon', (('source', 'IpAddress', 'tok'), ('type', 'LogonType', 'tok'), ('status', 'Status', 'tok'), ('substatus', 'SubStatus', 'tok'),
+                            ('user', 'TargetUserName', 'q'), ('domain', 'TargetDomainName', 'q'), ('workstation', 'WorkstationName', 'q'))),
+    4740: ('account locked out', (('sid', 'TargetSid', 'tok'), ('user', 'TargetUserName', 'q'), ('caller', 'TargetDomainName', 'q'), ('by', 'SubjectUserName', 'q'))),
+    7045: ('service installed', (('type', 'ServiceType', 'q'), ('start', 'StartType', 'q'), ('name', 'ServiceName', 'q'), ('image', 'ImagePath', 'q'),
+                                 ('account', 'AccountName', 'q'))),
+    4697: ('service installed', (('type', 'ServiceType', 'tok'), ('start', 'ServiceStartType', 'tok'), ('name', 'ServiceName', 'q'), ('image', 'ServiceFileName', 'q'),
+                                 ('account', 'ServiceAccount', 'q'), ('by', 'SubjectUserName', 'q'))),
+    4698: ('scheduled task created', (('name', 'TaskName', 'q'), ('command', '@TaskCommand', 'q'), ('by', 'SubjectUserName', 'q'))),
+    4720: ('user created', (('sid', 'TargetSid', 'tok'), ('user', 'TargetUserName', 'q'), ('domain', 'TargetDomainName', 'q'), ('by', 'SubjectUserName', 'q'))),
+    4732: ('member added', (('group_sid', 'TargetSid', 'tok'), ('member_sid', 'MemberSid', 'tok'), ('group', 'TargetUserName', 'q'), ('member', 'MemberName', 'q'),
+                            ('by', 'SubjectUserName', 'q'))),
+    1102: ('audit log cleared', (('by', 'SubjectUserName', 'q'), ('domain', 'SubjectDomainName', 'q'))),
+}
+
+
+def _winevt_watch_from_rules(rules):
+    """{channel: [event ids]} the rules of a heartbeat answer ask for: the unit of each rule, when it is `eventlog.<Channel>.<id>` with a channel of the fixed list and an
+    id that is a whole number from 1 to 65535. Sorted, and at most 12 ids for a channel. Anything else in the list (a service, a file path, a row that is not a rule)
+    asks for nothing, and an empty answer means nothing is read. The server checks the same shape (win_events.watch_for); this does not rely on that."""
+    want = {}
+    for rule in rules if isinstance(rules, list) else []:
+        unit = rule.get('unit') if isinstance(rule, dict) else None
+        m = _WINEVT_UNIT.fullmatch(unit) if isinstance(unit, str) else None
+        if m and int(m.group(2)) <= _WINEVT_MAX_ID:
+            want.setdefault(m.group(1), set()).add(int(m.group(2)))
+    return {ch: sorted(want[ch])[:_WINEVT_MAX_IDS] for ch in _WINEVT_CHANNELS if ch in want}
+
+
+def _winevt_int(v, lo, hi):
+    if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
+        raise ValueError('not a whole number in range')
+    return v
+
+
+def _wevtutil_args(channel, event_id=None, after=0, count=_WINEVT_PER_ID, newest=False):
+    """The argument list of one wevtutil query. Raises ValueError for a channel that is not one of the three and for a number that is not a whole number in range.
+
+    With an event id: that id's events with a record id above `after`, oldest first. Without one (and `newest`): the newest event of the channel, whatever it is.
+    The only text in it that a person could have written is none: the channel is from a fixed list and the rest are numbers.
+    """
+    if channel not in _WINEVT_CHANNELS:
+        raise ValueError('not an event log channel')
+    args = [_system_bin('wevtutil'), 'qe', channel]
+    if event_id is not None:
+        args.append('/q:*[System[(EventID=%d) and (EventRecordID>%d)]]'
+                    % (_winevt_int(event_id, 1, _WINEVT_MAX_ID), _winevt_int(after, 0, 2 ** 63 - 1)))
+    args += ['/f:xml', '/c:%d' % _winevt_int(count, 1, 1000), '/rd:%s' % ('true' if newest else 'false')]
+    return args
+
+
+def _winevt_decode(raw):
+    """wevtutil's bytes as text. It writes the console's code page to a pipe; a byte order mark, when there is one, says which."""
+    if raw[:2] in (b'\xff\xfe', b'\xfe\xff'):
+        return raw.decode('utf-16', 'replace')
+    return raw.decode('utf-8-sig', 'replace')
+
+
+def _winevt_run(args):
+    """wevtutil's output as text, or None when it did not run, did not finish, failed (no right to read the channel, no such channel), or said more than it should."""
+    try:
+        r = subprocess.run(args, capture_output=True, timeout=_WINEVT_RUN_TIMEOUT_S,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        return None
+    if r.returncode != 0 or len(r.stdout or b'') > _WINEVT_STDOUT_MAX:
+        return None
+    return _winevt_decode(r.stdout or b'')
+
+
+def _winevt_ts_ms(stamp):
+    """Epoch milliseconds of an event's SystemTime ('2026-11-18T00:23:45.123456700Z', UTC), or now when it does not read."""
+    try:
+        import calendar
+        return calendar.timegm(time.strptime(str(stamp)[:19], '%Y-%m-%dT%H:%M:%S')) * 1000
+    except Exception:
+        return int(time.time() * 1000)
+
+
+def _winevt_valid_ref(m):
+    """A character reference as it stands when it names a character XML 1.0 allows, a space when it does not (a parser refuses the whole event for one)."""
+    n = int(m.group(1), 16) if m.group(1) else int(m.group(2))
+    ok = n in (9, 10, 13) or 0x20 <= n <= 0xd7ff or 0xe000 <= n <= 0xfffd or 0x10000 <= n <= 0x10ffff
+    return m.group(0) if ok else ' '
+
+
+def _winevt_event(chunk):
+    """One <Event>...</Event> as {'rid', 'id', 'ts', 'provider', 'data'}, or None when it cannot even be numbered.
+
+    The record id, the event id and the time are read from the text with a pattern that takes digits only, so an event whose text a parser would refuse still has them.
+    Its fields are read with the standard library's parser, which expands a declared entity: a chunk that holds a declaration (`<!`) is never parsed, and a character
+    that XML 1.0 forbids (a person can type one into a user name) is made a space first. An event that still does not parse is kept without its fields: a failed
+    logon that cannot be read is still a failed logon, and an event that stopped the cursor would let one bad name hide every later event of its id.
+    """
+    m_rid = _WINEVT_RID.search(chunk)
+    m_id = _WINEVT_EID.search(chunk)
+    if not m_rid or not m_id:
+        return None
+    m_ts = _WINEVT_TIME.search(chunk)
+    ev = {'rid': int(m_rid.group(1)), 'id': int(m_id.group(1)), 'ts': _winevt_ts_ms(m_ts.group(1) if m_ts else ''), 'provider': '', 'data': {}}
+    if '<!' in chunk or len(chunk) > _WINEVT_PARSE_MAX:
+        return ev
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(_WINEVT_BAD_REF.sub(_winevt_valid_ref, _WINEVT_BAD_CHAR.sub(' ', chunk)))
+    except ET.ParseError:
+        return ev
+
+    def local(tag):
+        return tag.rsplit('}', 1)[-1] if isinstance(tag, str) else ''
+
+    def child(node, name):
+        return next((c for c in node if local(c.tag) == name), None)
+
+    sysel = child(root, 'System')
+    prov = child(sysel, 'Provider') if sysel is not None else None
+    ev['provider'] = (prov.get('Name') if prov is not None else '') or ''
+    ed = child(root, 'EventData')
+    for i, d in enumerate(list(ed)[:_WINEVT_DATA_MAX] if ed is not None else []):
+        if local(d.tag) == 'Data':
+            ev['data'].setdefault(d.get('Name') or 'Data%d' % i, d.text or '')
+    ud = child(root, 'UserData')            # 1102 and 104 keep their fields here, one level down
+    for part in list(ud)[:1] if ud is not None else []:
+        for leaf in list(part)[:_WINEVT_DATA_MAX]:
+            ev['data'].setdefault(local(leaf.tag), leaf.text or '')
+    return ev
+
+
+def _winevt_parse(text):
+    """The events in wevtutil's /f:xml output: [{'rid', 'id', 'ts', 'provider', 'data'}] (an empty list for an empty log), or None when the text holds no event at all
+    (an error message, a cut-off answer): nothing is then read from it and the cursor stays. wevtutil prints one <Event> after another with no root, so each is taken on
+    its own; one that cannot be parsed does not take the rest with it (see _winevt_event)."""
+    if not isinstance(text, str):
+        return None
+    if not text.strip():
+        return []
+    chunks = _WINEVT_EVENT.findall(text)
+    if not chunks:
+        return None
+    return [e for e in (_winevt_event(c) for c in chunks[:_WINEVT_MAX_EVENTS]) if e]
+
+
+def _winevt_clean(v, limit=_WINEVT_FIELD_MAX):
+    """A text from an event for a log line: control characters, the line and paragraph separators and the characters that reorder or hide text become spaces, runs of
+    white space become one, and it is cut at `limit` characters."""
+    s = ''.join(' ' if (ord(c) < 32 or 0x7f <= ord(c) <= 0x9f or c in _WINEVT_HIDDEN) else c for c in str(v if v is not None else ''))
+    return ' '.join(s.split())[:limit]
+
+
+def _winevt_q(v, limit=_WINEVT_FIELD_MAX):
+    """A text in double quotes. A double quote inside it becomes a single quote, so a text cannot end its own quotes and carry on as another field."""
+    return '"%s"' % _winevt_clean(v, limit).replace('"', "'")
+
+
+def _winevt_tok(v):
+    return ''.join(c for c in str(v if v is not None else '')[:_WINEVT_FIELD_MAX] if c in _WINEVT_TOKEN_CHARS) or '-'
+
+
+def _winevt_line(ev):
+    """One log line for a parsed event: `[4625] failed logon rid=1048576 source=203.0.113.50 ... user="bob"`. The id is written from the event's own number."""
+    eid, data = ev['id'], dict(ev['data'])
+    label, fields = _WINEVT_FORMATS.get(eid, (None, None))
+    if eid == 4698:                                   # the program a new scheduled task runs is inside its XML definition
+        m = _WINEVT_TASK_CMD.search(str(data.get('TaskContent') or ''))
+        data['@TaskCommand'] = ((m.group(1) + ' ' + (m.group(2) or '')).strip()) if m else ''
+    parts = ['[%d]' % eid]
+    if label is None:                                 # not one of the eight: the provider, and what the event carries
+        parts.append(_winevt_q(ev['provider']))
+        fields = tuple((_winevt_tok(k).lower()[:24], k, 'q') for k in list(data)[:6])
+    else:
+        parts.append(label)
+    parts.append('rid=%d' % ev['rid'])
+    parts += ['%s=%s' % (key, _winevt_tok(data.get(src))) for key, src, kind in fields if kind == 'tok']
+    parts += ['%s=%s' % (key, _winevt_q(data.get(src), _WINEVT_COMMAND_MAX if src == '@TaskCommand' else _WINEVT_FIELD_MAX))
+              for key, src, kind in fields if kind == 'q']
+    return ' '.join(parts)[:_WINEVT_LINE_MAX]
+
+
+def _winevt_collect(watch, cursor, run=None):
+    """Read what `watch` asks for. Returns (units, baseline, advance).
+
+    units     {'eventlog.Security.4625': [{'message': line, 'ts': ms}, ...]} to send
+    baseline  {channel: {id: record}}: the cursors as they stand now, to remember at once (a first sight, a cleared log, an id no longer asked for dropped)
+    advance   {channel: {id: record}}: the record of the last event in each unit, to remember once the server has taken the units
+    `run` takes an argument list and answers wevtutil's output; the tests hand in one that does not need Windows.
+    """
+    run = run or _winevt_run
+    started = time.time()
+    runs = sent = 0
+    units, baseline, advance = {}, {}, {}
+    for ch in _WINEVT_CHANNELS:
+        ids = watch.get(ch)
+        if not ids:
+            continue
+        if runs >= _WINEVT_MAX_RUNS or time.time() - started > _WINEVT_BUDGET_S:
+            break
+        runs += 1
+        seen = _winevt_parse(run(_wevtutil_args(ch, count=1, newest=True)))
+        if seen is None:
+            continue                                  # unreadable (no right to read it, no such channel): nothing is read, nothing moves
+        newest = max((e['rid'] for e in seen), default=0)      # a log with no event yet has newest record 0: whatever comes is new
+        old = cursor.get(ch) if isinstance(cursor.get(ch), dict) else {}
+        cur = {str(i): old[str(i)] for i in ids if isinstance(old.get(str(i)), int) and not isinstance(old.get(str(i)), bool) and old[str(i)] >= 0}
+        if any(v > newest for v in cur.values()):     # the log was cleared: its records start again from 1
+            cur = {k: 0 for k in cur}
+        for eid in ids:
+            key = str(eid)
+            if key not in cur:
+                cur[key] = newest                     # first sight: start from here
+                continue
+            if runs >= _WINEVT_MAX_RUNS or sent >= _WINEVT_MAX_LINES or time.time() - started > _WINEVT_BUDGET_S:
+                break
+            runs += 1
+            found = _winevt_parse(run(_wevtutil_args(ch, eid, cur[key], _WINEVT_PER_ID)))
+            events = [e for e in (found or []) if e['id'] == eid and e['rid'] > cur[key]]
+            events.sort(key=lambda e: e['rid'])
+            events = events[:_WINEVT_MAX_LINES - sent]
+            if not events:
+                continue
+            units['eventlog.%s.%d' % (ch, eid)] = [{'message': _winevt_line(e), 'ts': e['ts']} for e in events]
+            advance.setdefault(ch, {})[key] = events[-1]['rid']
+            sent += len(events)
+        baseline[ch] = cur
+    return units, baseline, advance
+
+
+def _winevt_cursor_path():
+    return os.path.join(_data_dir(), _WINEVT_CURSOR_FILE)
+
+
+def _load_winevt_cursor():
+    try:
+        with open(_winevt_cursor_path(), 'r', encoding='utf-8') as f:
+            c = json.load(f)
+        return c if isinstance(c, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_winevt_cursor(cur):
+    try:
+        os.makedirs(_data_dir(), exist_ok=True)
+        tmp = _winevt_cursor_path() + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(cur, f)
+        os.replace(tmp, _winevt_cursor_path())
+    except Exception:
+        pass
+
+
+def _submit_event_logs(creds, poll_count):
+    """Read the events the server asked for and POST them to /api/logs as units. Runs at every check-in; does nothing until the server has asked for an event.
+
+    The cursors a first sight or a cleared log changed are saved at once; the ones that mark events as sent are saved only after the server took them."""
+    global _winevt_cursor
+    if not _eventlog_watch:
+        if _winevt_cursor:                            # nothing is asked for now: a later ask starts from a fresh first sight, not from a stale record
+            _winevt_cursor = {}
+            _save_winevt_cursor(_winevt_cursor)
+        return
+    if _winevt_cursor is None:
+        _winevt_cursor = _load_winevt_cursor()
+    units, baseline, advance = _winevt_collect(_eventlog_watch, _winevt_cursor)
+    merged = {ch: v for ch, v in _winevt_cursor.items() if ch in _eventlog_watch and isinstance(v, dict)}
+    merged.update({ch: dict(v) for ch, v in baseline.items()})
+    if merged != _winevt_cursor:
+        _winevt_cursor = merged
+        _save_winevt_cursor(_winevt_cursor)
+    if not units:
+        return
+    try:
+        _post_json(creds.get('server_url', '') + '/api/logs',
+                   {'device_id': creds.get('device_id', ''), 'token': creds.get('token', ''), 'units': units})
+    except Exception as e:
+        log.debug('event log: submission failed: %s', e)
+        return
+    for ch, ids in advance.items():
+        _winevt_cursor.setdefault(ch, {}).update(ids)
+    _save_winevt_cursor(_winevt_cursor)
 
 
 # v6.3.1: hail-mary log sweep — Windows has no /var/log, so the sweep is a
@@ -4807,13 +5142,17 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _sw = resp.get('services_watched')
         if isinstance(_sw, list):
             _watched_services = [str(s) for s in _sw if str(s).strip()][:50]
-        # v6.4.1: log_watch file-path rules — tail the named files. Unit-name
-        # rules stay with the Event Log channel (the "[4625]" style).
-        global _log_watch_paths
+        # v6.4.1: log_watch file-path rules — tail the named files.
+        # A rule on a Windows event (an `eventlog.<Channel>.<id>` unit) names the channel and
+        # event id to read: the host's own rules, and the event units of the fleet-wide rules
+        # that the server adds at the end of the list. A list with none stops the reading, and
+        # an answer with no list leaves what was being read alone.
+        global _log_watch_paths, _eventlog_watch
         _lw = resp.get('log_watch')
         if isinstance(_lw, list):
             _log_watch_paths = [str(r.get('path')) for r in _lw
                                 if isinstance(r, dict) and r.get('path')][:20]
+            _eventlog_watch = _winevt_watch_from_rules(_lw)
         # v6.2.0: watched files for drift (parity with the Linux agent).
         _wf = resp.get('watched_files')
         if isinstance(_wf, list):
@@ -4882,6 +5221,11 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _submit_software_inventory(creds, poll_count)
     except Exception as _e:
         log.debug('software list submit error: %s', _e)
+    # The Windows events the log rules ask for, at every check-in (nothing is read until the server has asked for one).
+    try:
+        _submit_event_logs(creds, poll_count)
+    except Exception as _e:
+        log.debug('event log submit error: %s', _e)
     return resp, new_pending
 
 

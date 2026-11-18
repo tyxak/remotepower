@@ -228,7 +228,7 @@ Parity with the Linux agent for the core management surface:
 | Patch apply | package manager | PSWindowsUpdate → COM fallback (never auto-reboots) |
 | **Third-party patch** (winget) | flatpak/snap/pip/npm (detect) | `winget:` detect **and remediate** |
 | AV posture | ClamAV/rkhunter | Windows Defender (`Get-MpComputerStatus`) |
-| Event Log | journalctl | `Get-WinEvent` — System/Application **+ Security**, RecordId cursor that survives a **log clear** (no dup/loss), Event IDs in each line for alert rules |
+| Event Log | journalctl | `Get-WinEvent` — System/Application **+ Security**, RecordId cursor that survives a **log clear** (no dup/loss), Event IDs in each line: these lines are the host's journal. **Log rules** read the events they name through `wevtutil`, as `eventlog.<Channel>.<id>` units with their own cursor — see [Windows event rules](log-watch.md#windows-event-rules) |
 | Privileged-group tripwire | `sudo`/`wheel` | `Administrators` (`Get-LocalGroupMember`) |
 | Listening ports | yes | yes |
 | Secrets-on-disk scan | yes | yes |
@@ -480,6 +480,7 @@ Everything lives under `%ProgramData%\RemotePower\`:
 | `agent.log` | rotating agent log |
 | `eventlog_cursor.json` | per-channel Event Log RecordId cursor |
 | `pkg_hash` | the fingerprint of the installed-software list the server took last; the list is sent again only when it changes |
+| `winevent_cursor.json` | for each Event Log channel and event id a log rule reads, the RecordId of the last event sent |
 | `audit-mode` | marker: read-only mode (refuse write commands) |
 | `release.pub` | pinned release public key (enables signature enforcement) |
 | `require-signed-updates` | marker: refuse any unsigned self-update |

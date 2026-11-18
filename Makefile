@@ -59,6 +59,7 @@ LINT_SRC := server/cgi-bin/safe_opener.py \
             server/cgi-bin/mcp_http.py \
             server/cgi-bin/traffic.py \
             server/cgi-bin/detections.py \
+            server/cgi-bin/win_events.py \
             server/cgi-bin/host_purge.py \
             tests/test_v190.py \
             tests/test_v1100.py \
@@ -112,6 +113,7 @@ TYPECHECK_SRC := server/cgi-bin/safe_opener.py \
                  server/cgi-bin/mcp_http.py \
                  server/cgi-bin/traffic.py \
                  server/cgi-bin/detections.py \
+                 server/cgi-bin/win_events.py \
                  server/cgi-bin/host_purge.py \
                  server/cgi-bin/importers.py
 PIP_FLAGS ?= --break-system-packages

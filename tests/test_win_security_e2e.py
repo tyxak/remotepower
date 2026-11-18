@@ -12,10 +12,17 @@ default administrator of a new install.
 
 Self-skips without playwright, chromium and gunicorn like its siblings, and fails instead of skipping when RP_BROWSER_REQUIRE is set.
 """
+import importlib.util
+import json
 import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
+import urllib.error
+import urllib.request
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import browser_required  # noqa: E402
@@ -26,17 +33,62 @@ _GATE = browser_available() or browser_required.required()
 if browser_available():
     from playwright.sync_api import sync_playwright
 
+_ROOT = Path(__file__).resolve().parent.parent
+_CGI = _ROOT / 'server' / 'cgi-bin'
+
 WIDTHS = ((1440, 900), (768, 1024), (390, 844))
 REGISTRY_HINT = ('The agent reads one value under HKLM\\SOFTWARE or HKLM\\SYSTEM on Windows hosts, and never changes it. Write a number as 5 or 0x5. '
                  'A text is compared without regard to case. A value that is not set passes “is not set” and “does not equal”, and fails the other conditions.')
 LANGS = ('de', 'ar')            # German is the long-word case, Arabic the right-to-left one
 
 
+def seed_data_dir(data_dir, hosts, stores):
+    """Hosts and stores written through the storage layer in a subprocess (the way the harness clears the first-login flag), so it holds on every backend.
+
+    `hosts` maps a host id to its fields (`token` is the plain token the host's heartbeat will send); `stores` maps the name of an api.py storage attribute
+    to the value saved in it. The default administrator is created by the same import."""
+    spec = {'hosts': hosts, 'stores': stores}
+    code = ('import sys, json, time\n'
+            'sys.path.insert(0, sys.argv[1])\n'
+            'import api\n'
+            'spec = json.loads(sys.argv[2])\n'
+            'now = int(time.time())\n'
+            'devs = {}\n'
+            'for did, d in spec["hosts"].items():\n'
+            '    row = {"name": did, "hostname": did, "last_seen": now, "enrolled": now - 86400 * 30, "tags": [], "group": "", "sysinfo": {},\n'
+            '           "agentless": False, "ip": "10.0.0.5", "version": "8.0.1", "monitored": True}\n'
+            '    row.update(d)\n'
+            '    devs[did] = row\n'
+            'api.save(api.DEVICES_FILE, devs)\n'
+            'for attr, value in spec["stores"].items():\n'
+            '    api.save(getattr(api, attr), value)\n')
+    done = subprocess.run([sys.executable, '-c', code, str(_CGI), json.dumps(spec)], env=dict(os.environ, RP_DATA_DIR=str(data_dir)),
+                          capture_output=True, timeout=120)
+    if done.returncode != 0:
+        raise RuntimeError('seeding the data directory failed: ' + done.stderr.decode(errors='replace')[-600:])
+
+
+def post_json(base, path, body):
+    """(status, body) of a POST to the stack the way an agent makes one: no session, the host's own token in the body."""
+    req = urllib.request.Request(base + path, data=json.dumps(body).encode(), headers={'Content-Type': 'application/json'}, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, json.loads(r.read() or b'{}')
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b'{}')
+
+
 @unittest.skipUnless(_GATE, SKIP_REASON)
 class _Rendered(unittest.TestCase):
+    HOSTS = {}                  # id -> {'os': ..., 'token': ...}: written to the data directory before the stack starts
+    STORES = {}                 # api attribute name -> the value saved under it
+
     @classmethod
     def build_data_dir(cls):
-        return tempfile.mkdtemp(prefix='rp-winsec-e2e-')
+        data_dir = tempfile.mkdtemp(prefix='rp-winsec-e2e-')
+        if cls.HOSTS or cls.STORES:
+            seed_data_dir(data_dir, cls.HOSTS, cls.STORES)
+        return data_dir
 
     @classmethod
     def setUpClass(cls):
@@ -247,6 +299,177 @@ class TestRegistryCheckDialog(_Rendered):
         # the one 400 is the refusal that was asked for
         self.assertEqual([p for p in self.problems if not (p[0] == 'http' and p[1] == 400 and p[2].endswith('/api/checks/custom'))
                           and not (p[0] == 'console' and '400' in p[1])], [])
+
+
+def _load_windows_agent():
+    """The real Windows agent, imported on this machine (nothing in it runs unless called)."""
+    spec = importlib.util.spec_from_file_location('rp_win_agent_e2e', _ROOT / 'client' / 'remotepower-agent-win.py')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestLogRuleTemplatePicker(_Rendered):
+    """G06: the Ready-made Windows rule list of the Add log rule dialog, and what the text of an event does once it is a log line."""
+    HOSTS = {'winhost': {'os': 'Windows 11 Pro', 'token': 'e2e-win-token'}, 'linhost': {'os': 'Debian GNU/Linux 12', 'token': 'e2e-lin-token'}}
+    HOSTILE = '<img src=x onerror=window.__pwned=1>'
+
+    def open_dialog(self, page, tab='global'):
+        page.evaluate("() => showPage('logs')")
+        page.wait_for_function("() => { const s = document.getElementById('logs-device-filter'); return s && s.options.length >= 3 && typeof logRulePickTemplate === 'function'; }",
+                               timeout=40000)
+        page.evaluate("t => switchRulesTab(t)", tab)
+        page.evaluate("() => openAddRuleModal()")
+        page.wait_for_selector('#log-rule-modal', state='visible', timeout=10000)
+        page.wait_for_selector('#log-rule-tpl-row', state='visible', timeout=5000)
+
+    def templates(self, page):
+        return page.evaluate("() => LOG_RULE_TEMPLATES.map(t => ({id: t.id, label: t.label, note: t.note, unit: t.unit, pattern: t.pattern, threshold: t.threshold,"
+                             " severity: t.severity, message: t.message}))")
+
+    def test_each_template_fills_the_form_and_its_note_names_what_the_event_needs(self):
+        page = self.open_app()
+        self.open_dialog(page)
+        tpls = self.templates(page)
+        self.assertEqual(len(tpls), 8)
+        self.assertEqual(page.evaluate("() => document.getElementById('log-rule-tpl').options.length"), 9, 'the "write my own" row and the eight rules')
+        for t in tpls:
+            with self.subTest(t['id']):
+                page.select_option('#log-rule-tpl', t['id'])
+                self.assertEqual(page.input_value('#log-rule-unit'), t['unit'])
+                self.assertEqual(page.input_value('#log-rule-pattern'), t['pattern'])
+                self.assertEqual(page.input_value('#log-rule-threshold'), str(t['threshold']))
+                self.assertEqual(page.input_value('#log-rule-severity'), t['severity'])
+                self.assertEqual(page.input_value('#log-rule-template'), t['message'])
+                self.assertEqual(page.input_value('#log-rule-exclude'), '')
+                self.assertTrue(page.is_checked('input[name="log-rule-source"][value="unit"]'))
+                self.assertEqual(page.inner_text('#log-rule-tpl-note').strip(), t['note'])
+        page.select_option('#log-rule-tpl', '')
+        self.assertEqual(page.inner_text('#log-rule-tpl-note').strip(), '', 'choosing "write my own" takes the note away')
+        self.assertEqual(self.problems, [])
+
+    def test_the_dialog_fits_at_three_widths_in_english_german_and_arabic_with_the_longest_note_showing(self):
+        for width, height in WIDTHS:
+            page = self.open_app(width, height)
+            self.open_dialog(page)
+            longest = max(self.templates(page), key=lambda t: len(t['note']))
+            page.select_option('#log-rule-tpl', longest['id'])
+            for lang in ('en',) + LANGS:
+                with self.subTest(width=width, lang=lang):
+                    self.set_lang(page, lang)
+                    if lang == 'ar':
+                        self.assertEqual(page.evaluate("document.documentElement.dir"), 'rtl')
+                    self.assertEqual(self.no_horizontal_overflow(page, '#log-rule-modal .modal'), [])
+            self.assertEqual(self.problems, [])
+
+    def test_the_instruments_can_say_no(self):
+        page = self.open_app(768, 1024)
+        self.open_dialog(page)
+        page.evaluate("""() => { const d = document.createElement('div'); d.id = 'plant'; d.textContent = 'x';
+                                 d.style.width = '3000px'; document.querySelector('#log-rule-tpl-row').appendChild(d); }""")
+        self.assertTrue(self.no_horizontal_overflow(page, '#log-rule-modal .modal'), 'the measure missed a 3000 px element')
+        page.evaluate("() => document.getElementById('plant').remove()")
+        self.assertEqual(self.no_horizontal_overflow(page, '#log-rule-modal .modal'), [])
+        page.evaluate("() => { const e = document.getElementById('log-rule-tpl'); e.style.outline = 'none'; e.style.boxShadow = 'none'; }")
+        page.focus('#log-rule-device')
+        got = self.tab_to(page, 'log-rule-tpl')
+        self.assertIsNotNone(got)
+        self.assertFalse(got['ring'], 'a control with its ring switched off was reported as having one')
+
+    def test_the_list_the_note_and_the_options_read_in_german_and_arabic_whichever_comes_first(self):
+        page = self.open_app()
+        self.open_dialog(page)
+        tpls = self.templates(page)
+        pick = next(t for t in tpls if t['id'] == 'administrators-member-added')
+        for lang in LANGS:
+            # the language is chosen while the dialog is open: the label, the first row, the rules and the note change
+            self.set_lang(page, lang)
+            page.select_option('#log-rule-tpl', pick['id'])
+            page.wait_for_timeout(300)
+            for sel, key in (('label[for="log-rule-tpl"]', 'Ready-made Windows rule'), ('#log-rule-tpl option[value=""]', 'None, I will write my own'),
+                             ('#log-rule-tpl option[value="%s"]' % pick['id'], pick['label']), ('#log-rule-tpl-note', pick['note'])):
+                with self.subTest(order='open first', lang=lang, key=key[:30]):
+                    shown = page.evaluate("s => document.querySelector(s).textContent.trim()", sel)
+                    want = page.evaluate("k => RPi18n.t(k)", key)
+                    self.assertNotEqual(want, key, 'the dictionary has no entry')
+                    self.assertEqual(shown, want)
+        # the language is already German when the dialog opens: the options are made then, and are in German
+        page.evaluate("() => closeModal('log-rule-modal')")
+        self.set_lang(page, 'de')
+        page.evaluate("() => openAddRuleModal()")
+        page.wait_for_selector('#log-rule-tpl-row', state='visible', timeout=5000)
+        page.wait_for_timeout(400)
+        for t in tpls:
+            shown = page.evaluate("v => document.querySelector('#log-rule-tpl option[value=\"' + v + '\"]').textContent.trim()", t['id'])
+            want = page.evaluate("k => RPi18n.t(k)", t['label'])
+            with self.subTest(order='language first', template=t['id']):
+                self.assertNotEqual(want, t['label'])
+                self.assertEqual(shown, want)
+
+    def test_the_picker_is_reached_by_keyboard_shows_a_focus_ring_and_a_key_press_fills_the_form(self):
+        page = self.open_app()
+        self.open_dialog(page, tab='device')
+        page.focus('#log-rule-device')
+        got = self.tab_to(page, 'log-rule-tpl')
+        self.assertIsNotNone(got, 'the picker is not on the tab path')
+        self.assertTrue(got['ring'], 'the picker has no visible focus ring: %s' % got)
+        first = self.templates(page)[0]
+        page.keyboard.press('ArrowDown')
+        page.wait_for_function("u => document.getElementById('log-rule-unit').value === u", arg=first['unit'], timeout=5000)
+        self.assertEqual(page.input_value('#log-rule-pattern'), first['pattern'])
+
+    def test_a_rule_that_is_being_edited_has_no_picker_and_adding_one_brings_it_back(self):
+        page = self.open_app()
+        self.open_dialog(page)
+        page.select_option('#log-rule-tpl', 'audit-log-cleared')
+        page.click('#log-rule-modal .btn-primary')
+        page.wait_for_function("() => document.getElementById('logs-rules-global-tbody').textContent.includes('eventlog.Security.1102')", timeout=15000)
+        page.click('#logs-rules-global-tbody button[data-action-btn="_editLogRuleBtn"]')
+        page.wait_for_selector('#log-rule-modal', state='visible', timeout=5000)
+        self.assertEqual(page.input_value('#log-rule-unit'), 'eventlog.Security.1102')
+        self.assertFalse(page.is_visible('#log-rule-tpl-row'), 'a rule that exists is not started from a template')
+        page.evaluate("() => closeModal('log-rule-modal')")
+        page.evaluate("() => openAddRuleModal()")
+        self.assertTrue(page.is_visible('#log-rule-tpl-row'))
+        self.assertEqual(page.input_value('#log-rule-tpl'), '', 'the picker starts on its first row')
+        self.assertEqual(page.input_value('#log-rule-unit'), '', 'the form is empty, not the last template')
+
+    def test_a_saved_template_is_asked_for_by_the_host_and_what_a_name_in_an_event_carries_is_only_ever_text(self):
+        win = _load_windows_agent()
+        import win_event_samples as S
+        page = self.open_app()
+        self.open_dialog(page)
+        page.select_option('#log-rule-tpl', 'failed-logons')
+        page.click('#log-rule-modal .btn-primary')
+        page.wait_for_function("() => document.getElementById('logs-rules-global-tbody').textContent.includes('eventlog.Security.4625')", timeout=15000)
+        rules = page.evaluate("async () => (await api('GET', '/logs/rules/global')).rules.filter(r => r.unit === 'eventlog.Security.4625')")
+        self.assertEqual([(r['threshold'], r['severity']) for r in rules], [(10, 'WARN')])
+        # the Windows host is asked for the event on its next check-in, and the Linux one is not
+        st, resp = post_json(self.base, '/api/heartbeat', {'device_id': 'winhost', 'token': 'e2e-win-token', 'sysinfo': {}})
+        self.assertEqual(st, 200, resp)
+        self.assertIn({'unit': 'eventlog.Security.4625'}, resp['log_watch'])
+        st, resp = post_json(self.base, '/api/heartbeat', {'device_id': 'linhost', 'token': 'e2e-lin-token', 'sysinfo': {}})
+        self.assertEqual(st, 200, resp)
+        self.assertNotIn('eventlog.Security.4625', [r.get('unit') for r in resp['log_watch']])
+        # ten failed logons, one of them by a user whose name is markup, as the real agent writes them
+        now_ms = int(time.time() * 1000)
+        lines = [{'message': win._winevt_line(win._winevt_parse(S.failed_logon(rid=900 + i, user=self.HOSTILE if i == 0 else 'bob%d' % i))[0]), 'ts': now_ms + i}
+                 for i in range(10)]
+        self.assertIn('user="%s"' % self.HOSTILE, lines[0]['message'], 'the agent keeps the name, and it is cut and quoted only')
+        st, resp = post_json(self.base, '/api/logs', {'device_id': 'winhost', 'token': 'e2e-win-token', 'units': {'eventlog.Security.4625': lines}})
+        self.assertEqual(st, 200, resp)
+        page.evaluate("() => showPage('logs')")
+        page.wait_for_function("() => typeof startLogsTail === 'function' && document.getElementById('logs-viewer')", timeout=40000)
+        page.evaluate("() => startLogsTail()")
+        page.wait_for_function("(h) => document.getElementById('logs-viewer').textContent.includes(h)", arg=self.HOSTILE, timeout=20000)
+        self.assertIsNone(page.query_selector('#logs-viewer img'), 'a name in an event became an element of the page')
+        self.assertIsNone(page.evaluate("() => window.__pwned || null"))
+        # the alert shows the matched line as text too
+        page.evaluate("() => showPage('alerts')")
+        page.wait_for_function("(h) => document.body.textContent.includes(h)", arg=self.HOSTILE, timeout=30000)
+        self.assertEqual(page.evaluate("() => document.querySelectorAll('img[src=\"x\"]').length"), 0)
+        self.assertIsNone(page.evaluate("() => window.__pwned || null"))
+        self.assertEqual(self.problems, [])
 
 
 if __name__ == '__main__':

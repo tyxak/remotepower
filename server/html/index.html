@@ -12932,6 +12932,11 @@ nextcloud mem=95 sustain=6</pre>
   <div class="form-group isl-282 d-none" id="log-rule-global-hint">
     Fleet-wide rule: applies to every host that submits logs for this unit. Use <code>*</code> to match any unit on any host (useful for patterns like <code>OOMkilled</code>).
   </div>
+  <div class="form-group" id="log-rule-tpl-row">
+    <label for="log-rule-tpl">Ready-made Windows rule</label>
+    <select id="log-rule-tpl" class="form-input" data-change="logRulePickTemplate" aria-label="Ready-made Windows rule"><option value="">None, I will write my own</option></select>
+    <div class="meta-sm" id="log-rule-tpl-note"></div>
+  </div>
   <div class="form-group">
     <label>Source type</label>
     <div class="isl-267">
@@ -12952,7 +12957,7 @@ nextcloud mem=95 sustain=6</pre>
   <div class="form-group"><label>Pattern (regex, case-insensitive)</label><input type="text" id="log-rule-pattern" placeholder="error|critical|FATAL" maxlength="128" class="ff-mono" aria-label="Pattern (regex, case-insensitive)"></div>
   <div class="form-group"><label>Threshold (min matches to fire)</label><input type="number" id="log-rule-threshold" value="1" min="1" max="100" aria-label="Threshold (min matches to fire)"></div>
   <div class="form-group"><label>Severity</label>
-    <select id="log-rule-severity" aria-label="Severity">
+    <select id="log-rule-severity" class="form-input" aria-label="Severity">
       <option value="WARN" selected>WARN — fire as warning (default)</option>
       <option value="CRIT">CRIT — fire as critical</option>
       <option value="OK">OK — silent (acknowledge expected pattern, no webhook)</option>

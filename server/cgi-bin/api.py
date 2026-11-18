@@ -975,6 +975,7 @@ import notify as notify_mod    # notification-channel payload builders (pure)
 from textfmt import agree, plural  # noqa: E402, F401 — '3 hosts', never 'host(s)'; handler modules reach both as A.plural / A.agree
 import filebackup as filebackup_mod   # noqa: F401  v6.3.0: structured file-backup command gen (pure); A.filebackup_mod in backups_handlers
 import checks as checks_mod    # per-host Checks engine (pure)
+import win_events as win_events_mod    # the Windows event log as a source of log rules: which units exist, which a host is asked to read (pure)
 import drive_temp as drive_temp_mod   # v7.4.4 (#54): temperature lines for drives (pure)
 import time_periods as time_periods_mod   # 7.4.9: named time periods, the one reading of "when" (pure)
 import exposure_scope as exposure_scope_mod   # v7.4.5 (#55): an "internal" host and the grade of its listeners (pure)
@@ -25893,6 +25894,19 @@ def handle_heartbeat():
     # for an empty list meant disabling/deleting a device's LAST check left the
     # agent evaluating (and quarantining on) the stale set until restart.
     common_resp['agent_checks'] = _agent_checks
+    # The Windows event log, for the rules that ask for an event. A host's own rules are in its log_watch list already and the agent reads the event units out of it.
+    # A fleet-wide rule is matched here and is not in that list, so a Windows host is handed the event units of those (the unit only, win_events.fleet_unit_rules)
+    # at the end of the list: its agent then reads the events of both, and the list holds none once the last rule is gone, which stops the reading. The other agents
+    # have no event log and are handed nothing extra, so no new key travels in the answer.
+    try:
+        if _device_os_family(saved_dev) == 'windows':
+            _glr = (_load_ro(LOG_RULES_GLOBAL_FILE) or {}).get('rules') if backend_exists(LOG_RULES_GLOBAL_FILE) else []
+            _ev_extra = win_events_mod.fleet_unit_rules(saved_dev.get('log_watch'), _glr)
+            if _ev_extra:
+                _own_lw = common_resp.get('log_watch')
+                common_resp['log_watch'] = (list(_own_lw) if isinstance(_own_lw, list) else []) + _ev_extra
+    except Exception as _ewe:
+        sys.stderr.write(f"[remotepower] event log watch dispatch failed: {type(_ewe).__name__}: {_ewe}\n")
     # 7.4.9: the monitors assigned to this host to probe from here. The key is always sent to a Linux agent, even empty, so a
     # monitor that was removed or paused stops being probed; other agents never see it.
     try:
@@ -74253,6 +74267,8 @@ def _sanitize_log_unit(name):
     caught it because they all drove the agent side only. The path shape
     mirrors what the rule-save side accepts: absolute POSIX or Windows path,
     no traversal, no globs, no control characters."""
+    if win_events_mod.is_event_unit(name):
+        return name if win_events_mod.parse_unit(name) else None
     if isinstance(name, str) and name.startswith('file:'):
         p = name[5:].strip()
         if (0 < len(p) <= 512 and '..' not in p
@@ -75999,6 +76015,8 @@ def handle_services_config(dev_id):
             else:
                 unit = _sanitize_unit_name(r.get('unit', ''))
                 file_path = None
+                if unit and win_events_mod.is_event_unit(unit) and not win_events_mod.parse_unit(unit):
+                    respond(400, {'error': win_events_mod.BAD_UNIT})    # dropped quietly like a bad pattern, the rule would look saved and never fire
             pat  = _sanitize_str(r.get('pattern', ''), 128, allow_empty=False)
             # v6.4.0 (SEC): drop a rule whose pattern is a ReDoS shape (nested
             # unbounded quantifiers) — the agent + server both run it against
@@ -76249,7 +76267,9 @@ def handle_log_submit():
                     # nginx.access, kernel) — users configure those rules for
                     # systemd service journals, not file-based log sources.
                     if rule_unit == '*':
-                        if unit in _VIRTUAL_UNITS:
+                        # the event log units (a Windows host's events, one unit for each event id) are the same kind of source: a rule written
+                        # for service journals ("error|fail") would otherwise match every failed logon
+                        if unit in _VIRTUAL_UNITS or win_events_mod.is_event_unit(unit):
                             continue
                     elif rule_unit != unit:
                         continue
@@ -76488,6 +76508,8 @@ def _validate_global_rule(body):
     # Allow '*' OR a valid unit name OR a 'file:<path>' synthetic unit
     if not file_path and unit != '*' and not _sanitize_unit_name(unit):
         return None, 'invalid unit name'
+    if not file_path and win_events_mod.is_event_unit(unit) and not win_events_mod.parse_unit(unit):
+        return None, win_events_mod.BAD_UNIT      # an event log unit no agent would feed would never fire: say so now
     if not pattern:
         return None, 'pattern is required'
     if not (1 <= threshold <= 100):

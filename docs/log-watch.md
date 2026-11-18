@@ -44,7 +44,7 @@ and email, like any other alert. Press **+ Add rule**. The two tabs hold
 
 | Field | Notes |
 |---|---|
-| **Source** | A systemd unit or an absolute file path (the agent tails the file). A fleet-wide rule can use `*` for any unit on any host. A rule matches the unit name exactly. |
+| **Source** | A systemd unit, an absolute file path (the agent tails the file), or on a Windows host an [event log unit](#windows-event-rules) such as `eventlog.Security.4625`. A fleet-wide rule can use `*` for any unit on any host, except an event log unit. A rule matches the unit name exactly. |
 | **Pattern** | A regular expression, up to 128 characters. A pattern with nested unbounded quantifiers such as `(a+)+` is refused, because a crafted line could make it very slow. |
 | **Threshold** | 1 to 100. The rule fires when at least this many matching lines arrive in one delivery from the agent. |
 | **Severity** | `OK`, `WARN` or `CRIT`. An `OK` rule raises nothing. Use it to mark a pattern as expected. |
@@ -53,6 +53,67 @@ and email, like any other alert. Press **+ Add rule**. The two tabs hold
 
 Fleet-wide rules can be added, changed and deleted by admins. Repeat alerts from
 the same host and unit join the open alert in the inbox instead of adding rows.
+
+## Windows event rules
+
+A Windows host has no journal, but its agent can read the Windows event log for a rule. The events it reads are sent as units named after the channel and the event
+id, and a rule on such a unit is an ordinary log rule: the same pattern, threshold, severity and message, and the same `log_alert` alert.
+
+| Unit | Holds |
+|---|---|
+| `eventlog.Security.<id>` | one event id of the Security log |
+| `eventlog.System.<id>` | one event id of the System log |
+| `eventlog.Application.<id>` | one event id of the Application log |
+
+In **+ Add rule**, **Ready-made Windows rule** fills the form for you. The rules below are ready-made. A rule on any other event id of those three logs works the same
+way: type its unit as the source.
+
+| Rule | Unit | Fires when | Severity | Needs |
+|---|---|---|---|---|
+| Failed logons | `eventlog.Security.4625` | 10 or more in one report from the host | WARN | on by default |
+| Account locked out | `eventlog.Security.4740` | at least 1 | WARN | on by default; a domain controller logs it for domain accounts |
+| Service installed | `eventlog.System.7045` | at least 1 | WARN | always logged |
+| Service installed | `eventlog.Security.4697` | at least 1 | WARN | the audit policy *Audit Security System Extension* |
+| Scheduled task created | `eventlog.Security.4698` | at least 1 | WARN | the audit policy *Audit Other Object Access Events* |
+| Local user created | `eventlog.Security.4720` | at least 1 | WARN | on by default |
+| Member added to Administrators | `eventlog.Security.4732` | at least 1 | CRIT | on by default |
+| Audit log cleared | `eventlog.Security.1102` | at least 1 | CRIT | always logged |
+
+How it works:
+
+- **Nothing is read until a rule asks.** The server tells each Windows agent which
+  events to read from the rules that apply to that host, its own and the fleet-wide
+  ones. Remove the last rule for an event and the agent stops reading it. A host
+  with no such rule sends nothing, and a Linux or macOS host is never asked.
+- **The threshold counts lines in one report.** The agent reports at every
+  check-in, so "10 or more" means 10 events since the last report, about one poll.
+- **Nothing repeats and nothing is skipped.** For each event the agent remembers
+  the last record it sent and asks only for later ones, oldest first. It starts at
+  the newest record of the log, so turning a rule on does not raise an alert for
+  history. A report the server did not take is read again. At most 50 events for
+  one event id and 300 lines in all go in one report, and the rest follows in the
+  next one.
+- **A cleared log is noticed.** When the log's newest record is older than the last
+  one the agent sent, the log has been cleared and its records started again, and
+  the agent reads what is there now, the clearing itself (event 1102) included.
+- **Limits.** Up to 12 event ids for each log and host. The agent runs as SYSTEM,
+  which is what the Security log needs. A log the agent cannot read is skipped
+  without an error.
+
+A line is built from the fields of the event, not from its message, which is in the
+language of the host. For example:
+
+```
+[4625] failed logon rid=1048576 source=203.0.113.50 type=3 status=0xc000006d substatus=0xc000006a user="bob" domain="CORP" workstation="ATTACKBOX"
+```
+
+A name in an event can have been typed by anyone (the user in a failed logon, a
+workstation name, a service's file), so every text is cut at 64 characters, control
+characters and the characters that reorder or hide text become spaces, and the text
+is put in double quotes, with any double quote inside it turned into a single one. The fixed words and the
+values the system itself writes (an address, a security ID, a status) come first. The
+ready-made patterns start with `^`, so something a person typed cannot match them. The
+Logs page and the alerts show the line as text.
 
 ## Clearing a noisy line
 
@@ -123,6 +184,7 @@ RemotePower with an inbound token: `POST /api/syslog/in/{token}` accepts either
 | A rule never fires | The unit name must match exactly (or use `*` on a fleet-wide rule). The threshold counts lines in one delivery. The exclude pattern or a cleared line may be removing the matches. |
 | The rule is refused when you save it | The pattern is not a valid regular expression, or it has nested unbounded quantifiers. Simplify it. |
 | An alert fires with severity `OK` | It does not. An `OK` rule is a marker only. |
+| A Windows event rule never fires | The event may not be logged: check the audit policy in the table above. Run `wevtutil qe Security /c:1 /rd:true /f:text` on the host as an administrator to see that the log is readable. The rule's unit must be exactly `eventlog.<Channel>.<id>`, and the threshold counts events in one report. |
 
 ## See also
 

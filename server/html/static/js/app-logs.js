@@ -378,6 +378,74 @@ async function loadGlobalLogRules() {
 // instead of an append.
 let _logRuleEditing = null;
 
+// Ready-made rules for a Windows host. The agent reads the event log for a rule on an `eventlog.<Channel>.<id>` unit (docs/log-watch.md), and picking one here fills the
+// form with it. A line made from a Windows event starts with `[<id>]` and fixed words, so a pattern that starts with `^` is not matched by a name someone typed, and the
+// threshold counts the lines of one report from the host, as it does for every log rule. The notes say which audit policy an event needs: Windows writes some events only
+// when its audit policy is on.
+const LOG_RULE_TEMPLATES = [
+  { id: 'failed-logons', label: 'Failed logons (4625), 10 or more in one report', unit: 'eventlog.Security.4625', pattern: '^\\[4625\\] failed logon', threshold: 10, severity: 'WARN',
+    message: '{device}: {count} failed logons in one report. Latest: {sample0}',
+    note: 'Reads event 4625 from the Security log. The rule fires when 10 or more arrive in one report from the host, about one poll. Change the threshold to suit your hosts. Windows logs failed logons by default.' },
+  { id: 'account-locked-out', label: 'Account locked out (4740)', unit: 'eventlog.Security.4740', pattern: '^\\[4740\\] account locked out', threshold: 1, severity: 'WARN',
+    message: '{device}: an account was locked out. {sample0}',
+    note: 'Reads event 4740 from the Security log, raised when an account is locked out. On a domain, the domain controller logs it, so add this rule for those hosts. Windows logs it by default.' },
+  { id: 'service-installed-system', label: 'Service installed, System log (7045)', unit: 'eventlog.System.7045', pattern: '^\\[7045\\] service installed', threshold: 1, severity: 'WARN',
+    message: '{device}: a service was installed. {sample0}',
+    note: 'Reads event 7045 from the System log, raised whenever a new service is installed. Windows always logs it.' },
+  { id: 'service-installed-security', label: 'Service installed, Security log (4697)', unit: 'eventlog.Security.4697', pattern: '^\\[4697\\] service installed', threshold: 1, severity: 'WARN',
+    message: '{device}: a service was installed. {sample0}',
+    note: 'Reads event 4697 from the Security log, raised when a service is installed. It needs the audit policy Audit Security System Extension, which is off by default.' },
+  { id: 'scheduled-task-created', label: 'Scheduled task created (4698)', unit: 'eventlog.Security.4698', pattern: '^\\[4698\\] scheduled task created', threshold: 1, severity: 'WARN',
+    message: '{device}: a scheduled task was created. {sample0}',
+    note: 'Reads event 4698 from the Security log, raised when a scheduled task is created. It needs the audit policy Audit Other Object Access Events, which is off by default.' },
+  { id: 'local-user-created', label: 'Local user created (4720)', unit: 'eventlog.Security.4720', pattern: '^\\[4720\\] user created', threshold: 1, severity: 'WARN',
+    message: '{device}: a user account was created. {sample0}',
+    note: 'Reads event 4720 from the Security log, raised when a user account is created. Windows logs it by default.' },
+  { id: 'administrators-member-added', label: 'Member added to Administrators (4732)', unit: 'eventlog.Security.4732',
+    pattern: '^\\[4732\\] member added rid=[0-9]+ group_sid=S-1-5-32-544( |$)', threshold: 1, severity: 'CRIT',
+    message: '{device}: a member was added to Administrators. {sample0}',
+    note: 'Reads event 4732 from the Security log, raised when a member is added to a group. This rule fires only for the Administrators group, which it finds by its fixed security ID, so it works in every language. Windows logs it by default.' },
+  { id: 'audit-log-cleared', label: 'Audit log cleared (1102)', unit: 'eventlog.Security.1102', pattern: '^\\[1102\\] audit log cleared', threshold: 1, severity: 'CRIT',
+    message: '{device}: the audit log was cleared. {sample0}',
+    note: 'Reads event 1102 from the Security log, raised when the audit log is cleared. Windows always logs it. Someone who clears the log is often hiding what they did.' },
+];
+// The options are built once, from the table above. Adding a rule shows the picker, editing one hides it (a rule that exists is not started from a template).
+function _logRuleTemplatesInit(show) {
+  const row = document.getElementById('log-rule-tpl-row');
+  const sel = document.getElementById('log-rule-tpl');
+  if (!row || !sel) return;
+  row.classList.toggle('d-none', !show);
+  if (!sel.dataset.filled) {
+    LOG_RULE_TEMPLATES.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.id;
+      o.textContent = t.label;
+      sel.appendChild(o);
+    });
+    sel.dataset.filled = '1';
+  }
+  sel.value = '';
+  const note = document.getElementById('log-rule-tpl-note');
+  if (note) note.textContent = '';
+}
+function logRulePickTemplate() {
+  const sel = document.getElementById('log-rule-tpl');
+  const t = LOG_RULE_TEMPLATES.find(x => x.id === (sel && sel.value));
+  const note = document.getElementById('log-rule-tpl-note');
+  if (note) note.textContent = t ? t.note : '';
+  if (!t) return;
+  document.querySelector('input[name="log-rule-source"][value="unit"]').checked = true;
+  _toggleLogRuleSource();
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('log-rule-unit', t.unit);
+  set('log-rule-pattern', t.pattern);
+  set('log-rule-threshold', String(t.threshold));
+  set('log-rule-severity', t.severity);
+  set('log-rule-exclude', '');
+  set('log-rule-template', t.message);
+  _renderLogTemplatePreview();
+}
+
 async function openAddRuleModal() {
   _logRuleEditing = null;
   const isGlobal = (logsRulesTab === 'global');
@@ -399,6 +467,7 @@ async function openAddRuleModal() {
   document.getElementById('log-rule-template').value = '';
   document.querySelector('input[name="log-rule-source"][value="unit"]').checked = true;
   _toggleLogRuleSource();
+  _logRuleTemplatesInit(true);
   _renderLogTemplatePreview();
   openModal('log-rule-modal');
 }
@@ -433,6 +502,7 @@ function _editLogRuleBtn(btn) {
   document.getElementById('log-rule-severity').value = (r.severity || 'WARN');
   document.getElementById('log-rule-exclude').value  = r.exclude_pattern || '';
   document.getElementById('log-rule-template').value = r.display_template || '';
+  _logRuleTemplatesInit(false);
   _renderLogTemplatePreview();
   openModal('log-rule-modal');
 }
