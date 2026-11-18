@@ -5176,6 +5176,20 @@ def _shape_fix(path, data, raw_text=None):
         return data
 
 
+_ROW_LEFT_OUT = object()
+
+
+def _shape_fix_row(path, key, row):
+    """`_shape_fix` for ONE row of a store that maps ids to rows (devices.json), read on its own.
+
+    The SQL backends read a single host with a single-row SELECT (`device_get`, and the transaction of `_DeviceUpdate`), which does not pass
+    through `_load_uncached` or `_DbLockedUpdate`, so a host the registry repairs when the whole store is read reached its reader exactly as
+    it was stored: a text where `sysinfo.packages` is a map answered 500 on the Checks page of that host on SQLite and PostgreSQL only.
+    Returns the repaired row, or `_ROW_LEFT_OUT` when the registry leaves it out (a row that is not a map)."""
+    fixed = _shape_fix(path, {key: row})
+    return fixed.get(key, _ROW_LEFT_OUT) if isinstance(fixed, dict) else _ROW_LEFT_OUT
+
+
 _QUARANTINE_KEEP = 20
 
 
@@ -6185,6 +6199,15 @@ class _DbDeviceUpdate:
         except self._mod.LockBusyError:
             raise LockBusy(DEVICES_FILE, 0)
         self._scope_mark = _lock_scope_enter()
+        # The transaction read this one row on its own, so the registry's repair is applied to it here (`_shape_fix_row`). It writes back the
+        # dict it yielded, which is repaired in place, so the repaired row is what is stored when the block ends without an error.
+        row = data.get(self.dev_id) if isinstance(data, dict) else None
+        if row is not None:
+            fixed = _shape_fix_row(DEVICES_FILE, self.dev_id, row)
+            if fixed is _ROW_LEFT_OUT:
+                data.pop(self.dev_id, None)
+            elif fixed is not row:
+                data[self.dev_id] = fixed
         return data
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -6242,11 +6265,17 @@ def device_get(dev_id, default=None):
     if cached is not _PEEK_MISS:
         return cached
     try:
-        return m.device_get(DEVICES_FILE, dev_id, default)
+        row = m.device_get(DEVICES_FILE, dev_id, _ROW_LEFT_OUT)
     except Exception:
         # Any backend hiccup → fall back to the whole-store load (correctness
         # over the optimisation).
         return (load(DEVICES_FILE) or {}).get(dev_id, default)
+    if row is _ROW_LEFT_OUT:
+        return default
+    # The single-row SELECT skips the registry's repair that every other read of the store gets (`_load_uncached`), so it is applied to the
+    # row here; a row it leaves out reads as a host that is not there, as it does when the whole store is read.
+    row = _shape_fix_row(DEVICES_FILE, dev_id, row)
+    return default if row is _ROW_LEFT_OUT else row
 
 
 def _locked_update(path, non_blocking=False):
