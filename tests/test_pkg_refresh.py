@@ -1468,21 +1468,138 @@ class TestTheSettingAndTheHeartbeat(_Server):
         self.set_config(pkg_refresh_before_scan=True, maintenance_mode=True)
         self.assertIsNone(self.told())
 
+    def set_windows(self, *windows):
+        """The store is rewritten in this process, so the shared read of it is forgotten (another process's save is seen after
+        GATE_CACHE_S seconds; the tests of that are further down)."""
+        api.save(api.MAINT_FILE, {"windows": list(windows)})
+        api._LOAD_CACHE.clear()
+        api.pkg_refresh_handlers_mod.forget_the_gate()
+
     def test_a_closed_change_window_holds_it_and_an_open_one_lets_it_through(self):
         self.set_config(pkg_refresh_before_scan=True)
         off_hour = (time.localtime().tm_hour + 12) % 24
-        api.save(api.MAINT_FILE, {"windows": [{"id": "w1", "scope": "global", "target": "", "gate_exec": True,
-                                               "cron": f"0 {off_hour} * * *", "duration": 600}]})
-        api._LOAD_CACHE.clear()
+        self.set_windows({"id": "w1", "scope": "global", "target": "", "gate_exec": True, "cron": f"0 {off_hour} * * *", "duration": 600})
         self.assertIsNone(self.told(), "commands are held until the window opens, and so is this")
-        api.save(api.MAINT_FILE, {"windows": [{"id": "w1", "scope": "global", "target": "", "gate_exec": True,
-                                               "cron": "* * * * *", "duration": 3600}]})
-        api._LOAD_CACHE.clear()
+        self.set_windows({"id": "w1", "scope": "global", "target": "", "gate_exec": True, "cron": "* * * * *", "duration": 3600})
         self.assertIs(self.told(), True)
-        api.save(api.MAINT_FILE, {"windows": [{"id": "w2", "scope": "global", "target": "", "gate_exec": False,
-                                               "cron": f"0 {off_hour} * * *", "duration": 600}]})
-        api._LOAD_CACHE.clear()
+        self.set_windows({"id": "w2", "scope": "global", "target": "", "gate_exec": False, "cron": f"0 {off_hour} * * *", "duration": 600})
         self.assertIs(self.told(), True, "a window that does not hold commands holds nothing")
+
+    def reads_of_the_windows(self, beats, before_each=lambda: None):
+        """Answers of `beats` heartbeats' worth of questions, each in a request of its own (the request cache is cleared, as it is for a
+        real beat), and how many times the window store was read from storage meanwhile."""
+        reads, answers = [], []
+        real = api._load_uncached
+
+        def spy(path, *a, **k):
+            if path == api.MAINT_FILE and not (api._LOAD_CACHE.get(path) or (None, False))[1]:
+                reads.append(1)
+            return real(path, *a, **k)
+
+        with mock.patch.object(api, "_load_uncached", spy):
+            for _ in range(beats):
+                api._LOAD_CACHE.clear()
+                before_each()
+                answers.append(api.pkg_refresh_handlers_mod.refresh_before_scan_for("d1", api.device_get("d1")))
+        return len(reads), answers
+
+    def test_the_window_store_is_read_once_for_all_the_beats_and_not_once_per_beat(self):
+        """The cost the check had: every heartbeat of every Linux host parsed and repaired the whole window store (0.1 ms at 20 windows, 6 ms
+        at 1,000), whatever the windows were. The hosts of a process share one read now."""
+        self.set_config(pkg_refresh_before_scan=True)
+        self.set_windows(*[{"id": f"mw_{i}", "scope": "device", "target": f"other{i}", "reason": "patch night", "cron": "0 3 * * 6",
+                            "duration": 7200} for i in range(300)])
+        reads, answers = self.reads_of_the_windows(25)
+        self.assertEqual(answers, [True] * 25)
+        self.assertEqual(reads, 1, "the store was read for each beat")
+
+    def test_the_answer_is_still_worked_out_for_each_host_from_the_windows_it_is_in(self):
+        """What is shared is the read of the store, not the answer: a window that holds one group holds that group's hosts and no other."""
+        self.set_config(pkg_refresh_before_scan=True)
+        devices = api.load(api.DEVICES_FILE)
+        devices["d1"]["group"] = "prod"
+        devices["dx"] = {"name": "web02", "os": "Ubuntu 22.04", "group": "lab", "token": "tokx"}
+        api.save(api.DEVICES_FILE, devices)
+        off_hour = (time.localtime().tm_hour + 12) % 24
+        self.set_windows({"id": "w1", "scope": "group", "target": "prod", "gate_exec": True, "cron": f"0 {off_hour} * * *", "duration": 600})
+        api._LOAD_CACHE.clear()
+        f = api.pkg_refresh_handlers_mod.refresh_before_scan_for
+        self.assertFalse(f("d1", api.device_get("d1")), "held by the window of its group")
+        self.assertTrue(f("dx", api.device_get("dx")), "the same read, and another group's host is not held")
+        self.assertFalse(f("d1", api.device_get("d1")))
+
+    def test_every_window_that_holds_commands_is_asked_and_one_that_does_not_is_not(self):
+        off_hour = (time.localtime().tm_hour + 12) % 24
+        closed = {"cron": f"0 {off_hour} * * *", "duration": 600}
+        self.set_config(pkg_refresh_before_scan=True)
+        f = api.pkg_refresh_handlers_mod.refresh_before_scan_for
+        self.set_windows({"id": "w1", "scope": "device", "target": "elsewhere", "gate_exec": True, **closed},
+                         {"id": "w2", "scope": "global", "target": "", "gate_exec": False, **closed},
+                         {"id": "w3", "scope": "device", "target": "d1", "gate_exec": True, **closed})
+        self.assertFalse(f("d1", api.device_get("d1")), "the third window holds it; the first two are about another host and about nothing")
+        self.assertEqual([w["id"] for w in api.pkg_refresh_handlers_mod._windows_that_hold_commands()], ["w1", "w3"],
+                         "what is kept between beats is the windows that hold commands, which is what the loop of every beat walks")
+        self.set_windows({"id": "w1", "scope": "device", "target": "elsewhere", "gate_exec": True, **closed},
+                         {"id": "w2", "scope": "global", "target": "", "gate_exec": False, **closed})
+        self.assertTrue(f("d1", api.device_get("d1")))
+
+    def test_a_window_that_opens_is_seen_on_the_next_beat_without_a_new_read(self):
+        """The windows are cached, the clock is not: a window that holds commands and opens at 03:00 lets the host through at 03:00."""
+        self.set_config(pkg_refresh_before_scan=True)
+        self.set_windows({"id": "w1", "scope": "global", "target": "", "gate_exec": True, "cron": "0 3 * * *", "duration": 600})
+        f = api.pkg_refresh_handlers_mod.refresh_before_scan_for
+        dev = api.device_get("d1")
+        day = int(time.mktime(time.strptime(time.strftime("%Y-%m-%d") + " 03:00", "%Y-%m-%d %H:%M")))
+        results = {}
+        for label, at in (("before", day - 120), ("opening", day + 30), ("inside", day + 300), ("closed again", day + 1200)):
+            with mock.patch.object(api.time, "time", return_value=at):
+                results[label] = f("d1", dev)
+        self.assertEqual(results, {"before": False, "opening": True, "inside": True, "closed again": False})
+        self.assertEqual(self.reads_of_the_windows(1)[0], 0, "and none of those questions read the store again")
+
+    def test_a_window_saved_by_another_process_is_seen_after_the_cache_runs_out_and_not_before(self):
+        self.set_config(pkg_refresh_before_scan=True)
+        self.set_windows()
+        handlers = api.pkg_refresh_handlers_mod
+        clock = [1000.0]
+        with mock.patch.object(handlers.time, "monotonic", lambda: clock[0]):
+            f = lambda: handlers.refresh_before_scan_for("d1", api.device_get("d1"))   # noqa: E731
+            self.assertTrue(f())
+            api.save(api.MAINT_FILE, {"windows": [{"id": "w1", "scope": "global", "target": "", "gate_exec": True,
+                                                   "cron": "0 3 * * *", "duration": 60}]})        # as another process would, without our hook
+            api._LOAD_CACHE.clear()
+            clock[0] += handlers.GATE_CACHE_S - 1
+            self.assertTrue(f(), "still the read from before: the cache has not run out")
+            clock[0] += 2
+            self.assertFalse(f(), "the cache ran out, the store was read again and the window holds this host")
+
+    def test_the_cache_is_the_stores_own_and_a_failed_read_holds_nothing(self):
+        handlers = api.pkg_refresh_handlers_mod
+        self.set_config(pkg_refresh_before_scan=True)
+        self.set_windows({"id": "w1", "scope": "global", "target": "", "gate_exec": True, "cron": "0 3 * * *", "duration": 60})
+        self.assertFalse(handlers.refresh_before_scan_for("d1", api.device_get("d1")))
+        other = self.d / "other-windows.json"
+        with mock.patch.object(api, "MAINT_FILE", other):
+            api.save(other, {"windows": []})
+            self.assertTrue(handlers.refresh_before_scan_for("d1", api.device_get("d1")), "another store is not answered from this one's read")
+
+    def test_the_guide_says_how_soon_a_saved_window_is_seen(self):
+        text = " ".join((ROOT / "docs" / "patches.md").read_text(encoding="utf-8").split())
+        self.assertIn(f"is seen by this setting within {api.pkg_refresh_handlers_mod.GATE_CACHE_S} seconds", text)
+
+    def test_what_the_check_reads_it_does_not_change(self):
+        """The shared read is the store's own object (it is not copied), which is only safe while nothing here writes to it."""
+        self.set_config(pkg_refresh_before_scan=True)
+        windows = [{"id": "a", "scope": "global", "gate_exec": True, "cron": "* * * * *", "duration": 600},
+                   {"id": "b", "scope": "group", "target": "web", "gate_exec": True, "start": "2026-01-01T00:00:00Z", "end": "2026-01-02T00:00:00Z"},
+                   {"id": "c", "scope": "tag", "target": "x", "gate_exec": True, "period": "p1"},
+                   {"id": "d", "scope": "smart", "target": "g1", "gate_exec": True}, {"id": "e", "scope": "site", "target": "s", "gate_exec": False}]
+        self.set_windows(*windows)
+        before = json.loads(json.dumps(api._load_ro(api.MAINT_FILE)))
+        for _ in range(3):
+            api.pkg_refresh_handlers_mod.refresh_before_scan_for("d1", api.device_get("d1"))
+            api._exec_gated("d1", api.device_get("d1"))
+        self.assertEqual(json.loads(json.dumps(api._load_ro(api.MAINT_FILE))), before)
 
     def test_the_setting_is_saved_as_a_real_true_or_false(self):
         for sent, kept in ((True, True), (False, False)):

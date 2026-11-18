@@ -23,6 +23,8 @@ Constants stay in api.py and are read here through A. Pure logic goes in a
 sibling module (imported directly, like dmarc_monitor / tls_monitor).
 """
 
+import time
+
 import pkg_refresh
 
 
@@ -77,6 +79,33 @@ def handle_device_pkg_refresh(dev_id):
     A._queue_command(dev_id, pkg_refresh.VERB, actor, reason=reason, ticket_ref=ticket_ref)   # responds 200, 202 or a refusal
 
 
+# The maintenance windows that hold commands, as read from the store, kept for a short while by this process. refresh_before_scan_for runs on
+# the heartbeat of every Linux host while the setting is on, and reading the store (parse and shape repair of every window, gate or not)
+# cost about 0.1 ms at 20 windows and 6 ms at 1,000 on every beat. All the hosts one process serves share one read. The answer for a host is
+# still worked out from the windows and the clock on every beat, so a window that opens or closes is seen at once; a window that is saved
+# is seen by this process after at most GATE_CACHE_S seconds, which is soon enough for a refresh that only reads from the repositories and
+# runs once in three hours.
+GATE_CACHE_S = 20
+_gate = (None, 0.0, ())            # (the store's path, when it was read, the windows in it that hold commands)
+
+
+def forget_the_gate():
+    """Read the windows again on the next question (for a caller that has just saved a window, and for tests)."""
+    global _gate
+    _gate = (None, 0.0, ())
+
+
+def _windows_that_hold_commands():
+    global _gate
+    key, at, windows = _gate
+    now = time.monotonic()
+    if key != str(A.MAINT_FILE) or now - at >= GATE_CACHE_S:
+        stored = (A._load_ro(A.MAINT_FILE) or {}).get('windows') or []     # read only: nothing below writes to a window
+        windows = tuple(w for w in stored if isinstance(w, dict) and w.get('gate_exec'))
+        _gate = (str(A.MAINT_FILE), now, windows)
+    return windows
+
+
 def refresh_before_scan_for(dev_id, dev):
     """Whether this host is told, in its heartbeat answer, to refresh its package lists before each scheduled scan.
 
@@ -90,4 +119,4 @@ def refresh_before_scan_for(dev_id, dev):
         return False
     if A._command_block_reason(dev, pkg_refresh.VERB):
         return False
-    return not A._exec_gated(dev_id, dev)
+    return not A._exec_gated(dev_id, dev, windows=_windows_that_hold_commands())

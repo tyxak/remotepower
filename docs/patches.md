@@ -155,8 +155,9 @@ asks for one.
 **Before each scheduled scan.** **Settings → Security → Package lists** has **Refresh the package lists before each scheduled scan**.
 It is off by default, and with it off a scan does what it always did. With it on, each Linux host refreshes its lists just before its
 scheduled scan. A host that is quarantined, in audit mode, in maintenance mode or outside a change window that holds commands
-scans without the refresh, and so does a host with an agent older than 8.0.2, which does not know the setting. The scan is the same as
-ever, on Arch too (see above).
+scans without the refresh, and so does a host with an agent older than 8.0.2, which does not know the setting. The server reads the
+change windows once for all the hosts it answers, so a window you save or delete is seen by this setting within 20 seconds. The scan is
+the same as ever, on Arch too (see above).
 
 The **Package index updated recently** check template also counts a refresh the agent ran itself, so the check works on dnf, zypper
 and apk hosts. A check applied from the template before this was added keeps its two apt paths: edit its path to add

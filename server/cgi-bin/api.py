@@ -74138,17 +74138,21 @@ def in_maintenance(event, payload):
     return found
 
 
-def _exec_gated(dev_id, dev, now=None):
+def _exec_gated(dev_id, dev, now=None, windows=None):
     """v3.4.2: change-window gating. If a device is covered by one or more
     maintenance windows flagged ``gate_exec``, its exec/upgrade commands are HELD
     until one of those windows is active. Returns True == hold the command.
     Devices not covered by any gate_exec window are never gated (returns False),
-    so this is opt-in per window and inert by default."""
+    so this is opt-in per window and inert by default.
+
+    `windows` is for a caller that asks about many hosts and has the windows already (the list is only read, never changed here);
+    without it the store is read for this one question."""
     now = now or int(time.time())
-    try:
-        windows = (load(MAINT_FILE) or {}).get('windows') or []
-    except Exception:
-        return False
+    if windows is None:
+        try:
+            windows = (load(MAINT_FILE) or {}).get('windows') or []
+        except Exception:
+            return False
     dev_group = (dev or {}).get('group') or ''
     covered = False
     for w in windows:
