@@ -377,10 +377,10 @@ class TestTheDrawer(_Page):
         self.assertEqual(tip, "Defender definition updates are counted here and left out of the pending updates.")
         self.fits("the Packages card of the drawer")
 
-    def test_a_failed_search_is_amber_and_names_the_date_of_the_count(self):
+    def test_a_failed_search_is_amber_and_says_how_old_the_count_is(self):
         self.open_drawer(WIN10, "design-win10", "packages")
         text = self.page.evaluate("() => document.getElementById('audit-body-packages').textContent.replace(/\\s+/g, ' ')")
-        self.assertIn("Last search failed (access); the count is from", text)
+        self.assertRegex(text, r"Last search failed \(access\); count taken 5 days ago")
         self.assertIn("WSUS", text)
         self.assertNotIn("Definition updates", text, "a host with no definition updates has no pill")
         line = self.search_line()
@@ -395,7 +395,7 @@ class TestTheDrawer(_Page):
         for lang in ("de", "ar"):
             self.set_language(lang)
             text = self.page.evaluate("() => document.getElementById('audit-body-packages').textContent.replace(/\\s+/g, ' ')")
-            for phrase in ("Last search failed", "the count is from", "access"):
+            for phrase in ("Last search failed", "count taken", "access"):
                 self.assertIn(rows[phrase][lang], text, (lang, phrase, text))
             if lang == "ar":
                 self.assertEqual(self.page.evaluate("() => document.documentElement.dir"), "rtl")
@@ -427,8 +427,9 @@ class TestThePatchReport(_Page):
         self.page.evaluate("() => closeModal('device-patch-modal')")
         self.open_report(WIN10, "design-win10")
         bad = self.page.evaluate("() => document.getElementById('device-patch-body').textContent.replace(/\\s+/g, ' ')")
-        self.assertIn("Last search failed (access); the count is from", bad)
-        self.assertIn("5 patches pending", bad)
+        self.assertRegex(bad, r"Last search failed \(access\); count taken 5 days ago")
+        self.assertIn("No data", bad, "a count that a failed search left five days ago is not the host's count now")
+        self.assertNotIn("5 patches pending", bad)
         self.fits("the patch report of a host whose search failed", "device-patch-modal")
 
 

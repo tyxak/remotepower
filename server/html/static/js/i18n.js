@@ -7680,7 +7680,7 @@
     "Last search": { "fr": "Dernière recherche", "de": "Letzte Suche", "zh": "上次搜索", "hi": "अंतिम खोज", "es": "Última búsqueda", "ar": "آخر بحث" },
     "ok": { "fr": "réussie", "de": "erfolgreich", "zh": "成功", "hi": "सफल", "es": "correcta", "ar": "ناجح" },
     "Last search failed": { "fr": "La dernière recherche a échoué", "de": "Die letzte Suche ist fehlgeschlagen", "zh": "上次搜索失败", "hi": "अंतिम खोज विफल रही", "es": "La última búsqueda falló", "ar": "فشل آخر بحث" },
-    "the count is from": { "fr": "le nombre date du", "de": "die Anzahl stammt vom", "zh": "该数量取自", "hi": "यह गिनती इस तारीख की है:", "es": "el recuento es del", "ar": "العدد مأخوذ من" },
+    "count taken": { "fr": "nombre relevé", "de": "Anzahl erhoben", "zh": "数量统计于", "hi": "गिनती ली गई", "es": "recuento tomado", "ar": "تم أخذ العدد" },
     "no search has worked yet": { "fr": "aucune recherche n'a encore abouti", "de": "bisher war keine Suche erfolgreich", "zh": "尚无成功的搜索", "hi": "अभी तक कोई खोज सफल नहीं हुई", "es": "todavía no ha funcionado ninguna búsqueda", "ar": "لم ينجح أي بحث حتى الآن" },
     "timeout": { "fr": "délai dépassé", "de": "Zeitüberschreitung", "zh": "超时", "hi": "टाइमआउट", "es": "tiempo de espera agotado", "ar": "انتهت المهلة" },
     "access": { "fr": "accès refusé", "de": "Zugriff verweigert", "zh": "访问被拒绝", "hi": "पहुँच अस्वीकृत", "es": "acceso denegado", "ar": "تم رفض الوصول" },

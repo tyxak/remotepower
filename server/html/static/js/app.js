@@ -26635,7 +26635,7 @@ function _wuSearchLine(ws, cls) {
     return `<div class="fs-12 ${cls || ''}"><span class="hint">Last search</span> ${timeAgoHtml(ws.at)}, <span class="c-green">ok</span>${via}</div>`;
   }
   const why = ['timeout', 'access', 'service', 'network'].includes(ws.error_class) ? ws.error_class : 'unknown';
-  const from = ws.ok_at ? `<span>the count is from</span> ${escHtml(_fmtAbsDate(ws.ok_at))}` : '<span>no search has worked yet</span>';
+  const from = ws.ok_at ? `<span>count taken</span> ${timeAgoHtml(ws.ok_at)}` : '<span>no search has worked yet</span>';
   return `<div class="fs-12 c-amber ${cls || ''}"><span>Last search failed</span> (<span>${why}</span>); ${from}${via}</div>`;
 }
 

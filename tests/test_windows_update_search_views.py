@@ -37,9 +37,9 @@ def preamble():
         re.search(r"^function escHtml\(.*$", _APP, re.M).group(0),
         re.search(r"^function escAttr\(.*$", _APP, re.M).group(0),
         srcpin.js_function(_APP, "_wuSearchLine"),
-        # the time helpers stand in for the page's: the text they print is the argument, so a test can read which time was shown
-        "const timeAgoHtml = ts => '<time>ago:' + ts + '</time>';",
-        "const _fmtAbsDate = ts => 'date:' + ts;",
+        # the time helper stands in for the page's: the number it prints is the argument, so a test can read which time was shown. Like the page's,
+        # it prints nothing the host chose when the argument is not a time (the page's says "never" for it, escaped)
+        "const timeAgoHtml = ts => { const n = parseInt(ts); return Number.isFinite(n) && n > 0 ? '<time>ago:' + n + '</time>' : 'never'; };",
     ])
 
 
@@ -69,16 +69,16 @@ class TestTheLine(unittest.TestCase):
         self.assertNotIn("WSUS", html)
         self.assertNotIn("c-amber", html)
 
-    def test_a_failed_search_says_why_and_when_the_count_is_from(self):
+    def test_a_failed_search_says_why_and_when_the_count_was_taken(self):
         html = line({"at": 1700000500, "ok": False, "error_class": "access", "ok_at": 1699000000, "source": "windows-update-agent"})
         self.assertIn("c-amber", html)
         self.assertIn("<span>Last search failed</span> (<span>access</span>)", html)
-        self.assertIn("<span>the count is from</span> date:1699000000", html)
+        self.assertIn("<span>count taken</span> <time>ago:1699000000</time>", html, "the time goes through timeAgoHtml, so the Time display setting applies")
 
     def test_a_failed_search_before_any_worked_says_so(self):
         html = line({"at": 1700000500, "ok": False, "error_class": "network", "ok_at": 0})
         self.assertIn("<span>no search has worked yet</span>", html)
-        self.assertNotIn("the count is from", html)
+        self.assertNotIn("count taken", html)
 
     def test_a_host_that_asks_a_wsus_server_says_so(self):
         for ok in (True, False):
@@ -160,7 +160,7 @@ openDevicePatchReport('h1', 'host one').then(() => console.log(JSON.stringify(ou
     def test_the_line_is_in_the_report_of_a_host_whose_search_failed(self):
         body = self.report(dict(self.BASE, wu_search={"at": 1700000500, "ok": False, "error_class": "access", "ok_at": 1699000000}))["body"]
         self.assertIn("<span>Last search failed</span> (<span>access</span>)", body)
-        self.assertIn("<span>the count is from</span> date:1699000000", body)
+        self.assertIn("<span>count taken</span> <time>ago:1699000000</time>", body)
 
     def test_and_when_it_worked(self):
         body = self.report(dict(self.BASE, wu_search={"at": 1700000500, "ok": True, "ok_at": 1700000500}))["body"]
@@ -175,7 +175,7 @@ class TestTheWords(unittest.TestCase):
     PHRASES = [
         "Definition updates",
         "Defender definition updates are counted here and left out of the pending updates.",
-        "Last search", "ok", "Last search failed", "the count is from", "no search has worked yet",
+        "Last search", "ok", "Last search failed", "count taken", "no search has worked yet",
         "timeout", "access", "service", "network", "unknown",
     ]
 
