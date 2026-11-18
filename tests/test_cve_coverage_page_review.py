@@ -20,6 +20,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'server' / 'cgi-bin'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import srcpin  # noqa: E402
@@ -111,6 +112,64 @@ class TestTheHomeTileOfCves(unittest.TestCase):
     def test_a_host_that_is_not_monitored_is_not_in_the_tile(self):
         self.check([host('a'), host('b', monitored=False)], [row('a'), row('b', not_checked=50)], self.CLEAR)
         self.check([host('a'), host('b', monitored=False)], [row('a', not_checked=2), row('b')], self.NEUTRAL)
+
+
+# ── the line of the host view for what a reboot clears ──────────────────────────────────────────────────────────────────
+def rollup_html(roll):
+    """The roll-up of the host view, from the real `_cveRollupHtml`."""
+    script = (
+        'const escHtml = s => String(s).replace(/[&<>"\']/g, c => "&#" + c.charCodeAt(0) + ";");\n'
+        + srcpin.js_function(_PAGE, '_cveRollupHtml')
+        + '\nconsole.log(JSON.stringify(_cveRollupHtml(%s)));\n' % json.dumps(roll))
+    return node(script)
+
+
+def lines_of(html):
+    """The "Of these, ..." lines of a roll-up, as (text, number)."""
+    return re.findall(r'<div class="hint mt-6"><span>(Of these[^<]*)</span> <span>(\d+)</span></div>', html)
+
+
+@NEEDS_NODE
+class TestTheRollupOfTheHostViewSaysWhatARebootClears(unittest.TestCase):
+    """A kernel has the most findings of any package, so the ceiling of a package (50 listed) is reached on the host the
+    reboot status is for, and the counted rest is where an operator finds out that a reboot clears it."""
+
+    def test_the_line_is_there_with_the_number_for_the_status(self):
+        got = lines_of(rollup_html({'total': 20, 'severity': {'medium': 20}, 'fix': {'reboot': 20}}))
+        self.assertEqual(got, [('Of these, fixed by an installed kernel, reboot to apply:', '20')])
+
+    def test_every_line_has_its_own_number_and_they_come_in_order(self):
+        got = lines_of(rollup_html({'total': 90, 'severity': {'critical': 2, 'high': 3, 'medium': 85},
+                                    'fix': {'fixable': 30, 'reboot': 20, 'pro': 10, 'none': 30}}))
+        self.assertEqual(got, [('Of these, critical or high:', '5'), ('Of these, cleared by an update:', '30'),
+                               ('Of these, fixed by an installed kernel, reboot to apply:', '20'),
+                               ('Of these, fixed with Ubuntu Pro:', '10')])
+
+    def test_no_reboot_no_line_and_a_number_that_is_not_one_is_not_a_line(self):
+        for fix in ({}, {'reboot': 0}, {'reboot': -2}, {'reboot': '20'}, {'reboot': None}, {'reboot': {'n': 20}}, None, 'x'):
+            html = rollup_html({'total': 5, 'fix': fix})
+            self.assertEqual(lines_of(html), [], fix)
+            self.assertNotIn('installed kernel', html, fix)
+
+    def test_the_page_has_a_line_for_every_status_the_servers_sentence_names(self):
+        """The class, by population: derive what the server's own sentence names, status by status, and require a line for each."""
+        import cve_fixes
+        named = [key for key in cve_fixes.FIX_KEYS
+                 if '(' in cve_fixes.rollup_words({'rollup': {'total': 5, 'fix': {key: 5}}})]
+        self.assertTrue({'fixable', 'pro'} <= set(named), named)            # the control: the derivation sees what it should
+        self.assertIn('reboot', named)
+        for key in cve_fixes.FIX_KEYS:
+            drawn = lines_of(rollup_html({'total': 5, 'fix': {key: 5}}))
+            if key in named:
+                self.assertEqual(len(drawn), 1, f'the sentence of the server names "{key}" and the host view has no line for it')
+            else:
+                self.assertEqual(drawn, [], key)
+
+    def test_the_sentence_is_a_key_in_all_six_languages(self):
+        from test_v710_i18n_glue import dict_rows
+        row = dict_rows().get('Of these, fixed by an installed kernel, reboot to apply:')
+        self.assertTrue(row and all(row.get(lang) for lang in ('zh', 'hi', 'es', 'ar', 'de', 'fr')), row)
+        self.assertEqual(sum(1 for _ in re.finditer(r'^\s*"Of these, fixed by an installed kernel, reboot to apply:":', _I18N, re.M)), 1)
 
 
 if __name__ == '__main__':

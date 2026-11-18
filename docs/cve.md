@@ -62,8 +62,9 @@ now**, **SBOM (CycloneDX)**, **SBOM (SPDX)**, **Baseline** and **Changes since b
 
 On a Debian or Ubuntu host the view also shows the count: how many known vulnerabilities are
 counted and not listed, how many of those are critical or high, how many an update would
-clear, how many are fixed with Ubuntu Pro, and the packages that hold the most with the version
-installed. Open it with a click.
+clear, how many an installed kernel already fixes (a reboot applies them), how many are fixed
+with Ubuntu Pro, and the packages that hold the most with the version installed. Open it with
+a click.
 
 Under it, **Packages checked** says how many of the packages the host listed the last scan checked.
 When some were not, a click shows the reasons with their counts and the first 200 of those packages by

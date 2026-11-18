@@ -379,10 +379,13 @@ function _cveRollupHtml(r) {
   const sev = n(r.severity, 'critical') + n(r.severity, 'high') > 0
     ? `<div class="hint mt-6"><span>Of these, critical or high:</span> <span>${n(r.severity, 'critical') + n(r.severity, 'high')}</span></div>` : '';
   const fixable = n(r.fix, 'fixable') > 0 ? `<div class="hint mt-6"><span>Of these, cleared by an update:</span> <span>${n(r.fix, 'fixable')}</span></div>` : '';
+  // 8.0.2: an installed kernel that is not running already holds the fix of these, so nothing is left to install: a reboot
+  // applies them. A kernel has the most findings of any package, so this is the line of the host the status is for.
+  const reboot = n(r.fix, 'reboot') > 0 ? `<div class="hint mt-6"><span>Of these, fixed by an installed kernel, reboot to apply:</span> <span>${n(r.fix, 'reboot')}</span></div>` : '';
   // the tile "Needs Ubuntu Pro" counts the listed ones; on a release past its standard support most are here
   const pro = n(r.fix, 'pro') > 0 ? `<div class="hint mt-6"><span>Of these, fixed with Ubuntu Pro:</span> <span>${n(r.fix, 'pro')}</span></div>` : '';
   return `<details class="mb-8" data-cve-rollup=""><summary class="hint pointer"><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong>${r.total}</strong></summary>`
-    + sev + fixable + pro
+    + sev + fixable + reboot + pro
     + (rows ? `<div class="scrollable-table-wrap audit-scroll mt-6"><table><thead><tr><th>Package</th><th>Installed</th><th class="ta-center">Count</th></tr></thead><tbody data-no-i18n="">${rows}</tbody></table></div>` : '')
     + more + '</details>';
 }
