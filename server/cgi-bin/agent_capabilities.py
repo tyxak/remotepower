@@ -116,8 +116,9 @@ NOTICES = {
 # What the panel calls a tool, by status, in the order the list shows them.
 STATUS_ORDER = ('missing', 'unavailable', 'present', 'not_needed')
 
-_WORD = re.compile(r'^[a-z0-9._+-]{1,32}$')
-_VERSION = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+-]{0,31}$')
+# \Z and not $: `$` also matches in front of a trailing newline, so "debian\n" was kept as sent and no longer matched the family table.
+_WORD = re.compile(r'[a-z0-9._+-]{1,32}\Z')
+_VERSION = re.compile(r'[A-Za-z0-9][A-Za-z0-9._+-]{0,31}\Z')
 _CTRL = re.compile(r'[\x00-\x1f\x7f-\x9f\u2028\u2029]')
 
 # os-release ID (and ID_LIKE) to the package manager of the family.

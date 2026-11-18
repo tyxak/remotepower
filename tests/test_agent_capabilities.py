@@ -509,7 +509,9 @@ class TestTheServersCleaning(unittest.TestCase):
         self.assertEqual(out["tools"], {"ss": True})
 
     def test_a_name_is_a_short_lower_case_word(self):
-        for bad in ("Systemd", "sys temd", "x" * 33, "a;b", "<b>", "", 5, ["debian"], None):
+        # "debian\n" is here because `$` matches in front of a trailing newline: the name was kept as sent and the family table, which
+        # looks it up as a whole, no longer knew the distribution (and a stored newline is one more character in a value drawn on a page)
+        for bad in ("Systemd", "sys temd", "x" * 33, "a;b", "<b>", "", 5, ["debian"], None, "debian\n", "systemd\n", "\n", "debian\n\n"):
             self.assertNotIn("init", caps_mod.clean({"root": True, "init": bad}), bad)
             self.assertNotIn("distro", caps_mod.clean({"root": True, "distro": bad}), bad)
         out = caps_mod.clean({"like": "ubuntu  debian <b> a;b rhel fedora centos"})
@@ -551,8 +553,9 @@ class TestTheServersCleaning(unittest.TestCase):
     def test_versions_are_short_version_strings(self):
         out = caps_mod.clean({"agent": {"version": "8.0.1", "python": "3.12.3+local", "extra": "x"}})
         self.assertEqual(out["agent"], {"version": "8.0.1", "python": "3.12.3+local"})
-        for bad in ("<script>", "x" * 40, " 8", "", 8, ["8"]):
+        for bad in ("<script>", "x" * 40, " 8", "", 8, ["8"], "8.0.2\n", "3.12.3\n", "8.0.2\n\n"):
             self.assertNotIn("agent", caps_mod.clean({"agent": {"version": bad}, "root": True}), bad)
+            self.assertNotIn("agent", caps_mod.clean({"agent": {"python": bad}, "root": True}), bad)
 
     def test_a_key_the_server_has_no_use_for_does_not_survive(self):
         out = caps_mod.clean(dict(FULL, secret="s3cret", token="t", env={"PATH": "/x"}, output="y" * 9999))
