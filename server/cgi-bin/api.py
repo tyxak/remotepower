@@ -76838,12 +76838,20 @@ def _enforce_same_origin():
 # v3.0.3: F2 — endpoints reachable while must_change_password is set.
 # Kept tight:
 #   - /api/users/passwd  : the only way to clear the flag
+#   - /api/logout        : a session held behind this gate has to be able to end (see below)
 #   - /api/public-info   : server version and login-screen metadata
 # Anything else returns 403 with `must_change_password: true` so the
 # frontend can route the user into the password-change view rather
 # than letting them poke at the app on the default credentials.
+#
+# Every gate that holds a session behind a step lets that session end: signing out is the one thing a person who has not taken the step
+# can still do. This gate was the one that did not. An account whose password has passed its maximum age is held here from its sign-in,
+# the page signed out with a request this gate answered 403, and the session stayed alive on the server for as long as its token lasted.
+# The read-only gate (above) and the MFA enrolment gate (below) list it too, and tests/test_session_gates_allow_logout.py derives every
+# such list from this file and holds all three.
 _PWCHG_ALLOWED_PATHS = frozenset({
     '/api/users/passwd',
+    '/api/logout',
     '/api/public-info',
     '/api/health',
     '/api/csp-report',

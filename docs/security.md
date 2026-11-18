@@ -205,7 +205,8 @@ defences in place (kept current):
   - **Passwords remembered** (0 to 24): a user cannot choose any of their last N passwords, the one they have now included.
     At 3, a user can change P1 to P2, P3 and P4, and the fourth change, back to P1, is accepted.
   - **Maximum password age** (0 to 3650 days): a local password older than that has to be changed when its owner next signs in,
-    before anything else works (the same gate as a default password). An account with no recorded change date, one from before
+    before anything else works (the same gate as a default password). The one other thing such a session can do is sign out, and
+    that ends it on the server like any other sign-out. An account with no recorded change date, one from before
     this setting existed, starts its clock at its own first sign-in after you turn the age on, never all at once. Turning the
     age off later does not lift a change that is already required: an account that was told to change its password at its last
     sign-in still has to.

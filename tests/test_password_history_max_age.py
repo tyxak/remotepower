@@ -467,9 +467,18 @@ class TestMaxAge(_Policy):
         self.set_rec('alice', password_changed_at=self.now - 99 * DAY)
         token = self.sign_in('alice', PW[0])['token']
         self.assertEqual(self.call('GET', '/api/public-info')[0], 200)
-        st, _b = self.call('POST', '/api/users/passwd', {'username': 'alice', 'old_password': 'wrong', 'new_password': PW[2]}, token)
-        self.assertEqual(st, 403)                              # reaches the handler (refused for the old password), not the gate
-        self.assertEqual(self.call('GET', '/api/users', token=token)[0], 403)
+        st, b = self.call('POST', '/api/users/passwd', {'username': 'alice', 'old_password': 'wrong', 'new_password': PW[2]}, token)
+        # the gate answers 403 too, so the status cannot say which one answered: the handler's own refusal can
+        self.assertEqual((st, (b or {}).get('error')), (403, 'Old password incorrect'), 'the change did not reach its handler: %s' % (b,))
+        st, b = self.call('GET', '/api/users', token=token)
+        self.assertEqual((st, (b or {}).get('must_change_password')), (403, True), 'control: any other route is answered by the gate')
+        # the sign-out is the other way out: the page signs out with this request, and it has to end the session on the server
+        st, b = self.call('POST', '/api/logout', token=token)
+        self.assertEqual((st, b), (200, {'ok': True}), 'a session held for an expired password cannot sign out: %s %s' % (st, b))
+        api._LOAD_CACHE.clear()
+        left = [e for e in (api.load(api.TOKENS_FILE) or {}).values() if isinstance(e, dict) and e.get('user') == 'alice']
+        self.assertEqual(left, [], 'the session of the account is still stored after the sign-out')
+        self.assertEqual(self.call('GET', '/api/users', token=token)[0], 401, 'the token still works after the sign-out')
 
     def test_expiry_is_written_to_the_audit_log_without_a_secret(self):
         self.set_rec('alice', password_changed_at=self.now - 90 * DAY)
