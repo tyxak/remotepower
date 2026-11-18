@@ -290,6 +290,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             # v2.8.0: security & audit
             'new_port_detected', 'ssh_key_added', 'brute_force_detected',
             'persistence_added',  # 8.0.2: a new startup entry on a Windows host
+            'persistence_unread',  # 8.0.2: a startup place that was not read whole for three inventories
             'vault_break_glass',  # v5.0.0 #C3
             'backup_stale', 'backup_recovered', 'backup_size_anomaly',
             'backup_verify_failed', 'backup_verified',

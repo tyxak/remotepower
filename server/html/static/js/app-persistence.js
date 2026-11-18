@@ -27,7 +27,7 @@ function _persPlaceHtml(cat, place) {
   const items = place.items || [];
   let notes = '';
   if (!place.ok) notes += '<div class="hint">This place could not be read at the last inventory. It is shown as it was.</div>';
-  else if (!place.complete) notes += '<div class="hint">This list was cut at its limit, so changes in it are not tracked.</div>';
+  else if (!place.complete) notes += '<div class="hint">This list was cut at its limit. Entries past the limit are not seen; the ones shown are still compared.</div>';
   if (!items.length && !notes) return '';
   return `<div class="mt-8"><span class="app-name">${_PERS_LABEL[cat]}</span> <span class="hint">${items.length}</span></div>${notes}`
     + items.map(e => `<div class="app-row">${_persEntryHtml(e)}</div>`).join('');

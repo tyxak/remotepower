@@ -623,8 +623,10 @@ SHAPES: dict = {
     'traffic.json': dict_of(fields(first=OPT_NUM, at=OPT_NUM, sample=DICT, series=LIST, seen=DICT, seen_out=DICT, alerted=DICT)),    # 8.0.0: {device_id: {first, at, sample, series, seen, seen_out, alerted}} (traffic.py)
     'detections.json': dict_of(fields(found=LIST, alerted=DICT)),    # 8.0.0: {device_id: {found, alerted}} -- what the Detections rules found at the last sweep and when each was raised (detections_handlers.py)
     # 8.0.2: {device_id: {v, ts, baseline, alert_ts, inv, log}} -- what starts by itself on a Windows host: the last inventory by place ({run|winlogon|services|tasks|startup: {ok,
-    # complete, ts, items}}), the log of what was added and removed (newest last) and the times the page and the alert rate limit subtract (persistence_handlers.py)
-    'persistence.json': dict_of(fields(v=NUM, ts=NUM, baseline=NUM, alert_ts=NUM, inv=dict_of(fields(ts=NUM, items=LIST)),
+    # complete, ts, items, miss, warned, base, extra}}: `miss` counts the inventories in a row that did not read the place whole, `base` and `extra` are the last whole read and
+    # what was reported since while it is not read whole), the log of what was added and removed (newest last) and the times the page and the alert rate limit subtract
+    # (persistence_handlers.py)
+    'persistence.json': dict_of(fields(v=NUM, ts=NUM, baseline=NUM, alert_ts=NUM, inv=dict_of(fields(ts=NUM, items=LIST, miss=NUM, base=LIST, extra=LIST)),
                                        log=list_of(fields(need=("op", "cat"), ts=NUM, op=STR, cat=STR, loc=STR, name=STR, data=STR)))),
     'cputime_history.json': dict_of(LIST),                  # 7.4.9: {device_id: [[ts, user, nice, system, iowait, irq, steal, idle], ...]}
     'dmarc_reports.json': fields(reports=list_of(), sources=DICT, mailbox=DICT),

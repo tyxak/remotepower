@@ -2544,6 +2544,12 @@ EVENT_REGISTRY = {
         lifecycle='point',
         label='A new startup entry appeared on a Windows host', kind='persistence',
         title='New Startup Entry on Host', severity='medium', priority=4, tags='warning,gear'),
+    # 8.0.2: a place in that inventory (the tasks, the startup folders, ...) that was not read whole for three inventories in a row, because it could not be read or held more
+    # entries than are kept. What lies past a cut is not seen, so this is the one thing that says the place is not watched in full. Once for each stretch (persistence.py).
+    'persistence_unread': dict(
+        lifecycle='point',
+        label='A startup place on a Windows host was not read whole', kind='persistence',
+        title='Startup Place Not Read Whole', severity='medium', tags='warning,gear'),
     'brute_force_detected': dict(
         lifecycle='point',
         label='Brute-force login attempts detected', kind='brute_force',
@@ -11475,6 +11481,8 @@ def _alert_title(event, payload):
     if event == 'persistence_added':
         n = p.get('count')
         return f'New startup {"entry" if n == 1 else "entries"} on {name}'
+    if event == 'persistence_unread':
+        return f'Startup {"place" if p.get("count") == 1 else "places"} not read whole on {name}'
     if event == 'new_port_detected':
         proc = p.get('process') or '?'
         return (f'New listening port on {name}: '

@@ -531,7 +531,7 @@ class TestPersistenceSection(_Rendered):
         self.assertEqual(page.evaluate("() => [...document.querySelectorAll('#drawer-persistence-changes .patch-badge')].map(b => b.textContent.trim())"),
                          ['Added', 'Added', 'Removed'])
         self.assertIn('This place could not be read at the last inventory. It is shown as it was.', text)
-        self.assertIn('This list was cut at its limit, so changes in it are not tracked.', text)
+        self.assertIn('This list was cut at its limit. Entries past the limit are not seen; the ones shown are still compared.', text)
         self.assertNotIn('abc123', text, 'a password in a command line never reaches the page')
         self.assertIn('[REDACTED]', text)
         self.assertIsNone(page.query_selector('#drawer-persistence-section img'), 'the name of an entry became an element of the page')
@@ -587,7 +587,7 @@ class TestPersistenceSection(_Rendered):
             page.wait_for_timeout(300)
             checks = [('#drawer-persistence-section .section-title', 'Persistence')]
             for want in ('First inventory', 'Last inventory', 'Changes', 'On the host now', 'Added', 'Removed', 'Run key', 'Startup folder', 'Service',
-                         'This place could not be read at the last inventory. It is shown as it was.', 'This list was cut at its limit, so changes in it are not tracked.'):
+                         'This place could not be read at the last inventory. It is shown as it was.', 'This list was cut at its limit. Entries past the limit are not seen; the ones shown are still compared.'):
                 checks.append((None, want))
             for sel, key in checks:
                 want = page.evaluate("k => RPi18n.t(k)", key)

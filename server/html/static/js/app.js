@@ -19708,7 +19708,7 @@ const EVENT_CLASS = {
   'log_alert': 'warn',
   'mailbox_threshold': 'warn', 'mailbox_recovered': 'ok',
   'command_queued': 'info', 'command_executed': 'info',
-  'brute_force_detected': 'critical', 'ssh_key_added': 'warn', 'persistence_added': 'warn',   // 8.0.2: a new startup entry on a Windows host
+  'brute_force_detected': 'critical', 'ssh_key_added': 'warn', 'persistence_added': 'warn', 'persistence_unread': 'warn',   // 8.0.2: a new startup entry on a Windows host, and a startup place that was not read whole
   'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok', 'backup_size_anomaly': 'critical', 'canary_accessed': 'critical',
   'backup_verify_failed': 'critical', 'backup_verified': 'ok', 'rollout_halted': 'critical',
   'tls_expiry': 'warn', 'ct_new_certificate': 'warn', 'snapshot_old': 'warn', 'snapshot_recovered': 'ok',
@@ -22381,7 +22381,7 @@ function _renderHomeActivity(fleetEvents) {
     'drift_detected', 'mailbox_threshold', 'mailbox_recovered', 'custom_script_fail', 'custom_script_recover',
     'custom_check_failed', 'custom_check_recovered',
     'config_drift', 'tls_expiry', 'ct_new_certificate', 'reboot_required', 'reboot_cleared', 'snapshot_old', 'snapshot_recovered',
-    'new_port_detected', 'ssh_key_added', 'persistence_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_size_anomaly', 'backup_verify_failed', 'backup_verified', 'restore_drill_failed', 'restore_drill_ok', 'rollout_halted',
+    'new_port_detected', 'ssh_key_added', 'persistence_added', 'persistence_unread', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_size_anomaly', 'backup_verify_failed', 'backup_verified', 'restore_drill_failed', 'restore_drill_ok', 'rollout_halted',
     // v5.0.0 (#C3): break-glass credential reveal requested
     'vault_break_glass',
     // v5.0.0 (#R1): server self disk-space watchdog
@@ -22575,7 +22575,7 @@ function _renderHomeActivity(fleetEvents) {
         break;
       case 'ssh_key_added':
         detail = `${p.user}: ${p.fingerprint||'new key'}`; break;
-      case 'persistence_added':
+      case 'persistence_added': case 'persistence_unread':
         detail = `${p.detail || 'new startup entry'}${p.sample ? ' — ' + (Array.isArray(p.sample) ? p.sample[0] : p.sample) : ''}`; break;
       case 'new_port_detected':
         detail = `${p.proto||'tcp'}/${p.port}${p.process ? ` (${p.process})` : ''}`; break;
@@ -22637,7 +22637,7 @@ function _homeActivityAttrs(event, p) {
     case 'agent_stopped': case 'agent_started':
     case 'mailbox_threshold': case 'mailbox_recovered': case 'reboot_required': case 'reboot_cleared':
     case 'new_port_detected': case 'ssh_key_added': case 'traffic_watch':   // 8.0.0: the host's page has the Traffic section
-    case 'persistence_added':   // 8.0.2: the host's page has the Persistence section
+    case 'persistence_added': case 'persistence_unread':   // 8.0.2: the host's page has the Persistence section
     case 'backup_size_anomaly':
     case 'brute_force_detected': case 'backup_stale': case 'backup_recovered':
     case 'backup_verify_failed': case 'backup_verified':

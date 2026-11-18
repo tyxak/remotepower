@@ -385,25 +385,34 @@ class TestWhatIsAChange(unittest.TestCase):
         rec, added, _ = self.apply(rec, snap_of(run=[self.A], tasks=[['\\', 'new', 'c'], ['\\', 'old', 'c'], ['\\', 'newer', 'c']]), NOW + 1800)
         self.assertEqual([e[1] for _c, e in added], ['newer'])
 
-    def test_a_list_that_was_cut_is_not_compared_and_its_next_whole_read_is_a_new_baseline(self):
+    def test_a_list_that_was_cut_is_compared_for_what_it_shows_and_the_baseline_stays_until_a_whole_read(self):
         many = [['p', 'n%03d' % i, ''] for i in range(130)]
         rec, *_ = self.apply({}, snap_of(run=many[:100]))
-        rec, added, removed = self.apply(rec, snap_of(run=many), NOW + 900)             # 130 > the cap of 100: cut
+        rec, added, removed = self.apply(rec, snap_of(run=many), NOW + 900)             # 130 > the cap of 100: cut at 100 by name
         self.assertTrue(rec['inv']['run']['complete'] is False)
-        self.assertEqual((added, removed), ([], []), 'the entries that fall at the edge of a cut list are not news')
-        rec, added, removed = self.apply(rec, snap_of(run=many[:90]), NOW + 1800)       # whole again, 40 fewer than the cut list: nothing is "removed"
-        self.assertEqual((added, removed, rec['log']), ([], [], []))
+        self.assertEqual((added, removed), ([], []), 'the entries past the cut are not seen, and every one that is shown is in the baseline')
+        self.assertEqual(len(rec['inv']['run']['base']), 100, 'the last whole read is kept as the baseline')
+        rec, added, removed = self.apply(rec, snap_of(run=many[:90]), NOW + 1800)       # whole again, 10 fewer than the baseline held
+        gone = ['n%03d' % i for i in range(90, 100)]
+        self.assertEqual(([e[1] for _c, e in removed], added), (gone, []), 'a removal is found by a whole read, against the baseline that was kept')
+        self.assertEqual([(e['op'], e['name']) for e in rec['log']], [('removed', n) for n in gone])
         self.assertTrue(rec['inv']['run']['complete'])
+        self.assertNotIn('base', rec['inv']['run'])
+        self.assertNotIn('extra', rec['inv']['run'])
 
-    def test_a_cut_list_is_not_compared_even_when_its_edge_moved_so_a_rotation_is_not_news(self):
-        """130 entries cut at 100 keep the first 100 by name. Entries that sort before the old ones push others over the edge: one added and one gone for each of them, and all of it is only the edge."""
+    def test_a_rotation_at_the_edge_of_a_cut_list_is_not_news_but_a_new_entry_in_it_is_reported_once(self):
+        """130 entries cut at 100 keep the first 100 by name. Entries that sort before the old ones push others over the edge. The ones pushed over are not read as removed
+        (nothing is read as removed from a list that was cut); the new ones are reported once, not at every read."""
         old = [['p', 'n%03d' % i, ''] for i in range(100)]
         rec, *_ = self.apply({}, snap_of(run=old))
         shifted = [['p', 'a%03d' % i, ''] for i in range(30)] + old
         rec, added, removed = self.apply(rec, snap_of(run=shifted), NOW + 900)
-        self.assertEqual((added, removed, rec['log']), ([], [], []))
+        self.assertEqual(([e[1] for _c, e in added], removed), (['a%03d' % i for i in range(30)], []))
         self.assertFalse(rec['inv']['run']['complete'])
         self.assertEqual(len(entries(rec, 'run')), 100)
+        rec, added, removed = self.apply(rec, snap_of(run=shifted), NOW + 1800)
+        self.assertEqual((added, removed), ([], []), 'the same 30 are not reported again at the next cut read')
+        self.assertEqual(len([e for e in rec['log'] if e['op'] == 'added']), 30)
 
     def test_a_new_layout_of_the_snapshot_starts_every_baseline_again(self):
         rec, *_ = self.apply({}, snap_of(run=[self.A]))
@@ -428,6 +437,125 @@ class TestWhatIsAChange(unittest.TestCase):
             self.assertEqual((added, removed), ([], []), repr(bad))
             self.assertEqual(entries(rec, 'run'), [tuple(self.A)])
             self.assertTrue(all(isinstance(e, dict) for e in rec['log']))
+
+
+class TestAPlaceThatIsNotReadWhole(unittest.TestCase):
+    """A place that was cut at its cap, or that could not be read, is still compared for what it shows; the baseline is only ever replaced by a whole read; and a place that
+    stays that way is reported once."""
+    A = ['Run', 'OneDrive', '"C:\\Program Files\\OneDrive.exe" /background']
+    B = ['Run', 'Updater', 'C:\\Users\\bob\\AppData\\Local\\Temp\\upd.exe']
+    C = ['Run', 'Third', 'C:\\Users\\Public\\t.exe']
+    CUT = staticmethod(lambda items: {'ok': True, 'cut': True, 'items': items})
+    FAILED = staticmethod(lambda items: {'ok': False, 'cut': False, 'items': items})
+
+    def apply(self, prev, snap, now=NOW):
+        return P.apply_snapshot(prev, P.clean_snapshot(snap), now)
+
+    def test_an_entry_a_cut_read_shows_and_the_baseline_lacks_is_added_and_added_once(self):
+        rec, *_ = self.apply({}, snap_of(run=[self.A]))
+        rec, added, removed = self.apply(rec, snap_of(run=self.CUT([self.A, self.B])), NOW + 900)
+        self.assertEqual(([e[1] for _c, e in added], removed), (['Updater'], []))
+        rec, added, removed = self.apply(rec, snap_of(run=self.CUT([self.A, self.B])), NOW + 1800)
+        self.assertEqual((added, removed), ([], []), 'it is reported once, not at every read that is not whole')
+        self.assertEqual([e['name'] for e in rec['log']], ['Updater'])
+        self.assertEqual(len(P.due_alert(rec, NOW + 1800)[0]), 1, 'and it is due an alert')
+
+    def test_a_read_that_failed_half_way_is_compared_for_what_it_shows_and_keeps_what_the_place_held(self):
+        rec, *_ = self.apply({}, snap_of(run=[self.A, self.C]))
+        rec, added, removed = self.apply(rec, snap_of(run=self.FAILED([self.A, self.B])), NOW + 900)
+        self.assertEqual(([e[1] for _c, e in added], removed), (['Updater'], []), 'what it shows and the baseline lacks is new; what it lacks is not read as removed')
+        run = rec['inv']['run']
+        self.assertEqual((run['ok'], entries(rec, 'run'), run['ts']), (False, [tuple(self.A), tuple(self.C)], NOW), 'it is shown as it was, and says when it was last read')
+        rec, added, removed = self.apply(rec, snap_of(run=[self.A, self.B, self.C]), NOW + 1800)
+        self.assertEqual((added, removed), ([], []), 'a whole read finds nothing that was not reported')
+
+    def test_the_baseline_is_replaced_only_by_a_whole_read_and_that_read_is_compared_with_it(self):
+        rec, *_ = self.apply({}, snap_of(run=[self.A]))
+        rec, added, _ = self.apply(rec, snap_of(run=self.CUT([self.B])), NOW + 900)            # a read that shows only the new entry
+        self.assertEqual([e[1] for _c, e in added], ['Updater'])
+        self.assertEqual(entries(rec, 'run'), [tuple(self.B)], 'the page shows what the last read showed')
+        rec, added, removed = self.apply(rec, snap_of(run=[self.A, self.B, self.C]), NOW + 1800)
+        self.assertEqual(([e[1] for _c, e in added], removed), (['Third'], []), 'only what neither the baseline nor the reports held')
+        run = rec['inv']['run']
+        self.assertEqual((run['complete'], run['miss'], run['warned']), (True, 0, False))
+        self.assertTrue('base' not in run and 'extra' not in run)
+
+    def test_nothing_is_removed_by_a_read_that_is_not_whole_and_a_whole_read_finds_it(self):
+        rec, *_ = self.apply({}, snap_of(run=[self.A, self.B]))
+        rec, added, removed = self.apply(rec, snap_of(run=self.FAILED([])), NOW + 900)
+        self.assertEqual((added, removed, rec['log']), ([], [], []))
+        rec, added, removed = self.apply(rec, snap_of(run=self.CUT([self.A])), NOW + 1800)
+        self.assertEqual((added, removed, rec['log']), ([], [], []), 'an entry that is not shown may be past the cut')
+        rec, added, removed = self.apply(rec, snap_of(run=[self.A]), NOW + 2700)
+        self.assertEqual([e[1] for _c, e in removed], ['Updater'])
+
+    def test_an_entry_reported_while_the_hour_runs_is_still_due_when_a_later_cut_read_no_longer_shows_it(self):
+        rec, *_ = self.apply({}, snap_of(run=[self.A]))
+        rec['alert_ts'] = NOW + 900                                                              # an alert went out a moment ago
+        rec, *_ = self.apply(rec, snap_of(run=self.CUT([self.A, self.B])), NOW + 1000)
+        self.assertEqual(P.due_alert(rec, NOW + 1000)[0], [], 'inside the hour')
+        rec, *_ = self.apply(rec, snap_of(run=self.CUT([self.A])), NOW + 1900)                  # the entry has moved past the cut since
+        due, gone = P.due_alert(rec, NOW + 900 + P.ALERT_EVERY_S)
+        self.assertEqual(([e['name'] for e in due], gone), (['Updater'], []), 'nothing says it left, so it is sent')
+
+    def test_a_place_with_no_whole_read_has_no_baseline_and_compares_nothing_until_it_has_one(self):
+        rec, *_ = self.apply({}, snap_of(run=self.CUT([self.A, self.B])))
+        rec, added, removed = self.apply(rec, snap_of(run=self.CUT([self.A, self.B, self.C])), NOW + 900)
+        self.assertEqual((added, removed, rec['log']), ([], [], []))
+        self.assertNotIn('base', rec['inv']['run'])
+        rec, added, removed = self.apply(rec, snap_of(run=[self.A, self.B, self.C]), NOW + 1800)
+        self.assertEqual((added, removed, rec['log']), ([], [], []), 'the first whole read is the baseline')
+        self.assertTrue(rec['inv']['run']['complete'])
+
+    def test_the_stretch_is_counted_and_reported_once_after_three_inventories_and_a_whole_read_starts_it_again(self):
+        rec, *_ = self.apply({}, snap_of(run=[self.A], tasks=[['\\', 't', 'c']]))
+        seen = []
+        for n in range(1, 8):
+            rec, *_ = self.apply(rec, snap_of(run=[self.A], tasks=self.CUT([['\\', 't', 'c']])), NOW + 900 * n)
+            due = P.due_unread(rec)
+            seen.append([(d['cat'], d['why'], d['missed']) for d in due])
+            P.mark_unread(rec, due)
+        self.assertEqual(seen, [[], [], [('tasks', 'cut', 3)], [], [], [], []])
+        self.assertEqual((rec['inv']['tasks']['miss'], rec['inv']['tasks']['warned'], rec['inv']['run']['miss']), (7, True, 0))
+        rec, *_ = self.apply(rec, snap_of(run=[self.A], tasks=[['\\', 't', 'c']]), NOW + 9000)
+        self.assertEqual((rec['inv']['tasks']['miss'], rec['inv']['tasks']['warned'], P.due_unread(rec)), (0, False, []))
+        for n in range(1, 4):
+            rec, *_ = self.apply(rec, snap_of(run=[self.A], tasks=self.FAILED([])), NOW + 9000 + 900 * n)
+        self.assertEqual([(d['cat'], d['why']) for d in P.due_unread(rec)], [('tasks', 'unread')], 'a place that cannot be read is reported the same way, for what it is')
+
+    def test_a_place_that_alternates_between_whole_and_cut_is_never_reported(self):
+        rec, *_ = self.apply({}, snap_of(run=[self.A]))
+        for n in range(1, 12):
+            run = self.CUT([self.A]) if n % 2 else [self.A]
+            rec, *_ = self.apply(rec, snap_of(run=run), NOW + 900 * n)
+            self.assertEqual(P.due_unread(rec), [])
+
+    def test_the_notice_says_which_places_and_why_in_plain_sentences(self):
+        one = P.unread_payload([{'cat': 'tasks', 'why': 'cut', 'missed': 3}])
+        self.assertEqual(one['count'], 1)
+        self.assertEqual(one['detail'], '1 startup place was not read whole for 3 inventories in a row: scheduled tasks (cut at its limit)')
+        self.assertEqual(one['sample'], ['Scheduled tasks: more entries than the 200 that are kept, so the rest are not seen'])
+        two = P.unread_payload([{'cat': 'tasks', 'why': 'cut', 'missed': 4}, {'cat': 'startup', 'why': 'unread', 'missed': 3}])
+        self.assertEqual(two['detail'], '2 startup places were not read whole for 3 inventories in a row: scheduled tasks (cut at its limit), startup folders (could not be read)')
+        self.assertEqual(two['sample'][1], 'Startup folders: could not be read')
+
+    def test_the_record_stays_bounded_when_a_place_stays_cut_and_its_entries_keep_changing(self):
+        rec, *_ = self.apply({}, snap_of(run=[self.A]))
+        for n in range(1, 30):
+            rec, *_ = self.apply(rec, snap_of(run=self.CUT([['Run', 'g%d-%03d' % (n, i), ''] for i in range(100)])), NOW + 900 * n)
+        run = rec['inv']['run']
+        self.assertEqual(len(run['extra']), P.CAPS['run'] * P.EXTRA_FACTOR)
+        self.assertEqual((len(run['items']), len(run['base'])), (100, 1))
+        self.assertEqual(len(rec['log']), P.LOG_MAX)
+
+    def test_a_stored_place_of_the_wrong_kind_is_read_not_trusted(self):
+        for bad in ({'ok': True, 'complete': True, 'ts': 5, 'items': [self.A], 'miss': 'x', 'warned': 3, 'base': 'y', 'extra': [1, ['a'], ['a', 'b', 3], self.B]},
+                    {'complete': False, 'items': 'text', 'base': {'a': 1}, 'extra': None, 'miss': -4},
+                    {'items': [self.A, None, [1, 2, 3]], 'complete': True, 'miss': True}):
+            prev = {'v': P.VERSION, 'ts': 5, 'baseline': 4, 'alert_ts': 0, 'inv': {'run': bad}, 'log': []}
+            rec, added, removed = self.apply(prev, snap_of(run=self.CUT([self.A, self.C])), NOW)
+            self.assertIsInstance(rec['inv']['run']['miss'], int, repr(bad))
+            self.assertTrue(all(P._is_entry(e) for e in rec['inv']['run']['items']))
 
 
 class TestWhenAnAlertIsDue(unittest.TestCase):
@@ -693,7 +821,9 @@ class TestTheAgentReadsFivePlaces(unittest.TestCase):
             self.assertEqual((len(cleaned['items']), cleaned['cut']), (cap, True), cat)
         for i in range(60):
             (self.folders.startup('bob') / ('f%02d.lnk' % i)).write_bytes(b'x')
-        self.assertFalse(self.snap()['startup']['ok'], 'a folder with more files than it may hold is not read whole')
+        startup = self.snap()['startup']
+        self.assertEqual((startup['ok'], startup['cut']), (True, True), 'a folder with more files than it may hold is listed as far as the limit and the place is cut')
+        self.assertIn(['All users', 'OneNote.lnk', '1893 bytes'], startup['items'], 'the other folders are still read')
 
     def test_what_the_agent_sends_is_what_the_server_reads_without_changing_it(self):
         snap = self.snap()
@@ -712,6 +842,104 @@ class TestTheAgentReadsFivePlaces(unittest.TestCase):
         for secret in ('hunter2', 'p4ss'):
             self.assertNotIn(secret, text)
         self.assertIn('[REDACTED]', text)
+
+
+class TestAStandardUserCannotSilenceAPlace(unittest.TestCase):
+    """A standard user owns their own startup folder and can make tasks of their own. Filling either with decoys used to make the whole place not compared (the startup
+    place was sent as not read, the tasks as cut, and the cut read became the baseline). The real agent readers are driven into the real comparison."""
+
+    def setUp(self):
+        self.folders = Folders()
+        self.addCleanup(self.folders.remove)
+        self.rec, self.t = {}, NOW
+        self.alerts, self.notices = [], []
+
+    def feed(self, **places):
+        snap = {'v': P.VERSION}
+        for cat in P.CATEGORIES:
+            snap[cat] = places.get(cat, {'ok': True, 'cut': False, 'items': []})
+        self.rec, added, _removed = P.apply_snapshot(self.rec, P.clean_snapshot(snap), self.t)
+        due, gone = P.due_alert(self.rec, self.t)
+        P.mark_alerted(self.rec, due, gone, self.t)
+        unread = P.due_unread(self.rec)
+        P.mark_unread(self.rec, unread)
+        self.alerts += [e['name'] for e in due]
+        self.notices += [d['cat'] for d in unread]
+        self.t += 900
+        return [e[1] for _c, e in added]
+
+    def startup(self):
+        return win._persist_startup_items(self.folders.env(), time.time() + 30)
+
+    def tasks(self, names):
+        xml = '\n'.join(task_xml('\\' + n, 'C:\\Vendor\\app.exe') for n in names)
+        return win._persist_task_items(lambda args, timeout: xml, time.time() + 30, {})
+
+    def flood(self, user='bob', n=51):
+        self.folders.startup(user).mkdir(parents=True, exist_ok=True)
+        for i in range(n):
+            (self.folders.startup(user) / ('decoy-%02d.lnk' % i)).write_bytes(b'd')
+
+    def test_a_full_startup_folder_is_a_cut_place_and_the_other_folders_are_still_compared(self):
+        self.feed(startup=self.startup())
+        self.flood('bob')
+        self.folders.startup('alice').mkdir(parents=True)
+        (self.folders.startup('alice') / 'alice-new.lnk').write_bytes(b'a')
+        (self.folders.programdata / 'Microsoft' / 'Windows' / 'Start Menu' / 'Programs' / 'StartUp' / 'allusers-new.lnk').write_bytes(b'u')
+        part = self.startup()
+        self.assertEqual((part['ok'], part['cut']), (True, True), 'a long folder is a cut place, not a place that was not read')
+        added = self.feed(startup=part)
+        self.assertIn('alice-new.lnk', added)
+        self.assertIn('allusers-new.lnk', added)
+        self.assertTrue({'alice-new.lnk', 'allusers-new.lnk'} <= set(self.alerts), 'and an alert goes out for them')
+
+    def test_a_flood_that_was_there_from_the_first_inventory_is_reported_after_three_inventories(self):
+        self.flood('bob')
+        (self.folders.startup('bob') / 'payload.lnk').write_bytes(b'x')                 # sorts after the decoys: past the limit, never listed
+        for _ in range(2):
+            self.feed(startup=self.startup())
+        self.assertEqual(self.notices, [])
+        self.feed(startup=self.startup())
+        self.assertEqual(self.notices, ['startup'])
+        self.assertNotIn('payload.lnk', [e[1] for e in self.rec['inv']['startup']['items']])
+        for _ in range(3):
+            self.feed(startup=self.startup())
+        self.assertEqual(self.notices, ['startup'], 'once for the stretch')
+
+    def test_tasks_made_to_cut_the_list_alert_for_what_they_add_and_a_cut_read_never_becomes_the_baseline(self):
+        base = ['Task%03d' % i for i in range(150)]
+        self.feed(tasks=self.tasks(base))
+        decoys = ['Decoy%03d' % i for i in range(191)]
+        part = self.tasks(base + decoys + ['Payload'])                                   # 342 tasks: over the cap of 200
+        self.assertEqual((part['ok'], part['cut']), (True, True))
+        added = self.feed(tasks=part)
+        self.assertIn('Payload', added, 'it is within the first 200 by name, so it is shown, and the baseline does not hold it')
+        self.assertTrue(self.alerts, 'the flood alerts for what it adds')
+        self.assertEqual(len(self.rec['inv']['tasks']['base']), 150, 'the baseline is still the last whole read')
+        added = self.feed(tasks=self.tasks(base + ['Payload']))                          # the decoys are deleted, the payload stays
+        self.assertEqual(added, [], 'it was reported when the cut read showed it, and is not new now')
+        self.assertTrue(any(e[1] == 'Payload' for e in self.rec['inv']['tasks']['items']))
+
+    def test_a_payload_past_the_cut_is_found_by_the_first_whole_read_after_the_flood(self):
+        base = ['Task%03d' % i for i in range(150)]
+        self.feed(tasks=self.tasks(base))
+        decoys = ['AAdecoy%03d' % i for i in range(191)]
+        self.feed(tasks=self.tasks(base + decoys + ['Zpayload']))                        # sorts last: past the cut of 200 (150 + 191 + 1 = 342)
+        self.assertNotIn('Zpayload', [e[1] for e in self.rec['inv']['tasks']['items']])
+        added = self.feed(tasks=self.tasks(base + ['Zpayload']))                         # the decoys go, and the whole read is compared with the baseline
+        self.assertEqual(added, ['Zpayload'])
+        for _ in range(4):                                                               # the alert for the decoys went out inside the hour: this one waits for the next
+            self.feed(tasks=self.tasks(base + ['Zpayload']))
+        self.assertIn('Zpayload', self.alerts)
+
+    def test_a_folder_that_cannot_be_read_does_not_stop_the_others_from_being_compared(self):
+        self.feed(startup=self.startup())
+        self.folders.startup('alice').mkdir(parents=True)
+        (self.folders.startup('alice') / 'alice-new.lnk').write_bytes(b'a')
+        part = self.startup()
+        part['ok'] = False                                                               # as it is sent when one folder was denied to the agent
+        added = self.feed(startup=part)
+        self.assertEqual(added, ['alice-new.lnk'])
 
 
 class TestHowOften(unittest.TestCase):
@@ -838,9 +1066,12 @@ class _Server(unittest.TestCase):
     def stored(self, dev_id):
         return api._entity_read_one(api.PERSISTENCE_FILE, dev_id, None)
 
-    def alerts(self, dev_id=None):
+    def alerts(self, dev_id=None, event='persistence_added'):
         rows = (api.load(api.ALERTS_FILE) or {}).get('alerts', [])
-        return [a for a in rows if a.get('event') == 'persistence_added' and (dev_id is None or a['payload'].get('device_id') == dev_id)]
+        return [a for a in rows if a.get('event') == event and (dev_id is None or a['payload'].get('device_id') == dev_id)]
+
+    def notices(self):
+        return [p for e, p in self.fired if e == 'persistence_unread']
 
 
 A = ['Run', 'OneDrive', '"C:\\Program Files\\OneDrive.exe" /background']
@@ -950,6 +1181,72 @@ class TestFromTheHeartbeatToTheAlert(_Server):
         api._entity_write_one = real
         self.beat('win1', snap_of(run=[A, B]))
         self.assertEqual(len(self.fired), 1, 'the same new entry shows again at the next snapshot')
+
+    WHOLE = [['Run', 'n%03d' % i, ''] for i in range(100)]
+    CUT = {'ok': True, 'cut': True, 'items': [['Run', 'n%03d' % i, ''] for i in range(130)]}
+
+    def test_a_place_that_stays_cut_raises_one_notice_on_the_third_inventory_and_not_again(self):
+        self.beat('win1', snap_of(run=self.WHOLE))
+        for _ in range(2):
+            self.beat('win1', snap_of(run=self.CUT))
+        self.assertEqual(self.notices(), [], 'two inventories in a row are not yet a stretch')
+        self.beat('win1', snap_of(run=self.CUT))
+        (payload,) = self.notices()
+        self.assertEqual((payload['device_id'], payload['name'], payload['count']), ('win1', 'win1', 1))
+        self.assertEqual(payload['detail'], '1 startup place was not read whole for 3 inventories in a row: Run keys (cut at its limit)')
+        self.assertEqual([e for e, _p in self.fired if e == 'persistence_added'], [], 'nothing new was shown, so no entry alert')
+        for _ in range(3):
+            self.beat('win1', snap_of(run=self.CUT))
+        self.assertEqual(len(self.notices()), 1, 'once for the stretch')
+        self.beat('win1', snap_of(run=self.WHOLE))                                                 # a whole read ends the stretch
+        for _ in range(3):
+            self.beat('win1', snap_of(run=self.CUT))
+        self.assertEqual(len(self.notices()), 2)
+
+    def test_a_place_the_agent_could_not_read_is_reported_the_same_way_and_says_so(self):
+        self.beat('win1', snap_of(run=self.WHOLE, startup=[['All users', 'a.lnk', '1 bytes']]))
+        for _ in range(3):
+            self.beat('win1', snap_of(run=self.WHOLE, startup={'ok': False, 'cut': False, 'items': []}))
+        (payload,) = self.notices()
+        self.assertEqual(payload['detail'], '1 startup place was not read whole for 3 inventories in a row: startup folders (could not be read)')
+        self.assertEqual(payload['sample'], ['Startup folders: could not be read'])
+        self.assertEqual(entries(self.stored('win1'), 'startup'), [('All users', 'a.lnk', '1 bytes')], 'what it held is kept')
+
+    def test_the_notice_reaches_the_inbox_and_the_feed_through_the_real_event_machinery(self):
+        api.fire_webhook = self._fire
+        self.beat('win1', snap_of(run=self.WHOLE))
+        for _ in range(3):
+            self.beat('win1', snap_of(run=self.CUT))
+        (alert,) = self.alerts('win1', 'persistence_unread')
+        self.assertEqual((alert['severity'], alert['title']), ('medium', 'Startup place not read whole on win1'))
+        self.assertEqual(alert['payload']['count'], 1)
+        self.assertIn('Run keys (cut at its limit)', alert['payload']['detail'])
+        feed = [e for e in (api.load(api.FLEET_EVENTS_FILE) or {}).get('events', []) if e['event'] == 'persistence_unread']
+        self.assertEqual(len(feed), 1)
+        self.assertEqual(self.alerts('win1'), [], 'it is not an alert about a new entry')
+
+    def test_a_mute_for_the_notice_does_not_silence_the_alert_for_a_new_entry(self):
+        api.fire_webhook = self._fire
+        with mock.patch.object(api, '_alert_mute_set', lambda: {('win1', 'persistence_unread')}):
+            self.beat('win1', snap_of(run=self.WHOLE))
+            for _ in range(3):
+                self.beat('win1', snap_of(run=self.CUT))
+            self.beat('win1', snap_of(run=self.WHOLE[:99] + [B]))                                  # whole again, with one entry that is new
+        self.assertEqual(self.alerts('win1', 'persistence_unread'), [])
+        self.assertEqual(len(self.alerts('win1')), 1)
+
+    def test_the_notice_waits_for_the_row_that_remembers_it_so_a_skipped_write_does_not_send_it_twice(self):
+        self.beat('win1', snap_of(run=self.WHOLE))
+        for _ in range(2):
+            self.beat('win1', snap_of(run=self.CUT))
+        real = api._entity_write_one
+        with mock.patch.object(api, '_entity_write_one', lambda *a, **k: None):
+            self.beat('win1', snap_of(run=self.CUT))
+        self.assertEqual(self.notices(), [])
+        api._entity_write_one = real
+        self.beat('win1', snap_of(run=self.CUT))
+        self.assertEqual(len(self.notices()), 1)
+        self.assertTrue(self.stored('win1')['inv']['run']['warned'])
 
     def test_the_real_agent_snapshot_goes_through_the_real_heartbeat(self):
         folders = Folders()
@@ -1075,6 +1372,16 @@ class TestTheRegistrations(unittest.TestCase):
         self.assertNotIn('run', fixed['h']['inv'])
         self.assertEqual([e['name'] for e in fixed['h']['log']], ['7'])
 
+    def test_the_fields_of_a_place_that_is_not_read_whole_are_in_the_shape_registry(self):
+        import store_shapes
+        place = {'ok': True, 'complete': False, 'ts': 5, 'items': [['a', 'b', 'c']], 'miss': '4', 'warned': True, 'base': [['a', 'b', 'c']], 'extra': [['d', 'e', 'f']]}
+        row = {'v': 1, 'ts': 5, 'baseline': 4, 'alert_ts': 0, 'inv': {'run': place}, 'log': []}
+        fixed = store_shapes.normalize('persistence.json', {'h': row})['h']['inv']['run']
+        self.assertEqual((fixed['miss'], fixed['base'], fixed['extra']), (4, [['a', 'b', 'c']], [['d', 'e', 'f']]), 'a count stored as text is read as the number')
+        broken = dict(row, inv={'run': dict(place, miss='x', base='y', extra=3)})
+        fixed = store_shapes.normalize('persistence.json', {'h': broken})['h']['inv']['run']
+        self.assertEqual((fixed.get('miss'), fixed.get('base'), fixed.get('extra')), (None, [], []), 'a count of the wrong kind is left out, a list of the wrong kind is an empty one')
+
     def test_the_event_the_kind_and_what_the_default_does_for_it(self):
         spec = api.EVENT_REGISTRY['persistence_added']
         self.assertEqual((spec['kind'], spec['severity'], spec['lifecycle']), ('persistence', 'medium', 'point'))
@@ -1084,6 +1391,18 @@ class TestTheRegistrations(unittest.TestCase):
         default = api._kind_default('persistence')
         self.assertEqual((default['needs_attention'], default['webhook'], default['alerts'], default['recent_activity']), (False, False, True, True))
 
+    def test_the_unread_event_is_in_the_same_kind_and_reads_well(self):
+        spec = api.EVENT_REGISTRY['persistence_unread']
+        self.assertEqual((spec['kind'], spec['severity'], spec['lifecycle']), ('persistence', 'medium', 'point'))
+        self.assertEqual(api.EVENT_KIND_MAP['persistence_unread'], 'persistence')
+        self.assertIn('persistence_unread', api.WEBHOOK_EVENT_NAMES)
+        self.assertEqual(api._alert_title('persistence_unread', {'name': 'WIN01', 'count': 1}), 'Startup place not read whole on WIN01')
+        self.assertEqual(api._alert_title('persistence_unread', {'name': 'WIN01', 'count': 2}), 'Startup places not read whole on WIN01')
+        msg = api.notify_mod._webhook_message('persistence_unread', {'name': 'WIN01', 'detail': '1 startup place was not read whole for 3 inventories in a row: Run keys (cut at its limit)',
+                                                                      'sample': ['Run keys: more entries than the 100 that are kept, so the rest are not seen']})
+        self.assertEqual(msg, 'WIN01: 1 startup place was not read whole for 3 inventories in a row: Run keys (cut at its limit) — Run keys: more entries than the 100 that are kept, so the rest are not seen')
+        self.assertEqual(api.notify_mod._webhook_message('persistence_unread', {'name': 'W'}), 'W: a startup place was not read whole')
+
     def test_the_title_and_the_webhook_sentence_read_well(self):
         self.assertEqual(api._alert_title('persistence_added', {'name': 'WIN01', 'count': 1}), 'New startup entry on WIN01')
         self.assertEqual(api._alert_title('persistence_added', {'name': 'WIN01', 'count': 3}), 'New startup entries on WIN01')
@@ -1091,11 +1410,12 @@ class TestTheRegistrations(unittest.TestCase):
         self.assertEqual(msg, 'WIN01: 1 new startup entry (1 Run key) — Run key: x = y')
         self.assertEqual(api.notify_mod._webhook_message('persistence_added', {'name': 'W'}), 'W: new startup entry')
 
-    def test_the_activity_feed_knows_the_event(self):
+    def test_the_activity_feed_knows_both_events(self):
         js = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text(encoding='utf-8')
-        self.assertIn("'ssh_key_added', 'persistence_added', 'brute_force_detected'", js)
-        self.assertIn("case 'persistence_added':", js)
-        self.assertIn("'persistence_added': 'warn'", js)
+        self.assertIn("'ssh_key_added', 'persistence_added', 'persistence_unread', 'brute_force_detected'", js, 'the set of events the feed lists')
+        for ev in ('persistence_added', 'persistence_unread'):
+            self.assertIn("'%s': 'warn'" % ev, js, ev + ': its colour')
+        self.assertEqual(len(re.findall(r"case 'persistence_added': case 'persistence_unread':", js)), 2, 'the detail line and the click-through route name both events')
 
     def test_the_module_is_fetched_when_a_drawer_opens_and_is_in_the_lazy_list(self):
         js = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text(encoding='utf-8')
@@ -1112,10 +1432,11 @@ class TestTheRegistrations(unittest.TestCase):
 class TestSixLanguages(unittest.TestCase):
     STRINGS = ['Persistence', 'Changes', 'On the host now', 'Run key', 'Winlogon value', 'Scheduled task', 'Startup folder', 'First inventory', 'Last inventory',
                'Nothing has changed since the first inventory.', 'This place could not be read at the last inventory. It is shown as it was.',
-               'This list was cut at its limit, so changes in it are not tracked.',
+               'This list was cut at its limit. Entries past the limit are not seen; the ones shown are still compared.',
                'What starts by itself on this Windows host: Run keys, the Winlogon shell, services that run from a temporary or user folder, scheduled tasks that are not '
                "Microsoft's, and startup folders. Once a first inventory is on record, a new entry raises an alert.",
-               'A new startup entry appeared on a Windows host', 'New startup entries on Windows hosts', 'Added', 'Removed', 'Service']
+               'A new startup entry appeared on a Windows host', 'A startup place on a Windows host was not read whole', 'New startup entries on Windows hosts', 'Added',
+               'Removed', 'Service']
 
     @classmethod
     def setUpClass(cls):
@@ -1130,13 +1451,14 @@ class TestSixLanguages(unittest.TestCase):
         html = (_ROOT / 'server' / 'html' / 'index.html').read_text(encoding='utf-8')
         for label in ('Run key', 'Winlogon value', 'Service', 'Scheduled task', 'Startup folder', 'Added', 'Removed', 'First inventory', 'Last inventory',
                       'Nothing has changed since the first inventory.', 'This place could not be read at the last inventory. It is shown as it was.',
-                      'This list was cut at its limit, so changes in it are not tracked.'):
+                      'This list was cut at its limit. Entries past the limit are not seen; the ones shown are still compared.'):
             self.assertIn(label, js, label)
         for label in ('Persistence', 'Changes', 'On the host now', self.STRINGS[12]):
             self.assertIn('>%s' % label, html, label)
 
     def test_the_server_labels_are_in_the_registries_the_label_gate_reads(self):
         self.assertEqual(api.EVENT_REGISTRY['persistence_added']['label'], 'A new startup entry appeared on a Windows host')
+        self.assertEqual(api.EVENT_REGISTRY['persistence_unread']['label'], 'A startup place on a Windows host was not read whole')
         self.assertIn('New startup entries on Windows hosts', [k[1] for k in api.CHANNEL_KIND_DEFS])
 
     def test_a_host_is_a_host_and_no_word_the_house_style_drops_is_in_what_was_added(self):

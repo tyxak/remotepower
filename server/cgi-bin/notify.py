@@ -1120,6 +1120,10 @@ def _webhook_message(event, payload):
         sample = payload.get("sample") or []
         first = f" — {sample[0]}" if isinstance(sample, list) and sample else ""
         return f'{name}: {payload.get("detail", "new startup entry")}{first}'
+    elif event == "persistence_unread":
+        sample = payload.get("sample") or []
+        first = f" — {sample[0]}" if isinstance(sample, list) and sample else ""
+        return f'{name}: {payload.get("detail", "a startup place was not read whole")}{first}'
     elif event == "brute_force_detected":
         unit = payload.get("unit", "?")
         src_ip = payload.get("source_ip", "?")

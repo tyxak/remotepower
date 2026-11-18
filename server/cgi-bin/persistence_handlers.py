@@ -44,8 +44,8 @@ def bind(api_globals):
 
 # ── the heartbeat side and the host's page ───────────────────────────────────
 # A Windows agent sends its autostart inventory under `sysinfo.persistence` at most every 15 minutes. The server cleans it, compares it with the one it kept for the host,
-# writes what is new and what is gone into the host's change log and raises `persistence_added` for what is new (persistence.py says how a snapshot is read, what counts as
-# a change and when an alert is due). The record of a host is one row of `persistence.json`: the last inventory by place, the change log, the time of the first inventory
+# writes what is new and what is gone into the host's change log and raises `persistence_added` for what is new, and `persistence_unread` for a place that was not read whole
+# for several inventories in a row (persistence.py says how a snapshot is read, what counts as a change and when an alert is due). The record of a host is one row of `persistence.json`: the last inventory by place, the change log, the time of the first inventory
 # (the baseline: nothing in it alerts) and the time of the last alert.
 
 import sys
@@ -54,13 +54,14 @@ import persistence as P
 
 
 def _persistence_ingest(dev_id, dev_name, raw, now):
-    """Keep the inventory a host's agent sent, log the entries that are new and gone, and raise an alert for the new ones that are due one.
+    """Keep the inventory a host's agent sent, log the entries that are new and gone, and raise an alert for the new ones that are due one, and for a place that has not been
+    read whole for several inventories in a row.
 
     Called from the heartbeat after the devices lock is released. A snapshot that is not one of this version, or not a map, is dropped; nothing here raises, so a bad one
-    cannot fail the heartbeat that carried it. The row is written the way the other per-host stores are (one row, best effort, skipped under lock contention), and the alert
+    cannot fail the heartbeat that carried it. The row is written the way the other per-host stores are (one row, best effort, skipped under lock contention), and an alert
     goes out only once the row that remembers it has been read back: a skipped write leaves the stored inventory as it was, the same new entries show again at the next
     snapshot, and an alert sent for a row that was not kept would be sent a second time."""
-    sent = []
+    sent, sent_unread = [], []
     try:
         snap = P.clean_snapshot(raw)
         if snap is None:
@@ -72,22 +73,33 @@ def _persistence_ingest(dev_id, dev_name, raw, now):
         due, gone = P.due_alert(rec, now)
         if due or gone:
             P.mark_alerted(rec, due, gone, now)
+        unread = P.due_unread(rec)
+        if unread:
+            P.mark_unread(rec, unread)
         A._entity_write_one(A.PERSISTENCE_FILE, dev_id, rec)
-        if due:
+        if due or unread:
             kept = A._entity_read_one(A.PERSISTENCE_FILE, dev_id, {}) or {}
-            if isinstance(kept, dict) and kept.get("ts") == now and kept.get("alert_ts") == now:
-                sent = due
+            if isinstance(kept, dict) and kept.get("ts") == now:
+                if due and kept.get("alert_ts") == now:
+                    sent = due
+                inv = kept.get("inv") if isinstance(kept.get("inv"), dict) else {}
+                if unread and all(isinstance(inv.get(d["cat"]), dict) and inv[d["cat"]].get("warned") is True for d in unread):
+                    sent_unread = unread
     except Exception as e:
         sys.stderr.write(f"[remotepower] persistence ingest failed dev={dev_id}: {type(e).__name__}: {e}\n")
         return
-    if not sent:
-        return
-    try:
-        payload = P.alert_payload(sent)
-        payload.update({"device_id": dev_id, "name": dev_name or dev_id})
-        A.fire_webhook("persistence_added", payload)
-    except Exception as e:
-        sys.stderr.write(f"[remotepower] persistence alert failed dev={dev_id}: {type(e).__name__}: {e}\n")
+    for event, build, entries in (
+        ("persistence_added", P.alert_payload, sent),
+        ("persistence_unread", P.unread_payload, sent_unread),
+    ):
+        if not entries:
+            continue
+        try:
+            payload = build(entries)
+            payload.update({"device_id": dev_id, "name": dev_name or dev_id})
+            A.fire_webhook(event, payload)
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] persistence alert failed dev={dev_id}: {type(e).__name__}: {e}\n")
 
 
 def handle_device_persistence(dev_id):

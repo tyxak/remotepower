@@ -9,8 +9,11 @@ trusted), compares it with the one it kept, writes the entries that are new or g
 
   * The first inventory of a place is its baseline. Nothing in it is a change, so a host that has just enrolled, or whose agent has just been updated to read more, raises
     nothing.
-  * A place that could not be read (access denied, out of time) or whose list was cut at its cap is not compared: an empty answer is not "everything was removed", and a
-    cut list would report the entries that happen to fall at its edge. It is kept as it was and marked, and what it holds next time it is read whole is its new baseline.
+  * A place that could not be read (access denied, out of time) or whose list was cut at its cap is not read whole. The last whole read of it stays the baseline until a
+    whole read has been compared with it: a read that was cut, or that failed half way, never replaces it. What such a read still shows is compared with the baseline, and
+    an entry in it that the baseline does not hold is new. Nothing is read as removed from a read that was not whole (an empty answer is not "everything was removed", and
+    a cut list would report the entries that happen to fall at its edge); removals are found when the place is read whole again. A place that was not read whole three
+    inventories in a row is reported once, because the entries past the cut are not seen until then.
   * An entry is its place, its name and what it runs. A changed command is a new entry beside a removed one, so a Run value or a Shell that was pointed at something else is
     a new entry and alerts.
   * An entry that is gone is recorded and does not alert.
@@ -33,6 +36,12 @@ LOG_MAX = 200  # changes kept for a host, the oldest dropped first
 # changes of each kind written from one snapshot; the alert still counts them all
 PER_SNAPSHOT_MAX = 50
 ALERT_EVERY_S = 3600  # an alert for a host at most this often
+# inventories in a row in which a place was not read whole before the host is told
+UNREAD_AFTER = 3
+# entries kept beside a baseline for a place that stays cut, as a multiple of its cap
+EXTRA_FACTOR = 3
+# the count of inventories in a row that did not read a place whole stops here
+MISSED_MAX = 1000000
 SAMPLE_LINES = 3  # entries an alert quotes
 SAMPLE_CHARS = 200
 LABELS = {
@@ -41,6 +50,14 @@ LABELS = {
     "services": "service",
     "tasks": "scheduled task",
     "startup": "startup folder file",
+}
+# the places by name, for the notice that one was not read whole
+PLACES = {
+    "run": "Run keys",
+    "winlogon": "Winlogon values",
+    "services": "services",
+    "tasks": "scheduled tasks",
+    "startup": "startup folders",
 }
 
 _HIDDEN = frozenset("­​‌‍‎‏  ‪‫‬‭‮⁠⁦⁧⁨⁩﻿")
@@ -128,40 +145,94 @@ def clean_snapshot(raw):
     return out
 
 
-def _complete(cat):
-    return isinstance(cat, dict) and cat.get("complete") is True
+def _is_entry(e):
+    return isinstance(e, list) and len(e) == 3 and all(isinstance(x, str) for x in e)
+
+
+def _stored(place, key="items"):
+    """The entries a stored place holds under `key`, without anything that is not an entry (a stored row is read, not trusted)."""
+    v = place.get(key) if isinstance(place, dict) else None
+    return [e for e in v if _is_entry(e)] if isinstance(v, list) else []
+
+
+def _count(v):
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+
+
+def _reference(old):
+    """The entries a new read of a place is compared with, or None when the place has no whole read yet.
+
+    That is the last whole read of it (`base` while cut or failed reads have come since, else `items` of a place whose last read was whole) and the entries those reads
+    showed and that were reported as new (`extra`), so that an entry is reported once and not again at every read that is not whole.
+    """
+    if not isinstance(old, dict):
+        return None
+    if isinstance(old.get("base"), list):
+        base = _stored(old, "base")
+    elif old.get("complete") is True:
+        base = _stored(old)
+    else:
+        return None
+    return base + _stored(old, "extra")
 
 
 def apply_snapshot(prev, snap, now):
     """(record, added, removed): the record of a host after a snapshot, and the entries that are new and gone since the one before.
 
-    `prev` is the stored record (anything that is not a map is no record), `snap` a cleaned snapshot. A place is compared only when this snapshot and the earlier one
-    both read it whole and the layout is the same; otherwise it is stored as it stands and is the baseline from then on. `added` and `removed` are lists of
-    (category, entry). The record keeps, for each place, the entries of its last whole read and when that was, so a place that cannot be read is shown as it was.
+    `prev` is the stored record (anything that is not a map is no record), `snap` a cleaned snapshot. A place read whole is compared with its baseline (the last whole read
+    of it and what later reads that were not whole showed) when the layout is the same, and is the baseline from then on. A place that was cut at its cap or could not be
+    read whole is compared for what it shows: an entry the baseline does not hold is added. It is not compared for what it lacks, so `removed` only ever comes from a whole
+    read, and the baseline stays where it was (`base`) until a whole read has been compared with it. `added` and `removed` are lists of (category, entry).
+
+    For each place the record keeps `items` (what the last read showed, or what the last read that worked showed when the place could not be read), when that was,
+    whether it was whole (`complete`), `miss` (the inventories in a row that did not read it whole), `warned` (the host has been told about this stretch), and while
+    the place is not read whole the baseline (`base`) and the entries reported since (`extra`).
     """
     prev = prev if isinstance(prev, dict) else {}
     old_inv = prev.get("inv") if isinstance(prev.get("inv"), dict) else {}
     same_layout = prev.get("v") == snap["v"]
     inv, added, removed = {}, [], []
     for cat in CATEGORIES:
-        new, old = snap[cat], old_inv.get(cat) if isinstance(old_inv.get(cat), dict) else None
-        old_items = (
-            [e for e in (old or {}).get("items", []) if isinstance(e, list) and len(e) == 3]
-            if old
-            else []
+        new = snap[cat]
+        old = old_inv.get(cat) if same_layout and isinstance(old_inv.get(cat), dict) else None
+        ref = _reference(old)
+        if new["ok"] and not new["cut"]:
+            inv[cat] = {
+                "ok": True,
+                "complete": True,
+                "ts": now,
+                "items": new["items"],
+                "miss": 0,
+                "warned": False,
+            }
+            if ref is not None:
+                now_set, was_set = {tuple(e) for e in new["items"]}, {tuple(e) for e in ref}
+                added += [(cat, e) for e in new["items"] if tuple(e) not in was_set]
+                removed += [(cat, e) for e in ref if tuple(e) not in now_set]
+            continue
+        # not read whole: cut at its cap, or it could not be read (what it still shows is compared, never what it lacks)
+        was_set = {tuple(e) for e in ref} if ref is not None else set()
+        fresh = [e for e in new["items"] if tuple(e) not in was_set] if ref is not None else []
+        if new["ok"]:
+            state = {"ok": True, "complete": False, "ts": now, "items": new["items"]}
+            if ref is not None:
+                base = _stored(old, "base") if isinstance(old.get("base"), list) else _stored(old)
+                state["base"] = base
+        else:
+            state = dict(old) if old else {"ts": 0, "complete": False, "items": []}
+            state["ok"] = False
+            state["items"] = _stored(old)
+        extra = (
+            (_stored(old, "extra") + fresh)[-CAPS[cat] * EXTRA_FACTOR :] if ref is not None else []
         )
-        if not new["ok"]:
-            kept = dict(old) if old else {"ts": 0, "complete": False, "items": []}
-            kept["ok"] = False
-            kept["items"] = old_items
-            inv[cat] = kept
-            continue
-        inv[cat] = {"ok": True, "complete": not new["cut"], "ts": now, "items": new["items"]}
-        if new["cut"] or not old or not same_layout or not _complete(old):
-            continue
-        now_set, was_set = {tuple(e) for e in new["items"]}, {tuple(e) for e in old_items}
-        added += [(cat, e) for e in new["items"] if tuple(e) not in was_set]
-        removed += [(cat, e) for e in old_items if tuple(e) not in now_set]
+        if extra:
+            state["extra"] = extra
+        else:
+            state.pop("extra", None)
+        state["miss"] = min(_count((old or {}).get("miss")) + 1, MISSED_MAX)
+        state["warned"] = (old or {}).get("warned") is True
+        inv[cat] = state
+        added += [(cat, e) for e in fresh]
     log = (
         [e for e in prev.get("log", []) if isinstance(e, dict)]
         if isinstance(prev.get("log"), list)
@@ -200,8 +271,11 @@ def apply_snapshot(prev, snap, now):
 
 
 def _present(rec, entry):
+    """Whether a logged entry is still on the host as far as the last reads say: it is in what the place showed last, or it was reported while the place was not read whole
+    and no whole read has been taken since (then nothing says it left)."""
     cat = (rec.get("inv") or {}).get(entry.get("cat")) or {}
-    return [entry.get("loc"), entry.get("name"), entry.get("data")] in (cat.get("items") or [])
+    e = [entry.get("loc"), entry.get("name"), entry.get("data")]
+    return e in (cat.get("items") or []) or e in (cat.get("extra") or [])
 
 
 def due_alert(rec, now):
@@ -261,6 +335,67 @@ def alert_payload(entries):
     return {"count": n, "detail": detail, "sample": sample}
 
 
+def due_unread(rec):
+    """The places that were not read whole for UNREAD_AFTER inventories in a row and that the host has not been told about yet: a list of {cat, why, missed}.
+
+    `why` is "cut" when the place was read but held more entries than are kept, and "unread" when it could not be read. The entries past a cut, and what a place that cannot
+    be read holds, are not compared, so this is the one thing that says the place is not watched in full. It is due once for a stretch: a whole read starts the count again.
+    """
+    out = []
+    inv = rec.get("inv") if isinstance(rec, dict) and isinstance(rec.get("inv"), dict) else {}
+    for cat in CATEGORIES:
+        c = inv.get(cat)
+        if not isinstance(c, dict) or c.get("warned") is True:
+            continue
+        missed = _count(c.get("miss"))
+        if missed >= UNREAD_AFTER:
+            out.append(
+                {"cat": cat, "why": "cut" if c.get("ok") is True else "unread", "missed": missed}
+            )
+    return out
+
+
+def mark_unread(rec, due):
+    """The record with the places that are being reported marked as reported for this stretch."""
+    for d in due:
+        c = (rec.get("inv") or {}).get(d["cat"])
+        if isinstance(c, dict):
+            c["warned"] = True
+    return rec
+
+
+def unread_payload(due):
+    """The facts an alert quotes for places that were not read whole: how many, and one line for each."""
+    n = len(due)
+    missed = min((d["missed"] for d in due), default=0)
+    names = ", ".join(
+        "%s (%s)"
+        % (
+            PLACES.get(d["cat"], d["cat"]),
+            "cut at its limit" if d["why"] == "cut" else "could not be read",
+        )
+        for d in due
+    )
+    detail = "%d startup %s not read whole for %d inventories in a row: %s" % (
+        n,
+        "place was" if n == 1 else "places were",
+        missed,
+        names,
+    )
+    sample = []
+    for d in due[:SAMPLE_LINES]:
+        place = PLACES.get(d["cat"], d["cat"])
+        if d["why"] == "cut":
+            line = "%s: more entries than the %d that are kept, so the rest are not seen" % (
+                place[:1].upper() + place[1:],
+                CAPS.get(d["cat"], 0),
+            )
+        else:
+            line = "%s: could not be read" % (place[:1].upper() + place[1:])
+        sample.append(line[:SAMPLE_CHARS])
+    return {"count": n, "detail": detail, "sample": sample}
+
+
 def view(rec):
     """What the host's page is given: the inventory by place (entries as maps), the changes newest first, and the times. A record that is not one gives None."""
     if not isinstance(rec, dict) or not isinstance(rec.get("inv"), dict):
@@ -271,6 +406,7 @@ def view(rec):
         inv[cat] = {
             "ok": c.get("ok") is True,
             "complete": c.get("complete") is True,
+            "missed": _count(c.get("miss")),
             "ts": (
                 c.get("ts")
                 if isinstance(c.get("ts"), int) and not isinstance(c.get("ts"), bool)

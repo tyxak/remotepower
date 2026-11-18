@@ -4700,7 +4700,8 @@ def _persist_entry_size(e):
 
 
 def _persist_startup_items(env, deadline):
-    """The files of the startup folder of all users and of each profile under Users. A folder that does not exist holds nothing; one that cannot be read makes the place not read."""
+    """The files of the startup folder of all users and of each profile under Users. A folder that does not exist holds nothing; one that cannot be read makes the place not read,
+    and one with more files than are listed makes it cut. The other folders are read either way: a user who fills their own folder must not stop the rest from being compared."""
     pd = env.get('programdata') or 'C:\\ProgramData'
     folders = [('All users', os.path.join(pd, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'StartUp'))]
     users_dir = os.path.join((env.get('systemdrive') or 'C:') + os.sep, 'Users')
@@ -4714,10 +4715,10 @@ def _persist_startup_items(env, deadline):
         profiles, ok = [], False
     for p in profiles:
         folders.append(('User ' + p, os.path.join(users_dir, p, 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')))
-    found = []
+    found, cut = [], False
     for place, folder in folders:
         if time.time() > deadline:
-            return {'ok': False, 'cut': False, 'items': found}
+            return {'ok': False, 'cut': cut, 'items': found}
         try:
             with os.scandir(folder) as it:
                 entries = sorted(((e.name, _persist_entry_size(e)) for e in it), key=lambda t: t[0].lower())
@@ -4732,10 +4733,10 @@ def _persist_startup_items(env, deadline):
                 continue
             n += 1
             if n > _PERSIST_STARTUP_PER_FOLDER:
-                ok = False                                # a folder this long is not read whole
+                cut = True                                # a folder this long is listed as far as the limit and the place is cut; the next folder is read
                 break
             found.append(_persist_entry(place, fname + ('\\' if size < 0 else ''), ('%d bytes' % size) if size >= 0 else ''))
-    return {'ok': ok, 'cut': len(found) > _PERSIST_CAPS['startup'], 'items': found[:_PERSIST_CAPS['startup'] + 1]}
+    return {'ok': ok, 'cut': cut or len(found) > _PERSIST_CAPS['startup'], 'items': found[:_PERSIST_CAPS['startup'] + 1]}
 
 
 def collect_persistence(wr=None, run=None, env=None, budget=None):
