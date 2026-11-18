@@ -45,6 +45,7 @@ import json
 import math
 import os
 import random
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -2167,7 +2168,9 @@ def build_cve_findings() -> dict:
     # both read it (and the KEV/EPSS overlay in kev_epss.json matches by vuln_id).
     out = {}
     only_counted = []
-    targets = [d['id'] for d in FAKE_DEVICES if not d['agentless']]
+    # 8.0.2: no scan is made of the applications of a Windows host or a Mac, so the two have no result at all and the CVE page says they are not checked. They are the last two
+    # hosts of the list, so the draws of the others are the ones they were.
+    targets = [d['id'] for d in FAKE_DEVICES if not d['agentless'] and not _demo_inventory_manager(d['id'])]
     for dev_id in targets:
         n = rng.choices([0, 0, 1, 2, 3, 5], k=1)[0]
         if n == 0:
@@ -2367,7 +2370,135 @@ def _demo_sysinfo_packages(dev_id):
     # v7.4.9: what apt keeps back, as the agent sends it (names only, a subset of the pending list).
     if _DEMO_KEPT_BACK.get(dev_id):
         out['kept_back'] = list(_DEMO_KEPT_BACK[dev_id])
+    # 8.0.2: the Windows and macOS agents report what their own update mechanism lists (the titles Windows Update offers and the Homebrew formulae that are
+    # outdated), and the only third-party source of the Windows agent is winget; the Mac agent sends none. The counts are the ones the draws above gave, so
+    # nothing that adds them up moves; the names no longer come from the Ubuntu list.
+    manager = _demo_inventory_manager(dev_id)
+    if manager:
+        out['upgradable_names'] = list(_DEMO_PENDING_UPDATES[manager])
+        out['upgradable'] = len(out['upgradable_names'])
+        out['security_updates'] = min(out['security_updates'], out['upgradable'])
+        out.pop('third_party', None)
+        if manager == 'windows':
+            out['third_party'] = {'winget': {'count': len(_DEMO_WINGET_UPDATES), 'names': list(_DEMO_WINGET_UPDATES)}}
     return out
+
+
+# 8.0.2: what the agent of the Windows host and the agent of the Mac send to POST /api/packages. Both hosts carried the package list of an Ubuntu host until now, which
+# neither agent can produce. The Windows agent reads the Uninstall keys of the registry: the name as the key spells it, the version, the architecture of the key, the
+# publisher and the install date. The Mac agent reads the application bundles (the identifier is the bundle's) and, where Homebrew is installed, its formulae. The rows go
+# through software_inventory.clean_list, the function the ingest cleans a list with, and the entry around them is the one the ingest writes.
+_DEMO_INVENTORY_SKIPPED = {'windows': 41, 'macos': 0}     # entries the agent left out: updates and hidden components of the registry, a bundle with no readable Info.plist
+_DEMO_WINDOWS_PROGRAMS = [
+    # (name as the key spells it, version, publisher, architecture, days since the install date, None when the key has no date)
+    ('7-Zip 24.08 (x64)', '24.08', 'Igor Pavlov', 'x64', 190),
+    ('Adobe Acrobat (64-bit)', '24.005.20320', 'Adobe', 'x64', 41),
+    ('Adobe Creative Cloud', '6.4.0.361', 'Adobe Inc.', 'x86', 150),
+    ('Adobe Photoshop 2025', '26.0.0', 'Adobe Inc.', 'x64', 147),
+    ('AnyDesk', '9.0.1', 'philandro Software GmbH', 'x86', 83),
+    ('Docker Desktop', '4.35.1', 'Docker Inc.', 'x64', 62),
+    ('Git', '2.47.1', 'The Git Development Community', 'x64', 77),
+    ('Google Chrome', '130.0.6723.92', 'Google LLC', 'x64', 19),
+    ('Microsoft 365 Apps for enterprise - en-us', '16.0.18025.20140', 'Microsoft Corporation', 'x64', 12),
+    ('Microsoft Edge', '130.0.2849.80', 'Microsoft Corporation', 'x86', None),
+    ('Microsoft Edge WebView2 Runtime', '130.0.2849.80', 'Microsoft Corporation', 'x86', None),
+    ('Microsoft Update Health Tools', '5.72.0.0', 'Microsoft Corporation', 'x64', 330),
+    ('Microsoft Visual C++ 2015-2022 Redistributable (x64) - 14.40.33810', '14.40.33810.0', 'Microsoft Corporation', 'x64', 120),
+    ('Microsoft Visual C++ 2015-2022 Redistributable (x86) - 14.40.33810', '14.40.33810.0', 'Microsoft Corporation', 'x86', 120),
+    ('Microsoft Visual Studio Code', '1.95.3', 'Microsoft Corporation', 'x64', 21),
+    ('Microsoft Windows Desktop Runtime - 8.0.10 (x64)', '8.0.10.33929', 'Microsoft Corporation', 'x64', 95),
+    ('Notepad++ (64-bit x64)', '8.7.1', 'Notepad++ Team', 'x64', 66),
+    ('NVIDIA Graphics Driver 560.94', '560.94', 'NVIDIA Corporation', 'x64', 55),
+    ('OpenVPN 2.6.12-I001', '2.6.12-I001', 'OpenVPN Inc.', 'x64', 140),
+    ('PuTTY release 0.82 (64-bit)', '0.82.0.0', 'Simon Tatham', 'x64', 205),
+    ('Python 3.12.7 (64-bit)', '3.12.7150.0', 'Python Software Foundation', 'x64', 48),
+    ('Realtek High Definition Audio Driver', '6.0.9645.1', 'Realtek Semiconductor Corp.', 'x86', 410),
+    ('Slack (Machine - MSI)', '4.41.105', 'Slack Technologies Inc.', 'x64', 30),
+    ('VLC media player', '3.0.21', 'VideoLAN', 'x64', 101),
+    ('Windows Driver Package - Intel (e1dexpress) Net', '12.19.2.45', '', 'x64', None),
+    ('Windows Subsystem for Linux', '2.3.26.0', 'Microsoft Corporation', 'x64', 88),
+    ('WinSCP 6.3.5', '6.3.5', 'Martin Prikryl', 'x86', 170),
+    ('Zoom Workplace (64-bit)', '6.2.11.46951', 'Zoom Communications, Inc.', 'x64', 26),
+]
+_DEMO_MAC_APPLICATIONS = [
+    # (name, version, bundle identifier)
+    ('Activity Monitor', '10.14', 'com.apple.ActivityMonitor'),
+    ('Adobe Acrobat', '24.005.20320', 'com.adobe.Acrobat.Pro'),
+    ('Adobe Creative Cloud', '6.4.0.361', 'com.adobe.acc.AdobeCreativeCloud'),
+    ('Adobe Photoshop 2025', '26.0.0', 'com.adobe.Photoshop'),
+    ('App Store', '3.0', 'com.apple.AppStore'),
+    ('Calendar', '15.0', 'com.apple.iCal'),
+    ('Docker', '4.35.1', 'com.docker.docker'),
+    ('Figma', '124.7.4', 'com.figma.Desktop'),
+    ('Google Chrome', '131.0.6778.86', 'com.google.Chrome'),
+    ('Keynote', '14.2', 'com.apple.iWork.Keynote'),
+    ('Mail', '16.0', 'com.apple.mail'),
+    ('Microsoft Excel', '16.90', 'com.microsoft.Excel'),
+    ('Microsoft Outlook', '16.90', 'com.microsoft.Outlook'),
+    ('Microsoft PowerPoint', '16.90', 'com.microsoft.Powerpoint'),
+    ('Microsoft Word', '16.90', 'com.microsoft.Word'),
+    ('Notes', '4.11', 'com.apple.Notes'),
+    ('Safari', '18.1', 'com.apple.Safari'),
+    ('Slack', '4.41.105', 'com.tinyspeck.slackmacgap'),
+    ('System Settings', '15.2', 'com.apple.systempreferences'),
+    ('Terminal', '2.14', 'com.apple.Terminal'),
+    ('The Unarchiver', '4.3.8', 'cx.c3.theunarchiver'),
+    ('Visual Studio Code', '1.95.3', 'com.microsoft.VSCode'),
+    ('WireGuard', '1.0.16', 'com.wireguard.macos'),
+    ('Xcode', '16.1', 'com.apple.dt.Xcode'),
+    ('zoom.us', '6.2.11', 'us.zoom.xos'),
+]
+_DEMO_MAC_BREW = [
+    # (formula, version), the way `brew list --versions` prints them
+    ('ffmpeg', '7.1_3'), ('gh', '2.62.0'), ('git', '2.47.1'), ('jq', '1.7.1'), ('node', '23.2.0'), ('openssl@3', '3.4.0'),
+    ('python@3.13', '3.13.0_1'), ('wget', '1.25.0'),
+]
+# The pending updates the two agents list: Windows Update titles, and the Homebrew formulae above that are outdated (so each name is one the host has). The Windows agent
+# counts the Defender definition updates apart (windows_host.is_definition_update), so none of these titles is one. The winget ids are the third-party updates the Windows
+# agent adds; the demo's Chrome and Docker are the ones that are behind.
+_DEMO_PENDING_UPDATES = {
+    'windows': ['2024-11 Cumulative Update for Windows 11 Version 24H2 for x64-based Systems (KB5046617)',
+                '2024-11 .NET 8.0.11 Security Update for x64 Client (KB5046691)',
+                'Windows Malicious Software Removal Tool x64 - v5.130 (KB890830)'],
+    'macos': ['ffmpeg', 'gh', 'git', 'jq', 'node', 'openssl@3', 'wget'],
+}
+_DEMO_WINGET_UPDATES = ['Google.Chrome', 'Docker.DockerDesktop']
+
+
+def _demo_inventory_manager(dev_id) -> str:
+    """'windows' or 'macos' for a demo host whose agent sends a list of applications (software_inventory), '' for a host with the packages of a distribution."""
+    os_name = next((d['os'] for d in FAKE_DEVICES if d['id'] == dev_id), '').lower()
+    if 'windows' in os_name:
+        return 'windows'
+    if 'macos' in os_name:
+        return 'macos'
+    return ''
+
+
+def _inventory_engine():
+    """(software_inventory, cve_scanner) from the checkout the seeder sits in. The list a Windows or macOS host sends is cleaned by the first and filed under the hash of the
+    second, as `handle_packages_submit` does it, so the demo's lists are what the ingest would keep. Both are pure; the directory is on the path while they load."""
+    import importlib
+    sys.path.insert(0, str(_CGI_DIR))
+    try:
+        return importlib.import_module('software_inventory'), importlib.import_module('cve_scanner')
+    finally:
+        sys.path.remove(str(_CGI_DIR))
+
+
+def _demo_app_rows(manager) -> list:
+    """The list the agent of a Windows host ('windows') or of a Mac ('macos') sends, as the server keeps it."""
+    inventory, _scanner = _inventory_engine()
+    if manager == 'windows':
+        raw = [dict({'name': n, 'version': v, 'arch': arch, 'manager': 'windows'},
+                    **({'publisher': pub} if pub else {}), **({'installed': _iso_in_days(-ago)} if ago is not None else {}))
+               for n, v, pub, arch, ago in _DEMO_WINDOWS_PROGRAMS]
+        raw.sort(key=lambda r: (r['name'].lower(), r['version'], r['arch']))
+    else:
+        raw = ([{'name': n, 'version': v, 'manager': 'macos', 'id': ident} for n, v, ident in _DEMO_MAC_APPLICATIONS]
+               + [{'name': n, 'version': v, 'manager': 'brew'} for n, v in _DEMO_MAC_BREW])
+        raw.sort(key=lambda r: (r['name'].lower(), r['version'], r['manager'], r.get('id', '')))
+    return inventory.clean_list(raw, manager)
 
 
 def build_packages() -> dict:
@@ -2381,17 +2512,35 @@ def build_packages() -> dict:
     search, software metering, the patch-snapshot diff/enforce pass, EOL
     detection and the software-policy evaluation — so all six read an empty list
     off a store that looked populated. Nothing anywhere read ``upgradable``.
+
+    8.0.2: the Windows host and the Mac hold the list their agents send (programs, or applications
+    and Homebrew packages), with no ecosystem and no os-release, as the ingest stores such a list.
     """
     out = {}
     for dev in FAKE_DEVICES:
         if dev['agentless']:
             continue
+        manager = _demo_inventory_manager(dev['id'])
+        if manager:
+            _inventory, scanner = _inventory_engine()
+            rows = _demo_app_rows(manager)
+            out[dev['id']] = {
+                'hash':         scanner.packages_hash(rows),
+                'collected_at': _demo_packages_collected_at(dev['id']),
+                'ecosystem':    scanner.detect_ecosystem({}, manager) or '',
+                'pkg_manager':  manager,
+                'count':        len(rows),
+                'packages':     rows,
+                'os_id':        '',
+                'version_id':   '',
+                'skipped':      _DEMO_INVENTORY_SKIPPED[manager],
+            }
+            continue
         installed, _up = _demo_package_inventory(dev['id'])
-        rng = _seeded_random(dev['id'], 'packages-meta')
         blob = '\n'.join(f"{p['name']}={p['version']}" for p in installed)
         out[dev['id']] = {
             'hash':         hashlib.sha256(blob.encode()).hexdigest(),
-            'collected_at': now() - rng.randint(60, 3600),
+            'collected_at': _demo_packages_collected_at(dev['id']),
             # ecosystem + count let the CVE report mark the host "scanned"
             # (without an ecosystem it reads as "unsupported"). 8.0.1: the name the store's writer
             # gives an Ubuntu host (it said 'deb', which no scan writes), and the mark of a list
@@ -2405,6 +2554,11 @@ def build_packages() -> dict:
             'sources':      True,
         }
     return out
+
+
+def _demo_packages_collected_at(dev_id) -> int:
+    """When the list of a host arrived: a drawn time in the last hour, the same for the list and for what the policy found in it (the ingest evaluates the policy as the list lands)."""
+    return now() - _seeded_random(dev_id, 'packages-meta').randint(60, 3600)
 
 
 def build_cmdb() -> dict:
@@ -3532,6 +3686,17 @@ def build_config() -> dict:
             {'match_type': 'all', 'sec_days': 14, 'all_days': 60},
         ],
 
+        # 8.0.2: software metering with the cost of a licence (Reports > Software metering), in the form the settings save writes: a name, the licences owned, aliases that
+        # count as the same software and, when there is one, the cost of a licence as text with two decimals. A host counts once for a rule whatever the number of its
+        # packages that match, and the amounts are in the currency of the billing settings (EUR). Photoshop is installed on both workstations and one licence is owned, so
+        # one is to buy; Microsoft 365 is on the Windows host and, as Word, Excel and the rest, on the Mac, with licences to spare and a price; Slack has licences to spare and
+        # no price, so its cost columns show a dash and the total counts one rule without a cost.
+        'software_meters': [
+            {'name': 'Adobe Photoshop', 'limit': 1, 'unit_cost': '19.99'},
+            {'name': 'Microsoft 365', 'limit': 5, 'aliases': ['Microsoft Word', 'Microsoft Excel'], 'unit_cost': '123.45'},
+            {'name': 'Slack', 'limit': 10},
+        ],
+
         # Container-image CVE scanning toggle (findings live in image_cves.json).
         'image_scan_enabled': True,
 
@@ -4314,13 +4479,62 @@ def build_software_policy() -> dict:
         {'id': 'required:unattended-upgrades', 'type': 'required',
          'package': 'unattended-upgrades', 'tags': ['prod'],
          'note': 'Production hosts patch themselves between maintenance windows.'},
+        # 8.0.2: rules for the applications of the two workstations. An application is found by its name in any case and a version is read by the number it starts with, so
+        # the Windows host, which has both programs, is in breach of both and the Mac, whose Chrome is current and which has no AnyDesk, of neither.
+        {'id': 'banned:AnyDesk', 'type': 'banned', 'package': 'AnyDesk',
+         'note': 'Remote support goes through the gateway, not through a program each person installs.'},
+        {'id': 'min_version:Google Chrome', 'type': 'min_version', 'package': 'Google Chrome',
+         'version': '131.0',
+         'note': 'Older releases of the browser no longer get security fixes.'},
     ], 'updated_at': now() - 86400 * 12}
+
+
+def _demo_app_policy_findings(dev, rows, manager, rules) -> list:
+    """What the policy finds in the list of a Windows host or of a Mac, as `_eval_software_policy` files it for an application list: an application is found by its name in
+    lower case, a version is read by the number it starts with (software_inventory.compare_versions), the highest of two rows of a name is the one judged, and a `required`
+    rule with no tags is not judged on such a host (it was written for the packages of a distribution). tests/test_demo_seed_coverage.py runs the real function over the
+    same list and holds this to what it files."""
+    inventory, _scanner = _inventory_engine()
+    held = {}
+    for row in rows:
+        key = inventory.name_key(row)
+        version = str(row.get('version') or '')
+        if key not in held or inventory.compare_versions(version, held[key]) > 0:
+            held[key] = version
+    tags = {str(t) for t in dev.get('tags') or []}
+    out = []
+    for rule in rules:
+        package = str(rule.get('package') or '').strip()
+        kind = rule.get('type')
+        rule_tags = {str(t) for t in rule.get('tags') or []}
+        if not package or kind not in ('banned', 'required', 'min_version') or (rule_tags and not (rule_tags & tags)):
+            continue
+        if kind == 'required' and not rule_tags:
+            continue
+        found = held.get(package.casefold())
+        rule_id = rule.get('id') or f'{kind}:{package}'
+        note = str(rule.get('note') or '')[:200]
+        if kind == 'banned' and found is not None:
+            out.append({'rule_id': rule_id, 'type': kind, 'package': package, 'expected': 'not installed', 'found': found or 'installed',
+                        'detail': f'banned package {package} is installed', 'note': note})
+        elif kind == 'required' and found is None:
+            out.append({'rule_id': rule_id, 'type': kind, 'package': package, 'expected': 'installed', 'found': 'missing',
+                        'detail': f'required package {package} is missing', 'note': note})
+        elif kind == 'min_version' and found is not None:
+            want = str(rule.get('version') or '')
+            if want and inventory.compare_versions(found, want) < 0:
+                out.append({'rule_id': rule_id, 'type': kind, 'package': package, 'expected': f'>= {want}', 'found': found or '?',
+                            'detail': f'{package} {found or "?"} is below minimum {want}', 'note': note})
+    return out
 
 
 def build_software_violations() -> dict:
     """v3.11.0 — evaluated software-policy violations (Software Policy page table),
-    matching the rules seeded in build_config()."""
-    return {
+    matching the rules seeded in build_config().
+
+    8.0.2: the Windows host is judged by the rules of build_software_policy over its own list, and the row carries the
+    `manager` the ingest puts on the row of such a host (the page offers no install or remove button for it)."""
+    out = {
         'ng01': {'name': 'nginx.lab', 'checked_at': now() - 3600, 'violations': [
             {'type': 'min_version', 'package': 'openssl',
              'expected': '>= 3.0.2', 'found': '1.1.1n'},
@@ -4336,6 +4550,15 @@ def build_software_violations() -> dict:
              'expected': 'installed', 'found': 'missing'},
         ]},
     }
+    rules = build_software_policy()['rules']
+    for dev in FAKE_DEVICES:
+        manager = _demo_inventory_manager(dev['id'])
+        if dev['agentless'] or not manager:
+            continue
+        found = _demo_app_policy_findings(dev, _demo_app_rows(manager), manager, rules)
+        if found:
+            out[dev['id']] = {'name': dev['name'], 'checked_at': _demo_packages_collected_at(dev['id']), 'violations': found, 'manager': manager}
+    return out
 
 
 def build_drift() -> dict:
@@ -5035,6 +5258,31 @@ def build_apikeys() -> dict:
                     'active': active,
                     'expires_at': (now() + exp_days * 86400) if exp_days is not None else None}
     return out
+
+
+def build_enrollment_tokens() -> dict:
+    """The install commands that are still open → enrollment_tokens.json (8.0.2): one command for many hosts, so the list at the foot of the Enroll dialog has a row.
+
+    The row is the one `handle_enroll_token_create` writes, and `handle_enroll_register` has counted seven hosts into: the store is keyed by the SHA-256 of the token (the token is
+    never kept), the prefix is the token's first eight characters, `max_uses` is there because it is above one, and `uses` is how many hosts have enrolled with it. There is no
+    group, no tags and no address limit, and no tenant (isolation is off in the demo and alice belongs to the default tenant).
+
+    The token itself is thrown away. Everything else of the seeder can be worked out from its source, which is fine for a fake password and would not be for a command that enrols
+    hosts, so the part after the prefix comes from `secrets` and nobody holds it: the row lists as an open command and no host can enrol with it. The prefix, which is what a person
+    reads in the list, is the same on every run; the key changes with the run."""
+    t = now()
+    token = _stable_id('enrol-token', 'branch-rollout', length=8) + secrets.token_urlsafe(24)
+    return {hashlib.sha256(token.encode()).hexdigest(): {
+        'created':       t - 6 * 3600,
+        'expires':       t + 86400,
+        'actor':         'alice',
+        'default_group': '',
+        'default_tags':  [],
+        'label':         'Branch rollout',
+        'prefix':        token[:8],
+        'max_uses':      25,
+        'uses':          7,
+    }}
 
 
 # ─── Service monitoring / images / stacks / custom scripts / SMART trend ─────
@@ -7375,17 +7623,70 @@ def build_ct_watch() -> dict:
     }
 
 
+# The first-seen stamps of the aging store (patch_age.json), as days before the seed, for the updates a host still shows as pending: tnas has had three updates waiting for 25
+# days and nginx.lab one for 3 (both hosts report them, build_devices). The security update tnas showed 10 days ago is applied (the host reports none), so the sweep has
+# taken that stamp out of the aging store and filed it, with the time it cleared, in patch_done.json: _DEMO_PATCH_SEC_CLEARED.
+_DEMO_PATCH_OPEN_DAYS = {'tnas': {'all_first': 25}, 'ng01': {'all_first': 3}}
+_DEMO_PATCH_SEC_CLEARED = ('tnas', 10, 3)      # (host, days since the security update was first seen, days since it was cleared)
+
+
 def build_patch_age() -> dict:
     """Patch-compliance SLA aging → patch_age.json. Shape verified against
     run_patch_sla_if_due/_eval_patch_sla (api.py ~28196): {device_id:
-    {all_first?, sec_first?}, "_last_run", "_breaching"}."""
+    {all_first?, sec_first?}, "_last_run", "_breaching"}.
+
+    8.0.2: a stamp is kept only while the host still shows updates of its class as pending. The seed kept tnas's `sec_first` while the host reports no security update, so
+    the first request after every seed ran the sweep, which took the stamp out and filed a pair of 10 days in the completed patches of the demo."""
+    t = now()
     breaching = ['tnas']
-    return {
-        'tnas': {'sec_first': now() - 86400 * 10, 'all_first': now() - 86400 * 25},
-        'ng01': {'all_first': now() - 86400 * 3},
-        '_last_run': now() - 3600,
-        '_breaching': breaching,
-    }
+    out = {host: {key: t - 86400 * days for key, days in stamps.items()} for host, stamps in _DEMO_PATCH_OPEN_DAYS.items()}
+    out['_last_run'] = t - 3600
+    out['_breaching'] = breaching
+    return out
+
+
+# Mean time to patch (8.0.2). Each episode is one completed patch of one host, the way the sweep files it: updates were waiting from the first check that saw them to the
+# first check that saw none. (days since the updates were cleared, hours the updates of any kind waited, hours the security updates among them waited or None when the host
+# does not count them apart). The security updates arrive with the rest, so when they wait less than the rest they cleared first, and a host whose package manager does not
+# flag security updates (Alpine) has no security pair. The episodes of a host are apart from one another in time, and none of a host is later than the stamp the host still
+# has open (tnas: 25 days, nginx.lab: 3), so that no host shows as completed what it shows as pending. Most are in the last 30 days; the older ones, 30 to 90 days back, are
+# what the 90-day window adds.
+_DEMO_PATCH_EPISODES = {
+    'vw01':  [(2, 21, None), (9, 44, None), (16, 29, None), (23, 67, None), (29, 26, None), (38, 52, None), (51, 31, None), (66, 90, None)],
+    'pi1':   [(6, 118, 40), (20, 52, 52), (45, 143, 143), (73, 71, 20)],
+    'pmx01': [(13, 156, 30), (41, 170, 34), (70, 150, 28)],
+    'tnas':  [(52, 96, 40)],
+    'ng01':  [(17, 48, 48), (60, 72, 72)],
+    'nc01':  [(11, 72, 24), (39, 120, 30)],
+    'gt01':  [(8, 44, 15), (34, 168, 36)],
+    'jf01':  [(24, 30, 30), (55, 100, 60)],
+}
+
+
+def build_patch_done() -> dict:
+    """The completed patches → patch_done.json (8.0.2): {host: {'done': [[first_seen, cleared_at, kind], ...]}}, oldest first, the way run_patch_sla_if_due files them
+    (`_patch_done_add`). `kind` is 'all' for an update of any kind and 'sec' for one the distribution calls a security fix. The Patches page reads the mean time to patch
+    from here, and shows a figure only from five pairs of a kind in its window (30 days, or 90).
+
+    A pair is never filed for a stamp the host still holds: the sweep files one when the host reports none left. The one pair that is a stamp of build_patch_age is tnas's
+    security update (see _DEMO_PATCH_SEC_CLEARED), first seen when that stamp said and cleared 3 days ago, while its three other updates are still waiting."""
+    t = now()
+    out = {}
+    for host, episodes in _DEMO_PATCH_EPISODES.items():
+        rng = _seeded_random('patch-done', host)
+        pairs = []
+        for days, all_hours, sec_hours in episodes:
+            # the checks run about hourly, so the stamps are not on the dot: a drawn spread of a few hours for the day, and a drawn part of an hour for the wait
+            cleared = t - 86400 * days - rng.randint(0, 20000)
+            first = cleared - 3600 * all_hours - rng.randint(0, 1800)
+            pairs.append([first, cleared, 'all'])
+            if sec_hours is not None:
+                pairs.append([first, first + 3600 * sec_hours if sec_hours < all_hours else cleared, 'sec'])
+        out[host] = pairs
+    host, seen_days, cleared_days = _DEMO_PATCH_SEC_CLEARED
+    out.setdefault(host, []).append([t - 86400 * seen_days, t - 86400 * cleared_days, 'sec'])
+    # oldest first, and where one check cleared both kinds the pair for any update before the one for the security updates
+    return {host: {'done': sorted(pairs, key=lambda p: (p[1], p[2] != 'all'))} for host, pairs in sorted(out.items())}
 
 
 def build_image_cves() -> dict:
@@ -7604,6 +7905,26 @@ def build_webhook_dlq() -> dict:
          'title': 'RemotePower: backup stale', 'priority': 3,
          'error': 'HTTP 429: Too Many Requests', 'attempts': 1},
     ]}
+
+
+def build_notify_health() -> dict:
+    """The destination that keeps failing → notify_health.json (8.0.1 store, shown from 8.0.2): {'wh:<destination id>': {fails, since, last, error, label, alerted}}, the row
+    `_note_delivery` keeps for a destination, so that Settings > Notifications marks its card as failing.
+
+    Apprise is the one: its address is a name that does not resolve (apprise.lab), so each delivery to it ends in the failure `URLError [apprise]: [Errno -2] Name or service not
+    known`, which `_notify_error_class` words as a failed name lookup. Four deliveries in a row have failed since a little over three hours ago, the last one nine minutes ago;
+    `alerted` is true because the third failure raised the alert, once. The text is the one the delivery wrote with any address in it replaced, and the row holds no address and
+    no destination setting. The two other destinations have no row: they are not failing, and the delivery log of build_webhook_log shows their deliveries get through."""
+    t = now()
+    dest = next(d for d in build_config()['webhook_urls'] if d['id'] == 'wh_apprise_demo')
+    return {('wh:' + dest['id'])[:64]: {
+        'fails':   4,
+        'since':   t - 3 * 3600 - 25 * 60,
+        'last':    t - 9 * 60,
+        'error':   'URLError [apprise]: [Errno -2] Name or service not known',
+        'label':   dest['name'][:80],
+        'alerted': True,
+    }}
 
 
 def build_ipam_state() -> dict:
@@ -8666,6 +8987,11 @@ BUILDERS = {
     'flow_deps.json':              build_flow_deps,
     'report_archive.json':         build_report_archive,
     'incident_memory.json':        build_incident_memory,
+    # ── 8.0.2: the stores behind the enrolment list, the mean time to patch and the failing mark ───────
+    # (the software of the Windows host and the Mac, the policy rules and the metering rules are in stores above)
+    'enrollment_tokens.json':      build_enrollment_tokens,
+    'patch_done.json':             build_patch_done,
+    'notify_health.json':          build_notify_health,
 }
 
 

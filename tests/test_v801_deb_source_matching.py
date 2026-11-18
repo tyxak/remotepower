@@ -1710,6 +1710,8 @@ class TestTheDemoSeed(unittest.TestCase):
         packages = self.seed.build_packages()
         self.assertGreater(len(packages), 5)
         for entry in packages.values():
+            if entry['pkg_manager'] in ('windows', 'macos'):
+                continue          # 8.0.2: the Windows host and the Mac hold the lists their agents send, which no distribution names (tests/test_demo_seed_coverage.py)
             self.assertEqual((entry['ecosystem'], entry['sources']), ('Ubuntu', True))
             self.assertEqual(cve_scanner.entry_release(entry), 'Ubuntu:22.04:LTS')
             self.assertEqual(cve_scanner.coverage(entry['ecosystem'], True, cve_scanner.entry_release(entry)), '')

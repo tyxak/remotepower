@@ -175,6 +175,9 @@ def scenario():
 def _plant(data_dir, hosts):
     findings = e2e_plant.load(data_dir, "CVE_FINDINGS_FILE")
     packages = e2e_plant.load(data_dir, "PACKAGES_FILE")
+    # 8.0.2: the demo gives the Mac a list of applications too, and the report counts every package of such a list as not checked. These tests measure the planted hosts and no
+    # other ("the report sums the planted hosts and no other"), so the list the seeder wrote for the Mac is taken out.
+    packages.pop("mbp01", None)
     for host, (entry, record) in hosts.items():
         packages[host] = entry
         if record is None:
