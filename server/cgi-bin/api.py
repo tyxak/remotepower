@@ -57925,9 +57925,10 @@ def handle_home():
                    # over a fleet of which a share was not checked says more than the scans know.
                    'not_checked': _covered['not_checked'] if _covered else 0}
             cve_devs.append(row)
-            if (devices_raw.get(cdev_id) or {}).get('monitored', True) is not False:    # the tile reads these only
+            _dev = devices_raw.get(cdev_id) or {}
+            if _dev.get('monitored', True) is not False:                            # the tile reads these only
                 _shows_a_finding = _shows_a_finding or any(counts.values()) or row['counted'] > 0
-                if _covered is None:
+                if _covered is None and not _dev.get('agentless'):                  # an agentless device has no list to read
                     _unstated.append(row)
         # A host nothing is matched against (Arch, openSUSE, Windows, macOS) has no scan record, so no block: its account
         # is the one its package list gives, and the list is in the packages store. That store holds every package of

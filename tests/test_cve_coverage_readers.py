@@ -236,6 +236,19 @@ class TestAHostNothingIsMatchedAgainst(base._Fleet):
         self.assertEqual(reads, 0)
         self.assertEqual(rows[self.WIN]['not_checked'], 0)
 
+    def test_the_dashboard_does_not_read_them_for_an_agentless_device_that_has_no_list(self):
+        """A switch or an access point is monitored and never sends a package list: it must not start the read of every list."""
+        self.without_findings()
+        devices = api.load(api.DEVICES_FILE)
+        for host in (self.WIN, self.ARCH):
+            devices[host]['monitored'] = False
+        devices['covswitch'] = dict(self.device('covswitch', 'tenantB', 'Switch'), agentless=True)
+        api.save(api.DEVICES_FILE, devices)
+        rows, reads = self.reads_of_the_packages_store(lambda: self.home())
+        self.assertIn('covswitch', rows)                       # the control: the switch is a monitored host of the payload
+        self.assertEqual(reads, 0)
+        self.assertEqual(rows['covswitch']['not_checked'], 0)
+
     def test_a_tenant_administrator_is_told_of_their_own_hosts_only(self):
         self.without_findings()
         status, home = self.as_tenant_admin(api.handle_home, user=('bruno', 'admin'))
