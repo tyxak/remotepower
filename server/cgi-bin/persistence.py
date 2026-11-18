@@ -24,6 +24,7 @@ Nothing here reads a store or the request.
 """
 
 import re
+import unicodedata
 
 # the layout of a snapshot; a snapshot of another version is not read, and a changed one starts the baselines again
 VERSION = 1
@@ -60,7 +61,9 @@ PLACES = {
     "startup": "startup folders",
 }
 
-_HIDDEN = frozenset("­​‌‍‎‏  ‪‫‬‭‮⁠⁦⁧⁨⁩﻿")
+_HIDDEN_EXTRA = frozenset(
+    "\u034f\u115f\u1160\u17b4\u17b5\u3164\uffa0"
+)  # invisible, and not format characters: the grapheme joiner, the Hangul and Khmer fillers
 _SECRET_NAME = r"(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|private[_-]?key|client[_-]?secret|access[_-]?key|credential|authorization|auth[_-]?(?:token|key|secret)|bearer)"
 # `--password hunter2`, `/token:abc`, `-ApiKey=abc` and `password=abc`: the value goes, the name stays
 _SECRET_FLAG = re.compile(
@@ -74,12 +77,26 @@ _SECRET_KV = re.compile(
 _URL_CREDENTIAL = re.compile(r"(://[^/\s:@]{1,64}:)[^/\s@]{1,128}(@)")
 
 
+def hidden(c):
+    """Whether a character is text that hides or reorders other text: a control (C0 and C1), a format character (the bidi marks, embeddings and isolates, the zero-width
+    characters, the invisible operators, the interlinear annotations, the tag block that spells ASCII without showing it), the line and paragraph separators, a filler that
+    shows nothing, or a variation selector. The category decides, not a list written by hand: the Unicode versions add format characters, a list does not. The Windows
+    agent's `_win_hidden` is the same rule, and a test holds them equal over every code point."""
+    o = ord(c)
+    return (
+        unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp")
+        or c in _HIDDEN_EXTRA
+        or 0xFE00 <= o <= 0xFE0F
+        or 0xE0100 <= o <= 0xE01EF
+    )
+
+
 def clean_text(value, limit):
-    """Text from a host for a page or a log: control characters, the line and paragraph separators and the characters that reorder or hide text become spaces, runs of
-    white space become one, and it is cut at `limit` characters. Anything that is not text is read as its text, None as nothing.
+    """Text from a host for a page or a log: control characters, the line and paragraph separators and the characters that reorder or hide text (see `hidden`) become spaces,
+    runs of white space become one, and it is cut at `limit` characters. Anything that is not text is read as its text, None as nothing.
     """
     s = "" if value is None else str(value)
-    s = "".join(" " if (ord(c) < 32 or 0x7F <= ord(c) <= 0x9F or c in _HIDDEN) else c for c in s)
+    s = "".join(" " if hidden(c) else c for c in s)
     return " ".join(s.split())[:limit]
 
 

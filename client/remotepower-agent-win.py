@@ -71,6 +71,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 import urllib.request
 import urllib.error
 
@@ -2082,7 +2083,7 @@ _WINEVT_COMMAND_MAX = 120
 _WINEVT_LINE_MAX = 400
 _WINEVT_DATA_MAX = 60                # fields read from one event
 _WINEVT_CURSOR_FILE = 'winevent_cursor.json'
-_WINEVT_HIDDEN = frozenset('\u00ad\u200b\u200c\u200d\u200e\u200f\u2028\u2029\u202a\u202b\u202c\u202d\u202e\u2060\u2066\u2067\u2068\u2069\ufeff')
+_WINEVT_HIDDEN_EXTRA = frozenset('\u034f\u115f\u1160\u17b4\u17b5\u3164\uffa0')   # invisible, and not format characters: the grapheme joiner and the Hangul and Khmer fillers
 _WINEVT_TOKEN_CHARS = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:%+-')
 _WINEVT_UNIT = re.compile(r'eventlog\.(Security|System|Application)\.([1-9][0-9]{0,4})')
 _WINEVT_EVENT = re.compile(r'<Event[\s>].*?</Event>', re.S)
@@ -2246,10 +2247,18 @@ def _winevt_parse(text):
     return [e for e in (_winevt_event(c) for c in chunks[:_WINEVT_MAX_EVENTS]) if e]
 
 
+def _win_hidden(c):
+    """Whether a character is text that hides or reorders other text: a control (C0 and C1), a format character (the bidi marks, embeddings and isolates, the zero-width characters, the
+    invisible operators, the interlinear annotations, the tag block that spells ASCII without showing it), the line and paragraph separators, a filler that shows nothing, or a variation
+    selector. The category decides, not a list written by hand: the Unicode versions add format characters, a list does not. The server's `persistence.hidden` is the same rule."""
+    o = ord(c)
+    return (unicodedata.category(c) in ('Cc', 'Cf', 'Zl', 'Zp') or c in _WINEVT_HIDDEN_EXTRA or 0xfe00 <= o <= 0xfe0f or 0xe0100 <= o <= 0xe01ef)
+
+
 def _winevt_clean(v, limit=_WINEVT_FIELD_MAX):
     """A text from an event for a log line: control characters, the line and paragraph separators and the characters that reorder or hide text become spaces, runs of
     white space become one, and it is cut at `limit` characters."""
-    s = ''.join(' ' if (ord(c) < 32 or 0x7f <= ord(c) <= 0x9f or c in _WINEVT_HIDDEN) else c for c in str(v if v is not None else ''))
+    s = ''.join(' ' if _win_hidden(c) else c for c in str(v if v is not None else ''))
     return ' '.join(s.split())[:limit]
 
 
@@ -4339,8 +4348,8 @@ def _reg_clean(c):
 
 
 def _reg_report_text(s):
-    """Text for the report: control characters (and the line and paragraph separators) become spaces, and it is cut at what a check may send."""
-    return ''.join(' ' if (ch < ' ' or '\x7f' <= ch <= '\x9f' or ch in '\u2028\u2029') else ch for ch in str(s))[:_REG_OUT_MAX]
+    """Text for the report: what hides or reorders text (see _win_hidden) becomes a space, and it is cut at what a check may send."""
+    return ''.join(' ' if _win_hidden(ch) else ch for ch in str(s))[:_REG_OUT_MAX]
 
 
 def _reg_read(path, name, wr):

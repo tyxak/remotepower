@@ -109,8 +109,10 @@ language of the host. For example:
 
 A name in an event can have been typed by anyone (the user in a failed logon, a
 workstation name, a service's file), so every text is cut at 64 characters, control
-characters and the characters that reorder or hide text become spaces, and the text
-is put in double quotes, with any double quote inside it turned into a single one. The fixed words and the
+characters and the characters that reorder or hide text become spaces (the format characters
+of Unicode such as the bidirectional marks, the zero-width characters and the tag characters that
+spell ASCII without showing it, the line and paragraph separators, the invisible fillers and the
+variation selectors), and the text is put in double quotes, with any double quote inside it turned into a single one. The fixed words and the
 values the system itself writes (an address, a security ID, a status) come first. The
 ready-made patterns start with `^`, so something a person typed cannot match them. The
 Logs page and the alerts show the line as text.

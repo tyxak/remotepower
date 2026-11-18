@@ -317,6 +317,55 @@ class TestReadingASnapshot(unittest.TestCase):
                 self.assertEqual(P.redact_command(fine), fine)
                 self.assertEqual(win._persist_command(fine), fine)
 
+    # characters that show nothing or reorder what is around them, by group (what the review found a person could put in a user name or a file name)
+    HIDDEN = {
+        'the bidi marks, embeddings and isolates and the zero-width characters': [chr(0xad), chr(0xfeff), chr(0x2060)] + [chr(c) for c in range(0x200b, 0x2010)]
+        + [chr(c) for c in range(0x202a, 0x202f)] + [chr(c) for c in range(0x2066, 0x206a)],
+        'the Arabic letter mark': [chr(0x61c)], 'the Mongolian vowel separator': [chr(0x180e)],
+        'the invisible operators': [chr(c) for c in range(0x2061, 0x2065)], 'the deprecated format characters': [chr(c) for c in range(0x206a, 0x2070)],
+        'the interlinear annotations': [chr(c) for c in range(0xfff9, 0xfffc)], 'the tag block that spells ASCII without showing it': [chr(0xe0001)] + [chr(c) for c in range(0xe0020, 0xe0080)],
+        'the combining grapheme joiner': [chr(0x34f)], 'the fillers': [chr(c) for c in (0x115f, 0x1160, 0x17b4, 0x17b5, 0x3164, 0xffa0)],
+        'the variation selectors': [chr(c) for c in range(0xfe00, 0xfe10)] + [chr(c) for c in range(0xe0100, 0xe01f0)],
+        'the line and paragraph separators and the controls': [chr(0x2028), chr(0x2029), chr(0), chr(9), chr(27), chr(0x7f), chr(0x85), chr(0x9f)],
+    }
+    ORDINARY = ['a', 'Z', '7', '.', '-', '_', '\\', '"', 'é', 'ß', 'ñ', 'ø', 'ж', 'Ω', '字', 'ひ', '한', 'ع', 'ש', 'क', 'ก', '😀', '€', '№']
+
+    def test_everything_that_hides_or_reorders_text_becomes_a_space_in_all_three_cleaners(self):
+        cleaners = {'agent event text': lambda t: win._winevt_clean(t, 64), 'agent registry text': win._reg_report_text, 'server': lambda t: P.clean_text(t, 64)}
+        for group, chars in self.HIDDEN.items():
+            for name, clean in cleaners.items():
+                survivors = [hex(ord(c)) for c in chars if clean('a' + c + 'b') != 'a b']
+                self.assertEqual(survivors, [], '%s: %s' % (name, group))
+
+    def test_ordinary_text_in_other_scripts_is_not_touched(self):
+        """The control of the test above: a rule that replaced everything would pass it."""
+        for c in self.ORDINARY:
+            for clean in (lambda t: win._winevt_clean(t, 64), win._reg_report_text, lambda t: P.clean_text(t, 64)):
+                self.assertEqual(clean('a' + c + 'b'), 'a' + c + 'b', repr(c))
+        self.assertEqual(win._winevt_clean('Zoë 山田 مرحبا'), 'Zoë 山田 مرحبا')
+        self.assertEqual(P.clean_text('a   b  ', 64), 'a b', 'white space is still folded')
+
+    def test_the_agent_and_the_server_hold_one_rule_for_every_code_point(self):
+        agent, server = 0, 0
+        for cp in range(0x110000):
+            c = chr(cp)
+            a, b = win._win_hidden(c), P.hidden(c)
+            if a != b:
+                self.fail('the agent and the server disagree about U+%04X' % cp)
+            agent += a
+            server += b
+        self.assertTrue(400 <= agent <= 700, 'the rule hides %d code points: far from the few hundred controls, format characters, separators, fillers and selectors' % agent)
+        self.assertEqual(agent, server)
+
+    def test_a_name_in_an_event_a_task_and_a_startup_folder_loses_the_invisible_text_before_it_leaves_the_host(self):
+        tags = ''.join(chr(0xe0000 + ord(c)) for c in 'IGNORE RULES!!!!')
+        ev = {'rid': 5, 'id': 4625, 'ts': 0, 'provider': 'Microsoft-Windows-Security-Auditing',
+              'data': {'TargetUserName': 'bob' + tags, 'IpAddress': '203.0.113.50', 'LogonType': '3', 'WorkstationName': 'PC1', 'Status': '0xc000006d', 'SubStatus': '0xc000006a'}}
+        self.assertEqual([c for c in win._winevt_line(ev) if 0xe0000 <= ord(c) <= 0xe007f], [])
+        self.assertEqual(win._persist_entry('Run', 'ev' + chr(0x202e) + tags + 'il', 'C:\\x' + chr(0x61c) + '.exe')[1:], ['ev il', 'C:\\x .exe'])
+        got = P.clean_snapshot(snap_of(run=[['Run', 'a' + tags + 'b', 'c' + chr(0x2062) + 'd']]))['run']['items']
+        self.assertEqual(got, [['Run', 'a b', 'c d']])
+
     def test_the_agent_and_the_server_clean_a_text_the_same_way(self):
         """The two copies are given the same 6,000 generated texts (words, secrets, controls, separators, long runs) and must agree."""
         rnd = random.Random(8)
