@@ -25,7 +25,7 @@ _JS = '\n'.join(p.read_text(encoding='utf-8') for p in sorted((_ROOT / 'server' 
 STRINGS = {
     # the field and its notice, in the Enroll dialog and in the wizard's Settings step
     'Hosts that can use it': 'both',
-    'Anyone who holds this command can enroll that many hosts until it expires. Revoking it stops it.': 'both',
+    'Anyone who holds this command can enroll that many hosts until it expires. A copy can also stay in the shell history of each host and in the log of any proxy in front of this server, so revoke it when the rollout is done.': 'both',
     'Enter a whole number of hosts from 1 to 1000': 'js',
     # what the dialog says under a command that works for more than one host
     'This token works for the number of hosts you set, and expires in 24h. Downloads the agent from this server, verifies its checksum, enrols, and the host appears by its hostname.': 'js',

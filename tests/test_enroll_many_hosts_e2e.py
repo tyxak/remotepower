@@ -54,7 +54,8 @@ _COUNTER = itertools.count(1)
 # the strings of the new elements, in the languages the page is checked in (the dictionary is read from i18n.js, so a typo fails here)
 LABEL = 'Hosts that can use it'
 MARKUP_LABEL = '<img src=x onerror="window.__label_ran=1">tenant-label'      # what a hostile administrator would type as a token's label
-NOTE = 'Anyone who holds this command can enroll that many hosts until it expires. Revoking it stops it.'
+NOTE = ('Anyone who holds this command can enroll that many hosts until it expires. A copy can also stay in the shell history of each host '
+        'and in the log of any proxy in front of this server, so revoke it when the rollout is done.')
 
 
 def setUpModule():

@@ -362,7 +362,7 @@ function _wizEnrollSettings(st, body) {
   uses.min = '1';
   uses.max = '1000';
   uses.inputMode = 'numeric';
-  const note = _wizNode('div', 'hint mb-6', 'Anyone who holds this command can enroll that many hosts until it expires. Revoking it stops it.');
+  const note = _wizNode('div', 'hint mb-6', 'Anyone who holds this command can enroll that many hosts until it expires. A copy can also stay in the shell history of each host and in the log of any proxy in front of this server, so revoke it when the rollout is done.');
   note.id = 'wiz-uses-note';
   note.setAttribute('role', 'status');
   note.setAttribute('aria-live', 'polite');
