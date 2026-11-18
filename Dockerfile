@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # Real version is injected at build time (the ghcr.io release workflow passes
 # --build-arg VERSION=<tag>); defaults to "dev" for a local `docker build`.
