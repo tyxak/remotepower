@@ -74,7 +74,7 @@ HOSTS = {
                     "Windows Server 2025 Standard 24H2 (build 26100.2605)"),
     "server-2016": (S.nt_values(CurrentBuildNumber=("14393", S.SZ), CurrentBuild=("14393", S.SZ), UBR=(7159, S.DWORD),
                                 DisplayVersion=None, ReleaseId=("1607", S.SZ), ProductName=("Windows Server 2016 Standard", S.SZ),
-                                EditionID=("ServerStandard", S.SZ)),
+                                EditionID=("ServerStandard", S.SZ), InstallationType=("Server", S.SZ)),
                     "Windows Server 2016 Standard 1607 (build 14393.7159)"),
     "w81-pro": (S.nt_values(CurrentBuildNumber=("9600", S.SZ), CurrentBuild=("9600", S.SZ), UBR=(20778, S.DWORD), DisplayVersion=None,
                             ReleaseId=None, ProductName=("Windows 8.1 Pro", S.SZ), EditionID=("Professional", S.SZ)),
@@ -99,7 +99,8 @@ def read_build(values, **fake_kw):
 class TestTheAgentReadsTheRegistry(unittest.TestCase):
     def test_a_windows_11_host(self):
         self.assertEqual(read_build(S.nt_values()), {
-            "build": "22631", "ubr": 3593, "display_version": "23H2", "edition": "Professional", "product": "Windows 10 Pro"})
+            "build": "22631", "ubr": 3593, "display_version": "23H2", "edition": "Professional", "product": "Windows 10 Pro",
+            "installation_type": "Client"})
 
     def test_the_revision_is_a_whole_number_and_the_rest_are_text(self):
         got = read_build(S.nt_values())
@@ -116,7 +117,7 @@ class TestTheAgentReadsTheRegistry(unittest.TestCase):
 
     def test_a_missing_revision_or_version_is_left_out(self):
         got = read_build(HOSTS["w7-professional"][0])
-        self.assertEqual(got, {"build": "7601", "edition": "Professional", "product": "Windows 7 Professional"})
+        self.assertEqual(got, {"build": "7601", "edition": "Professional", "product": "Windows 7 Professional", "installation_type": "Client"})
 
     def test_current_build_stands_in_for_the_build_number(self):
         got = read_build(S.nt_values(CurrentBuildNumber=None))
@@ -333,7 +334,8 @@ class _Fleet(unittest.TestCase):
 class TestTheHeartbeat(_Fleet):
     def test_the_build_is_stored(self):
         self.assertEqual(self.stored("w11")["win_build"], {
-            "build": "22631", "ubr": 3593, "display_version": "23H2", "edition": "Professional", "product": "Windows 10 Pro"})
+            "build": "22631", "ubr": 3593, "display_version": "23H2", "edition": "Professional", "product": "Windows 10 Pro",
+            "installation_type": "Client"})
 
     def test_a_linux_host_has_none(self):
         self.assertNotIn("win_build", self.stored("lin"))

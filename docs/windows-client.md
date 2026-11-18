@@ -216,7 +216,7 @@ Parity with the Linux agent for the core management surface:
 | Capability | Linux | Windows |
 |---|---|---|
 | Core metrics (CPU/mem/disk/net) | psutil | psutil (optional; reduced set without it) |
-| OS version and build | `/etc/os-release` | The build, revision, display version, edition and product name from the registry (see [Windows version and build](#windows-version-and-build)) |
+| OS version and build | `/etc/os-release` | The build, revision, display version, edition, product name and installation type from the registry (see [Windows version and build](#windows-version-and-build)) |
 | File shares and TPM | not collected | `Get-SmbShare`, `Get-Tpm` and `Win32_Tpm` (see [File shares and the TPM](#file-shares-and-the-tpm)) |
 | Reboot / shutdown | `systemctl` | `shutdown /r`/`/s` |
 | **reboot-required** detection | `/run/reboot-required` | registry (CBS / WindowsUpdate / PendingFileRenameOperations) |
@@ -283,12 +283,16 @@ turns amber after 3 days without a successful search and red after 14. Silence i
 
 The agent reads `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion` (read only) and sends the build number,
 the revision after it (`UBR`, which changes with every cumulative update), the display version (`23H2`, or the release id
-on a build from before 20H2), the edition and the product name. The server shows them as one line, for example
-*Windows 11 Pro 23H2 (build 22631.3593)*, in the **OS** row of the host's System info and in the OS column of the Hosts list.
+on a build from before 20H2), the edition, the product name and the installation type (`Client`, `Server` or `Server Core`).
+The server shows them as one line, for example *Windows 11 Pro 23H2 (build 22631.3593)*, in the **OS** row of the host's
+System info and in the OS column of the Hosts list.
 
 The family comes from the build number: 22000 and up is Windows 11. The product name cannot say, because many builds of
 Windows 11 still write "Windows 10" into it. A server keeps the name of its product, since a server and a client share
-build numbers (Windows Server 2025 and Windows 11 24H2 are both 26100).
+build numbers (Windows Server 2025 and Windows 11 24H2 are both 26100). The installation type says which a system is. The
+edition id cannot, because Windows 10 and 11 Enterprise multi-session (what Azure Virtual Desktop runs) is a client system
+whose edition id is `ServerRdsh`. A host on an agent that does not send the installation type is read from its product
+name and its edition id, with `ServerRdsh` counted as a client.
 
 The [Data Explorer](data-explorer.md#windows-hosts) has the fields (`win_build`, `win_ubr`, `win_display_version`,
 `win_edition`, `win_product`, `win_family`), so "which hosts are still on Windows 10" and "which Windows 11 hosts are behind

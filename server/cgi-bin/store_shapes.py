@@ -435,7 +435,7 @@ SHAPES: dict = {
                        # the family of a build is decided by its number (windows_host.win_family), so `build` is text and `ubr` a number: a number
                        # stored where the text goes is read as its text, and a text that holds a number is read as the number
                        wu_search=fields(at=OPT_NUM, ok_at=OPT_NUM, fail_since=OPT_NUM),
-                       win_build=fields(build=STR, ubr=OPT_NUM, display_version=STR, edition=STR, product=STR),
+                       win_build=fields(build=STR, ubr=OPT_NUM, display_version=STR, edition=STR, product=STR, installation_type=STR),
                        shares=fields(count=OPT_NUM, admin_count=OPT_NUM, items=list_of(fields(need=('name',), name=STR))), tpm=DICT))),
     'acme_state.json': dict_of(fields(certs=list_of(), updated_at=OPT_NUM)),
     'av_status.json': dict_of(fields(clamav=DICT, rkhunter=DICT)),

@@ -7,6 +7,8 @@ applied one at a time (with the anchor checked first, and a green control before
   * A host read on its own by a SQL backend skipped the shape registry that every other read of the store goes through.
   * A stored build that is text of digits `int()` refuses ("²²²") took the whole Hosts list down: the readers of a stored build now take it
     through the cleaner that ingest uses, and the digits are ASCII digits wherever a build or a version is read.
+  * Windows 10 and 11 Enterprise multi-session has an EditionID that starts with "Server" and is a client system: the agent reads
+    InstallationType and the server decides "server" from it.
   * (later commits add the count a failed search leaves, the corpus and the time cell.)
 
 The Windows agent cannot run here; its parsing is driven through the stand-ins of win_host_support.py.
@@ -301,6 +303,84 @@ class TestTheAgentReadsDigitsAsAsciiDigits(unittest.TestCase):
             self.assertEqual(agent.get_os_info(), "Windows 10 (Build ²²²)", "int() raised and the fallback text was sent instead")
         with mock.patch("platform.win32_ver", return_value=("10", "10.0.22631", "", "Multiprocessor Free")):
             self.assertEqual(agent.get_os_info(), "Windows 11 (Build 22631)")
+
+
+# ── a client edition whose EditionID says Server ──────────────────────────────────────────────────────────────────────────
+MULTI_SESSION = dict(EditionID=("ServerRdsh", S.SZ), ProductName=("Windows 10 Enterprise", S.SZ))
+
+
+def read_build(values):
+    fake = S.FakeWinreg({S.NT_KEY: values})
+    with mock.patch.dict(sys.modules, {"winreg": fake}):
+        return agent.get_win_build()
+
+
+class TestAMultiSessionClientIsNotAServer(unittest.TestCase):
+    """Windows 10 and 11 Enterprise multi-session (what Azure Virtual Desktop runs) is a client system: its InstallationType is "Client", its
+    EditionID is "ServerRdsh" and its ProductName says "Windows 10" on every build. The edition id alone made it a server, which skipped the rule
+    the build number exists for and left "Windows 10" on a host that runs Windows 11."""
+
+    def test_the_agent_sends_the_installation_type(self):
+        got = read_build(S.nt_values(**MULTI_SESSION))
+        self.assertEqual((got["installation_type"], got["edition"]), ("Client", "ServerRdsh"))
+
+    def test_the_host_reads_as_the_windows_11_it_is(self):
+        built = wh.clean_win_build(read_build(S.nt_values(**MULTI_SESSION)))
+        self.assertEqual(wh.os_label(built), "Windows 11 Enterprise 23H2 (build 22631.3593)")
+        self.assertEqual(wh.win_family(built), "Windows 11")
+        self.assertEqual(wh.build_fields({"win_build": built})["win_family"], "Windows 11")
+
+    def test_the_same_host_from_an_agent_that_does_not_send_the_installation_type(self):
+        old = {"build": "22631", "ubr": 3593, "display_version": "23H2", "edition": "ServerRdsh", "product": "Windows 10 Enterprise"}
+        self.assertEqual(wh.os_label(old), "Windows 11 Enterprise 23H2 (build 22631.3593)")
+        self.assertEqual(wh.win_family(old), "Windows 11")
+
+    def test_a_real_server_is_still_a_server_with_or_without_the_installation_type(self):
+        for record in ({"build": "20348", "product": "Windows Server 2022 Datacenter", "edition": "ServerDatacenter", "installation_type": "Server"},
+                       {"build": "20348", "product": "Windows Server 2022 Datacenter", "edition": "ServerDatacenter"},
+                       {"build": "26100", "edition": "ServerStandard"},
+                       {"build": "20348", "product": "Windows Server 2022 Standard", "installation_type": "Server Core"}):
+            with self.subTest(record=record):
+                self.assertNotIn("Windows 11", wh.os_label(record))
+                self.assertNotIn("Windows 10", wh.os_label(record))
+        self.assertEqual(wh.win_family({"build": "26100", "product": "Windows Server 2025 Standard", "installation_type": "Server"}),
+                         "Windows Server 2025 Standard")
+
+    def test_a_server_whose_name_has_no_server_in_it_is_one_by_its_installation_type(self):
+        record = {"build": "25398", "product": "Azure Stack HCI", "display_version": "23H2", "ubr": 1, "installation_type": "Server Core"}
+        self.assertEqual(wh.win_family(record), "Azure Stack HCI")
+        self.assertEqual(wh.os_label(record), "Azure Stack HCI 23H2 (build 25398.1)")
+
+    def test_the_installation_type_decides_when_the_host_sent_one(self):
+        self.assertEqual(wh.win_family({"build": "26100", "product": "Windows Server 2025 Standard", "installation_type": "Client"}), "Windows 11")
+        self.assertEqual(wh.win_family({"build": "22631", "product": "Windows 10 Pro", "edition": "ServerStandard", "installation_type": "Client"}),
+                         "Windows 11")
+
+    def test_the_words_of_the_installation_type_are_a_fixed_set(self):
+        for sent, kept in (("Client", "Client"), ("client", "Client"), (" SERVER ", "Server"), ("Server Core", "Server Core"),
+                           ("Nano Server", "Nano Server"), ("Embedded", "Embedded")):
+            with self.subTest(sent=sent):
+                self.assertEqual(wh.clean_win_build({"build": "22631", "installation_type": sent})["installation_type"], kept)
+        for sent in ("<script>alert(1)</script>", "Servers", "Client\x00x", "x" * 500, "", None, 5, ["Client"], {"a": 1}):
+            with self.subTest(sent=sent):
+                self.assertNotIn("installation_type", wh.clean_win_build({"build": "22631", "installation_type": sent}))
+
+    def test_the_whole_way_through_the_heartbeat_and_the_data_explorer(self):
+        now = int(time.time())
+        api.save(api.DEVICES_FILE, {"avd": host_row("avd-host", token="tok-avd")})
+        api._LOAD_CACHE.clear()
+        info = None
+        with mock.patch.dict(sys.modules, {"winreg": S.FakeWinreg({S.NT_KEY: S.nt_values(**MULTI_SESSION)})}):
+            info = agent.collect_sysinfo()
+        status, body = S.beat(api, "avd", "tok-avd", info)
+        self.assertEqual(status, 200, body)
+        api._LOAD_CACHE.clear()
+        si = api.load(api.DEVICES_FILE)["avd"]["sysinfo"]
+        self.assertEqual(si["win_build"]["installation_type"], "Client")
+        status, rows = S.call(api, api.handle_devices_list)
+        self.assertEqual(next(r for r in rows if r["id"] == "avd")["os_detail"], "Windows 11 Enterprise 23H2 (build 22631.3593)")
+        self.assertEqual(api._qe_device_posture(si)["win_family"], "Windows 11")
+        self.assertGreater(now, 0)
 
 
 if __name__ == "__main__":

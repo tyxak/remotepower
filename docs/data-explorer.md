@@ -123,7 +123,7 @@ waiting.
 | `win_build`, `win_ubr` | the build number (`22631`) and the revision after it (`3593`), which changes with every cumulative update. `win_ubr` is a number, so `lt` finds the hosts that are behind |
 | `win_display_version` | `23H2`, `24H2`; the release id (`1909`) on a build from before 20H2 |
 | `win_edition`, `win_product` | the edition id (`Professional`) and the product name as the registry keeps it |
-| `win_family` | `Windows 11`, `Windows 10` and so on, from the build number; the product name for a server |
+| `win_family` | `Windows 11`, `Windows 10` and so on, from the build number; the product name for a server (the installation type says which a system is, so a multi-session Windows 11 host is `Windows 11`) |
 | `shares_count` | the file shares an operator made on the host. The default administrative ones (`ADMIN$`, `C$`, `IPC$`, any name ending in `$`) are not counted |
 | `tpm_present`, `tpm_ready` | the TPM as Windows reports it: true or false |
 

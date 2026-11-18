@@ -5,8 +5,8 @@ Four small facts, each from one probe of the Windows agent (client/remotepower-a
 * Windows Update. A Defender definition update is told apart from the updates an operator installs
   (`is_definition_update`), and the outcome of the search is a state of its own (`clean_search_state`):
   when it ran, whether it worked and, when it did not, one word for why.
-* The build: the build number, the revision, the display version, the edition and the product name
-  that the registry keeps (`clean_win_build`, `os_label`).
+* The build: the build number, the revision, the display version, the edition, the product name and the
+  installation type that the registry keeps (`clean_win_build`, `os_label`).
 * The file shares the host exports (`clean_shares`).
 * The TPM (`clean_tpm`).
 
@@ -227,6 +227,14 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
 # refuses: a build read with either could be a number to one function and an error to the next.
 _BUILD = re.compile(r"[0-9]{3,6}")
 _DISPLAY = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,15}")
+# InstallationType says what kind of system this is. It is a fixed set, and the stored word is the registry's own spelling of it.
+_INSTALLATIONS = {
+    "client": "Client",
+    "server": "Server",
+    "server core": "Server Core",
+    "nano server": "Nano Server",
+    "embedded": "Embedded",
+}
 
 
 def _text(value: object, limit: int) -> str:
@@ -238,7 +246,8 @@ def _text(value: object, limit: int) -> str:
 
 def clean_win_build(raw: object) -> dict[str, Any] | None:
     """The build as it is stored with the host: build (digits), ubr (a whole number), display_version,
-    edition and product. A field that is not what it should be is left out; None when nothing is left.
+    edition, product and installation_type (one of a fixed set). A field that is not what it should be is
+    left out; None when nothing is left.
 
     The readers (`os_label`, `win_family`, `build_fields`) take the stored record through this function as
     well, so a record that a hand edit, an import or a restore left with a value that ingest would have
@@ -260,13 +269,18 @@ def clean_win_build(raw: object) -> dict[str, Any] | None:
         text = _text(raw.get(key), limit)
         if text:
             out[key] = text
+    installation = _INSTALLATIONS.get(_text(raw.get("installation_type"), 24).lower())
+    if installation:
+        out["installation_type"] = installation
     return out or None
 
 
 # Windows 11 still writes "Windows 10 ..." into ProductName on many builds, so the family of a client
 # system comes from its build number: 22000 and up is Windows 11. A server keeps the name of its product,
 # because a server and a client share build numbers (Windows Server 2025 and Windows 11 24H2 are both
-# 26100).
+# 26100). Whether a system is a server is what its installation type says: an EditionID that starts with
+# "Server" is not enough, because Windows 10 and 11 Enterprise multi-session (Azure Virtual Desktop) is a
+# client edition and its EditionID is "ServerRdsh".
 _CLIENT_FAMILIES = (
     (22000, "Windows 11"),
     (10240, "Windows 10"),
@@ -292,10 +306,19 @@ _EDITIONS = {
 
 
 def _is_server(win_build: dict[str, Any]) -> bool:
-    """Whether a build record that `clean_win_build` cleaned is a server."""
-    return "server" in str(win_build.get("product", "")).lower() or str(
-        win_build.get("edition", "")
-    ).lower().startswith("server")
+    """Whether a build record that `clean_win_build` cleaned is a server.
+
+    The installation type says it ("Server", "Server Core" and "Nano Server" are servers, "Client" and
+    "Embedded" are not). A record from an agent that does not send it is read from the product name, and
+    from the edition id too, except for the multi-session edition "ServerRdsh", which is a client.
+    """
+    installation = str(win_build.get("installation_type", "")).lower()
+    if installation:
+        return "server" in installation
+    edition = str(win_build.get("edition", "")).lower()
+    return "server" in str(win_build.get("product", "")).lower() or (
+        edition.startswith("server") and not edition.startswith("serverrdsh")
+    )
 
 
 def _family(wb: dict[str, Any]) -> str:

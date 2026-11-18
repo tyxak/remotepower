@@ -2241,12 +2241,14 @@ def _reg_number(winreg, key, name):
 
 def get_win_build():
     """The build of this Windows, from HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion: {build, ubr, display_version, edition,
-    product}, or {} where there is no build to say (off Windows, a key that cannot be read).
+    product, installation_type}, or {} where there is no build to say (off Windows, a key that cannot be read).
 
     build is CurrentBuildNumber, ubr is the revision (it changes with every cumulative update), display_version is DisplayVersion
-    (ReleaseId on a build from before 20H2), edition is EditionID and product is ProductName. Read only, in the 64-bit view; a text is
-    capped and ubr is a whole number. ProductName says "Windows 10" on many builds of Windows 11, so the server does not take the
-    family from it: it takes it from the build number."""
+    (ReleaseId on a build from before 20H2), edition is EditionID, product is ProductName and installation_type is InstallationType
+    ("Client", "Server", "Server Core"). Read only, in the 64-bit view; a text is capped and ubr is a whole number. ProductName says
+    "Windows 10" on many builds of Windows 11, so the server does not take the family from it: it takes it from the build number. The
+    installation type is what tells a server from a client: the multi-session edition of Windows 10 and 11 is a client system whose
+    EditionID is "ServerRdsh"."""
     try:
         import winreg
     except Exception:
@@ -2262,6 +2264,7 @@ def get_win_build():
         display = _reg_text(winreg, key, 'DisplayVersion') or _reg_text(winreg, key, 'ReleaseId')
         edition = _reg_text(winreg, key, 'EditionID')
         product = _reg_text(winreg, key, 'ProductName')
+        installation = _reg_text(winreg, key, 'InstallationType')
     finally:
         winreg.CloseKey(key)
     if not (build.isascii() and build.isdigit()):
@@ -2269,7 +2272,8 @@ def get_win_build():
     out = {'build': build[:8]}
     if ubr is not None and 0 <= ubr <= 999999:
         out['ubr'] = ubr
-    for name, value, limit in (('display_version', display, 16), ('edition', edition, 40), ('product', product, 80)):
+    for name, value, limit in (('display_version', display, 16), ('edition', edition, 40), ('product', product, 80),
+                               ('installation_type', installation, 24)):
         if value:
             out[name] = value[:limit]
     return out
