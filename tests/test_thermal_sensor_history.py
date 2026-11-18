@@ -450,9 +450,10 @@ class TestTheSweepAndTheEndpoint(_Base):
         self.assertGreater(rows[0][0], old)
 
     def test_a_host_that_is_gone_loses_its_series_with_its_row(self):
+        """The fleet still has another host: a host store that reads as empty is taken for a failed read and prunes nothing (tests/test_fleet_read_failed_prunes.py)."""
         self.feed(2)
         api.run_thermal_rollup_if_due()
-        api.save(api.DEVICES_FILE, {})
+        api.save(api.DEVICES_FILE, {"d2": {"name": "other", "monitored": True, "last_seen": self.now}})
         with api._LockedUpdate(api.THERMAL_ROLLUP_FILE) as state:
             state["_meta"] = {"last_run": 0}
         api.run_thermal_rollup_if_due()

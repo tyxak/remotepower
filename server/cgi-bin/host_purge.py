@@ -82,6 +82,7 @@ RULES: dict[str, tuple[Rule, ...]] = {
     ),  # the log of what hosts sent (8.0.1) names the host on every line, and so does each address a sensor queued for the next pass
     "lldp_neighbors.json": (pop(),),
     "metrics_history.json": (pop(),),
+    "metrics_rollup.json": (pop(),),
     "patch_age.json": (pop(), unlist("_breaching")),
     "patch_done.json": (
         pop(),

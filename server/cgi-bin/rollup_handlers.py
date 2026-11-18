@@ -199,9 +199,11 @@ def run_metric_rollup_if_due():
                 'hourly':  hourly if _hold else A._rollup_prune(hourly, A.ROLLUP_HOURLY_KEEP, now),
                 'daily':   daily if _hold else A._rollup_prune(daily, A.ROLLUP_DAILY_KEEP, now),
             }
-        # prune roll-ups for deleted devices
-        for k in [k for k in state.keys() if k != '_meta' and k not in devices]:
-            del state[k]
+        # prune roll-ups for deleted devices, but not when the host store reads as empty while the roll-ups name hosts: that is a failed read
+        # (A._fleet_read_failed), and the prune would take up to two years of history for the whole fleet
+        if not A._fleet_read_failed(devices, state, 'the metric roll-ups'):
+            for k in [k for k in state.keys() if k != '_meta' and k not in devices]:
+                del state[k]
 
 
 def handle_device_metric_rollup(dev_id):
@@ -323,9 +325,10 @@ def run_thermal_rollup_if_due():
                     'daily':   daily if _hold else A._rollup_prune(daily, A.ROLLUP_DAILY_KEEP, now),
                 })
             state[dev_id] = out
-        # prune roll-ups for deleted devices
-        for k in [k for k in state.keys() if k != '_meta' and k not in devices]:
-            del state[k]
+        # prune roll-ups for deleted devices, but not when the host store reads as empty while the roll-ups name hosts (see the metric roll-up above)
+        if not A._fleet_read_failed(devices, state, 'the thermal roll-ups'):
+            for k in [k for k in state.keys() if k != '_meta' and k not in devices]:
+                del state[k]
 
 
 def handle_device_thermal_rollup(dev_id):

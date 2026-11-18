@@ -371,9 +371,11 @@ def run_flow_dep_check_if_due():
             for up in (dev.get('depends_on') or []):
                 if up in devices:
                     declared.add(f'{did}:{up}')
-        for key in list(edges_state):
-            if key not in declared:
-                edges_state.pop(key, None)
+        # an empty host store while the edges name hosts is a failed read, and the prune would forget what was observed on every edge (A._fleet_read_failed)
+        if not A._fleet_read_failed(devices, edges_state, 'the dependency edges'):
+            for key in list(edges_state):
+                if key not in declared:
+                    edges_state.pop(key, None)
         for key in declared:
             did, up = key.split(':', 1)
             dev, updev = devices.get(did) or {}, devices.get(up) or {}

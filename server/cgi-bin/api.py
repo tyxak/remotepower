@@ -5362,6 +5362,25 @@ def _load_ro(path):
     return _load_uncached(path)
 
 
+def _store_names_hosts(stored):
+    """Whether a store keyed by host id holds an entry for a host: any key that is not one of the `_` meta keys."""
+    return any(not str(k).startswith('_') for k in (stored or ()))
+
+
+def _fleet_read_failed(devices, stored, what):
+    """Whether an empty `devices` is, as far as a sweep can tell, a failed read and not an installation with no hosts.
+
+    `load()` answers an empty dict when devices.json cannot be read (a file that does not parse and has no usable backup, any read error such as EMFILE or EIO, or a dropped
+    connection to the database), which is also what an installation with no hosts reads as. A sweep that drops what it holds for every host the host store does not list takes
+    the first for the second and deletes the history of the whole fleet in one pass. `stored` is the store the sweep is about to prune, keyed by host id: when it names hosts
+    and the host store names none, the two cannot both be true (deleting a host takes its entries out of the stores, host_purge.py), so the sweep leaves what it holds for the
+    next pass. `what` names the store in the line written to the server log."""
+    if devices or not _store_names_hosts(stored):
+        return False
+    sys.stderr.write(f'[remotepower] WARN: devices.json reads as empty while {what} names hosts; not pruning {what} this time\n')
+    return True
+
+
 # v6.4.2: how long a configured scheduler may go silent before the request path
 # takes the cadence back. Ten intervals or 15 minutes, whichever is larger — far
 # past the "is it alive?" window used for the Server-status indicator, so a slow
@@ -44672,7 +44691,7 @@ def _eval_patch_sla(devices, cfg, age, now, record=None):
 
 def _patch_age_lists_hosts(age):
     """Whether the aging store `age` names a host: an entry of one, or a host it holds as in breach."""
-    return any(not str(k).startswith('_') for k in age) or bool(age.get('_breaching'))
+    return _store_names_hosts(age) or bool(age.get('_breaching'))
 
 
 def run_patch_sla_if_due():
@@ -56988,8 +57007,10 @@ def _maybe_sample_health(now=None):
             # unmonitored host's accumulated history — and it would restart from
             # zero when re-monitored. Keep any id still present in the store.
             existing_ids = set(load(DEVICES_FILE) or {})
-            for gone in [k for k in devices if k not in existing_ids]:
-                del devices[gone]
+            # an empty host store while the history names hosts is a failed read, and the prune would take the history of the whole fleet (_fleet_read_failed)
+            if not _fleet_read_failed(existing_ids, devices, 'the health history'):
+                for gone in [k for k in devices if k not in existing_ids]:
+                    del devices[gone]
     except Exception as e:
         sys.stderr.write(f'[remotepower] health sample failed: {e}\n')
 

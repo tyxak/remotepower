@@ -96,6 +96,7 @@ NOT_IN_THE_SEED = {
     ('automation_rules.json', 0): 'the seeded rule that names a host is already switched off',
     ('ip_intel_intake.json', 2): 'the seeded intake queue is empty (the pass drains it every minute); test_what_a_sensor_queued_for_the_host_goes_with_it drives the real producer',
     ('patch_done.json', 0): 'the demo seed files no completed patches yet; test_mean_time_to_patch deletes a host that has pairs through the real purge and reads the store back',
+    ('metrics_rollup.json', 0): 'the demo seed builds no metric roll-ups (the sweep makes them from the samples); test_fleet_read_failed_prunes deletes a host that has them through the real purge and reads the store back',
 }
 
 
