@@ -89,6 +89,37 @@ def make_tools(directory, *names):
         p.chmod(0o755)
 
 
+class _Path:
+    """`os.path` as the agent sees it: the real one, except that a file is a file only when its path is in the fixed set."""
+
+    def __init__(self, fs):
+        self._fs = fs
+
+    def isfile(self, p):
+        self._fs.asked.append(str(p))
+        return str(p) in self._fs.files
+
+    def __getattr__(self, name):
+        return getattr(os.path, name)
+
+
+class _Filesystem:
+    """`os` as the agent sees it, with a filesystem of exactly these executable files. Everything else is the real os (the environment
+    included, so `mock.patch.dict(os.environ, ...)` is what the agent reads). It stands in for the agent's module-level `os`, so the
+    test's own code and the rest of the machine are not touched, and it records the paths the agent asked about."""
+
+    def __init__(self, files):
+        self.files = set(files)
+        self.asked = []
+        self.path = _Path(self)
+
+    def access(self, p, mode):
+        return str(p) in self.files
+
+    def __getattr__(self, name):
+        return getattr(os, name)
+
+
 # An instrument the code under test cannot fool. An audit hook sees the interpreter's own events: every file open however it was asked
 # for (open, io.open, os.open, Path.read_text) and every process start (subprocess, os.system, exec, spawn). A patch of builtins.open or
 # subprocess.run sees only the door that was patched, and a refusal raised inside the code under test can be swallowed by that code's own
@@ -328,6 +359,33 @@ class TestTheAgentsReport(_Tmp):
         sh = shutil.which("sh")
         self.assertIsNotNone(sh)
         self.assertIn(os.path.dirname(sh), agent._capability_dirs())
+
+    def test_a_tool_in_a_standard_directory_is_found_when_the_agents_path_does_not_reach_it(self):
+        """A service starts the agent with a short PATH, and ufw, nft, smartctl and dmidecode live in the sbin directories that PATH often
+        leaves out (it is the reason _which looks there too). The default lookup adds the standard directories after PATH; without them
+        every one of these tools read as missing, with an install hint for something that was installed."""
+        files = {"/usr/sbin/smartctl", "/sbin/ufw", "/usr/local/sbin/dmidecode", "/usr/bin/ss", "/bin/lsblk", "/usr/local/bin/lynis"}
+        fs = _Filesystem(files)
+        with mock.patch.object(agent, "os", fs), mock.patch.object(agent, "IN_CONTAINER", False), \
+                mock.patch.dict(os.environ, {"PATH": "/opt/service-path"}):
+            tools = agent.collect_capabilities()["tools"]
+            self.assertEqual({k for k, v in tools.items() if v}, {"smartctl", "ufw", "dmidecode", "ss", "lsblk", "lynis"})
+            # the control: the same filesystem, and a lookup that does not reach those directories, finds none of them
+            self.assertEqual({k for k, v in agent.collect_capabilities(tool_dirs=["/opt/service-path"])["tools"].items() if v}, set())
+
+    def test_the_agent_looks_where_the_shared_lookup_looks(self):
+        """collect_capabilities and _which must agree, or the panel says missing what a collector finds, or the other way round. The
+        directories _which asks about, in its order, are read from a filesystem that records the questions."""
+        fs = _Filesystem(set())
+        cache = agent._which.__defaults__[0]
+        self.addCleanup(cache.pop, "rp-no-such-tool-anywhere", None)       # _which remembers every answer it gives
+        with mock.patch.object(agent, "os", fs), mock.patch.dict(os.environ, {"PATH": "/opt/a::/usr/bin:/opt/b"}):
+            self.assertIsNone(agent._which("rp-no-such-tool-anywhere"))
+            asked = [os.path.dirname(p) for p in fs.asked]
+            self.assertEqual(agent._capability_dirs(), asked)
+        self.assertEqual(asked[:3], ["/opt/a", "/usr/bin", "/opt/b"], "PATH first, in its order, without its empty entry")
+        self.assertEqual(len(asked), len(set(asked)), "each directory once")
+        self.assertLessEqual({"/usr/sbin", "/sbin", "/usr/bin", "/bin", "/usr/local/sbin", "/usr/local/bin"}, set(asked))
 
     def test_the_shared_lookup_is_told_when_a_tool_has_come_or_gone(self):
         """_which remembers its answer for the life of the process: a tool installed after the agent started was missed by every
@@ -729,6 +787,21 @@ class TestThePanel(unittest.TestCase):
         self.assertEqual((row["status"], row["hint"]), ("unavailable", ""))
         self.assertIn(caps_mod.NOTICES["container"], p["notices"])
         self.assertEqual((p["missing"], p["unavailable"] > 0), (0, True))
+
+    def test_in_a_container_a_tool_that_is_not_needed_is_not_counted_unavailable(self):
+        """Unavailable is a tool the host needs and a container cannot have. Another distribution's package manager, a systemd tool on a
+        host that runs another init system, needrestart on a host that is not apt, and a firewall tool beside another one that is there
+        are needed nowhere, and a container does not change that: counted as unavailable they would put a number on the badge and a
+        line in the list for things nobody should install."""
+        p = panel_of(host("fedora", present=("iptables", "dnf"), container=True, init="openrc"))
+        rows = rows_of(p)
+        not_needed = {"apt", "zypper", "apk", "pacman", "needrestart", "journalctl", "systemctl", "ufw", "firewalld", "nft"}
+        self.assertEqual({n for n, r in rows.items() if r["status"] == "not_needed"}, not_needed)
+        self.assertEqual({n for n, r in rows.items() if r["status"] == "present"}, {"iptables", "dnf"})
+        self.assertEqual(rows["smartctl"]["status"], "unavailable", "the control: what is needed and missing is still unavailable")
+        self.assertEqual(p["unavailable"], sum(1 for r in rows.values() if r["status"] == "unavailable"))
+        self.assertEqual(p["unavailable"], len(rows) - len(not_needed) - 2)
+        self.assertEqual(p["missing"], 0)
 
     def test_not_running_as_root_is_said_once(self):
         p = panel_of(host("debian", root=False))
