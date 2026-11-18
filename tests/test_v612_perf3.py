@@ -367,8 +367,10 @@ class TestEagerJsPayload(unittest.TestCase):
         # 1,546; the sentence under the Data Explorer's entity select is 704; and the Data Explorer sending a value as typed, with its note, is 45. The Patches header, the
         # Reports page's metering table and Settings → Notifications are drawn from the eager core, before any loader could be asked for more. The translations are in
         # i18n.js, which is not eager. A lazy module for the metering table (about 4 KB) is what would bring the budget down again.
-        # All three together (built apart from the 8.0.1 release, 2_742_522): 2_760_879 + 9_144 = 2_770_023, so the budget is 2_772_000.
-        self.assertLess(total, 2_772_000,
+        # The four territories of 8.0.2 together, measured on the merged tree: 2_773_716 against 2_742_522 at the 8.0.1 release, 31,194 bytes more. The first three
+        # notes above add up to 27,501 of them; the other 3,693 are the software views and their fixes (the Windows and macOS lists in the search, the policy and the
+        # metering table, and the refusal that says why an install queues nothing). The budget is 2_776_000, 2,284 over what is measured.
+        self.assertLess(total, 2_776_000,
                         'the eager JS payload regressed past its budget')
 
 
