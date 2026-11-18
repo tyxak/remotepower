@@ -25,6 +25,9 @@ UNIT_RE = re.compile(r"^eventlog\.(Security|System|Application)\.([1-9][0-9]{0,4
 
 # Said when a rule names an event log unit that is not of that shape. A fixed sentence, so it is a dictionary key of the interface.
 BAD_UNIT = "an event log unit looks like eventlog.Security.4625: the channel (Security, System or Application), then the event id"
+# Said when the rules of a Windows host, its own and the fleet-wide ones together, name more event ids of one log than the host reads. The agent reads the first twelve and
+# the rest would look saved and never fire, so a save that would cause it is refused. Written with the number in it so that it is a dictionary key of the interface.
+TOO_MANY_IDS = "a Windows host reads at most 12 event ids from one log, the fleet-wide rules and its own rules together: remove a rule on an event id first"
 
 
 def parse_unit(unit):
@@ -40,19 +43,34 @@ def is_event_unit(unit):
     return isinstance(unit, str) and unit.startswith(UNIT_PREFIX)
 
 
-def watch_for(*rule_lists):
-    """{channel: [event ids]} the rules ask a host to read: the units of every rule in the lists, validated, sorted, and capped for each channel.
-
-    Each list is a list of rules (a host's own, the fleet-wide ones); a row that is not a rule, or whose unit is not an event log unit, asks for nothing. Only a channel with
-    an id is in the answer, so an empty map means "read nothing".
-    """
+def ids_by_channel(*rule_lists):
+    """{channel: {event ids}} the rules in the lists name, uncut: a row that is not a rule, or whose unit is not an event log unit, names nothing."""
     want = {}
     for rules in rule_lists:
         for rule in rules if isinstance(rules, list) else []:
             parsed = parse_unit(rule.get("unit")) if isinstance(rule, dict) else None
             if parsed:
                 want.setdefault(parsed[0], set()).add(parsed[1])
-    return {ch: sorted(ids)[:MAX_IDS_PER_CHANNEL] for ch, ids in sorted(want.items())}
+    return want
+
+
+def too_many(*rule_lists):
+    """Whether the rules in these lists, put together, name more event ids of one log than a host reads (MAX_IDS_PER_CHANNEL). A save that would make it true is refused with
+    TOO_MANY_IDS: `watch_for` would cut the sorted ids, and the rule on one of the highest would look saved and never fire.
+    """
+    return any(len(ids) > MAX_IDS_PER_CHANNEL for ids in ids_by_channel(*rule_lists).values())
+
+
+def watch_for(*rule_lists):
+    """{channel: [event ids]} the rules ask a host to read: the units of every rule in the lists, validated, sorted, and capped for each channel.
+
+    Each list is a list of rules (a host's own, the fleet-wide ones); a row that is not a rule, or whose unit is not an event log unit, asks for nothing. Only a channel with
+    an id is in the answer, so an empty map means "read nothing". The cut is the last resort for a store that holds more than a save lets through (`too_many`).
+    """
+    return {
+        ch: sorted(ids)[:MAX_IDS_PER_CHANNEL]
+        for ch, ids in sorted(ids_by_channel(*rule_lists).items())
+    }
 
 
 def unit_name(channel, event_id):

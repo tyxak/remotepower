@@ -931,9 +931,9 @@ class TestWhatTheHeartbeatAsksFor(_Server):
         st, resp = self.beat('win1')
         self.assertEqual(resp['log_watch'], [])
 
-    def test_the_fleet_wide_event_units_are_capped_for_each_channel(self):
-        for i in range(1, 25):
-            self.add_global(unit='eventlog.Application.%d' % i, pattern='^x', threshold=1)
+    def test_the_fleet_wide_event_units_are_capped_for_each_channel_by_the_dispatch_for_a_store_that_holds_more_than_a_save_lets_through(self):
+        api.save(api.LOG_RULES_GLOBAL_FILE, {'rules': [{'id': 'x%d' % i, 'unit': 'eventlog.Application.%d' % i, 'pattern': '^x', 'threshold': 1} for i in range(1, 25)]})
+        api._LOAD_CACHE.clear()
         st, resp = self.beat('win1')
         self.assertEqual(len(self.units(resp)), win_events.MAX_IDS_PER_CHANNEL)
 
@@ -1024,6 +1024,146 @@ class TestRulesOnEventUnits(_Server):
         self.assertEqual(st, 200, d)
         units = api.load(api.LOG_WATCH_FILE)['win1']['units']
         self.assertEqual(sorted(units), ['eventlog.Security.4625'])
+
+
+class TestTheLimitOfTwelveIds(_Server):
+    """A Windows host reads the first twelve event ids of a log, from its own rules and the fleet-wide ones together. A rule on a thirteenth looked saved (200) and never fired,
+    and the cut of the sorted ids dropped the highest, so a fleet rule on 4740 (an account locked out) was the one lost. A save that would cause it is refused with a fixed
+    sentence, by every writer of rules."""
+    SEC = staticmethod(lambda i: 'eventlog.Security.%d' % i)
+
+    def rule(self, i, ch='Security', pattern=None):
+        return {'unit': 'eventlog.%s.%d' % (ch, i), 'pattern': pattern or '^\\[%d\\]' % i, 'threshold': 1, 'severity': 'WARN'}
+
+    def fleet(self, i, ch='Security', pattern=None):
+        return self.call(api.handle_log_rules_global_add, body=self.rule(i, ch, pattern))
+
+    def own(self, dev_id, ids, ch='Security', who='platform'):
+        return self.call(api.handle_services_config, dev_id, body={'services_watched': [], 'log_watch': [self.rule(i, ch) for i in ids]}, who=who)
+
+    def agent_reads(self, dev_id):
+        st, resp = self.beat(dev_id)
+        self.assertEqual(st, 200)
+        return win._winevt_watch_from_rules(resp.get('log_watch'))
+
+    def test_the_sentence_names_the_number_the_agent_reads(self):
+        self.assertIn(str(win_events.MAX_IDS_PER_CHANNEL), win_events.TOO_MANY_IDS)
+        self.assertEqual((win_events.MAX_IDS_PER_CHANNEL, win._WINEVT_MAX_IDS), (12, 12), 'the server and the agent cut at the same number')
+
+    def test_the_thirteenth_fleet_rule_on_a_log_is_refused_and_the_twelve_before_it_are_read(self):
+        ids = [1102, 4624, 4625, 4648, 4672, 4688, 4697, 4719, 4720, 4728, 4732, 4740, 4756]
+        statuses = [self.fleet(i)[0] for i in ids]
+        self.assertEqual(statuses, [200] * 12 + [400])
+        st, d = self.fleet(4756)
+        self.assertEqual((st, d['error']), (400, win_events.TOO_MANY_IDS))
+        self.assertEqual(self.agent_reads('win1'), {'Security': sorted(ids[:12])}, 'every rule that was saved is read')
+        self.assertEqual(len(api.load(api.LOG_RULES_GLOBAL_FILE)['rules']), 12)
+
+    def test_a_second_rule_on_an_id_already_named_is_not_a_new_id_and_each_log_has_its_own_twelve(self):
+        for i in range(1, 13):
+            self.assertEqual(self.fleet(i)[0], 200)
+        self.assertEqual(self.fleet(5, pattern='another pattern')[0], 200, 'the same id again')
+        for i in range(1, 13):
+            self.assertEqual(self.fleet(i, 'System')[0], 200, 'another log')
+        self.assertEqual(self.fleet(13, 'System')[0], 400)
+        self.assertEqual(self.fleet(13, 'Application')[0], 200)
+
+    def test_the_host_and_the_fleet_are_counted_together_for_a_windows_host(self):
+        self.assertEqual([self.fleet(i)[0] for i in (1102, 4732, 4740)], [200, 200, 200])
+        st, d = self.own('win1', range(4000, 4010))                                          # ten of its own and three of the fleet
+        self.assertEqual((st, d['error']), (400, win_events.TOO_MANY_IDS))
+        self.assertEqual(api.load(api.DEVICES_FILE)['win1'].get('log_watch', []), [], 'nothing was saved')
+        self.assertEqual(self.own('win1', range(4000, 4009))[0], 200, 'nine and three are twelve')
+        st, d = self.own('win1', list(range(4000, 4009)) + [1102])                          # 1102 is a fleet id too: not counted twice
+        self.assertEqual(st, 200, d)
+        self.assertEqual(self.agent_reads('win1')['Security'], sorted(list(range(4000, 4009)) + [1102, 4732, 4740]), 'every rule that was saved is read')
+
+    def test_a_fleet_rule_that_would_put_a_windows_host_over_is_refused_and_one_on_a_shared_id_is_not(self):
+        self.assertEqual(self.own('win1', range(4000, 4010))[0], 200)
+        st, d = self.fleet(1102)
+        self.assertEqual(st, 200)
+        st, d = self.fleet(4732)
+        self.assertEqual(st, 200)
+        st, d = self.fleet(4740)
+        self.assertEqual((st, d['error']), (400, win_events.TOO_MANY_IDS))
+        self.assertEqual(self.fleet(4005, pattern='a second rule on an id the host names')[0], 200)
+
+    def test_a_host_that_is_not_a_windows_one_is_not_counted_and_a_fleet_rule_does_not_reach_it(self):
+        self.assertEqual(self.own('win1', range(4000, 4010))[0], 200)
+        self.assertEqual(self.own('lin1', range(1, 14))[0], 200, 'a Linux host reads no event log: its rules are not counted')
+        self.assertEqual([self.fleet(i)[0] for i in (1, 2, 3)], [200, 200, 400], 'the Linux host does not count either way: the Windows host is the one over')
+
+    def test_an_update_that_names_a_new_id_at_twelve_is_refused_and_an_edit_of_the_pattern_or_a_swap_is_not(self):
+        rules = [self.fleet(i)[1]['rule'] for i in range(1, 13)]
+        second = self.fleet(5, pattern='a second rule on id 5')[1]['rule']
+        st, d = self.call(api.handle_log_rules_global_update, second['id'], body=dict(self.rule(5), pattern='an edited pattern'), m='PUT')
+        self.assertEqual(st, 200, d)
+        st, d = self.call(api.handle_log_rules_global_update, second['id'], body=self.rule(13), m='PUT')
+        self.assertEqual((st, d['error']), (400, win_events.TOO_MANY_IDS), 'id 5 is still named by the first rule, so 13 would be a thirteenth id')
+        st, d = self.call(api.handle_log_rules_global_update, rules[4]['id'], body=dict(self.rule(5), pattern='the first rule edited'), m='PUT')
+        self.assertEqual(st, 200, d)
+        self.call(api.handle_log_rules_global_delete, second['id'], m='DELETE')
+        st, d = self.call(api.handle_log_rules_global_update, rules[4]['id'], body=self.rule(13), m='PUT')
+        self.assertEqual(st, 200, 'id 5 is gone and 13 takes its place: still twelve')
+
+    def test_the_host_form_checks_the_shape_and_the_limit_like_the_other_writers(self):
+        def save(units, dev='win1', who='platform'):
+            return self.call(api.handle_device_save_bulk, dev, body={'log_watch': [{'unit': u, 'pattern': 'x'} for u in units]}, who=who)
+        for bad in ('eventlog.Security.0', 'eventlog.Security.99999', 'eventlog.Setup.4625', 'eventlog.Security'):
+            st, d = save([bad])
+            self.assertEqual((st, d['error']), (400, win_events.BAD_UNIT), bad)
+        self.assertEqual(api.load(api.DEVICES_FILE)['win1'].get('log_watch', []), [])
+        st, d = save([self.SEC(i) for i in range(1, 14)])
+        self.assertEqual((st, d['error']), (400, win_events.TOO_MANY_IDS))
+        self.assertEqual(save([self.SEC(i) for i in range(1, 13)])[0], 200)
+        self.assertEqual(save([self.SEC(i) for i in range(1, 14)], dev='lin1')[0], 200, 'a Linux host is not counted')
+        self.assertEqual(save(['nginx.service'])[0], 200, 'an ordinary unit is none of this')
+        self.assertEqual(save([self.SEC(1)], who='viewer1')[0], 403, 'a read-only user cannot write them')
+
+    def test_a_profile_is_held_to_the_shape_and_the_limit_and_so_is_its_apply(self):
+        def create(units):
+            return self.call(api.handle_device_profiles, body={'name': 'p', 'log_watch': [{'unit': u, 'pattern': 'x'} for u in units]})
+        st, d = create(['eventlog.Foo.1'])
+        self.assertEqual((st, d['error']), (400, win_events.BAD_UNIT))
+        st, d = create([self.SEC(i) for i in range(1, 14)])
+        self.assertEqual((st, d['error']), (400, win_events.TOO_MANY_IDS))
+        st, d = create([self.SEC(i) for i in range(1, 12)])                                 # eleven ids
+        self.assertEqual(st, 201, d)
+        pid = d['id']
+        self.assertEqual([self.fleet(i, 'Security')[0] for i in (4741, 4742)], [200, 200], 'the profile is not on a host yet: the fleet and the profile are twelve and more only together')
+        st, d = self.call(api.handle_device_profile_apply, pid, body={'device_ids': ['win1']})
+        self.assertEqual((st, d['error']), (400, win_events.TOO_MANY_IDS), 'eleven ids and two of the fleet on a Windows host')
+        self.assertEqual(api.load(api.DEVICES_FILE)['win1'].get('log_watch', []), [], 'nothing was applied')
+        st, d = self.call(api.handle_device_profile_apply, pid, body={'device_ids': ['lin1']})
+        self.assertEqual((st, d.get('applied')), (200, 1), 'a Linux host reads no event log')
+
+    def test_the_declarative_import_holds_log_rules_and_registry_checks_to_the_rules_of_a_save(self):
+        def apply(resources):
+            res = api._declarative_apply({'schema': api.DECLARATIVE_SCHEMA, 'resources': resources}, 'platform', dry_run=False)
+            self.assertTrue(res['ok'], res)
+            api._LOAD_CACHE.clear()
+            return res['report']
+        rows = lambda ids: [dict(self.rule(i), id='r%d' % i) for i in ids]  # noqa: E731
+        self.assertEqual(apply({'log_alert_rules': rows(range(1, 14))})['log_alert_rules'], {'skipped': win_events.TOO_MANY_IDS})
+        self.assertEqual(apply({'log_alert_rules': [dict(self.rule(1), unit='eventlog.Security.0', id='b')]})['log_alert_rules'], {'skipped': win_events.BAD_UNIT})
+        self.assertEqual((api.load(api.LOG_RULES_GLOBAL_FILE) or {}).get('rules'), [], 'nothing was written')
+        self.assertNotIn('skipped', apply({'log_alert_rules': rows(range(1, 13))})['log_alert_rules'])
+        self.assertEqual(len(api.load(api.LOG_RULES_GLOBAL_FILE)['rules']), 12)
+        bad = {'id': 'evil1', 'type': 'registry', 'name': 'x', 'param': 'x', 'hive': 'HKCU', 'path': 'SAM/../SECURITY', 'value': 'x', 'op': 'exists'}
+        skipped = apply({'custom_checks': [bad]})['custom_checks']
+        self.assertIn('skipped', skipped)
+        self.assertEqual((api.load(api.CONFIG_FILE) or {}).get('custom_checks') or [], [], 'a definition the agent would refuse is not stored')
+        st, resp = self.beat('win1')
+        self.assertEqual([c for c in resp.get('agent_checks') or [] if c.get('type') == 'registry'], [])
+        good = {'id': 'ok1', 'type': 'registry', 'name': 'UAC', 'param': 'x', 'hive': 'HKLM', 'path': 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System', 'value': 'EnableLUA', 'op': 'equals', 'expect': '1'}
+        self.assertNotIn('skipped', apply({'custom_checks': [good]})['custom_checks'])
+        self.assertEqual([c['id'] for c in (api.load(api.CONFIG_FILE) or {}).get('custom_checks') or []], ['ok1'])
+
+    def test_a_store_that_holds_more_than_a_save_lets_through_is_still_cut_at_twelve_by_the_dispatch(self):
+        """The last resort for a store that was written some other way: the heartbeat hands over twelve ids, sorted, and the agent reads those."""
+        api.save(api.LOG_RULES_GLOBAL_FILE, {'rules': [dict(self.rule(i), id='x%d' % i) for i in range(1, 16)]})
+        api._LOAD_CACHE.clear()
+        self.assertEqual(self.agent_reads('win1'), {'Security': list(range(1, 13))})
 
 
 class TestTheRuleEngineOnEventUnits(_Server):
@@ -1239,7 +1379,7 @@ class TestSixLanguages(unittest.TestCase):
         cls.rows = dict_rows()
 
     def strings(self):
-        out = ['Ready-made Windows rule', 'None, I will write my own', win_events.BAD_UNIT]
+        out = ['Ready-made Windows rule', 'None, I will write my own', win_events.BAD_UNIT, win_events.TOO_MANY_IDS]
         if _NODE:
             for t in _templates():
                 out += [t['label'], t['note']]
@@ -1247,7 +1387,7 @@ class TestSixLanguages(unittest.TestCase):
 
     @unittest.skipUnless(_NODE, 'node is not installed')
     def test_every_string_the_picker_shows_has_all_six_languages(self):
-        self.assertEqual(len(self.strings()), 3 + 16)
+        self.assertEqual(len(self.strings()), 3 + 17)
         missing = {s: sorted(set(LANGS) - self.rows.get(s, set())) for s in self.strings() if not set(LANGS) <= self.rows.get(s, set())}
         self.assertEqual(missing, {})
 

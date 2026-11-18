@@ -17215,6 +17215,9 @@ def handle_device_save_bulk(dev_id):
                 pattern = _sanitize_str(entry.get('pattern') or '', 256)
                 if unit and pattern:
                     log_rules.append({'unit': unit, 'pattern': pattern})
+            _why = _event_rules_shape_error(log_rules) or _event_rules_error(log_rules, dev)
+            if _why:
+                respond(400, {'error': _why})       # a rule on an event unit no agent could feed, or on a thirteenth event id, would look saved and never fire
             updates['log_watch'] = log_rules
 
         # watched_files — absolute paths, folders and patterns; v7.4.1: also the
@@ -17688,6 +17691,9 @@ def _validate_device_profile(body):
                 path = _sanitize_str(entry.strip(), 512)
                 if path.startswith('/'):
                     rules.append({'path': path})
+        _why = _event_rules_shape_error(rules) or (win_events_mod.TOO_MANY_IDS if win_events_mod.too_many(rules) else None)
+        if _why:
+            respond(400, {'error': _why})
         out['log_watch'] = rules
     if 'drift_files' in body:
         out['drift_files'] = _validate_drift_files(body['drift_files'], inherit=True)
@@ -17887,6 +17893,10 @@ def handle_device_profile_apply(pid):
     ids = [_sanitize_str(str(i), 64) for i in ids[:500]]
     _vis = _scope_filter_devices(load(DEVICES_FILE) or {})   # SEC: tenant/scope filter
     ids = [i for i in ids if i in _vis]
+    if 'log_watch' in profile and any(isinstance(_vis.get(i), dict) and _device_os_family(_vis[i]) == 'windows' for i in ids):
+        _why = _event_rules_error(profile.get('log_watch') or [])    # the profile's rules replace a host's own, so with the fleet-wide ones they are what a Windows host reads
+        if _why:
+            respond(400, {'error': _why})
     applied = 0
     with _LockedUpdate(DEVICES_FILE) as devices:
         for did in ids:
@@ -25984,7 +25994,7 @@ def handle_heartbeat():
     # have no event log and are handed nothing extra, so no new key travels in the answer.
     try:
         if _device_os_family(saved_dev) == 'windows':
-            _glr = (_load_ro(LOG_RULES_GLOBAL_FILE) or {}).get('rules') if backend_exists(LOG_RULES_GLOBAL_FILE) else []
+            _glr = _fleet_log_rules()
             _ev_extra = win_events_mod.fleet_unit_rules(saved_dev.get('log_watch'), _glr)
             if _ev_extra:
                 _own_lw = common_resp.get('log_watch')
@@ -31441,6 +31451,18 @@ def _declarative_apply(doc, actor, dry_run=True):
                 inc = time_periods_mod.clean_periods(inc, lambda: 'tp-' + secrets.token_hex(4))
             except ValueError as _tpe:
                 report[name] = {'skipped': str(_tpe)}
+                continue
+        if name == 'custom_checks':
+            # a registry check is held to the rules a save of it is held to: the agent would refuse the rest, and the check would look imported and never answer
+            _bad = next((_why for _c in inc if isinstance(_c, dict) and _c.get('type') == 'registry'
+                         for _clean, _why in [checks_mod.validate_registry_check(_c)] if _clean is None), None)
+            if _bad:
+                report[name] = {'skipped': _bad}
+                continue
+        if name == 'log_alert_rules':
+            _bad = _event_rules_shape_error(inc) or _fleet_event_rules_error(inc)
+            if _bad:
+                report[name] = {'skipped': _bad}
                 continue
         _rehydrate_secrets(inc, current.get(name), m.get('id'))
         report[name] = _declarative_diff(current.get(name), _declarative_plain(name, inc), m.get('id'))
@@ -76032,6 +76054,44 @@ def handle_services_device(dev_id):
     })
 
 
+def _fleet_log_rules():
+    """The fleet-wide log rules, as a list (empty when the store is not there or holds none)."""
+    if not backend_exists(LOG_RULES_GLOBAL_FILE):
+        return []
+    rules = (_load_ro(LOG_RULES_GLOBAL_FILE) or {}).get('rules')
+    return rules if isinstance(rules, list) else []
+
+
+def _event_rules_error(own_rules, dev=None):
+    """The fixed sentence to answer a save of a host's own log rules with when it would leave a Windows host with more event ids of one log than it reads, else None.
+
+    The fleet-wide rules count with the host's own: a Windows host reads the event units of both, the first twelve ids of each log, and a rule on a thirteenth would look saved
+    and never fire. A host that is not a Windows one reads no event log and is not counted; `dev=None` counts the rules whatever the host (a profile that is not on a host yet)."""
+    if dev is not None and _device_os_family(dev) != 'windows':
+        return None
+    return win_events_mod.TOO_MANY_IDS if win_events_mod.too_many(own_rules, _fleet_log_rules()) else None
+
+
+def _fleet_event_rules_error(fleet_rules):
+    """The sentence to answer a save of the fleet-wide log rules with when it would leave a Windows host, with the event units of its own rules or without, with more event ids
+    of one log than it reads, else None."""
+    if win_events_mod.too_many(fleet_rules):
+        return win_events_mod.TOO_MANY_IDS
+    for dev in (_load_ro(DEVICES_FILE) or {}).values():
+        if isinstance(dev, dict) and _device_os_family(dev) == 'windows' and win_events_mod.too_many(dev.get('log_watch'), fleet_rules):
+            return win_events_mod.TOO_MANY_IDS
+    return None
+
+
+def _event_rules_shape_error(rules):
+    """BAD_UNIT when a rule names a unit in the event log namespace that no agent could feed, else None (the same refusal the other writers of rules give)."""
+    for r in rules if isinstance(rules, list) else []:
+        unit = r.get('unit') if isinstance(r, dict) else None
+        if win_events_mod.is_event_unit(unit) and not win_events_mod.parse_unit(unit):
+            return win_events_mod.BAD_UNIT
+    return None
+
+
 def handle_services_config(dev_id):
     """
     GET/POST /api/devices/{id}/services/config
@@ -76140,6 +76200,9 @@ def handle_services_config(dev_id):
                     rule_clean['display_template'] = tmpl
                 log_rules.append(rule_clean)
 
+    _why = _event_rules_error(log_rules, devices[dev_id])
+    if _why:
+        respond(400, {'error': _why})
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id in devices:
             devices[dev_id]['services_watched'] = watched
@@ -76658,6 +76721,9 @@ def handle_log_rules_global_add():
             respond(409, {'error': 'rule with this unit+pattern already exists'})
     if len(rules) >= MAX_GLOBAL_LOG_RULES:
         respond(400, {'error': f'max {MAX_GLOBAL_LOG_RULES} global rules'})
+    _why = _fleet_event_rules_error(rules + [rule])
+    if _why:
+        respond(400, {'error': _why})
 
     rule['id']         = secrets.token_hex(8)
     rule['created_by'] = actor
@@ -76699,7 +76765,11 @@ def handle_log_rules_global_update(rule_id):
         rule['created_at'] = target.get('created_at', int(time.time()))
         rule['updated_by'] = actor
         rule['updated_at'] = int(time.time())
-        store['rules'] = [r if r.get('id') != rule_id else rule for r in rules]
+        _new_rules = [r if r.get('id') != rule_id else rule for r in rules]
+        _why = _fleet_event_rules_error(_new_rules)
+        if _why:
+            respond(400, {'error': _why})
+        store['rules'] = _new_rules
     audit_log(actor, 'log_rule_global_update',
               detail=f'id={rule_id} unit={rule["unit"]} pattern={rule["pattern"][:60]}')
     respond(200, {'ok': True, 'rule': rule})

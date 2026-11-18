@@ -96,9 +96,17 @@ How it works:
 - **A cleared log is noticed.** When the log's newest record is older than the last
   one the agent sent, the log has been cleared and its records started again, and
   the agent reads what is there now, the clearing itself (event 1102) included.
-- **Limits.** Up to 12 event ids for each log and host. The agent runs as SYSTEM,
-  which is what the Security log needs. A log the agent cannot read is skipped
-  without an error.
+- **Limits.** Up to 12 event ids for each log and host, counting the fleet-wide
+  rules and the host's own together (two rules on one id are one id). Every place
+  that saves rules refuses a save that would take a Windows host past 12 ids from one
+  log, and says so, because the agent reads the first 12 and a rule on a thirteenth
+  would look saved and never fire: the host form, the services and log rules dialog,
+  a host profile (when it is saved and when it is applied), a fleet-wide rule
+  (added or edited, also when it would put a host that has rules of its own over)
+  and the declarative import, which also refuses a unit that no agent can feed and a
+  registry check that the agent would refuse. A host that is not a Windows one reads
+  no event log and is not counted. The agent runs as SYSTEM, which is what the
+  Security log needs. A log the agent cannot read is skipped without an error.
 
 A line is built from the fields of the event, not from its message, which is in the
 language of the host. For example:
