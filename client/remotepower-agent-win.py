@@ -4461,7 +4461,8 @@ _PERSIST_RUN_BASE = 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\'
 _PERSIST_WINLOGON_KEY = 'SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'
 _PERSIST_SERVICES_KEY = 'SYSTEM\\CurrentControlSet\\Services'
 _PERSIST_MAX_SERVICE_KEYS = 5000     # service keys read: a machine has hundreds
-_PERSIST_PROFILES_MAX = 50
+_PERSIST_MAX_TASKS = 5000            # tasks parsed out of what schtasks prints
+_PERSIST_PROFILES_MAX = 200          # user profiles whose startup folder is read: a terminal server has dozens
 _PERSIST_STARTUP_PER_FOLDER = 50
 _PERSIST_TASKS_OUT_MAX = 16 * 1024 * 1024
 _PERSIST_USER_FRAGMENTS = ('\\temp\\', '\\tmp\\', '\\appdata\\', '\\users\\', '\\documents and settings\\', '\\$recycle.bin\\')
@@ -4563,7 +4564,7 @@ def _persist_winlogon_items(wr):
 
 def _persist_service_items(wr, deadline, env):
     """Services whose ImagePath runs a program from a temporary or user folder. A service key that cannot be read is passed over (it cannot be judged now); the place is
-    not read only when its parent key cannot be opened or the time ran out."""
+    not read only when its parent key cannot be opened or the time ran out, and it is cut when there are more service keys than are read."""
     access = getattr(wr, 'KEY_READ', 0x20019) | getattr(wr, 'KEY_WOW64_64KEY', 0x100)
     try:
         base = wr.OpenKey(wr.HKEY_LOCAL_MACHINE, _PERSIST_SERVICES_KEY, 0, access)
@@ -4572,7 +4573,7 @@ def _persist_service_items(wr, deadline, env):
     found, ok = [], True
     try:
         names, i = [], 0
-        while len(names) < _PERSIST_MAX_SERVICE_KEYS:
+        while len(names) <= _PERSIST_MAX_SERVICE_KEYS:    # one more than the cap: a list the cap cut is told from one that ended
             try:
                 names.append(wr.EnumKey(base, i))
             except OSError as e:
@@ -4580,6 +4581,8 @@ def _persist_service_items(wr, deadline, env):
                     ok = False                            # the list of services stopped half way: what was found is not all there is
                 break
             i += 1
+        truncated = len(names) > _PERSIST_MAX_SERVICE_KEYS
+        names = names[:_PERSIST_MAX_SERVICE_KEYS]
         sz, expand = getattr(wr, 'REG_SZ', 1), getattr(wr, 'REG_EXPAND_SZ', 2)
         for n, svc in enumerate(names):
             if n % 50 == 0 and time.time() > deadline:
@@ -4606,7 +4609,7 @@ def _persist_service_items(wr, deadline, env):
         except OSError:
             pass
     found.sort(key=lambda e: e[1].lower())
-    return {'ok': ok, 'cut': len(found) > _PERSIST_CAPS['services'], 'items': found[:_PERSIST_CAPS['services'] + 1]}
+    return {'ok': ok, 'cut': truncated or len(found) > _PERSIST_CAPS['services'], 'items': found[:_PERSIST_CAPS['services'] + 1]}
 
 
 def _persist_task_fields(chunk):
@@ -4647,13 +4650,14 @@ def _persist_task_fields(chunk):
 
 
 def _persist_parse_tasks(text, env):
-    """(found, any_task): the tasks of schtasks' output that are not Microsoft's, as entries [folder, name, actions], and whether the text held a task at all.
+    """(found, any_task, truncated): the tasks of schtasks' output that are not Microsoft's, as entries [folder, name, actions], whether the text held a task at all, and
+    whether it held more than are parsed.
 
     A task whose folder is \\Microsoft or below it is left out unless one of its actions runs a program from a temporary or user folder (a name that looks like a
     system task is where a person hides one). A disabled task starts nothing and is left out."""
     chunks = _PERSIST_TASK_RX.findall(text) if isinstance(text, str) else []
     found = []
-    for chunk in chunks[:5000]:
+    for chunk in chunks[:_PERSIST_MAX_TASKS]:
         path, actions, enabled = _persist_task_fields(chunk)
         if not enabled:
             continue
@@ -4663,7 +4667,7 @@ def _persist_parse_tasks(text, env):
         if (folder.lower() + '\\').startswith('\\microsoft\\') and not any(_persist_user_path(a, env) for a in actions):
             continue
         found.append(_persist_entry(folder, name or '(unnamed)', what))
-    return found, bool(chunks)
+    return found, bool(chunks), len(chunks) > _PERSIST_MAX_TASKS
 
 
 def _persist_run_command(args, timeout):
@@ -4684,11 +4688,11 @@ def _persist_task_items(run, deadline, env):
     text = run([_system_bin('schtasks'), '/query', '/xml'], min(20, left))
     if text is None:
         return dict(_PERSIST_NOT_READ)
-    found, any_task = _persist_parse_tasks(text, env)
+    found, any_task, truncated = _persist_parse_tasks(text, env)
     if not any_task:
         return dict(_PERSIST_NOT_READ)                    # a Windows with no task at all is not the answer; an error message is
     found.sort(key=lambda e: (e[0].lower(), e[1].lower()))
-    return {'ok': True, 'cut': len(found) > _PERSIST_CAPS['tasks'], 'items': found[:_PERSIST_CAPS['tasks'] + 1]}
+    return {'ok': True, 'cut': truncated or len(found) > _PERSIST_CAPS['tasks'], 'items': found[:_PERSIST_CAPS['tasks'] + 1]}
 
 
 def _persist_entry_size(e):
@@ -4705,17 +4709,19 @@ def _persist_startup_items(env, deadline):
     pd = env.get('programdata') or 'C:\\ProgramData'
     folders = [('All users', os.path.join(pd, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'StartUp'))]
     users_dir = os.path.join((env.get('systemdrive') or 'C:') + os.sep, 'Users')
-    ok = True
+    ok, cut = True, False
     try:
         with os.scandir(users_dir) as it:
-            profiles = sorted(e.name for e in it if e.is_dir() and e.name.lower() not in _PERSIST_SKIP_PROFILES)[:_PERSIST_PROFILES_MAX]
+            profiles = sorted((e.name for e in it if e.is_dir() and e.name.lower() not in _PERSIST_SKIP_PROFILES), key=lambda n: (n.lower(), n))
+        cut = len(profiles) > _PERSIST_PROFILES_MAX      # the profiles past the cap are not read: the place is cut
+        profiles = profiles[:_PERSIST_PROFILES_MAX]
     except FileNotFoundError:
         profiles = []
     except OSError:
         profiles, ok = [], False
     for p in profiles:
         folders.append(('User ' + p, os.path.join(users_dir, p, 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')))
-    found, cut = [], False
+    found = []
     for place, folder in folders:
         if time.time() > deadline:
             return {'ok': False, 'cut': cut, 'items': found}

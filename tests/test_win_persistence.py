@@ -825,6 +825,71 @@ class TestTheAgentReadsFivePlaces(unittest.TestCase):
         self.assertEqual((startup['ok'], startup['cut']), (True, True), 'a folder with more files than it may hold is listed as far as the limit and the place is cut')
         self.assertIn(['All users', 'OneNote.lnk', '1893 bytes'], startup['items'], 'the other folders are still read')
 
+    def services_registry(self, count, last_in_user_folder=True):
+        """`count` service keys under Services, the last of them one that runs from a user folder, the rest from the Windows folder."""
+        reg = FakeRegistry()
+        names = ['AAA%04d' % i for i in range(count - 1)] + ['Zupdater']
+        reg.add(SERVICES, subkeys=names)
+        for n in names:
+            reg.add(SERVICES + '\\' + n, [('ImagePath', 'C:\\Windows\\System32\\svchost.exe -k netsvcs', S)])
+        if last_in_user_folder:
+            reg.add(SERVICES + '\\Zupdater', [('ImagePath', 'C:\\Users\\bob\\AppData\\Local\\Temp\\upd.exe', S)])
+        return reg
+
+    def test_the_service_keys_are_cut_at_5000_and_a_list_the_cap_cut_says_so_at_its_edge(self):
+        whole = self.snap(reg=self.services_registry(win._PERSIST_MAX_SERVICE_KEYS))['services']
+        self.assertEqual((whole['ok'], whole['cut'], [e[1] for e in whole['items']]), (True, False, ['Zupdater']), 'exactly 5000 keys is a list that ended, not a list that was cut')
+        cut = self.snap(reg=self.services_registry(win._PERSIST_MAX_SERVICE_KEYS + 1))['services']
+        self.assertEqual((cut['ok'], cut['cut'], cut['items']), (True, True, []), 'one key more than the cap: the one that runs from a user folder is past it, and the place says so')
+
+    def test_the_profiles_are_read_up_to_200_and_a_list_the_cap_cut_says_so_at_its_edge(self):
+        for i in range(win._PERSIST_PROFILES_MAX - 4):                 # the fixture holds bob, alice and Default (Public, All Users and Default User are not profiles); zz-last makes four
+            (self.folders.users / ('user%03d' % i)).mkdir()
+        last = self.folders.startup('zz-last')
+        last.mkdir(parents=True)
+        (last / 'payload.lnk').write_bytes(b'x')
+        count = len([e for e in self.folders.users.iterdir() if e.is_dir() and e.name.lower() not in win._PERSIST_SKIP_PROFILES])
+        self.assertEqual(count, win._PERSIST_PROFILES_MAX, 'the fixture holds as many profiles as the cap')
+        at_cap = self.snap()['startup']
+        self.assertEqual((at_cap['ok'], at_cap['cut']), (True, False))
+        self.assertIn(['User zz-last', 'payload.lnk', '1 bytes'], at_cap['items'], 'the last profile under the cap is read')
+        (self.folders.users / 'aaa-extra').mkdir()                     # sorts before zz-last, which becomes the 201st
+        over = self.snap()['startup']
+        self.assertEqual((over['ok'], over['cut']), (True, True), 'a profile past the cap is not read, and the place says so')
+        self.assertNotIn(['User zz-last', 'payload.lnk', '1 bytes'], over['items'])
+
+    def test_the_limits_the_guide_gives_are_the_numbers_in_the_agent(self):
+        """The edge tests above read the constants, so a changed constant moves them along. These are the numbers the guide gives."""
+        self.assertEqual((win._PERSIST_MAX_SERVICE_KEYS, win._PERSIST_MAX_TASKS, win._PERSIST_PROFILES_MAX, win._PERSIST_STARTUP_PER_FOLDER), (5000, 5000, 200, 50))
+        self.assertEqual(win._PERSIST_CAPS, {'run': 100, 'winlogon': 4, 'services': 100, 'tasks': 200, 'startup': 100})
+        self.assertEqual(P.CAPS, win._PERSIST_CAPS, 'the server keeps what the agent keeps')
+
+    def test_the_profiles_are_sorted_the_way_the_server_sorts_them(self):
+        for name in ('Zed', 'alice2', 'Bob2'):
+            d = self.folders.startup(name)
+            d.mkdir(parents=True)
+            (d / 'x.lnk').write_bytes(b'x')
+        places = [e[0] for e in self.snap()['startup']['items']]
+        self.assertEqual(places, sorted(places, key=str.lower), 'the agent lists them in the order the server sorts them, so a cut is a prefix of the server\'s list')
+
+    def test_tasks_are_parsed_up_to_5000_and_a_list_the_cap_cut_says_so_at_its_edge(self):
+        system = [task_xml('\\Microsoft\\Windows\\Sys\\T%04d' % i, '%windir%\\system32\\x.exe') for i in range(win._PERSIST_MAX_TASKS - 1)]
+        last = task_xml('\\ZPayload', 'C:\\Users\\bob\\p.exe')
+        whole = self.snap(tasks='\n'.join(system + [last]))['tasks']
+        self.assertEqual((whole['ok'], whole['cut'], [e[1] for e in whole['items']]), (True, False, ['ZPayload']), 'exactly 5000 tasks is a list that ended')
+        cut = self.snap(tasks='\n'.join(system + [task_xml('\\Microsoft\\Windows\\Sys\\One', '%windir%\\system32\\x.exe'), last]))['tasks']
+        self.assertEqual((cut['ok'], cut['cut'], cut['items']), (True, True, []), 'the 5001st task is not parsed, and the place says so')
+
+    def test_a_startup_folder_is_listed_to_50_files_and_the_place_says_so_at_its_edge(self):
+        for i in range(win._PERSIST_STARTUP_PER_FOLDER):
+            (self.folders.startup('bob') / ('f%02d.lnk' % i)).write_bytes(b'x')          # plus evil.lnk of the fixture: 51 files
+        (self.folders.startup('bob') / 'desktop.ini').write_text('[x]')
+        at = self.snap()['startup']
+        self.assertTrue(at['cut'], '51 files and the cap is 50')
+        (self.folders.startup('bob') / 'evil.lnk').unlink()
+        at = self.snap()['startup']
+        self.assertEqual((at['ok'], at['cut']), (True, False), 'exactly 50 files, and desktop.ini is not counted')
+
     def test_what_the_agent_sends_is_what_the_server_reads_without_changing_it(self):
         snap = self.snap()
         got = P.clean_snapshot(snap)
