@@ -64,7 +64,7 @@ PLACES = {
 _HIDDEN_EXTRA = frozenset(
     "\u034f\u115f\u1160\u17b4\u17b5\u3164\uffa0"
 )  # invisible, and not format characters: the grapheme joiner, the Hangul and Khmer fillers
-_SECRET_NAME = r"(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|private[_-]?key|client[_-]?secret|access[_-]?key|credential|authorization|auth[_-]?(?:token|key|secret)|bearer)"
+_SECRET_NAME = r"(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|private[_-]?key|client[_-]?secret|access[_-]?key|credential|authorization|auth[_-]?(?:token|key|secret)|bearer|shared[_-]?key|signing[_-]?key)"
 # `--password hunter2`, `/token:abc`, `-ApiKey=abc` and `password=abc`: the value goes, the name stays
 _SECRET_FLAG = re.compile(
     r"(?i)((?:^|\s)(?:--?|/)[\w.-]*"

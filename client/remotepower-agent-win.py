@@ -2080,6 +2080,7 @@ _WINEVT_RUN_TIMEOUT_S = 20
 _WINEVT_STDOUT_MAX = 4 * 1024 * 1024
 _WINEVT_FIELD_MAX = 64
 _WINEVT_COMMAND_MAX = 120
+_WINEVT_COMMAND_FIELDS = ('@TaskCommand', 'ImagePath', 'ServiceFileName')   # fields that hold what a new task or service runs, arguments included: they can hold a password
 _WINEVT_LINE_MAX = 400
 _WINEVT_DATA_MAX = 60                # fields read from one event
 _WINEVT_CURSOR_FILE = 'winevent_cursor.json'
@@ -2262,8 +2263,11 @@ def _winevt_clean(v, limit=_WINEVT_FIELD_MAX):
     return ' '.join(s.split())[:limit]
 
 
-def _winevt_q(v, limit=_WINEVT_FIELD_MAX):
-    """A text in double quotes. A double quote inside it becomes a single quote, so a text cannot end its own quotes and carry on as another field."""
+def _winevt_q(v, limit=_WINEVT_FIELD_MAX, command=False):
+    """A text in double quotes. A double quote inside it becomes a single quote, so a text cannot end its own quotes and carry on as another field. A `command` (the program a new
+    service or task runs, with its arguments) has the password it carries replaced first (`_reg_redact`), on the whole text and before the cut, so that the cut cannot leave half of one."""
+    if command:
+        return '"%s"' % _reg_redact(_winevt_clean(v, 4096))[:limit].replace('"', "'")
     return '"%s"' % _winevt_clean(v, limit).replace('"', "'")
 
 
@@ -2286,7 +2290,7 @@ def _winevt_line(ev):
         parts.append(label)
     parts.append('rid=%d' % ev['rid'])
     parts += ['%s=%s' % (key, _winevt_tok(data.get(src))) for key, src, kind in fields if kind == 'tok']
-    parts += ['%s=%s' % (key, _winevt_q(data.get(src), _WINEVT_COMMAND_MAX if src == '@TaskCommand' else _WINEVT_FIELD_MAX))
+    parts += ['%s=%s' % (key, _winevt_q(data.get(src), _WINEVT_COMMAND_MAX if src == '@TaskCommand' else _WINEVT_FIELD_MAX, src in _WINEVT_COMMAND_FIELDS))
               for key, src, kind in fields if kind == 'q']
     return ' '.join(parts)[:_WINEVT_LINE_MAX]
 
@@ -4257,6 +4261,9 @@ def collect_backup_status(backup_monitors):
 #   the native 64-bit view (KEY_WOW64_64KEY), so a 32-bit Python reads the same key PowerShell does
 #   an answer is an integer or a text of at most 200 characters, never raw bytes: a binary value is reported as "binary, N bytes"
 #   a text value whose NAME looks like a password or a key is refused, so a check cannot put a stored secret into the Checks page; a number is not refused
+# What a name that holds a secret looks like. The registry check refuses to read a text value with such a name, and the persistence inventory replaces the value that follows such a
+# name in a command line; the server's persistence.py keeps the same list (a test holds the two equal).
+_SECRET_NAME_PATTERN = r'(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|private[_-]?key|client[_-]?secret|access[_-]?key|credential|authorization|auth[_-]?(?:token|key|secret)|bearer|shared[_-]?key|signing[_-]?key)'
 _REG_HIVES = ('HKLM',)
 _REG_ROOTS = ('SOFTWARE', 'SYSTEM')
 _REG_OPS = ('equals', 'not_equals', 'at_least', 'at_most', 'exists', 'missing')
@@ -4272,7 +4279,7 @@ _REG_INT_RE = re.compile(r'^-?[0-9]{1,20}$')
 _REG_HEX_RE = re.compile(r'^0[xX][0-9a-fA-F]{1,16}$')
 _REG_INT_MIN = -(2 ** 63)
 _REG_INT_MAX = 2 ** 64 - 1
-_REG_SECRET_NAME = re.compile(r'password|passwd|passphrase|pwd|secret|apikey|api_key|privatekey|private_key|credential|token', re.I)
+_REG_SECRET_NAME = re.compile(_SECRET_NAME_PATTERN, re.I)
 
 
 def _reg_parse_number(v):
@@ -4390,6 +4397,14 @@ def _reg_normalize(data, typ, wr):
     return 'binary, %d bytes' % (len(data) if isinstance(data, (bytes, bytearray)) else 0)
 
 
+def _reg_redact(text):
+    """A text for the report without the password or the key it carries: the value after a name that looks like a secret (`--password x`, `Password=x;`) and the password of a URL.
+    The persistence inventory does the same to a command line (`_persist_command`). A second line of defence, not a guarantee: a secret written without a name stays."""
+    s = _PERSIST_SECRET_FLAG.sub(r'\1\2[REDACTED]', str(text))
+    s = _PERSIST_SECRET_KV.sub(r'\1\2[REDACTED]', s)
+    return _PERSIST_URL_CREDENTIAL.sub(r'\1[REDACTED]\2', s)
+
+
 def _reg_equal(value, expect):
     """Whether a value equals the expected one: as numbers when both read as numbers (a text '0' equals 0), otherwise as text without regard to case."""
     a, b = _reg_parse_number(value), _reg_parse_number(expect)
@@ -4427,7 +4442,7 @@ def _eval_registry_check(c, wr=None):
     if isinstance(data, (str, list, tuple)) and _REG_SECRET_NAME.search(name):
         return 'unknown', 'refused: a text value named like a password or a key is not read'
     value = _reg_normalize(data, typ, wr)
-    shown = '%s = %s' % (name, value)
+    shown = '%s = %s' % (name, _reg_redact(value) if isinstance(value, str) else value)    # compared as it is, shown without the secret in it
     if op == 'exists':
         return 'ok', _reg_report_text(shown)
     if op == 'missing':
@@ -4477,7 +4492,7 @@ _PERSIST_TASKS_OUT_MAX = 16 * 1024 * 1024
 _PERSIST_USER_FRAGMENTS = ('\\temp\\', '\\tmp\\', '\\appdata\\', '\\users\\', '\\documents and settings\\', '\\$recycle.bin\\')
 _PERSIST_USER_VARIABLES = ('%temp%', '%tmp%', '%userprofile%', '%appdata%', '%localappdata%', '%public%', '%homepath%')
 _PERSIST_TASK_RX = re.compile(r'<Task[\s>].*?</Task>', re.S)
-_PERSIST_SECRET_NAME = r'(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|private[_-]?key|client[_-]?secret|access[_-]?key|credential|authorization|auth[_-]?(?:token|key|secret)|bearer)'
+_PERSIST_SECRET_NAME = _SECRET_NAME_PATTERN
 _PERSIST_SECRET_FLAG = re.compile(r'(?i)((?:^|\s)(?:--?|/)[\w.-]*' + _PERSIST_SECRET_NAME + r'[\w.-]*)(\s*[=:]\s*|\s+)("[^"]*"|\'[^\']*\'|\S+)')
 _PERSIST_SECRET_KV = re.compile(r'(?i)(\b[\w.-]*' + _PERSIST_SECRET_NAME + r'[\w.-]*)(\s*[=:]\s*)("[^"]*"|\'[^\']*\'|\S+)')
 _PERSIST_URL_CREDENTIAL = re.compile(r'(://[^/\s:@]{1,64}:)[^/\s@]{1,128}(@)')

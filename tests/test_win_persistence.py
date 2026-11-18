@@ -375,6 +375,7 @@ class TestReadingASnapshot(unittest.TestCase):
             text = ''.join(rnd.choice(words) for _ in range(rnd.randint(0, 25)))
             with self.subTest(text=text):
                 self.assertEqual(win._persist_command(text), P.redact_command(P.clean_text(text, P.FIELD_MAX[2])))
+                self.assertEqual(win._reg_redact(text), P.redact_command(text))
                 self.assertEqual(win._persist_text(text, 120), P.clean_text(text, 120))
 
 

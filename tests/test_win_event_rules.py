@@ -393,6 +393,47 @@ def _templates():
 
 
 # ── the cursor ───────────────────────────────────────────────────────────────
+class TestAPasswordInAProgramIsNotInTheLine(unittest.TestCase):
+    """The program a new service or task runs, with its arguments, can hold a password. The persistence inventory and the registry check replace it; the event line did not."""
+
+    def line(self, xml):
+        (ev,) = win._winevt_parse(xml)
+        return win._winevt_line(ev)
+
+    def task(self, arguments):
+        content = S.TASK_DEFINITION.replace('<Arguments>-k run</Arguments>', '<Arguments>%s</Arguments>' % arguments)
+        return S.event_xml(4698, 9001, 'Security', S.PROVIDERS['Security'], [('SubjectUserName', 'bob'), ('TaskName', '\\Backup'), ('TaskContent', content)])
+
+    def test_a_password_in_the_arguments_of_a_new_task_is_replaced(self):
+        line = self.line(self.task('--password hunter2 --server nas'))
+        self.assertIn('--password [REDACTED] --server nas', line)
+        self.assertNotIn('hunter2', line)
+
+    def test_a_password_in_the_program_of_a_new_service_is_replaced_in_both_events(self):
+        for build, secret in ((S.service_installed_system, 'abc123'), (S.service_installed_security, 'abc123')):
+            line = self.line(build(image=r'C:\Tools\svc.exe -token abc123 -x'))
+            self.assertIn('-token [REDACTED] -x', line)
+            self.assertNotIn(secret, line)
+
+    def test_the_cut_cannot_leave_half_of_a_password_in_the_line(self):
+        for pad in range(30, 125):
+            line = self.line(self.task('a' * pad + ' --password hunter2'))
+            self.assertNotIn('hunter', line, pad)
+            line = self.line(self.task('a' * pad + ' --password "alpha bravo charlie"'))      # a secret with spaces in it: a cut inside it must not leave the rest of the words
+            for word in ('alpha', 'bravo', 'charlie'):
+                self.assertNotIn(word, line, pad)
+
+    def test_a_program_with_no_secret_in_it_is_in_the_line_as_it_is(self):
+        """The control: a replacement that took the whole command out would pass the tests above."""
+        self.assertIn('command="C:\\Users\\bob\\AppData\\Local\\Temp\\upd.exe -k run"', self.line(S.scheduled_task_created()))
+        self.assertIn('image="C:\\Users\\bob\\AppData\\Local\\Temp\\upd.exe -k run"', self.line(S.service_installed_system()))
+
+    def test_a_name_that_is_not_a_program_is_left_alone(self):
+        line = self.line(S.failed_logon(user='token', workstation='password=1'))
+        self.assertIn('user="token"', line)
+        self.assertIn('workstation="password=1"', line)
+
+
 class TestTheCursor(unittest.TestCase):
     WATCH = {'Security': [4625, 1102]}
 

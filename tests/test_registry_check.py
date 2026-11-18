@@ -313,6 +313,49 @@ class TestWhatTheAgentReports(unittest.TestCase):
         status, out = self._one('LocalAccountTokenFilterPolicy', 0, D, 'equals', 0)
         self.assertEqual((status, out), ('ok', 'LocalAccountTokenFilterPolicy = 0'))
 
+    SECRETS_IN_TEXT = (
+        ('Backup', 'C:\\Tools\\backup.exe --password hunter2 --server nas', 'hunter2', 'Backup = C:\\Tools\\backup.exe --password [REDACTED] --server nas'),
+        ('ImagePath', '"C:\\Tools\\svc.exe" --client-secret s3cr3t-value', 's3cr3t-value', 'ImagePath = "C:\\Tools\\svc.exe" --client-secret [REDACTED]'),
+        ('Conn', 'Server=db1;Database=app;User Id=svc;Password=Sup3rSecret;', 'Sup3rSecret', 'Conn = Server=db1;Database=app;User Id=svc;Password=[REDACTED]'),
+        ('SyncUrl', 'https://admin:Sup3rUrlPass@sync.example.test/api', 'Sup3rUrlPass', 'SyncUrl = https://admin:[REDACTED]@sync.example.test/api'),
+        ('Run', 'tool.exe /token:abc123 /quiet', 'abc123', 'Run = tool.exe /token:[REDACTED] /quiet'),
+        ('Quoted', 'tool.exe -ApiKey="my secret key" -x', 'my secret key', 'Quoted = tool.exe -ApiKey=[REDACTED] -x'),
+    )
+
+    def test_a_password_inside_a_text_value_is_replaced_before_it_is_reported(self):
+        for name, value, secret, want in self.SECRETS_IN_TEXT:
+            with self.subTest(name):
+                for op in ('exists', 'equals'):
+                    status, out = self._one(name, value, S, op, 'something else' if op == 'equals' else None)
+                    self.assertNotIn(secret, out)
+                    self.assertTrue(out.startswith(want), out)
+        multi = self._one('Args', ['tool.exe', '--password hunter2', '/x'], FakeWinreg.REG_MULTI_SZ)
+        self.assertNotIn('hunter2', multi[1])
+        self.assertIn('[REDACTED]', multi[1])
+
+    def test_a_value_with_no_secret_in_it_is_shown_as_it_is(self):
+        """The control of the test above: a replacement that took everything out would pass it."""
+        for value in ('C:\\Windows\\System32\\svchost.exe -k netsvcs', 'Server=db1;Database=app;Integrated Security=SSPI;', 'https://example.test/path?x=1', '1.2.3'):
+            self.assertEqual(self._one('Plain', value, S), ('ok', 'Plain = ' + value))
+
+    def test_a_check_compares_the_value_as_it_is_and_shows_it_without_the_secret(self):
+        status, out = self._one('Backup', 'tool.exe --password hunter2', S, 'equals', 'tool.exe --password hunter2')
+        self.assertEqual((status, out), ('ok', 'Backup = tool.exe --password [REDACTED]'))
+
+    def test_the_names_the_inventory_knows_are_refused_too_for_a_text_and_a_number_is_still_read(self):
+        for name in ('AccessKey', 'Authorization', 'Pass', 'SharedKey', 'SigningKey', 'AuthToken', 'Bearer', 'client_secret', 'private-key', 'ApiToken', 'SAS_Token'):
+            with self.subTest(name):
+                status, out = self._one(name, 'a-value-that-is-a-secret', S, 'exists')
+                self.assertEqual(status, 'unknown')
+                self.assertNotIn('a-value-that-is-a-secret', out)
+        self.assertEqual(self._one('SharedKeyLength', 4096, D, 'at_least', 2048), ('ok', 'SharedKeyLength = 4096'))
+
+    def test_the_name_list_of_the_check_is_the_inventorys_and_the_servers(self):
+        import persistence
+        self.assertEqual(win._REG_SECRET_NAME.pattern, win._SECRET_NAME_PATTERN)
+        self.assertEqual(win._PERSIST_SECRET_NAME, win._SECRET_NAME_PATTERN)
+        self.assertEqual(persistence._SECRET_NAME, win._SECRET_NAME_PATTERN, 'the server keeps the list the agent keeps')
+
     def test_what_the_registry_refuses_is_unknown_not_a_failure_and_never_raises(self):
         c = _pushed('win_uac_enabled')
         status, out = _run(FakeWinreg({}, deny=[_P_UAC]), c)

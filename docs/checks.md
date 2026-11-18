@@ -176,9 +176,14 @@ How the agent reads it:
   regard to case, and a text that looks like a number (`"10"`) is compared as one.
   A binary value is reported as `binary, N bytes`, never as its bytes, and every
   answer is cut at 200 characters.
-- **No secrets.** A text value whose name looks like a password, a key or a token
-  (`DefaultPassword`, for example) is not read, so a check cannot put a stored
-  secret on the Checks page. A number with such a name is read.
+- **Secrets are kept off the page.** A text value whose name looks like a password,
+  a key or a token (`DefaultPassword`, `AccessKey`, `Authorization` and `SharedKey`
+  are examples) is not read at all. In any other text value, the password after a
+  name such as `password`, `token` or `secret` (a `--password` flag, `Password=` in a
+  connection string) and the password of a URL are replaced by `[REDACTED]` before
+  the text leaves the host. That is a second line of defence, not a guarantee: a secret
+  written with no such name before it is not found, so do not point a check at a value that
+  holds one. A number with such a name is read.
 - **A value that is not set** passes *is not set* and *does not equal*, and fails
   the other conditions. The description of each baseline check says which applies.
 - **Windows hosts only.** A Linux or macOS host in the same scope is not given the
