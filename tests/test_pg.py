@@ -101,6 +101,42 @@ class TestStoragePgBackend(unittest.TestCase):
         self.S.save(m, {'d1': [{'ts': 1, 'cpu': 5}], 'd2': [{'ts': 2}]})
         self.assertEqual(self.S.entity_get(m, 'd1'), [{'ts': 1, 'cpu': 5}])
 
+    def test_entity_update_is_one_step(self):
+        """One row is read, changed and written in one transaction under the file's advisory lock (api._entity_update_one): the host's inventory is decided from the row as it
+        is at that moment, so two reports of one host that arrive together cannot both act on the same row."""
+        import threading
+        m = self._p('persistence.json')
+        self.S.save(m, {'d1': {'n': 0}, 'd2': {'keep': True}})
+        self.assertTrue(self.S.entity_update(m, 'd1', lambda row: {'n': row['n'] + 1}))
+        self.assertEqual(self.S.entity_get(m, 'd1'), {'n': 1})
+        self.assertFalse(self.S.entity_update(m, 'd1', lambda row: None), 'fn returning nothing leaves the row')
+        self.assertEqual(self.S.entity_get(m, 'd1'), {'n': 1})
+        self.assertEqual(self.S.entity_get(m, 'd2'), {'keep': True}, 'other rows are not touched')
+        seen = []
+        self.assertTrue(self.S.entity_update(m, 'new', lambda row: seen.append(row) or {'n': 9}))
+        self.assertEqual((seen, self.S.entity_get(m, 'new')), ([None], {'n': 9}), 'a row that is not there is handed over as None')
+
+        def boom(row):
+            raise ValueError('no')
+        with self.assertRaises(ValueError):
+            self.S.entity_update(m, 'd1', boom)
+        self.assertEqual(self.S.entity_get(m, 'd1'), {'n': 1}, 'an error in fn writes nothing')
+        errors = []
+
+        def work():
+            try:
+                for _ in range(10):
+                    self.S.entity_update(m, 'd1', lambda row: (__import__('time').sleep(0.002), {'n': row['n'] + 1})[1])
+            except Exception as e:                                   # pragma: no cover - a failure here is a finding
+                errors.append(repr(e))
+        threads = [threading.Thread(target=work) for _ in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(120)
+        self.assertEqual(errors, [])
+        self.assertEqual(self.S.entity_get(m, 'd1'), {'n': 1 + 60}, 'no update was lost')
+
     def test_wrapped_list_and_cap(self):
         a = self._p('alerts.json')
         self.S.save(a, {'alerts': [{'id': 'a1'}], 'meta': 'x'})
