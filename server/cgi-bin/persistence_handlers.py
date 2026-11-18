@@ -70,6 +70,7 @@ def _persistence_ingest(dev_id, dev_name, raw, now):
         if not isinstance(prev, dict):
             prev = {}  # a row that is not a map is replaced, not read
         rec, _added, _removed = P.apply_snapshot(prev, snap, now)
+        over = dict(rec.get("over") or {})  # new entries past the log: the alert counts them, and sending it clears them from the row
         due, gone = P.due_alert(rec, now)
         if due or gone:
             P.mark_alerted(rec, due, gone, now)
@@ -89,7 +90,7 @@ def _persistence_ingest(dev_id, dev_name, raw, now):
         sys.stderr.write(f"[remotepower] persistence ingest failed dev={dev_id}: {type(e).__name__}: {e}\n")
         return
     for event, build, entries in (
-        ("persistence_added", P.alert_payload, sent),
+        ("persistence_added", lambda e: P.alert_payload(e, over), sent),
         ("persistence_unread", P.unread_payload, sent_unread),
     ):
         if not entries:

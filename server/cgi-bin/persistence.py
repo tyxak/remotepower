@@ -33,7 +33,7 @@ CAPS = {"run": 100, "winlogon": 4, "services": 100, "tasks": 200, "startup": 100
 FIELD_MAX = (120, 120, 240)  # characters kept of an entry's place, its name and what it runs
 WINLOGON_NAMES = ("Shell", "Userinit")
 LOG_MAX = 200  # changes kept for a host, the oldest dropped first
-# changes of each kind written from one snapshot; the alert still counts them all
+# changes of each kind written to the log from one snapshot; the entries past it are counted in `over` (by place), and the alert for the entries that are due counts them too
 PER_SNAPSHOT_MAX = 50
 ALERT_EVERY_S = 3600  # an alert for a host at most this often
 # inventories in a row in which a place was not read whole before the host is told
@@ -238,6 +238,11 @@ def apply_snapshot(prev, snap, now):
         if isinstance(prev.get("log"), list)
         else []
     )
+    # the new entries past what one snapshot may write to the log are not lost to the alert: they are counted here, by place, until the alert for the entries that were
+    # logged goes out. Nothing is carried when no logged entry is waiting for an alert, so a count cannot outlive the entries it was made for.
+    over = {}
+    if _unsent(log) and isinstance(prev.get("over"), dict):
+        over = {c: n for c, n in prev["over"].items() if c in CATEGORIES and _count(n) > 0}
     for op, entries in (("added", added), ("removed", removed)):
         for cat, e in entries[:PER_SNAPSHOT_MAX]:
             log.append(
@@ -251,6 +256,9 @@ def apply_snapshot(prev, snap, now):
                     "alerted": op == "removed",
                 }
             )
+        if op == "added":
+            for cat, _e in entries[PER_SNAPSHOT_MAX:]:
+                over[cat] = over.get(cat, 0) + 1
     rec = {
         "v": snap["v"],
         "ts": now,
@@ -267,7 +275,15 @@ def apply_snapshot(prev, snap, now):
         "inv": inv,
         "log": log[-LOG_MAX:],
     }
+    if over:
+        rec["over"] = over
     return rec, added, removed
+
+
+def _unsent(log):
+    return [
+        e for e in log if isinstance(e, dict) and e.get("op") == "added" and not e.get("alerted")
+    ]
 
 
 def _present(rec, entry):
@@ -284,11 +300,7 @@ def due_alert(rec, now):
     Due is every added entry that was not sent and is still on the host, once the hour since the last alert is over. Nothing is due inside the hour, and nothing is due
     when the log has no unsent entry; `gone` is returned either way so that they can be marked and do not wait for ever.
     """
-    pending = [
-        e
-        for e in rec.get("log", [])
-        if isinstance(e, dict) and e.get("op") == "added" and not e.get("alerted")
-    ]
+    pending = _unsent(rec.get("log", []))
     gone = [e for e in pending if not _present(rec, e)]
     live = [e for e in pending if e not in gone]
     last = (
@@ -302,28 +314,37 @@ def due_alert(rec, now):
 
 
 def mark_alerted(rec, sent, gone, now):
-    """The record with the entries that went out and the ones that left marked as dealt with, and the hour started again if something went out."""
+    """The record with the entries that went out and the ones that left marked as dealt with, and the hour started again if something went out. The count of entries that
+    were past the log (`over`) goes out with the alert, so it is cleared with it: read it before this call.
+    """
     ids = {id(e) for e in list(sent) + list(gone)}
     for e in rec.get("log", []):
         if id(e) in ids:
             e["alerted"] = True
     if sent:
         rec["alert_ts"] = now
+        rec.pop("over", None)
     return rec
 
 
-def alert_payload(entries):
-    """The facts an alert quotes for these entries: how many, what kinds, and the first few as one line each. All of it was cleaned when it was stored."""
+def alert_payload(entries, over=None):
+    """The facts an alert quotes for these entries: how many, what kinds, and the first few as one line each. All of it was cleaned when it was stored.
+
+    `over` is the record's count of new entries that were past the log (by place): they are counted with the others, so that 80 new entries are 80 in the alert and not the
+    50 the log holds. They are not quoted: only the logged ones have a line."""
     kinds = {}
     for e in entries:
         kinds[e["cat"]] = kinds.get(e["cat"], 0) + 1
+    for c, k in (over if isinstance(over, dict) else {}).items():
+        if c in CATEGORIES and _count(k) > 0:
+            kinds[c] = kinds.get(c, 0) + k
     parts = [
         "%d %s" % (n, LABELS.get(c, c) + ("" if n == 1 else "s"))
         for c, n in sorted(
             kinds.items(), key=lambda kv: CATEGORIES.index(kv[0]) if kv[0] in CATEGORIES else 9
         )
     ]
-    n = len(entries)
+    n = sum(kinds.values())
     detail = "%d new startup %s (%s)" % (n, "entry" if n == 1 else "entries", ", ".join(parts))
     sample = []
     for e in entries[:SAMPLE_LINES]:

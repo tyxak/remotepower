@@ -426,7 +426,9 @@ class TestWhatIsAChange(unittest.TestCase):
         rec, added, removed = self.apply(rec, snap_of(run=[['Run', 'n%03d' % i, ''] for i in range(100)]), NOW + 900)
         self.assertEqual(len(added), 100)
         self.assertEqual(len(rec['log']), P.PER_SNAPSHOT_MAX)
-        self.assertEqual(P.alert_payload([e for e in rec['log']])['count'], 50)
+        self.assertEqual(rec['over'], {'run': 50}, 'the 50 that were past the log are counted, by place')
+        self.assertEqual(P.alert_payload([e for e in rec['log']], rec['over'])['count'], 100, 'the alert counts all of them')
+        self.assertEqual(P.alert_payload([e for e in rec['log']])['count'], 50, 'and without the count it is what the log holds')
         for n in range(6):
             rec, *_ = self.apply(rec, snap_of(run=[['Run', 'g%d-%03d' % (n, i), ''] for i in range(60)]), NOW + 1800 + n * 900)
         self.assertEqual(len(rec['log']), P.LOG_MAX)
@@ -556,6 +558,69 @@ class TestAPlaceThatIsNotReadWhole(unittest.TestCase):
             rec, added, removed = self.apply(prev, snap_of(run=self.CUT([self.A, self.C])), NOW)
             self.assertIsInstance(rec['inv']['run']['miss'], int, repr(bad))
             self.assertTrue(all(P._is_entry(e) for e in rec['inv']['run']['items']))
+
+
+class TestTheAlertCountsWhatTheLogDoesNotHold(unittest.TestCase):
+    """The log keeps at most 50 entries of a kind from one inventory. An inventory that brings in more must not make the alert say 50."""
+
+    def apply(self, prev, snap, now=NOW):
+        return P.apply_snapshot(prev, P.clean_snapshot(snap), now)
+
+    def names(self, prefix, n, cat='run'):
+        return [['Run' if cat == 'run' else '\\', '%s%03d' % (prefix, i), 'C:\\Users\\bob\\x%d.exe' % i] for i in range(n)]
+
+    def test_eighty_new_entries_are_eighty_in_the_alert_and_fifty_in_the_log(self):
+        rec, *_ = self.apply({}, snap_of(run=self.names('b', 5)))
+        rec, added, _ = self.apply(rec, snap_of(run=self.names('b', 5) + self.names('n', 80)), NOW + 900)
+        self.assertEqual((len(added), len(rec['log']), rec['over']), (80, 50, {'run': 30}))
+        due, gone = P.due_alert(rec, NOW + 900)
+        payload = P.alert_payload(due, rec['over'])
+        self.assertEqual((payload['count'], payload['detail']), (80, '80 new startup entries (80 Run keys)'))
+        self.assertEqual(len(payload['sample']), P.SAMPLE_LINES, 'only the logged ones are quoted')
+
+    def test_each_kind_is_counted_in_its_own_place(self):
+        rec, *_ = self.apply({}, snap_of(run=self.names('b', 5), tasks=[['\\', 'T0', 'c']]))
+        rec, *_ = self.apply(rec, snap_of(run=self.names('b', 5) + self.names('n', 70), tasks=[['\\', 'T0', 'c']] + [['\\', 't%03d' % i, 'c'] for i in range(60)]), NOW + 900)
+        self.assertEqual(rec['over'], {'run': 20, 'tasks': 60}, 'the log keeps the first 50 of what was added (the Run keys come first), and the rest are counted by place')
+        due, _ = P.due_alert(rec, NOW + 900)
+        self.assertEqual(P.alert_payload(due, rec['over'])['detail'], '130 new startup entries (70 Run keys, 60 scheduled tasks)')
+
+    def test_the_count_is_cleared_when_the_alert_goes_out_and_carried_while_it_waits(self):
+        rec, *_ = self.apply({}, snap_of(run=self.names('b', 5)))
+        rec['alert_ts'] = NOW + 800                                                       # an alert went out a moment ago
+        rec, *_ = self.apply(rec, snap_of(run=self.names('b', 5) + self.names('n', 80)), NOW + 900)
+        due, gone = P.due_alert(rec, NOW + 900)
+        self.assertEqual(due, [], 'inside the hour')
+        rec, *_ = self.apply(rec, snap_of(run=self.names('b', 5) + self.names('n', 80)), NOW + 1800)
+        self.assertEqual(rec['over'], {'run': 30}, 'the same entries again are not new, and the count that waits is carried')
+        later = NOW + 800 + P.ALERT_EVERY_S
+        rec, *_ = self.apply(rec, snap_of(run=self.names('b', 5) + self.names('n', 80)), later)
+        over = dict(rec['over'])
+        due, gone = P.due_alert(rec, later)
+        self.assertEqual(P.alert_payload(due, over)['count'], 80)
+        P.mark_alerted(rec, due, gone, later)
+        self.assertNotIn('over', rec, 'it went out with the alert')
+
+    def test_a_count_does_not_outlive_the_entries_it_was_made_for(self):
+        rec, *_ = self.apply({}, snap_of(run=self.names('b', 5)))
+        rec['alert_ts'] = NOW + 800
+        rec, *_ = self.apply(rec, snap_of(run=self.names('b', 5) + self.names('n', 80)), NOW + 900)
+        self.assertEqual(rec['over'], {'run': 30})
+        rec, *_ = self.apply(rec, snap_of(run=self.names('b', 5)), NOW + 1800)             # all of them left again
+        due, gone = P.due_alert(rec, NOW + 1800)
+        P.mark_alerted(rec, due, gone, NOW + 1800)
+        self.assertEqual(due, [])
+        rec, *_ = self.apply(rec, snap_of(run=self.names('b', 5)), NOW + 2700)
+        self.assertNotIn('over', rec, 'nothing logged is waiting for an alert, so nothing carries the count on')
+
+    def test_a_stored_count_of_the_wrong_kind_is_not_read(self):
+        rec, *_ = self.apply({}, snap_of(run=self.names('b', 5)))
+        rec, *_ = self.apply(rec, snap_of(run=self.names('b', 5) + self.names('n', 1)), NOW + 900)
+        for bad in ('x', [1], {'nope': 4, 'run': 'many', 'tasks': -3, 'startup': True}):
+            again = dict(rec, over=bad)
+            out, *_ = self.apply(again, snap_of(run=self.names('b', 5) + self.names('n', 1)), NOW + 1800)
+            self.assertNotIn('over', out, repr(bad))
+            self.assertEqual(P.alert_payload([], bad)['count'], 0, repr(bad))
 
 
 class TestWhenAnAlertIsDue(unittest.TestCase):
@@ -1189,6 +1254,20 @@ class TestFromTheHeartbeatToTheAlert(_Server):
         self.assertEqual(len(self.fired), 2)
         self.assertEqual(self.fired[1][1]['count'], 1)
         self.assertEqual(self.fired[1][1]['sample'], ['Run key: Backdoor = C:\\Users\\Public\\b.exe'], 'only the entry that was waiting, not the one already sent')
+
+    def test_eighty_new_entries_raise_one_alert_that_says_eighty(self):
+        api.fire_webhook = self._fire
+        base = [['Run', 'b%02d' % i, 'C:\\Program Files\\b.exe'] for i in range(5)]
+        new = [['Run', 'n%03d' % i, 'C:\\Users\\bob\\x%d.exe' % i] for i in range(79)] + [['Run', 'zz-payload', 'C:\\Users\\bob\\p.exe']]
+        self.beat('win1', snap_of(run=base))
+        self.beat('win1', snap_of(run=base + new))
+        (alert,) = self.alerts('win1')
+        self.assertEqual((alert['payload']['count'], alert['payload']['detail']), (80, '80 new startup entries (80 Run keys)'))
+        self.assertEqual(alert['title'], 'New startup entries on win1')
+        rec = self.stored('win1')
+        self.assertNotIn('over', rec, 'the count went out with the alert')
+        self.assertEqual(len([e for e in rec['log'] if e['op'] == 'added']), 50)
+        self.assertTrue(any(e[1] == 'zz-payload' for e in rec['inv']['run']['items']), 'the entry past the log is on the host and in the inventory')
 
     def test_a_removed_entry_is_logged_and_does_not_alert(self):
         self.beat('win1', snap_of(run=[A, B]))
