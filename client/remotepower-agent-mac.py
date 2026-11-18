@@ -11,7 +11,8 @@ metrics and gracefully skipped otherwise.
 Still Linux-only, and honestly so (v6.4.1 audit — the heartbeat-response keys
 this agent does NOT read): OpenSCAP (`force_scap_scan` /
 `scap_profile`);
-`host_scan` (lynis); `image_scan_*` / `force_image_scan` (trivy);
+`host_scan` (lynis); `refresh_lists_before_scan` (the package lists of apt, dnf, zypper and apk: the server sends it to Linux agents alone);
+`image_scan_*` / `force_image_scan` (trivy);
 `mailbox_paths` (mail spools);
 `host_config_desired` (users/sudoers/motd apply); `push_enabled` (push relay);
 `sshgw_enabled` (SSH gateway tunnel); `threat_sensor` (log sensor, Linux logs);
@@ -64,6 +65,7 @@ VERSION = '8.0.2'
 HEARTBEAT_KEYS_NOT_HONOURED = (
     'force_scap_scan', 'scap_profile',   # oscap
     'host_scan',                          # lynis
+    'refresh_lists_before_scan',          # refresh the package lists before a scheduled scan: apt, dnf, zypper and apk lists are a Linux concept (the server sends it to Linux agents alone)
     'image_scan_enabled', 'force_image_scan',   # trivy
     'mailbox_paths',                      # Unix mail spools, not macOS layout
     'host_config_desired',                # users/sudoers/motd apply

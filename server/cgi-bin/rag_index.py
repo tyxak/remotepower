@@ -54,6 +54,7 @@ import time
 import app_catalog
 import checks
 import windows_host
+import pkg_refresh as pkg_refresh_mod
 
 
 # ── Tokenisation ─────────────────────────────────────────────────────────────
@@ -1096,6 +1097,22 @@ def build_live_state_corpus(devices, facets=None, now=0, drift_by_dev=None):
                 _taken = windows_host.kept_count_time(si)
                 patch_lines.append(f"Windows Update search: FAILING ({_why}); "
                                    + (f"the pending-update count is from {_utc_date(_taken)}" if _taken else "no search has worked yet"))
+        # How the last refresh of the package lists went ("Check for updates now", or the setting that does it before a scan): a record of
+        # {at, status, source, error_class} with every value from a fixed set, so "which hosts failed to refresh their lists" can be answered
+        # from fleet knowledge. The date, not "N minutes ago": a relative time would change this line, and re-embed the chunk, on every rebuild.
+        _pr = si.get('pkg_refresh')
+        if isinstance(_pr, dict) and _pr.get('status') in pkg_refresh_mod.STATUSES:
+            _at = _pr.get('at')
+            try:
+                _day = time.strftime('%Y-%m-%d', time.gmtime(_at)) if isinstance(_at, int) and not isinstance(_at, bool) and _at > 0 else ''
+            except (OverflowError, ValueError, OSError):
+                _day = ''
+            if _day:
+                _how = {'ok': 'ok', 'partial': 'PARTLY failed', 'failed': 'FAILED',
+                        'unsupported': 'not possible on this host'}[_pr['status']]
+                _cls = _pr.get('error_class')
+                patch_lines.append(f"package lists last refreshed {_day}: {_how}"
+                                   + (f" ({_cls.replace('_', ' ')})" if isinstance(_cls, str) and _cls in pkg_refresh_mod.CLASSES and _cls else ''))
         if reboot_required:
             patch_lines.append("reboot required: yes"
                                + (f" ({si.get('reboot_reason')})"

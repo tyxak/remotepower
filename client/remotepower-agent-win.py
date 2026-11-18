@@ -32,7 +32,7 @@ Still Linux-only, and honestly so (v6.4.1 audit — the heartbeat-response keys
 this agent does NOT read): OpenSCAP (`force_scap_scan` /
 `scap_profile` — `oscap` is a Linux tool with Linux SCAP content, and the
 server-side CIS baseline is the cross-platform path);
-`host_scan` (lynis); `image_scan_*` / `force_image_scan` (trivy
+`host_scan` (lynis); `refresh_lists_before_scan` (the package lists of apt, dnf, zypper and apk: the server sends it to Linux agents alone); `image_scan_*` / `force_image_scan` (trivy
 container-image CVEs); `du_scan_*` / `force_du_scan` (no `du` on Windows;
 macOS has it since v6.4.1); `mailbox_paths` (Unix mail
 spools); `host_config_desired` (users/sudoers/motd apply); `push_enabled` (the
@@ -88,6 +88,7 @@ VERSION = '8.0.2'
 HEARTBEAT_KEYS_NOT_HONOURED = (
     'force_scap_scan', 'scap_profile',   # oscap: Linux tool, Linux SCAP content
     'host_scan',                          # lynis
+    'refresh_lists_before_scan',          # refresh the package lists before a scheduled scan: apt, dnf, zypper and apk lists are a Linux concept (the server sends it to Linux agents alone)
     'image_scan_enabled', 'force_image_scan',   # trivy container-image CVEs
     'du_scan_enabled', 'du_scan_paths', 'force_du_scan',   # no `du` on Windows
     'mailbox_paths',                      # Unix mail spools
