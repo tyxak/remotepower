@@ -61,6 +61,12 @@ CAPS_B = {
 }
 
 
+def _shipped_agent_version():
+    """The version the Linux agent of this tree reports. A host that sends a refresh record and a capabilities report runs it."""
+    import re
+    return re.search(r"^VERSION\s*=\s*'([^']+)'", (_ROOT / "client" / "remotepower-agent.py").read_text(), re.M).group(1)
+
+
 def _is_linux_agent(dev):
     """A host the refresh can be queued on: a Linux agent that is neither quarantined nor in audit mode (the queue refuses both)."""
     os_name = str(dev.get("os") or "").lower()
@@ -69,15 +75,21 @@ def _is_linux_agent(dev):
 
 
 def _seed_reports(data_dir):
-    """Write the two reports into the host store of a seeded data directory. Returns the three hosts: reported (ok), reported (failed,
-    container), and one that has reported neither."""
+    """Write the two reports into the host store of a seeded data directory. Returns the four hosts: reported (ok), reported (failed,
+    container), one that has reported neither, and one whose agent is older than the refresh command.
+
+    The three that take part in the refresh run the agent of this tree: the server refuses the command for an older one, and the seeded
+    fleet gives some of its hosts an older version at random, so which host the sort order picked would otherwise decide what a click does."""
     path = Path(data_dir) / "devices.json"
     devices = json.loads(path.read_text())
     linux = [(i, d) for i, d in sorted(devices.items()) if isinstance(d, dict) and _is_linux_agent(d)]
-    if len(linux) < 3:
-        raise unittest.SkipTest("the seeded fleet has fewer than three Linux hosts with an agent")
+    if len(linux) < 4:
+        raise unittest.SkipTest("the seeded fleet has fewer than four Linux hosts with an agent")
     now = int(time.time())
-    (ia, da), (ib, db), (ic, dc) = linux[0], linux[1], linux[2]
+    (ia, da), (ib, db), (ic, dc), (iold, dold) = linux[0], linux[1], linux[2], linux[3]
+    for d in (da, db, dc):
+        d["version"] = _shipped_agent_version()
+    dold["version"] = "8.0.1"                   # the release before the refresh command: its agent would drop the command
     da.setdefault("sysinfo", {}).update(pkg_refresh={"at": now - 720, "status": "ok", "source": "apt", "error_class": ""},
                                        capabilities=CAPS_A)
     db.setdefault("sysinfo", {}).update(pkg_refresh={"at": now - 3600, "status": "failed", "source": "apt", "error_class": "network"},
@@ -86,7 +98,8 @@ def _seed_reports(data_dir):
         d.setdefault("sysinfo", {}).pop("pkg_refresh", None)
         d["sysinfo"].pop("capabilities", None)
     path.write_text(json.dumps(devices))
-    return {"ok": {"id": ia, "name": da["name"]}, "failed": {"id": ib, "name": db["name"]}, "none": {"id": ic, "name": dc["name"]}}
+    return {"ok": {"id": ia, "name": da["name"]}, "failed": {"id": ib, "name": db["name"]}, "none": {"id": ic, "name": dc["name"]},
+            "old": {"id": iold, "name": dold["name"]}}
 
 
 def setUpModule():
@@ -458,6 +471,27 @@ class TestThePackagesAndCapabilitiesCards(unittest.TestCase):
         self.assertNotIn("success", toast["cls"])
         self.assertNotIn("pkg_refresh", queued, "a parked change is not in the host's queue")
         self.assertEqual(self.new_problems(), {})
+
+    def test_a_host_whose_agent_is_too_old_is_told_so_in_its_language_and_nothing_is_queued(self):
+        """The agent of the release before the command logs "Unknown command" and drops it, so a click that said "Refresh queued" would have
+        been followed by nothing. The server refuses with a sentence, and the page says it in the language it is in."""
+        host = _STACK["hosts"]["old"]
+        self.open_sections(host, "packages")
+        for lang, sentence in (("en", "the agent on this host is too old to refresh package lists: update the agent first"),
+                               ("de", "Der Agent auf diesem Host ist zu alt, um Paketlisten zu aktualisieren: Aktualisieren Sie zuerst den Agent")):
+            self.page.evaluate("l => RPi18n.setLang(l, false)", lang)
+            self.page.evaluate("document.querySelectorAll('.toast').forEach(t => t.remove())")
+            self.page.click('#audit-body-packages button[data-action-btn="_pkgRefreshBtn"]')
+            self.page.wait_for_selector(".toast", timeout=15000)
+            toast = self.page.evaluate("() => ({cls: document.querySelector('.toast').className, text: document.querySelector('.toast').textContent})")
+            self.assertIn("error", toast["cls"], toast)
+            self.assertIn(sentence.lower(), toast["text"].lower(), f"{lang}: {toast}")
+            self.assertNotIn("Refresh queued", toast["text"])
+        queued = self.page.evaluate("""async (id) => { const r = await api('GET', '/command-queue');
+            const row = (r.devices || []).find(d => d.device_id === id);
+            return row ? row.commands.map(c => c.raw) : []; }""", host["id"])
+        self.assertNotIn("pkg_refresh", queued)
+        self.page.evaluate("() => RPi18n.setLang('en', false)")
 
     def test_a_path_reads_left_to_right_in_arabic_and_the_measure_sees_one_that_does_not(self):
         """In a right-to-left page the slash that starts a path is a neutral character that takes the page's direction and is drawn at the
