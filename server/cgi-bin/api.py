@@ -16584,6 +16584,11 @@ def handle_devices_list():
                                if k not in _ROSTER_SYSINFO_OMIT}
                               if isinstance(_si, dict) else {})
             row['metrics_ts'] = dev.get('metrics_ts', 0)   # when the figures in `sysinfo` were last reported
+            # "Windows 11 Pro 23H2 (build 22631.3593)" for a Windows host that reported its build: the Hosts list and the host drawer show it
+            # in place of the agent's shorter `os` text. Left out for any other host.
+            _os_detail = windows_host_mod.os_label(_si.get('win_build')) if isinstance(_si, dict) else ''
+            if _os_detail:
+                row['os_detail'] = _os_detail
             # 7.4.9: the host drawer shows the upgrade mode as a checkbox under Host settings, beside the Upgrade packages button.
             # Whether the mode applies to a host is decided by the same function the PUT route uses, so the two cannot disagree.
             _um = upgrade_mode_handlers_mod._state(dev)
@@ -23590,6 +23595,10 @@ def handle_heartbeat():
                     for e in _cst[:50] if isinstance(e, dict)]
             if 'platform' in si:
                 safe_si['platform'] = _sanitize_str(si['platform'], 256)
+            # A Windows host's build as the registry keeps it: number, revision, display version, edition, product.
+            _wbuild = windows_host_mod.clean_win_build(si.get('win_build'))
+            if _wbuild is not None:
+                safe_si['win_build'] = _wbuild
             if 'packages' in si and isinstance(si['packages'], dict):
                 pkg = si['packages']
                 safe_pkg = {}
@@ -34960,6 +34969,9 @@ def _qe_device_posture(si):
         # never reported a package scan, so a silent host is not read as zero.
         'pending_updates': _n(pk.get('upgradable')),
         'security_updates': _n(pk.get('security_updates')),
+        # The build of a Windows host (build number, revision, display version, edition, product) and its family, which the build number
+        # decides: ProductName says "Windows 10" on many builds of Windows 11. None for a host that never reported one.
+        **windows_host_mod.build_fields(si),
         # v7.5.0: the health signals the Checks page, the alerts and the risk score read and a query could not ask for. All
         # tri-state: None when the host never reported the thing, so a silent host is not read as a healthy one.
         'cpu_iowait_pct': _n(si.get('cpu_iowait')),
@@ -35045,6 +35057,7 @@ _QE_DEVICE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
     'usb_devices', 'logged_in_users', 'sshgw_enabled',
     # v7.5.0
     'pending_updates', 'security_updates',
+    'win_build', 'win_ubr', 'win_display_version', 'win_edition', 'win_product', 'win_family',
     'cpu_iowait_pct', 'cpu_steal_pct', 'storage_degraded', 'gateway_reachable', 'last_oom_ts', 'ecc_uncorrectable',
     'smart_failed', 'temp_high', 'ups_on_battery', 'kernel_reboot')}
 
@@ -35649,6 +35662,8 @@ _FQ_PARAMS = (
     'encryption_off', 'security_gt',
     # 8.0.0: the apps the agent found on a host, what a host talks to (Traffic) and what a Detections rule found on it.
     'app', 'talks', 'detected',
+    # the build of a Windows host
+    'win_build',
 )
 _MX_PARAMS = ('devices', 'metrics', 'stat', 'tier', 'rel', 'from', 'to')
 
@@ -61842,6 +61857,7 @@ def handle_fleet_query():
       v8.0.0: app=<substr> (an app found on the host, by id or name).
       v8.0.0: talks=<text> (a connection in the host's last Traffic sample: an address part, a port number or service name, or a program; needs the Traffic module).
       v8.0.0: detected=<text> (a finding of the last Detections sweep whose rule, sentence, address, program or severity contains the text; needs the Detections module).
+      win_build=<text> (the label of a Windows host's build contains the text: "23H2", "22631", "22631.3593", "Windows 11", "Pro").
       format=csv|xml downloads the filtered set (JSON otherwise; the print/PDF
       view fetches the JSON). Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
@@ -61903,6 +61919,7 @@ def handle_fleet_query():
     app_q = q('app').lower()
     talks_q = q('talks').lower()
     detected_q = q('detected').lower()
+    winbuild_q = q('win_build').lower()
     ups_q = q('ups_on_battery') in ('1', 'true')
     temp_q = q('temp_high') in ('1', 'true')
     fmt = q('format').lower()   # '', 'csv', 'xml' — JSON when empty
@@ -61966,6 +61983,8 @@ def handle_fleet_query():
         if talks_q and did not in talk_hosts:
             continue
         if detected_q and did not in detected_hosts:
+            continue
+        if winbuild_q and winbuild_q not in windows_host_mod.os_label(si.get('win_build')).lower():
             continue
         online = (now - d.get('last_seen', 0)) < ttl
         if online_q in ('1', 'true') and not online:

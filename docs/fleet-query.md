@@ -16,7 +16,7 @@ leaves the groups as they are.
 
 | Family | Criteria |
 | --- | --- |
-| Identity | Group, Tag, OS contains, Kernel contains, Platform contains (for example `debian` or `arm64`), Agent version contains, Pkg manager (`apt`, `dnf`, `pacman`), **Has package**, **Runs app**, **Talks to**, **Detection** |
+| Identity | Group, Tag, OS contains, Kernel contains, Platform contains (for example `debian` or `arm64`), **Windows build contains** (for example `23H2` or `22631.3593`), Agent version contains, Pkg manager (`apt`, `dnf`, `pacman`), **Has package**, **Runs app**, **Talks to**, **Detection** |
 | State | Online, Monitored, Agentless, Quarantined, Offline for more than N days, Uptime over or under N days, Cores over or under N |
 | Patching | Pending updates over N, **Security updates** over N, Reboot required, Kernel outdated, 3rd-party updates pending, Integrity (agent file verified, mismatch or unknown), **CVE (crit+high)** at least N |
 | Resources | Busiest disk %, Memory %, CPU %, Swap %, Load (1 minute), busiest Inode %, File descriptors %, Conntrack % |
@@ -80,7 +80,7 @@ matching hosts.
 ## API
 
 `GET /api/fleet/query` takes the same criteria as query parameters (`group`, `tag`, `os`,
-`version`, `has_package`, `app`, `online`, `pending_gt`, `security_gt`, `cve_min`, `disk_gt`,
+`version`, `win_build`, `has_package`, `app`, `online`, `pending_gt`, `security_gt`, `cve_min`, `disk_gt`,
 `firewall_off`, `encryption_off`, `ssh_weak`, and so on). Add `format=csv` or `format=xml` to download instead of JSON. Saved
 queries are under `/api/query/templates`. See [api.md](api.md) for authentication.
 

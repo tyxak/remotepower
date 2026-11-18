@@ -307,6 +307,18 @@ def win_family(win_build: object) -> str:
     return named.group(0) if named else ""
 
 
+def _client_edition(win_build: dict[str, Any], family: str) -> str:
+    """The edition of a client system as people say it ("Pro", "Home"): the product name without the family in front of it, else the
+    edition id in its own words."""
+    product = str(win_build.get("product", ""))
+    if family and product.lower().startswith(family.lower()):
+        text = product[len(family) :].strip()
+    else:
+        text = _CLIENT_PREFIX.sub("", product).strip()
+    edition = str(win_build.get("edition", ""))
+    return text or _EDITIONS.get(edition, "") or edition
+
+
 def os_label(win_build: object) -> str:
     """'Windows 11 Pro 23H2 (build 22631.3593)' for a host that reported its build, else ''."""
     if not isinstance(win_build, dict) or not win_build.get("build"):
@@ -314,12 +326,10 @@ def os_label(win_build: object) -> str:
     family = win_family(win_build)
     parts = [family] if family else []
     if not _is_server(win_build):
-        edition = _CLIENT_PREFIX.sub("", str(win_build.get("product", ""))).strip()
-        edition = (
-            edition
-            or _EDITIONS.get(str(win_build.get("edition", "")), "")
-            or str(win_build.get("edition", ""))
-        )
+        edition = _client_edition(win_build, family)
+        if edition.lower().startswith("windows"):
+            # a product name this table does not know: it names itself, so it replaces the family
+            parts = []
         if edition:
             parts.append(edition)
     if win_build.get("display_version"):

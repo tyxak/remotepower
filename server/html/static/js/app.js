@@ -3666,7 +3666,7 @@ function renderDevices() {
   let filtered = activeTagFilter ? devices.filter(d => (d.tags || []).includes(activeTagFilter)) : devices;
   if (_skewFilterOn) filtered = filtered.filter(d => _staleAgentIds.has(d.id));
   const deviceSearchTerm = (document.getElementById('device-search-input')?.value || '').toLowerCase();
-  if (deviceSearchTerm) filtered = filtered.filter(d => (d.name||'').toLowerCase().includes(deviceSearchTerm) || (d.hostname||'').toLowerCase().includes(deviceSearchTerm) || (d.ip||'').toLowerCase().includes(deviceSearchTerm) || (d.os||'').toLowerCase().includes(deviceSearchTerm) || (d.group||'').toLowerCase().includes(deviceSearchTerm) || (d.tags||[]).some(t => t.toLowerCase().includes(deviceSearchTerm)));
+  if (deviceSearchTerm) filtered = filtered.filter(d => (d.name||'').toLowerCase().includes(deviceSearchTerm) || (d.hostname||'').toLowerCase().includes(deviceSearchTerm) || (d.ip||'').toLowerCase().includes(deviceSearchTerm) || _osText(d).toLowerCase().includes(deviceSearchTerm) || (d.group||'').toLowerCase().includes(deviceSearchTerm) || (d.tags||[]).some(t => t.toLowerCase().includes(deviceSearchTerm)));
   const deviceStatusFilter = document.getElementById('device-status-filter')?.value || 'all';
   if (deviceStatusFilter === 'online') filtered = filtered.filter(d => d.online);
   else if (deviceStatusFilter === 'offline') filtered = filtered.filter(d => !d.online);
@@ -3877,7 +3877,7 @@ function renderDevices() {
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
-      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')}${_signedBadge(d)} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgoHtml(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}${snmpMeta}</div>
+      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(_osText(d) || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')}${_signedBadge(d)} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgoHtml(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}${snmpMeta}</div>
       ${deviceDropdownHtml(d, isMonitored)}
       ${(d.tags||[]).length ? `<div class="mt-8">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen" title="${escAttr(_absTs(d.last_seen))}">Last seen: ${lastSeen}</div>
@@ -3971,7 +3971,7 @@ function _registerDevicesMinimalTable() {
       // getColumns key or clicking it shows an arrow but never reorders.
       hostname:  d.hostname || '',
       group:     d.group || '',
-      os:        d.os || '',
+      os:        _osText(d),
       ip:        d.ip || '',
       version:   d.version || '',
       // online → 'a' / offline → 'z' so "asc" puts online first
@@ -4013,7 +4013,7 @@ function _registerDevicesMinimalTable() {
         <td class="dev-name-cell">${(window._ticketDevices && window._ticketDevices.has(d.id)) ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default tabindex="0" role="button">${_icon('ticket', 13)}</span>` : ''}<a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${_pushMark(d)}${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
         <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}${rdpLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
-        <td class="dev-os-cell fs-12" title="${escAttr(d.os || '')}">${escHtml(d.os || '—')}</td>
+        <td class="dev-os-cell fs-12" title="${escAttr(_osText(d))}">${escHtml(_osText(d) || '—')}</td>
         <td class="dev-ip-cell mono-12">${escHtml(d.ip || '—')}</td>
         <td class="dev-version-cell fs-12">${escHtml(d.version || '—')}${_signedBadge(d)}${patchHtml}</td>
         <td class="dev-lastseen-cell hint" title="${escAttr(_absTs(d.last_seen))}">${lastSeen}</td>
@@ -19453,6 +19453,10 @@ const DISTRO_ICONS = {
   },
 };
 
+// The OS of a host as the Hosts list prints it: the server's label for a Windows host that reported its build
+// ("Windows 11 Pro 23H2 (build 22631.3593)", windows_host.os_label), else the text the agent sends.
+function _osText(d) { return (d && (d.os_detail || d.os)) || ''; }
+
 function getDistroIcon(osField) {
   // Pick the distro icon best matching the OS field. Case-insensitive
   // substring match. CachyOS resolves to its own icon first; if absent
@@ -26662,6 +26666,8 @@ async function _loadAuditSection(key) {
         let h = '';
         const pills = [
           ['Uptime',    si.uptime],
+          // A Windows host that reported its build: "Windows 11 Pro 23H2 (build 22631.3593)". The server writes the label (windows_host.os_label).
+          ['OS',        (_drawerDeviceData && _drawerDeviceData.os_detail) || null],
           ['Platform',  si.platform],
           // v4.6.0: hardware identity — collected + persisted but previously
           // shown only on the CMDB page; bind it into the drawer too.
@@ -29704,7 +29710,7 @@ const _FQ_FIELDS = {
   tp_pending: 'fq-tp', disk_gt: 'fq-disk', mem_gt: 'fq-mem', offline_days: 'fq-offline-days',
   // v4.1.0: resource + posture + identity filters
   cpu_gt: 'fq-cpu', swap_gt: 'fq-swap', load_gt: 'fq-load',
-  kernel: 'fq-kernel-c', platform: 'fq-platform',
+  kernel: 'fq-kernel-c', platform: 'fq-platform', win_build: 'fq-winbuild',
   drift: 'fq-drift', mount_issue: 'fq-mount', port_world: 'fq-portworld',
   storage_degraded: 'fq-storage', clock_skew: 'fq-clock',
   gateway_unreachable: 'fq-gw', oom_recent: 'fq-oom',

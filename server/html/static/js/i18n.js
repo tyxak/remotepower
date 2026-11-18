@@ -7797,6 +7797,8 @@
     "OK": { "fr": "OK", "de": "OK", "zh": "确定", "hi": "ठीक है", "es": "Aceptar", "ar": "موافق" },
     "OS": { "fr": "OS", "de": "Betriebssystem", "zh": "操作系统", "hi": "OS", "es": "SO", "ar": "نظام التشغيل" },
     "OS contains": { "fr": "L'OS contient", "de": "Betriebssystem enthält", "zh": "操作系统包含", "hi": "OS में शामिल है", "es": "El SO contiene", "ar": "نظام التشغيل يحتوي على" },
+    "Windows build contains": { "fr": "La version de Windows contient", "de": "Windows-Build enthält", "zh": "Windows 版本包含", "hi": "Windows बिल्ड में शामिल है", "es": "La compilación de Windows contiene", "ar": "إصدار Windows يحتوي على" },
+    "e.g. 23H2 / 22631.3593": { "fr": "p. ex. 23H2 / 22631.3593", "de": "z. B. 23H2 / 22631.3593", "zh": "例如 23H2 / 22631.3593", "hi": "जैसे 23H2 / 22631.3593", "es": "p. ej. 23H2 / 22631.3593", "ar": "مثل 23H2 / 22631.3593" },
     "OS template": { "fr": "Modèle d'OS", "de": "Betriebssystemvorlage", "zh": "操作系统模板", "hi": "OS टेम्पलेट", "es": "Plantilla de SO", "ar": "قالب نظام التشغيل" },
     "On-call & escalation": { "fr": "Astreinte & escalade", "de": "Bereitschaft & Eskalation", "zh": "值班与升级", "hi": "On-call व escalation", "es": "Guardia y escalado", "ar": "المناوبة والتصعيد" },
     "On-call rotation": { "fr": "Rotation d'astreinte", "de": "Bereitschaftsrotation", "zh": "值班轮换", "hi": "ऑन-कॉल रोटेशन", "es": "Rotación de guardia", "ar": "تناوب المناوبة" },

@@ -116,6 +116,19 @@ Both are empty when the host has not reported a package scan, so a host that was
 "nothing waiting". `{"field": "security_updates", "op": "gt", "value": 0}` finds the hosts that reported a fix
 waiting.
 
+### Windows hosts
+
+| Field | Notes |
+|---|---|
+| `win_build`, `win_ubr` | the build number (`22631`) and the revision after it (`3593`), which changes with every cumulative update. `win_ubr` is a number, so `lt` finds the hosts that are behind |
+| `win_display_version` | `23H2`, `24H2`; the release id (`1909`) on a build from before 20H2 |
+| `win_edition`, `win_product` | the edition id (`Professional`) and the product name as the registry keeps it |
+| `win_family` | `Windows 11`, `Windows 10` and so on, from the build number; the product name for a server |
+
+All of them are empty for a host that never reported a build, such as a Linux or macOS host. Use `win_family`, not
+`win_product`, to find the hosts that are still on Windows 10: the product name of many Windows 11 hosts says
+"Windows 10". See [Windows version and build](windows-client.md#windows-version-and-build).
+
 ### Hardware and storage health
 
 | Field | Notes |

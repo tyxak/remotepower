@@ -374,6 +374,10 @@ def get_os_info():
     try:
         rel, ver, _csd, _ptype = platform.win32_ver()
         build = (ver or '').split('.')[-1]
+        # platform.win32_ver() answers "10" for Windows 11 on some Pythons, as the ProductName value of the registry does on
+        # many builds of Windows 11. The family of a client system comes from its build number: 22000 and up is Windows 11.
+        if rel == '10' and build.isdigit() and int(build) >= 22000:
+            rel = '11'
         name = f'Windows {rel}' if rel else platform.system()
         return f'{name} (Build {build})' if build else name
     except Exception:
@@ -2216,6 +2220,60 @@ def _reboot_required():
     return False
 
 
+_NT_KEY = r'SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+
+
+def _reg_number(winreg, key, name):
+    """A whole number from a value of an open key (a DWORD, as UBR is written, or text that is digits), else None."""
+    try:
+        value, _kind = winreg.QueryValueEx(key, name)
+    except OSError:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def get_win_build():
+    """The build of this Windows, from HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion: {build, ubr, display_version, edition,
+    product}, or {} where there is no build to say (off Windows, a key that cannot be read).
+
+    build is CurrentBuildNumber, ubr is the revision (it changes with every cumulative update), display_version is DisplayVersion
+    (ReleaseId on a build from before 20H2), edition is EditionID and product is ProductName. Read only, in the 64-bit view; a text is
+    capped and ubr is a whole number. ProductName says "Windows 10" on many builds of Windows 11, so the server does not take the
+    family from it: it takes it from the build number."""
+    try:
+        import winreg
+    except Exception:
+        return {}
+    view = getattr(winreg, 'KEY_WOW64_64KEY', 0)
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _NT_KEY, 0, winreg.KEY_READ | view)
+    except OSError:
+        return {}
+    try:
+        build = _reg_text(winreg, key, 'CurrentBuildNumber') or _reg_text(winreg, key, 'CurrentBuild')
+        ubr = _reg_number(winreg, key, 'UBR')
+        display = _reg_text(winreg, key, 'DisplayVersion') or _reg_text(winreg, key, 'ReleaseId')
+        edition = _reg_text(winreg, key, 'EditionID')
+        product = _reg_text(winreg, key, 'ProductName')
+    finally:
+        winreg.CloseKey(key)
+    if not build.isdigit():
+        return {}
+    out = {'build': build[:8]}
+    if ubr is not None and 0 <= ubr <= 999999:
+        out['ubr'] = ubr
+    for name, value, limit in (('display_version', display, 16), ('edition', edition, 40), ('product', product, 80)):
+        if value:
+            out[name] = value[:limit]
+    return out
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available; otherwise a best-effort subset
     so a host without psutil still reports OS/uptime/hostname."""
@@ -2235,6 +2293,14 @@ def collect_sysinfo():
         wp = get_win_posture()
         if wp:
             info['win_posture'] = wp
+    except Exception:
+        pass
+    # The build the registry keeps (number, revision, display version, edition, product): the server shows "Windows 11 Pro 23H2
+    # (build 22631.3593)" for it, and the revision tells which cumulative update the host has.
+    try:
+        wb = get_win_build()
+        if wb:
+            info['win_build'] = wb
     except Exception:
         pass
     # v6.2.0: agent-side custom checks — evaluate the server-pushed set on-host
