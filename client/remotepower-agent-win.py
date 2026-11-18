@@ -4266,7 +4266,7 @@ _REG_INT_MAX = 2 ** 64 - 1
 _REG_SECRET_NAME = re.compile(r'password|passwd|passphrase|pwd|secret|apikey|api_key|privatekey|private_key|credential|token', re.I)
 
 
-def _reg_number(v):
+def _reg_parse_number(v):
     """A whole number as a person writes a DWORD, decimal or 0x hex, from an int or a text; None for anything else."""
     if isinstance(v, bool):
         return None
@@ -4328,7 +4328,7 @@ def _reg_clean(c):
             return None, 'the expected value is too long'
         if any(ch < ' ' or ch == '\x7f' for ch in text):
             return None, 'the expected value has a control character'
-        number = _reg_number(text)
+        number = _reg_parse_number(text)
         if op in _REG_OPS_NUMERIC:
             if number is None:
                 return None, '%s needs a whole number' % op
@@ -4338,7 +4338,7 @@ def _reg_clean(c):
     return clean, ''
 
 
-def _reg_text(s):
+def _reg_report_text(s):
     """Text for the report: control characters (and the line and paragraph separators) become spaces, and it is cut at what a check may send."""
     return ''.join(' ' if (ch < ' ' or '\x7f' <= ch <= '\x9f' or ch in '\u2028\u2029') else ch for ch in str(s))[:_REG_OUT_MAX]
 
@@ -4375,15 +4375,15 @@ def _reg_normalize(data, typ, wr):
     if typ in (dword, qword) and isinstance(data, int) and not isinstance(data, bool):
         return data
     if typ in (sz, expand) and isinstance(data, str):
-        return _reg_text(data)
+        return _reg_report_text(data)
     if typ == multi and isinstance(data, (list, tuple)):
-        return _reg_text(' | '.join(str(s) for s in data if isinstance(s, str)))
+        return _reg_report_text(' | '.join(str(s) for s in data if isinstance(s, str)))
     return 'binary, %d bytes' % (len(data) if isinstance(data, (bytes, bytearray)) else 0)
 
 
 def _reg_equal(value, expect):
     """Whether a value equals the expected one: as numbers when both read as numbers (a text '0' equals 0), otherwise as text without regard to case."""
-    a, b = _reg_number(value), _reg_number(expect)
+    a, b = _reg_parse_number(value), _reg_parse_number(expect)
     if a is not None and b is not None:
         return a == b
     return str(value).strip().lower() == str(expect).strip().lower()
@@ -4410,29 +4410,29 @@ def _eval_registry_check(c, wr=None):
     if state == 'missing':
         shown = '%s not set' % name
         if op in ('missing', 'not_equals'):
-            return 'ok', _reg_text(shown)
+            return 'ok', _reg_report_text(shown)
         if op == 'exists':
-            return 'critical', _reg_text(shown)
-        return 'critical', _reg_text('%s, expected %s' % (shown, _reg_wants(op, expect)))
+            return 'critical', _reg_report_text(shown)
+        return 'critical', _reg_report_text('%s, expected %s' % (shown, _reg_wants(op, expect)))
     data, typ = got
     if isinstance(data, (str, list, tuple)) and _REG_SECRET_NAME.search(name):
         return 'unknown', 'refused: a text value named like a password or a key is not read'
     value = _reg_normalize(data, typ, wr)
     shown = '%s = %s' % (name, value)
     if op == 'exists':
-        return 'ok', _reg_text(shown)
+        return 'ok', _reg_report_text(shown)
     if op == 'missing':
-        return 'critical', _reg_text('%s (should not be set)' % shown)
+        return 'critical', _reg_report_text('%s (should not be set)' % shown)
     if op in _REG_OPS_NUMERIC:
-        n = _reg_number(value)
+        n = _reg_parse_number(value)
         good = n is not None and (n >= expect if op == 'at_least' else n <= expect)
     else:
         good = _reg_equal(value, expect)
         if op == 'not_equals':
             good = not good
     if good:
-        return 'ok', _reg_text(shown)
-    return 'critical', _reg_text('%s, expected %s' % (shown, _reg_wants(op, expect)))
+        return 'ok', _reg_report_text(shown)
+    return 'critical', _reg_report_text('%s, expected %s' % (shown, _reg_wants(op, expect)))
 
 
 # ── persistence inventory ────────────────────────────────────────────────────
