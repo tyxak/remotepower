@@ -43,6 +43,7 @@ TABLE = (
     {"vuln_id": "j"},
     {"vuln_id": "k", "fix_status": "pro", "fixed_version": ""},                  # 8.0.1: fixed in Ubuntu Pro only
     {"vuln_id": "l", "fix_status": "pro", "fixed_version": "9"},
+    {"vuln_id": "m", "fix_status": "reboot", "fixed_version": "9", "reboot_to": "linux-image-6.1.0-48-amd64 6.1.192-1"},
 )
 
 

@@ -149,7 +149,7 @@ class TestTheCountsOnThePage(_Page):
             pass          # the comparison below says which tile differs
         t = self.tiles()
         self.assertEqual({k: v["n"] for k, v in t.items()}, fix)
-        self.assertEqual(sorted(t), ["fixable", "newer_release", "none", "pro", "unchecked"])
+        self.assertEqual(sorted(t), ["fixable", "newer_release", "none", "pro", "reboot", "unchecked"])
         self.assertGreater(fix["fixable"], 0)
         self.assertGreater(fix["newer_release"], 0)
         self.assertGreater(fix["none"], 0)
@@ -157,7 +157,7 @@ class TestTheCountsOnThePage(_Page):
     def test_the_tiles_say_what_they_count(self):
         self.open_cve()
         self.assertEqual({k: v["label"] for k, v in self.tiles().items()},
-                         {"fixable": "Fixable now", "newer_release": "Newer release only",
+                         {"fixable": "Fixable now", "reboot": "Reboot to apply", "newer_release": "Newer release only",
                           "none": "No fix yet", "pro": "Needs Ubuntu Pro", "unchecked": "Not checked"})
 
     def test_no_tile_is_pressed_until_one_is_clicked(self):
@@ -192,7 +192,7 @@ class TestTheTilesFilterTheHostTable(_Page):
         self.tile("fixable").click()
         self.tile("none").click()
         self.assertEqual({k: v["on"] for k, v in self.tiles().items()},
-                         {"fixable": "false", "newer_release": "false", "none": "true", "pro": "false",
+                         {"fixable": "false", "reboot": "false", "newer_release": "false", "none": "true", "pro": "false",
                           "unchecked": "false"})
 
 
@@ -302,8 +302,8 @@ class TestInAnotherLanguage(_Page):
             "() => [...document.querySelectorAll('#cve-fix-row .stat-label')].some(l => l.textContent.trim() === 'Jetzt behebbar')",
             timeout=20000)
         self.assertEqual([v["label"] for v in self.tiles().values()],
-                         ["Jetzt behebbar", "Nur in neuerer Version", "Noch keine Korrektur", "Erfordert Ubuntu Pro",
-                          "Nicht geprüft"])
+                         ["Jetzt behebbar", "Neustart zum Anwenden", "Nur in neuerer Version", "Noch keine Korrektur",
+                          "Erfordert Ubuntu Pro", "Nicht geprüft"])
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ with real exploit signals, not just the CVSS score.
 ## The CVE page
 
 The page opens with a severity summary (Critical / High / Medium / Low and hosts scanned),
-five tiles that count the findings by [fix status](#fix-status), and a KEV feed status line.
+six tiles that count the findings by [fix status](#fix-status), and a KEV feed status line.
 When Debian or Ubuntu hosts have findings that are [counted and not listed](#what-is-listed-and-what-is-counted),
 a line under the tiles says how many. When some of the packages were [not checked](#which-packages-were-checked),
 another line gives the fleet total, the reasons, and the five hosts with the most of them; a click on a host opens
@@ -199,6 +199,43 @@ The rule applies to every Debian host, and to every Ubuntu host whose release is
 its next scan, also when its agent is older than 8.0.1. A host scanned before 8.0.1 keeps its
 old findings until it is scanned again.
 
+## The kernel a host runs
+
+A host keeps the kernels it has installed, and the newest is not always the one that runs. A scan used to ask about
+every kernel package version a host had, so the findings of a kernel that had been replaced were counted beside the
+kernel that ran, and a fix that sat in a kernel the host had not booted into was offered as an update to install.
+
+An agent from 8.0.2 reports the kernel it runs (`uname -r`) with its package list and, for each installed kernel image,
+the release that image owns: the package that owns `/boot/vmlinuz-<release>` on Debian, Ubuntu, Rocky Linux, AlmaLinux and
+Red Hat, and the package that lists the directory `lib/modules/<release>` on Alpine (its kernel file is named by flavour).
+An Arch host reports the package named in `/usr/lib/modules/<release>/pkgbase` too, but no scan is made of it, so nothing
+reads that. The agent reads this from the package database and the host's files, never from a name. Up to 16 images are
+reported. A host that boots into another kernel sends its list again, though the list did not
+change.
+
+When exactly one installed package owns the running release, the scan:
+
+- asks about, and counts, the findings of that package's version only. The kernels that are installed and do not run are
+  left out, with the rest of the packages built from them (the host view says how many packages that is);
+- marks a finding of the running kernel as **Reboot to apply** when a kernel installed beside it is at or past the fix, by
+  the rule that leaves out a finding the installed version is past. The finding keeps the version that has the fix and names
+  the kernel (`linux-image-6.1.0-48-amd64 6.1.192-1`);
+- keeps such a finding in the list beside the ones an update clears, so a finding that goes from **Fixed** to **Reboot to
+  apply** when the update is installed is not announced as cleared. It clears, once, at the scan after the reboot.
+
+The host view shows the running kernel, its package, and a newer kernel installed beside it ("Reboot to start it").
+
+When the scan cannot tell with certainty which package the running kernel is, it matches every installed kernel as it did
+before, and the host view says so and why: the agent does not report its kernel (older than 8.0.2); it found no installed
+kernel package; no installed package owns the files of the running kernel (a kernel you built, or one that was removed);
+more than one package owns it and they are built from different versions; or the package that owns it is not in the list
+the host sent. A signed kernel package and the unsigned one it holds are built from one version and count as one owner.
+Nothing is guessed from a package name.
+
+A kernel finding is only marked **Reboot to apply** for a package whose version order the server can read (Debian and
+Ubuntu, RPM and Alpine versions). The reboot signals the host already has (the reboot-required flag, **kernel_outdated**) are
+unchanged. The Windows and macOS agents report no kernel.
+
 ## Fix status
 
 A finding records a fixed version, but a fix only helps a host if it reached the release
@@ -209,13 +246,14 @@ is one of:
 | Status | Meaning |
 | --- | --- |
 | **Fixed** | An update for this host's release clears it. The finding names the version to install. |
+| **Reboot to apply** | A kernel that is installed and not running already holds the fix, so there is nothing to install: a reboot clears it. The finding names that kernel. See [The kernel a host runs](#the-kernel-a-host-runs). |
 | **Fixed in a newer release** | The host's release has no fix, a newer release does. The finding names that release and version (for example `Debian:13 8.7.1-1`) and offers nothing to install. |
 | **No fix yet** | No release has a fix. |
 | **Fixed with Ubuntu Pro** | The fix for the host's release ships in Ubuntu Pro only, which is where every fix of a release past its standard support goes. The finding names the Pro version and offers nothing to install. On a host that has a package from Ubuntu Pro installed (its version ends in `+esm1` or `~esm1`), such a finding is **Fixed**. A kernel from Ubuntu Pro carries no such mark, so a host whose only Pro packages are kernels is not recognised. |
 | **Not checked** | Red Hat, and an Ubuntu derivative whose release is not known (its agent is older than 8.0.1), are scanned without a release, so their entries cannot be told apart. Rocky Linux and AlmaLinux publish an advisory per release together with its fix. In all of these a finding keeps the fixed version OSV lists and counts as fixable when it has one. |
 
-The five tiles under the severity counts count the listed findings that are not ignored
-(**Fixable now**, **Newer release only**, **No fix yet**, **Needs Ubuntu Pro**, **Not checked**). On a
+The six tiles under the severity counts count the listed findings that are not ignored
+(**Fixable now**, **Reboot to apply**, **Newer release only**, **No fix yet**, **Needs Ubuntu Pro**, **Not checked**). On a
 release past its standard support most of what needs Ubuntu Pro is counted and not listed; the
 count in the host view says how many. Click a tile to
 keep only the hosts that have such a finding, and the host view then lists only those
@@ -271,9 +309,10 @@ Settings → Security → **CVE counts** has **Count only CVEs an update can fix
 to be exploited** (`cve_count_fixable_only`, off by default). With it on, those places
 leave out a finding that is fixed only in a newer release, needs Ubuntu Pro or has no fix yet.
 A finding on the known-exploited (KEV) list always counts, and so does a **Not checked**
-finding that lists a fixed version.
+finding that lists a fixed version and one that only needs a **reboot**: it is something to do.
+The alert option follows the same rule.
 
-- Every listed finding stays on the CVE page and in the host view, and the five fix tiles keep
+- Every listed finding stays on the CVE page and in the host view, and the six fix tiles keep
   counting all of them, so you can see what the option leaves out. The CVE page says when the
   option is on.
 - What a Debian or Ubuntu host has [counted per package](#what-is-listed-and-what-is-counted)
@@ -480,6 +519,8 @@ findings do not count. You can keep up to 200 campaigns.
 | A library has no findings on Debian or Ubuntu | The host's agent is older than 8.0.1. The host view says so. See [How a package is matched](#how-a-package-is-matched). |
 | A Devuan, LMDE or Kali host changed after the upgrade | Devuan and LMDE are scanned under the Debian release they are built on and get the findings they never had. Kali has no Debian release and shows **unsupported** where it showed a scan with nothing in it. |
 | A host says its agent does not report source packages | Update the agent, then click **Send package list now** and scan the host. |
+| A host's view says the kernel could not be matched | See [The kernel a host runs](#the-kernel-a-host-runs): the reason is under it. An agent from 8.0.2 reports the kernel; a kernel you built, or one that no package owns, cannot be matched. |
+| A finding says **Reboot to apply** and the host was rebooted | Scan the host again. The agent sends its list when the kernel changes, but the scan runs when you start it. |
 | A host has no findings and says **None found in the packages that could be checked** | Some of its packages were not checked. Open its view for the reasons and the first 200 packages. See [Which packages were checked](#which-packages-were-checked). |
 | A host's view says nothing of which packages were checked | It was scanned before 8.0.2. Scan it again. |
 | The High count rose after the upgrade to 8.0.1 | Debian and Ubuntu hosts are matched by source package now. Many of the new findings have no fix for the host's release. **Count only CVEs an update can fix** leaves those out of the numbers, and the alert option of the same name out of the alerts. |

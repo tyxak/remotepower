@@ -5,13 +5,13 @@
 // v7.4.6 (#57): which fix status the CVE page is filtered to ('' = all). The tiles under the severity
 // counts say how many findings are in each, and clicking one filters the host table and the host view.
 let cveFixFilter = '';
-const _CVE_FIX_NAME = {fixable: 'Fixable now', newer_release: 'Newer release only', none: 'No fix yet', pro: 'Needs Ubuntu Pro', unchecked: 'Not checked'};
+const _CVE_FIX_NAME = {fixable: 'Fixable now', reboot: 'Reboot to apply', newer_release: 'Newer release only', none: 'No fix yet', pro: 'Needs Ubuntu Pro', unchecked: 'Not checked'};
 
 // The tile a finding is counted in. The same rule as cve_fixes.summarize on the server: a status of
 // "unknown", or none at all (a finding scanned before 7.4.6), counts by its fixed version.
 function _cveFixKey(f) {
   if (f.fix_status === 'fixed') return 'fixable';
-  if (f.fix_status === 'newer_release' || f.fix_status === 'none' || f.fix_status === 'pro') return f.fix_status;
+  if (f.fix_status === 'reboot' || f.fix_status === 'newer_release' || f.fix_status === 'none' || f.fix_status === 'pro') return f.fix_status;
   const fv = f.fixed_version;       // text that is not blank, as the server reads it; a number counts as its text
   return (typeof fv === 'string' && fv.trim()) || (typeof fv === 'number' && fv) ? 'fixable' : 'unchecked';
 }
@@ -54,6 +54,11 @@ function clearCveFixFilter(devId, devName) {
 // What a finding says about its fix. A fixed version is the one for this host's own release; a finding
 // that is fixed only in a newer release, or in none, says so and names no version to install.
 function _cveFixHtml(f) {
+  if (f.fix_status === 'reboot') {
+    // 8.0.2: an installed kernel that does not run holds the fix; nothing to install, a reboot starts it
+    const into = typeof f.reboot_to === 'string' && f.reboot_to ? ` <span class="c-muted">(<span data-no-i18n="">${escHtml(f.reboot_to)}</span>)</span>` : '';
+    return ` — <span class="c-green">Fixed by an installed kernel, reboot to apply</span>${into}`;
+  }
   if (f.fix_status === 'newer_release' || f.fix_status === 'pro') {
     // 8.0.1: "pro" is a fix that is in Ubuntu Pro only, for the host's own release
     const where = Object.entries(f.fixed_elsewhere || {}).slice(0, 2)
@@ -430,6 +435,34 @@ function _cveNoneFoundHtml(data) {
   return '<div class="empty-state">No vulnerabilities found.</div>';
 }
 
+// 8.0.2: which kernel a host runs, as its last scan matched it (cve_scanner.kernel_state), and when it could not
+// tell, why. A finding of the kernel is held against the package that kernel is, and a finding an installed kernel
+// that is not running would clear says "reboot to apply". The sentences are translated; a release and a package
+// are data.
+const _CVE_KERNEL_WHY = {
+  not_reported: 'The agent of this host does not report its running kernel.',
+  no_images: 'The agent found no installed kernel package.',
+  no_owner: 'No installed kernel package owns the files of the running kernel.',
+  several_owners: 'More than one installed package owns the running kernel, and they are built from different versions.',
+  not_in_list: 'The package that owns the running kernel is not in the package list the host sent.',
+};
+
+function _cveKernelHtml(k) {
+  if (!k || typeof k !== 'object' || (k.state !== 'matched' && k.state !== 'unknown')) return '';
+  const txt = v => typeof v === 'string' ? v : '';
+  const data = v => `<span class="mono-12" data-no-i18n="">${escHtml(txt(v))}</span>`;
+  const running = txt(k.running) ? data(k.running) : '<span>not reported</span>';
+  if (k.state === 'unknown') {
+    const why = Object.prototype.hasOwnProperty.call(_CVE_KERNEL_WHY, k.why) ? ` <span>${escHtml(_CVE_KERNEL_WHY[k.why])}</span>` : '';
+    return `<div class="hint mb-8" data-cve-kernel="unknown"><span>Running kernel:</span> ${running} <span>It could not be matched to an installed package, so findings against the kernel are matched against every installed kernel.</span>${why}</div>`;
+  }
+  const left = typeof k.left_out === 'number' && isFinite(k.left_out) && k.left_out > 0 ? Math.floor(k.left_out) : 0;
+  return `<div class="hint mb-8" data-cve-kernel="matched"><span>Running kernel:</span> ${running} · <span>Package:</span> ${data(txt(k.package) + ' ' + txt(k.version))}`
+    + (txt(k.newer) ? ` · <span>Installed, not running:</span> ${data(k.newer)} <span>Reboot to start it.</span>` : '')
+    + (left ? ` · <span>Packages of other installed kernels, not counted:</span> <span>${left.toLocaleString(_localeTag())}</span>` : '')
+    + '</div>';
+}
+
 // 8.0.1: a finding is filed under the source package; this names the installed packages it covers.
 function _cveBinariesHtml(f) {
   if (!Array.isArray(f.binaries) || !f.binaries.length) return '';
@@ -463,6 +496,7 @@ async function openDeviceCVE(devId, devName) {
   html += _cveCoverageHtml(data);
   const roll = _cveRollupHtml(data.rollup);
   html += roll;
+  html += _cveKernelHtml(data.kernel);            // 8.0.2: which kernel the host runs, and how the scan matched it
   html += _cveCoveredHtml(data.covered);          // 8.0.2: which packages were checked, and why not the others
   if (!data.findings.length) { if (!roll && data.coverage !== 'no_matcher') html += _cveNoneFoundHtml(data); }
   else {

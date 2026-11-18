@@ -63,6 +63,9 @@ def preamble():
         re.search(r'^const _CVE_NOT_CHECKED = \{.*?^\};', _PAGE, re.M | re.S).group(0),
         srcpin.js_function(_PAGE, '_cveCoveredHtml'),
         srcpin.js_function(_PAGE, '_cveNoneFoundHtml'),
+        # and which kernel it runs (8.0.2)
+        re.search(r'^const _CVE_KERNEL_WHY = \{.*?^\};', _PAGE, re.M | re.S).group(0),
+        srcpin.js_function(_PAGE, '_cveKernelHtml'),
     ])
 
 

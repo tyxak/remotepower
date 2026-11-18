@@ -1624,8 +1624,9 @@ class TestThePage(unittest.TestCase):
     def test_the_fifth_tile(self):
         keys = self.run_js('[%s].map(_cveFixKey)' % ', '.join(json.dumps(f) for f in (
             {'fix_status': 'pro'}, {'fix_status': 'pro', 'fixed_version': '9'}, {'fix_status': 'fixed'},
-            {'fix_status': 'unknown', 'fixed_version': '2'}, {})), '_cveFixKey')
-        self.assertEqual(keys, ['pro', 'pro', 'fixable', 'fixable', 'unchecked'])
+            {'fix_status': 'unknown', 'fixed_version': '2'}, {}, {'fix_status': 'reboot', 'fixed_version': '3'})),
+            '_cveFixKey')
+        self.assertEqual(keys, ['pro', 'pro', 'fixable', 'fixable', 'unchecked', 'reboot'])
         names = re.search(r'^const _CVE_FIX_NAME = \{(.*)\};$', _PAGE, re.M).group(1)
         self.assertEqual(re.findall(r'(\w+): ', names), list(cve_fixes.FIX_KEYS))
         html = (ROOT / 'server' / 'html' / 'index.html').read_text()
