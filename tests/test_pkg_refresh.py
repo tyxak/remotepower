@@ -27,6 +27,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -70,6 +71,7 @@ import agent_capabilities as pr_caps  # noqa: E402  (the install hint the panel 
 import env_guard  # noqa: E402
 from i18n_engine import LANGS, dict_rows  # noqa: E402
 from routing_harness import routes_to  # noqa: E402
+from srcpin import balanced_block, js_function  # noqa: E402
 
 
 def setUpModule():
@@ -1644,6 +1646,48 @@ class TestTheSettingAndTheHeartbeat(_Server):
     def test_a_beat_that_carries_no_record_leaves_none(self):
         self.beat(sysinfo={"uptime": "u"})
         self.assertIsNone(self.stored())
+
+
+class TestTheWordsOfThePackagesBlock(unittest.TestCase):
+    """The state of a refresh is drawn from two tables in app.js (a word per status, a sentence per class) and a few fixed strings. They are
+    values of JavaScript objects and not markup, so no i18n gate reads them: deleting the German of "Partly succeeded" or of "no safe way on
+    this distribution" left every gate green, and the host page said it in English. The strings are read from the page's own source and each
+    must be a dictionary key with all six languages."""
+
+    JS = (ROOT / "server" / "html" / "static" / "js" / "app.js").read_text(encoding="utf-8")
+
+    @classmethod
+    def tables(cls):
+        status = balanced_block(cls.JS, "const _PKG_REFRESH_STATUS = {")
+        klass = balanced_block(cls.JS, "const _PKG_REFRESH_CLASS = {")
+        statuses = dict(re.findall(r"^\s+([a-z_]+):\s+\['([^']+)',", status, re.M))
+        classes = dict(re.findall(r"^\s+([a-z_]+):\s+'([^']+)',", klass, re.M))
+        return statuses, classes
+
+    def fixed_strings(self):
+        pill = js_function(self.JS, "_pkgRefreshPill")
+        act = js_function(self.JS, "pkgRefreshNow")
+        return ["Lists refreshed", "Never", "Check for updates now",
+                "Refresh queued: the host runs it at its next check-in",
+                "Scan now reads what the package manager already knows. Check for updates now asks the repositories for fresh lists first, then reads what is pending."], \
+            pill + act + self.JS[self.JS.index("case 'packages': {"):self.JS.index("case 'capabilities': {")]
+
+    def test_the_page_has_a_word_for_every_status_and_a_sentence_for_every_class_the_server_keeps(self):
+        statuses, classes = self.tables()
+        self.assertEqual(set(statuses), set(pr_mod.STATUSES))
+        self.assertEqual(set(classes), set(pr_mod.CLASSES) - {""}, "a class with no sentence is drawn as 'the reason is not known'")
+        self.assertEqual((len(statuses), len(classes)), (4, 10), "the control: the tables were read")
+
+    def test_every_one_of_them_is_a_dictionary_key_in_six_languages(self):
+        statuses, classes = self.tables()
+        fixed, code = self.fixed_strings()
+        rows = dict_rows()
+        wanted = list(statuses.values()) + list(classes.values()) + fixed
+        self.assertEqual(len(wanted), 4 + 10 + 5)
+        gone = [s for s in fixed if s not in code]
+        self.assertEqual(gone, [], "a string in the list is not in the page's code any more: the list is stale")
+        missing = {s: sorted(set(LANGS) - rows.get(s, set())) for s in wanted if not set(LANGS) <= rows.get(s, set())}
+        self.assertEqual(missing, {}, "words the host page would show in English")
 
 
 class TestTheStampPathAndTheDocs(unittest.TestCase):

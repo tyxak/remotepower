@@ -38,6 +38,7 @@ except ImportError:                                     # pragma: no cover
 
 from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
 import agent_capabilities as caps_mod  # noqa: E402
+import pkg_refresh as pr_mod  # noqa: E402
 
 _GATE = browser_available() or browser_required.required()
 _STACK = {}
@@ -208,7 +209,11 @@ class TestThePackagesAndCapabilitiesCards(unittest.TestCase):
         if "packages" in sections:
             self.page.wait_for_selector("#audit-body-packages .sysinfo-pill", state="visible", timeout=30000)
         if "capabilities" in sections:
-            self.page.wait_for_selector("#audit-body-capabilities .sysinfo-pill, #audit-body-capabilities .c-muted", state="visible", timeout=30000)
+            # The final content, and not the first thing that has the class: the section opens with a placeholder that is a .c-muted too,
+            # and a wait that took it for the answer read an empty body half a second later (the first test of a run failed on that).
+            self.page.wait_for_function("""() => { const b = document.getElementById('audit-body-capabilities');
+                return !!b && !b.querySelector('.skeleton') && (!!b.querySelector('.sysinfo-pill') || /has not reported what it can see/.test(b.textContent)); }""",
+                                        timeout=30000)
         self.page.wait_for_timeout(500)
 
     def text(self, sel):
@@ -223,12 +228,17 @@ class TestThePackagesAndCapabilitiesCards(unittest.TestCase):
         self.assertIn("Lists refreshed", body)
         self.assertIn("Succeeded", body)
         self.assertIn("Check for updates now", body)
+        sentences = self.page.evaluate("Object.values(_PKG_REFRESH_CLASS)")
+        self.assertEqual(len(sentences), len(pr_mod.CLASSES) - 1, "the control: the page has a sentence for every class the server can keep")
+        self.assertEqual([s for s in sentences if s in body], [], "a reason is given beside a refresh that worked")
+        self.assertEqual(self.page.eval_on_selector("#audit-body-packages", "b => b.querySelectorAll('.sysinfo-pill .hint').length"), 0)
         self.assertEqual(self.page.eval_on_selector("#audit-body-packages time", "t => t.getAttribute('datetime') !== ''"), True)
         self.page.evaluate("closeDeviceDrawer()")
         self.open_sections(hosts["failed"], "packages")
         body = self.text("#audit-body-packages")
         self.assertIn("Failed", body)
         self.assertIn("the repositories could not be reached", body)
+        self.assertEqual([s for s in sentences if s in body], ["the repositories could not be reached"], "the reason, and only the reason of this failure")
         self.page.evaluate("closeDeviceDrawer()")
         self.open_sections(hosts["none"], "packages")
         self.assertIn("Never", self.text("#audit-body-packages"))
@@ -273,16 +283,34 @@ class TestThePackagesAndCapabilitiesCards(unittest.TestCase):
         self.assertEqual(self.text("#audit-badge-capabilities"), "Not reported")
         self.assertEqual(self.new_problems(), {})
 
-    def test_the_section_is_not_offered_for_a_host_without_an_agent_report(self):
+    def test_a_windows_a_macos_and_an_agentless_host_get_neither_the_section_nor_the_refresh_button(self):
+        """Only a Linux agent has the command, and only a Linux agent reports what it can see. For each other kind of host the Packages
+        section is drawn (its Scan now button is the control that the body is there) without the refresh button, its pill and its hint."""
         found = self.page.evaluate("""async () => {
             const devs = await api('GET', '/devices');
-            return (devs.devices || devs).find(d => d.agentless || /windows|mac|darwin/i.test(String(d.os || ''))) || null;
+            const all = devs.devices || devs;
+            const pick = f => all.find(f) || null;
+            return {agentless: pick(d => d.agentless), windows: pick(d => !d.agentless && /windows/i.test(String(d.os || ''))),
+                    macos: pick(d => !d.agentless && /mac|darwin/i.test(String(d.os || '')))};
         }""")
-        if not found:
-            self.skipTest("the seeded fleet has no Windows, macOS or agentless host")
-        self.page.evaluate("([id, name]) => openDeviceDrawer(id, name, 'audit')", [found["id"], found["name"]])
-        self.page.wait_for_selector("#audit-sec-packages", state="attached", timeout=30000)
-        self.assertEqual(self.page.evaluate("() => document.querySelectorAll('#audit-sec-capabilities').length"), 0)
+        self.assertEqual(sorted(k for k, v in found.items() if v), ["agentless", "macos", "windows"],
+                         "the seeded fleet has a host of each kind (the demo seeder writes sw01, wks01 and mbp01)")
+        for kind, host in found.items():
+            with self.subTest(kind=kind):
+                self.page.evaluate("([id, name]) => openDeviceDrawer(id, name, 'audit')", [host["id"], host["name"]])
+                self.page.wait_for_selector("#audit-sec-packages", state="attached", timeout=30000)
+                if not self.page.eval_on_selector("#audit-sec-packages", "d => d.open"):
+                    self.page.click("#audit-sec-packages > summary")
+                self.page.wait_for_selector('#audit-body-packages button[data-action-btn="_forcePackageScanBtn"]', state="attached", timeout=30000)
+                self.assertEqual(self.page.evaluate("() => document.querySelectorAll('#audit-sec-capabilities').length"), 0)
+                self.assertEqual(self.page.evaluate("""() => document.querySelectorAll('#audit-body-packages button[data-action-btn="_pkgRefreshBtn"]').length"""), 0,
+                                 "a button for a command this host's agent does not have")
+                body = self.text("#audit-body-packages")
+                self.assertNotIn("Lists refreshed", body)
+                self.assertNotIn("Check for updates now", body)
+                self.page.evaluate("closeDeviceDrawer()")
+                self.page.wait_for_timeout(200)
+        self.assertEqual(self.new_problems(), {})
 
     # ── the fit, in each language ──
     def test_every_card_fits_the_screen_in_every_language(self):
@@ -389,6 +417,32 @@ class TestThePackagesAndCapabilitiesCards(unittest.TestCase):
         self.assertIn("pkg_refresh", queued)
         self.assertEqual(self.new_problems(), {})
 
+    def test_a_refresh_that_waits_for_a_second_admin_says_so_and_does_not_say_it_was_queued(self):
+        """With the Scan kind behind change approval the server answers 202 and parks the change. api() resolves on a 202, so the page has
+        to read the body: it would otherwise say "Refresh queued" for a change that is queued nowhere. The setting is written into the
+        stack's own store, as an administrator's save would leave it, and put back."""
+        host = _STACK["hosts"]["none"]
+        cfg_path = Path(_STACK["data_dir"]) / "config.json"
+        original = cfg_path.read_text()
+        cfg = json.loads(original)
+        cfg.update(change_approval_enabled=True, approval_gated_kinds=["scan"])
+        cfg_path.write_text(json.dumps(cfg))
+        try:
+            self.open_sections(host, "packages")
+            self.page.click('#audit-body-packages button[data-action-btn="_pkgRefreshBtn"]')
+            self.page.wait_for_selector(".toast", timeout=15000)
+            toast = self.page.evaluate("() => ({cls: document.querySelector('.toast').className, text: document.querySelector('.toast').textContent})")
+            queued = self.page.evaluate("""async (id) => { const r = await api('GET', '/command-queue');
+                const row = (r.devices || []).find(d => d.device_id === id);
+                return row ? row.commands.map(c => c.raw) : []; }""", host["id"])
+        finally:
+            cfg_path.write_text(original)
+        self.assertIn("Parked", toast["text"], f"the page did not say that a second admin has to approve it: {toast}")
+        self.assertNotIn("Refresh queued", toast["text"])
+        self.assertNotIn("success", toast["cls"])
+        self.assertNotIn("pkg_refresh", queued, "a parked change is not in the host's queue")
+        self.assertEqual(self.new_problems(), {})
+
     def test_the_settings_card_is_reached_by_keyboard_saves_and_fits(self):
         page = self.page
         page.evaluate("showPage('settings')")
@@ -431,13 +485,20 @@ class TestThePackagesAndCapabilitiesCards(unittest.TestCase):
         try:
             page.click("#btn-save-settings")
             page.wait_for_selector(".toast.success", timeout=15000)
+            self.assertEqual(len(sent), 1)
+            self.assertIs(sent[0].get("pkg_refresh_before_scan"), True, "the page did not send the switch as a real true")
+            # and the other direction: the box unticked is sent as a real false (a page that always sent true would turn the setting on for
+            # everyone who saves anything, and every Linux host would run its package manager as root before each scan)
+            page.evaluate("document.querySelectorAll('.toast').forEach(t => t.remove())")
+            page.focus("#cfg-pkg-refresh-before-scan")           # the click on Save moved the focus to the button
+            page.keyboard.press("Space")
+            self.assertEqual(page.evaluate("() => document.getElementById('cfg-pkg-refresh-before-scan').checked"), False)
+            page.click("#btn-save-settings")
+            page.wait_for_selector(".toast.success", timeout=15000)
         finally:
             page.unroute("**/api/config")
-        self.assertEqual(len(sent), 1)
-        self.assertIs(sent[0].get("pkg_refresh_before_scan"), True, "the page did not send the switch as a real true")
-        page.focus("#cfg-pkg-refresh-before-scan")           # the click on Save moved the focus to the button
-        page.keyboard.press("Space")
-        self.assertEqual(page.evaluate("() => document.getElementById('cfg-pkg-refresh-before-scan').checked"), False)
+        self.assertEqual(len(sent), 2)
+        self.assertIs(sent[1].get("pkg_refresh_before_scan"), False, "the page sent the switch as on when the box was off")
         # and the server end, through the same call the page makes
         saved = page.evaluate("api('POST', '/config', {pkg_refresh_before_scan: true}).then(r => r && r.ok)")
         self.assertTrue(saved)

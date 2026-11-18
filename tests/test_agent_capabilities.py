@@ -1249,7 +1249,9 @@ class TestThePage(unittest.TestCase):
 
     def test_what_the_host_wrote_is_escaped_before_it_is_drawn(self):
         block = _block()
-        for field in ("t.name", "t.feature", "t.hint", "l.path", "l.label", "r.distro", "r.init", "ag.version", "ag.python", "n)", "p)"):
+        # t.note is the server's own sentence for a tool with no install command, not text a host wrote, and is on the list for that reason
+        # too: what is drawn into a page is escaped whatever it came from, so a note that one day carries a name from a host is safe.
+        for field in ("t.name", "t.feature", "t.hint", "t.note", "l.path", "l.label", "r.distro", "r.init", "ag.version", "ag.python", "n)", "p)"):
             self.assertRegex(block, r"escHtml\(" + re.escape(field), field)
 
     def test_the_lists_are_capped_to_scroll_and_a_hint_is_not_a_button(self):
