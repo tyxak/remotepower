@@ -8215,6 +8215,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="hint mb-8">Fixable now means an update for the host's own release clears it. The counts leave out accepted risks.</div>
         <div class="hint mb-8" id="cve-rollup-note" hidden><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong></strong></div>
+        <div class="hint mb-8" id="cve-covered-note" hidden>
+          <span>Packages checked:</span> <strong id="cve-covered-total"></strong> · <span>Not checked:</span> <strong id="cve-covered-missed"></strong>
+          <div id="cve-covered-reasons" class="mt-6"></div>
+          <div id="cve-covered-hosts" class="mt-6"></div>
+        </div>
         <div class="hint mb-8" id="cve-count-note" hidden>Counting only CVEs an update can fix, or that are known to be exploited. The severity totals leave out the others; change this in Settings → Security.</div>
         <div class="hint mb-8" id="cve-kev-feed">
           <span id="cve-kev-feed-text"></span>

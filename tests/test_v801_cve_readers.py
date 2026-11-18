@@ -614,7 +614,9 @@ class TestAHostWithOnlyACountIsNotClean(_Stored):
     def test_the_dashboard_is_handed_the_count(self):
         source = srcpin.py_function((_CGI / 'api.py').read_text(), 'handle_home')
         self.assertIn("'counted': cve_fixes.rollup_total(entry)", source)
-        self.assertIn("countedCves > 0 ? `${countedCves} counted per package` : 'No active CVEs'", _APP)
+        # 8.0.2: and "No active CVEs" is only said when every package of the scanned hosts was checked
+        self.assertIn("countedCves > 0 ? `${countedCves} counted per package` : notCheckedPkgs > 0 "
+                      "? 'None found in the packages that could be checked' : 'No active CVEs'", _APP)
         self.assertIn('acc.counted  += (Number.isInteger(d.counted) && d.counted > 0) ? d.counted : 0;', _APP)
 
     def test_the_host_view_carries_it(self):

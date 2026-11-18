@@ -21519,9 +21519,12 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
     acc.low      += c.low      || 0;
     // 8.0.1: what a Debian or Ubuntu scan counted per package and did not list
     acc.counted  += (Number.isInteger(d.counted) && d.counted > 0) ? d.counted : 0;
+    // 8.0.2: packages the scan of a host did not check
+    acc.notChecked += (Number.isInteger(d.not_checked) && d.not_checked > 0) ? d.not_checked : 0;
     return acc;
-  }, {critical: 0, high: 0, medium: 0, low: 0, counted: 0});
+  }, {critical: 0, high: 0, medium: 0, low: 0, counted: 0, notChecked: 0});
   const countedCves  = cveSummary.counted || 0;
+  const notCheckedPkgs = cveSummary.notChecked || 0;
   const criticalCves = cveSummary.critical || 0;
   const highCves     = cveSummary.high     || 0;
   const totalCves    = criticalCves + highCves +
@@ -21573,8 +21576,9 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
         : highCves > 0
           ? `${highCves} high · ${totalCves - highCves} med/low`
           : totalCves > 0 ? `${totalCves} total (med/low only)`
-            : countedCves > 0 ? `${countedCves} counted per package` : 'No active CVEs',
-      cls: criticalCves > 0 ? 'alert' : highCves > 0 ? 'warn' : 'ok',
+            : countedCves > 0 ? `${countedCves} counted per package` : notCheckedPkgs > 0 ? 'None found in the packages that could be checked' : 'No active CVEs',
+      // a fleet with nothing found in the packages that could be checked is not shown green: part of it was not checked
+      cls: criticalCves > 0 ? 'alert' : highCves > 0 ? 'warn' : (notCheckedPkgs > 0 && totalCves === 0 && countedCves === 0) ? '' : 'ok',
       nav: 'cve', ic: TICON.cve,
     },
   ];
@@ -27538,7 +27542,10 @@ async function _loadAuditSection(key) {
         const counted = (data.rollup && Number.isInteger(data.rollup.total) && data.rollup.total > 0) ? data.rollup.total : 0;
         // and a host that was never scanned is not clean either
         const scanned = Number(data.scanned_at) > 0;
-        badge.innerHTML = crit > 0 ? `<span class="c-red fw-600">${crit} critical</span>` : high > 0 ? `<span class="c-amber">${high} high</span>` : findings.length ? `${findings.length} total` : counted ? `${counted} counted` : scanned ? 'clean' : 'not scanned';
+        // 8.0.2: of the packages the host listed, how many the scan did not check. None found in the rest is not clean.
+        const unchecked = (data.covered && Number.isInteger(data.covered.not_checked) && data.covered.not_checked > 0) ? data.covered.not_checked : 0;
+        const checkedN = (data.covered && Number.isInteger(data.covered.checked) && data.covered.checked > 0) ? data.covered.checked : 0;
+        badge.innerHTML = crit > 0 ? `<span class="c-red fw-600">${crit} critical</span>` : high > 0 ? `<span class="c-amber">${high} high</span>` : findings.length ? `${findings.length} total` : counted ? `${counted} counted` : scanned ? (unchecked ? 'none found' : 'clean') : 'not scanned';
         body.innerHTML = `
           <div class="sysinfo-row isl-610">
             ${['critical','high','medium','low'].map(sev => {
@@ -27564,8 +27571,12 @@ async function _loadAuditSection(key) {
           }).join('') ||
           // 8.0.1: in brackets. Joined to the row of tiles above, the list was never empty and this
           // line was never printed.
-          (counted || !scanned ? '' : '<div class="c-green">No CVEs found.</div>')) +
+          (counted || !scanned ? '' : unchecked
+            ? (checkedN ? `<div class="c-muted"><span>None found in the packages that could be checked:</span> <strong>${checkedN}</strong></div>`
+                        : '<div class="c-muted"><span>None found, but none of the packages could be checked.</span></div>')
+            : '<div class="c-green">No CVEs found.</div>')) +
           (counted ? `<div class="meta-sm-nm"><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong>${counted}</strong></div>` : '') +
+          (unchecked ? `<div class="meta-sm-nm"><span>Packages not checked:</span> <strong>${unchecked}</strong></div>` : '') +
           (typeof data.error === 'string' && data.error ? `<div class="meta-sm-nm">${escHtml(data.error)}</div>` : '');
         // Cross-feature: CVE findings → a prefilled AI remediation runbook.
         if (crit > 0 || high > 0) {

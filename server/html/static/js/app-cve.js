@@ -128,8 +128,31 @@ async function loadCVEReport() {
   // 8.0.1: what the scans counted per package and did not list one by one, for the fleet
   const rollNote = document.getElementById('cve-rollup-note'), rolled = typeof data.summary.rollup === 'number' ? data.summary.rollup : 0;
   if (rollNote) { rollNote.hidden = !rolled; rollNote.lastElementChild.textContent = rolled; }
+  _renderCveCoveredNote(data.summary.covered, data.summary.most_not_checked);
   _renderCveHostTable();
   loadCveCampaigns();
+}
+
+// 8.0.2: how many of the packages the hosts listed their scans checked, and the hosts with the most that they did not
+// (cve_scanner.entry_package_coverage per host, summed by handle_cve_findings). Shown when something was not checked:
+// a fleet with no finding is clean only in the packages that could be checked.
+function _renderCveCoveredNote(total, hosts) {
+  const note = document.getElementById('cve-covered-note');
+  if (!note) return;
+  const num = v => typeof v === 'number' && isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+  const fmt = v => num(v).toLocaleString(_localeTag());
+  const missed = total && typeof total === 'object' ? num(total.not_checked) : 0;
+  note.hidden = !missed;
+  if (!missed) return;
+  document.getElementById('cve-covered-total').textContent = `${fmt(total.checked)} / ${fmt(total.listed)}`;
+  document.getElementById('cve-covered-missed').textContent = fmt(missed);
+  const reasons = total.reasons && typeof total.reasons === 'object' ? total.reasons : {};
+  document.getElementById('cve-covered-reasons').innerHTML = Object.keys(_CVE_NOT_CHECKED).filter(r => num(reasons[r]) > 0)
+    .map(r => `<span>${escHtml(_CVE_NOT_CHECKED[r])}</span> <strong>${fmt(reasons[r])}</strong>`).join(' · ');
+  const top = (Array.isArray(hosts) ? hosts : []).filter(h => h && typeof h.device_id === 'string' && num(h.not_checked) > 0).slice(0, 5);
+  document.getElementById('cve-covered-hosts').innerHTML = top.length
+    ? `<span>Most not checked:</span> ` + top.map(h => `<button class="btn-icon cell-sm" data-action="openDeviceCVE" data-arg="${escAttr(h.device_id)}" data-arg2="${escAttr(String(h.name || h.device_id))}"><span data-no-i18n="">${escHtml(String(h.name || h.device_id))}</span> <span>${fmt(h.not_checked)} / ${fmt(h.listed)}</span></button>`).join(' ')
+    : '';
 }
 
 // W2-35: CVE remediation campaigns.
@@ -359,6 +382,54 @@ function _cveRollupHtml(r) {
     + more + '</details>';
 }
 
+// 8.0.2: which of the packages a host listed a scan checked, and why it did not check the others (the server
+// builds the block in cve_scanner.package_coverage and sends the reason as a word, cve_fixes.REASONS). The page
+// holds the sentences, so they are translated. A package name is data, so the rows are not.
+const _CVE_NOT_CHECKED = {
+  no_source: 'No source name',
+  no_matcher: 'No matcher for the package manager',
+  no_release: 'Release not known',
+  not_published: 'Not published by the distribution',
+  ceiling: 'Past the limit of packages a scan reads',
+  unanswered: 'Not answered in full by the data source',
+};
+
+function _cveCoveredHtml(c) {
+  if (!c || typeof c !== 'object') return '';
+  // a number or nothing: an object where one belongs is not printed and not converted
+  const num = v => typeof v === 'number' && isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+  const fmt = v => num(v).toLocaleString(_localeTag());
+  const listed = num(c.listed), checked = num(c.checked), missed = num(c.not_checked);
+  if (!listed && !missed) return '';
+  const label = r => Object.prototype.hasOwnProperty.call(_CVE_NOT_CHECKED, r) ? _CVE_NOT_CHECKED[r] : '';
+  const head = `<span>Packages checked:</span> <strong>${fmt(checked)} / ${fmt(listed)}</strong>`
+    + (missed ? ` · <span>Not checked:</span> <strong>${fmt(missed)}</strong>` : '');
+  if (!missed) return `<div class="hint mb-8" data-cve-covered="">${head}</div>`;
+  const reasons = c.reasons && typeof c.reasons === 'object' ? c.reasons : {};
+  const byReason = Object.keys(_CVE_NOT_CHECKED).filter(r => num(reasons[r]) > 0).map(r =>
+    `<tr><td>${escHtml(label(r))}</td><td class="ta-center">${fmt(reasons[r])}</td></tr>`).join('');
+  const rows = (Array.isArray(c.packages) ? c.packages : []).slice(0, 200).map(p => !p || typeof p.name !== 'string' ? ''
+    : `<tr><td class="mono-12" data-no-i18n="">${escHtml(p.name)}</td><td class="mono-12" data-no-i18n="">${escHtml(typeof p.version === 'string' ? p.version : '')}</td><td>${escHtml(label(p.reason))}</td></tr>`).join('');
+  const more = num(c.more) > 0 ? `<div class="hint mt-6"><span>Packages not shown:</span> <span>${fmt(c.more)}</span></div>` : '';
+  return `<details class="mb-8" data-cve-covered=""><summary class="hint pointer">${head}</summary>`
+    + (byReason ? `<div class="scrollable-table-wrap audit-scroll mt-6"><table><thead><tr><th>Reason</th><th class="ta-center">Count</th></tr></thead><tbody>${byReason}</tbody></table></div>` : '')
+    + (rows ? `<div class="scrollable-table-wrap audit-scroll mt-6"><table><thead><tr><th>Package</th><th>Installed</th><th>Reason</th></tr></thead><tbody>${rows}</tbody></table></div>` : '')
+    + more + '</details>';
+}
+
+// What a host with no finding says. "No vulnerabilities found" is a statement about the whole host, and is only
+// made when every package was checked.
+function _cveNoneFoundHtml(data) {
+  const c = data && data.covered && typeof data.covered === 'object' ? data.covered : null;
+  const num = v => typeof v === 'number' && isFinite(v) && v > 0 ? Math.floor(v) : 0;
+  const missed = c ? num(c.not_checked) : 0, checked = c ? num(c.checked) : 0;
+  if (missed && checked) {
+    return `<div class="empty-state" data-cve-none-found=""><span>None found in the packages that could be checked:</span> <strong>${checked.toLocaleString(_localeTag())}</strong></div>`;
+  }
+  if (missed) return '<div class="empty-state" data-cve-none-found=""><span>None found, but none of the packages could be checked.</span></div>';
+  return '<div class="empty-state">No vulnerabilities found.</div>';
+}
+
 // 8.0.1: a finding is filed under the source package; this names the installed packages it covers.
 function _cveBinariesHtml(f) {
   if (!Array.isArray(f.binaries) || !f.binaries.length) return '';
@@ -392,7 +463,8 @@ async function openDeviceCVE(devId, devName) {
   html += _cveCoverageHtml(data);
   const roll = _cveRollupHtml(data.rollup);
   html += roll;
-  if (!data.findings.length) { if (!roll && data.coverage !== 'no_matcher') html += '<div class="empty-state">No vulnerabilities found.</div>'; }
+  html += _cveCoveredHtml(data.covered);          // 8.0.2: which packages were checked, and why not the others
+  if (!data.findings.length) { if (!roll && data.coverage !== 'no_matcher') html += _cveNoneFoundHtml(data); }
   else {
     // v3.14.0: surface exploited-in-wild + high-EPSS first.
     const _sevRank = {critical: 4, high: 3, medium: 2, low: 1, unknown: 0};

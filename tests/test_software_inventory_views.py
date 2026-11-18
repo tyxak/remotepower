@@ -58,6 +58,11 @@ def preamble():
         re.search(r'^function escAttr\(.*$', _APP, re.M).group(0),
         re.search(r'^const _CVE_COVERAGE = \{.*?^\};', _PAGE, re.M | re.S).group(0),
         srcpin.js_function(_PAGE, '_cveCoverageHtml'),
+        # 8.0.2: the host's view also says which of its packages were checked, and what "none found" means then
+        "const _localeTag = () => 'en-US';",
+        re.search(r'^const _CVE_NOT_CHECKED = \{.*?^\};', _PAGE, re.M | re.S).group(0),
+        srcpin.js_function(_PAGE, '_cveCoveredHtml'),
+        srcpin.js_function(_PAGE, '_cveNoneFoundHtml'),
     ])
 
 

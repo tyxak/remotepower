@@ -1645,9 +1645,10 @@ class TestThePage(unittest.TestCase):
     def test_the_host_view_and_the_fleet_table_show_the_count(self):
         view = srcpin.js_function(_PAGE, 'openDeviceCVE')
         self.assertIn('const roll = _cveRollupHtml(data.rollup);', view)
-        # a host whose list nothing is matched against says so above, and does not also say it has no vulnerabilities
+        # a host whose list nothing is matched against says so above, and does not also say it has no vulnerabilities;
+        # 8.0.2: and one of which a share was not checked says what it found in the rest (_cveNoneFoundHtml)
         self.assertIn("if (!data.findings.length) { if (!roll && data.coverage !== 'no_matcher') "
-                      "html += '<div class=\"empty-state\">No vulnerabilities found.</div>'; }", view)
+                      "html += _cveNoneFoundHtml(data); }", view)
         loader = srcpin.js_function(_PAGE, 'loadCVEReport')
         self.assertIn("document.getElementById('cve-rollup-note')", loader)
         html = (ROOT / 'server' / 'html' / 'index.html').read_text()

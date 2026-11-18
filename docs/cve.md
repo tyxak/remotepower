@@ -19,7 +19,9 @@ with real exploit signals, not just the CVSS score.
 The page opens with a severity summary (Critical / High / Medium / Low and hosts scanned),
 five tiles that count the findings by [fix status](#fix-status), and a KEV feed status line.
 When Debian or Ubuntu hosts have findings that are [counted and not listed](#what-is-listed-and-what-is-counted),
-a line under the tiles says how many. Below them is one row per host.
+a line under the tiles says how many. When some of the packages were [not checked](#which-packages-were-checked),
+another line gives the fleet total, the reasons, and the five hosts with the most of them; a click on a host opens
+its view. Below them is one row per host.
 
 | Column | Meaning |
 | --- | --- |
@@ -63,6 +65,11 @@ counted and not listed, how many of those are critical or high, how many an upda
 clear, how many are fixed with Ubuntu Pro, and the packages that hold the most with the version
 installed. Open it with a click.
 
+Under it, **Packages checked** says how many of the packages the host listed the last scan checked.
+When some were not, a click shows the reasons with their counts and the first 200 of those packages by
+name, with the reason of each. A host with no finding says **None found in the packages that could be
+checked** and not "No vulnerabilities found" when that is so.
+
 ## Which hosts are scanned
 
 | Host | Ecosystem |
@@ -99,6 +106,35 @@ wrong name would find nothing and read as clean.
 So such a host shows **not checked** in the Last scan column, is never scanned, and is never asked of OSV. Its host view says that
 nothing on it is checked, and has no "No vulnerabilities found" line, because an empty list there would say the opposite of what is
 true.
+
+## Which packages were checked
+
+A scan that finds nothing is only as good as what it asked about. A package that was not asked about under the
+name the advisory data is filed under has no findings, whatever is wrong with it, and that reads the same as a
+clean one. So each scan keeps, on the host's record, how many of the packages the host listed it **checked**, and
+for every other package one reason it did not:
+
+| Reason | What it means |
+| --- | --- |
+| **No source name** | The data is filed under the source package, and the list of the host names none: the agent is older than 8.0.1. On a host that is asked for package by package, a package whose answer named an advisory still counts as checked, because the answer shows the name was the right one. |
+| **No matcher for the package manager** | Nothing on the host is matched against a database: the applications of a Windows or macOS host, the packages of Arch and openSUSE, a distribution OSV has no feed for. |
+| **Release not known** | A Debian or Ubuntu derivative whose release the scan does not know, so the data, which is kept per release, cannot be asked for. |
+| **Not published by the distribution** | An RPM host's imported GPG keys (`gpg-pubkey`). They are records of a key, not built from a source package, and no advisory is filed under them. |
+| **Past the limit of packages a scan reads** | A scan reads the first 10,000 packages of a list. |
+| **Not answered in full by the data source** | The advisory list of the package was longer than the pages a scan reads (see [Scanning](#scanning)). |
+
+The host's record keeps the count of each reason and the first 200 packages that were not checked, never the whole
+list. The CVE page, the host view, the host drawer, the dashboard tile, the assistant's CVE tool, the text of a
+ticket, the runbook, the MCP tool `get_cves` and the SBOM all say what the scan did not check, and a host with no
+finding says that none were found in the packages that could be checked.
+
+What the data source answers for a package it has no record of is the same as for one it holds a record of and that
+no advisory touches: an empty list. So a package of a third-party repository, or one built locally, is counted as
+checked on a host that is asked by source package. Telling those apart needs the agent to report the repository of
+each package, which it does not.
+
+A host is told its packages were checked from the scan after the upgrade. Until then its view says nothing of its
+packages, except that a host nothing is matched against says so at once, because no scan is made of it.
 
 ## How a package is matched
 
@@ -326,6 +362,10 @@ Generate a Software Bill of Materials per host or for the whole fleet:
   container images are included as components. A finding filed under a source package points
   at the installed packages it names: the ones built from that source at the affected version.
   A new kernel beside the old one is not named for a finding about the old one.
+- Each SBOM says how much of its host a CVE scan checked, because a document with no vulnerability in it reads as a
+  host with none: the properties `remotepower:cve_packages_checked` and `remotepower:cve_packages_not_checked` of the
+  host component in CycloneDX (and `remotepower:cve_not_checked:<reason>` for each reason), and a sentence in the
+  comment of the creation info in SPDX. A host that has not been scanned since 8.0.2 has none.
 - A Windows or macOS host's SBOM lists its applications as `pkg:generic/<name>@<version>` components (no `@<version>` when the
   program wrote none), typed `application`. The publisher is the property `remotepower:publisher` of a CycloneDX component and the
   supplier of an SPDX package; the architecture, the install date, the bundle identifier and the manager (`windows`, `macos` or
@@ -440,6 +480,8 @@ findings do not count. You can keep up to 200 campaigns.
 | A library has no findings on Debian or Ubuntu | The host's agent is older than 8.0.1. The host view says so. See [How a package is matched](#how-a-package-is-matched). |
 | A Devuan, LMDE or Kali host changed after the upgrade | Devuan and LMDE are scanned under the Debian release they are built on and get the findings they never had. Kali has no Debian release and shows **unsupported** where it showed a scan with nothing in it. |
 | A host says its agent does not report source packages | Update the agent, then click **Send package list now** and scan the host. |
+| A host has no findings and says **None found in the packages that could be checked** | Some of its packages were not checked. Open its view for the reasons and the first 200 packages. See [Which packages were checked](#which-packages-were-checked). |
+| A host's view says nothing of which packages were checked | It was scanned before 8.0.2. Scan it again. |
 | The High count rose after the upgrade to 8.0.1 | Debian and Ubuntu hosts are matched by source package now. Many of the new findings have no fix for the host's release. **Count only CVEs an update can fix** leaves those out of the numbers, and the alert option of the same name out of the alerts. |
 | A host has a number under **Counted** and few findings | See [What is listed and what is counted](#what-is-listed-and-what-is-counted). |
 | A campaign over CVE IDs was marked completed at once | Before 8.0.1 a campaign over a list of IDs, or over known-exploited findings, matched nothing. It reopens with the next daily sample if hosts are affected. |
