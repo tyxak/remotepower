@@ -16,8 +16,8 @@ shared, so processes, ports, packages, disks and config all reflect the host.
 ## Quick start (two values, one command)
 
 1. In the RemotePower UI, open **Hosts → Enroll host → Generate Docker compose**. Copy the
-   generated `docker-compose.yml`. Your server URL and a one-time token (valid for 24 hours)
-   are already filled in.
+   generated `docker-compose.yml`. Your server URL and an enrolment token are already filled in. The token is good for 24 hours
+   and for the number of hosts in **Hosts that can use it** (one by default).
 2. On the Docker host, save it and run:
 
 ```bash

@@ -4257,7 +4257,7 @@ function dockerComposeText(server, token) {
 volumes:
   rp-agent-creds:`;
 }
-// v4.7.0: one-click Docker-host enrollment. Mints a one-time enrollment token
+// v4.7.0: one-click Docker-host enrollment. Mints an enrollment token (for one host unless it was made for more)
 // and renders a ready-to-run compose file with this server's URL + the token
 // pre-filled. Built with createElement/textContent (never innerHTML string
 // interpolation) so the token can't break out — CSP-safe by construction.
@@ -4316,7 +4316,7 @@ function copyDockerEnroll() {
   navigator.clipboard.writeText(pre.dataset.rawText || pre.textContent || '');
   toast('Compose copied to clipboard', 'success');
 }
-// v4.8.0: one-line "baked" install. Mints a one-time token and hands the
+// v4.8.0: one-line "baked" install. Mints an enrollment token (for one host unless it was made for more) and hands the
 // operator a single command — the served installer downloads the agent, VERIFIES
 // its sha256, enrols with the baked token and the host appears by its hostname.
 
@@ -4386,7 +4386,7 @@ function _startEnrollWatch(since) {
 }
 
 // The install commands, built from the address the dashboard was opened at (port
-// included), the one-time token and, when the server has a self-signed CA, that
+// included), the enrollment token and, when the server has a self-signed CA, that
 // CA's SHA-256 fingerprint. Pure, so a test can run the strings it returns.
 //
 // `linux` needs a certificate the host already trusts: wget and curl refuse a
@@ -4435,7 +4435,7 @@ async function generateQuickInstall() {
   const token = data.token;
   const server = window.location.origin;
   box.textContent = '';
-  // v6.2.0: one-time token, one line per OS. Each downloads the agent from this
+  // v6.2.0: the enrollment token, one line per OS. Each downloads the agent from this
   // server, verifies its checksum, enrols, and the host appears by hostname.
   // v7.4.1: a server with its own CA also gets the line that pins it (#34).
   const { linux, linuxPinned, win } = quickInstallLines(server, token, (data && data.ca_fingerprint) || '');

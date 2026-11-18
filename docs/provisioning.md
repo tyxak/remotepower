@@ -33,8 +33,9 @@ download. Two macros are always available:
 - `${rp_agent_install}` — the agent install one-liner
   (`curl -fsSL <server>/install | sudo sh -s -- --token <enrollment-token>`), so
   a cloud-init blueprint can bake the agent in. The text `<enrollment-token>` stays
-  in the output: replace it with a one-time token from **Hosts → Enroll host**
-  (one token enrols one host) and the provisioned machine enrols itself.
+  in the output: replace it with a token from **Hosts → Enroll host**
+  (a token enrols one host unless you make it for more, see
+  [One command for many hosts](install.md#one-command-for-many-hosts)) and the provisioned machine enrols itself.
 
 Rendering is pure string substitution — nothing is executed. A `${name}` that has
 no value is left as it is, and the page lists it after the render. (Terraform
