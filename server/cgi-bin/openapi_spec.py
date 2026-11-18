@@ -1292,22 +1292,36 @@ def _path_enrollment_tokens() -> dict[str, Any]:
                             "schema": {
                                 "type": "object",
                                 "properties": {
-                                    "expires_in": {"type": "integer", "minimum": 60, "maximum": 604800,
-                                                   "description": "Seconds until it expires. Default 86400, at most 7 days."},
-                                    "max_uses": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 1,
-                                                 "description": "How many hosts may enrol with it. A string, a float, zero and a negative number are refused."},
+                                    "expires_in": {
+                                        "type": "integer",
+                                        "minimum": 60,
+                                        "maximum": 604800,
+                                        "description": "Seconds until it expires. Default 86400, at most 7 days.",
+                                    },
+                                    "max_uses": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 1000,
+                                        "default": 1,
+                                        "description": "How many hosts may enrol with it. A string, a float, zero and a negative number are refused.",
+                                    },
                                     "default_group": {"type": "string"},
                                     "default_tags": {"type": "array", "items": {"type": "string"}},
                                     "label": {"type": "string", "maxLength": 128},
-                                    "allowed_cidrs": {"type": "array", "items": {"type": "string"},
-                                                      "description": "Addresses or networks the token may be used from."},
+                                    "allowed_cidrs": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "description": "Addresses or networks the token may be used from.",
+                                    },
                                 },
                             }
                         }
                     },
                 },
                 "responses": {
-                    "201": {"description": "Made. Carries token, expires, created, label, max_uses, allowed_cidrs and ca_fingerprint."},
+                    "201": {
+                        "description": "Made. Carries token, expires, created, label, max_uses, allowed_cidrs and ca_fingerprint."
+                    },
                     "400": {"$ref": "#/components/responses/BadRequest"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"description": "Admin role required."},
@@ -1319,7 +1333,9 @@ def _path_enrollment_tokens() -> dict[str, Any]:
                 "tags": ["Agents"],
                 "summary": "Revoke an enrollment token",
                 "description": "Stops further use at once. The prefix is the one the list shows (at least 4 characters).",
-                "parameters": [{"name": "prefix", "in": "path", "required": True, "schema": {"type": "string"}}],
+                "parameters": [
+                    {"name": "prefix", "in": "path", "required": True, "schema": {"type": "string"}}
+                ],
                 "responses": {**_admin, "404": {"description": "No matching token."}},
             }
         },
