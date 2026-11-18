@@ -13386,7 +13386,7 @@ async function setHostUpgradeMode(arg) {
   const block = document.getElementById('upgrade-mode-block');
   if (data && block) block.outerHTML = _upgradeModeBlock(id, data);
 }
-async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this host.'}); return; } const statusCls = data.patch_status === 'fully_patched' ? 'c-green' : data.patch_status === 'patches_available' ? 'c-amber' : 'c-muted'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value ${statusCls}">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value ${data.online ? 'c-green' : 'c-red'}">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += _upgradeModeBlock(devId, data); html += _patchPlanButton(devId, devName, data); html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
+async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data || !data.patch_status) { _errorState('device-patch-body', () => openDevicePatchReport(devId, devName), {msg: (data && data.error) || 'Could not load the patch report for this host.'}); return; } const statusCls = data.patch_status === 'fully_patched' ? 'c-green' : data.patch_status === 'patches_available' ? 'c-amber' : 'c-muted'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value ${statusCls}">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value ${data.online ? 'c-green' : 'c-red'}">${data.online?'Yes':'No'}</div></div></div>`; html += _wuSearchLine(data.wu_search, 'mb-8'); if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += _upgradeModeBlock(devId, data); html += _patchPlanButton(devId, devName, data); html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
 let cveReportData = null;
@@ -26620,6 +26620,21 @@ function _gwAvgSuffix(gw) {
   return ` (avg ${avg.toFixed(1)}ms)`;
 }
 
+// The Windows Update search of a host (sysinfo.wu_search) as one line: when it last ran and whether it worked. A search that failed leaves
+// the count the host had, so the line says when that count was taken. The server wrote every field of the state
+// (windows_host.clean_search_state) and the reason is one word of a fixed set, so nothing here is free text. Each phrase is an element of its
+// own, because the translator matches a whole text node.
+function _wuSearchLine(ws, cls) {
+  if (!ws || typeof ws.ok !== 'boolean') return '';
+  const via = ws.source === 'wsus' ? ' <span class="hint">· WSUS</span>' : '';
+  if (ws.ok) {
+    return `<div class="fs-12 ${cls || ''}"><span class="hint">Last search</span> ${timeAgoHtml(ws.at)}, <span class="c-green">ok</span>${via}</div>`;
+  }
+  const why = ['timeout', 'access', 'service', 'network'].includes(ws.error_class) ? ws.error_class : 'unknown';
+  const from = ws.ok_at ? `<span>the count is from</span> ${escHtml(_fmtAbsDate(ws.ok_at))}` : '<span>no search has worked yet</span>';
+  return `<div class="fs-12 c-amber ${cls || ''}"><span>Last search failed</span> (<span>${why}</span>); ${from}${via}</div>`;
+}
+
 async function _loadAuditSection(key) {
   const id   = _drawerDeviceId;
   const body = document.getElementById(`audit-body-${key}`);
@@ -27267,12 +27282,16 @@ async function _loadAuditSection(key) {
         // v4.6.1 (SECURITY): coerce to a number so a malicious agent can't put
         // markup in `upgradable` and have it land in innerHTML below unescaped.
         const upg  = (typeof pkg.upgradable === 'number') ? pkg.upgradable : '?';
+        // A Windows host: the Defender definition updates the count leaves out, and how its last search went.
+        const defs = (typeof pkg.definition_updates === 'number' && pkg.definition_updates > 0) ? pkg.definition_updates : 0;
         body.innerHTML = `
           <div class="sysinfo-row isl-610">
             <div class="sysinfo-pill"><div class="label">Manager</div><div class="value">${escHtml(pkg.manager||'unknown')}</div></div>
             <div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value isl-635 ${upg>0?'c-amber':'c-green'}">${upg}</div></div>
             <div class="sysinfo-pill"><div class="label">Last scan</div><div class="value">${data?.sysinfo?.pkg_scan_ts ? timeAgoHtml(data.sysinfo.pkg_scan_ts) : '—'}</div></div>
+            ${defs ? `<div class="sysinfo-pill"><div class="label">Definition updates</div><div class="value" title="Defender definition updates are counted here and left out of the pending updates.">${defs}</div></div>` : ''}
           </div>
+          ${_wuSearchLine(data?.sysinfo?.wu_search, 'mb-8')}
           <button class="btn-secondary" data-action-btn="_forcePackageScanBtn" data-dev-id="${id}" data-dev-name="${escAttr(_drawerDeviceName)}" >⟳ Scan now</button>`;
         badge.textContent = upg > 0 ? `${upg} upgradable` : 'up to date';
         break;

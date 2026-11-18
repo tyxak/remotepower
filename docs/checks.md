@@ -41,6 +41,10 @@ sortable, filterable table.
     Windows Update service starts on demand, so it is only a warning when its
     start type is Disabled (an agent older than 7.3.0 does not report the start
     type and keeps the old rule, a service that is not running).
+    **Windows Update search** is a separate row, from the state the agent sends
+    with each search (see [Windows Update](windows-client.md#windows-update)):
+    it is amber after 3 days without a search that worked and red after 14. One
+    failed search is not a finding, since the next may work.
   - **macOS** (`mac_posture`) — FileVault disk encryption, the Application
     Firewall, Gatekeeper, System Integrity Protection (SIP), and automatic
     security updates.

@@ -917,6 +917,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import cve_scanner
 import cve_fixes   # v7.4.6 (#57): fix status per release, the fixable-only alert rule, the KEV match (pure)
 import software_inventory   # the application lists of Windows and macOS hosts: what a row holds, how names and versions compare (pure)
+import windows_host as windows_host_mod   # what a Windows agent says about the host: the update search, the build, the shares, the TPM (pure)
 import importers
 import geoip as geoip_mod   # W6-41: offline MMDB reader (GeoIP enrichment)
 import prometheus_export
@@ -23634,12 +23635,21 @@ def handle_heartbeat():
                             }
                     if safe_tp:
                         safe_pkg['third_party'] = safe_tp
+                # The Defender definition updates are not pending updates: take them out of the count and the names of a
+                # Windows Update report (an older agent sends them with the rest), so that every reader of the stored
+                # count reads the same number, and keep how many there were.
+                windows_host_mod.settle_update_packages(safe_pkg, pkg)
                 safe_si['packages'] = safe_pkg
                 # v4.2.0 sweep: stamp when this package report landed — the
                 # Packages drawer card shows it as "Last scan" next to the
                 # Scan-now button (the pill read pkg_scan_ts but nothing ever
                 # produced it, so it rendered "—" forever).
                 safe_si['pkg_scan_ts'] = now
+            # The state of the Windows Update search (when it ran, whether it worked, why not). A search that failed
+            # sends no count; the stored one is kept after the delta merge below.
+            _wu_state = windows_host_mod.clean_search_state(si.get('wu_search'), now, dev.get('sysinfo'))
+            if _wu_state is not None:
+                safe_si['wu_search'] = _wu_state
             if 'network' in si and isinstance(si['network'], list):
                 safe_net = []
                 for iface in si['network'][:20]:  # max 20 interfaces
@@ -24480,6 +24490,10 @@ def handle_heartbeat():
             # sides are already sanitised, and the flag can only preserve values
             # this device previously sent, never introduce new ones. The next
             # cadence beat is a full replace, so nothing goes stale forever.
+            if _wu_state is not None and not _wu_state['ok']:
+                # a search that failed neither clears nor refreshes the count: the stored report is replaced by this
+                # one, so the count and the time it was taken are carried over
+                windows_host_mod.keep_last_count(safe_si, dev.get('sysinfo'))
             _fresh_si = safe_si
             if body.get('sysinfo_partial') and isinstance(dev.get('sysinfo'), dict):
                 _merged = dict(dev['sysinfo'])
@@ -62933,6 +62947,10 @@ def handle_patch_report_device(dev_id):
         'upgradable': upgradable,
         'security_updates': security_updates,
         'patch_status': 'no_data' if upgradable is None else ('fully_patched' if upgradable == 0 else 'patches_available'),
+        # A Windows host: how its last Windows Update search went (a failed search leaves the count it had), and the
+        # Defender definition updates the count leaves out.
+        'wu_search': si.get('wu_search') if isinstance(si.get('wu_search'), dict) else None,
+        'definition_updates': pkg.get('definition_updates') if isinstance(pkg.get('definition_updates'), int) else None,
         'uptime': si.get('uptime', ''),
         'platform': si.get('platform', ''),
         'patch_history': patch_cmds[-20:],

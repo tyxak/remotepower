@@ -23,6 +23,7 @@ test suite. Part of the Makefile LINT + TYPECHECK baseline.
 import time
 
 import posture_signals
+import windows_host
 from textfmt import plural
 
 # v6.2.2 threshold batch 5: seconds-per-day, for the OOM "days ago" display
@@ -573,6 +574,12 @@ def _host_checks(
         else:
             detail = f"{plural(up, 'update', 'updates')}"
         add("patches", "Pending updates", "patch", "warning" if (up > 0 or sec) else "ok", detail)
+    # Windows Update search: whether the last search worked and how old the count is. Amber after three days without a
+    # successful search, red after fourteen (windows_host.search_row); a host that sent no state has no row. It
+    # follows the count's row because the count is only as good as the search behind it.
+    wu_search = windows_host.search_row(si.get("wu_search"), now)
+    if wu_search is not None:
+        add("win_update_search", "Windows Update search", "patch", wu_search[0], wu_search[1])
     if cve_high is not None:
         add(
             "cve",

@@ -222,7 +222,7 @@ Parity with the Linux agent for the core management surface:
 | **Service** enumerate + control | systemd | `Get-Service` + Start/Stop/Restart-Service |
 | **Process** list + kill | `/proc` + signals | psutil + `taskkill` |
 | **File manager** (`files:`) | yes | yes, Windows-rooted allowlist |
-| Patch detect | apt/dnf/… | Windows Update COM API |
+| Patch detect | apt/dnf/… | Windows Update COM API; Defender definition updates are counted apart, and each search says whether it worked (see [Windows Update](#windows-update)) |
 | Patch apply | package manager | PSWindowsUpdate → COM fallback (never auto-reboots) |
 | **Third-party patch** (winget) | flatpak/snap/pip/npm (detect) | `winget:` detect **and remediate** |
 | AV posture | ClamAV/rkhunter | Windows Defender (`Get-MpComputerStatus`) |
@@ -255,6 +255,27 @@ name, a component Windows hides from the list (`SystemComponent` is 1) and an up
 and is not listed. A program that Windows does not record under these keys, such as an app from the Microsoft Store, is not
 listed either. [Software inventory](patches.md#software-inventory) says how the server shows the list, and
 [CVE scanning](cve.md#windows-and-macos-hosts) why it is not checked for vulnerabilities.
+
+### Windows Update
+
+The agent asks Windows Update for the updates that are not installed, with the system information (about every 12 polls)
+and when you press **Scan now**. Two things about the answer are worth knowing.
+
+- **Defender definition updates are not counted.** Windows offers them several times a day, so counting them put one or
+  two pending updates on every Windows host. A title is a definition update when it contains "Security Intelligence
+  Update", when it contains "Definition Update for" and names Defender or Antivirus, or when it names KB2267602. The agent
+  reports them apart: the pending count, the patch alert, the patch SLA and the risk score leave them out, and the
+  host's Packages card shows how many there were under **Definition updates**. The Defender platform update (KB4052623) is
+  a program update and is counted. An agent older than this one sends the definition updates with the rest, and the server
+  takes the ones it can see out of the count when the report arrives.
+- **The search is reported.** Each report says when the search ran, whether it worked and where it asked: Windows Update,
+  or a WSUS server that a policy points the host at. A search that failed says why in one word: `timeout`, `access`,
+  `service`, `network` or `unknown`. It never sends the text of the error. A failed search does not clear the count and
+  does not refresh it. The host keeps the count it had and says when that count was taken.
+
+You see the search on the host's **Packages** card and in its patch report (*Last search 12 minutes ago, ok*, or in amber
+*Last search failed (access); the count is from 2026-11-12*). The Checks page has a row, **Windows Update search**, that
+turns amber after 3 days without a successful search and red after 14. Silence it for one host like any other row.
 
 ### Interpreter selection (`exec:` vs `ps:` vs `cmd:`)
 

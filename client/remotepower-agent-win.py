@@ -1083,35 +1083,161 @@ def _run_process_kill_win(cmd):
         return {'cmd': cmd, 'output': f'{type(e).__name__}: {e}', 'rc': 1}
 
 
+_WU_ERROR_MARK = 'RP_WU_ERROR:'
+
+
 def _parse_wu_titles(stdout):
     """Parse one-title-per-line output from the Windows Update searcher into a
     clean list. Pure — unit-testable off-Windows."""
-    return [ln.strip() for ln in (stdout or '').splitlines() if ln.strip()][:200]
+    return [ln.strip() for ln in (stdout or '').splitlines()
+            if ln.strip() and not ln.strip().startswith(_WU_ERROR_MARK)][:200]
 
 
-# PowerShell: pending (not-installed, not-hidden) Windows Updates, one title/line.
+# PowerShell: pending (not-installed, not-hidden) Windows Updates, one title/line. A search that fails prints one
+# line, RP_WU_ERROR:<the HRESULT as 8 hex digits>:<the PowerShell error category>, and exits with 3. The agent turns
+# those into one word (_wu_error_class) and never sends the text of an error: it is in the language of the host and
+# can name paths and accounts. The HRESULT is read from the innermost exception, because a COM call is wrapped in a
+# MethodInvocationException that carries a generic one.
 _WU_PS = (
     "$ErrorActionPreference='Stop';"
+    "try{"
     "$u=(New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher()"
     ".Search('IsInstalled=0 and IsHidden=0').Updates;"
     "$u | ForEach-Object { $_.Title }"
+    "}catch{"
+    "$e=$_.Exception;while($e.InnerException){$e=$e.InnerException};"
+    "Write-Output ('" + _WU_ERROR_MARK + "'+('{0:X8}' -f [int]$e.HResult)+':'+$_.CategoryInfo.Category);"
+    "exit 3}"
 )
+
+
+def _is_definition_update(title):
+    """True for the title of a Defender definition update, and for nothing else. The server keeps the same rule
+    (windows_host.is_definition_update) and a test holds the two to one table of titles.
+
+    A definition update is a signature file that Windows Update offers several times a day. It is not a patch
+    anyone schedules, so counting it put one or two pending updates on every Windows host at all times. Windows
+    names them like this:
+      Security Intelligence Update for Microsoft Defender Antivirus - KB2267602 (Version 1.405.1070.0)
+      Definition Update for Windows Defender Antivirus - KB2267602 (Definition 1.243.123.0)
+      Definition Update for Windows Defender - KB915597 (Definition 1.171.123.0)
+    The Defender platform update (KB4052623, "... antimalware platform") is a program update and is not matched."""
+    text = str(title or '').lower()
+    if 'security intelligence update' in text or 'kb2267602' in text:
+        return True
+    return 'definition update for' in text and ('defender' in text or 'antivirus' in text)
+
+
+# What the HRESULT of a failed search says, in the one word the server stores. A code that is not listed is
+# 'unknown'. Windows Update's own codes are 0x8024xxxx, WinINet's are 0x80072Exx/0x80072Fxx.
+_WU_HRESULT_CLASS = {
+    # the caller may not search: E_ACCESSDENIED, HTTP 401 and 403 from an update server
+    0x80070005: 'access', 0x80244017: 'access', 0x80244018: 'access',
+    # nothing answered in time: ERROR_TIMEOUT, WinINet's timeout, HTTP 408
+    0x800705B4: 'timeout', 0x80072EE2: 'timeout', 0x8024401C: 'timeout',
+    # the update service is disabled, not running or does not answer: service disabled, service not active, RPC
+    # server unavailable, WU_E_NO_SERVICE, WU_E_SERVICE_STOP, HTTP 503
+    0x80070422: 'service', 0x80070426: 'service', 0x800706BA: 'service', 0x80240001: 'service',
+    0x8024001E: 'service', 0x80244022: 'service',
+    # the update server cannot be reached: name not resolved, cannot connect, connection aborted, TLS channel error,
+    # endpoint unreachable, too many round trips
+    0x80072EE7: 'network', 0x80072EFD: 'network', 0x80072EFE: 'network', 0x80072F8F: 'network',
+    0x8024402C: 'network', 0x80240438: 'network', 0x80244010: 'network',
+}
+_WU_CATEGORY_CLASS = {'PermissionDenied': 'access', 'SecurityError': 'access', 'AuthenticationError': 'access',
+                      'OperationTimeout': 'timeout', 'ConnectionError': 'network'}
+_WU_ERROR_RE = re.compile(r'^' + _WU_ERROR_MARK + r'([0-9A-Fa-f]{8}):([A-Za-z]{1,40})\s*$', re.M)
+
+
+def _wu_error_class(stdout, timed_out=False):
+    """One word for why a search failed: 'timeout', 'access', 'service', 'network' or 'unknown'. Pure.
+    Never the text of an error: it comes from the HRESULT and the PowerShell error category the script prints."""
+    if timed_out:
+        return 'timeout'
+    m = _WU_ERROR_RE.search(stdout or '')
+    if not m:
+        return 'unknown'
+    return (_WU_HRESULT_CLASS.get(int(m.group(1), 16))
+            or _WU_CATEGORY_CLASS.get(m.group(2))
+            or 'unknown')
+
+
+_WU_POLICY_KEY = r'SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+
+
+def _wu_source():
+    """Where this host's Windows Update search asks: 'wsus' when a policy points it at an update server of the
+    organisation (WUServer is set and UseWUServer is 1), 'windows-update-agent' otherwise. Read only; a host whose
+    policy cannot be read is taken to ask Microsoft's service."""
+    try:
+        import winreg
+    except Exception:
+        return 'windows-update-agent'
+    view = getattr(winreg, 'KEY_WOW64_64KEY', 0)
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _WU_POLICY_KEY, 0, winreg.KEY_READ | view)
+    except Exception:
+        return 'windows-update-agent'
+    try:
+        server = _reg_text(winreg, key, 'WUServer')
+        use = False
+        try:
+            au = winreg.OpenKey(key, 'AU', 0, winreg.KEY_READ | view)
+        except Exception:
+            au = None
+        if au is not None:
+            try:
+                use = _reg_flag(winreg, au, 'UseWUServer')
+            finally:
+                winreg.CloseKey(au)
+    except Exception:
+        return 'windows-update-agent'
+    finally:
+        winreg.CloseKey(key)
+    return 'wsus' if (server and use) else 'windows-update-agent'
+
+
+# The outcome of the last search that ran, {at, ok, source, error_class}; None until one has. collect_sysinfo()
+# clears it before it asks and sends what the search left, so a failed search is reported and an old outcome
+# is never sent twice.
+_wu_search_state = None
+
+
+def _record_wu_search(ok, error_class=''):
+    global _wu_search_state
+    _wu_search_state = {'at': int(time.time()), 'ok': bool(ok), 'source': _wu_source(),
+                        'error_class': '' if ok else error_class}
 
 
 def windows_update_pending():
     """Pending Windows Updates as a packages entry, or None. This is the
     security-patch posture on Windows; it surfaces on the Patches page. The COM
-    search can be slow, so it only runs on the (infrequent) sysinfo cadence."""
+    search can be slow, so it only runs on the (infrequent) sysinfo cadence.
+
+    The Defender definition updates are not counted: `upgradable` and `upgradable_names` leave them out and
+    `definition_updates` says how many there were. None means the search failed, and why is in
+    `_wu_search_state` (a failed search sends no count, and the server keeps the one it has)."""
     if not sys.platform.startswith('win'):
         return None
     try:
         r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', _WU_PS],
-                           capture_output=True, text=True, timeout=120)
-        if r.returncode != 0:
-            return None
+                           capture_output=True, text=True, timeout=120,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except subprocess.TimeoutExpired:
+        _record_wu_search(False, 'timeout')
+        return None
+    except Exception:
+        _record_wu_search(False, 'unknown')
+        return None
+    if r.returncode != 0:
+        _record_wu_search(False, _wu_error_class(r.stdout))
+        return None
+    try:
         titles = _parse_wu_titles(r.stdout)
-        out = {'manager': 'windows-update', 'upgradable': len(titles),
-               'upgradable_names': titles[:50]}
+        pending = [t for t in titles if not _is_definition_update(t)]
+        out = {'manager': 'windows-update', 'upgradable': len(pending),
+               'upgradable_names': pending[:50],
+               'definition_updates': len(titles) - len(pending)}
         # v6.2.0: third-party APPLICATION updates via winget, in the same
         # `third_party: {mgr: {count, names}}` shape the Linux agent uses for
         # flatpak/snap/pip/npm. Windows Update covers the OS; winget covers
@@ -1119,9 +1245,11 @@ def windows_update_pending():
         tp = get_winget_updates()
         if tp:
             out['third_party'] = {'winget': tp}
-        return out
     except Exception:
+        _record_wu_search(False, 'unknown')
         return None
+    _record_wu_search(True)
+    return out
 
 
 # A winget package Id: reverse-DNS-ish, e.g. "Google.Chrome", "7zip.7zip".
@@ -2116,9 +2244,15 @@ def collect_sysinfo():
             info['custom_check_results'] = eval_agent_checks(_watched_agent_checks)
         except Exception:
             pass
+    global _wu_search_state
+    _wu_search_state = None                    # what the search below leaves is this beat's, never an old one's
     pkgs = windows_update_pending()
     if pkgs is not None:
         info['packages'] = pkgs                # Windows Update pending → Patches page
+    if _wu_search_state:
+        # when the search ran, whether it worked and why not; a failed one sends no count, and the server
+        # keeps the one it has (windows_host.keep_last_count)
+        info['wu_search'] = dict(_wu_search_state)
     lports = collect_listening_ports()
     if lports:
         info['listening_ports'] = lports       # → Exposure page + port audit

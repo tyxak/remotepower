@@ -19,6 +19,9 @@ which hosts have updates waiting, and which packages are involved.
   the fleet, and the **patch catalog** inverts the table: pending updates
   aggregated *by package*, showing which update is waiting on how many hosts.
   See [Software inventory](#software-inventory) for what each system reports.
+- A Windows host's count leaves out the Defender definition updates, which Windows offers several times a day, and its
+  patch report says when the last Windows Update search ran and whether it worked. A search that failed keeps the count the
+  host had and names the date of it. See [Windows Update](windows-client.md#windows-update).
 
 ## Software inventory
 

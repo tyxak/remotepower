@@ -430,7 +430,9 @@ SHAPES: dict = {
                                                                               ratio=OPT_NUM, quota_pct=OPT_NUM))),
                        guard_quarantine=LIST, listening_ports=LIST,
                        mounts=list_of(fields(percent=OPT_NUM, total_gb=OPT_NUM, used_gb=OPT_NUM)), network_io=LIST, packages=DICT,
-                       timers=LIST))),
+                       timers=LIST,
+                       # a Windows host: the Checks row subtracts these times from now
+                       wu_search=fields(at=OPT_NUM, ok_at=OPT_NUM, fail_since=OPT_NUM)))),
     'acme_state.json': dict_of(fields(certs=list_of(), updated_at=OPT_NUM)),
     'av_status.json': dict_of(fields(clamav=DICT, rkhunter=DICT)),
     'cmdb.json': dict_of(fields(docs=list_of(), credentials=list_of(), rack_id=SCALAR, server_function=OPT_STR)),
