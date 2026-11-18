@@ -523,12 +523,97 @@ class TestTheRulesAreHeldTwice(unittest.TestCase):
             (win._REG_MAX_SEGMENTS, win._REG_MAX_PATH, win._REG_MAX_VALUE_NAME, win._REG_MAX_EXPECT))
         self.assertEqual((checks.REGISTRY_HIVES, checks.REGISTRY_ROOTS, checks.REGISTRY_OPS),
                          (win._REG_HIVES, win._REG_ROOTS, win._REG_OPS))
+        self.assertEqual((checks._REGISTRY_INT_MIN, checks._REGISTRY_INT_MAX), (win._REG_INT_MIN, win._REG_INT_MAX))
+        self.assertEqual((win._REG_INT_MIN, win._REG_INT_MAX), (-(2 ** 63), 2 ** 64 - 1), 'the numbers a whole value may hold, as the guide gives them')
+
+    def test_a_number_at_the_edge_of_what_a_value_can_hold_is_taken_by_both_places_and_one_past_it_by_neither(self):
+        for op in ('at_least', 'at_most', 'equals', 'not_equals'):
+            for text, ok in ((str(2 ** 64 - 1), True), (str(2 ** 64), False), (str(-(2 ** 63)), True), (str(-(2 ** 63) - 1), False), ('0xFFFFFFFFFFFFFFFF', True),
+                             ('0x10000000000000000', False), ('0x0', True), ('-0x1', False), ('1' * 20, False if int('1' * 20) > 2 ** 64 - 1 else True)):
+                body = _body(op=op, expect=text)
+                if op in ('equals', 'not_equals') and not ok:
+                    continue                                    # a text may be any text for equals: only the numeric conditions hold it to a number
+                server = checks.validate_registry_check(body)[0] is not None
+                agent = win._reg_clean(dict(body, hive='HKLM'))[0] is not None
+                self.assertEqual((server, agent), (ok, ok), '%s %s' % (op, text))
 
     def test_the_refusal_that_names_a_limit_names_the_real_one(self):
         self.assertIn('%d parts' % checks.REGISTRY_MAX_SEGMENTS, checks.validate_registry_check(_body(path='SOFTWARE' + '\\a' * 12))[1])
         self.assertIn('%d characters' % checks.REGISTRY_MAX_PATH, checks.validate_registry_check(_body(path='SOFTWARE\\' + 'a' * 192))[1])
         self.assertIn('%d characters' % checks.REGISTRY_MAX_VALUE_NAME, checks.validate_registry_check(_body(value='v' * 65))[1])
         self.assertIn('%d characters' % checks.REGISTRY_MAX_EXPECT, checks.validate_registry_check(_body(expect='e' * 101))[1])
+
+
+class _UnreadableValue(FakeWinreg):
+    """The key opens and the value cannot be read: an error that is not 'not found'."""
+
+    def QueryValueEx(self, key, name):
+        raise OSError(1450, 'Insufficient system resources')
+
+
+class TestEveryConditionAgainstEveryState(unittest.TestCase):
+    """The six conditions of the dialog against what a value can be: not set, equal, lower, higher, a text, binary, and a registry that cannot be read. The answers are the
+    documented ones (the guide's table): a value that is not set passes 'is not set' and 'does not equal' and fails the rest; a registry that cannot be read answers 'unknown' to every
+    condition and never a pass. Written out here, not computed from the code, so that a condition that is turned round is a failure."""
+    P = _P_UAC
+    OPS = ('exists', 'missing', 'equals', 'not_equals', 'at_least', 'at_most')
+    # state -> (the registry, the expected value the four conditions with one are given) and what each condition answers, in OPS order
+    STATES = {
+        'value not set':      (lambda: FakeWinreg({(_P_UAC, 'Other'): (1, D)}), 5, ('critical', 'ok', 'critical', 'ok', 'critical', 'critical')),
+        'key missing':        (lambda: FakeWinreg({}), 5, ('critical', 'ok', 'critical', 'ok', 'critical', 'critical')),
+        'equal to 5':         (lambda: FakeWinreg({(_P_UAC, 'V'): (5, D)}), 5, ('ok', 'critical', 'ok', 'critical', 'ok', 'ok')),
+        'lower than 5':       (lambda: FakeWinreg({(_P_UAC, 'V'): (3, D)}), 5, ('ok', 'critical', 'critical', 'ok', 'critical', 'ok')),
+        'higher than 5':      (lambda: FakeWinreg({(_P_UAC, 'V'): (7, D)}), 5, ('ok', 'critical', 'critical', 'ok', 'ok', 'critical')),
+        'text 5 as text':     (lambda: FakeWinreg({(_P_UAC, 'V'): ('5', S)}), 5, ('ok', 'critical', 'ok', 'critical', 'ok', 'ok')),
+        'text, other case':   (lambda: FakeWinreg({(_P_UAC, 'V'): ('Abc', S)}), 'abc', ('ok', 'critical', 'ok', 'critical', 'critical', 'critical')),
+        'text, a number op':  (lambda: FakeWinreg({(_P_UAC, 'V'): ('Abc', S)}), 5, ('ok', 'critical', 'critical', 'ok', 'critical', 'critical')),
+        'binary':             (lambda: FakeWinreg({(_P_UAC, 'V'): (b'\x00\x01', FakeWinreg.REG_BINARY)}), 5, ('ok', 'critical', 'critical', 'ok', 'critical', 'critical')),
+        'access denied':      (lambda: FakeWinreg({(_P_UAC, 'V'): (5, D)}, deny=[_P_UAC]), 5, ('unknown',) * 6),
+        'the key is broken':  (lambda: FakeWinreg({(_P_UAC, 'V'): (5, D)}, broken=[_P_UAC]), 5, ('unknown',) * 6),
+        'value unreadable':   (lambda: _UnreadableValue({(_P_UAC, 'V'): (5, D)}), 5, ('unknown',) * 6),
+    }
+
+    def ask(self, make, op, expect, number=5):
+        check = {'id': 'x', 'type': 'registry', 'hive': 'HKLM', 'path': self.P, 'value': 'V', 'op': op}
+        if op in ('equals', 'not_equals'):
+            check['expect'] = expect
+        elif op in ('at_least', 'at_most'):
+            check['expect'] = number                              # the two numeric conditions are given a number, as the dialog makes them
+        return _run(make(), check)
+
+    def test_the_population_is_every_condition_and_every_state(self):
+        self.assertEqual(sorted(self.OPS), sorted(checks.REGISTRY_OPS), 'the table has a column for every condition the dialog offers')
+        self.assertEqual(len(self.STATES), 12)
+        for name, (_make, _expect, want) in self.STATES.items():
+            self.assertEqual(len(want), len(self.OPS), name)
+
+    def test_each_condition_gives_the_documented_answer_for_each_state(self):
+        for state, (make, expect, want) in self.STATES.items():
+            for op, answer in zip(self.OPS, want):
+                with self.subTest(state=state, op=op):
+                    status, out = self.ask(make, op, expect)
+                    self.assertEqual(status, answer, '%s / %s: %s' % (state, op, out))
+
+    def test_a_registry_that_cannot_be_read_is_never_a_pass_whatever_the_condition(self):
+        for state in ('access denied', 'the key is broken', 'value unreadable'):
+            make, expect, _want = self.STATES[state]
+            for op in self.OPS:
+                status, out = self.ask(make, op, expect)
+                self.assertEqual(status, 'unknown', '%s / %s' % (state, op))
+                self.assertNotIn(status, ('ok', 'critical'))
+
+    def test_the_boundary_of_at_least_and_at_most_is_inclusive(self):
+        def put(value, typ=D):
+            return lambda: FakeWinreg({(_P_UAC, 'V'): (value, typ)})
+        for value, least, most in ((4, 'critical', 'ok'), (5, 'ok', 'ok'), (6, 'ok', 'critical')):
+            self.assertEqual((self.ask(put(value), 'at_least', None, 5)[0], self.ask(put(value), 'at_most', None, 5)[0]), (least, most), 'value %d against 5' % value)
+        big = 2 ** 32
+        self.assertEqual([self.ask(put(big, FakeWinreg.REG_QWORD), 'at_least', None, n)[0] for n in (big - 1, big, big + 1)], ['ok', 'ok', 'critical'])
+        self.assertEqual([self.ask(put(big, FakeWinreg.REG_QWORD), 'at_most', None, n)[0] for n in (big - 1, big, big + 1)], ['critical', 'ok', 'ok'])
+        top = 2 ** 64 - 1
+        self.assertEqual(self.ask(put(top, FakeWinreg.REG_QWORD), 'at_most', None, top)[0], 'ok')
+        self.assertEqual(self.ask(put(top, FakeWinreg.REG_QWORD), 'at_least', None, top)[0], 'ok')
+        self.assertEqual(self.ask(put(top, FakeWinreg.REG_QWORD), 'at_least', None, 2 ** 64)[0], 'unknown', 'a number the agent refuses is refused, not answered')
 
 
 # ── the server: save, scope, push ────────────────────────────────────────────
