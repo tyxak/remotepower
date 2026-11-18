@@ -4430,6 +4430,177 @@ def _compute_pkg_hash(packages):
     ).hexdigest()[:16]
 
 
+# ─── 8.0.2: which kernel runs, and which installed package it is ─────────────────────────────────────────────
+#
+# A CVE finding against the kernel is matched against the version of a kernel package. A host keeps several of
+# them (the one it runs and the ones it kept), and the newest is not always the one that runs. The evidence of
+# which package is the running kernel is a file: the package that owns /boot/vmlinuz-<release> (the directory
+# /lib/modules/<release> on Alpine, whose kernel file is named by flavour) is the package that kernel was installed
+# from. So the agent reports the release it runs (uname -r) and, for each installed kernel image, the release
+# it owns. An image whose release cannot be read is reported without one: the server does not guess from a name.
+
+MAX_KERNEL_IMAGES = 16
+_KERNEL_RELEASE_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+~-]{0,79}$')
+_KERNEL_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+\-:~]{0,127}$')
+_DPKG_KERNEL_IMAGE_RE = re.compile(r'^linux-image-(?:unsigned-)?[0-9]')
+_VMLINUZ_RE = re.compile(r'^/boot/vmlinuz-([A-Za-z0-9][A-Za-z0-9._+~-]{0,79})$')
+_MODULES_DIR_RE = re.compile(r'^(?:usr/)?lib/modules/([A-Za-z0-9][A-Za-z0-9._+~-]{0,79})$')
+
+
+def _kernel_release(value):
+    """A kernel release as `uname -r` and /boot/vmlinuz-<release> write it, '' for anything else."""
+    text = value.strip() if isinstance(value, str) else ''
+    return text if _KERNEL_RELEASE_RE.match(text) else ''
+
+
+def _owned_release_dpkg(name, arch):
+    """The release in the /boot/vmlinuz-<release> that a dpkg package lists as one of its files, '' when it lists none
+    or its list cannot be read. The list is read as far as that line and no further (a kernel lists thousands)."""
+    for fname in [name + '.list'] + ([f'{name}:{arch}.list'] if arch else []):
+        try:
+            with open(host_path('/var/lib/dpkg/info/' + fname), 'r', errors='replace') as f:
+                for n, line in enumerate(f):
+                    if n > 200000:
+                        break
+                    m = _VMLINUZ_RE.match(line.strip())
+                    if m:
+                        return m.group(1)
+        except Exception:
+            continue
+    return ''
+
+
+def _kernel_images_dpkg(pkgs):
+    """The linux-image packages of a dpkg list, each with the release its file list names."""
+    out = []
+    for row in pkgs:
+        name = row.get('name', '')
+        if _DPKG_KERNEL_IMAGE_RE.match(name):
+            out.append({'name': name, 'version': row.get('version', ''), 'release': _owned_release_dpkg(name, row.get('arch', ''))})
+            if len(out) >= MAX_KERNEL_IMAGES:
+                break
+    return out
+
+
+def _kernel_images_rpm():
+    """The package that owns each /boot/vmlinuz-<release> file, by what rpm itself says (rpm -qf). A file no package owns
+    (the rescue kernel) gives nothing."""
+    out = []
+    try:
+        names = sorted(n for n in os.listdir(host_path('/boot')) if n.startswith('vmlinuz-'))
+    except Exception:
+        return out
+    for fname in names[:MAX_KERNEL_IMAGES]:
+        release = _kernel_release(fname[len('vmlinuz-'):])
+        if not release:
+            continue
+        argv = ['rpm'] + (['--root', HOST_ROOT] if HOST_ROOT else []) + [
+            '-qf', '--qf', '%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\n', '/boot/' + fname]
+        rc, text = _safe_run(argv, timeout=15)
+        if rc != 0:
+            continue
+        for line in text.splitlines():
+            parts = line.split('\t')
+            if len(parts) >= 2 and parts[0] and parts[1]:
+                out.append({'name': parts[0].strip(), 'version': parts[1].strip(), 'release': release})
+    return out[:MAX_KERNEL_IMAGES]
+
+
+def _kernel_images_apk():
+    """Alpine names the kernel file by flavour (/boot/vmlinuz-lts) and its modules by release, so the package that lists
+    the directory lib/modules/<release> in the installed database is the kernel of that release."""
+    out = []
+    for path in _APK_DB_PATHS:
+        try:
+            db = Path(host_path(path))
+            if not db.is_file():
+                continue
+            name = version = ''
+            with open(db, 'r', errors='replace') as f:
+                for line in f:
+                    line = line.rstrip('\n')
+                    if not line:
+                        name = version = ''
+                    elif line.startswith('P:'):
+                        name = line[2:].strip()
+                    elif line.startswith('V:'):
+                        version = line[2:].strip()
+                    elif line.startswith('F:') and name and version:
+                        m = _MODULES_DIR_RE.match(line[2:].strip())
+                        if m:
+                            out.append({'name': name, 'version': version, 'release': m.group(1)})
+                            if len(out) >= MAX_KERNEL_IMAGES:
+                                return out
+            return out
+        except Exception:
+            continue
+    return out
+
+
+def _kernel_images_pacman(pkgs):
+    """Each directory of /usr/lib/modules names its package in the file pkgbase (linux, linux-lts, linux-zen, ...)."""
+    out = []
+    held = {}
+    for row in pkgs:
+        held.setdefault(row.get('name', ''), row.get('version', ''))
+    try:
+        releases = sorted(os.listdir(host_path('/usr/lib/modules')))
+    except Exception:
+        return out
+    for release in releases[:MAX_KERNEL_IMAGES]:
+        if not _kernel_release(release):
+            continue
+        base = (_safe_read(f'/usr/lib/modules/{release}/pkgbase', 128) or '').strip()
+        if base and _KERNEL_NAME_RE.match(base) and held.get(base):
+            out.append({'name': base, 'version': held[base], 'release': release})
+    return out
+
+
+def get_kernel_report(pkg_manager, pkgs):
+    """{'release': the kernel that runs (uname -r), 'images': [{'name', 'version', 'release'}, ...]} for the package
+    list that goes with it, or {} when the release cannot be read. At most MAX_KERNEL_IMAGES images; an image whose
+    release is not known has none. Never raises: a host the files cannot be read of reports the release alone."""
+    try:
+        release = _kernel_release(os.uname().release)
+        if not release:
+            return {}
+        try:
+            if pkg_manager == 'apt':
+                images = _kernel_images_dpkg(pkgs)
+            elif pkg_manager == 'dnf':
+                images = _kernel_images_rpm()
+            elif pkg_manager == 'apk':
+                images = _kernel_images_apk()
+            elif pkg_manager == 'pacman':
+                images = _kernel_images_pacman(pkgs)
+            else:
+                images = []
+        except Exception:
+            images = []
+        clean = []
+        for image in images[:MAX_KERNEL_IMAGES]:
+            name, version = image.get('name', ''), image.get('version', '')
+            if not _KERNEL_NAME_RE.match(name or '') or not version:
+                continue
+            row = {'name': name, 'version': version[:64]}
+            owned = _kernel_release(image.get('release'))
+            if owned:
+                row['release'] = owned
+            clean.append(row)
+        return {'release': release, 'images': clean}
+    except Exception:
+        return {}
+
+
+def _kernel_digest(report):
+    """A short fingerprint of a kernel report. The package list is sent again when it changes, and a host that boots
+    another kernel changes nothing in its list: this is what makes that send happen."""
+    if not report:
+        return ''
+    rows = sorted((i.get('name', ''), i.get('version', ''), i.get('release', '')) for i in report.get('images', []))
+    return hashlib.sha256(json.dumps([report.get('release', ''), rows], separators=(',', ':')).encode()).hexdigest()[:8]
+
+
 def send_package_list(creds, force=False):
     """
     Collect installed packages and push to /api/packages.
@@ -4456,8 +4627,13 @@ def send_package_list(creds, force=False):
         log.warning(f'Truncating package list from {len(pkgs)} to {MAX_PACKAGES_SEND}')
         pkgs = pkgs[:MAX_PACKAGES_SEND]
 
+    # 8.0.2: the kernel that runs and the packages it can be, which is how a finding against the kernel is matched
+    # to the kernel the host runs. It goes with the list; a host that boots another kernel changes nothing in its
+    # list, so the gate below holds the kernel too.
+    kernel = get_kernel_report(pkg_manager, pkgs)
     new_hash = _compute_pkg_hash(pkgs)
-    if not force and new_hash == _load_last_pkg_hash():
+    gate = new_hash + ('+' + _kernel_digest(kernel) if kernel else '')
+    if not force and gate == _load_last_pkg_hash():
         log.debug('Package list unchanged — skipping submission')
         return False
 
@@ -4481,12 +4657,14 @@ def send_package_list(creds, force=False):
     }
     if has_sources:
         payload['sources'] = True     # the list names source packages and epochs where they apply
+    if kernel:
+        payload['kernel'] = kernel
     try:
         resp = http_post(f"{creds['server_url']}/api/packages", payload, timeout=30)
         log.info(f'Submitted {len(pkgs)} packages '
                  f'(ecosystem={resp.get("ecosystem", "?")}, '
                  f'changed={resp.get("changed", False)})')
-        _save_last_pkg_hash(new_hash)
+        _save_last_pkg_hash(gate)
         return True
     except Exception as e:
         log.warning(f'Package list submission failed: {e}')

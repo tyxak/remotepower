@@ -11860,7 +11860,9 @@ def _alert_ticket_detail(al, device=None):
             _rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
             shown = sorted(findings, key=lambda f: _rank.get(f.get('severity'), 9))[:100]
             for f in shown:
-                fx = ('  → fix in ' + str(f.get('fixed_version'))
+                # a finding an installed kernel clears keeps the version that has the fix, and says reboot, not install
+                fx = ('  (fixed by an installed kernel, reboot to apply)' if f.get('fix_status') == 'reboot'
+                      else '  → fix in ' + str(f.get('fixed_version'))
                       if str(f.get('fixed_version') or '').strip()
                       else '  (fixed only in a newer release)' if f.get('fix_status') == 'newer_release'
                       else '  (fixed with Ubuntu Pro)' if f.get('fix_status') == 'pro'
@@ -70687,6 +70689,12 @@ def handle_packages_submit():
         # how many entries the agent of a Windows or macOS host left out (updates, system components)
         if inventory:
             store[dev_id]['skipped'] = software_inventory.clean_skipped(body.get('skipped'))
+        else:
+            # 8.0.2: the kernel the host runs and the kernel packages it holds. A host that reports none (an older
+            # agent) has none stored, so what it reported before a reboot is not read as what runs now.
+            _kernel = cve_scanner.kernel_report(body.get('kernel'))
+            if _kernel:
+                store[dev_id]['kernel'] = _kernel
 
     # v3.11.0: evaluate the fleet software policy against this push.
     try:
@@ -71984,7 +71992,8 @@ def _cve_scan_worker(actor, target):
                                                  has_meta=entry.get('sources') is True,
                                                  tick=_still_alive,
                                                  release=cve_scanner.entry_release(entry),
-                                                 kev=_kev_ids, details=_details)
+                                                 kev=_kev_ids, details=_details,
+                                                 kernel=entry.get('kernel'))
             except Exception as _scan_err:
                 sys.stderr.write(f'[remotepower] CVE scan of host {_log_field(dev_id, 64)} failed: '
                                  f'{_log_text(repr(_scan_err), 300)}\n')

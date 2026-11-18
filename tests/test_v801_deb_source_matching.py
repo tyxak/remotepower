@@ -669,8 +669,9 @@ class TestTheRule(unittest.TestCase):
                     {'rollup': {'total': True}}, {'rollup': {'total': 1.5}}, {'rollup': {}}):
             self.assertEqual(total(odd), 0, odd)
 
-    def test_the_tiles_are_five(self):
-        self.assertEqual(cve_fixes.FIX_KEYS, ('fixable', 'newer_release', 'none', 'pro', 'unchecked'))
+    def test_the_tiles_are_six(self):
+        # 8.0.2: "reboot" is the sixth, for a finding that an installed kernel which does not run would clear
+        self.assertEqual(cve_fixes.FIX_KEYS, ('fixable', 'reboot', 'newer_release', 'none', 'pro', 'unchecked'))
         self.assertEqual(sorted(cve_fixes.summarize([], set())), sorted(cve_fixes.FIX_KEYS))
         self.assertEqual([cve_fixes.fix_key(f) for f in (finding(1, status='fixed', fixed='1'), finding(1, status='pro'),
                                                          finding(1, status='unknown'), {}, None)],

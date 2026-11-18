@@ -9,6 +9,7 @@ as fixable. This module keeps the entries apart and answers, for the release one
   newer_release  the host's release has no fix, a newer release does
   none           no release has a fix yet
   pro            (8.0.1) the fix for the host's release is in Ubuntu Pro only
+  reboot         (8.0.2) a kernel that is installed and not running holds the fix: a reboot applies it
   unknown        the release the host runs is not known (an Ubuntu derivative with a version of its
                  own, Red Hat), the distribution publishes an advisory per release together with its
                  fix (Rocky, Alma), or the record was cached before the entries were kept apart
@@ -35,8 +36,11 @@ FIXED = "fixed"
 NEWER_RELEASE = "newer_release"
 NONE = "none"
 PRO = "pro"
+REBOOT = "reboot"
 UNKNOWN = "unknown"
-STATUSES = (FIXED, NEWER_RELEASE, NONE, PRO, UNKNOWN)
+# `classify` never answers REBOOT: it needs the kernels the host has installed, which only the scan holds (it sets
+# the status on a finding of the running kernel that an installed kernel would clear).
+STATUSES = (FIXED, NEWER_RELEASE, NONE, PRO, REBOOT, UNKNOWN)
 
 # Fixed versions kept for one package in one release, and newer releases named on a finding. A record
 # rarely has more than one of either; the caps keep a hand-made or hostile record from filling the cache.
@@ -296,9 +300,19 @@ def is_fixable(finding: Any) -> bool:
     status = finding.get("fix_status")
     if status == FIXED:
         return True
-    if status in (NEWER_RELEASE, NONE, PRO):
+    if status in (NEWER_RELEASE, NONE, PRO, REBOOT):
         return False
     return bool(str(finding.get("fixed_version") or "").strip())
+
+
+def is_clearable(finding: Any) -> bool:
+    """Can the operator clear this finding now: by an update (`is_fixable`), or, when an installed kernel already holds
+    the fix, by a reboot? A reboot is something to do, so the findings it clears count where the ones an update clears
+    do, and are stored one by one beside them. They are not "fixable" for the Patches link, which counts what a
+    pending patch installs."""
+    return is_fixable(finding) or (
+        isinstance(finding, dict) and finding.get("fix_status") == REBOOT
+    )
 
 
 def finding_ids(finding: Any) -> list[str]:
@@ -321,13 +335,14 @@ def finding_is_kev(finding: Any, kev: Any) -> bool:
 def counted(finding: Any, fixable_only: bool, kev: Any = None) -> bool:
     """Does this finding count toward a number an operator reads: the sidebar badge, the severity tiles,
     Needs attention, the risk score and Checks? With the option off every finding counts, as before. With it
-    on, only one an update can clear counts, and one on the known-exploited list, whatever its fix status.
+    on, only one an update can clear counts (or, when an installed kernel holds the fix, a reboot: it is
+    something to do), and one on the known-exploited list, whatever its fix status.
     A finding that was already stamped `kev` counts without a lookup; `kev` is the set of upper-case ids
     for a finding that was not."""
     if not fixable_only:
         return True
     stamped = isinstance(finding, dict) and bool(finding.get("kev"))
-    return is_fixable(finding) or stamped or finding_is_kev(finding, kev)
+    return is_clearable(finding) or stamped or finding_is_kev(finding, kev)
 
 
 def alert_candidate(finding: Any, fixable_only: bool, kev: Any) -> bool:
@@ -338,15 +353,15 @@ def alert_candidate(finding: Any, fixable_only: bool, kev: Any) -> bool:
     return counted(finding, fixable_only, kev)
 
 
-FIX_KEYS = ("fixable", NEWER_RELEASE, NONE, PRO, "unchecked")
+FIX_KEYS = ("fixable", REBOOT, NEWER_RELEASE, NONE, PRO, "unchecked")
 
 
 def fix_key(finding: Any) -> str:
-    """The tile one finding counts in: fixable, newer_release, none, pro or unchecked."""
+    """The tile one finding counts in: fixable, reboot, newer_release, none, pro or unchecked."""
     if is_fixable(finding):
         return "fixable"
     status = finding.get("fix_status") if isinstance(finding, dict) else None
-    return status if status in (NEWER_RELEASE, NONE, PRO) else "unchecked"
+    return status if status in (REBOOT, NEWER_RELEASE, NONE, PRO) else "unchecked"
 
 
 def summarize(findings: Any, ignore_ids: Any) -> dict[str, int]:
@@ -366,8 +381,9 @@ def summarize(findings: Any, ignore_ids: Any) -> dict[str, int]:
 
 # ── 8.0.1: what a scan stores one by one ─────────────────────────────────────────────────────────────────
 #
-# A finding is stored when an update for the host's release clears it, when it is critical or high, or when it
-# is on the known-exploited list. That alone does not bound a host: 113 of the 255 Debian records read on
+# A finding is stored when an update for the host's release clears it (or, since 8.0.2, an installed kernel holds
+# the fix and a reboot applies it: a finding that goes from the first to the second must not leave the list, or it
+# would read as cleared), when it is critical or high, or when it is on the known-exploited list. That alone does not bound a host: 113 of the 255 Debian records read on
 # 2026-11-15 are critical or high by their CVSS score, and a patched Debian 12 host kept 16 for four source
 # packages out of the several hundred it has. So a host keeps at most KEEP_PER_HOST and a package at most
 # KEEP_PER_PACKAGE, the most pressing first, and
@@ -387,7 +403,7 @@ def kept(finding: Any, kev: Any = None) -> bool:
     if not isinstance(finding, dict):
         return False
     return (
-        is_fixable(finding)
+        is_clearable(finding)
         or finding.get("severity") in ("critical", "high")
         or bool(finding.get("kev"))
         or finding_is_kev(finding, kev)
@@ -402,7 +418,7 @@ def _pressing(finding: dict[str, Any], kev: Any) -> tuple[int, int, int]:
         rank = 0
     elif severity == "critical":
         rank = 1
-    elif is_fixable(finding):
+    elif is_clearable(finding):
         rank = {"high": 2, "medium": 3}.get(str(severity), 4)
     else:
         rank = 5
@@ -557,6 +573,8 @@ def rollup_words(record: Any) -> str:
         parts.append(f"{_count(by_fix.get('fixable'))} cleared by an update")
     if _count(by_fix.get(PRO)):
         parts.append(f"{_count(by_fix.get(PRO))} fixed with Ubuntu Pro")
+    if _count(by_fix.get(REBOOT)):
+        parts.append(f"{_count(by_fix.get(REBOOT))} fixed by an installed kernel, reboot to apply")
     said = f"{total} more known vulnerabilities are counted per package and not listed one by one"
     return said + (f" ({', '.join(parts)})" if parts else "")
 
@@ -697,3 +715,66 @@ def none_found_words(block: Any) -> str:
         return f"none found, but none of the {_packages(view['listed'])} could be checked"
     n = view["checked"]
     return f"none found in the {n:,} package{'' if n == 1 else 's'} that could be checked"
+
+
+# ── 8.0.2: the kernel a host runs ────────────────────────────────────────────────────────────────────────
+#
+# A finding against the kernel is matched against a kernel package, and a host keeps several: the one it runs and the
+# ones it kept. The agent reports the release it runs and, for each installed kernel image, the release that image
+# owns (the file /boot/vmlinuz-<release>, or the modules directory on Alpine). When exactly one installed package owns
+# the running release, the scan matches the kernel's findings against that package's version alone, leaves out the
+# findings of the kernels that are installed and do not run, and marks a finding that one of those would clear as
+# `reboot`. When it cannot say which package the running kernel is, it matches every installed kernel as it did before,
+# and the block it stores says that and why. `cve_scanner.kernel_state` builds the block, as `kernel`.
+KERNEL_MATCHED = "matched"
+KERNEL_UNKNOWN = "unknown"
+KERNEL_WHY = ("not_reported", "no_images", "no_owner", "several_owners", "not_in_list")
+KERNEL_WHY_WORDS = {
+    "not_reported": "the agent of this host does not report its running kernel",
+    "no_images": "the agent found no installed kernel package",
+    "no_owner": "no installed kernel package owns the files of the running kernel",
+    "several_owners": "more than one installed package owns the running kernel, and they are built from different versions",
+    "not_in_list": "the package that owns the running kernel is not in the package list the host sent",
+}
+
+
+def kernel_view(value: Any) -> dict[str, Any] | None:
+    """The `kernel` block of a stored scan result as a page or a tool gets it, None when there is none or it cannot be
+    read. Text is cut, a state or a reason that is not one of the above is left out, and `left_out` is a whole number.
+    """
+    if not isinstance(value, dict) or value.get("state") not in (KERNEL_MATCHED, KERNEL_UNKNOWN):
+        return None
+
+    def text(key: str, limit: int) -> str:
+        found = value.get(key)
+        return found[:limit] if isinstance(found, str) else ""
+
+    out: dict[str, Any] = {"state": value["state"], "running": text("running", 80)}
+    if value["state"] == KERNEL_MATCHED:
+        out["package"] = text("package", 128)
+        out["version"] = text("version", 64)
+        out["newer"] = text("newer", 200)
+    else:
+        out["why"] = value.get("why") if value.get("why") in KERNEL_WHY else ""
+    out["left_out"] = _count(value.get("left_out"))
+    return out
+
+
+def kernel_words(block: Any) -> str:
+    """One sentence about which kernel a host runs and how it was matched, "" when the scan has no account of it. For
+    the texts that are not a page."""
+    view = kernel_view(block)
+    if not view:
+        return ""
+    running = view["running"] or "unknown"
+    if view["state"] == KERNEL_MATCHED:
+        said = f"The host runs kernel {running}, the package {view['package']} {view['version']}."
+        if view["newer"]:
+            said += f" A newer kernel is installed and not running ({view['newer']}): a reboot starts it."
+        return said
+    why = KERNEL_WHY_WORDS.get(view["why"], "")
+    return (
+        f"The running kernel ({running}) could not be matched to an installed package"
+        + (f": {why}" if why else "")
+        + ". Findings against the kernel are matched against every installed kernel."
+    )

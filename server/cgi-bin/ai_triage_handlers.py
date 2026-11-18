@@ -436,7 +436,8 @@ def _triage_tools(dev_id, dev, alert=None):
             fx = f.get('fixed_version')
             lines.append(f"[{f.get('severity', '?')}] {f.get('vuln_id', '?')} "
                          f"{f.get('package', '?')}"
-                         + (f" → fix in {fx}" if fx
+                         + (" (fixed by an installed kernel, reboot to apply)" if f.get('fix_status') == 'reboot'
+                            else f" → fix in {fx}" if fx
                             else " (fixed with Ubuntu Pro)" if f.get('fix_status') == 'pro'
                             else " (no fix yet)"))
         if more:

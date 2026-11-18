@@ -448,6 +448,9 @@ SHAPES: dict = {
     'cve_findings.json': dict_of(fields(cut=list_of(STR),
                                         # 8.0.2: which packages the scan checked and why the others were not; the page and the
                                         # tools read the numbers and print the rows (cve_fixes.covered_view)
+                                        # 8.0.2: which kernel the scan found the host to run (cve_scanner.kernel_state)
+                                        kernel=fields(running=OPT_STR, state=OPT_STR, why=OPT_STR, package=OPT_STR,
+                                                      version=OPT_STR, newer=OPT_STR, left_out=OPT_NUM),
                                         covered=fields(listed=OPT_NUM, checked=OPT_NUM, not_checked=OPT_NUM, more=OPT_NUM,
                                                        reasons=dict_of(NUM),
                                                        packages=list_of(fields(need=('name',), name=STR, version=OPT_STR,
@@ -461,7 +464,7 @@ SHAPES: dict = {
                                         findings=list_of(fields(aliases=LIST, package=OPT_STR, severity=OPT_STR,
                                                                 # 8.0.1: the page prints these three as they are
                                                                 fixed_version=OPT_STR, fix_status=OPT_STR,
-                                                                fixed_elsewhere=dict_of(STR),
+                                                                fixed_elsewhere=dict_of(STR), reboot_to=OPT_STR,
                                                                 summary=OPT_STR, version=OPT_STR, vuln_id=OPT_STR,
                                                                 binaries=list_of(STR), binaries_more=OPT_NUM)))),
     'discovery.json': dict_of(fields(hosts=list_of(fields(need=('ip',), ip=STR, mac=OPT_STR, hostname=OPT_STR)))),
@@ -484,6 +487,9 @@ SHAPES: dict = {
     'packages.json': dict_of(fields(collected_at=OPT_NUM, count=OPT_NUM, os_id=OPT_STR, pkg_manager=OPT_STR, version_id=OPT_STR,
                                     ubuntu_codename=OPT_STR, debian_codename=OPT_STR, version_codename=OPT_STR,
                                     skipped=OPT_NUM,
+                                    # 8.0.2: the kernel the host runs and the kernel packages it holds (cve_scanner.kernel_report)
+                                    kernel=fields(release=OPT_STR, images=list_of(fields(need=('name',), name=STR, version=OPT_STR,
+                                                                                         release=OPT_STR))),
                                     # a row of a Windows or macOS host's list also has the manager of the row, the publisher,
                                     # the install date and, for a Mac application, the bundle identifier (software_inventory.py)
                                     packages=list_of(fields(arch=OPT_STR, name=OPT_STR, version=OPT_STR, source=OPT_STR,

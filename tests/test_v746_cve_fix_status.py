@@ -191,7 +191,7 @@ class TestTheRulesAsATable(unittest.TestCase):
             {"vuln_id": "G", "fix_status": "fixed", "fixed_version": "1"},  # ignored
         ]
         self.assertEqual(cve_fixes.summarize(findings, {"G"}),
-                         {"fixable": 2, "newer_release": 1, "none": 1, "pro": 0, "unchecked": 2})
+                         {"fixable": 2, "reboot": 0, "newer_release": 1, "none": 1, "pro": 0, "unchecked": 2})
 
     def test_a_known_exploited_finding_is_found_by_any_of_its_names(self):
         kev = {"CVE-2024-2379"}
@@ -269,7 +269,7 @@ class TestAScanOfADebianTwelveHost(_Scan):
     def test_the_counts_of_the_report_come_out_right(self):
         _, out = self.scan("Debian:12", "7.88.1-10+deb12u5", self.IDS)
         self.assertEqual(cve_fixes.summarize(out["findings"], set()),
-                         {"fixable": 1, "newer_release": 2, "none": 1, "pro": 0, "unchecked": 0})
+                         {"fixable": 1, "reboot": 0, "newer_release": 2, "none": 1, "pro": 0, "unchecked": 0})
 
     def test_the_same_record_on_debian_thirteen_is_fixed_where_thirteen_has_the_fix(self):
         found, _ = self.scan("Debian:13", "8.7.0-1", self.IDS)
@@ -514,7 +514,7 @@ class TestTheReportAndTheReadersAgree(_Alerts):
 
     def test_the_summary_and_the_host_carry_the_counts(self):
         report = self.call(api.handle_cve_findings)
-        expected = {"fixable": 2, "newer_release": 1, "none": 1, "pro": 0, "unchecked": 0}
+        expected = {"fixable": 2, "reboot": 0, "newer_release": 1, "none": 1, "pro": 0, "unchecked": 0}
         self.assertEqual(report["summary"]["fix"], expected)
         self.assertEqual(report["devices"][0]["fix"], expected)
 

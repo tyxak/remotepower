@@ -516,6 +516,9 @@ def handle_cve_device(dev_id):
         'rollup':         _rollup_view(f_entry),
         # 8.0.2: which of the host's packages the last scan checked, and why the others were not (the first 200)
         'covered':        A.cve_scanner.entry_package_coverage(pkg_entry, f_entry),
+        # 8.0.2: which kernel the host runs, the package it is, and a kernel installed beside it that is newer; or
+        # that the scan could not tell, and why
+        'kernel':         A.cve_fixes.kernel_view(f_entry.get('kernel')),
     })
 
 

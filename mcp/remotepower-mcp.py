@@ -306,6 +306,9 @@ def tool_get_cves(args):
         if isinstance(data.get("rollup"), dict):
             # a Debian or Ubuntu host: what its scan counted per package and did not list
             out["counted"] = data["rollup"]
+        if isinstance(data.get("kernel"), dict):
+            # which kernel the host runs, as the scan matched it, and a newer one installed beside it
+            out["kernel"] = data["kernel"]
         covered = data.get("covered")
         if isinstance(covered, dict):
             # which of the host's packages were checked and why the others were not (the first 200 of those)

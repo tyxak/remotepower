@@ -183,7 +183,7 @@ hosts that were never asked. To find the silent ones, use `not` + `exists`.
 `device_id`, `device_name`, `cve_id`, `severity`, `package`, `fixed_version`, `fix_status`,
 `ignored`.
 
-`fix_status` is `fixed`, `newer_release`, `none` or `unknown`, as explained in
+`fix_status` is `fixed`, `reboot`, `newer_release`, `none`, `pro` or `unknown`, as explained in
 [cve.md](cve.md#fix-status). `ignored` is true for a finding you accepted as a risk. These rows
 are the stored scan results, so they are as fresh as the last CVE scan.
 

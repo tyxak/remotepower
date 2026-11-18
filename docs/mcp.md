@@ -188,7 +188,7 @@ with role `mcp` (see *Guarded write tools* below).
 | `get_journal` | Recent systemd journal entries |
 | `get_services` | Watched systemd unit states |
 | `get_containers` | Docker / Podman container state |
-| `get_cves` | CVE findings (per-host or fleet-wide). For one host it also says how many of the host's packages the last scan checked and why it did not check the others (`coverage`), and a `note` when that is not all of them, so an empty list is not read as a clean host |
+| `get_cves` | CVE findings (per-host or fleet-wide). For one host it also says how many of the host's packages the last scan checked and why it did not check the others (`coverage`), and a `note` when that is not all of them, so an empty list is not read as a clean host. It also returns `kernel`, which kernel the host runs and how the scan matched it |
 | `get_drift` | Configuration drift (per-host or fleet-wide) |
 | `get_recent_commands` | Recent commands run on a host |
 | `get_runbook` | The AI-generated host runbook, or `exists: false` if none has been generated yet |

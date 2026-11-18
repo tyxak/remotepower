@@ -442,20 +442,22 @@ _WORD_REASON = {'needs_agent': cve_fixes.NO_SOURCE, 'no_release': cve_fixes.NO_R
                 'no_matcher': cve_fixes.NO_MATCHER}
 
 
-def package_coverage(packages, units, answers, word: str, cut=(), ecosystem: str = '') -> dict:
+def package_coverage(packages, units, answers, word: str, cut=(), ecosystem: str = '', left_out=()) -> dict:
     """The per-package outcome of one scan, as the block a host's record keeps (`covered`, see cve_fixes).
 
     `packages` is the list as stored, `units` what `plan` made of it and `answers` what the data source
     returned for each unit (a {'vulns': [...]} or None), in the same order. `word` is the coverage word of the
     host (`coverage`, `entry_coverage`) and `cut` the places of the units whose answer was cut at the last page.
     A row without a name, or without a version where a version is needed to ask, is not a package and is not
-    counted."""
+    counted. `left_out` is the places of the packages of kernels that are installed and do not run (`plan_host`):
+    nothing of them is asked about or counted, so they are not listed here either."""
     fam = family(ecosystem)
     by_row: dict = {}
     for k, u in enumerate(units):
         for row in u.get('rows', ()):
             by_row.setdefault(row, []).append(k)
     cut = set(cut)
+    left_out = set(left_out)
     host_reason = _WORD_REASON.get(word, '')
 
     def named_an_advisory(k):
@@ -468,7 +470,7 @@ def package_coverage(packages, units, answers, word: str, cut=(), ecosystem: str
     for i, p in enumerate(packages if isinstance(packages, list) else []):
         name = _text(p.get('name')) if isinstance(p, dict) else ''
         version = _text(p.get('version')) if isinstance(p, dict) else ''
-        if not name or (not version and word != 'no_matcher'):
+        if not name or (not version and word != 'no_matcher') or i in left_out:
             continue
         listed += 1
         mine = by_row.get(i, [])
@@ -509,6 +511,164 @@ def entry_package_coverage(entry, record=None, with_packages: bool = True) -> di
     count = entry.get('count')
     n = count if isinstance(count, int) and not isinstance(count, bool) and count > 0 else 0
     return cve_fixes.covered_view({'listed': n, 'reasons': {cve_fixes.NO_MATCHER: n}}, False)
+
+
+# ── 8.0.2: the kernel a host runs ────────────────────────────────────────────────────────────────────────
+#
+# A finding against the kernel is matched against the version of a kernel package, and a host keeps several: the one
+# it runs and the ones it kept. The plan asks about each version a host has, so the findings of a kernel that is
+# installed and does not run were counted beside the one that does, and a fix that sat in an installed kernel the host
+# had not booted into was offered as an update to install. The agent reports the release it runs (uname -r) and, for
+# each installed kernel image, the release that image owns: the file /boot/vmlinuz-<release>, or the modules directory
+# on Alpine, whose kernel file is named by flavour. Exactly one installed package owning the running release is the
+# running kernel. Then only that kernel's package is asked about and counted, the kernels that are installed and do
+# not run are left out, and a finding of the running kernel that one of them would clear is `reboot`. Where the
+# package cannot be told with certainty the plan is the one it always was, and the block says that and why.
+
+MAX_KERNEL_IMAGES = 16
+_KERNEL_RELEASE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+~-]{0,79}$')
+_KERNEL_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+\-:~]{0,127}$')
+_KERNEL_VERSION = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+\-:~^]{0,63}$')
+# which package of a list is a kernel image, for a host whose agent says nothing of its kernel
+_KERNEL_PACKAGE = {
+    'deb': re.compile(r'^linux-image-(?:unsigned-)?[0-9]'),
+    'rpm': re.compile(r'^kernel(?:-core|-uek|-default|-rt)?$'),
+    'apk': re.compile(r'^linux-(?:lts|virt|edge|hardened|rpi[0-9]?)$'),
+}
+
+
+def kernel_report(value) -> dict:
+    """What an agent says of its kernel, as the server keeps it: {'release': ..., 'images': [{'name', 'version',
+    'release'?}]} with the release and every name and version in the form of one, at most MAX_KERNEL_IMAGES images, and an
+    image's own release left out when it is not one. {} for a report that has no usable release."""
+    if not isinstance(value, dict):
+        return {}
+    release = value.get('release')
+    release = release.strip() if isinstance(release, str) else ''
+    if not _KERNEL_RELEASE.match(release):
+        return {}
+    images = []
+    for image in (value.get('images') if isinstance(value.get('images'), list) else [])[:MAX_KERNEL_IMAGES]:
+        name = image.get('name') if isinstance(image, dict) else None
+        version = image.get('version') if isinstance(image, dict) else None
+        if not (isinstance(name, str) and _KERNEL_NAME.match(name) and isinstance(version, str)
+                and _KERNEL_VERSION.match(version)):
+            continue
+        row = {'name': name, 'version': version}
+        owned = image.get('release')
+        if isinstance(owned, str) and _KERNEL_RELEASE.match(owned.strip()):
+            row['release'] = owned.strip()
+        images.append(row)
+    return {'release': release, 'images': images}
+
+
+def _has_kernel_package(fam: str, packages) -> bool:
+    pattern = _KERNEL_PACKAGE.get(fam)
+    return bool(pattern) and any(pattern.match(_text(p.get('name'))) for p in (packages if isinstance(packages, list) else [])
+                                 if isinstance(p, dict))
+
+
+def kernel_state(report, packages, units, fam: str):
+    """(the block a scan stores as `kernel`, the places of the units that hold the running kernel's package, and for
+    each other installed kernel image ([the places of its units], its label)).
+
+    The block is None for a host with no kernel to speak of (a family no agent reports one for, or no kernel package at
+    all). Otherwise it names the running release and is `matched`, with the package, or `unknown`, with why
+    (cve_fixes.KERNEL_WHY): the agent sent no report, found no image, no image owns the running release, two images that
+    are built from different versions do, or the owner is not in the list. Two images of one version (a signed
+    package and the unsigned one it holds) are one owner."""
+    if fam not in _KERNEL_PACKAGE:
+        return None, [], []
+    rep = kernel_report(report)
+    block = {'running': rep.get('release', '')}
+
+    def unknown(why):
+        if not _has_kernel_package(fam, packages):
+            return None, [], []
+        return dict(block, state=cve_fixes.KERNEL_UNKNOWN, why=why), [], []
+
+    if not rep:
+        return unknown('not_reported')
+    images = rep['images']
+    if not images:
+        return unknown('no_images')
+    rows_of: dict = {}
+    for i, p in enumerate((packages if isinstance(packages, list) else [])[:MAX_PACKAGES]):
+        if isinstance(p, dict):
+            rows_of.setdefault((_text(p.get('name')), _text(p.get('version'))), i)
+    by_row: dict = {}
+    for k, u in enumerate(units):
+        for row in u.get('rows', ()):
+            by_row.setdefault(row, []).append(k)
+
+    def held_by(image):
+        return by_row.get(rows_of.get((image['name'], image['version'])), [])
+
+    owners = [im for im in images if im.get('release') == rep['release']]
+    if not owners:
+        return unknown('no_owner')
+    sets = [frozenset(held_by(im)) for im in owners]
+    if not all(sets):
+        return unknown('not_in_list')
+    if len(set(sets)) > 1:
+        return unknown('several_owners')
+    running = sorted(sets[0])
+    owner = min(owners, key=lambda im: (im['name'], im['version']))
+    others = []
+    for im in images:
+        if im in owners:
+            continue
+        places = [k for k in held_by(im) if k not in running]
+        if places:
+            others.append((places, f"{im['name']} {im['version']}"))
+    return dict(block, state=cve_fixes.KERNEL_MATCHED, package=owner['name'], version=owner['version']), running, others
+
+
+def _version_order(fam: str, a: str, b: str, epoch_known: bool = True):
+    """-1, 0 or 1 for a against b in the family's own version order, None when either cannot be read."""
+    try:
+        if fam == 'deb':
+            return pkg_versions.deb_compare(a, b)
+        if fam == 'rpm':
+            return pkg_versions.rpm_compare(a, b, assume_same_epoch=not epoch_known)
+        if fam == 'apk':
+            return pkg_versions.apk_compare(a, b)
+    except Exception:
+        pass
+    return None
+
+
+def plan_host(packages, ecosystem, has_meta: bool = False, release=None, kernel=None):
+    """(units, the kernel block, the kernels installed beside the running one, the places of the packages left out).
+
+    The plan of `plan`, with the kernel the host runs taken into account (see above): when it is known, the units of
+    the other installed kernels are not asked about. `later` has one entry for each of them, newest first, with the
+    version a finding of the running kernel is held against and the label that goes on a finding it clears. The
+    running kernel's units carry 'kernel': 'running'."""
+    units = plan(packages, ecosystem, has_meta, by_source(ecosystem, release))
+    fam = family(ecosystem)
+    block, running, others = kernel_state(kernel, packages, units, fam)
+    later: list = []
+    left_out: set = set()
+    if block and block['state'] == cve_fixes.KERNEL_MATCHED:
+        for k in running:
+            units[k]['kernel'] = 'running'
+        drop = {k for places, _label in others for k in places} - set(running)
+        for places, label in others:
+            first = next((k for k in places if k in drop), None)
+            if first is not None:
+                later.append({'version': units[first]['version'], 'epoch_known': units[first]['epoch_known'],
+                              'label': label})
+        left_out = {row for k in drop for row in units[k]['rows']} - {row for k in running for row in units[k]['rows']}
+        units = [u for k, u in enumerate(units) if k not in drop]
+        # the newest first, by the order of the family; one that cannot be ordered keeps its place
+        for i in range(1, len(later)):
+            j = i
+            while j > 0 and (_version_order(fam, later[j]['version'], later[j - 1]['version'],
+                                            later[j]['epoch_known']) or 0) > 0:
+                later[j - 1], later[j] = later[j], later[j - 1]
+                j -= 1
+    return units, block, later, left_out
 
 
 def _osv_vuln_details(vuln_id: str) -> dict | None:
@@ -591,8 +751,8 @@ def prefetch_osv(store: dict, cache_dir: Path) -> dict | None:
         eco = entry_ecosystem(entry)
         if not _ecosystem_supported(eco):
             continue
-        for unit in plan(entry.get("packages") or [], eco, entry.get("sources") is True,
-                         by_source(eco, entry_release(entry))):
+        for unit in plan_host(entry.get("packages") or [], eco, entry.get("sources") is True,
+                              entry_release(entry), entry.get("kernel"))[0]:
             key = (eco, unit['name'], unit['version'])
             if key in seen:
                 continue
@@ -1226,7 +1386,7 @@ def load_details(cache_dir: Path) -> dict:
 
 def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
                 cache_ttl: int = None, osv_prefetch: dict = None, has_meta: bool = False,
-                tick=None, release: str = None, kev=None, details: dict = None) -> dict:
+                tick=None, release: str = None, kev=None, details: dict = None, kernel=None) -> dict:
     """
     Scan one device's package list against OSV (if ecosystem supported).
 
@@ -1236,6 +1396,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     host's own release has in a record (`entry_release`); without it the ecosystem's own name is used.
     `kev` is the set of known-exploited CVE ids, for the rule of what is stored one by one.
     `details` is the map of `load_details`, shared by the scans of one run; it is added to in place.
+    `kernel` is what the agent reports of its kernel (`kernel_report`); see `plan_host`.
     """
     if not packages or not ecosystem:
         return {
@@ -1282,7 +1443,8 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     fam = family(ecosystem)
     fix_eco = release or ecosystem          # the name of the host's release inside a record
     release_known = cve_fixes.release_of(fix_eco) is not None
-    units = plan(packages, ecosystem, has_meta, by_source(ecosystem, release))
+    # 8.0.2: with the kernel the host runs taken into account (see `plan_host`)
+    units, kernel_block, later, kernel_left_out = plan_host(packages, ecosystem, has_meta, release, kernel)
     # A host with Ubuntu Pro has a package from it, and a Pro version ends in "+esm1" or "~esm1".
     pro_host = ecosystem == 'Ubuntu' and any(
         isinstance(p, dict) and _PRO_VERSION.search(str(p.get('version') or '')) for p in packages)
@@ -1394,6 +1556,15 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
                                              epoch_known=unit['epoch_known']):
             suppressed += 1
             continue
+        # 8.0.2: a finding of the kernel that runs, which a kernel installed beside it would clear. The kernel that
+        # would is the first of them (newest first) whose version is at or past the fix, by the same rule that leaves
+        # out a finding the installed version is past: nothing is cleared here that would not be left out there.
+        reboot_to = ''
+        if later and unit.get('kernel') == 'running' and patched_spec:
+            for other in later:
+                if _already_patched(other['version'], patched_spec, ecosystem, epoch_known=other['epoch_known']):
+                    reboot_to = other['label']
+                    break
         key = (unit['package'], vid)
         finding = filed.get(key)
         if finding is not None:
@@ -1414,7 +1585,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             'severity_source': severity_source,
             'summary': det.get('summary', ''),
             'fixed_version': fixed,
-            'fix_status': fix['status'],
+            'fix_status': cve_fixes.REBOOT if reboot_to else fix['status'],
             'aliases': det.get('aliases', []),
             'refs': det.get('refs', []),
             'published': det.get('published', ''),
@@ -1422,6 +1593,8 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         }
         if fix['elsewhere']:
             finding['fixed_elsewhere'] = {eco: ', '.join(vs) for eco, vs in fix['elsewhere'].items()}
+        if reboot_to:
+            finding['reboot_to'] = reboot_to
         filed[key] = finding
         findings.append(finding)
     for finding in findings:
@@ -1459,8 +1632,18 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         'cut': cut[:20],
         # 8.0.2: which of the packages the host listed were checked, and why the others were not
         'covered': package_coverage(listed_packages, units, all_results,
-                                    coverage(ecosystem, has_meta, release or ''), cut_units, ecosystem),
+                                    coverage(ecosystem, has_meta, release or ''), cut_units, ecosystem,
+                                    left_out=kernel_left_out),
     }
+    if kernel_block:
+        # 8.0.2: which kernel the host runs, how it was found, and the newest kernel installed beside it that is newer
+        result['kernel'] = dict(kernel_block, left_out=len(kernel_left_out))
+        running = next((u for u in units if u.get('kernel') == 'running'), None)
+        if running is not None:
+            newer = next((o for o in later if _version_order(fam, o['version'], running['version'],
+                                                             o['epoch_known']) == 1), None)
+            if newer is not None:
+                result['kernel']['newer'] = newer['label']
     if ruled:
         result['ruled'] = True          # the alert path compares like with like (see cve_fixes.kept)
     if counted:
