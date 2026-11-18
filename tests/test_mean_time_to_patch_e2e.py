@@ -29,7 +29,10 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import browser_required
-import e2e_plant
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+_GATE = browser_available() or browser_required.required()
+import browser_plant
 
 try:
     from playwright.sync_api import sync_playwright
@@ -44,7 +47,7 @@ def plant_pairs(data_dir):
     """Completed patches for seven seeded hosts: seven of 'all' (6, 12, 24, 30, 48, 100 and 200 hours, cleared in the last 20 days), three of 'sec' (4, 8, 16 hours)
     and one old one, 50 hours cleared 40 days ago, which only the 90-day window reaches. The sweep is held off for an hour so it does not add pairs of its own."""
     now = int(time.time())
-    hosts = sorted(e2e_plant.load(data_dir, 'DEVICES_FILE'))[:7]
+    hosts = sorted(browser_plant.load(data_dir, 'DEVICES_FILE'))[:7]
     assert len(hosts) == 7, hosts
     pairs = {}
     for i, (h, hours) in enumerate(zip(hosts, (6, 12, 24, 30, 48, 100, 200))):
@@ -54,11 +57,12 @@ def plant_pairs(data_dir):
         if i == 0:
             done.insert(0, [now - 40 * DAY - 50 * HOUR, now - 40 * DAY, 'all'])
         pairs[h] = {'done': done}
-    e2e_plant.save(data_dir, 'PATCH_DONE_FILE', pairs)         # the pairs have a store of their own: the aging store every request reads does not carry them
-    e2e_plant.update(data_dir, 'PATCH_AGE_FILE', {'_last_run': now})
+    browser_plant.save(data_dir, 'PATCH_DONE_FILE', pairs)         # the pairs have a store of their own: the aging store every request reads does not carry them
+    browser_plant.update(data_dir, 'PATCH_AGE_FILE', {'_last_run': now})
     return hosts
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestTheCardInABrowser(unittest.TestCase):
 
     @classmethod

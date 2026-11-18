@@ -11,7 +11,7 @@ for nothing that fails.
 
 The demo seeder wrote its CVE records before a scan stated its packages or its kernel, so six hosts are given the records a scan
 writes now. They are made by the scanner itself (`cve_scanner.scan_device`, against the recordings of the advisory data in
-tests/data and advisory records written for the kernel), and planted through the product's storage layer (tests/e2e_plant.py):
+tests/data and advisory records written for the kernel), and planted through the product's storage layer (tests/browser_plant.py):
 
   * proxmox.lab runs the older of two installed kernels, and one of them holds fixes the running kernel lacks: two findings read
     "reboot to apply", and the host says which kernel runs and which is installed beside it;
@@ -46,7 +46,7 @@ for p in (_HERE, _ROOT / "server" / "cgi-bin"):
 
 import browser_required  # noqa: E402
 import cve_scanner  # noqa: E402
-import e2e_plant  # noqa: E402
+import browser_plant  # noqa: E402
 import software_inventory as si  # noqa: E402
 from osv_recording import BEHIND, DEB, Database, NotRecorded  # noqa: E402
 
@@ -173,8 +173,8 @@ def scenario():
 
 
 def _plant(data_dir, hosts):
-    findings = e2e_plant.load(data_dir, "CVE_FINDINGS_FILE")
-    packages = e2e_plant.load(data_dir, "PACKAGES_FILE")
+    findings = browser_plant.load(data_dir, "CVE_FINDINGS_FILE")
+    packages = browser_plant.load(data_dir, "PACKAGES_FILE")
     # 8.0.2: the demo gives the Mac a list of applications too, and the report counts every package of such a list as not checked. These tests measure the planted hosts and no
     # other ("the report sums the planted hosts and no other"), so the list the seeder wrote for the Mac is taken out.
     packages.pop("mbp01", None)
@@ -184,8 +184,8 @@ def _plant(data_dir, hosts):
             findings.pop(host, None)
         else:
             findings[host] = record
-    e2e_plant.save(data_dir, "CVE_FINDINGS_FILE", findings)
-    e2e_plant.save(data_dir, "PACKAGES_FILE", packages)
+    browser_plant.save(data_dir, "CVE_FINDINGS_FILE", findings)
+    browser_plant.save(data_dir, "PACKAGES_FILE", packages)
 
 
 def setUpModule():

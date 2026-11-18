@@ -30,7 +30,10 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import browser_required
-import e2e_plant
+from e2e_harness import SKIP_REASON, browser_available  # noqa: E402
+
+_GATE = browser_available() or browser_required.required()
+import browser_plant
 
 try:
     from playwright.sync_api import sync_playwright
@@ -47,13 +50,14 @@ def plant(data_dir):
         'wh:' + FAILING: {'fails': 4, 'since': now - 3600, 'last': now - 60, 'error': 'URLError [discord]: timed out', 'label': 'Discord', 'alerted': True},
         'wh:' + QUIET: {'fails': 2, 'since': now - 600, 'last': now - 60, 'error': 'HTTP 500 [pushover]: boom', 'label': 'Pushover', 'alerted': False},
     }
-    e2e_plant.save(data_dir, 'NOTIFY_HEALTH_FILE', health)
+    browser_plant.save(data_dir, 'NOTIFY_HEALTH_FILE', health)
     # notifications_test_mode: a would-be delivery is logged and not sent, and a dry run is neither a success nor a failure.
     # The Settings form posts the other four with every save and the demo has never stored them: a missing key and the default the form writes out read as a change
     # to the save, which then asks for a step-up. An installation whose settings were saved once has them, so the test starts from there.
-    e2e_plant.update(data_dir, 'CONFIG_FILE', {'notifications_test_mode': True, 'mfa_required_roles': [], 'sso_only': False, 'audit_worm_path': '', 'tenancy_enforced': False})
+    browser_plant.update(data_dir, 'CONFIG_FILE', {'notifications_test_mode': True, 'mfa_required_roles': [], 'sso_only': False, 'audit_worm_path': '', 'tenancy_enforced': False})
 
 
+@unittest.skipUnless(_GATE, SKIP_REASON)
 class TestTheMarkInABrowser(unittest.TestCase):
 
     @classmethod
@@ -199,7 +203,7 @@ class TestTheMarkInABrowser(unittest.TestCase):
         self.assertEqual([t for t in self.cards().values() if t], [])
         gone = page.evaluate("async () => (await api('GET', '/config')).webhook_urls.filter(d => d.fail_streak).length")
         self.assertEqual(gone, 0, 'it does not come back with the next read')
-        health = e2e_plant.load(self.data_dir, 'NOTIFY_HEALTH_FILE')
+        health = browser_plant.load(self.data_dir, 'NOTIFY_HEALTH_FILE')
         self.assertNotIn('wh:' + FAILING, health)
         self.assertIn('wh:' + QUIET, health, 'the other streak is left as it was')
 

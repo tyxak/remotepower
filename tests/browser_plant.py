@@ -40,7 +40,7 @@ def _child(data_dir, op, attr, payload=None):
     proc = subprocess.run([sys.executable, '-c', _CHILD, op, attr], input=None if payload is None else json.dumps(payload), capture_output=True, text=True, env=env,
                           cwd=str(_ROOT), timeout=300)
     if proc.returncode != 0:
-        raise RuntimeError(f'e2e_plant {op} {attr} failed: {proc.stderr[-600:]}')
+        raise RuntimeError(f'browser_plant {op} {attr} failed: {proc.stderr[-600:]}')
     return proc.stdout
 
 
