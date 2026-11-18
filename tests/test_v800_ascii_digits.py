@@ -45,7 +45,6 @@ EXEMPT = {
     ('remotepower-agent.py', 'get_smart_status'): 'the attribute number, the first column of the table smartctl prints',
     ('remotepower-agent.py', '_kernel_ver_key'): 'a kernel or package version, which the package tools keep to ASCII',
     ('remotepower-agent.py', 'run_netscan'): 'an octet of an address that nmap or arp-scan printed',
-    ('remotepower-agent.py', '_ts_scan_modsec_native'): 'the status of the response line, which the web server writes',
     ('snmp.py', 'poll_interfaces'): 'the last part of an object id, which the SNMP library builds from integers',
     ('snmp.py', 'poll_hr_storage'): 'the last part of an object id, which the SNMP library builds from integers',
     ('snmp.py', 'poll_processors'): 'the last part of an object id, which the SNMP library builds from integers',

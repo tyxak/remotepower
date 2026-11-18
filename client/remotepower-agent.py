@@ -16463,7 +16463,9 @@ def _ts_scan_modsec_native(lines, agg, fkey, now):
                 if not tx['seen_f']:
                     tx['seen_f'] = True
                     bits = line.split(' ', 2)
-                    if len(bits) >= 2 and bits[1].isdigit():
+                    # ASCII digits and at most three of them: `str.isdigit` is also true for a superscript two, which int() refuses, and int()
+                    # refuses a run of thousands of digits as well. One line of a log must never stop the sensor of the whole host.
+                    if len(bits) >= 2 and bits[1].isascii() and bits[1].isdigit() and len(bits[1]) <= 3:
                         tx['status'] = int(bits[1])
             elif part == 'H':
                 if line.startswith('Message: '):
@@ -16505,8 +16507,9 @@ def _ts_scan_modsec_json(lines, agg, fkey, now):
                 continue
             det = m.get('details') if isinstance(m.get('details'), dict) else {}
             parts = [str(m.get('message') or '')[:600]]
-            if str(det.get('ruleId') or '').isdigit():
-                parts.append(f'[id "{det["ruleId"]}"]')
+            rule_id = str(det.get('ruleId') or '')
+            if rule_id.isascii() and rule_id.isdigit():            # ASCII digits, as the other readers check them
+                parts.append(f'[id "{rule_id}"]')
             for tag in (det.get('tags') if isinstance(det.get('tags'), list) else [])[:20]:
                 parts.append(f'[tag "{tag}"]')
             msgs.append(' '.join(parts))
@@ -16730,8 +16733,11 @@ def _ts_scan_firewall(lines, agg, fkey, now):
                 continue
             rec = seen[ip] = [0, set(), ts, ts]
         rec[0] += 1
-        if f.get('DPT', '').isdigit() and len(rec[1]) < 64:
-            rec[1].add(int(f['DPT']))
+        dpt = f.get('DPT', '')
+        # ASCII digits, five at most (a port): the field is written by the kernel, but a line in /var/log/kern.log can be written by
+        # anyone who may log, and `isdigit` is true for text that int() refuses
+        if dpt.isascii() and dpt.isdigit() and len(dpt) <= 5 and len(rec[1]) < 64:
+            rec[1].add(int(dpt))
         rec[2], rec[3] = min(rec[2], ts), max(rec[3], ts)
     for ip, (packets, ports, first, last) in seen.items():
         if len(ports) >= THREAT_FW_PORTS or packets >= THREAT_FW_PACKETS:
@@ -17091,6 +17097,49 @@ def _ts_read_log(path, st, audit=False):
     return lines, {'ino': sb.st_ino, 'pos': start + cut}, ('ok' if chunk.strip() else 'idle')
 
 
+THREAT_BAD_LINES = 20             # lines of one log that may make its reader raise in one pass before the rest of that read is left alone
+
+
+class _TsLines:
+    """The lines of one read, as a reader walks them. It remembers how far the reader got, so a line that makes the reader raise can be
+    left out and the reader started again on what follows it."""
+
+    def __init__(self, lines):
+        self.lines = lines
+        self.i = 0
+
+    def __iter__(self):
+        lines = self.lines
+        while self.i < len(lines):
+            line = lines[self.i]
+            self.i += 1
+            yield line
+
+
+def _ts_guarded(scan, lines, path):
+    """(lines, parsed, format) of scan(lines, path), and a line that makes the reader raise costs that line and nothing else.
+
+    The logs are written by whoever can send a request, so a line that a reader did not expect is not a bug in the log. Before this, an
+    exception left the pass without a result and the position of the log where it was, so the next pass read the same bytes, raised again, and
+    the sensor of the whole host was off until the log rotated: one request could do it (a status written as a superscript two, which
+    `str.isdigit` accepts and `int` refuses). A line is left out, the reader goes on after it, and the position moves on as it always did."""
+    feed = _TsLines(lines)
+    n = parsed = bad = 0
+    fmt = ''
+    while True:
+        try:
+            a, b, fmt = scan(feed, path)
+            return n + a, parsed + b, fmt
+        except Exception as e:
+            bad += 1
+            n += 1                                   # the line that raised; what the reader counted before it did is lost with the call
+            if bad == 1:
+                log.warning(f'threat sensor: a line of {str(path)[:200]} made its reader fail ({type(e).__name__}); '
+                            'the line was left out')
+            if bad >= THREAT_BAD_LINES or feed.i >= len(lines):
+                return n, parsed, fmt
+
+
 def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
     """One pass over every log this host has. Returns (events, sources, dropped,
     new_state). `state` is left as it was, so a submission that fails can simply be
@@ -17135,7 +17184,7 @@ def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
         if status not in ('ok', 'idle'):
             note(kind, path, status, self_reports=sr)
             return
-        n, parsed, fmt = scan(lines, path)
+        n, parsed, fmt = _ts_guarded(scan, lines, path)
         events = sum(agg.family_events(f, path) for f in fams)
         note(kind, path, 'unparsed' if n >= 20 and parsed * 2 < n else status, n, parsed, events,
              fmt, proxied=disc.get('proxied') if kind == 'web' else None, self_reports=sr)
@@ -17158,7 +17207,8 @@ def collect_threat_events(cfg, state, now=None, budget_s=THREAT_BUDGET_S):
 
     for e in disc.get('waf') or []:
         def scan_waf(lines, fkey):
-            first = next((ln for ln in lines if ln.strip()), '')
+            # the format is the one of the first line of the whole read, also when the reader is started again after a line it refused
+            first = next((ln for ln in getattr(lines, 'lines', lines) if ln.strip()), '')
             if first.startswith('{'):
                 n, parsed = _ts_scan_modsec_json(lines, agg, fkey, now)
                 return n, parsed, 'json'
