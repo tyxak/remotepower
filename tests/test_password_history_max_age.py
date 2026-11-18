@@ -936,6 +936,91 @@ class TestTheCostOfTheComparison(_Policy):
             self.assertEqual(self.passwd(token, 'alice', current, nxt)[0], 200, n)
             current = nxt
 
+    # The tests above loop over the constant itself, so a constant changed to 11 would still pass them. These hold the number the guides
+    # give (docs/security.md and docs/api.md say ten a minute) as a literal, through the real limiter and the real route.
+    def test_the_number_is_ten_a_minute_and_the_guides_say_ten(self):
+        self.assertEqual(api.PASSWORD_HISTORY_CHECKS_PER_MINUTE, 10)
+        for rel, phrase in (('docs/security.md', 'ten times a minute'), ('docs/api.md', 'more than ten such checks a minute')):
+            self.assertIn(phrase, (_ROOT / rel).read_text(), '%s no longer says ten a minute: change it together with the constant' % rel)
+
+    def test_ten_are_answered_and_the_eleventh_and_twelfth_are_a_429(self):
+        self.set_cfg(password_history=3)
+        token = self.sign_in('alice', PW[0])['token']
+        api._ip_ratelimit = self.real_limit
+        codes = [self.passwd(token, 'alice', PW[0], PW[0])[0] for _ in range(12)]
+        self.assertEqual(codes, [400] * 10 + [429, 429], 'the limit is not ten a minute: %s' % codes)
+
+    def test_the_minute_is_sixty_seconds(self):
+        self.set_cfg(password_history=3)
+        token = self.sign_in('alice', PW[0])['token']
+        api._ip_ratelimit = self.real_limit
+        key = 'iprl:pwhist:u:alice'
+
+        def age(seconds):
+            rl = api.load(api.RATELIMIT_FILE) or {}
+            self.assertIn(key, rl, 'the limiter keeps its hits somewhere else now: %s' % sorted(rl))
+            rl[key]['hits'] = [h - seconds for h in rl[key]['hits']]
+            api.save(api.RATELIMIT_FILE, rl)
+            api._LOAD_CACHE.clear()
+
+        for _ in range(10):
+            self.assertEqual(self.passwd(token, 'alice', PW[0], PW[0])[0], 400)
+        self.assertEqual(self.passwd(token, 'alice', PW[0], PW[0])[0], 429, 'control: the limit is reached')
+        age(50)
+        self.assertEqual(self.passwd(token, 'alice', PW[0], PW[0])[0], 429, '50 seconds on, the minute has not passed')
+        age(15)
+        self.assertEqual(self.passwd(token, 'alice', PW[0], PW[0])[0], 400, 'a minute and more on, the caller can ask again')
+
+
+class TestEveryHashIsCheckedWhateverMatches(_Policy):
+    """`_password_reused` says every candidate is checked, so the time taken does not say which one matched. A timing test is noise on a
+    shared machine, so this counts the password checks instead: the count is the same wherever the match is, and when there is none."""
+
+    DEPTHS = (1, 2, 5, 24)
+
+    def hashes(self, depth):
+        passwords = ['History-Passw0rd!%d' % i for i in range(depth)]
+        hashed = [api.hash_password(p) for p in passwords]
+        return passwords, hashed[0], hashed[1:]            # the current password first, then the earlier ones, newest first
+
+    def counted(self, fn):
+        calls, real = [], api.verify_password
+        api.verify_password = lambda plain, stored: (calls.append(stored), real(plain, stored))[1]
+        try:
+            return fn(), calls
+        finally:
+            api.verify_password = real
+
+    def test_the_same_number_of_checks_wherever_the_match_is_and_when_there_is_none(self):
+        for depth in self.DEPTHS:
+            passwords, current, earlier = self.hashes(depth)
+            with self.subTest(depth=depth):
+                seen = {}
+                for where in list(range(depth)) + ['nowhere']:
+                    candidate = 'Never-Used-Passw0rd!' if where == 'nowhere' else passwords[where]
+                    hit, calls = self.counted(lambda: api._password_reused(candidate, current, earlier, depth))
+                    self.assertEqual(hit, where != 'nowhere', (depth, where))
+                    seen[where] = len(calls)
+                self.assertEqual(set(seen.values()), {depth}, 'the number of checks depends on where the match is: %s' % seen)
+
+    def test_a_refused_change_makes_the_same_number_of_checks_whichever_password_was_reused(self):
+        # through the route: the check of the old password, then one for each password that counts, whatever matches
+        self.set_cfg(password_history=4)
+        self.add_user('hist', 'viewer', PW[0])
+        current = PW[0]
+        for nxt in PW[1:4]:
+            self.assertEqual(self.change('hist', current, nxt)[0], 200)
+            current = nxt
+        token = self.sign_in('hist', current)['token']
+        seen = {}
+        for label, candidate in (('the current one', PW[3]), ('the newest earlier one', PW[2]), ('the oldest that still counts', PW[0]),
+                                 ('one that was never used', PW[7])):
+            (st, d), calls = self.counted(lambda: self.call('POST', '/api/users/passwd',
+                                                           {'username': 'hist', 'old_password': current, 'new_password': candidate}, token))
+            self.assertEqual(st, 200 if label.startswith('one') else 400, (label, st, d))
+            seen[label] = len(calls)
+        self.assertEqual(set(seen.values()), {5}, 'the cost of a refusal says which password matched: %s' % seen)
+
 
 class TestADamagedRecord(_Policy):
     """The account records are a file. A change date or a history that is not what the code writes is read as absent, never as a date far
