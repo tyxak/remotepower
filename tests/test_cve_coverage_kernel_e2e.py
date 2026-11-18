@@ -390,6 +390,10 @@ class TestTheTiles(_Page):
         self.assertEqual({k: v["n"] for k, v in got.items()}, fix)
         self.assertEqual(fix["reboot"], 2)                       # the two findings of proxmox.lab that the newer kernel holds the fix for
         self.assertEqual({v["on"] for v in got.values()}, {"false"})
+        # the grid of the row was written for five tiles: the sixth must not stand alone on a second row of a wide screen
+        tops = self.page.evaluate("() => [...document.querySelectorAll('#cve-fix-row .stat-card')].map(el => Math.round(el.getBoundingClientRect().top))")
+        self.assertEqual(len(tops), 6)
+        self.assertLess(max(tops) - min(tops), 10, "the six tiles are not in one row at 1440 px: %r" % tops)      # a tone border moves one by 2 px
 
     def test_a_click_keeps_the_host_that_needs_a_reboot_and_a_second_click_brings_the_rest_back(self):
         self.open_cve()
