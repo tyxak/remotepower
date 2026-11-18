@@ -565,3 +565,135 @@ def rollup_total(record: Any) -> int:
     """The roll-up's total in a stored scan result, 0 for a result without one or with a damaged one."""
     roll = record.get("rollup") if isinstance(record, dict) else None
     return _count(roll.get("total")) if isinstance(roll, dict) else 0
+
+
+# ── 8.0.2: what was checked, per package ─────────────────────────────────────────────────────────────────
+#
+# A scan of a host says what it found. That reads as "the rest is clean" unless it also says how much of the
+# host it looked at: the packages a host lists are not all asked about under a name the advisory data is filed
+# under, and a package that was not asked about has no findings whatever is wrong with it. Each package a host
+# listed is checked, or it is not and one of these is why:
+#
+#   no_source      the data is filed under the source package and the list names none for this package
+#   no_matcher     nothing is matched against this host's packages at all (Arch, openSUSE, the applications of a
+#                  Windows or macOS host)
+#   no_release     a Debian or Ubuntu derivative whose release is not known: the data is kept per release
+#   not_published  the distribution does not publish it (an RPM host's imported GPG keys)
+#   ceiling        it comes after the first 10,000 packages, which is as many as a scan reads
+#   unanswered     the data source did not finish its answer for it (a list of advisories cut at the last page)
+#
+# `cve_scanner.package_coverage` builds the block a scan stores on the host's record, as `covered`:
+# {'listed', 'checked', 'not_checked', 'reasons': {reason: n}, 'packages': [first 200 not checked], 'more'}.
+# Everything below reads such a block, which a store may hold in any shape.
+NO_SOURCE = "no_source"
+NO_MATCHER = "no_matcher"
+NO_RELEASE = "no_release"
+NOT_PUBLISHED = "not_published"
+CEILING = "ceiling"
+UNANSWERED = "unanswered"
+REASONS = (NO_SOURCE, NO_MATCHER, NO_RELEASE, NOT_PUBLISHED, CEILING, UNANSWERED)
+MAX_NOT_CHECKED_LISTED = 200
+MAX_PACKAGES_READ = 10000
+
+# The reasons as the end of a sentence about N packages, for the texts that are not a page (a ticket, the
+# assistant, the MCP tools). The page holds its own, so that they are translated.
+REASON_WORDS = {
+    NO_SOURCE: "have no source name",
+    NO_MATCHER: "have no matcher for this host's package manager",
+    NO_RELEASE: "cannot be checked because the release is not known",
+    NOT_PUBLISHED: "are not published by the distribution",
+    CEILING: f"come after the first {MAX_PACKAGES_READ:,} packages, which is as many as a scan reads",
+    UNANSWERED: "were not answered in full by the data source",
+}
+
+
+def covered_view(value: Any, with_packages: bool = True) -> dict[str, Any] | None:
+    """The per-package coverage block of a stored scan result as a page or a tool gets it, or None when there is
+    none (a result stored before 8.0.2) or it cannot be read.
+
+    Numbers are whole and not negative, a reason that is not one of REASONS is left out, and the list is cut to
+    MAX_NOT_CHECKED_LISTED rows of a name, a version and a reason. `checked` and `not_checked` are made to add up
+    to `listed`: a block that says otherwise is read by what its reasons add up to."""
+    if not isinstance(value, dict):
+        return None
+    listed = _count(value.get("listed"))
+    raw_reasons = value.get("reasons")
+    raw: dict[str, Any] = raw_reasons if isinstance(raw_reasons, dict) else {}
+    reasons = {r: _count(raw.get(r)) for r in REASONS if _count(raw.get(r))}
+    not_checked = sum(reasons.values())
+    if not listed and not not_checked:
+        return None
+    listed = max(listed, not_checked)
+    out: dict[str, Any] = {
+        "listed": listed,
+        "checked": listed - not_checked,
+        "not_checked": not_checked,
+        "reasons": reasons,
+    }
+    if with_packages:
+        rows: list[dict[str, str]] = []
+        for row in _as_list(value.get("packages")):
+            if (
+                len(rows) >= MAX_NOT_CHECKED_LISTED
+                or not isinstance(row, dict)
+                or not isinstance(row.get("name"), str)
+                or not row["name"]
+                or row.get("reason") not in REASONS
+            ):
+                continue
+            version = row.get("version")
+            rows.append(
+                {
+                    "name": row["name"][:128],
+                    "version": version[:64] if isinstance(version, str) else "",
+                    "reason": row["reason"],
+                }
+            )
+        out["packages"] = rows
+        out["more"] = max(not_checked - len(rows), 0)
+    return out
+
+
+def covered_add(total: dict[str, Any], block: Any) -> None:
+    """Add one host's block (a `covered_view`) to the fleet's: listed, checked, not_checked and the reasons."""
+    if not isinstance(block, dict):
+        return
+    for key in ("listed", "checked", "not_checked"):
+        total[key] = total.get(key, 0) + _count(block.get(key))
+    reasons = total.setdefault("reasons", {})
+    held = block.get("reasons")
+    for reason, n in (held if isinstance(held, dict) else {}).items():
+        if reason in REASONS and _count(n):
+            reasons[reason] = reasons.get(reason, 0) + _count(n)
+
+
+def _packages(n: int) -> str:
+    return f"{n:,} package" + ("" if n == 1 else "s")
+
+
+def coverage_words(block: Any) -> str:
+    """One sentence about how much of a host a scan looked at, "" when it looked at all of it (or there is no
+    block). "Checked 1,834 of 1,901 packages; 67 not checked: 52 have no source name, 15 are not published by
+    the distribution." For the texts that are not a page."""
+    view = covered_view(block, with_packages=False)
+    if not view or not view["not_checked"]:
+        return ""
+    why = ", ".join(f"{n:,} {REASON_WORDS[r]}" for r, n in view["reasons"].items())
+    return (
+        f"Checked {view['checked']:,} of {_packages(view['listed'])}; "
+        f"{view['not_checked']:,} not checked: {why}."
+    )
+
+
+def none_found_words(block: Any) -> str:
+    """What "none found" has to say when some of the packages were not checked, "" when all of them were (or
+    there is no block) and the plain "none found" is true. "none found in the 1,834 packages that could be
+    checked"; with nothing checked at all, "none found, but none of the 1,901 packages could be checked".
+    """
+    view = covered_view(block, with_packages=False)
+    if not view or not view["not_checked"]:
+        return ""
+    if not view["checked"]:
+        return f"none found, but none of the {_packages(view['listed'])} could be checked"
+    n = view["checked"]
+    return f"none found in the {n:,} package{'' if n == 1 else 's'} that could be checked"

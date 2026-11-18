@@ -34,6 +34,7 @@ import hashlib
 import time
 from urllib.parse import quote
 
+import cve_fixes  # the vocabulary of what a CVE scan did not check (pure)
 import software_inventory  # the application lists of Windows and macOS hosts (pure)
 
 SPEC_CYCLONEDX = '1.5'
@@ -105,6 +106,20 @@ def _left_out_property(pkg_entry) -> list:
     return [{'name': 'remotepower:left_out', 'value': str(n)}] if n else []
 
 
+def _covered_properties(covered) -> list:
+    """How much of the host a CVE scan looked at, as the properties of the host component, or [] when the host
+    has no account of it. An SBOM whose `vulnerabilities` section is empty reads as a host with none: these say
+    how many of its components nothing was matched against."""
+    view = cve_fixes.covered_view(covered, with_packages=False)
+    if not view:
+        return []
+    props = [{'name': 'remotepower:cve_packages_checked', 'value': str(view['checked'])},
+             {'name': 'remotepower:cve_packages_not_checked', 'value': str(view['not_checked'])}]
+    for reason, n in view['reasons'].items():
+        props.append({'name': f'remotepower:cve_not_checked:{reason}', 'value': str(n)})
+    return props
+
+
 def _inventory_properties(row, manager) -> list:
     """The properties of the component of an application of a Windows or macOS host: the manager the row names,
     and what it holds beside a name and a version (the architecture, the publisher, the install date, the bundle
@@ -122,13 +137,14 @@ def _inventory_properties(row, manager) -> list:
 _CDX_SEV = {'critical', 'high', 'medium', 'low', 'info', 'none', 'unknown'}
 
 
-def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=None) -> dict:
+def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=None, covered=None) -> dict:
     """CycloneDX 1.5 BOM for one device.
 
     ``dev`` is the device record, ``pkg_entry`` the packages.json entry, and
     ``findings`` the (ignore-filtered) CVE finding list. ``findings`` may be
     empty — the vulnerabilities section is then omitted. ``containers`` (v3.14.0),
-    when given, adds each running container image as a ``container`` component."""
+    when given, adds each running container image as a ``container`` component. ``covered`` (8.0.2) is the
+    host's account of which packages its CVE scan checked (``cve_fixes.covered_view``)."""
     dev_id = dev.get('id') or dev.get('_id') or ''
     packages = pkg_entry.get('packages') or []
     pkg_manager = pkg_entry.get('pkg_manager', '')
@@ -220,7 +236,7 @@ def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=N
                     {'name': 'remotepower:hostname', 'value': dev.get('hostname', '')},
                     {'name': 'remotepower:ecosystem', 'value': pkg_entry.get('ecosystem', '')},
                     {'name': 'remotepower:collected_at', 'value': _ts(collected_at) if collected_at else ''},
-                ] + _left_out_property(pkg_entry),
+                ] + _left_out_property(pkg_entry) + _covered_properties(covered),
             },
         },
         'components': components,
@@ -324,7 +340,7 @@ def _spdx_id(prefix: str, i: int) -> str:
     return f'SPDXRef-{prefix}-{i}'
 
 
-def build_spdx(dev, pkg_entry, findings, *, server_version='', containers=None) -> dict:
+def build_spdx(dev, pkg_entry, findings, *, server_version='', containers=None, covered=None) -> dict:
     """SPDX 2.3 JSON for one device. SPDX has no first-class vulnerability
     object in 2.3, so CVEs are attached as ExternalRefs (SECURITY / cpe-or
     advisory URLs) on the affected package where we can resolve it; otherwise
@@ -441,11 +457,18 @@ def build_spdx(dev, pkg_entry, findings, *, server_version='', containers=None) 
         'packages': spdx_packages,
         'relationships': relationships,
     }
+    notes = []
     left_out = _left_out(pkg_entry)
     if left_out:
-        doc['creationInfo']['comment'] = (
+        notes.append(
             f'{left_out} entries were left out of the software list of this host: updates, system components and '
             'bundles that could not be read.')
+    # an SBOM that lists no vulnerability reads as a host with none: say how much of it was matched
+    checked = cve_fixes.coverage_words(covered)
+    if checked:
+        notes.append('CVE matching. ' + checked)
+    if notes:
+        doc['creationInfo']['comment'] = ' '.join(notes)
     return doc
 
 

@@ -206,7 +206,7 @@ def entry_coverage(entry) -> str:
     Windows or macOS host, the packages of Arch and openSUSE). A page that reads "no findings" for such a host says
     the opposite of what is true, so the word is the one thing it has to print."""
     ecosystem = entry_ecosystem(entry)
-    if ecosystem:
+    if ecosystem and _ecosystem_supported(ecosystem):
         return coverage(ecosystem, entry.get('sources') is True, entry_release(entry))
     packages = entry.get('packages') if isinstance(entry, dict) else None
     return 'no_matcher' if isinstance(packages, list) and packages else ''
@@ -352,6 +352,10 @@ def _osv_query_all(queries: list) -> list:
 
 MAX_BINARIES_SHOWN = 30
 
+# 8.0.2: an RPM host lists the GPG keys it has imported as packages. They are records of a key and not built
+# from a source package, so no distribution publishes them and no advisory is filed under them.
+_NOT_PUBLISHED = ('gpg-pubkey',)
+
 
 def _text(value) -> str:
     return str(value or '').strip()
@@ -362,50 +366,55 @@ def plan(packages, ecosystem, has_meta: bool = False, deb_by_source: bool = Fals
     `by_source(ecosystem, release)` of the host.
 
     Each unit is {'name', 'version'} (the question), 'package' and 'shown' (the name and version on a
-    finding), 'epoch_known' (whether the version carries its epoch) and 'binaries' (the installed packages
-    the unit speaks for; empty when the unit is the installed package itself)."""
+    finding), 'epoch_known' (whether the version carries its epoch), 'binaries' (the installed packages
+    the unit speaks for; empty when the unit is the installed package itself) and, since 8.0.2, 'rows' (the
+    places of those packages in the list, which is how a scan says which package was checked)."""
     fam = family(ecosystem)
     units: dict = {}
 
-    def unit(name, version, package, epoch_known, binary):
+    def unit(name, version, package, epoch_known, binary, row):
         key = (name, version)
         found = units.get(key)
         if found is None:
             found = units[key] = {'name': name, 'version': version, 'package': package, 'shown': version,
-                                  'epoch_known': epoch_known, 'binaries': []}
+                                  'epoch_known': epoch_known, 'binaries': [], 'rows': []}
         if binary and binary not in found['binaries']:
             found['binaries'].append(binary)
+        if row not in found['rows']:
+            found['rows'].append(row)
 
     grouped = bool(has_meta) and (fam in ('apk', 'rpm') or (fam == 'deb' and bool(deb_by_source)))
     both_names = grouped and fam == 'rpm' and isinstance(ecosystem, str) and ecosystem.startswith('Rocky Linux')
-    sources: dict = {}   # (source, its version-release) -> {'binaries': [...], 'epochs': set()}
-    for p in (packages if isinstance(packages, list) else [])[:MAX_PACKAGES]:
+    sources: dict = {}   # (source, its version-release) -> {'members': [(name, row)], 'epochs': set()}
+    for row, p in enumerate((packages if isinstance(packages, list) else [])[:MAX_PACKAGES]):
         if not isinstance(p, dict):
             continue
         name, version = _text(p.get('name')), _text(p.get('version'))
         if not name or not version:
             continue
+        if fam == 'rpm' and name in _NOT_PUBLISHED:
+            continue
         if not grouped:
             # an RPM list without epochs: the version is asked for as it is, which answers with every
             # advisory of a package that has an epoch, and the "already patched" check sorts them out
-            unit(name, version, name, fam != 'rpm', None)
+            unit(name, version, name, fam != 'rpm', None, row)
             continue
         source = _text(p.get('source')) or name
         if fam == 'apk':
-            unit(source, version, source, True, name)   # a subpackage has its origin's version
+            unit(source, version, source, True, name, row)   # a subpackage has its origin's version
             continue
         if fam == 'deb':
             # a Debian package may have another version than its source ("12.2.0-14+b1" of "12.2.0-14")
-            unit(source, _text(p.get('source_version')) or version, source, True, name)
+            unit(source, _text(p.get('source_version')) or version, source, True, name, row)
             continue
         epoch = _text(p.get('epoch'))
         if not (epoch.isascii() and epoch.isdigit()) or int(epoch) == 0:
             epoch = ''
-        unit(name, f'{epoch}:{version}' if epoch else version, source, True, name)
+        unit(name, f'{epoch}:{version}' if epoch else version, source, True, name, row)
         if both_names:
             source_version = _text(p.get('source_version')) or version
-            group = sources.setdefault((source, source_version), {'binaries': [], 'epochs': set()})
-            group['binaries'].append(name)
+            group = sources.setdefault((source, source_version), {'members': [], 'epochs': set()})
+            group['members'].append((name, row))
             if version == source_version:
                 group['epochs'].add(epoch)
     for (source, source_version), group in sources.items():
@@ -415,9 +424,91 @@ def plan(packages, ecosystem, has_meta: bool = False, deb_by_source: bool = Fals
         if len(group['epochs']) != 1:
             continue
         epoch = next(iter(group['epochs']))
-        for binary in group['binaries']:
-            unit(source, f'{epoch}:{source_version}' if epoch else source_version, source, True, binary)
+        for binary, row in group['members']:
+            unit(source, f'{epoch}:{source_version}' if epoch else source_version, source, True, binary, row)
     return list(units.values())
+
+
+# ── 8.0.2: what was checked, per package ─────────────────────────────────────────────────────────────────
+#
+# The plan says what a scan asks for and the coverage word says what it leaves out of a whole host. This says it
+# for each package: the units hold the places of the packages they speak for, so a package is checked when a unit
+# that holds it was asked about under the name the data is filed under, and is not when none was. The reasons are
+# in cve_fixes (REASONS); the word of the host gives the reason for every package of a host that is asked about by
+# installed name where the data is filed under the source: those hosts still get answers for a package that is its
+# own source, and an answer that named an advisory shows the name was the right one, so that package is checked.
+
+_WORD_REASON = {'needs_agent': cve_fixes.NO_SOURCE, 'no_release': cve_fixes.NO_RELEASE,
+                'no_matcher': cve_fixes.NO_MATCHER}
+
+
+def package_coverage(packages, units, answers, word: str, cut=(), ecosystem: str = '') -> dict:
+    """The per-package outcome of one scan, as the block a host's record keeps (`covered`, see cve_fixes).
+
+    `packages` is the list as stored, `units` what `plan` made of it and `answers` what the data source
+    returned for each unit (a {'vulns': [...]} or None), in the same order. `word` is the coverage word of the
+    host (`coverage`, `entry_coverage`) and `cut` the places of the units whose answer was cut at the last page.
+    A row without a name, or without a version where a version is needed to ask, is not a package and is not
+    counted."""
+    fam = family(ecosystem)
+    by_row: dict = {}
+    for k, u in enumerate(units):
+        for row in u.get('rows', ()):
+            by_row.setdefault(row, []).append(k)
+    cut = set(cut)
+    host_reason = _WORD_REASON.get(word, '')
+
+    def named_an_advisory(k):
+        answer = answers[k] if isinstance(answers, list) and k < len(answers) else None
+        return bool(answer.get('vulns')) if isinstance(answer, dict) else False
+
+    reasons = dict.fromkeys(cve_fixes.REASONS, 0)
+    held: list = []
+    listed = 0
+    for i, p in enumerate(packages if isinstance(packages, list) else []):
+        name = _text(p.get('name')) if isinstance(p, dict) else ''
+        version = _text(p.get('version')) if isinstance(p, dict) else ''
+        if not name or (not version and word != 'no_matcher'):
+            continue
+        listed += 1
+        mine = by_row.get(i, [])
+        if word == 'no_matcher':
+            reason = cve_fixes.NO_MATCHER
+        elif i >= MAX_PACKAGES:
+            reason = cve_fixes.CEILING
+        elif fam == 'rpm' and name in _NOT_PUBLISHED:
+            reason = cve_fixes.NOT_PUBLISHED
+        elif not mine:
+            reason = cve_fixes.UNANSWERED        # nothing was asked about it, so nothing was answered
+        elif any(k in cut for k in mine):
+            reason = cve_fixes.UNANSWERED
+        elif host_reason and not any(named_an_advisory(k) for k in mine):
+            reason = host_reason
+        else:
+            continue
+        reasons[reason] += 1
+        if len(held) < cve_fixes.MAX_NOT_CHECKED_LISTED:
+            held.append({'name': name[:128], 'version': version[:64], 'reason': reason})
+    not_checked = sum(reasons.values())
+    return {'listed': listed, 'checked': listed - not_checked, 'not_checked': not_checked,
+            'reasons': {r: n for r, n in reasons.items() if n}, 'packages': held, 'more': not_checked - len(held)}
+
+
+def entry_package_coverage(entry, record=None, with_packages: bool = True) -> dict | None:
+    """The per-package coverage of one host as a page or a tool gets it: the block its last scan stored
+    (`record` is the host's scan result), or, for a host nothing is matched against, the one that follows from
+    its list alone, since no scan is ever made of it. None for a host that is scannable and has not been
+    scanned since 8.0.2, which says nothing about its packages: it was not asked about them."""
+    stored = cve_fixes.covered_view((record or {}).get('covered') if isinstance(record, dict) else None, with_packages)
+    if stored is not None:
+        return stored
+    if not isinstance(entry, dict) or entry_coverage(entry) != 'no_matcher':
+        return None
+    if with_packages:
+        return cve_fixes.covered_view(package_coverage(entry.get('packages'), [], [], 'no_matcher'))
+    count = entry.get('count')
+    n = count if isinstance(count, int) and not isinstance(count, bool) and count > 0 else 0
+    return cve_fixes.covered_view({'listed': n, 'reasons': {cve_fixes.NO_MATCHER: n}}, False)
 
 
 def _osv_vuln_details(vuln_id: str) -> dict | None:
@@ -1168,6 +1259,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             'error': f'Unsupported ecosystem for CVE scanning: {ecosystem}. OSV does not support this distribution.',
         }
 
+    listed_packages = packages          # 8.0.2: what the host listed, for the account of what was checked
     if len(packages) > MAX_PACKAGES:
         packages = packages[:MAX_PACKAGES]
 
@@ -1229,6 +1321,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     vuln_ids_to_fetch = set()
     hits = []
     cut = []      # 8.0.1: the names whose advisory list was longer than the pages that are read
+    cut_units = set()      # 8.0.2: the same, by the place of the unit
     duplicates = 0
     now = int(time.time())
     for idx, result in enumerate(all_results):
@@ -1237,8 +1330,10 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         unit = units[idx]
         if not isinstance(result, dict):
             continue
-        if result.get('truncated') and unit['package'] not in cut:
-            cut.append(unit['package'])
+        if result.get('truncated'):
+            cut_units.add(idx)
+            if unit['package'] not in cut:
+                cut.append(unit['package'])
         # an id is text: one of another kind (a list, a map) cannot be looked up and ended the scan
         answered = [v for v in (result.get('vulns') or [])
                     if isinstance(v, dict) and isinstance(v.get('id'), str) and v['id']]
@@ -1362,6 +1457,9 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         'suppressed_patched': suppressed,
         # 8.0.1: the packages whose advisory list was cut (see OSV_MAX_PAGES); empty for a whole list
         'cut': cut[:20],
+        # 8.0.2: which of the packages the host listed were checked, and why the others were not
+        'covered': package_coverage(listed_packages, units, all_results,
+                                    coverage(ecosystem, has_meta, release or ''), cut_units, ecosystem),
     }
     if ruled:
         result['ruled'] = True          # the alert path compares like with like (see cve_fixes.kept)

@@ -419,9 +419,16 @@ def _triage_tools(dev_id, dev, alert=None):
         # in the roll-up's own numbers: on a host whose kernel is behind most of what is counted has a
         # fix and a third is critical or high, so a sentence that guessed "medium or lower" was untrue
         more = A.cve_fixes.rollup_words(rec)
+        # 8.0.2: how much of the host the scan looked at. "None found" only means as much as the packages that
+        # could be checked: a package nothing is matched against has no findings whatever is wrong with it
+        unchecked = A.cve_fixes.coverage_words(rec.get('covered'))
+        none_found = A.cve_fixes.none_found_words(rec.get('covered'))
         if not findings:
-            return f'(no CVE findings listed for this host; {more})' if more else \
-                '(no open CVE findings for this host)'
+            if more:
+                return f'(no CVE findings listed for this host; {more})' + (f' {unchecked}' if unchecked else '')
+            if none_found:
+                return f'(no open CVE findings: {none_found}. {unchecked})'
+            return '(no open CVE findings for this host)'
         rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
         top = sorted(findings, key=lambda f: rank.get(f.get('severity'), 9))[:20]
         lines = [f"{A.plural(len(findings), 'open finding', 'open findings')}; top by severity:"]
@@ -434,6 +441,8 @@ def _triage_tools(dev_id, dev, alert=None):
                             else " (no fix yet)"))
         if more:
             lines.append(more)
+        if unchecked:
+            lines.append(unchecked)
         return '\n'.join(lines)
 
     def _metrics_trend(args):

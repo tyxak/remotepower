@@ -357,11 +357,14 @@ def handle_cve_findings():
                          'fix':      dict.fromkeys(A.cve_fixes.FIX_KEYS, 0),
                          # 8.0.1: what the scans counted per package and did not store one by one
                          'rollup':   0,
+                         # 8.0.2: how many of the packages the hosts listed were checked, and why the rest were not
+                         'covered':  {'listed': 0, 'checked': 0, 'not_checked': 0, 'reasons': {}},
                          'devices_scanned': 0,
                          'devices_with_findings': 0,
                          'devices_unsupported': 0},
     }
 
+    most_not_checked = []
     for dev_id, dev in devices.items():
         pkg_entry = pkg_store.get(dev_id) or {}
         ecosystem = A.cve_scanner.entry_ecosystem(pkg_entry)   # 8.0.1: the name the scan uses
@@ -398,6 +401,16 @@ def handle_cve_findings():
             report['summary']['kev'] += kev_count
             report['summary']['rollup'] += A.cve_fixes.rollup_total(f_entry)
 
+        # 8.0.2: which of the host's packages were checked: what its last scan stored, or, for a host nothing is
+        # matched against, all of them not. A host that is scannable and was not scanned since 8.0.2 states none.
+        covered = A.cve_scanner.entry_package_coverage(pkg_entry, f_entry, with_packages=False)
+        if covered:
+            A.cve_fixes.covered_add(report['summary']['covered'], covered)
+            if covered['not_checked']:
+                most_not_checked.append({'device_id': dev_id, 'name': dev.get('name', dev_id),
+                                         'listed': covered['listed'], 'not_checked': covered['not_checked'],
+                                         'reasons': covered['reasons']})
+
         report['devices'].append({
             'device_id':   dev_id,
             'name':        dev.get('name', dev_id),
@@ -410,9 +423,14 @@ def handle_cve_findings():
             'counts':      summary,
             'fix':         fix,          # v7.4.6 (#57)
             'rollup':      A.cve_fixes.rollup_total(f_entry),   # 8.0.1: counted per package, not listed
+            'covered':     covered,      # 8.0.2: packages checked and not checked, or None
             'kev':         kev_count,    # v3.14.0
             'epss_max':    epss_max,     # v3.14.0 (0–1)
         })
+
+    # the hosts with the most packages not checked, for the line under the tiles
+    most_not_checked.sort(key=lambda r: (-r['not_checked'], str(r['name']).lower()))
+    report['summary']['most_not_checked'] = most_not_checked[:5]
 
     # v3.14.0: prioritize by exploited-in-wild (KEV) → criticals → highs → EPSS.
     report['devices'].sort(
@@ -496,6 +514,8 @@ def handle_cve_device(dev_id):
         'cut':            [str(n) for n in cut if isinstance(n, str)][:20],
         # 8.0.1: what the scan counted per package and did not store one by one (cve_fixes.split)
         'rollup':         _rollup_view(f_entry),
+        # 8.0.2: which of the host's packages the last scan checked, and why the others were not (the first 200)
+        'covered':        A.cve_scanner.entry_package_coverage(pkg_entry, f_entry),
     })
 
 

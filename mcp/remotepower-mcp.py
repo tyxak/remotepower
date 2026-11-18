@@ -306,10 +306,30 @@ def tool_get_cves(args):
         if isinstance(data.get("rollup"), dict):
             # a Debian or Ubuntu host: what its scan counted per package and did not list
             out["counted"] = data["rollup"]
+        covered = data.get("covered")
+        if isinstance(covered, dict):
+            # which of the host's packages were checked and why the others were not (the first 200 of those)
+            out["coverage"] = covered
+            note = _coverage_note(covered, bool(listed) or isinstance(out.get("counted"), dict))
+            if note:
+                out["note"] = note
         return out
     # Fleet-wide
     data = _api("GET", "/api/cve/findings")
     return data or {"findings": []}
+
+
+def _coverage_note(covered, has_findings):
+    """One sentence for a model that reads an empty list as a clean host: how much of the host a scan looked at."""
+    nums = [covered.get(k) for k in ("listed", "checked", "not_checked")]
+    if not all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in nums) or not nums[2]:
+        return ""
+    listed, checked, missed = nums
+    if has_findings:
+        return f"{missed} of the {listed} packages were not checked; see coverage.reasons."
+    if not checked:
+        return f"None found, but none of the {listed} packages could be checked; see coverage.reasons."
+    return f"None found in the {checked} packages that could be checked; {missed} were not checked (coverage.reasons)."
 
 
 def tool_get_drift(args):

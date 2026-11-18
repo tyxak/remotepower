@@ -580,7 +580,9 @@ class TestAHostWithOnlyACountIsNotClean(_Stored):
         source = srcpin.py_function((_CGI / 'ai_triage_handlers.py').read_text(), '_cves')
         self.assertIn('more = A.cve_fixes.rollup_words(rec)', source)
         self.assertNotIn('mostly medium or lower', source)             # a guess, and untrue for a host that is behind
-        self.assertIn("return f'(no CVE findings listed for this host; {more})' if more else", source)
+        # 8.0.2: said again with the host's own account of what the scan checked (tests/test_cve_package_coverage.py)
+        self.assertIn("return f'(no CVE findings listed for this host; {more})' + (f' {unchecked}' if unchecked else '')",
+                      source)
         self.assertIn("'(no open CVE findings for this host)'", source)
         self.assertIn('lines.append(more)', source)
 

@@ -446,6 +446,12 @@ SHAPES: dict = {
     'disk_names.json': dict_of(dict_of(STR)),
     'container_stats_hist.json': dict_of(dict_of(list_of(LIST))),
     'cve_findings.json': dict_of(fields(cut=list_of(STR),
+                                        # 8.0.2: which packages the scan checked and why the others were not; the page and the
+                                        # tools read the numbers and print the rows (cve_fixes.covered_view)
+                                        covered=fields(listed=OPT_NUM, checked=OPT_NUM, not_checked=OPT_NUM, more=OPT_NUM,
+                                                       reasons=dict_of(NUM),
+                                                       packages=list_of(fields(need=('name',), name=STR, version=OPT_STR,
+                                                                               reason=OPT_STR))),
                                         rollup=fields(total=OPT_NUM, severity=dict_of(NUM), fix=dict_of(NUM),
                                                       packages=list_of(fields(need=('name',), name=STR, version=OPT_STR,
                                                                               count=OPT_NUM)),

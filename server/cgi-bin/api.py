@@ -11848,6 +11848,13 @@ def _alert_ticket_detail(al, device=None):
         if _counted:
             # 8.0.1: a Debian or Ubuntu host. "0 total" beside a few hundred that are counted read as clean.
             out.append(_counted[0].upper() + _counted[1:] + '.')
+        # 8.0.2: and "0 total" of the packages that could be checked is not "0 total" of the host
+        _none = cve_fixes.none_found_words(rec.get('covered')) if not findings and not _counted else ''
+        if _none:
+            out.append(_none[0].upper() + _none[1:] + '.')
+        _unchecked = cve_fixes.coverage_words(rec.get('covered'))
+        if _unchecked:
+            out.append(_unchecked)
         if findings:
             out.append('')
             _rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
@@ -50542,6 +50549,8 @@ def _build_runbook_snapshot(dev_id, devices):
         cve, cve_findings = {}, []
     # 8.0.1: how many more the host's scan counted per package (Debian and Ubuntu)
     cve_counted = cve_fixes.rollup_total(cve)
+    # 8.0.2: how many of the host's packages the scan checked, and why it did not check the others
+    cve_coverage = cve_fixes.covered_view(cve.get('covered') if isinstance(cve, dict) else None, with_packages=False)
     cve_findings = [{
         'id':       f.get('vuln_id'),
         'severity': f.get('severity'),
@@ -50593,6 +50602,7 @@ def _build_runbook_snapshot(dev_id, devices):
         'recent_journal':  journal,
         'cve_findings':   cve_findings,
         'cve_counted':    cve_counted,
+        'cve_coverage':   cve_coverage,
         'patch_status':   patches,
     }
 
@@ -57877,9 +57887,13 @@ def handle_home():
                 sev = str(f.get('severity') or '').lower()
                 if sev in counts:
                     counts[sev] += 1
+            _covered = cve_fixes.covered_view(entry.get('covered'), with_packages=False)
             cve_devs.append({'device_id': cdev_id, 'counts': counts,
                              # 8.0.1: what a Debian or Ubuntu scan counted per package and did not list
-                             'counted': cve_fixes.rollup_total(entry)})
+                             'counted': cve_fixes.rollup_total(entry),
+                             # 8.0.2: how many of the host's packages the scan did not check. "No active CVEs"
+                             # over a fleet of which a share was not checked says more than the scans know.
+                             'not_checked': _covered['not_checked'] if _covered else 0})
     except Exception:
         pass
     cves = {'devices': cve_devs}
@@ -72454,16 +72468,19 @@ def _build_sbom_doc(dev_id, dev, fmt, stores=None):
     so the stores are read once for all hosts."""
     pkg_store, findings_all, ignore_data, containers_all = stores if stores is not None else _sbom_stores()
     pkg_entry = pkg_store.get(dev_id) or {}
-    findings = (findings_all.get(dev_id) or {}).get('findings') or []
+    record = findings_all.get(dev_id) or {}
+    findings = record.get('findings') or []
     findings = cve_scanner.apply_ignore_list(findings, ignore_data, dev_id)
+    # 8.0.2: which packages the host's CVE scan checked: no vulnerability in the document is not none in the host
+    covered = cve_scanner.entry_package_coverage(pkg_entry, record, with_packages=False)
     # v3.14.0: include running container images as SBOM components.
     containers = (containers_all.get(dev_id) or {}).get('items') or []
     dev = dict(dev); dev['id'] = dev_id
     if fmt == 'spdx':
-        return sbom_mod.build_spdx(dev, pkg_entry, findings,
-                                   server_version=SERVER_VERSION, containers=containers)
-    return sbom_mod.build_cyclonedx(dev, pkg_entry, findings,
-                                    server_version=SERVER_VERSION, containers=containers)
+        return sbom_mod.build_spdx(dev, pkg_entry, findings, server_version=SERVER_VERSION,
+                                   containers=containers, covered=covered)
+    return sbom_mod.build_cyclonedx(dev, pkg_entry, findings, server_version=SERVER_VERSION,
+                                    containers=containers, covered=covered)
 
 
 def _stream_json_download(obj, filename):
