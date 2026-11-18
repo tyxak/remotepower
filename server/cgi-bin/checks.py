@@ -20,6 +20,7 @@ hypervisor.py); api.py re-binds these names for its call sites and the
 test suite. Part of the Makefile LINT + TYPECHECK baseline.
 """
 
+import re
 import time
 
 import posture_signals
@@ -1418,7 +1419,191 @@ AGENT_CHECK_TYPES = (
     #                     somewhere new. `param` is an optional CIDR
     #                     ignore-list (office / VPN ranges).
     "auth_new_source",
+    #   registry        — a Windows registry value (HKLM only) against an
+    #                     expected one. The definition is its own fields (hive,
+    #                     path, value, op, expect, see validate_registry_check);
+    #                     `param` is the one-line form built from them. Only the
+    #                     Windows agent evaluates it, read-only, through winreg.
+    "registry",
 )
+
+# Types only the Windows agent can evaluate. A host that is not a Windows one is
+# not given the check and shows no row for it: applying a registry baseline to
+# the whole fleet must not put an "unknown" row on every Linux host.
+WINDOWS_ONLY_CHECK_TYPES = ("registry",)
+
+# ── registry value checks ───────────────────────────────────────────────────
+# The rules a registry check is held to. The Windows agent holds itself to the
+# same ones (it does not trust the server, and the server does not trust an old
+# definition), and tests/test_registry_check.py feeds both the same inputs.
+#
+# HKLM only: the agent runs as SYSTEM, so HKCU would be SYSTEM's own hive and
+# says nothing about any user. SOFTWARE and SYSTEM are the two places policy and
+# service settings live; SAM, SECURITY and BCD00000000 hold password hashes and
+# boot data and are not readable by a check. The path and value name are
+# restricted to the characters registry names use in practice, which also keeps
+# a traversal-looking or shell-looking string out of every place the definition
+# is stored, shown or logged.
+REGISTRY_HIVES = ("HKLM",)
+REGISTRY_ROOTS = ("SOFTWARE", "SYSTEM")
+REGISTRY_OPS = ("equals", "not_equals", "at_least", "at_most", "exists", "missing")
+REGISTRY_OPS_WITH_EXPECT = ("equals", "not_equals", "at_least", "at_most")
+REGISTRY_OPS_NUMERIC = ("at_least", "at_most")
+REGISTRY_MAX_SEGMENTS = 12
+REGISTRY_MAX_PATH = 200
+REGISTRY_MAX_VALUE_NAME = 64
+REGISTRY_MAX_EXPECT = 100
+_REGISTRY_NAME_RE = re.compile(r"^[A-Za-z0-9 .\-_(){}\\]+$")
+_REGISTRY_INT_RE = re.compile(r"^-?[0-9]{1,20}$")
+_REGISTRY_HEX_RE = re.compile(r"^0[xX][0-9a-fA-F]{1,16}$")
+_REGISTRY_INT_MIN = -(2**63)
+_REGISTRY_INT_MAX = 2**64 - 1
+
+
+def registry_number(text):
+    """A whole number written the way a person writes a DWORD: decimal, or 0x followed by hex.
+
+    None for anything else (and for a number outside what a registry value can hold), so
+    that a caller can tell "a number" from "some text" without catching anything.
+    """
+    if isinstance(text, bool):
+        return None
+    if isinstance(text, int):
+        number = text
+    elif isinstance(text, str):
+        s = text.strip()
+        if _REGISTRY_INT_RE.match(s):
+            number = int(s, 10)
+        elif _REGISTRY_HEX_RE.match(s):
+            number = int(s, 16)
+        else:
+            return None
+    else:
+        return None
+    return number if _REGISTRY_INT_MIN <= number <= _REGISTRY_INT_MAX else None
+
+
+def _registry_text(value, limit):
+    """`value` as trimmed text, cut one character past `limit` so a caller can tell "too long" from "fits"."""
+    s = "" if value is None else str(value)
+    return s.strip()[: limit + 1]
+
+
+# What a registry check is refused for. Fixed sentences, so each is a dictionary key of the
+# interface and a person who chose another language reads the refusal in it (the Add check
+# dialog shows the server's sentence as it arrives).
+REGISTRY_REFUSALS = (
+    "a registry check needs a path, a value name and a condition",
+    "the hive must be HKLM: the agent runs as SYSTEM, so any other hive would be its own and tell you nothing about your users",
+    "a registry path is required",
+    "the registry path is longer than 200 characters",
+    "the registry path may hold only letters, digits, spaces, backslashes and . - _ ( ) { }",
+    "the registry path has more than 12 parts",
+    "the registry path has an empty part (a backslash at either end, or two in a row)",
+    "a part of the registry path cannot be . or ..",
+    "the registry path must start with SOFTWARE or SYSTEM",
+    "a value name is required",
+    "the value name is longer than 64 characters",
+    "the value name may hold only letters, digits, spaces and . - _ ( ) { }",
+    "the condition must be one of: equals, not_equals, at_least, at_most, exists, missing",
+    "an expected value is required",
+    "the expected value is longer than 100 characters",
+    "the expected value cannot hold control characters",
+    "this condition compares numbers: the expected value must be a whole number",
+)
+(
+    _R_NO_BODY,
+    _R_HIVE,
+    _R_NO_PATH,
+    _R_PATH_LONG,
+    _R_PATH_CHARS,
+    _R_PATH_PARTS,
+    _R_PATH_EMPTY,
+    _R_PATH_DOTS,
+    _R_PATH_ROOT,
+    _R_NO_NAME,
+    _R_NAME_LONG,
+    _R_NAME_CHARS,
+    _R_OP,
+    _R_NO_EXPECT,
+    _R_EXPECT_LONG,
+    _R_EXPECT_CTRL,
+    _R_EXPECT_NUMBER,
+) = REGISTRY_REFUSALS
+
+
+def validate_registry_check(body):
+    """(definition, "") for a registry check, or (None, what was refused).
+
+    `body` is what the Add check dialog (or the API) sent: hive, path, value, op, expect. The
+    definition that comes back holds exactly the five fields the agent reads, in their
+    canonical form: the hive upper case, the root of the path upper case, and `expect` a
+    number when it reads as one. An operation that takes no expected value (exists, missing)
+    drops it.
+    """
+    if not isinstance(body, dict):
+        return None, _R_NO_BODY
+    hive = _registry_text(body.get("hive") or "HKLM", 16).upper()
+    if hive not in REGISTRY_HIVES:
+        return None, _R_HIVE
+    path = _registry_text(body.get("path"), REGISTRY_MAX_PATH)
+    if not path:
+        return None, _R_NO_PATH
+    if len(path) > REGISTRY_MAX_PATH:
+        return None, _R_PATH_LONG
+    if not _REGISTRY_NAME_RE.match(path):
+        return None, _R_PATH_CHARS
+    parts = path.split("\\")
+    if len(parts) > REGISTRY_MAX_SEGMENTS:
+        return None, _R_PATH_PARTS
+    if any(not p.strip() for p in parts):
+        return None, _R_PATH_EMPTY
+    if any(set(p) <= {"."} for p in parts):
+        return None, _R_PATH_DOTS
+    if parts[0].upper() not in REGISTRY_ROOTS:
+        return None, _R_PATH_ROOT
+    parts[0] = parts[0].upper()
+    name = _registry_text(body.get("value"), REGISTRY_MAX_VALUE_NAME)
+    if not name:
+        return None, _R_NO_NAME
+    if len(name) > REGISTRY_MAX_VALUE_NAME:
+        return None, _R_NAME_LONG
+    if not _REGISTRY_NAME_RE.match(name) or "\\" in name:
+        return None, _R_NAME_CHARS
+    op = _registry_text(body.get("op"), 16).lower()
+    if op not in REGISTRY_OPS:
+        return None, _R_OP
+    clean = {"hive": hive, "path": "\\".join(parts), "value": name, "op": op}
+    if op in REGISTRY_OPS_WITH_EXPECT:
+        text = _registry_text(body.get("expect"), REGISTRY_MAX_EXPECT)
+        if not text:
+            return None, _R_NO_EXPECT
+        if len(text) > REGISTRY_MAX_EXPECT:
+            return None, _R_EXPECT_LONG
+        if any(c < " " or c == "\x7f" for c in text):
+            return None, _R_EXPECT_CTRL
+        number = registry_number(text)
+        if op in REGISTRY_OPS_NUMERIC:
+            if number is None:
+                return None, _R_EXPECT_NUMBER
+            clean["expect"] = number
+        else:
+            clean["expect"] = number if number is not None else text
+    return clean, ""
+
+
+def registry_param(defn):
+    """The one-line form of a registry definition: HKLM\\path\\value op expected.
+
+    It stands where `param` stands for the other types: the Checks list shows it, and the
+    catalog's "applied" marks and the apply step's de-duplication compare it, so two checks of
+    one value with different conditions are two checks.
+    """
+    line = f"{defn.get('hive', 'HKLM')}\\{defn.get('path', '')}\\{defn.get('value', '')}"
+    line += f" {defn.get('op', '')}"
+    if "expect" in defn:
+        line += f" {defn['expect']}"
+    return line
 
 
 # v6.2.3: a shipped catalog of RECOMMENDED baseline checks — the checks analogue
@@ -1888,6 +2073,120 @@ CHECK_BASELINE_CATALOG = (
         "name": "SNMP (161) not listening",
         "desc": "v1/v2c community strings are cleartext. Apply where SNMP is not meant to be enabled.",
     },
+    # ── Hardening — Windows registry values (read-only, HKLM) ─────────────────
+    # Each reads one registry value on a Windows host and compares it; the
+    # description names the value it reads. A non-Windows host is never given
+    # them (WINDOWS_ONLY_CHECK_TYPES), so applying them to the whole fleet is safe.
+    # `param` is registry_param() of the extras, and tests/test_registry_check.py
+    # holds the two together. A value that is not set passes a "not_equals" check
+    # and fails the others: say which in the description.
+    {
+        "cat": "Hardening — Windows registry",
+        "id": "win_smb1_server_off",
+        "type": "registry",
+        "param": r"HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters\SMB1 not_equals 1",
+        "name": "SMBv1 server off",
+        "desc": r"Reads HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters\SMB1. "
+        "It fails when the value is 1, which turns on SMBv1, the old file-sharing protocol "
+        "that WannaCry spread over. No value passes, because a fresh install of current "
+        "Windows does not turn SMBv1 on. Windows 7 and Server 2008 R2 leave it on, so set "
+        "the value to 0 there.",
+        "extras": {
+            "hive": "HKLM",
+            "path": r"SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters",
+            "value": "SMB1",
+            "op": "not_equals",
+            "expect": 1,
+        },
+    },
+    {
+        "cat": "Hardening — Windows registry",
+        "id": "win_ntlm_level_5",
+        "type": "registry",
+        "param": r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa\LmCompatibilityLevel at_least 5",
+        "name": "NTLM level 5",
+        "desc": r"Reads HKLM\SYSTEM\CurrentControlSet\Control\Lsa\LmCompatibilityLevel. "
+        "Level 5 sends NTLMv2 only, and a domain controller refuses LM and NTLM. A lower "
+        "level, or no value, lets weaker sign-in methods through, so both fail.",
+        "extras": {
+            "hive": "HKLM",
+            "path": r"SYSTEM\CurrentControlSet\Control\Lsa",
+            "value": "LmCompatibilityLevel",
+            "op": "at_least",
+            "expect": 5,
+        },
+    },
+    {
+        "cat": "Hardening — Windows registry",
+        "id": "win_uac_enabled",
+        "type": "registry",
+        "param": r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA equals 1",
+        "name": "UAC enabled",
+        "desc": r"Reads HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA. "
+        "User Account Control is on only when the value is 1. With it off, programs run "
+        "with full administrator rights without asking. Any other value, or none, fails.",
+        "extras": {
+            "hive": "HKLM",
+            "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System",
+            "value": "EnableLUA",
+            "op": "equals",
+            "expect": 1,
+        },
+    },
+    {
+        "cat": "Hardening — Windows registry",
+        "id": "win_defender_realtime_policy",
+        "type": "registry",
+        "param": r"HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableRealtimeMonitoring not_equals 1",
+        "name": "Defender real-time protection not disabled by policy",
+        "desc": r"Reads HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableRealtimeMonitoring. "
+        "It fails when a policy sets the value to 1, which turns real-time protection off. "
+        "No value means no policy, which passes. This reads the policy, not the live state "
+        "of Defender, which the Defender checks report.",
+        "extras": {
+            "hive": "HKLM",
+            "path": r"SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection",
+            "value": "DisableRealtimeMonitoring",
+            "op": "not_equals",
+            "expect": 1,
+        },
+    },
+    {
+        "cat": "Hardening — Windows registry",
+        "id": "win_rdp_nla_required",
+        "type": "registry",
+        "param": r"HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp\UserAuthentication equals 1",
+        "name": "RDP network-level authentication required",
+        "desc": r"Reads HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp\UserAuthentication. "
+        "The value 1 makes Remote Desktop ask for a sign-in before it starts a desktop "
+        "session, which keeps unauthenticated clients away from the login screen. Apply "
+        "it to hosts that allow Remote Desktop.",
+        "extras": {
+            "hive": "HKLM",
+            "path": r"SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp",
+            "value": "UserAuthentication",
+            "op": "equals",
+            "expect": 1,
+        },
+    },
+    {
+        "cat": "Hardening — Windows registry",
+        "id": "win_cached_logons_max_4",
+        "type": "registry",
+        "param": r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\CachedLogonsCount at_most 4",
+        "name": "Cached logons at most 4",
+        "desc": r"Reads HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\CachedLogonsCount, "
+        "a number kept as text. It is how many domain sign-ins Windows remembers so a user "
+        "can sign in with no domain controller in reach. 4 or fewer is the usual limit. "
+        "A host with no value uses the default of 10, so it fails.",
+        "extras": {
+            "hive": "HKLM",
+            "path": r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon",
+            "value": "CachedLogonsCount",
+            "op": "at_most",
+            "expect": 4,
+        },
+    },
     # ── Integrity — critical files (baseline on first run, alert on change) ───
     {
         "cat": "Integrity — critical files",
@@ -2164,6 +2463,7 @@ PROTECT_CATEGORIES = frozenset(
         "Web / application security",
         "Hardening — services",
         "Hardening — must not listen",
+        "Hardening — Windows registry",
         "Integrity — critical files",
         "Integrity — persistence paths",
         "Integrity — must not exist",
@@ -2178,8 +2478,16 @@ def baseline_kind(cat):
     return "protect" if cat in PROTECT_CATEGORIES else "ops"
 
 
+def _is_windows_host(dev):
+    """Whether the host reports a Windows OS: the agent's free-text `os` ("Windows 11 Pro", "Windows Server 2022")."""
+    os_str = str((dev or {}).get("os") or "").lower()
+    return "windows" in os_str or os_str.startswith("win")
+
+
 def _custom_check_applies(cdef, dev_id, dev):
     """True if a custom-check definition targets this device."""
+    if cdef.get("type") in WINDOWS_ONLY_CHECK_TYPES and not _is_windows_host(dev):
+        return False
     tk = cdef.get("target_kind", "all")
     tv = str(cdef.get("target", ""))
     if tk == "all":

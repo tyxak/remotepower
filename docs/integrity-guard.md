@@ -210,12 +210,13 @@ keeps working.
 
 ## The template catalog
 
-**Baseline protect checks** ships ~63 hardening templates, applied by checkbox
+**Baseline protect checks** ships about 69 hardening templates, applied by checkbox
 to any scope. They're grouped by intent:
 
 | Category | What it covers |
 |---|---|
 | Hardening — services | fail2ban, AppArmor, sshd, journald, rsyslog, the AV signature updater **and the AV scanning daemon** (an updater without a running daemon scans nothing — on-access protection fails silently) |
+| Hardening — Windows registry | six `HKLM` registry values on Windows hosts: SMBv1 off, NTLM level 5, UAC on, Defender real-time protection not turned off by policy, RDP network-level authentication, and at most 4 cached logons. See [Checks](checks.md#windows-registry-values) |
 | Hardening — must not listen | 17 ports that should not be reachable: FTP, rsh/rlogin, rpcbind, NFS, SMB/NetBIOS, VNC, RDP, the unauthenticated **Docker API (2375)**, MySQL, PostgreSQL, Redis, MongoDB, Elasticsearch, memcached, SNMP |
 | Integrity — critical files | `/etc/shadow`, `/etc/group`, `/etc/sudoers`, `sshd_config`, `hosts`, `nsswitch.conf`, PAM, `fstab`, `resolv.conf`, apt sources |
 | Integrity — persistence paths | `/etc/cron.d`, `cron.daily`, `cron.hourly`, `/etc/systemd/system`, `/etc/sudoers.d`, `/root/.ssh`, `/etc/profile.d`, `/usr/local/bin`, `sources.list.d`, `ld.so.conf.d` |
@@ -229,7 +230,7 @@ Params suit Debian/Ubuntu and are **editable after applying** (e.g.
 de-duplicated on (type, param, scope), so re-applying adds nothing.
 
 The catalog is **text-filterable** (name / path / description) so you find a
-template among the ~63 without scrolling, and each row's **"Applied to …"**
+template among the 69 without scrolling, and each row's **"Applied to …"**
 annotation shows exactly where it landed — with a **remove** action per scope
 (and per host in the expandable list), so you can un-apply a check from a tag,
 group or single host straight from the card. Removing is a deferred-commit with

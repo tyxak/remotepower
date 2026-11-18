@@ -1810,7 +1810,13 @@ if _AVAILABLE:
         watch_service: str = ''
         protect: str = ''      # dir_baseline: '' | 'quarantine' (Integrity Guard)
         pattern: str = ''      # file_contains: the regex to search for
-        _v0 = field_validator('id', 'name', 'param', 'target', 'target_kind', 'type', 'unit', 'watch_service', 'protect', 'pattern', mode='before')(_coerce_str_loose)
+        # registry: the five fields of a Windows registry value check (checks.validate_registry_check); the handler builds `param` from them
+        hive: str = ''
+        path: str = ''
+        value: str = ''
+        op: str = ''
+        expect: str = ''
+        _v0 = field_validator('id', 'name', 'param', 'target', 'target_kind', 'type', 'unit', 'watch_service', 'protect', 'pattern', 'hive', 'path', 'value', 'op', 'expect', mode='before')(_coerce_str_loose)
 
     class DashboardKindsSetRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

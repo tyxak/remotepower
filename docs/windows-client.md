@@ -237,7 +237,7 @@ Parity with the Linux agent for the core management surface:
 | **Hardware inventory** | dmidecode | WMI (system + memory) |
 | **Config drift** (file hashing) | yes | yes |
 | **Containers** | docker/podman/k8s | docker CLI (Desktop / Windows containers) |
-| **Custom checks** (file/job/log/service) | yes | yes; `windows_service` type |
+| **Custom checks** (file/job/log/service) | yes | yes; `windows_service` type, and a read-only [`registry`](checks.md#windows-registry-values) type (one `HKLM` value through `winreg`) |
 | Security posture → Checks | (n/a) | BitLocker, Firewall (per profile), Defender real-time + signature age, Windows Update service |
 | Compliance scan | OpenSCAP | not ported (oscap is Linux-only; use the cross-platform CIS baseline). Triggering an OpenSCAP scan on a Windows/macOS host now returns an honest "Linux only, skipped" instead of a silent no-op |
 | **Installed software** | `dpkg` / `rpm` / `apk` / `pacman` package list | The Uninstall keys of the registry (read only), sent to the software views; see [Software inventory](patches.md#software-inventory) |

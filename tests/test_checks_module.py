@@ -52,7 +52,8 @@ class TestPurity(unittest.TestCase):
                           'launchd_service',    # v6.4.1: macOS parity
                           'file_hash', 'dir_baseline', 'egress_flagged',
                           'file_contains', 'egress_baseline',
-                          'auth_new_source'))
+                          'auth_new_source',
+                          'registry'))          # a Windows registry value, read by the Windows agent alone
 
 
 class TestEngine(unittest.TestCase):

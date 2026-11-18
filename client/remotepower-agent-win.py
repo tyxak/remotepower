@@ -19,7 +19,7 @@ at parity with Linux:
 As of the v6.2.0 second wave it also reports SMART disk health, hardware inventory
 (WMI), config drift (file hashing), containers (docker CLI), a Windows security-
 posture set for the Checks catalog (BitLocker / firewall / Defender / WU service),
-and evaluates agent-side custom checks incl. a `windows_service` type.
+and evaluates agent-side custom checks incl. a `windows_service` type and a read-only `registry` type (one HKLM value through winreg).
 
 It also sends the installed software: the Uninstall keys of the registry (read only) go to POST /api/packages as a list of
 applications, at the first poll, about every six hours, and when the server asks for a package scan. A list that has not changed
@@ -3895,9 +3895,209 @@ def collect_backup_status(backup_monitors):
     return results
 
 
+# ── registry value checks ────────────────────────────────────────────────────
+#
+# One registry value read against an expected one, read-only: OpenKey with KEY_READ and QueryValueEx, nothing else, so a definition cannot change the host.
+# The rules a definition is held to are the server's (checks.validate_registry_check) and this agent applies them again, because it does not rely on the
+# server having checked: a hand-edited store or an old definition reaches it too. tests/test_registry_check.py feeds both the same inputs.
+#
+#   HKLM only    the agent runs as SYSTEM, so HKCU would be SYSTEM's own hive and would say nothing about any user
+#   SOFTWARE and SYSTEM only, at most 12 parts, and nothing but letters, digits, spaces, backslashes and . - _ ( ) { } in a path or a value name
+#   the native 64-bit view (KEY_WOW64_64KEY), so a 32-bit Python reads the same key PowerShell does
+#   an answer is an integer or a text of at most 200 characters, never raw bytes: a binary value is reported as "binary, N bytes"
+#   a text value whose NAME looks like a password or a key is refused, so a check cannot put a stored secret into the Checks page; a number is not refused
+_REG_HIVES = ('HKLM',)
+_REG_ROOTS = ('SOFTWARE', 'SYSTEM')
+_REG_OPS = ('equals', 'not_equals', 'at_least', 'at_most', 'exists', 'missing')
+_REG_OPS_WITH_EXPECT = ('equals', 'not_equals', 'at_least', 'at_most')
+_REG_OPS_NUMERIC = ('at_least', 'at_most')
+_REG_MAX_SEGMENTS = 12
+_REG_MAX_PATH = 200
+_REG_MAX_VALUE_NAME = 64
+_REG_MAX_EXPECT = 100
+_REG_OUT_MAX = 200
+_REG_NAME_RE = re.compile(r'^[A-Za-z0-9 .\-_(){}\\]+$')
+_REG_INT_RE = re.compile(r'^-?[0-9]{1,20}$')
+_REG_HEX_RE = re.compile(r'^0[xX][0-9a-fA-F]{1,16}$')
+_REG_INT_MIN = -(2 ** 63)
+_REG_INT_MAX = 2 ** 64 - 1
+_REG_SECRET_NAME = re.compile(r'password|passwd|passphrase|pwd|secret|apikey|api_key|privatekey|private_key|credential|token', re.I)
+
+
+def _reg_number(v):
+    """A whole number as a person writes a DWORD, decimal or 0x hex, from an int or a text; None for anything else."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        n = v
+    elif isinstance(v, str):
+        s = v.strip()
+        if _REG_INT_RE.match(s):
+            n = int(s, 10)
+        elif _REG_HEX_RE.match(s):
+            n = int(s, 16)
+        else:
+            return None
+    else:
+        return None
+    return n if _REG_INT_MIN <= n <= _REG_INT_MAX else None
+
+
+def _reg_clean(c):
+    """(definition, '') or (None, why) for a pushed registry check: the server's rules (checks.validate_registry_check), applied here again."""
+    def _trim(v, limit):
+        return ('' if v is None else str(v)).strip()[:limit + 1]
+    hive = _trim(c.get('hive') or 'HKLM', 16).upper()
+    if hive not in _REG_HIVES:
+        return None, 'the hive must be HKLM'
+    path = _trim(c.get('path'), _REG_MAX_PATH)
+    if not path:
+        return None, 'no registry path'
+    if len(path) > _REG_MAX_PATH:
+        return None, 'the registry path is too long'
+    if not _REG_NAME_RE.match(path):
+        return None, 'the registry path has a character that is not allowed'
+    parts = path.split('\\')
+    if len(parts) > _REG_MAX_SEGMENTS:
+        return None, 'the registry path has more than %d parts' % _REG_MAX_SEGMENTS
+    if any(not p.strip() for p in parts):
+        return None, 'the registry path has an empty part'
+    if any(set(p) <= {'.'} for p in parts):
+        return None, 'a part of the registry path is . or ..'
+    if parts[0].upper() not in _REG_ROOTS:
+        return None, 'the registry path must start with SOFTWARE or SYSTEM'
+    parts[0] = parts[0].upper()
+    name = _trim(c.get('value'), _REG_MAX_VALUE_NAME)
+    if not name:
+        return None, 'no value name'
+    if len(name) > _REG_MAX_VALUE_NAME:
+        return None, 'the value name is too long'
+    if not _REG_NAME_RE.match(name) or '\\' in name:
+        return None, 'the value name has a character that is not allowed'
+    op = _trim(c.get('op'), 16).lower()
+    if op not in _REG_OPS:
+        return None, 'unknown condition'
+    clean = {'hive': hive, 'path': '\\'.join(parts), 'value': name, 'op': op}
+    if op in _REG_OPS_WITH_EXPECT:
+        text = _trim(c.get('expect'), _REG_MAX_EXPECT)
+        if not text:
+            return None, 'no expected value'
+        if len(text) > _REG_MAX_EXPECT:
+            return None, 'the expected value is too long'
+        if any(ch < ' ' or ch == '\x7f' for ch in text):
+            return None, 'the expected value has a control character'
+        number = _reg_number(text)
+        if op in _REG_OPS_NUMERIC:
+            if number is None:
+                return None, '%s needs a whole number' % op
+            clean['expect'] = number
+        else:
+            clean['expect'] = number if number is not None else text
+    return clean, ''
+
+
+def _reg_text(s):
+    """Text for the report: control characters (and the line and paragraph separators) become spaces, and it is cut at what a check may send."""
+    return ''.join(' ' if (ch < ' ' or '\x7f' <= ch <= '\x9f' or ch in '\u2028\u2029') else ch for ch in str(s))[:_REG_OUT_MAX]
+
+
+def _reg_read(path, name, wr):
+    """('ok', (data, type)) | ('missing', None) | ('error', why). Only ever opens a key for reading and queries one value."""
+    access = getattr(wr, 'KEY_READ', 0x20019) | getattr(wr, 'KEY_WOW64_64KEY', 0x100)
+    try:
+        key = wr.OpenKey(wr.HKEY_LOCAL_MACHINE, path, 0, access)
+    except FileNotFoundError:
+        return 'missing', None
+    except PermissionError:
+        return 'error', 'access denied'
+    except OSError:
+        return 'error', 'the key could not be opened'
+    try:
+        try:
+            return 'ok', wr.QueryValueEx(key, name)
+        except FileNotFoundError:
+            return 'missing', None
+        except OSError:
+            return 'error', 'the value could not be read'
+    finally:
+        try:
+            wr.CloseKey(key)
+        except OSError:
+            pass
+
+
+def _reg_normalize(data, typ, wr):
+    """An integer for a DWORD or QWORD, a text for a string type, and 'binary, N bytes' for anything else. Never raw bytes."""
+    dword, qword = getattr(wr, 'REG_DWORD', 4), getattr(wr, 'REG_QWORD', 11)
+    sz, expand, multi = getattr(wr, 'REG_SZ', 1), getattr(wr, 'REG_EXPAND_SZ', 2), getattr(wr, 'REG_MULTI_SZ', 7)
+    if typ in (dword, qword) and isinstance(data, int) and not isinstance(data, bool):
+        return data
+    if typ in (sz, expand) and isinstance(data, str):
+        return _reg_text(data)
+    if typ == multi and isinstance(data, (list, tuple)):
+        return _reg_text(' | '.join(str(s) for s in data if isinstance(s, str)))
+    return 'binary, %d bytes' % (len(data) if isinstance(data, (bytes, bytearray)) else 0)
+
+
+def _reg_equal(value, expect):
+    """Whether a value equals the expected one: as numbers when both read as numbers (a text '0' equals 0), otherwise as text without regard to case."""
+    a, b = _reg_number(value), _reg_number(expect)
+    if a is not None and b is not None:
+        return a == b
+    return str(value).strip().lower() == str(expect).strip().lower()
+
+
+def _reg_wants(op, expect):
+    return {'equals': 'equals %s', 'not_equals': 'not %s', 'at_least': 'at least %s', 'at_most': 'at most %s'}[op] % expect
+
+
+def _eval_registry_check(c, wr=None):
+    """(status, output) for one pushed registry check. 'unknown' says the check could not be answered; nothing here raises."""
+    clean, why = _reg_clean(c)
+    if clean is None:
+        return 'unknown', 'refused: ' + why
+    if wr is None:
+        try:
+            import winreg as wr
+        except Exception:
+            return 'unknown', 'the registry is only on Windows'
+    name, op, expect = clean['value'], clean['op'], clean.get('expect')
+    state, got = _reg_read(clean['path'], name, wr)
+    if state == 'error':
+        return 'unknown', got
+    if state == 'missing':
+        shown = '%s not set' % name
+        if op in ('missing', 'not_equals'):
+            return 'ok', _reg_text(shown)
+        if op == 'exists':
+            return 'critical', _reg_text(shown)
+        return 'critical', _reg_text('%s, expected %s' % (shown, _reg_wants(op, expect)))
+    data, typ = got
+    if isinstance(data, (str, list, tuple)) and _REG_SECRET_NAME.search(name):
+        return 'unknown', 'refused: a text value named like a password or a key is not read'
+    value = _reg_normalize(data, typ, wr)
+    shown = '%s = %s' % (name, value)
+    if op == 'exists':
+        return 'ok', _reg_text(shown)
+    if op == 'missing':
+        return 'critical', _reg_text('%s (should not be set)' % shown)
+    if op in _REG_OPS_NUMERIC:
+        n = _reg_number(value)
+        good = n is not None and (n >= expect if op == 'at_least' else n <= expect)
+    else:
+        good = _reg_equal(value, expect)
+        if op == 'not_equals':
+            good = not good
+    if good:
+        return 'ok', _reg_text(shown)
+    return 'critical', _reg_text('%s, expected %s' % (shown, _reg_wants(op, expect)))
+
+
 def _eval_one_agent_check_win(c):
     ctype = c.get('type')
     param = str(c.get('param', ''))
+    if ctype == 'registry':
+        return _eval_registry_check(c)
     if ctype in ('file_present', 'file_absent'):
         try:
             exists = os.path.exists(param)

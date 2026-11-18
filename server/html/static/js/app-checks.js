@@ -425,19 +425,30 @@ function ccTypeChanged() {
   document.getElementById('cc-job-grp')?.classList.toggle('hidden', t !== 'job_fresh');
   document.getElementById('cc-protect-grp')?.classList.toggle('hidden', t !== 'dir_baseline');
   document.getElementById('cc-pattern-grp')?.classList.toggle('hidden', t !== 'file_contains');
+  // A registry check is five fields, not one string: its own row replaces the single value box, and the server builds the one-line form.
+  document.getElementById('cc-reg-grp')?.classList.toggle('hidden', t !== 'registry');
+  document.getElementById('cc-param-grp')?.classList.toggle('hidden', t === 'registry');
+  ccRegOpChanged();
   // systemd_unit / windows_service / launchd_service: offer to also watch it
   // on the Services page.
   document.getElementById('cc-svc-grp')?.classList.toggle(
     'hidden', t !== 'systemd_unit' && t !== 'windows_service'
               && t !== 'launchd_service');
 }
+// "is set" and "is not set" take no expected value, so its box goes away for them.
+function ccRegOpChanged() {
+  const op = document.getElementById('cc-reg-op')?.value || 'equals';
+  document.getElementById('cc-reg-expect-grp')?.classList.toggle('hidden', op === 'exists' || op === 'missing');
+}
 let _ccCache = [];
 let _ccEditId = null;
 let _ccDevNames = {};   // device id -> hostname, for the saved-checks list + edit
 function _ccResetForm() {
   _ccEditId = null;
-  ['cc-name', 'cc-param', 'cc-target', 'cc-host-search', 'cc-catalog-search', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage', 'cc-pattern']
+  ['cc-name', 'cc-param', 'cc-target', 'cc-host-search', 'cc-catalog-search', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage', 'cc-pattern',
+   'cc-reg-path', 'cc-reg-value', 'cc-reg-expect']
     .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  const ro = document.getElementById('cc-reg-op'); if (ro) ro.value = 'equals';
   const ws = document.getElementById('cc-watch-svc'); if (ws) ws.checked = true;
   const pc = document.getElementById('cc-protect'); if (pc) pc.checked = false;
   ['cc-host-results', 'cc-catalog-results'].forEach(id => { const r = document.getElementById(id); if (r) r.hidden = true; });
@@ -892,6 +903,8 @@ function editCustomCheck(id) {
   setv('cc-unit', c.unit); setv('cc-maxage', c.max_age_hours);
   const pc = document.getElementById('cc-protect'); if (pc) pc.checked = c.protect === 'quarantine';
   setv('cc-pattern', c.pattern);
+  setv('cc-reg-path', c.path); setv('cc-reg-value', c.value); setv('cc-reg-expect', c.expect);
+  setv('cc-reg-op', c.op || 'equals');
   ccKindChanged(); ccTypeChanged();
   const b = document.getElementById('cc-save-btn'); if (b) b.textContent = 'Save changes';
   const nm = document.getElementById('cc-name'); if (nm) nm.focus();
@@ -917,7 +930,15 @@ async function saveCustomCheck() {
     target: document.getElementById('cc-target')?.value.trim() || '',
   };
   if (_ccEditId) body.id = _ccEditId;   // update-in-place keyed on id
-  if (!body.param) { toast('A value is required', 'error', {transient: true}); return; }
+  if (body.type === 'registry') {
+    // Five fields. The server checks them (the same rules the agent applies) and answers with what it refused, which failToast shows; it builds the one-line param itself.
+    body.hive = 'HKLM';
+    body.path = document.getElementById('cc-reg-path')?.value.trim() || '';
+    body.value = document.getElementById('cc-reg-value')?.value.trim() || '';
+    body.op = document.getElementById('cc-reg-op')?.value || 'equals';
+    body.expect = (body.op === 'exists' || body.op === 'missing') ? '' : (document.getElementById('cc-reg-expect')?.value.trim() || '');
+    delete body.param;
+  } else if (!body.param) { toast('A value is required', 'error', {transient: true}); return; }
   const numOf = id => { const v = parseInt(document.getElementById(id)?.value, 10); return isNaN(v) ? undefined : v; };
   if (body.type === 'log_errors') {
     body.window_min = numOf('cc-window');

@@ -25872,7 +25872,8 @@ def handle_heartbeat():
         (_sec_cfg.get('host_checks_disabled') or {}).get(dev_id) or [])
     _agent_checks = [
         {k: c[k] for k in ('id', 'type', 'param', 'window_min', 'warn', 'crit',
-                           'unit', 'max_age_hours', 'protect', 'pattern') if k in c}
+                           'unit', 'max_age_hours', 'protect', 'pattern',
+                           'hive', 'path', 'value', 'op', 'expect') if k in c}
         for c in (_sec_cfg.get('custom_checks') or [])
         if isinstance(c, dict) and c.get('type') in AGENT_CHECK_TYPES
         and _custom_check_applies(c, dev_id, saved_dev)
@@ -54032,6 +54033,14 @@ def handle_custom_checks_save():
     # Param semantics vary by type: a path (file/job), a regex (log), a process
     # name or port (server-side). Keep control chars out but don't mangle paths.
     param = re.sub(r'[\x00-\x1f\x7f]', '', str(body.get('param', '')))[:256].strip()
+    # A registry check is five fields, not one string: refuse a definition the agent would refuse (the same rules, checks.py), saying
+    # what was wrong, and build `param` from the clean fields. `param` is what lists and the catalog's "applied" marks compare.
+    registry = None
+    if ctype == 'registry':
+        registry, _why = checks_mod.validate_registry_check(body)
+        if registry is None:
+            respond(400, {'error': _why})
+        param = checks_mod.registry_param(registry)
     if not param:
         respond(400, {'error': 'param is required'})
     if ctype in ('file_present', 'file_absent', 'job_fresh') and not param.startswith('/'):
@@ -54058,6 +54067,8 @@ def handle_custom_checks_save():
             extras['unit'] = unit
     if ctype == 'job_fresh':
         extras['max_age_hours'] = _iarg('max_age_hours', 24, 1, 8760)
+    if registry is not None:
+        extras.update(registry)
     # Integrity Guard (v1): a dir_baseline check may opt into auto-quarantine —
     # the agent moves NEW files matching the watched path/glob into an on-host
     # vault instead of only alerting. Opt-in, reversible (files are preserved).

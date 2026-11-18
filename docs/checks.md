@@ -82,7 +82,8 @@ sortable, filterable table.
   off with the alert, the risk factor and the rest; see [certificate files](tls-monitor.md#certificate-files-on-your-hosts)
   *(7.5.0)*.
 - **Custom checks** — server-side process/port checks and agent-side
-  file/journal/log checks defined in the Check catalog.
+  file/journal/log checks defined in the Check catalog, and, on Windows hosts,
+  [registry value](#windows-registry-values) checks.
 - **Custom scripts** — a [custom script](custom-scripts.md) whose exit code
   maps to OK/WARN/CRIT.
 
@@ -114,9 +115,10 @@ side:
 
 - **Monitoring → Checks → Baseline checks** — the operational set above: is the
   host alive, patched, and running what it should.
-- **Security → Protect → Baseline protect checks** — ~63 hardening and
+- **Security → Protect → Baseline protect checks** — about 69 hardening and
   tamper-detection templates: ports that must not listen, critical-file
-  integrity, persistence paths, log signals. See
+  integrity, persistence paths, log signals, and six
+  [Windows registry](#windows-registry-values) settings. See
   [Integrity Guard](integrity-guard.md).
 
 Both create ordinary scoped checks and both evaluate into the same Checks table
@@ -144,6 +146,60 @@ Six agent-side types back the Protect set and can be used in any check:
 
 Full behaviour, the quarantine vault and the safety rails are documented in
 [Integrity Guard](integrity-guard.md).
+
+## Windows registry values
+
+The **Windows registry value** type reads one value under `HKLM` on a Windows
+host and compares it with the one you expect. It answers questions such as "is
+SMBv1 off?" or "is UAC on?" for every Windows host in a scope, and it shows OK
+or critical and alerts like any other check.
+
+Choose the type in the **Add check** dialog and fill in four fields:
+
+| Field | What to enter |
+|---|---|
+| **Registry path (under HKLM)** | For example `SYSTEM\CurrentControlSet\Control\Lsa`. It starts with `SOFTWARE` or `SYSTEM`, has at most 12 parts and 200 characters, and holds only letters, digits, spaces, backslashes and `. - _ ( ) { }`. |
+| **Value name** | For example `LmCompatibilityLevel`. Up to 64 characters from the same set, without backslashes. |
+| **Condition** | `equals`, `does not equal`, `is at least`, `is at most`, `is set` or `is not set`. |
+| **Expected value** | A whole number (`5` or `0x5`) or a text. The two *at least* and *at most* conditions need a number, and *is set* and *is not set* take no value. |
+
+How the agent reads it:
+
+- **Read-only.** It opens the key for reading and asks for that one value. It never
+  writes, creates or deletes anything in the registry.
+- **`HKLM` only.** The agent runs as SYSTEM, so `HKCU` would be SYSTEM's own hive
+  and say nothing about your users. A path outside `SOFTWARE` and `SYSTEM` is
+  refused too, so the hives that hold password hashes are out of reach.
+- **The 64-bit view.** A check reads the same key that PowerShell and the Windows
+  tools read.
+- **What comes back.** A DWORD or QWORD is a number. A text is compared without
+  regard to case, and a text that looks like a number (`"10"`) is compared as one.
+  A binary value is reported as `binary, N bytes`, never as its bytes, and every
+  answer is cut at 200 characters.
+- **No secrets.** A text value whose name looks like a password, a key or a token
+  (`DefaultPassword`, for example) is not read, so a check cannot put a stored
+  secret on the Checks page. A number with such a name is read.
+- **A value that is not set** passes *is not set* and *does not equal*, and fails
+  the other conditions. The description of each baseline check says which applies.
+- **Windows hosts only.** A Linux or macOS host in the same scope is not given the
+  check and shows no row for it, so a fleet-wide apply adds nothing there.
+
+The server checks a definition when you save it and tells you what it refused
+(another hive, a path outside `SOFTWARE` and `SYSTEM`, more than 12 parts, a
+character that is not allowed, a missing value name). The agent applies the same
+rules again to every definition it receives.
+
+Six ready-made checks are in the **Hardening — Windows registry** group of the
+baseline protect checks. Each names the value it reads:
+
+| Check | Reads | Passes when |
+|---|---|---|
+| SMBv1 server off | `SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters\SMB1` | the value is not 1 (no value passes) |
+| NTLM level 5 | `SYSTEM\CurrentControlSet\Control\Lsa\LmCompatibilityLevel` | the value is at least 5 |
+| UAC enabled | `SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA` | the value is 1 |
+| Defender real-time protection not disabled by policy | `SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection\DisableRealtimeMonitoring` | the value is not 1 (no value means no policy) |
+| RDP network-level authentication required | `SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp\UserAuthentication` | the value is 1 |
+| Cached logons at most 4 | `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\CachedLogonsCount` | the value is 4 or less (no value fails, because the default is 10) |
 
 ## Service checks per platform
 
