@@ -11849,10 +11849,11 @@ def _alert_ticket_detail(al, device=None):
             # 8.0.1: a Debian or Ubuntu host. "0 total" beside a few hundred that are counted read as clean.
             out.append(_counted[0].upper() + _counted[1:] + '.')
         # 8.0.2: and "0 total" of the packages that could be checked is not "0 total" of the host
-        _none = cve_fixes.none_found_words(rec.get('covered')) if not findings and not _counted else ''
+        _covered = _cve_account(dev_id, rec)
+        _none = cve_fixes.none_found_words(_covered) if not findings and not _counted else ''
         if _none:
             out.append(_none[0].upper() + _none[1:] + '.')
-        _unchecked = cve_fixes.coverage_words(rec.get('covered'))
+        _unchecked = cve_fixes.coverage_words(_covered)
         if _unchecked:
             out.append(_unchecked)
         # 8.0.2: which kernel the host runs, so a "reboot to apply" below is read against it, and so that a host whose
@@ -50557,7 +50558,7 @@ def _build_runbook_snapshot(dev_id, devices):
     # 8.0.1: how many more the host's scan counted per package (Debian and Ubuntu)
     cve_counted = cve_fixes.rollup_total(cve)
     # 8.0.2: how many of the host's packages the scan checked, and why it did not check the others
-    cve_coverage = cve_fixes.covered_view(cve.get('covered') if isinstance(cve, dict) else None, with_packages=False)
+    cve_coverage = _cve_account(dev_id, cve)
     cve_findings = [{
         'id':       f.get('vuln_id'),
         'severity': f.get('severity'),
@@ -53671,6 +53672,24 @@ def _counted_cve_findings(dev_id, dev, findings, ignore_data, fixable_only, kev)
         if cve_fixes.counted(f, fixable_only, kev):
             out.append(f)
     return out
+
+
+def _cve_account(dev_id, record):
+    """Which of a host's packages its CVE scan checked, for a reader that says it in a sentence (the assistant's tool, the
+    runbook, a ticket): the block its last scan stored or, for a host nothing is matched against, the one its package list
+    gives (`cve_scanner.entry_package_coverage`). No scan is made of such a host, so it has no record and no block, and a
+    reader that looked at the record alone called it a host with no CVEs while the CVE page said none of its packages could
+    be checked. The packages store is read, read-only, only for a host whose record has no block of its own. The numbers
+    without the rows, or None when there is nothing to say."""
+    record = record if isinstance(record, dict) else {}
+    stored = cve_fixes.covered_view(record.get('covered'), with_packages=False)
+    if stored is not None:
+        return stored
+    try:
+        entry = (_load_ro(PACKAGES_FILE) or {}).get(dev_id)
+    except Exception:
+        return None
+    return cve_scanner.entry_package_coverage(entry, record, with_packages=False)
 
 
 def _cve_high_counts():
@@ -57884,6 +57903,8 @@ def handle_home():
         findings_all = _load_ro(CVE_FINDINGS_FILE) or {}
         ignore_data  = _load_ro(CVE_IGNORE_FILE) or {}
         _cve_fixable_only, _cve_kev = _cve_count_rule()
+        _unstated = []          # the rows of monitored hosts whose record states no account of their packages
+        _shows_a_finding = False
         for cdev_id in devices_raw:
             if cdev_id not in _visible_ids:
                 continue
@@ -57895,12 +57916,29 @@ def handle_home():
                 if sev in counts:
                     counts[sev] += 1
             _covered = cve_fixes.covered_view(entry.get('covered'), with_packages=False)
-            cve_devs.append({'device_id': cdev_id, 'counts': counts,
-                             # 8.0.1: what a Debian or Ubuntu scan counted per package and did not list
-                             'counted': cve_fixes.rollup_total(entry),
-                             # 8.0.2: how many of the host's packages the scan did not check. "No active CVEs"
-                             # over a fleet of which a share was not checked says more than the scans know.
-                             'not_checked': _covered['not_checked'] if _covered else 0})
+            row = {'device_id': cdev_id, 'counts': counts,
+                   # 8.0.1: what a Debian or Ubuntu scan counted per package and did not list
+                   'counted': cve_fixes.rollup_total(entry),
+                   # 8.0.2: how many of the host's packages the scan did not check. "No active CVEs"
+                   # over a fleet of which a share was not checked says more than the scans know.
+                   'not_checked': _covered['not_checked'] if _covered else 0}
+            cve_devs.append(row)
+            if (devices_raw.get(cdev_id) or {}).get('monitored', True) is not False:    # the tile reads these only
+                _shows_a_finding = _shows_a_finding or any(counts.values()) or row['counted'] > 0
+                if _covered is None:
+                    _unstated.append(row)
+        # A host nothing is matched against (Arch, openSUSE, Windows, macOS) has no scan record, so no block: its account
+        # is the one its package list gives, and the list is in the packages store. That store holds every package of
+        # every host (557 ms to read for 100 hosts of 1,500 packages, measured), which is too much for the page that is
+        # polled every minute by every open tab, so it is read only when the answer changes what the tile says. The tile
+        # reads the number only when no host shows a finding and nothing is counted: otherwise it says that.
+        if _unstated and not _shows_a_finding:
+            _lists = _load_ro(PACKAGES_FILE) or {}
+            for row in _unstated:
+                _derived = cve_scanner.entry_package_coverage(_lists.get(row['device_id']),
+                                                              findings_all.get(row['device_id']), with_packages=False)
+                if _derived:
+                    row['not_checked'] = _derived['not_checked']
     except Exception:
         pass
     cves = {'devices': cve_devs}

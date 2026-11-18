@@ -557,7 +557,9 @@ class TestThePagesAreHandedIt(_Fleet):
         self.assertEqual(status, 200)
         rows = {r['device_id']: r for r in home['cves']['devices']}
         self.assertEqual((rows[self.DEB_NEW]['not_checked'], rows[self.DEB_OLD]['not_checked']), (0, 2))
-        self.assertEqual(rows[self.WIN]['not_checked'], 0)         # no record is read here: the page marks only scanned hosts
+        # two hosts show findings, so the tile says those and the packages store is not read for the hosts with no record:
+        # what the payload carries when nothing shows a finding is held in test_cve_coverage_readers
+        self.assertEqual(rows[self.WIN]['not_checked'], 0)
 
 
 class TestEveryTextThatSaysNoCvesSaysWhatItLookedAt(_Fleet):
@@ -612,7 +614,9 @@ class TestEveryTextThatSaysNoCvesSaysWhatItLookedAt(_Fleet):
         self.assertEqual((snap['cve_coverage']['checked'], snap['cve_coverage']['not_checked']), (1, 2))
         self.assertEqual(snap['cve_coverage']['reasons'], {'no_source': 2})
         self.assertNotIn('packages', snap['cve_coverage'])
-        self.assertIsNone(api._build_runbook_snapshot(self.WIN, api.load(api.DEVICES_FILE))['cve_coverage'])
+        # a host nothing is matched against has no record and says what its package list gives (more in test_cve_coverage_readers)
+        self.assertEqual(api._build_runbook_snapshot(self.WIN, api.load(api.DEVICES_FILE))['cve_coverage'],
+                         {'listed': 8, 'checked': 0, 'not_checked': 8, 'reasons': {'no_matcher': 8}})
         import ai_provider
         prompt = next(v for v in ai_provider.SYSTEM_PROMPTS.values() if isinstance(v, str) and 'cve_findings' in v
                       and 'No risks flagged in this snapshot.' in v)

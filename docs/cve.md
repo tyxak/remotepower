@@ -137,7 +137,10 @@ checked on a host that is asked by source package. Telling those apart needs the
 each package, which it does not.
 
 A host is told its packages were checked from the scan after the upgrade. Until then its view says nothing of its
-packages, except that a host nothing is matched against says so at once, because no scan is made of it.
+packages, except that a host nothing is matched against says so at once, because no scan is made of it. The assistant's
+CVE tool, the runbook and the text of a ticket say it too for such a host. The dashboard tile says **None found in the
+packages that could be checked**, and is not green, when no monitored host shows a finding and part of the fleet is not
+matched against anything.
 
 ## How a package is matched
 

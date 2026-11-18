@@ -421,8 +421,10 @@ def _triage_tools(dev_id, dev, alert=None):
         more = A.cve_fixes.rollup_words(rec)
         # 8.0.2: how much of the host the scan looked at. "None found" only means as much as the packages that
         # could be checked: a package nothing is matched against has no findings whatever is wrong with it
-        unchecked = A.cve_fixes.coverage_words(rec.get('covered'))
-        none_found = A.cve_fixes.none_found_words(rec.get('covered'))
+        # (a host nothing is matched against has no record and so no block: its account is the one its package list gives)
+        covered = A._cve_account(dev_id, rec)
+        unchecked = A.cve_fixes.coverage_words(covered)
+        none_found = A.cve_fixes.none_found_words(covered)
         if not findings:
             if more:
                 return f'(no CVE findings listed for this host; {more})' + (f' {unchecked}' if unchecked else '')
