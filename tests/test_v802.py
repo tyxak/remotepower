@@ -213,6 +213,38 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_v801_date_prefs_e2e.py",                  # My Account's two selects and a chosen order on the audit log, in a browser
         "tests/test_v801_smart_group_preview.py",             # the preview route: the saved group's own matcher, tenant and key scope, who may ask, nothing written
         "tests/test_v801_smart_group_preview_e2e.py",         # the editor's button in a browser, and focus staying on it
+        # Windows hosts: definition updates, build, shares and TPM
+        "tests/test_windows_update_search.py",        # Defender definition updates are left out of the pending count (the agent's rule and the server's held to one answer), the state of each search, the count a failed search keeps
+        "tests/test_windows_update_search_views.py",  # the Packages card and the patch report say when the search ran and whether it worked, under node
+        "tests/test_windows_build.py",                # the build, revision, display version and edition from the registry, the family from the build number, the installation type
+        "tests/test_windows_build_views.py",          # what the Hosts list, the drawer and Fleet Query say about the build
+        "tests/test_windows_shares_tpm.py",           # the shares and the TPM: the probes, the cleaning, the Data Explorer, Fleet Query, tenants
+        "tests/test_windows_shares_tpm_views.py",     # what the host drawer and Fleet Query say about the shares and the TPM
+        "tests/test_windows_host_e2e.py",             # the three Windows host items in a browser over the demo, in three languages
+        "tests/test_windows_inventory_review.py",     # what the review of the Windows items found, closed at the cause, among it the repair of a row that a SQL backend reads on its own
+        "tests/test_agent_duplicate_definitions.py",  # a name defined twice at the top level of a program is held at zero over every program the product ships
+        # Windows hosts: registry check, event log rules, persistence
+        "tests/test_registry_check.py",               # the registry value check: its rules held in the agent and on the server, a stand-in registry that fails on a write, the six conditions against every state, the six baselines
+        "tests/test_win_event_rules.py",              # log rules on the Windows event log: the eight events as wevtutil prints them, the cursor, the limits, hostile names, the chain to the alert
+        "tests/test_win_persistence.py",              # what starts by itself on a Windows host: the inventory, the log of changes, one alert, a place that is cut or unread, the chain to the page
+        "tests/test_win_security_e2e.py",             # the registry check dialog, the ready-made Windows rules and the Persistence section, in a browser
+        "tests/test_entity_update_one.py",            # one row of an entity store read, changed and written as one step, on JSON and SQLite
+        # Linux hosts
+        "tests/test_pkg_refresh.py",                  # Check for updates now: the agent's functions with fake package managers, the server handlers, the lock watchdog, the version gate, the setting
+        "tests/test_agent_capabilities.py",           # what the agent can see: the builder over fake directories, the cleaning of every wrong value, the heartbeat, the page's answer
+        "tests/test_agent_state_rendered_e2e.py",     # the refresh state and What this agent can see, in a browser
+        # Vulnerabilities
+        "tests/test_cve_package_coverage.py",         # each package a host listed is checked, or has one reason it was not
+        "tests/test_cve_package_coverage_page.py",    # the page says which packages a scan checked and why not the others
+        "tests/test_cve_coverage_readers.py",         # every text that can say no CVEs says what it did not look at
+        "tests/test_cve_coverage_page_review.py",     # the scripts of the coverage work run under node, the Home tile and the renamed options included
+        "tests/test_cve_kernel_state.py",             # a finding against the kernel is matched against the running kernel; reboot to apply, counting and alerting
+        "tests/test_cve_kernel_state_page.py",        # the page says which kernel a host runs and which findings only need a reboot
+        "tests/test_cve_kernel_rpm_units.py",         # an RPM kernel is several packages, and what a scan says of it does not depend on the order of the list
+        "tests/test_cve_kernel_reboot_scope.py",      # only a finding of the running kernel can read reboot to apply
+        "tests/test_cve_coverage_kernel_e2e.py",      # the CVE page over the demo, in a browser: the coverage line, the six tiles, the kernel line
+        # Demo
+        "tests/test_demo_seed_coverage.py",           # the demo seed gives the first half of the release something to show, in the shape the server writes
     )
 
     def test_the_list_is_not_empty(self):

@@ -11,10 +11,13 @@ A release that fills in what was missing from pages you already use. One enrolme
 age, and each person can choose how dates and the clock are written. A smart group can be previewed before you save it, the Patches page shows how
 long patching takes, the Data Explorer lists hosts by their hardware, software metering can carry what a licence costs, and a notification destination
 that keeps failing is marked in Settings. Windows and macOS hosts send the software installed on them, so the software views no longer leave them
-blank. **It also closes a flaw that is older than this release:** with tenant isolation on, a tenant administrator could set the password of an
-account in another tenant, the platform operator's included, and could download the export of every tenant. It was found while testing the password
-history, and it comes first below. Only the Windows and macOS agents changed what they do; the Linux agent changed in one message it prints. The
-release page is [docs/v8.0.2.md](docs/v8.0.2.md).
+blank, and Windows hosts report more about themselves: the build, the file shares and the TPM, what starts by itself, one registry value as a check,
+and the event log for log rules. A Linux host can refresh its package lists on request and its drawer says what its agent can see. A CVE scan says
+which packages it checked and why not the others, and matches the findings of the kernel against the kernel the host runs. **It also closes a flaw
+that is older than this release:** with tenant isolation on, a tenant administrator could set the password of an account in another tenant, the
+platform operator's included, and could download the export of every tenant. It was found while testing the password history, and it comes first
+below. All three agents changed: macOS sends its software list, Windows sends that and the items above, and Linux refreshes its package lists, reports
+what it can see and reports the kernel it runs. The release page is [docs/v8.0.2.md](docs/v8.0.2.md).
 
 ### Security
 
@@ -266,6 +269,218 @@ release page is [docs/v8.0.2.md](docs/v8.0.2.md).
 - **The time of a request sample on the Threat Intel page is exact on hover.** It was printed as a relative time with no tooltip, inside markup, where
   the page's rule is relative in place and exact on hover. **Held by** `tests/test_v740_time_display.py`.
 
+### Windows hosts
+
+- **Defender definition updates are not pending updates, and each Windows Update search says whether it worked.** Windows offers a Defender definition
+  update several times a day (Security Intelligence Update, KB2267602, and the older "Definition Update for Windows Defender" titles). It was counted
+  as a pending update, so every Windows host showed one or two at all times, over the patch alert threshold, in the patch SLA and in the risk score.
+  The agent reports them apart now (`definition_updates`): the pending count, the patch alert, the patch SLA and the risk score leave them out, and
+  the host's Packages card shows how many there were under **Definition updates**. The match is held to those titles: the Defender platform update
+  (KB4052623) and the definition updates of other products are still counted, and the server applies the same rule to the report of an older agent.
+  Each search is a state of its own: when it ran, whether it worked, where it asked (Windows Update, or a WSUS server that a policy points the host
+  at) and, when it failed, one word for why (`timeout`, `access`, `service`, `network` or `unknown`, never the text of an error). A failed search used
+  to send nothing and the count was lost. Now the server keeps the count and the time it was taken, so a failed search neither clears nor refreshes
+  it. After 3 days that count is too old to call the host patched: the patch reports list the host as **No data** and keep the count and its date
+  beside it (`stale_count`), and the check of an upgrade you queued waits for a count taken after the upgrade instead of reading the old one as
+  "didn't take". The Checks page has a row, **Windows Update search**, amber after 3 days without a search that worked and red after 14; mute it like
+  any other row. **Update the Windows agent to get it.** Nothing here ran on a Windows host: the search script was parsed, and its failure path run,
+  under PowerShell 7 on Linux, with the registry and the update service replaced by stand-ins, so the error values a real failing search gives and the
+  real WSUS policy keys were not read. **Held by** `tests/test_windows_update_search.py`, `tests/test_windows_update_search_views.py` (the Packages
+  card and the patch report, under node), `tests/test_windows_inventory_review.py` (what the review found, closed at the cause) and, in a browser over
+  the demo, `tests/test_windows_host_e2e.py`.
+
+- **Windows hosts report their build, so the Hosts list says Windows 11 Pro 23H2 (build 22631.3593).** The agent knew the system only from the Python
+  platform string, which says "10" for Windows 11 on some versions and knows nothing of the revision, the number after the build that changes with
+  every cumulative update. It reads `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` now (read only, in the 64-bit view) for the build number, the
+  revision (`UBR`), the display version (`23H2`, or the release id on a build from before 20H2), the edition, the product name and the installation
+  type. The server shows them as one line in the **OS** row of the host's System info and in the OS column of the Hosts list, where the search box
+  finds it. The family comes from the build number (22000 and up is Windows 11), because many Windows 11 hosts still write "Windows 10" into the
+  product name. A server keeps the name of its product, since a server and a client share build numbers (Windows Server 2025 and Windows 11 24H2 are
+  both 26100), and the installation type (`Client`, `Server`, `Server Core`) says which a system is: a multi-session edition, whose edition id starts
+  with "Server", is a client. The Data Explorer has `win_build`, `win_ubr`, `win_display_version`, `win_edition`, `win_product` and `win_family`, so
+  "which hosts are still on Windows 10" and "which Windows 11 hosts are behind revision 3593" are queries (use `win_family`, not `win_product`), and
+  Fleet Query has **Windows build contains**. A host whose key cannot be read, and an agent older than this one, send nothing and keep the old label.
+  No check reads the Windows version: there is no end-of-support check for Windows. Nothing ran on a Windows host: the registry was a stand-in that
+  carries the values of nine kinds of host (Windows 11 and 10, a build from before 20H2, Windows 8.1 and 7, three servers), and that a multi-session
+  host reports the installation type `Client` is assumed, not read from a live host. **Held by** `tests/test_windows_build.py`,
+  `tests/test_windows_build_views.py` and `tests/test_windows_host_e2e.py`.
+
+- **The host drawer shows the file shares a Windows host exports and its TPM.** With the system information (every twelfth poll, like the other slow
+  probes) the agent asks for the shares (`Get-SmbShare`) and the TPM (`Get-Tpm`, and the `Win32_Tpm` class for the version of the specification). Each
+  is its own PowerShell, the two share 40 seconds, and a probe that fails, runs out of time or cannot answer (no Server service, no TPM module on a
+  Server Core) sends nothing. What is not sent is not read as "none": a host that never reported is not a host without a TPM. A share whose name ends
+  in `$` (`ADMIN$`, `C$`, `IPC$`, any hidden one) is administrative: it is counted and not listed. The others are listed with name, path, description
+  and whether the share is encrypted, up to 100 (the first 100 by name), and the count says how many there are. The TPM is present, ready and enabled,
+  each kept only when the host said true or false, with the version of the specification (`2.0`). System info has a **Shares** row, a **TPM** row
+  (*present · ready · spec 2.0*, *present · not ready*, *none*) and the shares as chips. The Data Explorer has `shares_count`, `tpm_present` and
+  `tpm_ready`, and Fleet Query has **Shares >** and **TPM**. No alert and no check reads either. The text that feeds the assistant and fleet knowledge
+  counts the shares and never names them, because a share's name and path are an operator's own text. **Not verified:** the cmdlets answered in the
+  documented property names in stand-ins and a real answer was not read; `Get-Tpm` needs an elevated token and the agent runs as SYSTEM, which was not
+  confirmed on a real host; and the effect of the two probes on the heartbeat of a slow host was not measured. **Held by**
+  `tests/test_windows_shares_tpm.py`, `tests/test_windows_shares_tpm_views.py` and `tests/test_windows_host_e2e.py`.
+
+- **A custom check can read one Windows registry value.** Choose the type **Windows registry value** in the Add check dialog, enter a path under
+  `HKLM\SOFTWARE` or `HKLM\SYSTEM`, a value name and a condition (equals, does not equal, is at least, is at most, is set, is not set), and the
+  Windows agent reads that one value and reports it like any other check, so alerts, mutes and the Checks page work as before. It opens the key for
+  reading in the 64-bit view and never writes. It refuses another hive (it runs as SYSTEM, so `HKCU` would be its own), a path outside `SOFTWARE` and
+  `SYSTEM`, a path of more than 12 parts, and any character in a path or a value name other than letters, digits, space, backslash and `. - _ ( ) {
+  }`; the server checks a definition when you save it and the agent checks it again. What comes back is a number or a text of at most 200 characters,
+  and a binary value is reported as `binary, N bytes`, never as its bytes. **A text value whose name looks like a password or a key is not read at
+  all. In any other text, the password after a name such as `password`, `token` or `secret`, and the password of a URL, are replaced before the text
+  leaves the host. That is a second line of defence and not a guarantee: a secret written with no such name before it is not found.** A value that is
+  not set passes *is not set* and *does not equal*, and fails the other conditions. A Linux or macOS host in the same scope is not given the check and
+  shows no row. Six ready-made checks are in a new **Hardening — Windows registry** group of the Protect picker: SMBv1 server off, NTLM level 5, UAC
+  enabled, Defender real-time protection not disabled by policy, RDP network-level authentication required, and cached logons at most 4. **Update the
+  Windows agent to get it.** Nothing ran on Windows: the registry was a stand-in that records every call and fails on a write, and 32-bit Python
+  reading through `KEY_WOW64_64KEY`, `REG_EXPAND_SZ` values and the real error of a protected key are written from the documentation, not observed.
+  **Held by** `tests/test_registry_check.py` (the rules held twice, the agent against a stand-in registry, the six conditions against every state a
+  value can be in, the chain from push to Checks row) and, in a browser, `tests/test_win_security_e2e.py`.
+
+- **Log rules can match the Windows event log.** The agent put event lines into a journal that only the host's page shows, and a log rule could not
+  match them. A rule on a unit such as `eventlog.Security.4625` (`eventlog.System.<id>` and `eventlog.Application.<id>` work too) matches that event
+  id on a Windows host now. The agent reads the events that the rules of its host name with `wevtutil` (an argument list, never a shell, and only the
+  three logs and numbers go into it) and sends each event id as a unit of its own, so from there it is an ordinary log rule: the pattern, threshold,
+  severity and message, the `log_alert` alert and the mutes. The agent remembers the record id of the last event it sent for each log and event id and
+  moves it only after the server took the lines, so nothing repeats and nothing is skipped. An id it has not seen starts at the newest record, so
+  turning a rule on raises nothing for history, and a cleared log is noticed and read from its start, so the clearing itself (event 1102) is found. At
+  most 50 events for an id and 300 lines go in one report, and one check-in makes at most 40 `wevtutil` runs and spends at most 40 seconds. Nothing is
+  read until a rule asks, and a Linux or macOS host is never asked. A host reads at most 12 event ids of each log, its own rules and the fleet-wide
+  ones together, and every place that saves rules refuses a thirteenth with a sentence, because the agent would never read it and the rule would look
+  saved. The **Add rule** dialog has a **Ready-made Windows rule** list: failed logons (4625, ten or more in one report), account lockout (4740), a
+  service installed (7045 in System, 4697 in Security), a scheduled task created (4698), a local user created (4720), a member added to Administrators
+  (4732, matched by the group's fixed security ID, so it works in every language) and the audit log cleared (1102). Each note says which audit policy
+  the event needs; 4697 and 4698 are logged only when theirs is on. A line is built from the fields of the event and not from its message, which is in
+  the language of the host. A name in it can have been typed by anyone, so every text is cut at 64 characters, the characters that hide or reorder
+  text become spaces (the tag characters that spell ASCII without showing it among them), and a password in the program a new service or task runs is
+  replaced. The threshold counts lines in one report, as it does for every log rule. **Update the Windows agent to get it.** Nothing ran on Windows:
+  the event log was a stand-in that answers in the XML of `wevtutil`, so the bytes a real pipe carries (code page or UTF-16), the fields of each event
+  id on every Windows version and a host's audit policy are written from the documentation. **Held by** `tests/test_win_event_rules.py` (the eight
+  events in the form `wevtutil` prints them, the cursor against a fake log, the chain to the alert, the eight rules against their lines) and, in a
+  browser, `tests/test_win_security_e2e.py`.
+
+- **What starts by itself on a Windows host is listed, and a new entry raises one alert.** A person who has got into a host usually leaves something
+  that starts again by itself, and nothing looked at those places. The agent lists five of them in one snapshot, at most every 15 minutes, by path and
+  name only (no signature is checked, no program is opened, nothing is written): the `Run` and `RunOnce` keys of `HKLM` in the 64-bit and the 32-bit
+  view, the Winlogon `Shell` and `Userinit` values, services that run from a temporary or user folder, scheduled tasks that are not Microsoft's (a
+  task under `\Microsoft` is listed only when it runs a program from a temporary or user folder, and a disabled task is left out), and the files in
+  the startup folder of all users and of each profile, with their size so that a replaced file shows. The host's drawer has a **Persistence** section
+  with what was added and removed, newest first (the last 200 entries; one inventory writes at most 50 of each), and what is on the host now, by
+  place. **The first inventory of a place is its baseline and raises nothing.** A new entry after that raises one alert for the host,
+  `persistence_added`, at most one an hour: it counts every new entry, quotes the first three, and an entry that arrives inside the hour goes out with
+  the next alert if it is still there. It is in the Alerts inbox and Recent Activity, does not page, and has its webhook off until you turn it on for
+  the kind **New startup entries on Windows hosts**; the per-host mute applies. A removed entry is logged and never alerts, and a command that was
+  changed is a new entry beside a removed one, so a `Shell` pointed somewhere else alerts. A value after a name such as `password`, `token` or
+  `secret` in a command line is replaced before the list leaves the host and again on the server. **A place that was cut at a limit, or could not be
+  read, is still compared.** An entry it shows that the last whole read does not hold is new and alerts once, the last whole read stays the baseline,
+  and nothing is read as removed from a read that was not whole. A place that is not whole for three inventories in a row raises one
+  `persistence_unread` alert for the stretch, which says which places and why; a terminal server with many profiles stays cut and raises it once, so
+  mute it for that host. Not listed: the `Run` keys of a user (the agent runs as SYSTEM and would have to load each profile's hive), WMI event
+  subscriptions, Image File Execution Options, AppInit_DLLs, and the autostarts of macOS and Linux hosts. There is no way yet to accept the current
+  state or clear the log. **Update the Windows agent to get it; until then the section stays hidden.** Nothing ran on Windows: the registry was a
+  stand-in, the output of `schtasks` was written in the form Windows prints it (a document per task, with and without a wrapper, UTF-16 with and
+  without a byte order mark) and the startup folders were a temporary directory, and how long the probes take on a real host was not measured. A
+  Postgres test for the one-step update of a row was written and has not been run, because no Postgres server was at hand. **Held by**
+  `tests/test_win_persistence.py` (the snapshot, every rule of a change, the real agent against a stand-in registry, the chain through the real
+  heartbeat to the page as a tenant administrator and as a read-only user), `tests/test_entity_update_one.py` (read, compare and write as one step, so
+  two reports alert once) and, in a browser, `tests/test_win_security_e2e.py`.
+
+### Linux hosts
+
+- **Check for updates now refreshes a host's package lists.** Scan packages reads what the package manager already has, which on an apt host is the
+  lists as they were last downloaded, so a host whose lists were a week old reported a week-old answer and nothing said so. The Packages section of a
+  Linux host (its **Audit** tab, under **Software**) has a **Check for updates now** button. The agent runs its distribution's own fixed command
+  (`apt-get update`, `dnf makecache --refresh`, `yum makecache`, `zypper --non-interactive refresh`, `apk update`), gives it no input, waits at most
+  30 seconds for another package manager's lock and ends it after 120 seconds. When the lists were refreshed, fully or partly, it reads what is
+  pending against them; after a refresh that failed or could not run nothing else changes. **How it went** shows beside **Lists refreshed**: one of
+  four statuses and one of ten classes from a fixed list (the package manager was busy, the repositories could not be reached, a repository answered
+  with an error, no space left or a read-only file system, not allowed to write the lists, it did not finish in 120 seconds, no safe way on this
+  distribution, no package manager the agent can refresh, not available in a container, the reason is not known), and never the package manager's own
+  output. **On Arch the refresh uses `checkupdates` from `pacman-contrib` and never runs `pacman -Sy`**, which leaves a half-upgraded system; without
+  `checkupdates` it answers "not refreshed: no safe way on this distribution" and runs nothing, and no scan follows. The scan that reads what is
+  pending is a different command and has not changed: on Arch it syncs the databases with `pacman -Sy`, as it always did, so the install hint for a
+  missing tool on Arch is `pacman -Syu <package>` and not `pacman -S <package>`. Anyone who may patch the host can ask (`POST
+  /api/devices/{id}/refresh-package-lists`). It is a queued command, so maintenance mode, a quarantine, an agent in audit mode and a change window
+  that holds commands apply, and it can wait for a second admin as a **Scan** change. It is not offered for Windows and macOS hosts, for hosts without
+  an agent or for the containerized agent, and an agent older than 8.0.2 is refused with a 409 and a sentence, with nothing queued, because it would
+  drop the command without an answer and the page would read "Refresh queued". A new setting, **Settings → Security → Package lists → Refresh the
+  package lists before each scheduled scan**, is off by default, and with it off a scan does what it always did. The **Package index updated
+  recently** check template reads the stamp the agent writes on success, so it works on dnf, zypper and apk hosts; a check applied from the template
+  earlier keeps its two apt paths until you edit it or apply the template again. A host with no package manager the agent knows answers "no package
+  manager the agent can refresh". **Update the Linux agent to get it.** No real `apt-get`, `dnf`, `zypper`, `apk` or `checkupdates` was run: the
+  agent's own functions were driven with shell-script stand-ins that answer in each manager's words, written from memory and not captured from a real
+  system. **Held by** `tests/test_pkg_refresh.py` (the agent's functions with fake managers, the server handlers, the lock watchdog, the group kill)
+  and, in a browser, `tests/test_agent_state_rendered_e2e.py`.
+
+- **A Linux host's drawer says what its agent can see, and what to install for the rest.** A feature without its tool showed up as one missing signal
+  or an empty page, and nothing listed the tools for a host. The drawer's **Audit** tab has a new section under System, **What this agent can see**,
+  for hosts with a Linux agent. It says whether the agent runs as root or in a container (and which of `/etc`, `/proc`, `/sys`, `/var/lib` and
+  `/var/log` are mapped into it), which of the 25 tools it uses are on the host (found by file name and the executable bit, and nothing is run), the
+  distribution and the init system, the logs the threat sensor found and whether the agent can open each (the path and a yes or no, never a byte of a
+  log), and the agent's version and Python. A missing tool is listed with the feature that needs it and a fix: the install command for the host's
+  package manager, or a short sentence where no command is right for every host. A tool a feature does not need on this host (another distribution's
+  package manager, `systemctl` on a host that does not run systemd, the second of two firewall tools) is not listed as missing, and in a container a
+  tool that is not in the image says **not available in a container** and not an install command. A tool you install shows at the next report, about
+  every ten minutes. `GET /api/devices/{id}/capabilities` answers the page. The server cleans the report (a fixed key set, at most 40 logs of 200
+  characters) and again on the way out, and fleet knowledge gets a line per host (not root, a container, the tools it cannot find, how many logs it
+  cannot open) and never a path. A Linux host whose agent is older shows "This agent has not reported what it can see" and the advice to update it; a
+  Windows or macOS host has no such section. **Update the Linux agent to get it.** The package names in the install hints were written from memory and
+  not checked against real repositories, a real container was not started (the container mode was driven with the container flag and a stand-in host
+  tree), and the cost of finding the logs on a host with a very large web server configuration was not measured. **Held by**
+  `tests/test_agent_capabilities.py` (the agent's builder over fake PATH directories and `/proc` trees, every wrong value at every position of the
+  report, the real heartbeat) and, in a browser, `tests/test_agent_state_rendered_e2e.py`.
+
+### Vulnerabilities
+
+- **A scan says which packages it checked, and why not the others.** A scan said what it found, and "none found" read as "clean" for packages that
+  were never asked about under the name the advisory data is filed under: a Debian host whose agent sends no source packages (`libc6` answers
+  nothing), an Ubuntu derivative whose release is not known, the applications of a Windows host, an Arch host. Each scan now keeps, for every package
+  the host listed, whether it was checked or one reason it was not: **no source name**, **no matcher for the package manager**, **release not known**,
+  **past the limit of packages a scan reads** (the first 10,000) or **not answered in full by the data source**. The host's record keeps the count of
+  each reason and the first 200 packages that were not checked, by name. The imported GPG keys of an RPM host (`gpg-pubkey`) are records in its
+  database and not software, and they are in neither number. The CVE page has a line under the tiles with the fleet total, the reasons and the five
+  hosts with the most not checked (each opens the host's view), and the host view says **Packages checked**, with a click that shows the reasons with
+  their counts and the first 200 packages. A host with no finding says **None found in the packages that could be checked** and says "No
+  vulnerabilities found" only when every package was checked. The host drawer's badge reads *none found* and not *clean*, and the Home tile is neutral
+  and not green when part of the fleet was not checked. The assistant's CVE tool, the text of a ticket, the runbook, the MCP tool `get_cves` and the
+  SBOM (properties of the host component in CycloneDX, the comment of the creation info in SPDX) say the same, so an empty list is not read as a clean
+  host. **A host states its packages from its next scan.** An upgrade starts no scan, so a host scanned before 8.0.2 states nothing until it is
+  scanned again: run **Scan all hosts** once, and until then the line under the tiles says how many scanned hosts it does not count yet. A host that
+  nothing is matched against (Arch, openSUSE, Windows, macOS) says so at once, because no scan is made of it. The data source answers the same for a
+  package it has no record of as for one that no advisory touches, so a package of a third-party repository or one built locally counts as checked on
+  a host that is asked by source package; telling them apart needs the agent to report each package's repository, which it does not. **Held by**
+  `tests/test_cve_package_coverage.py` (the account for each kind of host), `tests/test_cve_package_coverage_page.py`,
+  `tests/test_cve_coverage_readers.py` (every text that can say "no CVEs", run), `tests/test_cve_coverage_page_review.py` (the page's scripts run
+  under node, the Home tile included) and, in a browser, `tests/test_cve_coverage_kernel_e2e.py`.
+
+- **A finding against the kernel is matched against the kernel the host runs, and one that only needs a reboot says so.** A scan matched the findings
+  of the kernel against every kernel package version a host holds, so the findings of a kernel that had been replaced were counted beside the one that
+  runs, and a fix that sat in an installed kernel the host had not booted into was offered as an update to install. The Linux agent now reports, with
+  its package list, the release it runs (`uname -r`) and, for each installed kernel image, the release that image owns: the package that owns
+  `/boot/vmlinuz-<release>` on Debian, Ubuntu, Rocky Linux, AlmaLinux and Red Hat (`rpm -qf` there, and a broken rpm database costs at most 30
+  seconds), the package that lists `lib/modules/<release>` on Alpine, and the pkgbase file on Arch (an Arch host is not scanned, so nothing reads it).
+  It reads the package database and the host's files and never guesses from a name, at most 16 images go out, and a host that boots into another
+  kernel sends its list again. When exactly one installed package owns the running release, the scan asks about and counts that package's version
+  only; the kernels that are installed and do not run are left out with the packages built from them, and the host view says how many. On an RPM host
+  the kernel is several packages built together (`kernel`, `kernel-core`, `kernel-modules`) and they go with it, so a finding reads the same whatever
+  order the host lists its packages in. A finding of the running kernel that a kernel installed beside it already fixes reads **Fixed by an installed
+  kernel, reboot to apply**: it keeps the version that has the fix, names that kernel and offers nothing to install, and the CVE page has a sixth tile
+  for it, **Reboot to apply**, after **Fixable now**. It is kept beside the findings an update clears, so installing the update does not announce it
+  as cleared: it clears, once, at the scan after the reboot. Only a finding of the running kernel can read this, and a package that is not a kernel
+  never does, whatever kernel is installed beside the running one. **It counts and it alerts.** The two options that count and alert only on what can
+  be fixed are now **Only CVEs an update or a reboot can fix, or that are known to be exploited** and **Count only CVEs an update or a reboot can fix,
+  or that are known to be exploited**, because a reboot is something to do. When the scan cannot tell which package the host runs (the agent does not
+  report it, no installed package owns the files, two owners are built from different versions, the owner is not in the list), it matches every
+  installed kernel as before, and the host view says so and why. The host view prints the running kernel, its package and a newer kernel installed
+  beside it ("Reboot to start it"); the text of a ticket and the answer of the assistant's CVE tool say it in a sentence, and the MCP tool `get_cves`
+  returns the kernel block. The Windows and macOS agents report no kernel. **Update the Linux agent to get it.** No Debian, Ubuntu, Rocky or Alpine
+  host ran: the dpkg file lists, the output of `rpm -qf` and the apk database were stand-ins (the Arch reader ran against real files), the kernel
+  advisory records were written for the tests, and whether `apk` lists the parent directories of a package that only has files below them, which would
+  make a kernel-module package on Alpine read as having several owners and keep the old matching for it, could not be checked. A kernel livepatch was
+  not investigated: such a host would read "reboot to apply" for a fix its running kernel already has live. **Held by**
+  `tests/test_cve_kernel_state.py`, `tests/test_cve_kernel_rpm_units.py` (every order of an RPM kernel's packages),
+  `tests/test_cve_kernel_reboot_scope.py` (only the running kernel can read reboot to apply), `tests/test_cve_kernel_state_page.py` and, in a browser,
+  `tests/test_cve_coverage_kernel_e2e.py`.
+
 ### Fixes found on the way
 
 - **A failed read of the host list no longer empties what the sweeps keep for each host.** When the host store cannot be read (an unparsable file with
@@ -293,6 +508,36 @@ release page is [docs/v8.0.2.md](docs/v8.0.2.md).
   for a host that is gone, so nothing acted on the addresses, but they named a host that no longer exists. **Held by** `tests/test_v800_host_purge.py`
   (the real producer and the real purge).
 
+- **Found in review and fixed before release.** The second half of this release (the Windows host items, the Windows security features, the Linux
+  agent items and the CVE scan items) was read by a reviewer who had not written it, and more than forty problems were fixed in the same branch before it shipped.
+  The four below are in features that are new in this release, so none is a flaw of an earlier release (the one finding that was older is the next
+  entry). **A standard user could silence the startup-folder and scheduled-task alerts for the whole host.** Fifty-one files in their own Startup
+  folder made the agent send the whole startup place as not read, so the all-users folder and every other profile stopped being compared, and 201
+  tasks of their own made the task list cut, and a cut list was neither compared nor kept: the next whole read, with the decoys deleted and the
+  payload still there, became the new baseline and nothing was reported. A cut or unread place is compared for what it shows now, a cut read never
+  becomes the baseline, and a place that is not whole three inventories in a row raises `persistence_unread`. **A registry check printed a password**
+  that sat inside the text of a value (a `Run` value, a service's `ImagePath`, a connection string), because its filter looked at the value name only;
+  the same text reached the Logs page, the alert samples and the webhooks through the event lines of a new service or scheduled task. It is replaced
+  now, in all three places, on the whole text before it is cut. **A host's malformed log entry broke the answer to its own heartbeat.** A log whose
+  kind arrived as a list or a dictionary raised an error in the cleaner of the capabilities report, the heartbeat answered 500 on every beat that
+  carried system information, and the host's packages, ports and posture stayed frozen on the server while it kept beating and looked online. A wrong
+  part is left out now and the rest of the report is kept. **A package list refresh that had waited a few seconds for a lock was ended as failed.**
+  `dnf` prints its waiting line once and nothing when the lock is free, the watchdog searched everything the manager had printed, and a healthy
+  refresh that had waited a few seconds and then downloaded normally was ended at the 30 second lock wait and recorded as "the package manager was
+  busy". The manager is judged on its latest message now. **Held by** the modules named above, `tests/test_windows_inventory_review.py` and
+  `tests/test_agent_duplicate_definitions.py` (a name defined twice at the top level of a program replaces its first definition for every caller,
+  which is how the first version of the registry check broke the software list and the Windows build of the Windows agent; the test reads every Python
+  program the product ships).
+
+- **A row read on its own by SQLite or PostgreSQL is repaired like the whole store.** The shape registry repairs a store where it is read, and a host
+  or an entity row that is read on its own skipped it: `device_get` is a single-row read on both SQL backends, and so is the transaction that updates
+  a host. A host whose stored `sysinfo.packages` was text reached the Checks code as text, and the Checks page of that host answered 500 on SQLite and
+  PostgreSQL where JSON answered 200. This is older than this release, and a store has to hold a value of the wrong kind to meet it (a hand edit, an
+  import, a restore). Both reads of a host and the reads of the entity stores (containers, update logs, metrics, roll-ups, traffic, patch previews and
+  the rest) apply the registry now. Measured, it costs 10 microseconds for a host row and about 0.35 milliseconds for the largest kind of roll-up row
+  (821 buckets), where parsing that row takes 0.74. A test lists by syntax tree every call of the backend's single-row reads, so a third reader that
+  skips the repair fails the build. **Held by** `tests/test_windows_inventory_review.py`.
+
 ### Tests and tooling
 
 - **Two test files that passed under unittest and failed under pytest pass under both.** `tests/test_v800_mcp_http.py` lost the output proxy its setup
@@ -302,7 +547,7 @@ release page is [docs/v8.0.2.md](docs/v8.0.2.md).
 - **Guards that hold a class, not one case.** The ratchets for the key scope, for the locks of the stores hosts write, for downloads that skip the
   status, for texts that call an enrolment token one-time and for the Enroll window's list read their population from the code or from the shipped
   files, and each was shown failing on the old code. The three browser modules of this release plant their stores through the storage layer
-  (`tests/e2e_plant.py`), which brings `tests/test_no_raw_store_io_in_tests.py` back under its ceiling. The eager JavaScript budget in
+  (`tests/browser_plant.py`), which brings `tests/test_no_raw_store_io_in_tests.py` back under its ceiling. The eager JavaScript budget in
   `tests/test_v612_perf3.py` is set from the merged tree, with where the bytes of each feature went, and the lint list of bound handler names
   (`tools/ruff-api-builtins.toml`) was regenerated for the smart-group preview.
 

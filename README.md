@@ -209,10 +209,12 @@ recipes → [docs/cookbook.md](docs/cookbook.md).
 
 - **v8.0.2 "C0verMatters"** — what was missing from pages you already use. One enrolment token can enrol many hosts, passwords can be
   remembered and can age, and each person chooses how dates and the clock are written. Windows and macOS hosts send the software installed
-  on them, so the software views no longer leave them blank. The Patches page shows how long patching takes, the Data Explorer lists hosts
-  by their hardware, and software metering can carry what a licence costs. It also closes a flaw that let a tenant administrator set another
-  tenant's password and download every tenant's data, and one that let an API key with a host scope reach hosts outside it. Update the
-  Windows and macOS agents.
+  on them, and Windows hosts also report their build, file shares and TPM, take a registry value as a check, feed the event log to log rules
+  and list what starts by itself. A Linux host can refresh its package lists on request and says what its agent can see, and a CVE scan says
+  which packages it checked and matches the kernel against the one the host runs. The Patches page shows how long patching takes, the Data
+  Explorer lists hosts by their hardware, and software metering can carry what a licence costs. It also closes a flaw that let a tenant
+  administrator set another tenant's password and download every tenant's data, and one that let an API key with a host scope reach hosts
+  outside it. Update the agents.
 - **v8.0.1 "L0gMatters"** — what Threat Intel tells you and what it does about it. Clear empties the table even with the
   Edge blocklist on. A service that does not answer is no longer counted against your daily limits, each service can have
   limits of its own, a **Request log** shows what RemotePower sent to AbuseIPDB and SniffCat, what each answered and what your

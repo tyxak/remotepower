@@ -42,7 +42,7 @@ By the numbers:
 
 | Thing | Count |
 |---|---|
-| Server Python (`server/cgi-bin/`) | ~163,000 lines |
+| Server Python (`server/cgi-bin/`) | ~173,000 lines |
 | The main API module (`api.py`) | ~81,000 lines |
 | Focused sibling modules | ~150 |
 | HTTP routes (exact + templated) | ~540 exact, ~451 pattern |
