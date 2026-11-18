@@ -223,7 +223,9 @@ When exactly one installed package owns the running release, the scan:
 - keeps such a finding in the list beside the ones an update clears, so a finding that goes from **Fixed** to **Reboot to
   apply** when the update is installed is not announced as cleared. It clears, once, at the scan after the reboot.
 
-The host view shows the running kernel, its package, and a newer kernel installed beside it ("Reboot to start it").
+The host view shows the running kernel, its package, and a newer kernel installed beside it ("Reboot to start it"). The
+text of a ticket for a new-CVE alert and the answer of the assistant's CVE tool say the same in a sentence, and the MCP
+`get_cves` tool returns the block.
 
 When the scan cannot tell with certainty which package the running kernel is, it matches every installed kernel as it did
 before, and the host view says so and why: the agent does not report its kernel (older than 8.0.2); it found no installed

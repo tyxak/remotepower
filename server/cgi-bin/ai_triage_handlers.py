@@ -444,6 +444,11 @@ def _triage_tools(dev_id, dev, alert=None):
             lines.append(more)
         if unchecked:
             lines.append(unchecked)
+        # 8.0.2: which kernel the host runs, and when the scan could not match it, that findings against the kernel
+        # cover every installed kernel: the model must not advise an update for what a reboot applies
+        kernel = A.cve_fixes.kernel_words(rec.get('kernel'))
+        if kernel:
+            lines.append(kernel)
         return '\n'.join(lines)
 
     def _metrics_trend(args):

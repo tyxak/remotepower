@@ -1065,6 +1065,27 @@ class TestTheReadersOfTheNewStatus(_Fleet):
         self.assertIn('(fixed by an installed kernel, reboot to apply)', tool)
         self.assertNotIn('→ fix in 6.1.192-1', tool)
 
+    def test_the_texts_say_which_kernel_runs_and_when_the_scan_could_not_tell(self):
+        """The ticket and the assistant's tool are read without the page: the kernel sentence is what lets a reader see that a
+        reboot applies the fix, or that findings against the kernel cover every installed kernel and why."""
+        api._LOAD_CACHE.clear()
+        dev = api.load(api.DEVICES_FILE)[self.HOST]
+        event = {'event': 'cve_found', 'device_id': self.HOST, 'title': 'New CVEs', 'payload': {'device_id': self.HOST}}
+        matched = f'The host runs kernel {OLD}, the package linux-image-{OLD} 6.1.158-1.'
+        newer = f'A newer kernel is installed and not running (linux-image-{NEW} 6.1.192-1): a reboot starts it.'
+        for text in (api._alert_ticket_detail(event), api._triage_tools(self.HOST, dev)['cves']({})):
+            self.assertIn(matched, text)
+            self.assertIn(newer, text)
+        # the same host, its agent no longer reporting a kernel
+        self.send(LIST)
+        self.scan_the_fleet()
+        api._LOAD_CACHE.clear()
+        said = ('The running kernel (unknown) could not be matched to an installed package: the agent of this host does not '
+                'report its running kernel. Findings against the kernel are matched against every installed kernel.')
+        for text in (api._alert_ticket_detail(event), api._triage_tools(self.HOST, dev)['cves']({})):
+            self.assertIn(said, text)
+            self.assertNotIn('a reboot starts it', text)
+
     def test_the_mcp_tools_carry_the_block(self):
         def fetch(path, method='GET', body=None):
             if path == '/api/devices':

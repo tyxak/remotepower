@@ -11855,6 +11855,11 @@ def _alert_ticket_detail(al, device=None):
         _unchecked = cve_fixes.coverage_words(rec.get('covered'))
         if _unchecked:
             out.append(_unchecked)
+        # 8.0.2: which kernel the host runs, so a "reboot to apply" below is read against it, and so that a host whose
+        # kernel the scan could not match says why findings against the kernel cover every installed kernel
+        _kernel = cve_fixes.kernel_words(rec.get('kernel'))
+        if _kernel:
+            out.append(_kernel)
         if findings:
             out.append('')
             _rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
