@@ -129,6 +129,45 @@ class TestTheRoundTrip(_Base):
         self.assertEqual(after['wh_new']['hmac_secret'], '(redacted)', 'nothing to put back: it stays as written, for the operator to fix')
         self.assertEqual(after['wh_gen']['hmac_secret'], 'HMAC-SECRET-1')
 
+    def preview(self, doc):
+        res = self.api._declarative_apply(doc, 'tester', dry_run=True)
+        self.assertTrue(res['ok'], res)
+        return res
+
+    def test_the_preview_of_an_untouched_export_says_nothing_changed(self):
+        """The addresses are ciphertext in the document (new on every export) and text in the store: compared as they were, every destination read as changed."""
+        for _ in range(2):
+            rep = self.preview(self.api._build_declarative_config())['report']['webhook_destinations']
+            self.assertEqual((rep['added'], rep['changed'], rep['removed']), (0, 0, 0), rep)
+            self.assertEqual(rep['detail'], {'added': [], 'removed': [], 'changed': []})
+
+    def test_the_preview_names_the_destination_and_the_field_that_really_changed_and_no_value(self):
+        doc = self.api._build_declarative_config()
+        for d in doc['resources']['webhook_destinations']:
+            if d['id'] == 'wh_gen':
+                d['url'] = self.api._cfg_enc('https://elsewhere.example.org/in/NEWPATH')
+            if d['id'] == 'wh_po':
+                d['pushover_user'] = self.api._cfg_enc('PUSHOVER-USER-1')          # the same text, sealed again: not a change
+        res = self.preview(doc)
+        rep = res['report']['webhook_destinations']
+        self.assertEqual(rep['changed'], 1, rep)
+        self.assertEqual(rep['detail']['changed'], [{'id': 'wh_gen', 'fields': ['url']}])
+        text = json.dumps(res)
+        for value in ('NEWPATH', 'elsewhere.example.org', 'GENERICPATH') + CREDENTIALS:
+            self.assertNotIn(value, text, 'the preview carries ids and field names, not values')
+
+    def test_the_copy_the_comparison_reads_is_plain_and_the_collection_it_is_made_from_is_not_touched(self):
+        incoming = self.api._build_declarative_config()['resources']['webhook_destinations']
+        before = json.dumps(incoming, sort_keys=True)
+        plain = self.api._declarative_plain('webhook_destinations', incoming)
+        self.assertEqual(json.dumps(incoming, sort_keys=True), before, 'a copy is read, and the ciphertext the document holds is left as it is')
+        self.assertTrue(incoming[0]['url'].startswith('enc:v2:'))
+        by_id = {d['id']: d for d in plain}
+        self.assertEqual(by_id['wh_gen']['url'], DESTS[0]['url'], 'the copy holds the address as text')
+        self.assertEqual(by_id['wh_gen']['headers'], DESTS[0]['headers'])
+        other = [{'id': 'm1', 'name': 'enc:v2:looks-sealed'}]
+        self.assertIs(self.api._declarative_plain('monitors', other), other, 'only the destinations carry ciphertext: another collection is compared as it is')
+
     def test_the_preview_lists_the_destinations_by_id(self):
         doc = self.api._build_declarative_config()
         doc['resources']['webhook_destinations'] = [d for d in doc['resources']['webhook_destinations'] if d['id'] != 'wh_tg']

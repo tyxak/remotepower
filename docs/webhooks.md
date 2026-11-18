@@ -263,6 +263,8 @@ retry from the dead-letter queue counts as getting through.
   credentials in a settings document you apply from a file, or in a settings revision you restore.
   A settings document you export and apply back unchanged leaves every mark and alert as they are,
   also when the addresses in it are encrypted (a config master key is set).
+  The preview of that import lists a destination as changed only when one of its fields differs from what is
+  stored, and names the field, never the value.
 - With one destination only, the inbox is where you will see it. A second destination, even
   a plain email, is what makes a failing one reach you.
 

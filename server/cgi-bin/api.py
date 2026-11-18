@@ -31144,6 +31144,18 @@ def _changed_fields(a, b):
     return sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
 
 
+def _declarative_plain(name, incoming):
+    """`incoming` as the preview compares it with the stored collection `name`.
+
+    The destinations of a document written while a config master key is armed carry the address, the header values and the Pushover user as `enc:v2:` ciphertext (a new nonce
+    on every export) where the store holds the text, so the preview called every destination of an untouched export changed. The copy handed to the comparison is read
+    through the decryption the settings store uses when it is read (it hands the text back unchanged without a key); the document that is applied is not touched, and the
+    preview names fields and ids, never a value."""
+    if name != 'webhook_destinations':
+        return incoming
+    return _config_secrets_inbound(CONFIG_FILE, {'v': copy.deepcopy(incoming)})['v']
+
+
 def _declarative_diff(current, incoming, id_field):
     """(added, changed, removed) counts PLUS per-item detail between two
     collections. `detail` names the added/removed ids and, for each changed
@@ -31225,7 +31237,7 @@ def _declarative_apply(doc, actor, dry_run=True):
                 report[name] = {'skipped': str(_tpe)}
                 continue
         _rehydrate_secrets(inc, current.get(name), m.get('id'))
-        report[name] = _declarative_diff(current.get(name), inc, m.get('id'))
+        report[name] = _declarative_diff(current.get(name), _declarative_plain(name, inc), m.get('id'))
         if not dry_run:
             if m['kind'] in ('cfg_list', 'cfg_dict'):
                 cfg_writes[m['key']] = inc
