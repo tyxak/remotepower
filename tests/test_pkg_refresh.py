@@ -1568,6 +1568,9 @@ class TestTheSettingAndTheHeartbeat(_Server):
         self.assertFalse(f("d1", api.device_get("d1")), "held by the window of its group")
         self.assertTrue(f("dx", api.device_get("dx")), "the same read, and another group's host is not held")
         self.assertFalse(f("d1", api.device_get("d1")))
+        api.pkg_refresh_handlers_mod.forget_the_gate()
+        self.assertTrue(f("dx", api.device_get("dx")), "the other way round: the host that is not held asks first and reads the store")
+        self.assertFalse(f("d1", api.device_get("d1")), "and the host that is held is still held by the same read")
 
     def test_every_window_that_holds_commands_is_asked_and_one_that_does_not_is_not(self):
         off_hour = (time.localtime().tm_hour + 12) % 24
@@ -1583,6 +1586,25 @@ class TestTheSettingAndTheHeartbeat(_Server):
         self.set_windows({"id": "w1", "scope": "device", "target": "elsewhere", "gate_exec": True, **closed},
                          {"id": "w2", "scope": "global", "target": "", "gate_exec": False, **closed})
         self.assertTrue(f("d1", api.device_get("d1")))
+
+    def test_a_window_made_in_one_tenant_holds_no_host_of_another_through_the_shared_read(self):
+        """What is shared is the whole store, every tenant's windows in it, and the question is put per host: a window made inside a tenant
+        covers that tenant's hosts only (a `global` one included), whichever host happened to ask first."""
+        self.set_config(pkg_refresh_before_scan=True)
+        devices = api.load(api.DEVICES_FILE)
+        devices["d1"]["tenant"] = "tenant-a"
+        devices["dx"] = {"name": "web02", "os": "Ubuntu 22.04", "tenant": "tenant-b", "token": "tokx"}
+        api.save(api.DEVICES_FILE, devices)
+        api._LOAD_CACHE.clear()
+        off_hour = (time.localtime().tm_hour + 12) % 24
+        f = api.pkg_refresh_handlers_mod.refresh_before_scan_for
+        for first in ("d1", "dx"):
+            with self.subTest(first_to_ask=first):
+                self.set_windows({"id": "w1", "scope": "global", "target": "", "gate_exec": True, "tenant_gate": "tenant-a",
+                                  "cron": f"0 {off_hour} * * *", "duration": 600})
+                order = (first, "dx" if first == "d1" else "d1")
+                answers = {dev: f(dev, api.device_get(dev)) for dev in order}
+                self.assertEqual(answers, {"d1": False, "dx": True}, "tenant-a's window holds tenant-a's host and not tenant-b's")
 
     def test_a_window_that_opens_is_seen_on_the_next_beat_without_a_new_read(self):
         """The windows are cached, the clock is not: a window that holds commands and opens at 03:00 lets the host through at 03:00."""
