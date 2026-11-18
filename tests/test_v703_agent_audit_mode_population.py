@@ -74,6 +74,12 @@ EXEMPT = {
     # 8.0.0: its three arguments are the host's own listening sockets, containers and running units (the heartbeat's `sysinfo` dict is what the taint follows, and that dict is also
     # where the server's settings are read). The catalog it matches against ships with the agent, nothing is probed, and nothing is started or written.
     'discover_apps': "matches the host's own sockets, container names and running units against the catalog that ships with the agent; probes and changes nothing",
+    # 8.0.2: it gets the threat sensor's setting from the server's answer. The one thing in that setting the collector uses is a list of extra log paths
+    # (at most 20), each held under /var/log by _ts_operator_path and then only stat-ed and access-checked. tests/test_agent_capabilities.py records every
+    # open and every process start of a run (no log is opened, nothing is started), and `agent_capabilities` on the server keeps paths, never a line.
+    'collect_capabilities': "looks for the tools by file name, stats the logs the threat sensor found, and reads os-release, the name of process 1 and the web server, fail2ban and "
+                            "Suricata configuration; the server's setting only adds extra log paths, held under /var/log by _ts_operator_path, that are stat-ed and never opened; "
+                            "it runs nothing and writes nothing on the host",
     # ── agent-owned bookkeeping, no host path involved ──────────────────────
     '_safe_state_write': 'writes under the agent state dir, never a host path',
     '_write_metrics_spool': 'writes the agent metric spool',
