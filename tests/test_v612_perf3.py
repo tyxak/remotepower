@@ -370,7 +370,14 @@ class TestEagerJsPayload(unittest.TestCase):
         # The four territories of 8.0.2 together, measured on the merged tree: 2_773_716 against 2_742_522 at the 8.0.1 release, 31,194 bytes more. The first three
         # notes above add up to 27,501 of them; the other 3,693 are the software views and their fixes (the Windows and macOS lists in the search, the policy and the
         # metering table, and the refusal that says why an install queues nothing). The budget is 2_776_000, 2,284 over what is measured.
-        self.assertLess(total, 2_776_000,
+        # 8.0.2 the Windows host items (the Windows Update search, the build, the shares and the TPM): 2_780_000. The payload was 2_773_716 on the merged tree
+        # of the four territories, 2,284 under the budget, and is 2_778_151 now: 4,435 bytes more, all of it in app.js. The three helpers that write the search
+        # line, the TPM text and the share chips are 2,743 with their comments, and the label of the OS (`_osText`) is 280. The Packages card and the System info
+        # section of the host drawer, which print the OS, Shares and TPM rows, the definition-updates pill and the search line, are 1,286; the Hosts list reading
+        # the label of the build is about 60; the Fleet Query's build criterion and its control 67; the patch report's search line 47. The drawer and the Hosts
+        # list are drawn before any loader could be asked for more, so the helpers stay in the eager core. The translations are in i18n.js, which is not eager.
+        # The budget is 2_780_000, 1,849 over what is measured.
+        self.assertLess(total, 2_780_000,
                         'the eager JS payload regressed past its budget')
 
 
