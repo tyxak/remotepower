@@ -103,6 +103,14 @@ can read it, make it for the number of hosts you expect, give it a short life, a
 `allowed_cidrs`. The server accepts 10 enrolment attempts a minute from one address. Hosts that start at once behind one
 NAT address get a 429 after the tenth, the installer stops, and the refused hosts have not used a use: run it again.
 
+**Where the command leaves a copy.** The link holds the token (`/install?t=<token>` and `/install.ps1?t=<token>`), so a copy of it stays
+wherever the command ran or passed: in the shell history of each host, and in the log of any proxy or load balancer in front of the
+server. The nginx configuration that ships with RemotePower does not write these two requests to its access log (the `location = /install`
+and `location = /install.ps1` blocks of `remotepower-locations.conf` have `access_log off`). An update copies that file into place; if you
+edited it, add `access_log off;` to the two blocks yourself. A proxy of your own logs the link unless you tell it not to: turn the log
+off for those two paths, or have it log the path without the query string. When the rollout is done, revoke the command in
+**Enroll host**, so that a copy found later is of no use.
+
 ---
 
 ## Detailed paths
