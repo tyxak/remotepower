@@ -23642,7 +23642,9 @@ async function saveScim() {
   const payload = { scim_enabled: document.getElementById('cfg-scim-enabled').checked };
   const tok = document.getElementById('cfg-scim-token').value;
   if (tok.trim()) payload.scim_token = tok.trim();
-  const r = await api('POST', '/config', payload).catch(() => null);
+  // 8.0.2: switching SCIM on or setting its token asks for a fresh sign-in check (the token can put any account in the admin group);
+  // withStepUp prompts and sends the save again. Switching it off does not ask.
+  const r = await withStepUp(() => api('POST', '/config', payload)).catch(() => null);
   const reveal = document.getElementById('scim-token-reveal');
   if (r && r.ok) {
     document.getElementById('cfg-scim-token').value = '';
@@ -23652,7 +23654,7 @@ async function saveScim() {
     }
     toast(payload.scim_enabled ? 'SCIM enabled' : 'SCIM disabled', 'success');
     loadSettings();
-  } else failToast(r);
+  } else if (r?.code !== 'step_up_required') failToast(r);
 }
 
 async function syncGitops(dry) {

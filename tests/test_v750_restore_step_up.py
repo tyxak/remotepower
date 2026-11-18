@@ -62,6 +62,8 @@ PAIRS = {
     "tenancy_enforced": (True, False),
     "approval_gated_kinds": (["reboot", "shutdown", "upgrade"], ["reboot"]),
     "litigation_hold": ({"enabled": True, "reason": "case 12"}, {"enabled": False}),
+    "scim_enabled": (False, True),          # 8.0.2: SCIM on lets the identity provider put an account in the admin group
+    "scim_token": ("", "token-of-an-earlier-revision"),
 }
 
 
@@ -86,7 +88,7 @@ class TestWhatCountsAsAChange(unittest.TestCase):
     def test_a_key_the_revision_does_not_have_counts_as_its_default(self):
         """A revision saved before a switch existed carries no key: restoring it removes the switch."""
         for key in ("change_approval_enabled", "mfa_required_roles", "sso_only", "ip_allowlist", "audit_worm_path",
-                    "audit_forward_enabled", "tenancy_enforced", "litigation_hold", "change_approval_no_self"):
+                    "audit_forward_enabled", "tenancy_enforced", "litigation_hold", "change_approval_no_self", "scim_enabled", "scim_token"):
             with self.subTest(key=key):
                 # the value of the pair that is not the default (no-self approval is ON by default, so its weaker value is the one)
                 other = next(v for v in PAIRS[key] if api._governance_effective({key: v}, key) != api._governance_effective({}, key))
@@ -108,6 +110,8 @@ class TestWhatCountsAsAChange(unittest.TestCase):
             {"sso_only": False},
             {"tenancy_enforced": False},
             {"audit_forward_enabled": False},
+            {"scim_enabled": False},
+            {"scim_token": ""},
         ]
         for doc in same:
             with self.subTest(doc=doc):

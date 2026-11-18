@@ -199,8 +199,9 @@ of time, assign roles, and **deactivate** them the moment they're offboarded
 
 Settings → Integrations → SCIM provisioning: enable it (`scim_enabled`) and
 set the **Bearer token** the IdP will authenticate with (`scim_token` —
-leave blank to auto-generate on enable; shown once). On the IdP, point
-provisioning at:
+leave blank to auto-generate on enable; shown once). Switching SCIM on, or setting a token, asks you to confirm your own
+password or a one-time code first (a "step-up"), because the token can put any account in the admin group. An API key cannot do
+it. Switching SCIM off does not ask. On the IdP, point provisioning at:
 
 ```
 https://<your-server>/api/scim/v2

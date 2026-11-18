@@ -63,7 +63,7 @@ obvious:
 - **`governance_config_change` entries** — changes to four-eyes approval (and its
   rule that the requester cannot approve their own change), MFA-required roles,
   SSO-only sign-in, the IP allowlist, the WORM sink, audit retention or
-  forwarding, or tenancy. These need a fresh password or code (step-up) and are
+  forwarding, tenancy, or SCIM being switched on or given a token. These need a fresh password or code (step-up) and are
   logged by name (restoring an older configuration revision that changes one of
   them is logged the same way), and they are the changes an access review should notice even
   when the account is legitimate. A litigation hold is logged on its own, as

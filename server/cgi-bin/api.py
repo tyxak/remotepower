@@ -32306,6 +32306,13 @@ _GOVERNANCE_CONFIG_KEYS = (
     # its writer is handle_litigation_hold_set, not handle_config_save, so it is
     # step-up-gated THERE (below) rather than here.
     'litigation_hold',              # the retention freeze (gated at its own setter)
+    # The SCIM bearer token can put any account into the admin group, which is promoting it to administrator without the step-up that
+    # PATCH /api/users asks for. Switching SCIM on, or setting its token, is therefore the same step, and it was the one place an
+    # administrator key (which can never step up) could reach it: create a viewer with a password it chose, switch SCIM on with a token it
+    # chose, add the account to the admin group over SCIM, sign in as it and step up with its own password. Only the direction that hands
+    # the power out asks (see _governance_keys_touched): switching SCIM off or clearing the token does not.
+    'scim_enabled',                 # 8.0.2: whether an identity provider may set roles
+    'scim_token',                   # 8.0.2: and the secret that lets it
 )
 
 
@@ -32333,6 +32340,23 @@ def _governance_keys_touched(body, cfg):
             after = _normalized_gated_kinds(body.get(k))
             if after is not None and set(_approval_gated_kinds(cfg)) - set(after):
                 out.append(k)
+        elif k == 'scim_enabled':
+            # Switching it on hands out the power to set roles; switching it off takes it back, and a prompt for that would only teach
+            # people to click through. Read as the save reads it (`bool(...)`): a 1 or a "yes" switches it on as well.
+            if bool(body.get(k)) and not cfg.get(k):
+                out.append(k)
+        elif k == 'scim_token':
+            # The ways a save leaves the caller with a token that works (the save: a non-blank value is the token, '__clear__' removes
+            # it, blank keeps it, and SCIM that is on with no token gets a fresh one that is sent back to the caller):
+            #  - a new token is set, whether SCIM is on or not (it would be live on the day somebody else switches SCIM on);
+            #  - the token is cleared while SCIM stays on, which mints a new one and returns it.
+            v = str(body.get(k) or '')
+            stored = str(cfg.get(k) or '')
+            on_after = bool(body['scim_enabled']) if 'scim_enabled' in body else bool(cfg.get('scim_enabled'))
+            sets_one = v != '__clear__' and bool(v.strip()) and v.strip() != stored
+            mints_one = on_after and (v == '__clear__' or (not stored and not v.strip()))
+            if sets_one or mints_one:
+                out.append(k)
         elif body.get(k) != cfg.get(k):
             out.append(k)
     return out
@@ -32354,6 +32378,8 @@ def _governance_effective(cfg, key):
         return frozenset(str(x) for x in v) if isinstance(v, (list, tuple)) else frozenset()
     if key == 'audit_worm_path':
         return str(v or '')
+    if key == 'scim_token':
+        return str(v or '')           # which secret counts, not only whether there is one: a restore can swap one token for another
     return bool(v)
 
 
