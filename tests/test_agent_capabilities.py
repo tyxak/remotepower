@@ -522,6 +522,18 @@ class TestTheServersCleaning(unittest.TestCase):
                 {"kind": "web", "path": "", "readable": True}, "text", None, 7, {"kind": "err", "path": "/ok", "readable": False}]
         self.assertEqual(caps_mod.clean({"logs": junk})["logs"], [{"kind": "err", "path": "/ok", "readable": False}])
 
+    def test_a_kind_that_is_a_list_or_a_dict_or_not_text_leaves_that_log_out_and_keeps_the_rest(self):
+        """The kind is looked up in a dict, which hashes it: a list or a dict (what a JSON body can hold) raised TypeError, and clean() is
+        called inside the heartbeat's device update, so the whole report of the host was refused with a 500 and nothing of it was stored.
+        The docstring says a wrong part is left out and the rest is kept; every kind of value that is not a known word is such a part."""
+        good = {"kind": "err", "path": "/ok", "readable": False}
+        for kind in (["web"], [], {"a": 1}, {}, [["web"]], {"kind": "web"}, None, True, False, 0, 1.5, float("nan"), b"web", ("web",)):
+            with self.subTest(kind=repr(kind)):
+                out = caps_mod.clean({"root": True, "logs": [{"kind": kind, "path": "/var/log/x.log", "readable": True}, good]})
+                self.assertEqual(out, {"root": True, "logs": [good]})
+        with self.assertRaises(TypeError, msg="the premise of this test: a dict lookup hashes what it is given"):
+            [] in caps_mod.LOG_KINDS
+
     def test_a_path_loses_its_control_characters_and_is_cut(self):
         out = caps_mod.clean({"logs": [{"kind": "web", "path": "/var/log/a\n\x00b .log", "readable": True},
                                        {"kind": "web", "path": "/" + "z" * 500, "readable": True}]})
@@ -549,6 +561,82 @@ class TestTheServersCleaning(unittest.TestCase):
     def test_a_wrong_part_is_left_out_and_the_rest_is_kept(self):
         out = caps_mod.clean({"root": True, "tools": "not a dict", "logs": "nope", "mapped": 5, "agent": [1]})
         self.assertEqual(out, {"root": True})
+
+
+# The values a JSON body can hold at any position, and a few a hostile one would pick: every type, the unhashable ones (a list and a dict
+# cannot be a dict key or a set member), values at the edge of a number, text with a newline or a right-to-left override.
+WRONG = (None, True, False, 0, -1, 7, 1.5, float("nan"), float("inf"), 10 ** 30, "", "x", "web", "debian", "a" * 300, "‮/etc",
+         "debian\n", "8.0.2\n", [], [[]], ["web"], [None], {}, {"a": 1}, {"kind": "web"}, [{}], [[1, 2]], [{"kind": ["web"]}])
+GOOD = {"root": True, "container": False, "init": "systemd", "distro": "debian", "like": "debian", "mapped": ["/etc"],
+        "tools": {"ss": True, "smartctl": False}, "logs": [{"kind": "web", "path": "/var/log/a.log", "readable": True}],
+        "agent": {"version": "8.0.2", "python": "3.12.3"}}
+
+
+def wrong_reports():
+    """The good report with one position at a time replaced by each wrong value, and the same positions nested one level in."""
+    for key in GOOD:
+        for v in WRONG:
+            yield f"{key}={v!r}", dict(GOOD, **{key: v})
+    for v in WRONG:
+        yield f"tools key/value {v!r}", dict(GOOD, tools={"ss": v, "smartctl": v})
+        yield f"logs kind {v!r}", dict(GOOD, logs=[{"kind": v, "path": "/x", "readable": True}])
+        yield f"logs path {v!r}", dict(GOOD, logs=[{"kind": "web", "path": v, "readable": True}])
+        yield f"logs readable {v!r}", dict(GOOD, logs=[{"kind": "web", "path": "/x", "readable": v}])
+        yield f"logs entry {v!r}", dict(GOOD, logs=[v])
+        yield f"agent values {v!r}", dict(GOOD, agent={"version": v, "python": v})
+        yield f"mapped element {v!r}", dict(GOOD, mapped=[v])
+        yield f"like and distro {v!r}", dict(GOOD, like=v, distro=v)
+
+
+class TestAWrongTypedReportIsNeverRefused(unittest.TestCase):
+    """The class behind a 500 on a heartbeat: a cleaner that raises on a value of the wrong type instead of leaving it out. clean() runs
+    inside the device update, so one such value froze the whole system information of the host (packages, ports, posture), while the
+    host went on beating and looked online. A wrong part is left out and the rest is kept, at every position and for every type."""
+
+    def test_the_population_is_the_reports_wrong_at_every_position(self):
+        """The control for the tests below: they run over this many reports, and the premise (a dict lookup raises on an unhashable
+        key) holds, so an empty or a shrunk population cannot read as success."""
+        reports = list(wrong_reports())
+        self.assertGreater(len(reports), 400)
+        self.assertEqual(len({name for name, _r in reports}), len(reports), "a position and value tried twice")
+        self.assertTrue(any(isinstance(v, (list, dict)) for _n, r in reports for v in r.values()))
+        for unhashable in ([], {}):
+            with self.assertRaises(TypeError):
+                {"a": 1}[unhashable]
+
+    def test_clean_never_raises_and_keeps_only_what_it_can_vouch_for(self):
+        for name, rec in wrong_reports():
+            with self.subTest(position=name):
+                out = caps_mod.clean(rec)
+                self.assertTrue(out is None or isinstance(out, dict))
+                if out is None:
+                    continue
+                json.dumps(out)                                          # what the heartbeat stores
+                self.assertEqual(caps_mod.clean(out), out, "what is kept is stable: cleaning it again changes nothing")
+                self.assertLessEqual(set(out), set(GOOD))
+                self.assertLessEqual(set(out.get("tools", {})), set(caps_mod.TOOL_KEYS))
+                self.assertTrue(all(isinstance(e["kind"], str) and e["kind"] in caps_mod.LOG_KINDS for e in out.get("logs", [])))
+
+    def test_the_panel_the_family_and_the_manager_of_a_host_never_raise_on_what_a_store_may_hold(self):
+        """A record read back from a store is not always one this module cleaned (a restored backup, a hand edit, an older release), and
+        panel(), family() and manager_of() are called with it as it stands."""
+        for name, rec in wrong_reports():
+            for manager in ("", "apt", "x", None, ["apt"], {"a": 1}):
+                with self.subTest(position=name, manager=manager):
+                    self.assertIn(caps_mod.family(rec, manager), ("",) + caps_mod.MANAGERS)
+                    panel = caps_mod.panel(rec, manager if isinstance(manager, str) else "")
+                    self.assertIn("reported", panel)
+                    json.dumps(panel)
+            with self.subTest(position=name, reader="manager_of"):
+                self.assertIsInstance(caps_mod.manager_of({"packages": rec}), str)
+                self.assertIsInstance(caps_mod.manager_of({"packages": {"manager": rec.get("distro")}}), str)
+
+    def test_a_distribution_that_is_not_text_is_not_looked_up(self):
+        for distro in (["debian"], {"debian": 1}, None, 5, b"debian"):
+            with self.subTest(distro=repr(distro)):
+                self.assertEqual(caps_mod.family({"distro": distro}, ""), "")
+                self.assertEqual(caps_mod.family({"distro": distro, "like": "rhel fedora"}, ""), "dnf", "the id-like list is read next")
+                self.assertEqual(caps_mod.family({"distro": distro}, "pacman"), "pacman", "and then the manager the host reported")
 
 
 # ── the panel ────────────────────────────────────────────────────────────────
@@ -807,6 +895,33 @@ class TestTheHeartbeat(_Server):
         for bad in ("text", 5, ["x"], {}, {"unknown": 1}):
             self.beat(sysinfo={"uptime": "up", "capabilities": bad})
             self.assertIsNone(self.stored(), bad)
+
+    def test_a_log_whose_kind_is_a_list_or_a_dict_does_not_refuse_the_rest_of_the_hosts_report(self):
+        """Through the real handler. The cleaner raised on such a kind, the update block it runs in was left without saving, and the host
+        answered 500 on every beat that carried system information: its packages, ports and posture stayed frozen on the server while it
+        went on beating (a host with a buggy or hostile agent looks online and is never refreshed)."""
+        for kind in (["web"], {"k": 1}):
+            for attempt in range(3):
+                with self.subTest(kind=kind, attempt=attempt):
+                    status, _body = self.beat(sysinfo={"uptime": "up", "packages": {"manager": "apt", "upgradable": 7},
+                                                       "capabilities": {"root": True, "logs": [
+                                                           {"kind": kind, "path": "/var/log/x.log", "readable": True},
+                                                           {"kind": "web", "path": "/var/log/ok.log", "readable": True}]}})
+                    self.assertEqual(status, 200)
+                    self.assertEqual(self.stored(), {"root": True, "logs": [{"kind": "web", "path": "/var/log/ok.log", "readable": True}]})
+                    api._LOAD_CACHE.clear()
+                    dev = api.load(api.DEVICES_FILE)["d1"]
+                    self.assertEqual(dev["sysinfo"]["packages"]["upgradable"], 7, "the rest of the report was stored")
+                    self.assertGreater(dev.get("last_seen", 0), 0, "and the beat was counted")
+
+    def test_a_report_with_a_wrong_part_at_any_position_is_answered_and_stored_not_refused(self):
+        """The same, over every position and every kind of value (the population is held in TestAWrongTypedReportIsNeverRefused)."""
+        for name, rec in wrong_reports():
+            with self.subTest(position=name):
+                status, _body = self.beat(sysinfo={"uptime": "up", "packages": {"manager": "apt", "upgradable": 3}, "capabilities": rec})
+                self.assertEqual(status, 200)
+                api._LOAD_CACHE.clear()
+                self.assertEqual(api.load(api.DEVICES_FILE)["d1"]["sysinfo"]["packages"]["upgradable"], 3)
 
     def test_an_unchanged_report_arrives_as_an_omission_and_the_stored_copy_is_merged_back(self):
         self.beat(sysinfo={"uptime": "up", "capabilities": FULL})

@@ -171,7 +171,10 @@ def clean(raw):
         for e in logs:
             if len(rows) >= LOG_CAP:
                 break
-            if not isinstance(e, dict) or e.get('kind') not in LOG_KINDS or not isinstance(e.get('readable'), bool):
+            # The kind is looked up in a dict, which hashes it: a list or a dict from a JSON body would raise and the whole heartbeat
+            # with it. Only text can be a kind.
+            kind = e.get('kind') if isinstance(e, dict) else None
+            if not isinstance(kind, str) or kind not in LOG_KINDS or not isinstance(e.get('readable'), bool):
                 continue
             path = _short(e.get('path'), PATH_CAP)
             if path and path.startswith('/'):
@@ -197,8 +200,9 @@ def family(caps, packages_manager=''):
     """The package manager of this host's distribution ('apt', 'dnf', 'zypper', 'apk', 'pacman') or '' when it cannot be told: from the
     os-release id, then its id-like list, then the manager the host last reported with its pending updates."""
     caps = caps if isinstance(caps, dict) else {}
-    if caps.get('distro') in _FAMILY:
-        return _FAMILY[caps['distro']]
+    distro = caps.get('distro')
+    if isinstance(distro, str) and distro in _FAMILY:    # a record read from a store may hold anything; a list cannot be looked up
+        return _FAMILY[distro]
     for word in str(caps.get('like') or '').split():
         if word in _FAMILY:
             return _FAMILY[word]
