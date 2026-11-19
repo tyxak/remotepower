@@ -5128,10 +5128,12 @@ def _config_secrets_outbound(path, data):
     import copy as _c
     out = _c.deepcopy(data)
     explicit = set(_CONFIG_SECRET_FIELDS)
-    return _walk_config_tree(
+    _walk_config_tree(
         out, _cfg_enc,
         lambda k, v: (k in explicit or _is_config_secret_name(k))
         and not v.startswith((_CONFIG_ENC_PREFIX, _CONFIG_ENC_PREFIX_V2)))
+    _seal_nonname_config_secrets(out)       # 8.0.2: the fields whose names the matcher does not know (addresses with a token in them, header values)
+    return out
 
 
 def load(path):
@@ -10607,6 +10609,20 @@ def _url_without_userinfo(url):
         return ''
 
 
+def _seal_dest(dest):
+    """A webhook destination as the failed-delivery queue keeps it: with a settings master key armed, sealed like the settings document (the address, header values,
+    tokens and secrets), and as it is otherwise. Before 8.0.2 the whole destination sat in the queue in plain text beside a settings document that was sealed."""
+    if not isinstance(dest, dict):
+        return dest
+    return (_config_secrets_outbound(CONFIG_FILE, {'webhook_urls': [dest]}).get('webhook_urls') or [dest])[0]
+
+
+def _unseal_dest(dest):
+    if not isinstance(dest, dict):
+        return dest
+    return (_config_secrets_inbound(CONFIG_FILE, {'webhook_urls': [copy.deepcopy(dest)]}).get('webhook_urls') or [dest])[0]
+
+
 def _dlq_record(event, dest, safe_payload, message, title, priority, error):
     """v5.0.0 (#R2): persist a permanently-failed webhook delivery to the
     dead-letter queue so an operator can SEE it and retry from the UI — unlike
@@ -10619,8 +10635,8 @@ def _dlq_record(event, dest, safe_payload, message, title, priority, error):
                 'id':       'dlq_' + secrets.token_hex(8),
                 'ts':       int(time.time()),
                 'event':    str(event)[:64],
-                'url':      str(dest.get('url', ''))[:256],
-                'dest':     dest,
+                'url':      _redact_url_to_host(str(dest.get('url', ''))[:256]),    # the address is a credential for a Slack/Discord/Teams hook: the host is what a person needs
+                'dest':     _seal_dest(dest),
                 'payload':  safe_payload,
                 'message':  str(message)[:2000],
                 'title':    str(title)[:200],
@@ -10638,7 +10654,7 @@ def _dlq_retry_entry(entry):
     filters are intentionally skipped — this replays the exact stored delivery
     to its destination (the operator already decided it should have gone)."""
     try:
-        _dest = entry.get('dest') or {}
+        _dest = _unseal_dest(entry.get('dest') or {})
         with _watch_delivery(_notify_dest_key(_dest), _notify_dest_label(_dest)):
             _dispatch_one_webhook(entry.get('event', ''), _dest,
                                   entry.get('payload') or {}, entry.get('message', ''),
@@ -31387,48 +31403,68 @@ def _redact_config_secrets_inplace(obj):
 # the surfaces can't drift — they did: the bundle redacted siem/audit/otlp/
 # lenovo/integrations[].url but missed cloud_accounts[].secret_key, while the
 # backup ZIP redacted cloud_accounts but missed the first five (v6.2.3 audit).
+def _nonname_config_secret_sites(cfg):
+    """[(container, key, is_header_map, sealed_only_with_userinfo)] for every config field that holds a secret (or a secret-BEARING URL) whose KEY NAME `_SECRET_KEY_RE` does not catch. One list for
+    every surface that has to treat them: the redaction of the exports (`_redact_nonname_config_secrets`) and the sealing of the settings at rest
+    (`_config_secrets_outbound`), which had its own, shorter list until 8.0.2 and so left six of seven of these in plain text under RP_CONFIG_KEY."""
+    sites = []
+    if not isinstance(cfg, dict):
+        return sites
+    for k in ('agentless_ssh_key', 'webhook_url', 'healthchecks_url', 'siem_url',
+              'audit_forward_url', 'otlp_endpoint', 'warranty_lenovo_client_id'):
+        sites.append((cfg, k, False, False))
+    sites.append((cfg.get('metrics_push'), 'url', False, False))
+    sites.append((cfg.get('gitops'), 'auth_header', False, False))
+    for _wh in (cfg.get('webhook_urls') or []):
+        sites.append((_wh, 'url', False, False))
+        sites.append((_wh, 'pushover_user', False, False))      # pushover_token is name-caught
+        sites.append((_wh, 'headers', True, False))             # v6.4.2 (audit): custom-header credentials
+    for _ig in (cfg.get('integrations') or []):
+        sites.append((_ig, 'url', False, True))          # basic-auth userinfo (sealed only when it has some: most are a plain address); sibling 'secret' is name-caught
+    for _ca in (cfg.get('cloud_accounts') or []):
+        sites.append((_ca, 'secret_key', False, False))  # AWS/Hetzner/DO/Azure/GCP credential; '_key' not name-caught
+    return sites
+
+
 def _redact_nonname_config_secrets(cfg, mask=False):
     """Redact the non-name-caught secret fields of a config dict IN PLACE.
     mask=False drops the key (support bundle promises "no secrets"); mask=True
     replaces the value with the '(redacted)' marker (backup/declarative export
-    stay structurally restorable). Idempotent and safe on a partial config."""
-    if not isinstance(cfg, dict):
-        return
-    def _hit(container, key):
+    stay structurally restorable). Idempotent and safe on a partial config.
+
+    A webhook destination's custom `headers` map exists to carry an Authorization / X-API-Key credential. The header NAME is not secret-shaped, so
+    _SECRET_KEY_RE never catches it: the whole map is dropped in drop-mode, and in mask-mode each VALUE is masked and the NAMES kept, so a
+    restorable backup still shows which headers were configured."""
+    for container, key, is_map, _userinfo in _nonname_config_secret_sites(cfg):
         if not isinstance(container, dict) or not container.get(key):
-            return
-        if mask:
+            continue
+        if is_map:
+            m = container[key]
+            if not isinstance(m, dict):
+                continue
+            if mask:
+                container[key] = {hk: '(redacted)' for hk in m}
+            else:
+                container.pop(key, None)
+        elif mask:
             container[key] = '(redacted)'
         else:
             container.pop(key, None)
-    for k in ('agentless_ssh_key', 'webhook_url', 'healthchecks_url', 'siem_url',
-              'audit_forward_url', 'otlp_endpoint', 'warranty_lenovo_client_id'):
-        _hit(cfg, k)
-    _hit(cfg.get('metrics_push'), 'url')
-    _hit(cfg.get('gitops'), 'auth_header')
-    def _hit_map(container, key):
-        # v6.4.2 (audit): a webhook destination's custom `headers` map exists to
-        # carry an Authorization / X-API-Key credential. The header NAME is not
-        # secret-shaped, so _SECRET_KEY_RE never catches it and neither did this
-        # redactor — so a bearer token shipped in cleartext in the support
-        # bundle (docstring: 'no secrets'), the declarative export ('safe to
-        # commit') and the encrypted-backup config redaction. Drop the whole map
-        # in drop-mode; mask each VALUE (keep the NAMES) in mask-mode, so a
-        # restorable backup still shows which headers were configured.
-        m = container.get(key) if isinstance(container, dict) else None
-        if not isinstance(m, dict) or not m:
-            return
-        if mask:
-            container[key] = {hk: '(redacted)' for hk in m}
-        else:
-            container.pop(key, None)
-    for _wh in (cfg.get('webhook_urls') or []):
-        _hit(_wh, 'url'); _hit(_wh, 'pushover_user')  # pushover_token is name-caught
-        _hit_map(_wh, 'headers')    # v6.4.2 (audit): custom-header credentials
-    for _ig in (cfg.get('integrations') or []):
-        _hit(_ig, 'url')            # basic-auth userinfo; sibling 'secret' is name-caught
-    for _ca in (cfg.get('cloud_accounts') or []):
-        _hit(_ca, 'secret_key')     # AWS/Hetzner/DO/Azure/GCP credential; '_key' not name-caught
+
+
+def _seal_nonname_config_secrets(cfg):
+    """Seal, in place, the non-name-caught secret fields of a config dict that `_config_secrets_outbound` writes (a copy, never the caller's document)."""
+    for container, key, is_map, userinfo_only in _nonname_config_secret_sites(cfg):
+        if not isinstance(container, dict):
+            continue
+        v = container.get(key)
+        if userinfo_only and not (isinstance(v, str) and '@' in urllib.parse.urlsplit(v).netloc):
+            continue
+        if is_map and isinstance(v, dict):
+            container[key] = {hk: (_cfg_enc(hv) if isinstance(hv, str) and hv and not hv.startswith((_CONFIG_ENC_PREFIX, _CONFIG_ENC_PREFIX_V2)) else hv)
+                              for hk, hv in v.items()}
+        elif isinstance(v, str) and v and not v.startswith((_CONFIG_ENC_PREFIX, _CONFIG_ENC_PREFIX_V2)):
+            container[key] = _cfg_enc(v)
 
 
 # ── v5.8.0 (B3.5): declarative config export ─────────────────────────────────

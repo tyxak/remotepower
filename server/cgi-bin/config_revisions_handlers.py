@@ -74,6 +74,11 @@ def record_config_revision(prev_cfg, new_cfg, user):
             'changed_keys': changed[:50],
             'config': prev_cfg,
         })
+        # With a settings master key armed a revision is sealed like the document it was, and the ones kept from before are sealed now (they were stored as the
+        # decrypted document, which put every credential of the last ten saves in plain text beside a sealed config.json). A restore opens it again.
+        for r in lst:
+            if isinstance(r, dict) and isinstance(r.get('config'), dict):
+                r['config'] = A._config_secrets_outbound(A.CONFIG_FILE, r['config'])
         del lst[:-_MAX_REVISIONS]
 
 
@@ -102,6 +107,7 @@ def handle_config_revision_restore():
     rev = next((r for r in revs if r.get('id') == rid), None)
     if not rev or not isinstance(rev.get('config'), dict):
         A.respond(404, {'error': 'Revision not found'})
+    rev = dict(rev, config=A._config_secrets_inbound(A.CONFIG_FILE, A.copy.deepcopy(rev['config'])))
     # v6.4.2: read-and-replace under the lock, so a config save landing between
     # the read and the write isn't silently reverted (and the pre-restore
     # snapshot is the config that was ACTUALLY replaced). record_config_revision

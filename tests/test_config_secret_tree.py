@@ -110,7 +110,7 @@ class TestTreeCoverage(_Base):
         self.assertEqual(d['password_min_length'], 12)
         self.assertEqual(d['proxmox_token_id'], 'user@pam!mytok')
         self.assertEqual(d['secrets_scan_paths'], ['/etc', '/opt'])
-        # non-secret-named URL fields (integration/dest url) stay readable
+        # an integration's address with no credential in it stays readable (a destination's address is sealed since 8.0.2: its token is in the path)
         self.assertEqual(d['integrations'][0]['url'], 'http://10.0.0.2/admin')
 
     @unittest.skipUnless(CRYPTO, 'cryptography not installed')
