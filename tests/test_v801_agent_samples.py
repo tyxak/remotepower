@@ -415,7 +415,7 @@ class TestOnePassOverARealLayout(_Base):
             ip = f'45.{i // 256}.{i % 256}.9'
             for n in range(5):
                 agg.hit('waf', ERRLOG, ip, NOW, ['cs:appsec'], 1, blk=1)
-                agg.sample(ip, 'waf', 'GET', f'/{n}' + 'a' * 300, 403, NOW)
+                agg.sample(ip, 'waf', 'GET', f'/{n}' + '.' * 300, 403, NOW)       # dots: a run of letters and digits that long is read as a token since 8.0.2 and the five samples would be one
         events, dropped = agg.events()
         self.assertEqual(len(events), a.THREAT_MAX_EVENTS)
         self.assertGreater(dropped, 0)

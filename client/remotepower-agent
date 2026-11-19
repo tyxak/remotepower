@@ -15256,6 +15256,15 @@ def _ts_decode(uri):
 
 _TS_SAMPLE_METHODS = frozenset(('GET', 'POST', 'HEAD', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'CONNECT', 'TRACE', 'PROPFIND'))
 _TS_PATH_RUN_RE = re.compile(r'[A-Za-z0-9._~/%+-]+')
+# A path segment of 24 or more letters, digits, hyphens and underscores that holds both a letter and a digit is read as a capability link (a reset or invite
+# token, a session id, a signed URL part) and is replaced by `~token~` before the sample leaves the host (the server does the same: threat_evidence.clean_path).
+_TS_TOKEN_SEGMENT_RE = re.compile(r'(?=[A-Za-z0-9_-]*[0-9])(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{24,}')
+
+
+def _ts_mask_token_segments(path):
+    return '/'.join('~token~' if _TS_TOKEN_SEGMENT_RE.fullmatch(seg) else seg for seg in path.split('/'))
+
+
 _TS_PATH_SCHEME_RE = re.compile(r'[A-Za-z][A-Za-z0-9+.-]{1,9}:/')
 
 
@@ -15273,8 +15282,8 @@ def _ts_clean_path(raw):
     if m:
         s, cut = s[:m.start()], True
     run = _TS_PATH_RUN_RE.match(s)
-    ok = run.group(0) if run else ''
-    if len(ok) < len(s):
+    ok = _ts_mask_token_segments(run.group(0)) if run else ''
+    if len(run.group(0) if run else '') < len(s):
         cut = True
     if len(ok) > THREAT_PATH_MAX:
         ok, cut = ok[:THREAT_PATH_MAX], True
