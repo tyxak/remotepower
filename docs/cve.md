@@ -529,7 +529,9 @@ hosts are still affected.
 Each campaign shows its affected hosts, its finding count and a burn-down chart that gains one
 point per day. When no host is affected any more it is marked completed and the
 `campaign_completed` event fires. If findings come back, the campaign reopens. Ignored
-findings do not count. You can keep up to 200 campaigns.
+findings do not count. One organisation can keep up to 200 campaigns: with multi-tenancy on,
+each tenant has 200 of its own, and the operator's count includes the campaigns of the
+installation. The operator's list shows the tenant that owns each row.
 
 ## Permissions
 

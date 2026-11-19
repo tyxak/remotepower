@@ -256,6 +256,10 @@ def handle_cve_scan_status():
     A.respond(200, _scan_status_view(A.load(A.CVE_SCAN_STATUS_FILE) or {'running': False}))
 
 
+# How many campaigns one organisation may hold: a tenant's, or the operator's (and the installation's, which have no tenant).
+MAX_CAMPAIGNS_PER_OWNER = 200
+
+
 def _campaign_visible(camp):
     """May this caller see this campaign?
 
@@ -295,9 +299,15 @@ def handle_cve_campaigns():
                  if isinstance(c, dict) and _campaign_visible(c)]
         kev = A._cve_kev_ids()
         gate = A._tenant_gate()
+        # 8.0.2: the findings of the visible hosts are tallied once; every campaign is answered from the tallies. Each campaign
+        # walked every finding, so a list of 200 cost 200 times the findings the caller can see (5.5 s for 60 hosts of 300).
+        index = A._campaign_index(cve_all, cve_ignore, devices, kev) if camps else None
         rows = []
         for c in camps:
-            row = A._campaign_public(c, cve_all, cve_ignore, devices, kev)
+            row = A._campaign_public(c, cve_all, cve_ignore, devices, kev, index)
+            if gate is None and c.get('tenant'):
+                # who owns the row, for the one caller who is shown every organisation's: the operator
+                row['tenant'] = c['tenant']
             if gate is not None and c.get('tenant') != gate:
                 # 8.0.1: a campaign of the whole installation, listed to one tenant's administrator. The
                 # numbers above are that tenant's own hosts. The stored samples and the completion were
@@ -333,7 +343,11 @@ def handle_cve_campaigns():
             'created_at': now, 'completed_at': None, 'samples': []}
     with A._LockedUpdate(A.CVE_CAMPAIGNS_FILE) as store:
         camps = store.setdefault('campaigns', [])
-        if len(camps) >= 200:
+        # The limit is one organisation's own (the campaigns stamped with its tenant; the operator's are the ones with none). It was
+        # a count of the whole store, so one tenant's administrator could make 200 and the operator and every other organisation
+        # were refused from then on.
+        held = sum(1 for c in camps if isinstance(c, dict) and c.get('tenant') == camp['tenant'])
+        if held >= MAX_CAMPAIGNS_PER_OWNER:
             A.respond(400, {'error': 'campaign limit reached'})
         camps.append(camp)
     A.audit_log(actor, 'cve_campaign_create', f'id={camp["id"]} {name}')

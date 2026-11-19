@@ -73091,10 +73091,29 @@ def _campaign_matches_finding(camp, f, kev=None):
     return True
 
 
-def _campaign_affected(camp, cve_all, cve_ignore, devices, kev=None):
+def _campaign_index(cve_all, cve_ignore, devices, kev=None):
+    """The live findings of `devices` (accepted risks and the findings of hosts that are gone left out), tallied once, for a caller
+    that answers many campaigns (cve_fixes.CampaignIndex): the list of campaigns, and the daily sample. Hand it to
+    _campaign_affected / _campaign_public as `index`."""
+    def live():
+        for did, rec in (cve_all or {}).items():
+            if did not in devices:
+                continue
+            yield did, [f for f in cve_scanner.apply_ignore_list(
+                            (rec or {}).get('findings') or [], cve_ignore, did, _device_tenant(devices.get(did)))
+                        if not f.get('ignored')]
+    return cve_fixes.CampaignIndex(live(), kev)
+
+
+def _campaign_affected(camp, cve_all, cve_ignore, devices, kev=None, index=None):
     """Return (affected_host_ids set, matching_finding_count) for a campaign over
     the current CVE state (ignored findings + stale hosts excluded). `kev` is the set of
-    known-exploited ids (_cve_kev_ids)."""
+    known-exploited ids (_cve_kev_ids).
+
+    8.0.2: `index` is a _campaign_index of the same findings. With it the answer comes from its tallies; without it every
+    finding is walked, once for this campaign. A caller that answers several campaigns builds the index once."""
+    if index is not None:
+        return index.affected(camp)
     hosts, count = set(), 0
     for did, rec in (cve_all or {}).items():
         if did not in devices:
@@ -73109,8 +73128,8 @@ def _campaign_affected(camp, cve_all, cve_ignore, devices, kev=None):
     return hosts, count
 
 
-def _campaign_public(camp, cve_all, cve_ignore, devices, kev=None):
-    hosts, count = _campaign_affected(camp, cve_all, cve_ignore, devices, kev)
+def _campaign_public(camp, cve_all, cve_ignore, devices, kev=None, index=None):
+    hosts, count = _campaign_affected(camp, cve_all, cve_ignore, devices, kev, index)
     return {
         'id': camp.get('id'), 'name': camp.get('name', ''),
         'owner': camp.get('owner', ''), 'cve_ids': camp.get('cve_ids') or [],
@@ -73143,6 +73162,9 @@ def run_cve_campaign_sample_if_due():
     devices = load(DEVICES_FILE) or {}
     kev = _cve_kev_ids()
     pending = []
+    # 8.0.2: the findings of each organisation's hosts are tallied once, not once per campaign (200 campaigns walked every
+    # finding 200 times)
+    _hosts_by_owner, _index_by_owner = {}, {}
     with _LockedUpdate(CVE_CAMPAIGNS_FILE) as store:
         store['_last_sample'] = now
         for camp in (store.get('campaigns') or []):
@@ -73150,9 +73172,12 @@ def run_cve_campaign_sample_if_due():
             # request, so it counted every tenant's: the burn-down a tenant administrator was shown held
             # other tenants' hosts, and their campaign stayed open for as long as anyone was affected.
             _own = camp.get('tenant') if isinstance(camp, dict) else None
-            _hosts_of = devices if _own is None else {
-                k: v for k, v in devices.items() if isinstance(v, dict) and _device_tenant(v) == _own}
-            hosts, _ = _campaign_affected(camp, cve_all, cve_ignore, _hosts_of, kev)
+            if _own not in _hosts_by_owner:
+                _hosts_by_owner[_own] = devices if _own is None else {
+                    k: v for k, v in devices.items() if isinstance(v, dict) and _device_tenant(v) == _own}
+                _index_by_owner[_own] = _campaign_index(cve_all, cve_ignore, _hosts_by_owner[_own], kev)
+            _hosts_of = _hosts_by_owner[_own]
+            hosts, _ = _campaign_affected(camp, cve_all, cve_ignore, _hosts_of, kev, _index_by_owner[_own])
             n = len(hosts)
             camp.setdefault('samples', []).append({'ts': now, 'affected': n})
             camp['samples'] = camp['samples'][-120:]

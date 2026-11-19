@@ -332,6 +332,62 @@ def finding_is_kev(finding: Any, kev: Any) -> bool:
     return any(i in kev for i in finding_ids(finding))
 
 
+class CampaignIndex:
+    """The live findings of a set of hosts, tallied once, so that a remediation campaign is answered from the tallies and not by
+    walking every finding. A list of campaigns walked every finding of every visible host once per campaign: 200 campaigns over
+    60 hosts of 300 findings were 3.6 million visits and 5.5 seconds, for the operator, on every opening of the CVE page.
+
+    `live` is the findings to count, as (host id, list of findings that are not accepted as risk) pairs, and `kev` the upper-case
+    ids of the known-exploited list. `affected(camp)` answers what a walk of those findings with the campaign's own rule answered:
+    the ids of the hosts with a finding in the campaign's scope, and how many findings that is. A campaign over a list of ids
+    (`cve_ids`) is about the findings that go by one of them (the id or an alias) and nothing else; otherwise it is about the
+    severities it names (all when it names none), only the known-exploited ones when `kev_only` is set.
+    """
+
+    def __init__(self, live: Any, kev: Any = None) -> None:
+        self._by_name: dict[str, set[tuple[str, int]]] = {}
+        # severity word -> [hosts, findings, hosts with a known-exploited one, known-exploited findings]
+        self._by_severity: dict[str, list[Any]] = {}
+        for host, findings in live:
+            for n, f in enumerate(findings):
+                if not isinstance(f, dict):
+                    continue
+                names = set(finding_ids(f))
+                names.update(str(f.get(k)).upper() for k in ("cve_id", "id") if f.get(k))
+                for name in names:
+                    self._by_name.setdefault(name, set()).add((host, n))
+                slot = self._by_severity.setdefault(
+                    str(f.get("severity", "")).lower(), [set(), 0, set(), 0]
+                )
+                slot[0].add(host)
+                slot[1] += 1
+                if f.get("kev") or f.get("known_exploited") or finding_is_kev(f, kev):
+                    slot[2].add(host)
+                    slot[3] += 1
+
+    def affected(self, camp: Any) -> tuple[set[str], int]:
+        ids = camp.get("cve_ids") or []
+        if ids:
+            wanted = {str(i).upper() for i in ids if isinstance(i, str)}
+            found: set[tuple[str, int]] = set()
+            for name in wanted:
+                found |= self._by_name.get(name, set())
+            return {host for host, _n in found}, len(found)
+        severities = camp.get("severities") or []
+        hosts: set[str] = set()
+        count = 0
+        for word, slot in self._by_severity.items():
+            if severities and word not in severities:
+                continue
+            if camp.get("kev_only"):
+                hosts |= slot[2]
+                count += slot[3]
+            else:
+                hosts |= slot[0]
+                count += slot[1]
+        return hosts, count
+
+
 def counted(finding: Any, fixable_only: bool, kev: Any = None) -> bool:
     """Does this finding count toward a number an operator reads: the sidebar badge, the severity tiles,
     Needs attention, the risk score and Checks? With the option off every finding counts, as before. With it
