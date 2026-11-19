@@ -566,6 +566,38 @@ def split(
     return stored, counted_rest
 
 
+# A host whose findings `select` does not choose (an Alpine or an RPM host, or an Ubuntu host whose release is not known) has every
+# finding stored one by one, and a host sends its own package list: 1,000 origins that answer 20 advisories each stored 20,000
+# findings, 12 MB, in the store that most pages read whole. A host keeps at most this many, the most pressing first, and the rest are
+# counted in a roll-up as they are for a Debian host, which keeps 300 (KEEP_PER_HOST). The ceiling is sixteen times that, so a host
+# whose findings are all listed is not cut unless its list was built to.
+KEEP_UNRULED_PER_HOST = 5000
+
+
+def cap(
+    findings: Any,
+    kev: Any = None,
+    per_host: int | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """(the findings stored one by one, the roll-up of the rest, the mark) for a host that stores every finding up to a
+    ceiling (`per_host`, KEEP_UNRULED_PER_HOST when it is not given, read when this is called). Within the ceiling the
+    findings come back as they are, with no roll-up and no mark. Past it the most pressing ones are stored, in the order they
+    came in, and the rest are counted (`rollup`); the mark is the `_pressing` order of the last one that was stored, which a
+    later scan needs to tell a finding that is new from one that was counted (`beyond`)."""
+    rows = findings if isinstance(findings, list) else []
+    per_host = max(1, KEEP_UNRULED_PER_HOST if per_host is None else per_host)
+    if len(rows) <= per_host:
+        return rows, {}, {}
+    usable = [f for f in rows if isinstance(f, dict)]
+    if len(usable) <= per_host:
+        return usable, {}, {}
+    ordered = sorted(usable, key=lambda f: _pressing(f, kev))
+    chosen = {id(f) for f in ordered[:per_host]}
+    stored = [f for f in usable if id(f) in chosen]
+    mark = {"host": list(_pressing(ordered[per_host - 1], kev))}
+    return stored, rollup([f for f in usable if id(f) not in chosen]), mark
+
+
 def _order(value: Any) -> list[int] | None:
     """A stored `_pressing` order, or None for anything else."""
     if (

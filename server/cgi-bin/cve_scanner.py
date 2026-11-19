@@ -297,21 +297,33 @@ def _osv_querybatch(queries: list) -> list:
 OSV_MAX_PAGES = 10
 
 
-def _osv_query_all(queries: list) -> list:
+def _osv_query_all(queries: list, budget: int | None = None) -> list:
     """One {'vulns': [...]} per query, in order, with every page of a long answer followed.
 
     An answer that is still not finished after OSV_MAX_PAGES pages is marked 'truncated': True, so the
     scan can say that the list is cut instead of presenting it as whole. A transport failure raises, as
     `_osv_querybatch` does, and so does an answer of another shape than one result per query: read as
-    "no advisories" it would empty a host's findings and announce them cleared."""
+    "no advisories" it would empty a host's findings and announce them cleared.
+
+    8.0.2: `budget` is how many advisories may be held in all. The answer to a question is as long as the data source says
+    (8,882 for the kernel of an old release) and a host chooses its questions, so what a scan held was set by the host's list
+    (1.7 GB for a host that listed one kernel at 200 versions). An answer that would pass the budget is cut there, and a
+    question that is reached after it is not asked. Both come back 'truncated': True and 'held_back': True. The second key says
+    the limit was this call's and not the data source's, so the map that a fleet scan shares leaves them out and the host's own
+    scan asks for them under its own budget. The batches are asked one at a time: what is held is the budget and one batch."""
     results = [{'vulns': []} for _ in queries]
     owed = list(range(len(queries)))
     tokens: dict = {}
+    held = 0
+    cut: set = set()
     for _page in range(OSV_MAX_PAGES):
         if not owed:
             break
         still = []
         for start in range(0, len(owed), OSV_BATCH_SIZE):
+            if budget is not None and held >= budget:
+                cut.update(owed[start:])
+                break
             chunk = owed[start:start + OSV_BATCH_SIZE]
             body = [dict(queries[k], page_token=tokens[k]) if k in tokens else queries[k] for k in chunk]
             answers = _osv_querybatch(body)
@@ -321,14 +333,21 @@ def _osv_query_all(queries: list) -> list:
                 vulns = answer.get('vulns', []) if isinstance(answer, dict) else None
                 if not isinstance(vulns, list) or not all(isinstance(v, dict) for v in vulns):
                     raise ValueError('an OSV answer is not a list of advisories')
+                if budget is not None and held + len(vulns) > budget:
+                    vulns = vulns[:max(0, budget - held)]
+                    cut.add(k)
                 results[k]['vulns'].extend(vulns)
+                held += len(vulns)
                 token = answer.get('next_page_token')
-                if isinstance(token, str) and token:
+                if k not in cut and isinstance(token, str) and token:
                     tokens[k] = token
                     still.append(k)
         owed = still
     for k in owed:
         results[k]['truncated'] = True
+    for k in cut:
+        results[k]['truncated'] = True
+        results[k]['held_back'] = True
     return results
 
 
@@ -373,6 +392,10 @@ def plan(packages, ecosystem, has_meta: bool = False, deb_by_source: bool = Fals
     places of those packages in the list, which is how a scan says which package was checked)."""
     fam = family(ecosystem)
     units: dict = {}
+    # what each unit already holds, as sets: a host that lists 10,000 packages of one source made a unit with 10,000 of each, and a
+    # membership test on the lists made every package a walk of them (8.0.2)
+    held_binaries: dict = {}
+    held_rows: dict = {}
 
     def unit(name, version, package, epoch_known, binary, row):
         key = (name, version)
@@ -380,9 +403,13 @@ def plan(packages, ecosystem, has_meta: bool = False, deb_by_source: bool = Fals
         if found is None:
             found = units[key] = {'name': name, 'version': version, 'package': package, 'shown': version,
                                   'epoch_known': epoch_known, 'binaries': [], 'rows': []}
-        if binary and binary not in found['binaries']:
+            held_binaries[key] = set()
+            held_rows[key] = set()
+        if binary and binary not in held_binaries[key]:
+            held_binaries[key].add(binary)
             found['binaries'].append(binary)
-        if row not in found['rows']:
+        if row not in held_rows[key]:
+            held_rows[key].add(row)
             found['rows'].append(row)
 
     grouped = bool(has_meta) and (fam in ('apk', 'rpm') or (fam == 'deb' and bool(deb_by_source)))
@@ -628,8 +655,12 @@ def kernel_state(report, packages, units, fam: str):
         row = rows_of.get((image['name'], image['version']))
         places = list(by_row.get(row, []))           # the image's own units first: the version a finding is held against
         if row is not None and built:
+            have = set(places)                       # a set: 10,000 packages built from one source made `k not in places` a walk
             for mate in built.get(_built_from(packages[row]), ()):
-                places += [k for k in by_row.get(mate, []) if k not in places]
+                for k in by_row.get(mate, []):
+                    if k not in have:
+                        have.add(k)
+                        places.append(k)
         return places
 
     owners = [im for im in images if im.get('release') == rep['release']]
@@ -641,12 +672,13 @@ def kernel_state(report, packages, units, fam: str):
     if len(set(sets)) > 1:
         return unknown('several_owners')
     running = sorted(sets[0])
+    running_set = sets[0]
     owner = min(owners, key=lambda im: (im['name'], im['version']))
     others = []
     for im in images:
         if im in owners:
             continue
-        places = [k for k in held_by(im) if k not in running]
+        places = [k for k in held_by(im) if k not in running_set]
         if places:
             others.append((places, f"{im['name']} {im['version']}"))
     return dict(block, state=cve_fixes.KERNEL_MATCHED, package=owner['name'], version=owner['version']), running, others
@@ -664,6 +696,28 @@ def _version_order(fam: str, a: str, b: str, epoch_known: bool = True):
     except Exception:
         pass
     return None
+
+
+def cap_units(units: list) -> list:
+    """The units a scan asks about, in the order of the plan: no name at more than MAX_UNITS_PER_NAME versions. The units of the
+    kernel a host runs are taken first, so a list that fills the ceiling with other versions of a name does not leave the running
+    kernel out; they are not exempt from it, because a host decides which of its packages were built together with its kernel (any
+    package that names the kernel's source and version is one), and an exemption would give a hostile list the whole of it. A
+    package that none of the kept units speaks for was not asked about, which the host's account says (`package_coverage`:
+    nothing was asked, so nothing was answered).
+
+    A host sends its own list. One that lists a source at 200 versions made every advisory of the source (8,882 for one kernel) held
+    200 times, 1.7 GB resident. No real host keeps one name at 24 versions: it keeps the running kernel and a few older ones."""
+    per_name: dict = {}
+    allowed: set = set()
+    # False sorts before True and the sort is stable: the running kernel's units first, each group in the order of the plan
+    for u in sorted(units, key=lambda unit: unit.get('kernel') != 'running'):
+        n = per_name.get(u['name'], 0)
+        if n >= MAX_UNITS_PER_NAME:
+            continue
+        per_name[u['name']] = n + 1
+        allowed.add(id(u))
+    return [u for u in units if id(u) in allowed]
 
 
 def plan_host(packages, ecosystem, has_meta: bool = False, release=None, kernel=None):
@@ -696,7 +750,7 @@ def plan_host(packages, ecosystem, has_meta: bool = False, release=None, kernel=
                                             later[j]['epoch_known']) or 0) > 0:
                 later[j - 1], later[j] = later[j], later[j - 1]
                 j -= 1
-    return units, block, later, left_out
+    return cap_units(units), block, later, left_out
 
 
 def _osv_vuln_details(vuln_id: str) -> dict | None:
@@ -787,16 +841,24 @@ def prefetch_osv(store: dict, cache_dir: Path) -> dict | None:
             seen.add(key)
             by_eco.setdefault(eco, []).append((unit['name'], unit['version']))
     result_map = {}
+    held_in_all = 0
     for eco, pkgs in by_eco.items():
         queries = [{"package": {"name": n, "ecosystem": eco}, "version": v}
                    for (n, v) in pkgs]
         try:
-            res = _osv_query_all(queries)
+            # 8.0.2: the answers of every host are held at once, so what the map holds has a ceiling of its own
+            # (PREFETCH_MAX_HITS). A question past it, or an answer cut by it, is left out of the map and asked by the scan
+            # of the host that needs it, which holds it under that host's own ceiling.
+            res = _osv_query_all(queries, budget=max(0, PREFETCH_MAX_HITS - held_in_all))
         except Exception:
             osv_breaker_record(cache_dir, ok=False)
             return None
         for (n, v), r in zip(pkgs, res):
-            result_map[(eco, n, v)] = r or {}
+            r = r or {}
+            if r.get("held_back"):
+                continue
+            held_in_all += len(r.get("vulns") or [])
+            result_map[(eco, n, v)] = r
     if result_map:
         osv_breaker_record(cache_dir, ok=True)
     return result_map
@@ -1261,7 +1323,31 @@ def _deb_reaches(carried: str, version: str) -> bool:
 DETAILS_FORMAT = 2            # an entry written under another number is read again
 DETAIL_FETCHES_AT_ONCE = 8
 DETAIL_FAILURES_IN_A_ROW = 20
-DETAIL_SAVE_EVERY = 250
+# 8.0.2: what one host's package list can make a scan do. A host sends its own list, so the size of a scan is set by whoever
+# holds a host's token, and the cache of advisory records is shared by every scan of every organisation. Measured with a stand-in
+# for the data source that answers the sizes this project recorded (20 advisories for a source, 8,882 for one old kernel):
+#   - the cache was written whole after every 250 records read: 1,000 sources (20,000 records, 22 MB) were 81 writes and 889 MB
+#     written. It is written whole once at the end of a scan, and at most once a minute while records are read, so a runner that
+#     is killed keeps what it read;
+#   - it was never trimmed and every scan of every host reads all of it. Past DETAILS_CACHE_MAX_RECORDS the oldest records go.
+#     The ceiling is set above what a fleet that mixes several distributions needs, so only a list that names a large part of the
+#     data source's catalogue reaches it;
+#   - a host that lists one source at 200 versions had the advisories of the source held 200 times (1.7 GB resident for the
+#     8,882 of a kernel). A name is asked at no more than MAX_UNITS_PER_NAME versions (an agent reports at most 16 kernel
+#     images), and a scan holds no more than MAX_HITS_PER_HOST answers, which is above what a host that has every package and an
+#     old kernel gets (26 to 57 advisories for a common source, recorded on 2026-11-15, and 8,882 for the kernel);
+#   - a scan reads at most MAX_DETAIL_FETCHES_PER_SCAN records that the cache does not hold: eleven minutes of the single scan
+#     slot at the 0.27 s a request took, eight at once. The rest are `unread`, as after a failure, and the next scan reads them
+#     from where this one stopped.
+# A package whose question was not asked is "not checked" in the host's account, as one that comes after the ceiling of packages is.
+DETAIL_SAVE_EVERY_S = 60
+DETAILS_CACHE_MAX_RECORDS = 250000
+MAX_DETAIL_FETCHES_PER_SCAN = 20000
+MAX_UNITS_PER_NAME = 24
+MAX_HITS_PER_HOST = 150000
+# What the fleet's shared map of answers holds (`prefetch_osv`): the answers of every host are in it at once, so a host's own limit
+# does not bound it. A question the map does not hold is asked by the scan of the host that needs it, under that host's limit.
+PREFETCH_MAX_HITS = 600000
 MAX_ALIASES = 40
 SUMMARY_LEN = 240           # of a description, for a record that has no summary: a kernel record's runs to pages
 _STAMP_RE = re.compile(r'^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?')
@@ -1360,23 +1446,55 @@ def _severity_now(det: dict) -> tuple:
     return severity, source
 
 
-def _fetch_details(wanted, ecosystem: str, details_cache: dict, cache_path: Path, tick=None) -> int:
+def _stamp_of(record) -> int:
+    """When a cached record was read, for the order in which the oldest go; a record that says nothing is the oldest."""
+    stamp = record.get('cached_at') if isinstance(record, dict) else None
+    return stamp if isinstance(stamp, int) and not isinstance(stamp, bool) else 0
+
+
+def _trim_details(details_cache: dict, keep=()) -> int:
+    """Drop the oldest records past DETAILS_CACHE_MAX_RECORDS, and a tenth of the ceiling more so that the next scan does not trim
+    again; never one of `keep` (what the scan in hand holds). Returns how many were dropped. The cache is shared by every scan of
+    every organisation and every scan reads all of it, so what one host's list pulls in is what every later scan parses."""
+    over = len(details_cache) - DETAILS_CACHE_MAX_RECORDS
+    if over <= 0:
+        return 0
+    keep = set(keep)
+    victims = sorted((k for k in details_cache if k not in keep), key=lambda k: _stamp_of(details_cache[k]))
+    victims = victims[:over + DETAILS_CACHE_MAX_RECORDS // 10]
+    for k in victims:
+        del details_cache[k]
+    return len(victims)
+
+
+def _fetch_details(wanted, ecosystem: str, details_cache: dict, cache_path: Path, tick=None, limit=None, keep=()) -> int:
     """Read the records of `wanted` into `details_cache`, DETAIL_FETCHES_AT_ONCE at a time, and
     write the cache. Returns how many could not be read.
 
     `tick` is called between rounds; the scan worker uses it to keep its marker alive. After
     DETAIL_FAILURES_IN_A_ROW failures in a row the endpoint is taken to be down and the rest is
-    not asked for: each request waits ten seconds, and 3,000 of those would be eight hours."""
+    not asked for: each request waits ten seconds, and 3,000 of those would be eight hours.
+
+    8.0.2: `limit` is how many records this call may ask for (a scan passes MAX_DETAIL_FETCHES_PER_SCAN). The rest are counted
+    unread, as after a failure, and the next scan reads them from where this one stopped: the ids are asked for in order, and
+    what was read is in the cache then. The cache is written whole once at the end, after the oldest records past
+    DETAILS_CACHE_MAX_RECORDS are dropped, and at most every DETAIL_SAVE_EVERY_S seconds on the way (it was written after every
+    250 records). `keep` is the ids the caller holds besides the ones it asked for (a scan builds findings from records it
+    already had): none of them is dropped."""
     ids = sorted(str(v) for v in wanted)
-    unread = streak = since_save = 0
+    unread = streak = asked = pos = 0
     changed = False
+    saved_at = time.time()
     if ids:
         with ThreadPoolExecutor(max_workers=DETAIL_FETCHES_AT_ONCE) as pool:
-            for start in range(0, len(ids), DETAIL_FETCHES_AT_ONCE):
-                if streak >= DETAIL_FAILURES_IN_A_ROW:
-                    unread += len(ids) - start
+            while pos < len(ids):
+                take = DETAIL_FETCHES_AT_ONCE if limit is None else min(DETAIL_FETCHES_AT_ONCE, limit - asked)
+                if streak >= DETAIL_FAILURES_IN_A_ROW or take <= 0:
+                    unread += len(ids) - pos
                     break
-                chunk = ids[start:start + DETAIL_FETCHES_AT_ONCE]
+                chunk = ids[pos:pos + take]
+                pos += len(chunk)
+                asked += len(chunk)
                 for vid, vuln in zip(chunk, pool.map(_osv_vuln_details, chunk)):
                     if not isinstance(vuln, dict) or not vuln:
                         unread += 1
@@ -1389,16 +1507,16 @@ def _fetch_details(wanted, ecosystem: str, details_cache: dict, cache_path: Path
                         unread += 1       # a record of a shape this cannot read: one finding without
                         continue          # its details, not the end of the host's scan
                     changed = True
-                    since_save += 1
-                if since_save >= DETAIL_SAVE_EVERY:
+                if changed and time.time() - saved_at >= DETAIL_SAVE_EVERY_S:
                     _save_json(cache_path, details_cache)
-                    since_save = 0
+                    saved_at = time.time()
                 if tick is not None:
                     try:
                         tick()
                     except Exception:
                         pass      # keeping the marker alive must not end the scan
     if changed:
+        _trim_details(details_cache, set(ids) | set(keep))
         _save_json(cache_path, details_cache)
     return unread
 
@@ -1487,8 +1605,12 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     all_results = [held.get((ecosystem, u['name'], u['version'])) for u in units]
     owed = [i for i, answer in enumerate(all_results) if not isinstance(answer, dict)]
     if owed:
+        # 8.0.2: what the scan holds for one host is bounded (MAX_HITS_PER_HOST): the answers the fleet's map gave count first,
+        # and the questions asked here are answered up to what is left, the rest being cut and said to be (`held_back`)
+        room = MAX_HITS_PER_HOST - sum(len(a['vulns']) for a in all_results
+                                       if isinstance(a, dict) and isinstance(a.get('vulns'), list))
         try:
-            for i, answer in zip(owed, _osv_query_all([queries[i] for i in owed])):
+            for i, answer in zip(owed, _osv_query_all([queries[i] for i in owed], budget=max(0, room))):
                 all_results[i] = answer
         except Exception as e:
             # v5.0.0 (#R5): record the failure — repeated ones trip the breaker
@@ -1511,9 +1633,17 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     vuln_ids_to_fetch = set()
     hits = []
     cut = []      # 8.0.1: the names whose advisory list was longer than the pages that are read
+    cut_names = set()      # 8.0.2: the same, as a set, for the membership test (a list of 10,000 names made it a walk)
     cut_units = set()      # 8.0.2: the same, by the place of the unit
     duplicates = 0
     now = int(time.time())
+
+    def cut_at(idx, unit):
+        cut_units.add(idx)
+        if unit['package'] not in cut_names:
+            cut_names.add(unit['package'])
+            cut.append(unit['package'])
+
     for idx, result in enumerate(all_results):
         if idx >= len(units):
             break
@@ -1521,21 +1651,25 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         if not isinstance(result, dict):
             continue
         if result.get('truncated'):
-            cut_units.add(idx)
-            if unit['package'] not in cut:
-                cut.append(unit['package'])
+            cut_at(idx, unit)
         # an id is text: one of another kind (a list, a map) cannot be looked up and ended the scan
         answered = [v for v in (result.get('vulns') or [])
                     if isinstance(v, dict) and isinstance(v.get('id'), str) and v['id']]
         for v in answered:
             vid = v['id']
+            if len(hits) >= MAX_HITS_PER_HOST:
+                # 8.0.2: what is held for one host has a ceiling, whatever the answers of the fleet's map add up to. The rest of
+                # this answer, and of the units after it, is cut the way a list past the last page is
+                cut_at(idx, unit)
+                break
             hits.append((unit, vid))
             if _needs_fetch(details_cache.get(vid), v.get('modified'), effective_ttl, now):
                 vuln_ids_to_fetch.add(vid)
 
-    # Read them, several at once
+    # Read them, several at once, up to the ceiling of one scan (MAX_DETAIL_FETCHES_PER_SCAN)
     unread = _fetch_details(vuln_ids_to_fetch, ecosystem, details_cache,
-                            cache_dir / 'cve_details_cache.json', tick)
+                            cache_dir / 'cve_details_cache.json', tick, limit=MAX_DETAIL_FETCHES_PER_SCAN,
+                            keep={vid for _unit, vid in hits})
 
     if fam == 'deb':
         hits, duplicates = _without_repeated_notices(hits, details_cache, fix_eco if release_known else '')
@@ -1608,8 +1742,12 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             # in a way that matters, in the host's release
             severity, severity_source = 'low', 'debian_urgency'
         names = []
+        named = set()
         for _, held, _, _, _ in group:
-            names += [name for name in held['binaries'] if name not in names]
+            for name in held['binaries']:
+                if name not in named:
+                    named.add(name)
+                    names.append(name)
         finding = {
             'package': unit['package'],
             'version': unit['shown'],
@@ -1650,6 +1788,10 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     counted, listed_to = {}, {}
     if ruled:
         findings, counted, listed_to = cve_fixes.select(findings, kev)
+    else:
+        # 8.0.2: every finding of the other hosts is stored one by one, up to a ceiling (cve_fixes.KEEP_UNRULED_PER_HOST): a list
+        # that names 1,000 origins of 20 advisories each stored 20,000 findings in the store that every page reads whole
+        findings, counted, listed_to = cve_fixes.cap(findings, kev)
 
     result = {
         'scanned_at': int(time.time()),
@@ -1692,6 +1834,10 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         result['unread'] = unread
         result['error'] = (f'{unread} of the advisory records could not be read from OSV. Their severity '
                            'and fix are unknown until the next scan.')
+        if len(vuln_ids_to_fetch) > MAX_DETAIL_FETCHES_PER_SCAN:
+            # 8.0.2: the records one scan reads are limited, and the next scan reads the rest
+            result['error'] += (f' One scan reads at most {MAX_DETAIL_FETCHES_PER_SCAN:,} records it does not have yet, '
+                                'and the next scan reads the rest.')
     return result
 
 

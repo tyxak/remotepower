@@ -72833,7 +72833,10 @@ def _cve_scan_worker(actor, target):
         _band('cvss_band_critical', cve_scanner._CVSS_BAND_DEFAULT_CRITICAL),
         _band('cvss_band_high', cve_scanner._CVSS_BAND_DEFAULT_HIGH),
         _band('cvss_band_medium', cve_scanner._CVSS_BAND_DEFAULT_MEDIUM))
-    store = load(PACKAGES_FILE) or {}
+    # 8.0.2: read as it is held and not as a copy (`_load_ro`): the scan only reads the lists, and the copy of a store that holds
+    # every host's packages was held for the length of the scan (a runner for one host, 100 hosts of 1,500 packages: 378 MB
+    # with the copy and 258 MB without it)
+    store = _load_ro(PACKAGES_FILE) or {}
     devices = load(DEVICES_FILE) or {}
     # 8.0.2: the id of the run the request that queued this scan put in the marker. The worker writes the marker only while that
     # id is in it (_scan_marker_write); a worker started by hand finds none and is never handed on.

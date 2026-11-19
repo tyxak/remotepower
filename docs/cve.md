@@ -121,7 +121,7 @@ for every other package one reason it did not:
 | **No matcher for the package manager** | Nothing on the host is matched against a database: the applications of a Windows or macOS host, the packages of Arch and openSUSE, a distribution OSV has no feed for. |
 | **Release not known** | A Debian or Ubuntu derivative whose release the scan does not know, so the data, which is kept per release, cannot be asked for. |
 | **Past the limit of packages a scan reads** | A scan reads the first 10,000 packages of a list. |
-| **Not answered in full by the data source** | The advisory list of the package was longer than the pages a scan reads (see [Scanning](#scanning)). |
+| **Not answered in full by the data source** | The advisory list of the package was longer than the pages a scan reads, or a limit of the scan was reached: a package name listed at more versions than a scan asks about, or more answers than one scan holds (see [Scanning](#scanning)). |
 
 An RPM host also lists the GPG keys it has imported (`gpg-pubkey`). They are records of a key in its database, not
 software, and no advisory is filed under them, so they are in neither number, and an RPM host whose other packages were
@@ -376,6 +376,15 @@ after patching, or call `POST /api/cve/scan` from a scheduled job with an
   with its own requests instead. A host whose scan fails keeps its last findings.
 - A package with more advisories than one answer holds is read to the end, up to 10,000. Past
   that, the host view names the package whose list is cut.
+- A host sends its own package list, so a scan has limits that a list cannot raise. A package name
+  is asked about at no more than 24 versions (a host keeps the kernel it runs and a few older
+  ones). A scan holds no more than 150,000 advisory answers for a host, and reads no more than
+  20,000 advisory records that the cache does not have yet. The packages and advisories a scan
+  leaves out for a limit show in the host view as **Not answered in full** and as records that
+  were not read, and the next scan reads the rest. The shared cache of advisory details keeps at
+  most 250,000 records and drops the oldest first, and is written once at the end of a scan. A
+  host whose findings are all listed (Alpine, Rocky Linux, AlmaLinux, Red Hat) keeps its 5,000
+  most pressing findings and counts the rest, as a Debian host does.
 
 ### How severity is chosen
 
