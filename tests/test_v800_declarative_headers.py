@@ -106,6 +106,32 @@ class TestWithAMasterKey(_Base):
         self.assertEqual(ap['url'], 'https://apprise.example/notify/' + PATH)
 
 
+class TestADocumentSealedElsewhere(TestWithAMasterKey):
+    """8.0.2 review (ST-10): the sealing key is made from RP_CONFIG_KEY and the installation's own salt, so a document sealed by another installation (the same RP_CONFIG_KEY
+    included) cannot be opened here. The import stored the ciphertext text as the address and the header values and answered that it had applied the destinations."""
+
+    def foreign(self):
+        doc = self.api._build_declarative_config()
+        for d in doc['resources']['webhook_destinations']:
+            for k in ('url', 'pushover_user'):
+                if d.get(k):
+                    d[k] = 'enc:v2:' + 'QUJD' * 12                # a value this installation's key cannot open
+            for h in list(d.get('headers') or {}):
+                d['headers'][h] = 'enc:v2:' + 'QUJD' * 12
+        return doc
+
+    def test_the_destinations_are_not_imported_and_the_report_says_why(self):
+        before = copy.deepcopy(self.api.load(self.api.CONFIG_FILE)['webhook_urls'])
+        res = self.api._declarative_apply(self.foreign(), 'tester', dry_run=False)
+        self.assertIn('another installation', json.dumps(res['report']['webhook_destinations']))
+        self.api._LOAD_CACHE.clear()
+        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['webhook_urls'], before, 'the stored destinations are as they were, with no ciphertext in an address')
+
+    def test_control_the_installations_own_document_still_imports(self):
+        res = self.api._declarative_apply(self.api._build_declarative_config(), 'tester', dry_run=False)
+        self.assertNotIn('skipped', res['report']['webhook_destinations'])
+
+
 class TestWithAKeyAndNoCryptoLibrary(_Base):
     """_cfg_enc returns the text unchanged when it cannot encrypt, and that must never end up in a document meant to be committed."""
 

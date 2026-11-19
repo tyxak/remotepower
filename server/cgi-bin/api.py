@@ -31781,6 +31781,17 @@ def _changed_fields(a, b):
     return sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
 
 
+def _still_sealed(obj):
+    """Whether any string in `obj` is still `enc:v2:` ciphertext after the settings store's own decryption: a value this installation's key cannot open."""
+    if isinstance(obj, str):
+        return obj.startswith(_CONFIG_ENC_PREFIX_V2)
+    if isinstance(obj, dict):
+        return any(_still_sealed(v) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_still_sealed(v) for v in obj)
+    return False
+
+
 def _declarative_plain(name, incoming):
     """`incoming` as the preview compares it with the stored collection `name`.
 
@@ -31885,6 +31896,11 @@ def _declarative_apply(doc, actor, dry_run=True):
             if _bad:
                 report[name] = {'skipped': _bad}
                 continue
+        if name == 'webhook_destinations' and _still_sealed(_declarative_plain(name, inc)):
+            # The sealing key comes from RP_CONFIG_KEY and this installation's own salt, so a document sealed by another installation (the same RP_CONFIG_KEY
+            # included) cannot be read here. Storing the ciphertext text as an address was what the import did before 8.0.2, and it answered that it had applied them.
+            report[name] = {'skipped': 'sealed by another installation (its key includes a salt of its own): re-enter the destinations in Settings'}
+            continue
         _rehydrate_secrets(inc, current.get(name), m.get('id'))
         report[name] = _declarative_diff(current.get(name), _declarative_plain(name, inc), m.get('id'))
         if not dry_run:
