@@ -72674,10 +72674,36 @@ def _spawn_cve_scan(actor, target):
 # retrying for 30 minutes after any crash.
 _CVE_SCAN_STALE_S = 300
 
+# 8.0.2: what a scan was asked for travels to the runner as one word: nothing (every host), a host id, or this prefix and a
+# tenant id (the hosts of that organisation). A host id never holds a colon (_validate_id), so the three cannot be mixed up.
+_CVE_SCAN_TENANT = 'tenant:'
+
+
+def _scan_marker_write(fields, tries=1):
+    """Write the scan's progress marker under the store's lock, keeping what the request that queued the scan put in it: whose
+    scan it is (`owner`, which decides who may read its numbers) and when each organisation last started one (`starts`).
+    The worker replaced the whole marker at every checkpoint, which dropped both. A contended write is skipped, since the next
+    checkpoint writes again (the final one retries). True when the marker was written."""
+    attempts = max(1, tries)
+    for n in range(attempts):
+        try:
+            with _LockedUpdate(CVE_SCAN_STATUS_FILE, non_blocking=True) as st:
+                keep = {k: st[k] for k in ('owner', 'starts', 'started_at') if k in st}
+                st.clear()
+                st.update(fields)
+                st.update(keep)
+            return True
+        except LockBusy:
+            if n + 1 < attempts:
+                time.sleep(0.2)
+    return False
+
 
 def _cve_scan_worker(actor, target):
-    """The fleet-wide CVE scan body — runs in the detached worker. Writes
-    progress to CVE_SCAN_STATUS_FILE and the findings to CVE_FINDINGS_FILE."""
+    """The CVE scan body — runs in the detached worker. Writes progress to
+    CVE_SCAN_STATUS_FILE and the findings to CVE_FINDINGS_FILE. `target` is
+    nothing (every host), a host id, or `tenant:<id>` (the hosts of one
+    organisation, which is what a tenant's administrator's scan covers)."""
     # v6.2.2 batch 6: operator-configurable CVSS→severity band cutoffs. cve_scanner
     # has no api import (it also runs in cve_scan_runner's own process), so push the
     # persisted floats into it once before the scan; blank/missing → the standard
@@ -72698,7 +72724,11 @@ def _cve_scan_worker(actor, target):
     store = load(PACKAGES_FILE) or {}
     findings_all = load(CVE_FINDINGS_FILE) or {}
     devices = load(DEVICES_FILE) or {}
-    targets = [target] if target else list(store.keys())
+    if isinstance(target, str) and target.startswith(_CVE_SCAN_TENANT):
+        _scan_tenant = target[len(_CVE_SCAN_TENANT):]
+        targets = [d for d in store if d in devices and _device_tenant(devices.get(d)) == _scan_tenant]
+    else:
+        targets = [target] if target else list(store.keys())
     scanned = skipped = errors = 0
     total = len(targets)
     # 8.0.1: the known-exploited CVE ids, for the rule of what a Debian or Ubuntu scan stores one by one
@@ -72720,7 +72750,7 @@ def _cve_scan_worker(actor, target):
             return
         _alive_at[0] = time.time()
         try:
-            save(CVE_SCAN_STATUS_FILE, dict(_marker, updated=int(time.time())), non_blocking=True)
+            _scan_marker_write(dict(_marker, updated=int(time.time())))
         except Exception:
             pass
     # v5.0.0 (#S1): for a FLEET scan (not a single device), prefetch the
@@ -72795,12 +72825,12 @@ def _cve_scan_worker(actor, target):
             _marker.update(running=i < total - 1, done=i + 1, scanned=scanned,
                            skipped=skipped, errors=errors)
             _alive_at[0] = time.time()
-            save(CVE_SCAN_STATUS_FILE, dict(_marker, updated=int(time.time())), non_blocking=True)
+            _scan_marker_write(dict(_marker, updated=int(time.time())))
     save(CVE_FINDINGS_FILE, findings_all)
-    save(CVE_SCAN_STATUS_FILE, {'running': False, 'total': total, 'done': total,
-                                    'scanned': scanned, 'skipped': skipped,
-                                    'errors': errors, 'updated': int(time.time()),
-                                    'finished_at': int(time.time())}, non_blocking=True)
+    _scan_marker_write({'running': False, 'total': total, 'done': total,
+                        'scanned': scanned, 'skipped': skipped,
+                        'errors': errors, 'updated': int(time.time()),
+                        'finished_at': int(time.time())}, tries=10)
     audit_log(actor, 'cve_scan',
               detail=f'scanned={scanned} skipped={skipped} errors={errors} (background)')
 

@@ -104,22 +104,62 @@ def handle_cve_realert():
     A.respond(200, {'ok': True, 'devices': fired})
 
 
+# How soon one organisation may start another scan. One scan runs at a time for the whole installation, so a tenant's administrator
+# who started scans of its own hosts back to back held the slot, and the other organisations were refused for as long as it did.
+_SCAN_COOLDOWN_S = 30
+
+# The scan marker holds more than progress: `owner` (the tenant the scan belongs to, None for the operator's, whose scan may cover
+# every host) and `starts` (when each tenant last started one). Neither goes to a caller. A caller reads the numbers of a scan that
+# is its own organisation's; the scan of another organisation is running or not, and that is all it learns of it.
+_SCAN_MARKER_PRIVATE = ('run', 'owner', 'starts')
+_SCAN_MARKER_PUBLIC = ('running', 'updated', 'started_at', 'finished_at')
+
+
+def _scan_status_view(st):
+    """The scan marker as the caller may read it (see _SCAN_MARKER_PRIVATE). A caller no tenant gate applies to (the operator, or
+    any user of an installation without tenancy) reads the numbers of every scan, as before."""
+    st = st if isinstance(st, dict) else {}
+    gate = A._tenant_gate()
+    if gate is None or st.get('owner') == gate:
+        return {k: v for k, v in st.items() if k not in _SCAN_MARKER_PRIVATE}
+    return {k: st[k] for k in _SCAN_MARKER_PUBLIC if k in st}
+
+
+def _scan_starts(st, now):
+    """{tenant: when its last scan started} from the marker, without what is older than an hour or is not a pair of a name and a time."""
+    starts = st.get('starts') if isinstance(st, dict) else None
+    if not isinstance(starts, dict):
+        return {}
+    return {k: v for k, v in starts.items()
+            if isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool) and 0 <= now - v < 3600}
+
+
 def handle_cve_scan():
-    """POST /api/cve/scan — queue a background scan for one or all devices.
+    """POST /api/cve/scan — queue a background scan for one host, or for all the caller's hosts.
 
     The scan runs in a detached process so the UI stays responsive; it returns
-    202 immediately. Poll GET /api/cve/scan-status for progress."""
+    202 immediately. Poll GET /api/cve/scan-status for progress.
+
+    Without a `device_id` the scan covers the hosts the caller can see: every host for the
+    operator (or on an installation without tenancy), the hosts of its own organisation for a
+    tenant's administrator. It covered every host of every organisation for anyone who could
+    start a scan, and sent the OSV requests and the cve_found alerts of other organisations'
+    hosts through the operator's channels."""
     actor = A.require_admin_auth()
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A._read_valid(A.request_models.CveScanRequest)
     body = A.get_json_obj() if A._env('CONTENT_LENGTH', '0') != '0' else {}
     target = body.get('device_id')
+    gate = A._tenant_gate()            # None: the operator, or no tenancy. Else the organisation whose hosts this scan may reach
     if target is not None:
         target = str(target).strip()
         if not A._validate_id(target):
             A.respond(400, {'error': 'Invalid device_id'})
         A._scope_block_device(target)   # SEC: scans that device's packages
+        spec = target
+    else:
+        spec = A._CVE_SCAN_TENANT + gate if gate is not None else None
     # Refuse to stack a second concurrent scan (stale >30 min markers ignored).
     st = A.load(A.CVE_SCAN_STATUS_FILE) or {}
     # v6.4.3: a crashed worker leaves `running: True` and nothing ever clears
@@ -130,14 +170,31 @@ def handle_cve_scan():
     # checkpoints every 3 devices, so 5 minutes of silence means it is gone),
     # and the refusal now tells the operator when it will clear instead of
     # just saying no.
-    _age = int(A.time.time()) - (st.get('updated') or 0)
+    now = int(A.time.time())
+    _age = now - (st.get('updated') or 0)
     if st.get('running') and _age < A._CVE_SCAN_STALE_S:
-        A.respond(409, {'error': 'A scan is already running', 'status': st,
+        A.respond(409, {'error': 'A scan is already running', 'status': _scan_status_view(st),
                       'retry_after_seconds': max(0, A._CVE_SCAN_STALE_S - _age),
                       'detail': ('If the previous scan crashed, this clears '
                                  f'{A._CVE_SCAN_STALE_S // 60} minutes after its '
                                  'last checkpoint.')})
-    total = 1 if target else len(A.load(A.PACKAGES_FILE) or {})
+    starts = _scan_starts(st, now)
+    if gate is not None:
+        wait = _SCAN_COOLDOWN_S - (now - starts[gate]) if gate in starts else 0
+        if wait > 0:
+            A.respond(429, {'error': 'Your last scan started a moment ago. Try again shortly.',
+                          'retry_after_seconds': wait})
+        starts[gate] = now
+        # a marker that names more organisations than exist keeps the latest ones
+        starts = dict(sorted(starts.items(), key=lambda kv: -kv[1])[:200])
+    if target:
+        total = 1
+    elif gate is not None:
+        # the hosts of this organisation that hold a package list, which is what the scan walks
+        mine = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
+        total = sum(1 for dev_id in (A.load(A.PACKAGES_FILE) or {}) if dev_id in mine)
+    else:
+        total = len(A.load(A.PACKAGES_FILE) or {})
     # v6.1.2: the status marker is written non_blocking so a wedged writer can
     # never hang the request — but a CONTENDED write then raises LockBusy, which
     # used to propagate uncaught and render as a 500 (the production symptom on
@@ -147,19 +204,19 @@ def handle_cve_scan():
     try:
         A.save(A.CVE_SCAN_STATUS_FILE, {'running': True, 'total': total, 'done': 0,
                                     'scanned': 0, 'skipped': 0, 'errors': 0,
-                                    'updated': int(A.time.time()),
-                                    'started_at': int(A.time.time())}, non_blocking=True)
+                                    'updated': now, 'started_at': now,
+                                    'owner': gate, 'starts': starts}, non_blocking=True)
     except A.LockBusy:
         A.respond(409, {'error': 'A scan is starting or running — try again shortly'})
-    A._spawn_cve_scan(actor, target)
+    A._spawn_cve_scan(actor, spec)
     A.respond(202, {'queued': True, 'total': total,
                   'message': 'Scan queued — running in the background.'})
 
 
 def handle_cve_scan_status():
-    """GET /api/cve/scan-status — progress of the background CVE scan."""
+    """GET /api/cve/scan-status — progress of the background CVE scan, as far as the caller may read it (_scan_status_view)."""
     A.require_auth()
-    A.respond(200, A.load(A.CVE_SCAN_STATUS_FILE) or {'running': False})
+    A.respond(200, _scan_status_view(A.load(A.CVE_SCAN_STATUS_FILE) or {'running': False}))
 
 
 def _campaign_visible(camp):

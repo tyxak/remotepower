@@ -1410,18 +1410,17 @@ class TestTheWorker(unittest.TestCase):
 
     def test_the_marker_is_kept_alive_from_inside_a_host(self):
         writes = []
-        real_save = api.save
+        real_write = api._scan_marker_write      # 8.0.2: the marker is written under its lock, by this helper (it was api.save)
 
-        def save(path, data, *a, **k):
-            if Path(str(path)).name == api.CVE_SCAN_STATUS_FILE.name:
-                writes.append(dict(data))
-            return real_save(path, data, *a, **k)
+        def write(fields, *a, **k):
+            writes.append(dict(fields))
+            return real_write(fields, *a, **k)
         clock = [1_800_000_000.0]
 
         def tick_clock():
             clock[0] += 20           # every look at the clock is twenty seconds later
             return clock[0]
-        with mock.patch.object(api, 'save', save), mock.patch.object(api.time, 'time', tick_clock):
+        with mock.patch.object(api, '_scan_marker_write', write), mock.patch.object(api.time, 'time', tick_clock):
             self.run_scan()
         alive = [w for w in writes if w.get('running') and w.get('done') == 0]
         self.assertGreater(len(alive), 1, 'the marker was not written while the host was being scanned')

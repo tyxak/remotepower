@@ -350,6 +350,10 @@ after patching, or call `POST /api/cve/scan` from a scheduled job with an
   process**, so a long scan never blocks the request or hangs the browser. Poll progress
   with `GET /api/cve/scan-status`. A second scan is refused while one is running. If a
   scan crashes, the marker clears five minutes after its last checkpoint.
+- With multi-tenancy on, **Scan all hosts** of a tenant's administrator scans the hosts of that
+  tenant, and the answer counts those. The platform operator's scan covers every host. A tenant
+  reads the numbers of its own scan. For another organisation's scan it learns whether one is
+  running and nothing else. One organisation can start a scan every 30 seconds.
 - The scanner **deduplicates packages across the whole fleet** and queries OSV once per
   ecosystem in a batch, so a 100-host fleet is not 100 times the API traffic.
 - The details of an advisory are read once and kept. They are read again when OSV reports
@@ -536,7 +540,8 @@ findings do not count. You can keep up to 200 campaigns.
 | A host shows **not checked** | It is a Windows or macOS host. Its software is listed, and nothing is matched against a vulnerability database. |
 | A host shows **no package list** | The agent has not sent one yet. Click **Send list**, or wait for the next report. A Windows or macOS agent older than the one that sends its software list sends none. |
 | The KEV column is 0 everywhere | The feed may not have loaded. Read the status line under the tiles and click **Refresh KEV/EPSS feeds**. |
-| **A scan is already running** | One scan runs at a time. Wait for `GET /api/cve/scan-status` to finish; a crashed scan unlocks five minutes after its last checkpoint. |
+| **A scan is already running** | One scan runs at a time for the whole installation. Wait for `GET /api/cve/scan-status` to finish; a crashed scan unlocks five minutes after its last checkpoint. |
+| **Your last scan started a moment ago** | With multi-tenancy on, an organisation can start a scan every 30 seconds. Try again shortly. |
 | Scans fail or skip hosts | The circuit breaker may be open after OSV errors. It closes by itself after ten minutes. |
 | You cleared the alerts and want them back | **Re-alert backlog**. |
 | The count on a card is lower than the table | Counting only what an update can fix is on, or the finding is ignored. |
