@@ -80,7 +80,7 @@ SECOND_STORES = ('persistence.json',)            # the store the second half add
 TOUCHED = NEW_STORES + SECOND_STORES + ('packages.json', 'cve_findings.json', 'software_policy.json', 'software_violations.json', 'patch_age.json', 'config.json', 'devices.json',
                                         'log_watch.json', 'log_rules_global.json', 'alerts.json', 'fleet_events.json')
 # the touched stores the shape registry has no entry for: listed, so that an entry added later is a change this file notices
-UNREGISTERED = ('enrollment_tokens.json', 'software_policy.json')
+UNREGISTERED = ('software_policy.json',)      # enrollment_tokens.json has an entry since 8.0.2 (a null row answered 500)
 
 seed = None
 UBUNTU = {}

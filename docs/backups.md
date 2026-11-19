@@ -153,6 +153,10 @@ RemotePower can back up **itself** so you can rebuild the server after a loss.
   on only the platform operator can download either, and nobody else is shown the **Backup & restore** card on that tab. If the
   server refuses a download, the page says "Export failed" and saves no file. The redacted export carries no credential of an
   account: no password hash, password history, TOTP secret or recovery code. The full backup keeps them, because it restores accounts.
+  Since 8.0.2 no store of the export carries a credential: a value under a name that says password, secret, token, key, community or pre-shared key is replaced by
+  `(redacted)` in every store, which covers the SSH, SNMP, RouterOS and OPNsense logins of agentless hosts and the tokens of inbound webhooks, scan targets and
+  dead-man jobs. The export leaves out the keys that sign the audit trail, the history of earlier settings and the queue of failed deliveries, and the delivery log keeps the
+  host of an address and not its path. Importing a settings document that another installation sealed with its master key skips the destinations and says so.
 - **Encrypted archives.** Set `RP_BACKUP_PASSPHRASE` in the server's environment and
   archives are written as `.tar.gz.enc`: AES-256-GCM with a PBKDF2-SHA256 key
   (600,000 iterations), read and written in 64 KiB chunks. The passphrase comes only

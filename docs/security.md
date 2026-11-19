@@ -356,7 +356,9 @@ defences in place (kept current):
 
 - Backup exports redact every secret field: webhook URLs, Pushover tokens,
   SMTP passwords, LDAP bind passwords, Proxmox API tokens, AI provider keys.
-  The redacted backup can be safely shared with support.
+  The redacted backup can be safely shared with support. Since 8.0.2 this holds for every store in it, not only the settings: credentials of any store are masked,
+  and the audit-chain keys, the settings history and the failed-delivery queue are left out. With `RP_CONFIG_KEY` set, the settings, every earlier revision of them and the
+  queue of failed deliveries are sealed at rest, including the addresses and header values the name-based rule did not know.
 
 ### nginx hardening (shipped config)
 
