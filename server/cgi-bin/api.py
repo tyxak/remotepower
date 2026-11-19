@@ -70128,8 +70128,11 @@ def handle_webhook_test():
             'server_version': SERVER_VERSION,
             'triggered_by': actor,
         }, synthetic)
+        # The address of a Slack, Discord, Teams, ntfy or Gotify destination is its credential (the secret is the path or the query), and this
+        # line is read by the auditor role, shipped by the audit forwarding and carried by the export: it names the host, as the dead-letter
+        # list does, and the destination by its id.
         audit_log(actor, 'webhook_test',
-                  f'targeted={target_id} url={match.get("url","?")[:80]}')
+                  f'targeted={target_id} url={_redact_url_to_host(match.get("url")) or "?"}')
     else:
         if not legacy_url and not multi:
             respond(400, {'error': 'No webhook destinations configured — add one in Settings first'})
