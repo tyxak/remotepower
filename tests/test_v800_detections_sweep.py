@@ -365,6 +365,25 @@ class TestNothingIsWrittenWhenNothingChanged(_Server):
             self.api._LockedUpdate = real
         self.assertNotIn(self.api.DETECTIONS_FILE, calls, 'the same finding, already raised: the store is as it was, so it is not locked or rewritten')
 
+    def test_a_host_store_that_reads_as_empty_keeps_the_findings_and_when_each_was_raised(self):
+        """8.0.2 review (ST-13): `load()` answers {} when devices.json cannot be read, and a sweep over no hosts dropped every record, so the next healthy sweep raised
+        all of them again as new."""
+        self.plant(rows=[row(proc='bash')])
+        self.sweep()
+        self.api._LOAD_CACHE.clear()
+        held = self.api.load(self.api.DETECTIONS_FILE)
+        self.assertTrue(held, 'the control: the first sweep kept a record')
+        real = self.api.load
+        self.api.load = lambda path, *a, **k: {} if path == self.api.DEVICES_FILE else real(path, *a, **k)
+        real_ro = self.api._load_ro
+        self.api._load_ro = lambda path, *a, **k: {} if path == self.api.DEVICES_FILE else real_ro(path, *a, **k)
+        try:
+            self.sweep()
+        finally:
+            self.api.load, self.api._load_ro = real, real_ro
+        self.api._LOAD_CACHE.clear()
+        self.assertEqual(self.api.load(self.api.DETECTIONS_FILE), held, 'a failed read of the host store did not empty the findings')
+
     def test_the_cadence_is_five_minutes(self):
         self.assertEqual(self.api.detections_handlers_mod.EVERY_S, 300)
         self.plant(rows=[row(proc='bash')])

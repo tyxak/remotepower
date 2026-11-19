@@ -217,6 +217,8 @@ def run_detections_if_due():
     A._claim_cadence_slot("last_detections_run", now)
     results = _collect(cfg, now)
     old = (A._load_ro(A.DETECTIONS_FILE) or {}) if A.backend_exists(A.DETECTIONS_FILE) else {}
+    if A._fleet_read_failed(A._load_ro(A.DEVICES_FILE) or {}, old, "the Detections store"):
+        return                                    # a host store that reads as empty while the findings name hosts is a failed read: keep what is held, and the times
     new, fire = _apply(old, results, now)
     if not fire and new == old:
         return                                    # nothing changed: no write
