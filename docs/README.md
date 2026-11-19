@@ -63,6 +63,9 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-8.0.2.md](security-review-8.0.2.md)** — the v8.0.2 review, of what the release added and of the rule that is missed in one or two places: a key that
+  could do what a person signs in again for, the scope of a key, the export, `RP_CONFIG_KEY`, the sensor, tenants in Threat Intel and the vulnerability pages. Most
+  of it was in 8.0.0. Fourteen high, thirty medium and fourteen low findings, all fixed, and what is not an attack and stays.
 - **[security-review-8.0.0.md](security-review-8.0.0.md)** — the v8.0.0 review: what the Traffic view, the app finder, the handshake monitors, the MCP
   endpoint and the automatic image updates can be made to do, and every place that turns text into a number, matches a host by name or
   hides a secret on some surfaces and not on others. One high, nine medium, seven low and one informational finding, all fixed, the scans and
@@ -71,10 +74,6 @@ holds long-form docs that don't fit there.
   code applied in most places and missed in one or two: four-eyes approval on every command, a step-up on the restores, playbook
   content for the roles that may edit it, flaws in the agents, and the server code added since 7.4.0. Fifteen medium, twenty-one
   low and three informational findings, all fixed, the scans and the mutation checks behind them, and what is still open.
-- **[security-review-7.4.9.md](security-review-7.4.9.md)** — the v7.4.9 review, of the whole project and not only of what
-  changed: an authorization check on every route as 26 kinds of caller, hostile input on every route, the three agents
-  and their installers, the web client and the web server headers, the interface, and the documents. Five high, seventeen
-  medium and twelve low findings, all fixed, the scans and the mutation checks behind them, and what is still open.
 - **[v8.0.2.md](v8.0.2.md)** — "C0verMatters": one enrolment token for many hosts, password history and age, software lists for Windows and macOS hosts,
   more from Windows hosts, refreshing package lists, what a CVE scan checked, and a fix for a tenant administrator who reached other tenants' data.
 - **[v8.0.1.md](v8.0.1.md)** — "L0gMatters": Clear empties the Threat Intel table even with the Edge blocklist on, a service that does not

@@ -16,7 +16,7 @@ and the event log for log rules. A Linux host can refresh its package lists on r
 which packages it checked and why not the others, and matches the findings of the kernel against the kernel the host runs. **It also closes a flaw
 that is older than this release:** with tenant isolation on, a tenant administrator could set the password of an account in another tenant, the
 platform operator's included, and could download the export of every tenant. It was found while testing the password history, and it comes first
-below. All three agents changed: macOS sends its software list, Windows sends that and the items above, and Linux refreshes its package lists, reports
+below. The review of the release then found more of the same kind in 8.0.0, and they follow it. All three agents changed: macOS sends its software list, Windows sends that and the items above, and Linux refreshes its package lists, reports
 what it can see and reports the kernel it runs. The release page is [docs/v8.0.2.md](docs/v8.0.2.md).
 
 ### Security
@@ -60,6 +60,77 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   yourself**, and do the same in a proxy of your own in front of the server. A copy of the command also stays in the shell history of each host, so
   revoke the command when the rollout is done. There is no nginx on the machine this was built on: the directive is checked as text and against a
   model of nginx's location rules, not on a running server. **Held by** `tests/test_install_link_is_not_logged.py`.
+
+- **An API key could do what a person has to sign in again for.** A key can never sign in again, so a route that asks for a fresh sign-in has to refuse a
+  key, and five did not ask. A key with the administrator role could set the password of another administrator and sign in as them, switch SCIM on and
+  set its token, turn single sign-on on or change the provider it trusts, and turn LDAP on or change the directory it asks and its admin group. Each of them
+  asks for a fresh sign-in now, which a key cannot give, so the routes answer 403 to a key and prompt a person. A key you gave to a script that set a
+  password or changed one of these settings stops working for that call: do it from the page. This is in 8.0.0 and in the 8.0.1 pre-release. **Held by**
+  `tests/test_v802_password_reset_asks_for_step_up.py`, `tests/test_v802_scim_asks_for_step_up.py` and `tests/test_v802_sso_trust_asks_for_step_up.py`.
+
+- **A key with a host scope could lift its own scope.** A key limited to some hosts could make a new administrator key with no scope, create roles and accounts
+  outside its scope, start auto-patch policies, rollouts, rules and maintenance windows on any host, and change or delete a smart group whose scope it
+  does not hold. On the Threat Intel page it passed as the platform operator: it could clear the whole table, read the Request log of every host and the settings.
+  A scoped key creates and changes keys, roles and accounts inside its scope only, what it starts keeps to its scope, and the Threat Intel page treats it as
+  a user of its hosts. A key with no scope behaves as before. This is in 8.0.0 and in the 8.0.1 pre-release. **Held by**
+  `tests/test_v802_key_scope_identity_routes.py`, `tests/test_v802_key_scope_dispatch_objects.py`, `tests/test_v802_key_scope_smart_groups.py` and
+  `tests/test_v802_ip_intel_scoped_key.py`.
+
+- **The export you can share carried more than the accounts' credentials.** Besides `users.json`, it held the SSH passwords and private keys of agentless hosts,
+  SNMP communities, the RouterOS and OPNsense logins, inbound-webhook, scan-target and dead-man tokens, a WireGuard pre-shared key, the keys that sign the
+  audit trail (with one you can rewrite an entry and re-chain the log so that it still verifies), every earlier copy of the settings, the queue of failed
+  deliveries with each destination whole, and the address of every delivery in the delivery log. A value under a name that says password, secret, token,
+  key, community or pre-shared key is masked in every store of the export now, the audit-chain keys, the settings history and the failed-delivery queue
+  are left out, and the delivery log keeps the host of an address and not its path. An administrator can download it, and with tenant isolation on only the platform operator. **If you gave an export to
+  anyone, treat the credentials in it as exposed**, and rotate the audit key (`POST /api/audit/rotate-hmac-key`) if you gave one from 8.0.1 or earlier to someone
+  you do not trust. This is in 8.0.0 and in the 8.0.1 pre-release. **Held by** `tests/test_v710_export_does_not_copy_stores.py` (the class
+  `TestTheExportCarriesNoCredentialOfAnyStore`).
+
+- **`RP_CONFIG_KEY` sealed one of seven.** With the settings master key set, the Slack, Discord and Teams addresses, header values, the health-check, SIEM,
+  audit-forward and OTLP addresses and the Pushover user were stored in plain text beside a sealed SMTP password, and every one of the last ten versions of
+  the settings kept the whole document unsealed. The settings, each version of them and the queue of failed deliveries are sealed now, by one list of
+  those fields that the exports also use, and a restore opens a version again. A settings document that another installation sealed cannot be opened here
+  (the key includes a salt of the installation): the import skips the destinations and says so, where it stored the ciphertext as an address. Versions kept
+  before the update are sealed the next time one is saved. This is in 8.0.0. **Held by** `tests/test_v802_config_key_coverage.py` and
+  `tests/test_v800_declarative_headers.py`.
+
+- **A revoked session could come back, and three queues lost a write.** A request that read the session store before an administrator revoked a session wrote
+  the old copy back when it stamped its own last-seen time, so the revoked token worked again. The command queue was saved whole by four writers with no lock
+  (a command a host had just taken was queued again, one an administrator had just queued was lost), a host's heartbeat saved the whole settings document
+  and could undo an administrator's save, and the backup-freshness state lost a host's row. Each is saved inside its lock now. This is in 8.0.0. **Held by**
+  `tests/test_v802_revoked_session_stays_revoked.py`, `tests/test_v802_command_queue_writers_lock.py` and `tests/test_v802_store_write_locks.py`, which
+  lists every writer of each store by syntax tree.
+
+- **Threat Intel read what it should not have, from a log line or a request.** A request could name the address the web server's error log is read as
+  (the decoded path comes before nginx's own client field) or write a whole transaction into ModSecurity's audit log, and the sensor then reported and
+  blocked a visitor who had done nothing; one request with a superscript digit stopped the sensor of the host; a page of another site could make a visitor's
+  browser trip the honeypot, which reported the visitor. Sign-ins by passkey, SAML and OIDC did not protect their address, and the protection that
+  password sign-ins gave was read from the 500 lines of the audit log, which Threat Intel fills with its own, so an administrator's address could be blocked
+  at the edge and reported in public; the IPv4-mapped spelling of a protected address was not protected. With tenants, a tenant read the evidence other
+  tenants' hosts had collected about an address, the settings of the operator, the reason an address was held back (which says it is another tenant's host
+  or sign-in source), and a host of a tenant could put an address in the operator's Cloudflare list. One host could spend the day's reports of both
+  services on invented addresses. Each is closed; a path segment that looks like a capability link is shown and sent as `~token~`. The agent changed.
+  This is in 8.0.0. **Held by** `tests/test_v802_threat_sensor_hostile_logs.py`, `tests/test_v802_threat_sensor_forged_logs.py`,
+  `tests/test_v802_agent_log_attribution.py`, `tests/test_v802_threat_protected_sign_ins.py`, `tests/test_v802_sign_in_sources.py`,
+  `tests/test_v802_never_block_spellings_and_order.py`, `tests/test_v802_never_block_not_an_oracle.py`, `tests/test_v802_threat_intel_tenant_scope.py`,
+  `tests/test_v802_ipintel_evidence_scope.py`, `tests/test_v802_threat_intake_shares.py`, `tests/test_v802_edge_list_sources.py` and
+  `tests/test_v802_sample_token_segments.py`.
+
+- **The vulnerability pages crossed tenants and could be made expensive.** Any signed-in user read every organisation's accepted risks and their reasons, and a
+  tenant administrator started a scan of every tenant's hosts and read the whole installation's counts, the fixable total of the patch report, and could use up
+  the installation's 200 campaigns. Bursts of requests started several scans that overwrote each other; one host's package list could cost 18 seconds of CPU
+  in the SBOM or decide how much memory and how many advisory requests a scan took; a scan that checked none of a host's packages announced its findings
+  cleared; a host deleted during a scan came back; and a software policy of 100 banned packages raised 100 events on every request of a host that changed its
+  list. Accepted risks, scans, totals and campaigns belong to the organisation of the caller, and each cost is bounded. This is in 8.0.0. **Held by**
+  the `tests/test_v802_cve_flow_*.py` modules.
+
+- **A deleted host left data behind, and a host could fill the disk.** Deleting a host kept its peer connections, custom metrics, package baseline and the
+  contents of the files it watched, and three routes served them to an administrator of another tenant who held the id. Any host could write unlimited
+  1.9 MiB documents of infrastructure-as-code into the data directory under names it picked, inside the lock that every heartbeat waits for. Names and
+  notes could hold characters that reorder text. Wrong-typed values in a few unlisted fields answered 500 for every caller, and a host store that could not
+  be read made the Detections sweep forget every finding and raise them all again. Each is closed. This is in 8.0.0. **Held by**
+  `tests/test_v800_host_purge.py`, `tests/test_v802_iac_collection_requested_only.py`, `tests/test_v802_hidden_text_cleaners.py`,
+  `tests/test_v802_shapes_of_unlisted_fields.py` and `tests/test_v800_detections_sweep.py`.
 
 ### Enrolment and sign-in
 

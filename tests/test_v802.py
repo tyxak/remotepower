@@ -153,6 +153,53 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn("v7.5.0 and earlier", label)
 
 
+class TestTheSecurityReview(unittest.TestCase):
+    """The review is part of the release: it exists, it is indexed where a reader looks, it says what is open and what was not run, its counts agree with the places that
+    quote them, it says which findings are new in this release, and the kept reviews are the last three."""
+
+    DOC = "docs/security-review-8.0.2.md"
+
+    def text(self):
+        return re.sub(r"\s+", " ", (_ROOT / self.DOC).read_text())
+
+    def test_it_exists_and_is_indexed(self):
+        self.assertTrue((_ROOT / self.DOC).exists())
+        for rel in ("docs/README.md", "docs/security.md", "docs/v8.0.2.md"):
+            self.assertIn("security-review-8.0.2.md", (_ROOT / rel).read_text(), rel)
+
+    def test_it_says_what_is_open_and_what_it_did_not_run(self):
+        text = self.text()
+        for heading in ("## Open", "## Known and unchanged", "## Not found", "## Not run for this review"):
+            self.assertIn(heading, text, heading)
+        raw = (_ROOT / self.DOC).read_text()
+        open_part = raw[raw.index("\n## Open"):raw.index("\n## Known and unchanged")]
+        self.assertEqual(re.findall(r"(?i)\b(medium|high|critical)\b", open_part), [], "the Open section lists something rated Medium or higher")
+
+    def test_the_counts_agree_with_the_places_that_quote_them(self):
+        text = self.text()
+        self.assertIn("fourteen High issues, twenty-three Medium issues and twelve Low issues in the first run", text)
+        self.assertIn("seven Medium and two Low issues more in the second", text)
+        index = re.sub(r"\s+", " ", (_ROOT / "docs/README.md").read_text())
+        self.assertIn("Fourteen high, thirty medium and fourteen low findings", index)
+        rows = re.findall(r"^\| (?:API surface|Pages|Threat Intel|Agents|Vulnerability pages|Stores|The second run) \| (\d+) / (\d+) / (\d+) \|", (_ROOT / self.DOC).read_text(), re.M)
+        self.assertEqual(len(rows), 7)
+        self.assertEqual([sum(int(r[i]) for r in rows) for i in range(3)], [14, 30, 14])
+
+    def test_it_says_which_findings_are_in_8_0_0_and_which_are_new(self):
+        text = self.text()
+        self.assertIn("In 8.0.0", text)
+        self.assertIn("In code new in 8.0.2", text)
+
+    def test_it_reveals_no_command_for_the_attack_and_no_infrastructure(self):
+        text = (_ROOT / self.DOC).read_text()
+        for needle in ("curl", "X-Token", "wget", "nc -", "tvipper", "jaove", "/home/", "10.0.0.", "ssh -i", "genuine", "verbatim", "deliberately"):
+            self.assertNotIn(needle, text, needle)
+
+    def test_three_reviews_are_kept(self):
+        reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
+        self.assertEqual(reviews, ["security-review-7.5.0.md", "security-review-8.0.0.md", "security-review-8.0.2.md"])
+
+
 class TestTheReleaseContainsItsGuards(unittest.TestCase):
     """A release pin, not a behavioural one: each file carries its own proof, watched failing before it was committed. This pins that
     they ship."""
@@ -160,7 +207,7 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
     FILES = (
         "tests/test_v802.py",    # the release pins themselves
         "tests/test_scroll_cap_focus_rings_e2e.py",    # the keyboard focus ring of every control in the lists that scroll stays inside their edge (four lists, both engines measured by hand)
-        "tests/test_v800_host_purge.py",               # the addresses a sensor queued for a host leave with it
+        "tests/test_v800_host_purge.py",               # the addresses a sensor queued for a host leave with it, and the four stores the seed leaves empty
         # Enrolment and sign-in
         "tests/test_enroll_token_many_hosts.py",              # max_uses: 1 to 1000, a use taken under the lock and given back for a refused host, racing requests, the list, revoke and the audit line
         "tests/test_enroll_many_hosts_e2e.py",                # the Enroll dialog and the Add a host wizard in a browser: the field, the notice, the open commands, the next opening
@@ -181,6 +228,55 @@ class TestTheReleaseContainsItsGuards(unittest.TestCase):
         "tests/test_export_buttons_tenant_e2e.py",            # the export buttons pressed in a browser as a tenant administrator and as the platform operator
         "tests/test_v802_key_scope_confirmations.py",         # an API key with a host scope lists, approves, rejects and clears only the confirmations of its own hosts
         "tests/test_v802_key_scope_inbound_tokens.py",        # the same key manages only the inbound tokens pinned to its own hosts
+        # Found by the review of this release and by running every reproduction again on the final tree
+        "tests/test_v802_agent_log_attribution.py",                  # the nginx error log names the host that sent a request, not an address written into the message
+        "tests/test_v802_audit_line_holds_no_destination.py",        # the audit line of a destination test names the host and not its address
+        "tests/test_v802_command_queue_writers_lock.py",             # the four writers that saved a snapshot of the command queue take its lock
+        "tests/test_v802_config_key_coverage.py",                    # RP_CONFIG_KEY seals the settings, each revision and the failed-delivery queue, addresses and header values included
+        "tests/test_v802_cve_flow_accepted_risks.py",                # the vulnerability pages of one organisation: accepted risks
+        "tests/test_v802_cve_flow_campaigns.py",                     # the vulnerability pages of one organisation: campaigns
+        "tests/test_v802_cve_flow_false_clear.py",                   # the vulnerability pages of one organisation: false clear
+        "tests/test_v802_cve_flow_home_cost.py",                     # the vulnerability pages of one organisation: home cost
+        "tests/test_v802_cve_flow_host_tenant.py",                   # the vulnerability pages of one organisation: host tenant
+        "tests/test_v802_cve_flow_patch_report.py",                  # the vulnerability pages of one organisation: patch report
+        "tests/test_v802_cve_flow_policy_flap.py",                   # the vulnerability pages of one organisation: policy flap
+        "tests/test_v802_cve_flow_sbom_cost.py",                     # the vulnerability pages of one organisation: sbom cost
+        "tests/test_v802_cve_flow_scan_cost.py",                     # the vulnerability pages of one organisation: scan cost
+        "tests/test_v802_cve_flow_scan_runs.py",                     # the vulnerability pages of one organisation: scan runs
+        "tests/test_v802_cve_flow_scan_scope.py",                    # the vulnerability pages of one organisation: scan scope
+        "tests/test_v802_edge_list_sources.py",                      # with tenants a tenant host does not put addresses in the operator Cloudflare list
+        "tests/test_v802_hidden_text_cleaners.py",                   # six cleaners of host and administrator text take out characters that reorder or hide text
+        "tests/test_v802_iac_collection_requested_only.py",          # a host answer to an infrastructure-as-code request is kept once and only if it was asked for
+        "tests/test_v802_ip_intel_scoped_key.py",                    # a key or role with a host scope is not the platform operator on the Threat Intel page
+        "tests/test_v802_ipintel_evidence_scope.py",                 # a caller reads the evidence the hosts they see collected, not the sum of every host
+        "tests/test_v802_key_scope_dispatch_objects.py",             # what a scoped key starts (auto-patch policies, rollouts, rules, maintenance windows) keeps to its scope
+        "tests/test_v802_key_scope_identity_routes.py",              # a scoped key creates and changes keys, roles and accounts inside its scope only
+        "tests/test_v802_key_scope_smart_groups.py",                 # a scoped key cannot make, change or delete a smart group outside its scope
+        "tests/test_v802_key_scope_whole_installation.py",           # the routes that act on the whole installation refuse a scoped key
+        "tests/test_v802_mac_scan_budget.py",                        # the application folders of macOS and Windows are walked on one budget
+        "tests/test_v802_never_block_not_an_oracle.py",              # a tenant cannot read that an address is another tenant host or sign-in source
+        "tests/test_v802_never_block_spellings_and_order.py",        # the IPv4-mapped spelling is protected, and the ban route asks for the permission first
+        "tests/test_v802_notify_dest_identity.py",                   # a destination that delivers again closes only its own failing alert
+        "tests/test_v802_notify_dest_secret.py",                     # the alert about a failing destination holds no secret path
+        "tests/test_v802_notify_redirects.py",                       # a destination that answers every delivery with a redirect is a failing destination
+        "tests/test_v802_osv_answer_without_names.py",               # an advisory with no usable name is an unreadable answer, not nothing found
+        "tests/test_v802_password_reset_asks_for_step_up.py",        # setting another account password asks for a fresh sign-in, which a key cannot give
+        "tests/test_v802_redaction_linear.py",                       # the secret redaction takes time in proportion to the text
+        "tests/test_v802_revoked_session_stays_revoked.py",          # a revoked session is not written back by another request
+        "tests/test_v802_sample_token_segments.py",                  # a path segment that is a capability link is shown and sent as ~token~
+        "tests/test_v802_scan_links.py",                             # the secrets and personal data scans do not go into a folder that is a link
+        "tests/test_v802_scim_asks_for_step_up.py",                  # switching SCIM on or setting its token asks for a fresh sign-in
+        "tests/test_v802_shapes_of_unlisted_fields.py",              # wrong-typed values in fields the shape registry did not list are repaired on read
+        "tests/test_v802_sign_in_sources.py",                        # where people signed in from is kept in a store of its own
+        "tests/test_v802_software_list_cut_server.py",               # a cut software list is not a compliant one
+        "tests/test_v802_sso_trust_asks_for_step_up.py",             # turning on single sign-on or LDAP, or changing what they trust, asks for a fresh sign-in
+        "tests/test_v802_store_write_locks.py",                      # every store several requests write is saved inside its lock, found by syntax tree
+        "tests/test_v802_threat_intake_shares.py",                   # each host has a share of the day lookups and reports
+        "tests/test_v802_threat_intel_tenant_scope.py",              # the settings, the day counts and the queue of Threat Intel are the platform operator
+        "tests/test_v802_threat_protected_sign_ins.py",              # an address someone signed in from is protected whichever way they signed in
+        "tests/test_v802_threat_sensor_forged_logs.py",              # a request cannot name the address nginx error log is read as
+        "tests/test_v802_threat_sensor_hostile_logs.py",             # a request body cannot write a transaction into the ModSecurity audit log or stop the sensor
+        "tests/test_v802_win_startup_links.py",                      # the startup folders of Windows are listed without following a link
         # Software
         "tests/test_software_inventory_server.py",            # the ingest of Windows and macOS lists, the policy, the search, the SBOM and the order of versions
         "tests/test_software_inventory_agents.py",            # the two agents against a stand-in registry, application bundles in a temporary folder and a script in place of Homebrew

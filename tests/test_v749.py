@@ -77,93 +77,20 @@ class TestVersionBumps(unittest.TestCase):
             self.assertFalse((_ROOT / "docs" / dropped).exists(), dropped)
 
 
-class TestTheSecurityReview(unittest.TestCase):
-    """The review is part of the release: it exists, it is indexed where a reader looks, it says what it did not run,
-    its counts agree with its own table and with every other place that quotes them, and the kept reviews are the last three."""
+class TestTheSecurityReviewLeftTheWindow(unittest.TestCase):
+    """The review of 7.4.9 left the three kept reviews at the v8.0.2 bump. Its issues stay counted in CHANGELOG.md."""
 
-    DOC = "docs/security-review-7.4.9.md"
     HEADLINE = "five High issues, seventeen Medium ones and twelve Low or hardening items"
 
-    def raw(self):
-        return (_ROOT / self.DOC).read_text()
+    def test_it_is_gone_everywhere(self):
+        self.assertFalse((_ROOT / "docs/security-review-7.4.9.md").exists())
+        for rel in ("README.md", "docs/README.md", "docs/security.md", "server/html/index.html"):
+            self.assertNotIn("security-review-7.4.9.md", (_ROOT / rel).read_text(), rel)
 
-    def text(self):
-        return re.sub(r"\s+", " ", self.raw())
-
-    def test_it_exists_and_is_indexed(self):
-        self.assertTrue((_ROOT / self.DOC).exists())
-        for rel in ("docs/README.md", "docs/security.md"):
-            self.assertIn("security-review-7.4.9.md", (_ROOT / rel).read_text(), rel)
-
-    def test_it_says_what_it_leaves_open_and_what_it_did_not_run(self):
-        text = self.text()
-        for heading in ("## Open", "## Not found", "## Known and unchanged", "## Not run for this review"):
-            self.assertIn(heading, text, heading)
-        self.assertIn("A live probe of a running installation", text)
-
-    def test_the_table_agrees_with_the_headline(self):
-        self.assertIn(self.HEADLINE, self.text())
-        rows = re.findall(r"^\| (S\d+) \| ([^|]+) \|", self.raw(), re.M)
-        self.assertEqual([r[0] for r in rows], [f"S{i}" for i in range(1, 35)])
-
-        def kind(severity):
-            severity = severity.strip()
-            if severity.startswith("**High**"):
-                return "high"
-            if severity == "Medium" or severity.startswith("High with signed commands"):
-                return "medium"
-            return "low"
-        kinds = [kind(r[1]) for r in rows]
-        self.assertEqual(kinds.count("high"), 5)
-        self.assertEqual(kinds.count("medium"), 17, "seventeen Medium rows, all fixed")
-        self.assertEqual(kinds.count("low"), 12)
-        raw = self.raw()
-        open_part = raw[raw.index("\n## Open"):raw.index("\n## Not found")]
-        self.assertIn("Nothing rated Medium or higher is open", open_part)
-        self.assertEqual(re.findall(r"(?i)\b(medium|high|critical)\b", open_part.replace("Nothing rated Medium or higher is open", "")), [],
-                         "the Open section lists something rated Medium or higher")
-
-    def test_the_other_places_quote_the_same_counts(self):
-        for rel in ("README.md",):          # its notes and its card left the windows at the v8.0.1 bump
-            body = re.sub(r"\s+", " ", (_ROOT / rel).read_text())
-            for needle in ("five High", "seventeen Medium", "twelve Low"):
-                self.assertIn(needle, body, (rel, needle))
-        for rel in ("docs/security.md", "docs/README.md"):
-            body = re.sub(r"\s+", " ", (_ROOT / rel).read_text()).lower()
-            for needle in ("five high", "seventeen medium", "twelve low"):
-                self.assertIn(needle, body, (rel, needle))
+    def test_the_changelog_still_counts_its_issues(self):
         changelog = (_ROOT / "CHANGELOG.md").read_text()
         section = changelog[changelog.index("## v7.4.9 \u2014 "):changelog.index("## v7.4.8 \u2014 ")]
         self.assertIn(self.HEADLINE, re.sub(r"\s+", " ", section))
-
-    def test_the_review_quotes_the_size_of_both_tenant_tables(self):
-        """The two route tables are counted from the source, not remembered."""
-        src = (_ROOT / "server/cgi-bin/api.py").read_text()
-        platform = src.split("_PLATFORM_ROUTES = (", 1)[1].split("\n)\n", 1)[0]
-        operator = src.split("_OPERATOR_ORG_ROUTES = (", 1)[1].split("\n)\n", 1)[0]
-        n_platform = len(re.findall(r"^\s*\(\s*'/api/", platform, re.M))
-        n_operator = len(re.findall(r"^\s*'/api/", operator, re.M))
-        self.assertGreater(n_platform, 40)
-        self.assertGreater(n_operator, 40)
-        text = self.text()
-        self.assertIn(f"holds {n_platform} entries", text)
-        self.assertIn(f"holds the {n_operator} route prefixes", text)
-        self.assertIn(f"{n_operator} route prefixes whose stores", text)
-
-    def test_no_placeholder_is_left(self):
-        self.assertNotIn("@@", self.raw())
-        self.assertNotIn("TBD-", self.raw())
-
-    def test_it_reveals_no_command_for_the_attack_and_no_infrastructure(self):
-        for rel in (self.DOC,):
-            text = (_ROOT / rel).read_text()
-            for needle in ("curl", "X-Token", "wget", "nc -", "tvipper", "jaove", "/home/", "10.0.0.", "ssh -i"):
-                self.assertNotIn(needle, text, (rel, needle))
-
-    def test_it_is_among_the_three_kept_reviews(self):
-        reviews = sorted(p.name for p in (_ROOT / "docs").glob("security-review-*.md"))
-        self.assertEqual(len(reviews), 3, reviews)
-        self.assertIn("security-review-7.4.9.md", reviews)
 
 
 class TestTheReleaseContainsItsGuards(unittest.TestCase):

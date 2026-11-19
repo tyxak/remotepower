@@ -33,6 +33,9 @@ shipped configuration with nmap, nikto, nuclei and wapiti; and runs the full
 test suite on every storage backend. The write-ups for the last three releases
 are kept:
 
+- [security-review-8.0.2.md](security-review-8.0.2.md) — a review of the release and of the rule that is missed in one or two places: an API key that could set an
+  administrator's password, a key that lifted its own scope, an export that carried credentials of every store, `RP_CONFIG_KEY` that sealed one field of seven, a revoked
+  session that came back, and tenants reading each other's Threat Intel and vulnerability data. Most of it was in 8.0.0, and all of it is fixed.
 - [security-review-8.0.0.md](security-review-8.0.0.md) — the release that added the Traffic view, the app finder, four handshake monitors, a
   read-only MCP endpoint and automatic image updates: one high issue, nine medium ones and seven low ones and one informational one, all of
   them fixed. Among them are a host settings form that cleared what it never showed, three ways to run code on a host that ignored
@@ -46,12 +49,6 @@ are kept:
   Among them are four-eyes approval that a dozen paths skipped, restores that asked for no sign-in, playbook content shown
   to every role, a decoy-file channel that a Mac asking for signed commands did not refuse, and a self-update that could
   install a cut-off agent. It has the scans, the run over every route, the mutation checks, and what is left.
-- [security-review-7.4.9.md](security-review-7.4.9.md) — the release in which the whole project was reviewed, not only
-  what changed: five high issues, seventeen medium ones and twelve low ones, all of them fixed. Among them are a host's
-  watched services that any signed-in role could rewrite, three flaws in the Linux agent, the app server running as root
-  in the Docker image, tenant administrators reaching instance-wide operations, and a tenant's users reading the
-  operator's tickets and invoices. It has the scans, the run over every route, the mutation checks, and what is left
-  and how big it is.
 
 Each review found real defects. The high and low ones were fixed before the
 release went out; a medium one that was too big for the release is named in the
