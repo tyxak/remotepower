@@ -316,5 +316,123 @@ class TestThePositionMovesOnWhenAReaderRaised(_Bounded, _Host):
             self.assertEqual(state['files']['/var/log/fail2ban.log']['pos'], os.path.getsize(self.tmp / 'var/log/fail2ban.log'))
 
 
+
+# ── F7: the body of a request writes into the audit log ─────────────────────────────────────────────────────────────────────────────────
+
+VICTIM = '8.8.4.4'
+
+
+def stamp(e):
+    t = time.gmtime(e)
+    return f'[{t.tm_mday:02d}/{_MON[t.tm_mon - 1]}/{t.tm_year}:{t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d} +0000]'
+
+
+def forged_transaction(ip, uid='deadbeef', status='403'):
+    """What a sender writes into the body of a POST: one complete transaction of somebody else, refused by the WAF."""
+    return (f'--{uid}-A--\n{stamp(NOW - 5)} {uid}.1 {ip} 54321 192.0.2.10 443\n'
+            f'--{uid}-B--\nGET /index.php HTTP/1.1\nUser-Agent: Mozilla/5.0\n\n'
+            f'--{uid}-F--\nHTTP/1.1 {status}\n\n'
+            f'--{uid}-H--\nMessage: Access denied with code 403 (phase 2). [id "949110"] [tag "attack-sqli"]\nAction: Intercepted (phase 2)\n\n'
+            f'--{uid}-Z--\n')
+
+
+def real_transaction(ip, body, uid='c4d8b66b', end=True):
+    """The log's own entry for a POST, with the request body in part I as ModSecurity writes it (`SecAuditLogParts ABIJDEFHZ`)."""
+    return (f'--{uid}-A--\n{stamp(NOW - 5)} {uid}.1 {ip} 54321 192.0.2.10 443\n'
+            f'--{uid}-B--\nPOST /login HTTP/1.1\nHost: example.com\nUser-Agent: curl/8.5\nContent-Type: text/plain\n\n'
+            f'--{uid}-I--\n{body}\n'
+            f'--{uid}-F--\nHTTP/1.1 403\nContent-Length: 146\n\n'
+            f'--{uid}-H--\nMessage: Access denied with code 403 (phase 2). [id "949110"] [tag "attack-sqli"]\nAction: Intercepted (phase 2)\n\n'
+            + (f'--{uid}-Z--\n\n' if end else ''))
+
+
+class TestABodyCannotWriteATransaction(_Agent):
+    def read(self, text, samples=False):
+        agg = self.agent._TsAgg(NOW)
+        agg.want_samples = samples
+        n, parsed = self.agent._ts_scan_modsec_native(text.split('\n'), agg, '/var/log/modsec_audit.log', NOW)
+        return n, parsed, {e['ip']: e for e in agg.events()[0]}, agg
+
+    def test_control_an_honest_blocked_post_is_the_senders(self):
+        n, parsed, ev, _ = self.read(real_transaction(A1, "username=admin&password=x' OR '1'='1"))
+        self.assertEqual((n, parsed, sorted(ev)), (1, 1, [A1]))
+        self.assertEqual(ev[A1]['src'], {'waf': 1})
+
+    def test_a_transaction_written_into_the_body_is_not_read(self):
+        n, parsed, ev, _ = self.read(real_transaction(A1, forged_transaction(VICTIM)))
+        self.assertEqual(sorted(ev), [A1], 'the address the body names is not an address of this host\'s log')
+        self.assertEqual((n, parsed), (1, 1), 'one entry')
+        self.assertEqual(ev[A1]['src'], {'waf': 1}, 'the sender is still the sender of what the log recorded')
+        self.assertIn('crs:949110', ev[A1]['tok']['waf'], 'read from the part H of the real entry')
+
+    def test_the_forged_part_h_adds_nothing_to_the_sender_either(self):
+        """A body that writes only a part H after its own marker: its message is a line of the body, not a rule that matched."""
+        body = '--deadbeef-H--\nMessage: Access denied [id "942100"] [tag "attack-xss"] CVE-2021-44228\nAction: Intercepted (phase 2)\n'
+        text = real_transaction(A1, body).replace('Message: Access denied with code 403 (phase 2). [id "949110"] [tag "attack-sqli"]', 'Message: Warning. [id "930100"]')
+        _, _, ev, _ = self.read(text)
+        self.assertEqual(sorted(t for t in ev[A1]['tok']['waf'] if t.startswith('crs')), ['crs:930100'], 'only the rule of the real part H')
+        self.assertEqual(ev[A1]['cve'], [])
+
+    def test_a_marker_with_another_id_does_not_end_the_entry(self):
+        body = '--deadbeef-Z--\n--deadbeef-A--\n' + stamp(NOW - 5) + f' deadbeef.1 {VICTIM} 1 2.2.2.2 443\n--deadbeef-Z--\n'
+        _, _, ev, _ = self.read(real_transaction(A1, body) + real_transaction(A2, 'honest', uid='f00dcafe'))
+        self.assertEqual(sorted(ev), sorted([A1, A2]), 'the real entry went on to its own end, and the one after it is read')
+        self.assertEqual(ev[A1]['src'], {'waf': 1})
+
+    def test_the_markers_of_the_real_entry_are_still_read_when_the_body_holds_lookalikes(self):
+        body = '\n'.join(f'--{i:08x}-{part}--' for i, part in enumerate('ABFHZ', 1)) + '\n'
+        _, _, ev, _ = self.read(real_transaction(A3, body), samples=True)
+        self.assertEqual(sorted(ev), [A3])
+        self.assertEqual(ev[A3]['smp'][0]['m'], 'POST', 'the request line is the one of the real part B')
+
+    def test_an_entry_that_never_ended_does_not_swallow_the_next_one(self):
+        """A write cut short leaves an entry with no end. The next A is then the start of the next entry (the open one has no end in this
+        read), where a forged A inside a body that does end is a line of that body."""
+        torn = real_transaction(A1, 'x', end=False)
+        n, parsed, ev, _ = self.read(torn + real_transaction(A2, 'honest', uid='f00dcafe'))
+        self.assertEqual(sorted(ev), [A2], 'the cut-short entry has no end and is not counted; the one after it is')
+        self.assertEqual((n, parsed), (2, 1))
+
+    def test_a_read_that_starts_inside_an_entry_waits_for_its_end(self):
+        """The first read of a long log, or an entry larger than a read, starts in the middle of an entry. An A in what is left of it is
+        not believed: the entry's own end comes first."""
+        whole = real_transaction(A1, forged_transaction(VICTIM))
+        middle = whole[whole.index('--c4d8b66b-I--'):]               # what is left after the first half of the entry was read
+        n, parsed, ev, _ = self.read(middle + real_transaction(A2, 'honest', uid='f00dcafe'))
+        self.assertEqual(sorted(ev), [A2], 'neither the forged entry nor the half of the real one: the entry that follows is read')
+        self.assertEqual(n, 1)
+
+    def test_a_read_that_starts_at_an_entry_reads_it(self):
+        n, parsed, ev, _ = self.read('\n\n' + real_transaction(A1, 'x'))
+        self.assertEqual((n, parsed, sorted(ev)), (1, 1, [A1]), 'blank lines before the first marker do not make the read look like the middle of an entry')
+
+    def test_a_line_that_makes_the_reader_raise_costs_that_line(self):
+        agg = self.agent._TsAgg(NOW)
+        calls = {'n': 0}
+        real = self.agent._ts_time_local
+
+        def raising(text):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise ValueError('a time the reader did not expect')
+            return real(text)
+        with mock.patch.object(self.agent, '_ts_time_local', raising):
+            n, parsed = self.agent._ts_scan_modsec_native((real_transaction(A1, 'x') + real_transaction(A2, 'y', uid='f00dcafe')).split('\n'),
+                                                         agg, 'm', NOW)
+        self.assertEqual(n, 2)
+        self.assertEqual([e['ip'] for e in agg.events()[0]], [A2], 'the entry whose A line raised has no client and is not an event; the next is')
+
+
+class TestAForgedBodyInAWholePass(_Host):
+    def test_the_sensor_reports_what_the_log_recorded(self):
+        """A log file with the forged body, read by the real pass: the addresses sent are the ones of the real entries."""
+        self.put('/var/log/modsec_audit.log', real_transaction(A1, forged_transaction(VICTIM)) + real_transaction(A2, 'honest', uid='f00dcafe'))
+        events, sources, dropped, state = self.agent.collect_threat_events({'enabled': True, 'paths': ['/var/log/modsec_audit.log']}, {}, NOW)
+        self.assertEqual(sorted(e['ip'] for e in events), sorted([A1, A2]))
+        row = [s for s in sources if s['kind'] == 'waf'][0]
+        self.assertEqual((row['state'], row['fmt'], row['events']), ('ok', 'native', 2))
+        self.assertNotIn(VICTIM, json.dumps(events))
+
+
 if __name__ == '__main__':
     unittest.main()
