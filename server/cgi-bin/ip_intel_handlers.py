@@ -797,6 +797,9 @@ def _fetch_verdict(ip, pol, allowance, spent, down=None, host=None):
 SIGN_IN_ACTIONS = ('login', 'login_webauthn', 'login_saml', 'login_oidc')
 
 
+PROTECTED_REASON = 'on the never-block list'      # what ip_intel.never_block_reason says for an address on the protected networks
+
+
 def _protected_networks(pol, devices):
     """Addresses that must never be blocked: the fleet's own, the operator's
     UI allow-list, the configured never-block list, and where RemotePower's
@@ -2011,6 +2014,10 @@ def handle_ip_intel():
     # What an address's ledger, its reports and its reasons say is made of every host that saw it, and the row is one for the whole
     # installation. A caller who does not read all the hosts is given what they collected themselves and nothing of the others.
     places = None if _reads_all_hosts() else set(visible)
+    # With tenants, the protected networks are made of every tenant's hosts and of where every tenant's users signed in from, and a host's sensor may name any public
+    # address. The reason an address was held back for being one of them ("on the never-block list") would tell a tenant that an address is another tenant's host or
+    # sign-in source, so only the operator reads it; the others read the row without it.
+    hide_protected = bool(A._tenancy_enforced() and not operator)
     attackers = []
     for ip, a in (st.get('attackers') or {}).items():
         if not isinstance(a, dict):
@@ -2023,13 +2030,13 @@ def handle_ip_intel():
             'ip': ip, 'first_seen': a.get('first_seen'), 'last_seen': a.get('last_seen'),
             'devices': [{'device_id': d, 'name': (visible[d] or {}).get('name') or d,
                          'count': x.get('count'), 'unit': x.get('unit'),
-                         'not_blocked': x.get('not_blocked', '')}
+                         'not_blocked': '' if (hide_protected and x.get('not_blocked') == PROTECTED_REASON) else x.get('not_blocked', '')}
                         for d, x in devs.items() if isinstance(x, dict)],
             'score': v.get('score'), 'reports': v.get('reports'),
             'country': v.get('country', ''), 'isp': v.get('isp', ''),
             'usage': v.get('usage', ''), 'providers': v.get('providers', {}),
             'checked_at': a.get('checked_at'), 'reported': a.get('reported', {}),
-            'errors': _errors_view(a, places),
+            'errors': ({k: e for k, e in _errors_view(a, places).items() if not str(e).endswith(PROTECTED_REASON)} if hide_protected else _errors_view(a, places)),
             'in_list': a.get('in_list') if operator else None,
             'ignored': bool(pol.get('ignore_nets') and ip_intel.in_any(ip, pol['ignore_nets'])),
             'edge_ban': ({'until': bans[edge_blocklist.canonical(ip)]}
