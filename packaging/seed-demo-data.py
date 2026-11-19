@@ -897,7 +897,7 @@ def _demo_unseeded_signals(dev, rng, si):
                               | {'systemd', 'sshd', 'cron', 'dbus-daemon',
                                  'rsyslogd', 'agetty', 'remotepower-agent'})
     # Two hosts want a reboot. reboot_reason is only persisted alongside it.
-    _reboot = {'pmx01': 'kernel upgrade (6.1.0-21 -> 6.1.0-23)',
+    _reboot = {'pmx01': 'kernel upgrade (6.1.0-21 -> 6.1.0-27)',      # 8.0.2: the kernel its hardware record and its package list say it has installed
                'nc01':  'libc6 upgrade'}
     si['reboot_required'] = dev_id in _reboot
     if dev_id in _reboot:
@@ -915,10 +915,10 @@ def _demo_unseeded_signals(dev, rng, si):
             'sync_lag_seconds': round(rng.uniform(0.2, 12.5), 2),
         }
     # Agent-evaluated custom checks. Keyed by the _DEMO_CUSTOM_CHECKS ids so a
-    # result can never name a check the config does not define.
+    # result can never name a check the config does not define. 8.0.2: the registry checks of the Windows host report here too.
     _ccr = {}
-    for c in _DEMO_CUSTOM_CHECKS:
-        res = _DEMO_AGENT_CHECK_RESULTS.get(c['id'])
+    for c in _demo_custom_checks():
+        res = _DEMO_AGENT_CHECK_RESULTS.get(c['id']) or _DEMO_REGISTRY_RESULTS.get(c['id'])
         if not res:
             continue                      # server-evaluated: no agent result
         if c['target_kind'] == 'tag' and c['target'] not in tags:
@@ -1798,6 +1798,8 @@ def build_devices() -> dict:
         if dev['id'] == 'tnas':
             rec['metric_thresholds'] = {'drivetemp_per_serial': {
                 _demo_serial('tnas', '/dev/sdd'): {'warn': 50, 'crit': 55}}}
+        # 8.0.2, second half: what the agents of the 8.0.2 release report beyond the first half (no draw: nothing else of the host moves)
+        _demo_second_half_signals(dev, rec)
         out[dev['id']] = rec
     return out
 
@@ -2204,6 +2206,7 @@ def build_cve_findings() -> dict:
     for dev_id in only_counted:       # after the hosts with findings: readers take the first as a sample
         out[dev_id] = {'scanned_at': now() - 3600 * 6, 'ecosystem': 'Ubuntu', 'ruled': True,
                        'rollup': _demo_cve_rollup(dev_id), 'findings': []}
+    _demo_cve_account(out)            # 8.0.2: what each scan checked, and the kernel of a host that lists one
     return out
 
 
@@ -2211,7 +2214,7 @@ def _demo_cve_rollup(dev_id) -> dict:
     """What a scan counts per package for one demo host, in the shape cve_fixes.rollup writes: the total
     is the sum by severity, the sum by fix status, and the sum of the packages plus the rest."""
     rng = _seeded_random(dev_id, 'cve-rollup')
-    named = [('linux', '5.15.0-119.129', rng.randint(380, 720)),
+    named = [('linux', _DEMO_KERNEL_VERSIONS[_DEMO_KERNEL_LISTED[dev_id][0]] if dev_id in _DEMO_KERNEL_LISTED else '5.15.0-119.129', rng.randint(380, 720)),
              ('binutils', '2.38-4ubuntu2.6', rng.randint(40, 90)),
              ('vim', '2:8.2.3995-1ubuntu2.19', rng.randint(20, 60)),
              ('glibc', '2.35-0ubuntu3.8', rng.randint(4, 12)),
@@ -2223,10 +2226,16 @@ def _demo_cve_rollup(dev_id) -> dict:
     unknown = total // 20
     pro = total // 15
     newer = total // 6
+    # 8.0.2: of the kernel's findings that did not fit under the ceiling of a package (50 are stored one by one), the ones the newer kernel of the hypervisor already fixes are counted
+    # as such; the host's page says how many (cve_fixes.rollup counts a finding by its fix status, and `reboot` is one)
+    reboot = named[0][2] * 2 // 5 if dev_id in _DEMO_KERNEL_REPORTED else 0
+    fix = {'newer_release': newer, 'none': total - newer - pro - reboot, 'pro': pro}
+    if reboot:
+        fix['reboot'] = reboot
     return {
         'total': total,
         'severity': {'medium': total - low - unknown, 'low': low, 'unknown': unknown},
-        'fix': {'newer_release': newer, 'none': total - newer - pro, 'pro': pro},
+        'fix': fix,
         'packages': [{'name': n, 'version': v, 'count': c} for n, v, c in named],
         'more': {'packages': rest_packages, 'count': rest_count},
     }
@@ -2537,6 +2546,9 @@ def build_packages() -> dict:
             }
             continue
         installed, _up = _demo_package_inventory(dev['id'])
+        kernel_rows, kernel_report = _demo_kernel(dev['id'])
+        if kernel_rows:
+            installed = installed[:-len(kernel_rows)] + kernel_rows     # 8.0.2: in place of the last generated names, so the list is as long as it was
         blob = '\n'.join(f"{p['name']}={p['version']}" for p in installed)
         out[dev['id']] = {
             'hash':         hashlib.sha256(blob.encode()).hexdigest(),
@@ -2553,12 +2565,386 @@ def build_packages() -> dict:
             'version_id':   '22.04',
             'sources':      True,
         }
+        if kernel_report:
+            out[dev['id']]['kernel'] = kernel_report     # 8.0.2: the kernel the agent runs and the images it holds (cve_scanner.kernel_report)
     return out
 
 
 def _demo_packages_collected_at(dev_id) -> int:
     """When the list of a host arrived: a drawn time in the last hour, the same for the list and for what the policy found in it (the ingest evaluates the policy as the list lands)."""
     return now() - _seeded_random(dev_id, 'packages-meta').randint(60, 3600)
+
+
+# ─── 8.0.2, second half: the Windows host, the Linux agent and what a scan says it checked ───────────────────────────────────────────────────────────
+#
+# The first half gave the Windows host and the Mac the lists their agents send. This is the rest of what the 8.0.2 agents report and what the server keeps of it. For the Windows host:
+# its build, its file shares and TPM, the state of its Windows Update search, the Defender definition updates that the pending count leaves out, what starts by itself and what
+# changed in it, a registry check, and a rule on the event log with the failed logons that fired it. For the Linux hosts: when the package lists were refreshed, what the agent can see,
+# and the kernel a host runs. For the scans: which packages each one checked. A row is what the server's own producer writes. The pure functions of the server are called here where
+# there are some (windows_host, persistence, checks, agent_capabilities, pkg_refresh, cve_scanner), and the rest follows the code path that writes the row.
+# tests/test_demo_seed_coverage.py reads each one back through the real handlers and holds it to the real agent function and to the real scan.
+
+# the first release whose agents send any of this: a host on an older agent has none of it
+_AGENT_SECOND_HALF = (8, 0, 2)
+# Two hosts run the current agent where the draw of build_devices gave them an older one: the Windows host, whose agent sends everything above, and the hypervisor, which reports the
+# kernel it runs. The draw is made first, so no other host changes.
+_DEMO_AGENT_UPDATED = ('wks01', 'pmx01')
+
+
+def _server_module(name):
+    """A module of server/cgi-bin from the checkout the seeder sits in, for the pure functions the server writes these rows with. The directory is on the path while it loads."""
+    import importlib
+    sys.path.insert(0, str(_CGI_DIR))
+    try:
+        return importlib.import_module(name)
+    finally:
+        sys.path.remove(str(_CGI_DIR))
+
+
+def _version_tuple(version) -> tuple:
+    try:
+        return tuple(int(part) for part in str(version or '').split('.')[:3])
+    except ValueError:
+        return ()
+
+
+# What the Windows agent reads about the host itself, as it sends it (client/remotepower-agent-win.py: get_win_build, _parse_smb_shares, _parse_tpm); windows_host cleans each the
+# way the heartbeat does. 24H2 is build 26100, and Windows 11 still writes "Windows 10 Pro" into ProductName, which is why the family comes from the build. The revision is the
+# October 2024 cumulative update: the first half's pending updates start with the one for November (KB5046617), so the host still needs what it lists. The shares are the two an
+# operator made and the three the system makes (ADMIN$, C$, IPC$: counted and not listed). The kernel is what the Windows agent sends for it, the build string.
+_DEMO_WIN_BUILD = {'build': '26100', 'ubr': 2033, 'display_version': '24H2', 'edition': 'Professional', 'product': 'Windows 10 Pro', 'installation_type': 'Client'}
+_DEMO_WIN_SHARES = {'count': 2, 'admin_count': 3, 'items': [
+    {'name': 'Public', 'path': 'C:\\Users\\Public', 'description': '', 'encrypted': False},
+    {'name': 'Scans', 'path': 'C:\\Scans', 'description': 'Scanner inbox', 'encrypted': True},
+]}
+_DEMO_WIN_TPM = {'present': True, 'ready': True, 'enabled': True, 'spec': '2.0'}
+_DEMO_WIN_KERNEL = '10.0.26100'
+_DEMO_DEFINITION_UPDATES = 1      # one Defender definition update (KB2267602) waits, and the count of pending updates leaves it out
+
+
+def _demo_windows_signals(rec):
+    """What the 8.0.2 Windows agent adds to the system information of the host, as the heartbeat keeps it: the build, the shares, the TPM, the Defender definition updates counted
+    apart, and the state of the last Windows Update search (it worked, a moment before the package report that carries the count)."""
+    wh = _server_module('windows_host')
+    si = rec['sysinfo']
+    si['win_build'] = wh.clean_win_build(_DEMO_WIN_BUILD)
+    si['shares'] = wh.clean_shares(_DEMO_WIN_SHARES)
+    si['tpm'] = wh.clean_tpm(_DEMO_WIN_TPM)
+    si['kernel'] = _DEMO_WIN_KERNEL
+    si['packages']['definition_updates'] = _DEMO_DEFINITION_UPDATES
+    reported = si['pkg_scan_ts']
+    si['wu_search'] = wh.clean_search_state({'at': reported - 25, 'ok': True, 'source': 'windows-update-agent', 'error_class': ''}, reported)
+
+
+# What starts by itself on the host. The agent lists five places (client/remotepower-agent-win.py: collect_persistence) and the server keeps the last list with a log of what changed
+# since the first one (persistence.py). The first list is the baseline and raises nothing. Five hours ago the list changed: a Run entry that points into a folder every user can write
+# to and a file in the startup folder of a profile came in, and the first-run entry of OneDrive went away. The first two raised the one alert of the hour (the removal never does),
+# and the list read since then is the same.
+_DEMO_PERSIST_AT = (6 * 86400, 5 * 3600, 11 * 60)        # seconds before the seed: the first list, the one that changed, the latest
+_DEMO_PERSIST_TASKS = [
+    ['\\', 'Adobe Acrobat Update Task', '"C:\\Program Files (x86)\\Common Files\\Adobe\\ARM\\1.0\\AdobeARM.exe"'],
+    ['\\', 'AdobeGCInvoker-1.0', '"C:\\Program Files (x86)\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe"'],
+    ['\\', 'GoogleUpdateTaskMachineCore{8A69D345-D564-463C-AFF1-A69D9E530F96}', '"C:\\Program Files (x86)\\Google\\Update\\GoogleUpdate.exe" /c'],
+    ['\\', 'GoogleUpdateTaskMachineUA{0B1F6D2C-4E3A-4C85-9A57-1D8E2F7C3B64}', '"C:\\Program Files (x86)\\Google\\Update\\GoogleUpdate.exe" /ua /installsource scheduler'],
+    ['\\', 'OneDrive Standalone Update Task-S-1-5-21-3623811015-3361044348-30300820-1013', '%localappdata%\\Microsoft\\OneDrive\\OneDriveStandaloneUpdater.exe'],
+]
+
+
+def _demo_persist_snapshot(changed) -> dict:
+    """The snapshot the agent sends, before (`changed` false) or after the change: each of the five places is {ok, cut, items} and an item is [place, name, what it runs]."""
+    run = [
+        ['Run', 'AdobeAAMUpdater-1.0', '"C:\\Program Files (x86)\\Common Files\\Adobe\\OOBE\\PDApp\\UWA\\UpdaterStartupUtility.exe"'],
+        ['Run', 'RtkAudUService', '"C:\\Windows\\System32\\DriverStore\\FileRepository\\realtekservice.inf_amd64_5d3c6a1e8b2f4c07\\RtkAudUService64.exe" -background'],
+        ['Run', 'SecurityHealth', '%windir%\\system32\\SecurityHealthSystray.exe'],
+    ]
+    startup = []
+    if changed:
+        run.append(['Run', 'WinSysHelper', '"C:\\Users\\Public\\Libraries\\syshelper.exe" -silent'])
+        startup.append(['User alice', 'Backup Sync.lnk', '1319 bytes'])
+    else:
+        run.append(['Run (32-bit)', 'OneDriveSetup', '"C:\\Windows\\SysWOW64\\OneDriveSetup.exe" /thfirstsetup'])
+    return {'v': 1,
+            'run': {'ok': True, 'cut': False, 'items': run},
+            'winlogon': {'ok': True, 'cut': False, 'items': [['Winlogon', 'Shell', 'explorer.exe'], ['Winlogon', 'Userinit', 'C:\\Windows\\system32\\userinit.exe,']]},
+            'services': {'ok': True, 'cut': False, 'items': []},
+            'tasks': {'ok': True, 'cut': False, 'items': [list(t) for t in _DEMO_PERSIST_TASKS]},
+            'startup': {'ok': True, 'cut': False, 'items': startup}}
+
+
+def _demo_persistence(name) -> tuple:
+    """(the row of persistence.json, the payload of the alert it raised): the three lists go through the steps `_persistence_ingest` takes for each one it receives (clean, compare,
+    log, mark what the alert sent), so the row is the one the heartbeats would have written, and the payload is the one the alert was sent with."""
+    P = _server_module('persistence')
+    t = now()
+    rec, payload = {}, None
+    for changed, ago in ((False, _DEMO_PERSIST_AT[0]), (True, _DEMO_PERSIST_AT[1]), (True, _DEMO_PERSIST_AT[2])):
+        at = t - ago
+        rec, _added, _removed = P.apply_snapshot(rec, P.clean_snapshot(_demo_persist_snapshot(changed)), at)
+        over = dict(rec.get('over') or {})
+        due, gone = P.due_alert(rec, at)
+        if due or gone:
+            P.mark_alerted(rec, due, gone, at)
+        if due:
+            payload = dict(P.alert_payload(due, over), device_id='wks01', name=name)
+    return rec, payload
+
+
+def build_persistence() -> dict:
+    """What starts by itself on the Windows host, and what changed in it → persistence.json (8.0.2): {host: {v, ts, baseline, alert_ts, inv, log}}, kept the way the heartbeat
+    keeps it (persistence.apply_snapshot). Only a Windows agent sends it."""
+    return {'wks01': _demo_persistence('design-win11')[0]}
+
+
+# Failed logons on the Windows host. A rule on the event log reads the Security log through wevtutil and the agent writes each event as one line built from the event's own fields
+# (`_winevt_line`), so a pattern that starts at the left edge is not matched by a name someone typed. Twelve of them arrived in one report from a laptop that is not one of the
+# hosts, going through the names a password guess starts with, and the fleet-wide rule "Failed logons, 10 or more in one report" (the one the Add rule dialog offers) fired once.
+# Lines: (seconds before the last one, record id, the user name that was tried, the sub status: 0xc0000064 is a name that does not exist, 0xc000006a a wrong password).
+_DEMO_LOGON_UNIT = 'eventlog.Security.4625'
+_DEMO_LOGON_ENDED_AGO = 52 * 60            # the last failed logon of the burst
+_DEMO_LOGON_REPORTED_AFTER = 38            # the agent sends what it read at its next check-in
+_DEMO_LOGON_FROM = {'source': '10.0.3.57', 'type': '3', 'status': '0xc000006d', 'domain': 'DESIGN-WIN11', 'workstation': 'DESKTOP-9QK3F2L'}
+_DEMO_LOGON_BURST = (
+    (150, 48211, 'administrator', '0xc0000064'), (138, 48212, 'admin', '0xc0000064'), (127, 48214, 'guest', '0xc0000064'), (113, 48215, 'design', '0xc000006a'),
+    (98, 48217, 'alice', '0xc000006a'), (90, 48218, 'bob', '0xc0000064'), (77, 48220, 'finance', '0xc0000064'), (61, 48221, 'svc-backup', '0xc0000064'),
+    (48, 48223, 'scanner', '0xc0000064'), (33, 48224, 'user', '0xc0000064'), (21, 48226, 'test', '0xc0000064'), (9, 48227, 'backup', '0xc0000064'),
+)
+# the rule as the dialog's "Failed logons (4625), 10 or more in one report" saves it (app-logs.js: LOG_RULE_TEMPLATES), and what the server adds when it stores a fleet-wide rule
+_DEMO_EVENT_RULE = {'unit': _DEMO_LOGON_UNIT, 'pattern': '^\\[4625\\] failed logon', 'threshold': 10, 'severity': 'WARN',
+                    'display_template': '{device}: {count} failed logons in one report. Latest: {sample0}'}
+
+
+def _demo_logon_lines() -> list:
+    """[(time, line)] for the burst, oldest first, each line as the agent writes it for event 4625."""
+    f = _DEMO_LOGON_FROM
+    out = []
+    for ago, rid, user, sub in _DEMO_LOGON_BURST:
+        line = ('[4625] failed logon rid=%d source=%s type=%s status=%s substatus=%s user="%s" domain="%s" workstation="%s"'
+                % (rid, f['source'], f['type'], f['status'], sub, user, f['domain'], f['workstation']))
+        out.append((now() - _DEMO_LOGON_ENDED_AGO - ago, line))
+    return out
+
+
+def _demo_event_rule() -> dict:
+    return dict(_DEMO_EVENT_RULE, id=_stable_hex('log-rule', 'failed-logons', nbytes=8), created_by='alice', created_at=now() - 86400 * 9)
+
+
+def _demo_logon_alert(name) -> tuple:
+    """(the title and the payload of the log alert the burst raised): the payload `handle_log_submit` fires with for a fleet-wide rule, and the title `_alert_title` makes of it with
+    the rule's own template. The inbox keeps the keys its whitelist names, which leaves out the scope and the template."""
+    lines = [line for _ts, line in _demo_logon_lines()]
+    payload = {'device_id': 'wks01', 'name': name, 'unit': _DEMO_LOGON_UNIT, 'pattern': _DEMO_EVENT_RULE['pattern'], 'count': len(lines), 'sample': lines[:3], 'acked': 0,
+               'severity': _DEMO_EVENT_RULE['severity']}
+    said = _DEMO_EVENT_RULE['display_template'].replace('{device}', name).replace('{count}', str(len(lines))).replace('{sample0}', lines[0])[:280]
+    return ('Log alert on %s: %s' % (name, said))[:256], payload
+
+
+def _demo_second_half_alert_specs() -> list:
+    """The two alerts of the Windows host that the first half did not have, in the form build_alerts takes: (event, severity, host, title, payload, acknowledged by, resolved by, seconds
+    ago). The title of the persistence alert is the one `_alert_title` gives, and both payloads hold the keys the inbox keeps (`_record_alert`)."""
+    _rec, payload = _demo_persistence('design-win11')
+    n = payload['count']
+    title = 'New startup %s on design-win11' % ('entry' if n == 1 else 'entries')
+    log_title, log_payload = _demo_logon_alert('design-win11')
+    return [
+        ('persistence_added', 'medium', 'wks01', title, payload, None, None, _DEMO_PERSIST_AT[1]),
+        ('log_alert', 'medium', 'wks01', log_title, log_payload, None, None, _DEMO_LOGON_ENDED_AGO - _DEMO_LOGON_REPORTED_AFTER),
+    ]
+
+
+def _demo_persistence_feed_event() -> dict:
+    """The entry the activity feed holds for the persistence alert: what `_record_fleet_event` keeps of the same payload (the first line of the sample, and not the rest)."""
+    _rec, payload = _demo_persistence('design-win11')
+    kept = {k: payload[k] for k in ('device_id', 'name', 'detail', 'count') if k in payload}
+    kept['sample'] = payload['sample'][:1]
+    return {'ts': now() - _DEMO_PERSIST_AT[1], 'event': 'persistence_added', 'payload': kept}
+
+
+def _demo_event_log_buffer() -> dict:
+    """The units of the Windows host in log_watch.json: the failed logons, in the form handle_log_submit stores a line ({ts, line, sig}, the signature of the line)."""
+    rows = [{'ts': ts, 'line': line, 'sig': hashlib.sha1(line.encode('utf-8', errors='replace'), usedforsecurity=False).hexdigest()[:16]} for ts, line in _demo_logon_lines()]
+    return {'units': {_DEMO_LOGON_UNIT: rows}, 'updated_at': now() - _DEMO_LOGON_ENDED_AGO + _DEMO_LOGON_REPORTED_AFTER}
+
+
+# Two Windows registry checks, applied from the catalog to the hosts tagged windows the way the Checks page's "apply" does it (api.handle_check_baselines_apply): the check's
+# own fields and the five of its definition, and `kind: protect` for a hardening template. The host has the value NTLM level 5 asks for, and keeps 10 cached logons where the check
+# allows 4. The agent reports each as {status, output} under the check's id, and the output is what `_eval_registry_check` writes.
+_DEMO_REGISTRY_TEMPLATES = ('win_ntlm_level_5', 'win_cached_logons_max_4')
+_DEMO_REGISTRY_FIRST_ID = 5          # ck_00001 to ck_00004 are the first four checks of the demo
+_DEMO_REGISTRY_RESULTS = {
+    'ck_00005': ('ok', 'LmCompatibilityLevel = 5'),
+    'ck_00006': ('critical', 'CachedLogonsCount = 10, expected at most 4'),
+}
+
+
+def _demo_registry_checks() -> list:
+    checks = _server_module('checks')
+    catalog = {t['id']: t for t in checks.CHECK_BASELINE_CATALOG}
+    rows = []
+    for n, template_id in enumerate(_DEMO_REGISTRY_TEMPLATES, start=_DEMO_REGISTRY_FIRST_ID):
+        t = catalog[template_id]
+        row = {'id': f'ck_{n:05d}', 'name': t['name'], 'type': t['type'], 'param': t['param'], 'target_kind': 'tag', 'target': 'windows', **t['extras']}
+        if checks.baseline_kind(t.get('cat', '')) == 'protect':
+            row['kind'] = 'protect'
+        rows.append(row)
+    return rows
+
+
+def _demo_custom_checks() -> list:
+    """Every custom check of the demo: the four of the first release that has them and the two registry checks of the Windows host."""
+    return list(_DEMO_CUSTOM_CHECKS) + _demo_registry_checks()
+
+
+# When each Linux host last refreshed its package lists, and how it went (sysinfo.pkg_refresh, written by the agent: {at, status, source, error_class}). Only a host on the 8.0.2
+# agent has one. nginx.lab refreshed twelve minutes ago and read the pending updates again straight after. jellyfin.lab could not reach its repositories yesterday. home-assistant.lab
+# runs its agent in a container, which never refreshes the lists of its host (the agent says so: unsupported, a container). The other hosts of the 8.0.2 agent were never asked, and
+# backup.lab is in audit mode, which refuses the command, so the card says Never for them. The demo has no Arch host, which is where "no safe way" comes from.
+_DEMO_PKG_REFRESH = {
+    'ng01': (12 * 60, 'ok', 'apt', ''),
+    'jf01': (26 * 3600, 'failed', 'apt', 'network'),
+    'ha01': (2 * 86400 + 3 * 3600, 'unsupported', '', 'container'),
+}
+# What the agent of each of those hosts can see (sysinfo.capabilities, collect_capabilities, cleaned by agent_capabilities). The tools are what the host's own data says it has: the
+# firewall it runs (ufw, iptables, nft), docker where it has compose projects, smartctl where it has SMART disks, dmidecode where it has the DMI tables, sensors where it has
+# temperatures, fail2ban where fail2ban runs, oscap where it has compliance scans. The agent of home-assistant.lab runs in a container with the image's few tools, as a user that is not
+# root, and sees the host through the mapped paths. nginx.lab runs fail2ban whose log its agent cannot open.
+_DEMO_CAPABILITIES = {
+    'fw01': {'root': True, 'container': False, 'init': 'systemd', 'distro': 'debian', 'python': '3.11.2',
+             'present': ('ss', 'lsblk', 'iptables', 'journalctl', 'systemctl', 'apt', 'fail2ban-client'),
+             'logs': (('f2b', '/var/log/fail2ban.log', True),)},
+    'gt01': {'root': True, 'container': False, 'init': 'systemd', 'distro': 'debian', 'python': '3.11.2',
+             'present': ('ss', 'smartctl', 'lsblk', 'iptables', 'journalctl', 'systemctl', 'docker', 'apt', 'dmidecode', 'sensors'), 'logs': ()},
+    'ng01': {'root': True, 'container': False, 'init': 'systemd', 'distro': 'ubuntu', 'like': 'debian', 'python': '3.12.3',
+             'present': ('ss', 'lsblk', 'ufw', 'journalctl', 'systemctl', 'docker', 'apt', 'needrestart', 'fail2ban-client', 'oscap'),
+             'logs': (('web', '/var/log/nginx/access.log', True), ('err', '/var/log/nginx/error.log', True), ('f2b', '/var/log/fail2ban.log', False))},
+    'jf01': {'root': True, 'container': False, 'init': 'systemd', 'distro': 'ubuntu', 'like': 'debian', 'python': '3.12.3',
+             'present': ('ss', 'lsblk', 'ufw', 'journalctl', 'systemctl', 'apt', 'docker'), 'logs': ()},
+    'ha01': {'root': False, 'container': True, 'init': 'init', 'distro': 'alpine', 'python': '3.15.0',
+             'mapped': ('/etc', '/proc', '/sys', '/var/lib', '/var/log'), 'present': ('ss', 'smartctl', 'lsblk', 'apt'), 'logs': ()},
+    'bk01': {'root': True, 'container': False, 'init': 'systemd', 'distro': 'debian', 'python': '3.11.2',
+             'present': ('ss', 'smartctl', 'lsblk', 'nft', 'journalctl', 'systemctl', 'apt', 'sensors'), 'logs': ()},
+}
+
+
+def _demo_capabilities(spec) -> dict:
+    """The report of one host as the agent builds it, cleaned by the server the way the heartbeat cleans it."""
+    caps = _server_module('agent_capabilities')
+    raw = {'root': spec['root'], 'container': spec['container'], 'init': spec['init'], 'distro': spec['distro'],
+           'tools': {k: k in spec['present'] for k in caps.TOOL_KEYS},
+           'logs': [{'kind': kind, 'path': path, 'readable': readable} for kind, path, readable in spec['logs']],
+           'agent': {'version': CURRENT_VERSION, 'python': spec['python']}}
+    if spec.get('like'):
+        raw['like'] = spec['like']
+    if spec.get('mapped'):
+        raw['mapped'] = list(spec['mapped'])
+    return caps.clean(raw)
+
+
+def _demo_linux_signals(dev, rec):
+    """The package list refresh and the capabilities report of a Linux host whose agent sends them."""
+    si = rec['sysinfo']
+    refresh = _DEMO_PKG_REFRESH.get(dev['id'])
+    if refresh:
+        ago, status, source, error_class = refresh
+        record = _server_module('pkg_refresh').clean({'at': now() - ago, 'status': status, 'source': source, 'error_class': error_class}, now())
+        si['pkg_refresh'] = record
+        if status == 'ok':
+            si['pkg_scan_ts'] = record['at'] + 45         # a refresh that worked is followed by a read of what is pending, on the next check-in
+    if dev['id'] in _DEMO_CAPABILITIES:
+        si['capabilities'] = _demo_capabilities(_DEMO_CAPABILITIES[dev['id']])
+
+
+def _demo_second_half_signals(dev, rec):
+    """The signals of the 8.0.2 agents, for a host that runs one. No draw is made, so nothing else of the host moves."""
+    if dev['id'] in _DEMO_AGENT_UPDATED:
+        rec['version'] = CURRENT_VERSION
+    if dev.get('agentless') or _version_tuple(rec.get('version')) < _AGENT_SECOND_HALF:
+        return
+    running = _DEMO_KERNEL_REPORTED.get(dev['id'])
+    if running:
+        # the agent reports `uname -r` with the kernel packages, so the host's own kernel line and the platform line made from it say the same release
+        si = rec['sysinfo']
+        si['platform'] = str(si.get('platform', '')).replace(str(si.get('kernel', '')), running)
+        si['kernel'] = running
+    os_name = (dev.get('os') or '').lower()
+    if 'windows' in os_name:
+        _demo_windows_signals(rec)
+    elif 'macos' not in os_name and 'mac os' not in os_name:
+        _demo_linux_signals(dev, rec)
+
+
+# The kernels the demo's Debian 12 hosts hold: the release `uname -r` prints and the version of the package of that release, which is also the version of the source package `linux`
+# (and of the headers). The hypervisor runs the older one and has installed the newer one, which its hardware record, its pending reboot and its alert already say (6.1.0-27);
+# the NAS lists the one it runs and, on its 8.0.0 agent, does not say which that is. Each kernel is three packages, built from the same source.
+_DEMO_KERNEL_VERSIONS = {'6.1.0-21-amd64': '6.1.90-1', '6.1.0-27-amd64': '6.1.115-1'}
+_DEMO_KERNEL_LISTED = {'pmx01': ('6.1.0-21-amd64', '6.1.0-27-amd64'), 'tnas': ('6.1.0-21-amd64',)}
+_DEMO_KERNEL_REPORTED = {'pmx01': '6.1.0-21-amd64'}       # the host whose agent reports the kernel it runs and the images it owns
+_DEMO_KERNEL_CUT = {'tnas': ('linux',)}                    # the packages whose advisory list was longer than a scan reads: a kernel has the longest
+
+
+def _demo_kernel_rows(release) -> list:
+    version = _DEMO_KERNEL_VERSIONS[release]
+    series = release.rsplit('-', 1)[0]
+    return [{'name': f'linux-headers-{release}', 'version': version, 'arch': 'amd64', 'source': 'linux'},
+            {'name': f'linux-headers-{series}-common', 'version': version, 'arch': 'all', 'source': 'linux'},
+            {'name': f'linux-image-{release}', 'version': version, 'arch': 'amd64', 'source': 'linux'}]
+
+
+def _demo_kernel(dev_id) -> tuple:
+    """(the kernel rows a host's list holds, the kernel report its agent sends or None)."""
+    rows = [row for release in _DEMO_KERNEL_LISTED.get(dev_id, ()) for row in _demo_kernel_rows(release)]
+    running = _DEMO_KERNEL_REPORTED.get(dev_id)
+    if not running:
+        return rows, None
+    images = [{'name': f'linux-image-{r}', 'version': _DEMO_KERNEL_VERSIONS[r], 'release': r} for r in _DEMO_KERNEL_LISTED[dev_id]]
+    return rows, _server_module('cve_scanner').kernel_report({'release': running, 'images': images})
+
+
+# The two findings a newer kernel clears. A kernel image the host holds and does not run carries the fix: nothing is left to install, and a reboot starts it. They are medium, as most
+# kernel findings are, and are kept one by one because something an installed kernel holds is something to do (cve_fixes.kept).
+_DEMO_KERNEL_FINDINGS = [
+    ('CVE-2024-91001', 'Use-after-free in the netfilter set handling.', '2024-09-18'),
+    ('CVE-2024-91002', 'Out-of-bounds read in the USB audio driver.', '2024-10-02'),
+]
+
+
+def _demo_kernel_finding_rows(running_unit, newer) -> list:
+    """The findings of the running kernel that the newer one fixes, with the keys `scan_device` writes for a finding of the kernel that runs (the binaries are the packages the plan
+    names for the unit)."""
+    binaries = sorted(running_unit['binaries'])
+    return [{'package': running_unit['package'], 'version': running_unit['shown'], 'vuln_id': vid, 'severity': 'medium', 'severity_source': 'ubuntu_priority', 'summary': summary,
+             'fixed_version': newer['version'], 'fix_status': 'reboot', 'aliases': [], 'refs': [f'https://nvd.nist.gov/vuln/detail/{vid}'], 'published': published,
+             'binaries': binaries, 'reboot_to': newer['label']}
+            for vid, summary, published in _DEMO_KERNEL_FINDINGS]
+
+
+def _demo_cve_account(records) -> None:
+    """Add to each scan result of the demo what an 8.0.2 scan writes beyond the findings (cve_scanner.scan_device): `cut`, the account of which packages were checked and why not the
+    others (`covered`), and, for a host with a kernel package in its list, the kernel it runs (`kernel`). The plan and the account are the scanner's own, run over the host's list and the
+    answers its findings and counts imply: a package that has a finding was asked about and answered, and so is every other one, except where the answer was cut. The hosts list the
+    source packages, so no host reads "no source name". The hypervisor holds the two findings of the kernel it runs that its newer kernel fixes."""
+    scanner = _server_module('cve_scanner')
+    lists = build_packages()
+    for dev_id, record in records.items():
+        entry = lists[dev_id]
+        ecosystem, release = scanner.entry_ecosystem(entry), scanner.entry_release(entry)
+        has_meta = entry.get('sources') is True
+        units, block, later, left_out = scanner.plan_host(entry['packages'], ecosystem, has_meta, release, entry.get('kernel'))
+        if dev_id in _DEMO_KERNEL_REPORTED:
+            running = next(u for u in units if u.get('kernel') == 'running')
+            record['findings'] += _demo_kernel_finding_rows(running, later[0])
+        cut = _DEMO_KERNEL_CUT.get(dev_id, ())
+        answers = [{'vulns': [{'id': f['vuln_id']} for f in record['findings'] if f['package'] == u['package']]} for u in units]
+        record['cut'] = list(cut)
+        record['covered'] = scanner.package_coverage(entry['packages'], units, answers, scanner.coverage(ecosystem, has_meta, release or ''),
+                                                     {k for k, u in enumerate(units) if u['package'] in cut}, left_out=left_out)
+        if block:
+            record['kernel'] = dict(block, left_out=len(left_out))
+            running = next((u for u in units if u.get('kernel') == 'running'), None)
+            if running is not None:
+                family = scanner.family(ecosystem)
+                newer = next((o for o in later if scanner._version_order(family, o['version'], running['version'], o['epoch_known']) == 1), None)
+                if newer is not None:
+                    record['kernel']['newer'] = newer['label']
 
 
 def build_cmdb() -> dict:
@@ -3091,6 +3477,8 @@ def build_log_watch() -> dict:
                  'line': 'openvpn: TLS Error: TLS handshake failed'},
             ],
         }, 'updated_at': now() - 150},
+        # 8.0.2: the Windows host's event log units are named after the log and the event id (eventlog.Security.4625); an agent sends the events a rule asks for
+        'wks01': _demo_event_log_buffer(),
     }
     return out
 
@@ -3441,8 +3829,8 @@ def build_config() -> dict:
         # v7.0.2 — custom check definitions. /api/checks/custom read straight
         # off this key and returned zero, so the Checks page's custom section
         # was empty and no host could report a custom_check_results row that
-        # matched anything. See _DEMO_CUSTOM_CHECKS for the shape.
-        'custom_checks': _DEMO_CUSTOM_CHECKS,
+        # matched anything. See _DEMO_CUSTOM_CHECKS for the shape. 8.0.2: and the two registry checks of the Windows host (_demo_registry_checks).
+        'custom_checks': _demo_custom_checks(),
 
         # v7.0.2 — saved report definitions. Read off config by
         # handle_report_defs_list; with none the Reports page offered only the
@@ -4338,6 +4726,7 @@ def build_alerts() -> dict:
           'label': 'Telnet is not used on this network'}, 'alice', None),
     ]
     specs += _demo_detection_alert_specs()      # 8.0.0: last, so the ids of the alerts above (derived from their position) stay the same
+    specs += _demo_second_half_alert_specs()    # 8.0.2: after those, for the same reason
     alerts = []
     for i, spec in enumerate(specs):
         event, sev, dev_id, title, payload, ack_by, resolved_by = spec[:7]
@@ -4386,6 +4775,7 @@ def build_fleet_events() -> dict:
             if f.get('port'):
                 payload['port'] = f['port']
             events.append({'ts': _demo_detection_at(f), 'event': 'detection_found', 'payload': payload})
+    events.append(_demo_persistence_feed_event())        # 8.0.2: a new startup entry on the Windows host
     events.sort(key=lambda e: e['ts'])
     return {'events': events}
 
@@ -8752,6 +9142,8 @@ def build_log_rules_global() -> dict:
          'pattern': 'Remounting filesystem read-only', 'severity': 'critical', 'threshold': 1,
          'unit': 'kernel', 'enabled': True, 'created': now - 86400 * 14,
          'created_by': 'alice', 'created_at': now - 86400 * 14},
+        # 8.0.2: a rule on the Windows event log, as the Add rule dialog's "Failed logons" template saves it (unit, pattern, threshold, severity, template) and the server stores it
+        _demo_event_rule(),
     ]}
 
 
@@ -8991,6 +9383,8 @@ BUILDERS = {
     'enrollment_tokens.json':      build_enrollment_tokens,
     'patch_done.json':             build_patch_done,
     'notify_health.json':          build_notify_health,
+    # ── 8.0.2, second half: what starts by itself on the Windows host (the rest is in stores above) ───
+    'persistence.json':            build_persistence,
 }
 
 
