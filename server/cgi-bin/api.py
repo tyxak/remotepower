@@ -20160,9 +20160,11 @@ def cve_ignore_applies(entry, dev_id, dev=None):
     the SHARED cached store (`_load_ro`, no deepcopy) so this stays a dict
     lookup even when called once per finding.
     """
-    if not isinstance(entry, dict):
+    records = checks_mod.cve_ignore_records(entry)
+    if not records:
         return False
-    if not entry.get('tenant'):
+    # no record under this id belongs to a tenant: the device's tenant does not matter, so it is not looked up
+    if not any(r.get('tenant') for r in records):
         return checks_mod.cve_ignore_applies(entry, dev_id)
     if dev is None:
         dev = (_load_ro(DEVICES_FILE) or {}).get(dev_id) or {}

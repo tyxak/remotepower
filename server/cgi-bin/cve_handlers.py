@@ -17,6 +17,7 @@ rack_ipam_handlers pattern:
 Constants stay in api.py and are read here through A. Pure logic goes in a
 sibling module (imported directly, like dmarc_monitor / tls_monitor).
 """
+import re
 
 
 class _ApiNamespace:
@@ -601,6 +602,42 @@ def _ignore_entry_visible(entry):
     return mine is None
 
 
+def visible_ignore_records(value):
+    """The accepted-risk records under one id that the caller may see, each without the `others` list of the value it came from.
+
+    The one place a reader that hands the content of a record to a caller (its reason, the account that wrote it, the host it
+    names) gets the records from, so that none of them has to ask `_ignore_entry_visible` of the right object itself. The census
+    in tests/test_v802_cve_flow_tenancy.py lists every reader of the store and holds each one that shows content to this."""
+    return [{k: v for k, v in r.items() if k != 'others'}
+            for r in A.checks_mod.cve_ignore_records(value) if _ignore_entry_visible(r)]
+
+
+def _pack_ignore_records(records):
+    """The value to keep under one id for these records: the first as it is, the rest in its `others`. None for no records."""
+    if not records:
+        return None
+    first = {k: v for k, v in records[0].items() if k != 'others'}
+    rest = [{k: v for k, v in r.items() if k != 'others'} for r in records[1:]]
+    if rest:
+        first['others'] = rest
+    return first
+
+
+# What an accepted-risk record may be filed under. The ids of the advisory databases use letters, digits and a few separators
+# (CVE-2024-3094, DEBIAN-CVE-2024-3094, GHSA-xxxx-xxxx-xxxx, ALSA-2024:1234, openSUSE-SU-2024:1234-1). Free text of up to 64
+# characters was accepted before, which filled the page with names that match no finding.
+_VULN_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._:+-]{0,63}$')
+
+# How many records one organisation may hold. The page lists them all and every reader of the store reads all of them. A fleet
+# that accepts a risk host by host (500 hosts, ten CVEs) holds 5,000, so the ceiling sits above that.
+MAX_IGNORES_PER_OWNER = 5000
+
+
+def _is_vuln_id(value):
+    # fullmatch: `$` accepts a newline after the last character, so `match` let "CVE-2024-3094\n" through
+    return bool(_VULN_ID_RE.fullmatch(value))
+
+
 def handle_cve_ignore_add():
     """POST /api/cve/ignore — mark a vuln as accepted risk."""
     actor = A.require_admin_auth()
@@ -613,6 +650,8 @@ def handle_cve_ignore_add():
     scope    = A._sanitize_str(body.get('scope', 'global'), 64)
     if not vuln_id:
         A.respond(400, {'error': 'vuln_id required'})
+    if not _is_vuln_id(vuln_id):
+        A.respond(400, {'error': 'Invalid vuln_id'})
     if scope != 'global' and not A._validate_id(scope):
         A.respond(400, {'error': 'scope must be "global" or a valid device_id'})
     # v7.0.3 (SECURITY): `scope` names a device and was validated for SHAPE only.
@@ -628,7 +667,6 @@ def handle_cve_ignore_add():
     # single-tenant install, where a global record stays exactly that.
     owner = A._tenant_gate()
 
-    ignore_data = A.load(A.CVE_IGNORE_FILE)
     entry = {
         'scope':  scope,
         'reason': reason,
@@ -637,34 +675,52 @@ def handle_cve_ignore_add():
     }
     if owner:
         entry['tenant'] = owner
-    prior = ignore_data.get(vuln_id)
-    if isinstance(prior, dict) and not _ignore_entry_visible(prior):
-        # Someone else's accepted risk under the same key. Refuse rather than
-        # silently replacing a record this caller cannot even see.
-        A.respond(404, {'error': 'Not found'})
-    ignore_data[vuln_id] = entry
-    A.save(A.CVE_IGNORE_FILE, ignore_data)
+    # Read and written under the store's lock: two administrators who accept a risk together took one another's record away.
+    with A._LockedUpdate(A.CVE_IGNORE_FILE) as ignore_data:
+        records = A.checks_mod.cve_ignore_records(ignore_data.get(vuln_id))
+        # The caller's own record under this id is replaced by this one. The records of other organisations under the
+        # same id stay as they are. The store is keyed by the id alone, and refusing an id because another organisation
+        # holds it let one tenant take every id away from the others and told them which ids were taken (the 404 that
+        # stood here was that answer). Each organisation's records are its own.
+        kept = [r for r in records if _ignore_owner_gate(r) != owner]
+        held = sum(1 for value in ignore_data.values() for r in A.checks_mod.cve_ignore_records(value)
+                   if _ignore_owner_gate(r) == owner) - (len(records) - len(kept))
+        if held >= MAX_IGNORES_PER_OWNER:
+            A.respond(400, {'error': 'Too many accepted risks. Remove some first.', 'limit': MAX_IGNORES_PER_OWNER})
+        ignore_data[vuln_id] = _pack_ignore_records(kept + [entry])
     A.audit_log(actor, 'cve_ignore_add',
               detail=f'{vuln_id} scope={scope} reason={reason[:80]}')
     A.respond(200, {'ok': True, 'ignored': vuln_id})
 
 
 def handle_cve_ignore_delete(vuln_id):
-    """DELETE /api/cve/ignore/{vuln_id}"""
+    """DELETE /api/cve/ignore/{vuln_id} — lift the acceptance of this id: the records under it that the caller may see."""
     actor = A.require_admin_auth()
     vuln_id = A._sanitize_str(vuln_id, 64, allow_empty=False)
     if not vuln_id:
         A.respond(400, {'error': 'Invalid vuln_id'})
-    ignore_data = A.load(A.CVE_IGNORE_FILE)
-    entry = ignore_data.get(vuln_id)
+    removed = 0
+    with A._LockedUpdate(A.CVE_IGNORE_FILE) as ignore_data:
+        records = A.checks_mod.cve_ignore_records(ignore_data.get(vuln_id))
+        mine = [r for r in records if _ignore_entry_visible(r)]
+        if mine:
+            removed = len(mine)
+            packed = _pack_ignore_records([r for r in records if not _ignore_entry_visible(r)])
+            if packed is None:
+                del ignore_data[vuln_id]
+            else:
+                ignore_data[vuln_id] = packed
     # v7.0.3 (SECURITY): 404 rather than 403 on another tenant's record — the
     # same shape every other device-keyed store uses, so the response does not
-    # confirm that the record exists.
-    if isinstance(entry, dict) and not _ignore_entry_visible(entry):
+    # confirm that the record exists. An id that nobody holds answers the same
+    # to a tenant's user: it used to answer 200, which told a tenant that a 404
+    # meant another organisation's record. A caller no tenant gate applies to
+    # (the operator, or any user of an install without tenancy) sees every
+    # record, so for them "not there" has no one to hide, and the answer is the
+    # idempotent 200 it has always been.
+    if not removed and A._tenant_gate() is not None:
         A.respond(404, {'error': 'Not found'})
-    if vuln_id in ignore_data:
-        del ignore_data[vuln_id]
-        A.save(A.CVE_IGNORE_FILE, ignore_data)
+    if removed:
         A.audit_log(actor, 'cve_ignore_remove', detail=vuln_id)
     A.respond(200, {'ok': True})
 
@@ -675,7 +731,7 @@ def handle_cve_ignore_list():
     ignore_data = A.load(A.CVE_IGNORE_FILE)
     # v7.0.3 (SECURITY): the rows carry a device id in `scope`, so an
     # unfiltered list handed every caller the other tenants' host ids.
-    items = [{'vuln_id': k, **v} for k, v in ignore_data.items()
-             if _ignore_entry_visible(v)]
+    items = [{'vuln_id': k, **record} for k, v in ignore_data.items()
+             for record in visible_ignore_records(v)]
     items.sort(key=lambda x: -x.get('ts', 0))
     A.respond(200, {'ignores': items})

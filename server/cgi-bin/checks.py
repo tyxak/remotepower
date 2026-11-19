@@ -269,6 +269,41 @@ def nic_summary(e, d):
     return ", ".join(bits) or "+0"
 
 
+def cve_ignore_records(value):
+    """The accepted-risk records held under one vulnerability id: the record itself, and the ones other organisations added.
+
+    The store is keyed by the id of the vulnerability. A record is a map of `scope`, `reason`, `actor`, `ts` and, for a tenant's, `tenant`.
+    When a second organisation accepts an id that another already holds, its record rides in the `others` list of the first, so that
+    neither can take the id away from the other and neither learns from a refusal that the other holds it. A value that has never had a
+    second owner is the record alone, as it has always been. Anything that is not a map is no record.
+    """
+    if not isinstance(value, dict):
+        return []
+    out = [value]
+    others = value.get("others")
+    if isinstance(others, list):
+        out.extend(r for r in others if isinstance(r, dict))
+    return out
+
+
+def _ignore_record_applies(record, dev_id, dev_tenant):
+    scope = record.get("scope")
+    if scope != "global" and scope != dev_id:
+        return False
+    owner = record.get("tenant")
+    if not owner:
+        return True
+    return dev_tenant == owner
+
+
+def cve_ignore_record(entry, dev_id, dev_tenant=None):
+    """The first accepted-risk record under this id that suppresses a CVE finding on this device, or None. See `cve_ignore_applies`."""
+    for record in cve_ignore_records(entry):
+        if _ignore_record_applies(record, dev_id, dev_tenant):
+            return record
+    return None
+
+
 def cve_ignore_applies(entry, dev_id, dev_tenant=None):
     """Does an accepted-risk record suppress a CVE finding on this device?
 
@@ -287,16 +322,11 @@ def cve_ignore_applies(entry, dev_id, dev_tenant=None):
     rather than per finding. None means "not known here", which only matters for
     a tenant-owned record; those are ignored in that case, which errs toward
     showing a finding rather than hiding one.
+
+    `entry` is the value held under the id: the record, and the records other organisations added beside it
+    (`cve_ignore_records`). The finding is suppressed when any of them applies.
     """
-    if not isinstance(entry, dict):
-        return False
-    scope = entry.get("scope")
-    if scope != "global" and scope != dev_id:
-        return False
-    owner = entry.get("tenant")
-    if not owner:
-        return True
-    return dev_tenant == owner
+    return cve_ignore_record(entry, dev_id, dev_tenant) is not None
 
 
 def drifted_files(drift_rec):

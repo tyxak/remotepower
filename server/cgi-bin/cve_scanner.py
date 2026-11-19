@@ -1899,9 +1899,12 @@ def apply_ignore_list(findings: list, ignore_data: dict, dev_id: str,
         # findings often come straight from a cached load() and are reused by
         # other callers — e.g. the timeline merge).
         f = dict(f)
-        if checks.cve_ignore_applies(ig, dev_id, dev_tenant):
+        # the record that applies to this host, and its reason: an id that two organisations accepted holds
+        # both records, and a host shows the reason of its own organisation's, never the other's
+        record = checks.cve_ignore_record(ig, dev_id, dev_tenant)
+        if record is not None:
             f['ignored'] = True
-            f['ignore_reason'] = ig.get('reason', '')
+            f['ignore_reason'] = record.get('reason', '')
         else:
             f['ignored'] = False
         out.append(f)

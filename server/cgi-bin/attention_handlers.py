@@ -434,14 +434,18 @@ def handle_suppressions():
     except Exception as e:
         A.sys.stderr.write(f'[remotepower] suppressions: na rules: {e}\n')
 
-    # 4. accepted-risk CVEs.
+    # 4. accepted-risk CVEs. The store holds the records of every organisation (and the operator's), and a record shows its reason
+    # and the host it names, so each one is read through the rule that decides who may see it (cve_handlers._ignore_entry_visible):
+    # this list showed every organisation's accepted risks to any signed-in user, because it read a `device_id` that a record never
+    # holds (a record holds `scope` and `tenant`), so the host filter above passed every row.
     try:
-        for vuln_id, meta in (A.load(A.CVE_IGNORE_FILE) or {}).items():
-            meta = meta if isinstance(meta, dict) else {}
-            add('cve_accepted', str(vuln_id)[:64],
-                'Accepted risk' + (f" — {meta['reason']}"
-                                   if meta.get('reason') else ''),
-                'cve', device_id=meta.get('device_id') or '')
+        for vuln_id, value in (A.load(A.CVE_IGNORE_FILE) or {}).items():
+            for meta in A.cve_handlers_mod.visible_ignore_records(value):
+                scope = meta.get('scope')
+                add('cve_accepted', str(vuln_id)[:64],
+                    'Accepted risk' + (f" — {meta['reason']}"
+                                       if meta.get('reason') else ''),
+                    'cve', device_id=scope if isinstance(scope, str) and scope != 'global' else '')
     except Exception as e:
         A.sys.stderr.write(f'[remotepower] suppressions: cve ignores: {e}\n')
 

@@ -457,10 +457,16 @@ Generate a Software Bill of Materials per host or for the whole fleet:
   pressing ones were patched was there all along and is not announced as new. `cve_cleared` is
   sent when nothing in your alert severities is left, listed or counted.
 - **Ignore** a CVE on one host or fleet-wide, with a reason (`POST /api/cve/ignore`, scope
-  `global` or a host ID).
+  `global` or a host ID). The ID is the ID of a vulnerability as the advisory databases write it,
+  such as `CVE-2024-3094`, `DEBIAN-CVE-2024-3094` or `GHSA-xxxx-xxxx-xxxx`.
   Ignored CVEs do not count and are left out of alerts and the re-alert backlog. You can
   see every ignore and take it back under **Settings → Ignored items → Ignored CVEs**
   (`DELETE /api/cve/ignore/{vuln_id}`).
+- Each organisation has ignores of its own. With multi-tenancy on, what a tenant ignores never
+  changes what another tenant's hosts show, and two tenants can ignore the same CVE. A tenant
+  sees its own ignores, and the ones the platform operator wrote for one of its hosts. The same
+  holds for the accepted-risk rows of **Monitoring → Tuning**. One organisation can hold up to
+  5,000 ignores.
 
 ## Container image CVEs
 

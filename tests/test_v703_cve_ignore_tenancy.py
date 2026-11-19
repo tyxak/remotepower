@@ -162,14 +162,19 @@ class TestCrossTenantReachIsClosed(_HandlerCase):
         self.assertIn('CVE-2', self.store())
 
     def test_cannot_overwrite_a_record_it_cannot_see(self):
+        """8.0.2: nor is it refused. The 404 that stood here kept another tenant's record safe and also let one tenant take every id
+        away from the others, and told them which ids were taken (tests/test_v802_cve_flow_tenancy.py). The second tenant's record
+        is kept beside the first; the first is not replaced and still belongs to its tenant."""
         self.call(api.handle_cve_ignore_add,
                   body={'vuln_id': 'CVE-2', 'scope': 'global'})
         self.gate = 't2'
         api._invalidate_load_cache(None)
         status, _ = self.call(api.handle_cve_ignore_add,
                               body={'vuln_id': 'CVE-2', 'scope': 'global'})
-        self.assertEqual(status, 404)
+        self.assertEqual(status, 200, 'a refusal would tell this tenant that another one holds the id')
         self.assertEqual(self.store()['CVE-2'].get('tenant'), 't1')
+        held = api.checks_mod.cve_ignore_records(self.store()['CVE-2'])
+        self.assertEqual(sorted(r.get('tenant') for r in held), ['t1', 't2'])
 
 
 class TestTheOrdinaryCasesStillWork(_HandlerCase):
