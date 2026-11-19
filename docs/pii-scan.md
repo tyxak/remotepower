@@ -54,6 +54,7 @@ with one block per host. **Scan now** on that card runs the scan on the next hea
 A scan is bounded so it cannot stall a host. It stops after 300 findings, 8,000 files
 or 20 seconds, whichever comes first, and it skips files over 2 MiB, binary files,
 symbolic links and the usual dependency folders (`.git`, `node_modules` and similar).
+A folder that is a link is not entered either, and on a Windows host that includes a junction.
 On a large tree, a scan can therefore be partial.
 
 ## A report, not an alert

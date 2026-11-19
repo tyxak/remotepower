@@ -50,7 +50,8 @@ platforms, so a restart does not reset the clock.
 The scan is capped so it cannot hog a host: at most 200 findings, 5,000 files
 visited, 1 MiB read per file and about 12 seconds per run. Binary files,
 symlinks and noise folders (`.git`, `node_modules`, `venv` and similar) are
-skipped.
+skipped. A folder that is a link is not entered, and on a Windows host that includes a
+junction, which a person can make in a folder of their own without a privilege.
 
 ### Scan now
 

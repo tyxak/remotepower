@@ -66,6 +66,8 @@ TWINNED = {
     # negative fixed on one platform and not the other means one half of the
     # fleet keeps leaking the pattern that was just fixed.
     '_luhn_ok', '_redact_secret', 'collect_pii_findings', 'collect_secret_findings',
+    # 8.0.2: the two scans do not go into a folder that is a link (a junction is one on Windows): the one test of it
+    '_is_link_dir',
     # misc shared helpers
     '_exec_timeout_override', '_fmt_uptime', '_spent', '_stable_hash',
     # server address check: one sentence for a person at a terminal (7.4.0)

@@ -3372,6 +3372,17 @@ def _redact_secret(s):
     return s[:4] + '*' * 8 + f'({len(s)})'
 
 
+def _is_link_dir(path):
+    """Whether a folder is a link a person can make in a folder of their own: a symbolic link or, on Windows, any reparse point (a junction is none of the symbolic
+    kind). A scan that runs as root or SYSTEM does not go into one: where it points is that person's choice, and opening it may send the machine's credentials to
+    another machine. A folder that cannot be looked at is left alone too."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return True
+    return stat.S_ISLNK(st.st_mode) or bool(getattr(st, 'st_file_attributes', 0) & getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400))
+
+
 def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576,
                             max_files=5000, time_budget=12.0):
     paths = paths or _SECRETS_DEFAULT_PATHS
@@ -3388,7 +3399,7 @@ def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576
             if len(findings) >= max_findings or visited >= max_files \
                     or time.monotonic() - start > time_budget:
                 break
-            dirnames[:] = [d for d in dirnames if d not in _SECRETS_SKIP_DIRS]
+            dirnames[:] = [d for d in dirnames if d not in _SECRETS_SKIP_DIRS and not _is_link_dir(os.path.join(dirpath, d))]
             for fn in filenames:
                 if len(findings) >= max_findings or visited >= max_files:
                     break
@@ -3724,7 +3735,7 @@ def collect_pii_findings(paths=None, max_findings=300, max_file_bytes=2097152,
         for dirpath, dirnames, filenames in os.walk(base):
             if _spent():
                 break
-            dirnames[:] = [d for d in dirnames if d not in _PII_SKIP_DIRS]
+            dirnames[:] = [d for d in dirnames if d not in _PII_SKIP_DIRS and not _is_link_dir(os.path.join(dirpath, d))]
             for fn in filenames:
                 if _spent():
                     break
