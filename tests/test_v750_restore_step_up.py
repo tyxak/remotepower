@@ -64,6 +64,23 @@ PAIRS = {
     "litigation_hold": ({"enabled": True, "reason": "case 12"}, {"enabled": False}),
     "scim_enabled": (False, True),          # 8.0.2: SCIM on lets the identity provider put an account in the admin group
     "scim_token": ("", "token-of-an-earlier-revision"),
+    # 8.0.2: an identity provider promotes the accounts of its admin group to administrator, so who it is, whom it is believed about and the
+    # map of its groups are the same step (a restore swaps the whole document, so any difference between two documents asks)
+    "oidc_enabled": (False, True),
+    "oidc_issuer": ("", "https://idp.example"),
+    "oidc_client_id": ("", "rp"),
+    "oidc_client_secret": ("", "a-secret-of-an-earlier-revision"),
+    "oidc_admin_group": ("", "owners"),
+    "saml_enabled": (False, True),
+    "saml_idp_entity_id": ("", "https://idp.example/meta"),
+    "saml_idp_sso_url": ("", "https://idp.example/sso"),
+    "saml_idp_x509_cert": ("", "MIIB-a-certificate"),
+    "saml_attr_username": ("", "uid"),
+    "saml_attr_groups": ("", "groups"),
+    "saml_admin_group": ("", "owners"),
+    "saml_allow_unsolicited": (False, True),
+    "sso_group_roles": ({}, {"owners": "admin"}),
+    "sso_default_tenant": ("", "acme"),
 }
 
 
@@ -88,7 +105,10 @@ class TestWhatCountsAsAChange(unittest.TestCase):
     def test_a_key_the_revision_does_not_have_counts_as_its_default(self):
         """A revision saved before a switch existed carries no key: restoring it removes the switch."""
         for key in ("change_approval_enabled", "mfa_required_roles", "sso_only", "ip_allowlist", "audit_worm_path",
-                    "audit_forward_enabled", "tenancy_enforced", "litigation_hold", "change_approval_no_self", "scim_enabled", "scim_token"):
+                    "audit_forward_enabled", "tenancy_enforced", "litigation_hold", "change_approval_no_self", "scim_enabled", "scim_token",
+                    "oidc_enabled", "oidc_issuer", "oidc_client_id", "oidc_client_secret", "oidc_admin_group", "saml_enabled", "saml_idp_entity_id",
+                    "saml_idp_sso_url", "saml_idp_x509_cert", "saml_attr_username", "saml_attr_groups", "saml_admin_group", "saml_allow_unsolicited",
+                    "sso_group_roles", "sso_default_tenant"):
             with self.subTest(key=key):
                 # the value of the pair that is not the default (no-self approval is ON by default, so its weaker value is the one)
                 other = next(v for v in PAIRS[key] if api._governance_effective({key: v}, key) != api._governance_effective({}, key))
@@ -112,6 +132,14 @@ class TestWhatCountsAsAChange(unittest.TestCase):
             {"audit_forward_enabled": False},
             {"scim_enabled": False},
             {"scim_token": ""},
+            {"oidc_enabled": False},
+            {"oidc_issuer": ""},
+            {"oidc_client_secret": ""},
+            {"saml_enabled": False},
+            {"saml_idp_x509_cert": ""},
+            {"saml_allow_unsolicited": False},
+            {"sso_group_roles": {}},
+            {"sso_default_tenant": ""},
         ]
         for doc in same:
             with self.subTest(doc=doc):

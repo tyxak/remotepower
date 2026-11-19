@@ -1652,7 +1652,11 @@ async function _wizOidcOn(st, w) {
   const body = { oidc_enabled: true, oidc_issuer: st.issuer.trim(), oidc_client_id: st.cid.trim(), oidc_scopes: st.scopes.trim() || _WIZ_OIDC_SCOPES,
                  oidc_admin_group: st.admin.trim(), sso_group_roles: _parseGroupRoleMap(st.map) };
   if (st.secret !== '') body.oidc_client_secret = st.secret;
-  const r = await api('POST', '/config', body);
+  // 8.0.2: turning sign-in through a provider on asks for a fresh sign-in check, as the OIDC card does (a provider promotes the accounts of
+  // its admin group to administrator). withStepUp prompts and sends the save again; a prompt that was declined saved nothing, and the
+  // guide stays on its last step without a message.
+  const r = await withStepUp(() => api('POST', '/config', body));
+  if (r && r.code === 'step_up_required') return false;
   if (!r || r.error || r.ok === false) { _wizMsg((r && r.error) || 'Save failed', ''); return false; }
   w.finished = true;
   _wizOidcSync(st, body);

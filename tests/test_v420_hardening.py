@@ -260,10 +260,14 @@ class TestSamlSso(_Base):
         api.SAML_REQUESTS_FILE = self.d / 'saml_requests.json'
         self._ra = api.require_auth
         api.require_auth = lambda require_admin=False: 'alice'
+        # turning SAML on asks for a step-up (tests/test_v802_sso_trust_asks_for_step_up.py holds that); these tests are about what the save refuses
+        self._rs = api.require_step_up
+        api.require_step_up = lambda: 'alice'
         os.environ['HTTP_HOST'] = 'rp.example.com'
 
     def tearDown(self):
         api.require_auth = self._ra
+        api.require_step_up = self._rs
         api.SAML_REQUESTS_FILE = self._sr
         os.environ.pop('HTTP_HOST', None)
         super().tearDown()

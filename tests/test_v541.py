@@ -1459,8 +1459,12 @@ class TestD5GroupRoleMatrix(unittest.TestCase):
 
     def test_config_save_whitelisted_and_sanitised(self):
         src = _apisrc_combined()
-        self.assertIn("cfg['sso_group_roles'] = clean", src)
+        self.assertIn("cfg['sso_group_roles'] = _clean_sso_group_roles(body.get('sso_group_roles'))", src)
         self.assertIn("if 'sso_group_roles' in body:", src)
+        # ...and the cleaner is what the save always applied: trimmed names, the empty ones left out, at most 200, a non-map is empty
+        self.assertEqual(api._clean_sso_group_roles({' sec-ops ': ' auditor ', '': 'x', 'ops': '', 'ok': 'admin'}), {'sec-ops': 'auditor', 'ok': 'admin'})
+        self.assertEqual(len(api._clean_sso_group_roles({'g%d' % i: 'admin' for i in range(300)})), 200)
+        self.assertEqual(api._clean_sso_group_roles(['admin']), {})
 
     def test_frontend_matrix_wired(self):
         appjs, html = _appjs(), _html()

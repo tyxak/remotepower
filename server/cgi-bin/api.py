@@ -32469,7 +32469,73 @@ _GOVERNANCE_CONFIG_KEYS = (
     # the power out asks (see _governance_keys_touched): switching SCIM off or clearing the token does not.
     'scim_enabled',                 # 8.0.2: whether an identity provider may set roles
     'scim_token',                   # 8.0.2: and the secret that lets it
+    # An identity provider (OpenID Connect or SAML) promotes any account whose group it names to administrator, which is promoting it without
+    # the step-up that PATCH /api/users asks for, and a provider is only as trustworthy as the settings that name it. An administrator key
+    # (which can never step up) could create a viewer with a password it chose, point sign-in at a provider of its own with its own admin
+    # group, let the provider's answer promote that account, sign in with the password it chose, step up with it and do what the key had been
+    # refused. So the switch that turns a provider on, and the settings that say who the provider is, whom it is believed about and which of
+    # its groups are administrators, are the same step. Only the direction that hands the power out asks (see _sso_keys_touched): turning a
+    # provider off, and clearing a value, do not.
+    'oidc_enabled', 'oidc_issuer', 'oidc_client_id', 'oidc_client_secret', 'oidc_admin_group',
+    'saml_enabled', 'saml_idp_entity_id', 'saml_idp_sso_url', 'saml_idp_x509_cert', 'saml_attr_username', 'saml_attr_groups',
+    'saml_admin_group', 'saml_allow_unsolicited',
+    'sso_group_roles', 'sso_default_tenant',      # the map of groups to roles, shared by both providers, and where new accounts land
 )
+
+# The ones above that belong to a provider, so that the comparison below can leave every other governance key to its own rule.
+_SSO_GOVERNANCE_KEYS = ('oidc_enabled', 'oidc_issuer', 'oidc_client_id', 'oidc_client_secret', 'oidc_admin_group',
+                        'saml_enabled', 'saml_idp_entity_id', 'saml_idp_sso_url', 'saml_idp_x509_cert', 'saml_attr_username', 'saml_attr_groups',
+                        'saml_admin_group', 'saml_allow_unsolicited', 'sso_group_roles', 'sso_default_tenant')
+
+
+def _clean_sso_group_roles(raw):
+    """The map of identity-provider groups to roles as the settings save stores it: at most 200 entries of group and role names, trimmed and
+    cut to length, with the empty ones left out. Anything that is not a map is an empty one. The save and the step-up comparison read it
+    through this one function, so a form that posts the stored map again compares equal."""
+    clean = {}
+    if isinstance(raw, dict):
+        for g, r in list(raw.items())[:200]:
+            gk = _sanitize_str(str(g or ''), 256).strip()
+            rv = _sanitize_str(str(r or ''), 64).strip()
+            if gk and rv:
+                clean[gk] = rv
+    return clean
+
+
+def _sso_setting_value(key, raw):
+    """A value of one of the single sign-on settings in the form the settings save stores it (the same trimming and the same cuts), so that
+    a form that posts a value again, as the Settings page does with the whole form, is not read as a change."""
+    if key in ('oidc_enabled', 'saml_enabled', 'saml_allow_unsolicited'):
+        return bool(raw)
+    if key == 'sso_group_roles':
+        return _clean_sso_group_roles(raw)
+    if key == 'sso_default_tenant':
+        return _sanitize_str(str(raw or ''), 64).strip()
+    return _sanitize_str(str(raw or ''), 8192 if key == 'saml_idp_x509_cert' else 512)
+
+
+def _sso_keys_touched(body, cfg):
+    """Which of the single sign-on settings in `body` hand an identity provider the power to make administrators, which is what asks for a
+    step-up: turning a provider on, and setting a value that differs from the stored one (the issuer, the client, who the provider is, which
+    attributes name the account and its groups, the admin group, the map of groups to roles, the tenant that new accounts land in). A
+    value set while its provider is off counts too, since it would be live on the day somebody else turns the provider on. What takes the
+    power back does not ask: turning a provider off, clearing a value, and a blank client secret (the save keeps the one it has)."""
+    out = []
+    for k in _SSO_GOVERNANCE_KEYS:
+        if k not in body:
+            continue
+        if k in ('oidc_enabled', 'saml_enabled'):
+            if bool(body[k]) and not cfg.get(k):          # read as the save reads it: any value that is true switches the provider on
+                out.append(k)
+        elif k == 'oidc_client_secret':
+            v = body[k]                                   # write-only: the save ignores what is not text, and keeps the secret for a blank
+            if isinstance(v, str) and v and _sanitize_str(v, 512) != str(cfg.get(k) or ''):
+                out.append(k)
+        else:
+            new = _sso_setting_value(k, body[k])
+            if new and new != _sso_setting_value(k, cfg.get(k)):
+                out.append(k)
+    return out
 
 
 def _governance_keys_touched(body, cfg):
@@ -32485,6 +32551,7 @@ def _governance_keys_touched(body, cfg):
         return []
     cfg = cfg or {}
     out = []
+    sso = None
     for k in _GOVERNANCE_CONFIG_KEYS:
         if k not in body:
             continue
@@ -32513,6 +32580,13 @@ def _governance_keys_touched(body, cfg):
             mints_one = on_after and (v == '__clear__' or (not stored and not v.strip()))
             if sets_one or mints_one:
                 out.append(k)
+        elif k in _SSO_GOVERNANCE_KEYS:
+            # Which of the single sign-on settings hand a provider the power to make administrators is worked out once, for all of them
+            # (the same body and the same stored document); see _sso_keys_touched for what asks and what does not.
+            if sso is None:
+                sso = set(_sso_keys_touched(body, cfg))
+            if k in sso:
+                out.append(k)
         elif body.get(k) != cfg.get(k):
             out.append(k)
     return out
@@ -32536,6 +32610,10 @@ def _governance_effective(cfg, key):
         return str(v or '')
     if key == 'scim_token':
         return str(v or '')           # which secret counts, not only whether there is one: a restore can swap one token for another
+    if key == 'oidc_client_secret':
+        return str(v or '')           # the same for the client secret of the OpenID Connect provider
+    if key in _SSO_GOVERNANCE_KEYS:
+        return _sso_setting_value(key, v)    # a provider, who it is, and the map of its groups: any difference between two documents asks
     return bool(v)
 
 
@@ -35104,15 +35182,7 @@ def handle_config_save():
             respond(403, {'error': "sso_group_roles is an instance-wide setting affecting "
                                    "every tenant's SSO users — only a platform "
                                    "superadmin can change it"})
-        raw = body.get('sso_group_roles')
-        clean = {}
-        if isinstance(raw, dict):
-            for g, r in list(raw.items())[:200]:
-                gk = _sanitize_str(str(g or ''), 256).strip()
-                rv = _sanitize_str(str(r or ''), 64).strip()
-                if gk and rv:
-                    clean[gk] = rv
-        cfg['sso_group_roles'] = clean
+        cfg['sso_group_roles'] = _clean_sso_group_roles(body.get('sso_group_roles'))     # the one cleaner the step-up comparison reads too
 
     # v4.2.0 (B1): SAML 2.0 SP config. The IdP entity-id / SSO URL / x509 cert
     # plus the attribute→user/role mapping. All plain strings (the cert is the

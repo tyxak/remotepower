@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -173,8 +174,18 @@ class TestTheSingleSignOnGuide(unittest.TestCase):
             cls.ctx.close()
 
     @classmethod
-    def api(cls, method, path, body=None):
+    def _api(cls, method, path, body=None):
         return cls.page.evaluate("async ([m, p, b]) => b === null ? await api(m, p) : await api(m, p, b)", [method, path, body])
+
+    @classmethod
+    def api(cls, method, path, body=None):
+        """A call of the page's api(). Setting who the provider is asks for the operator's password first (a step-up, valid for ten minutes), so a call
+        that gets that answer confirms the password the way the page's own dialog does and sends the same call again."""
+        answer = cls._api(method, path, body)
+        if isinstance(answer, dict) and answer.get("code") == "step_up_required":
+            cls._api("POST", "/auth/step-up", {"password": "demo"})
+            answer = cls._api(method, path, body)
+        return answer
 
     def stored(self):
         cfg = read_config()
@@ -258,10 +269,23 @@ class TestTheSingleSignOnGuide(unittest.TestCase):
     def result(self):
         return self.page.inner_text("#wiz-result")
 
+    def answer_the_step_up(self, done):
+        """Turning sign-in through a provider on asks for the password first (the page's step-up dialog), unless the session confirmed it in the last
+        ten minutes. Wait until `done()` is true, answering the dialog the way the operator would if it comes up."""
+        deadline = time.time() + 40
+        while time.time() < deadline and not done():
+            if self.page.evaluate("() => { const m = document.getElementById('step-up-modal'); return !!m && m.classList.contains('active'); }"):
+                self.page.fill("#step-up-password", "demo")
+                self.page.click('#step-up-modal [data-action="stepUpSubmit"]')
+                self.page.wait_for_timeout(1500)
+            self.page.wait_for_timeout(200)
+        self.assertTrue(done(), "the step did not finish")
+
     def finish(self):
         self.next()                                              # the Test step
         self.page.wait_for_selector("#wiz-body .wiz-list")
         self.next()                                              # Finish: Turn it on
+        self.answer_the_step_up(lambda: self.page.query_selector("#wizard-modal") is None)
         self.page.wait_for_selector("#wizard-modal", state="detached", timeout=20000)
 
     # ── the way in, the providers and what each needs ───────────────────────────────────────────────────────────────────────

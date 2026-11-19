@@ -1299,7 +1299,8 @@ class TestOidcValidationAndTest(_ApiTestBase):
         self.api.save(self.api.USERS_FILE, users)
         self.tok = 'admin_' + os.urandom(8).hex()
         toks = self.api.load(self.api.TOKENS_FILE)
-        toks[self.tok] = {'user': 'admin', 'created': int(time.time()), 'ttl': 10**9}
+        # a session that has re-entered its password (the save asks for that when it turns sign-in through a provider on or changes which one)
+        toks[self.tok] = {'user': 'admin', 'created': int(time.time()), 'ttl': 10**9, 'step_up_at': int(time.time())}
         self.api.save(self.api.TOKENS_FILE, toks)
         os.environ['HTTP_X_TOKEN'] = self.tok
 

@@ -16681,8 +16681,12 @@ async function saveOidcConfig() {
   // v5.4.1 (D5): parse the shared SSO group→role matrix ("group=role" per line).
   const ssoMap = document.getElementById('sso-group-roles');
   if (ssoMap) payload.sso_group_roles = _parseGroupRoleMap(ssoMap.value);
-  const r = await api('POST', '/config', payload);
-  if (r && r.ok !== false) {
+  // 8.0.2: turning sign-in through a provider on, or changing who the provider is or which of its groups are administrators, asks for a
+  // fresh sign-in check (a provider promotes the accounts of its admin group to administrator). withStepUp prompts and sends the save
+  // again; a prompt that was declined saved nothing and says nothing.
+  const r = await withStepUp(() => api('POST', '/config', payload));
+  if (r && r.code === 'step_up_required') return;
+  if (r && r.ok !== false && !r.error) {
     toast('OIDC config saved', 'success');
     document.getElementById('oidc-client-secret').value = '';
   } else {
@@ -16707,8 +16711,10 @@ async function saveSamlConfig() {
   // v5.4.1 (D5): persist the shared SSO group→role matrix from here too.
   const ssoMap = document.getElementById('sso-group-roles');
   if (ssoMap) payload.sso_group_roles = _parseGroupRoleMap(ssoMap.value);
-  const r = await api('POST', '/config', payload);
-  if (r && r.ok !== false) toast('SAML config saved', 'success');
+  // 8.0.2: the same step-up as the OIDC card, for the same reason (see saveOidcConfig).
+  const r = await withStepUp(() => api('POST', '/config', payload));
+  if (r && r.code === 'step_up_required') return;
+  if (r && r.ok !== false && !r.error) toast('SAML config saved', 'success');
   else failToast(r);
 }
 
