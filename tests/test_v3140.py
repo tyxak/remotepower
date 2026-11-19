@@ -2979,7 +2979,14 @@ class TestSsoGroupRolesTenantGate(_HandlerBase):
     def _save(self, mapping):
         api.method = lambda: 'POST'
         api.get_json_body = lambda: {'sso_group_roles': mapping}
-        return self.call(api.handle_config_save)
+        # Changing the map asks for a step-up (tests/test_v802_sso_trust_asks_for_step_up.py holds that). These tests are about the tenant
+        # gate behind it, and without the stub the step-up answers first and a tenant administrator's 403 would be the wrong 403.
+        _rs = api.require_step_up
+        api.require_step_up = lambda: 'jakob'
+        try:
+            return self.call(api.handle_config_save)
+        finally:
+            api.require_step_up = _rs
 
     def test_tenant_admin_cannot_change_instance_wide_map(self):
         api.save(api.USERS_FILE, {'jakob': {'role': 'admin', 'tenant_id': 'acme'}})
