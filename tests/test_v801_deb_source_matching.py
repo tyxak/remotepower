@@ -807,10 +807,10 @@ class TestReadingTheAdvisoryRecords(unittest.TestCase):
             saves.append(len(data))
             real_save(path, data)
         with mock.patch.object(cve_scanner, '_osv_vuln_details', lambda vid: {'id': vid, 'summary': 's'}), \
-                mock.patch.object(cve_scanner, '_save_json', save):
+                mock.patch.object(cve_scanner, '_save_json', save), mock.patch.object(cve_scanner, 'DETAIL_SAVE_EVERY_S', 0):
             cve_scanner._fetch_details({f'X-{i}' for i in range(700)}, 'Debian:12', {}, self.cache,
                                        tick=lambda: ticks.append(1))
-        self.assertGreaterEqual(len(saves), 3)                        # every 250, and at the end
+        self.assertGreaterEqual(len(saves), 3)                        # at every round the interval allows (none here), and at the end
         self.assertEqual(saves[-1], 700)
         self.assertEqual(saves, sorted(saves))
         self.assertGreater(len(ticks), 80)                            # between rounds of eight

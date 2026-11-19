@@ -13,7 +13,6 @@ The handler runs for real through `main()`, with the gates that run before it; o
 """
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys

@@ -11,7 +11,6 @@ import ast
 import json
 import os
 import random
-import re
 import signal
 import string
 import sys

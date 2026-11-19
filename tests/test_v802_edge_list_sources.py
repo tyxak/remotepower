@@ -16,7 +16,6 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest import mock
 
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v802-edgelist-'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -26,7 +25,6 @@ import ipintel_store  # noqa: E402
 from request_harness import RequestCase  # noqa: E402
 
 import edge_blocklist  # noqa: E402
-import ip_intel  # noqa: E402
 import threat_evidence  # noqa: E402
 
 NOW = int(time.time())

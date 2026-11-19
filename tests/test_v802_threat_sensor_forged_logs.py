@@ -258,7 +258,7 @@ class TestALineBreakInAMessage(_Base):
 
     def test_a_user_name_with_a_line_break_leaves_out_the_read_before_it(self):
         user_head = f'{ts_nginx_err(NOW - 5)} [error] 1234#1234: *9 user "admin'
-        rest = f'" was not found in "/etc/nginx/.htpasswd"' + tail(A1, '/admin/')
+        rest = '" was not found in "/etc/nginx/.htpasswd"' + tail(A1, '/admin/')
         text = '\n'.join([static_miss(NOW - 20, A2, '/.env', conn=1), user_head, forged_line(), rest,
                           static_miss(NOW - 3, A3, '/.env', conn=2)])
         _, _, ev = self.scan(text)

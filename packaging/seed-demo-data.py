@@ -7911,8 +7911,7 @@ def build_notify_health() -> dict:
     """The destination that keeps failing → notify_health.json (8.0.1 store, shown from 8.0.2): {'wh:<destination id>': {fails, since, last, error, label, alerted}}, the row
     `_note_delivery` keeps for a destination, so that Settings > Notifications marks its card as failing.
 
-    Apprise is the one: its address is a name that does not resolve (apprise.lab), so each delivery to it ends in the failure `URLError [apprise]: [Errno -2] Name or service not
-    known`, which `_notify_error_class` words as a failed name lookup. Four deliveries in a row have failed since a little over three hours ago, the last one nine minutes ago;
+    Apprise is the one: its address is a name that does not resolve (apprise.lab), so each delivery to it ends in a failed name lookup, which the row keeps as `name or service not known`. Four deliveries in a row have failed since a little over three hours ago, the last one nine minutes ago;
     `alerted` is true because the third failure raised the alert, once. The text is the one the delivery wrote with any address in it replaced, and the row holds no address and
     no destination setting. The two other destinations have no row: they are not failing, and the delivery log of build_webhook_log shows their deliveries get through."""
     t = now()
@@ -7921,7 +7920,7 @@ def build_notify_health() -> dict:
         'fails':   4,
         'since':   t - 3 * 3600 - 25 * 60,
         'last':    t - 9 * 60,
-        'error':   'URLError [apprise]: [Errno -2] Name or service not known',
+        'error':   'name or service not known',
         'label':   dest['name'][:80],
         'alerted': True,
     }}
