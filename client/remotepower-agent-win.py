@@ -4726,19 +4726,53 @@ def _persist_task_items(run, deadline, env):
     return {'ok': True, 'cut': truncated or len(found) > _PERSIST_CAPS['tasks'], 'items': found[:_PERSIST_CAPS['tasks'] + 1]}
 
 
+# The agent lists these folders as SYSTEM, and every folder of a profile below its root belongs to the person the profile is of: they can make any of them a directory
+# junction without a privilege (`mklink /J`), and a symbolic link where Developer Mode is on. A link there would be followed by the listing, so the agent would list a folder
+# of the person's choosing (and open whatever path the link names, a share on another machine included, as the machine account). Each step is looked at with lstat, which
+# does not follow it, before the folder is opened; a step that is a link is reported as an entry of its own (the place reads `User bob (link)`) and the folder is not opened.
+# An entry of a folder that is itself a link gets ` (link)` after its name and is not measured. The macOS agent opens every step of the way to an Info.plist with O_NOFOLLOW for
+# the same reason.
+_PERSIST_REPARSE = getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400)
+_PERSIST_STARTUP_READ_MAX = 5000     # entries of one startup folder that are looked at: a user can put millions in their own
+_PERSIST_COMMON_STARTUP = ('Microsoft', 'Windows', 'Start Menu', 'Programs', 'StartUp')
+_PERSIST_USER_STARTUP = ('AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+_PERSIST_LINK_NOTE = 'not followed'
+
+
+def _persist_is_link(st):
+    """Whether a result of lstat is a link: a symbolic link or, on Windows, any reparse point (a junction, a mount point, a symbolic link, a placeholder)."""
+    return stat.S_ISLNK(st.st_mode) or bool(getattr(st, 'st_file_attributes', 0) & _PERSIST_REPARSE)
+
+
+def _persist_link_on_path(base, parts):
+    """The name of the first of `parts`, walked down from `base`, that is a link, or '' when none is. Each step is looked at with lstat, so it is not followed. A step that is
+    not there raises FileNotFoundError and one that cannot be read raises OSError."""
+    path = base
+    for part in parts:
+        path = os.path.join(path, part)
+        if _persist_is_link(os.lstat(path)):
+            return part
+    return ''
+
+
 def _persist_entry_size(e):
-    """Size in bytes of a file in a startup folder (a replaced file shows as a changed entry), -1 for a folder or when it cannot be read."""
+    """Size in bytes of a file in a startup folder (a replaced file shows as a changed entry), -1 for a folder or when it cannot be read, and None for a link, which is not
+    followed: where it points is the person's choice."""
     try:
-        return e.stat().st_size if e.is_file() else -1
+        st = e.stat(follow_symlinks=False)
     except OSError:
         return -1
+    if _persist_is_link(st):
+        return None
+    return st.st_size if stat.S_ISREG(st.st_mode) else -1
 
 
 def _persist_startup_items(env, deadline):
     """The files of the startup folder of all users and of each profile under Users. A folder that does not exist holds nothing; one that cannot be read makes the place not read,
-    and one with more files than are listed makes it cut. The other folders are read either way: a user who fills their own folder must not stop the rest from being compared."""
+    and one with more files than are listed makes it cut. The other folders are read either way: a user who fills their own folder must not stop the rest from being compared.
+    A folder with a link on its way (see above) is not opened: the link is the entry."""
     pd = env.get('programdata') or 'C:\\ProgramData'
-    folders = [('All users', os.path.join(pd, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'StartUp'))]
+    folders = [('All users', pd, _PERSIST_COMMON_STARTUP)]
     users_dir = os.path.join((env.get('systemdrive') or 'C:') + os.sep, 'Users')
     ok, cut = True, False
     try:
@@ -4751,19 +4785,33 @@ def _persist_startup_items(env, deadline):
     except OSError:
         profiles, ok = [], False
     for p in profiles:
-        folders.append(('User ' + p, os.path.join(users_dir, p, 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')))
+        folders.append(('User ' + p, os.path.join(users_dir, p), _PERSIST_USER_STARTUP))
     found = []
-    for place, folder in folders:
+    for place, base, parts in folders:
         if time.time() > deadline:
             return {'ok': False, 'cut': cut, 'items': found}
+        folder = os.path.join(base, *parts)
+        entries, more = [], False
         try:
-            with os.scandir(folder) as it:
-                entries = sorted(((e.name, _persist_entry_size(e)) for e in it), key=lambda t: t[0].lower())
+            link = _persist_link_on_path(base, parts)
+            if not link:
+                with os.scandir(folder) as it:
+                    for e in it:
+                        if len(entries) >= _PERSIST_STARTUP_READ_MAX:
+                            more = True                   # the rest of a folder this long is not read, and the place is cut
+                            break
+                        entries.append((e.name, _persist_entry_size(e)))
+                link = _persist_link_on_path(base, parts)   # once more after the listing: a step swapped for a link meanwhile is not taken for what was listed
         except FileNotFoundError:
             continue
         except OSError:
             ok = False
             continue
+        if link:
+            found.append(_persist_entry(place + ' (link)', link, _PERSIST_LINK_NOTE))     # `User bob (link)`, `Startup`, `not followed`
+            continue
+        cut = cut or more
+        entries.sort(key=lambda t: t[0].lower())
         n = 0
         for fname, size in entries:
             if fname.lower() == 'desktop.ini':
@@ -4772,7 +4820,10 @@ def _persist_startup_items(env, deadline):
             if n > _PERSIST_STARTUP_PER_FOLDER:
                 cut = True                                # a folder this long is listed as far as the limit and the place is cut; the next folder is read
                 break
-            found.append(_persist_entry(place, fname + ('\\' if size < 0 else ''), ('%d bytes' % size) if size >= 0 else ''))
+            if size is None:
+                found.append(_persist_entry(place, fname + ' (link)', _PERSIST_LINK_NOTE))
+            else:
+                found.append(_persist_entry(place, fname + ('\\' if size < 0 else ''), ('%d bytes' % size) if size >= 0 else ''))
     return {'ok': ok, 'cut': cut or len(found) > _PERSIST_CAPS['startup'], 'items': found[:_PERSIST_CAPS['startup'] + 1]}
 
 
