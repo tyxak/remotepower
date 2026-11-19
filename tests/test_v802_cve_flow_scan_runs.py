@@ -150,7 +150,7 @@ real_fire = api.fire_webhook
 
 
 def fire(event, payload, *a, **k):
-    fired.append([event, payload.get("name")])
+    fired.append([event, payload.get("name"), payload.get("device_id")])
     return real_fire(event, payload, *a, **k)
 
 
@@ -288,10 +288,52 @@ def overlap():
     out["after_x"] = {"findings": len(rec2.get("findings", [])), "packages_at": rec2.get("packages_at")}
     out["host_1_findings"] = len(findings().get("host-1", {}).get("findings", []))
     out["host_3_findings"] = len(findings().get("host-3", {}).get("findings", []))
-    out["alerts_for_host_2"] = [e for e, n in fired if n == "HOST-2"]
-    out["alerts_for_host_1"] = [e for e, n in fired if n == "HOST-1"]
+    out["alerts_for_host_2"] = [e for e, n, d in fired if d == "host-2"]
+    out["alerts_for_host_1"] = [e for e, n, d in fired if d == "host-1"]
     out["fixed_list_collected_at_is_later"] = (rec2.get("packages_at") or 0) > now - 100
 
+
+
+@section
+def deleted_hosts():
+    # 5. hosts deleted while a fleet scan runs: one already stored, the one being scanned, one still to be scanned
+    api.cve_scanner.scan_device = real_scan
+    put("CVE_FINDINGS_FILE", {})
+    put("CVE_SCAN_STATUS_FILE", {"running": False})
+    del fired[:]
+    reached, release = threading.Event(), threading.Event()
+
+    def gated5(dev_id, *a, **k):
+        result = real_scan(dev_id, *a, **k)
+        if threading.current_thread().name == "X" and dev_id == "host-2":
+            reached.set()
+            release.wait(60)
+        return result
+
+    api.cve_scanner.scan_device = gated5
+    # the lists of all hosts are the old ones again (the section before this one left host-2 with the fixed list)
+    for h in HOSTS:
+        st = call(None, "POST", "/api/packages", packages_body(h, OLD))
+        assert st[0] == 200, st
+    store = api.load(api.PACKAGES_FILE)
+    for h in HOSTS:
+        store[h]["collected_at"] = now - 100
+    put("PACKAGES_FILE", store)
+    x = threading.Thread(target=api._cve_scan_worker, args=("X", None), name="X")
+    x.start()
+    reached.wait(60)
+    out["deleted"] = {h: call("op", "DELETE", "/api/devices/" + h)[0] for h in ("host-1", "host-2", "host-3")}
+    release.set()
+    x.join(120)
+    api.cve_scanner.scan_device = real_scan
+    api._invalidate_load_cache(api.PACKAGES_FILE)
+    api._invalidate_load_cache(api.DEVICES_FILE)
+    out["deleted_hosts_with_a_record"] = sorted(h for h in findings() if h in ("host-1", "host-2", "host-3"))
+    out["deleted_hosts_with_a_list"] = sorted(h for h in api.load(api.PACKAGES_FILE) if h in ("host-1", "host-2", "host-3"))
+    out["remaining_hosts_with_a_record"] = sorted(h for h in findings() if h in ("host-4", "host-5"))
+    out["alerts_for_deleted_hosts"] = sorted({d for e, n, d in fired if e == "cve_found" and d in ("host-2", "host-3")})
+    # the control: the alert of a host that stays is in the same list, so that a list that cannot see any alert cannot pass
+    out["alerts_for_remaining_hosts"] = sorted({d for e, n, d in fired if e == "cve_found" and d in ("host-4", "host-5")})
 
 
 @section
@@ -407,6 +449,21 @@ class TestOnTheRealWorker(unittest.TestCase):
 
     def test_no_alert_is_raised_for_a_finding_that_was_fixed_before_it_was_stored(self):
         self.assertEqual(self.o["alerts_for_host_2"], [], "an alert says the finding exists; the host had installed its fix")
+
+    # ── hosts deleted while a scan runs ──────────────────────────────────────────────────────────────────────
+    def test_a_host_deleted_while_a_scan_runs_does_not_come_back(self):
+        o = self.o
+        self.assertEqual(o["deleted"], {"host-1": 200, "host-2": 200, "host-3": 200})
+        self.assertEqual(o["deleted_hosts_with_a_record"], [],
+                         "the scan held the store as it was when it started, and wrote the deleted hosts' findings back")
+        self.assertEqual(o["deleted_hosts_with_a_list"], [])
+
+    def test_the_hosts_that_remain_have_their_results(self):
+        self.assertEqual(self.o["remaining_hosts_with_a_record"], ["host-4", "host-5"])
+
+    def test_no_alert_is_raised_for_a_host_that_no_longer_exists(self):
+        self.assertEqual(self.o["alerts_for_remaining_hosts"], ["host-4", "host-5"], "control: the alerts of the hosts that stay are seen")
+        self.assertEqual(self.o["alerts_for_deleted_hosts"], [])
 
     def test_the_hosts_nobody_touched_have_their_results(self):
         o = self.o

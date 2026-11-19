@@ -72781,14 +72781,21 @@ def _cve_scan_worker(actor, target):
 
     def _merge_findings(wait=True):
         """Store the results in `pending`, one host at a time, under the lock of the findings store; fire the alerts of the ones
-        that were stored. A result is left out when the stored one was made from a later list than this one (a scan that started
-        after this one read its list, and finished before this one did). With wait False a contended store raises LockBusy and the
-        results wait for the next merge."""
+        that were stored. A result is left out when its host was deleted while the scan ran (a deleted host's record came back
+        with its package names and advisories, and the host was alerted on), or when the stored one was made from a later list
+        than this one (a scan that started after this one read its list, and finished before this one did). With wait False a
+        contended store raises LockBusy and the results wait for the next merge."""
         if not pending:
             return
         stored_now = []
         with _LockedUpdate(CVE_FINDINGS_FILE, non_blocking=not wait) as stored:
+            # read inside the lock: a delete takes the host out of the host store first and its findings under this lock, so a
+            # host that is gone from the host store here has had, or will have, its findings removed after this merge
+            _invalidate_load_cache(DEVICES_FILE)
+            devices_now = load(DEVICES_FILE) or {}
             for dev_id, (result, made_from) in pending.items():
+                if dev_id in devices and dev_id not in devices_now:
+                    continue              # it was a host when the scan started and is not one now
                 before = stored.get(dev_id)
                 before = before if isinstance(before, dict) else {}
                 newer = before.get('packages_at')
@@ -72799,7 +72806,7 @@ def _cve_scan_worker(actor, target):
         pending.clear()
         for dev_id, before, result in stored_now:
             try:
-                _detect_new_cve_and_fire_webhook(dev_id, devices, before.get('findings') or [],
+                _detect_new_cve_and_fire_webhook(dev_id, devices_now, before.get('findings') or [],
                                                  result.get('findings') or [], kev=_kev_ids,
                                                  counted=result.get('rollup'),
                                                  listed_to=before.get('listed_to'))
