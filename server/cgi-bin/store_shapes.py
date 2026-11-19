@@ -429,7 +429,7 @@ SHAPES: dict = {
                                                                               refer=OPT_NUM, quota=OPT_NUM, snap=OPT_NUM,
                                                                               ratio=OPT_NUM, quota_pct=OPT_NUM))),
                        guard_quarantine=LIST, listening_ports=LIST,
-                       mounts=list_of(fields(percent=OPT_NUM, total_gb=OPT_NUM, used_gb=OPT_NUM)), network_io=LIST, packages=DICT,
+                       mounts=list_of(fields(percent=OPT_NUM, total_gb=OPT_NUM, used_gb=OPT_NUM)), network_io=LIST, packages=fields(manager=OPT_STR),
                        timers=LIST,
                        # a Windows host: the Checks row subtracts these times from now, the drawer lists the shares and the Data Explorer counts them;
                        # the family of a build is decided by its number (windows_host.win_family), so `build` is text and `ubr` a number: a number
@@ -502,6 +502,7 @@ SHAPES: dict = {
     # `done` holds the completed pairs [first_seen, cleared_at, kind] the mean time to patch is read from; a row that is not a list is left out.
     # They are a store of their own, apart from the stamps above, so that the small store every request reads does not grow with the history
     'patch_done.json': dict_of(fields(done=list_of(LIST))),
+    'enrollment_tokens.json': dict_of(fields(max_uses=OPT_NUM, uses=OPT_NUM)),     # 8.0.2: a row that is not a map is left out, and the list of tokens no longer answers 500
     # 8.0.2: the four stores a host's own data sits in that the purge had no rule for; read by the dependency map, the custom-metrics page, the SBOM diff and the drift viewer
     'peer_conns.json': dict_of(fields(ts=NUM, peers=list_of())),
     'custom_metrics_hist.json': dict_of(dict_of(fields(samples=list_of()))),
@@ -523,7 +524,7 @@ SHAPES: dict = {
     # ── a map keyed by something else ───────────────────────────────────────────────────────────────────────────────────
     'apikeys.json': dict_of(),
     # an account's change date is subtracted from the clock (the maximum password age) and its history is read as a list of hashes
-    'users.json': dict_of(fields(password_changed_at=OPT_NUM, password_history=list_of(STR))),
+    'users.json': dict_of(fields(password_changed_at=OPT_NUM, password_history=list_of(STR), last_login=OPT_NUM, ui_prefs=OPT_DICT)),
     'tenants.json': dict_of(fields(name=STR), keep=True),
     'sites.json': dict_of(fields(name=STR)),
     'racks.json': dict_of(fields(height_u=OPT_NUM, name=STR, site=OPT_STR)),
@@ -610,7 +611,9 @@ SHAPES: dict = {
                                                                            dir=STR, refs=LIST, digests=DICT, before=DICT)),
                                                    last_run=fields(ts=NUM, made=NUM, held=LIST))),
     'integrations_state.json': fields(latest=dict_of(fields(metrics=DICT, checked=NUM)), history=DICT),
-    'ip_intel.json': fields(attackers=dict_of(fields(verdict=DICT, devices=DICT, last_seen=OPT_NUM, report_log=LIST, ev_hosts=LIST, ev_by=DICT)),
+    'ip_intel.json': fields(attackers=dict_of(fields(verdict=DICT, devices=DICT, last_seen=OPT_NUM, report_log=LIST, ev_hosts=LIST, ev_by=DICT,
+                                                     # 8.0.2: the ledger of what the logs showed (threat_evidence.blank); the page adds up its counts and reads its lists
+                                                     ev=fields(first=NUM, last=NUM, src=DICT, tok=DICT, ans=NUM, blk=NUM, ban=LIST, dec=NUM, trp=NUM, rep=NUM, cve=LIST, smp=LIST))),
                             blocks=dict_of(dict_of(fields(until=NUM))), budget=fields(abuseipdb=NUM, sniffcat=NUM), last_sweep=NUM, edge=DICT, edgelist=DICT,
                             edgeban=DICT, reqlog=LIST),
     'ip_intel_intake.json': fields(queue=LIST, sensors=dict_of(fields(sources=LIST, ignored=DICT)), cursors=DICT,
