@@ -139,7 +139,8 @@ def clean_entry(entry: Any, host_manager: Any) -> dict | None:
 
     A row has a name; a version may be empty (a program that does not write one). Its manager is the one it names
     when that is one its host may hold, else the host's own. `publisher`, `installed` and `id` (the bundle
-    identifier of an application) are kept when they hold something, and so is `in_user_folder` (true) on the row of a Mac application."""
+    identifier of an application) are kept when they hold something, and so is `in_user_folder` (true) on the row of a Mac application.
+    """
     host = manager_of(host_manager)
     if not host or not isinstance(entry, dict):
         return None
