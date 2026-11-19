@@ -88,7 +88,9 @@ class TestExport(unittest.TestCase):
             names = set(zf.namelist())
             self.assertTrue({'devices.json', 'alerts.json', 'apikeys.json', 'config.json'} <= names, names)
             for name in ('devices.json', 'alerts.json'):
-                self.assertEqual(api.load(api.DATA_DIR / name), json.loads(zf.read(name)), name)
+                stored = json.loads(json.dumps(api.load(api.DATA_DIR / name)))
+                api._redact_config_secrets_inplace(stored)          # 8.0.2: every store is scrubbed of credential-named values, so the copy is compared after the same mask
+                self.assertEqual(stored, json.loads(zf.read(name)), name)
             self.assertNotIn('tokens.json', names, 'session tokens must stay out of the export')
 
     def test_secrets_are_redacted_and_appear_nowhere_in_the_zip(self):
@@ -109,6 +111,56 @@ class TestExport(unittest.TestCase):
         self.assertEqual(_API_KEY, api.load(api.APIKEYS_FILE)['k1']['key'], 'the stored API key was redacted in place')
         self.assertEqual('SMTPSECRET', api.load(api.CONFIG_FILE)['smtp_password'], 'the stored config was redacted in place')
         self.assertEqual('devtoken05', api.load(api.DEVICES_FILE)['d05']['token'])
+
+
+class TestTheExportCarriesNoCredentialOfAnyStore(TestExport):
+    """8.0.2 review (ST-01, ST-02): the file the docs tell an operator to hand to support held the agentless hosts' SSH passwords and private keys, SNMP communities, RouterOS and
+    OPNsense credentials, inbound-webhook and dead-man tokens and scan targets' tokens, the keys that sign the audit chain, every earlier copy of the settings, and the queue of failed
+    deliveries with their destinations. Each marker is put where the product keeps it, in the store of that name, and the ZIP is read whole."""
+
+    M = {k: k.upper() + '-' + 'MARK' + 'ER' for k in ('ssh_pw', 'ssh_key', 'snmp', 'ros', 'opn', 'inbound', 'scan', 'hmac', 'rev', 'dlq', 'dlq_url')}
+
+    def setUp(self):
+        super().setUp()
+        api, M = self.api, self.M
+        devs = api.load(api.DEVICES_FILE)
+        devs['al1'] = {'name': 'switch-al1', 'agentless': True,
+                       'ssh': {'enabled': True, 'username': 'root', 'password': M['ssh_pw'], 'private_key': M['ssh_key']},
+                       'snmp': {'enabled': True, 'community': M['snmp'], 'port': 161},
+                       'routeros': {'enabled': True, 'username': 'admin', 'password': M['ros']},
+                       'opnsense': {'enabled': True, 'api_key': 'KEYID', 'api_secret': M['opn']}}
+        api.save(api.DEVICES_FILE, devs)
+        for name, doc in (('inbound_webhooks.json', {'tokens': [{'id': 'i1', 'label': 'x', 'token': M['inbound']}]}),
+                          ('scan_targets.json', {'t1': {'name': 'scan', 'token': M['scan']}}),
+                          ('audit_hmac_rotations.json', {'2': {'key': M['hmac']}}),
+                          ('config_revisions.json', {'revisions': [{'at': 1, 'config': {'smtp_password': M['rev']}}]}),
+                          ('webhook_dlq.json', {'entries': [{'dest': {'url': 'https://example.invalid/' + M['dlq_url'], 'pushover_token': M['dlq']}}]})):
+            api.save(api.DATA_DIR / name, doc)
+        api._LOAD_CACHE.clear()
+
+    def zip_text(self):
+        body, _ = self.export()
+        with zipfile.ZipFile(io.BytesIO(body)) as zf:
+            return {n: zf.read(n).decode() for n in zf.namelist()}
+
+    def test_no_marker_is_in_any_member(self):
+        got = self.zip_text()
+        found = {k: sorted(n for n, t in got.items() if v in t) for k, v in self.M.items()}
+        self.assertEqual({k: v for k, v in found.items() if v}, {}, 'a credential went out in the export')
+
+    def test_control_the_hosts_are_still_there_and_the_secret_fields_say_so(self):
+        got = self.zip_text()
+        row = json.loads(got['devices.json'])['al1']
+        self.assertEqual(row['name'], 'switch-al1')
+        self.assertEqual(row['ssh']['username'], 'root')
+        self.assertEqual((row['ssh']['password'], row['snmp']['community'], row['opnsense']['api_secret']), ('(redacted)',) * 3)
+        self.assertEqual(row['snmp']['port'], 161)
+
+    def test_the_three_stores_that_are_credentials_in_themselves_are_left_out(self):
+        got = self.zip_text()
+        for name in ('audit_hmac_rotations.json', 'config_revisions.json', 'webhook_dlq.json', 'tokens.json'):
+            self.assertNotIn(name, got)
+        self.assertIn('inbound_webhooks.json', got, 'a store that only holds a token is kept, with the token masked')
 
 
 if __name__ == '__main__':

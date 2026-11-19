@@ -60472,6 +60472,26 @@ def handle_drift_get_content(dev_id):
 
 
 # The fields of an account record that are credentials. The export that is safe to share leaves them out of users.json.
+# What the export leaves out whole (8.0.2). A session is a login, the long-poll and rate-limit stores are transient, and the other three are credentials in themselves:
+# the keys that sign the audit chain (whoever holds a generation's key can rewrite the entries it signed and the log still verifies), every earlier copy of the settings
+# document as it was before each save (decrypted), and the queue of failed deliveries (each entry holds its whole destination, address, headers and tokens).
+_EXPORT_LEFT_OUT = frozenset({'tokens.json', 'longpoll.json', 'ratelimit.json', 'audit_hmac_rotations.json', 'config_revisions.json', 'webhook_dlq.json'})
+# a key name that says credential, and a non-empty string after it: the cheap test that decides whether a store is walked at all
+_EXPORT_SECRET_SPOT = re.compile(r'"[A-Za-z0-9_]*(?:password|passwd|passphrase|secret|apikey|api_key|access_token|refresh_token|private_key|credentials|community|bearer|token)"\s*:\s*"[^"]')
+
+
+def _export_member(doc):
+    """The text of one store in the export: every value under a credential-named key (see _SECRET_KEY_RE) is masked, wherever it sits in the store. The export is the file the docs
+    tell an operator to hand to support, and before 8.0.2 only three stores were scrubbed: the agentless hosts' SSH passwords and private keys, the SNMP communities, the
+    RouterOS and OPNsense credentials, the inbound-webhook and dead-man tokens and the scan targets' tokens went out as typed."""
+    text = json.dumps(doc, indent=2)
+    if not _EXPORT_SECRET_SPOT.search(text):
+        return text
+    doc = json.loads(text)
+    _redact_config_secrets_inplace(doc)
+    return json.dumps(doc, indent=2)
+
+
 _EXPORT_ACCOUNT_CREDENTIALS = frozenset({'password_hash', 'password_history', 'totp_secret', 'totp_pending', 'recovery_codes'})
 
 
@@ -60498,7 +60518,7 @@ def handle_export():
     audit_log(actor, 'backup_export')
     import zipfile, io
     buf = io.BytesIO()
-    exclude = {'tokens.json', 'longpoll.json', 'ratelimit.json'}
+    exclude = set(_EXPORT_LEFT_OUT)
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         # v3.12.0: iterate logical files via the backend seam (not glob), so the
         # ZIP is complete under SQLite too. Every entry is written as
@@ -60546,7 +60566,7 @@ def handle_export():
                     {u: ({k: v for k, v in r.items() if k not in _EXPORT_ACCOUNT_CREDENTIALS} if isinstance(r, dict) else r)
                      for u, r in (raw.items() if isinstance(raw, dict) else ())}, indent=2))
             else:
-                zf.writestr(name, json.dumps(_load_ro(f), indent=2))
+                zf.writestr(name, _export_member(_load_ro(f)))
     data = buf.getvalue(); ts = time.strftime('%Y%m%d-%H%M%S')
     print("Status: 200 OK"); print("Content-Type: application/zip")
     print(f"Content-Disposition: attachment; filename=remotepower-backup-{ts}.zip")
