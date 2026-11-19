@@ -331,8 +331,8 @@ def _osv_query_all(queries: list, budget: int | None = None) -> list:
                 raise ValueError('OSV did not answer every query of a batch')
             for k, answer in zip(chunk, answers):
                 vulns = answer.get('vulns', []) if isinstance(answer, dict) else None
-                if not isinstance(vulns, list) or not all(isinstance(v, dict) for v in vulns):
-                    raise ValueError('an OSV answer is not a list of advisories')
+                if not isinstance(vulns, list) or not all(isinstance(v, dict) and isinstance(v.get('id'), str) and v['id'] for v in vulns):
+                    raise ValueError('an OSV answer is not a list of advisories')      # an advisory with no name is not read as "nothing found": the scan says it could not read the answer
                 if budget is not None and held + len(vulns) > budget:
                     vulns = vulns[:max(0, budget - held)]
                     cut.add(k)
