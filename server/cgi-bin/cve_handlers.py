@@ -134,6 +134,52 @@ def _scan_starts(st, now):
             if isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool) and 0 <= now - v < 3600}
 
 
+def _busy_or_cooling(st, gate, now):
+    """Why a start is refused by the marker `st` as it is now, or None. ('busy', seconds until the marker is stale, the marker) while a
+    scan that checkpointed in the last five minutes runs, ('cooling', seconds to wait) while the caller's organisation started one
+    less than _SCAN_COOLDOWN_S ago. The operator and an installation without tenancy (`gate` None) have no clock."""
+    st = st if isinstance(st, dict) else {}
+    updated = st.get('updated')
+    age = now - (updated if isinstance(updated, int) and not isinstance(updated, bool) else 0)
+    if st.get('running') and age < A._CVE_SCAN_STALE_S:
+        return ('busy', max(0, A._CVE_SCAN_STALE_S - age), dict(st))
+    if gate is not None:
+        started = _scan_starts(st, now).get(gate)
+        if started is not None and now - started < _SCAN_COOLDOWN_S:
+            return ('cooling', _SCAN_COOLDOWN_S - (now - started))
+    return None
+
+
+def _claim_scan_slot(st, gate, total, run, now):
+    """Take the one scan slot in the marker `st`, in place, or say why it is not free (`_busy_or_cooling`). Called with the marker's
+    lock held, so that the test and the write cannot be separated by another request. None when the slot is taken."""
+    why = _busy_or_cooling(st, gate, now)
+    if why is not None:
+        return why
+    starts = _scan_starts(st, now)
+    if gate is not None:
+        starts[gate] = now
+        # a marker that names more organisations than exist keeps the latest ones
+        starts = dict(sorted(starts.items(), key=lambda kv: -kv[1])[:200])
+    st.clear()
+    st.update({'running': True, 'total': total, 'done': 0, 'scanned': 0, 'skipped': 0, 'errors': 0,
+               'updated': now, 'started_at': now, 'owner': gate, 'starts': starts, 'run': run})
+    return None
+
+
+def _refuse(why):
+    """Answer a start that the marker refuses: 409 for a scan that runs (with the marker as the caller may read it), 429 for the clock."""
+    if why is None:
+        return
+    if why[0] == 'busy':
+        A.respond(409, {'error': 'A scan is already running', 'status': _scan_status_view(why[2]),
+                      'retry_after_seconds': why[1],
+                      'detail': ('If the previous scan crashed, this clears '
+                                 f'{A._CVE_SCAN_STALE_S // 60} minutes after its '
+                                 'last checkpoint.')})
+    A.respond(429, {'error': 'Your last scan started a moment ago. Try again shortly.', 'retry_after_seconds': why[1]})
+
+
 def handle_cve_scan():
     """POST /api/cve/scan — queue a background scan for one host, or for all the caller's hosts.
 
@@ -160,7 +206,9 @@ def handle_cve_scan():
         spec = target
     else:
         spec = A._CVE_SCAN_TENANT + gate if gate is not None else None
-    # Refuse to stack a second concurrent scan (stale >30 min markers ignored).
+    now = int(A.time.time())
+    # A look before the work of counting hosts: a refusal costs nothing. It decides nothing, since two requests can both see a
+    # free slot here, and the slot is taken under the marker's lock below.
     st = A.load(A.CVE_SCAN_STATUS_FILE) or {}
     # v6.4.3: a crashed worker leaves `running: True` and nothing ever clears
     # it — there is no reaper, and the only routes are this one and
@@ -170,23 +218,7 @@ def handle_cve_scan():
     # checkpoints every 3 devices, so 5 minutes of silence means it is gone),
     # and the refusal now tells the operator when it will clear instead of
     # just saying no.
-    now = int(A.time.time())
-    _age = now - (st.get('updated') or 0)
-    if st.get('running') and _age < A._CVE_SCAN_STALE_S:
-        A.respond(409, {'error': 'A scan is already running', 'status': _scan_status_view(st),
-                      'retry_after_seconds': max(0, A._CVE_SCAN_STALE_S - _age),
-                      'detail': ('If the previous scan crashed, this clears '
-                                 f'{A._CVE_SCAN_STALE_S // 60} minutes after its '
-                                 'last checkpoint.')})
-    starts = _scan_starts(st, now)
-    if gate is not None:
-        wait = _SCAN_COOLDOWN_S - (now - starts[gate]) if gate in starts else 0
-        if wait > 0:
-            A.respond(429, {'error': 'Your last scan started a moment ago. Try again shortly.',
-                          'retry_after_seconds': wait})
-        starts[gate] = now
-        # a marker that names more organisations than exist keeps the latest ones
-        starts = dict(sorted(starts.items(), key=lambda kv: -kv[1])[:200])
+    _refuse(_busy_or_cooling(st, gate, now))
     if target:
         total = 1
     elif gate is not None:
@@ -195,19 +227,24 @@ def handle_cve_scan():
         total = sum(1 for dev_id in (A.load(A.PACKAGES_FILE) or {}) if dev_id in mine)
     else:
         total = len(A.load(A.PACKAGES_FILE) or {})
+    # 8.0.2: the slot is taken in one critical section, the test and the write together. The marker was read, tested and written
+    # with nothing held between, so a burst of requests (16 of them, from two organisations' administrators) was answered 202
+    # three or four at a time, and every 202 is a runner process of its own that loads the whole package store, so one
+    # administrator could pile up runners of half a gigabyte each. The runner carries the id of the run (`run`) and writes the
+    # marker only while it is still the owner: a scan whose marker went stale and was taken over stops at its next write.
     # v6.1.2: the status marker is written non_blocking so a wedged writer can
     # never hang the request — but a CONTENDED write then raises LockBusy, which
     # used to propagate uncaught and render as a 500 (the production symptom on
     # the Postgres backend, whose non_blocking acquire had no retry budget at
     # all until this release; see storage_pg._try_lock). Contention here just
     # means a scan runner is mid-write, so say so with a retryable 409.
+    refusal = None
     try:
-        A.save(A.CVE_SCAN_STATUS_FILE, {'running': True, 'total': total, 'done': 0,
-                                    'scanned': 0, 'skipped': 0, 'errors': 0,
-                                    'updated': now, 'started_at': now,
-                                    'owner': gate, 'starts': starts}, non_blocking=True)
+        with A._LockedUpdate(A.CVE_SCAN_STATUS_FILE, non_blocking=True) as held:
+            refusal = _claim_scan_slot(held, gate, total, A.secrets.token_hex(8), now)
     except A.LockBusy:
         A.respond(409, {'error': 'A scan is starting or running — try again shortly'})
+    _refuse(refusal)
     A._spawn_cve_scan(actor, spec)
     A.respond(202, {'queued': True, 'total': total,
                   'message': 'Scan queued — running in the background.'})

@@ -47,20 +47,32 @@ class TestFindingsAreCheckpointed(unittest.TestCase):
     def test_the_worker_saves_findings_inside_the_loop(self):
         """Source-level, and narrow on purpose: the defect is WHERE the save
         sits, which no black-box assertion can see without actually killing a
-        worker mid-scan."""
+        worker mid-scan.
+
+        8.0.2: the save is a merge under the lock of the findings store
+        (`_merge_findings`), called from the loop. The worker used to write the
+        whole store back from the copy it read when it started, and wrote over
+        whatever another scan or a delete had stored since."""
         import ast
         import inspect
         node = ast.parse(inspect.getsource(api._cve_scan_worker)).body[0]
-        loop = next((n for n in ast.walk(node) if isinstance(n, ast.For)), None)
+        loop = next((n for n in ast.walk(node)
+                     if isinstance(n, ast.For) and isinstance(n.iter, ast.Call)
+                     and getattr(n.iter.func, 'id', '') == 'enumerate'), None)
         self.assertIsNotNone(loop, 'the per-device loop is gone')
-        saves = [n for n in ast.walk(loop)
-                 if isinstance(n, ast.Call)
-                 and getattr(n.func, 'id', '') == 'save'
-                 and any(getattr(a, 'id', '') == 'CVE_FINDINGS_FILE' for a in n.args)]
-        self.assertTrue(saves,
+        merges = [n for n in ast.walk(loop)
+                  if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == '_merge_findings']
+        self.assertTrue(merges,
                         'findings are only persisted AFTER the loop, so a '
                         'worker killed part-way through discards everything it '
                         'has found')
+        merge = next((n for n in ast.walk(node)
+                      if isinstance(n, ast.FunctionDef) and n.name == '_merge_findings'), None)
+        self.assertIsNotNone(merge, 'the merge is gone')
+        locked = [n for n in ast.walk(merge)
+                  if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == '_LockedUpdate'
+                  and any(getattr(a, 'id', '') == 'CVE_FINDINGS_FILE' for a in n.args)]
+        self.assertTrue(locked, 'the merge does not take the lock of the findings store')
 
     def test_the_progress_checkpoint_is_still_there(self):
         """Positive control — a change that removed both saves would satisfy

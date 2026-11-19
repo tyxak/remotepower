@@ -354,6 +354,10 @@ after patching, or call `POST /api/cve/scan` from a scheduled job with an
   tenant, and the answer counts those. The platform operator's scan covers every host. A tenant
   reads the numbers of its own scan. For another organisation's scan it learns whether one is
   running and nothing else. One organisation can start a scan every 30 seconds.
+- Starting a scan takes the one scan slot in a single step, so two requests that arrive together
+  cannot both start one. A scan stores each host's result as it goes. A result made from an older
+  package list never replaces one made from a newer list, so a host that installed its fix and was
+  scanned again is not shown as vulnerable by a scan that finished later.
 - The scanner **deduplicates packages across the whole fleet** and queries OSV once per
   ecosystem in a batch, so a 100-host fleet is not 100 times the API traffic.
 - The details of an advisory are read once and kept. They are read again when OSV reports

@@ -446,6 +446,9 @@ SHAPES: dict = {
     'disk_names.json': dict_of(dict_of(STR)),
     'container_stats_hist.json': dict_of(dict_of(list_of(LIST))),
     'cve_findings.json': dict_of(fields(cut=list_of(STR),
+                                        # 8.0.2: the time of the package list the scan was made from. A worker that stores a result
+                                        # compares it, so that a result made from an older list does not replace a newer one
+                                        packages_at=OPT_NUM,
                                         # 8.0.2: which packages the scan checked and why the others were not; the page and the
                                         # tools read the numbers and print the rows (cve_fixes.covered_view)
                                         # 8.0.2: which kernel the scan found the host to run (cve_scanner.kernel_state)

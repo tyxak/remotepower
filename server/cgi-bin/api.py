@@ -72679,16 +72679,26 @@ _CVE_SCAN_STALE_S = 300
 _CVE_SCAN_TENANT = 'tenant:'
 
 
-def _scan_marker_write(fields, tries=1):
+class _ScanLeaseLost(Exception):
+    """The marker names another run than the one writing: this scan's marker went stale and a new scan took the slot."""
+
+
+def _scan_marker_write(fields, tries=1, run=None):
     """Write the scan's progress marker under the store's lock, keeping what the request that queued the scan put in it: whose
-    scan it is (`owner`, which decides who may read its numbers) and when each organisation last started one (`starts`).
-    The worker replaced the whole marker at every checkpoint, which dropped both. A contended write is skipped, since the next
-    checkpoint writes again (the final one retries). True when the marker was written."""
+    scan it is (`owner`, which decides who may read its numbers), when each organisation last started one (`starts`) and the id
+    of the run (`run`). The worker replaced the whole marker at every checkpoint, which dropped all three. A contended write is
+    skipped, since the next checkpoint writes again (the final one retries). True when the marker was written.
+
+    `run` is the id the worker found in the marker when it started: a worker that finds another id there has lost the slot (its
+    marker was stale for five minutes and a new scan took it) and raises _ScanLeaseLost instead of writing over the new scan's
+    marker. A worker with no id (started by hand, or before 8.0.2) is never handed on."""
     attempts = max(1, tries)
     for n in range(attempts):
         try:
             with _LockedUpdate(CVE_SCAN_STATUS_FILE, non_blocking=True) as st:
-                keep = {k: st[k] for k in ('owner', 'starts', 'started_at') if k in st}
+                if run is not None and st.get('run') != run:
+                    raise _ScanLeaseLost()
+                keep = {k: st[k] for k in ('owner', 'starts', 'started_at', 'run') if k in st}
                 st.clear()
                 st.update(fields)
                 st.update(keep)
@@ -72722,8 +72732,16 @@ def _cve_scan_worker(actor, target):
         _band('cvss_band_high', cve_scanner._CVSS_BAND_DEFAULT_HIGH),
         _band('cvss_band_medium', cve_scanner._CVSS_BAND_DEFAULT_MEDIUM))
     store = load(PACKAGES_FILE) or {}
-    findings_all = load(CVE_FINDINGS_FILE) or {}
     devices = load(DEVICES_FILE) or {}
+    # 8.0.2: the id of the run the request that queued this scan put in the marker. The worker writes the marker only while that
+    # id is in it (_scan_marker_write); a worker started by hand finds none and is never handed on.
+    _run = None
+    try:
+        _marker_now = load(CVE_SCAN_STATUS_FILE) or {}
+        if _marker_now.get('running') and isinstance(_marker_now.get('run'), str) and _marker_now['run']:
+            _run = _marker_now['run']
+    except Exception:
+        _run = None
     if isinstance(target, str) and target.startswith(_CVE_SCAN_TENANT):
         _scan_tenant = target[len(_CVE_SCAN_TENANT):]
         targets = [d for d in store if d in devices and _device_tenant(devices.get(d)) == _scan_tenant]
@@ -72750,13 +72768,49 @@ def _cve_scan_worker(actor, target):
             return
         _alive_at[0] = time.time()
         try:
-            _scan_marker_write(dict(_marker, updated=int(time.time())))
+            _scan_marker_write(dict(_marker, updated=int(time.time())), run=_run)
         except Exception:
-            pass
+            pass          # a handed-on scan is noticed at the next checkpoint, in the loop
+
+    # 8.0.2: the results of the hosts scanned since the last merge: host id -> (result, the time of the list it was made from).
+    # The worker used to read the whole findings store when it started and write the whole of it back at every checkpoint, so
+    # whatever another scan (or a delete) had stored since was written over with the worker's older copy: a host that had
+    # installed its fix came back as vulnerable, and a deleted host came back at all. A merge reads the store under its lock
+    # and puts in the results this run has, and only those.
+    pending = {}
+
+    def _merge_findings(wait=True):
+        """Store the results in `pending`, one host at a time, under the lock of the findings store; fire the alerts of the ones
+        that were stored. A result is left out when the stored one was made from a later list than this one (a scan that started
+        after this one read its list, and finished before this one did). With wait False a contended store raises LockBusy and the
+        results wait for the next merge."""
+        if not pending:
+            return
+        stored_now = []
+        with _LockedUpdate(CVE_FINDINGS_FILE, non_blocking=not wait) as stored:
+            for dev_id, (result, made_from) in pending.items():
+                before = stored.get(dev_id)
+                before = before if isinstance(before, dict) else {}
+                newer = before.get('packages_at')
+                if isinstance(newer, (int, float)) and not isinstance(newer, bool) and newer > made_from:
+                    continue
+                stored[dev_id] = result
+                stored_now.append((dev_id, before, result))
+        pending.clear()
+        for dev_id, before, result in stored_now:
+            try:
+                _detect_new_cve_and_fire_webhook(dev_id, devices, before.get('findings') or [],
+                                                 result.get('findings') or [], kev=_kev_ids,
+                                                 counted=result.get('rollup'),
+                                                 listed_to=before.get('listed_to'))
+            except Exception as _alert_err:
+                sys.stderr.write(f'[remotepower] CVE alert for host {_log_field(dev_id, 64)} failed: '
+                                 f'{_log_text(repr(_alert_err), 300)}\n')
     # v5.0.0 (#S1): for a FLEET scan (not a single device), prefetch the
     # deduplicated OSV results across every target in one sweep, so the per-device
     # scans below cost zero OSV calls. Single-device scans keep the direct path.
     osv_prefetch = None
+    _handed_on = False
     if not target and total > 1:
         try:
             _pf_store = {d: store[d] for d in targets if d in store}
@@ -72796,13 +72850,12 @@ def _cve_scan_worker(actor, target):
             if result.get('error') and not result.get('findings') and not result.get('rollup'):
                 errors += 1
             else:
-                before = findings_all.get(dev_id)
-                before = before if isinstance(before, dict) else {}
-                findings_all[dev_id] = result
-                _detect_new_cve_and_fire_webhook(dev_id, devices, before.get('findings') or [],
-                                                 result.get('findings') or [], kev=_kev_ids,
-                                                 counted=result.get('rollup'),
-                                                 listed_to=before.get('listed_to'))
+                # the time of the list this result was made from: a later scan of the same host (from a later list) stored
+                # while this one ran is not written over by it (_merge_findings)
+                _made_from = entry.get('collected_at')
+                _made_from = _made_from if isinstance(_made_from, (int, float)) and not isinstance(_made_from, bool) else 0
+                result['packages_at'] = _made_from
+                pending[dev_id] = (result, _made_from)
                 scanned += 1
         # checkpoint progress every few devices so the UI can show a bar
         if i % 3 == 0 or i == total - 1:
@@ -72819,20 +72872,29 @@ def _cve_scan_worker(actor, target):
             # crash. Same cadence as the progress write, so the extra cost is
             # one store write per three devices.
             try:
-                save(CVE_FINDINGS_FILE, findings_all, non_blocking=True)
+                _merge_findings(wait=i == total - 1)
             except LockBusy:
-                pass          # a contended checkpoint is fine — the next one wins
+                pass          # a contended checkpoint is fine — the next one wins, and the results wait in `pending`
             _marker.update(running=i < total - 1, done=i + 1, scanned=scanned,
                            skipped=skipped, errors=errors)
             _alive_at[0] = time.time()
-            _scan_marker_write(dict(_marker, updated=int(time.time())))
-    save(CVE_FINDINGS_FILE, findings_all)
-    _scan_marker_write({'running': False, 'total': total, 'done': total,
-                        'scanned': scanned, 'skipped': skipped,
-                        'errors': errors, 'updated': int(time.time()),
-                        'finished_at': int(time.time())}, tries=10)
+            try:
+                _scan_marker_write(dict(_marker, updated=int(time.time())), run=_run)
+            except _ScanLeaseLost:
+                _handed_on = True      # the marker went stale and a new scan took the slot: this one stops
+                break
+    _merge_findings()
+    if not _handed_on:
+        try:
+            _scan_marker_write({'running': False, 'total': total, 'done': total,
+                                'scanned': scanned, 'skipped': skipped,
+                                'errors': errors, 'updated': int(time.time()),
+                                'finished_at': int(time.time())}, tries=10, run=_run)
+        except _ScanLeaseLost:
+            _handed_on = True
     audit_log(actor, 'cve_scan',
-              detail=f'scanned={scanned} skipped={skipped} errors={errors} (background)')
+              detail=f'scanned={scanned} skipped={skipped} errors={errors}'
+                     + (' (handed on to a newer scan)' if _handed_on else ' (background)'))
 
 
 
