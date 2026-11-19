@@ -70896,9 +70896,12 @@ def handle_packages_submit():
     # (software_inventory) and nothing about them reaches the vulnerability scan.
     inventory = software_inventory.is_inventory_host(pkg_manager)
     packages = []
+    cut = False
     if inventory:
         pkg_manager = software_inventory.manager_of(pkg_manager)
         packages = software_inventory.clean_list(raw_pkgs, pkg_manager)
+        # 8.0.2: the agent says when its list leaves out rows that exist, and a list over the cap of the server is cut here
+        cut = software_inventory.clean_cut(body.get('cut')) or len(raw_pkgs) > software_inventory.MAX_PACKAGES
     else:
         for entry in raw_pkgs:
             safe = _sanitize_package_entry(entry)
@@ -70951,6 +70954,8 @@ def handle_packages_submit():
         # how many entries the agent of a Windows or macOS host left out (updates, system components)
         if inventory:
             store[dev_id]['skipped'] = software_inventory.clean_skipped(body.get('skipped'))
+            if cut:
+                store[dev_id]['cut'] = True
         else:
             # 8.0.2: the kernel the host runs and the kernel packages it holds. A host that reports none (an older
             # agent) has none stored, so what it reported before a reboot is not read as what runs now.
@@ -70961,7 +70966,7 @@ def handle_packages_submit():
     # v3.11.0: evaluate the fleet software policy against this push.
     try:
         _eval_software_policy(dev_id, dev.get('name', dev_id),
-                              packages, dev.get('tags') or [], host_manager=pkg_manager)
+                              packages, dev.get('tags') or [], host_manager=pkg_manager, cut=cut)
     except Exception as e:
         sys.stderr.write(f"[remotepower] software policy eval failed "
                          f"dev={dev_id}: {e}\n")
@@ -71005,7 +71010,7 @@ def _ver_key(v):
     return tuple(int(x) for x in parts) if parts else (-1,)
 
 
-def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager=''):
+def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager='', cut=False):
     """Evaluate the policy for one device, persist its violations, and fire
     software_policy_violation for any newly-introduced violation.
 
@@ -71015,6 +71020,11 @@ def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager=''):
     read by the number it starts with (software_inventory.version_key), and a `required` rule with no tags is not judged
     on such a host: it was written for the packages of a distribution, and every Windows host would be
     in breach of it the day its agent started to send a list.
+
+    8.0.2: an application found only in the Applications folder of an account (a Mac) does not meet a `required` rule and does not stand in for the
+    system's copy of a `min_version` rule: the person who owns that folder can write any row into it. A list that is `cut` leaves out rows that exist, so a
+    `banned` or `min_version` rule that finds nothing in it is not judged compliant: it is a violation that says the list is cut, and a rule that
+    finds the application is judged as always.
 
     The rules are judged from this host's list alone, outside any lock. The row of this host is then written
     under the lock of the store and the events are told after it is released."""
@@ -71033,6 +71043,7 @@ def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager=''):
     tagset = {str(t) for t in (tags or [])}
     installed = {}      # a package of a distribution, by the name its package manager spells
     held = {}           # an application of a Windows or macOS host, by its name in lower case: its highest version
+    held_system = {}    # the same, over the rows that are not from the Applications folder of an account
     for p in (packages or []):
         if isinstance(p, dict) and p.get('name'):
             version = str(p.get('version', '') or '')
@@ -71040,14 +71051,22 @@ def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager=''):
                 key = software_inventory.name_key(p)
                 if key not in held or software_inventory.compare_versions(version, held[key]) > 0:
                     held[key] = version
+                if not software_inventory.in_account_folder(p) and (
+                        key not in held_system or software_inventory.compare_versions(version, held_system[key]) > 0):
+                    held_system[key] = version
             else:
                 installed[str(p['name'])] = version
 
-    def find(name):
-        """(version, whether it is an application) of what is installed under this name, or None."""
+    def find(name, system_only=False, prefer_system=False):
+        """(version, whether it is an application) of what is installed under this name, or None. `system_only`: a row of an account's own folder
+        does not count. `prefer_system`: the system's row is the one that is judged when there is one."""
         if name in installed:
             return installed[name], False
         key = name.casefold()
+        if key in held_system and (system_only or prefer_system):
+            return held_system[key], True
+        if system_only:
+            return None
         return (held[key], True) if key in held else None
 
     violations = []
@@ -71071,14 +71090,14 @@ def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager=''):
                                'found': found[0] or 'installed',
                                'detail': f'banned package {pkg} is installed',
                                'note': _sanitize_str(rule.get('note', ''), 200)})
-        elif rtype == 'required' and found is None:
+        elif rtype == 'required' and find(pkg, system_only=True) is None:
             violations.append({'rule_id': rid, 'type': rtype, 'package': pkg,
                                'expected': 'installed', 'found': 'missing',
-                               'detail': f'required package {pkg} is missing',
+                               'detail': f'required package {pkg} is missing' + (' from a list that is cut' if cut else ''),
                                'note': _sanitize_str(rule.get('note', ''), 200)})
         elif rtype == 'min_version' and found is not None:
             want = str(rule.get('version', '') or '')
-            have, is_app = found
+            have, is_app = find(pkg, prefer_system=True)
             if is_app:
                 below = software_inventory.compare_versions(have, want) < 0
             else:
@@ -71087,6 +71106,15 @@ def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager=''):
                 violations.append({'rule_id': rid, 'type': rtype, 'package': pkg,
                                    'expected': f'>= {want}', 'found': have or '?',
                                    'detail': f'{pkg} {have or "?"} is below minimum {want}',
+                                   'note': _sanitize_str(rule.get('note', ''), 200)})
+        elif cut and found is None and rtype in ('banned', 'min_version'):
+            # not being in a list that is cut proves nothing, and a list a person can make cut must not read as compliant
+            want = str(rule.get('version', '') or '')
+            if rtype == 'banned' or want:
+                violations.append({'rule_id': rid, 'type': rtype, 'package': pkg,
+                                   'expected': 'not installed' if rtype == 'banned' else f'>= {want}',
+                                   'found': 'not known',
+                                   'detail': f'the host sent a software list that is cut: it cannot be said whether {pkg} is installed',
                                    'note': _sanitize_str(rule.get('note', ''), 200)})
 
     # The rules are judged above from this host's list alone. Only the row of this host is written, and under the lock
@@ -71139,7 +71167,7 @@ def _reeval_software_policy_all():
         try:
             v = _eval_software_policy(dev_id, dev.get('name', dev_id),
                                       rec.get('packages') or [], dev.get('tags') or [],
-                                      host_manager=rec.get('pkg_manager'))
+                                      host_manager=rec.get('pkg_manager'), cut=rec.get('cut') is True)
             total += len(v)
         except Exception:
             pass

@@ -54,6 +54,20 @@ changed since the last one is not sent again. A host keeps at most 5,000 rows, a
   outside those folders, on an external disk or in a Downloads folder, is not listed. If Homebrew is
   installed and the agent cannot read its list, the agent sends no list at all that time instead of a list without the
   Homebrew rows. If the agent cannot run Homebrew as the account that owns it, it sends the applications only.
+- **An application in an account's own folder** (`~/Applications`) is listed and marked, because the person who owns that
+  folder writes it. A [software policy](software-policy.md) rule that **requires** an application is not met by such a row.
+
+### A list that is cut
+
+An agent says its list is **cut** when it left out applications that exist, and the server says so too when a list is over
+its 5,000 rows. The macOS agent reads all the application folders within one budget: 25 seconds, 12 MiB of `Info.plist` files,
+5,000 bundles and 100,000 folder entries. A folder with more than 5,000 entries, or too many to be read to the end, is read as
+far as the limit. A report holds at most 5,000 rows and 1.5 MB. When a report has to drop rows, it drops those of an account's
+own folder before those of the system's folders. A Homebrew list or a registry key that is read to its limit is cut in the
+same way.
+
+A rule of the [software policy](software-policy.md) that needs an application to be **absent** cannot be judged from a list
+that is cut. It shows as a violation with *not known* in the Found column, and the next whole list clears it.
 
 ### How the views read such a list
 

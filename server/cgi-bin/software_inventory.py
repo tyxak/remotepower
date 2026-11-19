@@ -18,6 +18,11 @@ What a list is, and is not:
 * No row of such a list is a package of a distribution. Nothing here reaches the vulnerability scan, the package
   snapshots or the install and remove commands, which are written for apt, dnf, yum, zypper, pacman and apk.
 * Everything is capped: 5,000 rows to a host, 200 characters to a field.
+* A list can say it is `cut`: the agent left out rows that exist (the walk of the application folders ran out of its budget, a
+  report holds no more rows), or the server left out rows past its own cap. What a cut list does not hold is not read as not
+  installed (see `_eval_software_policy`).
+* A row of a Mac can say `in_user_folder`: the application is in the Applications folder of an account, which that person can write.
+  Such a row shows what is on the Mac and does not meet a rule that requires an application.
 """
 
 from __future__ import annotations
@@ -112,6 +117,16 @@ def clean_date(value: Any) -> str:
     return day.isoformat() if 1990 <= day.year <= 2100 else ""
 
 
+def clean_cut(value: Any) -> bool:
+    """Whether an agent says its list is cut. Only the boolean true says it."""
+    return value is True
+
+
+def in_account_folder(row: Any) -> bool:
+    """Whether a row of a stored list is an application found only in the Applications folder of an account (a Mac)."""
+    return isinstance(row, dict) and row.get("in_user_folder") is True
+
+
 def clean_skipped(value: Any) -> int:
     """How many entries the agent left out (updates and system components), as a whole number, else 0."""
     if isinstance(value, bool) or not isinstance(value, int):
@@ -124,7 +139,7 @@ def clean_entry(entry: Any, host_manager: Any) -> dict | None:
 
     A row has a name; a version may be empty (a program that does not write one). Its manager is the one it names
     when that is one its host may hold, else the host's own. `publisher`, `installed` and `id` (the bundle
-    identifier of an application) are kept when they hold something."""
+    identifier of an application) are kept when they hold something, and so is `in_user_folder` (true) on the row of a Mac application."""
     host = manager_of(host_manager)
     if not host or not isinstance(entry, dict):
         return None
@@ -150,6 +165,8 @@ def clean_entry(entry: Any, host_manager: Any) -> dict | None:
     ident = clean_text(entry.get("id"))
     if ident:
         row["id"] = ident
+    if manager == "macos" and entry.get("in_user_folder") is True:
+        row["in_user_folder"] = True
     return row
 
 

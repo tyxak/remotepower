@@ -34,6 +34,15 @@ A Windows or macOS host reports the applications it has, under the titles a pers
   of a Linux distribution, and every Windows host would otherwise break `auditd` the day its agent
   started to send a list. To require an application on a Windows or macOS host, give the rule a
   tag that host carries. **banned** and **min_version** rules apply to every host that has a list.
+- On a Mac, an application that only an account's own `Applications` folder holds does not meet a **required** rule: the
+  person who owns that folder can put any bundle in it, so the rule is met by `/Applications` only. A **banned** rule still
+  finds the application in either place. For a **min_version** rule, the copy in `/Applications` is the one that is judged
+  when both folders hold the application.
+- A list the agent says is **cut** (it ran out of its time reading the application folders, or the host has more than 5,000
+  rows) cannot show that an application is absent. A **banned** or **min_version** rule that finds nothing in it is a
+  violation with *not known* in the Found column and not a pass, and a **required** rule that finds nothing is a violation
+  that says the list is cut. A whole list at the next send clears them. See
+  [A list that is cut](patches.md#a-list-that-is-cut).
 - The **Fix** button on a violation is not offered for them: install and uninstall are commands for
   Linux hosts, and a Windows or macOS host would answer with an error. Remove or update the
   application on the host itself.
