@@ -71639,23 +71639,87 @@ def _eval_software_policy(dev_id, dev_name, packages, tags, host_manager='', cut
     # Told after the lock is released (collect, then fire), and only for what the locked read found of this host's
     # earlier row. A rule that WAS violated and no longer is: the operator fixed it, so the alert must close itself
     # rather than wait to be resolved by hand.
-    told = []
-    for gone in sorted(prev_keys - {v['rule_id'] for v in violations}):
-        if gone:
-            told.append(('policy_compliant', {'device_id': dev_id, 'name': dev_name, 'rule': gone}))
-    for v in violations:
-        if v['rule_id'] not in prev_keys:
-            told.append(('software_policy_violation', {
-                'device_id': dev_id, 'name': dev_name,
-                'rule': v['rule_id'], 'package': v['package'],
-                'detail': v['detail'],
-            }))
+    told = _policy_events_to_tell(dev_id, dev_name, prev_keys, violations)
     for event, payload in told:
         try:
             fire_webhook(event, payload)
         except Exception:
             pass
     return violations
+
+
+# 8.0.2: how many software-policy events one host may cause. A host that sends its list tells the evaluation which of up to 500 rules
+# it breaks, and every change of that set was an event of its own: a host whose list flipped between "all 100 banned packages" and
+# "none" caused 100 events a push (3.3 seconds each), 6,000 in 60 pushes, each one a notification to the operator's channels and a
+# row of the shared activity feed and alert inbox, whose caps then dropped the other hosts' history.
+_POLICY_EVENTS_LISTED = 5          # what one push tells one by one, of the rules that became violated and of the ones that were cleared
+_POLICY_EVENTS_PER_HOUR = 40       # what one host may cause in an hour, the summaries included
+_POLICY_MORE = '(more rules)'      # the rule of the event that stands for the rest of the newly violated ones: one open alert per host
+_POLICY_HELD = '(held back)'       # the rule of the event that says the budget of the hour was met: one open alert per host
+
+
+def _policy_events_recent(dev_id, now):
+    """How many software-policy events this host caused in the last hour, read from the activity feed (a ring that holds them in the
+    order they were told)."""
+    n = 0
+    events = (_load_ro(FLEET_EVENTS_FILE) or {}).get('events') or []
+    for e in reversed(events):
+        if not isinstance(e, dict):
+            continue
+        ts = e.get('ts')
+        if not isinstance(ts, (int, float)) or isinstance(ts, bool):
+            continue                  # a row that holds no time is not an event of the hour, and does not end the count
+        if now - ts > 3600:
+            break
+        if e.get('event') in ('software_policy_violation', 'policy_compliant') \
+                and (e.get('payload') or {}).get('device_id') == dev_id:
+            n += 1
+    return n
+
+
+def _policy_events_to_tell(dev_id, dev_name, prev_keys, violations, now=None):
+    """The events to tell for what one evaluation of a host's list found, as (event, payload) in the order to fire them.
+
+    A rule that WAS violated and no longer is gets `policy_compliant` and one that was not and is gets `software_policy_violation`,
+    which is what the alerts close and open by. Up to _POLICY_EVENTS_LISTED of each are told one by one (everything a host with a
+    few rules sees, as before). Past that a push tells the first of them in the order of the rule ids and one event for the rest: a
+    `software_policy_violation` whose rule is _POLICY_MORE (it coalesces into one open alert, the host's page has the full list), and
+    when the host is whole again a `policy_compliant` with no rule, which closes every policy alert the host has. A host may cause
+    _POLICY_EVENTS_PER_HOUR events an hour: the first push past that is told as one event that says so (_POLICY_HELD), and the
+    ones after it are not told until the hour has passed. The stored row of the host always holds the whole state."""
+    now = int(now if now is not None else time.time())
+    now_keys = {v['rule_id'] for v in violations}
+    gone = [g for g in sorted(prev_keys - now_keys) if g]
+    new = [v for v in violations if v['rule_id'] not in prev_keys]
+    told = []
+    for rule in (sorted(gone)[:_POLICY_EVENTS_LISTED] if len(gone) > _POLICY_EVENTS_LISTED else gone):
+        told.append(('policy_compliant', {'device_id': dev_id, 'name': dev_name, 'rule': rule}))
+    if len(gone) > _POLICY_EVENTS_LISTED and not violations:
+        told.append(('policy_compliant', {'device_id': dev_id, 'name': dev_name,
+                                          'detail': 'every policy violation of this host is cleared'}))
+    listed = sorted(new, key=lambda v: str(v['rule_id']))[:_POLICY_EVENTS_LISTED] if len(new) > _POLICY_EVENTS_LISTED else new
+    for v in listed:
+        told.append(('software_policy_violation', {
+            'device_id': dev_id, 'name': dev_name,
+            'rule': v['rule_id'], 'package': v['package'],
+            'detail': v['detail'],
+        }))
+    if len(new) > _POLICY_EVENTS_LISTED:
+        rest = sorted(str(v['rule_id']) for v in new if v not in listed)
+        told.append(('software_policy_violation', {
+            'device_id': dev_id, 'name': dev_name, 'rule': _POLICY_MORE, 'package': '',
+            'detail': (f'{len(rest)} more rules are violated: ' + ', '.join(rest[:8]) + (' and others' if len(rest) > 8 else ''))[:400]}))
+    if told:
+        recent = _policy_events_recent(dev_id, now)
+        room = max(0, _POLICY_EVENTS_PER_HOUR - recent)
+        if len(told) > room:
+            told = told[:room]
+            if recent < _POLICY_EVENTS_PER_HOUR:
+                told.append(('software_policy_violation', {
+                    'device_id': dev_id, 'name': dev_name, 'rule': _POLICY_HELD, 'package': '',
+                    'detail': ('policy events for this host are held back for an hour because its software list changes too often; '
+                               'the Software policy page lists what is violated now')}))
+    return told
 
 
 def _reeval_software_policy_all():

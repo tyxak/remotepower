@@ -70,6 +70,13 @@ When a host starts breaking a rule, RemotePower raises `software_policy_violatio
 `policy_compliant` closes the alert, so a fix clears itself. Turn either one off under
 **Settings → Notifications → Per-event toggles**.
 
+A host that changes many rules at once is told in a few events. When a list change breaks or
+clears more than five rules, five of each are sent one by one, in the order of the rule ids, and
+one event stands for the rest: one open alert for the host (`(more rules)`) that closes when the
+host breaks no rule any more. A host can cause 40 policy events an hour. After that, one alert
+(`(held back)`) says the rest are held back, and nothing more is sent for that host until the hour
+has passed. The **Current violations** table always shows everything the host breaks now.
+
 ## Permissions
 
 Everyone who is signed in can read the rules and see the violations on hosts they may
