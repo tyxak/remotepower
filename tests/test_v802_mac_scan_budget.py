@@ -12,7 +12,6 @@ the rows of an account's own folder are marked, a report that must drop rows dro
 The macOS agent cannot run here. The walk uses os.scandir(fd), O_DIRECTORY, O_NOFOLLOW and dir_fd, which Linux has, so the real functions run on a scratch tree; the memory and time of
 Python on a Mac are not measured (see the hand-over).
 """
-import contextlib
 import hashlib
 import importlib.util
 import itertools
@@ -20,7 +19,6 @@ import json
 import os
 import plistlib
 import shutil
-import sys
 import tempfile
 import time
 import tracemalloc
