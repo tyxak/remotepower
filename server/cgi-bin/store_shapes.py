@@ -502,6 +502,7 @@ SHAPES: dict = {
     # `done` holds the completed pairs [first_seen, cleared_at, kind] the mean time to patch is read from; a row that is not a list is left out.
     # They are a store of their own, apart from the stamps above, so that the small store every request reads does not grow with the history
     'patch_done.json': dict_of(fields(done=list_of(LIST))),
+    'signin_sources.json': dict_of(NUM),     # 8.0.2: an address -> when someone last signed in from it
     'enrollment_tokens.json': dict_of(fields(max_uses=OPT_NUM, uses=OPT_NUM)),     # 8.0.2: a row that is not a map is left out, and the list of tokens no longer answers 500
     # 8.0.2: the four stores a host's own data sits in that the purge had no rule for; read by the dependency map, the custom-metrics page, the SBOM diff and the drift viewer
     'peer_conns.json': dict_of(fields(ts=NUM, peers=list_of())),

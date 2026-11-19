@@ -831,6 +831,13 @@ def _protected_networks(pol, devices):
     except Exception:  # nosec B110
         pass  # the audit log is an extra source; the fleet and the lists still apply
     try:
+        # the store of its own (8.0.2): the audit log keeps 500 entries whatever their age, and reports and blocks write lines of their own
+        for src, at in (A._load_ro(A.SIGNIN_SOURCES_FILE) or {}).items():
+            if isinstance(at, (int, float)) and int(at) >= cutoff:
+                own.append(src)
+    except Exception:  # nosec B110
+        pass  # as above
+    try:
         for r in ((A._load_ro(A.SSHGW_SESSIONS_FILE) or {}).get('sessions') or [])[-2000:]:
             if isinstance(r, dict) and int(r.get('started') or 0) >= cutoff:
                 own.append(r.get('client_ip'))

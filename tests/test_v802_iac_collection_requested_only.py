@@ -20,9 +20,18 @@ sys.path.insert(0, str(_ROOT / 'server' / 'cgi-bin'))
 sys.path.insert(0, str(_ROOT / 'tests'))
 
 import api  # noqa: E402
+import env_guard  # noqa: E402
 import srcpin  # noqa: E402
 
 TOKEN = 'iac-token-' + 'a' * 30
+
+
+def setUpModule():
+    env_guard.save(__name__)
+
+
+def tearDownModule():
+    env_guard.restore(__name__)
 
 
 class _Captured(Exception):

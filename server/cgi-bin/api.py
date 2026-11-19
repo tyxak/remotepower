@@ -86,6 +86,7 @@ AUDIT_HMAC_ROTATIONS_FILE = DATA_DIR / 'audit_hmac_rotations.json'   # v6.1.1: k
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
 WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
 WEBHOOK_DLQ_FILE = DATA_DIR / 'webhook_dlq.json'  # v5.0.0 #R2: dead-letter queue
+SIGNIN_SOURCES_FILE = DATA_DIR / 'signin_sources.json'   # 8.0.2: address -> when someone last signed in from it; what Threat Intel never blocks or reports
 NOTIFY_HEALTH_FILE = DATA_DIR / 'notify_health.json'  # 8.0.1: the failed streak of each notification destination
 # v6.4.2: the same idea for AUDIT forwarding, which had none. See
 # _spool_audit_forward / run_audit_forward_retry_if_due.
@@ -9088,6 +9089,31 @@ def _archive_history_entries(entries):
         sys.stderr.write(f'[remotepower] history archive write failed: {_arch_err}\n')
 
 
+_SIGN_IN_AUDIT_ACTIONS = frozenset({'login', 'login_webauthn', 'login_saml', 'login_oidc'})    # the same four ip_intel_handlers.SIGN_IN_ACTIONS names
+_SIGN_IN_SOURCES_MAX = 2000
+_SIGN_IN_SOURCES_DAYS = 30
+
+
+def _note_sign_in_source(ip, ts):
+    """Remember where a person signed in from, in a store of its own. Threat Intel never blocks or reports an address someone signed in from in the last 30 days, and it read
+    that from the audit log, which keeps 500 entries whatever their age: a busy hour of reports and blocks (each writes a line) pushed every sign-in out of it and left an
+    administrator's own address unprotected. An address already noted in the last hour is not written again, so a sign-in costs a write at most once an hour per address."""
+    try:
+        cur = _load_ro(SIGNIN_SOURCES_FILE) or {}
+        if isinstance(cur, dict) and int(cur.get(ip) or 0) > ts - 3600:
+            return
+        with _LockedUpdate(SIGNIN_SOURCES_FILE) as st:
+            st[ip] = int(ts)
+            floor = int(ts) - _SIGN_IN_SOURCES_DAYS * 86400
+            for k in [k for k, v in st.items() if not isinstance(v, (int, float)) or v < floor]:
+                st.pop(k, None)
+            if len(st) > _SIGN_IN_SOURCES_MAX:
+                for k, _v in sorted(st.items(), key=lambda kv: kv[1])[:len(st) - _SIGN_IN_SOURCES_MAX]:
+                    st.pop(k, None)
+    except Exception as e:      # the sign-in must not fail because a list of addresses could not be kept
+        sys.stderr.write(f'[remotepower] sign-in source not noted: {type(e).__name__}\n')
+
+
 def audit_log(actor, action, detail='', source_ip=None,
               ai_host=None, ai_prompt=None):
     """Log action with actor, IP, and detail for security auditing.
@@ -9134,6 +9160,8 @@ def audit_log(actor, action, detail='', source_ip=None,
         entry['ai_host'] = _sanitize_str(ai_host, 128)
     if ai_prompt is not None:
         entry['ai_prompt'] = _sanitize_str(ai_prompt, 2048)
+    if entry['action'] in _SIGN_IN_AUDIT_ACTIONS and entry['source_ip']:
+        _note_sign_in_source(entry['source_ip'], entry['ts'])
     cfg = load(CONFIG_FILE) or {}
     # v5.8.0: audit_log.json is a WRAPPED_LIST_FILE now, so the DB backend does an
     # O(1) chained row insert (list_append_chained atomically reads the tail hash
