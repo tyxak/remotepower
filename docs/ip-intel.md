@@ -243,6 +243,15 @@ saw it. If a service answers that it was reported moments ago, RemotePower
 counts it as reported instead of retrying. **Evidence → Details** on the
 Attackers table shows exactly what was sent to each service.
 
+On a multi-tenant install, an address that the hosts of two tenants both saw has
+one row. Each tenant reads the evidence its own hosts collected (the request
+paths, the jail names, the CVE ids, the counts) and none of the other tenant's.
+The platform operator reads the sum. A report is made from the evidence of every
+host that saw the address, so when it includes a host you cannot see, you are told
+that the address was reported and what the service answered, but not the text that
+was sent. The reason an address was not reported yet, such as `7 of 10 attempts so
+far`, is held back the same way.
+
 ### Examples at the end of a report
 
 A report is public on both services, and what other people want to see in it is
@@ -722,10 +731,14 @@ An address that attacks again after a clear is recorded again from the start.
 | Role | Sees |
 |---|---|
 | Admin | Everything, including the provider settings, manual lookups and **Clear**. |
-| Anyone else | Attackers and blocks for the hosts their role can see. |
+| Anyone else | Attackers and blocks for the hosts their role can see, and the evidence those hosts collected. |
 
 Under multi-tenancy, only the platform operator can change the provider
-settings or run a manual lookup, which spends the install's daily quota.
+settings or run a manual lookup, which spends the install's daily quota. A tenant's
+administrator sees the attackers, blocks and log sources of their own hosts, the
+evidence those hosts collected, and the **Clear** button for them. The same goes
+for a role that is limited to some hosts, or an API key that is: they read the
+evidence of the hosts in their scope.
 
 ## Troubleshooting
 

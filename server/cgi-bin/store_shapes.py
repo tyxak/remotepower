@@ -602,7 +602,7 @@ SHAPES: dict = {
                                                                            dir=STR, refs=LIST, digests=DICT, before=DICT)),
                                                    last_run=fields(ts=NUM, made=NUM, held=LIST))),
     'integrations_state.json': fields(latest=dict_of(fields(metrics=DICT, checked=NUM)), history=DICT),
-    'ip_intel.json': fields(attackers=dict_of(fields(verdict=DICT, devices=DICT, last_seen=OPT_NUM, report_log=LIST)),
+    'ip_intel.json': fields(attackers=dict_of(fields(verdict=DICT, devices=DICT, last_seen=OPT_NUM, report_log=LIST, ev_hosts=LIST, ev_by=DICT)),
                             blocks=dict_of(dict_of(fields(until=NUM))), budget=fields(abuseipdb=NUM, sniffcat=NUM), last_sweep=NUM, edge=DICT, edgelist=DICT,
                             edgeban=DICT, reqlog=LIST),
     'ip_intel_intake.json': fields(queue=LIST, sensors=dict_of(fields(sources=LIST, ignored=DICT)), cursors=DICT,

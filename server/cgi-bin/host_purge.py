@@ -74,7 +74,14 @@ RULES: dict[str, tuple[Rule, ...]] = {
     "health_history.json": (pop("devices"),),
     "helm.json": (pop(),),
     "image_cves.json": (pop(),),
-    "ip_intel.json": (pop("blocks"), pop("attackers", "*", "devices")),
+    # the host's own part of an address's evidence (8.0.2) goes with it; `ev_hosts` and a report's `hosts` keep the id on purpose, so a ledger the host
+    # added to stays unreadable to everyone who did not see that host
+    "ip_intel.json": (
+        pop("blocks"),
+        pop("attackers", "*", "devices"),
+        pop("attackers", "*", "ev_by"),
+        pop("attackers", "*", "ev_reported", "by"),
+    ),
     "ip_intel_intake.json": (
         pop("sensors"),
         drop("log", field="device_id"),

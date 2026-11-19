@@ -775,6 +775,76 @@ def _fresh_ledger(att, now):
     return None
 
 
+# ── who a ledger was collected by ──────────────────────────────────────────────
+#
+# One address has one row and one evidence ledger for the whole installation: the sweep adds up what every host's logs said, so
+# an address is reported once however many hosts saw it. The ledger holds the request paths, the jail names, the CVE ids and the
+# counts of the hosts that collected it, and those belong to the hosts' owners. So a ledger is stored with `hosts`, the ids of the
+# places (hosts, and the edge feeds) whose evidence is in it, and the page shows a ledger only to a caller who reads all of them
+# (`_readable_ledger`). The report log keeps the same list on each entry, for the text a report was made of.
+
+LEDGER_HOSTS_MAX = 200      # places named on one ledger; one that was seen by more is the operator's alone
+
+
+def _cap_hosts(hosts):
+    """The place ids of a ledger as a sorted list. Past LEDGER_HOSTS_MAX the list ends in '*', which is no place a caller reads, so
+    the ledger is shown to a caller who reads everything and to nobody else."""
+    out = sorted({str(h) for h in hosts if h})
+    return out if len(out) <= LEDGER_HOSTS_MAX else out[:LEDGER_HOSTS_MAX] + ['*']
+
+
+def _ledger_hosts(att, ledger):
+    """The places whose evidence is in `ledger`, the live ledger of `att`. A ledger stored before the places were recorded names
+    every place that has seen the address, which holds the ones that added to it."""
+    if not ledger:
+        return []
+    hosts = (att or {}).get('ev_hosts')
+    if isinstance(hosts, list):
+        return [str(h) for h in hosts]
+    devs = (att or {}).get('devices')
+    return [str(d) for d in devs] if isinstance(devs, dict) else []
+
+
+LEDGER_BY_MAX = 20          # places whose own part of a ledger is kept; a ledger that more of them added to is the operator's alone
+
+
+def _add_to_ledger(att, group, now):
+    """(ledger, hosts, by): the evidence ledger of `att` after the entries of this sweep (`group`) are added, the places it is made
+    of, and the part each of them collected.
+
+    `by` is {place: ledger} and exists only while two or more places have added to the ledger, because one place's part is the whole of
+    it: it is what lets a tenant read their own hosts' part of an address that another tenant's host also saw (see _readable_ledger),
+    without a second copy of every ledger. It is None when there is no way to tell the parts apart (a ledger several places added to
+    before they were kept apart, or one that more than LEDGER_BY_MAX did) and the ledger is then shown only to a caller who reads all of
+    its places."""
+    prior = _fresh_ledger(att, now)
+    hosts = _ledger_hosts(att, prior)
+    new = _entry_evidence(group)
+    if not new:
+        by = att.get('ev_by') if prior and isinstance(att.get('ev_by'), dict) else None
+        return prior, hosts, by
+    own = {}                                    # place -> what its entries of this sweep said
+    for q in group:
+        e = q['item'].get('evidence')
+        if isinstance(e, dict):
+            own[q['dev_id']] = threat_evidence.merge(own.get(q['dev_id']), e)
+    cur = threat_evidence.slim(threat_evidence.merge(prior, new))
+    if prior is None:
+        by = {}                                 # a ledger that starts now: each place's part is known from its first line
+    elif isinstance(att.get('ev_by'), dict):
+        by = dict(att['ev_by'])
+    elif len(hosts) == 1:
+        by = {hosts[0]: prior}                  # one place so far: the ledger is its own part
+    else:
+        by = None                               # several places added to it before the parts were kept
+    hosts = hosts + list(own)
+    if by is not None:
+        for place, e in own.items():
+            by[place] = threat_evidence.slim(threat_evidence.merge(by.get(place), e))
+        by = by if 2 <= len(by) <= LEDGER_BY_MAX else None
+    return cur, hosts, by
+
+
 def _entry_evidence(group):
     """The evidence in a group's queue entries, added together, or None."""
     ev = None
@@ -1015,6 +1085,7 @@ def run_ip_intel_if_due():
                 continue
             a = atts.get(ip) or {}
             fresh = (now - int(a.get('checked_at') or 0)) < int(pol['cache_hours']) * 3600
+            ledger = _fresh_ledger(a, now)
             plan.append({
                 'item': item, 'ip': ip, 'dev_id': dev_id,
                 'lookup': bool(pol['lookup_enabled'] or pol['block_enabled'])
@@ -1022,7 +1093,8 @@ def run_ip_intel_if_due():
                 'cached': a.get('verdict'),
                 'reported': dict(a.get('reported') or {}),
                 'retry': dict(a.get('retry') or {}),
-                'ledger': _fresh_ledger(a, now),
+                'ledger': ledger,
+                'ledger_hosts': _ledger_hosts(a, ledger),
             })
 
     # ── phase 2 ──
@@ -1080,6 +1152,9 @@ def run_ip_intel_if_due():
         if nb:
             lead['report_err'] = {prov: f'not reported: {nb}' for prov in keyed}
             continue
+        # The text of a report is made of the whole address's evidence, so it names every place that went into it: the ledger it
+        # was added to and the entries of this sweep (a counter's entry too: its count is the largest of any host's).
+        report_hosts = _cap_hosts(set(lead.get('ledger_hosts') or ()) | {q['dev_id'] for q in group})
         for prov in keyed:
             key = pol['keys'][prov]
             if now - int(lead['reported'].get(prov) or 0) < REPORT_EVERY_S:
@@ -1100,7 +1175,7 @@ def run_ip_intel_if_due():
             res = parse(*A._ip_intel_http(
                 build(ip, key, report['cats'][prov], report['comment'], timestamp=report['when'])))
             entry = {'at': now, 'prov': prov, 'cats': list(report['cats'][prov]),
-                     'comment': report['comment']}
+                     'comment': report['comment'], 'hosts': report_hosts}
             if res.get('transient'):
                 # Nothing was filed. The day's allowance is not spent on it (a service that was down for a day
                 # used up the whole of it before this), and the address waits instead of being tried again at its
@@ -1170,10 +1245,9 @@ def run_ip_intel_if_due():
                 # The evidence ledger: everything the logs said about this address
                 # in the last day, added up across sweeps, so a slow attacker still
                 # adds up. A report starts it over; what it said is kept to show.
-                new = _entry_evidence(groups[ip])
-                cur = _fresh_ledger(att, now)
-                if new:
-                    cur = threat_evidence.slim(threat_evidence.merge(cur, new))
+                # It is kept with the places that collected it and, while more than one
+                # did, the part of each (see _add_to_ledger).
+                cur, hosts, by = _add_to_ledger(att, groups[ip], now)
                 # A report starts the ledger over, but only once every service it
                 # is meant for has been told: if one took it and the other was
                 # busy, the evidence stays so the other can still be sent it.
@@ -1181,11 +1255,20 @@ def run_ip_intel_if_due():
                 everyone = all(now - int(told.get(prov) or 0) < REPORT_EVERY_S
                                for prov in ip_intel.PROVIDERS if pol['keys'].get(prov))
                 if p.get('archived') and cur and everyone:
-                    att['ev_reported'] = {'at': now, 'ev': cur}
+                    att['ev_reported'] = {'at': now, 'ev': cur, 'hosts': _cap_hosts(hosts)}
+                    if by:
+                        att['ev_reported']['by'] = by
                     cur = None
                 att['ev'] = cur
                 if cur is None:
-                    att.pop('ev', None)
+                    for stale in ('ev', 'ev_hosts', 'ev_by'):
+                        att.pop(stale, None)
+                else:
+                    att['ev_hosts'] = _cap_hosts(hosts)
+                    if by:
+                        att['ev_by'] = by
+                    else:
+                        att.pop('ev_by', None)
             if catchup:
                 continue      # the ledger was reported; nothing was seen, so no sighting or block
             seen = att.setdefault('devices', {})
@@ -1392,18 +1475,86 @@ def _settings_view(pol):
     return out
 
 
-def _evidence_view(att):
+def _within(hosts, places):
+    """Whether `hosts`, a stored list of place ids, is made of places the caller reads. A list that is missing, empty or not a list
+    names nobody, so it is not within anything: what is stored without its places is not shown to a caller who reads some."""
+    return isinstance(hosts, list) and bool(hosts) and all(h in places for h in hosts)
+
+
+def _readable_ledger(att, places):
+    """(ledger, sent): the evidence ledger of an address as far as the caller may read it, or (None, ...). The day's ledger, else
+    the one the last report was made of (`sent`).
+
+    `places` is None for a caller who reads every place, and the ledger is then the sweep's own, added up over all of them. For any
+    other caller it is the set of place ids they see. The ledger is a sum over every place that saw the address, so it is shown whole
+    when each place in `hosts` is one they read. Otherwise they are given the sum of their own places' parts (`by`, kept while more
+    than one place added to it), and nothing when there are none or the parts were never kept apart."""
+    ev = att.get('ev') if isinstance(att.get('ev'), dict) else None
+    hosts, by, sent = att.get('ev_hosts'), att.get('ev_by'), False
+    if ev is None:
+        rep = att.get('ev_reported')
+        if isinstance(rep, dict) and isinstance(rep.get('ev'), dict):
+            ev, hosts, by, sent = rep['ev'], rep.get('hosts'), rep.get('by'), True
+    if not ev:
+        return None, False
+    if places is None:
+        return ev, sent
+    if not isinstance(hosts, list):
+        # stored before the places were recorded: every place that has seen the address may have added to it
+        devs = att.get('devices')
+        hosts = list(devs) if isinstance(devs, dict) else []
+    if _within(hosts, places):
+        return ev, sent
+    mine = [by[h] for h in hosts if h in places and isinstance(by, dict) and isinstance(by.get(h), dict)]
+    part = None
+    try:
+        for ledger in mine:
+            part = threat_evidence.merge(part, ledger)
+    except Exception:       # a part that was edited by hand reads as no part: the page must not fail on it
+        part = None
+    return (part, sent) if part else (None, sent)
+
+
+REPORT_ENTRY_OPEN = ('at', 'prov', 'ok', 'duplicate', 'error')   # what an entry says without the text of the report
+
+
+def _report_log_view(att, places):
+    """The last reports of an address for the page, each without its internal list of places. What was sent (`cats`, `comment`) is made
+    of the evidence of those places, so a caller who does not read all of them is told that a report was made and what the service
+    answered, and not what it said."""
+    out = []
+    for e in [e for e in (att.get('report_log') or []) if isinstance(e, dict)][-3:]:
+        shown = {k: v for k, v in e.items() if k != 'hosts'}
+        if places is not None and not _within(e.get('hosts'), places):
+            shown = {k: v for k, v in shown.items() if k in REPORT_ENTRY_OPEN}
+        out.append(shown)
+    return out
+
+
+def _errors_view(att, places):
+    """The reasons stored beside an address: what a provider answered, and why nothing was reported. A reason of the second kind is
+    worked out from the address's whole ledger ("7 of 10 attempts so far", "no attack category for the fail2ban jail ..."), so a caller
+    who does not read every place that saw the address does not get it."""
+    errs = att.get('errors') if isinstance(att.get('errors'), dict) else {}
+    if places is None:
+        return errs
+    rep = att.get('ev_reported') if isinstance(att.get('ev_reported'), dict) else {}
+    named = set()
+    for src in (att.get('devices'), att.get('ev_hosts'), rep.get('hosts')):
+        named |= {str(k) for k in src} if isinstance(src, (dict, list)) else set()
+    if named <= places:
+        return errs
+    return {k: v for k, v in errs.items() if not str(v).startswith('not reported')}
+
+
+def _evidence_view(att, places=None):
     """What the logs showed about one address, for the page: the classes it was
     seen doing, the sources that saw it, the rule ids and CVE ids, and who had
     already decided on it. From the day's ledger, or from what the last report
     was made of when the ledger has just been started over. None when the logs
-    said nothing (an address only the brute-force counter knows)."""
-    ev = att.get('ev') if isinstance(att.get('ev'), dict) else None
-    sent = False
-    if ev is None:
-        rep = att.get('ev_reported')
-        ev = rep.get('ev') if isinstance(rep, dict) and isinstance(rep.get('ev'), dict) else None
-        sent = ev is not None
+    said nothing (an address only the brute-force counter knows), or when the
+    ledger holds what a place outside `places` collected (see _readable_ledger)."""
+    ev, sent = _readable_ledger(att, places)
     if not ev:
         return None
     src, tok = ev.get('src') or {}, ev.get('tok') or {}
@@ -1477,6 +1628,18 @@ def _is_operator():
         return False
     return bool(A._resolve_role(role).get('admin')) and (
         not A._tenancy_enforced() or A._caller_is_superadmin())
+
+
+def _reads_all_hosts():
+    """True when nothing a host collected is kept from the caller: tenancy is off or the caller is the platform operator, and neither
+    the role nor the API key carries a host scope. Any other caller reads the hosts they are shown and no others, and so reads only
+    the evidence of those (see _readable_ledger). When the answer cannot be worked out it is no."""
+    try:
+        if A._tenancy_enforced() and not A._caller_is_superadmin():
+            return False
+        return A._caller_scope() is None
+    except Exception:
+        return False
 
 
 WIDGET_WINDOW_S = 86400
@@ -1610,6 +1773,9 @@ def explorer_rows(visible):
     st = _store_ro()
     blocks = st.get('blocks') if isinstance(st.get('blocks'), dict) else {}
     operator = _is_operator()
+    # The classes of an address come from its evidence ledger, which a caller reads only when every place that went into it is one
+    # they see (_readable_ledger): the Data Explorer is a second door to what the Threat Intel page shows.
+    places = None if _reads_all_hosts() else set(visible) | (set(ip_intel.EDGE_DEVICES) if operator else set())
     now = int(time.time())
     bans = edge_blocklist.active_bans(st.get('edgeban'), now) if operator else {}
     out = []
@@ -1618,8 +1784,7 @@ def explorer_rows(visible):
             continue
         v = a.get('verdict') if isinstance(a.get('verdict'), dict) else {}
         rep = a.get('reported') if isinstance(a.get('reported'), dict) else {}
-        ev = a.get('ev') if isinstance(a.get('ev'), dict) else (
-            (a.get('ev_reported') or {}).get('ev') if isinstance(a.get('ev_reported'), dict) else None)
+        ev, _sent = _readable_ledger(a, places)
         classes = ''
         if isinstance(ev, dict):
             classes = ','.join(c for c, _n in threat_evidence.dominant(ev, 5))
@@ -1666,7 +1831,8 @@ def handle_ip_intel():
     """GET /api/ip-intel — settings (keys as booleans), recent attackers with
     their reputation and what the logs showed, active blocks, each host's log
     sensor, and today's lookup budget. Attackers, blocks and sensors are limited
-    to devices the caller can see."""
+    to devices the caller can see, and what the logs showed to what those hosts
+    collected (see _readable_ledger)."""
     A.require_auth()
     if A.method() != 'GET':
         A.respond(405, {'error': 'Method not allowed'})
@@ -1700,6 +1866,9 @@ def handle_ip_intel():
     # Reputation-list hits a firewall's IDS saw (Spamhaus, Dshield, CINS...), from the hosts the
     # caller can see. Context beside an address; it is never evidence.
     listed = A.listed_for(A._load_ro(A.IPINTEL_SCAN_FILE) or {}, set(visible), int(time.time()))
+    # What an address's ledger, its reports and its reasons say is made of every host that saw it, and the row is one for the whole
+    # installation. A caller who does not read all the hosts is given what they collected themselves and nothing of the others.
+    places = None if _reads_all_hosts() else set(visible)
     attackers = []
     for ip, a in (st.get('attackers') or {}).items():
         if not isinstance(a, dict):
@@ -1718,14 +1887,14 @@ def handle_ip_intel():
             'country': v.get('country', ''), 'isp': v.get('isp', ''),
             'usage': v.get('usage', ''), 'providers': v.get('providers', {}),
             'checked_at': a.get('checked_at'), 'reported': a.get('reported', {}),
-            'errors': a.get('errors', {}),
+            'errors': _errors_view(a, places),
             'in_list': a.get('in_list') if operator else None,
             'ignored': bool(pol.get('ignore_nets') and ip_intel.in_any(ip, pol['ignore_nets'])),
             'edge_ban': ({'until': bans[edge_blocklist.canonical(ip)]}
                          if edge_blocklist.canonical(ip) in bans else None),
-            'evidence': _evidence_view(a),
+            'evidence': _evidence_view(a, places),
             'listed': _listed_view(listed.get(ip), visible),
-            'report_log': [e for e in (a.get('report_log') or []) if isinstance(e, dict)][-3:],
+            'report_log': _report_log_view(a, places),
         })
     attackers.sort(key=lambda r: int(r.get('last_seen') or 0), reverse=True)
     rows = []
@@ -2156,8 +2325,14 @@ def handle_ip_intel_clear():
             had_sightings = bool(devs)
             if had_sightings:
                 cleared += 1
+            rep = att.get('ev_reported') if isinstance(att.get('ev_reported'), dict) else {}
             for d in theirs:
                 devs.pop(d, None)
+                # what these hosts added to the address's evidence goes with their sightings (the sum keeps their share, which
+                # only the operator reads, until the day's ledger is started over)
+                for parts in (att.get('ev_by'), rep.get('by')):
+                    if isinstance(parts, dict):
+                        parts.pop(d, None)
             if devs:
                 continue                  # another tenant's host saw it too: it stays for them
             listed = bool(held) and edge_blocklist.canonical(ip) in held
