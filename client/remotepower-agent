@@ -16408,51 +16408,72 @@ _TS_AUD_BOUNDARY_RE = re.compile(r'^--([0-9A-Za-z]{4,})-([A-Z])--\s*$')
 _TS_AUD_A_RE = re.compile(r'^\[([^\]]+)\]\s+\S+\s+(\S+)\s+\d+\s+\S+\s+\d+')
 
 
+_TS_AUD_RESTARTS = 8              # times one pass may start again after a record that never ended
+
+
 def _ts_scan_modsec_native(lines, agg, fkey, now):
     """(transactions, usable) for ModSecurity's native serial audit log: parts A
     (client and time), B (request line and User-Agent), F (status) and H (rule
     messages); every other part, bodies included, is skipped line by line and
-    never held."""
-    tx, part, n, parsed = None, None, 0, 0
-    for line in lines:
-        m = _TS_AUD_BOUNDARY_RE.match(line)
-        if m:
-            tid, part = m.group(1), m.group(2)
-            if part == 'A':
-                tx = {'id': tid, 'ip': '', 'ts': 0, 'method': '', 'uri': '', 'ua': '',
-                      'status': 0, 'msgs': [], 'blocked': False, 'seen_b': False, 'seen_f': False}
-                n += 1
-            elif part == 'Z':
-                if tx and tx['id'] == tid and tx['ip']:
-                    parsed += 1
-                    _ts_modsec_emit(tx, agg, fkey, now)
-                tx = part = None
-            continue
-        if tx is None or not line:
-            continue
-        if part == 'A' and not tx['ip']:
-            a = _TS_AUD_A_RE.match(line)
-            if a:
-                tx['ts'] = _ts_time_local(a.group(1))
-                tx['ip'] = a.group(2)
-        elif part == 'B':
-            if not tx['seen_b']:
-                tx['seen_b'] = True
-                tx['method'], tx['uri'] = _ts_split_request(line[:4200])
-            elif line[:11].lower() == 'user-agent:':
-                tx['ua'] = line[11:300].strip()
-        elif part == 'F':
-            if not tx['seen_f']:
-                tx['seen_f'] = True
-                bits = line.split(' ', 2)
-                if len(bits) >= 2 and bits[1].isdigit():
-                    tx['status'] = int(bits[1])
-        elif part == 'H':
-            if line.startswith('Message: '):
-                if len(tx['msgs']) < 40:
-                    tx['msgs'].append(line[9:3000])
-            elif line.startswith('Action: Intercepted'):
-                tx['blocked'] = True
+    never held.
+
+    The bodies are the visitor's text, line for line: a request body (part C or I) or a page that echoes one (part E) can hold a boundary line
+    and a whole record after it, with the victim's address in its A part and a rule message in its H part. Every boundary of a record carries
+    the record's own id, which is random, so while a record is open a boundary with another id is a line of its text, not the start of a
+    second record. A record that never ends (a torn write) would then swallow the rest of the pass, so when the pass reaches its end with a
+    record open it starts again at the first foreign boundary that opened one (at most _TS_AUD_RESTARTS times)."""
+    n = parsed = 0
+    start = 0
+    for _ in range(_TS_AUD_RESTARTS):
+        tx = part = resume = None
+        for i in range(start, len(lines)):
+            line = lines[i]
+            m = _TS_AUD_BOUNDARY_RE.match(line)
+            if m:
+                tid, new_part = m.group(1), m.group(2)
+                if tx is not None and tid != tx['id']:
+                    if resume is None and new_part == 'A':
+                        resume = i
+                    continue
+                part = new_part
+                if part == 'A':
+                    tx = {'id': tid, 'ip': '', 'ts': 0, 'method': '', 'uri': '', 'ua': '',
+                          'status': 0, 'msgs': [], 'blocked': False, 'seen_b': False, 'seen_f': False}
+                    n += 1
+                elif part == 'Z':
+                    if tx and tx['ip']:
+                        parsed += 1
+                        _ts_modsec_emit(tx, agg, fkey, now)
+                    tx = part = None
+                continue
+            if tx is None or not line:
+                continue
+            if part == 'A' and not tx['ip']:
+                a = _TS_AUD_A_RE.match(line)
+                if a:
+                    tx['ts'] = _ts_time_local(a.group(1))
+                    tx['ip'] = a.group(2)
+            elif part == 'B':
+                if not tx['seen_b']:
+                    tx['seen_b'] = True
+                    tx['method'], tx['uri'] = _ts_split_request(line[:4200])
+                elif line[:11].lower() == 'user-agent:':
+                    tx['ua'] = line[11:300].strip()
+            elif part == 'F':
+                if not tx['seen_f']:
+                    tx['seen_f'] = True
+                    bits = line.split(' ', 2)
+                    if len(bits) >= 2 and bits[1].isdigit():
+                        tx['status'] = int(bits[1])
+            elif part == 'H':
+                if line.startswith('Message: '):
+                    if len(tx['msgs']) < 40:
+                        tx['msgs'].append(line[9:3000])
+                elif line.startswith('Action: Intercepted'):
+                    tx['blocked'] = True
+        if tx is None or resume is None:
+            break
+        start = resume
     return n, parsed
 
 

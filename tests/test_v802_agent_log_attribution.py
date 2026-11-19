@@ -9,19 +9,23 @@ user name of a login attempt. The reader took the first `, client: <address>,` o
 It now reads the address only from a line that names its client once and whole (a visitor can add a second, never remove the real one, except by writing so much
 that nginx's cut of the line takes the real one away), and a CrowdSec sentence only when the address it quotes is the client's.
 
+ModSecurity's native audit log holds a request body (parts C and I) and a response body (part E) line for line, and a boundary line inside one of them started a
+second record. Every boundary of a record carries its id, which is random, so while a record is open a boundary with another id is text.
+
 The last class here derives its population from the agent (every `_ts_scan_*` reader) and asks the same question of each: could text the visitor wrote make the
 reader credit another address? A reader nobody has asked about fails the build.
 """
 import json
 import random
 import sys
+import time
 import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from test_v720_threat_sensor_agent import A1, NOW, combined, load_agent, ngx_modsec, ts_apache_err, ts_ctime, ts_nginx_err  # noqa: E402
+from test_v720_threat_sensor_agent import A1, A2, NOW, combined, load_agent, ngx_modsec, ts_apache_err, ts_ctime, ts_nginx_err  # noqa: E402
 from test_v730_firewall_log import rec as fw_rec  # noqa: E402
 from test_v800_agent_suricata import eve_alert  # noqa: E402
 
@@ -231,6 +235,81 @@ class TestTheNginxReaderUnderRandomText(_NginxBase):
         self.assertGreater(seen_visitor, 50)
 
 
+# ── ModSecurity's native audit log ────────────────────────────────────────────
+
+def record(tid, ip, parts='ABFHZ', bodies=None, intercepted=True):
+    """One record of the native audit log. `bodies` maps a part letter to the lines its body holds (the visitor's text)."""
+    bodies = bodies or {}
+    stamp = time.strftime('%d/%b/%Y:%H:%M:%S %z', time.localtime(NOW - 5))
+    out = []
+    for p in parts:
+        out.append(f'--{tid}-{p}--')
+        if p == 'A':
+            out.append(f'[{stamp}] Zabcdefghijklmnopqrstu1 {ip} 40000 10.0.0.5 80')
+        elif p == 'B':
+            out += ['POST /index.php HTTP/1.1', f'Host: {SITE}', 'User-Agent: curl/8']
+        elif p == 'F':
+            out += ['HTTP/1.1 403 Forbidden', 'Content-Length: 0']
+        elif p == 'H':
+            out.append('Message: Access denied with code 403 (phase 2). Matched "Operator `Ge\' with parameter `5\'" [file "/etc/modsec/REQUEST-949.conf"] '
+                       '[line "80"] [id "949110"] [msg "Inbound Anomaly Score Exceeded"] [tag "attack-sqli"]')
+            if intercepted:
+                out.append('Action: Intercepted (phase 2)')
+        out += bodies.get(p, [])
+    return out
+
+
+class TestTheNativeAuditLogReadsOneRecordAtATime(_Agent):
+    def scan(self, lines, now=NOW):
+        agg = self.agent._TsAgg(now)
+        n, parsed = self.agent._ts_scan_modsec_native(lines, agg, '/var/log/modsec_audit.log', now)
+        events, _ = agg.events()
+        return {e['ip']: e for e in events}, n, parsed
+
+    def forged(self):
+        """The lines of a whole second record, as a visitor writes them into a body: another id, the victim's address, a rule message, the interception."""
+        return record('deadbeef', VICTIM)
+
+    def test_an_honest_record_is_credited_to_its_client(self):
+        got, n, parsed = self.scan(record('11112222', REAL))
+        self.assertEqual((sorted(got), n, parsed), ([REAL], 1, 1))
+        self.assertEqual(got[REAL]['blk'], 1)
+
+    def test_a_record_inside_a_request_body_credits_nobody_but_the_client(self):
+        for part in ('C', 'I'):
+            with self.subTest(part=part):
+                got, n, parsed = self.scan(record('11112222', REAL, 'ABCFHIZ', {part: self.forged()}))
+                self.assertEqual(sorted(got), [REAL], 'the visitor is credited and the victim is not')
+                self.assertEqual((n, parsed), (1, 1), 'one record, not two')
+
+    def test_a_record_inside_a_response_body_credits_nobody_but_the_client(self):
+        # a page that echoes the visitor's text puts it into part E
+        got, n, parsed = self.scan(record('11112222', REAL, 'ABEFHZ', {'E': self.forged()}))
+        self.assertEqual(sorted(got), [REAL])
+        self.assertEqual(n, 1)
+
+    def test_a_forged_record_after_the_rule_messages_credits_nobody_but_the_client(self):
+        # parts I, J and K come after H: the forgery may sit where the reader already holds the real messages
+        got, _n, _p = self.scan(record('11112222', REAL, 'ABFHIJKZ', {'K': self.forged(), 'J': self.forged()}))
+        self.assertEqual(sorted(got), [REAL])
+
+    def test_a_record_that_never_ended_does_not_swallow_the_records_after_it(self):
+        torn = record('aaaaaaaa', A2, 'ABF')                      # a write that stopped half way: no Z
+        got, n, parsed = self.scan(torn + record('bbbbbbbb', REAL) + record('cccccccc', '45.155.205.99'))
+        self.assertEqual(sorted(got), sorted([REAL, '45.155.205.99']))
+        self.assertEqual(parsed, 2)
+
+    def test_many_foreign_boundaries_are_read_in_bounded_time(self):
+        hostile = [f'--{i:08x}-A--' for i in range(30000)]       # every one another id, no record ever ends
+        t0 = time.perf_counter()
+        got, n, parsed = self.scan(record('11112222', REAL, 'ABCFHZ', {'C': hostile}))
+        self.assertLess(time.perf_counter() - t0, 3.0)
+        self.assertEqual(sorted(got), [REAL])
+        t0 = time.perf_counter()
+        self.scan(hostile)                                          # nothing but foreign boundaries: the restarts stop at their cap
+        self.assertLess(time.perf_counter() - t0, 3.0)
+
+
 # ── every reader, one question ────────────────────────────────────────────────
 
 def _scan_with(agent, fn, lines, *, parse=False, now=NOW):
@@ -251,7 +330,6 @@ class TestEveryReaderNamesTheSenderNotTheText(_Agent):
         '_ts_scan_cscli': 'it reads the JSON of the local CrowdSec through a command the operator runs; no visitor text sits in front of the address it reads',
         '_ts_scan_f2b': "it reads fail2ban's own log, whose lines hold the jail and the address fail2ban decided on; the pattern is anchored at the start of the line",
         '_ts_scan_fastlog': "the message of a Suricata alert is the rule author's text; Suricata writes no request data into it",
-        '_ts_scan_modsec_native': 'the rule that one record is read at a time has its own commit and tests',
     }
 
     def cases(self):
@@ -276,6 +354,10 @@ class TestEveryReaderNamesTheSenderNotTheText(_Agent):
                 lambda L: _scan_with(a, a._ts_scan_firewall, L),
                 [fw_rec(REAL, p) for p in ufw_ports],
                 [fw_rec(REAL, p).replace('PROTO=TCP', f'SRC={VICTIM} PROTO=TCP') for p in ufw_ports]),
+            '_ts_scan_modsec_native': (
+                lambda L: _scan_with(a, a._ts_scan_modsec_native, L),
+                record('11112222', REAL),
+                record('11112222', REAL, 'ABCFHIZ', {'C': record('deadbeef', VICTIM)})),
             '_ts_scan_modsec_json': (
                 lambda L: _scan_with(a, a._ts_scan_modsec_json, L),
                 [json.dumps(self._modsec_json(REAL))],
