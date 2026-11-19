@@ -669,6 +669,38 @@ def covered_view(value: Any, with_packages: bool = True) -> dict[str, Any] | Non
     return out
 
 
+# Why a scan did not check a package, as it bears on "the findings are cleared". These belong to the host: the scan asked
+# the wrong question for the packages it could not match (the advisories are filed under a source name the list does not
+# carry, or under a release that is not known), or asked none, so a scan that lists nothing says nothing about them.
+HOST_LEVEL_REASONS = (NO_SOURCE, NO_RELEASE, NO_MATCHER)
+# These belong to the answer: it was cut at the last page, or the package came after the ones a scan reads.
+ANSWER_LEVEL_REASONS = (CEILING, UNANSWERED)
+
+
+def clear_is_trusted(before: Any, now: Any) -> bool:
+    """May a scan that lists none of what the scan before listed announce the findings cleared?
+
+    A host's findings leave the list because its packages were patched or removed, or because the scan stopped looking: an
+    agent that sends no source package names (older than 8.0.1, or one whose `dpkg-query` timed out), a release that is not
+    known, an answer that was cut. The Debian advisories are filed under the source package, so the scan of the same packages
+    without the source names asks for `libssl3` where it found five advisories under `openssl`, and finds none. `before` and
+    `now` are the `covered` blocks of the scan before and of this one.
+
+    Not when this scan could not match packages for a reason that belongs to the host (HOST_LEVEL_REASONS): "none found" is not
+    evidence then. Not when more packages went without an answer than at the scan before (ANSWER_LEVEL_REASONS). A package that
+    was removed is a clear, since a package that is not listed is not counted as unchecked. A scan with no block, which is a
+    scan the scanner of this version did not make, is judged as it always was."""
+    after = covered_view(now, with_packages=False)
+    if after is None:
+        return True
+    reasons = after["reasons"]
+    if any(reasons.get(r) for r in HOST_LEVEL_REASONS):
+        return False
+    prior = covered_view(before, with_packages=False)
+    held = sum(prior["reasons"].get(r, 0) for r in ANSWER_LEVEL_REASONS) if prior else 0
+    return sum(reasons.get(r, 0) for r in ANSWER_LEVEL_REASONS) <= held
+
+
 def covered_add(total: dict[str, Any], block: Any) -> None:
     """Add one host's block (a `covered_view`) to the fleet's: listed, checked, not_checked and the reasons."""
     if not isinstance(block, dict):

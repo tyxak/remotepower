@@ -72449,8 +72449,15 @@ def handle_posture_digest_test():
     respond(200, {'ok': True, 'recipients': n})
 
 
-def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current, kev=None, counted=None, listed_to=None):
+def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current, kev=None, counted=None, listed_to=None,
+                                     covered=None, before_covered=None):
     """Fire webhook if new CVEs in the configured severity filter appeared since last scan.
+
+    8.0.2: `covered` and `before_covered` are the account of what each of the two scans checked (the `covered` block of its
+    record). A scan that lists nothing of what the one before listed announces the host cleared only when it checked what
+    it should have (cve_fixes.clear_is_trusted): a scan that no longer matched a host's packages (an agent that stopped
+    sending source names) found nothing because it asked for nothing, and announcing the findings fixed closed the open alert
+    and told the notification channels it was fixed while nothing had been patched.
 
     8.0.1: a Debian or Ubuntu scan lists what can be acted on and counts the rest (cve_fixes.select), and
     two things follow for the comparison. `counted` is the roll-up of THIS scan, `listed_to` the mark the
@@ -72475,7 +72482,7 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current, kev=Non
                         if isinstance(f, dict))
         _cur_bad = any(f.get('severity') in _filt for f in current
                        if isinstance(f, dict)) or cve_fixes.rollup_has(counted, _filt)
-        if _prev_bad and not _cur_bad:
+        if _prev_bad and not _cur_bad and cve_fixes.clear_is_trusted(before_covered, covered):
             _dev = devices.get(dev_id, {})
             fire_webhook('cve_cleared', {
                 'device_id': dev_id, 'name': _dev.get('name', dev_id)})
@@ -72809,7 +72816,9 @@ def _cve_scan_worker(actor, target):
                 _detect_new_cve_and_fire_webhook(dev_id, devices_now, before.get('findings') or [],
                                                  result.get('findings') or [], kev=_kev_ids,
                                                  counted=result.get('rollup'),
-                                                 listed_to=before.get('listed_to'))
+                                                 listed_to=before.get('listed_to'),
+                                                 covered=result.get('covered'),
+                                                 before_covered=before.get('covered'))
             except Exception as _alert_err:
                 sys.stderr.write(f'[remotepower] CVE alert for host {_log_field(dev_id, 64)} failed: '
                                  f'{_log_text(repr(_alert_err), 300)}\n')

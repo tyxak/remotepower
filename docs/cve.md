@@ -465,6 +465,11 @@ Generate a Software Bill of Materials per host or for the whole fleet:
   that is counted and not listed raises none. A finding that enters the list only because more
   pressing ones were patched was there all along and is not announced as new. `cve_cleared` is
   sent when nothing in your alert severities is left, listed or counted.
+- `cve_cleared` is sent for what a scan checked. A scan that could not match the host's packages
+  (the agent sent no source package names, the Ubuntu release is not known) finds nothing because
+  it asks for nothing, so it does not clear the alert: the host's page says how many packages were
+  not checked, and the alert stays open until a scan that checks them finds them fixed. A scan
+  that checked as much as the one before, or removed packages, clears as before.
 - **Ignore** a CVE on one host or fleet-wide, with a reason (`POST /api/cve/ignore`, scope
   `global` or a host ID). The ID is the ID of a vulnerability as the advisory databases write it,
   such as `CVE-2024-3094`, `DEBIAN-CVE-2024-3094` or `GHSA-xxxx-xxxx-xxxx`.
