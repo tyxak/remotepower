@@ -62391,17 +62391,25 @@ def handle_digest():
 
 
 # ── Patch report ─────────────────────────────────────────────────────────────
-def _cve_fixable_by_device():
+def _cve_fixable_by_device(hosts=None):
     """v3.4.1: per-device count of outstanding critical/high CVE findings that
     carry a known fixed version — i.e. CVEs a pending patch would resolve.
 
     Powers the Patches↔CVE cross-link. The scanner already suppresses findings
     whose installed version is past the fix, so a remaining finding with a
-    fixed_version is 'patch this to clear it'. Honours CVE ignores."""
+    fixed_version is 'patch this to clear it'. Honours CVE ignores.
+
+    8.0.2: `hosts` is the hosts to count, a mapping or a set of host ids: the caller's own,
+    for a reader that adds the counts up. The map was built from the whole findings store,
+    and the patch report's total (and the scrape's) summed it, so a tenant's viewer was
+    handed the fixable findings of every organisation's hosts as one number. None counts
+    every host, and an empty set counts none."""
     findings_all = load(CVE_FINDINGS_FILE) or {}
     ignore_data  = load(CVE_IGNORE_FILE) or {}
     out = {}
     for dev_id, entry in findings_all.items():
+        if hosts is not None and dev_id not in hosts:
+            continue
         n = 0
         for f in (entry or {}).get('findings') or []:
             if str(f.get('severity', '')).lower() not in ('critical', 'high'):
@@ -63084,7 +63092,7 @@ def handle_patch_catalog():
     require_auth()
     devices = load(DEVICES_FILE) or {}
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
-    cve_fixable = _cve_fixable_by_device()
+    cve_fixable = _cve_fixable_by_device(devices)
     catalog = {}          # package -> set(device_name)
     no_detail = []        # devices with a pending count but no name list
     cve_hosts = 0
@@ -63607,7 +63615,7 @@ def handle_patch_report():
     devices = load(DEVICES_FILE)
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     snmp_data = load(SNMP_DATA_FILE)   # v3.4.0: Synology DSM update status
-    cve_fixable = _cve_fixable_by_device()   # v3.4.1: CVE↔patch cross-link
+    cve_fixable = _cve_fixable_by_device(devices)   # v3.4.1: CVE↔patch cross-link, of the hosts this caller sees (8.0.2)
     now = int(time.time())
     report = {
         'generated_at': now,
@@ -73818,7 +73826,7 @@ def _build_metrics_ctx(visible=None):
         'maintenance_active_count': maint_active,
         'health':            _fleet_health(),
         'fleet_events':      load(FLEET_EVENTS_FILE),
-        'cve_fixable_total': sum(_cve_fixable_by_device().values()),
+        'cve_fixable_total': sum(_cve_fixable_by_device(visible).values()),
         # v6.4.2: the exporter grew families for the posture the product already
         # computes for its own UI — temperature, SMART, UPS, backup freshness,
         # disk-fill ETA, risk, reliability and baseline compliance. Each block
