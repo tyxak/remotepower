@@ -1146,7 +1146,7 @@ class TestThePersistenceInventory(_SecondHalf):
         self.assertEqual(seeded_feed[0]['payload']['sample'], [seeded[0]['payload']['sample'][0]], 'the feed keeps the first line of the sample')
 
     def test_the_inventory_is_what_the_agent_reads_from_a_host_that_looks_like_this(self):
-        twp, P, agent = persistence_helpers(), persistence, win_agent()
+        P, agent = persistence, win_agent()
         before, after = self.snapshots()
         for snapshot in (before, after):
             reg, run, env, done = self.host_for(snapshot)
