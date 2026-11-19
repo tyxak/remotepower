@@ -331,7 +331,7 @@ What the agent lists, and where it looks:
 | Winlogon value | `Shell` and `Userinit` under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon` |
 | Service | Services whose program is in a temporary or user folder (`\Temp\`, `\AppData\`, `\Users\`, the recycle bin, or a `%TEMP%`, `%APPDATA%` or `%USERPROFILE%` path) |
 | Scheduled task | Enabled tasks that are not Microsoft's: the folder, the name and what each runs. A task under `\Microsoft` is listed only when it runs a program from a temporary or user folder |
-| Startup folder | The files in the startup folder of all users and of each user profile, with their size, so that a replaced file shows |
+| Startup folder | The files in the startup folder of all users and of each user profile, with their size, so that a replaced file shows. A person can make any folder of their own profile a link (a junction, or a symbolic link), so the agent looks at each step of the way before it opens the folder and never follows a link: a folder with a link on its way is not opened and is listed as one entry, with the place `User <name> (link)`, the name of the step and the note `not followed`. A file that is itself a link is listed as `<name> (link)` and its size is not sent |
 
 The agent reads paths and names. It does not check a signature, open a program or change anything.
 
