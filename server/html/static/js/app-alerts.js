@@ -458,6 +458,7 @@ function _alertEvidenceHtml(a) {
   // shown elsewhere in the row are skipped.
   const skip = new Set(['device_id', 'device_name', 'name', 'sample', 'acked',
                         'inbound_token_id', 'check_type',
+                        'dest',         // 8.0.2: the key of the notification destination a failing-destination alert is about: an identity the server matches on, not a fact to read
                         'host_ids']);   // 7.4.9: the hosts a service's alert names; the server decides who reads the row on these
   const bits = [];
   for (const [k, v] of Object.entries(p)) {

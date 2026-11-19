@@ -3048,7 +3048,8 @@ EVENT_REGISTRY = {
     # quiet, and a revoked webhook or an expired SMTP password stays silent. Fires on
     # the transition (NOTIFY_FAIL_STREAK failed deliveries in a row), goes out
     # through every other destination and into the inbox, and the recover event
-    # closes it by the destination's label.
+    # closes it by the destination's key (`dest`; the label is for reading, and two
+    # destinations can share one).
     'notify_dest_failing': dict(
         label='A notification destination keeps failing', kind='health',
         title='Notification Destination Failing', severity='high', priority=4,
@@ -10310,7 +10311,7 @@ def _note_delivery(key, label, ok, error=''):
             state.pop(key, None)
             if row.get('alerted') is True:
                 announce = ('notify_dest_recovered', {
-                    'name': get_server_name(), 'label': shown,
+                    'name': get_server_name(), 'label': shown, 'dest': key,
                     'detail': f'Notification destination "{shown}" delivers again.'})
         else:
             fails = _whole_or_zero(row.get('fails')) + 1
@@ -10319,7 +10320,7 @@ def _note_delivery(key, label, ok, error=''):
             if fails >= NOTIFY_FAIL_STREAK and not alerted:
                 alerted = True
                 announce = ('notify_dest_failing', {
-                    'name': get_server_name(), 'label': shown,
+                    'name': get_server_name(), 'label': shown, 'dest': key,
                     'detail': (f'Notification destination "{shown}" has failed {fails} deliveries in a row'
                                + (f': {why}' if why else '.'))})
             state[key] = {'fails': fails, 'since': _whole_or_zero(row.get('since')) or now, 'last': now,
@@ -10407,10 +10408,10 @@ def _notify_health_forget_edited(before, after):
         for key in keys:
             row = store.pop(key, None)
             if isinstance(row, dict) and row.get('alerted') is True:
-                closed.append(_sanitize_str(str(row.get('label') or ''), 80) or 'destination')
-    for shown in closed:
+                closed.append((key, _sanitize_str(str(row.get('label') or ''), 80) or 'destination'))
+    for key, shown in closed:
         fire_webhook('notify_dest_recovered', {
-            'name': get_server_name(), 'label': shown,
+            'name': get_server_name(), 'label': shown, 'dest': key,
             'detail': f'Notification destination "{shown}" was edited, so its earlier failures no longer count.'})
 
 
@@ -10436,10 +10437,10 @@ def _notify_health_prune(cfg):
         for key in gone:
             row = store.pop(key, None)
             if isinstance(row, dict) and row.get('alerted') is True:
-                closed.append(_sanitize_str(str(row.get('label') or ''), 80) or 'destination')
-    for shown in closed:
+                closed.append((key, _sanitize_str(str(row.get('label') or ''), 80) or 'destination'))
+    for key, shown in closed:
         fire_webhook('notify_dest_recovered', {
-            'name': get_server_name(), 'label': shown,
+            'name': get_server_name(), 'label': shown, 'dest': key,
             'detail': f'Notification destination "{shown}" was removed or switched off.'})
 
 
@@ -12047,6 +12048,10 @@ _ALERT_IDENTITY_FIELDS = (
     # half the v6.4.0 rule requires and it was missed because the events carry
     # no device_id, which is what usually supplies the discrimination.
     'host',
+    # 8.0.2: notify_dest_failing is about ONE notification destination, told apart by its key (`wh:<id>`, or `email`). It was told apart by `label`, the
+    # name the operator gave the destination or else scheme://host, and two destinations can share one: two saved without a name on one host, or a webhook
+    # named like the mail server ("Email"). They coalesced into one row, and the first of them to deliver again closed it while the other still failed.
+    'dest',
 )
 
 
@@ -13602,6 +13607,10 @@ def _record_alert(event, payload):
                     # v7.4.3 (#47): the name an operator gave the drive (and `serial`, above), so the
                     # inbox row says which drive and not only which letter.
                     'disk_name',
+                    # 8.0.2: the key of the notification destination a notify_dest_failing alert is about (`wh:<id>`, or `email`). It is in
+                    # _ALERT_IDENTITY_FIELDS, so it has to be STORED too, and the recovery closes the row that holds the same key. The Alerts page
+                    # does not print it: it is an identity, not a fact an operator reads.
+                    'dest',
                     # v6.4.2: integration_metric_alert — `metric` is already
                     # whitelisted above (and is in _ALERT_IDENTITY_FIELDS, so
                     # two thresholds on one integration stay separate rows);
@@ -13892,11 +13901,16 @@ def _auto_resolve_alerts(event, payload):
         # W4-16: mail round-trip recovers — clear the open mailflow_delayed
         # alert (no device_id; matched by the fixed 'mailflow' label).
         sub_match['label'] = p.get('label')
-    elif event in ('edge_feed_recovered', 'edge_list_synced', 'notify_dest_recovered'):
+    elif event in ('edge_feed_recovered', 'edge_list_synced'):
         # v7.3.0: no device_id; one alert per feed (and one for the list), told
         # apart by `label`, which is in _ALERT_IDENTITY_FIELDS and stored.
-        # 8.0.1: and one per notification destination, by the destination's name.
         sub_match['label'] = p.get('label')
+    elif event == 'notify_dest_recovered':
+        # 8.0.1 matched these by `label`, the name the operator gave the destination or else scheme://host, and two destinations can share one (two saved
+        # without a name on one host, or a webhook named like the mail server, "Email"): the first to deliver again closed the alert of the other, which
+        # still failed. From 8.0.2 the alert and the recovery carry the destination's key in `dest`. The match is made in the loop below, because an alert
+        # that 8.0.1 raised has no `dest` and has to be closed by its label, so there is no single key to put in sub_match.
+        pass
     elif event == 'image_updated':
         # Fleet-level (no device_id) — match the open alert by image+tag.
         sub_match['image'] = p.get('image')
@@ -14109,10 +14123,12 @@ def _auto_resolve_alerts(event, payload):
     # is never resolved — it accumulates in the inbox forever. (server_disk_ok
     # had the same bug pre-existing since v5.0.0; it is covered here too.)
     _fleet_singleton = event in _FLEET_SINGLETON_RECOVERS
+    # A notification destination's recovery names the destination (`dest`) or, from an earlier release, its label; the loop below matches on it.
+    _by_destination = event == 'notify_dest_recovered' and bool(p.get('dest') or p.get('label'))
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail — unless it is a
     # fleet-level singleton, which is identified by its target event alone.
-    if not dev_id and not any(v for v in sub_match.values()) and not _fleet_singleton:
+    if not dev_id and not any(v for v in sub_match.values()) and not _fleet_singleton and not _by_destination:
         return
     # v6.4.2: recoveries whose sub_match key is unique across the WHOLE fleet,
     # so the device-id equality below must not also be required. An integration
@@ -14148,6 +14164,15 @@ def _auto_resolve_alerts(event, payload):
                         _au = [_ap.get('unit')] if _ap.get('unit') else []
                     _still = set(p.get('still_failed') or [])
                     if not _au or any(u in _still for u in _au):
+                        continue
+                # A notification destination's alert is closed by the recovery that names the same destination. An alert raised by 8.0.1 has no
+                # `dest` and names its label only, so it is closed by the recovery that names that label.
+                if event == 'notify_dest_recovered':
+                    _ap = a.get('payload') or {}
+                    if _ap.get('dest'):
+                        if _ap.get('dest') != p.get('dest'):
+                            continue
+                    elif _ap.get('label') != p.get('label'):
                         continue
                 # Sub-key match for service/script/monitor events
                 ok = True

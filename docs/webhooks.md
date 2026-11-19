@@ -244,7 +244,9 @@ retry from the dead-letter queue counts as getting through.
   does not subscribe to, one held for a digest, a dry run, and a send dropped by the rate cap.
 - The alert names the destination by the name you gave it, or by its host when it has none.
   The address itself is never written into the alert, because for most chat services the
-  path is the credential.
+  path is the credential. Two destinations can have the same name, or none and the same host, and
+  the mail server is called "Email": each still has an alert of its own, and a destination that
+  delivers again closes its own alert and no other.
 - Removing a destination or switching it off closes its alert and takes its mark away when you save, not when the next
   event is sent. The same holds when a settings document you apply from a file, or a settings revision you restore, removes
   it or switches it off. A destination that is switched off shows no mark.
