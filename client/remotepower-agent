@@ -16415,49 +16415,89 @@ def _ts_scan_modsec_native(lines, agg, fkey, now):
     """(transactions, usable) for ModSecurity's native serial audit log: parts A
     (client and time), B (request line and User-Agent), F (status) and H (rule
     messages); every other part, bodies included, is skipped line by line and
-    never held."""
+    never held.
+
+    An entry is the lines from `--<id>-A--` to `--<id>-Z--`, and every marker inside it carries the same id: ModSecurity picks a new random one
+    for each entry. The body of a request is written into the entry as it was sent, so its sender can write a marker line of their own into
+    it, or a whole forged transaction (an A part naming another address, an H part that says it was refused). A marker is therefore read only
+    when its id is the one of the entry that is open; any other line that looks like one is part of the body like the rest, and the sender
+    cannot know the id of the entry the body will land in. The one exception is an entry that never ended (a write that was cut short): when
+    the open entry has no end anywhere in this read, the next A is the start of the next entry. Outside an entry the only marker that means
+    anything is the A that opens one, and a read that begins in the middle of an entry does not believe an A until that entry has ended.
+
+    A line that makes this reader raise is left out and the reader goes on with the next one."""
+    rows = list(lines)
+    ends = {}                       # entry id -> the line that ends it, for each entry that ends within this read
+    for i, line in enumerate(rows):
+        if line[:2] == '--':
+            m = _TS_AUD_BOUNDARY_RE.match(line)
+            if m and m.group(2) == 'Z':
+                ends.setdefault(m.group(1), i)
     tx, part, n, parsed = None, None, 0, 0
-    for line in lines:
-        m = _TS_AUD_BOUNDARY_RE.match(line)
-        if m:
-            tid, part = m.group(1), m.group(2)
-            if part == 'A':
-                tx = {'id': tid, 'ip': '', 'ts': 0, 'method': '', 'uri': '', 'ua': '',
-                      'status': 0, 'msgs': [], 'blocked': False, 'seen_b': False, 'seen_f': False}
-                n += 1
-            elif part == 'Z':
-                if tx and tx['id'] == tid and tx['ip']:
-                    parsed += 1
-                    _ts_modsec_emit(tx, agg, fkey, now)
-                tx = part = None
+    synced = None                   # whether the read is at the start of an entry; settled by the first line that is not empty
+    for i, line in enumerate(rows):
+        try:
+            m = _TS_AUD_BOUNDARY_RE.match(line) if line[:2] == '--' else None
+            if synced is None and line.strip():
+                synced = bool(m and m.group(2) == 'A')
+            if m:
+                tid, mark = m.group(1), m.group(2)
+                if tx is None:
+                    if mark == 'A' and synced:
+                        tx = {'id': tid, 'ip': '', 'ts': 0, 'method': '', 'uri': '', 'ua': '',
+                              'status': 0, 'msgs': [], 'blocked': False, 'seen_b': False, 'seen_f': False}
+                        part = 'A'
+                        n += 1
+                    elif mark == 'Z':
+                        synced = True       # the end of the entry that this read began in
+                    continue
+                if tid == tx['id']:
+                    if mark == 'Z':
+                        if tx['ip']:
+                            parsed += 1
+                            _ts_modsec_emit(tx, agg, fkey, now)
+                        tx = part = None
+                        synced = True
+                    elif mark != 'A':       # the same id cannot open a second entry
+                        part = mark
+                    continue
+                if mark == 'A' and ends.get(tx['id'], -1) < i:
+                    # the open entry has no end in this read: it was cut short, and this is the next entry
+                    tx = {'id': tid, 'ip': '', 'ts': 0, 'method': '', 'uri': '', 'ua': '',
+                          'status': 0, 'msgs': [], 'blocked': False, 'seen_b': False, 'seen_f': False}
+                    part = 'A'
+                    n += 1
+                    continue
+                # anything else with another id is a line of the body
+            if tx is None or not line:
+                continue
+            if part == 'A' and not tx['ip']:
+                a = _TS_AUD_A_RE.match(line)
+                if a:
+                    tx['ts'] = _ts_time_local(a.group(1))
+                    tx['ip'] = a.group(2)
+            elif part == 'B':
+                if not tx['seen_b']:
+                    tx['seen_b'] = True
+                    tx['method'], tx['uri'] = _ts_split_request(line[:4200])
+                elif line[:11].lower() == 'user-agent:':
+                    tx['ua'] = line[11:300].strip()
+            elif part == 'F':
+                if not tx['seen_f']:
+                    tx['seen_f'] = True
+                    bits = line.split(' ', 2)
+                    # ASCII digits and at most three of them: `str.isdigit` is also true for a superscript two, which int() refuses, and
+                    # int() refuses a run of thousands of digits as well.
+                    if len(bits) >= 2 and bits[1].isascii() and bits[1].isdigit() and len(bits[1]) <= 3:
+                        tx['status'] = int(bits[1])
+            elif part == 'H':
+                if line.startswith('Message: '):
+                    if len(tx['msgs']) < 40:
+                        tx['msgs'].append(line[9:3000])
+                elif line.startswith('Action: Intercepted'):
+                    tx['blocked'] = True
+        except Exception:
             continue
-        if tx is None or not line:
-            continue
-        if part == 'A' and not tx['ip']:
-            a = _TS_AUD_A_RE.match(line)
-            if a:
-                tx['ts'] = _ts_time_local(a.group(1))
-                tx['ip'] = a.group(2)
-        elif part == 'B':
-            if not tx['seen_b']:
-                tx['seen_b'] = True
-                tx['method'], tx['uri'] = _ts_split_request(line[:4200])
-            elif line[:11].lower() == 'user-agent:':
-                tx['ua'] = line[11:300].strip()
-        elif part == 'F':
-            if not tx['seen_f']:
-                tx['seen_f'] = True
-                bits = line.split(' ', 2)
-                # ASCII digits and at most three of them: `str.isdigit` is also true for a superscript two, which int() refuses, and int()
-                # refuses a run of thousands of digits as well. One line of a log must never stop the sensor of the whole host.
-                if len(bits) >= 2 and bits[1].isascii() and bits[1].isdigit() and len(bits[1]) <= 3:
-                    tx['status'] = int(bits[1])
-        elif part == 'H':
-            if line.startswith('Message: '):
-                if len(tx['msgs']) < 40:
-                    tx['msgs'].append(line[9:3000])
-            elif line.startswith('Action: Intercepted'):
-                tx['blocked'] = True
     return n, parsed
 
 
