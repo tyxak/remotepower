@@ -152,8 +152,11 @@ class TestTheDocumentsAreUnchanged(_Base):
             dev = dict(dev)
             dev['id'] = did
             fl = cve_scanner.apply_ignore_list((findings.get(did) or {}).get('findings') or [], ignore, did)
+            # 8.0.2: the document also says which of the packages the host's scan checked (`covered`), which the version of this test
+            # that stood here did not hold, so it failed from the day that property was added
+            covered = cve_scanner.entry_package_coverage(packages.get(did) or {}, findings.get(did) or {}, with_packages=False)
             doc = sbom_mod.build_cyclonedx(dev, packages.get(did) or {}, fl, server_version=api.SERVER_VERSION,
-                                           containers=(containers.get(did) or {}).get('items') or [])
+                                           containers=(containers.get(did) or {}).get('items') or [], covered=covered)
             want[sbom_mod.filename_for(dev, 'cyclonedx')] = json.loads(json.dumps(doc))
         self.assertEqual(sorted(want), sorted(got))
         for name in want:

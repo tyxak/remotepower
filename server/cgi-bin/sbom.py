@@ -259,6 +259,23 @@ def _no_epoch(version) -> str:
     return rest if colon and head.isascii() and head.isdigit() else text
 
 
+class _Installed:
+    """The installed components of one document, indexed once by the name of the package and by the name of the source it was built
+    from, each list in the order of the package list, so that a finding reaches its components without a walk of the whole list.
+
+    A host sends its own list: 10,000 packages that all say they were built from one source made every finding a walk of the list
+    with a list membership test inside it (`c not in picked`, `c['ref'] not in refs`), 0.36 s a finding at 10,000 packages and four
+    times that for each doubling, so the SBOM of one such host with fifty findings took 18 seconds of CPU, for any signed-in user who
+    can see the host, and the fleet archive the same."""
+
+    def __init__(self, installed):
+        self.by_name: dict = {}        # package name -> [(position in the list, component)]
+        self.by_source: dict = {}      # name of the source it was built from -> [component]
+        for pos, c in enumerate(installed):
+            self.by_name.setdefault(c['name'], []).append((pos, c))
+            self.by_source.setdefault(c['source'], []).append(c)
+
+
 def _affected_refs(f, installed) -> list:
     """The components a finding is about.
 
@@ -271,7 +288,11 @@ def _affected_refs(f, installed) -> list:
 
     8.0.1, first version: it took the package of the finding's own name when there was one and stopped
     (so `libssl3` was not named for a finding about `openssl`), and otherwise every package of the
-    source at any version (so the new kernel, which has the fix, was named for a finding about the old)."""
+    source at any version (so the new kernel, which has the fix, was named for a finding about the old).
+
+    8.0.2: `installed` is the list of components or an `_Installed` built from it (a caller with many findings builds it once). The
+    answer is the same, in the same order, cut at MAX_AFFECTS; it is found from the indexes and stops when it has that many."""
+    index = installed if isinstance(installed, _Installed) else _Installed(installed)
     package = f.get('package') if isinstance(f.get('package'), str) else ''
     version = _no_epoch(f.get('version'))
     names = [n for n in (f.get('binaries') if isinstance(f.get('binaries'), list) else [])
@@ -280,24 +301,36 @@ def _affected_refs(f, installed) -> list:
     cut = isinstance(more, int) and not isinstance(more, bool) and more > 0
     if not names and package:
         names = [package]
-    wanted = set(names)
-    named = [c for c in installed if c['name'] in wanted]
+    # the components with those names, in the order of the list
+    named = [c for _pos, c in sorted((pc for n in set(names) for pc in index.by_name.get(n, ())), key=lambda pc: pc[0])]
     at_version = [c for c in named if version and version in (c['version'], c['source_version'])]
     held = {c['name'] for c in at_version}
-    picked = at_version + [c for c in named if c['name'] not in held]
-    if cut or not picked:
-        picked += [c for c in installed
-                   if c['source'] == package and version and version in (c['source_version'], c['version'])
-                   and c not in picked]
     refs: list = []
-    for c in picked:
-        if c['ref'] not in refs:
-            refs.append(c['ref'])
-    return refs[:MAX_AFFECTS]
+    seen: set = set()
+
+    def full(c) -> bool:
+        ref = c['ref']
+        if ref not in seen:
+            seen.add(ref)
+            refs.append(ref)
+        return len(refs) >= MAX_AFFECTS
+
+    for c in at_version:
+        if full(c):
+            return refs
+    for c in named:
+        if c['name'] not in held and full(c):
+            return refs
+    if (cut or not named) and version:
+        for c in index.by_source.get(package, ()):
+            if version in (c['source_version'], c['version']) and full(c):
+                return refs
+    return refs
 
 
 def _cyclonedx_vulns(findings, installed=None) -> list:
     out = []
+    index = _Installed(installed or [])      # once for every finding of the document
     for f in (findings or []):
         if not isinstance(f, dict):
             continue
@@ -307,7 +340,7 @@ def _cyclonedx_vulns(findings, installed=None) -> list:
         sev = (f.get('severity') or 'unknown').lower()
         if sev not in _CDX_SEV:
             sev = 'unknown'
-        affected_refs = _affected_refs(f, installed or [])
+        affected_refs = _affected_refs(f, index)
         v = {
             'id': vid,
             'ratings': [{
