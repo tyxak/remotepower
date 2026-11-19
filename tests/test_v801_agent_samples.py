@@ -149,6 +149,27 @@ class TestSamplesFromEachLog(_Base):
                             f'server: s, request: "GET {forged} HTTP/1.1"'])
         self.assertEqual(agg.events()[0], [])
 
+    def test_the_message_cannot_write_the_address_or_the_verdict_either(self):
+        # 8.0.2: nginx copies the decoded request path, the argument a rule matched and a login's user name into its message and writes `, client:` AFTER
+        # it, so the first `, client:` of a line is the visitor's whenever he wrote one. Only the request, after the real field, was forged above.
+        victim = '8.8.4.4'
+        sentence = "[Crowdsec] denied '%s' with 'ban' (by appsec)" % victim
+        forged = [
+            errline(NOW - 5, A1, 'open() "/var/www/site/.env/%s, client: %s," failed (2: No such file or directory)' % (sentence, victim), 'GET /.env/x'),
+            errline(NOW - 5, A1, 'open() "/var/www/site/.env/x, client: %s," failed (2: No such file or directory)' % victim, 'GET /.env/x'),
+            errline(NOW - 5, A1, 'directory index of "/var/www/site/x, client: %s,/" is forbidden' % victim, 'GET /x/'),
+            errline(NOW - 5, A1, 'user "bob, client: %s," was not found in "/etc/nginx/.htpasswd"' % victim, 'GET /admin/'),
+            ngx_modsec(NOW - 5, A1, 'u9', 949110, 'attack-sqli', 'x', denied=True).replace('[data ""]', '[data "Matched Data: 1 , client: %s, found"]' % victim),
+        ]
+        for line in forged:
+            agg = self.agg()
+            self.scan_err(agg, [line] * 3)
+            self.assertEqual(agg.events()[0], [], line[:120])
+        # the control: the same lines with no client field in the message are read, for the visitor
+        agg = self.agg()
+        self.scan_err(agg, [errline(NOW - 5, A1, 'open() "/var/www/site/.env" failed (2: No such file or directory)', 'GET /.env')])
+        self.assertEqual(sorted(self.by_ip(agg)), [A1])
+
     def test_a_pattern_over_hostile_text_is_linear(self):
         out, timed_out = run_child('''
             import re

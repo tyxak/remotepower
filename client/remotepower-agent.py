@@ -15289,9 +15289,9 @@ def _ts_status(value):
     return n if 100 <= n <= 599 else 0
 
 
-# CrowdSec's nginx bouncer refusing a request on AppSec's verdict, in the access phase. The words come BEFORE `, client:`; what follows
-# is the request, which its sender wrote, so the pattern is only ever tried on what precedes it.
-_TS_CS_APPSEC_RE = re.compile(r"\[Crowdsec\] denied '[0-9A-Fa-f:.]{2,45}' with '[a-z]{2,12}' \(by appsec\)")
+# CrowdSec's nginx bouncer refusing a request on AppSec's verdict, in the access phase. The address it names is the one nginx names after
+# `, client:` (the bouncer is handed $remote_addr), so a line whose two addresses differ is not the bouncer's (see _ts_nginx_client).
+_TS_CS_APPSEC_RE = re.compile(r"\[Crowdsec\] denied '([0-9A-Fa-f:.]{2,45})' with '[a-z]{2,12}' \(by appsec\)")
 
 
 def _ts_classify(method, uri, status, ua=''):
@@ -16509,6 +16509,27 @@ _TS_APC_CLIENT_RE = re.compile(r'\[client ([0-9A-Fa-f:.]+?)(?::\d{1,5})?\]')
 _TS_APC_FILE_RE = re.compile(
     r'(?:File does not exist|script not found or unable to stat|client denied by server configuration): (\S+)')
 _TS_NGX_FILE_RE = re.compile(r'open\(\) "([^"]{1,300})" failed \(2: No such file')
+# nginx writes `, client: <address>` once, after its message and before the request, and writes at most 2,047 bytes of a line (NGX_MAX_ERROR_STR is
+# 2,048 with the line feed; what does not fit is cut off the end, and the client field is written last). The message is not all nginx's own: the decoded
+# path of `open() "..." failed`, the argument a ModSecurity rule matched and the name of a login attempt are text the visitor wrote, and they come
+# BEFORE the real field. The request, the Host and the Referer come after it and are the visitor's too.
+_TS_NGX_CLIENT_MARK = ', client: '
+_TS_NGX_LINE_CAP = 2047
+
+
+def _ts_nginx_client(line):
+    """The match of `, client: <address>` in an nginx error line, or None when the line does not name its client exactly once and whole.
+
+    A visitor can add a `, client:` to the text nginx copies into a line, and cannot remove the real one. So a line that holds two is read for nobody: which of the
+    two is nginx's is not for a parser to guess, and the first of them is the visitor's whenever the visitor wrote one into the message. A line that reached the
+    2,047 bytes nginx writes at most may have lost its real field to the cut, so a single copy in it is not nginx's either. The length is counted in bytes, as nginx
+    counts it; a byte the text could not decode counts for three, which can only make a line look longer."""
+    first = line.find(_TS_NGX_CLIENT_MARK)
+    if first < 0 or line.find(_TS_NGX_CLIENT_MARK, first + 1) >= 0:
+        return None
+    if len(line.encode('utf-8', 'replace')) >= _TS_NGX_LINE_CAP:
+        return None
+    return _TS_NGX_CLIENT_RE.match(line, first)
 
 
 def _ts_request_line(req):
@@ -16530,7 +16551,7 @@ def _ts_scan_nginx_error(lines, agg, fkey, now):
         if not m:
             continue
         parsed += 1
-        cm = _TS_NGX_CLIENT_RE.search(line)
+        cm = _ts_nginx_client(line)
         ip = _ts_ip(cm.group(1)) if cm else None
         if not ip:
             continue
@@ -16538,11 +16559,13 @@ def _ts_scan_nginx_error(lines, agg, fkey, now):
         ts = min((_ts_mktime(*t.groups()) if t else 0) or now, now + 300)
         if ts < floor:
             continue
-        rm = _TS_NGX_REQUEST_RE.search(line)
+        rm = _TS_NGX_REQUEST_RE.search(line, cm.end())      # the request nginx wrote after the client, not one the message quotes
         method, uri = _ts_request_line(rm.group(1)) if rm else ('', '')
-        if _TS_CS_APPSEC_RE.search(line[:cm.start()] if cm else ''):
+        bm = _TS_CS_APPSEC_RE.search(line, 0, cm.start())
+        if bm and bm.group(1) == cm.group(1):
             # CrowdSec's bouncer refused the request on AppSec's verdict. That is a WAF refusal, whether or not
             # CrowdSec went on to make a decision, so it counts with the WAF's and is named like AppSec's own scenarios.
+            # The address it quotes is the client's: a sentence that names another is text somebody wrote into the message.
             agg.hit('waf', fkey, ip, ts, ['cs:appsec'], 1, blk=1)
             agg.sample(ip, 'waf', method, uri, 403, ts)
         elif 'ModSecurity:' in line:
