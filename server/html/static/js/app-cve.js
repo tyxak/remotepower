@@ -411,7 +411,7 @@ function _cveCoveredHtml(c) {
   if (!c || typeof c !== 'object') return '';
   // a number or nothing: an object where one belongs is not printed and not converted
   const num = v => typeof v === 'number' && isFinite(v) && v >= 0 ? Math.floor(v) : 0;
-  const fmt = v => num(v).toLocaleString(_localeTag());
+  const fmt = v => Number(num(v)).toLocaleString(_localeTag());
   const listed = num(c.listed), checked = num(c.checked), missed = num(c.not_checked);
   if (!listed && !missed) return '';
   const label = r => Object.prototype.hasOwnProperty.call(_CVE_NOT_CHECKED, r) ? _CVE_NOT_CHECKED[r] : '';

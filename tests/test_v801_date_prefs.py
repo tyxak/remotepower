@@ -990,6 +990,10 @@ STANDALONE = {"fleet-query.js": 1, "portal.js": 1, "report.js": 1, "status.js": 
 NUMBER_SITES = {
     ("app-billing.js", "Number(n || 0)"): "an amount, the fallback when fmtMoney is missing (in the browser's own locale)",
     ("app-cve.js", "f.kev_count"): "how many known-exploited CVEs the feed holds",
+    ("app-cve.js", "num(v)"): "a count of CVEs or packages in the CVE page's cards",
+    ("app-cve.js", "Number(num(v))"): "a count in the card of one host's findings",
+    ("app-cve.js", "checked"): "how many packages could be checked",
+    ("app-cve.js", "left"): "how many packages of other installed kernels are not counted",
     ("app.js", "n"): "fmtMoney: the plain decimal when the currency is not a code",
     ("app.js", "(Number(r.count) || 0)"): "a count cell in a table with bars",
     ("app.js", "v"): "a metric of a host's integration chips",

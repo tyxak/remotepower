@@ -231,7 +231,7 @@ class TestReports(_Sweep):
     def test_the_allowance_is_still_there_when_the_service_comes_back(self):
         """The day it was lost: the allowance ran out while the service was down, so nothing went to it after. The
         addresses that were left waiting are taken up again once the wait is over, and each is charged then."""
-        self.policy(daily_report_budget=12)
+        self.policy(daily_report_budget=24)       # since 8.0.2 the allowance is shared out among the places that can send evidence; this leaves the host under test a share of 12
         self.queue(10)
         st = self.sweep_at(T + MIN)
         self.assertEqual(st['budget'].get('report:sniffcat', 0), 0)
