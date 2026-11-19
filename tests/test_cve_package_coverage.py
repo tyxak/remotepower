@@ -560,9 +560,9 @@ class TestThePagesAreHandedIt(_Fleet):
         self.assertEqual(status, 200)
         rows = {r['device_id']: r for r in home['cves']['devices']}
         self.assertEqual((rows[self.DEB_NEW]['not_checked'], rows[self.DEB_OLD]['not_checked']), (0, 2))
-        # two hosts show findings, so the tile says those and the packages store is not read for the hosts with no record:
-        # what the payload carries when nothing shows a finding is held in test_cve_coverage_readers
-        self.assertEqual(rows[self.WIN]['not_checked'], 0)
+        # 8.0.2: the account of a host nothing is matched against is kept with the host when its list arrives (`pkg_account`), so the
+        # payload carries it whether or not a host shows a finding, and reads no store for it (test_cve_coverage_readers)
+        self.assertEqual(rows[self.WIN]['not_checked'], 8)
 
 
 class TestEveryTextThatSaysNoCvesSaysWhatItLookedAt(_Fleet):

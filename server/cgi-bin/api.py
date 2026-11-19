@@ -58596,17 +58596,19 @@ def handle_home():
                 if _covered is None and not _dev.get('agentless'):                  # an agentless device has no list to read
                     _unstated.append(row)
         # A host nothing is matched against (Arch, openSUSE, Windows, macOS) has no scan record, so no block: its account
-        # is the one its package list gives, and the list is in the packages store. That store holds every package of
-        # every host (557 ms to read for 100 hosts of 1,500 packages, measured), which is too much for the page that is
-        # polled every minute by every open tab, so it is read only when the answer changes what the tile says. The tile
-        # reads the number only when no host shows a finding and nothing is counted: otherwise it says that.
-        if _unstated and not _shows_a_finding:
-            _lists = _load_ro(PACKAGES_FILE) or {}
-            for row in _unstated:
-                _derived = cve_scanner.entry_package_coverage(_lists.get(row['device_id']),
-                                                              findings_all.get(row['device_id']), with_packages=False)
-                if _derived:
-                    row['not_checked'] = _derived['not_checked']
+        # is the one its package list gives. The packages store holds every package of every host (557 ms to read for
+        # 100 hosts of 1,500 packages, 940 ms at 24 MB), which is too much for the page that is polled every minute by
+        # every open tab, and the guard that read it only when the answer changes what the tile says held when something
+        # was found and not on a quiet fleet, which is where one such host made every poll read it. The number is worked
+        # out when the list arrives and kept with the host (`pkg_account`, handle_packages_submit), so this reads no store.
+        # A host that has not sent its list since then has none, which reads as none not checked, as a host scanned
+        # before the account existed does (`hosts_unstated`).
+        for row in _unstated:
+            _acct = (devices_raw.get(row['device_id']) or {}).get('pkg_account')
+            if isinstance(_acct, dict):
+                _n = _acct.get('not_checked')
+                if isinstance(_n, int) and not isinstance(_n, bool) and _n > 0:
+                    row['not_checked'] = _n
     except Exception:
         pass
     cves = {'devices': cve_devs}
@@ -71449,6 +71451,27 @@ def handle_packages_submit():
     except Exception as e:
         sys.stderr.write(f"[remotepower] software policy eval failed "
                          f"dev={dev_id}: {e}\n")
+
+    # 8.0.2: what a scan would say of the packages of a host that nothing is matched against (the applications of a Windows or macOS
+    # host, the packages of Arch): that all of them are listed and none can be checked. It is a property of the list, so it is worked
+    # out when the list arrives and kept with the host, and the Home page reads it from the host records it already holds. It read
+    # the whole package store for it on a quiet fleet, on every poll of every open tab. A host a scan will check has none.
+    try:
+        _acct = cve_scanner.entry_package_coverage(
+            {'pkg_manager': pkg_manager, 'ecosystem': ecosystem or '', 'packages': packages, 'count': len(packages),
+             'os_id': safe_hint['ID'], 'version_id': safe_hint['VERSION_ID'], 'sources': body.get('sources') is True},
+            None, with_packages=False)
+        _want = {'listed': _acct['listed'], 'not_checked': _acct['not_checked']} if _acct else None
+        if dev.get('pkg_account') != _want:
+            with _DeviceUpdate(dev_id) as _devs:
+                _row = _devs.get(dev_id)
+                if isinstance(_row, dict):
+                    if _want is None:
+                        _row.pop('pkg_account', None)
+                    else:
+                        _row['pkg_account'] = _want
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] package account of host {_log_field(dev_id, 64)} not kept: {_log_text(repr(e), 200)}\n")
 
     changed = existing.get('hash') != new_hash
     respond(200, {

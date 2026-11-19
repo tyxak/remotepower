@@ -214,16 +214,18 @@ class TestAHostNothingIsMatchedAgainst(base._Fleet):
         got = page.tile_of(body['devices'], body['cves']['devices'])
         self.assertEqual((got['cls'], got['sub']), ('ok', 'No active CVEs'))
 
-    def test_the_dashboard_does_not_read_every_list_of_the_fleet_while_a_host_shows_a_finding(self):
-        """The tile says the findings then, and the packages store holds every package of every host."""
+    def test_the_dashboard_reads_no_list_of_the_fleet_whether_or_not_a_host_shows_a_finding(self):
+        """8.0.2: the account of a host nothing is matched against is worked out when its list arrives and kept with the host, so the
+        page reads no packages store. It read the whole store on a quiet fleet, on every poll of every open tab (940 ms at 24 MB)."""
         rows, reads = self.reads_of_the_packages_store(lambda: self.home())
         self.assertTrue(any(any(v['counts'].values()) or v['counted'] for v in rows.values()))   # the control: there are some
         self.assertEqual(reads, 0)
-        self.assertEqual((rows[self.DEB_OLD]['not_checked'], rows[self.WIN]['not_checked']), (2, 0))
-        # and it does read it when the number decides what the tile says
+        self.assertEqual((rows[self.DEB_OLD]['not_checked'], rows[self.WIN]['not_checked']), (2, 8))
+        # and with nothing found, where the number decides what the tile says, it is the same and still reads nothing
         self.without_findings()
-        _, reads = self.reads_of_the_packages_store(lambda: self.home())
-        self.assertEqual(reads, 1)
+        rows, reads = self.reads_of_the_packages_store(lambda: self.home())
+        self.assertEqual(reads, 0)
+        self.assertEqual((rows[self.WIN]['not_checked'], rows[self.ARCH]['not_checked']), (8, 1))
 
     def test_the_dashboard_does_not_read_them_for_a_host_the_tile_leaves_out(self):
         """An unmonitored host is not in the tile. With the monitored hosts checked whole nothing needs the lists."""
@@ -347,7 +349,10 @@ class TestNoReaderTakesAStoredBlockAlone(unittest.TestCase):
     SITES = {
         'cve_scanner.py:entry_package_coverage': 'the derived account: the stored block, or what the package list gives',
         'api.py:_cve_account': 'the readers that print a sentence: the stored block, or the derived account',
-        'api.py:handle_home': 'the dashboard: the stored block, and the derived account when that decides what the tile says',
+        'api.py:handle_home': 'the dashboard: the stored block, and for a host nothing is matched against the account kept with the host'
+                              ' when its list arrived (`pkg_account`), so that it reads no store',
+        'api.py:_cve_scan_worker': 'not a page: hands the account of each scan to the alert path (cve_fixes.clear_is_trusted)',
+        'api.py:_merge_findings': 'not a page: the same, inside the worker',
         'cve_handlers.py:handle_cve_findings': 'reads the derived account the line above returns, not a record',
         'mcp_http.py:tool_get_cves': 'reads the answer of the host view, not a record',
         'api.py:handle_edr_coverage': 'not this: the hosts an EDR product covers',
@@ -389,7 +394,9 @@ class TestNoReaderTakesAStoredBlockAlone(unittest.TestCase):
             body = srcpin.py_function(source, name)
             self.assertIn('_cve_account(', body, name)
             self.assertNotIn(".get('covered')", body, name)
-        self.assertIn('entry_package_coverage(', srcpin.py_function(source, 'handle_home'))
+        # the dashboard reads the account kept with the host, which the ingest derives with the one account
+        self.assertIn("'pkg_account'", srcpin.py_function(source, 'handle_home'))
+        self.assertIn('entry_package_coverage(', srcpin.py_function(source, 'handle_packages_submit'))
 
 
 if __name__ == '__main__':
