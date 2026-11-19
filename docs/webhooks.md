@@ -236,10 +236,13 @@ and a notification through every other destination you have. The first delivery 
 through raises `notify_dest_recovered` and closes the alert. A successful **Send test** or a
 retry from the dead-letter queue counts as getting through.
 
-- A failure is a refused or timed-out connection, an HTTP answer of 400 or above, a
+- A failure is a refused or timed-out connection, an HTTP answer that is not a 2xx, a
   destination that cannot work as it is set up (a missing token, a scheme that is not http or
   https, an address the local-address filter refuses) and, for mail, anything the mail server
-  does not accept.
+  does not accept. A redirect (301, 302, 307 and the like) is a failure: RemotePower never
+  follows one, so a receiver that redirects every request, such as an `http://` address in front
+  of an https-only service or a receiver behind a sign-in page, never gets an alert through, and
+  the dead-letter queue files each delivery the same way.
 - A delivery that was not tried is neither a failure nor a success: an event the destination
   does not subscribe to, one held for a digest, a dry run, and a send dropped by the rate cap.
 - The alert names the destination by the name you gave it, or by its host when it has none.

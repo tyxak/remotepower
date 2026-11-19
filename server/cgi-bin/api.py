@@ -10236,12 +10236,17 @@ _URL_IN_TEXT_RE = re.compile(r'[a-z][a-z0-9+.-]*://\S+', re.I)
 
 
 def _delivery_outcome(seen):
-    """(delivered, error text) from the log lines of one delivery, or None when nothing was tried."""
+    """(delivered, error text) from the log lines of one delivery, or None when nothing was tried.
+
+    An HTTP status is delivered when it is a 2xx and failed otherwise. The opener refuses redirects (a 3xx must never carry the alert, and the token in the request,
+    to another address), so a 301, 302 or 307 comes out of urllib as an HTTPError that the dead-letter list files as a failure, and the delivery log's page shows in
+    red. This read took every status under 400 for delivered, so a destination that answers every delivery with a redirect (an http:// address in front of an
+    https-only service, a receiver behind a sign-in proxy) was never marked and never announced."""
     outcome = None
     for status, detail in seen or ():
         text = str(status)
         if text.isascii() and text.isdigit():
-            outcome = (True, '') if int(text) < 400 else (False, str(detail))
+            outcome = (True, '') if 200 <= int(text) < 300 else (False, str(detail))
         elif text == 'error' and not str(detail).startswith('rate-limited'):
             outcome = (False, str(detail))
     return outcome

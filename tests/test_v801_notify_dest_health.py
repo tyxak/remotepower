@@ -263,7 +263,10 @@ class TestWhatWasNotTriedIsNotAFailure(_Base):
                                 ('disabled', 'x'), ('error', 'rate-limited: over 30 webhooks/60s')]))
         self.assertEqual(read([(200, 'OK')]), (True, ''))
         self.assertEqual(read([('204', 'OK')]), (True, ''))
-        self.assertEqual(read([(399, '')]), (True, ''))
+        # 8.0.2: a 3xx is a redirect the opener refused (urllib raises an HTTPError, which the dead-letter list files), so it is a failure; this line said
+        # (True, '') for 399 and was true to the reading it pinned, which called every status under 400 delivered
+        self.assertEqual(read([(399, '')]), (False, ''))
+        self.assertEqual(read([(302, 'HTTP 302')]), (False, 'HTTP 302'))
         self.assertEqual(read([(400, 'HTTP 400')]), (False, 'HTTP 400'))
         self.assertEqual(read([(503, 'HTTP 503 [generic]: x')]), (False, 'HTTP 503 [generic]: x'))
         self.assertEqual(read([('error', 'URLError: refused')]), (False, 'URLError: refused'))
