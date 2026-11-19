@@ -43,8 +43,11 @@ READ_POSTS = (
 
 # What goes to a model is free text from the fleet (journal lines, command output). Passwords and tokens that are written as name=value, as
 # an option or as an Authorization header are masked; this is best effort, and text can still hold other private data (the docs say so).
+# The run of word characters, dots and hyphens that holds the name is taken whole at the place it starts, and a look-ahead only asks whether a name is somewhere in it:
+# the first version, `\b[\w.-]*NAME[\w.-]*`, tried every start, every name after it and every length of the rest, so doubling a line of "token.token." cost eight times as
+# much, and the text is a host's (a journal line, the output of a command).
 _MASK_PAIR = re.compile(
-    r"""(\b[\w.-]*(?:token|secret|passw(?:or)?d|passphrase|api[_-]?key|community)[\w.-]*\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;]+)""",
+    r"""(?<![\w.-])(?=[\w.-]*?(?:token|secret|passw(?:or)?d|passphrase|api[_-]?key|community))([\w.-]+\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;]+)""",
     re.I,
 )
 _MASK_FLAG = re.compile(

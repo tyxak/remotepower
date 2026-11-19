@@ -65,14 +65,20 @@ _HIDDEN_EXTRA = frozenset(
     "\u034f\u115f\u1160\u17b4\u17b5\u3164\uffa0"
 )  # invisible, and not format characters: the grapheme joiner, the Hangul and Khmer fillers
 _SECRET_NAME = r"(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|private[_-]?key|client[_-]?secret|access[_-]?key|credential|authorization|auth[_-]?(?:token|key|secret)|bearer|shared[_-]?key|signing[_-]?key)"
-# `--password hunter2`, `/token:abc`, `-ApiKey=abc` and `password=abc`: the value goes, the name stays
+# `--password hunter2`, `/token:abc`, `-ApiKey=abc` and `password=abc`: the value goes, the name stays.
+# Both patterns take time in proportion to the text. The first version led with `\b[\w.-]*` and kept `[\w.-]*` after the name, and on a run that holds the name many times
+# ("pwd.pwd.pwd.") it tried every start, every name after it and every length of the rest: doubling the text cost eight times as much, and a host chooses the text. A hostile
+# host's heartbeat of 1,500 entries of 240 characters cost the handler 13 seconds of processor time. Now a run of word characters, dots and hyphens is taken whole at the place
+# it starts (`(?<![\w.-])`), and a look-ahead only asks whether the name is somewhere in it, so each run is read about twice. The run is group 1 and is kept as it stands, so the
+# output is the first version's. The Windows agent keeps the same two patterns (`_PERSIST_SECRET_FLAG`, `_PERSIST_SECRET_KV`), and tests/test_v802_redaction_linear.py holds both
+# to the output of the first version.
 _SECRET_FLAG = re.compile(
-    r"(?i)((?:^|\s)(?:--?|/)[\w.-]*"
+    r"(?i)((?:^|\s)(?:--?|/)(?=[\w.-]*?"
     + _SECRET_NAME
-    + r"[\w.-]*)(\s*[=:]\s*|\s+)(\"[^\"]*\"|'[^']*'|\S+)"
+    + r")[\w.-]*)(\s*[=:]\s*|\s+)(\"[^\"]*\"|'[^']*'|\S+)"
 )
 _SECRET_KV = re.compile(
-    r"(?i)(\b[\w.-]*" + _SECRET_NAME + r"[\w.-]*)(\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|\S+)"
+    r"(?i)(?<![\w.-])(?=[\w.-]*?" + _SECRET_NAME + r")([\w.-]+)(\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|\S+)"
 )
 _URL_CREDENTIAL = re.compile(r"(://[^/\s:@]{1,64}:)[^/\s@]{1,128}(@)")
 

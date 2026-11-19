@@ -84,10 +84,15 @@ def bind(api_globals):
 # ── secret redaction (applied at ingest — stored copy is already clean) ──────
 # Substring-matched key names, mirroring the RAG corpus rule: an exact set
 # misses `api_key`/`passphrase`/… so match loosely and redact the VALUE.
+# The run of word characters, dots and hyphens that holds the name is taken whole at the place it starts, and a look-ahead only asks whether a name is somewhere in it.
+# The first version was `\b([\w.-]*NAME[\w.-]*)` and tried every start, every name after it and every length of the rest: doubling a line of "password.password." cost
+# eight times as much, and a host that sends the sweep chooses the lines (a line is clipped at 1,024 characters, and a sweep may hold hundreds of them).
+# An unquoted value is read to the end of its word: the first version stopped at 256 characters, left the rest of the word in the clear and went on to read a name
+# inside it.
 _REDACT_KV = re.compile(
-    r'(?i)\b([\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|'
+    r'(?i)(?<![\w.-])(?=[\w.-]*?(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|'
     r'passphrase|private[_-]?key|client[_-]?secret|access[_-]?key|community|'
-    r'credential|auth)[\w.-]*)\s*([=:])\s*("[^"]{1,256}"|\'[^\']{1,256}\'|\S{1,256})')
+    r'credential|auth))([\w.-]+)\s*([=:])\s*("[^"]{1,256}"|\'[^\']{1,256}\'|\S+)')
 _REDACT_BEARER = re.compile(r'(?i)\b(bearer|basic)\s+[A-Za-z0-9+/._~=-]{8,}')
 _REDACT_URLCRED = re.compile(r'://([^/\s:@]{1,64}):([^/\s@]{1,128})@')
 # v6.3.1: multi-line PEM private-key block markers (handled at ingest, since a

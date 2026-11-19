@@ -4494,8 +4494,14 @@ _PERSIST_USER_FRAGMENTS = ('\\temp\\', '\\tmp\\', '\\appdata\\', '\\users\\', '\
 _PERSIST_USER_VARIABLES = ('%temp%', '%tmp%', '%userprofile%', '%appdata%', '%localappdata%', '%public%', '%homepath%')
 _PERSIST_TASK_RX = re.compile(r'<Task[\s>].*?</Task>', re.S)
 _PERSIST_SECRET_NAME = _SECRET_NAME_PATTERN
-_PERSIST_SECRET_FLAG = re.compile(r'(?i)((?:^|\s)(?:--?|/)[\w.-]*' + _PERSIST_SECRET_NAME + r'[\w.-]*)(\s*[=:]\s*|\s+)("[^"]*"|\'[^\']*\'|\S+)')
-_PERSIST_SECRET_KV = re.compile(r'(?i)(\b[\w.-]*' + _PERSIST_SECRET_NAME + r'[\w.-]*)(\s*[=:]\s*)("[^"]*"|\'[^\']*\'|\S+)')
+# Both patterns take time in proportion to the text. The first version led with `\b[\w.-]*` and kept `[\w.-]*` after the name, and on a run that holds the name
+# many times ("pwd.pwd.pwd.") it tried every start, every name after it and every length of the rest: doubling the text cost eight times as much (2,000 characters took
+# four seconds), and the text is the arguments of a scheduled task, which a standard user writes. Now a run of word characters, dots and hyphens is taken whole at the
+# place it starts (`(?<![\w.-])`), and a look-ahead only asks whether the name is somewhere in it, so each run is read about twice. The run is group 1 and is kept as it
+# stands, so the output is the first version's. The server's `persistence.py` keeps the same two patterns, and tests/test_v802_redaction_linear.py holds both to the
+# output of the first version.
+_PERSIST_SECRET_FLAG = re.compile(r'(?i)((?:^|\s)(?:--?|/)(?=[\w.-]*?' + _PERSIST_SECRET_NAME + r')[\w.-]*)(\s*[=:]\s*|\s+)("[^"]*"|\'[^\']*\'|\S+)')
+_PERSIST_SECRET_KV = re.compile(r'(?i)(?<![\w.-])(?=[\w.-]*?' + _PERSIST_SECRET_NAME + r')([\w.-]+)(\s*[=:]\s*)("[^"]*"|\'[^\']*\'|\S+)')
 _PERSIST_URL_CREDENTIAL = re.compile(r'(://[^/\s:@]{1,64}:)[^/\s@]{1,128}(@)')
 _PERSIST_SKIP_PROFILES = ('public', 'all users', 'default user')
 _PERSIST_NOT_READ = {'ok': False, 'cut': False, 'items': []}
