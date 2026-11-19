@@ -313,10 +313,11 @@ class TestMarkup(unittest.TestCase):
             wire = body.index(f"tableCtl.wireSortOnly('{tid}', '{name}'")
             self.assertLess(wire, fetch_at, f'{tid} is wired after the fetch: headers show no sort arrow until data arrives')
 
-    def test_the_sensor_card_is_for_admins_and_starts_hidden(self):
+    def test_the_sensor_card_is_for_the_operator_and_starts_hidden(self):
+        # the operator is an administrator, and on an install with tenants only the platform operator: the settings of the installation are not a tenant's (8.0.2)
         i = _HTML.index('id="ipintel-sensor-card"')
         self.assertIn('hidden', _HTML[i:i + 60])
-        self.assertIn("document.getElementById('ipintel-sensor-card').hidden = !_ipiAdmin;", _JS)
+        self.assertIn("document.getElementById('ipintel-sensor-card').hidden = !_ipiOperator;", _JS)
         for need in ('id="ipintel-sensor"', 'id="ipintel-sensor-paths"'):
             self.assertIn(need, _HTML)
 

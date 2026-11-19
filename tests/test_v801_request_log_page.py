@@ -48,7 +48,7 @@ def node(script):
         esc, *[_const(t) for t in TABLES], _const('_IPI_REQ_EMPTY'),
         'const els = {}; const mk = id => (els[id] = els[id] || {innerHTML: "", textContent: "", hidden: true});',
         'const document = {getElementById: mk};',
-        'let _ipiData = null, _ipiAdmin = false;',
+        'let _ipiData = null, _ipiOperator = false;',
         'function timeAgoHtml(t) { return "<time>" + t + "</time>"; }',
         'const tableCtl = {sortRows(name, rows, key) { rows.forEach(key); return rows; }};',
         srcpin.js_function(_JS, '_ipiPhrase'),
@@ -103,7 +103,7 @@ class TestWhatItPrints(unittest.TestCase):
     ]
 
     def test_each_line_says_who_what_which_address_the_answer_and_how_long(self):
-        out = node('_ipiData = {requests: %s}; _ipiAdmin = true; _ipiRenderRequests();'
+        out = node('_ipiData = {requests: %s}; _ipiOperator = true; _ipiRenderRequests();'
                    'console.log(JSON.stringify({hidden: mk("ipintel-requests-card").hidden, html: mk("ipintel-req-tbody").innerHTML}));'
                    % json.dumps(self.ROWS))
         self.assertFalse(out['hidden'])
@@ -119,7 +119,7 @@ class TestWhatItPrints(unittest.TestCase):
     def test_a_line_for_what_a_host_sent_names_the_host_and_has_no_duration(self):
         row = {'at': 700, 'prov': 'web01', 'op': 'received', 'ip': '185.220.101.10', 'status': 200, 'ms': 0, 'result': 'ok',
                'note': 'queued 2 of 2: 185.220.101.10, 185.220.101.11'}
-        out = node('_ipiData = {requests: %s}; _ipiAdmin = true; _ipiRenderRequests();'
+        out = node('_ipiData = {requests: %s}; _ipiOperator = true; _ipiRenderRequests();'
                    'console.log(JSON.stringify({html: mk("ipintel-req-tbody").innerHTML}));' % json.dumps([row]))
         html = out['html']
         for want in ('<td>web01</td>', '<span>Sensor report</span>', '185.220.101.10', '200 <span>OK</span>',
@@ -127,13 +127,13 @@ class TestWhatItPrints(unittest.TestCase):
             self.assertIn(want, html)
         self.assertNotIn(' ms', html, 'a received line took no time to make')
         evil = dict(row, prov='<img src=x onerror=alert(1)>')
-        out = node('_ipiData = {requests: %s}; _ipiAdmin = true; _ipiRenderRequests();'
+        out = node('_ipiData = {requests: %s}; _ipiOperator = true; _ipiRenderRequests();'
                    'console.log(JSON.stringify({html: mk("ipintel-req-tbody").innerHTML}));' % json.dumps([evil]))
         self.assertNotIn('<img', out['html'])
 
     def test_a_services_own_words_never_become_markup(self):
         evil = dict(self.ROWS[0], note='<img src=x onerror=alert(1)>', ip='<b>1</b>', prov='<i>x</i>', result='<u>y</u>')
-        out = node('_ipiData = {requests: %s}; _ipiAdmin = true; _ipiRenderRequests();'
+        out = node('_ipiData = {requests: %s}; _ipiOperator = true; _ipiRenderRequests();'
                    'console.log(JSON.stringify({html: mk("ipintel-req-tbody").innerHTML}));' % json.dumps([evil]))
         self.assertNotIn('<img', out['html'])
         self.assertNotIn('<b>1', out['html'])
@@ -144,7 +144,7 @@ class TestWhatItPrints(unittest.TestCase):
     def test_a_report_line_says_which_categories_it_was_filed_under_before_the_note(self):
         """The text of a report is never kept in this log, so the category ids are what tells two reports about one address apart."""
         def notes(rows):
-            out = node('_ipiData = {requests: %s}; _ipiAdmin = true; _ipiRenderRequests();'
+            out = node('_ipiData = {requests: %s}; _ipiOperator = true; _ipiRenderRequests();'
                        'console.log(JSON.stringify({html: mk("ipintel-req-tbody").innerHTML}));' % json.dumps(rows))
             cells = [re.findall(r'<td[^>]*>(.*?)</td>', tr, re.S)[-1] for tr in out['html'].split('</tr>')[:-1]]
             self.assertEqual(len(cells), len(rows), out['html'])
@@ -167,24 +167,24 @@ class TestWhatItPrints(unittest.TestCase):
 
     def test_the_card_stays_hidden_for_anyone_the_server_did_not_send_it_to(self):
         for data in ('{requests: null}', '{}', '{requests: "x"}'):
-            out = node('_ipiData = %s; _ipiAdmin = true; mk("ipintel-requests-card").hidden = false;'
+            out = node('_ipiData = %s; _ipiOperator = true; mk("ipintel-requests-card").hidden = false;'
                        '_ipiRenderRequests(); console.log(JSON.stringify({hidden: mk("ipintel-requests-card").hidden,'
                        'html: mk("ipintel-req-tbody").innerHTML}));' % data)
             self.assertTrue(out['hidden'], data)
             self.assertEqual(out['html'], '', data)
-        out = node('_ipiData = {requests: []}; _ipiAdmin = false; _ipiRenderRequests();'
+        out = node('_ipiData = {requests: []}; _ipiOperator = false; _ipiRenderRequests();'
                    'console.log(JSON.stringify({hidden: mk("ipintel-requests-card").hidden}));')
         self.assertTrue(out['hidden'], 'not an administrator')
 
     def test_an_empty_log_says_so(self):
-        out = node('_ipiData = {requests: []}; _ipiAdmin = true; _ipiRenderRequests();'
+        out = node('_ipiData = {requests: []}; _ipiOperator = true; _ipiRenderRequests();'
                    'console.log(JSON.stringify({hidden: mk("ipintel-requests-card").hidden, html: mk("ipintel-req-tbody").innerHTML}));')
         self.assertFalse(out['hidden'])
         self.assertIn('Nothing has been logged yet.', out['html'])
 
     def test_a_word_the_page_does_not_know_is_shown_as_the_server_sent_it(self):
         row = dict(self.ROWS[0], result='HTTP 404', op='something', status=404)
-        out = node('_ipiData = {requests: %s}; _ipiAdmin = true; _ipiRenderRequests();'
+        out = node('_ipiData = {requests: %s}; _ipiOperator = true; _ipiRenderRequests();'
                    'console.log(JSON.stringify({html: mk("ipintel-req-tbody").innerHTML}));' % json.dumps([row]))
         self.assertIn('404 <span>HTTP 404</span>', out['html'])
         self.assertIn('<span>Other</span>', out['html'])

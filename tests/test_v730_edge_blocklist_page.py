@@ -545,7 +545,7 @@ class TestTheCard(unittest.TestCase):
 
     def test_it_is_for_the_operator_only(self):
         self.assertRegex(_HTML, r'id="ipintel-edgelist-card" hidden')
-        self.assertIn("document.getElementById('ipintel-edgelist-card').hidden = !(_ipiAdmin && _ipiData.edge_list)", _JS)
+        self.assertIn("document.getElementById('ipintel-edgelist-card').hidden = !(_ipiOperator && _ipiData.edge_list)", _JS)
 
     def test_the_card_follows_the_house_rules(self):
         card = self.card()
