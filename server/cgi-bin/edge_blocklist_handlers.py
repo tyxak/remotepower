@@ -716,6 +716,10 @@ def handle_ip_intel_ban():
         actor = A.require_admin_auth()
         if not _caller_is_operator():
             A.respond(403, {'error': 'Banning at the edge is for the platform operator.'})
+    if which:
+        # Asked before the never-block rules are applied: the protected networks hold every tenant's hosts and where every user signed in from, and the answer
+        # "not banning: on the never-block list" is a bit about them that a caller with no right to ban anything must not be given.
+        actor = A.require_perm('command', None)
     devices = A._load_ro(A.DEVICES_FILE) or {}
     why = ip_intel.never_block_reason(ip, A.ip_intel_handlers_mod._protected_networks(pol, devices))
     if why:

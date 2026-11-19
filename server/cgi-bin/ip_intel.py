@@ -221,6 +221,8 @@ def in_any(ip, networks):
         a = ipaddress.ip_address(ip)
     except ValueError:
         return False
+    if a.version == 6 and a.ipv4_mapped is not None:
+        a = a.ipv4_mapped       # `::ffff:a.b.c.d` is the visitor a.b.c.d, as a dual-stack socket logs it (is_public and infra_reason read it the same way)
     return any(a.version == n.version and a in n for n in networks)
 
 
