@@ -257,7 +257,8 @@ defences in place (kept current):
   legacy plaintext key is migrated to a hash on first use) and compared by hash
   with `hmac.compare_digest`, shown to the operator only at creation, support
   per-key expiry, an optional per-key host scope and a source-IP allowlist, and
-  are capped at 50 per server.
+  are capped at 50 per server. A key with a host scope can create and change only
+  keys, roles and accounts that stay inside that scope.
 - **LDAP** binds use `CERT_REQUIRED` TLS verification by default; opt-out
   exists for self-signed CAs.
 - **`Authorization: Bearer`** is accepted alongside `X-Token`. The token verification path is

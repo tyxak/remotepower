@@ -22,6 +22,9 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 - **Tenant isolation.** Where tenancy is enforced, a host id belonging to another
   tenant returns **404** (not 403 — a 403 would confirm the id exists), and every
   fleet-wide aggregate is filtered to your tenant.
+- **A key with a host scope hands out only what it has.** An administrator key that is limited to some groups, tags or sites can create and
+  change keys, roles and accounts that stay inside them, and nothing wider: a request for more (a scope of `all`, another kind of scope, a role
+  that reaches every host) is a **403** with `code: "beyond_key_scope"`. A key made without a scope gets the scope of the key that made it.
 - **Write contention returns a retryable 503**, never a 500. Back off and retry.
 - **Conditional GET.** Some read endpoints honour `If-None-Match` and answer **304**
   when nothing changed.
@@ -98,7 +101,8 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | `GET` | `/api/users` | | List users (with role, MFA state, sign-in source and last sign-in) |
-| `POST` | `/api/users` | admin | Create user (pass `role` — a built-in role or any custom role you've defined). A password over 72 bytes is a 400 |
+| `POST` | `/api/users` | admin | Create user (pass `role` — a built-in role or any custom role you've defined). A password over 72 bytes is a 400. A key that has a host scope can create only an account whose role stays inside that scope |
+| `PATCH` | `/api/users/:name` | admin | Change an account's role. Making someone an administrator asks for the step-up, and a key with a host scope can only move an account to a role inside its scope |
 | `DELETE` | `/api/users/:name` | admin | Delete user |
 | `POST` | `/api/users/passwd` | | Change a password: your own with `old_password`, or another account's as an administrator who has confirmed their own password in the last ten minutes (`POST /api/auth/step-up`). An API key cannot, so it gets a 403 with `step_up_required`. A password the account used recently is a 400 when `password_history` is set, and more than ten such checks a minute from one caller is a 429. A new password over 72 bytes is a 400 |
 
@@ -106,7 +110,9 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | `GET` | `/api/apikeys` | admin | List API keys |
-| `POST` | `/api/apikeys` | admin | Create API key (value shown once) |
+| `POST` | `/api/apikeys` | admin | Create API key (value shown once). Pass `scope` (`{"type": "groups", "values": ["prod"]}`; `tags` and `sites` work the same) to limit it to part of the fleet. A key that has a scope creates only keys inside its own |
+| `PATCH` | `/api/apikeys/:id` | admin | Change a key's name, role, scope, source-IP allowlist, expiry or rate limit. The secret stays. A key that has a scope cannot widen or clear its own, or change a key that reaches more than it does |
+| `POST` | `/api/apikeys/:id/rotate` | admin | Make a replacement key with the same settings and turn the old one off (value shown once) |
 | `DELETE` | `/api/apikeys/:id` | admin | Delete API key |
 
 ### Command Library

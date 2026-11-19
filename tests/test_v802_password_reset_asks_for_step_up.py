@@ -22,7 +22,6 @@ directory of its own, so that nothing is stubbed):
 * the class: the functions that write a user's password hash or role are listed by syntax tree, and each either asks for the step-up or
   is on the list of the ones that are somebody's own sign-in, the identity provider's answer or the first start.
 """
-import ast
 import json
 import shutil
 import subprocess
@@ -32,6 +31,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import credential_scan  # noqa: E402
 import real_stack  # noqa: E402
 import srcpin  # noqa: E402
 
@@ -256,44 +256,10 @@ _NOT_AN_ADMINISTRATORS_REQUEST = {
 _ASKS = ('handle_user_create', 'handle_user_passwd', 'handle_user_update')
 
 
-def _name(node):
-    return node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
-
-
-def _names(node, wanted):
-    return any(_name(n) == wanted for n in ast.walk(node))
-
-
-def users_store_writers_of_credentials():
-    """{function: calls it makes} for every function of api.py and the handler modules that writes the users store and sets a user's
-    password hash or role: a subscript store (`rec['role'] = ...`), a user record written out as a dict that holds a password hash, or a
-    call of `_set_password`. A dict with a `role` key alone is not one (the sign-in answers with one)."""
-    found = {}
-    for path in [_CGI / 'api.py'] + sorted(_CGI.glob('*_handlers.py')):
-        for fn in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
-            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            calls = {_name(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)}
-            writes_store = any(isinstance(n, ast.Call) and _name(n.func) in ('_LockedUpdate', 'save', 'locked_update')
-                               and any(_names(a, 'USERS_FILE') for a in n.args) for n in ast.walk(fn))
-            if not writes_store:
-                continue
-            sets = '_set_password' in calls
-            for n in ast.walk(fn):
-                if isinstance(n, ast.Assign):
-                    sets = sets or any(isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant)
-                                       and t.slice.value in ('role', 'password_hash') for t in n.targets)
-                if isinstance(n, ast.Dict):
-                    sets = sets or any(isinstance(k, ast.Constant) and k.value == 'password_hash' for k in n.keys)
-            if sets:
-                found[fn.name] = calls
-    return found
-
-
 class TestEveryWriterOfAPasswordOrARoleAsksOrIsNotARequest(unittest.TestCase):
 
     def test_the_population_is_the_one_known_and_every_member_is_accounted_for(self):
-        found = users_store_writers_of_credentials()
+        found = credential_scan.users_store_writers_of_credentials()
         self.assertGreaterEqual(len(found), 8, 'the scan sees nothing: %s' % sorted(found))
         for name in _ASKS:
             self.assertIn(name, found, 'the scan no longer sees %s, which it must (the control of this scan)' % name)
@@ -303,14 +269,14 @@ class TestEveryWriterOfAPasswordOrARoleAsksOrIsNotARequest(unittest.TestCase):
         self.assertEqual(stale, [], 'listed, but no longer writes a password hash or a role: %s' % stale)
 
     def test_the_three_that_take_an_account_over_ask(self):
-        found = users_store_writers_of_credentials()
+        found = credential_scan.users_store_writers_of_credentials()
         for name in _ASKS:
             with self.subTest(handler=name):
                 self.assertIn('require_step_up', found[name])
 
     def test_the_listed_ones_do_not_ask_and_are_not_routes_that_an_administrator_calls(self):
         """The list is not a way round the rule: none of its entries is a handler of an administrator's request."""
-        found = users_store_writers_of_credentials()
+        found = credential_scan.users_store_writers_of_credentials()
         for name in _NOT_AN_ADMINISTRATORS_REQUEST:
             with self.subTest(function=name):
                 self.assertFalse({'require_admin_auth', 'require_auth'} & found[name], '%s checks a caller, so it answers a request' % name)

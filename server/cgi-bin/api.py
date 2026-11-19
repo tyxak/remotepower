@@ -8405,6 +8405,70 @@ def _validate_key_scope(raw):
     return {'type': t, 'values': clean}
 
 
+def _scope_is_all(scope):
+    """True for no scope, an empty one and {'type': 'all'}: every host."""
+    return not isinstance(scope, dict) or scope.get('type', 'all') == 'all'
+
+
+def _scope_values(scope):
+    vals = scope.get('values')
+    return {v for v in vals if isinstance(v, str)} if isinstance(vals, (list, tuple, set)) else set()
+
+
+def _scope_within(inner, outer):
+    """True when every host that the scope `inner` admits is also admitted by the scope `outer`, decided from the two scopes alone: no host
+    list is read, so a host added later is covered the same way. None and {'type': 'all'} are every host.
+
+    Two scopes of one kind (groups, tags or sites) are compared by their values. Scopes of two kinds cannot be compared without the hosts, so
+    the answer for them is no. A composite (`all_of`: a key's scope together with a role's) as the outer one needs every part to hold, and as
+    the inner one a single part is enough, since it admits only the hosts that every part admits."""
+    if _scope_is_all(outer):
+        return True
+    if outer.get('type') == 'all_of':
+        return all(_scope_within(inner, part) for part in (outer.get('scopes') or []))
+    if _scope_is_all(inner):
+        return False
+    if inner.get('type') == 'all_of':
+        return any(_scope_within(part, outer) for part in (inner.get('scopes') or []))
+    if inner.get('type') != outer.get('type'):
+        return False
+    if inner.get('values') is not None and not isinstance(inner.get('values'), (list, tuple, set)):
+        return False            # a stored scope that is not the shape the writers make: not known to be inside anything
+    return _scope_values(inner) <= _scope_values(outer)
+
+
+def _refuse_beyond_scope(scope, mine):
+    """403 when `mine` (the caller's scope, as `_caller_scope()` returns it) is a limit and `scope` (the scope of a key, of a role, or of the
+    role an account is given) reaches beyond it.
+
+    A key can carry a device scope, and the scope confines even an administrator's key. A key that makes or changes another key, a role or an
+    account decides what that one may reach, so it may hand out nothing it does not have itself: otherwise the confinement lasts only until
+    the key asks for more (PATCH its own key to scope all, make an unscoped administrator key, make a viewer account and sign in as it). A
+    caller with no limit (a session, a key without a scope) passes, as does everything inside the limit."""
+    if mine is not None and not _scope_within(scope, mine):
+        respond(403, {'error': 'Your key is limited to part of the fleet. It can only create and change keys, roles and accounts that stay inside that part.',
+                      'code': 'beyond_key_scope'})
+
+
+def _refuse_beyond_caller_scope(scope):
+    """`_refuse_beyond_scope` against the limit of the caller, read now. A handler that holds a store's lock reads the limit before it takes
+    the lock (`_caller_scope()` checks the token, which is not done under a lock) and calls `_refuse_beyond_scope` inside."""
+    _refuse_beyond_scope(scope, _caller_scope())
+
+
+def _bound_key_scope(scope, asked):
+    """The scope for a key that the current caller is about to make. A caller with no limit gets what it asked for. A caller limited to part
+    of the fleet gets the same part when it asked for nothing, and a refusal when it asked for more (`asked` is whether the request carried a
+    scope at all, so that an explicit scope of all is told apart from none)."""
+    mine = _caller_scope()
+    if mine is None:
+        return scope
+    if scope is None and not asked:
+        return copy.deepcopy(mine)
+    _refuse_beyond_caller_scope(scope)
+    return scope
+
+
 def _ip_in_cidrs(ip, cidrs):
     """v5.4.1 (D7): True if `ip` falls inside any CIDR / exact IP in `cidrs`. A
     malformed list entry is skipped; a malformed/empty client IP fails CLOSED."""
@@ -36649,6 +36713,9 @@ def handle_user_create():
                                "(the 'mcp' role is reserved for API keys)"})
     if role == 'admin':
         require_step_up()   # v6.1.1 (#33): minting a new ADMIN account is the classic privilege-escalation step-up target
+    # A key limited to part of the fleet gives an account access inside that part only: the role decides what the account reaches, and the
+    # key chooses the password the account signs in with.
+    _refuse_beyond_caller_scope(_resolve_role(role).get('scope'))
     if not username or not re.match(r'^[a-zA-Z0-9_\-]{2,32}$', username):
         respond(400, {'error': 'Invalid username (2-32 chars, alphanumeric/_/-)'})
     if not isinstance(password, str) or not password or len(password) > 1024:
@@ -36763,6 +36830,7 @@ def handle_user_update(username):
         respond(400, {'error': 'role must be admin, viewer, or a defined custom role'})
     if new_role == 'admin':
         require_step_up()   # v6.1.1 (#33): promoting a user to admin is the classic privilege-escalation step-up target
+    _refuse_beyond_caller_scope(_resolve_role(new_role).get('scope'))      # a key limited to part of the fleet moves accounts inside that part only
     with _LockedUpdate(USERS_FILE) as users:
         if username not in users:
             respond(404, {'error': 'User not found'})
@@ -36835,6 +36903,7 @@ def handle_role_create():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     clean, err = _clean_role_body(get_json_obj())
     if err: respond(400, {'error': err})
+    _refuse_beyond_caller_scope(clean['scope'])      # a key limited to part of the fleet makes roles that reach inside that part only
     with _LockedUpdate(ROLES_FILE) as store:
         roles = store.setdefault('roles', [])
         if any(r.get('name') == clean['name'] for r in roles):
@@ -36854,6 +36923,7 @@ def handle_role_update(name):
     body['name'] = name   # name comes from the path; not renamable
     clean, err = _clean_role_body(body)
     if err: respond(400, {'error': err})
+    _refuse_beyond_caller_scope(clean['scope'])      # ... and widens none past it
     with _LockedUpdate(ROLES_FILE) as store:
         roles = store.get('roles', [])
         if not any(r.get('name') == name for r in roles):
@@ -61604,6 +61674,8 @@ def handle_apikeys_create():
     if rate_limit < 0 or rate_limit > 100000:
         respond(400, {'error': 'rate_limit must be 0..100000'})
     key_scope = _validate_key_scope(body.get('scope'))   # v5.4.1 (D6)
+    # A key limited to part of the fleet makes keys inside that part only: the same part when it asks for no scope, a 403 when it asks for more.
+    key_scope = _bound_key_scope(key_scope, body.get('scope') is not None)
     key_ipallow = _validate_ip_allow(body.get('ip_allow'))   # v5.4.1 (D7)
     # v6.1.1: optional rotation-due policy (mirrors the CMDB credential field of
     # the same name) — surfaced as an attention item, never auto-rotated silently.
@@ -61613,8 +61685,7 @@ def handle_apikeys_create():
         respond(400, {'error': 'rotate_after_days must be an integer'})
     if rotate_after_days < 0 or rotate_after_days > 3650:
         respond(400, {'error': 'rotate_after_days must be 0..3650 (0 = no policy)'})
-    apikeys = load(APIKEYS_FILE)
-    if len(apikeys) >= 50: respond(400, {'error': 'API key limit reached (max 50)'})
+    if len(load(APIKEYS_FILE)) >= 50: respond(400, {'error': 'API key limit reached (max 50)'})
     key_value = secrets.token_urlsafe(40)
     kid       = secrets.token_hex(8)
     expires_at = body.get('expires_at')
@@ -61637,7 +61708,7 @@ def handle_apikeys_create():
             expires_at = int(time.time()) + dd * 86400
     # v5.4.1 (C1): store only the SHA-256 hash; the raw key is shown once here and
     # never persisted in cleartext.
-    apikeys[kid] = {'name': name, 'key_hash': _apikey_hash(key_value),
+    rec = {'name': name, 'key_hash': _apikey_hash(key_value),
                     'user': user, 'role': role,
                     'created': int(time.time()), 'active': True,
                     'rate_limit': rate_limit,
@@ -61655,12 +61726,16 @@ def handle_apikeys_create():
                     # _caller_effective_tenant's docstring for the full story.
                     'tenant_id': _caller_effective_tenant(actor)}
     if key_scope:                                        # v5.4.1 (D6)
-        apikeys[kid]['scope'] = key_scope
+        rec['scope'] = key_scope
     if key_ipallow:                                      # v5.4.1 (D7)
-        apikeys[kid]['ip_allow'] = key_ipallow
+        rec['ip_allow'] = key_ipallow
     if rotate_after_days:                                 # v6.1.1
-        apikeys[kid]['rotate_after_days'] = rotate_after_days
-    save(APIKEYS_FILE, apikeys)
+        rec['rotate_after_days'] = rotate_after_days
+    # Under the keys' lock, as delete and rotate have taken it since 7.0.2: a bare load and save lost a key that another request made at
+    # the same moment, and the limit is counted on the store that is written.
+    with _LockedUpdate(APIKEYS_FILE) as apikeys:
+        if len(apikeys) >= 50: respond(400, {'error': 'API key limit reached (max 50)'})
+        apikeys[kid] = rec
     if role == 'admin':
         # An admin API key is a non-expiring-by-default bearer credential with
         # the same reach as an admin login, and it is minted without a password.
@@ -61698,60 +61773,69 @@ def handle_apikeys_update(kid):
     if kid not in apikeys: respond(404, {'error': 'API key not found'})
     _apikey_tenant_block(apikeys[kid])          # v7.0.2
     body = _read_valid(request_models.ApikeysUpdateRequest)
-    rec = apikeys[kid]
-    if 'name' in body:
-        name = _sanitize_str(body.get('name', ''), 64)
-        if not name: respond(400, {'error': 'name required'})
-        rec['name'] = name
-    if 'role' in body:
-        role = body.get('role', 'admin')
-        if not isinstance(role, str) or role not in APIKEY_ROLES:      # 7.4.9: a list or dict is unhashable
-            respond(400, {'error': "role must be 'admin', 'viewer', or 'mcp'"})
-        rec['role'] = role
-    if 'rate_limit' in body:
-        try:
-            rate_limit = int(body.get('rate_limit') or 0)
-        except (TypeError, ValueError, OverflowError):
-            respond(400, {'error': 'rate_limit must be an integer (requests/minute, 0 = unlimited)'})
-        if rate_limit < 0 or rate_limit > 100000:
-            respond(400, {'error': 'rate_limit must be 0..100000'})
-        rec['rate_limit'] = rate_limit
-    if 'expires_at' in body:
-        expires_at = body.get('expires_at')
-        if expires_at in (None, '', 0):
-            rec['expires_at'] = None          # clear → never expires
-        else:
+    mine = _caller_scope()                      # read before the lock is taken: it checks the token
+    # Under the keys' lock, as delete and rotate have taken it since 7.0.2: a bare load and save lost a key that another request made or
+    # changed at the same moment. A refusal inside the block writes nothing.
+    with _LockedUpdate(APIKEYS_FILE) as apikeys:
+        if kid not in apikeys: respond(404, {'error': 'API key not found'})
+        rec = apikeys[kid]
+        _apikey_tenant_block(rec)
+        if 'name' in body:
+            name = _sanitize_str(body.get('name', ''), 64)
+            if not name: respond(400, {'error': 'name required'})
+            rec['name'] = name
+        if 'role' in body:
+            role = body.get('role', 'admin')
+            if not isinstance(role, str) or role not in APIKEY_ROLES:      # 7.4.9: a list or dict is unhashable
+                respond(400, {'error': "role must be 'admin', 'viewer', or 'mcp'"})
+            rec['role'] = role
+        if 'rate_limit' in body:
             try:
-                expires_at = int(expires_at)
-            except (ValueError, TypeError, OverflowError):
-                respond(400, {'error': 'expires_at must be a unix timestamp'})
-            if expires_at <= int(time.time()):
-                respond(400, {'error': 'expires_at must be in the future'})
-            rec['expires_at'] = expires_at
-    if 'scope' in body:                                  # v5.4.1 (D6)
-        ks = _validate_key_scope(body.get('scope'))
-        if ks:
-            rec['scope'] = ks
-        else:
-            rec.pop('scope', None)                       # {type:all}/null clears it
-    if 'ip_allow' in body:                               # v5.4.1 (D7)
-        ia = _validate_ip_allow(body.get('ip_allow'))
-        if ia:
-            rec['ip_allow'] = ia
-        else:
-            rec.pop('ip_allow', None)                    # empty/null clears it
-    if 'rotate_after_days' in body:                       # v6.1.1
-        try:
-            rad = int(body.get('rotate_after_days') or 0)
-        except (TypeError, ValueError, OverflowError):
-            respond(400, {'error': 'rotate_after_days must be an integer'})
-        if rad < 0 or rad > 3650:
-            respond(400, {'error': 'rotate_after_days must be 0..3650 (0 = no policy)'})
-        if rad:
-            rec['rotate_after_days'] = rad
-        else:
-            rec.pop('rotate_after_days', None)
-    save(APIKEYS_FILE, apikeys)
+                rate_limit = int(body.get('rate_limit') or 0)
+            except (TypeError, ValueError, OverflowError):
+                respond(400, {'error': 'rate_limit must be an integer (requests/minute, 0 = unlimited)'})
+            if rate_limit < 0 or rate_limit > 100000:
+                respond(400, {'error': 'rate_limit must be 0..100000'})
+            rec['rate_limit'] = rate_limit
+        if 'expires_at' in body:
+            expires_at = body.get('expires_at')
+            if expires_at in (None, '', 0):
+                rec['expires_at'] = None          # clear → never expires
+            else:
+                try:
+                    expires_at = int(expires_at)
+                except (ValueError, TypeError, OverflowError):
+                    respond(400, {'error': 'expires_at must be a unix timestamp'})
+                if expires_at <= int(time.time()):
+                    respond(400, {'error': 'expires_at must be in the future'})
+                rec['expires_at'] = expires_at
+        if 'scope' in body:                                  # v5.4.1 (D6)
+            ks = _validate_key_scope(body.get('scope'))
+            if ks:
+                rec['scope'] = ks
+            else:
+                rec.pop('scope', None)                       # {type:all}/null clears it
+        if 'ip_allow' in body:                               # v5.4.1 (D7)
+            ia = _validate_ip_allow(body.get('ip_allow'))
+            if ia:
+                rec['ip_allow'] = ia
+            else:
+                rec.pop('ip_allow', None)                    # empty/null clears it
+        if 'rotate_after_days' in body:                       # v6.1.1
+            try:
+                rad = int(body.get('rotate_after_days') or 0)
+            except (TypeError, ValueError, OverflowError):
+                respond(400, {'error': 'rotate_after_days must be an integer'})
+            if rad < 0 or rad > 3650:
+                respond(400, {'error': 'rotate_after_days must be 0..3650 (0 = no policy)'})
+            if rad:
+                rec['rotate_after_days'] = rad
+            else:
+                rec.pop('rotate_after_days', None)
+        # A key limited to part of the fleet changes keys that stay inside that part. Asked of the key that comes out of the edit, whichever
+        # field was edited: its own scope cannot be widened or cleared (PATCH its own key to scope all), and a key that reaches more than
+        # the caller does cannot be renamed or promoted to administrator either. A caller with no limit passes.
+        _refuse_beyond_scope(rec.get('scope'), mine)
     respond(200, {'ok': True})
 
 
@@ -61773,11 +61857,15 @@ def handle_apikeys_rotate(kid):
         respond(404, {'error': 'API key not found'})
     new_kid = secrets.token_hex(8)
     key_value = secrets.token_urlsafe(40)
+    mine = _caller_scope()                      # read before the lock is taken: it checks the token
     with _LockedUpdate(APIKEYS_FILE) as apikeys:
         old = apikeys.get(kid)
         _apikey_tenant_block(old)               # v7.0.2
         if not old:
             respond(404, {'error': 'API key not found'})
+        # The answer carries the new secret, and the new key reaches what the old one did. A key limited to part of the fleet rotates keys
+        # that stay inside that part (its own, for one): rotating a key that reaches more would hand it that reach.
+        _refuse_beyond_scope(old.get('scope'), mine)
         new_rec = {'name': old.get('name', ''), 'key_hash': _apikey_hash(key_value),
                    'user': old.get('user', 'api'), 'role': old.get('role', 'admin'),
                    'created': int(time.time()), 'active': True,
