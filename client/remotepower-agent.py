@@ -15289,9 +15289,11 @@ def _ts_status(value):
     return n if 100 <= n <= 599 else 0
 
 
-# CrowdSec's nginx bouncer refusing a request on AppSec's verdict, in the access phase. The address it names is the one nginx names after
-# `, client:` (the bouncer is handed $remote_addr), so a line whose two addresses differ is not the bouncer's (see _ts_nginx_client).
-_TS_CS_APPSEC_RE = re.compile(r"\[Crowdsec\] denied '([0-9A-Fa-f:.]{2,45})' with '[a-z]{2,12}' \(by appsec\)")
+# CrowdSec's nginx bouncer refusing a request on AppSec's verdict, in the access phase. The words are in the message, which precedes
+# `, client:`; what follows is the request, the Host and the Referer, which their sender wrote, so the pattern is only ever tried on the
+# message of a line that has one client part. A sender can write into a message too (the path of a file nginx could not open is part of
+# one), so the words can label the sender's own address and no other: the client part is the one nginx wrote.
+_TS_CS_APPSEC_RE = re.compile(r"\[Crowdsec\] denied '[0-9A-Fa-f:.]{2,45}' with '[a-z]{2,12}' \(by appsec\)")
 
 
 def _ts_classify(method, uri, status, ua=''):
@@ -16546,8 +16548,14 @@ def _ts_scan_modsec_json(lines, agg, fkey, now):
 
 
 _TS_NGX_ERR_RE = re.compile(r'^(\d{4}/\d\d/\d\d \d\d:\d\d:\d\d) \[(\w+)\] \d+#\d+: ')
-_TS_NGX_CLIENT_RE = re.compile(r', client: ([0-9A-Fa-f:.]+)(?:,|$)')
+_TS_NGX_CLIENT_MARK = ', client: '
+_TS_NGX_CLIENT_RE = re.compile(r', client: ([0-9A-Fa-f:.]+)(?:, server: |$)')
 _TS_NGX_REQUEST_RE = re.compile(r', request: "((?:[^"\\]|\\.)*)"')
+# What nginx writes after the quoted path of a file it could not open, and the words it ends a message with while it was reading from an
+# upstream or shaking hands. The second is how the multi-line error of an application (a PHP stack trace) ends: it holds no request text.
+_TS_NGX_PATH_END_RE = re.compile(r'" (?:failed \(\d+: [^)]{1,100}\)|is (?:not found|forbidden)(?: \(\d+: [^)]{1,100}\))?)$')
+_TS_PCT_LF_RE = re.compile(r'%0[aA]')
+_TS_NGX_ACTION_END_RE = re.compile(r'" while (?:reading|sending|connecting|waiting|SSL handshaking|processing)[A-Za-z ]{0,80}$')
 _TS_APC_ERR_RE = re.compile(r'^\[\w{3} \w{3} \d{1,2} \d\d:\d\d:\d\d(?:\.\d+)? \d{4}\] ')
 _TS_APC_CLIENT_RE = re.compile(r'\[client ([0-9A-Fa-f:.]+?)(?::\d{1,5})?\]')
 # The path Apache names when a file is missing, a script cannot be run, or the configuration denies the request
@@ -16582,66 +16590,137 @@ def _ts_request_line(req):
     return _ts_split_request(req)
 
 
+def _ts_nginx_client(line):
+    """(address text, offset of its `, client: `) of an nginx error-log line, or None.
+
+    nginx ends the message of a request with `, client: <peer>, server: <name>, request: "<request line>", host: "<host>"`. Text its
+    sender wrote can sit before that part (the decoded path of a file that is not there, a user name) and after it (the request line,
+    the Referer header), and none of it is escaped. A line that holds the marker twice has a part that the sender wrote, and neither the
+    first nor the last of the two can be told from the real one, so such a line is not read. The whole line is searched, not the first
+    THREAT_MAX_LINE characters of it: a long path can push the real part past that cut and leave a forged one as the only one."""
+    pos = line.find(_TS_NGX_CLIENT_MARK)
+    if pos < 0 or line.find(_TS_NGX_CLIENT_MARK, pos + 1) >= 0:
+        return None
+    m = _TS_NGX_CLIENT_RE.match(line, pos)
+    return (m.group(1), pos) if m else None
+
+
+def _ts_nginx_path_breaks(row, pos):
+    """How many line breaks the path of the request that follows the client part at `pos` holds once it is decoded, which is what nginx
+    writes into the message of a file it could not open. The request line is read to its end, and its path is the first word after
+    the method: a quote inside the target ends nothing, since nginx does not escape it, and the Referer after it is not counted."""
+    at = row.find(', request: "', pos)
+    if at < 0:
+        return 0
+    target = next((w for w in row[at + 12:at + 70_012].split(' ')[1:] if w), '')
+    return len(_TS_PCT_LF_RE.findall(target.split('?', 1)[0]))
+
+
+def _ts_nginx_distrusted(rows):
+    """(the index up to which every line is left out, the set of other indexes left out) for one read of nginx's error log.
+
+    The decoded path of a missing file and the user name of a failed login are written to the log as they came, so a request can put a
+    line break into a message. What follows the break is whatever its sender chose, a line that looks like a whole entry among it, with a
+    time of its own and a client of its own, and nginx's own end of the message (its closing words and the client part) can be
+    made to look like the end of an entry as well. Nothing in such a line tells it from a real one, so the lines that belong to the message
+    are not read:
+    - a message that ends in the words nginx puts after a path (`" failed (2: ...)`) and whose request line holds the path with
+      `%0A` in it: the request line says how many breaks the message has, and that many lines before the end are the message;
+    - a line without a time in front of it that ends a message in any other way (a user name that held a break): where the message began cannot be told, so
+      the lines of the read before it are left out. The multi-line error of an application (a PHP stack trace) ends in words
+      that a request cannot write after nginx's own, and is no sign of this."""
+    blind, exact = -1, set()
+    for j, row in enumerate(rows):
+        if not row or _TS_NGX_CLIENT_MARK not in row:
+            continue
+        marks, at = [], row.find(_TS_NGX_CLIENT_MARK)
+        while at >= 0 and len(marks) < 64:
+            marks.append(at)
+            at = row.find(_TS_NGX_CLIENT_MARK, at + 1)
+        breaks = max((_ts_nginx_path_breaks(row, p) for p in marks if _TS_NGX_PATH_END_RE.search(row[max(0, p - 160):p])), default=0)
+        if breaks:
+            if j - breaks < 0:
+                blind = j                   # the message began in the read before this one
+            else:
+                exact.update(range(j - breaks, j + 1))
+        elif _TS_NGX_ERR_RE.match(row):
+            continue
+        elif len(marks) == 1 and _TS_NGX_ACTION_END_RE.search(row[max(0, marks[0] - 160):marks[0]]):
+            continue
+        else:
+            blind = j
+    return blind, exact
+
+
 def _ts_scan_nginx_error(lines, agg, fkey, now):
     """(lines, parsed) for nginx's error log: ModSecurity's connector, rate-limit
     trips, failed basic-auth logins, requests refused by a `deny`, and probes for
-    files that are not there."""
+    files that are not there.
+
+    The message of a line is what precedes its `, client:` part, and only that part says what kind of event it was: the request line, the
+    Host and the Referer that follow are the sender's text. A line whose client part cannot be told from text the sender wrote is not
+    read (`_ts_nginx_client`), and neither are the lines a request put a line break into (`_ts_nginx_distrusted`)."""
+    rows = list(lines)
+    blind, exact = _ts_nginx_distrusted(rows)
     n = parsed = 0
     floor = now - THREAT_LOOKBACK_S
-    for line in lines:
+    for i, line in enumerate(rows):
         if not line:
             continue
         n += 1
-        line = line[:THREAT_MAX_LINE]
-        m = _TS_NGX_ERR_RE.match(line)
-        if not m:
-            continue
-        parsed += 1
-        cm = _ts_nginx_client(line)
-        ip = _ts_ip(cm.group(1)) if cm else None
-        if not ip:
-            continue
-        t = _TS_NGX_ERR_TIME_RE.match(m.group(1))
-        ts = min((_ts_mktime(*t.groups()) if t else 0) or now, now + 300)
-        if ts < floor:
-            continue
-        rm = _TS_NGX_REQUEST_RE.search(line, cm.end())      # the request nginx wrote after the client, not one the message quotes
-        method, uri = _ts_request_line(rm.group(1)) if rm else ('', '')
-        bm = _TS_CS_APPSEC_RE.search(line, 0, cm.start())
-        if bm and bm.group(1) == cm.group(1):
-            # CrowdSec's bouncer refused the request on AppSec's verdict. That is a WAF refusal, whether or not
-            # CrowdSec went on to make a decision, so it counts with the WAF's and is named like AppSec's own scenarios.
-            # The address it quotes is the client's: a sentence that names another is text somebody wrote into the message.
-            agg.hit('waf', fkey, ip, ts, ['cs:appsec'], 1, blk=1)
-            agg.sample(ip, 'waf', method, uri, 403, ts)
-        elif 'ModSecurity:' in line:
-            toks, cves, refused = _ts_modsec_message(line)
-            um = _TS_MS_UID_RE.search(line)
-            tx = um.group(1) if um else f'{ts}:{uri}'
-            status = 403 if refused else 0
-            toks += ['req:' + k for k in _ts_classify(method, uri, status)]
-            agg.hit('waf', fkey, ip, ts, toks, 1, blk=1 if refused else 0, tx=tx)
-            agg.sample(ip, 'waf', method, uri, status, ts)
-            if cves:
-                agg.add_cves(ip, cves)
-        elif 'limiting requests' in line or 'limiting connections' in line:
-            agg.hit('err', fkey, ip, ts, ['req:flood'], 1, blk=1)
-            agg.sample(ip, 'err', method, uri, 0, ts)
-        elif (' was not found in "' in line or ': password mismatch' in line) and 'user "' in line:
-            agg.hit('err', fkey, ip, ts, ['req:login'], 1, blk=1)
-            agg.sample(ip, 'err', method, uri, 401, ts)
-        elif 'access forbidden by rule' in line:
-            kinds = _ts_classify(method, uri, 403) or ('probe',)
-            agg.hit('err', fkey, ip, ts, ['req:' + k for k in kinds], 1, blk=1)
-            agg.sample(ip, 'err', method, uri, 403, ts)
-        else:
-            fm = _TS_NGX_FILE_RE.search(line)
-            target = fm.group(1) if fm else (uri if 'Primary script unknown' in line else '')
-            kinds = _ts_classify(method or 'GET', target, 404) if target else ()
-            if kinds:
+        try:
+            m = _TS_NGX_ERR_RE.match(line)
+            if not m:
+                continue
+            parsed += 1
+            if i <= blind or i in exact:
+                continue
+            cm = _ts_nginx_client(line)
+            ip = _ts_ip(cm[0]) if cm else None
+            if not ip:
+                continue
+            t = _TS_NGX_ERR_TIME_RE.match(m.group(1))
+            ts = min((_ts_mktime(*t.groups()) if t else 0) or now, now + 300)
+            if ts < floor:
+                continue
+            msg = line[:min(cm[1], THREAT_MAX_LINE)]
+            rm = _TS_NGX_REQUEST_RE.search(line[cm[1]:cm[1] + THREAT_MAX_LINE])
+            method, uri = _ts_request_line(rm.group(1)) if rm else ('', '')
+            if _TS_CS_APPSEC_RE.search(msg):
+                # CrowdSec's bouncer refused the request on AppSec's verdict. That is a WAF refusal, whether or not
+                # CrowdSec went on to make a decision, so it counts with the WAF's and is named like AppSec's own scenarios.
+                agg.hit('waf', fkey, ip, ts, ['cs:appsec'], 1, blk=1)
+                agg.sample(ip, 'waf', method, uri, 403, ts)
+            elif 'ModSecurity:' in msg:
+                toks, cves, refused = _ts_modsec_message(msg)
+                uids = _TS_MS_UID_RE.findall(msg)
+                tx = uids[-1] if uids else f'{ts}:{uri}'          # ModSecurity writes its own id last, after the text a request can put in
+                status = 403 if refused else 0
+                toks += ['req:' + k for k in _ts_classify(method, uri, status)]
+                agg.hit('waf', fkey, ip, ts, toks, 1, blk=1 if refused else 0, tx=tx)
+                agg.sample(ip, 'waf', method, uri, status, ts)
+                if cves:
+                    agg.add_cves(ip, cves)
+            elif 'limiting requests' in msg or 'limiting connections' in msg:
+                agg.hit('err', fkey, ip, ts, ['req:flood'], 1, blk=1)
+                agg.sample(ip, 'err', method, uri, 0, ts)
+            elif (' was not found in "' in msg or ': password mismatch' in msg) and 'user "' in msg:
+                agg.hit('err', fkey, ip, ts, ['req:login'], 1, blk=1)
+                agg.sample(ip, 'err', method, uri, 401, ts)
+            elif 'access forbidden by rule' in msg:
+                kinds = _ts_classify(method, uri, 403) or ('probe',)
                 agg.hit('err', fkey, ip, ts, ['req:' + k for k in kinds], 1, blk=1)
-                # the request, not the file system path in the message: that is where the document root is
-                agg.sample(ip, 'err', method or 'GET', uri, 404, ts)
+                agg.sample(ip, 'err', method, uri, 403, ts)
+            else:
+                fm = _TS_NGX_FILE_RE.search(msg)
+                target = fm.group(1) if fm else (uri if 'Primary script unknown' in msg else '')
+                kinds = _ts_classify(method or 'GET', target, 404) if target else ()
+                if kinds:
+                    agg.hit('err', fkey, ip, ts, ['req:' + k for k in kinds], 1, blk=1)
+                    # the request, not the file system path in the message: that is where the document root is
+                    agg.sample(ip, 'err', method or 'GET', uri, 404, ts)
+        except Exception:
+            continue                # a line that makes this reader raise costs that line (the sensor guard's rule, kept when the lines are listed)
     return n, parsed
 
 
