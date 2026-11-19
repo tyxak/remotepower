@@ -1770,8 +1770,9 @@ def _is_operator():
         role = A.verify_token(A.get_token_from_request())[1]
     except Exception:
         return False
+    # An API key or a role with a host scope is confined to those hosts even when it is an administrator's: the instance's own feeds and settings are not its to read or clear.
     return bool(A._resolve_role(role).get('admin')) and (
-        not A._tenancy_enforced() or A._caller_is_superadmin())
+        not A._tenancy_enforced() or A._caller_is_superadmin()) and A._caller_scope() is None
 
 
 def _reads_all_hosts():
@@ -1997,7 +1998,7 @@ def handle_ip_intel():
     intake = _intake_ro()
     # The edge feeds belong to the instance, not to a host: only the operator who
     # set them up sees what they queued.
-    operator = is_admin and (not A._tenancy_enforced() or A._caller_is_superadmin())
+    operator = is_admin and (not A._tenancy_enforced() or A._caller_is_superadmin()) and A._caller_scope() is None
     # How many Linux agents a ban "on every host" would reach, for the dialog.
     ban_hosts = sum(1 for v in visible.values()
                     if isinstance(v, dict) and not v.get('agentless') and A._device_os_family(v) == 'linux')

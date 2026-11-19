@@ -617,7 +617,7 @@ def _caller_is_operator():
     the list is the instance's, not a tenant's."""
     role = A.verify_token(A.get_token_from_request())[1]
     return bool(A._resolve_role(role).get('admin')) and (
-        not A._tenancy_enforced() or A._caller_is_superadmin())
+        not A._tenancy_enforced() or A._caller_is_superadmin()) and A._caller_scope() is None
 
 
 def _edge_not_ready(pol):
