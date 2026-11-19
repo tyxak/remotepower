@@ -19,9 +19,9 @@ tabs, grouped into four sections: **Setup**, **Monitoring**, **Connections** and
 - A few switches decide who can do what. Changing change approval, the roles that
   need MFA, SSO-only sign-in, the IP allowlist, the audit-log sink, retention or
   forwarding, tenancy enforcement, the litigation hold, switching SCIM on or
-  setting its token, or turning single sign-on on or changing which provider it
-  trusts asks you to confirm your password or a one-time code first (a
-  "step-up"). So does restoring a backup, and restoring a configuration revision
+  setting its token, or turning single sign-on or LDAP on or changing which
+  provider or directory it trusts asks you to confirm your password or a one-time
+  code first (a "step-up"). So does restoring a backup, and restoring a configuration revision
   that changes one of these. The confirmation stays valid for ten minutes.
 - Blank a threshold field to go back to its default.
 - Every tab has an address you can bookmark: `#settings/general`,

@@ -42,13 +42,15 @@ _NODE = shutil.which('node')
 
 _KEYS = ('oidc_enabled', 'oidc_issuer', 'oidc_client_id', 'oidc_client_secret', 'oidc_admin_group',
          'saml_enabled', 'saml_idp_entity_id', 'saml_idp_sso_url', 'saml_idp_x509_cert', 'saml_attr_username', 'saml_attr_groups',
-         'saml_admin_group', 'saml_allow_unsolicited', 'sso_group_roles', 'sso_default_tenant')
+         'saml_admin_group', 'saml_allow_unsolicited', 'sso_group_roles', 'sso_default_tenant', 'ldap_enabled', 'ldap_url', 'ldap_admin_group')
+_SWITCHES = ('oidc_enabled', 'saml_enabled', 'ldap_enabled')
 
 _DRIVER = r'''
 KEYS = %(keys)r
 OIDC = {'oidc_issuer': 'https://idp.attacker.example', 'oidc_client_id': 'rp', 'oidc_client_secret': 'chosen-secret', 'oidc_admin_group': 'owners'}
 SAML = {'saml_idp_entity_id': 'https://idp.attacker.example/meta', 'saml_idp_sso_url': 'https://idp.attacker.example/sso',
         'saml_idp_x509_cert': 'MIIB-the-attackers-certificate', 'saml_attr_username': 'uid', 'saml_attr_groups': 'groups', 'saml_admin_group': 'owners'}
+LDAP = {'ldap_url': 'ldaps://dir.attacker.example', 'ldap_admin_group': 'cn=owners,dc=evil'}
 step = lambda r: [r[0], (r[1] or {}).get('code')]
 cfg = lambda: get('CONFIG_FILE')
 stored = lambda: {k: cfg().get(k) for k in KEYS if cfg().get(k) not in (None, '', False, {})}
@@ -60,22 +62,37 @@ add_key('CI-KEY', 'ci')                                         # an administrat
 add_user('admin2', 'admin'); session('admin2')                  # administrators that have not stepped up yet
 add_user('admin3', 'admin'); session('admin3')
 add_user('mal', 'viewer')                                       # the account the chain wants as an administrator (its password is PW['mal'])
+add_user('mal2', 'viewer')                                      # the same for the chain through a directory
+import ldap_auth
+
+
+def directory(cfg_, username, password):
+    """What ldap_auth.authenticate answers when the server the settings name believes the account: it is in the group `cn=owners,dc=evil`."""
+    groups = ['cn=owners,dc=evil']
+    return ldap_auth.LdapResult(username, 'admin' if cfg_.get('ldap_admin_group') in groups else 'viewer', 'uid=' + username + ',dc=evil', groups=groups)
+
+
+api.ldap_auth.authenticate = directory
+ldap_login = lambda user: [call('POST', '/api/login', None, {'username': user, 'password': 'whatever-the-directory-accepts'})[1].get(k) for k in ('ok', 'role')]
 
 # ---- the chain, as a key walks it
 out['promote_directly'] = step(call('PATCH', '/api/users/mal', 'CI-KEY', {'role': 'admin'}))
 forms = {'true': True, 'one': 1, 'string': 'yes', 'string_false': 'false'}      # the save reads bool(...): any text is on
 out['key_turns_oidc_on'] = {name: step(post('CI-KEY', dict(OIDC, oidc_enabled=v))) for name, v in forms.items()}
 out['key_turns_saml_on'] = {name: step(post('CI-KEY', dict(SAML, saml_enabled=v))) for name, v in forms.items()}
-out['key_turns_the_switch_on_alone'] = {p + ':' + name: step(post('CI-KEY', {p + '_enabled': v})) for p in ('oidc', 'saml') for name, v in forms.items()}
+out['key_turns_ldap_on'] = {name: step(post('CI-KEY', dict(LDAP, ldap_enabled=v))) for name, v in forms.items()}
+out['key_turns_the_switch_on_alone'] = {p + ':' + name: step(post('CI-KEY', {p + '_enabled': v})) for p in ('oidc', 'saml', 'ldap') for name, v in forms.items()}
 out['stored_after_the_key'] = stored()
 # the provider's answer for the account the key made: what the sign-in does after the provider has spoken
 role = api._oidc_role_for({'groups': ['owners']}, api._config_ro())
 api._provision_or_promote_user('mal', role, {}, 'oidc')
 out['provider_answer_role'] = role
 out['mal_role'] = get('USERS_FILE')['mal']['role']
+out['ldap_sign_in_with_nothing_stored'] = ldap_login('mal2')       # LDAP is off, so the directory is not asked and the sign-in fails
+out['mal2_role'] = get('USERS_FILE')['mal2']['role']
 
 # ---- the settings one at a time, while the provider is off and on a key's own
-out['key_sets'] = {k: step(post('CI-KEY', {k: v})) for k, v in dict(OIDC, **SAML, sso_group_roles={'owners': 'admin'}, sso_default_tenant='acme',
+out['key_sets'] = {k: step(post('CI-KEY', {k: v})) for k, v in dict(OIDC, **SAML, **LDAP, sso_group_roles={'owners': 'admin'}, sso_default_tenant='acme',
                                                                    saml_allow_unsolicited=True).items()}
 out['stored_after_the_single_settings'] = stored()
 
@@ -88,13 +105,16 @@ role = api._oidc_role_for({'groups': ['owners']}, api._config_ro())
 out['provider_answer_after_the_person'] = role
 api._provision_or_promote_user('mal', role, {}, 'oidc')
 out['mal_role_after_the_person'] = get('USERS_FILE')['mal']['role']
+out['admin_sets_up_the_directory'] = step(post(SESS['admin2'], dict(LDAP, ldap_enabled=True)))
+out['ldap_sign_in_after_the_person'] = ldap_login('mal2')
+out['mal2_role_after_the_person'] = get('USERS_FILE')['mal2']['role']
 out['named_in_the_audit_trail'] = sorted({d for r in audit() if r.get('action') == 'governance_config_change' for d in [r.get('detail', '')]})
 
 # ---- once it is on, a key cannot take it over
 others = {'oidc_issuer': 'https://other.example', 'oidc_client_id': 'other', 'oidc_client_secret': 'other-secret', 'oidc_admin_group': 'others',
           'saml_idp_entity_id': 'https://other.example/meta', 'saml_idp_sso_url': 'https://other.example/sso', 'saml_idp_x509_cert': 'MIIB-other',
           'saml_attr_username': 'mail', 'saml_attr_groups': 'memberOf', 'saml_admin_group': 'others', 'saml_allow_unsolicited': True,
-          'sso_group_roles': {'others': 'admin'}, 'sso_default_tenant': 'acme'}
+          'sso_group_roles': {'others': 'admin'}, 'sso_default_tenant': 'acme', 'ldap_url': 'ldaps://other.example', 'ldap_admin_group': 'cn=others,dc=x'}
 before = stored()
 out['key_changes_each_setting'] = {k: step(post('CI-KEY', {k: v})) for k, v in others.items()}
 out['stored_after_the_changes'] = stored() == before
@@ -113,6 +133,18 @@ out['key_clears_the_map'] = step(post('CI-KEY', {'sso_group_roles': {}}))
 out['key_turns_oidc_off'] = step(post('CI-KEY', {'oidc_enabled': False}))
 out['oidc_after_off'] = [bool(cfg().get('oidc_enabled')), cfg().get('oidc_admin_group') or '', cfg().get('sso_group_roles') or {}]
 out['key_turns_saml_off'] = step(post('CI-KEY', {'saml_enabled': False}))
+out['key_clears_the_directory_group'] = step(post('CI-KEY', {'ldap_admin_group': ''}))
+out['key_turns_ldap_off'] = step(post('CI-KEY', {'ldap_enabled': False}))
+out['ldap_after_off'] = [bool(cfg().get('ldap_enabled')), cfg().get('ldap_admin_group') or '']
+# the directory settings that decide neither which directory is believed nor which group is administrator are ordinary settings
+out['key_changes_the_other_directory_settings'] = step(post('CI-KEY', {'ldap_bind_dn': 'cn=svc,dc=x', 'ldap_user_base': 'ou=u,dc=x', 'ldap_timeout': 7,
+                                                                       'ldap_tls_verify': False, 'ldap_required_group': 'cn=staff,dc=x', 'ldap_user_filter': '(uid={u})'}))
+
+# an address longer than the save keeps: it is stored cut, and the form that posts the same address again is not changing it
+long_address = 'ldaps://dir.attacker.example/' + 'p' * 400
+out['person_sets_a_long_address'] = step(post(SESS['admin2'], {'ldap_url': long_address}))
+out['key_posts_the_long_address_again'] = step(post('CI-KEY', {'ldap_url': long_address}))
+out['stored_address_length'] = len(cfg().get('ldap_url') or '')
 
 # ---- a restore swaps the whole document
 revision = dict(cfg(), oidc_enabled=True, oidc_issuer='https://idp.old.example', oidc_admin_group='old-admins')
@@ -150,7 +182,7 @@ class TestOnTheRealStack(unittest.TestCase):
         self.asks(self.out['promote_directly'], 'PATCH /api/users')
 
     def test_a_key_cannot_turn_either_provider_on_in_any_form_the_save_reads(self):
-        for provider in ('key_turns_oidc_on', 'key_turns_saml_on'):
+        for provider in ('key_turns_oidc_on', 'key_turns_saml_on', 'key_turns_ldap_on'):
             for name, answer in self.out[provider].items():
                 with self.subTest(provider=provider, form=name):
                     self.asks(answer, provider + ' ' + name)
@@ -162,10 +194,12 @@ class TestOnTheRealStack(unittest.TestCase):
         self.assertEqual(self.out['stored_after_the_key'], {})
         self.assertEqual(self.out['provider_answer_role'], 'viewer', 'with nothing stored the provider names no administrators')
         self.assertEqual(self.out['mal_role'], 'viewer')
+        self.assertEqual(self.out['ldap_sign_in_with_nothing_stored'], [False, None], 'LDAP is off, so a directory the key would have named is not asked')
+        self.assertEqual(self.out['mal2_role'], 'viewer')
 
     def test_a_key_cannot_set_any_of_the_settings_one_at_a_time_either(self):
         """With both providers off. A setting changed now would be live on the day somebody else turns a provider on."""
-        self.assertEqual(sorted(self.out['key_sets']), sorted(k for k in _KEYS if k not in ('oidc_enabled', 'saml_enabled')))
+        self.assertEqual(sorted(self.out['key_sets']), sorted(k for k in _KEYS if k not in _SWITCHES))
         for key, answer in self.out['key_sets'].items():
             with self.subTest(setting=key):
                 self.asks(answer, key)
@@ -175,6 +209,7 @@ class TestOnTheRealStack(unittest.TestCase):
         self.asks(self.out['admin_without_a_step_up'], 'a session that has not stepped up')
         self.assertEqual(self.out['step_up'], 200)
         self.assertEqual(self.out['admin_sets_it_up'], [200, None])
+        self.assertEqual(self.out['admin_sets_up_the_directory'], [200, None])
         stored = self.out['stored_after_the_person']
         self.assertEqual((stored['oidc_enabled'], stored['oidc_issuer'], stored['oidc_admin_group']), (True, 'https://idp.attacker.example', 'owners'))
         self.assertEqual(stored['sso_group_roles'], {'owners': 'admin'})
@@ -182,14 +217,16 @@ class TestOnTheRealStack(unittest.TestCase):
     def test_the_provider_works_for_the_person_who_set_it_up(self):
         self.assertEqual(self.out['provider_answer_after_the_person'], 'admin')
         self.assertEqual(self.out['mal_role_after_the_person'], 'admin', 'the provider still sets roles; who may set it up is what changed')
+        self.assertEqual(self.out['ldap_sign_in_after_the_person'], [True, 'admin'], 'and so does the directory')
+        self.assertEqual(self.out['mal2_role_after_the_person'], 'admin')
 
     def test_the_settings_are_named_in_the_audit_trail(self):
         details = ' '.join(self.out['named_in_the_audit_trail'])
-        for key in ('oidc_enabled', 'oidc_issuer', 'oidc_client_secret', 'oidc_admin_group', 'sso_group_roles'):
+        for key in ('oidc_enabled', 'oidc_issuer', 'oidc_client_secret', 'oidc_admin_group', 'sso_group_roles', 'ldap_enabled', 'ldap_url', 'ldap_admin_group'):
             self.assertIn(key, details)
 
     def test_once_it_is_on_a_key_cannot_change_any_of_the_settings(self):
-        self.assertEqual(sorted(self.out['key_changes_each_setting']), sorted(k for k in _KEYS if k not in ('oidc_enabled', 'saml_enabled')))
+        self.assertEqual(sorted(self.out['key_changes_each_setting']), sorted(k for k in _KEYS if k not in _SWITCHES))
         for key, answer in self.out['key_changes_each_setting'].items():
             with self.subTest(setting=key):
                 self.asks(answer, key)
@@ -197,15 +234,25 @@ class TestOnTheRealStack(unittest.TestCase):
 
     def test_it_asks_only_where_it_must(self):
         for name in ('key_saves_something_else', 'key_posts_the_whole_form_again', 'key_posts_the_same_secret', 'key_sends_a_blank_secret',
-                     'key_posts_the_same_issuer_with_spaces', 'key_posts_the_same_map_with_spaces'):
+                     'key_posts_the_same_issuer_with_spaces', 'key_posts_the_same_map_with_spaces', 'key_posts_the_long_address_again'):
             with self.subTest(save=name):
                 self.assertEqual(self.out[name], [200, None], 'a save that changes nothing is not a step-up')
 
+    def test_an_address_the_save_cuts_is_compared_as_cut(self):
+        self.assertEqual(self.out['person_sets_a_long_address'], [200, None])
+        self.assertEqual(self.out['stored_address_length'], 255, 'the save keeps the first 255 characters of the address')
+
     def test_taking_the_power_back_does_not_ask(self):
-        for name in ('key_clears_the_admin_group', 'key_clears_the_map', 'key_turns_oidc_off', 'key_turns_saml_off'):
+        for name in ('key_clears_the_admin_group', 'key_clears_the_map', 'key_turns_oidc_off', 'key_turns_saml_off', 'key_clears_the_directory_group',
+                     'key_turns_ldap_off'):
             with self.subTest(save=name):
                 self.assertEqual(self.out[name], [200, None])
         self.assertEqual(self.out['oidc_after_off'], [False, '', {}])
+        self.assertEqual(self.out['ldap_after_off'], [False, ''])
+
+    def test_the_directory_settings_that_decide_neither_which_directory_nor_which_group_do_not_ask(self):
+        """The service account, where the users are, the timeout, the check of the certificate, the group that is needed to sign in and the filter."""
+        self.assertEqual(self.out['key_changes_the_other_directory_settings'], [200, None])
 
     def test_a_restore_that_changes_any_of_them_asks_too(self):
         self.asks(self.out['key_restores_it'], 'a key restoring a revision')

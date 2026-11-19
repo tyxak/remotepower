@@ -46,15 +46,18 @@ whole deployment) and only a platform superadmin may change it.
 
 A provider makes administrators of the accounts whose group it names, so the
 settings that decide who the provider is are the same kind of step as promoting
-an account. Turning OIDC or SAML on, and setting the issuer, the client, the
-client secret, the provider's address, its certificate, the attributes that name
-the account and its groups, an admin group, the map of groups to roles or the
-tenant that new accounts land in, ask you to confirm your own password or a
-one-time code first (a "step-up"). An API key cannot, so it cannot point sign-in
-at another provider. Turning a provider off, clearing a value and saving the
-form again with the values it already has do not ask. A change made while the
-provider is off asks too, since it would take effect the day somebody turns the
-provider on. An administrator who signs in only through the provider has no local
+an account. Turning OIDC, SAML or LDAP on, and setting the issuer, the client,
+the client secret, the provider's address, its certificate, the attributes that
+name the account and its groups, an admin group, the address of the LDAP server,
+the map of groups to roles or the tenant that new accounts land in, ask you to
+confirm your own password or a one-time code first (a "step-up"). An API key
+cannot, so it cannot point sign-in at another provider or directory. Turning a
+provider off, clearing a value and saving the form again with the values it
+already has do not ask, and neither do the other LDAP settings (the service
+account, where the users are, the timeout, the check of the certificate, the
+group that is needed to sign in and the filter). A change made while the provider
+is off asks too, since it would take effect the day somebody turns the provider
+on. An administrator who signs in only through the provider has no local
 password to confirm with (see [Interaction with local accounts and
 MFA](#interaction-with-local-accounts-and-mfa)), so keep an administrator who has
 one for this.

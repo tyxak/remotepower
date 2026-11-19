@@ -32469,23 +32469,26 @@ _GOVERNANCE_CONFIG_KEYS = (
     # the power out asks (see _governance_keys_touched): switching SCIM off or clearing the token does not.
     'scim_enabled',                 # 8.0.2: whether an identity provider may set roles
     'scim_token',                   # 8.0.2: and the secret that lets it
-    # An identity provider (OpenID Connect or SAML) promotes any account whose group it names to administrator, which is promoting it without
-    # the step-up that PATCH /api/users asks for, and a provider is only as trustworthy as the settings that name it. An administrator key
-    # (which can never step up) could create a viewer with a password it chose, point sign-in at a provider of its own with its own admin
-    # group, let the provider's answer promote that account, sign in with the password it chose, step up with it and do what the key had been
-    # refused. So the switch that turns a provider on, and the settings that say who the provider is, whom it is believed about and which of
-    # its groups are administrators, are the same step. Only the direction that hands the power out asks (see _sso_keys_touched): turning a
-    # provider off, and clearing a value, do not.
+    # An identity provider (OpenID Connect, SAML or an LDAP directory) promotes any account whose group it names to administrator, which is
+    # promoting it without the step-up that PATCH /api/users asks for, and a provider is only as trustworthy as the settings that name it.
+    # An administrator key (which can never step up) could create a viewer with a password it chose, point sign-in at a provider of its own
+    # with its own admin group, let the provider's answer promote that account (a directory's answer is taken at a sign-in that fails
+    # locally), sign in with the password it chose, step up with it and do what the key had been refused. So the switch that turns a
+    # provider on, and the settings that say who the provider is, whom it is believed about and which of its groups are administrators, are
+    # the same step. Only the direction that hands the power out asks (see _sso_keys_touched): turning a provider off, and clearing a value,
+    # do not.
     'oidc_enabled', 'oidc_issuer', 'oidc_client_id', 'oidc_client_secret', 'oidc_admin_group',
     'saml_enabled', 'saml_idp_entity_id', 'saml_idp_sso_url', 'saml_idp_x509_cert', 'saml_attr_username', 'saml_attr_groups',
     'saml_admin_group', 'saml_allow_unsolicited',
-    'sso_group_roles', 'sso_default_tenant',      # the map of groups to roles, shared by both providers, and where new accounts land
+    'sso_group_roles', 'sso_default_tenant',      # the map of groups to roles, shared by the providers, and where new accounts land
+    'ldap_enabled', 'ldap_url', 'ldap_admin_group',      # a directory: whether it is asked, which one, and which of its groups are administrators
 )
 
 # The ones above that belong to a provider, so that the comparison below can leave every other governance key to its own rule.
 _SSO_GOVERNANCE_KEYS = ('oidc_enabled', 'oidc_issuer', 'oidc_client_id', 'oidc_client_secret', 'oidc_admin_group',
                         'saml_enabled', 'saml_idp_entity_id', 'saml_idp_sso_url', 'saml_idp_x509_cert', 'saml_attr_username', 'saml_attr_groups',
-                        'saml_admin_group', 'saml_allow_unsolicited', 'sso_group_roles', 'sso_default_tenant')
+                        'saml_admin_group', 'saml_allow_unsolicited', 'sso_group_roles', 'sso_default_tenant',
+                        'ldap_enabled', 'ldap_url', 'ldap_admin_group')
 
 
 def _clean_sso_group_roles(raw):
@@ -32505,13 +32508,13 @@ def _clean_sso_group_roles(raw):
 def _sso_setting_value(key, raw):
     """A value of one of the single sign-on settings in the form the settings save stores it (the same trimming and the same cuts), so that
     a form that posts a value again, as the Settings page does with the whole form, is not read as a change."""
-    if key in ('oidc_enabled', 'saml_enabled', 'saml_allow_unsolicited'):
+    if key in ('oidc_enabled', 'saml_enabled', 'saml_allow_unsolicited', 'ldap_enabled'):
         return bool(raw)
     if key == 'sso_group_roles':
         return _clean_sso_group_roles(raw)
     if key == 'sso_default_tenant':
         return _sanitize_str(str(raw or ''), 64).strip()
-    return _sanitize_str(str(raw or ''), 8192 if key == 'saml_idp_x509_cert' else 512)
+    return _sanitize_str(str(raw or ''), {'saml_idp_x509_cert': 8192, 'ldap_url': 255}.get(key, 512))      # the cuts the save makes
 
 
 def _sso_keys_touched(body, cfg):
@@ -32524,7 +32527,7 @@ def _sso_keys_touched(body, cfg):
     for k in _SSO_GOVERNANCE_KEYS:
         if k not in body:
             continue
-        if k in ('oidc_enabled', 'saml_enabled'):
+        if k in ('oidc_enabled', 'saml_enabled', 'ldap_enabled'):
             if bool(body[k]) and not cfg.get(k):          # read as the save reads it: any value that is true switches the provider on
                 out.append(k)
         elif k == 'oidc_client_secret':

@@ -81,6 +81,9 @@ PAIRS = {
     "saml_allow_unsolicited": (False, True),
     "sso_group_roles": ({}, {"owners": "admin"}),
     "sso_default_tenant": ("", "acme"),
+    "ldap_enabled": (False, True),
+    "ldap_url": ("", "ldaps://dir.example"),
+    "ldap_admin_group": ("", "cn=owners,dc=example"),
 }
 
 
@@ -108,7 +111,7 @@ class TestWhatCountsAsAChange(unittest.TestCase):
                     "audit_forward_enabled", "tenancy_enforced", "litigation_hold", "change_approval_no_self", "scim_enabled", "scim_token",
                     "oidc_enabled", "oidc_issuer", "oidc_client_id", "oidc_client_secret", "oidc_admin_group", "saml_enabled", "saml_idp_entity_id",
                     "saml_idp_sso_url", "saml_idp_x509_cert", "saml_attr_username", "saml_attr_groups", "saml_admin_group", "saml_allow_unsolicited",
-                    "sso_group_roles", "sso_default_tenant"):
+                    "sso_group_roles", "sso_default_tenant", "ldap_enabled", "ldap_url", "ldap_admin_group"):
             with self.subTest(key=key):
                 # the value of the pair that is not the default (no-self approval is ON by default, so its weaker value is the one)
                 other = next(v for v in PAIRS[key] if api._governance_effective({key: v}, key) != api._governance_effective({}, key))
@@ -140,6 +143,9 @@ class TestWhatCountsAsAChange(unittest.TestCase):
             {"saml_allow_unsolicited": False},
             {"sso_group_roles": {}},
             {"sso_default_tenant": ""},
+            {"ldap_enabled": False},
+            {"ldap_url": ""},
+            {"ldap_admin_group": ""},
         ]
         for doc in same:
             with self.subTest(doc=doc):
