@@ -426,14 +426,22 @@ class TestWhoseRowsTheyAre(_Clear):
         self.assertEqual(self.store()['attackers'], {})
 
     def test_the_list_a_tenant_cannot_change_is_not_changed_by_their_clear(self):
+        """The list is the operator's, and with tenants it takes an address only when the edge or a host of the operator's own organisation saw
+        it (8.0.2): one only a tenant's host saw was in it before, and is not now. A1 was seen by the edge as well, A2 by the tenant's host alone."""
         self.policy(edgelist_own=True, edgelist_own_score=75, edgelist_own_days=14)
-        self.put(attackers={A1: att(seen('d1'), score=95)})
+        self.put(attackers={A1: att(seen('d1', 'edge:cloudflare'), score=95), A2: att(seen('d1'), score=95)})
         self.tenanted()
-        before = set(edge_blocklist.own_candidates(self.store()['attackers'], T, 75, 14))
+
+        def listed():
+            ok = self.api.ip_intel_handlers_mod._own_listable(self.api.ip_intel_policy(), self.api.load(self.api.DEVICES_FILE))
+            return set(edge_blocklist.own_candidates(self.store()['attackers'], T, 75, 14, listable=ok))
+        before = listed()
+        self.assertEqual(before, {A1}, 'what the list takes: the address the edge saw, not the one only the tenant\'s host did')
         st, d = self.clear()
-        self.assertEqual((d['cleared'], d['kept_listed']), (1, 1))
-        self.assertEqual(set(edge_blocklist.own_candidates(self.store()['attackers'], T, 75, 14)), before)
-        self.assertEqual(self.view()['attackers'], [], 'the tenant no longer sees it')
+        self.assertEqual((d['cleared'], d['kept_listed']), (2, 0), 'both are the tenant\'s to clear, and the list holds neither of them for the tenant')
+        self.assertEqual(listed(), before, 'the list is what it was')
+        self.assertIn('edge:cloudflare', self.store()['attackers'][A1]['devices'], 'the edge\'s sighting stays: it is the operator\'s')
+        self.assertEqual(self.view()['attackers'], [], 'the tenant no longer sees either')
 
 
 class TestWhoMayClear(_Clear):

@@ -186,7 +186,7 @@ An edge address has no **Block** button. It was seen at the edge and by none of 
 
 To block such addresses on your hosts as well, tick **Also block addresses found at the edge on every Linux agent** under Threat Intel (it needs automatic blocking on). Each address that passes the same score and never-block checks gets the block on every Linux agent that is online, for the block lifetime you set, up to 100 hosts per sweep. A host that is off gets nothing, so its command queue does not fill up while it is away; the next address the edge finds reaches it once it is back. A block that has not run by the time it expires is taken out of the queue, and no unblock is queued behind it. It stops direct connections to your servers; a visitor who comes through Cloudflare is stopped by the edge list. It stays off on a multi-tenant install.
 
-With the Edge blocklist on, an address that automatic blocking blocks is also banned at the edge for the same lifetime, and the next sync puts it in the Cloudflare list (up to 50 an hour). Cloudflare's own addresses and your never-block list are never banned. On a multi-tenant install only addresses the edge feeds found are banned this way, because the list belongs to the whole Cloudflare account; a tenant's host block is not copied to it.
+With the Edge blocklist on, an address that automatic blocking blocks is also banned at the edge for the same lifetime, and the next sync puts it in the Cloudflare list (up to 50 an hour). Cloudflare's own addresses and your never-block list are never banned. On a multi-tenant install only addresses the edge feeds or a host of your own organisation found are banned or listed this way, because the list belongs to the whole Cloudflare account; a tenant's host block is not copied to it, and neither is an address that only a tenant's host reported.
 
 ## Free plans
 
@@ -368,7 +368,7 @@ It is off until you turn it on, and it needs a second token that can edit lists.
 | Source | What goes in |
 |---|---|
 | Your own entries | The addresses and networks you type under **Always include**. |
-| Found by RemotePower | Addresses RemotePower reported, or that scored high, and were seen lately. |
+| Found by RemotePower | Addresses RemotePower reported, or that scored high, and were seen lately. On a multi-tenant install only addresses the edge feeds or a host of your own organisation saw: the list belongs to the whole Cloudflare account, so what a tenant's host reports is not put in it. |
 | AbuseIPDB | AbuseIPDB's blacklist, downloaded with the key saved under Providers. |
 | SniffCat | SniffCat's blacklist, downloaded with the key saved under Providers. |
 

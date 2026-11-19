@@ -2365,7 +2365,30 @@ def _held_by_blocklist(st, pol, now):
     if not (_edge_ban_ready(pol) and pol.get('edgelist_own')):
         return set()
     return set(edge_blocklist.own_candidates(
-        st.get('attackers'), now, pol['edgelist_own_score'], pol['edgelist_own_days']))
+        st.get('attackers'), now, pol['edgelist_own_score'], pol['edgelist_own_days'],
+        listable=_own_listable(pol, A._load_ro(A.DEVICES_FILE) or {})))
+
+
+def _own_listable(pol, devices):
+    """`listable(ip, row)` for edge_blocklist.own_candidates: whose word puts an address in the operator's Cloudflare list.
+
+    The list belongs to the installation and is written to its account, and the sweep already refuses to copy a tenant's host block into it
+    (`_ban_at_edge`). The "found by RemotePower" source reads the rows of every address that was reported or scored, whichever host saw it, so
+    one invented line from a tenant's host (a fail2ban jail in its summary) was a report and then an entry in a list that bans the address at
+    every zone that uses it, the other tenants' sites among them, without the cap of fifty an hour that edge bans have. With tenants, an
+    address is taken from this table only when the edge feeds or a host of the operator's own organisation saw it. A row that no host
+    names is one a clear kept because the list took it (`_cleared_marker`), and it was listable then."""
+    tenancy = A._tenancy_enforced()
+    mine = {d for d, v in (devices or {}).items() if isinstance(v, dict) and A._device_tenant(v) == A.DEFAULT_TENANT} if tenancy else set()
+
+    def listable(_ip, row):
+        seen = row.get('devices') if isinstance(row.get('devices'), dict) else {}
+        if not seen:
+            return True
+        if tenancy and not any(d in ip_intel.EDGE_DEVICES or d in mine for d in seen):
+            return False
+        return True
+    return listable
 
 
 def _reported_marker(att, now):
