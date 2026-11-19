@@ -20,6 +20,8 @@ The agent's list of tools is the first column of its CAPABILITY_TOOLS, and tests
 """
 import re
 
+import sanitize
+
 LOG_CAP = 40
 PATH_CAP = 200
 
@@ -137,7 +139,7 @@ def _short(value, limit):
     """A printable string of at most `limit` characters, or None when it is not text or is empty after cleaning."""
     if not isinstance(value, str):
         return None
-    out = _CTRL.sub('', value).strip()[:limit]
+    out = _CTRL.sub('', sanitize.strip_hidden(value)).strip()[:limit]
     return out or None
 
 

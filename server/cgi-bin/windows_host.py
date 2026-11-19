@@ -23,6 +23,7 @@ import re
 import time
 from typing import Any
 
+import sanitize
 from textfmt import plural
 
 MAX_COUNT = 100000
@@ -277,10 +278,10 @@ _INSTALLATIONS = {
 
 
 def _text(value: object, limit: int) -> str:
-    """A text from a host: control characters become spaces, the ends are trimmed, the length is capped."""
+    """A text from a host: control characters become spaces, the characters that reorder or hide text are taken out (a right-to-left override makes one name read as another), the ends are trimmed, the length is capped."""
     if not isinstance(value, str):
         return ""
-    return _CONTROL.sub(" ", value).strip()[:limit]
+    return _CONTROL.sub(" ", sanitize.strip_hidden(value)).strip()[:limit]
 
 
 def clean_win_build(raw: object) -> dict[str, Any] | None:

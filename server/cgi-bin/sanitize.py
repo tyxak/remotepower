@@ -25,11 +25,23 @@ _MAC_RE = re.compile(r'^([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}$')
 _VER_RE = re.compile(r'^\d{1,4}\.\d{1,4}(?:\.\d{1,4})?(?:[.\-]\w{1,16})?$')
 
 
+# Characters that reorder or hide the text around them and carry no letter of their own: the bidirectional marks, embeddings, overrides and isolates, the Arabic letter
+# mark, the zero-width space, the word joiner and the invisible operators, the byte order mark, and the line and paragraph separators. A name that holds a right-to-left
+# override reads as another name on a page, and a zero-width space makes two names that look the same. The zero-width joiner and non-joiner (U+200D, U+200C) and the
+# variation selectors are kept: Persian, Hindi and emoji sequences are spelled with them. `strip_hidden` takes these out of a name, a label or a note before it is stored.
+_HIDDEN_FROM_THE_READER = re.compile('[\u061c\u200b\u200e\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]')
+
+
+def strip_hidden(text):
+    """`text` without the characters of `_HIDDEN_FROM_THE_READER`."""
+    return _HIDDEN_FROM_THE_READER.sub('', text)
+
+
 def _sanitize_str(value, max_len, allow_empty=True):
-    """Truncate and strip a string field."""
+    """Truncate and strip a string field. Characters that reorder or hide text are taken out (8.0.2, see `strip_hidden`)."""
     if value is None:
         return ''
-    s = str(value).strip()
+    s = strip_hidden(str(value)).strip()
     if not allow_empty and not s:
         return ''
     return s[:max_len]
