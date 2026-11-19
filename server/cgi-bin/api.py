@@ -50690,7 +50690,7 @@ def _compliance_facts(devices=None):
             if did not in devices:          # stale findings for a removed host
                 continue
             for f in cve_scanner.apply_ignore_list((rec or {}).get('findings') or [],
-                                                   cve_ignore, did):
+                                                   cve_ignore, did, _device_tenant(devices.get(did))):
                 if not f.get('ignored') \
                         and str(f.get('severity', '')).lower() in ('critical', 'high'):
                     cnt += 1
@@ -55113,7 +55113,7 @@ def _compute_attention():
         # (scope 'global' or this device); drop the ignored ones. With the count option on, a finding
         # that no update can clear (and that is not known to be exploited) is left out too.
         findings = [f for f in cve_scanner.apply_ignore_list(
-                        findings, cve_ignore, dev_id)
+                        findings, cve_ignore, dev_id, _device_tenant(monitored[dev_id]))
                     if not f.get('ignored')
                     and cve_fixes.counted(f, _cve_fixable_only, _cve_kev)]
         if not findings:
@@ -56603,7 +56603,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     # CVE shouldn't keep driving the asset's risk score.
     if finds and cve_ignore is not None:
         try:
-            finds = [f for f in cve_scanner.apply_ignore_list(list(finds), cve_ignore, dev_id)
+            finds = [f for f in cve_scanner.apply_ignore_list(list(finds), cve_ignore, dev_id, _device_tenant(dev))
                      if not f.get('ignored')]
         except Exception:
             pass
@@ -57637,7 +57637,8 @@ def _compute_fleet_risk():
         _cve_rec = {'findings': posture_signals.decorated_cve_findings(
             cve.get(dev_id) or {}, dev_id, ignore_data=cve_ignore,
             kev=_kev_set, epss=_epss_map,
-            scanner=cve_scanner, enrich=_enrich_cve_findings)}
+            scanner=cve_scanner, enrich=_enrich_cve_findings,
+            dev_tenant=_device_tenant(dev))}
         out.append(_device_risk(dev_id, dev, cmdb.get(dev_id) or {},
                                 _cve_rec, sv.get(dev_id) or {}, now, ttl,
                                 hw.get(dev_id) or {},
@@ -70888,12 +70889,14 @@ def _timeline_collect(include_ids, name_map):
     try:
         cve_all = load(CVE_FINDINGS_FILE) or {}
         cve_ignore = load(CVE_IGNORE_FILE) or {}
+        _tl_hosts = _load_ro(DEVICES_FILE) or {}
         for did in include_ids:
             rec = cve_all.get(did) or {}
             findings = rec.get('findings') or []
             if not findings:
                 continue
-            live = [f for f in cve_scanner.apply_ignore_list(findings, cve_ignore, did)
+            live = [f for f in cve_scanner.apply_ignore_list(findings, cve_ignore, did,
+                                                             _device_tenant(_tl_hosts.get(did)))
                     if not f.get('ignored')
                     and str(f.get('severity', '')).lower() in ('critical', 'high')]
             if not live:
@@ -72981,7 +72984,7 @@ def _campaign_affected(camp, cve_all, cve_ignore, devices, kev=None):
         if did not in devices:
             continue
         for f in cve_scanner.apply_ignore_list((rec or {}).get('findings') or [],
-                                               cve_ignore, did):
+                                               cve_ignore, did, _device_tenant(devices.get(did))):
             if f.get('ignored'):
                 continue
             if _campaign_matches_finding(camp, f, kev):
@@ -73237,7 +73240,7 @@ def _build_sbom_doc(dev_id, dev, fmt, stores=None):
     pkg_entry = pkg_store.get(dev_id) or {}
     record = findings_all.get(dev_id) or {}
     findings = record.get('findings') or []
-    findings = cve_scanner.apply_ignore_list(findings, ignore_data, dev_id)
+    findings = cve_scanner.apply_ignore_list(findings, ignore_data, dev_id, _device_tenant(dev))
     # 8.0.2: which packages the host's CVE scan checked: no vulnerability in the document is not none in the host
     covered = cve_scanner.entry_package_coverage(pkg_entry, record, with_packages=False)
     # v3.14.0: include running container images as SBOM components.

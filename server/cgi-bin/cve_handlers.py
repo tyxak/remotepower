@@ -498,7 +498,7 @@ def handle_cve_device(dev_id):
     cut       = f_entry.get('cut')
     cut       = cut if isinstance(cut, list) else []
     findings  = f_entry.get('findings') or []
-    findings  = A.cve_scanner.apply_ignore_list(findings, ignore_data, dev_id)
+    findings  = A.cve_scanner.apply_ignore_list(findings, ignore_data, dev_id, A._device_tenant(dev))
     _kev, _epss = A._kev_epss()                       # v3.14.0
     A._enrich_cve_findings(findings, _kev, _epss)     # stamp kev/epss per finding
 

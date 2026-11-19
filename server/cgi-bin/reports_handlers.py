@@ -263,12 +263,13 @@ def _build_fleet_report(site_id=None):
     # page (handle_cve_findings) so the posture report can't over-count by the
     # ignored set. Iterate items() to keep the device id apply_ignore_list needs.
     cve_ignore = A.load(A.CVE_IGNORE_FILE) or {}
+    _all_hosts = A._load_ro(A.DEVICES_FILE) or {}
     for did, rec in (A.load(A.CVE_FINDINGS_FILE) or {}).items():
         if site_ids is not None and did not in site_ids:
             continue
         affected = False
         findings = (rec or {}).get('findings') or []
-        for f in A.cve_scanner.apply_ignore_list(findings, cve_ignore, did):
+        for f in A.cve_scanner.apply_ignore_list(findings, cve_ignore, did, A._device_tenant(_all_hosts.get(did))):
             if f.get('ignored'):
                 continue
             sev = str(f.get('severity', '')).lower()

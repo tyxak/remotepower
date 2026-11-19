@@ -310,7 +310,8 @@ def _build_advisory(devs):
         # about which CVEs still count.
         cve[d] = {'findings': posture_signals.decorated_cve_findings(
             v, d, ignore_data=ignore, kev=_kev, epss=_epss,
-            scanner=A.cve_scanner, enrich=A._enrich_cve_findings)}
+            scanner=A.cve_scanner, enrich=A._enrich_cve_findings,
+            dev_tenant=A._device_tenant(devs.get(d)))}
     pkgs = A._load_ro(A.PACKAGES_FILE) or {}
     eol = {}
     for d, dev in devs.items():

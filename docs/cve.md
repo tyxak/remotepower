@@ -465,8 +465,10 @@ Generate a Software Bill of Materials per host or for the whole fleet:
 - Each organisation has ignores of its own. With multi-tenancy on, what a tenant ignores never
   changes what another tenant's hosts show, and two tenants can ignore the same CVE. A tenant
   sees its own ignores, and the ones the platform operator wrote for one of its hosts. The same
-  holds for the accepted-risk rows of **Monitoring → Tuning**. One organisation can hold up to
-  5,000 ignores.
+  holds for the accepted-risk rows of **Monitoring → Tuning**. Every page that counts findings
+  (a host's own page, Needs attention, the risk score, the compliance check and the reports)
+  leaves out what a tenant ignored for its own hosts. One organisation can hold up to 5,000
+  ignores.
 
 ## Container image CVEs
 

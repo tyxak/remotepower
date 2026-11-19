@@ -24,7 +24,14 @@ import math
 
 
 def decorated_cve_findings(
-    cve_rec, dev_id, ignore_data=None, kev=None, epss=None, scanner=None, enrich=None
+    cve_rec,
+    dev_id,
+    ignore_data=None,
+    kev=None,
+    epss=None,
+    scanner=None,
+    enrich=None,
+    dev_tenant=None,
 ):
     """The findings list for one device, with the read-time decorations applied.
 
@@ -43,7 +50,7 @@ def decorated_cve_findings(
     out = [dict(f) for f in finds if isinstance(f, dict)]
     if ignore_data and scanner is not None:
         try:
-            out = [dict(f) for f in scanner.apply_ignore_list(out, ignore_data, dev_id)]
+            out = [dict(f) for f in scanner.apply_ignore_list(out, ignore_data, dev_id, dev_tenant)]
         except Exception:
             pass
     if kev and enrich is not None:

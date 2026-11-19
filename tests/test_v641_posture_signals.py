@@ -30,7 +30,7 @@ class _FakeScanner:
     `ignored` onto a COPY and returns a new list."""
 
     @staticmethod
-    def apply_ignore_list(findings, ignore_data, dev_id):
+    def apply_ignore_list(findings, ignore_data, dev_id, dev_tenant=None):
         out = []
         for f in findings:
             f = dict(f)
