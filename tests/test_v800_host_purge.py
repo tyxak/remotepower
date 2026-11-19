@@ -98,7 +98,6 @@ NOT_IN_THE_SEED = {
     ('ip_intel.json', 2): 'the demo has no address that two hosts added evidence to; tests/test_v802_ipintel_evidence_scope.py drives the rule with the real sweep',
     ('ip_intel.json', 3): 'the demo has no address that two hosts added evidence to; tests/test_v802_ipintel_evidence_scope.py drives the rule with the real sweep',
     ('metrics_rollup.json', 0): 'the demo seed builds no metric roll-ups (the sweep makes them from the samples); test_fleet_read_failed_prunes deletes a host that has them through the real purge and reads the store back',
-    ('persistence.json', 0): 'the demo seeder holds no startup inventory of a Windows host yet (tests/test_win_persistence.py drives the rule with the real purge)',
 }
 
 

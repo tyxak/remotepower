@@ -108,7 +108,7 @@ class TestLogRules(unittest.TestCase):
         mod = importlib.util.module_from_spec(spec)                   # type: ignore[arg-type]
         spec.loader.exec_module(mod)                                  # type: ignore[union-attr]
         rules = mod.build_log_rules_global()["rules"]
-        self.assertEqual(len(rules), 3)
+        self.assertEqual(len(rules), 4)          # the three of 7.4.9 and, since the second half of 8.0.2, the rule on the Windows event log
         for r in rules:
             with self.subTest(rule=r["id"]):
                 self.assertIsInstance(r["threshold"], int)

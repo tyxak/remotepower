@@ -97,10 +97,11 @@ class TestTheDemoDataKeepsTheContract(unittest.TestCase):
         spec.loader.exec_module(mod)
         cls.findings = [f for rec in mod.build_cve_findings().values() for f in rec["findings"]]
 
-    # 8.0.2: statuses the demo seeder does not write yet. "reboot" is set by a scan of a host whose kernel agent
-    # reports which kernel runs, and the seeder (packaging/seed-demo-data.py) has no such host. The list can only
-    # shrink: a status the demo does have must come off it, and a status in it that nothing writes is a finding.
-    NOT_SEEDED_YET = {"reboot"}
+    # Statuses the demo seeder does not write yet. It was {"reboot"} until the second half of 8.0.2: "reboot" is set by a
+    # scan of a host whose agent reports which kernel runs, and the hypervisor of the demo is that host now
+    # (tests/test_demo_seed_coverage.py). The list can only shrink: a status the demo does have must come off it, and
+    # a status in it that nothing writes is a finding.
+    NOT_SEEDED_YET = set()
 
     def test_the_demo_has_findings_in_every_status(self):
         self.assertGreater(len(self.findings), 10)

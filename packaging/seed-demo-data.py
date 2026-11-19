@@ -2759,6 +2759,15 @@ def _demo_persistence_feed_event() -> dict:
     return {'ts': now() - _DEMO_PERSIST_AT[1], 'event': 'persistence_added', 'payload': kept}
 
 
+def _demo_logon_feed_event() -> dict:
+    """The entry the activity feed holds for the log alert: what `_record_fleet_event` keeps of the same payload (the first line of the sample, and not the rest). The handler records
+    one for every log alert it raises, at the time of the report."""
+    _title, payload = _demo_logon_alert('design-win11')
+    kept = {k: payload[k] for k in ('device_id', 'name', 'unit', 'severity', 'pattern', 'acked', 'count')}
+    kept['sample'] = payload['sample'][:1]
+    return {'ts': now() - (_DEMO_LOGON_ENDED_AGO - _DEMO_LOGON_REPORTED_AFTER), 'event': 'log_alert', 'payload': kept}
+
+
 def _demo_event_log_buffer() -> dict:
     """The units of the Windows host in log_watch.json: the failed logons, in the form handle_log_submit stores a line ({ts, line, sig}, the signature of the line)."""
     rows = [{'ts': ts, 'line': line, 'sig': hashlib.sha1(line.encode('utf-8', errors='replace'), usedforsecurity=False).hexdigest()[:16]} for ts, line in _demo_logon_lines()]
@@ -2803,7 +2812,8 @@ _DEMO_PKG_REFRESH = {
     'jf01': (26 * 3600, 'failed', 'apt', 'network'),
     'ha01': (2 * 86400 + 3 * 3600, 'unsupported', '', 'container'),
 }
-# What the agent of each of those hosts can see (sysinfo.capabilities, collect_capabilities, cleaned by agent_capabilities). The tools are what the host's own data says it has: the
+# What the agent of each Linux host on the 8.0.2 agent can see (sysinfo.capabilities, collect_capabilities, cleaned by agent_capabilities; the agent sends it with every full report, so
+# every such host has one, the hypervisor that was moved to the 8.0.2 agent for its kernel report included). The tools are what the host's own data says it has: the
 # firewall it runs (ufw, iptables, nft), docker where it has compose projects, smartctl where it has SMART disks, dmidecode where it has the DMI tables, sensors where it has
 # temperatures, fail2ban where fail2ban runs, oscap where it has compliance scans. The agent of home-assistant.lab runs in a container with the image's few tools, as a user that is not
 # root, and sees the host through the mapped paths. nginx.lab runs fail2ban whose log its agent cannot open.
@@ -2822,6 +2832,8 @@ _DEMO_CAPABILITIES = {
              'mapped': ('/etc', '/proc', '/sys', '/var/lib', '/var/log'), 'present': ('ss', 'smartctl', 'lsblk', 'apt'), 'logs': ()},
     'bk01': {'root': True, 'container': False, 'init': 'systemd', 'distro': 'debian', 'python': '3.11.2',
              'present': ('ss', 'smartctl', 'lsblk', 'nft', 'journalctl', 'systemctl', 'apt', 'sensors'), 'logs': ()},
+    'pmx01': {'root': True, 'container': False, 'init': 'systemd', 'distro': 'debian', 'python': '3.11.2',
+              'present': ('ss', 'smartctl', 'lsblk', 'nft', 'journalctl', 'systemctl', 'apt', 'dmidecode', 'sensors', 'oscap'), 'logs': ()},
 }
 
 
@@ -4776,6 +4788,7 @@ def build_fleet_events() -> dict:
                 payload['port'] = f['port']
             events.append({'ts': _demo_detection_at(f), 'event': 'detection_found', 'payload': payload})
     events.append(_demo_persistence_feed_event())        # 8.0.2: a new startup entry on the Windows host
+    events.append(_demo_logon_feed_event())              # 8.0.2: the burst of failed logons that the rule on the Windows event log matched
     events.sort(key=lambda e: e['ts'])
     return {'events': events}
 
