@@ -414,6 +414,19 @@ def _rollout_script_body(script_id):
     return ''
 
 
+def _commands_appended(before, after):
+    """{host id: [commands]} that the queue `after` holds beyond the queue `before`. A ring dispatch only ever appends to a host's list."""
+    out = {}
+    for dev_id, lst in (after or {}).items():
+        if not isinstance(lst, list):
+            continue
+        old = (before or {}).get(dev_id) or []
+        new = [c for c in lst if c not in old]
+        if new:
+            out[dev_id] = new
+    return out
+
+
 def _rollout_tick():
     """Advance every running rollout. Cheap early-out when none are running."""
     try:
@@ -423,6 +436,7 @@ def _rollout_tick():
     if not any(r.get('state') == 'running' for r in rolls):
         return
     pending = []   # v4.10.0: ('event', payload) tuples fired AFTER the lock
+    queued_now = {}   # host id -> the commands the dispatch added, written to the queue once the rollouts lock is released
     try:
         with A._LockedUpdate(A.ROLLOUTS_FILE) as store:
             rolls = store.get('rollouts') or []
@@ -430,6 +444,7 @@ def _rollout_tick():
                 return
             devices = A.load(A.DEVICES_FILE)
             cmds = A.load(A.CMDS_FILE)
+            queue_read = {k: list(v) for k, v in cmds.items() if isinstance(v, list)}
             dirty = False
             for roll in rolls:
                 if roll.get('state') != 'running':
@@ -439,6 +454,7 @@ def _rollout_tick():
                 if A._rollout_advance(roll, devices, cmds, pending):
                     dirty = True
                 roll.pop('_script_body', None)
+            added = {}
             if dirty:
                 # issue #8: this is the ONE permitted bare DEVICES write — it runs
                 # while holding _LockedUpdate(ROLLOUTS_FILE), so it can't take a
@@ -446,10 +462,23 @@ def _rollout_tick():
                 # throw under SQLite). Cross-lock atomicity here is a known residual;
                 # the guardrail test allowlists _rollout_tick.
                 A.save(A.DEVICES_FILE, devices)
-                A.save(A.CMDS_FILE, cmds)
+                # The queue is not saved from the snapshot read above: a host that took its commands, or an administrator who queued one, while the
+                # rollouts were advanced would be put back or lost. Only what the dispatch added is kept, and it is written to the live queue below.
+                added = _commands_appended(queue_read, cmds)
             store['rollouts'] = rolls
+        queued_now = added
     except Exception as e:
         sys.stderr.write(f'[remotepower] rollout tick failed: {e}\n')
+    if queued_now:
+        try:
+            with A._LockedUpdate(A.CMDS_FILE) as live:
+                for dev_id, new in queued_now.items():
+                    queue = live.setdefault(dev_id, [])
+                    for c in new:
+                        if c not in queue:
+                            queue.append(c)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] rollout commands not queued: {e}\n')
     for _ev, _pl in pending:   # outside the ROLLOUTS_FILE lock — fire-safe
         try:
             A.fire_webhook(_ev, _pl)

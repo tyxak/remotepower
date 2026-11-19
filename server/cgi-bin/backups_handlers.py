@@ -804,12 +804,12 @@ def _backup_queue_and_wait(dev_id, cmd, actor, dev_name, label, timeout=120):
     lp = A.load(A.LONGPOLL_FILE)
     lp[dev_id] = {'cmd': cmd, 'ready': False, 'output': None, 'ts': int(time.time())}
     A.save(A.LONGPOLL_FILE, lp)
-    cmds = A.load(A.CMDS_FILE)
-    cmds.setdefault(dev_id, [])
     _q = f'exec:{cmd}'
-    if _q not in cmds[dev_id]:
-        cmds[dev_id].append(_q)
-    A.save(A.CMDS_FILE, cmds)
+    # the queue is read and written under its lock: a host that takes its commands, or an administrator who queues one, while this ran was put back or lost
+    with A._LockedUpdate(A.CMDS_FILE) as cmds:
+        cmds.setdefault(dev_id, [])
+        if _q not in cmds[dev_id]:
+            cmds[dev_id].append(_q)
     A.log_command(actor, dev_id, dev_name, label)
     return A._longpoll_wait(dev_id, timeout)
 
@@ -1907,7 +1907,9 @@ def process_backup_jobs():
     now = int(time.time())
     current_minute = now // 60
     changed = False
-    cmds = None
+    # host id -> the commands this sweep queues for it. They are written to the queue once the sweep has decided them, under the queue's lock (a deciding that
+    # reads the queue first and writes it whole last holds a snapshot as long as the sweep takes, one history write for each job that is due).
+    to_queue = {}
     for job in data['jobs']:
         if not job.get('enabled') or not job.get('cron'):
             continue
@@ -1943,18 +1945,20 @@ def process_backup_jobs():
                                   f'backup:{job["name"]} SKIPPED '
                                   '(structured file backup is Linux-only)')
                     continue
-                if cmds is None:
-                    cmds = A.load(A.CMDS_FILE)
-                cmds.setdefault(dev_id, [])
                 queued = f'exec:{_bc}'
-                if queued not in cmds[dev_id]:
-                    cmds[dev_id].append(queued)
+                if queued not in to_queue.setdefault(dev_id, []):
+                    to_queue[dev_id].append(queued)
                 A.log_command(f'backup({job["created_by"]})', dev_id,
                             devices[dev_id].get('name', dev_id), f'backup:{job["name"]}')
         job['last_fired_minute'] = current_minute
         job['last_run'] = now
         changed = True
-    if cmds is not None:
-        A.save(A.CMDS_FILE, cmds)
+    if to_queue:
+        with A._LockedUpdate(A.CMDS_FILE) as cmds:
+            for dev_id, new in to_queue.items():
+                queue = cmds.setdefault(dev_id, [])
+                for queued in new:
+                    if queued not in queue:
+                        queue.append(queued)
     if changed:
         A.save(A.BACKUP_JOBS_FILE, data)

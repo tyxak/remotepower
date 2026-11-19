@@ -68355,11 +68355,10 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
             return {'ok': False, 'error': _blocked[1], 'transient': True}
 
     if action == 'reboot_device':
-        cmds = load(CMDS_FILE)
-        cmds.setdefault(device_id, [])
-        if 'reboot' not in cmds[device_id]:
-            cmds[device_id].append('reboot')
-        save(CMDS_FILE, cmds)
+        with _LockedUpdate(CMDS_FILE) as cmds:     # the queue is read and written under its lock, as the branches below do
+            cmds.setdefault(device_id, [])
+            if 'reboot' not in cmds[device_id]:
+                cmds[device_id].append('reboot')
         log_command(actor, device_id, dev_name, 'reboot')
         fire_webhook('command_queued', {
             'device_id': device_id, 'name': dev_name,
