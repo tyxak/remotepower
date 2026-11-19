@@ -27,9 +27,10 @@ LOCKS = {'_LockedUpdate', '_locked_update'}
 STORES = {
     'TOKENS_FILE': {},
     'CMDS_FILE': {},
+    'CONFIG_FILE': {},
 }
 # the least number of functions under the lock a store has today: a scan that finds fewer is not looking at the server
-MIN_LOCKED = {'TOKENS_FILE': 6, 'CMDS_FILE': 20}
+MIN_LOCKED = {'TOKENS_FILE': 6, 'CMDS_FILE': 20, 'CONFIG_FILE': 60}
 
 
 def _callee(n):

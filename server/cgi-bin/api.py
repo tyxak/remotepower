@@ -5803,6 +5803,10 @@ class LockBusy(Exception):
         super().__init__(f"lock busy for {path} after {waited_ms} ms")
 
 
+class _BackupStateUnchanged(Exception):
+    """Raised inside the locked update of backup_state.json by a heartbeat that decided nothing, so the block ends without rewriting the store."""
+
+
 def _acquire_lock(path, non_blocking):
     """Open the sidecar lock file and acquire LOCK_EX (blocking) or LOCK_EX
     | LOCK_NB with retries (non-blocking mode). Returns (lock_fd, waited_ms).
@@ -23430,19 +23434,22 @@ def handle_heartbeat():
     # synchronously; it's done via _locked_update below (v2.1.2 fix for
     # the lost-update race that the v2.1.0 non-blocking version
     # introduced).
+    def _busy_reply(path, lb):
+        # v2.1.5: heartbeat 202s on a busy lock are routine under load.
+        # Silent by default; set RP_LOG_HEARTBEATS=1 to diagnose lock
+        # contention. The 202 response itself is unaffected — the
+        # client retries as before.
+        if os.environ.get('RP_LOG_HEARTBEATS') == '1':
+            sys.stderr.write(
+                f"[remotepower] heartbeat 202 dev={dev_id} path={path.name} "
+                f"waited_ms={lb.waited_ms}\n")
+        respond(202, {'busy': True, 'retry_after': 1})
+
     def _save_nb(path, data):
         try:
             save(path, data, non_blocking=True)
         except LockBusy as lb:
-            # v2.1.5: heartbeat 202s on a busy lock are routine under load.
-            # Silent by default; set RP_LOG_HEARTBEATS=1 to diagnose lock
-            # contention. The 202 response itself is unaffected — the
-            # client retries as before.
-            if os.environ.get('RP_LOG_HEARTBEATS') == '1':
-                sys.stderr.write(
-                    f"[remotepower] heartbeat 202 dev={dev_id} path={path.name} "
-                    f"waited_ms={lb.waited_ms}\n")
-            respond(202, {'busy': True, 'retry_after': 1})
+            _busy_reply(path, lb)
 
     # v2.1.2: atomic read-modify-write for devices.json. The whole block —
     # load through final mutation — runs under the flock so two concurrent
@@ -25185,7 +25192,14 @@ def handle_heartbeat():
             _cob.entity_set(CMD_OUTPUT_FILE, dev_id, outputs[dev_id])
             _invalidate_load_cache(CMD_OUTPUT_FILE)
         else:
-            _save_nb(CMD_OUTPUT_FILE, outputs)
+            # JSON backend: this host's list only, written into the store as it is under the lock. The whole snapshot was saved before, which put back every
+            # other host's output list as it was when this request read it, so two hosts that returned a result together lost one of them. The SQL branch
+            # above has always written the one row.
+            try:
+                with _LockedUpdate(CMD_OUTPUT_FILE, non_blocking=True) as _live_out:
+                    _live_out[dev_id] = outputs[dev_id]
+            except LockBusy as lb:
+                _busy_reply(CMD_OUTPUT_FILE, lb)
         _resolve_longpoll(dev_id, body['cmd_output'])
 
         # v1.10.0: if this output is from a package-upgrade run, also archive
@@ -25308,12 +25322,21 @@ def handle_heartbeat():
         # (otherwise every Docker-host heartbeat deepcopied the whole config).
         _sn_ro = (_config_ro().get('containers_stale_notified') or {})
         if isinstance(_sn_ro, dict) and _sn_ro.get(dev_id):
-            cfg_now = load(CONFIG_FILE)
-            stale_notified = cfg_now.get('containers_stale_notified') or {}
-            if isinstance(stale_notified, dict) and stale_notified.get(dev_id):
-                stale_notified[dev_id] = False
-                cfg_now['containers_stale_notified'] = stale_notified
-                _save_nb(CONFIG_FILE, cfg_now)
+            # 8.0.2: the flag is cleared under the settings document's lock, against the document as it is then. This read the whole document, set one key in
+            # the copy and saved the copy: an administrator's save in between (the IP allow-list, a governance switch, a destination) was put back as it had
+            # been, with the page showing it saved. The lock is not waited for here (a busy one answers 202 as every other save of a heartbeat does, and the
+            # host reports again), the same as the save this replaces.
+            _cleared = False
+            try:
+                with _LockedUpdate(CONFIG_FILE, non_blocking=True) as cfg_now:
+                    stale_notified = cfg_now.get('containers_stale_notified') or {}
+                    if isinstance(stale_notified, dict) and stale_notified.get(dev_id):
+                        stale_notified[dev_id] = False
+                        cfg_now['containers_stale_notified'] = stale_notified
+                        _cleared = True
+            except LockBusy as lb:
+                _busy_reply(CONFIG_FILE, lb)
+            if _cleared:
                 # v5.6.x: fresh container data resumed → auto-resolve the open
                 # containers_stale alert (idempotent; post-lock, safe to fire).
                 try:
@@ -25453,198 +25476,200 @@ def handle_heartbeat():
             pass
 
     # v2.8.1: backup file age monitoring.
-    # v5.0.0 perf: the freshness block and the integrity block below both mutate
-    # the same per-`device:path` entries in backup_state.json, so load the fleet
-    # blob once and save once — a heartbeat carrying both used to parse + rewrite
-    # the whole blob twice.
+    # v5.0.0 perf: the freshness block, the integrity block and the restore-drill block below mutate the same per-`device:path` entries in
+    # backup_state.json, so the fleet blob is read once and written once.
+    #
+    # 8.0.2: that read and write happen inside one locked update. They were a load at the top and a save of the whole snapshot at the end, with the
+    # webhooks of each edge fired in between, so two hosts that reported together each saved a state without the other's rows: a row was lost, and
+    # the next report of that host found no earlier state and told its backup alert again. The three blocks decide on the state as it is under the
+    # lock, and what they fire (fire_webhook defers while a lock is held) is sent when it is released. A report with only restore-drill results
+    # was never saved before (the blob was read for the other two lists only); it is now.
     _bs_path = DATA_DIR / 'backup_state.json'
     _backup_status = body.get('backup_status')
     _backup_verify = body.get('backup_verify')
-    _bak_state = None
-    _bak_changed = False
-    if (isinstance(_backup_status, list) and _backup_status) or \
-       (isinstance(_backup_verify, list) and _backup_verify):
-        _bak_state = (load(_bs_path) or {}) if backend_exists(_bs_path) else {}
-    if isinstance(_backup_status, list) and _backup_status:
-        try:
-            # v5.0.1 perf: read-only config access — _config_ro() returns the
-            # shared cached dict without load()'s per-hit full-config deepcopy
-            # (we only read backup_monitors and never mutate it).
-            _bak_monitors = _config_ro().get('backup_monitors') or []
-            # Index monitors by path once (first-wins) instead of an O(monitors)
-            # scan per reported backup path.
-            _mon_by_path = {}
-            for _m in _bak_monitors:
-                if isinstance(_m, dict):
-                    _mon_by_path.setdefault(str(_m.get('path', '')), _m)
-            for entry in _backup_status:
-                _path   = str(entry.get('path', ''))
-                _exists = bool(entry.get('exists', False))
-                _mtime  = entry.get('mtime', 0)
-                _age_h  = round((now - _mtime) / 3600, 1) if _mtime else None
-                # Find matching monitor config
-                _mon = _mon_by_path.get(_path)
-                if not _mon:
-                    continue
-                _max_h = float(_mon.get('max_age_hours', 24))
-                _label = _mon.get('label', _path)
-                _state_key = f'{dev_id}:{_path}'
-                _was_ok = _bak_state.get(_state_key, {}).get('ok', True)
-                _is_ok  = _exists and _age_h is not None and _age_h <= _max_h
-                if not _is_ok and _was_ok:
-                    # Edge-triggered: just turned bad
-                    try:
-                        fire_webhook('backup_stale', {
-                            'device_id':    dev_id,
-                            'name':         saved_dev.get('name', dev_id),
-                            'path':         _path,
-                            'label':        _label,
-                            'exists':       _exists,
-                            'age_hours':    _age_h,
-                            'max_age_hours': _max_h,
-                        })
-                    except Exception:
-                        pass
-                elif _is_ok and not _was_ok:
-                    # v5.6.0: edge-triggered recovery — a fresh backup resolves the
-                    # open backup_stale alert for this path (matched per-path).
-                    try:
-                        fire_webhook('backup_recovered', {
-                            'device_id': dev_id,
-                            'name':      saved_dev.get('name', dev_id),
-                            'path':      _path,
-                            'label':     _label,
-                            'age_hours': _age_h,
-                        })
-                    except Exception:
-                        pass
-                _v = _bak_state.get(_state_key) or {}
-                _v.update({'ok': _is_ok, 'age_h': _age_h})
-                # W3-42: size trending + shrink anomaly. Keep a rolling size
-                # history; when the newest fresh backup is far below the trailing
-                # median, page once (opt-in via backup_size_anomaly_pct).
-                _size = entry.get('size')
-                if isinstance(_size, int) and _size > 0 and _is_ok:
-                    _hist = _v.get('size_hist') or []
-                    try:
-                        _pct = int(_config_ro().get('backup_size_anomaly_pct') or 0)
-                    except (TypeError, ValueError, OverflowError):
-                        _pct = 0
-                    _shrunk, _median = _backup_is_shrunk(_size, _hist, _pct)
-                    if _shrunk and not _v.get('size_anom', False):
-                        _v['size_anom'] = True
-                        try:
-                            fire_webhook('backup_size_anomaly', {
-                                'device_id': dev_id,
-                                'name': saved_dev.get('name', dev_id),
-                                'path': _path, 'label': _label,
-                                'size': _size, 'median': _median})
-                        except Exception:
-                            pass
-                    elif not _shrunk and _median:
-                        _v['size_anom'] = False
-                    _hist.append(_size)
-                    _v['size_hist'] = _hist[-30:]
-                    _v['size'] = _size
-                _bak_state[_state_key] = _v
-                _bak_changed = True
-        except Exception:
-            pass
-
-    # v4.10.0: backup INTEGRITY verification results (restic/borg/tar check). Merged
-    # into the same backup_state entry; edge-triggered backup_verify_failed /
-    # backup_verified. Outside the device lock — fire_webhook is lock-safe here.
-    if isinstance(_backup_verify, list) and _backup_verify:
-        try:
-            _bv_state = _bak_state if _bak_state is not None else {}
-            _bv_mons = _config_ro().get('backup_monitors') or []  # v5.0.1 perf: read-only, no deepcopy
-            _bv_label_by_path = {}
-            for _m in _bv_mons:
-                if isinstance(_m, dict):
-                    _bv_label_by_path.setdefault(str(_m.get('path', '')), _m.get('label'))
-            for entry in _backup_verify:
-                if not isinstance(entry, dict):
-                    continue
-                _path = str(entry.get('path', ''))
-                _vstatus = str(entry.get('verify_status', 'unknown'))
-                _voutput = str(entry.get('verify_output', ''))[:200]
-                _state_key = f'{dev_id}:{_path}'
-                _prev = _bv_state.get(_state_key) or {}
-                _was_bad = _prev.get('verify_status') in posture_signals.VERIFY_BAD
-                _is_bad  = _vstatus in posture_signals.VERIFY_BAD
-                _label = _bv_label_by_path.get(_path) or _path
-                if _is_bad and not _was_bad:
-                    try:
-                        fire_webhook('backup_verify_failed', {
-                            'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
-                            'path': _path, 'label': _label, 'tool': entry.get('tool', ''),
-                            'verify_status': _vstatus, 'verify_output': _voutput,
-                        })
-                    except Exception:
-                        pass
-                elif _vstatus == 'ok' and _was_bad:
-                    try:
-                        fire_webhook('backup_verified', {
-                            'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
-                            'path': _path, 'label': _label, 'tool': entry.get('tool', ''),
-                        })
-                    except Exception:
-                        pass
-                _prev.update({'verify_status': _vstatus, 'verify_output': _voutput,
-                              'verify_at': int(entry.get('verify_at', now) or now),
-                              'verify_tool': entry.get('tool', '')})
-                _bv_state[_state_key] = _prev
-                _bak_changed = True
-        except Exception:
-            pass
-
-    # W6-43: restore-drill results. Edge-trigger restore_drill_failed on a bad
-    # drill and restore_drill_ok on recovery; store the latest result per path in
-    # the same backup-state store the UI reads.
     _drills = body.get('restore_drills')
-    if isinstance(_drills, list) and _drills:
+    _bak_changed = False
+    if any(isinstance(_v, list) and _v for _v in (_backup_status, _backup_verify, _drills)):
         try:
-            _rd_state = _bak_state if _bak_state is not None else {}
-            _rd_mons = _config_ro().get('backup_monitors') or []
-            _rd_label = {}
-            for _m in _rd_mons:
-                if isinstance(_m, dict):
-                    _rd_label.setdefault(str(_m.get('path', '')), _m.get('label'))
-            for entry in _drills:
-                if not isinstance(entry, dict):
-                    continue
-                _path = str(entry.get('path', ''))
-                _dstatus = str(entry.get('drill_status', 'unknown'))
-                _doutput = str(entry.get('drill_output', ''))[:200]
-                _state_key = f'{dev_id}:{_path}'
-                _prev = _rd_state.get(_state_key) or {}
-                _was_bad = _prev.get('drill_status') in (*posture_signals.DRILL_BAD, 'tool_missing')
-                _is_bad = _dstatus in posture_signals.DRILL_BAD
-                _label = _rd_label.get(_path) or _path
-                if _is_bad and not _was_bad:
-                    fire_webhook('restore_drill_failed', {
-                        'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
-                        'path': _path, 'label': _label, 'tool': entry.get('tool', ''),
-                        'drill_status': _dstatus, 'detail': _doutput})
-                elif _dstatus == 'ok' and _was_bad:
-                    fire_webhook('restore_drill_ok', {
-                        'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
-                        'path': _path, 'label': _label})
-                _prev.update({'drill_status': _dstatus, 'drill_output': _doutput,
-                              'drill_at': int(entry.get('drill_at', now) or now),
-                              'drill_tool': entry.get('tool', ''),
-                              'drill_bytes': int(entry.get('restored_bytes', 0) or 0),
-                              'drill_sha256': str(entry.get('sha256', ''))[:64],
-                              'drill_files': int(entry.get('files', 0) or 0)})
-                _rd_state[_state_key] = _prev
-                _bak_changed = True
-        except Exception:
-            pass
+            with _LockedUpdate(_bs_path) as _bak_state:
+                if isinstance(_backup_status, list) and _backup_status:
+                    try:
+                        # v5.0.1 perf: read-only config access — _config_ro() returns the
+                        # shared cached dict without load()'s per-hit full-config deepcopy
+                        # (we only read backup_monitors and never mutate it).
+                        _bak_monitors = _config_ro().get('backup_monitors') or []
+                        # Index monitors by path once (first-wins) instead of an O(monitors)
+                        # scan per reported backup path.
+                        _mon_by_path = {}
+                        for _m in _bak_monitors:
+                            if isinstance(_m, dict):
+                                _mon_by_path.setdefault(str(_m.get('path', '')), _m)
+                        for entry in _backup_status:
+                            _path   = str(entry.get('path', ''))
+                            _exists = bool(entry.get('exists', False))
+                            _mtime  = entry.get('mtime', 0)
+                            _age_h  = round((now - _mtime) / 3600, 1) if _mtime else None
+                            # Find matching monitor config
+                            _mon = _mon_by_path.get(_path)
+                            if not _mon:
+                                continue
+                            _max_h = float(_mon.get('max_age_hours', 24))
+                            _label = _mon.get('label', _path)
+                            _state_key = f'{dev_id}:{_path}'
+                            _was_ok = _bak_state.get(_state_key, {}).get('ok', True)
+                            _is_ok  = _exists and _age_h is not None and _age_h <= _max_h
+                            if not _is_ok and _was_ok:
+                                # Edge-triggered: just turned bad
+                                try:
+                                    fire_webhook('backup_stale', {
+                                        'device_id':    dev_id,
+                                        'name':         saved_dev.get('name', dev_id),
+                                        'path':         _path,
+                                        'label':        _label,
+                                        'exists':       _exists,
+                                        'age_hours':    _age_h,
+                                        'max_age_hours': _max_h,
+                                    })
+                                except Exception:
+                                    pass
+                            elif _is_ok and not _was_ok:
+                                # v5.6.0: edge-triggered recovery — a fresh backup resolves the
+                                # open backup_stale alert for this path (matched per-path).
+                                try:
+                                    fire_webhook('backup_recovered', {
+                                        'device_id': dev_id,
+                                        'name':      saved_dev.get('name', dev_id),
+                                        'path':      _path,
+                                        'label':     _label,
+                                        'age_hours': _age_h,
+                                    })
+                                except Exception:
+                                    pass
+                            _v = _bak_state.get(_state_key) or {}
+                            _v.update({'ok': _is_ok, 'age_h': _age_h})
+                            # W3-42: size trending + shrink anomaly. Keep a rolling size
+                            # history; when the newest fresh backup is far below the trailing
+                            # median, page once (opt-in via backup_size_anomaly_pct).
+                            _size = entry.get('size')
+                            if isinstance(_size, int) and _size > 0 and _is_ok:
+                                _hist = _v.get('size_hist') or []
+                                try:
+                                    _pct = int(_config_ro().get('backup_size_anomaly_pct') or 0)
+                                except (TypeError, ValueError, OverflowError):
+                                    _pct = 0
+                                _shrunk, _median = _backup_is_shrunk(_size, _hist, _pct)
+                                if _shrunk and not _v.get('size_anom', False):
+                                    _v['size_anom'] = True
+                                    try:
+                                        fire_webhook('backup_size_anomaly', {
+                                            'device_id': dev_id,
+                                            'name': saved_dev.get('name', dev_id),
+                                            'path': _path, 'label': _label,
+                                            'size': _size, 'median': _median})
+                                    except Exception:
+                                        pass
+                                elif not _shrunk and _median:
+                                    _v['size_anom'] = False
+                                _hist.append(_size)
+                                _v['size_hist'] = _hist[-30:]
+                                _v['size'] = _size
+                            _bak_state[_state_key] = _v
+                            _bak_changed = True
+                    except Exception:
+                        pass
 
-    # v5.0.0 perf: single write after both backup blocks (see note above).
-    if _bak_changed and _bak_state is not None:
-        try:
-            save(_bs_path, _bak_state)
+                # v4.10.0: backup INTEGRITY verification results (restic/borg/tar check). Merged
+                # into the same backup_state entry; edge-triggered backup_verify_failed /
+                # backup_verified. Outside the device lock — fire_webhook is lock-safe here.
+                if isinstance(_backup_verify, list) and _backup_verify:
+                    try:
+                        _bv_state = _bak_state
+                        _bv_mons = _config_ro().get('backup_monitors') or []  # v5.0.1 perf: read-only, no deepcopy
+                        _bv_label_by_path = {}
+                        for _m in _bv_mons:
+                            if isinstance(_m, dict):
+                                _bv_label_by_path.setdefault(str(_m.get('path', '')), _m.get('label'))
+                        for entry in _backup_verify:
+                            if not isinstance(entry, dict):
+                                continue
+                            _path = str(entry.get('path', ''))
+                            _vstatus = str(entry.get('verify_status', 'unknown'))
+                            _voutput = str(entry.get('verify_output', ''))[:200]
+                            _state_key = f'{dev_id}:{_path}'
+                            _prev = _bv_state.get(_state_key) or {}
+                            _was_bad = _prev.get('verify_status') in posture_signals.VERIFY_BAD
+                            _is_bad  = _vstatus in posture_signals.VERIFY_BAD
+                            _label = _bv_label_by_path.get(_path) or _path
+                            if _is_bad and not _was_bad:
+                                try:
+                                    fire_webhook('backup_verify_failed', {
+                                        'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
+                                        'path': _path, 'label': _label, 'tool': entry.get('tool', ''),
+                                        'verify_status': _vstatus, 'verify_output': _voutput,
+                                    })
+                                except Exception:
+                                    pass
+                            elif _vstatus == 'ok' and _was_bad:
+                                try:
+                                    fire_webhook('backup_verified', {
+                                        'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
+                                        'path': _path, 'label': _label, 'tool': entry.get('tool', ''),
+                                    })
+                                except Exception:
+                                    pass
+                            _prev.update({'verify_status': _vstatus, 'verify_output': _voutput,
+                                          'verify_at': int(entry.get('verify_at', now) or now),
+                                          'verify_tool': entry.get('tool', '')})
+                            _bv_state[_state_key] = _prev
+                            _bak_changed = True
+                    except Exception:
+                        pass
+
+                # W6-43: restore-drill results. Edge-trigger restore_drill_failed on a bad
+                # drill and restore_drill_ok on recovery; store the latest result per path in
+                # the same backup-state store the UI reads.
+                if isinstance(_drills, list) and _drills:
+                    try:
+                        _rd_state = _bak_state
+                        _rd_mons = _config_ro().get('backup_monitors') or []
+                        _rd_label = {}
+                        for _m in _rd_mons:
+                            if isinstance(_m, dict):
+                                _rd_label.setdefault(str(_m.get('path', '')), _m.get('label'))
+                        for entry in _drills:
+                            if not isinstance(entry, dict):
+                                continue
+                            _path = str(entry.get('path', ''))
+                            _dstatus = str(entry.get('drill_status', 'unknown'))
+                            _doutput = str(entry.get('drill_output', ''))[:200]
+                            _state_key = f'{dev_id}:{_path}'
+                            _prev = _rd_state.get(_state_key) or {}
+                            _was_bad = _prev.get('drill_status') in (*posture_signals.DRILL_BAD, 'tool_missing')
+                            _is_bad = _dstatus in posture_signals.DRILL_BAD
+                            _label = _rd_label.get(_path) or _path
+                            if _is_bad and not _was_bad:
+                                fire_webhook('restore_drill_failed', {
+                                    'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
+                                    'path': _path, 'label': _label, 'tool': entry.get('tool', ''),
+                                    'drill_status': _dstatus, 'detail': _doutput})
+                            elif _dstatus == 'ok' and _was_bad:
+                                fire_webhook('restore_drill_ok', {
+                                    'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
+                                    'path': _path, 'label': _label})
+                            _prev.update({'drill_status': _dstatus, 'drill_output': _doutput,
+                                          'drill_at': int(entry.get('drill_at', now) or now),
+                                          'drill_tool': entry.get('tool', ''),
+                                          'drill_bytes': int(entry.get('restored_bytes', 0) or 0),
+                                          'drill_sha256': str(entry.get('sha256', ''))[:64],
+                                          'drill_files': int(entry.get('files', 0) or 0)})
+                            _rd_state[_state_key] = _prev
+                            _bak_changed = True
+                    except Exception:
+                        pass
+                if not _bak_changed:
+                    raise _BackupStateUnchanged()      # nothing was decided: the store is not rewritten
+        except _BackupStateUnchanged:
+            pass
         except Exception:
             pass
 

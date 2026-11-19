@@ -215,7 +215,9 @@ EXEMPT = {
 }
 
 LOCK_CALLS = ('_LockedUpdate', '_locked_update')
-SAVE_CALLS = ('save',)
+# `save` alone was the whole list: the heartbeat's own non-blocking save (`_save_nb`) and the save under a held lock were invisible to the scan, and so was a save of a
+# path the function held in a variable, so the one settings write of the heartbeat and the backup freshness state were outside the population of this class.
+SAVE_CALLS = ('save', '_save_nb', '_save_held', '_save_nonblocking')
 LOAD_CALLS = ('load', '_load_ro')
 HOST_AUTH = '_device_token_ok'
 
@@ -229,25 +231,51 @@ def _callee(node):
     return None
 
 
-def _store(node):
-    """The constant a call names as its first argument: X_FILE, or A.X_FILE in a bound module."""
-    if isinstance(node, ast.Name) and node.id.endswith('_FILE'):
-        return node.id
+def _data_dir_file(node):
+    """'<x.json>' for `DATA_DIR / 'x.json'` (or `A.DATA_DIR / ...`), the way a path is built inline or held in a variable; else None."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div) and isinstance(node.right, ast.Constant) \
+            and isinstance(node.right.value, str) and node.right.value.endswith('.json'):
+        left = node.left
+        if (isinstance(left, ast.Name) and left.id == 'DATA_DIR') or (isinstance(left, ast.Attribute) and left.attr == 'DATA_DIR'):
+            return '<' + node.right.value + '>'
+    return None
+
+
+def _store(node, alias=None):
+    """The store a call names as its first argument: X_FILE, or A.X_FILE in a bound module, or a local variable the function assigned one of those (or
+    `DATA_DIR / 'x.json'`) to, written as '<x.json>'."""
+    if isinstance(node, ast.Name):
+        if node.id.endswith('_FILE'):
+            return node.id
+        if alias and node.id in alias:
+            return alias[node.id]
     if isinstance(node, ast.Attribute) and node.attr.endswith('_FILE'):
         return node.attr
-    return None
+    return _data_dir_file(node)
+
+
+def _aliases(fn):
+    """{local name: store} for the assignments of one function that put a store (a *_FILE constant or a DATA_DIR path) in a variable."""
+    out = {}
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+            st = _store(n.value)
+            if st:
+                out[n.targets[0].id] = st
+    return out
 
 
 def _facts(fn):
     """(called names, stores locked, stores saved, stores loaded) of one function, nested functions included."""
     called, locked, saved, loaded = set(), set(), set(), set()
+    alias = _aliases(fn)
     for n in ast.walk(fn):
         if not isinstance(n, ast.Call):
             continue
         name = _callee(n)
         if name:
             called.add(name)
-        store = _store(n.args[0]) if n.args else None
+        store = _store(n.args[0], alias) if n.args else None
         if not store:
             continue
         if name in LOCK_CALLS:
