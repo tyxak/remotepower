@@ -1840,7 +1840,8 @@ def handle_ip_intel():
     their reputation and what the logs showed, active blocks, each host's log
     sensor, and today's lookup budget. Attackers, blocks and sensors are limited
     to devices the caller can see, and what the logs showed to what those hosts
-    collected (see _readable_ledger)."""
+    collected (see _readable_ledger); the settings, the budget and the edge feeds
+    are the platform operator's (an administrator on a single-organisation install)."""
     A.require_auth()
     if A.method() != 'GET':
         A.respond(405, {'error': 'Method not allowed'})
@@ -1915,11 +1916,17 @@ def handle_ip_intel():
                                  name=(visible[dev_id] or {}).get('name') or dev_id))
     rows.sort(key=lambda r: int(r.get('at') or 0), reverse=True)
     budget = _budget_today(st.get('budget'), time.strftime('%Y-%m-%d', time.gmtime(int(time.time()))))   # today's, as the sweep reads it
+    # The settings, the day's counts and the length of the queue are the installation's: its never-block list holds the operator's own
+    # addresses, its Cloudflare account and list are named in it, and the counts are what its API keys have spent. The edge feeds, the list
+    # and the request log above are the operator's for the same reason, so these follow them. What a tenant is told is the number of
+    # addresses waiting from the hosts it can see.
+    queue = intake.get('queue') if isinstance(intake.get('queue'), list) else []
+    queued = len(queue) if operator else sum(1 for q in queue if isinstance(q, dict) and q.get('device_id') in visible)
     # The page is sent the most recent `limit` addresses (PAGE_ROWS unless it asked
     # for more). `attackers_total` says how many there are, so a list cut short says
     # so instead of looking complete.
-    A.respond(200, {'ok': True, 'is_admin': is_admin,
-                    'settings': _settings_view(pol) if is_admin else {},
+    A.respond(200, {'ok': True, 'is_admin': is_admin, 'operator': bool(operator),
+                    'settings': _settings_view(pol) if operator else {},
                     'attackers': attackers[:limit], 'attackers_total': len(attackers),
                     'blocks': rows,
                     'sensor_enabled': bool(pol.get('sensor_enabled')),
@@ -1930,7 +1937,7 @@ def handle_ip_intel():
                     'requests': _request_lines(st, intake, {d: (v or {}).get('name') for d, v in visible.items()}) if operator else None,
                     'ban_hosts': ban_hosts,
                     'can_ignore': bool(operator),
-                    'budget': budget, 'queued': len(intake.get('queue') or [])})
+                    'budget': budget if operator else {}, 'queued': queued})
 
 
 def handle_ip_intel_settings():

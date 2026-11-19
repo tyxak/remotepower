@@ -8,6 +8,7 @@
 
 let _ipiData = null;
 let _ipiAdmin = false;
+let _ipiOperator = false;      // an administrator, and on a multi-tenant install the platform operator: the server sends the instance's settings to nobody else
 let _ipiWired = false;
 const _ipiOpen = new Set();
 
@@ -293,7 +294,7 @@ function _ipiRenderTiles() {
     [d.queued || 0, 'Waiting', 'sources', false],
     [(d.blocks || []).length, 'Active blocks', 'blocks', false],
   ];
-  if (_ipiAdmin && d.edge) tiles.push([bad, 'Feeds with a problem', 'sources', bad > 0]);
+  if (_ipiOperator && d.edge) tiles.push([bad, 'Feeds with a problem', 'sources', bad > 0]);
   pgTiles('ipintel-tiles', 'ipintel', tiles);
 }
 
@@ -307,19 +308,22 @@ async function loadIpIntel() {
   const d = await api('GET', '/ip-intel' + (_ipiRowsAsked ? '?limit=' + _ipiRowsAsked : '')).catch(() => null);
   _ipiData = (d && !d.error) ? d : {attackers: [], blocks: [], sensors: [], settings: {}};
   _ipiAdmin = !!_ipiData.is_admin;
-  document.getElementById('ipintel-settings-card').hidden = !_ipiAdmin;
-  document.getElementById('ipintel-sensor-card').hidden = !_ipiAdmin;
-  document.getElementById('ipintel-appliance-card').hidden = !_ipiAdmin;
-  document.getElementById('ipintel-limits-card').hidden = !_ipiAdmin;
-  document.getElementById('ipintel-lookup-card').hidden = !_ipiAdmin;
+  _ipiOperator = !!_ipiData.operator;
+  // The settings, the keys' limits and the lookup are the installation's: a tenant's administrator is sent none of them, and sees the
+  // cards of the hosts it can see (the clear button clears those).
+  document.getElementById('ipintel-settings-card').hidden = !_ipiOperator;
+  document.getElementById('ipintel-sensor-card').hidden = !_ipiOperator;
+  document.getElementById('ipintel-appliance-card').hidden = !_ipiOperator;
+  document.getElementById('ipintel-limits-card').hidden = !_ipiOperator;
+  document.getElementById('ipintel-lookup-card').hidden = !_ipiOperator;
   document.getElementById('ipintel-clear-btn').hidden = !_ipiAdmin;
   // The edge feeds belong to the instance: only the operator is sent their state.
-  const edge = !!(_ipiAdmin && _ipiData.edge);
+  const edge = !!(_ipiOperator && _ipiData.edge);
   document.getElementById('ipintel-edge-card').hidden = !edge;
   document.getElementById('ipintel-edge-status-card').hidden = !edge;
   // The list RemotePower keeps in Cloudflare belongs to the instance as well.
-  document.getElementById('ipintel-edgelist-card').hidden = !(_ipiAdmin && _ipiData.edge_list);
-  if (_ipiAdmin) _ipiFillSettings(_ipiData.settings || {}, _ipiData.budget || {});
+  document.getElementById('ipintel-edgelist-card').hidden = !(_ipiOperator && _ipiData.edge_list);
+  if (_ipiOperator) _ipiFillSettings(_ipiData.settings || {}, _ipiData.budget || {});
   _ipiRenderTiles();
   pgTabsApply('ipintel');
   _ipiRenderAttackers();
@@ -911,7 +915,7 @@ function _ipiRenderRequests() {
   const tb = document.getElementById('ipintel-req-tbody');
   if (!card || !tb) return;
   const list = _ipiData && _ipiData.requests;
-  card.hidden = !(_ipiAdmin && Array.isArray(list));
+  card.hidden = !(_ipiOperator && Array.isArray(list));
   if (card.hidden) return;
   if (!list.length) {
     tb.innerHTML = `<tr><td colspan="7" class="hint">${escHtml(_IPI_REQ_EMPTY)}</td></tr>`;

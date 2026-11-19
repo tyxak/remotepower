@@ -734,12 +734,14 @@ An address that attacks again after a clear is recorded again from the start.
 | Admin | Everything, including the provider settings, manual lookups and **Clear**. |
 | Anyone else | Attackers and blocks for the hosts their role can see, and the evidence those hosts collected. |
 
-Under multi-tenancy, only the platform operator can change the provider
-settings or run a manual lookup, which spends the install's daily quota. A tenant's
-administrator sees the attackers, blocks and log sources of their own hosts, the
-evidence those hosts collected, and the **Clear** button for them. The same goes
-for a role that is limited to some hosts, or an API key that is: they read the
-evidence of the hosts in their scope.
+Under multi-tenancy, only the platform operator sees or changes the provider
+settings (the never-block and ignore lists, the Cloudflare account and list, the
+extra log paths), sees the day's counts and the length of the whole queue, or runs a
+manual lookup, which spends the install's daily quota. A tenant's administrator
+sees the attackers and blocks of their own hosts, how many addresses are waiting
+from them, the evidence those hosts collected, and the **Clear** button for them.
+The same goes for a role that is limited to some hosts, or an API key that is: they
+read the evidence of the hosts in their scope.
 
 ## Troubleshooting
 

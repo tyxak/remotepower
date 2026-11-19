@@ -155,8 +155,10 @@ class TestDeletingAHost(_Intake):
         self.post([waf_event('185.220.101.12')], dev='d1', at=T + 2)
         doc = ipintel_store.read_intake(self.api)
         self.assertEqual([r['device_id'] for r in doc['log']], ['d1', 'd2', 'd1'])
-        self.assertEqual(host_purge.apply('ip_intel_intake.json', doc, 'd1'), 3, 'its two lines and its sensor record')
+        self.assertEqual(sorted(q['device_id'] for q in doc['queue']), ['d1', 'd1', 'd2'], 'the addresses the passes queued, waiting for the sweep')
+        self.assertEqual(host_purge.apply('ip_intel_intake.json', doc, 'd1'), 5, 'its two lines, its two queued addresses and its sensor record')
         self.assertEqual([(r['device_id'], r['ips']) for r in doc['log']], [('d2', ['185.220.101.11'])])
+        self.assertEqual([q['device_id'] for q in doc['queue']], ['d2'])
         self.assertNotIn('d1', doc['sensors'])
 
 
