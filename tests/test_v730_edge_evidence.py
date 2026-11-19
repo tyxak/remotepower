@@ -217,9 +217,11 @@ class TestParsers(unittest.TestCase):
         self.assertTrue(r['ok'])
         self.assertEqual(len(r['hits']), 6)
         self.assertEqual({h['kind'] for h in r['hits']}, {'bait', 'robots'})
-        # 8.0.1: the method and the path are passed on for a sample to be made of them; nothing else of the line is
+        # 8.0.1: the method and the path are passed on for a sample to be made of them. 8.0.2: so are the few fields that say how the
+        # request was made (host, v, sfs, sfm, sfd, ref, org), cut to a short alphabet; nothing else of the line is
         for h in r['hits']:
-            self.assertEqual(set(h), {'kind', 'ip', 'action', 'at', 'method', 'path'})
+            self.assertEqual(set(h), {'kind', 'ip', 'action', 'at', 'method', 'path', 'host', 'v', 'sfs', 'sfm', 'sfd', 'ref', 'org'})
+        self.assertEqual((r['hits'][5]['host'], r['hits'][5]['v']), ('', 0), 'what a visitor typed is not a host name, and not a script version')
         self.assertEqual((r['hits'][5]['method'], r['hits'][5]['path']), ('GET', EVIL))
         self.assertEqual((r['hits'][0]['method'], r['hits'][0]['path']), ('', ''), 'a line that logs neither')
         self.assertEqual(r['hits'][0]['at'], 1791662400)

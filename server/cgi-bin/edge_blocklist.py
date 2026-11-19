@@ -276,7 +276,7 @@ def _addresses(values):
 # ── the choice ─────────────────────────────────────────────────────────────────
 
 
-def own_candidates(attackers, now, min_score, days, reported_counts=True, listable=None):
+def own_candidates(attackers, now, min_score, days, reported_counts=True, listable=None, reported_ok=None):
     """Addresses RemotePower itself found, strongest first: reported to a service
     (it had enough evidence to say so in public) or scored `min_score` or more, and
     seen within `days`. `attackers` is the Threat Intel store's address record.
@@ -284,7 +284,12 @@ def own_candidates(attackers, now, min_score, days, reported_counts=True, listab
     `listable(ip, row)` is the caller's say on whose word an address may go in the
     list. The list is the installation's, in the operator's Cloudflare account, and
     an address is put in it on what a host's logs said; which hosts the operator may
-    take that from is not decided here (ip_intel_handlers._own_listable decides)."""
+    take that from is not decided here (ip_intel_handlers._own_listable decides).
+
+    `reported_ok(row)` is the caller's say on whether the report counts as a reason:
+    a report that a trap made alone (the honeypot's word, which anyone who can get a
+    request sent to it can give) does not, and the score still can
+    (ip_intel_handlers._reported_stands decides)."""
     cutoff = int(now) - max(1, int(days)) * 86400
     out = []
     for ip, att in (attackers or {}).items():
@@ -297,6 +302,8 @@ def own_candidates(attackers, now, min_score, days, reported_counts=True, listab
         if listable is not None and not listable(ip, att):
             continue
         reported = bool(att.get("reported")) and reported_counts
+        if reported and reported_ok is not None and not reported_ok(att):
+            reported = False
         if not (reported or score >= int(min_score)):
             continue
         c = canonical(ip)

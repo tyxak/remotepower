@@ -400,8 +400,12 @@ sweep.
 
 ### The honeypot
 
-The honeypot Worker logs every trap hit with its own decision. RemotePower reads
-those lines and files each trap under an attack class:
+The honeypot Worker logs every trap hit with its own decision, and how the request was
+made. RemotePower reads those lines and files each trap under an attack class. A web page
+can make a visitor's browser ask for any of these paths (an image tag is enough), so a
+request that a page caused is set aside, and one request for a bait path decides an address
+only when the Worker script says how the request was made ([the honeypot Worker log](edge-sources.md#the-honeypot-worker-log)).
+A line from an older script counts as one attempt.
 
 | Trap | Filed as |
 |---|---|
@@ -667,7 +671,9 @@ and an address one of these banned is treated like a high-scoring one:
 
 - **fail2ban**: a `Ban` line in its log. A `Found` line is a failure, not a ban.
 - **CrowdSec**: a scenario of its own decided on the address.
-- **The edge honeypot** and **a decoy port**: the address used a planted credential or a decoy, which no ordinary visitor does.
+- **The edge honeypot** and **a decoy port**: the address asked for a bait path or a planted credential, or connected to a decoy port. A trap answers whoever can get a request or a
+  connection sent to it, so its word alone reports an address and does not block it. It is blocked, banned at the edge and listed when something else says the same: a host's logs,
+  Cloudflare's firewall events, a ban engine, or a score at the bar. The row says `only a honeypot or a decoy port says it is hostile, which is not enough to block it` until then.
 
 It is blocked on the host that saw it and, with the [edge blocklist](#the-edge-blocklist) on, banned at the edge for the same hours. For a site behind Cloudflare the edge ban is the one that
 stops the visitor, because a rule on the host does not match a proxied visitor. The row in **Active blocks** says `automatic · fail2ban` (or `CrowdSec`) so you can tell it from a block made

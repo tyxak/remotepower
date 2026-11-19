@@ -585,7 +585,9 @@ def block_decision(policy, verdict, local_count, confirmed=''):
     fail2ban, CrowdSec, the edge honeypot, a decoy port), or ''. With the operator's
     `block_confirmed` setting on, that decision is enough and the reputation score is not
     asked: a new scanner has no score yet, and the ban was made by software of theirs. An
-    address a provider lists as legitimate is still never blocked."""
+    address a provider lists as legitimate is still never blocked. The sweep names a trap
+    (the honeypot, a decoy port) here only when something else says the address is hostile
+    as well, because a trap is asked by whoever can get a request sent to it."""
     if not policy.get('block_enabled'):
         return False, 'auto-block is off'
     if confirmed and policy.get('block_confirmed') and not (verdict or {}).get('whitelisted'):

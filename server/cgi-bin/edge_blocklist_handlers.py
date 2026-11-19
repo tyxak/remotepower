@@ -255,7 +255,8 @@ def _sync(pol, now, mode='apply', force=False):
     if pol.get('edgelist_own'):
         own = edge_blocklist.own_candidates(
             store.get('attackers'), now, pol['edgelist_own_score'], pol['edgelist_own_days'],
-            listable=A.ip_intel_handlers_mod._own_listable(pol, A._load_ro(A.DEVICES_FILE) or {}))
+            listable=A.ip_intel_handlers_mod._own_listable(pol, A._load_ro(A.DEVICES_FILE) or {}),
+            reported_ok=A.ip_intel_handlers_mod._reported_stands)
     # the operator's own entries: the ones typed into the settings and the bans made
     # by hand, which expire; both are theirs, so both sit first
     bans = edge_blocklist.active_bans(store.get('edgeban'), now)

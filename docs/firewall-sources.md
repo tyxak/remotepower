@@ -292,7 +292,10 @@ firewall,info drop-in input: in:ether1 out:(unknown 0), src-mac 00:11:22:33:44:5
 
 A decoy port is one that nothing legitimate connects to, so a connection to it
 is a scan. Two connections are enough. RemotePower reports the address at once,
-without waiting for the count in **Report after attempts**.
+without waiting for the count in **Report after attempts**. The report is all a
+decoy port does on its own: an address is blocked, banned at the edge or listed
+only when something else names it too, because a web page can make a visitor's
+browser connect to any port the browser allows.
 
 RemotePower does not run anything on the port. The rule logs the packet and drops
 it, so the router answers nothing and a scanner sees a filtered port. Add one
@@ -302,7 +305,9 @@ rule above the rules that accept traffic. Its log prefix must contain `rp-trap`:
 /ip firewall filter add chain=input action=drop protocol=tcp dst-port=2222 in-interface-list=WAN log=yes log-prefix=rp-trap place-before=0 comment="RemotePower decoy port"
 ```
 
-Pick a port that none of your services uses; the example uses 2222. If you have
+Pick a port that none of your services uses; the example uses 2222. A port that
+browsers refuse to open, such as 23 (telnet), 6000 or 6667, cannot be reached from
+a web page at all, so a hit on it is never a page's doing. If you have
 no interface list called `WAN`, name the interface with `in-interface=` instead.
 Only a probe packet counts (a SYN, a FIN, or the Xmas combination, as for refused
 packets), so a stray ACK to the port does not, and only from a public address. The logged packet looks like this:

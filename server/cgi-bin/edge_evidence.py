@@ -530,12 +530,33 @@ def _log_object(event):
     return merged
 
 
+_WORD_RE = re.compile(r"[a-z][a-z-]{0,23}")
+_HOST_RE = re.compile(r"[a-z0-9][a-z0-9.-]{0,99}")
+
+
+def _word(value):
+    """One of the short lower-case words a browser sends in a Sec-Fetch header, or ''. The header is the visitor's text."""
+    s = str(value or "").strip().lower()
+    return s if _WORD_RE.fullmatch(s) else ""
+
+
+def _host(value):
+    """A host name in the form the Worker wrote it (lower case, no port), or ''. The visitor's text, read to be compared and kept nowhere."""
+    s = str(value or "").strip().lower()
+    return s if _HOST_RE.fullmatch(s) else ""
+
+
 def parse_trap(status, body, limit=TRAP_LINES):
-    """{'ok': True, 'hits': [{kind, ip, action, at, method, path}], 'truncated': bool}.
+    """{'ok': True, 'hits': [{kind, ip, action, at, method, path, host, v, sfs, sfm, sfd, ref, org}], 'truncated': bool}.
     A read that came back with as many lines as it asked for is flagged, because the
     Worker may have logged more than that in the window. `method` and `path` are the
     visitor's text, cut to a length and read by nothing here; they become a sample
-    only through threat_evidence.normalize_sample."""
+    only through threat_evidence.normalize_sample.
+
+    From script version 2 the Worker also writes how the request was made: `sfs`, `sfm` and `sfd` are the Sec-Fetch-Site, -Mode
+    and -Dest words a browser sends, `ref` and `org` the host names of the Referer and the Origin, and `v` is the version. They are
+    read by page_caused() and kept nowhere. A line without `v` is from an older script, and nothing in it says whether a page made
+    the request."""
     if status != 200 or not isinstance(body, dict) or body.get("success") is False:
         return _cf_error(status, body)
     res = body.get("result")
@@ -562,6 +583,13 @@ def parse_trap(status, body, limit=TRAP_LINES):
                 ),
                 "method": str(o.get("method") or "").upper()[:10],
                 "path": str(o.get("path") or "")[:2048],
+                "host": _host(o.get("host")),
+                "v": min(99, _int(o.get("v"))),
+                "sfs": _word(o.get("sfs")),
+                "sfm": _word(o.get("sfm")),
+                "sfd": _word(o.get("sfd")),
+                "ref": _host(o.get("ref")),
+                "org": _host(o.get("org")),
             }
         )
     return {"ok": True, "hits": hits, "truncated": len(events) >= limit}
@@ -682,15 +710,40 @@ def cf_events(
     return out, stats
 
 
-# The traps where nobody innocent lands: a credential the Worker planted being used, and a sign-in
+# The traps that a visitor does not walk into by accident: a credential the Worker planted being used, and a sign-in
 # to a decoy service. With the operator's setting on, one hit on either is a decision of its own.
 PLANTED_TOKENS = ("canary", "decoylogin")
 
-# A bait path is a file that should never be public (.env, .git, a SQL dump). Nobody innocent
-# asks for one, so a single hit is a decision and not one attempt of ten. The WordPress traps
-# (debug log, wp-includes, the user list) sit on sites that are not WordPress, so they count too.
-# So do a decoy host name (only DNS brute force finds it) and the fake .git (only a dumper walks it).
+# A bait path is a file that should never be public (.env, .git, a SQL dump), so a request that the visitor's own
+# tool made for one is a decision, and not one attempt of ten. The WordPress traps (debug log, wp-includes, the user
+# list) sit on sites that are not WordPress, so they count too. So do a decoy host name (only DNS brute force finds
+# it) and the fake .git (only a dumper walks it). The word is "made": a page can make a visitor's browser ask for any
+# of them (an image tag is enough), so a request that a page caused is set aside (page_caused) and a line from a
+# script that does not say how the request was made is one attempt like a login hit (see trap_events).
 BAIT_TOKENS = ("bait", "wpprobe", "wpenum", "decoy", "gitdump")
+
+# The first script whose lines say how the request was made (docs/honeypot-worker.md, docs/honeypot-traps.md).
+SCRIPT_VERSION = 2
+
+
+def page_caused(h):
+    """True when a page, and not the visitor, made the browser send this request, so the visitor did not choose to ask for the path.
+
+    A browser sends Sec-Fetch-Site, -Mode and -Dest on every request it makes, and a page cannot remove or change them. A request
+    typed into the address bar says `none`, a navigation or a form post inside the site says `same-origin` with `navigate` and
+    `document`, and a tool says nothing. Everything else was made for a page: a request from another site or another subdomain, an
+    image, a script, a frame, a fetch(). A browser too old to send the headers names the page in its Referer or its Origin, and
+    a host other than the trap's own is a page of somebody else's. A tool that writes these headers itself can have its requests
+    set aside by doing so, which costs it the report and nothing else."""
+    site, mode, dest = h.get("sfs") or "", h.get("sfm") or "", h.get("sfd") or ""
+    if site in ("cross-site", "same-site"):
+        return True
+    if mode not in ("", "navigate") or dest not in ("", "document"):
+        return True
+    if site == "same-origin" and not (mode == "navigate" and dest == "document"):
+        return True
+    own = h.get("host") or ""
+    return any(h.get(k) and h.get(k) != own for k in ("ref", "org"))
 
 
 def trap_events(hits, now=None, decided_tokens=(), samples=False):
@@ -700,11 +753,18 @@ def trap_events(hits, now=None, decided_tokens=(), samples=False):
     undercounted here, never overstated.
 
     `decided_tokens` are trap kinds that count as decided on a single hit, banned
-    or not (see PLANTED_TOKENS); the default is the Worker's own word only.
+    or not (see PLANTED_TOKENS); the default is the Worker's own word only. They
+    count only on a line from a script that says how the request was made
+    (SCRIPT_VERSION): a line that does not is one attempt, because nothing in it
+    tells a visitor's own request from one that a page caused. A request that a
+    page caused (page_caused) is not a hit at all, whatever the Worker did with it.
     `samples` (the operator's setting) keeps the method and path the Worker logged
-    with a hit, as up to three samples per address."""
+    with a hit, as up to three samples per address.
+
+    stats['older'] counts the kept lines from a script that does not say how the
+    request was made, so the page can tell the operator to replace it."""
     now = int(now or time.time())
-    stats = {"hits": len(hits), "kept": 0, "ignored": {}}
+    stats = {"hits": len(hits), "kept": 0, "ignored": {}, "older": 0}
     per_ip = {}
 
     def drop(why):
@@ -714,6 +774,10 @@ def trap_events(hits, now=None, decided_tokens=(), samples=False):
         action = h.get("action", "")
         if action in _TRAP_SKIPPED:
             drop("own_or_shared_address")
+            continue
+        vouched = _int(h.get("v")) >= SCRIPT_VERSION
+        if vouched and page_caused(h):
+            drop("page_request")
             continue
         token = _TRAP_TOKEN.get(h.get("kind", ""))
         if not token:
@@ -732,8 +796,10 @@ def trap_events(hits, now=None, decided_tokens=(), samples=False):
         t = "trap:" + token
         e["tok"]["trap"][t] = e["tok"]["trap"].get(t, 0) + 1
         e["src"]["trap"] += 1
-        if action in _TRAP_DECIDED or token in decided_tokens:
+        if action in _TRAP_DECIDED or (vouched and token in decided_tokens):
             e["trp"] += 1
+        if not vouched:
+            stats["older"] += 1
         at = int(h.get("at") or 0)
         if at:
             e["first"] = at if not e["first"] else min(e["first"], at)

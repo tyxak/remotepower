@@ -113,6 +113,24 @@ function shouldLog(key) {
   return s.n <= FIRST || s.n % THEN_EVERY === 0;
 }
 
+// How the request was made. A browser sends the three Sec-Fetch headers on every
+// request and a page cannot change them, so a request that a page caused (an
+// image tag on another site, a script, a link) can be told from one the visitor
+// made. The Referer and the Origin are kept as host names only. RemotePower reads
+// these fields, and treats a line without them as coming from a script that
+// cannot tell.
+function word(request, name) {
+  return (request.headers.get(name) || "").toLowerCase().slice(0, 24);
+}
+
+function hostOf(value) {
+  try {
+    return new URL(value).hostname.toLowerCase().slice(0, 100);
+  } catch (e) {
+    return "";
+  }
+}
+
 // A comma separated variable as a list of trimmed, lower-case entries.
 function list(value) {
   return String(value || "")
@@ -306,6 +324,12 @@ export default {
           path: url.pathname.slice(0, 200),
           ua: (request.headers.get("user-agent") || "").slice(0, 160),
           country: (request.cf && request.cf.country) || "",
+          v: 2,
+          sfs: word(request, "sec-fetch-site"),
+          sfm: word(request, "sec-fetch-mode"),
+          sfd: word(request, "sec-fetch-dest"),
+          ref: hostOf(request.headers.get("referer")),
+          org: hostOf(request.headers.get("origin")),
         }),
       );
     }
@@ -410,7 +434,7 @@ From an address in `ALLOW` every line says `allowlisted`, with the same `kind`. 
 
 ## The planted password
 
-The fake `.env` can hand out a user name and a password. A visitor who read the file and then sends that password to a fake login page is using a credential that only the honeypot handed out. No ordinary visitor can have it, which makes it the strongest sign on this page.
+The fake `.env` can hand out a user name and a password. A visitor who read the file and then sends that password to a fake login page is using a credential that only the honeypot handed out. No ordinary visitor can have it, which makes it the strongest sign on this page when the visitor's own tool sends it. A page can make a browser send it too, to a fake login on another site, and RemotePower sets such a request aside ([What RemotePower does with them](#what-remotepower-does-with-them)).
 
 1. Make a password of 12 or more random letters, digits, `-` or `_`. Node can do it:
 
@@ -446,8 +470,10 @@ RemotePower files each line by its `kind`, as the first table says, and reports 
 
 RemotePower reports an address at once when the Worker banned it, and this Worker never bans. Two settings on the Edge sources card let a single hit decide instead:
 
-- **Count one hit on a bait path as decided** is ticked by default. It covers `bait`, `gitdump`, `wpprobe`, `wpenum` and `decoy`, so one visit to `/.env` or to a decoy host is enough.
+- **Count one hit on a bait path as decided** is ticked by default. It covers `bait`, `gitdump`, `wpprobe`, `wpenum` and `decoy`, so one request for `/.env` or to a decoy host is enough.
 - **Count a planted credential or decoy sign-in as decided** is unticked by default. It covers `canary_use` and `decoy_login`. Until you tick it, a use of the planted password or a sign-in to a decoy host counts as one hit towards **Report after attempts**.
+
+A single hit decides only when this script wrote it. The six last fields of the line (`v`, `sfs`, `sfm`, `sfd`, `ref` and `org`) say how the request was made, and RemotePower sets aside every hit that a page caused: an image tag or a link on another site, a script, a frame. A web page can make any visitor's browser ask for `/.env`, so a request for it does not show that its sender chose to. A line from an older script has none of the fields, and counts as one attempt. A decision made by the honeypot alone reports the address. It does not block it, ban it at the edge or put it in the Cloudflare list unless a host's logs, Cloudflare's firewall events or the address's score say the same ([Block what it finds](honeypot-worker.md#block-what-it-finds)).
 
 Every other kind (`login`, `robots`, and the fake backup directory) counts as one attempt. To block an address now, press **Ban** on its row ([Ban an address by hand](edge-sources.md#ban-an-address-by-hand)). [Block what it finds](honeypot-worker.md#block-what-it-finds) says how reports become blocks.
 
@@ -470,6 +496,7 @@ Every other kind (`login`, `robots`, and the fake backup directory) counts as on
 - The Worker holds no Cloudflare token and calls no API.
 - Every answer is fixed text. Nothing the visitor sent is echoed, and the directory listing only names entries that the script lists.
 - A visitor's password reaches the Worker when a login page is posted to. The Worker compares it with the planted one and drops it, and never writes it to the log.
+- The log also holds the three Sec-Fetch words and the host names of the Referer and the Origin. Nothing else of the request's headers is written.
 - The planted password is not a secret from the visitor, by design. Never make it a password that opens anything real.
 - The fake directory and the fake git repository serve no real file and no archive.
 
@@ -485,6 +512,8 @@ Every other kind (`login`, `robots`, and the fake backup directory) counts as on
 | The decoy host name does not resolve | The Custom Domain was not created. Cloudflare will not create one on a name that already has a CNAME record | Read what `npx wrangler deploy` said, and pick a name that does not exist. |
 | The decoy host shows an error page, or the log says `bait` or `login` instead of `decoy` | The name is not in `DECOY_HOSTS`, or is spelled differently there. The Worker then treats the visit as one to your site, and a decoy host has no site behind it | Put the name in `DECOY_HOSTS` exactly as in its route, and deploy again. |
 | A WordPress path answers `404` from your own site | Its route is off | Remove the `#` from the route, only if your site is not WordPress. |
+| One request for `/.env` is not reported at once, and the **Edge feeds** card says lines come from an older script | The script in your account does not write the fields that say how the request was made | Replace `worker.js` with the one on this page and run `npx wrangler deploy` again. |
+| A hit does not show up, and the **Edge feeds** card counts `requests that a page made a browser send` | A page on some site made a browser ask for the trap | Nothing to do. RemotePower sets those aside because the visitor did not choose to ask. |
 
 ## Go back to the first script
 

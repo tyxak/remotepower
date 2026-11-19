@@ -3,8 +3,10 @@
 
 Until now only the Worker's own ban counted as the honeypot having decided, so a credential the Worker
 had planted and someone used waited for `report_min_count` hits unless the Worker also banned the
-address. Nobody innocent uses a planted credential, so the setting `edge_planted_decides` (default off)
-lets one hit report at once.
+address. A planted credential is only used by someone who read the fake file, so the setting `edge_planted_decides` (default off)
+lets one hit report at once. 8.0.2: that holds for a request the visitor's own tool made and that a script of version 2 or later
+vouched for. A page can make a browser send the credential too, and such a request is set aside; a line from an older script is one
+attempt (tests/test_v802_trap_hits_by_a_page.py).
 """
 import sys
 import unittest
@@ -23,7 +25,7 @@ IP = '93.184.216.34'
 
 
 def _events(kind, **kw):
-    hits = [{'kind': kind, 'ip': IP, 'action': '', 'at': 1_700_000_000}]
+    hits = [{'kind': kind, 'ip': IP, 'action': '', 'at': 1_700_000_000, 'v': edge_evidence.SCRIPT_VERSION}]   # a tool's request, from a script of version 2
     return edge_evidence.trap_events(hits, 1_700_000_100, **kw)[0]
 
 

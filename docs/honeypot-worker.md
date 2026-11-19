@@ -89,6 +89,24 @@ function shouldLog(key) {
   return s.n <= FIRST || s.n % THEN_EVERY === 0;
 }
 
+// How the request was made. A browser sends the three Sec-Fetch headers on every
+// request and a page cannot change them, so a request that a page caused (an
+// image tag on another site, a script, a link) can be told from one the visitor
+// made. The Referer and the Origin are kept as host names only. RemotePower reads
+// these fields, and treats a line without them as coming from a script that
+// cannot tell.
+function word(request, name) {
+  return (request.headers.get(name) || "").toLowerCase().slice(0, 24);
+}
+
+function hostOf(value) {
+  try {
+    return new URL(value).hostname.toLowerCase().slice(0, 100);
+  } catch (e) {
+    return "";
+  }
+}
+
 function decoy(kind, path) {
   const headers = { "cache-control": "no-store", "x-robots-tag": "noindex, nofollow" };
   if (kind === "login") {
@@ -130,6 +148,12 @@ export default {
           path: url.pathname.slice(0, 200),
           ua: (request.headers.get("user-agent") || "").slice(0, 160),
           country: (request.cf && request.cf.country) || "",
+          v: 2,
+          sfs: word(request, "sec-fetch-site"),
+          sfm: word(request, "sec-fetch-mode"),
+          sfd: word(request, "sec-fetch-dest"),
+          ref: hostOf(request.headers.get("referer")),
+          org: hostOf(request.headers.get("origin")),
         }),
       );
     }
@@ -238,8 +262,10 @@ npx wrangler tail trap-sink
 Each visit prints one line:
 
 ```json
-{"msg":"trap hit","kind":"bait","ip":"203.0.113.7","action":"recorded","at":"2026-10-14T09:30:00.000Z","host":"example.com","method":"GET","path":"/.env","ua":"curl/8.7.1","country":"DK"}
+{"msg":"trap hit","kind":"bait","ip":"203.0.113.7","action":"recorded","at":"2026-10-14T09:30:00.000Z","host":"example.com","method":"GET","path":"/.env","ua":"curl/8.7.1","country":"DK","v":2,"sfs":"","sfm":"","sfd":"","ref":"","org":""}
 ```
+
+The last six fields say how the request was made. `curl` sends no browser headers, so they are empty. A browser that opens `/.env` from the address bar writes `"sfs":"none"`, and an image tag on another site writes `"sfs":"cross-site"` with the page's host name in `ref`. RemotePower uses them to tell a visitor's own request from one that a page caused ([What RemotePower does with a hit](#what-remotepower-does-with-a-hit)).
 
 A visit from an address in `ALLOW` shows `"action":"allowlisted"`. You can also open the Worker in the Cloudflare dashboard (**Workers & Pages**, then your Worker, then **Observability**) and filter on `msg` equal to `trap hit`. If lines show there, the log has the `msg` field RemotePower asks for.
 
@@ -263,13 +289,17 @@ RemotePower reads the log every ten minutes unless you changed it, and files eac
 | `bait` | A file that should never be public: `.env`, `.git`, `.aws`, `.ssh`, SQL dumps, `actuator`, `phpunit` | Probing for configuration files, keys and backups |
 | `login` | A login or admin page your site does not have | Probing for admin, login and debug pages |
 
-One hit on a `bait` path is enough to report an address, because nobody innocent asks for `.env` or a database dump ([Edge sources](edge-sources.md#step-3-enter-it-in-remotepower) has the setting). A hit on a `login` path counts as one attempt, and an address is reported when its hits reach **Report after attempts**, which is 10 unless you changed it ([Limits on API use](ip-intel.md#limits-on-api-use)). Until then the attackers list says how far it is, for example `not reported: 9 / 10 attempts so far`. A report reads:
+One hit on a `bait` path is enough to report an address when the request was made by the visitor's own tool ([Edge sources](edge-sources.md#step-3-enter-it-in-remotepower) has the setting). Someone who asks for `.env` or a database dump has little reason to, but a web page can make a visitor's browser ask for one: an image tag on any site is enough. So RemotePower sets aside every hit that a page caused, and counts one hit on a `bait` path as decided only when the script wrote the fields that say how the request was made. A line from an older script counts as one attempt, like a hit on a `login` path.
+
+A hit on a `login` path counts as one attempt, and an address is reported when its hits reach **Report after attempts**, which is 10 unless you changed it ([Limits on API use](ip-intel.md#limits-on-api-use)). Until then the attackers list says how far it is, for example `not reported: 9 / 10 attempts so far`. A report reads:
 
 ```
 probing for configuration files, keys and backups and probing for admin, login and debug pages: 12 attempts within 3 minutes, seen by edge honeypot (reported by RemotePower)
 ```
 
-The report names counts and the kind of attack. RemotePower also keeps the method and path of up to three requests per address as samples, so the details of an address show what it asked for; untick **Send up to three request samples with each address** in the **Log sensor** card to stop that. A report carries them only when you tick **Add a few example requests to reports** ([What is sent](ip-intel.md#what-is-sent)). The user agent, the host name and the rest of the line stay in your log and are never read. Lines marked `allowlisted` are set aside.
+The report names counts and the kind of attack. RemotePower also keeps the method and path of up to three requests per address as samples, so the details of an address show what it asked for; untick **Send up to three request samples with each address** in the **Log sensor** card to stop that. A report carries them only when you tick **Add a few example requests to reports** ([What is sent](ip-intel.md#what-is-sent)). The user agent and the rest of the line stay in your log and are never read. The three Sec-Fetch words, and the host names of the Referer and the Origin, are read to tell whether a page caused the request, and RemotePower keeps none of them. Lines marked `allowlisted` are set aside.
+
+The **Edge feeds** card on **Security → Threat Intel** counts the lines it set aside because a page caused them, under **Set aside**, as `requests that a page made a browser send`. A tool can write the browser headers itself and be set aside that way. That costs it only the report, and a scanner that does it is no worse for you than one that stays away from your decoys.
 
 This Worker never bans, so it never writes the actions that make RemotePower report at once. If you add banning to it, log `banned`, `already-banned` or `already-blocked-elsewhere` for a ban. [The honeypot Worker log](edge-sources.md#the-honeypot-worker-log) lists what each action means.
 
@@ -281,7 +311,7 @@ The Worker blocks nobody, and RemotePower only reports. To stop an address at Cl
 2. Add one custom rule to your zone with the expression `(ip.src in $remotepower_blocklist)` and the action **Block**, using the name you gave the list ([Use the list in a rule](edge-sources.md#use-the-list-in-a-rule)).
 3. To block one address now, press **Ban** on its row in the attackers table ([Ban an address by hand](edge-sources.md#ban-an-address-by-hand)).
 
-An address goes into the list at the next sync after RemotePower reports it, which takes as many hits as **Report after attempts**, or after its score reaches **Found addresses: score of at least**. A report does not start a sync. The list is synced every six hours unless you changed **Update every (hours)**, so a reported address can wait that long, and **Sync now** on the card syncs at once. A Worker that bans on the first hit is faster, but it needs a token that can edit IP rules inside a Worker that faces the internet, and a job to expire the bans. Doing it from RemotePower keeps that token in one place.
+An address goes into the list at the next sync after RemotePower reports it, which takes as many hits as **Report after attempts**, or after its score reaches **Found addresses: score of at least**. A report that the honeypot made alone is not a reason to list an address: the honeypot answers whoever asks, and a service that follows a link someone posted asks like anyone else. Such an address goes into the list when its score reaches the bar, or when a host's logs or Cloudflare's firewall events also name it. The same holds for blocking on your hosts and for the edge ban: the setting **Also block addresses that fail2ban, CrowdSec or a honeypot has already banned, whatever their score** needs a second source before it acts on a honeypot's word. A report does not start a sync. The list is synced every six hours unless you changed **Update every (hours)**, so a reported address can wait that long, and **Sync now** on the card syncs at once. A Worker that bans on the first hit is faster, but it needs a token that can edit IP rules inside a Worker that faces the internet, and a job to expire the bans. Doing it from RemotePower keeps that token in one place.
 
 ## Rules that answer first
 
@@ -313,7 +343,7 @@ Route paths are case sensitive, and a route cannot have a wildcard in the middle
 - The Worker never reads a request body, so a password sent to the fake login is not stored or logged.
 - The Worker holds no token and calls no API, so a leaked copy of the files gives nobody access to your account.
 - The script answers with fixed text and echoes nothing the visitor sent.
-- The log holds the visitor's address, user agent, country and the path they asked for. Cloudflare keeps it for about three days. An address can be personal data where you live, so keep it in mind when you write your privacy notice.
+- The log holds the visitor's address, user agent, country, the path they asked for, the three Sec-Fetch words and the host names of the Referer and the Origin. Cloudflare keeps it for about three days. An address can be personal data where you live, so keep it in mind when you write your privacy notice.
 - RemotePower reads the log with a read-only token ([The Workers row](edge-sources.md#the-workers-row)). Do not give it a token that can edit Workers.
 
 ## Troubleshooting
@@ -325,6 +355,8 @@ Route paths are case sensitive, and a route cannot have a wildcard in the middle
 | Lines show in `wrangler tail`, and RemotePower shows nothing | The Worker name differs, the token lacks the Workers Observability row, or no account id is set | Check **Worker names**, the token and the account id on the Edge sources card, then press **Test connection**. |
 | **Test connection** says `Skipped` for the honeypot log | No account id is set | Add it ([Step 2](edge-sources.md#step-2-find-your-account-id)). |
 | The address is listed and not reported | It has fewer hits than **Report after attempts** | Wait for more hits, or lower the number. The status names how far it is. |
+| One request for `/.env` is not reported at once, and the **Edge feeds** card says lines come from an older script | The script in your account does not write the fields that say how the request was made, so RemotePower counts each hit as one attempt | Replace `worker.js` with the one on this page and run `npx wrangler deploy` again. |
+| A hit does not show up, and the **Edge feeds** card counts `requests that a page made a browser send` | A page on some site made a browser ask for the decoy, for example with an image tag, or the request came from a link on another site | Nothing to do. Those lines are set aside on purpose, because the visitor did not choose to ask. |
 | Every line says `allowlisted` | The address is in `ALLOW` | Expected for your own address. Test from another network. |
 | Nothing at all in the log | Workers Logs is off, or nobody has asked yet | Check that `[observability]` is in `wrangler.toml` and deploy again, then ask for `/.env` yourself. |
 

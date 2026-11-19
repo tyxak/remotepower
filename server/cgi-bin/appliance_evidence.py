@@ -53,7 +53,7 @@ import threat_evidence
 WINDOW_S = 1800            # how long an address is watched from its first refused packet
 SCAN_PORTS = 10            # different ports tried within the window ...
 SCAN_PACKETS = 25          # ... or packets refused within it
-TRAP_HITS = 2              # hits on a decoy port; nothing innocent connects to it
+TRAP_HITS = 2              # hits on a decoy port that decide the address (a report; a block or a list entry needs a second source)
 MAX_TRACKED = 2000         # addresses watched per device
 MAX_PORTS = 16             # ports remembered per address: enough to reach SCAN_PORTS
 MAX_LINE = 4096            # characters read from one line

@@ -80,6 +80,7 @@ const _IPI_ASIDE = {
   cloudflare_address: "Cloudflare's own addresses",
   own_or_shared_address: 'your own or shared addresses',
   not_evidence: 'lines the honeypot logs only to be read',
+  page_request: 'requests that a page made a browser send',
 };
 const _IPI_CHECK = {
   zones: 'Zones', firewall: 'Firewall events', rules: 'Custom rules', trap: 'Honeypot log',
@@ -904,6 +905,9 @@ function _ipiRenderEdge() {
     if ((e[feed] || {}).truncated) {
       out.push(`<p class="hint">${_ipiPhrase(_IPI_FEED[feed])}: ${_ipiPhrase('More events than one read can hold; some were not counted.')}</p>`);
     }
+  }
+  if (e.enabled && Number((e.trap || {}).older) > 0) {
+    out.push(`<p class="hint">${_ipiPhrase(_IPI_FEED.trap)}: ${_ipiPhrase('Some lines come from a script that does not say how the request was made, so each counts as one attempt. Replace it with the script in the honeypot guide.')}</p>`);
   }
   notes.innerHTML = out.join('');
 }

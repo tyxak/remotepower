@@ -878,6 +878,8 @@ NET_PER_SWEEP = 25          # addresses per sweep that cost a network call
 SWEEP_MAX = 500             # addresses per sweep in all: the ones that cost nothing are free
 LEDGER_S = 86400            # how long an address's evidence is kept before it starts over
 REPORT_LOG_KEEP = 3         # what was sent, kept per address so the page can show it
+# The reason shown for an address that a trap alone called hostile, and that the settings would have blocked on that word (see `_corroborated`).
+TRAP_ALONE_WHY = 'only a honeypot or a decoy port says it is hostile, which is not enough to block it'
 
 
 def _fresh_ledger(att, now):
@@ -1344,6 +1346,7 @@ def run_ip_intel_if_due():
         atts = st.setdefault('attackers', {})
         blocks = st.setdefault('blocks', {})
         done = set()
+        corroborated = {}    # address -> whether something besides a trap says it is hostile
         for p in plan:
             ip, dev_id, item, verdict = p['ip'], p['dev_id'], p['item'], p['verdict']
             att = atts.setdefault(ip, {})
@@ -1378,6 +1381,11 @@ def run_ip_intel_if_due():
                 # It is kept with the places that collected it and, while more than one
                 # did, the part of each (see _add_to_ledger).
                 cur, hosts, by = _add_to_ledger(att, groups[ip], now)
+                # A trap's decision (the honeypot's, a decoy port's) reports an address and does not block or list it unless something
+                # else says it is hostile as well: the day's evidence, what the last report was made of, or a host's own attack counter.
+                corroborated[ip] = (_corroborated(att, cur)
+                                    or any(not isinstance(q['item'].get('evidence'), dict) and q['dev_id'] not in ip_intel.EDGE_DEVICES
+                                           for q in groups[ip]))
                 # A report starts the ledger over, but only once every service it
                 # is meant for has been told: if one took it and the other was
                 # busy, the evidence stays so the other can still be sent it.
@@ -1409,8 +1417,11 @@ def run_ip_intel_if_due():
                 count += int(prior.get('count') or 0)        # a running total for the day
             seen[dev_id] = {'count': count, 'unit': str(item.get('unit') or '')[:64],
                             'at': int(item.get('at') or now)}
-            sure = threat_evidence.confirmed_by(ev) if isinstance(ev, dict) else ''
+            sure_any = threat_evidence.confirmed_by(ev) if isinstance(ev, dict) else ''
+            sure = threat_evidence.confirmed_by(ev, traps=corroborated.get(ip, False)) if isinstance(ev, dict) else ''
             ok, why = ip_intel.block_decision(pol, verdict, item.get('count'), sure)
+            if not ok and sure != sure_any and ip_intel.block_decision(pol, verdict, item.get('count'), sure_any)[0]:
+                why = TRAP_ALONE_WHY      # the trap's word was the only reason there was to block it
             # A block that exists because a ban engine decided (the setting `block_confirmed`) and not because
             # of the score says so, in the block and in the audit line. The verdict can be missing: a new
             # scanner has no score, and that is the case this setting is for.
@@ -2366,7 +2377,7 @@ def _held_by_blocklist(st, pol, now):
         return set()
     return set(edge_blocklist.own_candidates(
         st.get('attackers'), now, pol['edgelist_own_score'], pol['edgelist_own_days'],
-        listable=_own_listable(pol, A._load_ro(A.DEVICES_FILE) or {})))
+        listable=_own_listable(pol, A._load_ro(A.DEVICES_FILE) or {}), reported_ok=_reported_stands))
 
 
 def _own_listable(pol, devices):
@@ -2389,6 +2400,26 @@ def _own_listable(pol, devices):
             return False
         return True
     return listable
+
+
+def _corroborated(att, ledger):
+    """Whether something besides a trap says this address is hostile, from the day's ledger of the address and from what its last report was
+    made of. Both are the evidence the logs and the feeds gave; a trap's own decision is in them and is the one thing that does not count."""
+    sent = att.get('ev_reported') if isinstance(att.get('ev_reported'), dict) else {}
+    return threat_evidence.beyond_traps(ledger) or threat_evidence.beyond_traps(sent.get('ev'))
+
+
+def _reported_stands(row):
+    """`reported_ok(row)` for edge_blocklist.own_candidates: whether the report of an address is a reason to put it in the Cloudflare list.
+
+    A report that only a trap made does not: the honeypot logs whoever it is asked by, and a request can be sent to it by a page, by a
+    service that follows a link, or by a script, so the address that asked is not shown to be the address of an attacker. The address can
+    still go in on its score. A row with no evidence in it (one a clear kept for the list, or one from before the ledger) stands as it did."""
+    ledger = row.get('ev') if isinstance(row.get('ev'), dict) else None
+    sent = row.get('ev_reported') if isinstance(row.get('ev_reported'), dict) else {}
+    if not (ledger or isinstance(sent.get('ev'), dict)):
+        return True
+    return _corroborated(row, ledger)
 
 
 def _reported_marker(att, now):

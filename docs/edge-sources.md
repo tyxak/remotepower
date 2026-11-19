@@ -105,8 +105,8 @@ Open **Security → Threat Intel**, go to the **Settings** tab and scroll to the
 | **Firewall events** | Tick to read Cloudflare's firewall events. | ticked |
 | **Honeypot Worker log** | Tick to read a honeypot Worker's log. Untick it if you do not run one. | ticked |
 | **Count refusals by a rule that also blocks an IP list** | See [Rules that also block an IP list](#rules-that-also-block-an-ip-list). | unticked |
-| **Count a planted credential or decoy sign-in as decided** | Report an address on its first use of a planted credential or its first sign-in to a decoy service, even when the Worker did not ban it. Nobody innocent lands on those two traps. | unticked |
-| **Count one hit on a bait path as decided** | Report an address on its first request for a bait path such as `.env`, `.git` or a database dump, for a WordPress file such as `wp-content/debug.log` or the user list, for a decoy host name, or for the fake `.git`, without waiting for 10 attempts. Nobody innocent asks for those, and one hit is enough to file the report. Untick it to go back to counting attempts. | ticked |
+| **Count a planted credential or decoy sign-in as decided** | Report an address on its first use of a planted credential or its first sign-in to a decoy service, even when the Worker did not ban it. Counts only for a request that its sender made and a page did not cause, and only for a line from a script that says so (see [The honeypot Worker log](#the-honeypot-worker-log)). | unticked |
+| **Count one hit on a bait path as decided** | Report an address on its first request for a bait path such as `.env`, `.git` or a database dump, for a WordPress file such as `wp-content/debug.log` or the user list, for a decoy host name, or for the fake `.git`, without waiting for 10 attempts. One hit is enough to file the report when the visitor's own tool made the request: a page can make a browser ask for any of these, so a request that a page caused is set aside, and a line from a script that does not say how the request was made counts as one attempt (see [The honeypot Worker log](#the-honeypot-worker-log)). Untick it to go back to counting attempts. | ticked |
 | **Zones** | One zone id per line. Leave it empty to read every zone the token can see. The Zone ID is on each zone's Overview page. | empty |
 | **Worker names** | The Workers whose log to read, one per line, up to three. | `trap-sink` |
 | **Read every (minutes)** | How often to read, from 5 to 1,440. | 10 |
@@ -177,6 +177,7 @@ These are the reasons a line is set aside:
 | Cloudflare's own addresses | The address belongs to Cloudflare's network. |
 | your own or shared addresses | Honeypot only: the Worker marked the address as allow-listed or as a shared exit. |
 | lines the honeypot logs only to be read | Honeypot only: a kind of line that is not an attack, such as a self-test. |
+| requests that a page made a browser send | Honeypot only: the Worker's line says a page caused the request (an image on another site, a script, a link), so the visitor did not choose to ask. See [The honeypot Worker log](#the-honeypot-worker-log). |
 
 ### The attackers list
 
@@ -341,7 +342,7 @@ This feed is for operators who run a honeypot Worker, a Cloudflare Worker that a
 RemotePower reads the Worker's log through Workers Observability. The Worker has to keep Workers Logs on and print one JSON object for each hit, with these fields:
 
 ```json
-{"msg": "trap hit", "kind": "bait", "ip": "203.0.113.7", "action": "banned", "at": "2026-10-11T09:30:00.000Z"}
+{"msg": "trap hit", "kind": "bait", "ip": "203.0.113.7", "action": "banned", "at": "2026-10-11T09:30:00.000Z", "host": "example.com", "v": 2, "sfs": "none", "sfm": "navigate", "sfd": "document", "ref": "", "org": ""}
 ```
 
 | Field | What RemotePower reads |
@@ -352,6 +353,9 @@ RemotePower reads the Worker's log through Workers Observability. The Worker has
 | `action` | What the Worker decided. `banned`, `already-banned` and `already-blocked-elsewhere` count as the Worker's own decision, and the address is reported at once. `allowlisted` and `shared-egress` are set aside. Anything else counts as a hit that waits for **Report after attempts**. |
 | `at` | When it happened. `timestamp` works too. |
 | `method`, `path` | The request, kept as a sample (the method and the path without a query string) when **Send up to three request samples with each address** is ticked. A line without them is counted all the same. |
+| `v`, `sfs`, `sfm`, `sfd`, `host`, `ref`, `org` | How the request was made. `v` is the script version (2 or more writes the rest). `sfs`, `sfm` and `sfd` are the Sec-Fetch-Site, -Mode and -Dest words that a browser sends on every request, `host` is the name the visitor asked for, and `ref` and `org` are the host names of the Referer and the Origin. RemotePower sets the line aside when a page caused the request: `sfs` is `cross-site` or `same-site`, `sfm` is anything but `navigate`, `sfd` is anything but `document`, `sfs` is `same-origin` for anything but a navigation to a document, or `ref` or `org` names a host other than `host`. Without `v` it cannot tell, so a single hit does not count as decided and the line counts as one attempt. None of them is kept. |
+
+A tool that writes these headers itself can have its requests set aside. A browser that opens `/.env` from the address bar (`sfs` of `none`), a script and a scanner with no browser headers are counted. A service that fetches a link on someone's behalf (a link preview, a mail image proxy) sends no browser headers, so it is counted like a scanner: a report is possible, and a block or a list entry needs a second source, as for any address that only the honeypot named.
 
 The table of what each kind is filed as is under [The honeypot](ip-intel.md#the-honeypot).
 

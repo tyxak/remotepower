@@ -297,7 +297,7 @@ def _poll_trap(token, pol, edge, now):
     events, stats = edge_evidence.trap_events(hits, now, decided_tokens=decided,
                                               samples=bool(pol.get('sensor_samples', True)))
     return {'state': 'ok', 'at': now, 'events': events, 'hits': stats['hits'], 'kept': stats['kept'],
-            'ignored': stats['ignored'], 'truncated': truncated, 'to': until, 'workers': workers}
+            'ignored': stats['ignored'], 'older': stats['older'], 'truncated': truncated, 'to': until, 'workers': workers}
 
 
 def _safely(fn, token, pol, edge, now):
@@ -404,7 +404,7 @@ def run_edge_intel_if_due():
 
 # ── what the page reads ────────────────────────────────────────────────────────
 
-_FEED_KEYS = ('state', 'at', 'rows', 'hits', 'kept', 'ignored', 'truncated', 'error',
+_FEED_KEYS = ('state', 'at', 'rows', 'hits', 'kept', 'ignored', 'older', 'truncated', 'error',
               'rules_unreadable', 'skipped', 'zones', 'workers', 'mode', 'refused', 'samples')
 
 

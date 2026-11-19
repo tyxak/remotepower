@@ -8446,7 +8446,7 @@ def _refuse_beyond_scope(scope, mine):
     the key asks for more (PATCH its own key to scope all, make an unscoped administrator key, make a viewer account and sign in as it). A
     caller with no limit (a session, a key without a scope) passes, as does everything inside the limit."""
     if mine is not None and not _scope_within(scope, mine):
-        respond(403, {'error': 'Your key is limited to part of the fleet. It can only create and change what stays inside that part.',
+        respond(403, {'error': 'Your key is limited to part of the fleet, and this reaches beyond that part.',
                       'code': 'beyond_key_scope'})
 
 
@@ -12569,14 +12569,32 @@ def _platform_route(pi, m):
     return None
 
 
+# Of the platform routes, the two that hand out the whole installation: every host with its token, the accounts, the settings. A key that is
+# limited to part of the fleet is not the operator of the installation, with tenant isolation or without, so it is refused on them. The
+# marker matrix of the key's scope (tests/test_v802_key_scope_whole_installation.py) found exactly these two among 239 routes that read:
+# the full backup and the export held every host, and an administrator key limited to one group downloaded both.
+_WHOLE_INSTALLATION_PREFIXES = ('/api/backup', '/api/export')
+
+
 def _enforce_platform_routes(pi, m):
     """403 a tenant user on a _PLATFORM_ROUTES request. Runs once per request
     from main(), like the module gate. No-op with tenancy off, for the platform
     operator, and for a request with no signed-in user (the handler's own 401,
-    or a daemon's secret check, answers that)."""
-    if not pi.startswith('/api/') or not _tenancy_enforced():
+    or a daemon's secret check, answers that).
+
+    The two routes that hand out the whole installation (_WHOLE_INSTALLATION_PREFIXES) are also refused to an administrator key that is
+    limited to part of the fleet, whether tenant isolation is on or not."""
+    if not pi.startswith('/api/'):
         return
-    if _platform_route(pi, m) is None:
+    route = _platform_route(pi, m)
+    if route is None:
+        return
+    if route in _WHOLE_INSTALLATION_PREFIXES:
+        _u, _r = verify_token(get_token_from_request())
+        if _u and _resolve_role(_r).get('admin') and _caller_scope() is not None:
+            respond(403, {'error': 'Your key is limited to part of the fleet, and this reaches beyond that part.',
+                          'code': 'beyond_key_scope'})
+    if not _tenancy_enforced():
         return
     user, _role = verify_token(get_token_from_request())
     if not user or _caller_is_superadmin():

@@ -54,7 +54,7 @@ may say what its own IDS alerted on, as it may say what its own WAF refused, and
 that a reputation list or a decoy port decided. The same hostile request shows up in several of
 them, so the number used in a report is the LARGEST family count, never the sum.
 The honeypot's own decision (it banned the address) rides in `trp`, and so does a
-decoy port's (the address hit it twice: nothing innocent connects to it).
+decoy port's (the address hit it twice). A trap reports an address; it does not block or list one on its own (`beyond_traps`).
 """
 
 import ipaddress
@@ -1003,17 +1003,45 @@ def trap_family(ev):
     return "trap"
 
 
-def confirmed_by(ev):
+def confirmed_by(ev, traps=True):
     """Who already decided this address is hostile: 'fail2ban', 'CrowdSec', 'the
-    edge honeypot', 'a decoy port' or ''. A honeypot decision is its own ban (the
-    address tripped a trap that has no innocent visitor), not a count of hits."""
+    edge honeypot', 'a decoy port' or ''. A honeypot decision counts as its own ban
+    for a report: the request was one that a visitor would not make on their own,
+    and not a count of hits.
+
+    `traps=False` leaves a trap's decision out. A trap is asked by whoever can get a
+    request or a connection sent to it, so what it says is enough to report an
+    address and is never enough to block or list one without a second source
+    (`beyond_traps`)."""
     if ev.get("ban"):
         return "fail2ban"
     if _count(ev.get("dec")):
         return "CrowdSec"
-    if _count(ev.get("trp")):
+    if traps and _count(ev.get("trp")):
         return "a decoy port" if trap_family(ev) == "dp" else "the edge honeypot"
     return ""
+
+
+# The two sources that are traps: the honeypot Worker's log and a decoy port's. Both are visited, and a visit can be made by a third party
+# (a page that makes a browser ask for an image, a service that follows a link someone posted, a connection a browser opens to any port it
+# allows), so neither is the word of the address that the visit came from.
+TRAP_SOURCES = ("trap", "dp")
+
+
+def beyond_traps(ev):
+    """True when something besides a trap says the address is hostile: a ban engine's decision, a CrowdSec decision, a reputation list
+    that a firewall blocked it for, or a source that is not a trap and saw it do something. False for evidence made of traps alone (and
+    for none), which is why a trap's decision reports an address and does not block or list it."""
+    if not isinstance(ev, dict):
+        return False
+    if ev.get("ban") or _count(ev.get("dec")) or _count(ev.get("rep")):
+        return True
+    src = ev.get("src") if isinstance(ev.get("src"), dict) else {}
+    tok = ev.get("tok") if isinstance(ev.get("tok"), dict) else {}
+    for fam in set(src) | set(tok):
+        if fam not in TRAP_SOURCES and (_count(src.get(fam)) or tok.get(fam)):
+            return True
+    return False
 
 
 def cs_scenarios(ev, limit=5):
