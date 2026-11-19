@@ -15,7 +15,6 @@ GET /api/attention handle_attention
 GET /api/audit-log handle_audit_log
 GET /api/autonomy/receipts handle_autonomy_receipts
 DELETE /api/autopatch/{} handle_autopatch_delete
-POST /api/autopatch/{}/run handle_autopatch_run
 POST /api/compose/fetch handle_compose_fetch
 GET /api/fleet/disk-health handle_disk_health
 GET /api/ignored handle_ignored_list

@@ -173,6 +173,9 @@ not a window: it has no schedule, and it does not hold alerts. The API is
 Everyone who is signed in can see the windows. Creating, editing and deleting
 them is admin-only and audit-logged.
 
+An API key that has a host scope makes windows that cover the hosts of its scope and no others, even for the scope `global`. Such a key cannot
+edit a window made by someone who has no scope. Windows made before this rule carry no scope.
+
 Under multi-tenancy a window belongs to the tenant that created it and only
 covers that tenant's hosts. Maintenance mode is a switch for the whole
 installation, so with tenant isolation on only the platform operator can set it.

@@ -93,3 +93,8 @@ and approval is audit-logged. Everyone who is signed in can see them. With tenan
 isolation on, a rollout belongs to the tenant of the administrator who created it:
 a tenant's administrator sees and changes only those, and a ring only reaches that
 tenant's hosts.
+
+An API key that has a host scope makes rollouts that reach the hosts of its scope and no others: a ring that names a group, a tag, some ids or
+a share of the hosts is resolved over the hosts the key could reach, so a ring of `dev` hosts made by a key limited to `prod` reaches none. Such a
+key cannot start, resume, promote or roll back a rollout made by someone who has no scope, which reaches every host. It can pause or cancel any
+rollout, since that only stops it. Rollouts made before this rule carry no scope.

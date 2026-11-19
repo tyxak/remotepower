@@ -8446,7 +8446,7 @@ def _refuse_beyond_scope(scope, mine):
     the key asks for more (PATCH its own key to scope all, make an unscoped administrator key, make a viewer account and sign in as it). A
     caller with no limit (a session, a key without a scope) passes, as does everything inside the limit."""
     if mine is not None and not _scope_within(scope, mine):
-        respond(403, {'error': 'Your key is limited to part of the fleet. It can only create and change keys, roles and accounts that stay inside that part.',
+        respond(403, {'error': 'Your key is limited to part of the fleet. It can only create and change what stays inside that part.',
                       'code': 'beyond_key_scope'})
 
 
@@ -8467,6 +8467,31 @@ def _bound_key_scope(scope, asked):
         return copy.deepcopy(mine)
     _refuse_beyond_caller_scope(scope)
     return scope
+
+
+def _caller_scope_stamp():
+    """The caller's own device scope, as a value to store on an object that is dispatched later: an auto-patch policy, a rollout, an
+    automation rule, a maintenance window. The dispatch has no request, so what confines it is what the object carries, as it is for the
+    tenant (`tenant_gate`). None when nothing confines the caller: the object reaches what it names, as it always did."""
+    scope = _caller_scope()
+    return copy.deepcopy(scope) if scope is not None else None
+
+
+def _host_in_stamped_scope(stamp, dev):
+    """Whether a host is inside the scope that an object was stamped with when it was made (`scope_gate`). No stamp is no limit. A stamp that
+    is not a scope this code writes, and a host that is not a record, admit nothing, so a damaged value cannot widen what an object reaches."""
+    if not stamp:
+        return True
+    if not isinstance(stamp, dict) or not isinstance(dev, dict):
+        return False
+    return _device_in_scope(stamp, dev)
+
+
+def _refuse_object_beyond_scope(obj, mine):
+    """403 when `mine` (the caller's scope, as `_caller_scope()` returns it) is a limit and `obj`, a stored policy, rollout, rule or window,
+    reaches beyond it. What it reaches is what its stamp says, and an object with no stamp reaches every host. Asked before the caller runs,
+    starts or edits it: a key that is limited to part of the fleet may not set going what acts on more than that part."""
+    _refuse_beyond_scope(obj.get('scope_gate') if isinstance(obj, dict) else None, mine)
 
 
 def _ip_in_cidrs(ip, cidrs):
@@ -14524,6 +14549,14 @@ def _run_automation_rules(event, payload, cfg):
                 devices_cache = {dev_id: device_get(dev_id) or {}} if dev_id else {}
             if _device_tenant(devices_cache.get(dev_id) or {}) != _rgate:
                 continue
+        # The device scope of the key that made the rule, for the same reason: it is stamped on the rule, because nobody is asking. A
+        # rule that carries one acts on hosts inside it, and an event that names no host is not one of them.
+        _rscope = rule.get('scope_gate')
+        if _rscope:
+            if devices_cache is None:
+                devices_cache = {dev_id: device_get(dev_id) or {}} if dev_id else {}
+            if not dev_id or not _host_in_stamped_scope(_rscope, devices_cache.get(dev_id)):
+                continue
         if not _device_matches_rule(dm, dev_id, devices_cache):
             continue
         try:
@@ -14693,7 +14726,13 @@ def handle_automation_rule_create():
                  # The autopatch sibling has done exactly this since v6.4.0
                  # (`_autopatch_target_devices(target, tenant_gate)`), for the
                  # same reason and with a strictly milder payload.
-                 'tenant_gate': _tenant_gate()})
+                 'tenant_gate': _tenant_gate(),
+                 # And the device scope of the key that made it, for the same
+                 # reason: an API key can be given part of the fleet, which
+                 # confines even an administrator's key, and a rule with no host
+                 # match queued its script on the host of the next event
+                 # wherever that host was. None for a person with no limit.
+                 'scope_gate': _caller_scope_stamp()})
     with _LockedUpdate(RULES_FILE) as st:
         rules = st.setdefault('rules', [])
         if len(rules) >= 200:
@@ -14713,12 +14752,15 @@ def handle_automation_rule_update(rule_id):
     if err:
         respond(400, {'error': err})
     found = False
+    mine = _caller_scope()                      # read before the lock is taken: it checks the token
     with _LockedUpdate(RULES_FILE) as st:
         for r in (st.get('rules') or []):
             if r.get('id') == rule_id and _rule_visible(r):
+                # a key limited to part of the fleet changes only a rule that stays inside that part
+                _refuse_object_beyond_scope(r, mine)
                 # `rule` comes from _validate_rule, which builds a fresh dict
-                # from known keys only — so the stored tenant_gate survives this
-                # update and a caller cannot supply one.
+                # from known keys only — so the stored tenant_gate (and
+                # scope_gate) survives this update and a caller cannot supply one.
                 r.update(rule)
                 found = True
                 break
@@ -21503,13 +21545,16 @@ def _pinned_patch_tags():
     return {s.get('promoted_tag') for s in snaps.values() if s.get('promoted_tag')}
 
 
-def _autopatch_target_devices(target, tenant_gate=None):
+def _autopatch_target_devices(target, tenant_gate=None, scope_gate=None):
     """Resolve a policy target {type,value} to a list of device ids.
 
     SEC (v6.4.0): `tenant_gate` (stamped on the policy at create time) confines
     resolution to one tenant's devices when set — None means no restriction
     (superadmin / tenancy off). Without it a tenant admin's `type='all'` (or a
     cross-tenant group/tag) policy would fan the upgrade out across every tenant.
+
+    `scope_gate` is the same for the device scope of the key that made the policy (an API key can be given part of the fleet, and that
+    confines even an administrator's key): a policy for the group dev made by a key limited to the group prod reaches no host.
 
     #80: devices carrying a tag with an ACTIVE promoted patch-snapshot are
     excluded from every target type (even type='device' naming one directly,
@@ -21531,6 +21576,8 @@ def _autopatch_target_devices(target, tenant_gate=None):
         if dev.get('quarantined'):
             continue
         if tenant_gate is not None and _device_tenant(dev) != tenant_gate:
+            continue
+        if scope_gate and not _host_in_stamped_scope(scope_gate, dev):
             continue
         if pinned and pinned.intersection(dev.get('tags') or ()):
             continue
@@ -21626,6 +21673,10 @@ def _autopatch_sync(pol, remove=False):
                     # is not a real user, so there was no author to fall back on
                     # either.
                     'tenant_gate': pol.get('tenant_gate'),
+                    # And the scope of the key that made the policy: a policy for
+                    # everything made by a key limited to part of the fleet
+                    # became a `global` window that silenced every host's alerts.
+                    'scope_gate': pol.get('scope_gate'),
                 })
     except Exception as e:
         sys.stderr.write(f'[remotepower] autopatch maint sync: {e}\n')
@@ -21724,6 +21775,9 @@ def handle_autopatch_create():
            # gate is captured here and enforced when the target resolves. Without
            # it a tenant admin's policy could patch/reboot the whole fleet.
            'tenant_gate': _tenant_gate(),
+           # And the device scope of the key that made it (None for a person, or a key with no scope): the policy fires from cron too,
+           # and an API key can be given part of the fleet, which confines even an administrator's key.
+           'scope_gate': _caller_scope_stamp(),
            'last_run': 0, 'last_fired_minute': int(time.time()) // 60 - 1}
     # v5.8.0 (B1.3): optional staged rollout. With `rings`, firing the policy
     # spawns a health-gated rollout (canary → wave → rest) instead of a one-shot
@@ -21756,6 +21810,8 @@ def handle_autopatch_update(pol_id):
                               # which would otherwise transfer ownership
     if not pol:
         respond(404, {'error': 'policy not found'})
+    mine = _caller_scope()
+    _refuse_object_beyond_scope(pol, mine)     # a key limited to part of the fleet changes only a policy that stays inside that part
     if 'name' in body:
         pol['name'] = _sanitize_str(body['name'], 80).strip() or pol['name']
     if 'cron' in body:
@@ -21775,6 +21831,9 @@ def handle_autopatch_update(pol_id):
             # SEC (v6.4.0): re-stamp the tenant gate to the editor's scope when the
             # target changes, so an edited target can't reach another tenant.
             pol['tenant_gate'] = _tenant_gate()
+            # ...and the scope to the editor's, for the same reason: a policy keeps to the limit of whoever last set its target. A key
+            # that has a scope got past the check above only for a policy inside its scope, so this is its own scope again.
+            pol['scope_gate'] = copy.deepcopy(mine)
     # v5.8.0 (B1.3): rings + gate. Passing an empty list clears staged mode.
     if 'rings' in body:
         _rings = _autopatch_clean_rings(body.get('rings'))
@@ -21908,6 +21967,7 @@ def _autopatch_spawn_rollout(pol, actor):
             'updated_at': int(time.time()),
             '_autopatch_id': pol['id'],      # link back (and the dedup key above)
             'tenant_gate': pol.get('tenant_gate'),  # SEC (v6.4.0): inherit the policy's tenant gate → dispatcher confines rings
+            'scope_gate': pol.get('scope_gate'),    # and the device scope of the key that made it: the dispatcher keeps the rings to it
         }
         _rollout_log(roll, f'spawned by auto-patch policy "{pol.get("name")}" — '
                            f'{plural(len(roll["rings"]), "ring", "rings")}, '
@@ -21928,11 +21988,14 @@ def _autopatch_queue(pol, actor):
         _autopatch_spawn_rollout(pol, actor)
         # Report how many devices the rings cover, for the run response.
         devices = load(DEVICES_FILE)
+        _sg = pol.get('scope_gate')
+        if _sg:      # the count is of the hosts the rollout will reach, which keep to the scope of the key that made the policy
+            devices = {d: v for d, v in devices.items() if _host_in_stamped_scope(_sg, v)}
         # v6.4.2: rings are resolved IN ORDER — a percent/remaining ring's
         # membership depends on what the earlier rings took. Unioning
         # independently resolved rings would count "the rest" as the whole fleet.
         return len(_rollout_ring_coverage(pol['rings'], devices))
-    targets = _autopatch_target_devices(pol.get('target'), pol.get('tenant_gate'))
+    targets = _autopatch_target_devices(pol.get('target'), pol.get('tenant_gate'), pol.get('scope_gate'))
     if not targets:
         return 0
     # v6.2.0 (BUG): this queued ONE bash command for every target, so a Windows
@@ -21990,6 +22053,7 @@ def handle_autopatch_run(pol_id):
     if not pol:
         respond(404, {'error': 'policy not found'})
     _autopatch_block(pol)                                      # v7.0.2
+    _refuse_object_beyond_scope(pol, _caller_scope())          # a key limited to part of the fleet runs only a policy inside that part
     n = _autopatch_queue(pol, actor)
     pol['last_run'] = int(time.time())
     save(AUTOPATCH_FILE, data)
@@ -74118,6 +74182,11 @@ def _window_applies(w, dev_id, dev=None, dev_group=None, owner=_OWNER_UNKNOWN):
         owner = _window_owner_tenant(w)
     if owner is not None and _device_tenant(dev or {}) != owner:
         return False
+    # The device scope of the key that made the window (`scope_gate`), for the same reason: a window for everything made by a key that
+    # is limited to part of the fleet covers that part, and not the alerts and the changes of every other host.
+    _wscope = w.get('scope_gate')
+    if _wscope and not _host_in_stamped_scope(_wscope, dev):
+        return False
     if dev_group is None:
         dev_group = (dev or {}).get('group') or ''
     scope = (w.get('scope') or 'device').lower()
@@ -74483,6 +74552,8 @@ def handle_maintenance_add():
         # A window suppresses alerts and can hold every change on the hosts it
         # covers, so whose hosts those are is part of the record.
         'tenant_gate': _tenant_gate(),
+        # ...which includes the device scope of the key that made it (None for a person, or a key with no scope).
+        'scope_gate': _caller_scope_stamp(),
     })
 
     maint = load(MAINT_FILE)
@@ -74596,13 +74667,15 @@ def handle_maintenance_update(window_id):
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body()
     clean = _validate_maintenance_body(body)
+    mine = _caller_scope()                      # read before the lock is taken: it checks the token
     with _LockedUpdate(MAINT_FILE) as maint:
         windows = maint.get('windows') or []
         target_win = next((w for w in _visible_windows(windows)
                            if w.get('id') == window_id), None)
         if not target_win:
             respond(404, {'error': 'maintenance window not found'})
-        new_win = dict(target_win)  # preserve id/created_by/created_at/tenant_gate
+        _refuse_object_beyond_scope(target_win, mine)   # a key limited to part of the fleet changes only a window inside that part
+        new_win = dict(target_win)  # preserve id/created_by/created_at/tenant_gate/scope_gate
         new_win.update(clean)
         new_win['updated_by'] = actor
         new_win['updated_at'] = int(time.time())

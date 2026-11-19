@@ -51,3 +51,8 @@ through the audited [command pipeline](agent-commands.md).
 
 Creating, editing and enabling auto-patch policies is admin-only; each policy run
 and its per-host upgrades are audit-logged.
+
+An API key that has a host scope makes policies that reach the hosts of its scope and no others: the policy carries the scope of the key that
+made it, so a policy for the group `dev` made by a key limited to `prod` upgrades nothing, whether it is run by hand or by its schedule. Such a
+key cannot run or edit a policy made by someone who has no scope, since that policy reaches every host. Policies made before this rule carry no
+scope, and a key with a scope leaves them alone.

@@ -24,7 +24,9 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
   fleet-wide aggregate is filtered to your tenant.
 - **A key with a host scope hands out only what it has.** An administrator key that is limited to some groups, tags or sites can create and
   change keys, roles and accounts that stay inside them, and nothing wider: a request for more (a scope of `all`, another kind of scope, a role
-  that reaches every host) is a **403** with `code: "beyond_key_scope"`. A key made without a scope gets the scope of the key that made it.
+  that reaches every host) is a **403** with `code: "beyond_key_scope"`. A key made without a scope gets the scope of the key that made it. What
+  such a key sets going keeps to its scope as well: an auto-patch policy, a rollout, an automation rule or a maintenance window made by it
+  acts on the hosts of its scope only, and the key cannot run or edit one made by someone with no scope.
 - **Write contention returns a retryable 503**, never a 500. Back off and retry.
 - **Conditional GET.** Some read endpoints honour `If-None-Match` and answer **304**
   when nothing changed.

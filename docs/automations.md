@@ -66,3 +66,8 @@ with two actions plus a cooldown) cover it. With **Verify within** set to
 
 The server keeps the last 500 remediation attempts. Rules are visible to admins of
 the tenant that created them.
+
+An API key that has a host scope makes rules that act on the hosts of its scope and no others. The rule carries the scope of the key that made
+it, so a rule with no host match that runs a script acts on an event of a host inside the scope, and an event of any other host, or an event
+that names no host, does not fire it. Such a key cannot edit a rule made by someone who has no scope. Rules made before this rule carry no
+scope, and a key with a scope leaves them alone.

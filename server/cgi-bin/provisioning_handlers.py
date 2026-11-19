@@ -165,6 +165,12 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
     if _gate is not None:
         _rdev = {_d: _v for _d, _v in devices.items()
                  if isinstance(_v, dict) and A._device_tenant(_v) == _gate}
+    # The same for the device scope of the key that made the rollout (`scope_gate`): an API key can be given part of the fleet, which
+    # confines even an administrator's key, and a ring that names a group, a tag, a smart group, some ids or a share of the hosts
+    # resolves against what is left here, so none of them reaches a host outside the key's scope.
+    _sgate = roll.get('scope_gate')
+    if _sgate:
+        _rdev = {_d: _v for _d, _v in _rdev.items() if A._host_in_stamped_scope(_sgate, _v)}
     # v6.4.2: NOT _rollout_resolve_ring on this ring alone — a percent/remaining
     # ring is defined relative to the rings before it, so 0..idx are replayed.
     ids = _rollout_ring_ids(roll.get('rings') or [], idx, _rdev)
@@ -817,11 +823,23 @@ def _rollout_start_approved(roll_id, actor):
     return {'ok': True}
 
 
+# The actions that send a rollout on to hosts. A key that is limited to part of the fleet takes them only for a rollout that stays inside
+# that part; pausing and cancelling only stop one, so they stay open.
+_ROLLOUT_REACH_ACTIONS = ('start', 'resume', 'promote', 'rollback')
+
+
 def handle_rollout_action(roll_id, action):
     """POST /api/rollouts/<id>/<start|pause|resume|cancel|promote>."""
     actor = A.require_admin_auth()
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
+    mine = A._caller_scope()     # read before any lock is taken: it checks the token
+    if mine is not None and action in _ROLLOUT_REACH_ACTIONS:
+        # Asked before the start is parked for an approval below, so a refused key leaves no request behind.
+        _r1 = next((r for r in ((A.load(A.ROLLOUTS_FILE) or {}).get('rollouts') or [])
+                    if r.get('id') == roll_id and _rollout_visible(r)), None)
+        if _r1 is not None:
+            A._refuse_object_beyond_scope(_r1, mine)
     if action == 'start':
         # 7.5.0: starting a rollout that has never run is the change change approval is for (an upgrade or a reboot of whole rings),
         # and it ran at once. A paused rollout was approved when it first started, so resuming it asks nothing.
@@ -834,6 +852,8 @@ def handle_rollout_action(roll_id, action):
         roll = next((r for r in rolls if r.get('id') == roll_id), None)
         if not roll or not _rollout_visible(roll):
             A.respond(404, {'error': 'rollout not found'})
+        if action in _ROLLOUT_REACH_ACTIONS:
+            A._refuse_object_beyond_scope(roll, mine)      # again on the copy the lock holds
         st = roll.get('state')
         if action == 'start':
             if st not in ('draft', 'paused'):
@@ -904,6 +924,10 @@ def handle_rollout_action(roll_id, action):
                         'current_ring': 0,
                         'history': [],
                         'rolled_back_from': roll_id,
+                        # A rollback reaches the hosts the rollout reached, and carries what the rollout carried, so what confines the
+                        # dispatch of one confines the other: the creator's tenant and the device scope of the key that made it.
+                        'tenant_gate': roll.get('tenant_gate'),
+                        'scope_gate': roll.get('scope_gate'),
                         'created_by': actor,
                         'created_at': int(time.time()),
                         'updated_at': int(time.time()),
@@ -1052,6 +1076,9 @@ def handle_rollouts_create():
         # cannot target another tenant's hosts via an ids/group/tag selector
         # (rollouts bypass the _resolve_targets chokepoint entirely).
         'tenant_gate': A._tenant_gate(),
+        # And the creator's device scope (None for a person, or a key with no scope), for the same reason: a key that is limited to part
+        # of the fleet cannot name a host outside it in a ring and have the scheduler reach it.
+        'scope_gate': A._caller_scope_stamp(),
     }
     A._rollout_log(roll, f'created — {action}, {A.plural(len(rings), "ring", "rings")}, '
                        f'{"auto" if roll["auto_promote"] else "manual"} promote')
