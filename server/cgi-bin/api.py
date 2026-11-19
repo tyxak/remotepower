@@ -9199,7 +9199,7 @@ def audit_log(actor, action, detail='', source_ip=None,
             try:
                 _why = _forward_audit(entry, cfg)
             except Exception as _fwd_err:
-                sys.stderr.write(f'[remotepower] audit forward failed: {_fwd_err}\n')
+                sys.stderr.write(f'[remotepower] audit forward failed: {_audit_forward_reason(_fwd_err)}\n')
                 _spool_audit_forward(entry, _fwd_err)
             else:
                 if _why:
@@ -9284,6 +9284,16 @@ def _audit_forward_state():
     return st
 
 
+def _audit_forward_reason(error):
+    """Why the audit forwarder failed, as it may be kept and shown. The text of an exception can name the address of the collector or a header value (http.client
+    quotes the request target and the value it refuses), and the reason goes into the posture row of Compliance, the store and the audit_forward_failed alert, which
+    every reader of those and every destination sees, so an exception is told as its kind (`_failure_reason`). What the forwarder says itself when it declines
+    ('no audit_forward_url configured', 'skipped: ...') is its own text and stays."""
+    if isinstance(error, BaseException):
+        return _failure_reason(_exception_failure_text(error), other='the request failed')[:300]
+    return str(error)[:300]
+
+
 def _spool_audit_forward(entry, error):
     """Park one audit entry that could not be forwarded, and remember why.
 
@@ -9304,7 +9314,7 @@ def _spool_audit_forward(entry, error):
                 entries = entries[over:]
                 st['dropped'] = int(st.get('dropped') or 0) + over
             st['entries'] = entries
-            st['last_error'] = str(error)[:300]
+            st['last_error'] = _audit_forward_reason(error)
             st['last_attempt'] = now
             if not st.get('failing_since'):
                 st['failing_since'] = now
@@ -9367,7 +9377,7 @@ def run_audit_forward_retry_if_due():
         try:
             why = _forward_audit(e, cfg)
         except Exception as _e:
-            err = str(_e)[:300]
+            err = _audit_forward_reason(_e)
             break
         if why:
             err = why
@@ -10232,7 +10242,6 @@ def _log_inbound(kind, token_id, label, status, detail=''):
 # streak is kept per destination in NOTIFY_HEALTH_FILE and announced once.
 NOTIFY_FAIL_STREAK = 3
 _DELIVERY = threading.local()
-_URL_IN_TEXT_RE = re.compile(r'[a-z][a-z0-9+.-]*://\S+', re.I)
 
 
 def _delivery_outcome(seen):
@@ -10320,7 +10329,7 @@ def _note_delivery(key, label, ok, error=''):
                     'detail': f'Notification destination "{shown}" delivers again.'})
         else:
             fails = _whole_or_zero(row.get('fails')) + 1
-            why = _URL_IN_TEXT_RE.sub('[address]', str(error or ''))[:160]
+            why = _failure_reason(error)       # never the failure text itself: see _FAILURE_PHRASES
             alerted = row.get('alerted') is True
             if fails >= NOTIFY_FAIL_STREAK and not alerted:
                 alerted = True
@@ -10347,6 +10356,8 @@ def _notify_error_class(text):
             return 'http_4xx'
         if 500 <= code < 600:
             return 'http_5xx'
+    if 'auth failed' in t or 'authentication failed' in t:
+        return 'auth'            # the mail server refusing the login (smtp_notifier: `auth failed: 535 ...`); a webhook says its HTTP status instead
     if 'blocked: target resolves' in t:
         return 'blocked'
     if 'invalid scheme' in t or ('missing' in t and 'settings' in t):
@@ -10360,6 +10371,66 @@ def _notify_error_class(text):
     if any(w in t for w in ('refused', 'unreachable', 'no route', 'reset by peer', 'broken pipe', 'connection')):
         return 'unreachable'
     return 'other'
+
+
+# What an alert, the streak kept for a destination and the other destinations may be told about WHY a request failed. The text of a failure is what a remote system
+# answered, or what http.client printed about a request it refused, and that names the path and the query of the address (for a Slack, Discord or Teams address the path is
+# the credential) and the value of a header (a bearer token). It goes into the alert inbox, to every other destination and into the mail, so it is never copied there.
+# The reason is built from what is safe instead: the HTTP status when the receiver answered one, one phrase for each kind of failure `_notify_error_class` tells apart, and,
+# for a failure of no known kind, the name of the exception class. The full text stays where only an administrator reads it, in the delivery log. Each phrase is also a
+# text that `_notify_error_class` reads back as the kind it stands for, so what is stored under a destination and what the Settings card says about it are one word.
+_FAILURE_PHRASES = {
+    'timeout': 'timed out',
+    'unreachable': 'connection refused or unreachable',
+    'dns': 'name or service not known',
+    'tls': 'TLS or certificate error',
+    'auth': 'auth failed',
+    'blocked': 'blocked: target resolves to a metadata or local address',
+    'config': 'invalid scheme or missing settings',
+}
+# the start of a failure text that names its exception class: `RuntimeError [generic]: ...` (a delivery) or `RuntimeError: ...` (the mail server, an integration)
+_FAILURE_CLASS_NAME_RES = (re.compile(r'([A-Za-z_][A-Za-z0-9_]{0,60}) \[[a-z0-9_]{1,24}\]:'), re.compile(r'([A-Za-z_][A-Za-z0-9_]{0,60}): '))
+
+
+def _is_exception_class_name(name):
+    """True when `name` is the name of an exception class that exists in this process. A word that leads a failure text is carried into an alert only when it is one: a
+    class name is code and cannot be a credential, where the first word of any other text can be anything."""
+    stack, seen = [BaseException], set()
+    while stack:
+        cls = stack.pop()
+        if cls.__name__ == name:
+            return True
+        for sub in cls.__subclasses__():
+            if sub not in seen:
+                seen.add(sub)
+                stack.append(sub)
+    return False
+
+
+def _failure_reason(text, other='delivery error'):
+    """The reason a request failed, as an alert may say it (see _FAILURE_PHRASES): '' for no text, `HTTP <status>` when the text starts with one, the phrase of the
+    kind of failure it is, or, for a failure of no known kind, `other` with the name of the exception class when the text starts with one."""
+    t = str(text or '')
+    if not t.strip():
+        return ''
+    status = re.match(r'http (\d{3})\b', t, re.I)
+    if status:
+        return 'HTTP ' + status.group(1)
+    kind = _notify_error_class(t)
+    if kind != 'other':
+        return _FAILURE_PHRASES.get(kind, other)
+    for pat in _FAILURE_CLASS_NAME_RES:
+        m = pat.match(t)
+        if m and _is_exception_class_name(m.group(1)):
+            return f'{other} ({m.group(1)})'
+    return other
+
+
+def _exception_failure_text(exc):
+    """A failure text for an exception in the shape `_failure_reason` reads: `HTTP <status>` for an HTTPError, `ClassName: message` for the rest."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return f'HTTP {exc.code}'
+    return f'{type(exc).__name__}: {exc}'
 
 
 def _notify_failing_destinations():
@@ -29803,7 +29874,9 @@ class _SSRFIntegrationClient(integrations_mod.HTTPClient):
             if why:
                 raise integrations_mod.IntegrationError(
                     ('Could not reach %s: %s' % (urllib.parse.urlparse(self.base).netloc or 'the target', why))[:160])
-            raise integrations_mod.IntegrationError(f'{e.__class__.__name__}: {e}'[:160])
+            # not the exception's own text: for an exception of the HTTP client that is the request target or a header value, which the detail would carry into the
+            # integration_down alert (see _failure_reason)
+            raise integrations_mod.IntegrationError(_failure_reason(_exception_failure_text(e), other='the request failed')[:160])
 
 
 def _get_integrations(cfg=None):

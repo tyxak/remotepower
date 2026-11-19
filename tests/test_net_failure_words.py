@@ -133,13 +133,16 @@ class TestTheIntegrationClientAndTheVirtualizationPage(_RealClientFailing):
                     client.request('GET', '/api/x')
                 self.assertEqual(str(cm.exception), 'Could not reach vc.lab:8443: ' + want)
 
-    def test_an_exception_that_is_not_a_network_failure_keeps_its_class_and_text(self):
+    def test_an_exception_that_is_not_a_network_failure_keeps_its_class_and_not_its_text(self):
+        # 8.0.2: this said 'RuntimeError: boom'. The text of an exception of the HTTP client quotes the request target (an address with a space in its query, with the key in it) or a header
+        # value, and the detail goes into the integration_down alert, so only the class of the exception is kept (tests/test_v802_notify_dest_secret.py drives that exception itself)
         type(self).EXC = RuntimeError('boom')
         self.addCleanup(setattr, type(self), 'EXC', urllib.error.URLError(_gai()))
         client = api._SSRFIntegrationClient('https://vc.lab', verify_tls=True, timeout=1)
         with self.assertRaises(integrations.IntegrationError) as cm:
             client.request('GET', '/api/x')
-        self.assertEqual(str(cm.exception), 'RuntimeError: boom')
+        self.assertEqual(str(cm.exception), 'the request failed (RuntimeError)')
+        self.assertNotIn('boom', str(cm.exception))
 
     def test_the_virtualization_handler_answers_with_the_words_not_the_exception(self):
         status, body = self.call(api.handle_virt_vms, 'abc123')

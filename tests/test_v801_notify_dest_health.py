@@ -173,8 +173,9 @@ class TestAWebhookThatKeepsFailing(_Base):
         said = repr(self.announced()) + repr(self.alerts()) + repr(self.health())
         self.assertNotIn(SECRET, said)
         self.assertNotIn('down.example.org/services', said)
-        self.assertIn('connection refused', self.health()['wh:wh_a']['error'])     # the reason is kept
-        self.assertIn('[address]', self.health()['wh:wh_a']['error'])
+        # 8.0.2: what is kept of a failure is its kind, not its text. This line said the reason was kept with the address cut out of it ('connection refused' and
+        # '[address]'), which is a scrub that knew one way of writing an address; tests/test_v802_notify_dest_secret.py holds the rest of it
+        self.assertEqual(self.health()['wh:wh_a']['error'], 'connection refused or unreachable')
 
     def test_a_destination_that_delivers_writes_nothing(self):
         """The common case: no failure on record, so the health store is not opened for writing at all."""
@@ -197,13 +198,13 @@ class TestAWebhookThatKeepsFailing(_Base):
         (payload,) = self.announced()
         self.assertIn('HTTP 404', payload['detail'])
 
-    def test_a_send_that_breaks_counts_too_and_its_text_loses_the_address(self):
-        self.net.behave['down.example.org'] = 'boom'
+    def test_a_send_that_breaks_counts_too_and_the_alert_says_what_kind_it_was(self):
+        self.net.behave['down.example.org'] = 'boom'            # RuntimeError('broken pipe to <the address>')
         self.event(3)
         (payload,) = self.announced()
-        self.assertIn('RuntimeError', payload['detail'])
-        self.assertIn('broken pipe to [address]', payload['detail'])
+        self.assertIn('connection refused or unreachable', payload['detail'])
         self.assertNotIn(SECRET, payload['detail'])
+        self.assertNotIn('broken pipe', payload['detail'], 'what the exception said is not copied into the alert')
 
 
 class TestWhatWasNotTriedIsNotAFailure(_Base):
@@ -289,7 +290,7 @@ class TestADestinationThatCannotWorkAsItIsSet(_Base):
 
     def test_a_missing_key(self):
         (payload,) = self.three(dict(A, format='pushover'))
-        self.assertIn('missing token', payload['detail'])
+        self.assertIn('missing settings', payload['detail'])
 
     def test_an_address_the_filter_refuses(self):
         refused = lambda parsed, allow_loopback=True: parsed.hostname == 'down.example.org'   # noqa: E731
@@ -462,7 +463,8 @@ class TestTheMailServer(_Base):
         self.event(3)
         (payload,) = self.announced()
         self.assertEqual(payload['label'], 'Email')
-        self.assertIn('authentication failed', payload['detail'])
+        self.assertIn('auth failed', payload['detail'])
+        self.assertNotIn('bad credentials', payload['detail'], 'what the mail server answered is not copied into the alert')
         self.assertEqual(self.health()['email']['fails'] >= 3, True)
         (alert,) = self.alerts()
         self.assertEqual(alert['payload']['label'], 'Email')

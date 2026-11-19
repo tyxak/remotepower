@@ -641,7 +641,7 @@ class TestTheFailingDestination(_Seeded):
         text = json.dumps(self.raw['notify_health.json'])
         for leak in ('apprise.lab', 'discord.com', 'demo-not-a-real', '://', 'notify/', 'http'):
             self.assertNotIn(leak, text, leak)
-        self.assertEqual(self.api._URL_IN_TEXT_RE.sub('[address]', row['error']), row['error'], 'what the server would have kept of the text: nothing in it was an address')
+        self.assertEqual(self.api._notify_error_class(self.api._failure_reason(row['error'])), 'dns', 'what the server keeps of a failure is its kind: this text reads as a failed name lookup')
         self.assertEqual(self.api._notify_error_class(row['error']), 'dns')
         self.assertEqual(row['label'], 'Apprise — family chat')
 

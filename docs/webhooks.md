@@ -231,8 +231,8 @@ each failed delivery is a line in the log and an entry in the dead-letter queue,
 on your alerts stop arriving, which looks exactly like a quiet day.
 
 So RemotePower counts failed deliveries per destination. The third in a row raises
-`notify_dest_failing`: an alert in the inbox that names the destination and the last error,
-and a notification through every other destination you have. The first delivery that gets
+`notify_dest_failing`: an alert in the inbox that names the destination and the kind of the last
+error, and a notification through every other destination you have. The first delivery that gets
 through raises `notify_dest_recovered` and closes the alert. A successful **Send test** or a
 retry from the dead-letter queue counts as getting through.
 
@@ -250,6 +250,14 @@ retry from the dead-letter queue counts as getting through.
   path is the credential. Two destinations can have the same name, or none and the same host, and
   the mail server is called "Email": each still has an alert of its own, and a destination that
   delivers again closes its own alert and no other.
+- The alert says the kind of the failure and never repeats its text. It reads `HTTP 404`, `timed out`,
+  `connection refused or unreachable`, `name or service not known`, `TLS or certificate error`, `auth failed`
+  (the mail server refusing the login), `blocked: target resolves to a metadata or local address`,
+  `invalid scheme or missing settings`, or `delivery error` with the name of the exception. The text of a failure is what the receiver answered, or what the HTTP
+  library printed about a request it refused, and that quotes the path and the query of the address, which
+  for most chat services is the credential, or the value of a header. The **Webhook log**, which only an
+  administrator reads, keeps the full text. The alerts about audit forwarding and about an integration
+  follow the same rule.
 - Removing a destination or switching it off closes its alert and takes its mark away when you save, not when the next
   event is sent. The same holds when a settings document you apply from a file, or a settings revision you restore, removes
   it or switches it off. A destination that is switched off shows no mark.
