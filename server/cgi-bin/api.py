@@ -8494,6 +8494,31 @@ def _refuse_object_beyond_scope(obj, mine):
     _refuse_beyond_scope(obj.get('scope_gate') if isinstance(obj, dict) else None, mine)
 
 
+def _scope_names_smart_group(scope, name):
+    """Whether `scope` names the smart group `name`: `smart:<name>` among the values of a scope of groups, or of one part of a composite. The
+    comparison is made on the name the way the smart group routes make it (lower case, letters, digits, - and _), so a spelling that those
+    routes read as the same group counts as naming it."""
+    if not isinstance(scope, dict):
+        return False
+    if scope.get('type') == 'all_of':
+        return any(_scope_names_smart_group(part, name) for part in (scope.get('scopes') or []))
+    vals = scope.get('values')
+    if scope.get('type') != 'groups' or not isinstance(vals, (list, tuple)):
+        return False
+    return any(isinstance(v, str) and v.lower().startswith('smart:')
+               and re.sub(r'[^a-z0-9_-]', '', v[6:].lower())[:48] == name for v in vals)
+
+
+def _refuse_scope_naming_smart_group(name):
+    """403 when the caller's own scope names the smart group `name`. A scope can name a smart group (`smart:<name>`), which means whatever
+    its rules match now, so a key that could make, change or delete the group its own scope names could make that scope admit every host
+    (PATCH the rules to match them all, or delete the group and make it again). A group the scope does not name is not the key's own reach:
+    it is made and edited as before, and what a caller is told about its members is narrowed on every read."""
+    mine = _caller_scope()
+    if mine is not None and _scope_names_smart_group(mine, name):
+        _refuse_beyond_scope(None, mine)
+
+
 def _ip_in_cidrs(ip, cidrs):
     """v5.4.1 (D7): True if `ip` falls inside any CIDR / exact IP in `cidrs`. A
     malformed list entry is skipped; a malformed/empty client IP fails CLOSED."""
@@ -18200,6 +18225,7 @@ def handle_smart_groups():
     name = re.sub(r'[^a-z0-9_-]', '', str(body.get('name', '')).lower())[:48]
     if not name:
         respond(400, {'error': 'name required (lowercase letters/digits/-/_)'})
+    _refuse_scope_naming_smart_group(name)
     rules = _validate_smart_rules(body.get('rules') or {})
     if not rules:
         respond(400, {'error': 'at least one rule is required'})
@@ -18226,6 +18252,7 @@ def handle_smart_group(name):
     actor = require_admin_auth()
     name = re.sub(r'[^a-z0-9_-]', '', str(name).lower())[:48]
     if method() == 'DELETE':
+        _refuse_scope_naming_smart_group(name)
         with _LockedUpdate(SMART_GROUPS_FILE) as store:
             g = store.get(name)
             if not isinstance(g, dict) or not _tenant_visible_id(g.get('tenant')):
@@ -18234,6 +18261,7 @@ def handle_smart_group(name):
         audit_log(actor, 'smart_group_delete', detail=f'name={name}')
         respond(200, {'ok': True})
     if method() == 'PATCH':
+        _refuse_scope_naming_smart_group(name)
         _read_valid(request_models.SmartGroupRequest)
         rules = _validate_smart_rules(get_json_obj().get('rules') or {})
         if not rules:

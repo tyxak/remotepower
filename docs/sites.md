@@ -71,7 +71,10 @@ version, monitored and agentless. A smart group does not change a host's real
 group. Use it as a targeting scope: type `smart:NAME` where a group name is
 accepted (a custom role's group list, a service baseline), or pick **smart group**
 as a ring type in a staged rollout. Names use lowercase letters, digits, `-` and
-`_`. You can keep up to 100, and only admins manage them.
+`_`. You can keep up to 100, and only admins manage them. An API key that has a
+host scope cannot make, change or delete a smart group, because a scope that names
+one (`smart:NAME`) widens when the group does. It can still list the groups, read
+the members it can see and preview a set of rules.
 
 To see what a rule matches before you save it, press **Preview members** in the
 editor. It shows how many hosts match and the first 50 of them, for the rules as
