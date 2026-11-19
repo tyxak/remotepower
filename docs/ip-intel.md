@@ -627,8 +627,9 @@ These addresses are **never** blocked:
 - every address your hosts report as their own;
 - the addresses on your UI IP allow-list (Settings → Security);
 - anything on the **Never block** list on the Threat Intel page;
-- addresses people signed in to RemotePower from in the last 30 days, and
-  addresses SSH-gateway sessions came from in that time.
+- addresses people signed in to RemotePower from in the last 30 days, whether
+  with a password (LDAP too), a passkey, SAML or OIDC, and addresses
+  SSH-gateway sessions came from in that time.
 
 Two limits stop a runaway. A host gets at most 20 automatic blocks an hour,
 which you can change with **Blocks per host per hour**. An address one of the

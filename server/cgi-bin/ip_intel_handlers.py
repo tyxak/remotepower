@@ -685,6 +685,14 @@ def _fetch_verdict(ip, pol, allowance, spent, down=None):
     return ip_intel.merge(results), errors
 
 
+# The audit actions that say a person signed in and was given a session, one for each place that mints one: the password form (LDAP
+# is a way to pass it, and ends in the same record), a passkey, SAML and OIDC. The address of such a sign-in is where an
+# administrator works from, so it is never blocked, reported or listed. A failed sign-in is not on the list, on purpose: it is
+# the very thing the block is for. tests/test_v802_threat_protected_sign_ins.py lists the places that mint a session by syntax
+# tree and fails when one of them writes an action that is not here.
+SIGN_IN_ACTIONS = ('login', 'login_webauthn', 'login_saml', 'login_oidc')
+
+
 def _protected_networks(pol, devices):
     """Addresses that must never be blocked: the fleet's own, the operator's
     UI allow-list, the configured never-block list, and where RemotePower's
@@ -711,7 +719,7 @@ def _protected_networks(pol, devices):
     cutoff = int(time.time()) - 30 * 86400
     try:
         for e in ((A._load_ro(A.AUDIT_LOG_FILE) or {}).get('entries') or [])[-5000:]:
-            if isinstance(e, dict) and e.get('action') == 'login' and int(e.get('ts') or 0) >= cutoff:
+            if isinstance(e, dict) and e.get('action') in SIGN_IN_ACTIONS and int(e.get('ts') or 0) >= cutoff:
                 own.append(e.get('source_ip'))
     except Exception:  # nosec B110
         pass  # the audit log is an extra source; the fleet and the lists still apply
