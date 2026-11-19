@@ -188,13 +188,43 @@ def _queue_priority(item):
     return 500_000 + int((item or {}).get('count') or 0)      # the brute-force counter's own
 
 
+def _fair_order(q, tiered, newest_first):
+    """The indexes of `q` in the order to take them: each host's entries by how much they matter (`_queue_priority`), and the hosts in
+    turn, so that the best entry of every host comes before the second of any. One host that sends more, or sends entries that rank
+    higher, takes no more of a short list than the next host does. `tiered` puts the brute-force counter's entries (no evidence) first,
+    first come first served within a host, as the sweep always did; `newest_first` breaks a tie for the later entry (the trim keeps the
+    newest of equals, the claim handles the oldest)."""
+    def is_sensor(item):
+        return isinstance(item, dict) and isinstance(item.get('evidence'), dict)
+
+    def tier(item):
+        return 1 if (not tiered or is_sensor(item)) else 0
+
+    def within(i):
+        if tier(q[i]) == 0:
+            return (0, i)
+        return (-_queue_priority(q[i]) if isinstance(q[i], dict) else 0, -i if newest_first else i)
+
+    groups = {}
+    for i, item in enumerate(q):
+        host = str(item.get('device_id') or '') if isinstance(item, dict) else ''
+        groups.setdefault((tier(item), host), []).append(i)
+    rank = {}
+    for (t, _host), idxs in groups.items():
+        for r, i in enumerate(sorted(idxs, key=within)):
+            rank[i] = (t, r, within(i))
+    return sorted(range(len(q)), key=lambda i: rank[i])
+
+
 def _trim_queue(q):
     """The queue at QUEUE_CAP entries, keeping the ones that matter and the
     original order. Plain "keep the newest" let a flood of one-hit addresses push
-    out an address that had been banned a minute earlier."""
+    out an address that had been banned a minute earlier, and plain "keep the
+    strongest" let one host that sent more of them push out the evidence of every
+    other host: the hosts are taken in turn (see `_fair_order`)."""
     if len(q) <= QUEUE_CAP:
         return q
-    keep = sorted(range(len(q)), key=lambda i: (-_queue_priority(q[i]), -i))[:QUEUE_CAP]
+    keep = _fair_order(q, tiered=False, newest_first=True)[:QUEUE_CAP]
     return [q[i] for i in sorted(keep)]
 
 
@@ -650,34 +680,108 @@ def _report_budget_left(st, pol, today):
 def _add_spend(st, today, spent):
     b = dict(_budget_today(st.get('budget'), today))
     for p, n in spent.items():
+        if n == 0 and str(p).startswith('host:'):
+            continue                  # a host's count that went up and came back (a request the service never answered)
         b[p] = int(b.get(p, 0)) + n
     st['budget'] = b
 
 
-def _fetch_verdict(ip, pol, allowance, spent, down=None):
+HOST_SHARE_MIN = 5   # the least of a day's lookups, and of its reports to one service, a host can count on; a fleet bigger than the limit cannot give every host more
+
+
+class _HostShares:
+    """The day's lookups and reports, shared out among the hosts that can send evidence.
+
+    The day's limits are the installation's (900 of each for each service, unless the operator set others), and the evidence that
+    spends them comes from hosts. A compromised host can make up addresses (a fail2ban jail in its summary is all it takes for one to
+    qualify), and the per-hour limit on what a host may add only bounds the work and the space it asks for: at 3,000 an hour it is
+    larger than the day's whole allowance. Without a share for each host, one host spent the allowance of both services in half an
+    hour, 900 invented addresses were filed under the operator's keys, and the evidence of every other host was refused for the rest
+    of the day.
+
+    A host's share of a service's limit is the limit divided by the number of hosts (at least HOST_SHARE_MIN), and what a host has used
+    is counted under `host:<id>:<l or r>:<service>` in the day's record, beside the service's own counts. The sum of the shares is
+    the limit, so the allowance of the others is still there whatever one host does. With one host the share is the whole limit.
+
+    Hosts are the Linux agents of the installation, every host that sent evidence in the last month and every host in the batch; the
+    two edge feeds count as one each while they are switched on, since they spend from the same day."""
+
+    def __init__(self, pol, budget, devices, sensors, batch_hosts):
+        hosts = {d for d, v in (devices or {}).items()
+                 if isinstance(v, dict) and not v.get('agentless') and A._device_os_family(v) == 'linux'}
+        hosts |= {str(d) for d in (sensors or {})}
+        hosts |= {d for d in batch_hosts if d and d not in ip_intel.EDGE_DEVICES}
+        edge = 0
+        if pol.get('edge_enabled'):
+            edge = int(bool(pol.get('edge_cf_events'))) + int(bool(pol.get('edge_trap')))
+        self.pol = pol
+        self.n = max(1, len(hosts) + edge)
+        self.used = {k: v for k, v in (budget or {}).items()
+                     if str(k).startswith('host:') and isinstance(v, int) and not isinstance(v, bool)}
+
+    @staticmethod
+    def key(dev, prov, kind):
+        return 'host:%s:%s:%s' % (dev, 'l' if kind == 'lookups' else 'r', prov)
+
+    def share(self, prov, kind):
+        limit = ip_intel.limit_for(self.pol, prov, kind)
+        return max(HOST_SHARE_MIN, limit // self.n) if limit > 0 else 0
+
+    def left(self, dev, prov, kind):
+        return max(0, self.share(prov, kind) - self.used.get(self.key(dev, prov, kind), 0))
+
+    def any_left(self, dev, kind):
+        """True when the host has some of its share for a service that has a key."""
+        return any(self.pol['keys'].get(p) and self.left(dev, p, kind) > 0 for p in ip_intel.PROVIDERS)
+
+    def charge(self, dev, prov, kind, spent, n=1):
+        k = self.key(dev, prov, kind)
+        self.used[k] = self.used.get(k, 0) + n
+        spent[k] = spent.get(k, 0) + n
+
+    def payer(self, group, prov, kind):
+        """The host of the first entry of an address that still has its share of `prov`, or None. An address several hosts saw is one
+        report, and it is charged to the first of them that can pay for it."""
+        for p in group:
+            if self.left(p['dev_id'], prov, kind) > 0:
+                return p['dev_id']
+        return None
+
+
+def _fetch_verdict(ip, pol, allowance, spent, down=None, host=None):
     """Ask every provider that has a key and allowance left. Network only:
     always called with no lock held. Returns (verdict or None, {provider: error}).
 
     `down` is the sweep's count of answers each provider did not give. A provider that
     has failed ip_intel.TRANSIENT_BREAKER times is not asked again in that sweep, and a
     failed ask is not charged to the day's allowance. The manual lookup passes none and
-    asks as before: its "budget is used up" answer reads `spent`."""
+    asks as before: its "budget is used up" answer reads `spent`.
+
+    `host` is (the shares, the host that pays) for a lookup the sweep makes for a host's
+    evidence: a service the host has used its share of is not asked, and each ask is
+    counted against the host as well as the service."""
     results = {}
     for prov in ip_intel.PROVIDERS:
         key = pol['keys'].get(prov)
         if not key or allowance.get(prov, 0) <= 0:
+            continue
+        if host is not None and host[0].left(host[1], prov, 'lookups') <= 0:
             continue
         if down is not None and down.get(prov, 0) >= ip_intel.TRANSIENT_BREAKER:
             results[prov] = {'ok': False, 'error': 'the service is not answering'}
             continue
         allowance[prov] -= 1
         spent[prov] = spent.get(prov, 0) + 1
+        if host is not None:
+            host[0].charge(host[1], prov, 'lookups', spent)
         build, parse = ip_intel.CHECK[prov]
         status, body = A._ip_intel_http(build(ip, key))
         results[prov] = parse(status, body)
         if down is not None and results[prov].get('transient'):
             allowance[prov] += 1
             spent[prov] -= 1
+            if host is not None:
+                host[0].charge(host[1], prov, 'lookups', spent, -1)
             down[prov] = down.get(prov, 0) + 1
     errors = {p: r.get('error') for p, r in results.items() if not r.get('ok')}
     if not any(r.get('ok') for r in results.values()):
@@ -896,33 +1000,35 @@ def _may_report(item, att, pol, now):
                and now >= int(retry.get(p) or 0) for p in ip_intel.PROVIDERS)
 
 
-def _needs_network(item, att, pol, now):
+def _needs_network(item, att, pol, now, shares=None):
+    """Whether handling this entry costs a call to a service. An entry whose host has used its share of the day's lookups (or reports)
+    has no call to make and does not take one of the sweep's places from the hosts that have."""
     att = att or {}
+    dev = str(item.get('device_id') or '')
     fresh = (now - int(att.get('checked_at') or 0)) < int(pol['cache_hours']) * 3600
-    if (pol.get('lookup_enabled') or pol.get('block_enabled')) and not (fresh and att.get('verdict')):
+    if ((pol.get('lookup_enabled') or pol.get('block_enabled')) and not (fresh and att.get('verdict'))
+            and (shares is None or shares.any_left(dev, 'lookups'))):
         return True
-    return _may_report(item, att, pol, now)
+    return _may_report(item, att, pol, now) and (shares is None or shares.any_left(dev, 'reports'))
 
 
-def _claim_batch(queue, atts, pol, now):
+def _claim_batch(queue, atts, pol, now, shares=None):
     """(batch, rest): the queue entries this sweep handles, in the order to handle
     them. The brute-force counter's entries keep their place at the front, first
     come first served; the sensor's follow, strongest first, so when a day's lookup
-    and report allowance runs short it goes to the addresses that earned it. Work
-    that costs a network call is rationed to NET_PER_SWEEP addresses; entries that
-    cost nothing (already looked up, nothing to report) are taken freely."""
-    def key(i):
-        item = queue[i]
-        if isinstance(item, dict) and isinstance(item.get('evidence'), dict):
-            return (1, -_queue_priority(item), i)
-        return (0, 0, i)
-    order = sorted(range(len(queue)), key=key)
+    and report allowance runs short it goes to the addresses that earned it. Each
+    kind is taken from the hosts in turn (see `_fair_order`), so a host that sends
+    the most, or the entries that rank highest, does not take the places the others'
+    need. Work that costs a network call is rationed to NET_PER_SWEEP addresses;
+    entries that cost nothing (already looked up, nothing to report) are taken
+    freely."""
+    order = _fair_order(queue, tiered=True, newest_first=False)
     taken, net = [], 0
     for i in order:
         item = queue[i]
         if isinstance(item, dict):
             att = atts.get(ip_intel.parse_ip(item.get('ip')) or '')
-            if _needs_network(item, att, pol, now):
+            if _needs_network(item, att, pol, now, shares):
                 if net >= NET_PER_SWEEP:
                     continue
                 net += 1
@@ -1055,11 +1161,17 @@ def run_ip_intel_if_due():
     # sweep read it; the table's own step comes second. The SQL backends share one
     # connection and cannot hold both locks, and the batch only has to be in this
     # sweep's hands by then.
+    devices = A._load_ro(A.DEVICES_FILE) or {}
     with A._LockedUpdate(A.IPINTEL_INTAKE_FILE) as intake:
         _intake_adopt(intake)
         ranked = st_ro.get('attackers') if isinstance(st_ro.get('attackers'), dict) else {}
-        batch, rest = _claim_batch(list(intake['queue']) + _ledger_catchup(st_ro, pol, now),
-                                   ranked, pol, now)
+        waiting = list(intake['queue']) + _ledger_catchup(st_ro, pol, now)
+        sensor_hosts = set(intake['sensors'])
+        # What each host has used of the day is read from the table as this sweep found it, so that a host that has used its share does
+        # not take one of the places that are rationed to the hosts that have not (the count is made again under the table's lock).
+        claim_shares = _HostShares(pol, _budget_today(st_ro.get('budget'), today), devices, sensor_hosts,
+                                   {str(q.get('device_id') or '') for q in waiting if isinstance(q, dict)})
+        batch, rest = _claim_batch(waiting, ranked, pol, now, claim_shares)
         intake['queue'] = [q for q in rest if not (isinstance(q, dict) and q.get('_catchup'))]
     with A._LockedUpdate(A.IPINTEL_FILE) as st:
         st['last_sweep'] = now
@@ -1084,6 +1196,8 @@ def run_ip_intel_if_due():
         st['blocks'] = blocks
         allowance = _budget_left(st, pol, today)
         report_allowance = _report_budget_left(st, pol, today)
+        shares = _HostShares(pol, _budget_today(st.get('budget'), today), devices, sensor_hosts,
+                             {str(i.get('device_id') or '') for i in batch if isinstance(i, dict)})
         atts = st.get('attackers') if isinstance(st.get('attackers'), dict) else {}
         plan = []
         for item in batch:
@@ -1109,13 +1223,13 @@ def run_ip_intel_if_due():
     spent = {}
     down = {}            # provider -> answers it did not give this sweep (see ip_intel.TRANSIENT_BREAKER)
     looked = {}          # ip -> (verdict, errors): one lookup per address per sweep
-    devices = A._load_ro(A.DEVICES_FILE) or {}
     protected = None
     groups = {}
     for p in plan:
         groups.setdefault(p['ip'], []).append(p)
-        if p['lookup'] and p['ip'] not in looked:
-            looked[p['ip']] = _fetch_verdict(p['ip'], pol, allowance, spent, down)
+        # The lookup is one for each address however many hosts saw it, and it is paid for by the first host that still has a share.
+        if p['lookup'] and p['ip'] not in looked and shares.any_left(p['dev_id'], 'lookups'):
+            looked[p['ip']] = _fetch_verdict(p['ip'], pol, allowance, spent, down, (shares, p['dev_id']))
         p['verdict'] = (looked.get(p['ip']) or (None, {}))[0] or p['cached']
         p['report_ok'], p['report_err'], p['report_retry'], p['report_log'] = {}, {}, {}, []
         ev = p['item'].get('evidence')
@@ -1172,6 +1286,12 @@ def run_ip_intel_if_due():
             if report_allowance.get(prov, 0) <= 0:
                 lead['report_err'][prov] = 'not reported: the daily report limit is used up'
                 continue
+            payer = shares.payer(group, prov, 'reports')
+            if payer is None:
+                # None of the hosts that saw it has any of its share of the day's reports left. The address keeps its evidence for
+                # tomorrow's sweep; the reports that are left are for the hosts that have not used theirs.
+                lead['report_err'][prov] = "not reported: this host has used its share of the day's report limit"
+                continue
             if down.get(prov, 0) >= ip_intel.TRANSIENT_BREAKER:
                 # It has not answered this sweep: leave the rest of the queue alone with it, and try again later.
                 lead['report_err'][prov] = 'not reported: the service is not answering'
@@ -1179,6 +1299,7 @@ def run_ip_intel_if_due():
                 continue
             report_allowance[prov] -= 1
             spent['report:' + prov] = spent.get('report:' + prov, 0) + 1
+            shares.charge(payer, prov, 'reports', spent)
             build, parse = ip_intel.REPORT[prov]
             res = parse(*A._ip_intel_http(
                 build(ip, key, report['cats'][prov], report['comment'], timestamp=report['when'])))
@@ -1190,6 +1311,7 @@ def run_ip_intel_if_due():
                 # next sighting.
                 report_allowance[prov] += 1
                 spent['report:' + prov] -= 1
+                shares.charge(payer, prov, 'reports', spent, -1)
                 down[prov] = down.get(prov, 0) + 1
                 lead['report_retry'][prov] = now + ip_intel.TRANSIENT_RETRY_S
             if res.get('ok'):

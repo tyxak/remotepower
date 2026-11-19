@@ -119,8 +119,11 @@ def handle_threat_events():
     Nothing the agent sends is trusted. Each address is rebuilt from the fixed
     vocabulary and anything else is dropped; Cloudflare edge addresses are not
     queued (the web server logged the proxy, not the visitor); and one host can
-    add at most SENSOR_EVENTS_PER_HOUR addresses an hour, so a compromised one
-    cannot spend the install's report budget on invented sources."""
+    add at most SENSOR_EVENTS_PER_HOUR addresses an hour. That bounds the work and
+    the space one host can ask for, and it is larger than the day's allowance of
+    lookups and reports, so it does not protect the allowance: the sweep gives each
+    host its share of the day's limits (`_HostShares`), and a compromised host can
+    spend its own share on invented sources and no more."""
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A._read_valid(A.request_models.ThreatEventsRequest)

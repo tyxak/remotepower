@@ -509,6 +509,16 @@ When a limit is reached, RemotePower stops until the next day and says so in the
 address's row. Use `0` to switch lookups or reports off for that service. The
 page shows how many have been used today.
 
+Each host has a share of every daily limit: the limit divided by the number of
+Linux agents (and by one for each edge feed that is switched on), and never less
+than 5. A host whose evidence has used its share is not looked up or reported
+for until tomorrow, and the limit that is left stays for the hosts that have not
+used theirs, so a host that sends made-up addresses cannot spend the allowance
+of the others. The address's row says `not reported: this host has used its
+share of the day's report limit`. With one host the share is the whole limit.
+When one host is busy and the others are quiet, raise **Lookups per day** and
+**Reports per day**; the shares grow with them.
+
 ### Check an address by hand
 
 Type a public address into **Check an address** on the Attackers tab and press
@@ -756,6 +766,7 @@ read the evidence of the hosts in their scope.
 | `not reported: 4 / 10 attempts so far` | The logs show the address, but not enough yet. See [When an address is reported](#when-an-address-is-reported). |
 | `not reported: 2 / 3 WAF refusals so far` or `... Cloudflare refusals so far` | The same, counted on the nearest route: the WAF needs the number in **Report after WAF refusals**, and Cloudflare needs the number in **Report after Cloudflare refusals**. |
 | `not reported: the service is not answering` | The service failed or gave no answer to three requests in a row, so RemotePower stopped asking it for the rest of that pass and asks about this address again in ten minutes. Open the **Request log** to see what it said. Nothing was counted against your daily limit. |
+| `not reported: this host has used its share of the day's report limit` | The host that saw the address has used its share of today's reports (see [Limits on API use](#limits-on-api-use)). The address keeps its evidence for the day it was gathered over, and is reported once the limit starts again if that evidence is still there. The limit that is left is for the hosts that have not used theirs. |
 | `not reported: the daily report limit is used up` | The service has been sent as many reports today as its limit allows. The count is RemotePower's own and covers only reports the service answered, so compare it with the usage on the service's own page, and raise **Reports per day**, or set the limit of that service alone, if your plan allows more. It starts again at midnight UTC. The first time 8.0.1 runs it drops the day's report counts that older versions kept, because they also counted reports a service never answered. |
 | `not reported: no attack category for the CrowdSec scenario crowdsecurity/...` | CrowdSec banned the address for a scenario or AppSec rule that RemotePower has no category for, so there is no honest category to report it under. The page shows the name, and the details of the address list what it asked for. |
 | `not reported: no attack category for the fail2ban jail recidive` | The same for a fail2ban jail such as `recidive`, which bans repeat offenders and says nothing about what they did. |
