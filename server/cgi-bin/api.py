@@ -23770,6 +23770,7 @@ def handle_heartbeat():
     # v4.8.0: metric_* webhooks are buffered inside the lock and fired below it.
     metric_pending = []
     _delta_resend = []   # v6.2.2: omitted sysinfo fields we could not merge
+    _iac_doc = None      # the IaC collection a host sent, written after the host-store lock is released
     with _DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if not dev or not _device_token_ok(dev, dev_token):
@@ -25184,23 +25185,33 @@ def handle_heartbeat():
         # /api/iac/status endpoint can find it.
         iac_data = body.get('iac_data')
         if iac_data and isinstance(iac_data, dict) and iac_data.get('request_id'):
-            try:
-                IAC_COLLECTION_DIR.mkdir(parents=True, exist_ok=True)
-                rid = re.sub(r'[^a-zA-Z0-9_-]', '_', str(iac_data['request_id']))[:64]
-                if rid:
-                    iac_file = IAC_COLLECTION_DIR / f'{rid}.json'
-                    save(iac_file, {
-                        'request_id':   rid,
-                        'device_id':    dev_id,
-                        'collected_at': int(time.time()),
-                        'categories':   iac_data.get('categories', []),
-                        'data':         iac_data.get('data', {}),
-                        'error':        iac_data.get('error'),
-                    })
-            except Exception as _iac_e:
-                sys.stderr.write(f'IaC ingest failed: {_iac_e}\n')
+            # Only the answer to a request an administrator made for THIS host is kept, once: the id was put in `iac_pending` when the request was made, and it is taken
+            # out here. Before 8.0.2 any host could write documents of 1.9 MiB under names it picked, inside this lock, and nothing pruned them.
+            rid = re.sub(r'[^a-zA-Z0-9_-]', '_', str(iac_data['request_id']))[:64]
+            pend = dev.get('iac_pending') if isinstance(dev.get('iac_pending'), dict) else {}
+            if rid and rid in pend:
+                pend.pop(rid, None)
+                if pend:
+                    dev['iac_pending'] = pend
+                else:
+                    dev.pop('iac_pending', None)
+                _iac_doc = {
+                    'request_id':   rid,
+                    'device_id':    dev_id,
+                    'collected_at': int(time.time()),
+                    'categories':   iac_data.get('categories', []),
+                    'data':         iac_data.get('data', {}),
+                    'error':        iac_data.get('error'),
+                }
         # devices is auto-saved here by _LockedUpdate.__exit__, atomically
         # under the same flock we acquired at __enter__.
+
+    if _iac_doc is not None:
+        try:
+            IAC_COLLECTION_DIR.mkdir(parents=True, exist_ok=True)
+            save(IAC_COLLECTION_DIR / f"{_iac_doc['request_id']}.json", _iac_doc)
+        except Exception as _iac_e:
+            sys.stderr.write(f'IaC ingest failed: {_iac_e}\n')
 
     # ── OUT OF THE LOCK ────────────────────────────────────────────────
     # Everything below this point operates on OTHER files (cmd_output,
@@ -81818,6 +81829,11 @@ def handle_iac_request():
                 'request_id': request_id,
                 'categories': agent_cats,
             }
+            # the ids this host may answer, newest few and for an hour: see the heartbeat's ingest of iac_data
+            _now = int(time.time())
+            _pend = {k: v for k, v in (dev.get('iac_pending') or {}).items() if isinstance(v, (int, float)) and _now - v < 3600} if isinstance(dev.get('iac_pending'), dict) else {}
+            _pend[request_id] = _now
+            dev['iac_pending'] = dict(sorted(_pend.items(), key=lambda kv: kv[1])[-8:])
         # else: all categories resolvable server-side — skip agent fetch
 
     # If no agent fetch needed, write an immediate "ready" file
