@@ -190,7 +190,9 @@ class TestALineNginxCutIsNotRead(_NginxBase):
     def test_without_the_cut_the_same_text_is_a_well_formed_line_the_reader_credits(self):
         # the control of the tests above: they are empty because of the line's length and for no other reason (an earlier version of this class passed with the
         # rule taken out, because the forged `open()` path was over the 300 characters the file pattern reads, and credited nobody on its own)
-        for kind in self.KINDS:
+        # only `waf`: the words of a failed login come after the user name, so a forged name's own client field ends the message before them and the
+        # reader credits that line to nobody whether or not it is cut (the `login` cut line is held empty by the tests above)
+        for kind in ('waf',):
             with self.subTest(kind=kind):
                 line = self.forged_cut_line(kind=kind)
                 shorter = line.replace('AAAA', '', 1)           # four bytes of filler fewer: under the limit, and still one client field

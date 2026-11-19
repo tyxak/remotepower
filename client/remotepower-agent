@@ -15293,7 +15293,7 @@ def _ts_status(value):
 # `, client:`; what follows is the request, the Host and the Referer, which their sender wrote, so the pattern is only ever tried on the
 # message of a line that has one client part. A sender can write into a message too (the path of a file nginx could not open is part of
 # one), so the words can label the sender's own address and no other: the client part is the one nginx wrote.
-_TS_CS_APPSEC_RE = re.compile(r"\[Crowdsec\] denied '[0-9A-Fa-f:.]{2,45}' with '[a-z]{2,12}' \(by appsec\)")
+_TS_CS_APPSEC_RE = re.compile(r"\[Crowdsec\] denied '([0-9A-Fa-f:.]{2,45})' with '[a-z]{2,12}' \(by appsec\)")
 
 
 def _ts_classify(method, uri, status, ua=''):
@@ -16563,27 +16563,7 @@ _TS_APC_CLIENT_RE = re.compile(r'\[client ([0-9A-Fa-f:.]+?)(?::\d{1,5})?\]')
 _TS_APC_FILE_RE = re.compile(
     r'(?:File does not exist|script not found or unable to stat|client denied by server configuration): (\S+)')
 _TS_NGX_FILE_RE = re.compile(r'open\(\) "([^"]{1,300})" failed \(2: No such file')
-# nginx writes `, client: <address>` once, after its message and before the request, and writes at most 2,047 bytes of a line (NGX_MAX_ERROR_STR is
-# 2,048 with the line feed; what does not fit is cut off the end, and the client field is written last). The message is not all nginx's own: the decoded
-# path of `open() "..." failed`, the argument a ModSecurity rule matched and the name of a login attempt are text the visitor wrote, and they come
-# BEFORE the real field. The request, the Host and the Referer come after it and are the visitor's too.
-_TS_NGX_CLIENT_MARK = ', client: '
-_TS_NGX_LINE_CAP = 2047
-
-
-def _ts_nginx_client(line):
-    """The match of `, client: <address>` in an nginx error line, or None when the line does not name its client exactly once and whole.
-
-    A visitor can add a `, client:` to the text nginx copies into a line, and cannot remove the real one. So a line that holds two is read for nobody: which of the
-    two is nginx's is not for a parser to guess, and the first of them is the visitor's whenever the visitor wrote one into the message. A line that reached the
-    2,047 bytes nginx writes at most may have lost its real field to the cut, so a single copy in it is not nginx's either. The length is counted in bytes, as nginx
-    counts it; a byte the text could not decode counts for three, which can only make a line look longer."""
-    first = line.find(_TS_NGX_CLIENT_MARK)
-    if first < 0 or line.find(_TS_NGX_CLIENT_MARK, first + 1) >= 0:
-        return None
-    if len(line.encode('utf-8', 'replace')) >= _TS_NGX_LINE_CAP:
-        return None
-    return _TS_NGX_CLIENT_RE.match(line, first)
+_TS_NGX_LINE_CAP = 2047    # nginx writes at most 2,047 bytes of a line and writes the client field last: a cut line may have lost its real one
 
 
 def _ts_request_line(req):
@@ -16601,6 +16581,8 @@ def _ts_nginx_client(line):
     pos = line.find(_TS_NGX_CLIENT_MARK)
     if pos < 0 or line.find(_TS_NGX_CLIENT_MARK, pos + 1) >= 0:
         return None
+    if len(line.encode('utf-8', 'replace')) >= _TS_NGX_LINE_CAP:
+        return None         # a line at the cut may have lost its real client part, and a single copy left in it is the sender's
     m = _TS_NGX_CLIENT_RE.match(line, pos)
     return (m.group(1), pos) if m else None
 
@@ -16686,7 +16668,8 @@ def _ts_scan_nginx_error(lines, agg, fkey, now):
             msg = line[:min(cm[1], THREAT_MAX_LINE)]
             rm = _TS_NGX_REQUEST_RE.search(line[cm[1]:cm[1] + THREAT_MAX_LINE])
             method, uri = _ts_request_line(rm.group(1)) if rm else ('', '')
-            if _TS_CS_APPSEC_RE.search(msg):
+            bm = _TS_CS_APPSEC_RE.search(msg)
+            if bm and bm.group(1) == cm[0]:      # the bouncer is handed $remote_addr: a sentence that names another address is the sender's text
                 # CrowdSec's bouncer refused the request on AppSec's verdict. That is a WAF refusal, whether or not
                 # CrowdSec went on to make a decision, so it counts with the WAF's and is named like AppSec's own scenarios.
                 agg.hit('waf', fkey, ip, ts, ['cs:appsec'], 1, blk=1)
