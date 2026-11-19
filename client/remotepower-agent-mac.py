@@ -2512,11 +2512,17 @@ MAX_INVENTORY_BYTES = 1500000   # bytes of one report: the web server refuses a 
 MAX_INVENTORY_FIELD = 200       # characters of a name, a version or an identifier: the server keeps no more
 _PKG_HASH_FILE = 'pkg_hash'     # in the data directory: the hash of the list that was sent last
 _inventory_cfg = {'force': False}   # the server's one-shot "send the list now", set by the heartbeat answer
+_inventory_state = {'cut': False}   # whether the list being collected leaves out rows that exist: a walk that ran out of its budget, a report that holds no more
 
 _USERS_DIR = '/Users'
 MAX_USER_FOLDERS = 200          # accounts under /Users whose Applications folder is read
 MAX_APP_ENTRIES = 5000          # entries of one folder that are looked at
 MAX_PLIST_BYTES = 1024 * 1024   # an Info.plist is a few KB; one over a megabyte is not read
+APP_SCAN_SECONDS = 25           # seconds the walk of all the application folders may take, together
+APP_SCAN_PLIST_BYTES = 12 * 1024 * 1024   # bytes of Info.plist files the walk may read, together: the files of a Mac with hundreds of applications add up to a few megabytes
+APP_SCAN_BUNDLES = 5000         # bundles the walk may look at, all folders together: a report holds no more rows than that
+APP_SCAN_ENTRIES = 100000       # directory entries the walk may look at, all folders together
+APP_LISTING_READ = 50000        # entries read from one folder before it is sorted and cut to MAX_APP_ENTRIES: a person can put millions in their own
 BREW_TIMEOUT = 60               # seconds `brew list` may take
 MAX_BREW_BYTES = 512 * 1024     # bytes of `brew list` output that are read: the list of a large Homebrew is a few tens of KB
 _DIR_OPEN = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0) | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_CLOEXEC', 0)
@@ -2540,17 +2546,53 @@ def _application_folders():
     return out
 
 
-def _read_info_plist(parent_fd, name):
+class _AppScan:
+    """What one walk of the application folders may spend, all of them together, and what it found. The person who owns an Applications folder decides how many bundles it holds and how
+    large their property lists are, so each of these has a limit, and the walk says when it stopped at one (`cut`)."""
+
+    def __init__(self):
+        self.deadline = time.monotonic() + APP_SCAN_SECONDS
+        self.plist_bytes = APP_SCAN_PLIST_BYTES
+        self.bundles = APP_SCAN_BUNDLES
+        self.entries = APP_SCAN_ENTRIES
+        self.rows = []                  # a small row for each bundle read: the property list itself is dropped as soon as it has been read
+        self.left_out = 0
+        self.account_folder = False     # whether the folder being walked is an account's own
+        self.cut = False
+
+    def spent(self):
+        """True, and the walk is cut, once one of the limits is used up."""
+        if self.bundles <= 0 or self.plist_bytes <= 0 or self.entries <= 0 or time.monotonic() > self.deadline:
+            self.cut = True
+            return True
+        return False
+
+
+def _is_account_folder(folder):
+    """Whether an application folder is an account's own, which that person can write: /Users/<name>/Applications, and ~/Applications of the account the agent runs as when it is
+    not root. The system's folder and the shared one are written by an administrator only. A row of an account's folder is marked, and a rule that needs an application is not
+    met by it."""
+    path = os.path.normpath(folder)
+    parts = path.split(os.sep)
+    if len(parts) >= 3 and parts[-1] == 'Applications' and parts[-3] == os.path.basename(os.path.normpath(_USERS_DIR)):
+        return True
+    return os.geteuid() != 0 and path == os.path.normpath(os.path.expanduser('~/Applications'))
+
+
+def _read_info_plist(parent_fd, name, scan):
     """The parsed Contents/Info.plist of the bundle `name` inside the folder open as `parent_fd`, or None when there is none, when
     it is over MAX_PLIST_BYTES or when it does not parse (a binary and an XML list both do). A bundle, a Contents folder or a plist
-    that is a symlink is not followed, and a FIFO named Info.plist is opened without waiting for a writer."""
+    that is a symlink is not followed, and a FIFO named Info.plist is opened without waiting for a writer. What is read is charged
+    to `scan`."""
     app_fd = contents_fd = plist_fd = None
     try:
         app_fd = os.open(name, _DIR_OPEN, dir_fd=parent_fd)
         contents_fd = os.open('Contents', _DIR_OPEN, dir_fd=app_fd)
         plist_fd = os.open('Info.plist', _FILE_OPEN, dir_fd=contents_fd)
-        if os.fstat(plist_fd).st_size > MAX_PLIST_BYTES:
+        size = os.fstat(plist_fd).st_size
+        if size > MAX_PLIST_BYTES:
             return None
+        scan.plist_bytes -= size
         parsed = plistlib.loads(os.read(plist_fd, MAX_PLIST_BYTES + 1))     # a FIFO or a folder named Info.plist reads as nothing
         return parsed if isinstance(parsed, dict) else None
     except Exception:
@@ -2564,34 +2606,52 @@ def _read_info_plist(parent_fd, name):
                     pass
 
 
-def _scan_open_folder(folder_fd, bundles, depth):
-    """Add (folder name without .app, Info.plist) for each application bundle in the folder open as `folder_fd`, and in the folders
-    inside it down to `depth` levels, to `bundles`. Returns how many bundles were left out: a bundle with no readable Info.plist, a
-    symlink or a file named like one. A bundle is not entered, and a symlinked folder is not followed."""
-    left_out = 0
+def _scan_open_folder(folder_fd, scan, depth):
+    """Add a row to `scan` for each application bundle in the folder open as `folder_fd`, and in the folders inside it down to `depth`
+    levels. A bundle with no readable Info.plist, a symlink and a file named like one are counted in `scan.left_out`. A bundle is not
+    entered, and a symlinked folder is not followed. A folder with more entries than MAX_APP_ENTRIES is read as far as that, by name,
+    and the walk is cut; so is a folder too long to be read to its end, and so is a walk that one of the limits of `scan` stops."""
+    names = []
     try:
         with os.scandir(folder_fd) as listing:
-            entries = sorted(listing, key=lambda e: e.name)[:MAX_APP_ENTRIES]
+            for entry in listing:
+                if len(names) >= APP_LISTING_READ:
+                    scan.cut = True
+                    break
+                names.append(entry.name)
     except OSError:
-        return 0
-    for entry in entries:
-        name = entry.name
+        return
+    scan.entries -= len(names)
+    names.sort()
+    if len(names) > MAX_APP_ENTRIES:
+        scan.cut = True
+        names = names[:MAX_APP_ENTRIES]
+    for name in names:
+        if scan.spent():
+            return
         if name.endswith('.app'):
-            plist = _read_info_plist(folder_fd, name)
+            scan.bundles -= 1
+            plist = _read_info_plist(folder_fd, name, scan)
             if plist is None:
-                left_out += 1
+                scan.left_out += 1
                 continue
-            bundles.append((name[:-4], plist))
+            row = _app_row(name[:-4], plist)
+            plist = None                # a parsed property list takes about nine times its size: it goes now, not at the end of the walk
+            if not row['name']:
+                scan.left_out += 1
+                continue
+            if scan.account_folder:
+                row['in_user_folder'] = True
+            scan.rows.append(row)
         elif depth > 1 and not name.startswith('.'):
             try:
                 sub_fd = os.open(name, _DIR_OPEN, dir_fd=folder_fd)      # O_DIRECTORY and O_NOFOLLOW: a file, a FIFO and a symlink are refused
             except OSError:
                 continue
             try:
-                left_out += _scan_open_folder(sub_fd, bundles, depth - 1)
+                _scan_open_folder(sub_fd, scan, depth - 1)
             finally:
                 os.close(sub_fd)
-    return left_out
 
 
 def _app_row(folder_name, plist):
@@ -2616,29 +2676,33 @@ def _app_row(folder_name, plist):
 def collect_installed_applications():
     """([row, ...], skipped): the applications of this Mac, from /Applications, /System/Applications and the Applications folder of
     each account, down to one level of folders inside each (Utilities, a vendor's folder). `skipped` counts the bundles left out
-    (see _scan_open_folder). One app that two folders hold is one row. ([], 0) when there are none, as on a host that is not a Mac."""
-    bundles, skipped = [], 0
+    (see _scan_open_folder). One app that two folders hold is one row, and the row is the system's when the system's folder holds it;
+    a row that only an account's own folder holds is marked `in_user_folder`. ([], 0) when there are none, as on a host that is not a Mac.
+
+    The walk spends one budget for all the folders (APP_SCAN_*): when it runs out, or a folder is cut, the list leaves out bundles that exist,
+    and `_inventory_state['cut']` says so."""
+    scan = _AppScan()
     for folder in _application_folders():
+        if scan.spent():
+            break
         try:
             root_fd = os.open(folder, _DIR_OPEN)
         except OSError:
             continue
+        scan.account_folder = _is_account_folder(folder)
         try:
-            skipped += _scan_open_folder(root_fd, bundles, 2)
+            _scan_open_folder(root_fd, scan, 2)
         finally:
             os.close(root_fd)
-    rows, seen = [], set()
-    for folder_name, plist in bundles:
-        row = _app_row(folder_name, plist)
-        if not row['name']:
-            skipped += 1
-            continue
+    kept = {}
+    for row in scan.rows:
         ident = (row['name'].lower(), row['version'], row.get('id', ''))
-        if ident not in seen:
-            seen.add(ident)
-            rows.append(row)
-    rows.sort(key=lambda r: (r['name'].lower(), r['version'], r.get('id', '')))
-    return rows, skipped
+        have = kept.get(ident)
+        if have is None or (have.get('in_user_folder') and not row.get('in_user_folder')):
+            kept[ident] = row
+    rows = sorted(kept.values(), key=lambda r: (r['name'].lower(), r['version'], r.get('id', '')))
+    _inventory_state['cut'] = _inventory_state['cut'] or scan.cut
+    return rows, scan.left_out
 
 
 def _run_capped(argv, timeout, cap, **kwargs):
@@ -2701,11 +2765,17 @@ def collect_brew_packages():
         text = _run_capped([brew, 'list', kind, '--versions'], BREW_TIMEOUT, MAX_BREW_BYTES, **run_as)
         if text is None:
             return None
-        for line in text.splitlines()[:MAX_INVENTORY_SEND]:
+        lines = text.splitlines()
+        if len(lines) > MAX_INVENTORY_SEND:
+            _inventory_state['cut'] = True
+        for line in lines[:MAX_INVENTORY_SEND]:
             parts = line.split()
             if not parts or len(parts[0]) > MAX_INVENTORY_FIELD:
                 continue
-            for version in (parts[1:] or [''])[:20]:
+            versions = parts[1:] or ['']
+            if len(versions) > 20:
+                _inventory_state['cut'] = True
+            for version in versions[:20]:
                 rows.append({'name': parts[0], 'version': version[:MAX_INVENTORY_FIELD], 'manager': 'brew'})
     return rows
 
@@ -2738,23 +2808,33 @@ def _save_last_pkg_hash(h):
         pass
 
 
-def _compute_pkg_hash(packages):
-    """The fingerprint of a list: the same rows in any order give the same hash, and a change to any field of any row gives another."""
+def _compute_pkg_hash(packages, cut=False):
+    """The fingerprint of a list: the same rows in any order give the same hash, and a change to any field of any row gives another. A list that says it is cut is not the list of the
+    same rows that say they are whole: the server reads what a whole list does not hold as not installed."""
     rows = sorted((str(p.get('manager', '')), str(p.get('name', '')), str(p.get('version', '')), str(p.get('arch', '')),
-                   str(p.get('publisher', '')), str(p.get('installed', '')), str(p.get('id', ''))) for p in packages)
+                   str(p.get('publisher', '')), str(p.get('installed', '')), str(p.get('id', ''))) + (('account folder',) if p.get('in_user_folder') else ())
+                  for p in packages)
+    if cut:
+        rows.append(('cut',))
     return hashlib.sha256(json.dumps(rows, separators=(',', ':')).encode()).hexdigest()[:16]
 
 
 def _fit_inventory(rows):
-    """The rows one report may carry: at most MAX_INVENTORY_SEND, and few enough bytes for the web server to take the request.
-    A list is sorted by name, so the rows that do not fit are the same ones each time."""
-    out, size = [], 0
-    for row in rows[:MAX_INVENTORY_SEND]:
-        size += len(json.dumps(row, separators=(',', ':'))) + 1
+    """The rows one report may carry: at most MAX_INVENTORY_SEND, and few enough bytes for the web server to take the request. A list is sorted by name, so the rows that do not fit are
+    the same ones each time, except that the rows of an account's own application folder (a Mac's: the person who owns it writes it) give way to the rows of the system's: a person who
+    fills their folder with decoys must not push the system's rows out of the report. A report that is cut says so (`_inventory_state`), because the server reads what a whole list
+    does not hold as not installed."""
+    order = sorted(range(len(rows)), key=lambda i: bool(rows[i].get('in_user_folder')))
+    keep, size = [], 0
+    for i in order[:MAX_INVENTORY_SEND]:
+        size += len(json.dumps(rows[i], separators=(',', ':'))) + 1
         if size > MAX_INVENTORY_BYTES:
             break
-        out.append(row)
+        keep.append(i)
+    keep.sort()
+    out = [rows[i] for i in keep]
     if len(out) < len(rows):
+        _inventory_state['cut'] = True
         log.warning('Software list cut from %d to %d rows (a report holds at most %d rows and %d bytes)',
                     len(rows), len(out), MAX_INVENTORY_SEND, MAX_INVENTORY_BYTES)
     return out
@@ -2766,13 +2846,16 @@ def send_package_list(creds, force=False):
     As on the Linux agent the list is submitted only when it has changed since the last one the server took (a hash gate: a list
     rarely moves on a stable host), and `force=True` bypasses the gate, because the point of an operator's "send it now" is
     that it goes whatever the hash says. Nothing is sent for a host that has no list to send, and nothing is raised: the
-    heartbeat is not the place for a failed read of the registry to be heard. Returns True if sent."""
+    heartbeat is not the place for a failed read of the registry to be heard. A list that leaves rows out that exist (the walk of the
+    folders ran out of time, a report holds no more) says `cut`. Returns True if sent."""
+    _inventory_state['cut'] = False
     pkg_manager, rows, skipped = collect_software_inventory()
     if not rows:
         log.debug('No software enumerable (manager=%s)', pkg_manager)
         return False
     rows = _fit_inventory(rows)
-    new_hash = _compute_pkg_hash(rows)
+    cut = bool(_inventory_state['cut'])
+    new_hash = _compute_pkg_hash(rows, cut)
     if not force and new_hash == _load_last_pkg_hash():
         log.debug('Software list unchanged - skipping submission')
         return False
@@ -2783,6 +2866,8 @@ def send_package_list(creds, force=False):
         'packages':    rows,
         'skipped':     skipped,
     }
+    if cut:
+        payload['cut'] = True
     try:
         resp = _post_json(f"{creds.get('server_url', '')}/api/packages", payload, timeout=30)
         log.info('Submitted %d software rows (%d entries left out, changed=%s)',

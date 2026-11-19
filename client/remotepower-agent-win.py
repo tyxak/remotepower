@@ -1343,6 +1343,7 @@ _UNINSTALL_KEY_32 = r'SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Unin
 _MAX_UNINSTALL_SUBKEYS = 20000  # a key that never says it has no more subkeys does not keep the agent here
 _PKG_HASH_FILE = 'pkg_hash'     # in the data directory: the hash of the list that was sent last
 _inventory_cfg = {'force': False}   # the server's one-shot "send the list now", set by the heartbeat answer
+_inventory_state = {'cut': False}   # whether the list being collected leaves out rows that exist: a walk that ran out of its budget, a report that holds no more
 
 
 def _reg_text(winreg, key, name):
@@ -1429,6 +1430,8 @@ def _read_uninstall_key(winreg, path, view, arch):
                 rows.append(row)
             finally:
                 winreg.CloseKey(key)
+        else:
+            _inventory_state['cut'] = True      # a key with more subkeys than the limit: the rest are not read, and the list says so
     finally:
         winreg.CloseKey(root)
     return rows, skipped
@@ -1493,23 +1496,33 @@ def _save_last_pkg_hash(h):
         pass
 
 
-def _compute_pkg_hash(packages):
-    """The fingerprint of a list: the same rows in any order give the same hash, and a change to any field of any row gives another."""
+def _compute_pkg_hash(packages, cut=False):
+    """The fingerprint of a list: the same rows in any order give the same hash, and a change to any field of any row gives another. A list that says it is cut is not the list of the
+    same rows that say they are whole: the server reads what a whole list does not hold as not installed."""
     rows = sorted((str(p.get('manager', '')), str(p.get('name', '')), str(p.get('version', '')), str(p.get('arch', '')),
-                   str(p.get('publisher', '')), str(p.get('installed', '')), str(p.get('id', ''))) for p in packages)
+                   str(p.get('publisher', '')), str(p.get('installed', '')), str(p.get('id', ''))) + (('account folder',) if p.get('in_user_folder') else ())
+                  for p in packages)
+    if cut:
+        rows.append(('cut',))
     return hashlib.sha256(json.dumps(rows, separators=(',', ':')).encode()).hexdigest()[:16]
 
 
 def _fit_inventory(rows):
-    """The rows one report may carry: at most MAX_INVENTORY_SEND, and few enough bytes for the web server to take the request.
-    A list is sorted by name, so the rows that do not fit are the same ones each time."""
-    out, size = [], 0
-    for row in rows[:MAX_INVENTORY_SEND]:
-        size += len(json.dumps(row, separators=(',', ':'))) + 1
+    """The rows one report may carry: at most MAX_INVENTORY_SEND, and few enough bytes for the web server to take the request. A list is sorted by name, so the rows that do not fit are
+    the same ones each time, except that the rows of an account's own application folder (a Mac's: the person who owns it writes it) give way to the rows of the system's: a person who
+    fills their folder with decoys must not push the system's rows out of the report. A report that is cut says so (`_inventory_state`), because the server reads what a whole list
+    does not hold as not installed."""
+    order = sorted(range(len(rows)), key=lambda i: bool(rows[i].get('in_user_folder')))
+    keep, size = [], 0
+    for i in order[:MAX_INVENTORY_SEND]:
+        size += len(json.dumps(rows[i], separators=(',', ':'))) + 1
         if size > MAX_INVENTORY_BYTES:
             break
-        out.append(row)
+        keep.append(i)
+    keep.sort()
+    out = [rows[i] for i in keep]
     if len(out) < len(rows):
+        _inventory_state['cut'] = True
         log.warning('Software list cut from %d to %d rows (a report holds at most %d rows and %d bytes)',
                     len(rows), len(out), MAX_INVENTORY_SEND, MAX_INVENTORY_BYTES)
     return out
@@ -1521,13 +1534,16 @@ def send_package_list(creds, force=False):
     As on the Linux agent the list is submitted only when it has changed since the last one the server took (a hash gate: a list
     rarely moves on a stable host), and `force=True` bypasses the gate, because the point of an operator's "send it now" is
     that it goes whatever the hash says. Nothing is sent for a host that has no list to send, and nothing is raised: the
-    heartbeat is not the place for a failed read of the registry to be heard. Returns True if sent."""
+    heartbeat is not the place for a failed read of the registry to be heard. A list that leaves rows out that exist (the walk of the
+    folders ran out of time, a report holds no more) says `cut`. Returns True if sent."""
+    _inventory_state['cut'] = False
     pkg_manager, rows, skipped = collect_software_inventory()
     if not rows:
         log.debug('No software enumerable (manager=%s)', pkg_manager)
         return False
     rows = _fit_inventory(rows)
-    new_hash = _compute_pkg_hash(rows)
+    cut = bool(_inventory_state['cut'])
+    new_hash = _compute_pkg_hash(rows, cut)
     if not force and new_hash == _load_last_pkg_hash():
         log.debug('Software list unchanged - skipping submission')
         return False
@@ -1538,6 +1554,8 @@ def send_package_list(creds, force=False):
         'packages':    rows,
         'skipped':     skipped,
     }
+    if cut:
+        payload['cut'] = True
     try:
         resp = _post_json(f"{creds.get('server_url', '')}/api/packages", payload, timeout=30)
         log.info('Submitted %d software rows (%d entries left out, changed=%s)',
