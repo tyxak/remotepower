@@ -6797,6 +6797,16 @@ def _device_token_ok(dev, presented):
     return False
 
 
+def _tokens_forget(tkey):
+    """Remove the session stored under `tkey`, under the session store's lock.
+
+    verify_token reads the store and decides, on its snapshot, that one session is over (expired, idle too long, over the session cap). The write is the removal of
+    that one entry, made against the store as it is when the lock is held: saving the snapshot instead put back every session an administrator revoked, and took out
+    every session a sign-in created, between the read and the write."""
+    with _LockedUpdate(TOKENS_FILE) as locked:
+        locked.pop(tkey, None)
+
+
 def verify_token(token):
     """Returns (username, role) or (None, None).
     Session tokens: O(1) dict lookup.
@@ -6821,8 +6831,10 @@ def verify_token(token):
         # remember-me at login). Fall back to legacy TOKEN_TTL.
         ttl = entry.get('ttl', TOKEN_TTL)
         if now - entry['created'] > ttl:
-            del tokens[tkey]
-            save(TOKENS_FILE, tokens)
+            try:
+                _tokens_forget(tkey)
+            except Exception:
+                pass    # the session is over either way; the next request or sign-in removes it
         else:
             username = entry.get('user')
             users = load(USERS_FILE)
@@ -6843,8 +6855,7 @@ def verify_token(token):
                 _idle = 0
             if _idle > 0 and now - int(entry.get('last_seen') or entry.get('created') or 0) > _idle * 60:
                 try:
-                    del tokens[tkey]
-                    save(TOKENS_FILE, tokens)
+                    _tokens_forget(tkey)
                 except Exception:
                     pass
                 return None, None
@@ -6864,8 +6875,7 @@ def verify_token(token):
                     key=lambda kv: kv[1].get('created', 0), reverse=True)
                 if tkey not in {k for k, _ in _mine[:_scap]}:
                     try:
-                        del tokens[tkey]
-                        save(TOKENS_FILE, tokens)
+                        _tokens_forget(tkey)
                     except Exception:
                         pass
                     return None, None
@@ -6874,13 +6884,24 @@ def verify_token(token):
             # update last_seen at most once/min so we don't write tokens.json on
             # every request. Backfill ip/ua for sessions created before v3.14.0.
             if now - int(entry.get('last_seen', 0)) > 60:
-                entry['last_seen'] = now
-                entry.setdefault('ip', _get_client_ip())
-                entry.setdefault('ua', _sanitize_str(_env('HTTP_USER_AGENT', ''), 256))
+                _ip, _ua = _get_client_ip(), _sanitize_str(_env('HTTP_USER_AGENT', ''), 256)
+                _revoked = False
                 try:
-                    save(TOKENS_FILE, tokens)
+                    # The stamp is one field of one session, written under the store's lock against the store as it is then: the snapshot above is a few
+                    # milliseconds old, and a revocation (an administrator's, or the sign-out of the other sessions that a password change does) that landed
+                    # since must stay. A session that is gone by now is refused, as it is for the request that comes after the revocation.
+                    with _LockedUpdate(TOKENS_FILE) as locked:
+                        _cur = locked.get(tkey)
+                        if isinstance(_cur, dict):
+                            _cur['last_seen'] = now
+                            _cur.setdefault('ip', _ip)
+                            _cur.setdefault('ua', _ua)
+                        else:
+                            _revoked = True
                 except Exception:
                     pass  # activity stamp is best-effort, never block auth
+                if _revoked:
+                    return None, None
             _rls_narrow(username, role)   # v6.1.0 (Phase 6): set DB-RLS tenant GUC before device queries
             return username, role
 
@@ -6978,14 +6999,19 @@ def verify_token(token):
     return None, None
 
 def cleanup_tokens():
-    tokens = load(TOKENS_FILE)
+    """Drop the sessions whose lifetime is over. What is dropped is decided on the store as it is under the lock, so a session that was revoked or created since is
+    neither put back nor lost."""
     now = int(time.time())
-    pruned = {
-        k: v for k, v in tokens.items()
-        if now - v.get('created', 0) <= v.get('ttl', TOKEN_TTL)
-    }
-    if len(pruned) != len(tokens):
-        save(TOKENS_FILE, pruned)
+
+    def _over(v):
+        return not isinstance(v, dict) or now - v.get('created', 0) > v.get('ttl', TOKEN_TTL)
+
+    # a cheap look first: nearly every sign-in finds nothing to drop, and the lock rewrites the store
+    if not any(_over(v) for v in load(TOKENS_FILE).values()):
+        return
+    with _LockedUpdate(TOKENS_FILE) as tokens:
+        for k in [k for k, v in tokens.items() if _over(v)]:
+            del tokens[k]
 
 # ── Brute-force protection ─────────────────────────────────────────────────────
 MAX_ENROLL_CIDRS = 10
@@ -8032,8 +8058,12 @@ def handle_step_up_verify():
     tkey, entry, tokens = _step_up_token_entry()
     if not tkey:
         respond(400, {'error': 'no active session to stamp (API keys cannot step up)'})
-    entry['step_up_at'] = int(time.time())
-    save(TOKENS_FILE, tokens)
+    # one field of this session, written under the store's lock against the store as it is then (the snapshot above is older than the password check)
+    with _LockedUpdate(TOKENS_FILE) as locked:
+        _cur = locked.get(tkey)
+        if not isinstance(_cur, dict):
+            respond(400, {'error': 'no active session to stamp (the session ended while the password was checked)'})
+        _cur['step_up_at'] = int(time.time())
     audit_log(username, 'step_up_verified', 'session re-authenticated')
     respond(200, {'ok': True, 'expires_in': STEP_UP_WINDOW_SECONDS})
 
