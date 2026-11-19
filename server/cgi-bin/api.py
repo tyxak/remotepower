@@ -46396,6 +46396,8 @@ def handle_device_custom_metrics(dev_id):
     """GET /api/devices/{id}/custom-metrics — current values + recent history
     for a device's operator-supplied custom metrics (any authed user)."""
     require_auth()
+    if device_get(dev_id) is None:      # a host that is gone has no data to give: the tenant check above lets an unknown id through
+        respond(404, {'error': 'Host not found'})
     if _caller_scope() is not None:
         devs = _load_ro(DEVICES_FILE) or {}
         if dev_id not in _scope_filter_devices(devs):
@@ -60428,6 +60430,8 @@ def handle_drift_get_content(dev_id):
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'Host not found'})
+    if device_get(dev_id) is None:      # a host that is gone has no data to give: the tenant check above lets an unknown id through
+        respond(404, {'error': 'Host not found'})
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     path = (qs.get('path') or [''])[0]
     if not path or not path.startswith('/'):
@@ -73548,6 +73552,8 @@ def handle_sbom_diff(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Host not found'})
     require_auth()
+    if device_get(dev_id) is None:      # a host that is gone has no data to give: the tenant check above lets an unknown id through
+        respond(404, {'error': 'Host not found'})
     base = (load(SBOM_BASELINE_FILE).get(dev_id) or {})
     if not base.get('packages'):
         respond(404, {'error': 'no baseline captured for this host — capture one first'})

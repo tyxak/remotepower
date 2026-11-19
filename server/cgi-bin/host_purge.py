@@ -90,6 +90,10 @@ RULES: dict[str, tuple[Rule, ...]] = {
     "lldp_neighbors.json": (pop(),),
     "metrics_history.json": (pop(),),
     "metrics_rollup.json": (pop(),),
+    "peer_conns.json": (pop(),),  # the addresses the host's connections went to
+    "custom_metrics_hist.json": (pop(),),
+    "sbom_baselines.json": (pop(),),
+    "drift_contents.json": (pop(),),  # the contents of the files the host watched
     "patch_age.json": (pop(), unlist("_breaching")),
     "patch_done.json": (
         pop(),

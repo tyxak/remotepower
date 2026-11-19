@@ -92,6 +92,10 @@ KEEP = {
 
 # Rules the seeded demo cannot exercise, with the reason; the literal cases below cover them.
 NOT_IN_THE_SEED = {
+    ('peer_conns.json', 0): 'the demo seed fills none of the four stores a heartbeat, the baseline route and the drift capture write; test_the_four_stores_the_seed_leaves_empty_go_with_the_host drives the rules',
+    ('custom_metrics_hist.json', 0): 'the demo seed fills none of the four stores a heartbeat, the baseline route and the drift capture write; test_the_four_stores_the_seed_leaves_empty_go_with_the_host drives the rules',
+    ('sbom_baselines.json', 0): 'the demo seed fills none of the four stores a heartbeat, the baseline route and the drift capture write; test_the_four_stores_the_seed_leaves_empty_go_with_the_host drives the rules',
+    ('drift_contents.json', 0): 'the demo seed fills none of the four stores a heartbeat, the baseline route and the drift capture write; test_the_four_stores_the_seed_leaves_empty_go_with_the_host drives the rules',
     ('fleet_events.json', 1): 'the shape the purge used to look for (a top-level device_id); the seed writes events the way the server does',
     ('automation_rules.json', 0): 'the seeded rule that names a host is already switched off',
     ('ip_intel_intake.json', 2): 'the seeded intake queue is empty (the pass drains it every minute); test_what_a_sensor_queued_for_the_host_goes_with_it drives the real producer',
@@ -295,6 +299,29 @@ class TestThroughTheRealPurge(unittest.TestCase):
         self.assertNotIn('device_id', rows[0], 'the server keeps the host under `payload`, which is where the old filter never looked')
         self.purge()
         self.assertEqual([r['payload']['device_id'] for r in api.load(api.FLEET_EVENTS_FILE)['events']], ['zz2'])
+
+    def test_the_four_stores_the_seed_leaves_empty_go_with_the_host(self):
+        """8.0.2 review: peer connections, custom metric samples, the package baseline and the contents of watched files are written by a heartbeat, the baseline
+        route and the drift capture, and the seed fills none of them, so the gate above never saw them stay."""
+        api = self.api
+        files = (api.PEER_CONNS_FILE, api.CUSTOM_METRICS_HIST_FILE, api.SBOM_BASELINE_FILE, api.DRIFT_CONTENTS_FILE)
+        for f in files:
+            api.save(f, {'zz1': {'x': 1}, 'zz2': {'x': 2}})
+        api._LOAD_CACHE.clear()
+        self.purge()
+        for f in files:
+            self.assertEqual(sorted(api.load(f)), ['zz2'], f.name)
+
+    def test_the_per_host_routes_that_read_them_say_not_found_for_a_host_that_is_gone(self):
+        """Once the host is gone the tenant check lets its id through to the handler, so the handler has to ask whether the host exists."""
+        sys.path.insert(0, str(ROOT / 'tests'))
+        import srcpin
+        src = (CGI / 'api.py').read_text()
+        for name, store in (('handle_device_custom_metrics', 'CUSTOM_METRICS_HIST_FILE'), ('handle_sbom_diff', 'SBOM_BASELINE_FILE'),
+                            ('handle_drift_get_content', 'DRIFT_CONTENTS_FILE')):
+            body = srcpin.py_function(src, name)
+            self.assertIn('device_get(dev_id) is None', body, name)
+            self.assertLess(body.index('device_get(dev_id) is None'), body.index(store), name + ': the host is looked up before the store is read')
 
     def test_what_a_sensor_queued_for_the_host_goes_with_it(self):
         """The queue of addresses waiting for the next pass names the host that saw each one, and the gate cannot see it (the seeded queue is empty).

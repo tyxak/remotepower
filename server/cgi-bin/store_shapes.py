@@ -502,6 +502,11 @@ SHAPES: dict = {
     # `done` holds the completed pairs [first_seen, cleared_at, kind] the mean time to patch is read from; a row that is not a list is left out.
     # They are a store of their own, apart from the stamps above, so that the small store every request reads does not grow with the history
     'patch_done.json': dict_of(fields(done=list_of(LIST))),
+    # 8.0.2: the four stores a host's own data sits in that the purge had no rule for; read by the dependency map, the custom-metrics page, the SBOM diff and the drift viewer
+    'peer_conns.json': dict_of(fields(ts=NUM, peers=list_of())),
+    'custom_metrics_hist.json': dict_of(dict_of(fields(samples=list_of()))),
+    'sbom_baselines.json': dict_of(fields(packages=DICT)),
+    'drift_contents.json': dict_of(dict_of(list_of(fields(ts=NUM)))),
     'pii_findings.json': dict_of(fields(findings=list_of(fields(count=OPT_NUM, kind=OPT_STR, path=OPT_STR)))),
     'scap.json': dict_of(fields(available_profiles=list_of(STR), failed_rules=LIST, fail=OPT_NUM, score=OPT_NUM)),
     'secret_findings.json': dict_of(fields(findings=list_of(fields(fingerprint=OPT_STR, line=OPT_NUM)), _seen=LIST)),
