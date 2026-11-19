@@ -118,7 +118,7 @@ class TestTheExportCarriesNoCredentialOfAnyStore(TestExport):
     OPNsense credentials, inbound-webhook and dead-man tokens and scan targets' tokens, the keys that sign the audit chain, every earlier copy of the settings, and the queue of failed
     deliveries with their destinations. Each marker is put where the product keeps it, in the store of that name, and the ZIP is read whole."""
 
-    M = {k: k.upper() + '-' + 'MARK' + 'ER' for k in ('ssh_pw', 'ssh_key', 'snmp', 'ros', 'opn', 'inbound', 'scan', 'hmac', 'rev', 'dlq', 'dlq_url')}
+    M = {k: k.upper() + '-' + 'MARK' + 'ER' for k in ('ssh_pw', 'ssh_key', 'snmp', 'ros', 'opn', 'inbound', 'scan', 'hmac', 'rev', 'dlq', 'dlq_url', 'psk', 'kmip', 'logurl')}
 
     def setUp(self):
         super().setUp()
@@ -134,6 +134,9 @@ class TestTheExportCarriesNoCredentialOfAnyStore(TestExport):
                           ('scan_targets.json', {'t1': {'name': 'scan', 'token': M['scan']}}),
                           ('audit_hmac_rotations.json', {'2': {'key': M['hmac']}}),
                           ('config_revisions.json', {'revisions': [{'at': 1, 'config': {'smtp_password': M['rev']}}]}),
+                          ('vpn.json', {'clients': {'c1': {'name': 'laptop', 'psk_enc': M['psk']}}}),
+                          ('kmip.json', {'ca': {'key_enc': M['kmip'], 'not_after': 1}}),
+                          ('webhook_log.json', {'entries': [{'ts': 1, 'event': 'x', 'url': 'https://hooks.example.invalid/services/' + M['logurl'], 'status': '200'}]}),
                           ('webhook_dlq.json', {'entries': [{'dest': {'url': 'https://example.invalid/' + M['dlq_url'], 'pushover_token': M['dlq']}}]})):
             api.save(api.DATA_DIR / name, doc)
         api._LOAD_CACHE.clear()
@@ -155,6 +158,16 @@ class TestTheExportCarriesNoCredentialOfAnyStore(TestExport):
         self.assertEqual(row['ssh']['username'], 'root')
         self.assertEqual((row['ssh']['password'], row['snmp']['community'], row['opnsense']['api_secret']), ('(redacted)',) * 3)
         self.assertEqual(row['snmp']['port'], 161)
+
+    def test_the_delivery_log_keeps_the_host_of_an_address_and_not_its_path(self):
+        api = self.api
+        api._log_webhook('server_disk_low', 'https://hooks.example.invalid/services/' + self.M['logurl'], 200, 'ok')
+        api._LOAD_CACHE.clear()
+        rows = api.load(api.WEBHOOK_LOG_FILE)['entries']
+        self.assertEqual(rows[-1]['url'], 'https://hooks.example.invalid')
+        self.assertEqual(api._log_url('smtp'), 'smtp', 'text that is not an address is kept as it is')
+        old = [{'url': 'https://hooks.example.invalid/services/' + self.M['logurl']}]
+        self.assertEqual(api._log_rows_view(old), [{'url': 'https://hooks.example.invalid'}], 'rows written before 8.0.2 are cut when they are read')
 
     def test_the_three_stores_that_are_credentials_in_themselves_are_left_out(self):
         got = self.zip_text()

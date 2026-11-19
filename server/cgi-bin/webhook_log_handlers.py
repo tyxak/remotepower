@@ -51,7 +51,7 @@ def handle_webhook_log():
         entries = wl.get('entries', []) or []
     else:
         entries = []
-    A.respond(200, list(reversed(entries)))
+    A.respond(200, list(reversed(A._log_rows_view(entries))))
 
 
 def handle_webhook_log_clear():

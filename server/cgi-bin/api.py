@@ -10561,6 +10561,17 @@ def _notify_destinations_changed(before, after):
     _notify_health_prune(_config_ro())
 
 
+def _log_url(url):
+    """The address of a delivery as the delivery log keeps it: scheme and host. A Slack, Discord or Teams address is a credential (its token is the path), and the log is
+    read by the administrator on the Webhook log page, returned by the test route and put in the export. Text that is not an address is kept as it is."""
+    return _redact_url_to_host(str(url)) or str(url)[:256]
+
+
+def _log_rows_view(entries):
+    """The rows of the delivery log with the address of each cut to scheme and host: the rows written before 8.0.2 hold the whole address."""
+    return [dict(e, url=_log_url(e['url'])) if isinstance(e, dict) and e.get('url') else e for e in entries]
+
+
 def _log_webhook(event, url, status, detail=''):
     """Append an entry to the webhook log (last MAX_WEBHOOK_LOG entries)."""
     _watching = getattr(_DELIVERY, 'seen', None)
@@ -10582,7 +10593,7 @@ def _log_webhook(event, url, status, detail=''):
         entries.append({
             'ts':     int(time.time()),
             'event':  str(event)[:64],
-            'url':    str(url)[:256],
+            'url':    _log_url(url),
             'status': str(status)[:16],
             'detail': str(detail)[:512],
         })
@@ -31379,7 +31390,8 @@ _SECRET_KEY_RE = re.compile(
     # (_CONFIG_SECRET_NAME_RE) — it gained passphrase/community/bearer so a future
     # global config key ending in one of those can't slip past the recursive scrub.
     r'(?:^|_)(?:password|passwd|passphrase|secret|apikey|api_key|access_token|'
-    r'refresh_token|private_key|credentials|community|bearer|token)$', re.I)
+    r'refresh_token|private_key|credentials|community|bearer|token|'
+    r'psk|psk_enc|preshared_key|key_enc)$', re.I)       # 8.0.2: a WireGuard pre-shared key and the sealed private keys of the KMIP service
 
 
 def _walk_config_secrets(obj, on_secret):
@@ -60557,7 +60569,7 @@ def handle_drift_get_content(dev_id):
 # document as it was before each save (decrypted), and the queue of failed deliveries (each entry holds its whole destination, address, headers and tokens).
 _EXPORT_LEFT_OUT = frozenset({'tokens.json', 'longpoll.json', 'ratelimit.json', 'audit_hmac_rotations.json', 'config_revisions.json', 'webhook_dlq.json'})
 # a key name that says credential, and a non-empty string after it: the cheap test that decides whether a store is walked at all
-_EXPORT_SECRET_SPOT = re.compile(r'"[A-Za-z0-9_]*(?:password|passwd|passphrase|secret|apikey|api_key|access_token|refresh_token|private_key|credentials|community|bearer|token)"\s*:\s*"[^"]')
+_EXPORT_SECRET_SPOT = re.compile(r'"[A-Za-z0-9_]*(?:password|passwd|passphrase|secret|apikey|api_key|access_token|refresh_token|private_key|credentials|community|bearer|token|psk|psk_enc|preshared_key|key_enc)"\s*:\s*"[^"]')
 
 
 def _export_member(doc):
@@ -60645,6 +60657,9 @@ def handle_export():
                 zf.writestr('users.json', json.dumps(
                     {u: ({k: v for k, v in r.items() if k not in _EXPORT_ACCOUNT_CREDENTIALS} if isinstance(r, dict) else r)
                      for u, r in (raw.items() if isinstance(raw, dict) else ())}, indent=2))
+            elif name == 'webhook_log.json':
+                raw = _load_ro(f)
+                zf.writestr(name, _export_member({'entries': _log_rows_view((raw.get('entries') if isinstance(raw, dict) else raw) or [])}))
             else:
                 zf.writestr(name, _export_member(_load_ro(f)))
     data = buf.getvalue(); ts = time.strftime('%Y%m%d-%H%M%S')
