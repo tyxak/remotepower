@@ -335,7 +335,8 @@ async function triggerCVEScan(devId, btn) {
     }
     if (st && !st.running) {
       toast(`Scan complete: ${st.scanned || 0} scanned, ${st.skipped || 0} skipped, ${st.errors || 0} errors`,
-            st.errors ? 'error' : 'success');
+            st.errors ? 'error' : 'success',
+            Array.isArray(st.error_notes) && st.error_notes.length ? { detail: st.error_notes.filter(n => typeof n === 'string').join(' | '), duration: 15000 } : {});
       loadCVEReport();
     }
   };

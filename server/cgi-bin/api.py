@@ -72993,6 +72993,8 @@ def _cve_scan_worker(actor, target):
     # hosts only, and five minutes of silence reads as a dead scan that may be started again beside
     # this one, so the scan itself says it is alive, at most every 30 seconds.
     _marker = {'running': True, 'total': total, 'done': 0, 'scanned': 0, 'skipped': 0, 'errors': 0}
+    # 8.0.2: why hosts counted as errors (the first five), so the page can say more than a number
+    _error_notes = []
     _alive_at = [time.time()]
     # 8.0.1: the advisory records, read once for the run and handed to every host's scan. Each scan read
     # the file itself, and with the records of a kernel in it that is megabytes parsed per host.
@@ -73093,6 +73095,9 @@ def _cve_scan_worker(actor, target):
             # record timed out.
             if result.get('error') and not result.get('findings') and not result.get('rollup'):
                 errors += 1
+                if len(_error_notes) < 5:
+                    _hn = (devices.get(dev_id) or {}).get('name') if isinstance(devices.get(dev_id), dict) else None
+                    _error_notes.append(_log_text(f"{_hn or dev_id}: {result.get('error')}", 200))
             else:
                 # the time of the list this result was made from: a later scan of the same host (from a later list) stored
                 # while this one ran is not written over by it (_merge_findings)
@@ -73120,7 +73125,7 @@ def _cve_scan_worker(actor, target):
             except LockBusy:
                 pass          # a contended checkpoint is fine — the next one wins, and the results wait in `pending`
             _marker.update(running=i < total - 1, done=i + 1, scanned=scanned,
-                           skipped=skipped, errors=errors)
+                           skipped=skipped, errors=errors, error_notes=list(_error_notes))
             _alive_at[0] = time.time()
             try:
                 _scan_marker_write(dict(_marker, updated=int(time.time())), run=_run)
@@ -73132,7 +73137,8 @@ def _cve_scan_worker(actor, target):
         try:
             _scan_marker_write({'running': False, 'total': total, 'done': total,
                                 'scanned': scanned, 'skipped': skipped,
-                                'errors': errors, 'updated': int(time.time()),
+                                'errors': errors, 'error_notes': list(_error_notes),
+                                'updated': int(time.time()),
                                 'finished_at': int(time.time())}, tries=10, run=_run)
         except _ScanLeaseLost:
             _handed_on = True
