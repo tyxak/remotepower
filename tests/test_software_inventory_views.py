@@ -66,6 +66,9 @@ def preamble():
         # and which kernel it runs (8.0.2)
         re.search(r'^const _CVE_KERNEL_WHY = \{.*?^\};', _PAGE, re.M | re.S).group(0),
         srcpin.js_function(_PAGE, '_cveKernelHtml'),
+        # and whether the host was accepted, with the buttons that go with it (8.0.2)
+        srcpin.js_function(_PAGE, '_cveAcceptButtons'),
+        srcpin.js_function(_PAGE, '_cveAcceptedHtml'),
     ])
 
 

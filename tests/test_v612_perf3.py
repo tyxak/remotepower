@@ -385,7 +385,13 @@ class TestEagerJsPayload(unittest.TestCase):
         # say where each territory's bytes went (the notes of the first four add up to 31,194 of them); the other 30,519 are the Windows host items, the Windows event rules
         # and the Persistence section (lazy, but its drawer hook is eager), the package-list refresh pill and button, and the capabilities section of the drawer. The budget
         # is 2_806_500, 2,265 over what is measured.
-        self.assertLess(total, 2_806_500,
+        # 8.0.2 the security news watch and accepted hosts: 2_813_000. The payload was 2_805_199 before the news watch, 1,301 under the budget, and is 2_810_837 now: 5,638 bytes
+        # more. The news watch is 1,943, all in app.js: the event in the activity feed's registries and its click-through, the mark of the sidebar entry and the tab with the
+        # poll that paints it and the favourites that copy the entry, and the tab hook that accepts a tab with no module. The page of the watch is app-newswatch.js, which is lazy.
+        # Accepting a host is 3,695: 3,496 in app-cve.js and 199 in app.js. app-cve.js is eager for the reason given at 7.4.6, and the buttons, the banner and the four actions of the
+        # host's view are drawn from it, as is the badge of the host table in app.js; the dialog is in index.html, which this sum does not count. The translations are in i18n.js,
+        # which is not eager. The budget is 2_813_000, 2,163 over what is measured.
+        self.assertLess(total, 2_813_000,
                         'the eager JS payload regressed past its budget')
 
 

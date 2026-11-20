@@ -60,6 +60,7 @@ READERS = {
     "cve_handlers.py:handle_cve_campaigns": (EVERYTHING, "campaign status"),
     "cve_handlers.py:handle_cve_exposure_ranked": (EVERYTHING, "the ranking weights a fixable finding higher"),
     "cve_handlers.py:handle_cve_device": (EVERYTHING, "the host view lists every finding with its fix status"),
+    "cve_handlers.py:handle_cve_host_accept": (EVERYTHING, "reads the ids of the findings a host lists to write the records of its acceptance; it produces no number"),
     "reports_handlers.py:_build_fleet_report": (EVERYTHING, "the printable report"),
 }
 

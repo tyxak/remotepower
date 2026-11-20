@@ -1477,7 +1477,7 @@ cve_handlers_mod.bind(globals())
 for _cv_name in (
         'handle_cve_realert', 'handle_cve_scan', 'handle_cve_scan_status',
         'handle_cve_campaigns', 'handle_cve_campaign', 'handle_cve_exposure_ranked',
-        'handle_cve_findings', 'handle_cve_refresh_feeds', 'handle_cve_device',
+        'handle_cve_findings', 'handle_cve_refresh_feeds', 'handle_cve_device', 'handle_cve_host_accept', 'handle_cve_host_unaccept', 'drop_host_acceptance',
         'handle_cve_ignore_add', 'handle_cve_ignore_delete', 'handle_cve_ignore_list',
 ):
     globals()[_cv_name] = getattr(cve_handlers_mod, _cv_name)
@@ -17277,6 +17277,11 @@ def _purge_device(dev_id):
                     host_purge.apply(_name, _data, dev_id, _purged_at)
             except Exception:
                 pass
+        # 8.0.2: what accepting the host wrote into the accepted-risk store (records beside other organisations' records: not a rule of host_purge)
+        try:
+            cve_handlers_mod.drop_host_acceptance(dev_id)
+        except Exception:
+            pass
 
         # config: stale-notified flags keyed by dev_id
         try:
@@ -73319,11 +73324,15 @@ def _kev_epss():
     return set(s.get('kev') or []), (s.get('epss') or {})
 
 
-def _enrich_cve_findings(findings, kev, epss):
+def _enrich_cve_findings(findings, kev, epss, skip=None):
     """Stamp `kev` (bool) and `epss` (0–1 float) onto each finding by matching
-    its vuln_id/aliases. Returns (kev_count, epss_max) for aggregation."""
+    its vuln_id/aliases. Returns (kev_count, epss_max) for aggregation.
+
+    8.0.2: `skip` is the set of ids accepted for this host. They are stamped like the others and are not in the two numbers, which are
+    what a page ranks hosts by: a finding that is accepted as a risk is not one that counts."""
     kev_count = 0
     epss_max = 0.0
+    skip = skip or ()
     for f in findings:
         if not isinstance(f, dict):
             continue
@@ -73335,6 +73344,8 @@ def _enrich_cve_findings(findings, kev, epss):
                 score = epss[i]
         f['kev'] = is_kev
         f['epss'] = score
+        if isinstance(f.get('vuln_id'), str) and f['vuln_id'] in skip:
+            continue
         if is_kev:
             kev_count += 1
         if score > epss_max:
@@ -80253,6 +80264,8 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('POST',), '/api/sessions/revoke', '', 'handle_revoke_sessions', "pi == '/api/sessions/revoke' and m == 'POST'"),
     ('pat', ('DELETE',), '/api/cve/ignore/', '', 'handle_cve_ignore_delete', "pi.startswith('/api/cve/ignore/') and m == 'DELETE'"),
     ('pat', ('GET',), '/api/devices/', '/cve', 'handle_cve_device', "pi.startswith('/api/devices/') and pi.endswith('/cve') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/cve/accept', 'handle_cve_host_accept', "pi.startswith('/api/devices/') and pi.endswith('/cve/accept') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/cve/unaccept', 'handle_cve_host_unaccept', "pi.startswith('/api/devices/') and pi.endswith('/cve/unaccept') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/sbom/baseline', 'handle_sbom_baseline', "pi.startswith('/api/devices/') and pi.endswith('/sbom/baseline') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/sbom/diff', 'handle_sbom_diff', "pi.startswith('/api/devices/') and pi.endswith('/sbom/diff') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/sbom', 'handle_sbom_device', "pi.startswith('/api/devices/') and pi.endswith('/sbom') and m == 'GET'"),

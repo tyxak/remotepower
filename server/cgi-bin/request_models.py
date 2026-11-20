@@ -2283,6 +2283,12 @@ if _AVAILABLE:
         action: Any = None
         words: Any = None
 
+    class CveHostAcceptRequest(BaseModel):
+        """8.0.2: accepting a host's findings: the reason is optional text."""
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        reason: str = ''
+        _v0 = field_validator('reason', mode='before')(_coerce_str_loose)
+
     class NewsWatchClearRequest(BaseModel):
         """8.0.2: which items of the security news watch lose their red !. Both fields are Any: the handler keeps the ids that are text and takes `all` only when it is true."""
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

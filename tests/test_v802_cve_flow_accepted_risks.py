@@ -419,12 +419,15 @@ CENSUS = {
     ("cve_handlers.py", "handle_cve_campaigns"): (DECIDES, None),
     ("cve_handlers.py", "handle_cve_findings"): (DECIDES, None),
     ("cve_handlers.py", "handle_cve_device"): (DECIDES, None),
+    ("cve_handlers.py", "drop_host_acceptance"): (WRITES, None),
+    ("cve_handlers.py", "handle_cve_host_accept"): (WRITES, None),
+    ("cve_handlers.py", "handle_cve_host_unaccept"): (WRITES, None),
     ("cve_handlers.py", "handle_cve_ignore_add"): (WRITES, None),
     ("cve_handlers.py", "handle_cve_ignore_delete"): (WRITES, None),
     ("cve_handlers.py", "handle_cve_ignore_list"): (SHOWS, None),
     ("reports_handlers.py", "_build_fleet_report"): (DECIDES, None),
 }
-_DECIDERS = ("cve_ignore_applies", "apply_ignore_list", "_counted_cve_findings", "_campaign_public", "_campaign_affected",
+_DECIDERS = ("cve_ignore_applies", "cve_ignored_ids", "apply_ignore_list", "_counted_cve_findings", "_campaign_public", "_campaign_affected",
              "decorated_cve_findings", "live_cve_findings", "_cve_count_rule")
 _VISIBILITY = ("visible_ignore_records", "_ignore_entry_visible")
 _STAMPS = ("backend_mtime",)

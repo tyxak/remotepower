@@ -27,13 +27,13 @@ its view. After an upgrade the same line says how many scanned hosts it does not
 | --- | --- |
 | **Host** and **Group** | The host and its group. Click a row to open its findings. |
 | **Ecosystem** | The OSV ecosystem found from `/etc/os-release` and the package manager (Ubuntu, Debian, Rocky Linux, AlmaLinux, Red Hat or Alpine). |
-| **KEV** | How many findings are in CISA's **Known Exploited Vulnerabilities** catalog, meaning attackers use them in the wild. |
+| **KEV** | How many of the findings that count are in CISA's **Known Exploited Vulnerabilities** catalog, meaning attackers use them in the wild. A finding you accepted does not count. |
 | **Critical / High / Medium / Low** | Finding counts by severity. |
 | **Counted** | How many more known vulnerabilities the host's scan counted per package and did not list. Debian and Ubuntu only. |
 | **Last scan** | When the host was last scanned, or why it was not: **not scanned**, **no package list**, **unsupported** or **not checked**. |
 
 Rows sort by KEV count first, then by critical and high counts, then by the highest EPSS
-score, so the dangerous hosts rise to the top.
+score, so the dangerous hosts rise to the top. A host you [accepted](#accepting-a-host) is marked **Host accepted**, and **New** with a number when it has findings that came after.
 
 The toolbar has:
 
@@ -58,7 +58,7 @@ finding shows its severity, the CVE ID (click to copy), a **KEV** badge and the 
 (the chance of exploitation in the next 30 days), the package with its installed version, the
 fix, a summary, the aliases and links to the advisories. **Triage** asks the AI about one
 finding and **Ignore** accepts the risk. The buttons above the list are **Send package list
-now**, **SBOM (CycloneDX)**, **SBOM (SPDX)**, **Baseline** and **Changes since baseline**.
+now**, **SBOM (CycloneDX)**, **SBOM (SPDX)**, **Baseline**, **Changes since baseline** and **Accept host** (see [Accepting a host](#accepting-a-host)).
 
 On a Debian or Ubuntu host the view also shows the count: how many known vulnerabilities are
 counted and not listed, how many of those are critical or high, how many an update would
@@ -70,6 +70,25 @@ Under it, **Packages checked** says how many of the packages the host listed the
 When some were not, a click shows the reasons with their counts and the first 200 of those packages by
 name, with the reason of each. A host with no finding says **None found in the packages that could be
 checked** and not "No vulnerabilities found" when that is so.
+
+### Accepting a host
+
+Some hosts are acceptable as they are: a lab machine, a box that is being retired, a system whose findings you have read and decided to live with. In a host's view, **Accept host**
+asks for a reason and accepts every finding the host lists now. They stay recorded and stop counting in the numbers of the CVE page, the Security badge, **Needs attention**, the risk
+score, **Checks**, the posture digest and the reports, as the findings you ignore one at a time do. What the host's scan counted per package leaves the line under the tiles as well,
+and a line under it says how many hosts are accepted and how many of their findings that is.
+
+- **A finding that comes after is new.** A scan that lists a finding the host did not have when you accepted it counts it, alerts for it as it would for any host, and marks it **New**
+  in the host's view and on the host's row of the CVE page. On a Debian or Ubuntu host the scan counts most findings per package and does not list them (see
+  [What is listed and what is counted](#what-is-listed-and-what-is-counted)), and those have no ID to accept. One of them that enters the list later, because others were patched, is new too.
+- **Accept what is new** accepts the findings that came after, and keeps the time, the account and the reason of the first acceptance. **Stop accepting** takes the acceptance back, and the
+  findings count again. A finding you ignored on its own stays ignored.
+- The host's view says since when, by whom and why. As with an ignore, each organisation sees its own records, and the ones the platform operator wrote for one of its hosts.
+- Two hosts that share a finding are both accepted. Accepting one never takes the other's acceptance away.
+- **Settings → Ignored items → Ignored CVEs** does not list the records of an accepted host (a host holds up to 300), and the limit of 5,000 ignores for an organisation does not count
+  them. Deleting a host removes them.
+- The platform operator and a tenant administrator can accept the hosts they can see, as they can ignore a finding. The API is `POST /api/devices/{id}/cve/accept`, with an optional
+  `reason`, and `POST /api/devices/{id}/cve/unaccept`.
 
 ## Which hosts are scanned
 
@@ -335,7 +354,7 @@ The alert option follows the same rule.
 - Alerts have their own switch (see [Alerts & ignores](#alerts--ignores)). Reports, the
   printable fleet report, compliance checks and the assistant's context keep counting every
   listed finding.
-- A finding you accepted as a risk never counts in those numbers, with the option on or off.
+- A finding you accepted as a risk, one at a time or with the whole [host](#accepting-a-host), never counts in those numbers, with the option on or off.
 - The badge, **Needs attention** and the digest count monitored hosts only: a host you do not
   monitor is silent by choice. The CVE page and the dashboard tile still list its findings.
 

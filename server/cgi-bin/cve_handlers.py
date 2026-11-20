@@ -18,6 +18,7 @@ Constants stay in api.py and are read here through A. Pure logic goes in a
 sibling module (imported directly, like dmarc_monitor / tls_monitor).
 """
 import re
+import sys
 
 
 class _ApiNamespace:
@@ -505,17 +506,25 @@ def handle_cve_findings():
                          'covered':  {'listed': 0, 'checked': 0, 'not_checked': 0, 'reasons': {}, 'hosts_unstated': 0},
                          'devices_scanned': 0,
                          'devices_with_findings': 0,
-                         'devices_unsupported': 0},
+                         'devices_unsupported': 0,
+                         # 8.0.2: hosts that were accepted (handle_cve_host_accept), and how many of their findings are left out of the numbers above
+                         'accepted_hosts': 0,
+                         'accepted_findings': 0},
     }
 
     most_not_checked = []
+    # 8.0.2: the records laid out once. Asking every id of the store about every host read the whole store once for each host, which is
+    # 1,200,000 calls for 200 hosts and the 6,000 records of twenty accepted hosts. The ids are the same ones the per-id question gives.
+    ignore_index = A.checks_mod.cve_ignore_index(ignore_data)
     for dev_id, dev in devices.items():
         pkg_entry = pkg_store.get(dev_id) or {}
         ecosystem = A.cve_scanner.entry_ecosystem(pkg_entry)   # 8.0.1: the name the scan uses
         f_entry = findings_all.get(dev_id) or {}
         findings = f_entry.get('findings') or []
-        kev_count, epss_max = A._enrich_cve_findings(findings, kev, epss)
-        ignore_ids = {k for k, v in ignore_data.items() if A.cve_ignore_applies(v, dev_id, dev)}
+        ignore_ids = A.checks_mod.cve_ignored_ids(ignore_index, dev_id, A._device_tenant(dev))
+        # 8.0.2: a finding that is accepted is not counted as known to be exploited either. The KEV column and the tile counted every
+        # finding on the list, so a host's accepted risks still put it at the top of the page.
+        kev_count, epss_max = A._enrich_cve_findings(findings, kev, epss, skip=ignore_ids)
         summary = A.cve_scanner.summarize_findings(findings, ignore_ids)
         fix = A.cve_fixes.summarize(findings, ignore_ids)
         if fixable_only:
@@ -534,6 +543,11 @@ def handle_cve_findings():
         elif not f_entry:
             status = 'not_scanned'
 
+        accepted = _accepted_marker(dev)
+        if accepted:
+            report['summary']['accepted_hosts'] += 1
+            report['summary']['accepted_findings'] += summary['ignored']
+
         if f_entry:
             report['summary']['devices_scanned'] += 1
             if sum(summary[k] for k in ('critical', 'high', 'medium', 'low')) > 0:
@@ -543,7 +557,8 @@ def handle_cve_findings():
             for k in fix:
                 report['summary']['fix'][k] += fix[k]
             report['summary']['kev'] += kev_count
-            report['summary']['rollup'] += A.cve_fixes.rollup_total(f_entry)
+            if not accepted:        # 8.0.2: the findings of an accepted host are left out of the numbers, and so is what its scan counted per package
+                report['summary']['rollup'] += A.cve_fixes.rollup_total(f_entry)
 
         # 8.0.2: which of the host's packages were checked: what its last scan stored, or, for a host nothing is
         # matched against, all of them not. A host that is scannable and was not scanned since 8.0.2 states none.
@@ -574,6 +589,9 @@ def handle_cve_findings():
             'covered':     covered,      # 8.0.2: packages checked and not checked, or None
             'kev':         kev_count,    # v3.14.0
             'epss_max':    epss_max,     # v3.14.0 (0–1)
+            # 8.0.2: the host was accepted: its findings at that time are in `counts.ignored`, and what counts now is new
+            'accepted':     accepted,
+            'accepted_new': sum(summary[k] for k in ('critical', 'high', 'medium', 'low', 'unknown')) if accepted else 0,
         })
 
     # the hosts with the most packages not checked, for the line under the tiles
@@ -640,6 +658,11 @@ def handle_cve_device(dev_id):
     cut       = cut if isinstance(cut, list) else []
     findings  = f_entry.get('findings') or []
     findings  = A.cve_scanner.apply_ignore_list(findings, ignore_data, dev_id, A._device_tenant(dev))
+    accepted  = _accepted_view(dev, ignore_data, dev_id)
+    if accepted:
+        for f in findings:
+            if not f.get('ignored'):
+                f['new'] = True            # the host was accepted with the findings it had, so one that is not accepted came after
     _kev, _epss = A._kev_epss()                       # v3.14.0
     A._enrich_cve_findings(findings, _kev, _epss)     # stamp kev/epss per finding
 
@@ -653,6 +676,8 @@ def handle_cve_device(dev_id):
         'packages_count': pkg_entry.get('count', 0),
         'collected_at':   pkg_entry.get('collected_at', 0),
         'findings':       findings,
+        # 8.0.2: {at, last_at, n, by, reason} when the host was accepted (handle_cve_host_accept); the findings it did not have then carry `new`
+        'accepted':       accepted,
         'error':          f_entry.get('error', ''),
         # 8.0.1: what this scan leaves out (a word, see cve_scanner.coverage) and the packages whose
         # advisory list was longer than a scan reads
@@ -745,12 +770,13 @@ def _ignore_entry_visible(entry):
 
 def visible_ignore_records(value):
     """The accepted-risk records under one id that the caller may see, each without the `others` list of the value it came from.
+    The records a host acceptance wrote (`checks.is_host_accept`) are not among them: a host holds up to 300, and the host's own view shows what was accepted.
 
     The one place a reader that hands the content of a record to a caller (its reason, the account that wrote it, the host it
     names) gets the records from, so that none of them has to ask `_ignore_entry_visible` of the right object itself. The census
     in tests/test_v802_cve_flow_tenancy.py lists every reader of the store and holds each one that shows content to this."""
     return [{k: v for k, v in r.items() if k != 'others'}
-            for r in A.checks_mod.cve_ignore_records(value) if _ignore_entry_visible(r)]
+            for r in A.checks_mod.cve_ignore_records(value) if _ignore_entry_visible(r) and not A.checks_mod.is_host_accept(r)]
 
 
 def _pack_ignore_records(records):
@@ -823,9 +849,10 @@ def handle_cve_ignore_add():
         # same id stay as they are. The store is keyed by the id alone, and refusing an id because another organisation
         # holds it let one tenant take every id away from the others and told them which ids were taken (the 404 that
         # stood here was that answer). Each organisation's records are its own.
-        kept = [r for r in records if _ignore_owner_gate(r) != owner]
+        # the records a host acceptance wrote stay: the caller's record of this id for one finding is not the acceptance of a host, and neither counts for the other's ceiling
+        kept = [r for r in records if _ignore_owner_gate(r) != owner or A.checks_mod.is_host_accept(r)]
         held = sum(1 for value in ignore_data.values() for r in A.checks_mod.cve_ignore_records(value)
-                   if _ignore_owner_gate(r) == owner) - (len(records) - len(kept))
+                   if _ignore_owner_gate(r) == owner and not A.checks_mod.is_host_accept(r)) - (len(records) - len(kept))
         if held >= MAX_IGNORES_PER_OWNER:
             A.respond(400, {'error': 'Too many accepted risks. Remove some first.', 'limit': MAX_IGNORES_PER_OWNER})
         ignore_data[vuln_id] = _pack_ignore_records(kept + [entry])
@@ -843,10 +870,13 @@ def handle_cve_ignore_delete(vuln_id):
     removed = 0
     with A._LockedUpdate(A.CVE_IGNORE_FILE) as ignore_data:
         records = A.checks_mod.cve_ignore_records(ignore_data.get(vuln_id))
-        mine = [r for r in records if _ignore_entry_visible(r)]
+
+        def lifts(r):                  # the caller's own record of this id; an accepted host is lifted by the host's own route
+            return _ignore_entry_visible(r) and not A.checks_mod.is_host_accept(r)
+        mine = [r for r in records if lifts(r)]
         if mine:
             removed = len(mine)
-            packed = _pack_ignore_records([r for r in records if not _ignore_entry_visible(r)])
+            packed = _pack_ignore_records([r for r in records if not lifts(r)])
             if packed is None:
                 del ignore_data[vuln_id]
             else:
@@ -876,3 +906,167 @@ def handle_cve_ignore_list():
              for record in visible_ignore_records(v)]
     items.sort(key=lambda x: -x.get('ts', 0))
     A.respond(200, {'ignores': items})
+
+
+# ── accepting a host (8.0.2) ─────────────────────────────────────────────────────────────────────────────────────
+
+MAX_HOST_ACCEPT_IDS = 2000  # findings one acceptance writes a record for; a scan of a Debian or Ubuntu host lists at most 300, the list of another host has a ceiling of its own
+
+
+def _whole(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _accepted_marker(dev):
+    """What a host record says of its acceptance, read defensively: {'at', 'last_at', 'n'} or None.
+
+    `at` is the first time the host was accepted, `last_at` the last (accepting again takes what is new since), `n` how many findings are accepted. The marker holds no text: who accepted
+    the host and why are in the records, which each organisation sees only its own of (`_ignore_entry_visible`). A marker whose `at` is not a whole number is no marker."""
+    m = dev.get('cve_accepted') if isinstance(dev, dict) else None
+    if not isinstance(m, dict) or _whole(m.get('at')) is None:
+        return None
+    return {'at': m['at'], 'last_at': _whole(m.get('last_at')) or m['at'], 'n': _whole(m.get('n')) or 0}
+
+
+def _accepted_view(dev, ignore_data, dev_id):
+    """The acceptance of a host as its own view shows it, or None: the marker, and who accepted the host and why, from the first of the records the caller may see."""
+    marker = _accepted_marker(dev)
+    if not marker:
+        return None
+    mine = _host_records(ignore_data, dev_id)
+    first = min(mine, key=lambda r: _whole(r.get('ts')) or 0) if mine else None
+    return dict(marker, by=str(first.get('actor') or '')[:64] if first else '', reason=str(first.get('reason') or '')[:256] if first else '')
+
+
+def _host_records(ignore_data, dev_id, owner=False):
+    """The records a host acceptance wrote for this host: the ones the caller may see, or with `owner` given (a tenant id or None) the ones that organisation wrote."""
+    out = []
+    for value in ignore_data.values() if isinstance(ignore_data, dict) else ():
+        for r in A.checks_mod.cve_ignore_records(value):
+            if A.checks_mod.is_host_accept(r) and r.get('scope') == dev_id and (_ignore_entry_visible(r) if owner is False else _ignore_owner_gate(r) == owner):
+                out.append(r)
+    return out
+
+
+def drop_host_acceptance(dev_id):
+    """Remove every record a host acceptance wrote for this host, whoever wrote it, and return how many (0 when it cannot be done: a deleted host must still be deleted).
+
+    Called when a host is deleted (`_purge_device`): up to 300 records of a host that no longer exists would stay in a store every page reads whole. The generic rules of
+    `host_purge` cannot do it, since a record sits beside the records of other organisations under the same id, and dropping the first would drop them. A finding that was ignored
+    on its own keeps its record, as it always did."""
+    removed = 0
+    try:
+        with A._LockedUpdate(A.CVE_IGNORE_FILE) as ignore_data:
+            for vuln_id in list(ignore_data):
+                records = A.checks_mod.cve_ignore_records(ignore_data.get(vuln_id))
+                keep = [r for r in records if not (A.checks_mod.is_host_accept(r) and r.get('scope') == dev_id)]
+                if len(keep) == len(records):
+                    continue
+                removed += len(records) - len(keep)
+                packed = _pack_ignore_records(keep)
+                if packed is None:
+                    del ignore_data[vuln_id]
+                else:
+                    ignore_data[vuln_id] = packed
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] the accepted records of a deleted host could not be removed: {type(e).__name__}\n')
+        return 0
+    return removed
+
+
+def handle_cve_host_accept(dev_id):
+    """POST /api/devices/{id}/cve/accept {reason?} -- accept a host: the findings it lists now stop counting (8.0.2).
+
+    A record is written for each finding the host lists, under the id of the finding, with the host as its scope (`checks.is_host_accept`), so the findings stop counting wherever an
+    accepted risk does not count: the CVE page and its tiles, the badge, Needs attention, the risk score, the checks, the digest and the reports. A finding that a later scan lists
+    and that was not among them is new: it counts, alerts as it would, and the host's view marks it new. A finding that was only counted per package when the host was accepted has no id to
+    accept, so one that enters the list later is new too. Accepting a host again accepts what is new since, and keeps the first time. A finding the caller's organisation has already
+    accepted for this host, or fleet-wide, gets no second record. The platform operator's or a tenant administrator's, as an ignore is."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    if not A._validate_id(dev_id):
+        A.respond(404, {'error': 'Host not found'})
+    A._scope_block_device(dev_id)
+    body = A._read_valid(A.request_models.CveHostAcceptRequest)
+    reason = A._sanitize_str(body.get('reason', ''), 256) or 'Host accepted'
+    dev = A.device_get(dev_id)
+    if dev is None:
+        A.respond(404, {'error': 'Host not found'})
+    owner = A._tenant_gate()
+    dev_tenant = A._device_tenant(dev)
+    now = int(A.time.time())
+    f_entry = (A.load(A.CVE_FINDINGS_FILE) or {}).get(dev_id)
+    rows = f_entry.get('findings') if isinstance(f_entry, dict) and isinstance(f_entry.get('findings'), list) else []
+    ids, seen = [], set()
+    for f in rows:
+        vuln_id = f.get('vuln_id') if isinstance(f, dict) else None
+        if isinstance(vuln_id, str) and vuln_id not in seen and _is_vuln_id(vuln_id):
+            seen.add(vuln_id)
+            ids.append(vuln_id)
+            if len(ids) >= MAX_HOST_ACCEPT_IDS:
+                break
+    added = 0
+    with A._LockedUpdate(A.CVE_IGNORE_FILE) as ignore_data:
+        for vuln_id in ids:
+            records = A.checks_mod.cve_ignore_records(ignore_data.get(vuln_id))
+            # already accepted for this host by the caller's organisation, as the one rule of the store reads it (a record of its own for this host, or its fleet-wide one)
+            own = [r for r in records if _ignore_owner_gate(r) == owner]
+            if own and A.checks_mod.cve_ignore_applies(_pack_ignore_records(own), dev_id, dev_tenant):
+                continue
+            record = {'scope': dev_id, 'reason': reason, 'actor': actor, 'ts': now, A.checks_mod.HOST_ACCEPT: now}
+            if owner:
+                record['tenant'] = owner
+            ignore_data[vuln_id] = _pack_ignore_records(records + [record])
+            added += 1
+        held = len(_host_records(ignore_data, dev_id, owner))
+    marked = False
+    with A._DeviceUpdate(dev_id) as devices:
+        dev = devices.get(dev_id) if isinstance(devices, dict) else None
+        if isinstance(dev, dict):
+            before = _accepted_marker(dev)
+            dev['cve_accepted'] = {'at': before['at'] if before else now, 'last_at': now, 'n': held}
+            marked = True
+    if not marked:
+        A.respond(404, {'error': 'Host not found'})
+    A.audit_log(actor, 'cve_host_accept', detail=f'{dev_id} findings={held} new={added} reason={reason[:80]}')
+    A.respond(200, {'ok': True, 'accepted': added, 'findings': held})
+
+
+def handle_cve_host_unaccept(dev_id):
+    """POST /api/devices/{id}/cve/unaccept -- take the acceptance of a host back (8.0.2): the records its acceptance wrote are removed and its findings count again.
+
+    The records the caller's own organisation wrote for this host: another organisation's acceptance of the same host stays, and so does every finding that was ignored one at a time.
+    The marker on the host goes when no acceptance of it is left."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    if not A._validate_id(dev_id):
+        A.respond(404, {'error': 'Host not found'})
+    A._scope_block_device(dev_id)
+    owner = A._tenant_gate()
+    removed = 0
+    with A._LockedUpdate(A.CVE_IGNORE_FILE) as ignore_data:
+        for vuln_id in list(ignore_data):
+            records = A.checks_mod.cve_ignore_records(ignore_data.get(vuln_id))
+            keep = [r for r in records if not (A.checks_mod.is_host_accept(r) and r.get('scope') == dev_id and _ignore_owner_gate(r) == owner)]
+            if len(keep) == len(records):
+                continue
+            removed += len(records) - len(keep)
+            packed = _pack_ignore_records(keep)
+            if packed is None:
+                del ignore_data[vuln_id]
+            else:
+                ignore_data[vuln_id] = packed
+        # what is left is another organisation's acceptance of this host, and the marker stays while one is
+        left = any(A.checks_mod.is_host_accept(r) and r.get('scope') == dev_id for v in ignore_data.values() for r in A.checks_mod.cve_ignore_records(v))
+    had = False
+    with A._DeviceUpdate(dev_id) as devices:
+        dev = devices.get(dev_id) if isinstance(devices, dict) else None
+        if isinstance(dev, dict) and 'cve_accepted' in dev:
+            had = True
+            if not left:
+                dev.pop('cve_accepted', None)
+    if removed or had:
+        A.audit_log(actor, 'cve_host_unaccept', detail=f'{dev_id} findings={removed}')
+    A.respond(200, {'ok': True, 'removed': removed})

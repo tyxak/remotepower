@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.2-14">
+<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.2-15">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=8.0.2-14">
+<link rel="stylesheet" href="static/css/styles.css?v=8.0.2-15">
 
 </head>
 <body>
@@ -8227,6 +8227,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="hint mb-8">Fixable now means an update for the host's own release clears it. The counts leave out accepted risks.</div>
         <div class="hint mb-8" id="cve-rollup-note" hidden><span>Known vulnerabilities counted per package and not listed one by one:</span> <strong></strong></div>
+        <div class="hint mb-8" id="cve-accepted-note" hidden><span>Accepted hosts, left out of the numbers above:</span> <strong id="cve-accepted-hosts"></strong> · <span>Findings accepted on them:</span> <strong id="cve-accepted-findings"></strong></div>
         <div class="hint mb-8" id="cve-covered-note" hidden>
           <div id="cve-covered-line"><span>Packages checked:</span> <strong id="cve-covered-total"></strong> · <span>Not checked:</span> <strong id="cve-covered-missed"></strong></div>
           <div id="cve-covered-reasons" class="mt-6"></div>
@@ -12085,6 +12086,19 @@ nextcloud mem=95 sustain=6</pre>
     <button class="btn-primary" id="cve-ignore-confirm" data-action="_confirmCveIgnore" >Ignore CVE</button>
   </div>
 </div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cve-accept-modal-title" id="cve-accept-modal"><div class="modal">
+  <div class="modal-title" id="cve-accept-modal-title">Accept host</div>
+  <div class="modal-subtitle isl-224">Accept the findings of this host as they are now. They stay recorded and stop counting on the CVE page, in the Security badge, in Needs attention, in the risk score and in reports. A finding that comes after is marked New and counts.</div>
+  <div class="mb-8"><strong id="cve-accept-host" data-no-i18n></strong></div>
+  <div class="form-group">
+    <label for="cve-accept-reason" class="form-label">Reason <span class="meta-sm-nm">(optional — e.g. lab machine, retired in March)</span></label>
+    <input type="text" id="cve-accept-reason" class="form-input" maxlength="256" placeholder="Why is this host acceptable?">
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="cve-accept-modal" >Cancel</button>
+    <button class="btn-primary" id="cve-accept-confirm" data-action="_confirmCveAccept" >Accept host</button>
+  </div>
+</div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="service-detail-title" id="service-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="service-detail-title">Services</div><div id="service-detail-body" class="isl-223"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" id="service-edit-btn">Edit watched units</button><button class="btn-secondary" data-action="closeModal" data-arg="service-detail-modal" >Close</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="service-edit-modal-title" id="service-edit-modal"><div class="modal"><div class="modal-title" id="service-edit-modal-title">Configure watched services</div><div class="isl-224">One systemd unit per line (e.g. <code>nginx.service</code>, <code>postgresql.service</code>). Agent reports their state on every heartbeat.</div><textarea id="service-edit-textarea" rows="10" placeholder="nginx.service&#10;postgresql.service&#10;sshd.service" class="isl-226" aria-label="nginx.service postgresql.service sshd.service"></textarea><div class="isl-224 mt-8"><strong>Fleet baselines</strong> watch a default set of units across many hosts at once (e.g. <code>sshd.service</code>, <code>remotepower-agent.service</code>) — merged with this host's list, no need to edit each host.</div><div class="mb-8"><button class="btn-secondary" data-action="openServiceBaselines">Edit baselines…</button></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="service-edit-modal" >Cancel</button><button class="btn-primary" id="service-edit-save">Save</button></div></div></div>
 
@@ -13735,39 +13749,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=8.0.2-14"></script>
+<script defer src="static/js/app.js?v=8.0.2-15"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-cmdb.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-containers.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-network.js?v=8.0.2-14"></script>
+<script defer src="static/js/app-calendar.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-cmdb.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-containers.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-network.js?v=8.0.2-15"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-compliance.js?v=8.0.2-14"></script>
+<script defer src="static/js/app-hostconfig.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-compliance.js?v=8.0.2-15"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-dns.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-drift.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-cve.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-firewall.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-backups.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-iac.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-proxmox.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-virt.js?v=8.0.2-14"></script>
+<script defer src="static/js/app-ai.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-dns.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-drift.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-cve.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-firewall.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-backups.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-iac.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-proxmox.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-virt.js?v=8.0.2-15"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-remote.js?v=8.0.2-14"></script>
-<script defer src="static/js/app-tickets.js?v=8.0.2-14"></script>
+<script defer src="static/js/app-logs.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-remote.js?v=8.0.2-15"></script>
+<script defer src="static/js/app-tickets.js?v=8.0.2-15"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=8.0.2-14"></script>
+<script defer src="static/js/app-self.js?v=8.0.2-15"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=8.0.2-14"></script>
+<script defer src="static/js/app-tooltip.js?v=8.0.2-15"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -13777,6 +13791,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=8.0.2-14"></script>
+<script defer src="static/js/sw-register.js?v=8.0.2-15"></script>
 </body>
 </html>

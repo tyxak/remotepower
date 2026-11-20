@@ -329,6 +329,56 @@ def cve_ignore_applies(entry, dev_id, dev_tenant=None):
     return cve_ignore_record(entry, dev_id, dev_tenant) is not None
 
 
+HOST_ACCEPT = "host_accept"
+
+
+def is_host_accept(record):
+    """Is this accepted-risk record one that accepting a whole host wrote (`cve_handlers.handle_cve_host_accept`)?
+
+    Accepting a host writes a record for each finding the host lists, under the id of the finding, with the host as `scope` and the time of the acceptance in `host_accept`.
+    They are records like any other for deciding whether a finding is accepted: every reader goes through `cve_ignore_record`, so the host's findings stop counting everywhere
+    an accepted risk does. They are kept apart in three places: the lists of accepted risks do not show them (a host holds up to 300), the ceiling of an organisation's own records
+    does not count them, and neither the add nor the delete of one id touches them.
+    """
+    value = record.get(HOST_ACCEPT) if isinstance(record, dict) else None
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def cve_ignore_index(ignore_data):
+    """The store laid out for a reader that decides for many hosts: ([(id, record) with scope "global"], {host id: [(id, record)]}).
+
+    Asking `cve_ignore_applies` of every id for every host reads the whole store once for each host: 200 hosts and the 6,000 records of twenty accepted hosts are 1,200,000
+    calls for one page. `cve_ignored_ids` answers from this index in one pass over the store, plus the host's own records.
+    """
+    scoped_global, by_host = [], {}
+    if isinstance(ignore_data, dict):
+        for vuln_id, entry in ignore_data.items():
+            for record in cve_ignore_records(entry):
+                scope = record.get("scope")
+                if scope == "global":
+                    scoped_global.append((vuln_id, record))
+                elif isinstance(scope, str) and scope:
+                    by_host.setdefault(scope, []).append((vuln_id, record))
+    return scoped_global, by_host
+
+
+def cve_ignored_ids(index, dev_id, dev_tenant=None):
+    """The ids of the findings accepted-risk records suppress on this host: the set `{id for id, entry in store.items() if cve_ignore_applies(entry, dev_id, dev_tenant)}`,
+    from the index `cve_ignore_index` made of the store."""
+    scoped_global, by_host = index
+    ids = {
+        vuln_id
+        for vuln_id, record in scoped_global
+        if _ignore_record_applies(record, dev_id, dev_tenant)
+    }
+    ids.update(
+        vuln_id
+        for vuln_id, record in by_host.get(dev_id, ())
+        if _ignore_record_applies(record, dev_id, dev_tenant)
+    )
+    return ids
+
+
 def drifted_files(drift_rec):
     """Paths in a DRIFT_STATE_FILE per-device record that differ from baseline.
 

@@ -582,8 +582,22 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   `tests/test_v802_news_watch_rules.py`, `tests/test_v802_news_watch_sweep.py` and `tests/test_v802_news_watch_wiring.py`; the rules were checked against
   fifty real headlines, and fourteen planted faults (no baseline, no clock between scans, no size limit, a tenant administrator who may save, and others)
   were each caught by a test.
+- **A host can be accepted on the CVE page: its findings stop counting, and a finding that comes after is marked.** In a host's view, **Accept host** asks for a reason and writes an
+  accepted-risk record for each finding the host lists, with the host as its scope. They stop counting wherever an accepted risk does not count: the CVE page and its tiles, the Security
+  badge, **Needs attention**, the risk score, the checks, the digest and the reports. What the host's scan counted per package leaves the line under the tiles too, and the page says how many
+  hosts are accepted and how many of their findings that is. A finding that a later scan lists and that was not among them counts, raises its alert as it would, and is marked **New** in the
+  host's view and on its row. **Accept what is new** accepts those as well and keeps the first time, account and reason; **Stop accepting** takes the host's records back and leaves every
+  finding that was ignored on its own. The lists of accepted risks do not show a host's records (it holds up to 300), the ceiling of 5,000 for an organisation's own records does not count
+  them, and deleting the host removes them. The records of two hosts that share a finding sit side by side under its id: an organisation held one record under each id, so the second host's
+  would have taken the first's away. The platform operator or a tenant administrator, as for an ignore (`POST /api/devices/{id}/cve/accept` and `/unaccept`). See
+  [docs/cve.md](docs/cve.md#accepting-a-host). Tests: `tests/test_v802_cve_host_accept.py` and `tests/test_v802_cve_host_accept_e2e.py`.
 
 ### Fixes found on the way
+
+- **An accepted finding still counted as known to be exploited on the CVE page.** The KEV column, the tile and the order of the hosts counted every finding on a host's list, accepted or not, so a
+  host whose known-exploited findings had all been accepted as risks still came first. They leave out what is accepted now, and so does the highest EPSS score the page sorts by.
+- **The CVE page read the whole store of accepted risks once for each host.** It asked every record whether it applied to the host in hand: 200 hosts and the 6,000 records of twenty accepted
+  hosts are 1,200,000 questions for one page. It reads the store once and answers each host from an index.
 
 - **A failed read of the host list no longer empties what the sweeps keep for each host.** When the host store cannot be read (an unparsable file with
   no backup, a dropped database connection), the read answers an empty result, which is also what an installation with no hosts reads as, and a sweep

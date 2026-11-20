@@ -133,6 +133,14 @@ async function loadCVEReport() {
   // 8.0.1: what the scans counted per package and did not list one by one, for the fleet
   const rollNote = document.getElementById('cve-rollup-note'), rolled = typeof data.summary.rollup === 'number' ? data.summary.rollup : 0;
   if (rollNote) { rollNote.hidden = !rolled; rollNote.lastElementChild.textContent = rolled; }
+  // 8.0.2: hosts that were accepted are left out of every number above; the note says how many, and how many findings that is
+  const whole = v => (typeof v === 'number' && isFinite(v) && v >= 0) ? Math.floor(v) : 0;
+  const accNote = document.getElementById('cve-accepted-note'), accHosts = whole(data.summary.accepted_hosts);
+  if (accNote) {
+    accNote.hidden = !accHosts;
+    document.getElementById('cve-accepted-hosts').textContent = accHosts;
+    document.getElementById('cve-accepted-findings').textContent = whole(data.summary.accepted_findings);
+  }
   _renderCveCoveredNote(data.summary.covered, data.summary.most_not_checked);
   _renderCveHostTable();
   loadCveCampaigns();
@@ -500,7 +508,8 @@ async function openDeviceCVE(devId, devName) {
   const _sendTip = data.coverage === 'no_matcher'
     ? 'Ask the agent to send the software installed on this host now'
     : 'Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV';
-  html += `<div class="mb-14 row-6"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="${escAttr(_sendTip)}">${_icon('refresh',14)} Send package list now</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="cyclonedx" title="Download a CycloneDX SBOM (with CVE findings) for this host">${_icon('download',14)} SBOM (CycloneDX)</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="spdx" title="Download an SPDX 2.3 SBOM for this host">${_icon('download',14)} SBOM (SPDX)</button><button class="btn-icon" data-action="sbomCaptureBaseline" data-arg="${escAttr(devId)}" title="Snapshot the current package set as the SBOM diff baseline">${_icon('copy',14)} Baseline</button><button class="btn-icon" data-action="sbomShowDiff" data-arg="${escAttr(devId)}" data-arg2="${escAttr(devName)}" title="Show package changes since the captured baseline">${_icon('list',14)} Changes since baseline</button></div>`;
+  html += `<div class="mb-14 row-6"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="${escAttr(_sendTip)}">${_icon('refresh',14)} Send package list now</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="cyclonedx" title="Download a CycloneDX SBOM (with CVE findings) for this host">${_icon('download',14)} SBOM (CycloneDX)</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="spdx" title="Download an SPDX 2.3 SBOM for this host">${_icon('download',14)} SBOM (SPDX)</button><button class="btn-icon" data-action="sbomCaptureBaseline" data-arg="${escAttr(devId)}" title="Snapshot the current package set as the SBOM diff baseline">${_icon('copy',14)} Baseline</button><button class="btn-icon" data-action="sbomShowDiff" data-arg="${escAttr(devId)}" data-arg2="${escAttr(devName)}" title="Show package changes since the captured baseline">${_icon('list',14)} Changes since baseline</button>${_cveAcceptButtons(data.accepted, devId, devName)}</div>`;
+  html += _cveAcceptedHtml(data.accepted);
   if (data.error) html += `<div class="isl-388">${escHtml(data.error)}</div>`;
   html += _cveCoverageHtml(data);
   const roll = _cveRollupHtml(data.rollup);
@@ -523,10 +532,63 @@ async function openDeviceCVE(devId, devName) {
       const color = sevColor[f.severity] || 'var(--muted)';
       const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { const u = new URL(r); if (u.protocol !== 'http:' && u.protocol !== 'https:') return ''; return `<a href="${escHtml(r)}" target="_blank" rel="noopener noreferrer" class="c-accent">${escHtml(u.hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
       const aliasesHtml = (f.aliases||[]).map(a => `<code class="isl-389">${escHtml(a)}</code>`).join('');
-      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${escAttr(color)}">${escHtml(f.severity)}</span><code class="isl-393" data-copy="" title="Click to copy">${escHtml(f.vuln_id)}</code>${f.kev ? '<span class="kev-badge" title="Actively exploited in the wild (CISA KEV)">KEV</span>' : ''}${f.epss ? `<span class="epss-chip" title="EPSS — probability of exploitation in the next 30 days">EPSS ${(f.epss*100).toFixed(f.epss>=0.1?0:1)}%</span>` : ''}${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong data-no-i18n="">${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${_cveBinariesHtml(f)}${_cveFixHtml(f)}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
+      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${escAttr(color)}">${escHtml(f.severity)}</span><code class="isl-393" data-copy="" title="Click to copy">${escHtml(f.vuln_id)}</code>${f.kev ? '<span class="kev-badge" title="Actively exploited in the wild (CISA KEV)">KEV</span>' : ''}${f.epss ? `<span class="epss-chip" title="EPSS — probability of exploitation in the next 30 days">EPSS ${(f.epss*100).toFixed(f.epss>=0.1?0:1)}%</span>` : ''}${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}${f.new ? '<span class="status-pill warn">New</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong data-no-i18n="">${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${_cveBinariesHtml(f)}${_cveFixHtml(f)}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
     }).join('');
   }
   document.getElementById('cve-detail-body').innerHTML = html;
+}
+
+// 8.0.2: a host can be accepted as it is (POST /devices/{id}/cve/accept): its findings stop counting, and a finding that comes after is marked New and counts.
+function _cveAcceptButtons(accepted, devId, devName) {
+  const who = `data-arg="${escAttr(devId)}" data-arg2="${escAttr(devName)}"`;
+  if (!accepted) return `<button class="btn-icon" data-action="cveAcceptHost" ${who}>${_icon('check',14)} Accept host</button>`;
+  return `<button class="btn-icon" data-action="cveAcceptNew" ${who}>${_icon('check',14)} Accept what is new</button><button class="btn-icon" data-action="cveUnacceptHost" ${who}>Stop accepting</button>`;
+}
+
+function _cveAcceptedHtml(a) {
+  if (!a || typeof a !== 'object' || Array.isArray(a)) return '';
+  const n = (typeof a.n === 'number' && isFinite(a.n) && a.n >= 0) ? Math.floor(a.n) : 0;
+  const by = typeof a.by === 'string' && a.by ? ` · <span class="hint">by</span> <span data-no-i18n>${escHtml(a.by)}</span>` : '';
+  const why = typeof a.reason === 'string' && a.reason ? `<div class="hint mt-6"><span>Reason</span>: <span data-no-i18n>${escHtml(a.reason)}</span></div>` : '';
+  const when = typeof a.at === 'number' ? ` ${timeAgoHtml(a.at)}` : '';
+  return `<div class="mb-14"><strong>Host accepted</strong>${when}${by}${why}<div class="hint mt-6"><span>Accepted findings:</span> <strong>${escHtml(String(n))}</strong> · <span>A finding that came after is marked New and counts.</span></div></div>`;
+}
+
+let _cveAcceptCtx = null;
+
+function cveAcceptHost(devId, devName) {
+  _cveAcceptCtx = {devId, devName};
+  document.getElementById('cve-accept-host').textContent = devName;
+  document.getElementById('cve-accept-reason').value = '';
+  openModal('cve-accept-modal');
+}
+
+async function _cveAcceptPost(devId, devName, body, done) {
+  const r = await api('POST', `/devices/${encodeURIComponent(devId)}/cve/${done}`, body);
+  if (!r || r.error) { failToast(r); return false; }
+  openDeviceCVE(devId, devName);
+  loadCVEReport();
+  return true;
+}
+
+async function _confirmCveAccept() {
+  if (!_cveAcceptCtx) return;
+  const {devId, devName} = _cveAcceptCtx;
+  const reason = document.getElementById('cve-accept-reason').value.trim();
+  if (await _cveAcceptPost(devId, devName, {reason}, 'accept')) {
+    closeModal('cve-accept-modal');
+    toast('Host accepted', 'success');
+  }
+}
+
+// accept again what the host has now: the findings that came after, with the time and the reason of the first acceptance kept
+async function cveAcceptNew(devId, devName) {
+  if (await _cveAcceptPost(devId, devName, {}, 'accept')) toast('Host accepted', 'success');
+}
+
+async function cveUnacceptHost(devId, devName) {
+  if (!await uiConfirm('Stop accepting this host? Its findings will count again.')) return;
+  await _cveAcceptPost(devId, devName, {}, 'unaccept');
 }
 
 function ignoreCVE(vulnId, devId, devName) {
