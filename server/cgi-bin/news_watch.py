@@ -25,11 +25,22 @@ import app_catalog
 import safe_xml
 
 DEFAULT_FEEDS = ("https://feeds.feedburner.com/TheHackersNews",)
-SCOPES = ("relevant", "all")
+SCOPES = (
+    "running",
+    "relevant",
+    "all",
+)  # what counts: software that runs on a host, software on a host (installed or running), every critical item
 ACTIONS = ("list", "alert", "scan")
-DEFAULTS = {"enabled": False, "feeds": list(DEFAULT_FEEDS), "scope": "relevant", "action": "scan"}
+DEFAULTS = {
+    "enabled": False,
+    "feeds": list(DEFAULT_FEEDS),
+    "scope": "relevant",
+    "action": "scan",
+    "words": [],
+}
 
 MAX_FEEDS = 5
+MAX_WORDS = 50  # names of software an operator adds to the built-in list
 MAX_URL_LEN = 300
 MAX_FEED_BYTES = 2_000_000  # what one fetch may return
 MAX_ITEMS_PER_FEED = 60  # items read from one feed
@@ -123,6 +134,41 @@ def valid_feed_url(raw):
     return url, None
 
 
+_WORD_OK = re.compile(r"^[a-z][a-z0-9]{2,31}$")
+
+
+def clean_words(raw):
+    """(the names, None) for a list of software names, or (None, why).
+
+    A name is the word a package of that software starts with, in lower case and without its version: `unrealircd`, not `unrealircd6`. Text with one name on each line, or
+    names split by commas or blanks, is read as a list. The names are added to the built-in list of software the watch recognises, so a package of that name counts as
+    software the hosts have. A name on the stop list is refused, since the watch never counts those; at most MAX_WORDS.
+    """
+    if isinstance(raw, str):
+        raw = [w for w in re.split(r"[\s,;]+", raw) if w]
+    if not isinstance(raw, list):
+        return None, "words is a list of software names"
+    out = []
+    for w in raw:
+        if not isinstance(w, str):
+            return None, "a software name is text"
+        word = w.strip().lower()
+        base = word.rstrip("0123456789")
+        word = base if len(base) >= 3 else word  # the rule of package_tokens: "php8" is php
+        if not _WORD_OK.match(word):
+            return (
+                None,
+                f"a software name is one word of letters and digits, 3 to 32 characters: {_clean(w, 40)}",
+            )
+        if word in STOP:
+            return None, f"{word} is an everyday word, and the watch never counts those"
+        if word not in out:
+            out.append(word)
+    if len(out) > MAX_WORDS:
+        return None, f"at most {MAX_WORDS} names"
+    return out, None
+
+
 def settings(raw):
     """The settings as they are stored, read defensively: a document edited by hand, or written by an older release, never raises. Anything
     that is not valid reads as the default for that field; an address that is not valid is left out of the list.
@@ -130,6 +176,7 @@ def settings(raw):
     raw = raw if isinstance(raw, dict) else {}
     out = dict(DEFAULTS)
     out["feeds"] = list(DEFAULT_FEEDS)
+    out["words"] = []
     if raw.get("enabled") is True:
         out["enabled"] = True
     feeds = raw.get("feeds")
@@ -144,6 +191,12 @@ def settings(raw):
         out["scope"] = raw["scope"]
     if raw.get("action") in ACTIONS:
         out["action"] = raw["action"]
+    words = raw.get("words")
+    if isinstance(words, list):
+        for w in words:
+            ok, _ = clean_words([w]) if isinstance(w, str) else (None, None)
+            if ok and ok[0] not in out["words"] and len(out["words"]) < MAX_WORDS:
+                out["words"].append(ok[0])
     return out
 
 
@@ -180,6 +233,11 @@ def clean_update(body):
             if body[name] not in allowed:
                 return None, f"{name} is one of: " + ", ".join(allowed)
             update[name] = body[name]
+    if "words" in body:
+        words, why = clean_words(body["words"])
+        if why:
+            return None, why
+        update["words"] = words
     return update, None
 
 
@@ -617,14 +675,18 @@ def running_software(devices, containers=None, now=None):
     return {t: {"hosts": len(h), "world": t in world} for t, h in hosts.items()}
 
 
-def fleet_software(packages_store, devices=None, containers=None, now=None):
+def fleet_software(packages_store, devices=None, containers=None, now=None, extra=()):
     """What the hosts have, in the words a news item uses: {'installed': words, 'running': {word: {'hosts', 'world'}}}.
 
-    A package counts as installed software when its word is in KNOWN_SOFTWARE or in the catalog of App discovery. Something that runs counts when its word is one of those
-    or the word of an installed package: that keeps the names of kernel threads (`migration`, `watchdog`) out, and lets software that is not in the list count as soon as
-    it runs."""
+    A package counts as installed software when its word is in KNOWN_SOFTWARE, in the catalog of App discovery or in `extra` (the names an operator added). Something that
+    runs counts when its word is one of those or the word of an installed package: that keeps the names of kernel threads (`migration`, `watchdog`) out, and lets software
+    that is not in the list count as soon as it runs."""
     pkg = vocabulary(packages_store)
-    trusted = KNOWN_SOFTWARE | _CATALOG_TOKENS
+    trusted = (
+        KNOWN_SOFTWARE
+        | _CATALOG_TOKENS
+        | set(extra if isinstance(extra, (list, tuple, set, frozenset)) else ())
+    )
     running = {
         t: info
         for t, info in running_software(devices, containers, now).items()

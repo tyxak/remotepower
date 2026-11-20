@@ -2281,6 +2281,7 @@ if _AVAILABLE:
         feeds: Any = None
         scope: Any = None
         action: Any = None
+        words: Any = None
 
     class LdapTestUserRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

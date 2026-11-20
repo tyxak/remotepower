@@ -200,7 +200,7 @@ def poll_once(now=None, fetch=None):
         if not fleet:
             try:
                 containers = A._load_ro(A.CONTAINERS_FILE) if A.backend_exists(A.CONTAINERS_FILE) else {}
-                fleet.append(N.fleet_software(A._load_ro(A.PACKAGES_FILE) or {}, A._load_ro(A.DEVICES_FILE) or {}, containers, now))
+                fleet.append(N.fleet_software(A._load_ro(A.PACKAGES_FILE) or {}, A._load_ro(A.DEVICES_FILE) or {}, containers, now, cfg["words"]))
             except Exception as e:
                 sys.stderr.write(f"[remotepower] news watch: what the hosts have could not be read: {type(e).__name__}\n")
                 fleet.append({"installed": set(), "running": {}})
@@ -243,9 +243,10 @@ def poll_once(now=None, fetch=None):
                     "id": it["id"], "feed": label[:120], "title": it["title"], "link": it["link"], "published": it["published"],
                     "seen_at": now, "reasons": it["reasons"], "cves": it["cves"], "cvss": it["cvss"], "software": names,
                 }
+                counts = cfg["scope"] == "all" or (cfg["scope"] == "relevant" and names) or (cfg["scope"] == "running" and running_of[it["id"]])
                 if not it["fresh"]:
                     entry["outcome"] = "baseline" if not was_baselined else "stale"
-                elif cfg["action"] == "list" or not (names or cfg["scope"] == "all"):
+                elif cfg["action"] == "list" or not counts:
                     entry["outcome"] = "listed"
                 elif len(alerts) >= MAX_ALERTS_PER_RUN:
                     entry["outcome"] = "over_limit"
@@ -350,7 +351,7 @@ def _running_now(now):
         return {}
 
 
-def _public_item(i, running):
+def _public_item(i, running, extra=()):
     """One critical item as the page reads it: every field of the right kind and no other.
 
     The software it names is read against the hosts as they are now, not as they were when the item was found: `running` lists what runs on some host (with how many
@@ -359,7 +360,7 @@ def _public_item(i, running):
     reasons = [r for r in i.get("reasons") or [] if r in N.REASONS] if isinstance(i.get("reasons"), list) else []
     cves = [c for c in i.get("cves") or [] if isinstance(c, str)][: N.MAX_CVES] if isinstance(i.get("cves"), list) else []
     soft = [s for s in i.get("software") or [] if isinstance(s, str)][:MAX_SOFTWARE] if isinstance(i.get("software"), list) else []
-    kept = [t for t in soft if t in N.KNOWN_SOFTWARE or t in running]
+    kept = [t for t in soft if t in N.KNOWN_SOFTWARE or t in extra or t in running]
     cvss = i.get("cvss")
     return {
         "id": str(i.get("id") or "")[:32],
@@ -375,6 +376,38 @@ def _public_item(i, running):
         "running": [{"name": t, "hosts": running[t]["hosts"], "world": running[t]["world"]} for t in kept if t in running],
         "outcome": i.get("outcome") if i.get("outcome") in N.OUTCOMES else "listed",
     }
+
+
+def _attention_of(items, now):
+    """(how many, the newest seen_at) of the items, as _public_item makes them, that the mark counts: found in the last MAX_AGE_S seconds, more than a record made when a feed was
+    first read or an item too old to act on, and naming software that runs on a host."""
+    n, newest = 0, None
+    for i in items:
+        at = i["seen_at"]
+        if not i["running"] or i["outcome"] in ("baseline", "stale") or at is None or now - at > N.MAX_AGE_S:
+            continue
+        n += 1
+        newest = at if newest is None or at > newest else newest
+    return n, newest
+
+
+def attention(now):
+    """(how many, the newest seen_at) for the mark of the Security news tab and of its entry in the sidebar: (0, None) when the watch is off or nothing needs a look. The
+    sidebar's poll asks for it for the platform operator only, and the page remembers, in its own browser, the newest one it has shown. Never raises."""
+    try:
+        cfg = N.settings(A._config_ro().get("news_watch"))
+        if not cfg["enabled"]:
+            return 0, None
+        st = _store_dict((A._load_ro(A.NEWS_WATCH_FILE) or {}) if A.backend_exists(A.NEWS_WATCH_FILE) else {})
+        listed = [i for i in (st.get("items") if isinstance(st.get("items"), list) else []) if isinstance(i, dict)]
+        running = _running_now(now) if listed else {}
+        if not running:
+            return 0, None
+        extra = set(cfg["words"])
+        return _attention_of([_public_item(i, running, extra) for i in listed], now)
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] news watch: the mark could not be worked out: {type(e).__name__}\n")
+        return 0, None
 
 
 def _view(now):
@@ -401,7 +434,10 @@ def _view(now):
             }
         )
     running = _running_now(now)
-    items = [_public_item(i, running) for i in (st.get("items") if isinstance(st.get("items"), list) else []) if isinstance(i, dict)]
+    extra = set(cfg["words"])
+    items = [_public_item(i, running, extra) for i in (st.get("items") if isinstance(st.get("items"), list) else []) if isinstance(i, dict)]
+    items = items[: N.MAX_LISTED]
+    needs_a_look, attention_at = _attention_of(items, now)
     return {
         "editable": True,
         "now": now,
@@ -409,13 +445,17 @@ def _view(now):
         "feeds": cfg["feeds"],
         "scope": cfg["scope"],
         "action": cfg["action"],
+        "words": cfg["words"],
+        "max_words": N.MAX_WORDS,
         "every": EVERY_S,
         "scan_gap": SCAN_GAP_S,
         "max_feeds": N.MAX_FEEDS,
         "last_run": _num(st.get("last_run")),
         "last_scan_at": _num(st.get("last_scan_at")),
         "status": status,
-        "items": items[: N.MAX_LISTED],
+        "items": items,
+        "needs_a_look": needs_a_look,
+        "attention_at": attention_at,
     }
 
 
@@ -432,7 +472,7 @@ def handle_news_watch_get():
 
 
 def handle_news_watch_config_set():
-    """POST /api/news-watch/config {enabled?, feeds?, scope?, action?} -- change the settings of the news watch (8.0.2). The platform operator's, since the feeds are read by
+    """POST /api/news-watch/config {enabled?, feeds?, scope?, action?, words?} -- change the settings of the news watch (8.0.2). The platform operator's, since the feeds are read by
     the server and a scan covers every host. A field that is not in the body is left as it is; a body with one value that is not valid is refused whole, naming it. Switching
     the watch on, or changing the feeds, makes the next sweep read at once."""
     actor = A.require_admin_auth()
@@ -451,7 +491,7 @@ def handle_news_watch_config_set():
         if after["enabled"] and (not before["enabled"] or after["feeds"] != before["feeds"]):
             cfg.pop("last_news_watch_run", None)
     hosts = ",".join(sorted({urllib.parse.urlsplit(u).hostname or "" for u in after["feeds"]}))
-    A.audit_log(actor, "news_watch_config", f"enabled={after['enabled']} scope={after['scope']} action={after['action']} feeds={hosts}"[:300])
+    A.audit_log(actor, "news_watch_config", f"enabled={after['enabled']} scope={after['scope']} action={after['action']} words={len(after['words'])} feeds={hosts}"[:300])
     A.respond(200, dict(_view(int(time.time())), ok=True))
 
 

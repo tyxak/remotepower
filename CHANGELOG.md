@@ -559,7 +559,9 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   feed counted as critical, and a scan for each would run most days. A red **!** marks an item that names software that runs on a host (a process, a listening
   program or a container the agent reports, from a host that reported in the last week), with the number of hosts that run it and whether it listens to the
   Internet; software that is only installed is named under the headline without the mark. The mark is worked out when the tab is opened, from the hosts as they
-  are. A package word counts only when it is well-known server software, or when something runs under that name: the first words of package names are mostly
+  are, and a new such item also puts a red **!** on the **CVEs** sidebar entry and on the tab until the tab has shown it in that browser (only the platform
+  operator's sidebar poll carries it). **What counts** has a third choice, only software that runs, and software that is installed, not running and not on the
+  built-in list can be added by name (up to 50) in the tab. A package word counts only when it is well-known server software, or when something runs under that name: the first words of package names are mostly
   everyday words (`console-setup`, `command-not-found`, `liburi-perl`), and an article about a management console must not match them. A counting item raises the new event
   `security_news_critical` (high when it names software on your hosts, medium when it does not) and, with the default action, starts the scan of all
   hosts: at most one in six hours, never while a scan runs, and by the same slot the button takes. It is off until the platform operator switches it on, and

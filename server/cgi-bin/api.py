@@ -67513,7 +67513,7 @@ def handle_nav_counts():
                 # pending-command counts are bounded by the 15s TTL, which is
                 # exactly this cache's staleness contract.
                 for _src in (CVE_FINDINGS_FILE, CVE_IGNORE_FILE, ALERTS_FILE,
-                             CONFIRMATIONS_FILE, TICKETS_FILE):
+                             CONFIRMATIONS_FILE, TICKETS_FILE, NEWS_WATCH_FILE):
                     try:
                         if backend_mtime(_src) > _cmt:
                             _fresh = False
@@ -67586,6 +67586,15 @@ def handle_nav_counts():
     except Exception:
         pass
     out = {'fleet': offline, 'monitoring': down, 'security': crit}
+    # 8.0.2: the mark of the Security news tab and of its sidebar entry. Only the platform operator reads the news watch (the software an item names comes from every host),
+    # so only the operator's poll carries it, and the cache above is keyed by that. The page compares news_running_at with the newest item it has shown in this browser.
+    try:
+        if _nc_admin and _tenant_gate() is None:
+            _nw_n, _nw_at = news_watch_handlers_mod.attention(now)
+            if _nw_n and _nw_at:
+                out['news_running'], out['news_running_at'] = _nw_n, _nw_at
+    except Exception:
+        pass
     # v5.6.0: RemotePower's OWN control-plane health for the top-bar pill —
     # storage reachable + config loads + disk headroom on the data dir. This is
     # distinct from the fleet vitals above: the pill is green unless

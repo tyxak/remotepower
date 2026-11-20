@@ -144,7 +144,8 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.page.evaluate("""() => {
           document.querySelectorAll('.modal-overlay.active').forEach(m => closeModal(m.id));
           if (window.__realApi) { window.api = window.__realApi; window.__realApi = null; }
-          try { localStorage.removeItem('pgtab.cve'); } catch (e) {}
+          try { localStorage.removeItem('pgtab.cve'); localStorage.removeItem('rp_news_seen'); } catch (e) {}
+          if (typeof _nwAt !== 'undefined') _nwAt = 0;      // the tab draws at most every few seconds: the next test is a new visit
         }""")
 
     # ── helpers ──────────────────────────────────────────────────────────────
@@ -218,13 +219,95 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.assertFalse(self.page.eval_on_selector("#news-watch-running", "e => e.hidden"))
         self.assertIn("A red ! marks an item that names software running on one of your hosts.", self.page.inner_text("#news-watch-wrap"))
 
+    def marks(self, selector=".news-mark", page=None):
+        """For each element that carries the mark: whether it shows."""
+        return (page or self.page).evaluate("(s) => [...document.querySelectorAll(s)].map(e => !e.classList.contains('d-none'))", selector)
+
+    def poll_the_sidebar(self, page=None):
+        (page or self.page).evaluate("async () => { await refreshNavCounts(); }")
+
+    def enable_the_watch(self):
+        """The demo's watch is off, and a watch that is off has no mark. The feed is one that is refused before any connection is made, and the sweep is made not due, so
+        nothing is read: what the tab and the sidebar show is what the seed holds."""
+        cfg = json.loads(json.dumps(self.config0))
+        cfg["news_watch"] = {"enabled": True, "feeds": [LOCAL_A], "scope": "relevant", "action": "scan", "words": []}
+        cfg["last_news_watch_run"] = int(time.time())
+        write("config.json", cfg)
+
+    def test_a_watch_that_is_off_has_no_mark(self):
+        self.poll_the_sidebar()
+        self.assertEqual(self.marks(), [False, False], "the demo's watch is off: the items about software that runs are there, and the mark is not")
+        self.assertIsNone(self.page.evaluate("() => window._newsRunningAt"))
+
+    def test_a_mark_on_the_sidebar_and_on_the_tab_shows_until_the_tab_has_shown_the_item(self):
+        self.enable_the_watch()
+        self.poll_the_sidebar()
+        self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark'), [True], "this browser has shown nothing yet: the CVEs entry carries the mark")
+        self.page.evaluate("() => showPage('cve')")
+        self.page.wait_for_selector(TAB, state="visible", timeout=30000)
+        self.assertEqual(self.marks('.pg-tabs[data-pg="cve"] .news-mark'), [True], "and so does the tab, before it is opened")
+        self.page.click(TAB)
+        # the rows of an earlier visit may still be in the card, so what shows that this visit has drawn is the value the tab stores when it has shown the items
+        self.page.wait_for_function("() => !!localStorage.getItem('rp_news_seen')", timeout=30000)
+        self.assertEqual(self.marks(), [False, False], "the tab has shown what the mark counts: both go")
+        at = self.page.evaluate("async () => (await api('GET', '/news-watch')).attention_at")
+        self.assertEqual(self.page.evaluate("() => localStorage.getItem('rp_news_seen')"), str(at), "this browser remembers the newest item it showed")
+        self.page.reload()
+        self.page.wait_for_selector("#app", state="visible", timeout=90000)
+        self.page.wait_for_timeout(2500)
+        self.poll_the_sidebar()
+        self.assertEqual(self.marks(), [False, False], "and after a reload")
+        doc = json.loads(json.dumps(self.store0))
+        newest = dict(doc["items"][0], id="demonewnewest", title="nginx patches a second HTTP/2 flaw", seen_at=int(time.time()), published=int(time.time()))
+        doc["items"].insert(0, newest)
+        write("news_watch.json", doc)
+        self.poll_the_sidebar()
+        self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark'), [True], "a newer item that names software that runs brings the mark back")
+
+    def test_what_is_only_installed_and_what_is_not_new_are_no_mark(self):
+        self.enable_the_watch()
+        self.poll_the_sidebar()
+        self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark'), [True], "control: with the watch on, the demo's items set the mark")
+        doc = json.loads(json.dumps(self.store0))
+        for i in doc["items"]:
+            if i["software"] == ["nginx"] or i["software"] == ["php"]:
+                i["outcome"] = "baseline"                       # recorded when the feed was first read: nothing to look at
+        write("news_watch.json", doc)
+        self.poll_the_sidebar()
+        self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark'), [False], "the items about software that runs are baseline records")
+        doc = json.loads(json.dumps(self.store0))
+        for i in doc["items"]:
+            i["seen_at"] = int(time.time()) - 5 * 86400         # five days ago
+        write("news_watch.json", doc)
+        self.poll_the_sidebar()
+        self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark'), [False], "older than three days")
+
+    def test_a_viewer_is_never_shown_the_mark(self):
+        self.enable_the_watch()
+        self.poll_the_sidebar()
+        self.assertEqual(self.marks(), [True, True], "control: the operator is shown it")
+        ctx = _STATE["browser"].new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
+        ctx.add_init_script(INIT % "")
+        page = ctx.new_page()
+        try:
+            _login(page, "demo", "demo")
+            self.poll_the_sidebar(page)
+            self.assertEqual(self.marks(page=page), [False, False], "the entry and the tab have the mark in their markup, hidden")
+            self.assertIsNone(page.evaluate("() => window._newsRunningAt"), "the viewer's poll does not carry it")
+        finally:
+            ctx.close()
+
     def test_when_no_host_runs_it_any_more_the_marks_go_and_the_words_stay(self):
+        self.enable_the_watch()
+        self.poll_the_sidebar()
+        self.assertEqual(self.marks(), [True, True], "control: nginx and php run on the demo hosts, and the watch is on")
         devs = json.loads(json.dumps(self.devices0))
         for dev in devs.values():
             si = dev.get("sysinfo") or {}
             si["proc_names"], si["listening_ports"] = [], []
         write("devices.json", devs)
         write("containers.json", {})
+        write("news_watch.json", self.store0)        # the sidebar's answer is kept for 15 seconds, and a change of the hosts does not end that; a change of the store does
         self.open_tab()
         rows = self.items()
         self.assertTrue(rows[0].startswith("nginx patches"), "the mark is gone: " + rows[0])
@@ -232,6 +315,9 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.assertIn("Names software on your hosts: php", rows[1])
         self.assertNotIn("Running on your hosts", " ".join(rows))
         self.assertTrue(self.page.eval_on_selector("#news-watch-running", "e => e.hidden"), "nothing to count")
+        self.page.evaluate("() => { localStorage.removeItem('rp_news_seen'); }")
+        self.poll_the_sidebar()
+        self.assertEqual(self.marks(), [False, False], "and nothing for the sidebar to mark")
 
     def test_a_headline_is_a_link_that_opens_elsewhere_and_hands_over_nothing(self):
         self.open_tab()
@@ -245,6 +331,9 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.assertEqual(self.page.evaluate("() => document.getElementById('nw-enabled').checked"), False)
         self.assertEqual(self.page.input_value("#nw-feeds"), FEED)
         self.assertEqual((self.page.input_value("#nw-scope"), self.page.input_value("#nw-action")), ("relevant", "scan"))
+        self.assertEqual(self.page.input_value("#nw-words"), "")
+        self.assertEqual(self.page.eval_on_selector_all("#nw-scope option", "os => os.map(o => o.value)"), ["running", "relevant", "all"], "the three choices, narrowest first")
+        self.assertEqual(self.page.eval_on_selector_all("#nw-action option", "os => os.map(o => o.value)"), ["list", "alert", "scan"])
         self.assertEqual(self.page.inner_text("#news-watch-note").strip(), "The watch is off. Switch it on below and save.")
         self.assertTrue(self.page.eval_on_selector("#news-watch-run", "e => e.hidden"), "there is nothing to check now while it is off")
         self.assertFalse(self.page.eval_on_selector("#news-watch-form", "e => e.hidden"))
@@ -271,11 +360,34 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.page.wait_for_function("() => !document.getElementById('news-watch-run').hidden", timeout=30000)
         posts = [r for r in self.requests if r[0] == "POST" and r[1] == "/news-watch/config"]
         self.assertEqual(len(posts), 1, self.requests)
-        self.assertEqual(json.loads(posts[0][2]), {"enabled": True, "feeds": "%s\n%s" % (LOCAL_A, LOCAL_B), "scope": "all", "action": "alert"})
-        self.assertEqual(read("config.json")["news_watch"], {"enabled": True, "feeds": [LOCAL_A, LOCAL_B], "scope": "all", "action": "alert"})
+        self.assertEqual(json.loads(posts[0][2]), {"enabled": True, "feeds": "%s\n%s" % (LOCAL_A, LOCAL_B), "scope": "all", "action": "alert", "words": ""})
+        self.assertEqual(read("config.json")["news_watch"], {"enabled": True, "feeds": [LOCAL_A, LOCAL_B], "scope": "all", "action": "alert", "words": []})
         self.assertEqual(self.page.input_value("#nw-feeds"), "%s\n%s" % (LOCAL_A, LOCAL_B), "the form shows what the server kept")
         self.assertEqual(self.page.eval_on_selector_all("#news-watch-items > div", "e => e.length"), 6, "saving does not lose what the watch found")
         self.assertEqual(self.page.inner_text("#news-watch-note").strip(), "", "last read a few minutes ago: nothing to say")
+
+    def test_the_third_choice_and_a_name_that_is_not_on_the_list_are_saved_and_shown_again(self):
+        self.open_tab()
+        self.page.check("#nw-enabled")
+        self.page.select_option("#nw-scope", "running")
+        self.page.fill("#nw-words", "UnrealIRCd6\nsquidguard")
+        self.page.fill("#nw-feeds", LOCAL_A)
+        self.page.click('#news-watch-form button[data-action="newsWatchSave"]')
+        self.page.wait_for_function("() => !document.getElementById('news-watch-run').hidden", timeout=30000)
+        self.assertEqual(read("config.json")["news_watch"], {"enabled": True, "feeds": [LOCAL_A], "scope": "running", "action": "scan", "words": ["unrealircd", "squidguard"]})
+        self.assertEqual(self.page.input_value("#nw-words"), "unrealircd\nsquidguard", "the form shows the names as the server kept them")
+        self.assertEqual(self.page.input_value("#nw-scope"), "running")
+        self.page.evaluate("async () => { await newsWatchLoad(); }")
+        self.assertEqual((self.page.input_value("#nw-scope"), self.page.input_value("#nw-words")), ("running", "unrealircd\nsquidguard"), "and again after a reload from the server")
+
+    def test_an_everyday_word_is_refused_with_the_reason_and_nothing_is_saved(self):
+        self.open_tab()
+        self.page.check("#nw-enabled")
+        self.page.fill("#nw-words", "squidguard\nconsole")
+        self.page.click('#news-watch-form button[data-action="newsWatchSave"]')
+        self.page.wait_for_selector(".toast.error", timeout=30000)
+        self.assertIn("console is an everyday word", self.page.inner_text(".toast.error"))
+        self.assertEqual(read("config.json")["news_watch"], self.config0["news_watch"])
 
     def test_a_refused_value_is_said_and_nothing_is_saved(self):
         self.open_tab()
@@ -375,7 +487,7 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
           labels: [...document.querySelectorAll('#news-watch-wrap label')].map(e => e.textContent.trim()),
           options: [...document.querySelectorAll('#news-watch-wrap option')].map(e => e.textContent.trim()),
           buttons: [...document.querySelectorAll('#news-watch-wrap button')].map(e => e.textContent.trim()),
-          hints: [...document.querySelectorAll('#news-watch-wrap p.hint, #news-watch-wrap #news-watch-form > .hint, #news-watch-wrap > .form-label')].map(e => e.textContent.trim()),
+          hints: [...document.querySelectorAll('#news-watch-wrap p.hint, #news-watch-wrap #news-watch-form > .hint, #news-watch-form .form-group > .hint, #news-watch-wrap > .form-label')].map(e => e.textContent.trim()),
           chips: [...document.querySelectorAll('#news-watch-items .status-pill')].map(e => e.textContent.trim()),
           words: [...document.querySelectorAll('#news-watch-feeds .hint:not([data-no-i18n]), #news-watch-items .hint > .hint:not([data-no-i18n]), #news-watch-running .hint')].map(e => e.textContent.trim()),
         })"""

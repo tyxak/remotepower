@@ -470,6 +470,164 @@ class TestRunningSoftware(_Server):
         self.assertEqual(self.get_page()['items'][0]['running'], [])
 
 
+# ── what counts: the three choices, and the names an operator adds ───────────
+
+class TestWhatCounts(_Server):
+
+    def setUp(self):
+        super().setUp()
+        # nginx runs and listens to the Internet; php is a package and nothing runs under that name
+        self.hosts({'web01': (['nginx'], [('nginx', 443, 'world')])})
+
+    def test_the_third_choice_alerts_for_what_runs_and_only_lists_what_is_installed(self):
+        self.settings(scope='running')
+        self.poll(QUIET)
+        out = self.poll(QUIET, NGINX, PHP, advance=1800)
+        self.assertEqual((out['new_critical'], out['alerts'], out['scan']), (2, 1, 'started'))
+        self.assertEqual(self.outcomes(), {NGINX[0]: 'scanned', PHP[0]: 'listed'})
+        (a,) = self.alerts()
+        self.assertEqual(a['payload']['title'], NGINX[0])
+        self.assertEqual(len(self.spawned), 1)
+
+    def test_the_middle_choice_counts_installed_software_too(self):
+        self.settings(scope='relevant')
+        self.poll(QUIET)
+        out = self.poll(QUIET, NGINX, PHP, advance=1800)
+        self.assertEqual((out['alerts'], sorted(self.outcomes().values())), (2, ['scanned', 'scanned']))
+
+    def test_with_nothing_running_the_third_choice_alerts_for_nothing(self):
+        self.hosts({'web01': (['sshd'], [])})
+        self.settings(scope='running')
+        self.poll(QUIET)
+        out = self.poll(QUIET, NGINX, PHP, advance=1800)
+        self.assertEqual((out['alerts'], out['scan'], self.spawned, self.alerts()), (0, None, [], []))
+        self.assertEqual(sorted(self.outcomes().values()), ['listed', 'listed'])
+
+    def test_a_name_the_operator_added_makes_installed_software_count(self):
+        self.packages({'web01': ['unrealircd', 'nginx']})
+        unreal = ('Attackers Exploit UnrealIRCd Flaw That Enables Server-Level Command Injection', 'A critical RCE in the IRC server.')
+        again = ('Another UnrealIRCd Flaw Lets Attackers Run Code', 'It is critical.')
+        self.poll(QUIET)
+        out = self.poll(QUIET, unreal, advance=1800)
+        self.assertEqual((out['alerts'], self.outcomes()[unreal[0]]), (0, 'listed'), 'installed, not on the list, not running')
+        self.settings(words=['unrealircd'])
+        out = self.poll(QUIET, unreal, again, advance=1800)
+        self.assertEqual((out['alerts'], self.outcomes()[again[0]]), (1, 'scanned'))
+        (a,) = self.alerts()
+        self.assertIn('It names software installed on your hosts.', a['payload']['detail'])
+        item = self.get_page()['items'][0]
+        self.assertEqual((item['title'], item['software']), (again[0], ['unrealircd']))
+        self.settings(words=[])
+        self.assertEqual(self.get_page()['items'][0]['software'], [], 'a name taken out is no longer shown on the items that had it')
+
+    def test_the_names_are_saved_normalised_and_one_bad_name_refuses_the_whole_save(self):
+        st, got = self.request('/api/news-watch/config', 'POST', body={'words': 'UnrealIRCd6\nsquidguard, unrealircd', 'scope': 'running'})
+        self.assertEqual((st, got['words'], got['scope'], got['max_words']), (200, ['unrealircd', 'squidguard'], 'running', N.MAX_WORDS))
+        self.api._LOAD_CACHE.clear()
+        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['news_watch']['words'], ['unrealircd', 'squidguard'])
+        self.assertIn('words=2', self.audits[-1][2])
+        st, got = self.request('/api/news-watch/config', 'POST', body={'words': ['console'], 'scope': 'all'})
+        self.assertEqual(st, 400, got)
+        self.assertIn('everyday word', got['error'])
+        self.api._LOAD_CACHE.clear()
+        stored = self.api.load(self.api.CONFIG_FILE)['news_watch']
+        self.assertEqual((stored['scope'], stored['words']), ('running', ['unrealircd', 'squidguard']), 'nothing of the refused save was kept')
+        self.assertEqual(self.request('/api/news-watch')[1]['words'], ['unrealircd', 'squidguard'])
+
+
+# ── the mark of the tab and of the sidebar ───────────────────────────────────
+
+class TestTheMark(_Server):
+
+    def setUp(self):
+        super().setUp()
+        self.hosts({'web01': (['nginx'], [('nginx', 443, 'world')])})
+
+    def nav(self, token='k', clear=True):
+        """The sidebar's poll. Its answer is cached for 15 seconds, so a test that changed the hosts asks for a fresh one."""
+        if clear:
+            for f in self.api.DATA_DIR.glob('nav_counts_cache_*.json'):
+                f.unlink()
+        self.api._LOAD_CACHE.clear()
+        try:
+            st, got = self.request('/api/nav-counts', token=token)
+        except self.api.HTTPError as e:      # a conditional GET raises its answer itself (_respond_with_etag), which the stand-in for respond() never sees
+            st, got = e.status, e.body
+        self.assertEqual(st, 200, got)
+        return got
+
+    def found(self):
+        self.poll(QUIET)
+        self.poll(QUIET, NGINX, advance=1800)
+        return self.state()['items'][0]['seen_at']
+
+    def test_the_operators_poll_carries_how_many_and_the_newest_item_that_names_software_that_runs(self):
+        at = self.found()
+        got = self.nav()
+        self.assertEqual((got['news_running'], got['news_running_at']), (1, at))
+        page = self.get_page()
+        self.assertEqual((page['needs_a_look'], page['attention_at']), (1, at), 'the tab and the sidebar count the same thing')
+
+    def test_software_that_is_only_installed_is_not_a_mark(self):
+        self.hosts({'web01': (['sshd'], [])})
+        self.poll(QUIET)
+        self.poll(QUIET, PHP, advance=1800)
+        got = self.nav()
+        self.assertNotIn('news_running', got)
+        self.assertNotIn('news_running_at', got)
+        self.assertEqual(self.get_page()['needs_a_look'], 0)
+
+    def test_the_first_read_an_item_too_old_to_act_on_and_one_older_than_three_days_are_not_a_mark(self):
+        self.poll(NGINX)                                            # the first read of the feed: recorded, nothing raised
+        self.assertEqual(self.state()['items'][0]['outcome'], 'baseline')
+        self.assertNotIn('news_running', self.nav())
+        self.poll(NGINX, ('Critical NGINX flaw, old news', 'nginx', N.MAX_AGE_S + 3600), advance=1800)
+        self.assertEqual(self.state()['items'][0]['outcome'], 'stale')
+        self.assertNotIn('news_running', self.nav())
+        self.found_again = self.poll(NGINX, ('Critical NGINX flaw, new this time', 'nginx'), advance=1800)
+        got = self.nav()
+        self.assertEqual(got['news_running'], 1, 'only the new one')
+        st = self.state()
+        st['items'][0]['seen_at'] = int(time.time()) - N.MAX_AGE_S - 60          # the same item, found more than three days ago
+        self.api.save(self.api.NEWS_WATCH_FILE, st)
+        self.api._LOAD_CACHE.clear()
+        self.assertNotIn('news_running', self.nav())
+
+    def test_a_watch_that_is_off_has_no_mark(self):
+        self.found()
+        self.assertIn('news_running', self.nav())
+        self.settings(enabled=False)
+        self.assertNotIn('news_running', self.nav())
+
+    def test_the_mark_follows_the_hosts(self):
+        self.found()
+        self.assertIn('news_running', self.nav())
+        self.hosts({'web01': (['sshd'], [])})
+        self.assertNotIn('news_running', self.nav(), 'nothing runs nginx any more')
+        self.hosts({'web01': (['nginx'], [])})
+        self.assertIn('news_running', self.nav())
+
+    def test_nobody_but_the_platform_operator_gets_it(self):
+        self.found()
+        self.assertIn('news_running', self.nav('k'))
+        got = self.nav('v', clear=False)               # the same 15 seconds: the operator's answer must not be what a viewer is given
+        self.assertNotIn('news_running', got)
+        self.tenancy()
+        for token, who in (('v', 'a viewer'), ('b', 'the administrator of a tenant')):
+            self.assertNotIn('news_running', self.nav(token, clear=False), who)
+            self.assertNotIn('news_running_at', self.nav(token), who)
+        self.assertIn('news_running', self.nav('k'), 'control: the platform operator still gets it')
+
+    def test_a_new_item_shows_in_the_sidebar_poll_before_its_15_seconds_are_over(self):
+        self.found()
+        first = self.nav()['news_running_at']
+        time.sleep(0.05)
+        self.poll(NGINX, ('Critical NGINX flaw, a second one', 'nginx'), advance=1800)
+        got = self.nav(clear=False)                    # the cache is not cleared: the store changed, and that busts it
+        self.assertEqual(got['news_running'], 2)
+        self.assertGreater(got['news_running_at'], first)
+
+
 # ── feeds that fail, and the state that is kept ──────────────────────────────
 
 class TestTheFeeds(_Server):
@@ -597,7 +755,7 @@ class TestTheRoutes(_Server):
         st, got = self.request('/api/news-watch/config', 'POST', body={'action': 'alert', 'feeds': f'{FEED2}\n\n{FEED}'})
         self.assertEqual((st, got['ok'], got['action'], got['feeds'], got['scope'], got['enabled']), (200, True, 'alert', [FEED2, FEED], 'relevant', True))
         self.api._LOAD_CACHE.clear()
-        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['news_watch'], {'enabled': True, 'feeds': [FEED2, FEED], 'scope': 'relevant', 'action': 'alert'})
+        self.assertEqual(self.api.load(self.api.CONFIG_FILE)['news_watch'], {'enabled': True, 'feeds': [FEED2, FEED], 'scope': 'relevant', 'action': 'alert', 'words': []})
         a = self.audits[-1]
         self.assertEqual(a[1], 'news_watch_config')
         self.assertIn('feeds=news.example.net,other.example.org', a[2])

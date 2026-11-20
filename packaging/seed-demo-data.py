@@ -3980,7 +3980,7 @@ def build_config() -> dict:
         'detections_module_enabled': True,
         'last_detections_run':   now() - 130,
         # 8.0.2: the security news watch is configured and off: its feed is an address that never resolves, and the card on the CVE page shows what build_news_watch holds.
-        'news_watch': {'enabled': False, 'feeds': [_DEMO_NEWS_FEED], 'scope': 'relevant', 'action': 'scan'},
+        'news_watch': {'enabled': False, 'feeds': [_DEMO_NEWS_FEED], 'scope': 'relevant', 'action': 'scan', 'words': []},
         # 8.0.0: automatic container image updates, in shadow mode: the card and the receipts have something to show and no command is queued for a host
         # that has no agent to run it. The images are the ones build_image_updates lists; databases are left out.
         'image_autoupdate': {

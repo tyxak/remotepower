@@ -86,8 +86,16 @@ function _nwFillForm(d) {
   set('nw-enabled', el => { el.defaultChecked = !!d.enabled; el.checked = !!d.enabled; });
   set('nw-feeds', el => { const v = (d.feeds || []).join('\n'); el.defaultValue = v; el.value = v; });
   set('nw-scope', el => { el.value = d.scope; });
+  set('nw-words', el => { const v = (d.words || []).join('\n'); el.defaultValue = v; el.value = v; });
   set('nw-action', el => { el.value = d.action; });
   _nwFormLoaded = true;
+}
+
+// The tab has shown what the mark counts: this browser remembers the newest of it, and the "!" on the sidebar and on the tab goes until a newer item comes (app.js _paintNewsMark).
+function _nwSeen(at) {
+  if (typeof at !== 'number') return;
+  try { if (at > (Number(localStorage.getItem('rp_news_seen')) || 0)) localStorage.setItem('rp_news_seen', String(at)); } catch (_) { /* private window */ }
+  if (typeof _paintNewsMark === 'function') _paintNewsMark();
 }
 
 function _nwPaint(d, force) {
@@ -120,6 +128,7 @@ function _nwPaint(d, force) {
     sum.innerHTML = bangs ? `<span class="c-red fw-600" aria-hidden="true">!</span> <span class="hint">Items about software running on your hosts:</span> <strong>${escHtml(String(bangs))}</strong>` : '';
   }
   if (items) items.innerHTML = (d.items || []).length ? d.items.map(_nwItemHtml).join('') : '<div class="c-muted">No critical items yet.</div>';
+  _nwSeen(d.attention_at);
 }
 
 async function _nwLoad(force) {
@@ -147,6 +156,7 @@ async function newsWatchSave() {
     feeds: document.getElementById('nw-feeds').value,
     scope: document.getElementById('nw-scope').value,
     action: document.getElementById('nw-action').value,
+    words: document.getElementById('nw-words').value,
   };
   const r = await api('POST', '/news-watch/config', body);
   if (!r || r.error) { failToast(r); return; }

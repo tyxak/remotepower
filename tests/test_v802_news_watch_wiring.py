@@ -95,6 +95,12 @@ class TestTheServerNamesIt(unittest.TestCase):
         make = (ROOT / 'Makefile').read_text()
         self.assertEqual(len(re.findall(r'server/cgi-bin/news_watch\.py', make)), 2, 'LINT_SRC and TYPECHECK_SRC')
 
+    def test_the_sidebar_poll_carries_the_figure_for_the_operator_only_and_its_cache_follows_the_store(self):
+        src = srcpin.py_function((ROOT / 'server' / 'cgi-bin' / 'api.py').read_text(), 'handle_nav_counts')
+        self.assertRegex(src, r'if _nc_admin and _tenant_gate\(\) is None:\s+_nw_n, _nw_at = news_watch_handlers_mod\.attention\(now\)')
+        self.assertRegex(src, r'CONFIRMATIONS_FILE, TICKETS_FILE, NEWS_WATCH_FILE\)', 'a change of the store busts the 15 second cache')
+        self.assertTrue(callable(self.api.news_watch_handlers_mod.attention))
+
     def test_the_codes_the_server_sends_are_the_codes_the_page_holds_a_sentence_for(self):
         reasons, outcomes = _js_map('_NW_REASON'), _js_map('_NW_OUTCOME')
         self.assertEqual(set(N.REASONS), set(reasons), 'every reason code has a sentence, and no sentence is for a code nothing sends')
@@ -116,7 +122,7 @@ class TestTheClientNamesIt(unittest.TestCase):
         lazy = re.search(r"const _LAZY_NON_PAGE_MODULES = \[([^\]]*)\]", APP).group(1)
         self.assertIn("'app-newswatch.js'", lazy)
         self.assertNotRegex(HTML, r'<script[^>]+app-newswatch\.js', 'a script tag would load it with the first page of every visit')
-        self.assertRegex(HTML, r'<button class="pg-tab" data-pg-tab-btn="news" data-action="pgTab" data-arg="cve:news">Security news</button>')
+        self.assertRegex(HTML, r'<button class="pg-tab" data-pg-tab-btn="news" data-action="pgTab" data-arg="cve:news">Security news<span class="news-mark d-none" aria-hidden="true">!</span></button>')
         self.assertNotIn('data-module', re.search(r'<button[^>]*data-pg-tab-btn="news"[^>]*>', HTML).group(0), 'every installation has the tab')
         self.assertIn('function newsWatchEnter(', NW)
 
@@ -147,6 +153,85 @@ class TestTheClientNamesIt(unittest.TestCase):
         self.assertNotRegex(card, r'\sstyle=')
         self.assertNotRegex(NW, r'\son[a-z]+=')
         self.assertNotRegex(NW, r'style="')
+
+    def test_the_mark_is_on_the_sidebar_entry_and_on_the_tab_and_is_painted_from_the_poll(self):
+        self.assertEqual(len(re.findall(r'class="[^"]*\bnews-mark\b[^"]*"', HTML)), 2, 'the CVEs entry of the sidebar and the Security news tab')
+        nav = re.search(r'<button class="nav-btn" data-page="cve".*?</button>', HTML, re.S).group(0)
+        span = re.search(r'<span class="nav-badge nav-badge-alert news-mark d-none"([^>]*)>!</span>', nav)
+        self.assertTrue(span, 'the mark sits in the sidebar entry, hidden until the poll says so')
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', span.group(1)))
+        self.assertEqual((attrs['role'], attrs['aria-label']), ('img', attrs['title']), 'a "!" alone says nothing to a screen reader')
+        self.assertTrue(set(LANGS) <= dict_rows(I18N).get(attrs['aria-label'], set()), 'and its words are translated')
+        tab = re.search(r'<button class="pg-tab" data-pg-tab-btn="news".*?</button>', HTML, re.S).group(0)
+        self.assertIn('<span class="news-mark d-none" aria-hidden="true">!</span>', tab)
+        refresh = srcpin.js_function(APP, 'refreshNavCounts')
+        self.assertIn("window._newsRunningAt = typeof c.news_running_at === 'number' ? c.news_running_at : null", refresh)
+        self.assertIn('_paintNewsMark();', refresh)
+        self.assertIn('_paintNewsMark', srcpin.js_function(APP, '_renderFavorites'), 'a pinned favourite is a clone of the entry and is painted too')
+        self.assertIn("'rp_news_seen'", srcpin.js_function(APP, '_paintNewsMark'))
+        self.assertIn("'rp_news_seen'", NW, 'the tab writes the key the sidebar reads')
+        css = (JS.parent / 'css' / 'styles.css').read_text()
+        self.assertRegex(css, r'\.pg-tab \.news-mark\s*\{')
+        self.assertRegex(css, r'\.nav-badge\.news-mark\s*\{')
+
+    @unittest.skipUnless(NODE, 'node not installed')
+    def test_the_mark_shows_only_for_an_item_newer_than_the_newest_this_browser_has_shown(self):
+        body = srcpin.js_function(APP, '_paintNewsMark')
+        script = ('const els = [0, 1].map(() => ({classList: {hidden: null, toggle(c, hide) { if (c === "d-none") this.hidden = hide; }}}));\n'
+                  'const document = {querySelectorAll: sel => (sel === ".news-mark" ? els : [])};\n'
+                  'let store = {}, broken = false;\n'
+                  'const localStorage = {getItem: k => { if (broken) throw new Error("no storage"); return k in store ? store[k] : null; }};\n'
+                  'const window = {};\n' + body + '\n'
+                  'const out = [];\n'
+                  'for (const [at, seen] of [[100, null], [100, "50"], [100, "100"], [100, "150"], [null, null], [null, "5"], ["x", null], [undefined, null], [100, "junk"], [100, ""]]) {\n'
+                  '  window._newsRunningAt = at; store = seen === null ? {} : {rp_news_seen: seen}; _paintNewsMark(); out.push(els.map(e => e.classList.hidden));\n'
+                  '}\n'
+                  'broken = true; window._newsRunningAt = 100; _paintNewsMark(); out.push(els.map(e => e.classList.hidden));\n'
+                  'console.log(JSON.stringify(out));\n')
+        out = self._node(script)
+        shown, hidden = [False, False], [True, True]
+        self.assertEqual(out, [shown, shown, hidden, hidden, hidden, hidden, hidden, hidden, shown, shown, shown],
+                         'shown for 100 with nothing seen or an older item seen or a damaged value; hidden for the same or a newer one seen, and for no item at all; both copies together')
+
+    @unittest.skipUnless(NODE, 'node not installed')
+    def test_the_tab_remembers_the_newest_item_it_showed_and_never_an_older_one(self):
+        script = ('let store = {}, painted = 0, broken = false;\n'
+                  'const localStorage = {getItem: k => { if (broken) throw new Error("no"); return k in store ? store[k] : null; },\n'
+                  '                      setItem: (k, v) => { if (broken) throw new Error("no"); store[k] = String(v); }};\n'
+                  'function _paintNewsMark() { painted++; }\n' + NW + '\n'
+                  'const out = [];\n'
+                  'for (const at of [100, 50, 150, null, "x", undefined, 150]) { _nwSeen(at); out.push([store.rp_news_seen || null, painted]); }\n'
+                  'broken = true; _nwSeen(500);\n'
+                  'console.log(JSON.stringify(out.concat([[store.rp_news_seen, painted]])));\n')
+        out = self._node(script)
+        self.assertEqual([o[0] for o in out], ['100', '100', '150', '150', '150', '150', '150', '150'], 'the newest, and nothing older replaces it')
+        self.assertEqual([o[1] for o in out], [1, 2, 3, 3, 3, 3, 4, 5], 'painted after each number, and not for a value that is no number; a browser with no storage still paints')
+
+    def test_the_tab_records_what_it_has_shown_every_time_it_draws_and_the_form_sends_the_names(self):
+        paint = srcpin.js_function(NW, '_nwPaint')
+        self.assertIn('_nwSeen(d.attention_at);', paint, 'without this call the mark never goes')
+        self.assertNotIn('_nwSeen', srcpin.js_function(NW, '_nwPaint').split('if (!d.editable)')[1].split('return;')[0], 'a role that is shown nothing records nothing')
+        self.assertIn("words: document.getElementById('nw-words').value", srcpin.js_function(NW, 'newsWatchSave'))
+        self.assertIn("set('nw-words'", srcpin.js_function(NW, '_nwFillForm'))
+
+    def _node(self, script):
+        d = Path(tempfile.mkdtemp(prefix='rp-newsnode-'))
+        try:
+            (d / 't.js').write_text(script)
+            r = subprocess.run([NODE, str(d / 't.js')], capture_output=True, text=True, timeout=60)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+        self.assertEqual(r.returncode, 0, r.stderr[-600:])
+        return json.loads(r.stdout)
+
+    def test_the_choices_of_what_counts_and_what_happens_are_the_ones_the_server_knows_in_the_same_order(self):
+        rows = dict_rows(I18N)
+        for sel_id, known in (('nw-scope', N.SCOPES), ('nw-action', N.ACTIONS)):
+            sel = re.search(r'<select id="%s"[^>]*>(.*?)</select>' % sel_id, HTML, re.S).group(1)
+            self.assertEqual(tuple(re.findall(r'<option value="(\w+)"', sel)), known, sel_id)
+            for text in re.findall(r'<option value="\w+">([^<]+)</option>', sel):
+                self.assertTrue(set(LANGS) <= rows.get(text, set()), text)
+        self.assertEqual(N.settings(None)['scope'], 'relevant', 'the default is the middle choice')
 
     def test_the_feed_and_the_inbox_know_the_event(self):
         self.assertRegex(APP, r"'security_news_critical': 'warn'")
@@ -192,6 +277,9 @@ class TestTheSentencesAreTranslated(unittest.TestCase):
         sentences |= set(re.findall(r"<div class=\"c-muted\">([^<]+)</div>", NW))
         sentences |= {'Called critical', 'Failed:', 'reachable from the Internet', 'Running on your hosts:', 'Items about software running on your hosts:'}
         sentences.add('A red ! marks an item that names software running on one of your hosts. An item that names software that is only installed has no !.')
+        sentences |= {'Only items that name software running on my hosts', 'Other software to count, one name on each line',
+                      'Names of software that is installed on your hosts and is not on the built-in list. A package whose name starts with one of them counts when a headline names it.',
+                      'A security news item names software that runs on your hosts'}
         self.assertGreaterEqual(len(sentences), 20, 'control: the scan found the sentences')
         missing = {s: sorted(set(LANGS) - rows.get(s, set())) for s in sorted(sentences) if not set(LANGS) <= rows.get(s, set())}
         self.assertEqual(missing, {}, 'sentences the Security news tab shows with no translation')

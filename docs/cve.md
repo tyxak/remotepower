@@ -565,8 +565,10 @@ Round-ups, webinars and checklists never count, even when they list every flaw o
 
 ### Which critical items count for you
 
-**Critical items that count** has two choices:
+**Critical items that count** has three choices:
 
+- **Only items that name software running on my hosts.** The narrowest. An item counts only when it names software that an agent reports as running (see
+  [The red !](#the-red-)). Software that is only installed does not count, so a story about Ruby does nothing when no host runs Ruby.
 - **Only items that name software on my hosts** (the default). The watch compares the headline and the summary with what your hosts have and run. A story
   about PHP counts when a host has a PHP package. A story about a firewall you do not run does not.
 - **Every critical item.**
@@ -586,9 +588,20 @@ Software can be on a host in two ways, and the tab tells them apart:
 Both count for **Only items that name software on my hosts**, and the alert says which it was. The ! is worked out each time you open the tab, from the hosts
 as they are then, so it follows what runs today and not what ran when the item was found.
 
+**The mark on the sidebar and the tab.** When a new item names software that runs on a host, the **CVEs** entry in the sidebar and the **Security news** tab get a
+red **!** as well, so you see it without opening the tab. Opening the tab clears it in that browser until a newer item comes. Only the platform operator sees it.
+An item recorded when a feed was first read, an item too old to act on, and an item that names software that is only installed do not set it, and neither does
+a watch that is switched off.
+
 Most package names start with an everyday word: `console-setup`, `command-not-found`, `software-properties-common`, `xml-core`. They do not make an article about
 a management console or a command line relevant. The first word of a package name counts only when it is software people write about, or when something runs
-under that name, so software that is not on the list still counts as soon as it runs. A few words are read with their context: `apache` counts for Apache HTTP
+under that name, so software that is not on the list still counts as soon as it runs.
+
+Software that is installed, does not run and is not on the list is not matched. To count it, add its name under **Other software to count**, one name on each
+line: the word its packages start with, such as `unrealircd` (a version is dropped, so `unrealircd6` is read as `unrealircd`). Up to 50 names. A name that is an
+everyday word, such as `console`, is refused, because the watch never counts those.
+
+A few words are read with their context: `apache` counts for Apache HTTP
 Server, `httpd` or Apache 2 and not for Apache Roller, Tomcat or Kafka; `node` counts for Node.js; the kernel of Windows or macOS is not the Linux kernel.
 
 ### What happens when one counts

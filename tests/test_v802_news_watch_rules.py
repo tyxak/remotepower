@@ -319,6 +319,17 @@ class TestFleetSoftware(unittest.TestCase):
         self.assertEqual(N.mentions(None, {}), ([], []))
         self.assertEqual(N.mentions('PHP', None), ([], []))
 
+    def test_names_an_operator_adds_count_as_software_the_hosts_have(self):
+        store = pkgs('unrealircd', 'console-setup', 'squidguard')
+        fleet = N.fleet_software(store, extra=['unrealircd'])
+        self.assertEqual(fleet['installed'] & {'unrealircd', 'console', 'squidguard'}, {'unrealircd'}, 'only the name that was added, and not the others')
+        self.assertEqual(N.mentions('An UnrealIRCd flaw lets attackers run code', fleet), (['unrealircd'], []))
+        self.assertEqual(N.mentions('An UnrealIRCd flaw lets attackers run code', N.fleet_software(store)), ([], []), 'without the name it is not matched')
+        fleet = N.fleet_software({}, {'a': host(procs=['myappd'])}, extra=('myappd',))
+        self.assertEqual(set(fleet['running']), {'myappd'}, 'a program that runs under an added name counts, with no package of that name')
+        for junk in (None, 'unrealircd', 7, {'a': 1}):
+            self.assertEqual(N.fleet_software(store, extra=junk)['installed'] & {'unrealircd'}, set(), junk)
+
     def test_the_apache_web_server_is_not_every_apache_project(self):
         fleet = N.fleet_software(pkgs('apache2'), {'a': host(procs=['apache2'])})
         self.assertEqual(N.mentions('Critical Apache Roller RCE Flaw Under Active Exploitation', fleet), ([], []))
@@ -407,16 +418,50 @@ class TestProcess(unittest.TestCase):
 
 class TestSettings(unittest.TestCase):
 
+    def test_what_counts_has_three_choices_and_the_default_is_the_middle_one(self):
+        self.assertEqual(N.SCOPES, ('running', 'relevant', 'all'))
+        self.assertEqual(N.settings(None)['scope'], 'relevant')
+        for scope in N.SCOPES:
+            self.assertEqual(N.settings({'scope': scope})['scope'], scope)
+            self.assertEqual(N.clean_update({'scope': scope}), ({'scope': scope}, None))
+        self.assertEqual(N.settings({'scope': 'installed'})['scope'], 'relevant')
+
+    def test_the_names_an_operator_adds_are_words_of_letters_and_digits_and_never_everyday_words(self):
+        self.assertEqual(N.clean_words('unrealircd, squidguard\nphp8  Exim4'), (['unrealircd', 'squidguard', 'php', 'exim'], None))
+        self.assertEqual(N.clean_words(['UnrealIRCd6', 'unrealircd']), (['unrealircd'], None), 'a version is dropped and a name is kept once')
+        self.assertEqual(N.clean_words(''), ([], None))
+        for bad, word in ((['console'], 'console'), (['patch'], 'patch'), (['a-b'], 'a-b'), (['ab'], 'ab'), (['x' * 40], 'x' * 40), ([5], 'text'), (7, 'list'),
+                          (['has space'], 'has')):
+            words, why = N.clean_words(bad)
+            self.assertIsNone(words, bad)
+            self.assertIn(word, why, bad)
+        words, why = N.clean_words(['okname', '<script>alert(1)</script>'])
+        self.assertIsNone(words)
+        self.assertNotIn('<', why, 'what was typed is shown without its markup')
+        self.assertEqual(N.clean_words([f'name{chr(97 + i % 26)}{chr(97 + i // 26)}x' for i in range(N.MAX_WORDS)])[1], None)
+        self.assertIn('at most', N.clean_words([f'name{chr(97 + i % 26)}{chr(97 + i // 26)}x' for i in range(N.MAX_WORDS + 1)])[1])
+
+    def test_the_names_are_read_defensively_one_at_a_time(self):
+        got = N.settings({'words': ['UnrealIRCd6', 'console', 'x', 5, None, 'unrealircd', 'ok-name', 'squidguard']})
+        self.assertEqual(got['words'], ['unrealircd', 'squidguard'], 'a damaged entry is left out and the others stay')
+        for junk in ('unrealircd', {'a': 1}, 7, None):
+            self.assertEqual(N.settings({'words': junk})['words'], [])
+        self.assertEqual(len(N.settings({'words': [f'name{chr(97 + i % 26)}{chr(97 + i // 26)}x' for i in range(N.MAX_WORDS + 20)]})['words']), N.MAX_WORDS)
+        self.assertEqual(N.clean_update({'words': 'unrealircd\nsquidguard'}), ({'words': ['unrealircd', 'squidguard']}, None))
+        update, why = N.clean_update({'words': ['console']})
+        self.assertIsNone(update)
+        self.assertIn('everyday word', why)
+
     def test_the_defaults_are_off_and_read_the_one_feed(self):
         s = N.settings(None)
-        self.assertEqual(s, {'enabled': False, 'feeds': ['https://feeds.feedburner.com/TheHackersNews'], 'scope': 'relevant', 'action': 'scan'})
+        self.assertEqual(s, {'enabled': False, 'feeds': ['https://feeds.feedburner.com/TheHackersNews'], 'scope': 'relevant', 'action': 'scan', 'words': []})
         self.assertIsNot(N.settings(None)['feeds'], N.settings(None)['feeds'], 'a copy each time: one caller cannot change the next one default')
 
     def test_damaged_settings_read_as_defaults_field_by_field(self):
         s = N.settings({'enabled': 'yes', 'feeds': 'not a list', 'scope': 'everything', 'action': 7})
         self.assertEqual(s, N.settings(None))
         s = N.settings({'enabled': True, 'feeds': ['https://a.example/rss', 'javascript:alert(1)', 5, 'https://a.example/rss', 'https://u:p@b.example/x'], 'scope': 'all', 'action': 'list'})
-        self.assertEqual(s, {'enabled': True, 'feeds': ['https://a.example/rss'], 'scope': 'all', 'action': 'list'})
+        self.assertEqual(s, {'enabled': True, 'feeds': ['https://a.example/rss'], 'scope': 'all', 'action': 'list', 'words': []})
 
     def test_a_feed_address_has_to_be_a_public_looking_http_address(self):
         good = ['https://feeds.example.net/rss.xml', 'http://news.example.net/feed?format=rss', 'https://news.example.net:8443/a/b.atom', 'https://xn--bcher-kva.example/feed',

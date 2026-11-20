@@ -6307,6 +6307,10 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
    badge still painted as an empty red pill (a stray "red dash" next to e.g.
    Status Board / Command Queue). This more-specific rule restores hiding. */
 .nav-badge.d-none { display: none; }
+/* 8.0.2: the mark on the CVEs entry when a security news item names software that runs on a host: a "!" and not a count, so a little larger than the digits beside it. */
+.nav-badge.news-mark { font-size: 13px; font-weight: 700; }
+/* the same mark on the Security news tab of the CVE page */
+.pg-tab .news-mark { color: var(--red-ink); font-weight: 700; margin-inline-start: 6px; }
 
 /* v3.2.0 (B5): SNMP status pill on device cards */
 .snmp-pill {

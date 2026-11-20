@@ -2718,6 +2718,7 @@ function _renderFavorites() {
   });
   // Re-sync problem tints onto the freshly-built clones (red/amber icons).
   if (typeof _applyNavTints === 'function') _applyNavTints();
+  if (typeof _paintNewsMark === 'function') _paintNewsMark();
 }
 function _initFavorites() {
   // Attach a hover-reveal star to every grouped nav entry (the buried ones
@@ -16818,7 +16819,18 @@ async function refreshNavCounts() {
       });
     _navTintState = { security: c.security, fleet: c.fleet, monitoring: c.monitoring };
     _applyNavTints();
+    window._newsRunningAt = typeof c.news_running_at === 'number' ? c.news_running_at : null;   // 8.0.2: only the platform operator's poll carries it
+    _paintNewsMark();
   } catch (_) { /* non-fatal */ }
+}
+
+// 8.0.2: the "!" on the CVEs entry of the sidebar and on the Security news tab. It shows when the newest security news item that names software running on a host is newer
+// than the newest one this browser has shown on the tab (rp_news_seen, written by app-newswatch.js). Every copy of the entry is painted: a pinned favourite is a clone.
+function _paintNewsMark() {
+  let seen = 0;
+  try { seen = Number(localStorage.getItem('rp_news_seen')) || 0; } catch (_) { /* private window */ }
+  const on = typeof window._newsRunningAt === 'number' && window._newsRunningAt > seen;
+  document.querySelectorAll('.news-mark').forEach(el => el.classList.toggle('d-none', !on));
 }
 
 // v4.1.0: point at WHERE a group's count lives — tint the responsible child
