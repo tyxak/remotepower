@@ -8,6 +8,7 @@ import os
 import time
 import hashlib
 import re
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -37,8 +38,11 @@ _OPENER = safe_opener.strip_local_schemes(urllib.request.build_opener(_NoRedirec
 OSV_QUERYBATCH_URL = "https://api.osv.dev/v1/querybatch"
 OSV_VULN_URL       = "https://api.osv.dev/v1/vulns/"
 
-OSV_BATCH_SIZE     = 500
-OSV_TIMEOUT        = 30
+# 8.0.2: 100 questions per request and 60 s to answer. At 500 and 30 s a fleet's first request timed out ("The read operation
+# timed out", three times, which opened the breaker for ten minutes): OSV answers a batch as one body, and a kernel's answer alone
+# holds thousands of advisories.
+OSV_BATCH_SIZE     = 100
+OSV_TIMEOUT        = 60
 OSV_DETAIL_TIMEOUT = 10
 
 DETAILS_CACHE_TTL  = 7 * 86400
@@ -288,8 +292,17 @@ def _osv_querybatch(queries: list) -> list:
         headers={'Content-Type': 'application/json'},
         method='POST',
     )
-    with _OPENER.open(req, timeout=OSV_TIMEOUT) as resp:
-        return json.loads(resp.read(MAX_RESP_BYTES).decode('utf-8')).get('results', [])
+    # 8.0.2: one retry when the answer is late or the connection drops, so a single slow reply is not one of the three failures
+    # that open the breaker. An HTTP error status (urllib's HTTPError, an OSError too) is an answer and is not asked again.
+    for attempt in (0, 1):
+        try:
+            with _OPENER.open(req, timeout=OSV_TIMEOUT) as resp:
+                return json.loads(resp.read(MAX_RESP_BYTES).decode('utf-8')).get('results', [])
+        except urllib.error.HTTPError:
+            raise
+        except (TimeoutError, OSError):
+            if attempt:
+                raise
 
 
 # 8.0.1: a long answer comes in pages. The kernel of an old release has more than a thousand advisories,
