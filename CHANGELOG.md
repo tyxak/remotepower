@@ -131,6 +131,14 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   be read made the Detections sweep forget every finding and raise them all again. Each is closed. This is in 8.0.0. **Held by**
   `tests/test_v800_host_purge.py`, `tests/test_v802_iac_collection_requested_only.py`, `tests/test_v802_hidden_text_cleaners.py`,
   `tests/test_v802_shapes_of_unlisted_fields.py` and `tests/test_v800_detections_sweep.py`.
+- **An API key limited to part of the fleet could read the audit log of the whole installation.** A key with a host scope confines even an administrator, but the audit log was
+  filtered by tenant only, and a limited key is an administrator of the organisation that runs the installation, so `GET /api/audit-log` (and the audit section of the fleet
+  report) answered it with every entry: the host names, and what was done to hosts outside its scope. An entry names a host in free text, so the list cannot be cut to a scope.
+  A caller limited to part of the fleet, a key or an auditor whose role has a scope, now reads what its own account did and no one else's. With no scope nothing changes. It
+  had been found by the test that drives every route as a limited key, which saw it only when an entry naming the other group's host happened to be there at that moment (and,
+  separately, when a random secret in an answer held the host's id as three hex digits: the test now counts the id as a whole word only). This is in 8.0.0 and earlier.
+  **Held by** `tests/test_v802_key_scope_whole_installation.py`, which reads the log as a limited administrator key, a limited auditor and the two without a scope, with tenant
+  isolation on and off, and fails on the old code.
 
 ### Enrolment and sign-in
 

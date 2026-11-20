@@ -31,11 +31,14 @@ import real_stack  # noqa: E402
 _CGI = real_stack.CGI
 
 _DRIVER = r'''
-import gzip, io, tarfile, zipfile
+import gzip, io, re, tarfile, zipfile
 add_key('SKEY', 'svc', scope={'type': 'groups', 'values': ['prod']})        # an administrator key limited to the group prod: web1 inside, db1 outside
 add_key('WIDE', 'boss')                                                       # an administrator key with no scope
 add_key('SVIEW', 'viewbot', role='viewer', scope={'type': 'groups', 'values': ['prod']})
 MARKERS = [b'db1', b'db-one']
+# the host id is only hex digits, so it is also in about 1.5% of the random hex secrets and hashes a route may answer with (the install snippet of the KMIP server mints one): it counts
+# only as a whole word, not inside a longer run of hex digits
+SEEN = {m: re.compile(b'(?<![0-9A-Fa-f])' + re.escape(m) + b'(?![0-9A-Fa-f])') for m in MARKERS}
 SKIP = ('/api/login', '/api/logout', '/api/stream', '/api/events', '/api/sse', '/api/terminal', '/api/ws', '/api/agent', '/api/install', '/api/heartbeat')
 
 
@@ -66,7 +69,7 @@ def raw(method, path, token, body=None):
                 blobs = [zf.read(n) for n in zf.namelist()]
     except Exception:
         pass
-    found = sorted({m.decode() for b in blobs for m in MARKERS if m in b})
+    found = sorted({m.decode() for b in blobs for m in MARKERS if SEEN[m].search(b)})
     code = ''
     if r.headers.get('Content-Type', '').startswith('application/json'):
         try:
@@ -152,6 +155,71 @@ class TestTheWholeInstallationIsNotAScopedKeysToDownload(unittest.TestCase):
             self.assertGreaterEqual(len(s['control_names_the_host']), 10,
                                     'the unscoped key sees the host in too few answers: the instrument is blind: %s' % s['control_names_the_host'])
             self.assertEqual(s['leaks'], [], 'a route answers the key limited to the group prod with a host of another group')
+
+
+# ── the audit trail ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+_AUDIT_DRIVER = r'''
+import re
+SEEN = {m: re.compile(b'(?<![0-9A-Fa-f])' + re.escape(m) + b'(?![0-9A-Fa-f])') for m in (b'db1', b'db-one')}      # a whole word: the hash of an entry is hex digits, and may hold "db1"
+add_key('SKEY', 'svc', scope={'type': 'groups', 'values': ['prod']})         # an administrator key limited to the group prod: web1 inside, db1 outside
+add_key('WIDE', 'boss')                                                       # an administrator key with no scope
+add_key('SAUD', 'auditor1', role='auditor', scope={'type': 'groups', 'values': ['prod']})
+add_key('AUD', 'auditor2', role='auditor')
+api.audit_log('boss', 'host_command', detail='restarted db1 (db-one) after the disk filled up')
+api.audit_log('svc', 'host_command', detail='restarted web1')
+api.audit_log('auditor1', 'audit_read', detail='looked at web1')
+
+
+def trail(token):
+    api._LOAD_CACHE.clear()
+    r = client.open('/api/audit-log', method='GET', headers={'X-Token': token}, environ_overrides={'REMOTE_ADDR': '203.0.113.5'})
+    body = r.get_data()
+    try:
+        doc = json.loads(body.decode())
+    except Exception:
+        doc = None
+    rows = doc if isinstance(doc, list) else ((doc or {}).get('items') or (doc or {}).get('entries') or []) if isinstance(doc, dict) else []
+    return [r.status_code, sorted({e.get('actor') for e in rows if isinstance(e, dict)}), bool(SEEN[b'db1'].search(body)), bool(SEEN[b'db-one'].search(body))]
+
+
+def scene():
+    return {who: trail(tok) for who, tok in (('limited_admin_key', 'SKEY'), ('admin_key', 'WIDE'), ('limited_auditor_key', 'SAUD'), ('auditor_key', 'AUD'))}
+
+
+out['tenancy_on'] = scene()
+put('CONFIG_FILE', {})
+out['tenancy_off'] = scene()
+'''
+
+
+class TestTheAuditTrailIsNotALimitedKeysToRead(unittest.TestCase):
+    """GET /api/audit-log handed every entry to an administrator key limited to one group: the host names and what was done to them, of hosts outside the key's scope. The matrix above
+    found it only when an entry naming the other group's host was there at the moment it read. An entry names a host in free text only, so the answer cannot be cut to the scope: a
+    limited caller reads what its own account did."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import flask  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest('flask is not installed')
+        cls.out = real_stack.run(_AUDIT_DRIVER)
+
+    def each(self):
+        for state in ('tenancy_on', 'tenancy_off'):
+            with self.subTest(isolation=state):
+                yield self.out[state]
+
+    def test_a_limited_key_reads_its_own_entries_and_never_the_name_of_a_host_outside_its_scope(self):
+        for s in self.each():
+            self.assertEqual(s['limited_admin_key'], [200, ['svc'], False, False], 'the limited administrator key: its own account only, and no db1')
+            self.assertEqual(s['limited_auditor_key'], [200, ['auditor1'], False, False], 'a limited auditor: its own account only')
+
+    def test_control_a_key_with_no_scope_reads_the_whole_trail_as_before(self):
+        for s in self.each():
+            self.assertEqual(s['admin_key'], [200, ['auditor1', 'boss', 'svc'], True, True], 'the instrument sees the host in the trail')
+            self.assertEqual(s['auditor_key'], [200, ['auditor1', 'boss', 'svc'], True, True])
 
 
 # ── the source ───────────────────────────────────────────────────────────────────────────────────────────────────────────────

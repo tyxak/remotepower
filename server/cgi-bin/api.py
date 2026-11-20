@@ -20271,16 +20271,27 @@ def _audit_entries_for_caller(entries):
     """7.4.9: the audit entries the caller may read. The trail is the installation's, so the organisation that runs it (and a single-
     tenant install) reads all of it; a tenant's administrator or auditor reads what the accounts of their own tenant did. The list had
     been handed whole to anyone who could pass require_admin_or_auditor_auth(): every tenant's actions, the operator's, with the host
-    names and addresses in their detail (the final authorization-matrix run)."""
-    if not _tenancy_enforced() or _caller_in_operator_org():
-        return list(entries)
-    mine = {}
+    names and addresses in their detail (the final authorization-matrix run).
 
-    def _own(actor):
-        if actor not in mine:
-            mine[actor] = isinstance(actor, str) and _user_tenant_visible(actor)
-        return mine[actor]
-    return [e for e in entries if isinstance(e, dict) and _own(e.get('actor'))]
+    8.0.2: a caller limited to part of the fleet (an API key with a scope, which confines even an administrator, or an auditor whose role has one) reads what its own account did and
+    no one else's. An entry names a host in free text only (its detail), so what was done to a host outside the scope cannot be taken out of the trail, and the trail of the whole
+    installation is not what a limited caller is to read: a key limited to one group was handed every entry, with the host names and what was done to them, as the administrator of the
+    organisation that runs the installation. It had been found by the matrix that drives every route as such a key, which saw it only when an entry naming the other group's host
+    happened to be there at that moment."""
+    if not _tenancy_enforced() or _caller_in_operator_org():
+        rows = list(entries)
+    else:
+        mine = {}
+
+        def _own(actor):
+            if actor not in mine:
+                mine[actor] = isinstance(actor, str) and _user_tenant_visible(actor)
+            return mine[actor]
+        rows = [e for e in entries if isinstance(e, dict) and _own(e.get('actor'))]
+    if _caller_scope() is None:
+        return rows
+    me = verify_token(get_token_from_request())[0]
+    return [e for e in rows if isinstance(e, dict) and isinstance(me, str) and e.get('actor') == me]
 
 
 def _user_tenant_visible(username):
