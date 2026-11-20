@@ -126,7 +126,7 @@ class TestTheClientNamesIt(unittest.TestCase):
         lazy = re.search(r"const _LAZY_NON_PAGE_MODULES = \[([^\]]*)\]", APP).group(1)
         self.assertIn("'app-newswatch.js'", lazy)
         self.assertNotRegex(HTML, r'<script[^>]+app-newswatch\.js', 'a script tag would load it with the first page of every visit')
-        self.assertRegex(HTML, r'<button class="pg-tab" data-pg-tab-btn="news" data-action="pgTab" data-arg="cve:news">Security news<span class="news-mark d-none" aria-hidden="true">!</span></button>')
+        self.assertRegex(HTML, r'<button class="pg-tab" data-pg-tab-btn="news" data-action="pgTab" data-arg="cve:news">Security news<span class="news-mark d-none" aria-hidden="true"></span></button>')
         self.assertNotIn('data-module', re.search(r'<button[^>]*data-pg-tab-btn="news"[^>]*>', HTML).group(0), 'every installation has the tab')
         self.assertIn('function newsWatchEnter(', NW)
 
@@ -161,13 +161,13 @@ class TestTheClientNamesIt(unittest.TestCase):
     def test_the_mark_is_on_the_sidebar_entry_and_on_the_tab_and_is_painted_from_the_poll(self):
         self.assertEqual(len(re.findall(r'class="[^"]*\bnews-mark\b[^"]*"', HTML)), 2, 'the CVEs entry of the sidebar and the Security news tab')
         nav = re.search(r'<button class="nav-btn" data-page="cve".*?</button>', HTML, re.S).group(0)
-        span = re.search(r'<span class="nav-badge nav-badge-alert news-mark d-none"([^>]*)>!</span>', nav)
-        self.assertTrue(span, 'the mark sits in the sidebar entry, hidden until the poll says so')
+        span = re.search(r'<span class="nav-badge nav-badge-alert news-mark d-none"([^>]*)></span>', nav)
+        self.assertTrue(span, 'the mark sits in the sidebar entry, hidden until the poll says so, and holds no text until then')
         attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', span.group(1)))
-        self.assertEqual((attrs['role'], attrs['aria-label']), ('img', attrs['title']), 'a "!" alone says nothing to a screen reader')
+        self.assertEqual((attrs['role'], attrs['aria-label'], attrs['aria-hidden']), ('img', attrs['title'], 'true'), 'a "!" alone says nothing to a screen reader, and nothing while it is not there')
         self.assertTrue(set(LANGS) <= dict_rows(I18N).get(attrs['aria-label'], set()), 'and its words are translated')
         tab = re.search(r'<button class="pg-tab" data-pg-tab-btn="news".*?</button>', HTML, re.S).group(0)
-        self.assertIn('<span class="news-mark d-none" aria-hidden="true">!</span>', tab)
+        self.assertIn('<span class="news-mark d-none" aria-hidden="true"></span>', tab)
         refresh = srcpin.js_function(APP, 'refreshNavCounts')
         self.assertIn("window._newsRunningAt = typeof c.news_running_at === 'number' ? c.news_running_at : null", refresh)
         self.assertIn('_paintNewsMark();', refresh)
@@ -177,25 +177,36 @@ class TestTheClientNamesIt(unittest.TestCase):
         css = (JS.parent / 'css' / 'styles.css').read_text()
         self.assertRegex(css, r'\.pg-tab \.news-mark\s*\{')
         self.assertRegex(css, r'\.nav-badge\.news-mark\s*\{')
+        self.assertRegex(css, r'\.nav-badge\.d-none\s*\{\s*display:\s*none\s*!important;\s*\}', 'the rules that open the collapsed sidebar draw every span of a nav button again, and must not draw a hidden badge')
 
     @unittest.skipUnless(NODE, 'node not installed')
     def test_the_mark_shows_only_for_an_item_newer_than_the_newest_this_browser_has_shown(self):
         body = srcpin.js_function(APP, '_paintNewsMark')
-        script = ('const els = [0, 1].map(() => ({classList: {hidden: null, toggle(c, hide) { if (c === "d-none") this.hidden = hide; }}}));\n'
+        script = ('const make = withRole => { const attrs = withRole ? {role: "img", "aria-hidden": "true"} : {"aria-hidden": "true"};\n'
+                  '  return {textContent: "", classList: {hidden: null, toggle(c, hide) { if (c === "d-none") this.hidden = hide; }},\n'
+                  '    hasAttribute: n => n in attrs, removeAttribute: n => { delete attrs[n]; }, setAttribute: (n, v) => { attrs[n] = v; }, aria: () => attrs["aria-hidden"] || null}; };\n'
+                  'const els = [make(true), make(false)];\n'
                   'const document = {querySelectorAll: sel => (sel === ".news-mark" ? els : [])};\n'
                   'let store = {}, broken = false;\n'
                   'const localStorage = {getItem: k => { if (broken) throw new Error("no storage"); return k in store ? store[k] : null; }};\n'
                   'const window = {};\n' + body + '\n'
-                  'const out = [];\n'
+                  'const out = [], text = [], aria = [];\n'
                   'for (const [at, seen] of [[100, null], [100, "50"], [100, "100"], [100, "150"], [null, null], [null, "5"], ["x", null], [undefined, null], [100, "junk"], [100, ""]]) {\n'
                   '  window._newsRunningAt = at; store = seen === null ? {} : {rp_news_seen: seen}; _paintNewsMark(); out.push(els.map(e => e.classList.hidden));\n'
+                  '  text.push(els.map(e => e.textContent)); aria.push(els.map(e => e.aria()));\n'
                   '}\n'
                   'broken = true; window._newsRunningAt = 100; _paintNewsMark(); out.push(els.map(e => e.classList.hidden));\n'
-                  'console.log(JSON.stringify(out));\n')
-        out = self._node(script)
+                  'console.log(JSON.stringify({out, text, aria}));\n')
+        got = self._node(script)
+        out = got['out']
         shown, hidden = [False, False], [True, True]
         self.assertEqual(out, [shown, shown, hidden, hidden, hidden, hidden, hidden, hidden, shown, shown, shown],
                          'shown for 100 with nothing seen or an older item seen or a damaged value; hidden for the same or a newer one seen, and for no item at all; both copies together')
+        on = [i for i, o in enumerate(out[:-1]) if o == shown]
+        for i in range(len(got['text'])):
+            want = ['!', '!'] if i in on else ['', '']
+            self.assertEqual(got['text'][i], want, 'the "!" is in the mark only while it shows: the collapsed sidebar draws a span again when the rail opens, and a hidden one must have nothing to draw')
+            self.assertEqual(got['aria'][i], [None, 'true'] if i in on else ['true', 'true'], 'the one with a role is announced only while it shows, the one without never is')
 
     @unittest.skipUnless(NODE, 'node not installed')
     def test_the_tab_remembers_the_newest_item_it_showed_and_never_an_older_one(self):

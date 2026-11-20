@@ -6305,8 +6305,11 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 /* v5.0.0 fix: `.nav-badge` sets display:inline-block and is defined AFTER the
    global `.d-none` (equal specificity → later rule wins), so a hidden zero-count
    badge still painted as an empty red pill (a stray "red dash" next to e.g.
-   Status Board / Command Queue). This more-specific rule restores hiding. */
-.nav-badge.d-none { display: none; }
+   Status Board / Command Queue). This more-specific rule restores hiding.
+   8.0.2: and !important, because the rules that open the collapsed sidebar (body.sidebar-collapsed.pointer-hover .sidebar:hover .nav-btn span:not(.nav-icon), and the
+   one for sidebar-alert-pinned) set display:inline on every span of a nav button with seven classes' worth of specificity, so a hidden badge was drawn whenever the rail
+   was open. A badge that is hidden is empty as well (news-mark: app.js _paintNewsMark), so what those rules show of it is nothing. */
+.nav-badge.d-none { display: none !important; }
 /* 8.0.2: the mark on the CVEs entry when a security news item names software that runs on a host: a "!" and not a count, so a little larger than the digits beside it. */
 .nav-badge.news-mark { font-size: 13px; font-weight: 700; }
 /* the same mark on the Security news tab of the CVE page */

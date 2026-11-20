@@ -16830,7 +16830,13 @@ function _paintNewsMark() {
   let seen = 0;
   try { seen = Number(localStorage.getItem('rp_news_seen')) || 0; } catch (_) { /* private window */ }
   const on = typeof window._newsRunningAt === 'number' && window._newsRunningAt > seen;
-  document.querySelectorAll('.news-mark').forEach(el => el.classList.toggle('d-none', !on));
+  // The mark holds its "!" only while it shows, as the count badges beside it hold their digits. A class that hides an element with text in it is not enough: the collapsed
+  // sidebar draws every span of a nav button again when the rail opens (the pointer on it, or an alert pinning it open), whatever class the span has.
+  document.querySelectorAll('.news-mark').forEach(el => {
+    el.classList.toggle('d-none', !on);
+    el.textContent = on ? '!' : '';
+    if (el.hasAttribute('role')) { if (on) el.removeAttribute('aria-hidden'); else el.setAttribute('aria-hidden', 'true'); }
+  });
 }
 
 // v4.1.0: point at WHERE a group's count lives — tint the responsible child

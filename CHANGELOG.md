@@ -594,6 +594,12 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
 
 ### Fixes found on the way
 
+- **The red `!` of the security news mark was drawn whenever the sidebar opened, after every item was cleared.** The sidebar collapses to a rail, and it opens when the pointer is on it
+  or an alert pins it open. The rules that open it draw every span of a nav button again with `display: inline`, whatever class the span has. The mark was hidden by the class `d-none`
+  and still held its `!`, so in every browser with the sidebar that collapses (the default) it was drawn with no unseen item and nothing left to clear. The mark holds its `!` only
+  while it shows now, as the count badges beside it hold their digits, a hidden badge stays hidden when the rail opens (`.nav-badge.d-none` is `!important`), and a screen reader hears
+  it only while it shows. It was reported as a `!` that stayed after clearing, in two browsers. The browser tests kept the sidebar open, which is how it went unseen. **Held by**
+  `tests/test_v802_news_watch_e2e.py` (the sidebar as it comes, with the pointer on the rail and with an alert pinning it) and `tests/test_v802_news_watch_wiring.py`.
 - **An accepted finding still counted as known to be exploited on the CVE page.** The KEV column, the tile and the order of the hosts counted every finding on a host's list, accepted or not, so a
   host whose known-exploited findings had all been accepted as risks still came first. They leave out what is accepted now, and so does the highest EPSS score the page sorts by.
 - **The CVE page read the whole store of accepted risks once for each host.** It asked every record whether it applied to the host in hand: 200 hosts and the 6,000 records of twenty accepted

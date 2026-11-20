@@ -297,6 +297,48 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         finally:
             ctx.close()
 
+    VISIBLE_BANG = """() => [...document.querySelectorAll('.sidebar *')].filter(el => {
+      const own = [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim();
+      const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+      return own.includes('!') && r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden';
+    }).map(el => (el.parentElement && el.parentElement.getAttribute('data-page')) || el.className)"""
+
+    def test_a_mark_that_is_off_is_not_drawn_when_the_collapsed_sidebar_opens(self):
+        """The rules that open the collapsed sidebar (the pointer on the rail, or an alert pinning it open) draw every span of a nav button again, whatever class it has. A hidden mark that
+        still held its "!" was drawn in every browser whatever the server said, and after every item was cleared. The other browser tests keep the sidebar open, which is how it went unseen."""
+        self.enable_the_watch()
+        ctx = _STATE["browser"].new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
+        ctx.add_init_script("try { localStorage.setItem('rp_tour_done', '1'); } catch (e) {}")          # the sidebar as it comes: it collapses
+        page = ctx.new_page()
+
+        def on_the_rail():
+            page.mouse.move(700, 400)
+            page.wait_for_timeout(300)
+            page.mouse.move(20, 300)
+            page.wait_for_timeout(700)
+        try:
+            _login(page)
+            self.assertIn("sidebar-collapsed", page.evaluate("() => document.body.className"), "control: this browser has the sidebar that collapses")
+            self.poll_the_sidebar(page)
+            on_the_rail()
+            self.assertEqual(page.evaluate(self.VISIBLE_BANG), ["cve"], "control: a mark that is on is drawn when the rail opens, and the scan sees it")
+            page.evaluate("() => showPage('cve')")
+            page.wait_for_selector(TAB, state="visible", timeout=30000)
+            page.click(TAB)
+            page.wait_for_function("() => document.querySelectorAll('#news-watch-items > div').length > 0", timeout=30000)
+            page.click('#news-watch-running [data-action="newsWatchClear"]')
+            page.wait_for_function("() => document.getElementById('news-watch-running').hidden", timeout=30000)
+            self.poll_the_sidebar(page)
+            self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark', page), [False])
+            on_the_rail()
+            self.assertEqual(page.evaluate(self.VISIBLE_BANG), [], "nothing is left to look at, and nothing is drawn with the pointer on the rail")
+            page.evaluate("() => document.body.classList.add('sidebar-collapsed', 'sidebar-alert-pinned')")
+            self.assertEqual(page.evaluate(self.VISIBLE_BANG), [], "nor with an alert pinning the rail open")
+            self.assertEqual(page.eval_on_selector('.nav-btn[data-page="cve"] .news-mark', "e => [e.textContent, e.getAttribute('aria-hidden')]"), ["", "true"],
+                             "the mark holds no text and is not announced while it is off")
+        finally:
+            ctx.close()
+
     def test_when_no_host_runs_it_any_more_the_marks_go_and_the_words_stay(self):
         self.enable_the_watch()
         self.poll_the_sidebar()
