@@ -32692,7 +32692,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Specific buttons that pass `this` (the element) to their handler
   document.getElementById('btn-save-settings')?.addEventListener('click', function () { saveSettings(this); });
-  document.getElementById('btn-trigger-cve-scan')?.addEventListener('click', function () { triggerCVEScan(undefined, this); });
   document.getElementById('iac-generate-btn')?.addEventListener('click', function () { iacGenerate(this, true); });
   document.getElementById('iac-rawjson-btn')?.addEventListener('click', function () { iacGenerate(this, false); });
   document.getElementById('iac-rerun-btn')?.addEventListener('click', function () { _iacRerunAi(this); });
