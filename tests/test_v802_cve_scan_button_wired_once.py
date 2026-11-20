@@ -1,6 +1,6 @@
 """One click on "Scan all hosts" starts one scan. The button is wired by data-action-btn; a second listener sent two POSTs and the
 second answered 409 "A scan is already running" on every click (8.0.2)."""
-import re, unittest
+import unittest
 from pathlib import Path
 
 JS = Path(__file__).resolve().parent.parent / 'server' / 'html' / 'static' / 'js'
