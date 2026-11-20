@@ -787,9 +787,22 @@ def osv_breaker_open(cache_dir: Path, now: int = None) -> bool:
     return int(st.get("open_until", 0) or 0) > now
 
 
-def osv_breaker_record(cache_dir: Path, ok: bool, now: int = None) -> dict:
+def osv_breaker_reason(cache_dir: Path, now: int = None) -> str:
+    """The sentence that a skipped host carries while the breaker is open: when it closes and the last failure it saw."""
+    now = now if now is not None else int(time.time())
+    st = _load_json(_breaker_path(cache_dir))
+    left = max(0, int(st.get("open_until", 0) or 0) - now)
+    text = f'OSV unavailable — circuit breaker open, scan skipped (closes in {(left + 59) // 60} min'
+    last = st.get("last_error")
+    if isinstance(last, str) and last:
+        text += f'; last failure: {last[:200]}'
+    return text + ')'
+
+
+def osv_breaker_record(cache_dir: Path, ok: bool, now: int = None, error=None) -> dict:
     """Record one OSV outcome. A success resets the breaker; consecutive
-    failures past the threshold open it for OSV_COOLDOWN. Returns the new state."""
+    failures past the threshold open it for OSV_COOLDOWN. Returns the new state.
+    8.0.2: `error` is what failed, kept as `last_error` so a skipped host can say why the breaker is open."""
     now = now if now is not None else int(time.time())
     if ok:
         st = {"failures": 0, "open_until": 0, "last_ok": now}
@@ -797,6 +810,8 @@ def osv_breaker_record(cache_dir: Path, ok: bool, now: int = None) -> dict:
         st = _load_json(_breaker_path(cache_dir))
         st["failures"] = int(st.get("failures", 0)) + 1
         st["last_fail"] = now
+        if error is not None:
+            st["last_error"] = f'{type(error).__name__}: {error}'[:300]
         if st["failures"] >= OSV_FAIL_THRESHOLD:
             st["open_until"] = now + OSV_COOLDOWN
     _save_json(_breaker_path(cache_dir), st)
@@ -850,8 +865,8 @@ def prefetch_osv(store: dict, cache_dir: Path) -> dict | None:
             # (PREFETCH_MAX_HITS). A question past it, or an answer cut by it, is left out of the map and asked by the scan
             # of the host that needs it, which holds it under that host's own ceiling.
             res = _osv_query_all(queries, budget=max(0, PREFETCH_MAX_HITS - held_in_all))
-        except Exception:
-            osv_breaker_record(cache_dir, ok=False)
+        except Exception as e:
+            osv_breaker_record(cache_dir, ok=False, error=e)
             return None
         for (n, v), r in zip(pkgs, res):
             r = r or {}
@@ -1577,7 +1592,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
             'scanned_at': int(time.time()),
             'ecosystem': ecosystem,
             'findings': [],
-            'error': 'OSV unavailable — circuit breaker open, scan skipped',
+            'error': osv_breaker_reason(cache_dir),
             'skipped': True,
             'partial': True,
         }
@@ -1615,7 +1630,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         except Exception as e:
             # v5.0.0 (#R5): record the failure — repeated ones trip the breaker
             # so the rest of the fleet scan stops hammering a dead OSV.
-            osv_breaker_record(cache_dir, ok=False)
+            osv_breaker_record(cache_dir, ok=False, error=e)
             return {
                 'scanned_at': int(time.time()),
                 'ecosystem': ecosystem,
