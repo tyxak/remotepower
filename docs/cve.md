@@ -567,12 +567,29 @@ Round-ups, webinars and checklists never count, even when they list every flaw o
 
 **Critical items that count** has two choices:
 
-- **Only items that name software on my hosts** (the default). The watch compares the package names of all your hosts with the headline and the summary. A
-  story about PHP counts when a host has a PHP package. A story about a firewall you do not run does not. Package names that are also everyday words, such
-  as `patch` or `file`, are left out of the comparison.
+- **Only items that name software on my hosts** (the default). The watch compares the headline and the summary with what your hosts have and run. A story
+  about PHP counts when a host has a PHP package. A story about a firewall you do not run does not.
 - **Every critical item.**
 
 An item that does not count is listed on the tab and does nothing else.
+
+### The red !
+
+Software can be on a host in two ways, and the tab tells them apart:
+
+- **Running.** An agent reports a process, a program that listens, or a container with that name. The item gets a red **!** before its headline. The line under
+  it, **Running on your hosts**, gives the number of hosts that run the software and says **reachable from the Internet** when a program of that name listens
+  on a port that is open to it. A line above the list counts the items with a !. A host that has not reported for a week is not counted as running anything.
+- **Installed.** A package has its name, and it is well-known server software: a web server, a database, a language, the kernel, a mail or DNS server, the
+  container tools and the like. The line under the headline says **Names software on your hosts**, and the item has no !.
+
+Both count for **Only items that name software on my hosts**, and the alert says which it was. The ! is worked out each time you open the tab, from the hosts
+as they are then, so it follows what runs today and not what ran when the item was found.
+
+Most package names start with an everyday word: `console-setup`, `command-not-found`, `software-properties-common`, `xml-core`. They do not make an article about
+a management console or a command line relevant. The first word of a package name counts only when it is software people write about, or when something runs
+under that name, so software that is not on the list still counts as soon as it runs. A few words are read with their context: `apache` counts for Apache HTTP
+Server, `httpd` or Apache 2 and not for Apache Roller, Tomcat or Kafka; `node` counts for Node.js; the kernel of Windows or macOS is not the Linux kernel.
 
 ### What happens when one counts
 

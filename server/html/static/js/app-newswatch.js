@@ -47,21 +47,37 @@ function _nwFeedHtml(f) {
   return `<div class="mb-8"><span class="fw-500" data-no-i18n>${escHtml(name)}</span> <span class="hint mono-12" data-no-i18n>${escHtml(f.url)}</span><div>${read}${counts}${bad}</div></div>`;
 }
 
+// what runs on a host, from the server, which read the hosts as they are now: [{name, hosts, world}]
+function _nwRunning(i) {
+  return Array.isArray(i.running) ? i.running.filter(r => r && typeof r.name === 'string') : [];
+}
+
+function _nwRunningHtml(runs) {
+  return `<span class="hint">Running on your hosts:</span> ` + runs.map(r => {
+    const n = Number.isFinite(r.hosts) ? r.hosts : 0;
+    return `<span class="mono-12" data-no-i18n>${escHtml(r.name)}</span> <span class="hint">Hosts</span> <span class="fw-500">${escHtml(String(n))}</span>`
+      + (r.world ? ' <span class="status-pill critical">reachable from the Internet</span>' : '');
+  }).join(' · ');
+}
+
 function _nwItemHtml(i) {
   const href = _safeHttpHref(i.link);
   const title = escHtml(i.title || i.link || '');
-  const head = href
+  const runs = _nwRunning(i);
+  const bang = runs.length ? '<span class="c-red fw-600" aria-hidden="true">!</span> ' : '';
+  const head = bang + (href
     ? `<a href="${href}" target="_blank" rel="noopener noreferrer" class="fw-500" data-no-i18n>${title}</a>`
-    : `<span class="fw-500" data-no-i18n>${title}</span>`;
+    : `<span class="fw-500" data-no-i18n>${title}</span>`);
   const reasons = (i.reasons || []).filter(r => Object.prototype.hasOwnProperty.call(_NW_REASON, r))
     .map(r => `<span class="status-pill warn">${escHtml(_NW_REASON[r])}</span>`).join(' ');
   const outcome = Object.prototype.hasOwnProperty.call(_NW_OUTCOME, i.outcome) ? `<span class="status-pill info">${escHtml(_NW_OUTCOME[i.outcome])}</span>` : '';
+  const ran = runs.length ? _nwRunningHtml(runs) : '';
   const soft = (i.software || []).length
     ? `<span class="hint">Names software on your hosts:</span> <span class="mono-12" data-no-i18n>${escHtml(i.software.join(', '))}</span>`
     : '';
   const cves = (i.cves || []).length ? `<span class="mono-12" data-no-i18n>${escHtml(i.cves.slice(0, 3).join(', '))}</span>` : '';
   const when = i.published || i.seen_at;
-  const meta = [soft, cves, i.feed ? `<span class="hint" data-no-i18n>${escHtml(i.feed)}</span>` : '', when ? timeAgoHtml(when) : ''].filter(Boolean).join(' · ');
+  const meta = [ran, soft, cves, i.feed ? `<span class="hint" data-no-i18n>${escHtml(i.feed)}</span>` : '', when ? timeAgoHtml(when) : ''].filter(Boolean).join(' · ');
   return `<div class="mb-8"><div>${head}</div><div class="mt-6">${reasons} ${outcome}</div><div class="hint mt-6">${meta}</div></div>`;
 }
 
@@ -85,6 +101,8 @@ function _nwPaint(d, force) {
     if (run) run.hidden = true;
     if (feeds) feeds.innerHTML = '';
     if (items) items.innerHTML = '';
+    const gone = document.getElementById('news-watch-running');
+    if (gone) { gone.hidden = true; gone.innerHTML = ''; }
     _nwNote('The platform operator manages the security news watch.');
     return;
   }
@@ -95,6 +113,12 @@ function _nwPaint(d, force) {
   else if (!d.last_run) _nwNote('No feed has been read yet. The first read runs within a few minutes and only records what the feeds hold.');
   else _nwNote('');
   if (feeds) feeds.innerHTML = (d.status || []).map(_nwFeedHtml).join('');
+  const bangs = (d.items || []).filter(i => _nwRunning(i).length).length;
+  const sum = document.getElementById('news-watch-running');
+  if (sum) {
+    sum.hidden = !bangs;
+    sum.innerHTML = bangs ? `<span class="c-red fw-600" aria-hidden="true">!</span> <span class="hint">Items about software running on your hosts:</span> <strong>${escHtml(String(bangs))}</strong>` : '';
+  }
   if (items) items.innerHTML = (d.items || []).length ? d.items.map(_nwItemHtml).join('') : '<div class="c-muted">No critical items yet.</div>';
 }
 

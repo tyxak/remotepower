@@ -235,6 +235,125 @@ class TestRelevance(unittest.TestCase):
         self.assertEqual(N.software_in('php-fpm and git/ssh', vocab), ['git', 'php'])
 
 
+# ── what the hosts have and what they run ───────────────────────────────────
+
+NOW_S = 1_800_000_000
+
+
+def pkgs(*names):
+    return {'web01': {'packages': [{'name': n} for n in names]}}
+
+
+def host(procs=(), ports=(), last_seen=NOW_S, **kw):
+    """A host as the agent reports it: process names and (program, port, scope) of the sockets that listen."""
+    d = {'name': 'h', 'last_seen': last_seen, 'sysinfo': {'proc_names': list(procs), 'listening_ports': [{'process': p, 'port': n, 'scope': sc, 'proto': 'tcp'} for p, n, sc in ports]}}
+    d.update(kw)
+    return d
+
+
+class TestFleetSoftware(unittest.TestCase):
+
+    # the first words of package names on a Debian or Ubuntu server that made "console", "language", "http", "command", "software", "xml", "uri", "firmware", "amd" and "intel"
+    # appear as "software on your hosts" for a real fleet, and a headline about a management console relevant
+    EVERYDAY = ['console-setup', 'console-common', 'language-selector-common', 'language-pack-en', 'libhttp-date-perl', 'command-not-found', 'software-properties-common',
+                'xml-core', 'liburi-perl', 'amd64-microcode', 'intel-microcode', 'firmware-sof-signed', 'patch', 'file', 'shared-mime-info']
+    REAL = ['php8.3-fpm', 'nginx', 'openssh-server', 'ruby3.1', 'postgresql-16', 'linux-image-6.8.0-45-generic', 'libssl3', 'apache2', 'libc6']
+
+    def test_the_everyday_words_of_a_real_fleet_are_not_software_it_has(self):
+        fleet = N.fleet_software(pkgs(*self.EVERYDAY, *self.REAL))
+        self.assertEqual(fleet['installed'], {'php', 'nginx', 'openssh', 'ruby', 'postgresql', 'linux', 'kernel', 'openssl', 'apache', 'glibc'})
+        for word in ('console', 'language', 'http', 'command', 'software', 'xml', 'uri', 'firmware', 'amd', 'intel', 'patch', 'file', 'shared'):
+            self.assertNotIn(word, fleet['installed'], word)
+        text = 'The management console of the appliance has a flaw. The command line, the software and the firmware, XML over HTTP to a URI, on AMD and Intel hardware.'
+        self.assertEqual(N.mentions(text, fleet), ([], []), 'the headline that matched console, command, software, xml, uri, firmware, amd and intel before')
+
+    def test_the_known_words_are_a_list_of_software_and_no_everyday_word(self):
+        self.assertFalse(N.KNOWN_SOFTWARE & N.STOP, 'a word cannot be both software people write about and one the matcher ignores')
+        self.assertGreaterEqual(len(N.KNOWN_SOFTWARE), 100)
+        for word in ('php', 'nginx', 'openssh', 'linux', 'postgresql', 'docker', 'java', 'ruby', 'python'):
+            self.assertIn(word, N.KNOWN_SOFTWARE)
+
+    def test_a_kernel_thread_or_a_program_nothing_installed_gives_a_name_to_is_not_software_that_runs(self):
+        fleet = N.fleet_software({}, {'a': host(procs=['migration/0', 'watchdog/0', 'kworker/0:1', 'rcu_sched', 'weirdd', 'login', 'time'])})
+        self.assertEqual(fleet['running'], {}, 'none of these is a word of a package, of the list, or of App discovery')
+        self.assertEqual(N.mentions('A migration of the watchdog, the time to login', fleet), ([], []))
+
+    def test_software_that_is_not_in_the_list_counts_as_soon_as_it_runs(self):
+        store, devs = pkgs('unrealircd', 'nginx'), {'a': host(procs=['unrealircd'])}
+        fleet = N.fleet_software(store, devs)
+        self.assertNotIn('unrealircd', fleet['installed'], 'installed alone is not enough for a word that is not in the list')
+        self.assertEqual(set(fleet['running']), {'unrealircd'})
+        self.assertEqual(N.mentions('Attackers exploit an UnrealIRCd flaw', fleet), (['unrealircd'], ['unrealircd']))
+        self.assertEqual(N.mentions('Attackers exploit an UnrealIRCd flaw', N.fleet_software(store, {})), ([], []), 'installed and not running: no')
+
+    def test_what_runs_is_counted_by_host_and_a_socket_that_listens_to_the_internet_is_said(self):
+        devs = {'a': host(procs=['nginx', 'php-fpm8.3'], ports=[('nginx', 443, 'world'), ('php-fpm8.3', 9000, 'local')]),
+                'b': host(procs=['nginx', 'sshd'], ports=[('nginx', 80, 'lan'), ('sshd', 22, 'world')]),
+                'c': host(procs=['sshd'])}
+        run = N.fleet_software(pkgs('nginx', 'php8.3-fpm', 'openssh-server'), devs)['running']
+        self.assertEqual(run['nginx'], {'hosts': 2, 'world': True})
+        self.assertEqual(run['php'], {'hosts': 1, 'world': False}, 'php-fpm listens on the host only')
+        self.assertEqual(run['openssh'], {'hosts': 2, 'world': True}, 'sshd is openssh')
+
+    def test_a_host_that_has_not_reported_without_an_agent_or_decommissioned_is_no_evidence(self):
+        devs = {'old': host(procs=['nginx'], last_seen=NOW_S - N.RUNNING_STALE_S - 10), 'agentless': host(procs=['nginx'], agentless=True),
+                'gone': host(procs=['nginx'], decommissioned=True), 'ok': host(procs=['nginx'], last_seen=NOW_S - 60)}
+        self.assertEqual(N.running_software(devs, now=NOW_S)['nginx']['hosts'], 1)
+        self.assertEqual(N.running_software({'old': devs['old']}, now=NOW_S), {})
+        self.assertEqual(N.running_software({'old': devs['old']})['nginx']['hosts'], 1, 'no clock given, no host is stale')
+
+    def test_a_container_that_is_up_counts_and_one_that_stopped_does_not(self):
+        devs = {'a': host(), 'b': host()}
+        boxes = {'a': {'items': [{'image': 'grafana/grafana:10.2', 'status': 'Up 2 days'}, {'image': 'ghcr.io/x/redis@sha256:abc', 'status': 'Exited (0) 3 hours ago'}]},
+                 'b': {'items': [{'image': 'nextcloud', 'status': 'running'}, {'image': 'postgres:16', 'status': 'paused'}]}}
+        run = N.running_software(devs, boxes)
+        self.assertEqual(set(run), {'grafana', 'nextcloud'})
+
+    def test_hosts_that_report_junk_never_raise(self):
+        junk = {'a': 'x', 'b': {'sysinfo': 'no'}, 'c': {'sysinfo': {'proc_names': 'no', 'listening_ports': [1, None, {'process': 5}, {'process': 'nginx', 'scope': 7}]}},
+                'd': {'sysinfo': {'proc_names': [None, 5, ['x'], 'nginx']}}, 7: None, None: {}}
+        self.assertEqual(set(N.running_software(junk, {'d': 'no', 'c': {'items': 'no'}, 'x': None})), {'nginx'})
+        for bad in (None, [], 'x', 7):
+            self.assertEqual(N.running_software(bad, bad), {})
+            self.assertEqual(N.fleet_software(bad, bad, bad), {'installed': set(), 'running': {}})
+        self.assertEqual(N.mentions(None, {}), ([], []))
+        self.assertEqual(N.mentions('PHP', None), ([], []))
+
+    def test_the_apache_web_server_is_not_every_apache_project(self):
+        fleet = N.fleet_software(pkgs('apache2'), {'a': host(procs=['apache2'])})
+        self.assertEqual(N.mentions('Critical Apache Roller RCE Flaw Under Active Exploitation', fleet), ([], []))
+        self.assertEqual(N.mentions('Apache Tomcat and Apache Kafka fix flaws', fleet), ([], []))
+        for text in ('Apache HTTP Server 2.4 flaw', 'Apache web server flaw', 'A flaw in Apache 2.4.58', 'httpd and apache2 are affected', 'Apache2 flaw'):
+            self.assertEqual(N.mentions(text, fleet)[1], ['apache'], text)
+
+    def test_a_node_is_not_node_js_and_the_kernel_of_windows_is_not_linux(self):
+        fleet = N.fleet_software(pkgs('nodejs', 'linux-image-6.8.0'), {'a': host(procs=['node', 'nodejs'])})
+        self.assertEqual(N.mentions('A malicious node in the cluster can read secrets', fleet), ([], []))
+        self.assertEqual(N.mentions('A Node.js flaw lets a package run code', fleet)[1], ['node'])
+        self.assertEqual(N.mentions('Windows kernel zero-day under attack', fleet), ([], []))
+        self.assertEqual(N.mentions('macOS kernel flaw', fleet), ([], []))
+        self.assertEqual(N.mentions('Linux kernel flaw', fleet)[0], ['kernel', 'linux'])
+        self.assertEqual(N.mentions('A kernel flaw', fleet)[0], ['kernel'], 'an unqualified kernel is read as the one the hosts run')
+
+    def test_a_real_fleet_and_the_headlines_that_were_wrong_before(self):
+        store = pkgs(*self.EVERYDAY, *self.REAL, 'java-common', 'openjdk-17-jre-headless')
+        devs = {'a': host(procs=['systemd', 'sshd', 'nginx', 'php-fpm8.3', 'cron', 'migration/0'], ports=[('nginx', 443, 'world'), ('php-fpm8.3', 9000, 'local')])}
+        fleet = N.fleet_software(store, devs)
+        cases = [
+            # (headline and summary, what it names, what of that runs)
+            ('PHP Fixes 7 Critical Flaws, Including Bugs That Could Allow Remote Code Execution. The PHP language project fixed them.', ['php'], ['php']),
+            ('Critical VMware vCenter Zero-Day Flaw Lets Network Attackers Bypass Authentication. The management console and the command line are affected.', [], []),
+            ('10-Year-Old NGINX HTTP/2 Flaw Lets Unauthenticated Attackers Execute Code on Servers. The HTTP server is nginx.', ['nginx'], ['nginx']),
+            ('Ruby Ships Fixes for 7 Flaws, Including Critical Ruby2Shell. Default Rails apps are at risk.', ['ruby'], []),
+            ('Critical Apache Roller RCE Flaw Under Active Exploitation. The Java software parses XML.', ['java'], []),
+            ('F5 Warns 6 Critical BIG-IP Flaws Can Crash Traffic. An attacker can run a command in the software.', [], []),
+            ('Java4Shell Flaw Enables Pre-Auth RCE in Jira. Java applications run on AMD and Intel hardware, with firmware updates.', ['java'], []),
+            ('Hijacked Optimizely Scripts Served Card Skimmer. Report URI, a firm that monitors the scripts, said so.', [], []),
+        ]
+        for text, names, running in cases:
+            self.assertEqual(N.mentions(text, fleet), (names, running), text[:60])
+
+
 # ── what has been seen ───────────────────────────────────────────────────────
 
 def parsed(*specs):

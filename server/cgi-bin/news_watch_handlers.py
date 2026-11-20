@@ -136,8 +136,9 @@ def _store_dict(value):
     return value if isinstance(value, dict) else {}
 
 
-def _detail(it, names, scan):
-    """The sentence an alert carries: why the item counts as critical, the CVE ids it names, and what the watch did about it."""
+def _detail(it, names, scan, running=()):
+    """The sentence an alert carries: why the item counts as critical, the CVE ids it names, whether it names software that runs on the hosts or is only installed,
+    and what the watch did about it."""
     texts = {
         "critical": "called critical",
         "zero_day": "zero-day",
@@ -154,7 +155,12 @@ def _detail(it, names, scan):
     text = ", ".join(parts)
     if it["cves"]:
         text += "; " + ", ".join(it["cves"][:3])
-    text += ". " + ("It names software on your hosts." if names else "It is not matched to software on your hosts.")
+    if running:
+        text += ". It names software that runs on your hosts: " + ", ".join(running[:MAX_SOFTWARE]) + "."
+    elif names:
+        text += ". It names software installed on your hosts."
+    else:
+        text += ". It is not matched to software on your hosts."
     if scan == "started":
         text += " A scan of all hosts was started."
     return text[:300]
@@ -187,16 +193,19 @@ def poll_once(now=None, fetch=None):
             if isinstance(e, urllib.error.HTTPError):
                 e.close()  # the error is also the open response, and nothing reads it
 
-    vocab = []  # built once, and only when an item needs it
+    fleet = []  # what the hosts have and run, built once, and only when an item needs it
+    running_of = {}  # item id -> the software it names that runs on some host, for the alert's sentence
 
     def names_for(text):
-        if not vocab:
+        if not fleet:
             try:
-                vocab.append(N.vocabulary(A._load_ro(A.PACKAGES_FILE) or {}))
+                containers = A._load_ro(A.CONTAINERS_FILE) if A.backend_exists(A.CONTAINERS_FILE) else {}
+                fleet.append(N.fleet_software(A._load_ro(A.PACKAGES_FILE) or {}, A._load_ro(A.DEVICES_FILE) or {}, containers, now))
             except Exception as e:
-                sys.stderr.write(f"[remotepower] news watch: the package names could not be read: {type(e).__name__}\n")
-                vocab.append(set())
-        return N.software_in(text, vocab[0])[:MAX_SOFTWARE]
+                sys.stderr.write(f"[remotepower] news watch: what the hosts have could not be read: {type(e).__name__}\n")
+                fleet.append({"installed": set(), "running": {}})
+        names, running = N.mentions(text, fleet[0])
+        return names[:MAX_SOFTWARE], running[:MAX_SOFTWARE]
 
     alerts, scan_wanted, summary = [], False, {"feeds": len(feeds), "failed": 0, "new_critical": 0, "alerts": 0, "scan": None}
     with A._LockedUpdate(A.NEWS_WATCH_FILE) as st:
@@ -229,7 +238,7 @@ def poll_once(now=None, fetch=None):
                 if not it["critical"] or it["id"] in have:
                     continue
                 have.add(it["id"])
-                names = names_for(it["text"])
+                names, running_of[it["id"]] = names_for(it["text"])
                 entry = {
                     "id": it["id"], "feed": label[:120], "title": it["title"], "link": it["link"], "published": it["published"],
                     "seen_at": now, "reasons": it["reasons"], "cves": it["cves"], "cvss": it["cvss"], "software": names,
@@ -277,7 +286,7 @@ def poll_once(now=None, fetch=None):
     for e in alerts:
         payload = {
             "title": e["title"], "url": e["link"], "source": e["feed"], "severity": "high" if e["software"] else "medium",
-            "detail": _detail(e, e["software"], scan_state if scan_wanted else None),
+            "detail": _detail(e, e["software"], scan_state if scan_wanted else None, running_of.get(e["id"], ())),
         }
         try:
             A.fire_webhook("security_news_critical", payload)
@@ -331,11 +340,26 @@ def _num(v):
     return v if isinstance(v, int) and not isinstance(v, bool) else None
 
 
-def _public_item(i):
-    """One critical item as the page reads it: every field of the right kind and no other."""
+def _running_now(now):
+    """{word: {'hosts', 'world'}} for what the hosts run as they are now (news_watch.running_software). Never raises: no answer is nothing running."""
+    try:
+        containers = A._load_ro(A.CONTAINERS_FILE) if A.backend_exists(A.CONTAINERS_FILE) else {}
+        return N.running_software(A._load_ro(A.DEVICES_FILE) or {}, containers, now)
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] news watch: what runs on the hosts could not be read: {type(e).__name__}\n")
+        return {}
+
+
+def _public_item(i, running):
+    """One critical item as the page reads it: every field of the right kind and no other.
+
+    The software it names is read against the hosts as they are now, not as they were when the item was found: `running` lists what runs on some host (with how many
+    hosts, and whether a socket of it listens to the Internet), `software` the rest. A word that is neither software people write about nor something that runs (the first
+    word of an everyday package name, which an earlier version stored) is not shown."""
     reasons = [r for r in i.get("reasons") or [] if r in N.REASONS] if isinstance(i.get("reasons"), list) else []
     cves = [c for c in i.get("cves") or [] if isinstance(c, str)][: N.MAX_CVES] if isinstance(i.get("cves"), list) else []
     soft = [s for s in i.get("software") or [] if isinstance(s, str)][:MAX_SOFTWARE] if isinstance(i.get("software"), list) else []
+    kept = [t for t in soft if t in N.KNOWN_SOFTWARE or t in running]
     cvss = i.get("cvss")
     return {
         "id": str(i.get("id") or "")[:32],
@@ -347,7 +371,8 @@ def _public_item(i):
         "reasons": reasons,
         "cves": cves,
         "cvss": float(cvss) if isinstance(cvss, (int, float)) and not isinstance(cvss, bool) and cvss == cvss else None,
-        "software": soft,
+        "software": [t for t in kept if t not in running],
+        "running": [{"name": t, "hosts": running[t]["hosts"], "world": running[t]["world"]} for t in kept if t in running],
         "outcome": i.get("outcome") if i.get("outcome") in N.OUTCOMES else "listed",
     }
 
@@ -375,7 +400,8 @@ def _view(now):
                 "last_critical": _num(r.get("last_critical")) or 0,
             }
         )
-    items = [_public_item(i) for i in (st.get("items") if isinstance(st.get("items"), list) else []) if isinstance(i, dict)]
+    running = _running_now(now)
+    items = [_public_item(i, running) for i in (st.get("items") if isinstance(st.get("items"), list) else []) if isinstance(i, dict)]
     return {
         "editable": True,
         "now": now,

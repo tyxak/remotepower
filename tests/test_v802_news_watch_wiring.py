@@ -190,7 +190,8 @@ class TestTheSentencesAreTranslated(unittest.TestCase):
         sentences |= set(re.findall(r"_nwNote\('([^']+)'\)", NW))
         sentences |= set(re.findall(r'<span class="hint">([^<$]+)</span>', NW))
         sentences |= set(re.findall(r"<div class=\"c-muted\">([^<]+)</div>", NW))
-        sentences |= {'Called critical', 'Failed:'}
+        sentences |= {'Called critical', 'Failed:', 'reachable from the Internet', 'Running on your hosts:', 'Items about software running on your hosts:'}
+        sentences.add('A red ! marks an item that names software running on one of your hosts. An item that names software that is only installed has no !.')
         self.assertGreaterEqual(len(sentences), 20, 'control: the scan found the sentences')
         missing = {s: sorted(set(LANGS) - rows.get(s, set())) for s in sorted(sentences) if not set(LANGS) <= rows.get(s, set())}
         self.assertEqual(missing, {}, 'sentences the Security news tab shows with no translation')
@@ -204,6 +205,8 @@ class TestThePageIsSafe(unittest.TestCase):
         'id': 'x', 'feed': '"><script>alert(1)</script>', 'title': '<img src=x onerror=alert(1)>', 'link': 'javascript:alert(1)', 'published': 1_800_000_000, 'seen_at': 1_800_000_100,
         'reasons': ['critical', '<script>', '__proto__', 'constructor'], 'cves': ['<i>CVE</i>'], 'cvss': None, 'software': ['<b>php</b>'], 'outcome': '__proto__',
     }
+    RUNNING = [{'name': 'nginx', 'hosts': 3, 'world': True}, {'name': 'php', 'hosts': 1, 'world': False}]
+    HOSTILE_RUNNING = [{'name': '<img src=x onerror=alert(1)>', 'hosts': '<b>3</b>', 'world': True}, 'junk', None, {'name': 7}, {'hosts': 2}]
     HOSTILE_FEED = {'url': 'https://x.example/"onmouseover="alert(1)', 'title': '<svg onload=alert(1)>', 'last_ok': 1_800_000_000, 'last_error': '<script>x</script>', 'fail_streak': 3,
                     'last_new': 2, 'last_critical': 1}
 
@@ -218,7 +221,10 @@ class TestThePageIsSafe(unittest.TestCase):
                    + '\n'.join(parts) + '\n' + NW + '\n'
                    'const good = {id: "g", feed: "Example News", title: "PHP fixes 7 critical flaws", link: "https://news.example.net/php", published: 1800000000, seen_at: 1800000100,\n'
                    '  reasons: ["critical", "unauth_exec"], cves: ["CVE-2026-1"], cvss: null, software: ["php"], outcome: "scanned"};\n'
-                   'console.log(JSON.stringify({hostile: _nwItemHtml(' + json.dumps(self.HOSTILE_ITEM) + '), feed: _nwFeedHtml(' + json.dumps(self.HOSTILE_FEED) + '), good: _nwItemHtml(good)}));\n')
+                   'console.log(JSON.stringify({hostile: _nwItemHtml(' + json.dumps(self.HOSTILE_ITEM) + '), feed: _nwFeedHtml(' + json.dumps(self.HOSTILE_FEED) + '), good: _nwItemHtml(good),\n'
+                   '  running: _nwItemHtml(Object.assign({}, good, {running: ' + json.dumps(self.RUNNING) + '})),\n'
+                   '  hostile_running: _nwItemHtml(Object.assign({}, good, {running: ' + json.dumps(self.HOSTILE_RUNNING) + '})),\n'
+                   '  not_a_list: _nwItemHtml(Object.assign({}, good, {running: "nginx"}))}));\n')
         d = Path(tempfile.mkdtemp(prefix='rp-newsrender-'))
         try:
             (d / 'render.js').write_text(harness)
@@ -239,6 +245,28 @@ class TestThePageIsSafe(unittest.TestCase):
     def test_a_code_that_is_not_one_of_ours_shows_no_sentence(self):
         out = self._render()['hostile']
         self.assertEqual(out.count('status-pill'), 1, 'only "critical" of the four reason codes has a sentence, and the outcome __proto__ has none')
+
+    def test_the_red_mark_is_for_software_that_runs_and_for_nothing_else(self):
+        out = self._render()
+        bang = '<span class="c-red fw-600" aria-hidden="true">!</span>'
+        self.assertNotIn(bang, out['good'], 'installed software is named under the headline and has no mark')
+        self.assertIn('Names software on your hosts:', out['good'])
+        self.assertIn(bang + ' <a href="https://news.example.net/php"', out['running'], 'the mark stands before the headline')
+        self.assertIn('Running on your hosts:', out['running'])
+        self.assertRegex(out['running'], r'nginx</span> <span class="hint">Hosts</span> <span class="fw-500">3</span> <span class="status-pill critical">reachable from the Internet</span>')
+        self.assertRegex(out['running'], r'php</span> <span class="hint">Hosts</span> <span class="fw-500">1</span>(?! <span class="status-pill critical")')
+        self.assertEqual(out['running'].count('reachable from the Internet'), 1, 'only the program with a socket open to the Internet says so')
+        self.assertNotIn(bang, out['not_a_list'], 'a running that is not a list is nothing')
+        self.assertNotIn(bang, out['hostile'], 'the hostile item names nothing that runs')
+
+    def test_hostile_names_and_counts_of_what_runs_stay_inert(self):
+        html = self._render()['hostile_running']
+        for raw in ('<img', '<b>', 'onerror=alert(1)>'):
+            self.assertNotIn(raw, html, raw)
+        self.assertIn('&lt;img', html, 'shown as the text it is')
+        self.assertRegex(html, r'<span class="hint">Hosts</span> <span class="fw-500">0</span>', 'a count that is not a number is a zero')
+        self.assertEqual(html.count('<span class="c-red fw-600" aria-hidden="true">!</span>'), 1, 'one mark for one item, whatever the number of entries')
+        self.assertEqual(html.count('Hosts</span>'), 1, 'the entries that are not maps, or have no name, are left out')
 
     def test_control_a_good_item_is_a_link_with_its_reasons_and_what_was_done(self):
         good = self._render()['good']

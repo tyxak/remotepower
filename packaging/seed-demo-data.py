@@ -6350,8 +6350,9 @@ _DEMO_NEWS_FEED = 'https://news.example.net/security.xml'
 def build_news_watch() -> dict:
     """What the security news watch has read -> news_watch.json (8.0.2): one feed, the critical items it found (newest first) and what the watch did about each.
 
-    The oldest of the first two named software a demo host has and started a scan; the newest came inside the six hours after it, so it raised an alert and waited; the next
-    three are critical and name nothing a host has, so they are only listed; the last was on the feed when the watch first read it."""
+    The oldest of the first two names software that runs on the demo hosts (PHP) and started a scan; the newest (nginx, which some of them also expose to the Internet) came
+    inside the six hours after it, so it raised an alert and waited. Of the next three, one names software that is installed and does not run (openssl) and two name nothing a
+    host has, so they are only listed; the last was on the feed when the watch first read it."""
     t = now()
     rows = [
         # (title, reasons, cvss, software, outcome, seconds ago)
@@ -6359,7 +6360,7 @@ def build_news_watch() -> dict:
         ('PHP fixes critical flaws that allow remote code execution', ['critical', 'unauth_exec'], None, ['php'], 'scanned', 2 * 3600 + 900),
         ('Critical flaw in a network appliance is exploited before a fix exists', ['critical', 'zero_day', 'exploited'], None, [], 'listed', 5 * 3600),
         ('Router vendor rates a firmware flaw CVSS 9.8', ['cvss'], 9.8, [], 'listed', 9 * 3600),
-        ('A library flaw is added to the CISA list of exploited vulnerabilities', ['kev'], None, [], 'listed', 14 * 3600),
+        ('A library flaw is added to the CISA list of exploited vulnerabilities', ['kev'], None, ['openssl'], 'listed', 14 * 3600),
         ('Critical flaw in a browser engine lets a web page run code', ['critical', 'unauth_exec'], None, [], 'baseline', 30 * 3600),
     ]
     items = []

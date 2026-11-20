@@ -555,9 +555,12 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
 - **The Security news watch reads security news feeds and can start a scan when one reports a critical flaw.** A new **Security news** tab on the CVE page
   reads RSS and Atom feeds every 30 minutes (The Hacker News to start with, up to five feeds) and picks out the items that report a critical flaw: the word
   "critical" together with a word for a flaw, a CVSS score of 9 or more, a zero-day, active exploitation, code execution without sign-in, or a CVE that CISA lists as known
-  to be exploited. By default only an item that names software some host has installed counts: 22 of the 50 headlines in one read of a security
-  feed counted as critical, and a scan for each would run most days. The package names of the fleet are reduced to the first word of the name, and a stop list keeps the
-  names that are also everyday words (`patch`, `file`, `which`) from making every article relevant. A counting item raises the new event
+  to be exploited. By default only an item that names software some host has installed or runs counts: 22 of the 50 headlines in one read of a security
+  feed counted as critical, and a scan for each would run most days. A red **!** marks an item that names software that runs on a host (a process, a listening
+  program or a container the agent reports, from a host that reported in the last week), with the number of hosts that run it and whether it listens to the
+  Internet; software that is only installed is named under the headline without the mark. The mark is worked out when the tab is opened, from the hosts as they
+  are. A package word counts only when it is well-known server software, or when something runs under that name: the first words of package names are mostly
+  everyday words (`console-setup`, `command-not-found`, `liburi-perl`), and an article about a management console must not match them. A counting item raises the new event
   `security_news_critical` (high when it names software on your hosts, medium when it does not) and, with the default action, starts the scan of all
   hosts: at most one in six hours, never while a scan runs, and by the same slot the button takes. It is off until the platform operator switches it on, and
   the first read of a feed only records what it holds, so switching it on raises nothing for the last fifty headlines. The page says which feeds failed and

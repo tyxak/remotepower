@@ -91,6 +91,22 @@ class _Server(unittest.TestCase):
         self.api.save(self.api.PACKAGES_FILE, {h: {'ecosystem': 'Debian:12', 'packages': [{'name': n, 'version': '1'} for n in names]} for h, names in hosts.items()})
         self.api._LOAD_CACHE.clear()
 
+    def hosts(self, hosts, age=0):
+        """The hosts as their agents report them: {id: ([process names], [(program, port, scope)])}, each last heard from `age` seconds ago. The age is given when the host is
+        first saved: a second save of a host keeps the newer last_seen, so a heartbeat is never put back."""
+        devs = {h: {'id': h, 'name': h, 'last_seen': int(time.time()) - age,
+                    'sysinfo': {'proc_names': list(procs), 'listening_ports': [{'process': pr, 'port': n, 'scope': sc, 'proto': 'tcp'} for pr, n, sc in ports]}}
+                for h, (procs, ports) in hosts.items()}
+        self.api.save(self.api.DEVICES_FILE, devs)
+        self.api._LOAD_CACHE.clear()
+
+    def get_page(self):
+        """The page as the operator reads it. A request runs the cadence first, so the sweep is made not due: what is read is what the test set up."""
+        self.config(last_news_watch_run=int(time.time()))
+        st, got = self.request('/api/news-watch')
+        self.assertEqual(st, 200, got)
+        return got
+
     def tenancy(self):
         self.api.save(self.api.TENANTS_FILE, {'default': {'name': 'Default', 'status': 'active', 'builtin': True}, 'tenantB': {'name': 'B', 'status': 'active'}})
         self.api.save(self.api.USERS_FILE, {'admin': {'role': 'admin', 'tenant_id': 'default'}, 'vera': {'role': 'viewer', 'tenant_id': 'default'},
@@ -255,7 +271,7 @@ class TestWhatIsDone(_Server):
         p = a['payload']
         self.assertEqual((p['title'], p['source'], p['severity']), (PHP[0], 'Example Security News', 'high'))
         self.assertTrue(p['url'].startswith('https://news.example.net/'))
-        self.assertIn('It names software on your hosts.', p['detail'])
+        self.assertIn('It names software installed on your hosts.', p['detail'])
         self.assertIn('A scan of all hosts was started.', p['detail'])
         self.assertIn('called critical', p['detail'])
         self.assertEqual(self.outcomes(), {PHP[0]: 'scanned'})
@@ -371,6 +387,89 @@ class TestWhatIsDone(_Server):
         self.assertIn('CVE-2026-4242', self.alerts()[0]['payload']['detail'])
 
 
+# ── what runs, and what is only installed ────────────────────────────────────
+
+class TestRunningSoftware(_Server):
+
+    def test_an_item_that_names_what_runs_says_so_in_the_alert_and_on_the_page(self):
+        self.hosts({'web01': (['nginx', 'sshd'], [('nginx', 443, 'world')]), 'web02': (['nginx'], [('nginx', 80, 'lan')])})
+        self.poll(QUIET)
+        out = self.poll(QUIET, NGINX, advance=1800)
+        self.assertEqual((out['alerts'], out['scan']), (1, 'started'))
+        (a,) = self.alerts()
+        self.assertIn('It names software that runs on your hosts: nginx.', a['payload']['detail'])
+        self.assertNotIn('installed on your hosts', a['payload']['detail'])
+        self.assertEqual(a['payload']['severity'], 'high')
+        (item,) = self.get_page()['items']
+        self.assertEqual(item['running'], [{'name': 'nginx', 'hosts': 2, 'world': True}])
+        self.assertEqual(item['software'], [], 'what runs is shown apart from what is only installed')
+        self.assertEqual(self.state()['items'][0]['software'], ['nginx'], 'the store keeps the word, and the page reads it against the hosts as they are')
+
+    def test_software_that_is_only_installed_is_said_to_be_installed(self):
+        self.hosts({'web01': (['sshd', 'cron'], [])})
+        self.poll(QUIET)
+        self.poll(QUIET, PHP, advance=1800)
+        (a,) = self.alerts()
+        self.assertIn('It names software installed on your hosts.', a['payload']['detail'])
+        self.assertEqual(a['payload']['severity'], 'high', 'installed is still software the hosts have')
+        (item,) = self.get_page()['items']
+        self.assertEqual((item['running'], item['software']), ([], ['php']))
+
+    def test_a_host_that_stops_running_it_loses_the_mark_the_next_time_the_page_is_read(self):
+        self.hosts({'web01': (['nginx'], [('nginx', 443, 'world')])})
+        self.poll(QUIET)
+        self.poll(QUIET, NGINX, advance=1800)
+        self.assertEqual([r['name'] for r in self.get_page()['items'][0]['running']], ['nginx'])
+        self.hosts({'web01': (['sshd'], [])})
+        item = self.get_page()['items'][0]
+        self.assertEqual((item['running'], item['software']), ([], ['nginx']), 'installed, not running: the word stays, the mark goes')
+        self.hosts({})
+        self.assertEqual(self.get_page()['items'][0]['running'], [])
+
+    def test_a_host_that_has_not_reported_for_a_week_is_not_evidence_of_what_runs(self):
+        self.hosts({'web01': (['nginx'], [])}, age=N.RUNNING_STALE_S + 3600)
+        self.assertGreater(time.time() - self.api.load(self.api.DEVICES_FILE)['web01']['last_seen'], N.RUNNING_STALE_S, 'control: the host is stored as stale')
+        self.poll(QUIET)
+        self.poll(QUIET, NGINX, advance=1800)
+        (item,) = self.get_page()['items']
+        self.assertEqual((item['running'], item['software']), ([], ['nginx']))
+
+    def test_everyday_package_words_do_not_make_an_item_relevant(self):
+        """The report: the first words of these package names made console, command, software, xml and firmware 'software on your hosts', so a story about a
+        management console raised an alert and started a scan of a fleet that has no such product."""
+        self.packages({'web01': ['console-setup', 'command-not-found', 'software-properties-common', 'xml-core', 'firmware-sof-signed', 'liburi-perl', 'amd64-microcode',
+                                 'language-pack-en', 'libhttp-date-perl', 'intel-microcode']})
+        self.poll(QUIET)
+        vmware = ('Critical VMware vCenter Zero-Day Flaw Lets Network Attackers Bypass Authentication',
+                  'The management console and the command line are affected, with XML over HTTP to a URI, firmware and software updates on AMD and Intel hardware.')
+        out = self.poll(QUIET, vmware, advance=1800)
+        self.assertEqual((out['new_critical'], out['alerts'], out['scan'], self.spawned), (1, 0, None, []))
+        self.assertEqual(self.outcomes(), {vmware[0]: 'listed'})
+        self.assertEqual(self.state()['items'][0]['software'], [])
+        self.assertEqual(self.alerts(), [])
+
+    def test_items_stored_by_the_earlier_matcher_are_read_again(self):
+        self.poll(QUIET)
+        st = self.state()
+        st['items'] = [{'id': 'old1', 'feed': 'F', 'title': 'An old item', 'link': '', 'published': self.t, 'seen_at': self.t, 'reasons': ['critical'], 'cves': [], 'cvss': None,
+                        'software': ['console', 'command', 'php', 'unrealircd'], 'outcome': 'listed'}]
+        self.api.save(self.api.NEWS_WATCH_FILE, st)
+        self.api._LOAD_CACHE.clear()
+        item = self.get_page()['items'][0]
+        self.assertEqual((item['software'], item['running']), (['php'], []), 'console and command are not software, php is, and unrealircd is neither in the list nor running')
+        self.hosts({'web01': (['unrealircd'], [])})
+        item = self.get_page()['items'][0]
+        self.assertEqual((item['software'], [r['name'] for r in item['running']]), (['php'], ['unrealircd']), 'a program that runs counts whatever it is called')
+
+    def test_a_kernel_thread_is_not_a_program_an_item_can_name(self):
+        self.packages({'web01': ['patch', 'file']})
+        self.hosts({'web01': (['migration/0', 'watchdog/0', 'kworker/0:1'], [])})
+        self.poll(QUIET)
+        out = self.poll(QUIET, ('Critical flaw in a data migration tool lets attackers run code', 'A watchdog timer is involved.'), advance=1800)
+        self.assertEqual((out['alerts'], self.spawned), (0, []))
+        self.assertEqual(self.get_page()['items'][0]['running'], [])
+
+
 # ── feeds that fail, and the state that is kept ──────────────────────────────
 
 class TestTheFeeds(_Server):
@@ -462,7 +561,8 @@ class TestTheRoutes(_Server):
         self.assertEqual((got['every'], got['scan_gap'], got['max_feeds']), (1800, 6 * HOUR, N.MAX_FEEDS))
         (item,) = got['items']
         self.assertEqual((item['title'], item['reasons'], item['software'], item['outcome']), (PHP[0], ['critical'], ['php'], 'scanned'))
-        self.assertEqual({k for k in item}, {'id', 'feed', 'title', 'link', 'published', 'seen_at', 'reasons', 'cves', 'cvss', 'software', 'outcome'})
+        self.assertEqual({k for k in item}, {'id', 'feed', 'title', 'link', 'published', 'seen_at', 'reasons', 'cves', 'cvss', 'software', 'running', 'outcome'})
+        self.assertEqual(item['running'], [], 'no host reports a process')
         (feed_state,) = got['status']
         self.assertEqual((feed_state['url'], feed_state['title'], feed_state['baselined'], feed_state['last_error']), (FEED, 'Example Security News', True, ''))
         self.assertNotIn('"seen"', json.dumps(got), 'the memory of ids is not sent to a page')

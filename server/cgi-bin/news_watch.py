@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import parse_qsl, urlsplit
 
+import app_catalog
 import safe_xml
 
 DEFAULT_FEEDS = ("https://feeds.feedburner.com/TheHackersNews",)
@@ -434,6 +435,7 @@ note notes mark marks sign signs side sides part parts piece pieces point area a
 vault vaults bridge bridges tunnel tunnels cell cells wire wires cable cables plug plugs pipe pipes flow flows trace traces probe probes sensor sensors
 alert alerts message messages mailer notify notice notices guard guards watch watcher watchers sync syncs share shares drive drives disk disks
 volume volumes label labels
+console language languages http https command commands software xml uri url firmware
 """.split())
 
 # a package token that the news words differently, and the other way round
@@ -458,8 +460,29 @@ _ALIASES = {
     "libnode": ("node",),
     "sshd": ("openssh",),
     "ssh": ("openssh",),
+    "postgres": ("postgresql",),
+    "mysqld": ("mysql",),
+    "mariadbd": ("mariadb", "mysql"),
+    "mongod": ("mongodb",),
+    "dockerd": ("docker",),
+    "kubelet": ("kubernetes",),
+    "kubectl": ("kubernetes",),
+    "kubeadm": ("kubernetes",),
+    "policykit": ("polkit",),
+    "polkitd": ("polkit",),
+    "slapd": ("openldap",),
+    "smbd": ("samba",),
+    "nmbd": ("samba",),
+    "winbindd": ("samba",),
+    "named": ("bind",),
+    "chronyd": ("chrony",),
+    "ntpd": ("ntp",),
+    "cupsd": ("cups",),
+    "rsyslogd": ("rsyslog",),
+    "libvirtd": ("libvirt",),
+    "zlib1g": ("zlib",),
 }
-_TOKEN_SPLIT = re.compile(r"[-_.+:~ /]")
+_TOKEN_SPLIT = re.compile(r"[-.+:~ /]")
 _WORD = re.compile(r"[a-z][a-z0-9]*")
 MAX_NAMES = 400_000
 
@@ -488,7 +511,7 @@ def vocabulary(packages_store):
     """The set of words that stand for the packages of every host in `packages_store` ({host id: {packages: [{name, ...}]}}). Reads at most
     MAX_NAMES package names."""
     vocab, seen = set(), 0
-    for entry in (packages_store or {}).values():
+    for entry in packages_store.values() if isinstance(packages_store, dict) else ():
         pk = entry.get("packages") if isinstance(entry, dict) else None
         for p in pk if isinstance(pk, list) else ():
             name = p.get("name") if isinstance(p, dict) else p
@@ -510,6 +533,135 @@ def software_in(text, vocab):
             if c in vocab:
                 found.add(c)
     return sorted(found)
+
+
+# Words for software that people write about. A package is only counted for an article when its word is in this list, or when something runs under that name:
+# most of the first words of package names are everyday words (console, command, software, uri, firmware), and an article that says "management console" is
+# not about console-setup. Software that is installed, is not in this list and does not run is left out; "Every critical item" still lists it.
+KNOWN_SOFTWARE = frozenset("""
+php nginx apache httpd lighttpd caddy traefik haproxy varnish squid tomcat jetty
+python perl ruby java openjdk node nodejs
+postgresql postgres mysql mariadb mongodb redis valkey memcached sqlite elasticsearch opensearch influxdb
+postfix exim dovecot unbound dnsmasq bind openssh openssl gnutls openvpn wireguard strongswan openldap krb5 sssd samba rsync curl libcurl wget chrony ntp avahi cups
+linux kernel glibc systemd polkit sudo bash zsh dbus udev grub busybox vim git subversion tar unzip zip zlib xz libxml2 expat pcre freetype
+imagemagick ghostscript ffmpeg libwebp libpng libjpeg libtiff
+docker containerd runc podman kubernetes k3s helm qemu libvirt proxmox ceph
+firefox chromium thunderbird libreoffice nvidia
+wordpress drupal nextcloud gitlab gitea jenkins grafana prometheus zabbix nagios roundcube phpmyadmin mediawiki keycloak consul terraform ansible puppet rabbitmq kafka activemq solr
+fail2ban iptables nftables tcpdump nmap clamav rsyslog
+""".split())
+
+RUNNING_STALE_S = (
+    7 * 86400
+)  # a host that has not reported for this long is not evidence of what runs
+_CONTAINER_DOWN = ("exited", "dead", "created", "removing", "paused")
+
+
+def _image_repo(image):
+    """The last path segment of a container image without its tag or digest: `grafana/grafana:10.2` is `grafana`."""
+    if not isinstance(image, str):
+        return ""
+    return image.split("@", 1)[0].split(":", 1)[0].rsplit("/", 1)[-1]
+
+
+def _catalog_tokens():
+    """The words of the apps that App discovery knows (the names of their processes, services and container images): they run as these names."""
+    out = set()
+    for app in app_catalog.APPS:
+        for name in (*app["procs"], *app["units"], *(_image_repo(i) for i in app["images"])):
+            out |= package_tokens(name)
+    return out
+
+
+_CATALOG_TOKENS = _catalog_tokens()
+
+
+def running_software(devices, containers=None, now=None):
+    """{word: {'hosts': how many hosts run it, 'world': a socket of it listens to the Internet}} for what the hosts run: the process names each agent reports
+    (`sysinfo.proc_names`), the programs that listen (`sysinfo.listening_ports`, whose scope says how far a socket reaches) and the containers that are up. A host
+    that has not reported for RUNNING_STALE_S seconds (when `now` is given), a host without an agent and a decommissioned host are not counted. Never raises.
+    """
+    hosts, world = {}, set()
+    for dev_id, dev in devices.items() if isinstance(devices, dict) else ():
+        if not isinstance(dev, dict) or dev.get("decommissioned") or dev.get("agentless"):
+            continue
+        seen_at = dev.get("last_seen")
+        if (
+            now is not None
+            and isinstance(seen_at, (int, float))
+            and not isinstance(seen_at, bool)
+            and now - seen_at > RUNNING_STALE_S
+        ):
+            continue
+        si = dev.get("sysinfo") if isinstance(dev.get("sysinfo"), dict) else {}
+        mine = set()
+        names = si.get("proc_names")
+        for n in names[:400] if isinstance(names, list) else ():
+            mine |= package_tokens(n)
+        ports = si.get("listening_ports")
+        for port in ports[:80] if isinstance(ports, list) else ():
+            if isinstance(port, dict):
+                toks = package_tokens(port.get("process"))
+                mine |= toks
+                if port.get("scope") == "world":
+                    world |= toks
+        rec = containers.get(dev_id) if isinstance(containers, dict) else None
+        items = rec.get("items") if isinstance(rec, dict) else None
+        for c in items[:200] if isinstance(items, list) else ():
+            if isinstance(c, dict) and not str(c.get("status") or "").strip().lower().startswith(
+                _CONTAINER_DOWN
+            ):
+                mine |= package_tokens(_image_repo(c.get("image")))
+        for t in mine:
+            hosts.setdefault(t, set()).add(dev_id)
+    return {t: {"hosts": len(h), "world": t in world} for t, h in hosts.items()}
+
+
+def fleet_software(packages_store, devices=None, containers=None, now=None):
+    """What the hosts have, in the words a news item uses: {'installed': words, 'running': {word: {'hosts', 'world'}}}.
+
+    A package counts as installed software when its word is in KNOWN_SOFTWARE or in the catalog of App discovery. Something that runs counts when its word is one of those
+    or the word of an installed package: that keeps the names of kernel threads (`migration`, `watchdog`) out, and lets software that is not in the list count as soon as
+    it runs."""
+    pkg = vocabulary(packages_store)
+    trusted = KNOWN_SOFTWARE | _CATALOG_TOKENS
+    running = {
+        t: info
+        for t, info in running_software(devices, containers, now).items()
+        if t in trusted or t in pkg
+    }
+    return {"installed": {t for t in pkg if t in trusted}, "running": running}
+
+
+_APACHE_SERVER = re.compile(r"\bapache\s+(?:http|httpd|web|server|2)|\bapache2\b|\bhttpd\b", re.I)
+_NODE_JS = re.compile(r"\bnode\.?js\b", re.I)
+_OTHER_KERNEL = re.compile(
+    r"\b(?:windows|macos|ios|ipados|android|freebsd|openbsd|xnu|nt)\s+kernel\b", re.I
+)
+
+
+def _refine(text, names):
+    """Takes out a word that the text uses for something else: another Apache project (Roller, Tomcat, Kafka), a node of a network, the kernel of Windows."""
+    out = []
+    for n in names:
+        if n == "apache" and not _APACHE_SERVER.search(text):
+            continue
+        if n == "node" and not _NODE_JS.search(text):
+            continue
+        if n == "kernel" and "linux" not in names and _OTHER_KERNEL.search(text):
+            continue
+        out.append(n)
+    return out
+
+
+def mentions(text, fleet):
+    """(the software `text` names that the hosts have, and the part of it that runs on some host), both sorted. `fleet` is what fleet_software returns."""
+    if not text or not isinstance(fleet, dict):
+        return [], []
+    names = _refine(
+        text, software_in(text, set(fleet.get("installed") or ()) | set(fleet.get("running") or ()))
+    )
+    return names, [n for n in names if n in (fleet.get("running") or {})]
 
 
 # ── what has been seen ───────────────────────────────────────────────────────

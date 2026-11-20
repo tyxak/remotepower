@@ -11,6 +11,7 @@ without playwright / Chromium / gunicorn, and runs under the default storage bac
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -119,19 +120,24 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         cls.page.on("pageerror", lambda e: cls.errors.append(str(e)))
         cls.page.on("request", lambda r: cls.requests.append((r.method, r.url.split("/api", 1)[-1], r.post_data)))
         _login(cls.page)
-        cls.config0, cls.store0 = read("config.json"), read("news_watch.json")
+        cls.config0, cls.store0, cls.devices0 = read("config.json"), read("news_watch.json"), read("devices.json")
+        cls.containers0 = read("containers.json") if _path("containers.json").exists() else {}
 
     @classmethod
     def tearDownClass(cls):
         try:
             write("config.json", cls.config0)
             write("news_watch.json", cls.store0)
+            write("devices.json", cls.devices0)
+            write("containers.json", cls.containers0)
         finally:
             cls.ctx.close()
 
     def setUp(self):
         write("config.json", self.config0)
         write("news_watch.json", self.store0)
+        write("devices.json", self.devices0)
+        write("containers.json", self.containers0)
         del self.requests[:]
 
     def tearDown(self):
@@ -153,6 +159,24 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         if wait_items:
             page.wait_for_function("() => document.querySelectorAll('#news-watch-items > div').length > 0", timeout=30000)
 
+    def hosts_running(self, program):
+        """How many demo hosts (with an agent, not decommissioned, heard from in the last week) run `program`, as a process, a program that listens or a container that is up.
+        Counted here from the stored hosts and containers, with a rule of its own: the first word of the name, without its digits."""
+        def word(name):
+            return re.split(r"[-.+:~ /]", str(name).lower(), 1)[0].rstrip("0123456789")
+        containers = read("containers.json") if _path("containers.json").exists() else {}
+        n = 0
+        for dev_id, dev in read("devices.json").items():
+            if dev.get("agentless") or dev.get("decommissioned") or time.time() - (dev.get("last_seen") or 0) > 7 * 86400:
+                continue
+            si = dev.get("sysinfo") or {}
+            names = {word(p) for p in si.get("proc_names") or []} | {word(p.get("process")) for p in si.get("listening_ports") or []}
+            for c in (containers.get(dev_id) or {}).get("items") or []:
+                if not str(c.get("status") or "").lower().startswith(("exited", "dead", "created", "removing", "paused")):
+                    names.add(word(str(c.get("image") or "").split("@")[0].split(":")[0].rsplit("/", 1)[-1]))
+            n += program in names
+        return n
+
     def items(self, page=None):
         """Each item as text: the headline, the chips, then the line under them."""
         return (page or self.page).eval_on_selector_all("#news-watch-items > div", "els => els.map(e => e.innerText.replace(/\\s+/g, ' ').trim())")
@@ -163,21 +187,51 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.open_tab()
         rows = self.items()
         self.assertEqual(len(rows), 6, rows)
-        self.assertTrue(rows[0].startswith("nginx patches an HTTP/2 flaw that attackers already use"), rows[0])
+        self.assertTrue(rows[0].startswith("! nginx patches an HTTP/2 flaw that attackers already use"), rows[0])
         self.assertIn("Called critical", rows[0])
         self.assertIn("Exploited in attacks", rows[0])
         self.assertIn("Alert raised, no scan: one was started less than six hours ago", rows[0])
-        self.assertIn("Names software on your hosts: nginx", rows[0])
+        self.assertIn("Running on your hosts: nginx Hosts %d" % self.hosts_running("nginx"), rows[0])
+        self.assertIn("reachable from the Internet", rows[0], "a demo host listens to the Internet with nginx")
+        self.assertNotIn("Names software on your hosts: nginx", rows[0], "what runs is not also listed as installed")
         self.assertIn("Alert raised and a scan of all hosts started", rows[1])
-        self.assertIn("Names software on your hosts: php", rows[1])
+        self.assertTrue(rows[1].startswith("! PHP fixes critical flaws"), rows[1])
+        self.assertIn("Running on your hosts: php Hosts %d" % self.hosts_running("php"), rows[1])
         self.assertIn("Code execution without signing in", rows[1])
         self.assertIn("Zero-day", rows[2])
         self.assertIn("Listed only", rows[2])
         self.assertNotIn("Names software on your hosts", rows[2], "it names nothing a host has")
         self.assertIn("CVSS score of 9 or more", rows[3])
         self.assertIn("CVE that CISA lists as exploited", rows[4])
+        self.assertIn("Names software on your hosts: openssl", rows[4], "installed and not running: named under the headline")
+        self.assertFalse(rows[4].startswith("!") or "Running on your hosts" in rows[4], "and no mark")
         self.assertIn("Seen when the feed was first read, so no alert", rows[5])
         self.assertIn("Example Security News", rows[0], "the feed an item came from")
+
+    def test_a_red_mark_and_a_line_count_the_items_about_software_that_runs(self):
+        self.open_tab()
+        self.assertGreaterEqual(self.hosts_running("nginx"), 2, "control: the demo runs nginx on several hosts")
+        marks = self.page.eval_on_selector_all("#news-watch-items > div", "els => els.map(e => !!e.querySelector(':scope > div:first-child > .c-red'))")
+        self.assertEqual(marks, [True, True, False, False, False, False], "the nginx and the PHP item name software that runs on demo hosts")
+        line = " ".join(self.page.inner_text("#news-watch-running").split())
+        self.assertEqual(line, "! Items about software running on your hosts: 2")
+        self.assertFalse(self.page.eval_on_selector("#news-watch-running", "e => e.hidden"))
+        self.assertIn("A red ! marks an item that names software running on one of your hosts.", self.page.inner_text("#news-watch-wrap"))
+
+    def test_when_no_host_runs_it_any_more_the_marks_go_and_the_words_stay(self):
+        devs = json.loads(json.dumps(self.devices0))
+        for dev in devs.values():
+            si = dev.get("sysinfo") or {}
+            si["proc_names"], si["listening_ports"] = [], []
+        write("devices.json", devs)
+        write("containers.json", {})
+        self.open_tab()
+        rows = self.items()
+        self.assertTrue(rows[0].startswith("nginx patches"), "the mark is gone: " + rows[0])
+        self.assertIn("Names software on your hosts: nginx", rows[0], "the word stays, as installed software")
+        self.assertIn("Names software on your hosts: php", rows[1])
+        self.assertNotIn("Running on your hosts", " ".join(rows))
+        self.assertTrue(self.page.eval_on_selector("#news-watch-running", "e => e.hidden"), "nothing to count")
 
     def test_a_headline_is_a_link_that_opens_elsewhere_and_hands_over_nothing(self):
         self.open_tab()
@@ -323,7 +377,7 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
           buttons: [...document.querySelectorAll('#news-watch-wrap button')].map(e => e.textContent.trim()),
           hints: [...document.querySelectorAll('#news-watch-wrap p.hint, #news-watch-wrap #news-watch-form > .hint, #news-watch-wrap > .form-label')].map(e => e.textContent.trim()),
           chips: [...document.querySelectorAll('#news-watch-items .status-pill')].map(e => e.textContent.trim()),
-          words: [...document.querySelectorAll('#news-watch-feeds .hint:not([data-no-i18n]), #news-watch-items .hint > .hint:not([data-no-i18n])')].map(e => e.textContent.trim()),
+          words: [...document.querySelectorAll('#news-watch-feeds .hint:not([data-no-i18n]), #news-watch-items .hint > .hint:not([data-no-i18n]), #news-watch-running .hint')].map(e => e.textContent.trim()),
         })"""
         english = self.page.evaluate(grab)
         for key in ("tab", "titles", "labels", "options", "buttons", "hints", "chips", "words"):
@@ -336,7 +390,7 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
                 now = self.page.evaluate(grab)
                 for key in english:
                     for en, got in zip(english[key], now[key]):
-                        if en and en == got and (lang, en) not in {("fr", "Zero-day")}:
+                        if en and en == got and (lang, en) not in {("fr", "Zero-day")} and en != "Hosts":     # Spanish and German write Hosts as English does
                             bad.append((lang, key, en))
         finally:
             self.page.evaluate("() => RPi18n.setLang('en', false)")
