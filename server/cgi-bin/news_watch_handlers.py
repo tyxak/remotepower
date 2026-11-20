@@ -21,7 +21,8 @@ What this module does. The settings (on or off, the feeds, which critical items 
 sweep claims the slot, and a detached process reads each feed once through the SSRF-safe opener. Then, under the lock of the store, it records what is new and decides: an
 item counts when it is critical and, with the scope "relevant", names software some host has installed. A counting item raises an alert of event `security_news_critical`,
 and with the action "scan" the first one in SCAN_GAP_S starts a scan of every host, taking the scan slot the way the button does. The alerts go out after the store was saved,
-so a failed save cannot send one twice. Everything is off until an operator switches it on.
+so a failed save cannot send one twice. Everything is off until an operator switches it on. An operator can clear the red ! of an item (`handle_news_watch_clear`): the item
+keeps its place in the list and stops counting for the mark of the sidebar and the tab.
 """
 
 import sys
@@ -64,6 +65,7 @@ FETCH_TIMEOUT_S = 10  # for each step of a connection
 FETCH_DEADLINE_S = 25  # for the whole of one feed, so a server that sends a byte at a time cannot hold the read
 RUN_BUDGET_S = 45  # for all the feeds of one read; a feed past it is read next time
 MAX_SOFTWARE = 8  # names of software shown for one item
+MAX_CLEAR_IDS = 100  # ids read from one "clear" request; the list holds N.MAX_LISTED items, so more could never match
 
 
 # ── who is asking ────────────────────────────────────────────────────────────
@@ -375,16 +377,17 @@ def _public_item(i, running, extra=()):
         "software": [t for t in kept if t not in running],
         "running": [{"name": t, "hosts": running[t]["hosts"], "world": running[t]["world"]} for t in kept if t in running],
         "outcome": i.get("outcome") if i.get("outcome") in N.OUTCOMES else "listed",
+        "cleared_at": _num(i.get("cleared_at")),
     }
 
 
 def _attention_of(items, now):
     """(how many, the newest seen_at) of the items, as _public_item makes them, that the mark counts: found in the last MAX_AGE_S seconds, more than a record made when a feed was
-    first read or an item too old to act on, and naming software that runs on a host."""
+    first read or an item too old to act on, naming software that runs on a host, and not cleared by an operator."""
     n, newest = 0, None
     for i in items:
         at = i["seen_at"]
-        if not i["running"] or i["outcome"] in ("baseline", "stale") or at is None or now - at > N.MAX_AGE_S:
+        if not i["running"] or i["cleared_at"] is not None or i["outcome"] in ("baseline", "stale") or at is None or now - at > N.MAX_AGE_S:
             continue
         n += 1
         newest = at if newest is None or at > newest else newest
@@ -493,6 +496,40 @@ def handle_news_watch_config_set():
     hosts = ",".join(sorted({urllib.parse.urlsplit(u).hostname or "" for u in after["feeds"]}))
     A.audit_log(actor, "news_watch_config", f"enabled={after['enabled']} scope={after['scope']} action={after['action']} words={len(after['words'])} feeds={hosts}"[:300])
     A.respond(200, dict(_view(int(time.time())), ok=True))
+
+
+def handle_news_watch_clear():
+    """POST /api/news-watch/clear {ids?: [id, ...], all?: true} -- clear the red ! of items (8.0.2). The platform operator's.
+
+    An item shows a ! while it names software that runs on a host. Clearing says "seen": the item stays in the list with what runs on the hosts, loses its !, and no longer counts
+    for the mark of the sidebar and the tab. The time is kept on the item in the store, so a clear holds for every browser and every operator account. Only an item that shows a ! now
+    is cleared, for the ids as for `all`: an item that names software no host runs has no ! to clear, and the ! it gets when a host starts running that software is news. A body that
+    names nothing, or whose `all` is anything but true, is refused. The answer is the page and how many items were cleared: an id that is not listed, or already cleared, clears none."""
+    actor = A.require_admin_auth()
+    if A.method() != "POST":
+        A.respond(405, {"error": "Method not allowed"})
+    body = A._read_valid(A.request_models.NewsWatchClearRequest)
+    A._require_platform_operator("The security news settings")
+    raw = body.get("ids")
+    ids = {x for x in (raw if isinstance(raw, list) else [])[:MAX_CLEAR_IDS] if isinstance(x, str) and x}
+    everything = body.get("all") is True
+    if not ids and not everything:
+        A.respond(400, {"error": "Say which items to clear"})
+    now = int(time.time())
+    running = _running_now(now)
+    extra = set(N.settings(A._config_ro().get("news_watch"))["words"])
+    cleared = 0
+    with A._LockedUpdate(A.NEWS_WATCH_FILE) as st:
+        for i in st.get("items") if isinstance(st.get("items"), list) else []:
+            if not isinstance(i, dict) or _num(i.get("cleared_at")) is not None:
+                continue
+            if (everything or i.get("id") in ids) and _public_item(i, running, extra)["running"]:
+                i["cleared_at"] = now
+                cleared += 1
+    if cleared:
+        A.audit_log(actor, "news_watch_clear", f"items={cleared}")
+    A._invalidate_load_cache(A.NEWS_WATCH_FILE)
+    A.respond(200, dict(_view(now), ok=True, cleared=cleared))
 
 
 def handle_news_watch_run():

@@ -56,10 +56,10 @@ class TestTheServerNamesIt(unittest.TestCase):
     def setUpClass(cls):
         cls.api = _fresh_api()
 
-    def test_the_three_routes_resolve_to_the_three_handlers(self):
+    def test_the_four_routes_resolve_to_the_four_handlers(self):
         defs = {(path, tuple(methods or ()), handler) for _kind, methods, path, _suffix, handler, _cond in self.api._PATTERN_ROUTE_DEFS}
         for path, method, handler in (('/api/news-watch', 'GET', 'handle_news_watch_get'), ('/api/news-watch/config', 'POST', 'handle_news_watch_config_set'),
-                                      ('/api/news-watch/run', 'POST', 'handle_news_watch_run')):
+                                      ('/api/news-watch/clear', 'POST', 'handle_news_watch_clear'), ('/api/news-watch/run', 'POST', 'handle_news_watch_run')):
             self.assertIn((path, (method,), handler), defs)
             fn = getattr(self.api, handler)
             self.assertTrue(callable(fn))
@@ -90,6 +90,10 @@ class TestTheServerNamesIt(unittest.TestCase):
         model()                                                   # an empty body validates
         model(**{'enabled': 'true', 'feeds': 'a\nb', 'scope': 1, 'action': None, 'unknown': {'x': 1}})
         self.assertEqual(self.api.request_models.validate(model, {}), (True, None))
+        clear = self.api.request_models.NewsWatchClearRequest
+        clear()                                                   # an empty body validates: the handler is what says "name something"
+        clear(**{'ids': 'x', 'all': 'yes', 'unknown': [1]})
+        self.assertEqual(self.api.request_models.validate(clear, {'ids': {'a': 1}, 'all': 7}), (True, None))
 
     def test_the_module_is_in_the_lint_and_type_baselines(self):
         make = (ROOT / 'Makefile').read_text()
@@ -275,11 +279,12 @@ class TestTheSentencesAreTranslated(unittest.TestCase):
         sentences |= set(re.findall(r"_nwNote\('([^']+)'\)", NW))
         sentences |= set(re.findall(r'<span class="hint">([^<$]+)</span>', NW))
         sentences |= set(re.findall(r"<div class=\"c-muted\">([^<]+)</div>", NW))
+        sentences |= set(re.findall(r'data-action="newsWatchClear"[^>]*>([^<]+)</button>', NW))      # the labels of the buttons that clear a !
         sentences |= {'Called critical', 'Failed:', 'reachable from the Internet', 'Running on your hosts:', 'Items about software running on your hosts:'}
         sentences.add('A red ! marks an item that names software running on one of your hosts. An item that names software that is only installed has no !.')
         sentences |= {'Only items that name software running on my hosts', 'Other software to count, one name on each line',
                       'Names of software that is installed on your hosts and is not on the built-in list. A package whose name starts with one of them counts when a headline names it.',
-                      'A security news item names software that runs on your hosts'}
+                      'A security news item names software that runs on your hosts', 'Clear !', 'Clear all !', '! cleared', 'Say which items to clear'}
         self.assertGreaterEqual(len(sentences), 20, 'control: the scan found the sentences')
         missing = {s: sorted(set(LANGS) - rows.get(s, set())) for s in sorted(sentences) if not set(LANGS) <= rows.get(s, set())}
         self.assertEqual(missing, {}, 'sentences the Security news tab shows with no translation')
@@ -356,6 +361,106 @@ class TestThePageIsSafe(unittest.TestCase):
         self.assertEqual(html.count('<span class="c-red fw-600" aria-hidden="true">!</span>'), 1, 'one mark for one item, whatever the number of entries')
         self.assertEqual(html.count('Hosts</span>'), 1, 'the entries that are not maps, or have no name, are left out')
 
+    def _node(self, script):
+        d = Path(tempfile.mkdtemp(prefix='rp-newsclear-'))
+        try:
+            (d / 't.js').write_text(script)
+            r = subprocess.run([NODE, str(d / 't.js')], capture_output=True, text=True, timeout=60)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+        self.assertEqual(r.returncode, 0, r.stderr[-600:])
+        return json.loads(r.stdout)
+
+    def _helpers(self):
+        parts = [re.search(r'^function escHtml\(s\) \{.*\}$', APP, re.M).group(0), re.search(r'^function escAttr\(s\) \{.*\}$', APP, re.M).group(0),
+                 re.search(r'^function _safeHttpHref\(u\) \{.*?\n\}', APP, re.M | re.S).group(0)]
+        return ('const window = {location: {origin: "https://rp.example"}};\n'
+                'function timeAgoHtml(ts) { return "<time>" + Number(ts) + "</time>"; }\n' + '\n'.join(parts) + '\n')
+
+    def test_a_bang_has_a_button_to_clear_it_and_a_cleared_item_says_so_and_has_neither(self):
+        run = [{'name': 'nginx', 'hosts': 3, 'world': False}]
+        base = {'id': '1234567890123456', 'feed': 'F', 'title': 'Critical nginx flaw', 'link': 'https://n.example/x', 'published': 1, 'seen_at': 2, 'reasons': ['critical'], 'cves': [], 'cvss': None,
+                'software': [], 'outcome': 'scanned', 'running': run, 'cleared_at': None}
+        cases = {'flagged': base, 'cleared': dict(base, cleared_at=1800000500), 'installed_only': dict(base, running=[]), 'junk_stamp': dict(base, cleared_at='x'),
+                 'hostile_id': dict(base, id='"><img src=x onerror=alert(1)>')}
+        out = self._node(self._helpers() + 'const document = {getElementById: () => null};\n' + NW + '\nconst cases = ' + json.dumps(cases)
+                         + ';\nconst out = {}; for (const k in cases) out[k] = _nwItemHtml(cases[k]); console.log(JSON.stringify(out));')
+        bang = '<span class="c-red fw-600" aria-hidden="true">!</span>'
+        button = 'data-action="newsWatchClear" data-arg="nw-1234567890123456">Clear !</button>'
+        self.assertIn(bang, out['flagged'])
+        self.assertIn(button, out['flagged'], 'an item with a ! has its own button')
+        self.assertNotIn('! cleared', out['flagged'])
+        for key in ('cleared', 'installed_only'):
+            self.assertNotIn(bang, out[key], key)
+            self.assertNotIn('newsWatchClear', out[key], key + ': nothing to clear')
+        self.assertIn('<span class="hint">! cleared</span> <time>1800000500</time>', out['cleared'], 'it says it was cleared, and when')
+        self.assertIn('Running on your hosts:', out['cleared'], 'what runs is still shown')
+        self.assertNotIn('! cleared', out['installed_only'])
+        self.assertIn(bang, out['junk_stamp'], 'a stamp that is not a number is no clear')
+        self.assertNotIn('<img', out['hostile_id'])
+        self.assertIn('&lt;img', out['hostile_id'], 'the id is escaped in the attribute')
+        # the dispatcher turns an argument that looks like a number into one (app.js: coerce), and sixteen hex digits can look like one: the prefix is what keeps the id a string
+        coerce = 'const coerce = v => (v !== undefined && v !== "" && !isNaN(v)) ? Number(v) : v;'
+        args = re.findall(r'data-arg="([^"]*)"', out['flagged'])
+        self.assertEqual(args, ['nw-1234567890123456'])
+        self.assertIn(coerce.replace('"', "'"), APP.replace('"', "'"), 'control: the dispatcher still coerces this way, so the prefix is still needed')
+        got = self._node('const base = "1234567890123456", prefixed = "nw-1234567890123456";\n' + coerce
+                         + '\nconsole.log(JSON.stringify({bare: typeof coerce(base), prefixed: typeof coerce(prefixed), exp: String(coerce("1e5000000000"))}));')
+        self.assertEqual((got['bare'], got['prefixed'], got['exp']), ('number', 'string', 'Infinity'), 'a bare id would have arrived as a number, a prefixed one stays text')
+
+    def test_the_line_above_the_list_counts_the_items_that_show_a_bang_and_offers_to_clear_them_all(self):
+        item = {'id': 'aaaaaaaaaaaaaaaa', 'feed': 'F', 'title': 'T', 'link': '', 'published': 1, 'seen_at': 2, 'reasons': [], 'cves': [], 'cvss': None, 'software': [], 'outcome': 'listed',
+                'running': [{'name': 'nginx', 'hosts': 1, 'world': False}], 'cleared_at': None}
+        page = {'editable': True, 'enabled': True, 'feeds': ['https://x.example/f'], 'last_run': 1, 'scope': 'relevant', 'action': 'scan', 'words': [], 'status': []}
+        cases = {'two_of_three': [item, dict(item, id='bbbbbbbbbbbbbbbb'), dict(item, id='cccccccccccccccc', cleared_at=5), dict(item, id='dddddddddddddddd', running=[])],
+                 'all_cleared': [dict(item, cleared_at=5), dict(item, id='bbbbbbbbbbbbbbbb', cleared_at=6)], 'none_run': [dict(item, running=[])], 'no_items': []}
+        script = (self._helpers() + 'const els = {};\nconst document = {getElementById: id => (els[id] = els[id] || {hidden: false, innerHTML: "", textContent: "", value: ""})};\n' + NW
+                  + '\nconst page = ' + json.dumps(page) + ', cases = ' + json.dumps(cases) + ';\nconst out = {};\n'
+                  'for (const k in cases) { _nwPaint(Object.assign({}, page, {items: cases[k]}), true); out[k] = {hidden: els["news-watch-running"].hidden, html: els["news-watch-running"].innerHTML}; }\n'
+                  'console.log(JSON.stringify(out));')
+        out = self._node(script)
+        two = out['two_of_three']
+        self.assertFalse(two['hidden'])
+        self.assertIn('<strong>2</strong>', two['html'], 'two items show a !: the cleared one and the one that runs nothing do not count')
+        self.assertIn('data-action="newsWatchClear" data-arg="all">Clear all !</button>', two['html'])
+        for key in ('all_cleared', 'none_run', 'no_items'):
+            self.assertEqual((out[key]['hidden'], out[key]['html']), (True, ''), key + ': no ! shown, no line and no button')
+
+    def test_the_clear_sends_one_id_or_all_and_nothing_else(self):
+        script = (self._helpers() + 'const document = {getElementById: () => null};\n'
+                  'let calls = [], painted = [], toasts = [], navs = 0, answer = {ok: true, editable: true, items: []}, navBroken = false;\n'
+                  'async function api(m, p, b) { calls.push([m, p, JSON.stringify(b)]); return answer; }\n'
+                  'function failToast(r) { toasts.push(r); }\n'
+                  'function refreshNavCounts() { navs++; if (navBroken) throw new Error("no"); }\n' + NW + '\n'
+                  '_nwPaint = function (d, force) { painted.push([d === answer, force]); };\n'
+                  '(async () => {\n'
+                  '  const out = {};\n'
+                  '  for (const a of ["all", "nw-0123456789abcdef", "nw-demonews00000001"]) await newsWatchClear(a);\n'
+                  '  out.sent = calls.slice(); out.painted = painted.slice(); out.navs = navs;\n'
+                  '  calls = [];\n'
+                  '  for (const a of [5, 0, "nw-", "nw-../x", "nw-a b", "nw-" + "a".repeat(33), "nw-\\"><img src=x onerror=alert(1)>", "x", "", "ALL", undefined, null, {}, ["all"], true]) await newsWatchClear(a);\n'
+                  '  out.refused_sent = calls.length;\n'
+                  '  answer = {error: "nope"}; painted = []; navs = 0; await newsWatchClear("all");\n'
+                  '  out.failed = [toasts.length, painted.length, navs];\n'
+                  '  answer = {ok: true, editable: true, items: []}; navBroken = true; painted = []; await newsWatchClear("all");\n'
+                  '  out.broken_poll = painted.length;\n'
+                  '  console.log(JSON.stringify(out));\n'
+                  '})();\n')
+        out = self._node(script)
+        self.assertEqual(out['sent'], [['POST', '/news-watch/clear', '{"all":true}'], ['POST', '/news-watch/clear', '{"ids":["0123456789abcdef"]}'],
+                                       ['POST', '/news-watch/clear', '{"ids":["demonews00000001"]}']], 'the ids the watch makes (hex) and the ids the demo seed holds (letters and digits) are both sent')
+        self.assertEqual(out['painted'], [[True, False]] * 3, 'the answer is the page, drawn without refilling the form the operator may be typing in')
+        self.assertEqual(out['navs'], 3, 'the sidebar is asked again so its mark agrees at once')
+        self.assertEqual(out['refused_sent'], 0, 'an argument that is not "all" or a prefixed id is not sent')
+        self.assertEqual(out['failed'], [1, 0, 0], 'a refusal is said, the page is left as it is and the sidebar is not asked')
+        self.assertEqual(out['broken_poll'], 1, 'a sidebar poll that fails does not undo the redraw')
+
+    def test_every_action_the_script_puts_in_markup_is_a_function_of_the_script(self):
+        actions = set(re.findall(r'data-action="(\w+)"', NW))
+        functions = set(re.findall(r'^(?:async )?function (\w+)\(', NW, re.M))
+        self.assertTrue({'newsWatchClear'} <= actions, 'control: the scan found the buttons of the clear')
+        self.assertEqual(actions - functions, set(), 'a button whose function is not in the file does nothing, and says nothing')
+
     def test_control_a_good_item_is_a_link_with_its_reasons_and_what_was_done(self):
         good = self._render()['good']
         self.assertIn('<a href="https://news.example.net/php" target="_blank" rel="noopener noreferrer"', good)
@@ -405,7 +510,7 @@ class TestTheSeedAndTheDocs(unittest.TestCase):
     def test_the_docs_describe_it_and_the_feature_table_holds_one_row(self):
         cve = (ROOT / 'docs' / 'cve.md').read_text()
         self.assertIn('## Security news watch', cve)
-        for text in ('Only items that name software on my hosts', 'Raise an alert and scan all hosts', 'security_news_critical', 'at most one scan in six'):
+        for text in ('Only items that name software on my hosts', 'Raise an alert and scan all hosts', 'security_news_critical', 'at most one scan in six', 'Clear !', 'Clear all !'):
             self.assertIn(text, cve)
         for word in ('genuine', 'genuinely', 'verbatim', 'deliberate', 'deliberately'):
             self.assertNotRegex(cve[cve.index('## Security news watch'):cve.index('## Permissions')], r'\b' + word + r'\b')

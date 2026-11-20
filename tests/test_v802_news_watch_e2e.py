@@ -215,7 +215,7 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         marks = self.page.eval_on_selector_all("#news-watch-items > div", "els => els.map(e => !!e.querySelector(':scope > div:first-child > .c-red'))")
         self.assertEqual(marks, [True, True, False, False, False, False], "the nginx and the PHP item name software that runs on demo hosts")
         line = " ".join(self.page.inner_text("#news-watch-running").split())
-        self.assertEqual(line, "! Items about software running on your hosts: 2")
+        self.assertEqual(line, "! Items about software running on your hosts: 2 Clear all !", "the line counts them, and offers to clear them")
         self.assertFalse(self.page.eval_on_selector("#news-watch-running", "e => e.hidden"))
         self.assertIn("A red ! marks an item that names software running on one of your hosts.", self.page.inner_text("#news-watch-wrap"))
 
@@ -318,6 +318,106 @@ class TestSecurityNewsInTheBrowser(unittest.TestCase):
         self.page.evaluate("() => { localStorage.removeItem('rp_news_seen'); }")
         self.poll_the_sidebar()
         self.assertEqual(self.marks(), [False, False], "and nothing for the sidebar to mark")
+
+    # ── clearing the ! ───────────────────────────────────────────────────────
+
+    def clear_buttons(self, page=None):
+        return (page or self.page).eval_on_selector_all('#news-watch-items [data-action="newsWatchClear"]', "els => els.length")
+
+    def summary(self):
+        return " ".join(self.page.inner_text("#news-watch-running").split())
+
+    def clear_posts(self):
+        return [r for r in self.requests if r[0] == "POST" and r[1] == "/news-watch/clear"]
+
+    def test_an_item_with_a_bang_has_a_button_and_clearing_it_keeps_the_item_and_loses_the_bang(self):
+        self.open_tab()
+        self.assertEqual(self.clear_buttons(), 2, "a button on each of the two items that show a !, and none on the others")
+        self.assertEqual(self.summary(), "! Items about software running on your hosts: 2 Clear all !")
+        self.page.locator("#news-watch-items > div").nth(1).locator('[data-action="newsWatchClear"]').click()
+        self.page.wait_for_function("() => document.querySelectorAll('#news-watch-items [data-action=\"newsWatchClear\"]').length === 1", timeout=30000)
+        rows = self.items()
+        self.assertEqual(len(rows), 6, "the item is still listed")
+        self.assertTrue(rows[0].startswith("! nginx patches"), "the other item keeps its !")
+        self.assertFalse(rows[1].startswith("!"), rows[1])
+        self.assertRegex(rows[1], r"! cleared \S+", "it says it was cleared, and when")
+        self.assertIn("Running on your hosts: php Hosts %d" % self.hosts_running("php"), rows[1], "what runs is still shown")
+        self.assertEqual(self.summary(), "! Items about software running on your hosts: 1 Clear all !")
+        (post,) = self.clear_posts()
+        body = json.loads(post[2])
+        self.assertEqual(list(body), ["ids"])
+        self.assertEqual(body["ids"], [self.store0["items"][1]["id"]], "the id went through the prefix and came out as it was: the PHP item's own")
+        cleared = [i["title"] for i in read("news_watch.json")["items"] if i.get("cleared_at")]
+        self.assertEqual(len(cleared), 1)
+        self.assertTrue(cleared[0].startswith("PHP fixes critical flaws"), cleared)
+
+    def test_clear_all_takes_every_bang_and_the_line_away_and_it_holds_in_another_browser_and_after_a_reload(self):
+        self.enable_the_watch()
+        ctx = _STATE["browser"].new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
+        ctx.add_init_script(INIT % "")
+        other = ctx.new_page()
+        try:
+            _login(other)
+            self.poll_the_sidebar(other)
+            self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark', other), [True], "control: a browser that has shown nothing has the mark")
+            self.open_tab()
+            self.page.click('#news-watch-running [data-action="newsWatchClear"]')
+            self.page.wait_for_function("() => document.getElementById('news-watch-running').hidden", timeout=30000)
+            self.assertEqual(self.clear_buttons(), 0)
+            rows = self.items()
+            self.assertEqual([r.startswith("!") for r in rows], [False] * 6, "no row shows a !")
+            self.assertEqual(sum("! cleared" in r for r in rows), 2, "the two items that showed a ! say they were cleared")
+            self.assertEqual(json.loads(self.clear_posts()[0][2]), {"all": True})
+            self.poll_the_sidebar(other)
+            self.assertEqual(self.marks('.nav-btn[data-page="cve"] .news-mark', other), [False], "the other browser's mark goes at its next poll: the clear is the server's")
+            self.assertIsNone(other.evaluate("() => window._newsRunningAt"))
+        finally:
+            ctx.close()
+        self.page.reload()
+        self.page.wait_for_selector("#app", state="visible", timeout=90000)
+        self.page.wait_for_timeout(2500)
+        self.open_tab()
+        self.assertEqual(self.clear_buttons(), 0, "after a reload")
+        self.assertEqual(sum("! cleared" in r for r in self.items()), 2)
+
+    def test_a_new_item_shows_its_own_bang_after_the_others_were_cleared(self):
+        self.open_tab()
+        self.page.click('#news-watch-running [data-action="newsWatchClear"]')
+        self.page.wait_for_function("() => document.getElementById('news-watch-running').hidden", timeout=30000)
+        doc = read("news_watch.json")
+        fresh = dict(doc["items"][0], id="feedfeedfeedfeed", title="nginx fixes a third flaw", seen_at=int(time.time()))
+        fresh.pop("cleared_at", None)
+        doc["items"].insert(0, fresh)
+        write("news_watch.json", doc)
+        self.page.evaluate("async () => { await newsWatchLoad(); }")
+        rows = self.items()
+        self.assertTrue(rows[0].startswith("! nginx fixes a third flaw"), rows[0])
+        self.assertEqual(self.clear_buttons(), 1)
+        self.assertIn("! cleared", rows[1])
+        self.assertEqual(self.summary(), "! Items about software running on your hosts: 1 Clear all !")
+
+    def test_the_words_of_the_clear_are_translated_in_all_six_languages(self):
+        self.open_tab()
+        self.page.locator("#news-watch-items > div").nth(1).locator('[data-action="newsWatchClear"]').click()
+        self.page.wait_for_function("() => document.querySelectorAll('#news-watch-items [data-action=\"newsWatchClear\"]').length === 1", timeout=30000)
+        self.page.evaluate("async () => { await _ensureI18n(); }")
+        grab = """() => ({
+          button: document.querySelector('#news-watch-items [data-action="newsWatchClear"]').textContent.trim(),
+          all: document.querySelector('#news-watch-running [data-action="newsWatchClear"]').textContent.trim(),
+          cleared: [...document.querySelectorAll('#news-watch-items .hint > .hint')].map(e => e.textContent.trim()).filter(t => t.includes('!'))[0],
+        })"""
+        english = self.page.evaluate(grab)
+        self.assertEqual(english, {"button": "Clear !", "all": "Clear all !", "cleared": "! cleared"})
+        bad = []
+        try:
+            for lang in LANGS:
+                self.page.evaluate("(l) => RPi18n.setLang(l, false)", lang)
+                self.page.wait_for_timeout(300)
+                now = self.page.evaluate(grab)
+                bad += [(lang, key, en) for key, en in english.items() if now[key] == en]
+        finally:
+            self.page.evaluate("() => RPi18n.setLang('en', false)")
+        self.assertEqual(bad, [])
 
     def test_a_headline_is_a_link_that_opens_elsewhere_and_hands_over_nothing(self):
         self.open_tab()

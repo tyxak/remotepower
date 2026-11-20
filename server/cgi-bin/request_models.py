@@ -2283,6 +2283,12 @@ if _AVAILABLE:
         action: Any = None
         words: Any = None
 
+    class NewsWatchClearRequest(BaseModel):
+        """8.0.2: which items of the security news watch lose their red !. Both fields are Any: the handler keeps the ids that are text and takes `all` only when it is true."""
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        ids: Any = None
+        all: Any = None
+
     class LdapTestUserRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         password: str = ''

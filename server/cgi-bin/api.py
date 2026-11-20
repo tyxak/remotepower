@@ -1268,7 +1268,7 @@ news_watch_handlers_mod = _tk_ilu.module_from_spec(_nw_spec)
 _nw_spec.loader.exec_module(news_watch_handlers_mod)
 news_watch_handlers_mod.bind(globals())
 for _nw_name in (
-        'handle_news_watch_get', 'handle_news_watch_config_set', 'handle_news_watch_run', 'run_news_watch_if_due',
+        'handle_news_watch_get', 'handle_news_watch_config_set', 'handle_news_watch_clear', 'handle_news_watch_run', 'run_news_watch_if_due',
 ):
     globals()[_nw_name] = getattr(news_watch_handlers_mod, _nw_name)
 del _nw_name
@@ -80351,6 +80351,7 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('POST',), '/api/detections/rules', '', 'handle_detections_rules_set', "pi == '/api/detections/rules' and m == 'POST'"),
     ('eq', ('GET',), '/api/news-watch', '', 'handle_news_watch_get', "pi == '/api/news-watch' and m == 'GET'"),
     ('eq', ('POST',), '/api/news-watch/config', '', 'handle_news_watch_config_set', "pi == '/api/news-watch/config' and m == 'POST'"),
+    ('eq', ('POST',), '/api/news-watch/clear', '', 'handle_news_watch_clear', "pi == '/api/news-watch/clear' and m == 'POST'"),
     ('eq', ('POST',), '/api/news-watch/run', '', 'handle_news_watch_run', "pi == '/api/news-watch/run' and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/compose/action', 'handle_device_compose_action', "pi.startswith('/api/devices/') and pi.endswith('/compose/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/containers/action', 'handle_device_container_action', "pi.startswith('/api/devices/') and pi.endswith('/containers/action') and m == 'POST'"),

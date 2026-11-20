@@ -5,6 +5,7 @@
 //   newsWatchLoad()    fetch the settings, the state of each feed and the critical items, and draw them, form included (the Refresh button)
 //   newsWatchSave()    send the settings as they stand (the platform operator's)
 //   newsWatchRun()     read the feeds now (the platform operator's)
+//   newsWatchClear()   clear the red ! of one item, or of every item that shows one (the platform operator's)
 //
 // A headline, a link, a feed's name and the name of a program all came from outside, so they are only ever put in the page with escHtml, and a link only through _safeHttpHref.
 // The form is filled from the server when the tab is first drawn, after a save and when Refresh is pressed, and never by a redraw that follows a visit: what an operator is
@@ -52,6 +53,15 @@ function _nwRunning(i) {
   return Array.isArray(i.running) ? i.running.filter(r => r && typeof r.name === 'string') : [];
 }
 
+// an item shows the red ! while it names software that runs on a host and nobody has cleared it (the server sends cleared_at, a number, for a cleared one)
+function _nwCleared(i) {
+  return typeof i.cleared_at === 'number';
+}
+
+function _nwBang(i) {
+  return _nwRunning(i).length > 0 && !_nwCleared(i);
+}
+
 function _nwRunningHtml(runs) {
   return `<span class="hint">Running on your hosts:</span> ` + runs.map(r => {
     const n = Number.isFinite(r.hosts) ? r.hosts : 0;
@@ -64,7 +74,11 @@ function _nwItemHtml(i) {
   const href = _safeHttpHref(i.link);
   const title = escHtml(i.title || i.link || '');
   const runs = _nwRunning(i);
-  const bang = runs.length ? '<span class="c-red fw-600" aria-hidden="true">!</span> ' : '';
+  const flagged = _nwBang(i);
+  const bang = flagged ? '<span class="c-red fw-600" aria-hidden="true">!</span> ' : '';
+  // the id goes through data-arg with a prefix: the data-action dispatcher turns an argument that looks like a number into one, and 16 hex digits can look like one
+  const clear = flagged ? ` <button type="button" class="btn-icon" data-action="newsWatchClear" data-arg="nw-${escAttr(String(i.id || ''))}">Clear !</button>` : '';
+  const done = runs.length && _nwCleared(i) ? `<span class="hint">! cleared</span> ${timeAgoHtml(i.cleared_at)}` : '';
   const head = bang + (href
     ? `<a href="${href}" target="_blank" rel="noopener noreferrer" class="fw-500" data-no-i18n>${title}</a>`
     : `<span class="fw-500" data-no-i18n>${title}</span>`);
@@ -77,8 +91,8 @@ function _nwItemHtml(i) {
     : '';
   const cves = (i.cves || []).length ? `<span class="mono-12" data-no-i18n>${escHtml(i.cves.slice(0, 3).join(', '))}</span>` : '';
   const when = i.published || i.seen_at;
-  const meta = [ran, soft, cves, i.feed ? `<span class="hint" data-no-i18n>${escHtml(i.feed)}</span>` : '', when ? timeAgoHtml(when) : ''].filter(Boolean).join(' · ');
-  return `<div class="mb-8"><div>${head}</div><div class="mt-6">${reasons} ${outcome}</div><div class="hint mt-6">${meta}</div></div>`;
+  const meta = [ran, soft, cves, i.feed ? `<span class="hint" data-no-i18n>${escHtml(i.feed)}</span>` : '', when ? timeAgoHtml(when) : '', done].filter(Boolean).join(' · ');
+  return `<div class="mb-8"><div>${head}</div><div class="mt-6">${reasons} ${outcome}${clear}</div><div class="hint mt-6">${meta}</div></div>`;
 }
 
 function _nwFillForm(d) {
@@ -121,11 +135,14 @@ function _nwPaint(d, force) {
   else if (!d.last_run) _nwNote('No feed has been read yet. The first read runs within a few minutes and only records what the feeds hold.');
   else _nwNote('');
   if (feeds) feeds.innerHTML = (d.status || []).map(_nwFeedHtml).join('');
-  const bangs = (d.items || []).filter(i => _nwRunning(i).length).length;
+  const bangs = (d.items || []).filter(_nwBang).length;
   const sum = document.getElementById('news-watch-running');
   if (sum) {
     sum.hidden = !bangs;
-    sum.innerHTML = bangs ? `<span class="c-red fw-600" aria-hidden="true">!</span> <span class="hint">Items about software running on your hosts:</span> <strong>${escHtml(String(bangs))}</strong>` : '';
+    sum.innerHTML = bangs
+      ? `<span class="c-red fw-600" aria-hidden="true">!</span> <span class="hint">Items about software running on your hosts:</span> <strong>${escHtml(String(bangs))}</strong>`
+        + ` <button type="button" class="btn-icon" data-action="newsWatchClear" data-arg="all">Clear all !</button>`
+      : '';
   }
   if (items) items.innerHTML = (d.items || []).length ? d.items.map(_nwItemHtml).join('') : '<div class="c-muted">No critical items yet.</div>';
   _nwSeen(d.attention_at);
@@ -163,6 +180,18 @@ async function newsWatchSave() {
   toast('Saved', 'success');
   ++_nwSeq;
   _nwPaint(r, true);
+}
+
+// Clear the ! of one item ('nw-<id>') or of every item that shows one ('all'). Anything else is not sent: the argument comes from a data-arg attribute, and the server's answer is the
+// page, drawn as it is. An id is letters, digits, '_' and '-' up to 32 characters, which is whatever the server sends for an item (the watch makes 16 hex digits, the demo seed 16
+// letters and digits): a tighter rule would leave a listed item with a button that does nothing. The sidebar's poll is asked again so the mark there agrees at once.
+async function newsWatchClear(arg) {
+  if (arg !== 'all' && !(typeof arg === 'string' && /^nw-[A-Za-z0-9_-]{1,32}$/.test(arg))) return;
+  const r = await api('POST', '/news-watch/clear', arg === 'all' ? { all: true } : { ids: [arg.slice(3)] });
+  if (!r || r.error) { failToast(r); return; }
+  ++_nwSeq;
+  _nwPaint(r, false);
+  try { if (typeof refreshNavCounts === 'function') refreshNavCounts(); } catch (_) { /* the next poll will do it */ }
 }
 
 async function newsWatchRun() {

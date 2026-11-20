@@ -537,6 +537,7 @@ builtins = [
     "handle_na_suppress_add",
     "handle_na_suppress_list",
     "handle_na_suppress_remove",
+    "handle_news_watch_clear",
     "handle_news_watch_config_set",
     "handle_news_watch_get",
     "handle_news_watch_run",

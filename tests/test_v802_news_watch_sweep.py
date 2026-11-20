@@ -170,6 +170,7 @@ PHP = ('PHP Fixes 7 Critical Flaws, Including Bugs That Could Allow Remote Code 
 NGINX = ('Critical NGINX HTTP/2 Flaw Lets Unauthenticated Attackers Execute Code', 'Update nginx now.')
 CISCO = ('Hackers Exploit Critical Cisco Expressway Flaw', 'Four devices were breached.')
 QUIET = ('The Path to AI Autonomy in the SOC', 'A survey.')
+SECOND = ('Critical NGINX flaw, a second one', 'nginx')
 
 
 # ── off until switched on ────────────────────────────────────────────────────
@@ -628,6 +629,173 @@ class TestTheMark(_Server):
         self.assertGreater(got['news_running_at'], first)
 
 
+# ── clearing the red ! ───────────────────────────────────────────────────────
+
+class TestClearTheBang(_Server):
+    """An item shows a red ! while it names software that runs on a host. An operator can clear it: the item stays in the list with what runs, loses its !, and stops counting for
+    the mark of the sidebar. The clear is kept in the store, so it holds for every browser and every operator account."""
+
+    def setUp(self):
+        super().setUp()
+        self.hosts({'web01': (['nginx'], [('nginx', 443, 'world')])})
+        self.poll(QUIET)
+        self.poll(QUIET, NGINX, PHP, SECOND, advance=1800)
+
+    def items(self):
+        return {i['title']: i for i in self.get_page()['items']}
+
+    def nav(self, token='k', clear=True):
+        return TestTheMark.nav(self, token, clear)
+
+    def clear(self, body, token='k'):
+        self.config(last_news_watch_run=int(time.time()))      # a request runs the cadence first: the feeds are not read again under a test of the clear
+        return self.request('/api/news-watch/clear', 'POST', token=token, body=body)
+
+    def stored(self):
+        return {i['title']: i.get('cleared_at') for i in self.state()['items']}
+
+    def test_the_setup_has_two_items_with_a_bang_and_one_without(self):
+        got = self.items()
+        self.assertEqual({t: bool(i['running']) for t, i in got.items()}, {NGINX[0]: True, PHP[0]: False, SECOND[0]: True}, 'nginx runs, php is only installed')
+        self.assertEqual(self.nav()['news_running'], 2)
+
+    def test_one_item_is_cleared_by_its_id_and_nothing_else_is(self):
+        got = self.items()
+        st, answer = self.clear({'ids': [got[NGINX[0]]['id']]})
+        self.assertEqual((st, answer['ok'], answer['cleared']), (200, True, 1), answer)
+        after = {i['title']: i for i in answer['items']}
+        self.assertIsInstance(after[NGINX[0]]['cleared_at'], int)
+        self.assertLessEqual(abs(after[NGINX[0]]['cleared_at'] - int(time.time())), 5, 'stamped with the time of the clear, which is real time and not the clock the polls were moved on')
+        self.assertEqual(after[NGINX[0]]['running'], got[NGINX[0]]['running'], 'what runs on the hosts is still shown on a cleared item')
+        self.assertIsNone(after[SECOND[0]]['cleared_at'])
+        self.assertIsNone(after[PHP[0]]['cleared_at'])
+        self.assertEqual(self.stored(), {NGINX[0]: after[NGINX[0]]['cleared_at'], PHP[0]: None, SECOND[0]: None}, 'kept in the store, on that item only')
+        self.assertEqual(self.audits[-1][1:], ('news_watch_clear', 'items=1'))
+        self.assertEqual(self.audits[-1][0], 'admin', 'the audit log says who')
+
+    def test_all_clears_every_item_that_shows_a_bang_and_leaves_an_item_that_shows_none(self):
+        st, answer = self.clear({'all': True})
+        self.assertEqual((st, answer['cleared']), (200, 2), answer)
+        stored = self.stored()
+        self.assertIsNotNone(stored[NGINX[0]])
+        self.assertIsNotNone(stored[SECOND[0]])
+        self.assertIsNone(stored[PHP[0]], 'it showed no !, so it has none to clear')
+        self.assertEqual(self.audits[-1][1:], ('news_watch_clear', 'items=2'))
+        self.hosts({'web01': (['nginx', 'php-fpm8.3'], [('nginx', 443, 'world')])})
+        got = self.items()
+        self.assertEqual([r['name'] for r in got[PHP[0]]['running']], ['php'], 'a host starts to run php')
+        self.assertIsNone(got[PHP[0]]['cleared_at'], 'the ! of that item is news, and Clear all had not cleared it')
+        self.assertEqual(self.nav()['news_running'], 1, 'and it is the one thing the mark counts')
+
+    def test_an_id_that_shows_no_bang_clears_nothing_and_is_not_logged(self):
+        got = self.items()
+        before = len(self.audits)
+        st, answer = self.clear({'ids': [got[PHP[0]]['id']]})
+        self.assertEqual((st, answer['cleared']), (200, 0))
+        self.assertIsNone(self.stored()[PHP[0]])
+        self.assertEqual(len(self.audits), before, 'nothing changed, so nothing is logged')
+
+    def test_clearing_twice_clears_nothing_the_second_time_and_keeps_the_first_time(self):
+        got = self.items()
+        ident = got[NGINX[0]]['id']
+        self.clear({'ids': [ident]})
+        first = self.stored()[NGINX[0]]
+        time.sleep(1.1)
+        st, answer = self.clear({'ids': [ident]})
+        self.assertEqual((st, answer['cleared']), (200, 0))
+        self.assertEqual(self.stored()[NGINX[0]], first, 'the time of the first clear is kept')
+
+    def test_the_mark_and_the_count_follow_a_clear_in_every_browser(self):
+        before = self.get_page()
+        self.assertEqual((before['needs_a_look'], self.nav()['news_running']), (2, 2))
+        got = self.items()
+        self.clear({'ids': [got[NGINX[0]]['id']]})
+        page = self.get_page()
+        self.assertEqual(page['needs_a_look'], 1)
+        self.assertEqual(self.nav(clear=False)['news_running'], 1, 'the store changed, and that ends the 15 seconds the sidebar answer is kept')
+        self.assertEqual(page['attention_at'], self.stored_at(SECOND[0]), 'what is left to look at is the other item')
+        self.clear({'all': True})
+        self.assertEqual(self.get_page()['needs_a_look'], 0)
+        gone = self.nav(clear=False)
+        self.assertNotIn('news_running', gone)
+        self.assertNotIn('news_running_at', gone)
+
+    def stored_at(self, title):
+        return {i['title']: i['seen_at'] for i in self.state()['items']}[title]
+
+    def test_a_clear_is_kept_when_the_feeds_are_read_again_and_a_new_item_has_its_own_bang(self):
+        self.clear({'all': True})
+        cleared = self.stored()
+        self.poll(QUIET, NGINX, PHP, SECOND, ('Critical NGINX flaw, a third one', 'nginx'), advance=1800)
+        after = self.stored()
+        self.assertEqual({t: after[t] for t in cleared}, cleared, 'the items that were cleared are still cleared')
+        self.assertIsNone(after['Critical NGINX flaw, a third one'], 'a new item shows its own !')
+        self.assertEqual(self.nav()['news_running'], 1)
+
+    def test_a_body_that_names_nothing_is_refused_and_changes_nothing(self):
+        for body in ({}, {'ids': []}, {'ids': 'abc'}, {'ids': [7, None, '', {'a': 1}, ['n']]}, {'all': 'yes'}, {'all': 1}, {'all': False}, {'ids': {}, 'all': None}):
+            st, answer = self.clear(body)
+            self.assertEqual((st, answer.get('error')), (400, 'Say which items to clear'), body)
+        for junk in ([], 'x', 7, None):
+            st, answer = self.clear(junk)
+            self.assertEqual(st, 400, junk)
+        self.assertEqual(set(self.stored().values()), {None}, 'a refused request cleared nothing')
+
+    def test_ids_that_are_not_listed_or_not_text_are_ignored_and_the_list_is_capped(self):
+        ident = self.items()[NGINX[0]]['id']
+        st, answer = self.clear({'ids': ['nope', 'x' * 500, '<script>', {'a': 1}, ['n'], 1, True, None, ident]})
+        self.assertEqual((st, answer['cleared']), (200, 1), 'only the id of a listed item counts')
+        self.assertIsNotNone(self.stored()[NGINX[0]])
+        other = self.items()[SECOND[0]]['id']
+        junk = ['x'] * self.mod.MAX_CLEAR_IDS
+        st, answer = self.clear({'ids': junk + [other]})
+        self.assertEqual((st, answer['cleared']), (200, 0), 'ids past the cap are not read: a list holds %d items, so no honest request has that many' % N.MAX_LISTED)
+        st, answer = self.clear({'ids': [other] + junk})
+        self.assertEqual((st, answer['cleared']), (200, 1), 'control: the same id inside the cap is read')
+
+    def test_ids_and_all_together_are_both_honoured(self):
+        ident = self.items()[NGINX[0]]['id']
+        st, answer = self.clear({'ids': [ident], 'all': True})
+        self.assertEqual((st, answer['cleared']), (200, 2))
+
+    def test_nobody_but_the_platform_operator_may_clear(self):
+        ident = self.items()[NGINX[0]]['id']
+        st, answer = self.clear({'ids': [ident]}, token='v')
+        self.assertEqual(st, 403, 'a viewer')
+        self.tenancy()
+        for token, who in (('v', 'a viewer'), ('b', 'the administrator of a tenant')):
+            st, answer = self.clear({'all': True}, token=token)
+            self.assertEqual(st, 403, (who, answer))
+        self.assertIn('platform operator', answer['error'])
+        st, _ = self.clear({'all': True}, token=None)
+        self.assertEqual(st, 401)
+        self.assertEqual(set(self.stored().values()), {None}, 'nothing was cleared by a request that was refused')
+        st, answer = self.clear({'all': True}, token='k')
+        self.assertEqual((st, answer['cleared']), (200, 2), 'control: the platform operator can')
+
+    def test_only_post_is_routed(self):
+        for method in ('GET', 'DELETE', 'PUT'):
+            st, _ = self.request('/api/news-watch/clear', method)
+            self.assertIn(st, (404, 405), method)
+
+    def test_a_stored_cleared_at_that_is_not_a_whole_number_reads_as_not_cleared(self):
+        st = self.state()
+        for junk, item in zip(('x', True, 1.5), st['items']):
+            item['cleared_at'] = junk
+        self.api.save(self.api.NEWS_WATCH_FILE, st)
+        self.api._LOAD_CACHE.clear()
+        got = self.items()
+        self.assertEqual({i['cleared_at'] for i in got.values()}, {None}, 'text, a boolean and a fraction are no time')
+        self.assertEqual(self.nav()['news_running'], 2, 'and they hide nothing from the mark')
+
+    def test_an_item_cleared_while_no_host_runs_it_has_nothing_to_show_and_nothing_to_hide(self):
+        self.clear({'all': True})
+        self.hosts({'web01': (['sshd'], [])})
+        got = self.items()
+        self.assertEqual([i['running'] for i in got.values()], [[], [], []])
+        self.assertNotIn('news_running', self.nav())
+
+
 # ── feeds that fail, and the state that is kept ──────────────────────────────
 
 class TestTheFeeds(_Server):
@@ -719,7 +887,8 @@ class TestTheRoutes(_Server):
         self.assertEqual((got['every'], got['scan_gap'], got['max_feeds']), (1800, 6 * HOUR, N.MAX_FEEDS))
         (item,) = got['items']
         self.assertEqual((item['title'], item['reasons'], item['software'], item['outcome']), (PHP[0], ['critical'], ['php'], 'scanned'))
-        self.assertEqual({k for k in item}, {'id', 'feed', 'title', 'link', 'published', 'seen_at', 'reasons', 'cves', 'cvss', 'software', 'running', 'outcome'})
+        self.assertEqual({k for k in item}, {'id', 'feed', 'title', 'link', 'published', 'seen_at', 'reasons', 'cves', 'cvss', 'software', 'running', 'outcome', 'cleared_at'})
+        self.assertIsNone(item['cleared_at'], 'nobody has cleared it')
         self.assertEqual(item['running'], [], 'no host reports a process')
         (feed_state,) = got['status']
         self.assertEqual((feed_state['url'], feed_state['title'], feed_state['baselined'], feed_state['last_error']), (FEED, 'Example Security News', True, ''))

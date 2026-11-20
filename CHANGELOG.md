@@ -561,7 +561,9 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   Internet; software that is only installed is named under the headline without the mark. The mark is worked out when the tab is opened, from the hosts as they
   are, and a new such item also puts a red **!** on the **CVEs** sidebar entry and on the tab until the tab has shown it in that browser (only the platform
   operator's sidebar poll carries it). **What counts** has a third choice, only software that runs, and software that is installed, not running and not on the
-  built-in list can be added by name (up to 50) in the tab. A package word counts only when it is well-known server software, or when something runs under that name: the first words of package names are mostly
+  built-in list can be added by name (up to 50) in the tab. **Clear !** on an item, and **Clear all !** above the list, clear the red ! of the items that show one: they stay
+  listed with what runs on the hosts, stop counting for the mark on the sidebar and the tab, and the clear holds for every browser and operator (`POST /api/news-watch/clear`,
+  platform operator only). A package word counts only when it is well-known server software, or when something runs under that name: the first words of package names are mostly
   everyday words (`console-setup`, `command-not-found`, `liburi-perl`), and an article about a management console must not match them. A counting item raises the new event
   `security_news_critical` (high when it names software on your hosts, medium when it does not) and, with the default action, starts the scan of all
   hosts: at most one in six hours, never while a scan runs, and by the same slot the button takes. It is off until the platform operator switches it on, and

@@ -593,6 +593,11 @@ red **!** as well, so you see it without opening the tab. Opening the tab clears
 An item recorded when a feed was first read, an item too old to act on, and an item that names software that is only installed do not set it, and neither does
 a watch that is switched off.
 
+**Clearing the !.** An item with a ! has a **Clear !** button, and the line above the list has **Clear all !**. A cleared item stays in the list and still shows what runs
+on your hosts, but it loses its ! and no longer counts for the mark on the sidebar and the tab. It says **! cleared**, and when. The clear is kept on the server, so it holds
+in every browser and for every operator account, and it does not come back. **Clear all !** clears the items that show a ! at that moment. An item whose software no host runs
+has none, and it gets one when a host starts to run that software. A new item shows its own !. Only the platform operator can clear.
+
 Most package names start with an everyday word: `console-setup`, `command-not-found`, `software-properties-common`, `xml-core`. They do not make an article about
 a management console or a command line relevant. The first word of a package name counts only when it is software people write about, or when something runs
 under that name, so software that is not on the list still counts as soon as it runs.
