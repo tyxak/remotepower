@@ -2274,6 +2274,14 @@ if _AVAILABLE:
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         rules: Any = None
 
+    class NewsWatchConfigRequest(BaseModel):
+        """8.0.2: the settings of the security news watch a person changed. Every field is Any: news_watch.clean_update checks each and says what is wrong."""
+        model_config = ConfigDict(extra='ignore', protected_namespaces=())
+        enabled: Any = None
+        feeds: Any = None
+        scope: Any = None
+        action: Any = None
+
     class LdapTestUserRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         password: str = ''

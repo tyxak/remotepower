@@ -457,6 +457,7 @@ DISK_NAMES_FILE  = DATA_DIR / 'disk_names.json'        # v7.4.3 (#47): {device_i
 DISKIO_HIST_FILE = DATA_DIR / 'diskio_history.json'    # v7.4.3 (#49): {device_id: {disk: [[ts, busy%, read MB/s, write MB/s, IOPS, await ms], ...]}}
 TRAFFIC_FILE = DATA_DIR / 'traffic.json'                  # 8.0.0: {device_id: {first, at, sample, series, seen, seen_out, alerted}} -- what a host's TCP connections moved (traffic.py)
 DETECTIONS_FILE = DATA_DIR / 'detections.json'            # 8.0.0: {device_id: {found, alerted}} -- what the Detections rules found at the last sweep and when each was raised (detections.py)
+NEWS_WATCH_FILE = DATA_DIR / 'news_watch.json'            # 8.0.2: {feeds: {url: {seen, baselined, ...}}, items, last_run, last_scan_at} -- what the security news watch has read and the critical items it found (news_watch.py)
 PERSISTENCE_FILE = DATA_DIR / 'persistence.json'          # {device_id: {v, ts, baseline, alert_ts, inv, log}} -- what starts by itself on a Windows host and what was added and removed (persistence.py)
 _DISKIO_HIST_MIN_GAP = 60       # seconds between two samples of one disk
 _DISKIO_HIST_MAX = 120          # samples kept per disk
@@ -1259,6 +1260,18 @@ for _dt_name in (
 ):
     globals()[_dt_name] = getattr(detections_handlers_mod, _dt_name)
 del _dt_name
+
+# 8.0.2: the security news watch -- feeds of security news that raise an alert, and start a CVE scan, when an item reports a critical flaw in software the hosts run.
+_nw_spec = _tk_ilu.spec_from_file_location(
+    'news_watch_handlers', Path(__file__).parent / 'news_watch_handlers.py')
+news_watch_handlers_mod = _tk_ilu.module_from_spec(_nw_spec)
+_nw_spec.loader.exec_module(news_watch_handlers_mod)
+news_watch_handlers_mod.bind(globals())
+for _nw_name in (
+        'handle_news_watch_get', 'handle_news_watch_config_set', 'handle_news_watch_run', 'run_news_watch_if_due',
+):
+    globals()[_nw_name] = getattr(news_watch_handlers_mod, _nw_name)
+del _nw_name
 
 # v7.4.2 (#44): the integrations bound to a host, for the host drawer. A new route, so a
 # bound module rather than another inline handler.
@@ -2454,6 +2467,13 @@ EVENT_REGISTRY = {
         lifecycle='point',
         label='A detection rule found behaviour that looks like an attack (a reverse shell, a takeover, an address Threat Intel marks as bad)',
         kind='detections', title='Detection', severity=None, priority=4, tags='mag,rotating_light'),
+    # 8.0.2: a security news feed reports a critical flaw. Raised by the news watch (news_watch_handlers.poll_once), once for each item that counts: one that names software the hosts
+    # have installed, or any critical one when the operator chose that. `severity` is high when the item names software on the hosts and medium when it does not. It records
+    # that something was REPORTED, so there is nothing to clear.
+    'security_news_critical': dict(
+        lifecycle='point',
+        label='A security news feed reports a critical flaw (in software your hosts have installed, unless every critical item was chosen)',
+        kind='security_news', title='Critical Security News', severity=None, priority=4, tags='newspaper,rotating_light'),
     'container_healthy': dict(
         label='A container passes its health check again (or stopped, or left the list)',
         kind='container', title='Container Healthy',
@@ -11257,6 +11277,7 @@ CHANNEL_KIND_DEFS = (
     ('image_update', 'Container image updates', 'operational'),
     ('traffic', 'Watched connections', 'operational'),   # 8.0.0
     ('detections', 'Detections', 'security'),   # 8.0.0
+    ('security_news', 'Security news', 'security'),   # 8.0.2
     ('script', 'Custom script', 'operational'),
     ('custom_check', 'Custom checks', 'operational'),
     ('log_alert', 'Log alerts', 'operational'),
@@ -11421,6 +11442,9 @@ CHANNEL_KIND_DEFAULTS = {
     # inbox and Recent Activity, dated and searchable, and does not page. Nothing computes a Needs Attention card for it. Turn the webhook on in Settings ->
     # Notifications to be told as it happens.
     'persistence': {'needs_attention': False, 'webhook': False},
+    # 8.0.2: a headline is news about the world, not a fault of a host, so it never sits in Needs Attention (which lists what is broken). It is in the Alerts inbox, the
+    # activity feed and the webhook, since the items it raises for are the ones that name software the hosts run.
+    'security_news': {'needs_attention': False},
 }
 
 
@@ -11572,6 +11596,10 @@ def _alert_severity(event, payload):
     if event == 'detection_found':
         sev = str(p.get('severity') or '').lower()
         return sev if sev in ('critical', 'high', 'medium', 'low') else 'medium'
+    # 8.0.2: a critical news item is high when it names software the hosts have installed and medium when it does not; anything else it might send reads as medium.
+    if event == 'security_news_critical':
+        sev = str(p.get('severity') or '').lower()
+        return sev if sev in ('high', 'medium') else 'medium'
     if event == 'cve_found':
         if int(p.get('critical') or 0) > 0:
             return 'critical'
@@ -12006,6 +12034,8 @@ def _alert_title(event, payload):
     if event == 'github_new_issue':
         return (f'New GitHub issue {p.get("repo","?")}#{p.get("number","?")}: '
                 f'{p.get("title","?")}')
+    if event == 'security_news_critical':
+        return f'Critical security news: {p.get("title") or "a critical flaw was reported"}'
     if event == 'custom_metric_alert':
         return f'Custom metric on {name}: {p.get("output") or p.get("metric","?")}'
     # v6.2.2 — readable fallback. An alert row must NEVER show a bare machine
@@ -80310,6 +80340,9 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('POST',), '/api/traffic/config', '', 'handle_traffic_config_set', "pi == '/api/traffic/config' and m == 'POST'"),
     ('eq', ('GET',), '/api/detections', '', 'handle_detections_get', "pi == '/api/detections' and m == 'GET'"),
     ('eq', ('POST',), '/api/detections/rules', '', 'handle_detections_rules_set', "pi == '/api/detections/rules' and m == 'POST'"),
+    ('eq', ('GET',), '/api/news-watch', '', 'handle_news_watch_get', "pi == '/api/news-watch' and m == 'GET'"),
+    ('eq', ('POST',), '/api/news-watch/config', '', 'handle_news_watch_config_set', "pi == '/api/news-watch/config' and m == 'POST'"),
+    ('eq', ('POST',), '/api/news-watch/run', '', 'handle_news_watch_run', "pi == '/api/news-watch/run' and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/compose/action', 'handle_device_compose_action', "pi.startswith('/api/devices/') and pi.endswith('/compose/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/containers/action', 'handle_device_container_action', "pi.startswith('/api/devices/') and pi.endswith('/containers/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/docker/prune', 'handle_device_docker_prune', "pi.startswith('/api/devices/') and pi.endswith('/docker/prune') and m == 'POST'"),
@@ -81297,6 +81330,7 @@ def main():
     _safe(run_image_scan_if_due, 'run_image_scan_if_due')
     _safe(run_image_autoupdate_if_due, 'run_image_autoupdate_if_due')   # 8.0.0 opt-in automatic image updates (off by default)
     _safe(run_detections_if_due, 'run_detections_if_due')               # 8.0.0 opt-in Detections sweep (off by default)
+    _safe(run_news_watch_if_due, 'run_news_watch_if_due')               # 8.0.2 opt-in security news watch (off by default)
     # v3.14.0: daily refresh of CISA KEV + FIRST EPSS for CVE prioritization.
     _safe(refresh_kev_epss_if_due, 'refresh_kev_epss_if_due')
     # v3.14.0: predictive disk-failure alerting (edge-triggered, ~6h cadence).

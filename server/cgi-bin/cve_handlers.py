@@ -250,6 +250,39 @@ def handle_cve_scan():
                   'message': 'Scan queued — running in the background.'})
 
 
+def queue_fleet_scan(actor):
+    """Start a scan of every host from a sweep, which has no request and no caller to refuse: ('started', hosts), ('busy', hosts) when a scan
+    already runs or the marker is being written, or ('none', 0) when no host has a package list.
+
+    8.0.2: the slot is taken the way `handle_cve_scan` takes it, in one critical section under the marker's lock and by the same rule
+    (`_claim_scan_slot`), so a scan started by the news watch and one started by a person cannot both run. It is the scan of the whole
+    installation, as the platform operator's scan is. The caller keeps its own clock between two scans; the marker has none for the operator."""
+    total = len(A.load(A.PACKAGES_FILE) or {})
+    if total == 0:
+        return 'none', 0
+    now = int(A.time.time())
+    run = A.secrets.token_hex(8)
+    try:
+        with A._LockedUpdate(A.CVE_SCAN_STATUS_FILE, non_blocking=True) as held:
+            refusal = _claim_scan_slot(held, None, total, run, now)
+    except A.LockBusy:
+        return 'busy', total
+    if refusal is not None:
+        return 'busy', total
+    try:
+        A._spawn_cve_scan(actor, None)
+    except Exception:
+        # the slot is given back, so a scan that could not be started does not keep the next one out for five minutes
+        try:
+            with A._LockedUpdate(A.CVE_SCAN_STATUS_FILE, non_blocking=True) as held:
+                if held.get('run') == run:
+                    held['running'] = False
+        except Exception:
+            pass
+        raise
+    return 'started', total
+
+
 def handle_cve_scan_status():
     """GET /api/cve/scan-status — progress of the background CVE scan, as far as the caller may read it (_scan_status_view)."""
     A.require_auth()

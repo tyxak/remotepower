@@ -3111,7 +3111,7 @@ const _LAZY_PAGE_MODULES = {
 // v7.0.0: lazy but NOT page-scoped, so no key above. Still needed here: this
 // is the set the dispatcher loads before replaying an unknown data-action, and
 // a module missing from it has buttons that do nothing on the first click.
-const _LAZY_NON_PAGE_MODULES = ['app-enrol.js', 'app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js', 'app-traffic.js', 'app-detections.js', 'app-persistence.js'];   // app-enrol.js, the list of open install commands in the Enroll dialog (fetched when the dialog opens). 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites. 8.0.0: app-traffic.js, the Traffic tab of the Threat Intel page and the drawer's Traffic section (fetched when either shows and the module is on). 8.0.0: app-detections.js, the Detections tab of the Threat Intel page (fetched when the tab shows and the module is on). 8.0.2: app-persistence.js, the Persistence section of the host drawer (fetched when a drawer opens).
+const _LAZY_NON_PAGE_MODULES = ['app-enrol.js', 'app-sitemap.js', 'app-patchplan.js', 'app-timeperiods.js', 'app-s3restore.js', 'app-pilot.js', 'app-dashsets.js', 'app-wizard.js', 'app-appdiscovery.js', 'app-wizard-sidecars.js', 'app-tenant-branding.js', 'app-webhook-replay.js', 'app-traffic.js', 'app-detections.js', 'app-persistence.js', 'app-newswatch.js'];   // app-enrol.js, the list of open install commands in the Enroll dialog (fetched when the dialog opens). 8.0.0: app-webhook-replay.js, the replay of a past event from the Timeline (fetched when its button is used). 8.0.0: app-tenant-branding.js, the Branding dialog of a tenant (fetched when its button is used). 7.4.9: the patch preview dialog, the time period editor, the restore from the S3 bucket, the Pilot look's Home hero 8.0.0: app-dashsets.js, the layouts manager of the Home Customize panel (fetched when the panel opens), and app-wizard.js, the wizards and the step-by-step forms (fetched when used). 8.0.0: app-appdiscovery.js, the apps an agent found on a host (the drawer's list and the Integrations card). 8.0.0: app-wizard-sidecars.js, the wizards of the syslog and flow receivers and of the satellites. 8.0.0: app-traffic.js, the Traffic tab of the Threat Intel page and the drawer's Traffic section (fetched when either shows and the module is on). 8.0.0: app-detections.js, the Detections tab of the Threat Intel page (fetched when the tab shows and the module is on). 8.0.2: app-persistence.js, the Persistence section of the host drawer (fetched when a drawer opens). 8.0.2: app-newswatch.js, the Security news tab of the CVE page (fetched when the tab first shows).
 const _ALL_LAZY_MODULES = [...new Set(
   Object.values(_LAZY_PAGE_MODULES).flat().concat(_LAZY_NON_PAGE_MODULES))];
 const _loadedJsModules = new Set();
@@ -3206,10 +3206,11 @@ function _pgTabIn(card, tab) { return String(card.dataset.pgTab || '').split(/\s
 // 8.0.0: a tab whose cards a lazy module fills: [page, tab, the module that owns it, its file, the function that draws it]. The file is fetched the first time the
 // tab shows and the function runs each time it shows (it limits itself: showPage and the module gate both pass through pgTabsApply). With the module off
 // nothing is fetched.
-const _PG_TAB_HOOKS = [['ipintel', 'traffic', 'traffic', 'app-traffic.js', 'trafficEnter'], ['ipintel', 'detections', 'detections', 'app-detections.js', 'detectionsEnter']];
+// 8.0.2: the module may be null, for a tab that every installation has (the Security news tab of the CVE page): the file is then fetched the first time the tab shows.
+const _PG_TAB_HOOKS = [['ipintel', 'traffic', 'traffic', 'app-traffic.js', 'trafficEnter'], ['ipintel', 'detections', 'detections', 'app-detections.js', 'detectionsEnter'], ['cve', 'news', null, 'app-newswatch.js', 'newsWatchEnter']];
 function _pgTabEnter(page, tab, stacked) {
   for (const [pg, tb, mod, file, fn] of _PG_TAB_HOOKS) {
-    if (pg !== page || (!stacked && tb !== tab) || !(window._modules && window._modules[mod])) continue;
+    if (pg !== page || (!stacked && tb !== tab) || (mod && !(window._modules && window._modules[mod]))) continue;
     _loadJsModule(file).then(() => { if (typeof window[fn] === 'function') window[fn](); });
   }
 }
@@ -19711,6 +19712,7 @@ const EVENT_CLASS = {
   'image_autoupdate_failed': 'warn',
   'traffic_watch': 'warn',   // 8.0.0: a host connected to something on the Traffic watch list
   'detection_found': 'critical',   // 8.0.0: a Detections rule found behaviour that looks like an attack
+  'security_news_critical': 'warn',   // 8.0.2: a security news feed reports a critical flaw
   'business_service_down': 'critical', 'business_service_up': 'ok',   // 7.4.9
   'container_resource_high': 'warn', 'container_resource_ok': 'ok',   // v7.4.3 (#50)
   'containers_stale': 'warn',
@@ -22385,6 +22387,7 @@ function _renderHomeActivity(fleetEvents) {
     'image_update_available', 'image_updated', 'image_autoupdate_failed',
     'traffic_watch',   // 8.0.0
     'detection_found',   // 8.0.0
+    'security_news_critical',   // 8.0.2
     'metric_warning', 'metric_critical', 'metric_recovered', 'custom_metric_alert', 'custom_metric_recover',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'mailbox_recovered', 'custom_script_fail', 'custom_script_recover',
@@ -22548,7 +22551,7 @@ function _renderHomeActivity(fleetEvents) {
       // The subject is whatever identifies the specific thing the
       // event is about — the same fields the row renderer shows.
       const subject = p.path || p.unit || p.metric || p.cve_id
-                      || p.pattern || p.command || (e.event === 'detection_found' ? p.detail : '') || '';   // 8.0.0: two findings on one host are two rows
+                      || p.pattern || p.command || (e.event === 'detection_found' ? p.detail : e.event === 'security_news_critical' ? p.title : '') || '';   // 8.0.0: two findings on one host are two rows; 8.0.2: so are two headlines
       const key = `${e.event}|${host}|${subject}`;
       if (_seenActivity.has(key)) return false;
       _seenActivity.add(key);
@@ -22611,6 +22614,8 @@ function _renderHomeActivity(fleetEvents) {
         detail = (p.sections||[]).slice(0,3).join(', '); break;
       case 'github_new_issue':
         detail = `${p.repo || ''}${p.number ? ` #${p.number}` : ''}${p.title ? `: ${p.title}` : ''}`; break;
+      case 'security_news_critical':   // 8.0.2: the headline, and the feed it came from
+        detail = `${p.title || ''}${p.source ? ` (${p.source})` : ''}`; break;
       case 'ip_blacklisted':
         detail = `${p.ip || ''}${p.blocklists ? ' — ' + p.blocklists : ''}`; break;
       case 'ip_blacklist_cleared':
@@ -22654,6 +22659,8 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'detection_found':   // 8.0.0: the findings are on the Detections tab of the Threat Intel page
       return `${base} data-home-act="detections"`;
+    case 'security_news_critical':   // 8.0.2: the headline is on the Security news tab of the CVE page
+      return `${base} data-home-act="cve-news"`;
     case 'drift_detected':
       return `${base} data-home-act="drift"`;
     case 'vault_break_glass': return `${base} data-home-act="cmdb"`;
@@ -32827,6 +32834,10 @@ function _homeNavAction(btn) {
     case 'detections':   // 8.0.0
       showPage('ipintel', document.querySelector('.nav-btn[data-page="ipintel"]'));
       pgTab('ipintel:detections');
+      break;
+    case 'cve-news':   // 8.0.2
+      showPage('cve', document.querySelector('.nav-btn[data-page="cve"]'));
+      pgTab('cve:news');
       break;
     case 'dns':      showPage('dns',             document.querySelector('.nav-btn[data-page="dns"]')); break;
     case 'rollouts': showPage('rollouts',        document.querySelector('.nav-btn[data-page="rollouts"]')); break;

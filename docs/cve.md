@@ -542,12 +542,78 @@ findings do not count. One organisation can keep up to 200 campaigns: with multi
 each tenant has 200 of its own, and the operator's count includes the campaigns of the
 installation. The operator's list shows the tenant that owns each row.
 
+## Security news watch
+
+The **Security news** tab reads security news feeds and tells you when one reports a critical flaw in software your hosts run. It can start a scan of all
+hosts at the same moment. It is off until you switch it on.
+
+To start it, open the tab, tick **Watch security news feeds**, check the feed address and save. It starts with the feed of The Hacker News. You can keep up
+to five feeds, one address on each line.
+
+### What counts as critical
+
+An item counts as critical when its headline or summary does one of these:
+
+- calls a flaw critical (the word "critical" in the headline or summary, together with a word for a flaw such as flaw, bug or vulnerability)
+- gives a CVSS score of 9 or more
+- reports a zero-day
+- says attackers exploit a flaw, or that it is exploited in the wild
+- describes code execution that needs no sign-in
+- names a CVE that CISA lists as known to be exploited
+
+Round-ups, webinars and checklists never count, even when they list every flaw of the week. Each item on the tab shows which of these it met.
+
+### Which critical items count for you
+
+**Critical items that count** has two choices:
+
+- **Only items that name software on my hosts** (the default). The watch compares the package names of all your hosts with the headline and the summary. A
+  story about PHP counts when a host has a PHP package. A story about a firewall you do not run does not. Package names that are also everyday words, such
+  as `patch` or `file`, are left out of the comparison.
+- **Every critical item.**
+
+An item that does not count is listed on the tab and does nothing else.
+
+### What happens when one counts
+
+**When one counts** has three choices:
+
+- **Only list it here.**
+- **Raise an alert.** The alert is the event `security_news_critical`. It shows in the Alerts inbox and the activity feed, and it goes to the channels you
+  chose for **Security news** in Settings → Notifications. It is high when the item names software on your hosts and medium when it does not. It carries
+  the headline, the feed, the link and why the item counts.
+- **Raise an alert and scan all hosts** (the default). The watch also starts the scan that **Scan all hosts** starts. It starts at most one scan in six
+  hours, and none while a scan is running. The alert always goes out, and the item on the tab says whether a scan started.
+
+A scan reads the advisory database as it is when the scan runs. A flaw that was in the news an hour ago may not be in OSV.dev yet, so the scan can find
+nothing new. Scan again when OSV.dev has the record.
+
+### How the feeds are read
+
+The feeds are read every 30 minutes. **Check now** reads them at once, and it is refused when they were read less than a minute ago.
+
+The first read of a feed only records what it holds, so switching the watch on does not alert you about the last fifty headlines. After that an item
+counts when it is new and no more than three days old. One read raises at most five alerts, and the tab says which items went over. For each feed the tab
+shows when it was read, how many new items it held and, when a read failed, why.
+
+### Who can use it, and what it reads
+
+- Only the platform operator can read or change the watch. With multi-tenancy on, a tenant administrator sees nothing of it, because the software an item
+  names comes from every host of the installation.
+- The server reads the feeds. It refuses an address on the server itself and a link-local address (the cloud metadata address among them), and it checks
+  the address each connection reaches, after a redirect too.
+- An address with a user name or a password in it, or with a parameter that looks like a token, is refused. The addresses are shown to administrators, so
+  use a public feed.
+- A feed is untrusted text. A feed over 2 MB is refused, a feed that declares a DTD or an entity is refused, markup is taken out of headlines, and only
+  `http` and `https` links are kept.
+
 ## Permissions
 
 - Viewing findings, campaigns, ignores and SBOMs needs a signed-in user.
 - Running scans, re-alerting, refreshing feeds, ignoring CVEs, saving an SBOM baseline and
   creating or changing campaigns are **admin-only**. Every scan and ignore is written to the
   audit log.
+- The **Security news** tab is the platform operator's: reading it, changing the feeds and using **Check now**.
 - With multi-tenancy on (Settings → Security → **Multi-tenancy**), a tenant admin sees and changes
   only the hosts and records of their own tenant. A campaign a tenant admin creates counts that
   tenant's hosts, in its numbers and in its burn-down. A campaign of the whole installation
@@ -579,6 +645,6 @@ installation. The operator's list shows the tenant that owns each row.
 
 ## See also
 
-[Patches](patches.md) for installing the fixes, [Risk](risk.md) for the per-host score,
+[Alerts](alerts.md) for what to do with a `security_news_critical` alert, [Patches](patches.md) for installing the fixes, [Risk](risk.md) for the per-host score,
 [Exposure](exposure.md), [Software policy](software-policy.md), [Alerts](alerts.md) and
 [Security scans](security-scans.md).

@@ -396,6 +396,7 @@ def _config_fields() -> dict:
         time_periods=list_of(),
         traffic_watch=list_of(fields(kind=STR, value=STR, label=STR)),
         detections=dict_of(DICT),
+        news_watch=DICT,
     )
     for k in _CONFIG_TEXT:
         spec[k] = STR
@@ -633,6 +634,7 @@ SHAPES: dict = {
     'disk_usage.json': dict_of(fields(paths=DICT)),
     'diskio_history.json': dict_of(dict_of(LIST)),
     'traffic.json': dict_of(fields(first=OPT_NUM, at=OPT_NUM, sample=DICT, series=LIST, seen=DICT, seen_out=DICT, alerted=DICT)),    # 8.0.0: {device_id: {first, at, sample, series, seen, seen_out, alerted}} (traffic.py)
+    'news_watch.json': fields(feeds=dict_of(DICT), items=list_of(), last_run=OPT_NUM, last_scan_at=OPT_NUM),    # 8.0.2: {feeds: {url: {seen, baselined, last_ok, ...}}, items, last_run, last_scan_at} -- what the security news watch has read and the critical items it found (news_watch_handlers.py)
     'detections.json': dict_of(fields(found=LIST, alerted=DICT)),    # 8.0.0: {device_id: {found, alerted}} -- what the Detections rules found at the last sweep and when each was raised (detections_handlers.py)
     # 8.0.2: {device_id: {v, ts, baseline, alert_ts, inv, log}} -- what starts by itself on a Windows host: the last inventory by place ({run|winlogon|services|tasks|startup: {ok,
     # complete, ts, items, miss, warned, base, extra}}: `miss` counts the inventories in a row that did not read the place whole, `base` and `extra` are the last whole read and

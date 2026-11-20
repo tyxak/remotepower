@@ -59,6 +59,7 @@ LINT_SRC := server/cgi-bin/safe_opener.py \
             server/cgi-bin/mcp_http.py \
             server/cgi-bin/traffic.py \
             server/cgi-bin/detections.py \
+            server/cgi-bin/news_watch.py \
             server/cgi-bin/win_events.py \
             server/cgi-bin/persistence.py \
             server/cgi-bin/host_purge.py \
@@ -114,6 +115,7 @@ TYPECHECK_SRC := server/cgi-bin/safe_opener.py \
                  server/cgi-bin/mcp_http.py \
                  server/cgi-bin/traffic.py \
                  server/cgi-bin/detections.py \
+                 server/cgi-bin/news_watch.py \
                  server/cgi-bin/win_events.py \
                  server/cgi-bin/persistence.py \
                  server/cgi-bin/host_purge.py \

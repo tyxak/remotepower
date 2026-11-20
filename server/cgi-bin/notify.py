@@ -107,6 +107,7 @@ _EVENT_COLORS = {
     "image_autoupdate_failed": 0xEF4444,
     "traffic_watch": 0xF59E0B,
     "detection_found": 0xEF4444,
+    "security_news_critical": 0xEF4444,
     "containers_stale": 0xF59E0B,
     "cve_found": 0xEF4444,
     "log_alert": 0xF59E0B,
@@ -976,6 +977,11 @@ def _webhook_message(event, payload):
     elif event == "detection_found":
         # 8.0.0: a Detections rule's own sentence names the host and what it saw; the title already says it is a detection
         return str(payload.get("detail") or f"{name}: a detection rule found something")
+    elif event == "security_news_critical":
+        # 8.0.2: the headline and where it came from, why it counts, and the link on the end for a channel that shows no fields
+        src = f' ({payload["source"]})' if payload.get("source") else ""
+        link = f' {payload["url"]}' if payload.get("url") else ""
+        return f'{payload.get("title") or "A critical flaw was reported"}{src}: {payload.get("detail", "")}{link}'
     elif event == "container_healthy":
         c = f'{name}: container "{payload.get("container", "?")}"'
         return {

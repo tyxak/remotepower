@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- The translation dictionary, loaded on demand by app.js (_ensureI18n). Its URL
      lives here so the cache-bust tools stamp it like every other asset. -->
-<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.2-10">
+<meta name="rp-i18n" content="static/js/i18n.js?v=8.0.2-11">
 <!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
      auto-request /favicon.ico, so it must exist as a real file. -->
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -28,7 +28,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=8.0.2-10">
+<link rel="stylesheet" href="static/css/styles.css?v=8.0.2-11">
 
 </head>
 <body>
@@ -8193,6 +8193,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="pg-tab" data-pg-tab-btn="packages" data-action="pgTab" data-arg="cve:packages">Packages</button>
           <button class="pg-tab" data-pg-tab-btn="images" data-action="pgTab" data-arg="cve:images">Container images</button>
           <button class="pg-tab" data-pg-tab-btn="campaigns" data-action="pgTab" data-arg="cve:campaigns">Remediation</button>
+          <button class="pg-tab" data-pg-tab-btn="news" data-action="pgTab" data-arg="cve:news">Security news</button>
         </nav>
         <div data-pg-tab="packages">
         <div class="toolbar-mb24">
@@ -8264,6 +8265,26 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="form-group"><label class="form-label" for="camp-cves">Or explicit CVE IDs (comma/space separated — overrides the severity filter)</label><input type="text" id="camp-cves" class="form-input ff-mono" placeholder="CVE-2026-1234 CVE-2026-5678"></div>
           <div class="row-6"><button class="btn-primary" data-action="createCveCampaign">Create campaign</button></div>
           <div id="camp-result" class="hint mt-6" role="status" aria-live="polite"></div>
+        </div>
+
+        <!-- 8.0.2: security news watch (app-newswatch.js, fetched when the tab first shows) -->
+        <div data-pg-tab="news" class="dash-card mt-16" id="news-watch-wrap">
+          <div class="section-header"><div class="section-title">Security news watch</div><div class="row-6"><button class="btn-icon" id="news-watch-run" data-action="newsWatchRun" hidden><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg> Check now</button><button class="btn-icon" data-action="newsWatchLoad"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div></div>
+          <p class="hint">Reads security news feeds and picks out the items that report a critical flaw. An item counts as critical when it says so, gives a CVSS score of 9 or more, reports a zero-day or an exploited flaw, or names a CVE that CISA lists as exploited. The first read of a feed only records what it holds, so switching the watch on does not alert you about old items.</p>
+          <div id="news-watch-note" class="hint" role="status" aria-live="polite"></div>
+          <div id="news-watch-form" hidden>
+            <div class="row-8-center mb-8"><label class="form-label"><input type="checkbox" id="nw-enabled"> Watch security news feeds</label></div>
+            <div class="form-group"><label class="form-label" for="nw-feeds">Feeds, one address on each line</label><textarea id="nw-feeds" class="form-input ff-mono" rows="3" maxlength="1600" spellcheck="false"></textarea></div>
+            <div class="form-row">
+              <div class="form-group flex-1"><label class="form-label" for="nw-scope">Critical items that count</label><select id="nw-scope" class="form-input"><option value="relevant">Only items that name software on my hosts</option><option value="all">Every critical item</option></select></div>
+              <div class="form-group flex-1"><label class="form-label" for="nw-action">When one counts</label><select id="nw-action" class="form-input"><option value="list">Only list it here</option><option value="alert">Raise an alert</option><option value="scan">Raise an alert and scan all hosts</option></select></div>
+            </div>
+            <div class="row-6"><button class="btn-primary" data-action="newsWatchSave">Save</button></div>
+            <div class="hint mt-6">The feeds are read every 30 minutes. A scan started by the watch runs at most once every 6 hours.</div>
+          </div>
+          <div id="news-watch-feeds" class="mt-8"></div>
+          <div class="form-label mt-12">Critical items found</div>
+          <div id="news-watch-items" class="mt-6 scroll-cap"></div>
         </div>
       </div>
 
@@ -13710,39 +13731,39 @@ nextcloud mem=95 sustain=6</pre>
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=8.0.2-10"></script>
+<script defer src="static/js/app.js?v=8.0.2-11"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-cmdb.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-containers.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-network.js?v=8.0.2-10"></script>
+<script defer src="static/js/app-calendar.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-cmdb.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-containers.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-network.js?v=8.0.2-11"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-compliance.js?v=8.0.2-10"></script>
+<script defer src="static/js/app-hostconfig.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-compliance.js?v=8.0.2-11"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-dns.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-drift.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-cve.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-firewall.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-backups.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-iac.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-proxmox.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-virt.js?v=8.0.2-10"></script>
+<script defer src="static/js/app-ai.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-dns.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-drift.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-cve.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-firewall.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-backups.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-iac.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-proxmox.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-virt.js?v=8.0.2-11"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-logs.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-remote.js?v=8.0.2-10"></script>
-<script defer src="static/js/app-tickets.js?v=8.0.2-10"></script>
+<script defer src="static/js/app-logs.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-remote.js?v=8.0.2-11"></script>
+<script defer src="static/js/app-tickets.js?v=8.0.2-11"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=8.0.2-10"></script>
+<script defer src="static/js/app-self.js?v=8.0.2-11"></script>
 <!-- v7.4.0: the shared tooltip. Eager because it listens at the document from the
      first hover; it has no page and no entry in the lazy map. -->
-<script defer src="static/js/app-tooltip.js?v=8.0.2-10"></script>
+<script defer src="static/js/app-tooltip.js?v=8.0.2-11"></script>
 <!-- v6.2.2: LAZY page modules — not loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -13752,6 +13773,6 @@ nextcloud mem=95 sustain=6</pre>
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=8.0.2-10"></script>
+<script defer src="static/js/sw-register.js?v=8.0.2-11"></script>
 </body>
 </html>

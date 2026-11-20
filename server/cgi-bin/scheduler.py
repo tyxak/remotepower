@@ -87,6 +87,7 @@ CADENCE = (
     'run_image_scan_if_due',
     'run_image_autoupdate_if_due',
     'run_detections_if_due',             # 8.0.0 opt-in Detections sweep
+    'run_news_watch_if_due',             # 8.0.2 opt-in security news watch
     'refresh_kev_epss_if_due',
     '_maybe_check_disk_predictions',
     '_maybe_push_metrics',

@@ -552,6 +552,22 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   `tests/test_cve_kernel_reboot_scope.py` (only the running kernel can read reboot to apply), `tests/test_cve_kernel_state_page.py` and, in a browser,
   `tests/test_cve_coverage_kernel_e2e.py`.
 
+- **The Security news watch reads security news feeds and can start a scan when one reports a critical flaw.** A new **Security news** tab on the CVE page
+  reads RSS and Atom feeds every 30 minutes (The Hacker News to start with, up to five feeds) and picks out the items that report a critical flaw: the word
+  "critical" together with a word for a flaw, a CVSS score of 9 or more, a zero-day, active exploitation, code execution without sign-in, or a CVE that CISA lists as known
+  to be exploited. By default only an item that names software some host has installed counts: 22 of the 50 headlines in one read of a security
+  feed counted as critical, and a scan for each would run most days. The package names of the fleet are reduced to the first word of the name, and a stop list keeps the
+  names that are also everyday words (`patch`, `file`, `which`) from making every article relevant. A counting item raises the new event
+  `security_news_critical` (high when it names software on your hosts, medium when it does not) and, with the default action, starts the scan of all
+  hosts: at most one in six hours, never while a scan runs, and by the same slot the button takes. It is off until the platform operator switches it on, and
+  the first read of a feed only records what it holds, so switching it on raises nothing for the last fifty headlines. The page says which feeds failed and
+  why, and each item says why it counts and what the watch did about it. Only the platform operator can read or change it, since the software an item names
+  comes from every host. The server reads the feeds through the opener that checks the address each connection reaches, a feed over 2 MB or with a DTD is
+  refused, and an address with a password or a token in it is refused. See [docs/cve.md](docs/cve.md#security-news-watch). **Held by**
+  `tests/test_v802_news_watch_rules.py`, `tests/test_v802_news_watch_sweep.py` and `tests/test_v802_news_watch_wiring.py`; the rules were checked against
+  fifty real headlines, and fourteen planted faults (no baseline, no clock between scans, no size limit, a tenant administrator who may save, and others)
+  were each caught by a test.
+
 ### Fixes found on the way
 
 - **A failed read of the host list no longer empties what the sweeps keep for each host.** When the host store cannot be read (an unparsable file with
@@ -608,6 +624,19 @@ what it can see and reports the kernel it runs. The release page is [docs/v8.0.2
   the rest) apply the registry now. Measured, it costs 10 microseconds for a host row and about 0.35 milliseconds for the largest kind of roll-up row
   (821 buckets), where parsing that row takes 0.74. A test lists by syntax tree every call of the backend's single-row reads, so a third reader that
   skips the repair fails the build. **Held by** `tests/test_windows_inventory_review.py`.
+
+- **A CVE scan that finds a host in error says why.** "Scan complete: 0 scanned, 1 skipped, 5 errors" left nothing to act on, because the runner counted the
+  hosts that failed and kept no reason. The scan status keeps the first five (host and error) and the toast shows them. A host skipped while the OSV
+  breaker is open says why the breaker opened (the last failure and the minutes left), where it said only that the breaker was open for the whole
+  ten minutes.
+
+- **A fleet scan no longer times out on OSV.** It asked 500 packages in a request and waited 30 seconds for the answer. A kernel alone has thousands of
+  advisories, so the first request timed out three times and the breaker skipped every host. A request holds 100 packages now, waits 60 seconds, and a
+  late answer or a dropped connection is asked once more before it counts as a failure. An HTTP error is not asked again. **Held by**
+  `tests/test_v802_osv_timeout_retry.py` and `tests/test_v802_osv_breaker_reason.py`.
+
+- **One click on Scan all hosts starts one scan.** The button was wired twice, so each click sent two requests and the second answered "A scan is already
+  running". **Held by** `tests/test_v802_cve_scan_button_wired_once.py`.
 
 ### Tests and tooling
 

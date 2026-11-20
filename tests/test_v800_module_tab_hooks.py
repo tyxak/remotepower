@@ -57,11 +57,11 @@ def scan(html):
 
 
 def hooks_of(app_js):
-    """The entries of _PG_TAB_HOOKS as 5-tuples, read from the source of app.js."""
+    """The entries of _PG_TAB_HOOKS as 5-tuples, read from the source of app.js. The module is None for a tab that every installation has (8.0.2: Security news)."""
     m = re.search(r'const _PG_TAB_HOOKS = \[(.*?)\];', app_js, re.S)
     assert m, '_PG_TAB_HOOKS was not found in app.js'
-    entry = r"\[\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*\]"
-    return re.findall(entry, m.group(1))
+    entry = re.compile(r"\[\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*(?:'([^']+)'|null)\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*\]")
+    return [(page, tab, module or None, file, fn) for page, tab, module, file, fn in entry.findall(m.group(1))]
 
 
 def module_pages_of(app_js):
@@ -83,11 +83,13 @@ def problems(hooks, sc, modules, files):
             out.append(f'hook {page}:{tab}: the button carries data-module={b["module"]!r}, the hook names module {module!r}')
         if b['arg'] != f'{page}:{tab}':
             out.append(f'hook {page}:{tab}: the button opens {b["arg"]!r}')
-        if 'd-none' not in b['classes']:
+        if module is not None and 'd-none' not in b['classes']:
             out.append(f'hook {page}:{tab}: the button is not hidden until the module gate shows it (class d-none), so a switched-off module shows an empty tab')
+        if module is None and 'd-none' in b['classes']:
+            out.append(f'hook {page}:{tab}: the hook names no module, so no gate shows the button, and it is hidden')
         if not any(p == page and tab in names for p, names in sc.cards):
             out.append(f'hook {page}:{tab}: no card on the {page} page carries data-pg-tab={tab}')
-        if module not in modules:
+        if module is not None and module not in modules:
             out.append(f'hook {page}:{tab}: {module!r} is not a key of MODULE_PAGES')
         src = files.get(file)
         if src is None:
@@ -195,7 +197,22 @@ class TestTheCheckerCanFail(unittest.TestCase):
         out = self.check(hooks=[])
         self.assertTrue(any('has no entry in _PG_TAB_HOOKS' in p for p in out), out)
 
+    def test_a_tab_every_installation_has_is_a_hook_without_a_module(self):
+        page = ('<div id="page-cve" class="page"><nav class="pg-tabs" data-pg="cve">'
+                '<button class="pg-tab" data-pg-tab-btn="news" data-action="pgTab" data-arg="cve:news">News</button></nav>'
+                '<div id="news-wrap" data-pg-tab="news"></div></div>')
+        hook = [('cve', 'news', None, 'app-news.js', 'newsEnter')]
+        files = {'app-news.js': 'function newsEnter() {}'}
+        self.assertEqual(self.check(html=page, hooks=hook, files=files), [])
+        out = self.check(html=page.replace('class="pg-tab"', 'class="pg-tab d-none"'), hooks=hook, files=files)
+        self.assertTrue(any('no gate shows the button' in p for p in out), out)
+        out = self.check(html=page.replace('class="pg-tab"', 'class="pg-tab" data-module="traffic"'), hooks=hook, files=files)
+        self.assertTrue(any("data-module='traffic'" in p for p in out), out)
+        self.assertTrue(any('no card on the cve page' in p for p in self.check(html=page.replace('data-pg-tab="news"', 'data-pg-tab="x"'), hooks=hook, files=files)))
+        self.assertTrue(any('does not define newsEnter()' in p for p in self.check(html=page, hooks=hook, files={'app-news.js': ''})))
+
     def test_the_parsers_read_the_real_source_shape(self):
+        self.assertEqual(hooks_of("const _PG_TAB_HOOKS = [['a', 'b', null, 'd.js', 'fn'], ['e','f','g','h.js','fn2']];"), [('a', 'b', None, 'd.js', 'fn'), ('e', 'f', 'g', 'h.js', 'fn2')])
         self.assertEqual(hooks_of("const _PG_TAB_HOOKS = [['a', 'b', 'c', 'd.js', 'fn'], ['e','f','g','h.js','fn2']];"), [('a', 'b', 'c', 'd.js', 'fn'), ('e', 'f', 'g', 'h.js', 'fn2')])
         self.assertEqual(module_pages_of("const MODULE_PAGES = {\n  alerts:     'alerts',\n  mcp:        null,   // note\n  traffic:    null,\n};"), {'alerts', 'mcp', 'traffic'})
 

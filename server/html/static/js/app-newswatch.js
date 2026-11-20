@@ -1,0 +1,147 @@
+// app-newswatch.js — the Security news tab of the CVE page (8.0.2): feeds of security news that raise an alert, and start a scan, when an item reports a critical flaw. Buildless
+// classic script; every symbol is global like the rest of the client JS, and it is fetched the first time the tab shows (the hook list in app.js).
+//
+//   newsWatchEnter()   the tab was opened (app.js calls it whenever the tab shows): draw the card, at most every few seconds
+//   newsWatchLoad()    fetch the settings, the state of each feed and the critical items, and draw them, form included (the Refresh button)
+//   newsWatchSave()    send the settings as they stand (the platform operator's)
+//   newsWatchRun()     read the feeds now (the platform operator's)
+//
+// A headline, a link, a feed's name and the name of a program all came from outside, so they are only ever put in the page with escHtml, and a link only through _safeHttpHref.
+// The form is filled from the server when the tab is first drawn, after a save and when Refresh is pressed, and never by a redraw that follows a visit: what an operator is
+// typing is not written over.
+
+let _nwSeq = 0;               // the newest load: an older answer that lands after it is dropped
+let _nwAt = 0;                // when the tab was last drawn (ms), so showPage and the tab hook do not each fetch
+let _nwFormLoaded = false;    // the form has been filled from the server once
+
+// the server sends a code, the page holds the sentence, so it is translated like any other text (see _CVE_COVERAGE in app-cve.js)
+const _NW_REASON = {
+  critical: 'Called critical',
+  cvss: 'CVSS score of 9 or more',
+  zero_day: 'Zero-day',
+  exploited: 'Exploited in attacks',
+  unauth_exec: 'Code execution without signing in',
+  kev: 'CVE that CISA lists as exploited',
+};
+const _NW_OUTCOME = {
+  baseline: 'Seen when the feed was first read, so no alert',
+  stale: 'More than three days old, so no alert',
+  listed: 'Listed only',
+  alerted: 'Alert raised',
+  scanned: 'Alert raised and a scan of all hosts started',
+  scan_waiting: 'Alert raised, no scan: one was started less than six hours ago',
+  scan_refused: 'Alert raised, no scan: one is already running',
+  over_limit: 'Listed only: five alerts is the most for one reading',
+};
+
+function _nwNote(text) {
+  const el = document.getElementById('news-watch-note');
+  if (el) el.textContent = text || '';
+}
+
+function _nwFeedHtml(f) {
+  const name = f.title || f.url;
+  const read = f.last_ok ? `<span class="hint">Last read</span> ${timeAgoHtml(f.last_ok)}` : `<span class="hint">Not read yet</span>`;
+  const counts = f.last_ok ? ` · <span class="hint">New items</span> <span class="fw-500">${escHtml(String(f.last_new || 0))}</span> · <span class="hint">Critical</span> <span class="fw-500">${escHtml(String(f.last_critical || 0))}</span>` : '';
+  const bad = f.last_error ? ` · <span class="c-red">Failed:</span> <span data-no-i18n>${escHtml(f.last_error)}</span>${f.fail_streak > 1 ? ` <span class="hint">(${escHtml(String(f.fail_streak))}×)</span>` : ''}` : '';
+  return `<div class="mb-8"><span class="fw-500" data-no-i18n>${escHtml(name)}</span> <span class="hint mono-12" data-no-i18n>${escHtml(f.url)}</span><div>${read}${counts}${bad}</div></div>`;
+}
+
+function _nwItemHtml(i) {
+  const href = _safeHttpHref(i.link);
+  const title = escHtml(i.title || i.link || '');
+  const head = href
+    ? `<a href="${href}" target="_blank" rel="noopener noreferrer" class="fw-500" data-no-i18n>${title}</a>`
+    : `<span class="fw-500" data-no-i18n>${title}</span>`;
+  const reasons = (i.reasons || []).filter(r => Object.prototype.hasOwnProperty.call(_NW_REASON, r))
+    .map(r => `<span class="status-pill warn">${escHtml(_NW_REASON[r])}</span>`).join(' ');
+  const outcome = Object.prototype.hasOwnProperty.call(_NW_OUTCOME, i.outcome) ? `<span class="status-pill info">${escHtml(_NW_OUTCOME[i.outcome])}</span>` : '';
+  const soft = (i.software || []).length
+    ? `<span class="hint">Names software on your hosts:</span> <span class="mono-12" data-no-i18n>${escHtml(i.software.join(', '))}</span>`
+    : '';
+  const cves = (i.cves || []).length ? `<span class="mono-12" data-no-i18n>${escHtml(i.cves.slice(0, 3).join(', '))}</span>` : '';
+  const when = i.published || i.seen_at;
+  const meta = [soft, cves, i.feed ? `<span class="hint" data-no-i18n>${escHtml(i.feed)}</span>` : '', when ? timeAgoHtml(when) : ''].filter(Boolean).join(' · ');
+  return `<div class="mb-8"><div>${head}</div><div class="mt-6">${reasons} ${outcome}</div><div class="hint mt-6">${meta}</div></div>`;
+}
+
+function _nwFillForm(d) {
+  const set = (id, fn) => { const el = document.getElementById(id); if (el) fn(el); };
+  set('nw-enabled', el => { el.defaultChecked = !!d.enabled; el.checked = !!d.enabled; });
+  set('nw-feeds', el => { const v = (d.feeds || []).join('\n'); el.defaultValue = v; el.value = v; });
+  set('nw-scope', el => { el.value = d.scope; });
+  set('nw-action', el => { el.value = d.action; });
+  _nwFormLoaded = true;
+}
+
+function _nwPaint(d, force) {
+  const form = document.getElementById('news-watch-form');
+  const run = document.getElementById('news-watch-run');
+  const feeds = document.getElementById('news-watch-feeds');
+  const items = document.getElementById('news-watch-items');
+  if (!d.editable) {
+    // not the platform operator: the software an item names comes from every host of the installation, so there is nothing here to read or change
+    if (form) form.hidden = true;
+    if (run) run.hidden = true;
+    if (feeds) feeds.innerHTML = '';
+    if (items) items.innerHTML = '';
+    _nwNote('The platform operator manages the security news watch.');
+    return;
+  }
+  if (form) form.hidden = false;
+  if (run) run.hidden = !d.enabled || !(d.feeds || []).length;
+  if (force || !_nwFormLoaded) _nwFillForm(d);
+  if (!d.enabled) _nwNote('The watch is off. Switch it on below and save.');
+  else if (!d.last_run) _nwNote('No feed has been read yet. The first read runs within a few minutes and only records what the feeds hold.');
+  else _nwNote('');
+  if (feeds) feeds.innerHTML = (d.status || []).map(_nwFeedHtml).join('');
+  if (items) items.innerHTML = (d.items || []).length ? d.items.map(_nwItemHtml).join('') : '<div class="c-muted">No critical items yet.</div>';
+}
+
+async function _nwLoad(force) {
+  const wrap = document.getElementById('news-watch-wrap');
+  if (!wrap) return;
+  const seq = ++_nwSeq;
+  const d = await api('GET', '/news-watch').catch(() => null);
+  if (seq !== _nwSeq) return;
+  if (!d || d.error) { _nwNote('The security news watch could not be loaded.'); return; }
+  _nwPaint(d, force === true);
+}
+
+function newsWatchLoad() { return _nwLoad(true); }
+
+function newsWatchEnter() {
+  if (!document.getElementById('news-watch-wrap')) return;
+  if (Date.now() - _nwAt < 4000) return;      // showPage and the tab hook both pass through here
+  _nwAt = Date.now();
+  _nwLoad(false);
+}
+
+async function newsWatchSave() {
+  const body = {
+    enabled: !!document.getElementById('nw-enabled').checked,
+    feeds: document.getElementById('nw-feeds').value,
+    scope: document.getElementById('nw-scope').value,
+    action: document.getElementById('nw-action').value,
+  };
+  const r = await api('POST', '/news-watch/config', body);
+  if (!r || r.error) { failToast(r); return; }
+  toast('Saved', 'success');
+  ++_nwSeq;
+  _nwPaint(r, true);
+}
+
+async function newsWatchRun() {
+  const btn = document.getElementById('news-watch-run');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api('POST', '/news-watch/run', {});
+    if (!r || r.error) { failToast(r); return; }
+    const res = r.result || {};
+    toast(`Read ${plural(res.feeds || 0, 'feed', 'feeds')}: ${plural(res.new_critical || 0, 'new critical item', 'new critical items')}, ${plural(res.alerts || 0, 'alert', 'alerts')} raised`, res.failed ? 'warning' : 'success');
+    ++_nwSeq;
+    _nwPaint(r, false);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}

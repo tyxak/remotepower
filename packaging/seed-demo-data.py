@@ -3979,6 +3979,8 @@ def build_config() -> dict:
         # and what they found is what the rules themselves find over the demo's traffic, events and Threat Intel (build_detections).
         'detections_module_enabled': True,
         'last_detections_run':   now() - 130,
+        # 8.0.2: the security news watch is configured and off: its feed is an address that never resolves, and the card on the CVE page shows what build_news_watch holds.
+        'news_watch': {'enabled': False, 'feeds': [_DEMO_NEWS_FEED], 'scope': 'relevant', 'action': 'scan'},
         # 8.0.0: automatic container image updates, in shadow mode: the card and the receipts have something to show and no command is queued for a host
         # that has no agent to run it. The images are the ones build_image_updates lists; databases are left out.
         'image_autoupdate': {
@@ -6338,6 +6340,39 @@ def _demo_detection_alert_specs() -> list:
                     payload[k] = f[k]
             out.append(('detection_found', f['severity'], dev_id, 'Detection', payload, None, None, t - _demo_detection_at(f)))
     return out
+
+
+# 8.0.2: the security news watch. Its feed is an address that never resolves (example.net is reserved for documentation) and the watch is off, so the demo never tries to
+# read a real feed; the card shows what a read found and what the watch did about each item.
+_DEMO_NEWS_FEED = 'https://news.example.net/security.xml'
+
+
+def build_news_watch() -> dict:
+    """What the security news watch has read -> news_watch.json (8.0.2): one feed, the critical items it found (newest first) and what the watch did about each.
+
+    The oldest of the first two named software a demo host has and started a scan; the newest came inside the six hours after it, so it raised an alert and waited; the next
+    three are critical and name nothing a host has, so they are only listed; the last was on the feed when the watch first read it."""
+    t = now()
+    rows = [
+        # (title, reasons, cvss, software, outcome, seconds ago)
+        ('nginx patches an HTTP/2 flaw that attackers already use', ['critical', 'exploited'], None, ['nginx'], 'scan_waiting', 3600 + 300),
+        ('PHP fixes critical flaws that allow remote code execution', ['critical', 'unauth_exec'], None, ['php'], 'scanned', 2 * 3600 + 900),
+        ('Critical flaw in a network appliance is exploited before a fix exists', ['critical', 'zero_day', 'exploited'], None, [], 'listed', 5 * 3600),
+        ('Router vendor rates a firmware flaw CVSS 9.8', ['cvss'], 9.8, [], 'listed', 9 * 3600),
+        ('A library flaw is added to the CISA list of exploited vulnerabilities', ['kev'], None, [], 'listed', 14 * 3600),
+        ('Critical flaw in a browser engine lets a web page run code', ['critical', 'unauth_exec'], None, [], 'baseline', 30 * 3600),
+    ]
+    items = []
+    for n, (title, reasons, cvss, software, outcome, ago) in enumerate(rows, 1):
+        items.append({'id': 'demonews%08x' % n, 'feed': 'Example Security News', 'title': title, 'link': 'https://news.example.net/2026/11/%d.html' % n, 'published': t - ago,
+                      'seen_at': t - ago + 600, 'reasons': reasons, 'cves': [], 'cvss': cvss, 'software': software, 'outcome': outcome})
+    return {
+        'feeds': {_DEMO_NEWS_FEED: {'title': 'Example Security News', 'baselined': True, 'seen': {i['id']: i['seen_at'] for i in items}, 'last_try': t - 900, 'last_ok': t - 900,
+                                    'last_error': '', 'fail_streak': 0, 'last_new': 2, 'last_critical': 1}},
+        'items': items,
+        'last_run': t - 900,
+        'last_scan_at': items[1]['seen_at'],
+    }
 
 
 def build_patch_previews() -> dict:
@@ -9321,6 +9356,7 @@ BUILDERS = {
     'repo_inventory.json':         build_repo_inventory,
     'traffic.json':                build_traffic,
     'detections.json':             build_detections,
+    'news_watch.json':             build_news_watch,
     'gpu_history.json':            build_gpu_history,
     'thermal_history.json':        build_thermal_history,
     'thermal_rollup.json':         build_thermal_rollup,

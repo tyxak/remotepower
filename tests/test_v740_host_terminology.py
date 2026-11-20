@@ -59,6 +59,8 @@ ALLOW = {
         'the key of the translation of the Syncthing tile\'s label above',
     ('client/remotepower-agent.py', r'unknown device'):
         'a USB peripheral with no vendor or product name',
+    ('server/cgi-bin/news_watch.py', r'tool tools device devices power'):
+        'the stop list of the news matcher: ordinary English words (a package called "device-mapper" must not make every article that says "device" relevant), not text anyone reads',
 }
 
 # Translations that may keep the word because the English key names something that is not a host.

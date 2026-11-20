@@ -269,6 +269,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'image_update_available', 'image_updated', 'image_autoupdate_failed',   # 8.0.0: the last is an automatic update that did not work
             'traffic_watch',                                      # 8.0.0: a host connected to something on the Traffic watch list
             'detection_found',                                     # 8.0.0: a Detections rule found behaviour that looks like an attack
+            'security_news_critical',                              # 8.0.2: a security news feed reports a critical flaw
             # v1.11.10: metric thresholds
             'metric_warning', 'metric_critical', 'metric_recovered',
             'custom_metric_alert', 'custom_metric_recover',    # W3-11
