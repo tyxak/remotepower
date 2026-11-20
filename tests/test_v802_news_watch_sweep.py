@@ -545,15 +545,19 @@ class TestTheMark(_Server):
         self.hosts({'web01': (['nginx'], [('nginx', 443, 'world')])})
 
     def nav(self, token='k', clear=True):
-        """The sidebar's poll. Its answer is cached for 15 seconds, so a test that changed the hosts asks for a fresh one."""
+        """The sidebar's poll. Its answer is cached for 15 seconds, so a test that changed the hosts asks for a fresh one. The cache is a file under the JSON backend and a row under SQLite and
+        Postgres, so it is not looked for in the data directory: the poll is told that no cache is there. (Deleting files left it in place under SQLite, and two tests read an old answer.)"""
+        real = self.api.backend_exists
         if clear:
-            for f in self.api.DATA_DIR.glob('nav_counts_cache_*.json'):
-                f.unlink()
+            self.api.backend_exists = lambda path, *a, **k: False if 'nav_counts_cache_' in str(path) else real(path, *a, **k)
         self.api._LOAD_CACHE.clear()
         try:
-            st, got = self.request('/api/nav-counts', token=token)
-        except self.api.HTTPError as e:      # a conditional GET raises its answer itself (_respond_with_etag), which the stand-in for respond() never sees
-            st, got = e.status, e.body
+            try:
+                st, got = self.request('/api/nav-counts', token=token)
+            except self.api.HTTPError as e:      # a conditional GET raises its answer itself (_respond_with_etag), which the stand-in for respond() never sees
+                st, got = e.status, e.body
+        finally:
+            self.api.backend_exists = real
         self.assertEqual(st, 200, got)
         return got
 
