@@ -56,9 +56,12 @@ class _Base(unittest.TestCase):
             'devB': {'name': 'SECRET-B-host', 'tenant': 'tenantB'},
         })
         api.save(api.CUSTOM_SCRIPTS_FILE, {})
+        # call() below replaces the three body readers as well, and they were not in this list: the next module of the same process (test_v702_mitigate_gates)
+        # then read this module's stubs and got "No target hosts with a known IP." where it expected "ssh_user required" (found in the 8.0.2 shared-process sweep).
         self._real = {n: getattr(api, n) for n in
                       ('require_auth', 'require_admin_auth', '_tenant_gate',
-                       '_caller_scope', 'respond', 'audit_log')}
+                       '_caller_scope', 'respond', 'audit_log',
+                       'get_json_body', 'get_json_obj', '_read_valid')}
         api.audit_log = lambda *a, **k: None
         self.captured = []
 
@@ -103,6 +106,18 @@ class _Base(unittest.TestCase):
             'description': '', 'assigned_devices': ['devB'],
             'timeout': 30, 'created_at': 1, 'updated_at': 1,
             'created_by': 'root'}})
+
+
+class TestWhatCallReplacesIsPutBack(_Base):
+
+    def test_the_body_readers_are_the_originals_again_after_tearDown(self):
+        originals = dict(self._real)
+        self.call(lambda: None, body={'name': 'x'})
+        for n in ('get_json_body', 'get_json_obj', '_read_valid'):
+            self.assertIsNot(getattr(api, n), originals[n], 'control: call() replaced %s, so putting it back means something' % n)
+        self.tearDown()
+        for n in ('get_json_body', 'get_json_obj', '_read_valid'):
+            self.assertIs(getattr(api, n), originals[n], '%s was left as this module stubbed it, for the next module of the process to read' % n)
 
 
 class TestTheFixtureIsRight(_Base):
